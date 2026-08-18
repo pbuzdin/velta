@@ -67,11 +67,25 @@ jobs:
         env:
           JAVA_HOME: ${{ env.JAVA_HOME_17_X64 }}
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
-          CC_aarch64_linux_android: aarch64-linux-android24-clang
-          CXX_aarch64_linux_android: aarch64-linux-android24-clang++
-          AR_aarch64_linux_android: llvm-ar
-          RANLIB_aarch64_linux_android: llvm-ranlib
-        run: cargo tauri android build --apk
+        run: |
+          NDK="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64"
+          export CC_aarch64_linux_android="$NDK/bin/aarch64-linux-android24-clang"
+          export CXX_aarch64_linux_android="$NDK/bin/aarch64-linux-android24-clang++"
+          export AR_aarch64_linux_android="$NDK/bin/llvm-ar"
+          export RANLIB_aarch64_linux_android="$NDK/bin/llvm-ranlib"
+          export CC_armv7_linux_androideabi="$NDK/bin/armv7a-linux-androideabi24-clang"
+          export CXX_armv7_linux_androideabi="$NDK/bin/armv7a-linux-androideabi24-clang++"
+          export AR_armv7_linux_androideabi="$NDK/bin/llvm-ar"
+          export RANLIB_armv7_linux_androideabi="$NDK/bin/llvm-ranlib"
+          export CC_i686_linux_android="$NDK/bin/i686-linux-android24-clang"
+          export CXX_i686_linux_android="$NDK/bin/i686-linux-android24-clang++"
+          export AR_i686_linux_android="$NDK/bin/llvm-ar"
+          export RANLIB_i686_linux_android="$NDK/bin/llvm-ranlib"
+          export CC_x86_64_linux_android="$NDK/bin/x86_64-linux-android24-clang"
+          export CXX_x86_64_linux_android="$NDK/bin/x86_64-linux-android24-clang++"
+          export AR_x86_64_linux_android="$NDK/bin/llvm-ar"
+          export RANLIB_x86_64_linux_android="$NDK/bin/llvm-ranlib"
+          cargo tauri android build --apk
 
       - name: Sign APK with debug keystore
         env:
