@@ -1,0 +1,99 @@
+# -----------------------------------------------------------------------------
+# OS / editor / IDE
+# -----------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.iml
+
+# -----------------------------------------------------------------------------
+# Rust build artifacts
+# -----------------------------------------------------------------------------
+**/target/
+**/Cargo.lock
+!core/Cargo.lock
+
+# -----------------------------------------------------------------------------
+# Python virtual environments & caches
+# -----------------------------------------------------------------------------
+.venv/
+.venv-*/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# -----------------------------------------------------------------------------
+# Node / frontend build tooling
+# -----------------------------------------------------------------------------
+node_modules/
+dist/
+*.log
+
+# -----------------------------------------------------------------------------
+# Android / Gradle
+# -----------------------------------------------------------------------------
+*.apk
+*.aab
+*.idsig
+.gradle/
+build/
+local.properties
+*.jks
+*.keystore
+# Tauri Android generated assets that are rebuilt from source
+delta-web-app/src-tauri/gen/android/app/build/
+delta-web-app/src-tauri/gen/android/.gradle/
+delta-web-app/src-tauri/gen/android/app/.cxx/
+delta-web-app/src-tauri/gen/android/**/*.so
+
+# -----------------------------------------------------------------------------
+# Prebuilt sidecar / backend binaries (built in CI or locally)
+# -----------------------------------------------------------------------------
+deltachat-backend/
+deltachat-backend.zip
+delta-web-app/src-tauri/binaries/*.exe
+delta-web-app/Velta_*.apk
+signing/
+
+# -----------------------------------------------------------------------------
+# Release bundles
+# -----------------------------------------------------------------------------
+*.msi
+*.exe
+*.appx
+*.msix
+*.dmg
+
+# -----------------------------------------------------------------------------
+# User data & local config
+# -----------------------------------------------------------------------------
+accounts/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+logs/
+velta.log
+sidecar-stderr.log
+
+# -----------------------------------------------------------------------------
+# Temporary / large toolchains (re-downloadable)
+# -----------------------------------------------------------------------------
+tools/msys64/
+tools/strawberry-perl/
+tools/*.tar.*
+tools/*.zip
+tools/*.exe
+
+# -----------------------------------------------------------------------------
+# Misc archives
+# -----------------------------------------------------------------------------
+Velta.zip
+*.7z
+*.rar

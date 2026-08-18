@@ -1,0 +1,102 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  RUST_BACKTRACE: 1
+  CARGO_NET_RETRY: 10
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.89
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Install cargo-tauri
+        run: cargo install tauri-cli --version "^2.0" --locked
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Android SDK / NDK
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: 11076708
+          packages: "ndk;27.2.12479018 platform-tools platforms;android-36 build-tools;35.0.0"
+
+      - name: Configure cargo for Android
+        run: |
+          mkdir -p ~/.cargo
+          NDK="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64"
+          cat > ~/.cargo/config.toml <<EOF
+          [target.aarch64-linux-android]
+          linker = "$NDK/bin/aarch64-linux-android24-clang"
+          rustflags = ["-C", "link-arg=--target=aarch64-linux-android24"]
+
+          [target.armv7-linux-androideabi]
+          linker = "$NDK/bin/armv7a-linux-androideabi24-clang"
+          rustflags = ["-C", "link-arg=--target=armv7a-linux-androideabi24"]
+
+          [target.i686-linux-android]
+          linker = "$NDK/bin/i686-linux-android24-clang"
+          rustflags = ["-C", "link-arg=--target=i686-linux-android24"]
+
+          [target.x86_64-linux-android]
+          linker = "$NDK/bin/x86_64-linux-android24-clang"
+          rustflags = ["-C", "link-arg=--target=x86_64-linux-android24"]
+          EOF
+
+      - name: Build Android APK (universal)
+        working-directory: ./delta-web-app
+        env:
+          JAVA_HOME: ${{ env.JAVA_HOME_17_X64 }}
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          CC_aarch64_linux_android: aarch64-linux-android24-clang
+          CXX_aarch64_linux_android: aarch64-linux-android24-clang++
+          AR_aarch64_linux_android: llvm-ar
+          RANLIB_aarch64_linux_android: llvm-ranlib
+        run: cargo tauri android build --apk
+
+      - name: Sign APK with debug keystore
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+        run: |
+          UNSIGNED="delta-web-app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk"
+          ALIGNED="delta-web-app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-zipaligned.apk"
+          SIGNED="delta-web-app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-signed.apk"
+          mkdir -p signing
+          keytool -genkey -v -keystore signing/velta-debug.keystore -alias velta -keyalg RSA -keysize 2048 -validity 10000 -storepass velta123 -keypass velta123 -dname "CN=Velta"
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -p -f 4 "$UNSIGNED" "$ALIGNED"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign --ks signing/velta-debug.keystore --ks-pass pass:velta123 --key-pass pass:velta123 --out "$SIGNED" "$ALIGNED"
+
+      - name: Upload Android artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: velta-android
+          path: |
+            delta-web-app/src-tauri/gen/android/app/build/outputs/apk/universal/release/*-signed.apk
+            delta-web-app/src-tauri/gen/android/app/build/outputs/apk/universal/release/*-unsigned.apk
+
+      - name: Upload release assets (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: delta-web-app/src-tauri/gen/android/app/build/outputs/apk/universal/release/*-signed.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

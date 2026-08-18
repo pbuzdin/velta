@@ -1,0 +1,32 @@
+[package]
+name = "deltachat_ffi"
+version = "2.59.0"
+description = "Deltachat FFI"
+edition = "2024"
+readme = "README.md"
+license = "MPL-2.0"
+
+keywords = ["deltachat", "chat", "openpgp", "email", "encryption"]
+categories = ["cryptography", "std", "email"]
+
+[lib]
+name = "deltachat"
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+deltachat = { workspace = true, default-features = false }
+deltachat-jsonrpc = { workspace = true }
+libc = { workspace = true }
+human-panic = { version = "2", default-features = false }
+num-traits = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+rand = { workspace = true }
+yerpc = { workspace = true, features = ["anyhow_expose"] }
+
+[features]
+default = ["vendored"]
+vendored = ["deltachat/vendored", "deltachat-jsonrpc/vendored"]
+

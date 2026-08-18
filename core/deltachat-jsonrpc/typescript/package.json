@@ -1,0 +1,58 @@
+{
+  "author": "Delta Chat Developers (ML) <delta@codespeak.net>",
+  "dependencies": {
+    "@deltachat/tiny-emitter": "3.0.0",
+    "isomorphic-ws": "^5.0.0",
+    "yerpc": "^0.6.2"
+  },
+  "devDependencies": {
+    "@types/chai": "^4.3.10",
+    "@types/chai-as-promised": "^7.1.8",
+    "@types/mocha": "^10.0.4",
+    "@types/ws": "^8.5.9",
+    "c8": "^8.0.1",
+    "chai": "^4.3.4",
+    "chai-as-promised": "^7.1.1",
+    "esbuild": "^0.25.5",
+    "http-server": "^14.1.1",
+    "mocha": "^10.2.0",
+    "npm-run-all": "^4.1.5",
+    "prettier": "^3.5.3",
+    "typedoc": "^0.28.5",
+    "typescript": "^5.8.3",
+    "ws": "^8.5.0"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/deltachat.js",
+      "require": "./dist/deltachat.cjs",
+      "types": "./dist/deltachat.d.ts"
+    }
+  },
+  "license": "MPL-2.0",
+  "main": "dist/deltachat.js",
+  "name": "@deltachat/jsonrpc-client",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chatmail/core.git"
+  },
+  "scripts": {
+    "build": "run-s generate-bindings extract-constants build:tsc build:bundle build:cjs",
+    "build:bundle": "esbuild --format=esm --bundle dist/deltachat.js --outfile=dist/deltachat.bundle.js",
+    "build:cjs": "esbuild --format=cjs --bundle --packages=external dist/deltachat.js --outfile=dist/deltachat.cjs",
+    "build:tsc": "tsc",
+    "docs": "typedoc --out docs deltachat.ts",
+    "extract-constants": "node ./scripts/generate-constants.js",
+    "generate-bindings": "cargo test",
+    "prettier:check": "prettier --check .",
+    "prettier:fix": "prettier --write .",
+    "test": "run-s test:prepare test:run-coverage test:report-coverage",
+    "test:prepare": "cargo build --package deltachat-rpc-server --bin deltachat-rpc-server",
+    "test:report-coverage": "node report_api_coverage.mjs",
+    "test:run": "mocha dist/test",
+    "test:run-coverage": "COVERAGE=1 NODE_OPTIONS=--enable-source-maps c8 --include 'dist/*' -r text -r html -r json mocha dist/test"
+  },
+  "type": "module",
+  "types": "dist/deltachat.d.ts",
+  "version": "2.59.0"
+}

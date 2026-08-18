@@ -1,0 +1,138 @@
+"""Message module."""
+
+import json
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, List, Optional, Union
+
+from ._utils import AttrDict, futuremethod
+from .const import EventType
+from .contact import Contact
+
+if TYPE_CHECKING:
+    from .account import Account
+    from .rpc import Rpc
+
+
+@dataclass
+class Message:
+    """Delta Chat Message object."""
+
+    account: "Account"
+    id: int
+
+    @property
+    def _rpc(self) -> "Rpc":
+        return self.account._rpc
+
+    def send_reaction(self, *reaction: str) -> "Message":
+        """
+        Sends a reaction to message.
+
+        A reaction is a string that represents an emoji.
+        You can call this function again to change the emoji;
+        the last sent reaction overrides all previously sent reactions.
+        It is possible to remove the reaction by sending an empty string.
+        """
+        msg_id = self._rpc.send_reaction(self.account.id, self.id, reaction)
+        return Message(self.account, msg_id)
+
+    def get_snapshot(self) -> AttrDict:
+        """Get a snapshot with the properties of this message."""
+        from .chat import Chat
+
+        snapshot = AttrDict(self._rpc.get_message(self.account.id, self.id))
+        snapshot["chat"] = Chat(self.account, snapshot.chat_id)
+        snapshot["sender"] = Contact(self.account, snapshot.from_id)
+        snapshot["message"] = self
+        return snapshot
+
+    def get_read_receipts(self) -> List[AttrDict]:
+        """Get message read receipts."""
+        read_receipts = self._rpc.get_message_read_receipts(self.account.id, self.id)
+        return [AttrDict(read_receipt) for read_receipt in read_receipts]
+
+    def get_read_receipt_count(self) -> int:
+        """
+        Returns count of read receipts on message.
+
+        This view count is meant as a feedback measure for the channel owner only.
+        """
+        return self._rpc.get_message_read_receipt_count(self.account.id, self.id)
+
+    def get_reactions(self) -> Optional[AttrDict]:
+        """Get message reactions."""
+        reactions = self._rpc.get_message_reactions(self.account.id, self.id)
+        if reactions:
+            return AttrDict(reactions)
+        return None
+
+    def get_sender_contact(self) -> Contact:
+        """Return sender contact."""
+        from_id = self.get_snapshot().from_id
+        return self.account.get_contact_by_id(from_id)
+
+    def mark_seen(self) -> None:
+        """Mark the message as seen."""
+        self._rpc.markseen_msgs(self.account.id, [self.id])
+
+    def exists(self) -> bool:
+        """Return True if the message exists."""
+        return bool(self._rpc.get_existing_msg_ids(self.account.id, [self.id]))
+
+    def send_webxdc_status_update(self, update: Union[dict, str], description: str) -> None:
+        """Send a webxdc status update. This message must be a webxdc."""
+        if not isinstance(update, str):
+            update = json.dumps(update)
+        self._rpc.send_webxdc_status_update(self.account.id, self.id, update, description)
+
+    def get_webxdc_status_updates(self, last_known_serial: int = 0) -> list:
+        """Return a list of Webxdc status updates for Webxdc instance message."""
+        return json.loads(self._rpc.get_webxdc_status_updates(self.account.id, self.id, last_known_serial))
+
+    def get_info(self) -> str:
+        """Return message info."""
+        return self._rpc.get_message_info(self.account.id, self.id)
+
+    def get_webxdc_info(self) -> dict:
+        """Get info from a Webxdc message in JSON format."""
+        return self._rpc.get_webxdc_info(self.account.id, self.id)
+
+    def wait_until_delivered(self) -> None:
+        """Consume events until the message is delivered."""
+        while True:
+            event = self.account.wait_for_event()
+            if event.kind == EventType.MSG_DELIVERED and event.msg_id == self.id:
+                break
+
+    def resend(self) -> None:
+        """Resend messages and make information available for newly added chat members.
+        Resending sends out the original message, however, recipients and webxdc-status may differ.
+        Clients that already have the original message can still ignore the resent message as
+        they have tracked the state by dedicated updates.
+
+        Some messages cannot be resent, eg. info-messages, drafts, already pending messages,
+        or messages that are not sent by SELF.
+        """
+        self._rpc.resend_messages(self.account.id, [self.id])
+
+    @futuremethod
+    def send_webxdc_realtime_advertisement(self):
+        """Send an advertisement to join the realtime channel."""
+        yield self._rpc.send_webxdc_realtime_advertisement.future(self.account.id, self.id)
+
+    @futuremethod
+    def send_webxdc_realtime_data(self, data) -> None:
+        """Send data to the realtime channel."""
+        yield self._rpc.send_webxdc_realtime_data.future(self.account.id, self.id, list(data))
+
+    def accept_incoming_call(self, accept_call_info):
+        """Accepts an incoming call."""
+        self._rpc.accept_incoming_call(self.account.id, self.id, accept_call_info)
+
+    def end_call(self):
+        """Ends incoming or outgoing call."""
+        self._rpc.end_call(self.account.id, self.id)
+
+    def get_call_info(self) -> AttrDict:
+        """Return information about the call."""
+        return AttrDict(self._rpc.call_info(self.account.id, self.id))

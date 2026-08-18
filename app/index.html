@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<title>Velta</title>
+<meta name="description" content="Velta — Delta Chat web client: chatmail relays, end-to-end encrypted messaging">
+<meta name="theme-color" content="#0f0f14">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="stylesheet" href="css/main.css">
+<script src="vendor/virtual-scroller.js"></script>
+</head>
+<body>
+<div id="app" class="app">
+  <!-- Sidebar -->
+  <aside id="sidebar" class="sidebar">
+    <header class="sidebar-head">
+      <button id="btn-menu" class="icon-btn" title="Menu" aria-label="Menu">
+        <svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <div class="search-wrap">
+        <svg class="search-ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <input id="search" type="search" placeholder="Search" autocomplete="off">
+      </div>
+    </header>
+    <nav id="chat-list" class="chat-list" role="listbox" aria-label="Chats"></nav>
+    <footer class="sidebar-foot">
+      <div id="conn-status" class="conn-status" role="status">
+        <span class="conn-dot" id="conn-dot"></span>
+        <span class="conn-label" id="conn-label">connecting…</span>
+      </div>
+      <button id="btn-new-chat" class="fab" title="New chat" aria-label="New chat">
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+      </button>
+    </footer>
+  </aside>
+
+  <!-- Main chat column -->
+  <main id="main" class="main">
+    <div id="no-chat" class="no-chat">
+      <div class="no-chat-badge">Select a chat to start messaging</div>
+      <p class="no-chat-sub">End-to-end encrypted · powered by chatmail relays</p>
+    </div>
+
+    <section id="chat-view" class="chat-view" hidden>
+      <header class="chat-head">
+        <button id="btn-back" class="icon-btn only-mobile" aria-label="Back">
+          <svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div id="chat-head-info" class="chat-head-info"></div>
+        <div id="chat-head-actions" class="chat-head-actions">
+          <button id="btn-chat-search" class="icon-btn" title="Search in chat" aria-label="Search in chat">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
+          <button id="btn-chat-menu" class="icon-btn" title="Chat menu" aria-label="Chat menu">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.8" fill="currentColor"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><circle cx="12" cy="19" r="1.8" fill="currentColor"/></svg>
+          </button>
+        </div>
+        <div id="selection-bar" class="selection-bar" hidden>
+          <button id="btn-sel-close" class="icon-btn" aria-label="Cancel selection">
+            <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+          </button>
+          <span id="sel-count" class="sel-count">0</span>
+          <div class="sel-actions">
+            <button class="icon-btn" data-sel="reply" title="Reply"><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5M4 9h9a7 7 0 017 7v2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            <button class="icon-btn" data-sel="forward" title="Forward"><svg viewBox="0 0 24 24"><path d="M15 14l5-5-5-5M20 9h-9a7 7 0 00-7 7v2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            <button class="icon-btn" data-sel="copy" title="Copy"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 15V5a2 2 0 012-2h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+            <button class="icon-btn" data-sel="star" title="Save to Saved Messages"><svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.8 6.3.7-4.7 4.3 1.3 6.2-5.6-3.2-5.6 3.2 1.3-6.2L3 9.5l6.3-.7z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button>
+            <button class="icon-btn" data-sel="delete" title="Delete"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2m-8 0l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            <button class="icon-btn" data-sel="info" title="Message info"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 10v6M12 7v.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
+          </div>
+        </div>
+      </header>
+
+      <div id="history-scroll" class="history-scroll">
+        <div id="history" class="history"></div>
+        <button id="btn-go-down" class="go-down" hidden aria-label="Scroll to bottom">
+          <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span id="go-down-badge" class="go-down-badge" hidden></span>
+        </button>
+      </div>
+
+      <div id="reply-preview" class="reply-preview" hidden>
+        <div class="reply-bar"></div>
+        <div class="reply-body">
+          <div id="reply-name" class="reply-name"></div>
+          <div id="reply-text" class="reply-text"></div>
+        </div>
+        <button id="btn-reply-close" class="icon-btn" aria-label="Cancel reply">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+
+      <footer class="composer">
+        <button id="btn-attach" class="icon-btn" title="Attach" aria-label="Attach">
+          <svg viewBox="0 0 24 24"><path d="M21 12.5l-8.5 8.5a5.5 5.5 0 01-7.8-7.8l9.2-9.2a3.7 3.7 0 015.2 5.2l-9 9a1.85 1.85 0 01-2.6-2.6l8.3-8.3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="composer-input-wrap">
+          <textarea id="composer-input" rows="1" placeholder="Message" aria-label="Message"></textarea>
+          <button id="btn-emoji" class="icon-btn in-input" title="Emoji" aria-label="Emoji">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8.5 14.5s1.2 1.8 3.5 1.8 3.5-1.8 3.5-1.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="9" cy="10" r="1.1" fill="currentColor"/><circle cx="15" cy="10" r="1.1" fill="currentColor"/></svg>
+          </button>
+        </div>
+        <button id="btn-send" class="icon-btn send-btn" title="Send" aria-label="Send">
+          <svg viewBox="0 0 24 24"><path d="M3 11.5L21 3l-6.5 18-2.7-7.3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+        </button>
+      </footer>
+    </section>
+  </main>
+</div>
+
+<div id="popups"></div>
+<div id="toasts" class="toasts"></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

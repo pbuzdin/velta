@@ -1,0 +1,28 @@
+[package]
+name = "deltachat-rpc-server"
+version = "2.59.0"
+description = "DeltaChat JSON-RPC server"
+edition = "2024"
+readme = "README.md"
+license = "MPL-2.0"
+
+keywords = ["deltachat", "chat", "openpgp", "email", "encryption"]
+categories = ["cryptography", "std", "email"]
+
+[dependencies]
+deltachat-jsonrpc = { workspace = true }
+deltachat = { workspace = true }
+
+anyhow = { workspace = true }
+futures-lite = { workspace = true }
+log = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["io-std"] }
+tokio-util = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+yerpc = { workspace = true, features = ["anyhow_expose", "openrpc"] }
+
+[features]
+default = ["vendored"]
+vendored = ["deltachat-jsonrpc/vendored"]

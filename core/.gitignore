@@ -1,0 +1,57 @@
+target/
+**/*.rs.bk
+/build
+/dist
+/fuzz/fuzz_targets/corpus/
+/fuzz/fuzz_targets/crashes/
+
+# ignore vi temporaries
+*~
+*.swp
+*.swo
+
+include
+.dc-history.txt
+*.db
+*.db-blobs
+
+.tox
+python/.eggs
+*.egg-info
+__pycache__
+python/src/deltachat/capi*.so
+python/.venv/
+python/venv/
+venv/
+env/
+
+python/liveconfig*
+
+# ignore doxgen generated files
+deltachat-ffi/html
+deltachat-ffi/xml
+
+.rsynclist
+
+coverage/
+.DS_Store
+.vscode
+.zed
+python/accounts.txt
+python/all-testaccounts.txt
+tmp/
+
+# from deltachat-node
+node_modules/
+node/build/
+node/dist/
+node/prebuilds/
+node/.nyc_output/
+
+# Nix symlink.
+result
+
+# direnv
+.envrc
+.direnv
+.aider*

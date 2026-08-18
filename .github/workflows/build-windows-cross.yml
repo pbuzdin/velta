@@ -1,0 +1,105 @@
+name: Build Windows installer (cross-compile sidecar on Ubuntu)
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  RUST_BACKTRACE: 1
+  CARGO_NET_RETRY: 10
+  # Skip NASM when cross-compiling OpenSSL on Linux.
+  OPENSSL_NO_ASM: 1
+  # Statically link the MinGW C runtime so the sidecar has no extra DLLs.
+  RUSTFLAGS: "-C target-feature=+crt-static"
+
+jobs:
+  build-sidecar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain with Windows target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.89
+          targets: x86_64-pc-windows-gnu
+
+      - name: Install cross-compile toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mingw-w64 perl
+
+      - name: Build deltachat-rpc-server sidecar for Windows (GNU)
+        working-directory: ./core
+        env:
+          CC_x86_64_pc_windows_gnu: x86_64-w64-mingw32-gcc
+          CXX_x86_64_pc_windows_gnu: x86_64-w64-mingw32-g++
+          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: x86_64-w64-mingw32-gcc
+        run: cargo build -p deltachat-rpc-server --release --target x86_64-pc-windows-gnu
+
+      - name: Upload sidecar artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deltachat-rpc-server-windows-gnu
+          path: core/target/x86_64-pc-windows-gnu/release/deltachat-rpc-server.exe
+
+  build-installer:
+    needs: build-sidecar
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.89
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install cargo-tauri
+        run: cargo install tauri-cli --version "^2.0" --locked
+
+      - name: Download sidecar from Ubuntu build
+        uses: actions/download-artifact@v4
+        with:
+          name: deltachat-rpc-server-windows-gnu
+          path: delta-web-app/src-tauri/binaries
+
+      - name: Rename sidecar for Tauri bundle
+        shell: pwsh
+        run: |
+          $src = "delta-web-app/src-tauri/binaries/deltachat-rpc-server.exe"
+          $dst = "delta-web-app/src-tauri/binaries/deltachat-rpc-server-x86_64-pc-windows-msvc.exe"
+          if (Test-Path $dst) { Remove-Item $dst }
+          Rename-Item -Path $src -NewName $dst
+
+      - name: Build Tauri Windows installer
+        working-directory: ./delta-web-app
+        run: cargo tauri build
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: velta-windows
+          path: |
+            delta-web-app/src-tauri/target/release/bundle/msi/*.msi
+            delta-web-app/src-tauri/target/release/bundle/nsis/*.exe
+
+      - name: Upload release assets (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            delta-web-app/src-tauri/target/release/bundle/msi/*.msi
+            delta-web-app/src-tauri/target/release/bundle/nsis/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,2523 @@
+//! # MIME message production.
+
+use std::collections::{BTreeSet, HashSet};
+use std::io::Cursor;
+
+use anyhow::{Context as _, Result, bail, format_err};
+use base64::Engine as _;
+use data_encoding::BASE32_NOPAD;
+use deltachat_contact_tools::sanitize_bidi_characters;
+use iroh_gossip::proto::TopicId;
+use mail_builder::headers::HeaderType;
+use mail_builder::headers::address::Address;
+use mail_builder::mime::MimePart;
+use tokio::fs;
+
+use crate::aheader::{Aheader, EncryptPreference};
+use crate::blob::BlobObject;
+use crate::chat::{self, Chat, PARAM_BROADCAST_SECRET, load_broadcast_secret};
+use crate::config::Config;
+use crate::constants::{Chattype, DC_FROM_HANDSHAKE};
+use crate::contact::{Contact, ContactId, Origin};
+use crate::context::Context;
+use crate::download::PostMsgMetadata;
+use crate::ensure_and_debug_assert;
+use crate::ephemeral::Timer as EphemeralTimer;
+use crate::headerdef::HeaderDef;
+use crate::key;
+use crate::key::{DcKey, SignedPublicKey, SignedSecretKey, load_self_public_key, self_fingerprint};
+use crate::location;
+use crate::log::warn;
+use crate::message::{Message, MsgId, Viewtype};
+use crate::mimeparser::SystemMessage;
+use crate::param::Param;
+use crate::peer_channels::{create_iroh_header, get_iroh_topic_for_msg};
+use crate::pgp::{SeipdVersion, addresses_from_public_key, pubkey_supports_seipdv2};
+use crate::simplify::escape_message_footer_marks;
+use crate::stock_str;
+use crate::tools::{IsNoneOrEmpty, create_outgoing_rfc724_mid, remove_subject_prefix, time};
+use crate::webxdc::StatusUpdateSerial;
+
+// attachments of 25 mb brutto should work on the majority of providers
+// (brutto examples: web.de=50, 1&1=40, t-online.de=32, gmail=25, posteo=50, yahoo=25, all-inkl=100).
+// to get the netto sizes, we subtract 1 mb header-overhead and the base64-overhead.
+pub const RECOMMENDED_FILE_SIZE: u64 = 24 * 1024 * 1024 / 4 * 3;
+
+#[derive(Debug, Clone)]
+#[expect(clippy::large_enum_variant)]
+pub enum Loaded {
+    Message {
+        chat: Chat,
+        msg: Message,
+    },
+    Mdn {
+        rfc724_mid: String,
+        additional_msg_ids: Vec<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PreMessageMode {
+    /// adds the Chat-Is-Post-Message header in unprotected part
+    Post,
+    /// adds the Chat-Post-Message-ID header to protected part
+    /// also adds metadata and explicitly excludes attachment
+    Pre { post_msg_rfc724_mid: String },
+    /// Atomic ("normal") message.
+    None,
+}
+
+#[derive(Debug, Clone)]
+enum Encryption {
+    /// Unencrypted message.
+    No,
+
+    /// The message is encrypted asymmetrically to public keys.
+    Asymmetric {
+        /// Addresses and OpenPGP keys to use for encryption.
+        ///
+        /// The message is always encrypted to self,
+        /// no need to include own key here.
+        encryption_pubkeys: Vec<(String, SignedPublicKey)>,
+    },
+
+    /// Symmetrically encrypted message with a shared secret.
+    Symmetric { shared_secret: String },
+}
+
+/// Helper to construct mime messages.
+#[derive(Debug, Clone)]
+pub struct MimeFactory {
+    from_addr: String,
+    from_displayname: String,
+
+    /// Goes to the `Sender:`-header, if set.
+    /// For overridden names, `sender_displayname` is set to the
+    /// config-name while `from_displayname` is set to the overridden name.
+    /// From the perspective of the receiver,
+    /// a set `Sender:`-header is used as an indicator that the name is overridden;
+    /// names are alsways read from the `From:`-header.
+    sender_displayname: Option<String>,
+
+    selfstatus: String,
+
+    /// Vector of actual recipient addresses.
+    ///
+    /// This is the list of addresses the message should be sent to.
+    /// It is not the same as the `To` header,
+    /// because in case of "member removed" message
+    /// removed member is in the recipient list,
+    /// but not in the `To` header.
+    /// In case of broadcast channels there are multiple recipients,
+    /// but the `To` header has no members.
+    ///
+    /// If `bcc_self` configuration is enabled,
+    /// this list will be extended with own address later,
+    /// but `MimeFactory` is not responsible for this.
+    recipients: Vec<String>,
+
+    /// Encryption configuration.
+    encryption: Encryption,
+
+    /// Vector of pairs of recipient name and address that goes into the `To` field.
+    ///
+    /// The list of actual message recipient addresses may be different,
+    /// e.g. if members are hidden for broadcast channels
+    /// or if the keys for some recipients are missing
+    /// and encrypted message cannot be sent to them.
+    to: Vec<(String, String)>,
+
+    /// Vector of pairs of past group member names and addresses.
+    past_members: Vec<(String, String)>,
+
+    /// Fingerprints of the members in the same order as in the `to`
+    /// followed by `past_members`.
+    ///
+    /// If this is not empty, its length
+    /// should be the sum of `to` and `past_members` length.
+    member_fingerprints: Vec<String>,
+
+    /// Timestamps of the members in the same order as in the `to`
+    /// followed by `past_members`.
+    ///
+    /// If this is not empty, its length
+    /// should be the sum of `to` and `past_members` length.
+    member_timestamps: Vec<i64>,
+
+    timestamp: i64,
+    loaded: Loaded,
+    in_reply_to: String,
+
+    /// List of Message-IDs for `References` header.
+    references: Vec<String>,
+
+    /// True if the message requests Message Disposition Notification
+    /// using `Chat-Disposition-Notification-To` header.
+    req_mdn: bool,
+
+    /// True if the avatar should be attached.
+    attach_selfavatar: bool,
+
+    /// This field is used to sustain the topic id of webxdcs needed for peer channels.
+    webxdc_topic: Option<TopicId>,
+
+    /// Pre-message / post-message / atomic message.
+    pre_message_mode: PreMessageMode,
+}
+
+/// Result of rendering non-MDN message.
+pub struct RenderedMessage {
+    main_part: MimePart<'static>,
+
+    parts: Vec<MimePart<'static>>,
+
+    /// Largest timestamp of the location sent in `location.kml` in this message.
+    last_added_location_timestamp: Option<i64>,
+
+    /// True if the avatar is attached to the message.
+    avatar_is_attached: bool,
+
+    /// If the created mime-structure contains sync-items,
+    /// the IDs of these items are listed here.
+    /// The IDs are returned via `RenderedEmail`
+    /// and must be deleted if the message is actually queued for sending.
+    sync_ids_to_delete: Option<String>,
+}
+
+/// Email message queued, but not sent yet.
+///
+/// It is stored unencrypted to
+/// make it possible to change protected headers
+/// like the From address and Autocrypt header later.
+#[derive(Debug, Clone)]
+pub(crate) struct QueuedMail {
+    /// Unencrypted queued message.
+    ///
+    /// This message has both the headers and the body,
+    /// but without the From, Autocrypt and Message-ID headers.
+    ///
+    /// For encrypted messages this is the OpenPGP payload.
+    raw_message: Vec<u8>,
+
+    /// Display name to put in the `From:` field.
+    ///
+    /// Email address is not determined yet here.
+    display_name: String,
+
+    /// Message-ID.
+    rfc724_mid: String,
+
+    /// Whether the message is encrypted and encryption keys.
+    encryption: Encryption,
+
+    /// If true, Autocrypt header should be added before sending.
+    should_attach_pubkey: bool,
+
+    /// If true, OpenPGP compression may be used.
+    should_compress: bool,
+
+    /// If true, encrypted message should be signed as well.
+    should_sign: bool,
+}
+
+/// Side effects that should be applied at the same time
+/// as the message is persisted in the queue.
+#[derive(Debug, Clone, Default)]
+pub struct RenderSideEffects {
+    /// Largest timestamp of the location sent in `location.kml` in this message.
+    pub last_added_location_timestamp: Option<i64>,
+
+    /// True if the message has the avatar attached.
+    ///
+    /// Timestamp of the last time avatar was gossiped should be updated.
+    pub avatar_is_attached: bool,
+
+    /// A comma-separated string of sync-IDs that are used by the rendered email and must be deleted
+    /// from `multi_device_sync` once the message is actually queued for sending.
+    pub sync_ids_to_delete: Option<String>,
+
+    /// Subject that was rendered into the message.
+    ///
+    /// Used to update the subject on the sent message object.
+    pub subject: String,
+}
+
+/// Renders [`QueuedMail`].
+///
+/// Adds headers:
+/// - `From`
+/// - `Autocrypt`
+/// - `Message-ID`
+///
+/// Encrypts and signs the message if necessary.
+pub(crate) fn render_queued_mail(
+    queued_mail: QueuedMail,
+    public_key: &SignedPublicKey,
+    secret_key: &SignedSecretKey,
+    from_addr: String,
+    side_effects: RenderSideEffects,
+) -> Result<RenderedEmail> {
+    let QueuedMail {
+        rfc724_mid,
+        display_name,
+        raw_message,
+        encryption,
+        should_attach_pubkey,
+        should_compress,
+        should_sign,
+    } = queued_mail;
+
+    let mut inner_headers: Vec<u8> = Vec::new();
+    let mut outer_headers: Vec<u8> = Vec::new();
+
+    let is_encrypted = !matches!(encryption, Encryption::No);
+
+    fn add_header(
+        name: &[u8],
+        value: &impl mail_builder::headers::Header,
+        headers: &mut Vec<u8>,
+    ) -> Result<()> {
+        headers.extend(name);
+        value.write_header(headers, name.len())?;
+        Ok(())
+    }
+
+    let from_header = new_address_with_name(&display_name, from_addr.clone());
+    add_header(b"From: ", &from_header, &mut inner_headers)?;
+
+    if is_encrypted {
+        let unencrypted_from = Address::new_address(None::<&'static str>, from_addr.clone());
+        add_header(b"From: ", &unencrypted_from, &mut outer_headers)?;
+        add_header(b"HP-Outer: From: ", &unencrypted_from, &mut inner_headers)?;
+    } else {
+        add_header(b"From: ", &from_header, &mut outer_headers)?;
+    }
+
+    if is_encrypted {
+        // Randomized date goes to unprotected header.
+        //
+        // We cannot just send "Thu, 01 Jan 1970 00:00:00 +0000"
+        // or omit the header because GMX then fails with
+        //
+        // host mx00.emig.gmx.net[212.227.15.9] said:
+        // 554-Transaction failed
+        // 554-Reject due to policy restrictions.
+        // 554 For explanation visit https://postmaster.gmx.net/en/case?...
+        // (in reply to end of DATA command)
+        //
+        // and the explanation page says
+        // "The time information deviates too much from the actual time".
+        //
+        // We also limit the range to 6 days (518400 seconds)
+        // because with a larger range we got
+        // error "500 Date header far in the past/future"
+        // which apparently originates from Symantec Messaging Gateway
+        // and means the message has a Date that is more
+        // than 7 days in the past:
+        // <https://github.com/chatmail/core/issues/7466>
+        let timestamp = time();
+        let timestamp_offset = rand::random_range(0..518400);
+        let protected_timestamp = timestamp.saturating_sub(timestamp_offset);
+        let unprotected_date =
+            chrono::DateTime::<chrono::Utc>::from_timestamp(protected_timestamp, 0)
+                .unwrap()
+                .to_rfc2822();
+        outer_headers.extend(b"Date: ");
+        outer_headers.extend(unprotected_date.as_bytes());
+        outer_headers.extend(b"\r\n");
+
+        inner_headers.extend(b"HP-Outer: Date: ");
+        inner_headers.extend(unprotected_date.as_bytes());
+        inner_headers.extend(b"\r\n");
+    }
+
+    inner_headers.extend(b"Message-ID: <");
+    inner_headers.extend(rfc724_mid.as_bytes());
+    inner_headers.extend(b">\r\n");
+    outer_headers.extend(b"Message-ID: <");
+    outer_headers.extend(rfc724_mid.as_bytes());
+    outer_headers.extend(b">\r\n");
+    if is_encrypted {
+        inner_headers.extend(b"HP-Outer: Message-ID: <");
+        inner_headers.extend(rfc724_mid.as_bytes());
+        inner_headers.extend(b">\r\n");
+    }
+
+    // MIME header <https://datatracker.ietf.org/doc/html/rfc2045>.
+    outer_headers.extend(b"MIME-Version: 1.0\r\n");
+
+    if should_attach_pubkey {
+        let aheader = Aheader {
+            addr: from_addr,
+            public_key: public_key.clone(),
+            prefer_encrypt: EncryptPreference::Mutual,
+            verified: false,
+        };
+        let autocrypt_header = mail_builder::headers::raw::Raw::new(aheader.to_string());
+        add_header(
+            b"Autocrypt: ",
+            &autocrypt_header,
+            if is_encrypted {
+                &mut inner_headers
+            } else {
+                &mut outer_headers
+            },
+        )?;
+    }
+
+    if is_encrypted {
+        // Copy not protected headers to outer headers.
+        let (parsed_headers, _index) = mailparse::parse_headers(&raw_message)?;
+        for parsed_header in parsed_headers {
+            let original_header_name = parsed_header.get_key();
+            let header_name = original_header_name.to_lowercase();
+
+            if header_name == "mime-version"
+                || header_name == "content-type"
+                || header_name == "content-transfer-encoding"
+                || header_name == "content-disposition"
+            {
+                // Structural headers shouldn't be added as "HP-Outer". They are defined in
+                // <https://www.rfc-editor.org/rfc/rfc9787.html#structural-header-fields>.
+                continue;
+            }
+            let header_value =
+                if header_name == "chat-version" || header_name == "chat-is-post-message" {
+                    parsed_header.get_value_raw()
+                } else if header_name == "subject" {
+                    &b"[...]"[..]
+                } else if header_name == "to" {
+                    &b"\"hidden-recipients\": ;"[..]
+                } else {
+                    continue;
+                };
+
+            outer_headers.extend(original_header_name.as_bytes());
+            outer_headers.extend(b": ");
+            outer_headers.extend(header_value);
+            outer_headers.extend(b"\r\n");
+
+            inner_headers.extend(b"HP-Outer: ");
+            inner_headers.extend(original_header_name.as_bytes());
+            inner_headers.extend(b": ");
+            inner_headers.extend(header_value);
+            inner_headers.extend(b"\r\n");
+        }
+    }
+
+    let message = match encryption {
+        Encryption::No => raw_message,
+        Encryption::Asymmetric { encryption_pubkeys } => {
+            let mut full_raw_message = inner_headers.clone();
+            full_raw_message.extend(raw_message);
+
+            // Asymmetric encryption
+
+            // Use SEIPDv2 if all recipients support it.
+            let seipd_version = if encryption_pubkeys
+                .iter()
+                .all(|(_addr, pubkey)| pubkey_supports_seipdv2(pubkey))
+            {
+                SeipdVersion::V2
+            } else {
+                SeipdVersion::V1
+            };
+
+            // Encrypt to self unconditionally,
+            // even for a single-device setup,
+            // to not reveal if we have a multi-device setup to contacts.
+            let mut encryption_keyring = vec![public_key.clone()];
+            encryption_keyring.extend(encryption_pubkeys.iter().map(|(_addr, key)| (*key).clone()));
+
+            let encrypted = crate::pgp::pk_encrypt(
+                full_raw_message,
+                encryption_keyring,
+                secret_key.clone(),
+                should_compress,
+                seipd_version,
+            )?;
+
+            let message = wrap_encrypted_part(encrypted);
+            part_to_bytes(message)
+        }
+        Encryption::Symmetric { shared_secret } => {
+            let mut full_raw_message = inner_headers.clone();
+            full_raw_message.extend(raw_message);
+
+            let sign_key = if should_sign {
+                Some(secret_key.clone())
+            } else {
+                None
+            };
+
+            let encrypted = crate::pgp::symm_encrypt_message(
+                full_raw_message,
+                sign_key,
+                shared_secret,
+                should_compress,
+            )?;
+
+            let message = wrap_encrypted_part(encrypted);
+            part_to_bytes(message)
+        }
+    };
+
+    let mut full_message = outer_headers;
+    full_message.extend(message);
+    Ok(RenderedEmail {
+        message: String::from_utf8_lossy(&full_message).to_string(),
+        is_encrypted,
+        rfc724_mid,
+        side_effects,
+    })
+}
+
+/// Result of rendering a message, ready to be submitted to a send job.
+#[derive(Debug, Clone)]
+pub struct RenderedEmail {
+    pub message: String,
+
+    pub is_encrypted: bool,
+
+    /// Message ID (Message in the sense of Email)
+    pub rfc724_mid: String,
+
+    pub side_effects: RenderSideEffects,
+}
+
+fn new_address_with_name(name: &str, address: String) -> Address<'static> {
+    Address::new_address(
+        if name == address || name.is_empty() {
+            None
+        } else {
+            Some(name.to_string())
+        },
+        address,
+    )
+}
+
+impl MimeFactory {
+    /// Returns `MimeFactory` for rendering `msg`.
+    #[expect(clippy::arithmetic_side_effects)]
+    pub async fn from_msg(context: &Context, msg: Message) -> Result<MimeFactory> {
+        let now = time();
+        let chat = Chat::load_from_db(context, msg.chat_id).await?;
+        let attach_profile_data = Self::should_attach_profile_data(&msg);
+        let undisclosed_recipients = should_hide_recipients(&msg, &chat);
+
+        let from_addr = context.get_primary_self_addr().await?;
+        let config_displayname = context
+            .get_config(Config::Displayname)
+            .await?
+            .unwrap_or_default();
+        let (from_displayname, sender_displayname) =
+            if let Some(override_name) = msg.param.get(Param::OverrideSenderDisplayname) {
+                (override_name.to_string(), Some(config_displayname))
+            } else {
+                let name = match attach_profile_data {
+                    true => config_displayname,
+                    false => "".to_string(),
+                };
+                (name, None)
+            };
+
+        let mut recipients = Vec::new();
+        let mut to = Vec::new();
+        let mut past_members = Vec::new();
+        let mut member_fingerprints = Vec::new();
+        let mut member_timestamps = Vec::new();
+        let mut recipient_ids = HashSet::new();
+        let req_mdn = !chat.is_self_talk()
+            && !msg.is_system_message()
+            && msg.param.get_int(Param::Reaction).unwrap_or_default() == 0
+            && context.should_request_mdns().await?;
+
+        let self_fingerprint = self_fingerprint(context).await?;
+
+        let encryption = if chat.is_self_talk() {
+            to.push((from_displayname.to_string(), from_addr.to_string()));
+
+            Encryption::Asymmetric {
+                encryption_pubkeys: Vec::new(),
+            }
+        } else if chat.is_mailing_list() {
+            let list_post = chat
+                .param
+                .get(Param::ListPost)
+                .context("Can't write to mailinglist without ListPost param")?;
+            to.push(("".to_string(), list_post.to_string()));
+            recipients.push(list_post.to_string());
+
+            // Do not encrypt messages to mailing lists.
+            Encryption::No
+        } else if let Some(fp) = must_have_only_one_recipient(&msg, &chat) {
+            let fp = fp?;
+            // In a broadcast channel, only send member-added/removed messages
+            // to the affected member
+            let (authname, addr) = context
+                .sql
+                .query_row(
+                    "SELECT authname, addr FROM contacts WHERE fingerprint=?",
+                    (fp,),
+                    |row| {
+                        let authname: String = row.get(0)?;
+                        let addr: String = row.get(1)?;
+                        Ok((authname, addr))
+                    },
+                )
+                .await?;
+
+            let public_key_bytes: Vec<_> = context
+                .sql
+                .query_get_value(
+                    "SELECT public_key FROM public_keys WHERE fingerprint=?",
+                    (fp,),
+                )
+                .await?
+                .context("Can't send member addition/removal: missing key")?;
+
+            let public_key = SignedPublicKey::from_slice(&public_key_bytes)?;
+
+            let relays =
+                addresses_from_public_key(&public_key).unwrap_or_else(|| vec![addr.clone()]);
+            recipients.extend(relays);
+            to.push((authname, addr.clone()));
+
+            Encryption::Asymmetric {
+                encryption_pubkeys: vec![(addr, public_key)],
+            }
+        } else {
+            let email_to_remove = if msg.param.get_cmd() == SystemMessage::MemberRemovedFromGroup {
+                msg.param.get(Param::Arg)
+            } else {
+                None
+            };
+
+            let is_encrypted = if msg
+                .param
+                .get_bool(Param::ForcePlaintext)
+                .unwrap_or_default()
+            {
+                false
+            } else {
+                msg.param.get_bool(Param::GuaranteeE2ee).unwrap_or_default()
+                    || chat.is_encrypted(context).await?
+            };
+
+            let mut keys = Vec::new();
+            let mut missing_key_addresses = BTreeSet::new();
+            context
+                .sql
+                // Sort recipients by `add_timestamp DESC` so that if the group is large and there
+                // are multiple SMTP messages, a newly added member receives the member addition
+                // message earlier and has gossiped keys of other members (otherwise the new member
+                // may receive messages from other members earlier and fail to verify them).
+                .query_map(
+                    "SELECT
+                     c.authname,
+                     c.addr,
+                     c.fingerprint,
+                     c.id,
+                     cc.add_timestamp,
+                     cc.remove_timestamp,
+                     k.public_key
+                     FROM chats_contacts cc
+                     LEFT JOIN contacts c ON cc.contact_id=c.id
+                     LEFT JOIN public_keys k ON k.fingerprint=c.fingerprint
+                     WHERE cc.chat_id=?
+                     AND (cc.contact_id>9 OR (cc.contact_id=1 AND ?))
+                     ORDER BY cc.add_timestamp DESC",
+                    (msg.chat_id, chat.typ == Chattype::Group),
+                    |row| {
+                        let authname: String = row.get(0)?;
+                        let addr: String = row.get(1)?;
+                        let fingerprint: String = row.get(2)?;
+                        let id: ContactId = row.get(3)?;
+                        let add_timestamp: i64 = row.get(4)?;
+                        let remove_timestamp: i64 = row.get(5)?;
+                        let public_key_bytes_opt: Option<Vec<u8>> = row.get(6)?;
+                        Ok((authname, addr, fingerprint, id, add_timestamp, remove_timestamp, public_key_bytes_opt))
+                    },
+                    |rows| {
+                        let mut past_member_timestamps = Vec::new();
+                        let mut past_member_fingerprints = Vec::new();
+
+                        for row in rows {
+                            let (authname, addr, fingerprint, id, add_timestamp, remove_timestamp, public_key_bytes_opt) = row?;
+
+                            let public_key_opt = if let Some(public_key_bytes) = &public_key_bytes_opt {
+                                Some(SignedPublicKey::from_slice(public_key_bytes)?)
+                            } else {
+                                None
+                            };
+
+                            let addr = if id == ContactId::SELF {
+                                from_addr.to_string()
+                            } else {
+                                addr
+                            };
+                            let name = match attach_profile_data {
+                                true => authname,
+                                false => "".to_string(),
+                            };
+                            if add_timestamp >= remove_timestamp {
+                                let relays = if let Some(public_key) = public_key_opt {
+                                    let addrs = addresses_from_public_key(&public_key);
+                                    keys.push((addr.clone(), public_key));
+                                    addrs
+                                } else if id != ContactId::SELF && !should_encrypt_symmetrically(&msg, &chat) {
+                                    missing_key_addresses.insert(addr.clone());
+                                    if is_encrypted {
+                                        warn!(context, "Missing key for {addr}");
+                                    }
+                                    None
+                                } else {
+                                    None
+                                }.unwrap_or_else(|| vec![addr.clone()]);
+
+                                if !recipients_contain_addr(&to, &addr) {
+                                    if id != ContactId::SELF {
+                                        recipients.extend(relays);
+                                    }
+                                    if !undisclosed_recipients {
+                                        to.push((name, addr.clone()));
+
+                                        if is_encrypted {
+                                            if !fingerprint.is_empty() {
+                                                member_fingerprints.push(fingerprint);
+                                            } else if id == ContactId::SELF {
+                                                member_fingerprints.push(self_fingerprint.to_string());
+                                            } else {
+                                                ensure_and_debug_assert!(member_fingerprints.is_empty(), "If some member is a key-contact, all other members should be key-contacts too");
+                                            }
+                                        }
+                                        member_timestamps.push(add_timestamp);
+                                    }
+                                }
+                                recipient_ids.insert(id);
+                            } else if remove_timestamp.saturating_add(60 * 24 * 3600) > now {
+                                // Row is a tombstone,
+                                // member is not actually part of the group.
+                                if !recipients_contain_addr(&past_members, &addr) {
+                                    if let Some(email_to_remove) = email_to_remove
+                                        && email_to_remove == addr {
+                                            let relays = if let Some(public_key) = public_key_opt {
+                                                let addrs = addresses_from_public_key(&public_key);
+                                                keys.push((addr.clone(), public_key));
+                                                addrs
+                                            } else if id != ContactId::SELF && !should_encrypt_symmetrically(&msg, &chat)  {
+                                                missing_key_addresses.insert(addr.clone());
+                                                if is_encrypted {
+                                                    warn!(context, "Missing key for {addr}");
+                                                }
+                                                None
+                                            } else {
+                                                None
+                                            }.unwrap_or_else(|| vec![addr.clone()]);
+
+                                            // This is a "member removed" message,
+                                            // we need to notify removed member
+                                            // that it was removed.
+                                            if id != ContactId::SELF {
+                                                recipients.extend(relays);
+                                            }
+                                        }
+                                    if !undisclosed_recipients {
+                                        past_members.push((name, addr.clone()));
+                                        past_member_timestamps.push(remove_timestamp);
+
+                                        if is_encrypted {
+                                            if !fingerprint.is_empty() {
+                                                past_member_fingerprints.push(fingerprint);
+                                            } else if id == ContactId::SELF {
+                                                // It's fine to have self in past members
+                                                // if we are leaving the group.
+                                                past_member_fingerprints.push(self_fingerprint.to_string());
+                                            } else {
+                                                ensure_and_debug_assert!(past_member_fingerprints.is_empty(), "If some past member is a key-contact, all other past members should be key-contacts too");
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        ensure_and_debug_assert!(
+                            member_timestamps.len() >= to.len(),
+                            "member_timestamps.len() ({}) < to.len() ({})",
+                            member_timestamps.len(), to.len());
+                        ensure_and_debug_assert!(
+                            member_fingerprints.is_empty() || member_fingerprints.len() >= to.len(),
+                            "member_fingerprints.len() ({}) < to.len() ({})",
+                            member_fingerprints.len(), to.len());
+
+                        if to.len() > 1
+                            && let Some(position) = to.iter().position(|(_, x)| x == &from_addr) {
+                                to.remove(position);
+                                member_timestamps.remove(position);
+                                if is_encrypted {
+                                    member_fingerprints.remove(position);
+                                }
+                            }
+
+                        member_timestamps.extend(past_member_timestamps);
+                        if is_encrypted {
+                            member_fingerprints.extend(past_member_fingerprints);
+                        }
+                        Ok(())
+                    },
+                )
+                .await?;
+            let recipient_ids: Vec<_> = recipient_ids
+                .into_iter()
+                .filter(|id| *id != ContactId::SELF)
+                .collect();
+            if !matches!(
+                msg.param.get_cmd(),
+                SystemMessage::MemberRemovedFromGroup | SystemMessage::SecurejoinMessage
+            ) && !matches!(chat.typ, Chattype::OutBroadcast | Chattype::InBroadcast)
+            {
+                let origin = match recipient_ids.len() {
+                    1 => Origin::OutgoingTo,
+                    // Use the same origin as ChatId::accept_ext() does for groups.
+                    _ => Origin::IncomingTo,
+                };
+                info!(
+                    context,
+                    "Scale up origin of {} recipients to {origin:?}.", chat.id
+                );
+                ContactId::scaleup_origin(context, &recipient_ids, origin).await?;
+            }
+
+            if !is_encrypted {
+                Encryption::No
+            } else if should_encrypt_symmetrically(&msg, &chat) {
+                // Sending a message may fail for old broadcast channels
+                // created before shared secrets were introduced.
+                let shared_secret = load_broadcast_secret(context, chat.id)
+                    .await?
+                    .context("Broadcast has no secret")?;
+                Encryption::Symmetric { shared_secret }
+            } else {
+                if keys.is_empty() && !recipients.is_empty() {
+                    bail!("No recipient keys are available, cannot encrypt to {recipients:?}.");
+                }
+
+                // Remove recipients for which the key is missing.
+                if !missing_key_addresses.is_empty() {
+                    recipients.retain(|addr| !missing_key_addresses.contains(addr));
+                }
+
+                Encryption::Asymmetric {
+                    encryption_pubkeys: keys,
+                }
+            }
+        };
+
+        let (in_reply_to, references) = context
+            .sql
+            .query_row(
+                "SELECT mime_in_reply_to, IFNULL(mime_references, '')
+                 FROM msgs WHERE id=?",
+                (msg.id,),
+                |row| {
+                    let in_reply_to: String = row.get(0)?;
+                    let references: String = row.get(1)?;
+
+                    Ok((in_reply_to, references))
+                },
+            )
+            .await?;
+        let references: Vec<String> = references
+            .trim()
+            .split_ascii_whitespace()
+            .map(|s| s.trim_start_matches('<').trim_end_matches('>').to_string())
+            .collect();
+        let selfstatus = match attach_profile_data {
+            true => context
+                .get_config(Config::Selfstatus)
+                .await?
+                .unwrap_or_default(),
+            false => "".to_string(),
+        };
+        // We don't display avatars for address-contacts, so sending avatars w/o encryption is not
+        // useful and causes e.g. Outlook to reject a message with a big header, see
+        // https://support.delta.chat/t/invalid-mime-content-single-text-value-size-32822-exceeded-allowed-maximum-32768-for-the-chat-user-avatar-header/4067.
+        let attach_selfavatar = Self::should_attach_selfavatar(context, &msg).await
+            && !matches!(encryption, Encryption::No);
+
+        ensure_and_debug_assert!(
+            member_timestamps.is_empty()
+                || to.len() + past_members.len() == member_timestamps.len(),
+            "to.len() ({}) + past_members.len() ({}) != member_timestamps.len() ({})",
+            to.len(),
+            past_members.len(),
+            member_timestamps.len(),
+        );
+        let webxdc_topic = get_iroh_topic_for_msg(context, msg.id).await?;
+        let factory = MimeFactory {
+            from_addr,
+            from_displayname,
+            sender_displayname,
+            selfstatus,
+            recipients,
+            encryption,
+            to,
+            past_members,
+            member_fingerprints,
+            member_timestamps,
+            timestamp: msg.timestamp_sort,
+            loaded: Loaded::Message { msg, chat },
+            in_reply_to,
+            references,
+            req_mdn,
+            attach_selfavatar,
+            webxdc_topic,
+            pre_message_mode: PreMessageMode::None,
+        };
+        Ok(factory)
+    }
+
+    pub async fn from_mdn(
+        context: &Context,
+        from_id: ContactId,
+        rfc724_mid: String,
+        additional_msg_ids: Vec<String>,
+    ) -> Result<MimeFactory> {
+        let contact = Contact::get_by_id(context, from_id).await?;
+        let from_addr = context.get_primary_self_addr().await?;
+        let timestamp = time();
+
+        let addr = contact.get_addr().to_string();
+        let mut recipients = vec![addr.clone()];
+
+        let encryption = if from_id == ContactId::SELF {
+            Encryption::Asymmetric {
+                encryption_pubkeys: Vec::new(),
+            }
+        } else if contact.is_key_contact() {
+            let encryption_pubkeys = if let Some(key) = contact.public_key(context).await? {
+                recipients = addresses_from_public_key(&key).unwrap_or_else(|| vec![addr.clone()]);
+                vec![(addr.clone(), key)]
+            } else {
+                Vec::new()
+            };
+            Encryption::Asymmetric { encryption_pubkeys }
+        } else {
+            Encryption::No
+        };
+
+        let res = MimeFactory {
+            from_addr,
+            from_displayname: "".to_string(),
+            sender_displayname: None,
+            selfstatus: "".to_string(),
+            recipients,
+            encryption,
+            to: vec![("".to_string(), contact.get_addr().to_string())],
+            past_members: vec![],
+            member_fingerprints: vec![],
+            member_timestamps: vec![],
+            timestamp,
+            loaded: Loaded::Mdn {
+                rfc724_mid,
+                additional_msg_ids,
+            },
+            in_reply_to: String::default(),
+            references: Vec::new(),
+            req_mdn: false,
+            attach_selfavatar: false,
+            webxdc_topic: None,
+            pre_message_mode: PreMessageMode::None,
+        };
+
+        Ok(res)
+    }
+
+    /// Returns whether own Autocrypt key should be attached to this MDN
+    /// and if so, records the attachment.
+    ///
+    /// The key is attached to encrypted MDNs
+    /// once per `gossip_period` for each recipient
+    /// and immediately when own key gains a newer self-signature,
+    /// so that contacts we only read messages from
+    /// still learn our current key and relay list
+    /// and will likely re-gossip it to group chats.
+    async fn update_mdn_pubkey_attachment(&self, context: &Context) -> Result<bool> {
+        let Encryption::Asymmetric { encryption_pubkeys } = &self.encryption else {
+            return Ok(false);
+        };
+        debug_assert!(
+            encryption_pubkeys.len() <= 1,
+            "MDNs have at most one recipient key; own key is only added at encryption time"
+        );
+        let [(_, ref key)] = encryption_pubkeys[..] else {
+            return Ok(false);
+        };
+        let fingerprint = key.dc_fingerprint().hex();
+        let self_key_created = load_self_public_key(context)
+            .await?
+            .details
+            .direct_signatures
+            .iter()
+            .filter_map(|sig| sig.created())
+            .max()
+            .map_or(0, |created| i64::from(created.as_secs()));
+        let gossip_period = context.get_config_i64(Config::GossipPeriod).await?;
+        let now = time();
+        let attached_timestamp: Option<i64> = context
+            .sql
+            .query_get_value(
+                "SELECT attached_timestamp FROM mdn_autocrypt_timestamp WHERE fingerprint=?",
+                (&fingerprint,),
+            )
+            .await?;
+
+        // Attach when our key gained a newer self-signature
+        // (e.g. relay addresses changed) or every `gossip_period`.
+        // If clocks are skewed, attach always.
+        let should_attach = attached_timestamp.is_none_or(|attached_timestamp| {
+            self_key_created > attached_timestamp
+                || now >= attached_timestamp.saturating_add(gossip_period)
+                || now < attached_timestamp
+        });
+        if should_attach {
+            // We don't track or care if the MDN fails to be send or received
+            // because attaching a potentially fresh key is only best-effort
+            // and we want to keep the attach-key mechanism simple and localized.
+            context
+                .sql
+                .execute(
+                    "INSERT INTO mdn_autocrypt_timestamp (fingerprint, attached_timestamp)
+                     VALUES                              (?, ?)
+                     ON CONFLICT                         (fingerprint)
+                     DO UPDATE SET attached_timestamp=excluded.attached_timestamp",
+                    (&fingerprint, now),
+                )
+                .await?;
+        }
+        Ok(should_attach)
+    }
+
+    fn should_attach_profile_data(msg: &Message) -> bool {
+        msg.param.get_cmd() != SystemMessage::SecurejoinMessage || {
+            let step = msg.param.get(Param::Arg).unwrap_or_default();
+            // Don't attach profile data at the earlier SecureJoin steps:
+            // - The corresponding messages, i.e. "v{c,g}-request" and "v{c,g}-auth-required" are
+            //   deleted right after processing, so other devices won't see the avatar etc.
+            // - It's also good for privacy because the contact isn't yet verified and these
+            //   messages are auto-sent unlike usual unencrypted messages.
+            step == "vg-request-with-auth"
+                || step == "vc-request-with-auth"
+                // Note that for "vg-member-added"
+                // get_cmd() returns `MemberAddedToGroup` rather than `SecurejoinMessage`,
+                // so, it wouldn't actually be necessary to have them in the list here.
+                // Still, they are here for completeness.
+                || step == "vg-member-added"
+                || step == "vc-contact-confirm"
+        }
+    }
+
+    async fn should_attach_selfavatar(context: &Context, msg: &Message) -> bool {
+        Self::should_attach_profile_data(msg)
+            && match chat::shall_attach_selfavatar(context, msg.chat_id).await {
+                Ok(should) => should,
+                Err(err) => {
+                    warn!(
+                        context,
+                        "should_attach_selfavatar: cannot get selfavatar state: {err:#}."
+                    );
+                    false
+                }
+            }
+    }
+
+    fn grpimage(&self) -> Option<String> {
+        match &self.loaded {
+            Loaded::Message { chat, msg } => {
+                let cmd = msg.param.get_cmd();
+
+                match cmd {
+                    SystemMessage::MemberAddedToGroup => {
+                        return chat.param.get(Param::ProfileImage).map(Into::into);
+                    }
+                    SystemMessage::GroupImageChanged => {
+                        return msg.param.get(Param::Arg).map(Into::into);
+                    }
+                    _ => {}
+                }
+
+                if msg
+                    .param
+                    .get_bool(Param::AttachChatAvatarAndDescription)
+                    .unwrap_or_default()
+                {
+                    return chat.param.get(Param::ProfileImage).map(Into::into);
+                }
+
+                None
+            }
+            Loaded::Mdn { .. } => None,
+        }
+    }
+
+    async fn subject_str(&self, context: &Context) -> Result<String> {
+        let subject = match &self.loaded {
+            Loaded::Message { chat, msg } => {
+                let quoted_msg_subject = msg.quoted_message(context).await?.map(|m| m.subject);
+
+                if !msg.subject.is_empty() {
+                    return Ok(msg.subject.clone());
+                }
+
+                if (chat.typ == Chattype::Group || chat.typ == Chattype::OutBroadcast)
+                    && quoted_msg_subject.is_none_or_empty()
+                {
+                    let re = if self.in_reply_to.is_empty() {
+                        ""
+                    } else {
+                        "Re: "
+                    };
+                    return Ok(format!("{}{}", re, chat.name));
+                }
+
+                let parent_subject = if quoted_msg_subject.is_none_or_empty() {
+                    chat.param.get(Param::LastSubject)
+                } else {
+                    quoted_msg_subject.as_deref()
+                };
+                if let Some(last_subject) = parent_subject {
+                    return Ok(format!("Re: {}", remove_subject_prefix(last_subject)));
+                }
+
+                let self_name = match Self::should_attach_profile_data(msg) {
+                    true => context.get_config(Config::Displayname).await?,
+                    false => None,
+                };
+                let self_name = &match self_name {
+                    Some(name) => name,
+                    None => context.get_config(Config::Addr).await?.unwrap_or_default(),
+                };
+                stock_str::subject_for_new_contact(context, self_name)
+            }
+            Loaded::Mdn { .. } => "Receipt Notification".to_string(), // untranslated to no reveal sender's language
+        };
+
+        Ok(subject)
+    }
+
+    pub fn recipients(&self) -> Vec<String> {
+        self.recipients.clone()
+    }
+
+    async fn render_headers(
+        &mut self,
+        context: &Context,
+        subject_str: &str,
+    ) -> Result<Vec<(&'static str, HeaderType<'static>)>> {
+        ensure_and_debug_assert!(
+            self.member_timestamps.is_empty()
+                || self.to.len().checked_add(self.past_members.len())
+                    == Some(self.member_timestamps.len()),
+            "self.to.len() ({}) + self.past_members.len() ({}) != self.member_timestamps.len() ({})",
+            self.to.len(),
+            self.past_members.len(),
+            self.member_timestamps.len(),
+        );
+
+        let mut headers = Vec::<(&'static str, HeaderType<'static>)>::new();
+
+        let to: Vec<Address<'static>> = if self.to.is_empty() {
+            vec![hidden_recipients()]
+        } else {
+            self.to
+                .iter()
+                .map(|(name, addr)| {
+                    Address::new_address(
+                        if name.is_empty() {
+                            None
+                        } else {
+                            Some(name.to_string())
+                        },
+                        addr.clone(),
+                    )
+                })
+                .collect()
+        };
+
+        let date = chrono::DateTime::<chrono::Utc>::from_timestamp(self.timestamp, 0)
+            .unwrap()
+            .to_rfc2822();
+        headers.push(("Date", mail_builder::headers::raw::Raw::new(date).into()));
+
+        if let Some(sender_displayname) = &self.sender_displayname {
+            let sender = new_address_with_name(sender_displayname, self.from_addr.clone());
+            headers.push(("Sender", sender.into()));
+        }
+        headers.push((
+            "To",
+            mail_builder::headers::address::Address::new_list(to.clone()).into(),
+        ));
+
+        if !self.past_members.is_empty() {
+            let past_members: Vec<Address<'static>> = self
+                .past_members
+                .iter()
+                .map(|(name, addr)| {
+                    Address::new_address(
+                        if name.is_empty() {
+                            None
+                        } else {
+                            Some(name.to_string())
+                        },
+                        addr.clone(),
+                    )
+                })
+                .collect();
+            headers.push((
+                "Chat-Group-Past-Members",
+                mail_builder::headers::address::Address::new_list(past_members).into(),
+            ));
+        }
+
+        if let Loaded::Message { chat, .. } = &self.loaded
+            && chat.typ == Chattype::Group
+        {
+            if !self.member_timestamps.is_empty() && !chat.member_list_is_stale(context).await? {
+                headers.push((
+                    "Chat-Group-Member-Timestamps",
+                    mail_builder::headers::raw::Raw::new(
+                        self.member_timestamps
+                            .iter()
+                            .map(|ts| ts.to_string())
+                            .collect::<Vec<String>>()
+                            .join(" "),
+                    )
+                    .into(),
+                ));
+            }
+
+            if !self.member_fingerprints.is_empty() {
+                headers.push((
+                    "Chat-Group-Member-Fpr",
+                    mail_builder::headers::raw::Raw::new(
+                        self.member_fingerprints
+                            .iter()
+                            .map(|fp| fp.to_string())
+                            .collect::<Vec<String>>()
+                            .join(" "),
+                    )
+                    .into(),
+                ));
+            }
+        }
+
+        headers.push((
+            "Subject",
+            mail_builder::headers::text::Text::new(subject_str.to_string()).into(),
+        ));
+
+        // Reply headers as in <https://datatracker.ietf.org/doc/html/rfc5322#appendix-A.2>.
+        if !self.in_reply_to.is_empty() {
+            headers.push((
+                "In-Reply-To",
+                mail_builder::headers::message_id::MessageId::new(self.in_reply_to.clone()).into(),
+            ));
+        }
+        if !self.references.is_empty() {
+            headers.push((
+                "References",
+                mail_builder::headers::message_id::MessageId::<'static>::new_list(
+                    self.references.iter().map(|s| s.to_string()),
+                )
+                .into(),
+            ));
+        }
+
+        // Automatic Response headers <https://www.rfc-editor.org/rfc/rfc3834>
+        if let Loaded::Mdn { .. } = self.loaded {
+            headers.push((
+                "Auto-Submitted",
+                mail_builder::headers::raw::Raw::new("auto-replied".to_string()).into(),
+            ));
+        } else if context.get_config_bool(Config::Bot).await? {
+            headers.push((
+                "Auto-Submitted",
+                mail_builder::headers::raw::Raw::new("auto-generated".to_string()).into(),
+            ));
+        }
+
+        if let Loaded::Message { msg, chat } = &self.loaded
+            && (chat.typ == Chattype::OutBroadcast || chat.typ == Chattype::InBroadcast)
+        {
+            headers.push((
+                "Chat-List-ID",
+                mail_builder::headers::text::Text::new(format!("{} <{}>", chat.name, chat.grpid))
+                    .into(),
+            ));
+
+            if msg.param.get_cmd() == SystemMessage::MemberAddedToGroup
+                && let Some(secret) = msg.param.get(PARAM_BROADCAST_SECRET)
+            {
+                headers.push((
+                    "Chat-Broadcast-Secret",
+                    mail_builder::headers::text::Text::new(secret.to_string()).into(),
+                ));
+            }
+        }
+
+        if let Loaded::Message { msg, .. } = &self.loaded {
+            if let Some(original_rfc724_mid) = msg.param.get(Param::TextEditFor) {
+                headers.push((
+                    "Chat-Edit",
+                    mail_builder::headers::message_id::MessageId::new(
+                        original_rfc724_mid.to_string(),
+                    )
+                    .into(),
+                ));
+            } else if let Some(rfc724_mid_list) = msg.param.get(Param::DeleteRequestFor) {
+                headers.push((
+                    "Chat-Delete",
+                    mail_builder::headers::message_id::MessageId::new(rfc724_mid_list.to_string())
+                        .into(),
+                ));
+            }
+        }
+
+        headers.push((
+            "Chat-Version",
+            mail_builder::headers::raw::Raw::new("1.0").into(),
+        ));
+
+        if self.req_mdn {
+            // we use "Chat-Disposition-Notification-To"
+            // because replies to "Disposition-Notification-To" are weird in many cases
+            // eg. are just freetext and/or do not follow any standard.
+            headers.push((
+                "Chat-Disposition-Notification-To",
+                mail_builder::headers::raw::Raw::new(self.from_addr.clone()).into(),
+            ));
+        }
+
+        if self.pre_message_mode == PreMessageMode::Post {
+            headers.push((
+                "Chat-Is-Post-Message",
+                mail_builder::headers::raw::Raw::new("1").into(),
+            ));
+        } else if let PreMessageMode::Pre {
+            post_msg_rfc724_mid,
+        } = &self.pre_message_mode
+        {
+            headers.push((
+                "Chat-Post-Message-ID",
+                mail_builder::headers::message_id::MessageId::new(post_msg_rfc724_mid.clone())
+                    .into(),
+            ));
+        }
+
+        // Add ephemeral timer for non-MDN messages.
+        // For MDNs it does not matter because they are not visible
+        // and ignored by the receiver.
+        if let Loaded::Message { msg, .. } = &self.loaded {
+            let ephemeral_timer = msg.chat_id.get_ephemeral_timer(context).await?;
+            if let EphemeralTimer::Enabled { duration } = ephemeral_timer {
+                headers.push((
+                    "Ephemeral-Timer",
+                    mail_builder::headers::raw::Raw::new(duration.to_string()).into(),
+                ));
+            }
+        }
+
+        Ok(headers)
+    }
+
+    /// Helper function render the messages that are not queued.
+    ///
+    /// Used for MDNs because they are fully rendered and sent in one go,
+    /// rather than first creating a [`QueuedMail`] and sending it later.
+    pub async fn render(self, context: &Context) -> Result<RenderedEmail> {
+        let from_addr = context.get_primary_self_addr().await?;
+        let public_key = key::load_self_public_key(context).await?;
+        let secret_key = key::load_self_secret_key(context).await?;
+        let (queued_mail, side_effects) = Box::pin(self.into_queued_mail(context)).await?;
+        let rendered_mail = render_queued_mail(
+            queued_mail,
+            &public_key,
+            &secret_key,
+            from_addr,
+            side_effects,
+        )?;
+        Ok(rendered_mail)
+    }
+
+    /// Consumes a `MimeFactory` and renders it into a message which is then stored in
+    /// `smtp`-table to be used by the SMTP loop
+    #[expect(clippy::arithmetic_side_effects)]
+    pub(crate) async fn into_queued_mail(
+        mut self,
+        context: &Context,
+    ) -> Result<(QueuedMail, RenderSideEffects)> {
+        let rfc724_mid = match &self.loaded {
+            Loaded::Message { msg, .. } => match &self.pre_message_mode {
+                PreMessageMode::Pre { .. } => {
+                    if msg.pre_rfc724_mid.is_empty() {
+                        create_outgoing_rfc724_mid()
+                    } else {
+                        msg.pre_rfc724_mid.clone()
+                    }
+                }
+                _ => msg.rfc724_mid.clone(),
+            },
+            Loaded::Mdn { .. } => create_outgoing_rfc724_mid(),
+        };
+
+        let subject_str = self.subject_str(context).await?;
+        let mut headers = self.render_headers(context, &subject_str).await?;
+
+        let grpimage = self.grpimage();
+
+        let is_encrypted = self.will_be_encrypted();
+
+        let last_added_location_timestamp;
+        let avatar_is_attached;
+        let sync_ids_to_delete;
+
+        let message: MimePart<'static> = match &self.loaded {
+            Loaded::Message { msg, .. } => {
+                let msg = msg.clone();
+                let RenderedMessage {
+                    main_part,
+                    mut parts,
+                    last_added_location_timestamp: tmp_last_added_location_timestamp,
+                    avatar_is_attached: tmp_avatar_is_attached,
+                    sync_ids_to_delete: tmp_sync_ids_to_delete,
+                } = self
+                    .render_message(context, &mut headers, &grpimage, is_encrypted)
+                    .await?;
+                last_added_location_timestamp = tmp_last_added_location_timestamp;
+                avatar_is_attached = tmp_avatar_is_attached;
+                sync_ids_to_delete = tmp_sync_ids_to_delete;
+                if parts.is_empty() {
+                    // Single part, render as regular message.
+                    main_part
+                } else {
+                    parts.insert(0, main_part);
+
+                    // Multiple parts, render as multipart.
+                    if msg.param.get_cmd() == SystemMessage::MultiDeviceSync {
+                        MimePart::new("multipart/report; report-type=multi-device-sync", parts)
+                    } else if msg.param.get_cmd() == SystemMessage::WebxdcStatusUpdate {
+                        MimePart::new("multipart/report; report-type=status-update", parts)
+                    } else {
+                        MimePart::new("multipart/mixed", parts)
+                    }
+                }
+            }
+            Loaded::Mdn { .. } => {
+                last_added_location_timestamp = None;
+                avatar_is_attached = false;
+                sync_ids_to_delete = None;
+                self.render_mdn()?
+            }
+        };
+
+        let should_attach_pubkey = match &self.loaded {
+            Loaded::Message { .. } => true,
+            Loaded::Mdn { .. } => self.update_mdn_pubkey_attachment(context).await?,
+        };
+        let is_post_message = self.pre_message_mode == PreMessageMode::Post;
+        let side_effects = RenderSideEffects {
+            avatar_is_attached,
+            sync_ids_to_delete,
+            last_added_location_timestamp,
+            subject: subject_str,
+        };
+
+        let is_securejoin_message = match &self.loaded {
+            Loaded::Message { msg, .. } => msg.param.get_cmd() == SystemMessage::SecurejoinMessage,
+            Loaded::Mdn { .. } => false,
+        };
+
+        // Disable compression for SecureJoin to ensure
+        // there are no compression side channels
+        // leaking information about the tokens.
+        let should_compress = !is_securejoin_message;
+
+        if let Encryption::Asymmetric {
+            ref encryption_pubkeys,
+        } = self.encryption
+        {
+            // Add gossip headers in chats with multiple recipients
+            let multiple_recipients =
+                encryption_pubkeys.len() > 1 || context.get_config_bool(Config::BccSelf).await?;
+
+            let gossip_period = context.get_config_i64(Config::GossipPeriod).await?;
+            let now = time();
+
+            match &self.loaded {
+                Loaded::Message { chat, msg } => {
+                    if !should_hide_recipients(msg, chat) {
+                        for (addr, key) in encryption_pubkeys {
+                            let fingerprint = key.dc_fingerprint().hex();
+                            let cmd = msg.param.get_cmd();
+                            if is_post_message {
+                                continue;
+                            }
+
+                            let should_do_gossip = cmd == SystemMessage::MemberAddedToGroup
+                                || cmd == SystemMessage::SecurejoinMessage
+                                || multiple_recipients && {
+                                    let gossiped_timestamp: Option<i64> = context
+                                        .sql
+                                        .query_get_value(
+                                            "SELECT timestamp
+                                         FROM gossip_timestamp
+                                         WHERE chat_id=? AND fingerprint=?",
+                                            (chat.id, &fingerprint),
+                                        )
+                                        .await?;
+
+                                    // `gossip_period == 0` is a special case for testing,
+                                    // enabling gossip in every message.
+                                    //
+                                    // If current time is in the past compared to
+                                    // `gossiped_timestamp`, we also gossip because
+                                    // either the `gossiped_timestamp` or clock is wrong.
+                                    gossip_period == 0
+                                        || gossiped_timestamp
+                                            .is_none_or(|ts| now >= ts + gossip_period || now < ts)
+                                };
+
+                            let verifier_id: Option<u32> = context
+                                .sql
+                                .query_get_value(
+                                    "SELECT verifier FROM contacts WHERE fingerprint=?",
+                                    (&fingerprint,),
+                                )
+                                .await?;
+
+                            let is_verified =
+                                verifier_id.is_some_and(|verifier_id| verifier_id != 0);
+
+                            if !should_do_gossip {
+                                continue;
+                            }
+
+                            let header = Aheader {
+                                addr: addr.clone(),
+                                public_key: key.clone(),
+                                // Autocrypt 1.1.0 specification says that
+                                // `prefer-encrypt` attribute SHOULD NOT be included.
+                                prefer_encrypt: EncryptPreference::NoPreference,
+                                verified: is_verified,
+                            }
+                            .to_string();
+
+                            headers.push((
+                                "Autocrypt-Gossip",
+                                mail_builder::headers::raw::Raw::new(header).into(),
+                            ));
+
+                            context
+                                .sql
+                                .execute(
+                                    "INSERT INTO gossip_timestamp (chat_id, fingerprint, timestamp)
+                                     VALUES                       (?, ?, ?)
+                                     ON CONFLICT                  (chat_id, fingerprint)
+                                     DO UPDATE SET timestamp=excluded.timestamp",
+                                    (chat.id, &fingerprint, now),
+                                )
+                                .await?;
+                        }
+                    }
+                }
+                Loaded::Mdn { .. } => {
+                    // Never gossip in MDNs.
+                }
+            }
+        }
+
+        let is_encrypted = self.will_be_encrypted();
+
+        let display_name = if is_securejoin_message && !is_encrypted {
+            // Unencrypted securejoin messages should _not_ include the display name.
+            "".to_string()
+        } else {
+            self.from_displayname.clone()
+        };
+
+        let is_mdn = matches!(self.loaded, Loaded::Mdn { .. });
+        let should_sign = true;
+
+        let message = if self.will_be_encrypted() {
+            add_headers_to_encrypted_part(message, headers)
+        } else if is_mdn {
+            // Never add outer multipart/mixed wrapper to MDN
+            // as multipart/report Content-Type is used to recognize MDNs
+            // by Delta Chat receiver and Chatmail servers
+            // allowing them to be unencrypted and not contain Autocrypt header
+            // without resetting Autocrypt encryption or triggering Chatmail filter
+            // that normally only allows encrypted mails.
+            message
+        } else {
+            headers.iter().fold(message, |message, (header, value)| {
+                debug_assert_ne!(*header, "from");
+                debug_assert_ne!(*header, "message-id");
+                debug_assert_ne!(*header, "autocrypt");
+                message.header(*header, value.clone())
+            })
+        };
+        let raw_message = part_to_bytes(message);
+
+        let queued_email = QueuedMail {
+            raw_message,
+            rfc724_mid,
+            display_name,
+            encryption: self.encryption,
+            should_attach_pubkey,
+            should_sign,
+            should_compress,
+        };
+        Ok((queued_email, side_effects))
+    }
+
+    /// Returns MIME part with a `message.kml` attachment.
+    fn get_message_kml_part(&self) -> Option<MimePart<'static>> {
+        let Loaded::Message { msg, .. } = &self.loaded else {
+            return None;
+        };
+
+        let latitude = msg.param.get_float(Param::SetLatitude)?;
+        let longitude = msg.param.get_float(Param::SetLongitude)?;
+
+        let kml_file = location::get_message_kml(msg.timestamp_sort, latitude, longitude);
+        let part = MimePart::new("application/vnd.google-earth.kml+xml", kml_file)
+            .attachment("message.kml");
+        Some(part)
+    }
+
+    /// Returns MIME part with a `location.kml` attachment
+    /// and the timestamp of the latest location timestamp.
+    async fn get_location_kml_part(
+        &self,
+        context: &Context,
+    ) -> Result<Option<(MimePart<'static>, i64)>> {
+        let Loaded::Message { msg, .. } = &self.loaded else {
+            return Ok(None);
+        };
+
+        let Some((kml_content, last_added_location_timestamp)) =
+            location::get_kml(context, msg.chat_id).await?
+        else {
+            return Ok(None);
+        };
+
+        let part = MimePart::new("application/vnd.google-earth.kml+xml", kml_content)
+            .attachment("location.kml");
+        Ok(Some((part, last_added_location_timestamp)))
+    }
+
+    async fn render_message(
+        &self,
+        context: &Context,
+        headers: &mut Vec<(&'static str, HeaderType<'static>)>,
+        grpimage: &Option<String>,
+        is_encrypted: bool,
+    ) -> Result<RenderedMessage> {
+        let Loaded::Message { chat, msg } = &self.loaded else {
+            bail!("Attempt to render MDN as a message");
+        };
+        let chat = chat.clone();
+        let msg = msg.clone();
+        let command = msg.param.get_cmd();
+        let mut placeholdertext = None;
+
+        let send_verified_headers = match chat.typ {
+            Chattype::Single => true,
+            Chattype::Group => true,
+            // Mailinglists and broadcast channels can actually never be verified:
+            Chattype::Mailinglist => false,
+            Chattype::OutBroadcast | Chattype::InBroadcast => false,
+        };
+
+        if send_verified_headers {
+            let was_protected: bool = context
+                .sql
+                .query_get_value("SELECT protected FROM chats WHERE id=?", (chat.id,))
+                .await?
+                .unwrap_or_default();
+
+            if was_protected {
+                let unverified_member_exists = context
+                    .sql
+                    .exists(
+                        "SELECT COUNT(*)
+                        FROM contacts, chats_contacts
+                        WHERE chats_contacts.contact_id=contacts.id AND chats_contacts.chat_id=?
+                        AND contacts.id>9
+                        AND contacts.verifier=0",
+                        (chat.id,),
+                    )
+                    .await?;
+
+                if !unverified_member_exists {
+                    headers.push((
+                        "Chat-Verified",
+                        mail_builder::headers::raw::Raw::new("1").into(),
+                    ));
+                }
+            }
+        }
+
+        if chat.typ == Chattype::Group {
+            // Send group ID unless it is an ad hoc group that has no ID.
+            if !chat.grpid.is_empty() {
+                headers.push((
+                    "Chat-Group-ID",
+                    mail_builder::headers::raw::Raw::new(chat.grpid.clone()).into(),
+                ));
+            }
+        }
+
+        if chat.typ == Chattype::Group || chat.typ == Chattype::OutBroadcast {
+            headers.push((
+                "Chat-Group-Name",
+                mail_builder::headers::text::Text::new(chat.name.to_string()).into(),
+            ));
+            if let Some(ts) = chat.param.get_i64(Param::GroupNameTimestamp) {
+                headers.push((
+                    "Chat-Group-Name-Timestamp",
+                    mail_builder::headers::text::Text::new(ts.to_string()).into(),
+                ));
+            }
+        }
+        if chat.typ == Chattype::Group
+            || chat.typ == Chattype::OutBroadcast
+            || chat.typ == Chattype::InBroadcast
+        {
+            match command {
+                SystemMessage::MemberRemovedFromGroup => {
+                    let email_to_remove = msg.param.get(Param::Arg).unwrap_or_default();
+                    let fingerprint_to_remove = msg.param.get(Param::Arg4).unwrap_or_default();
+
+                    // Only visible in classic email clients,
+                    // Delta Chat renders removals from the headers.
+                    placeholdertext = Some(format!("Member {email_to_remove} was removed."));
+
+                    if !email_to_remove.is_empty() {
+                        headers.push((
+                            "Chat-Group-Member-Removed",
+                            mail_builder::headers::raw::Raw::new(email_to_remove.to_string())
+                                .into(),
+                        ));
+                    }
+
+                    if !fingerprint_to_remove.is_empty() {
+                        headers.push((
+                            "Chat-Group-Member-Removed-Fpr",
+                            mail_builder::headers::raw::Raw::new(fingerprint_to_remove.to_string())
+                                .into(),
+                        ));
+                    }
+                }
+                SystemMessage::MemberAddedToGroup => {
+                    let email_to_add = msg.param.get(Param::Arg).unwrap_or_default();
+                    let fingerprint_to_add = msg.param.get(Param::Arg4).unwrap_or_default();
+
+                    placeholdertext = Some(format!("Member {email_to_add} was added."));
+
+                    if !email_to_add.is_empty() {
+                        headers.push((
+                            "Chat-Group-Member-Added",
+                            mail_builder::headers::raw::Raw::new(email_to_add.to_string()).into(),
+                        ));
+                    }
+                    if !fingerprint_to_add.is_empty() {
+                        headers.push((
+                            "Chat-Group-Member-Added-Fpr",
+                            mail_builder::headers::raw::Raw::new(fingerprint_to_add.to_string())
+                                .into(),
+                        ));
+                    }
+                    if 0 != msg.param.get_int(Param::Arg2).unwrap_or_default() & DC_FROM_HANDSHAKE {
+                        let step = "vg-member-added";
+                        info!(context, "Sending secure-join message {:?}.", step);
+                        headers.push((
+                            "Secure-Join",
+                            mail_builder::headers::raw::Raw::new(step.to_string()).into(),
+                        ));
+                    }
+                }
+                SystemMessage::GroupNameChanged => {
+                    placeholdertext = Some("Chat name changed.".to_string());
+                    let old_name = msg.param.get(Param::Arg).unwrap_or_default().to_string();
+                    headers.push((
+                        "Chat-Group-Name-Changed",
+                        mail_builder::headers::text::Text::new(old_name).into(),
+                    ));
+                }
+                SystemMessage::GroupDescriptionChanged => {
+                    placeholdertext = Some(
+                        "[Chat description changed. To see this and other new features, please update the app]".to_string(),
+                    );
+                    headers.push((
+                        "Chat-Group-Description-Changed",
+                        mail_builder::headers::text::Text::new("").into(),
+                    ));
+                }
+                SystemMessage::GroupImageChanged => {
+                    placeholdertext = Some("Chat image changed.".to_string());
+                    headers.push((
+                        "Chat-Content",
+                        mail_builder::headers::text::Text::new("group-avatar-changed").into(),
+                    ));
+                    if grpimage.is_none() && is_encrypted {
+                        headers.push((
+                            "Chat-Group-Avatar",
+                            mail_builder::headers::raw::Raw::new("0").into(),
+                        ));
+                    }
+                }
+                SystemMessage::Unknown => {}
+                SystemMessage::AutocryptSetupMessage => {}
+                SystemMessage::SecurejoinMessage => {}
+                SystemMessage::LocationStreamingEnabled => {}
+                SystemMessage::LocationOnly => {}
+                SystemMessage::EphemeralTimerChanged => {}
+                SystemMessage::ChatProtectionEnabled => {}
+                SystemMessage::ChatProtectionDisabled => {}
+                SystemMessage::InvalidUnencryptedMail => {}
+                SystemMessage::SecurejoinWait => {}
+                SystemMessage::SecurejoinWaitTimeout => {}
+                SystemMessage::MultiDeviceSync => {}
+                SystemMessage::WebxdcStatusUpdate => {}
+                SystemMessage::WebxdcInfoMessage => {}
+                SystemMessage::IrohNodeAddr => {}
+                SystemMessage::ChatE2ee => {}
+                SystemMessage::CallAccepted => {}
+                SystemMessage::CallEnded => {}
+                SystemMessage::MessagePinned => {}
+                SystemMessage::MessageUnpinned => {}
+            }
+
+            if command == SystemMessage::GroupDescriptionChanged
+                || command == SystemMessage::MemberAddedToGroup
+                || msg
+                    .param
+                    .get_bool(Param::AttachChatAvatarAndDescription)
+                    .unwrap_or_default()
+            {
+                let description = chat::get_chat_description(context, chat.id).await?;
+                headers.push((
+                    "Chat-Group-Description",
+                    mail_builder::headers::raw::Raw::new(b_encode(&description)).into(),
+                ));
+                if let Some(ts) = chat.param.get_i64(Param::GroupDescriptionTimestamp) {
+                    headers.push((
+                        "Chat-Group-Description-Timestamp",
+                        mail_builder::headers::text::Text::new(ts.to_string()).into(),
+                    ));
+                }
+            }
+        }
+
+        match command {
+            SystemMessage::LocationStreamingEnabled => {
+                headers.push((
+                    "Chat-Content",
+                    mail_builder::headers::raw::Raw::new("location-streaming-enabled").into(),
+                ));
+            }
+            SystemMessage::EphemeralTimerChanged => {
+                headers.push((
+                    "Chat-Content",
+                    mail_builder::headers::raw::Raw::new("ephemeral-timer-changed").into(),
+                ));
+            }
+            SystemMessage::LocationOnly
+            | SystemMessage::MultiDeviceSync
+            | SystemMessage::WebxdcStatusUpdate => {
+                // This should prevent automatic replies,
+                // such as non-delivery reports,
+                // if the message is unencrypted.
+                //
+                // See <https://tools.ietf.org/html/rfc3834>
+                headers.push((
+                    "Auto-Submitted",
+                    mail_builder::headers::raw::Raw::new("auto-generated").into(),
+                ));
+            }
+            SystemMessage::SecurejoinMessage => {
+                let step = msg.param.get(Param::Arg).unwrap_or_default();
+                if !step.is_empty() {
+                    info!(context, "Sending secure-join message {step:?}.");
+                    headers.push((
+                        "Secure-Join",
+                        mail_builder::headers::raw::Raw::new(step.to_string()).into(),
+                    ));
+
+                    let param2 = msg.param.get(Param::Arg2).unwrap_or_default();
+                    if !param2.is_empty() {
+                        headers.push((
+                            if step == "vg-request-with-auth" || step == "vc-request-with-auth" {
+                                "Secure-Join-Auth"
+                            } else {
+                                "Secure-Join-Invitenumber"
+                            },
+                            mail_builder::headers::text::Text::new(param2.to_string()).into(),
+                        ));
+                    }
+
+                    let fingerprint = msg.param.get(Param::Arg3).unwrap_or_default();
+                    if !fingerprint.is_empty() {
+                        headers.push((
+                            "Secure-Join-Fingerprint",
+                            mail_builder::headers::raw::Raw::new(fingerprint.to_string()).into(),
+                        ));
+                    }
+                    if let Some(id) = msg.param.get(Param::Arg4) {
+                        headers.push((
+                            "Secure-Join-Group",
+                            mail_builder::headers::raw::Raw::new(id.to_string()).into(),
+                        ));
+                    };
+                }
+            }
+            SystemMessage::ChatProtectionEnabled => {
+                headers.push((
+                    "Chat-Content",
+                    mail_builder::headers::raw::Raw::new("protection-enabled").into(),
+                ));
+            }
+            SystemMessage::ChatProtectionDisabled => {
+                headers.push((
+                    "Chat-Content",
+                    mail_builder::headers::raw::Raw::new("protection-disabled").into(),
+                ));
+            }
+            SystemMessage::IrohNodeAddr => {
+                let node_addr = context
+                    .get_or_try_init_peer_channel()
+                    .await?
+                    .get_node_addr()
+                    .await?;
+
+                // We should not send `null` as relay URL
+                // as this is the only way to reach the node.
+                debug_assert!(node_addr.relay_url().is_some());
+                headers.push((
+                    HeaderDef::IrohNodeAddr.into(),
+                    mail_builder::headers::text::Text::new(serde_json::to_string(&node_addr)?)
+                        .into(),
+                ));
+            }
+            SystemMessage::CallAccepted => {
+                headers.push((
+                    "Chat-Content",
+                    mail_builder::headers::raw::Raw::new("call-accepted").into(),
+                ));
+            }
+            SystemMessage::CallEnded => {
+                headers.push((
+                    "Chat-Content",
+                    mail_builder::headers::raw::Raw::new("call-ended").into(),
+                ));
+            }
+            SystemMessage::MessagePinned => {
+                headers.push((
+                    "Chat-Content",
+                    mail_builder::headers::raw::Raw::new("message-pinned").into(),
+                ));
+            }
+            SystemMessage::MessageUnpinned => {
+                headers.push((
+                    "Chat-Content",
+                    mail_builder::headers::raw::Raw::new("message-unpinned").into(),
+                ));
+            }
+            _ => {}
+        }
+
+        if let Some(grpimage) = grpimage
+            && is_encrypted
+        {
+            info!(context, "setting group image '{}'", grpimage);
+            let avatar = build_avatar_file(context, grpimage)
+                .await
+                .context("Cannot attach group image")?;
+            headers.push((
+                "Chat-Group-Avatar",
+                mail_builder::headers::raw::Raw::new(format!("base64:{avatar}")).into(),
+            ));
+        }
+
+        if msg.viewtype == Viewtype::Sticker {
+            headers.push((
+                "Chat-Content",
+                mail_builder::headers::raw::Raw::new("sticker").into(),
+            ));
+        } else if msg.viewtype == Viewtype::Call {
+            headers.push((
+                "Chat-Content",
+                mail_builder::headers::raw::Raw::new("call").into(),
+            ));
+            placeholdertext = Some(
+                "[This is a 'Call'. The sender uses an experiment not supported on your version yet]".to_string(),
+            );
+        }
+
+        if let Some(offer) = msg.param.get(Param::WebrtcRoom) {
+            headers.push((
+                "Chat-Webrtc-Room",
+                mail_builder::headers::raw::Raw::new(b_encode(offer)).into(),
+            ));
+        } else if let Some(answer) = msg.param.get(Param::WebrtcAccepted) {
+            headers.push((
+                "Chat-Webrtc-Accepted",
+                mail_builder::headers::raw::Raw::new(b_encode(answer)).into(),
+            ));
+        }
+        if let Some(has_video) = msg.param.get(Param::WebrtcHasVideoInitially) {
+            headers.push((
+                "Chat-Webrtc-Has-Video-Initially",
+                mail_builder::headers::raw::Raw::new(b_encode(has_video)).into(),
+            ))
+        }
+
+        if let Some(broadcast_reactions) = msg.param.get(Param::BroadcastReactions) {
+            headers.push((
+                "Chat-Broadcast-States",
+                mail_builder::headers::raw::Raw::new(b_encode(broadcast_reactions)).into(),
+            ));
+        }
+
+        if msg.viewtype == Viewtype::Voice
+            || msg.viewtype == Viewtype::Audio
+            || msg.viewtype == Viewtype::Video
+        {
+            if msg.viewtype == Viewtype::Voice {
+                headers.push((
+                    "Chat-Voice-Message",
+                    mail_builder::headers::raw::Raw::new("1").into(),
+                ));
+            }
+            let duration_ms = msg.param.get_int(Param::Duration).unwrap_or_default();
+            if duration_ms > 0 {
+                let dur = duration_ms.to_string();
+                headers.push((
+                    "Chat-Duration",
+                    mail_builder::headers::raw::Raw::new(dur).into(),
+                ));
+            }
+        }
+
+        // add text part - we even add empty text and force a MIME-multipart-message as:
+        // - some Apps have problems with Non-text in the main part (eg. "Mail" from stock Android)
+        // - we can add "forward hints" this way
+        // - it looks better
+
+        let afwd_email = msg.param.exists(Param::Forwarded);
+        let fwdhint = if afwd_email {
+            Some(
+                "---------- Forwarded message ----------\r\n\
+                 From: Delta Chat\r\n\
+                 \r\n"
+                    .to_string(),
+            )
+        } else {
+            None
+        };
+
+        let final_text = placeholdertext.as_deref().unwrap_or(&msg.text);
+
+        let mut quoted_text = None;
+        if let Some(msg_quoted_text) = msg.quoted_text() {
+            let mut some_quoted_text = String::new();
+            for quoted_line in msg_quoted_text.split('\n') {
+                some_quoted_text += "> ";
+                some_quoted_text += quoted_line;
+                some_quoted_text += "\r\n";
+            }
+            some_quoted_text += "\r\n";
+            quoted_text = Some(some_quoted_text)
+        }
+
+        if !is_encrypted && msg.param.get_bool(Param::ProtectQuote).unwrap_or_default() {
+            // Message is not encrypted but quotes encrypted message.
+            quoted_text = Some("> ...\r\n\r\n".to_string());
+        }
+        if quoted_text.is_none() && final_text.starts_with('>') {
+            // Insert empty line to avoid receiver treating user-sent quote as topquote inserted by
+            // Delta Chat.
+            quoted_text = Some("\r\n".to_string());
+        }
+
+        let is_reaction = msg.param.get_int(Param::Reaction).unwrap_or_default() != 0;
+
+        let footer = if is_reaction { "" } else { &self.selfstatus };
+
+        let message_text = if self.pre_message_mode == PreMessageMode::Post {
+            "".to_string()
+        } else {
+            format!(
+                "{}{}{}{}{}{}",
+                fwdhint.unwrap_or_default(),
+                quoted_text.unwrap_or_default(),
+                escape_message_footer_marks(final_text),
+                if !final_text.is_empty() && !footer.is_empty() {
+                    "\r\n\r\n"
+                } else {
+                    ""
+                },
+                if !footer.is_empty() { "-- \r\n" } else { "" },
+                footer
+            )
+        };
+
+        let mut main_part = MimePart::new("text/plain", message_text);
+        if is_reaction {
+            main_part = main_part.header(
+                "Content-Disposition",
+                mail_builder::headers::raw::Raw::new("reaction"),
+            );
+        }
+
+        let mut parts = Vec::new();
+
+        if msg.has_html() {
+            let html = if let Some(html) = msg.param.get(Param::SendHtml) {
+                Some(html.to_string())
+            } else if let Some(orig_msg_id) = msg.param.get_int(Param::Forwarded)
+                && orig_msg_id != 0
+            {
+                // Legacy forwarded messages may not have `Param::SendHtml` set. Let's hope the
+                // original message exists.
+                MsgId::new(orig_msg_id.try_into()?)
+                    .get_html(context)
+                    .await?
+            } else {
+                None
+            };
+            if let Some(html) = html {
+                main_part = MimePart::new(
+                    "multipart/alternative",
+                    vec![main_part, MimePart::new("text/html", html)],
+                )
+            }
+        }
+
+        // add attachment part
+        if msg.viewtype.has_file() {
+            if let PreMessageMode::Pre { .. } = self.pre_message_mode {
+                let Some(metadata) = PostMsgMetadata::from_msg(context, &msg).await? else {
+                    bail!("Failed to generate metadata for pre-message")
+                };
+
+                headers.push((
+                    HeaderDef::ChatPostMessageMetadata.into(),
+                    mail_builder::headers::raw::Raw::new(metadata.to_header_value()?).into(),
+                ));
+            } else {
+                let file_part = build_body_file(context, &msg).await?;
+                parts.push(file_part);
+            }
+        }
+
+        if !matches!(self.pre_message_mode, PreMessageMode::Pre { .. })
+            && let Some(msg_kml_part) = self.get_message_kml_part()
+        {
+            parts.push(msg_kml_part);
+        }
+
+        let last_added_location_timestamp =
+            if !matches!(self.pre_message_mode, PreMessageMode::Pre { .. })
+                && location::is_sending_to_chat(context, msg.chat_id).await?
+                && let Some((part, timestamp)) = self.get_location_kml_part(context).await?
+            {
+                parts.push(part);
+                Some(timestamp)
+            } else {
+                None
+            };
+
+        let mut sync_ids_to_delete = None;
+        // we do not piggyback sync-files to other self-sent-messages
+        // to not risk files becoming too larger and being skipped by download-on-demand.
+        if command == SystemMessage::MultiDeviceSync {
+            let json = msg.param.get(Param::Arg).unwrap_or_default();
+            let ids = msg.param.get(Param::Arg2).unwrap_or_default();
+            parts.push(context.build_sync_part(json.to_string()));
+            sync_ids_to_delete = Some(ids.to_string());
+        } else if command == SystemMessage::WebxdcStatusUpdate {
+            let json = msg.param.get(Param::Arg).unwrap_or_default();
+            parts.push(context.build_status_update_part(json));
+        } else if msg.viewtype == Viewtype::Webxdc {
+            let topic = self
+                .webxdc_topic
+                .map(|top| BASE32_NOPAD.encode(top.as_bytes()).to_ascii_lowercase())
+                .unwrap_or(create_iroh_header(context, msg.id).await?);
+            headers.push((
+                HeaderDef::IrohGossipTopic.get_headername(),
+                mail_builder::headers::raw::Raw::new(topic).into(),
+            ));
+            if !matches!(self.pre_message_mode, PreMessageMode::Pre { .. })
+                && let (Some(json), _) = context
+                    .render_webxdc_status_update_object(
+                        msg.id,
+                        StatusUpdateSerial::MIN,
+                        StatusUpdateSerial::MAX,
+                        None,
+                    )
+                    .await?
+            {
+                parts.push(context.build_status_update_part(&json));
+            }
+        }
+
+        let avatar_is_attached =
+            self.attach_selfavatar && self.pre_message_mode != PreMessageMode::Post;
+        if avatar_is_attached {
+            match context.get_config(Config::Selfavatar).await? {
+                Some(path) => match build_avatar_file(context, &path).await {
+                    Ok(avatar) => headers.push((
+                        "Chat-User-Avatar",
+                        mail_builder::headers::raw::Raw::new(format!("base64:{avatar}")).into(),
+                    )),
+                    Err(err) => warn!(context, "mimefactory: cannot attach selfavatar: {}", err),
+                },
+                None => headers.push((
+                    "Chat-User-Avatar",
+                    mail_builder::headers::raw::Raw::new("0").into(),
+                )),
+            }
+        }
+
+        Ok(RenderedMessage {
+            main_part,
+            parts,
+            last_added_location_timestamp,
+            avatar_is_attached,
+            sync_ids_to_delete,
+        })
+    }
+
+    /// Render an MDN
+    fn render_mdn(&mut self) -> Result<MimePart<'static>> {
+        // RFC 6522, this also requires the `report-type` parameter which is equal
+        // to the MIME subtype of the second body part of the multipart/report
+        let Loaded::Mdn {
+            rfc724_mid,
+            additional_msg_ids,
+        } = &self.loaded
+        else {
+            bail!("Attempt to render a message as MDN");
+        };
+
+        // first body part: always human-readable, always REQUIRED by RFC 6522.
+        // untranslated to no reveal sender's language.
+        // moreover, translations in unknown languages are confusing, and clients may not display them at all
+        let text_part = MimePart::new("text/plain", "This is a receipt notification.");
+
+        let mut message = MimePart::new(
+            "multipart/report; report-type=disposition-notification",
+            vec![text_part],
+        );
+
+        // second body part: machine-readable, always REQUIRED by RFC 6522
+        let message_text2 = format!(
+            "Original-Recipient: rfc822;{}\r\n\
+             Final-Recipient: rfc822;{}\r\n\
+             Original-Message-ID: <{}>\r\n\
+             Disposition: manual-action/MDN-sent-automatically; displayed\r\n",
+            self.from_addr, self.from_addr, rfc724_mid
+        );
+
+        let extension_fields = if additional_msg_ids.is_empty() {
+            "".to_string()
+        } else {
+            "Additional-Message-IDs: ".to_string()
+                + &additional_msg_ids
+                    .iter()
+                    .map(|mid| render_rfc724_mid(mid))
+                    .collect::<Vec<String>>()
+                    .join(" ")
+                + "\r\n"
+        };
+
+        message.add_part(MimePart::new(
+            "message/disposition-notification",
+            message_text2 + &extension_fields,
+        ));
+
+        Ok(message)
+    }
+
+    pub fn will_be_encrypted(&self) -> bool {
+        match self.encryption {
+            Encryption::No => false,
+            Encryption::Asymmetric { .. } | Encryption::Symmetric { .. } => true,
+        }
+    }
+
+    pub fn set_as_post_message(&mut self) {
+        self.pre_message_mode = PreMessageMode::Post;
+    }
+
+    pub fn set_as_pre_message_for(&mut self, post_message: &RenderedEmail) {
+        self.pre_message_mode = PreMessageMode::Pre {
+            post_msg_rfc724_mid: post_message.rfc724_mid.clone(),
+        };
+    }
+}
+
+/// Takes the encrypted part, wraps it in a MimePart,
+/// and sets the appropriate Content-Type for the outer message
+pub(crate) fn wrap_encrypted_part(encrypted: String) -> MimePart<'static> {
+    MimePart::new(
+        "multipart/encrypted; protocol=\"application/pgp-encrypted\"",
+        vec![
+            // Autocrypt part 1
+            MimePart::new("application/pgp-encrypted", "Version: 1\r\n"),
+            // Autocrypt part 2
+            MimePart::new("application/octet-stream", encrypted),
+        ],
+    )
+}
+
+fn add_headers_to_encrypted_part(
+    message: MimePart<'static>,
+    protected_headers: Vec<(&'static str, HeaderType<'static>)>,
+) -> MimePart<'static> {
+    // Store protected headers in the inner message.
+    let mut message: MimePart<'static> =
+        protected_headers
+            .into_iter()
+            .fold(message, |message, (header, value)| {
+                debug_assert_ne!(header, "from");
+                debug_assert_ne!(header, "message-id");
+                debug_assert_ne!(header, "autocrypt");
+                message.header(header, value)
+            });
+
+    // Set the appropriate Content-Type for the inner message
+    for (h, v) in &mut message.headers {
+        if h == "Content-Type"
+            && let mail_builder::headers::HeaderType::ContentType(ct) = v
+        {
+            let mut ct_new = ct.clone();
+            ct_new = ct_new.attribute("protected-headers", "v1");
+            ct_new = ct_new.attribute("hp", "cipher");
+            *ct = ct_new;
+            break;
+        }
+    }
+
+    message
+}
+
+fn hidden_recipients() -> Address<'static> {
+    Address::new_group(Some("hidden-recipients".to_string()), Vec::new())
+}
+
+fn should_encrypt_with_broadcast_secret(msg: &Message, chat: &Chat) -> bool {
+    chat.typ == Chattype::OutBroadcast && must_have_only_one_recipient(msg, chat).is_none()
+}
+
+fn should_hide_recipients(msg: &Message, chat: &Chat) -> bool {
+    should_encrypt_with_broadcast_secret(msg, chat)
+}
+
+fn should_encrypt_symmetrically(msg: &Message, chat: &Chat) -> bool {
+    should_encrypt_with_broadcast_secret(msg, chat)
+}
+
+/// Some messages sent into outgoing broadcast channels (member-added/member-removed)
+/// should only go to a single recipient,
+/// rather than all recipients.
+/// This function returns the fingerprint of the recipient the message should be sent to.
+fn must_have_only_one_recipient<'a>(msg: &'a Message, chat: &Chat) -> Option<Result<&'a str>> {
+    if chat.typ != Chattype::OutBroadcast {
+        None
+    } else if let Some(fp) = msg.param.get(Param::Arg4) {
+        Some(Ok(fp))
+    } else if matches!(
+        msg.param.get_cmd(),
+        SystemMessage::MemberRemovedFromGroup | SystemMessage::MemberAddedToGroup
+    ) {
+        Some(Err(format_err!("Missing removed/added member")))
+    } else {
+        None
+    }
+}
+
+async fn build_body_file(context: &Context, msg: &Message) -> Result<MimePart<'static>> {
+    let file_name = msg.get_filename().context("msg has no file")?;
+    let blob = msg
+        .param
+        .get_file_blob(context)?
+        .context("msg has no file")?;
+    let mimetype = msg
+        .param
+        .get(Param::MimeType)
+        .unwrap_or("application/octet-stream")
+        .to_string();
+    let body = fs::read(blob.to_abs_path()).await?;
+
+    // create mime part, for Content-Disposition, see RFC 2183.
+    // `Content-Disposition: attachment` seems not to make a difference to `Content-Disposition: inline`
+    // at least on tested Thunderbird and Gma'l in 2017.
+    // But I've heard about problems with inline and outl'k, so we just use the attachment-type until we
+    // run into other problems ...
+    let mail = MimePart::new(mimetype, body).attachment(sanitize_bidi_characters(&file_name));
+
+    Ok(mail)
+}
+
+async fn build_avatar_file(context: &Context, path: &str) -> Result<String> {
+    let blob = match path.starts_with("$BLOBDIR/") {
+        true => BlobObject::from_name(context, path)?,
+        false => BlobObject::from_path(context, path.as_ref())?,
+    };
+    let body = fs::read(blob.to_abs_path()).await?;
+    let encoded_body = base64::engine::general_purpose::STANDARD
+        .encode(&body)
+        .chars()
+        .enumerate()
+        .fold(String::new(), |mut res, (i, c)| {
+            if i % 78 == 77 {
+                res.push(' ')
+            }
+            res.push(c);
+            res
+        });
+    Ok(encoded_body)
+}
+
+fn recipients_contain_addr(recipients: &[(String, String)], addr: &str) -> bool {
+    let addr_lc = addr.to_lowercase();
+    recipients
+        .iter()
+        .any(|(_, cur)| cur.to_lowercase() == addr_lc)
+}
+
+fn render_rfc724_mid(rfc724_mid: &str) -> String {
+    let rfc724_mid = rfc724_mid.trim().to_string();
+
+    if rfc724_mid.chars().next().unwrap_or_default() == '<' {
+        rfc724_mid
+    } else {
+        format!("<{rfc724_mid}>")
+    }
+}
+
+/// Encodes UTF-8 string as a single B-encoded-word.
+///
+/// We manually encode some headers because as of
+/// version 0.4.4 mail-builder crate does not encode
+/// newlines correctly if they appear in a text header.
+fn b_encode(value: &str) -> String {
+    format!(
+        "=?utf-8?B?{}?=",
+        base64::engine::general_purpose::STANDARD.encode(value)
+    )
+}
+
+pub(crate) async fn render_symm_encrypted_securejoin_message(
+    context: &Context,
+    step: &str,
+    rfc724_mid: &str,
+    should_attach_pubkey: bool,
+    auth: &str,
+    shared_secret: &str,
+) -> Result<String> {
+    info!(context, "Sending secure-join message {step:?}.");
+
+    let message: MimePart<'static> = MimePart::new("text/plain", "Secure-Join");
+
+    let mut headers = Vec::<(&'static str, HeaderType<'static>)>::new();
+
+    let to: Vec<Address<'static>> = vec![hidden_recipients()];
+    headers.push((
+        "To",
+        mail_builder::headers::address::Address::new_list(to.clone()).into(),
+    ));
+
+    let timestamp = time();
+    let date = chrono::DateTime::<chrono::Utc>::from_timestamp(timestamp, 0)
+        .unwrap()
+        .to_rfc2822();
+    headers.push(("Date", mail_builder::headers::raw::Raw::new(date).into()));
+
+    headers.push((
+        "Subject",
+        mail_builder::headers::text::Text::new("Secure-Join".to_string()).into(),
+    ));
+
+    // Automatic Response headers <https://www.rfc-editor.org/rfc/rfc3834>
+    if context.get_config_bool(Config::Bot).await? {
+        headers.push((
+            "Auto-Submitted",
+            mail_builder::headers::raw::Raw::new("auto-generated".to_string()).into(),
+        ));
+    }
+
+    headers.push((
+        "Secure-Join",
+        mail_builder::headers::raw::Raw::new(step.to_string()).into(),
+    ));
+
+    headers.push((
+        "Secure-Join-Auth",
+        mail_builder::headers::text::Text::new(auth.to_string()).into(),
+    ));
+
+    let message = add_headers_to_encrypted_part(message, headers);
+
+    // Disable compression for SecureJoin to ensure
+    // there are no compression side channels
+    // leaking information about the tokens.
+    let should_compress = false;
+
+    // Only sign the message if we attach the pubkey.
+    let should_sign = should_attach_pubkey;
+
+    let raw_message = part_to_bytes(message);
+
+    let queued_mail = QueuedMail {
+        raw_message,
+        display_name: String::new(),
+        rfc724_mid: rfc724_mid.to_string(),
+        encryption: Encryption::Symmetric {
+            shared_secret: shared_secret.to_string(),
+        },
+        should_attach_pubkey,
+        should_sign,
+        should_compress,
+    };
+
+    let public_key = key::load_self_public_key(context).await?;
+    let secret_key = key::load_self_secret_key(context).await?;
+    let side_effects = RenderSideEffects::default();
+
+    let from_addr = context.get_primary_self_addr().await?;
+    let rendered_mail = render_queued_mail(
+        queued_mail,
+        &public_key,
+        &secret_key,
+        from_addr,
+        side_effects,
+    )?;
+
+    Ok(rendered_mail.message)
+}
+
+/// Renders MIME part into a vector of bytes.
+pub(crate) fn part_to_bytes(message: MimePart<'static>) -> Vec<u8> {
+    let mut raw_message = Vec::new();
+    let cursor = Cursor::new(&mut raw_message);
+    message.write_part(cursor).ok();
+    raw_message
+}
+
+#[cfg(test)]
+mod mimefactory_tests;
