@@ -1,0 +1,743 @@
+//! # Message transport.
+//!
+//! A transport represents a single IMAP+SMTP configuration
+//! that is known to work at least once in the past.
+//!
+//! Transports are stored in the `transports` SQL table.
+//! Each transport is uniquely identified by its email address.
+//! The table stores both the login parameters entered by the user
+//! and configured list of connection candidates.
+
+use std::fmt;
+use std::sync::atomic::Ordering;
+
+use anyhow::{Context as _, Result, bail, format_err};
+use deltachat_contact_tools::{EmailAddress, addr_normalize};
+use serde::{Deserialize, Serialize};
+
+use crate::config::Config;
+use crate::context::Context;
+use crate::ensure_and_debug_assert;
+use crate::events::EventType;
+use crate::login_param::EnteredLoginParam;
+use crate::net::load_connection_timestamp;
+use crate::provider::Socket;
+use crate::sql::Sql;
+use crate::sync::{RemovedTransportData, SyncData, TransportData};
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum ConnectionSecurity {
+    /// Implicit TLS.
+    Tls,
+
+    /// STARTTLS.
+    Starttls,
+
+    /// Plaintext.
+    Plain,
+}
+
+impl fmt::Display for ConnectionSecurity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Tls => write!(f, "tls")?,
+            Self::Starttls => write!(f, "starttls")?,
+            Self::Plain => write!(f, "plain")?,
+        }
+        Ok(())
+    }
+}
+
+impl TryFrom<Socket> for ConnectionSecurity {
+    type Error = anyhow::Error;
+
+    fn try_from(socket: Socket) -> Result<Self> {
+        match socket {
+            Socket::Automatic => Err(format_err!("Socket security is not configured")),
+            Socket::Ssl => Ok(Self::Tls),
+            Socket::Starttls => Ok(Self::Starttls),
+            Socket::Plain => Ok(Self::Plain),
+        }
+    }
+}
+
+/// Values saved into `imap_certificate_checks`.
+#[derive(
+    Copy, Clone, Debug, Display, FromPrimitive, ToPrimitive, PartialEq, Eq, Serialize, Deserialize,
+)]
+#[repr(u32)]
+#[strum(serialize_all = "snake_case")]
+pub(crate) enum ConfiguredCertificateChecks {
+    /// Accept invalid certificates.
+    ///
+    /// Must not be saved by new versions.
+    ///
+    /// Previous Delta Chat versions before core 1.133.0
+    /// stored this in `configured_imap_certificate_checks`
+    /// if Automatic configuration
+    /// was selected, configuration with strict TLS checks failed
+    /// and configuration without strict TLS checks succeeded.
+    OldAutomatic = 0,
+
+    /// Ensure that TLS certificate is valid for the server hostname.
+    Strict = 1,
+
+    /// Accept certificates that are expired, self-signed
+    /// or otherwise not valid for the server hostname.
+    AcceptInvalidCertificates = 2,
+
+    /// Accept certificates that are expired, self-signed
+    /// or otherwise not valid for the server hostname.
+    ///
+    /// Alias to `AcceptInvalidCertificates` for compatibility.
+    AcceptInvalidCertificates2 = 3,
+
+    /// Apply strict checks to TLS certificates,
+    /// unless a legacy-domain override disables them.
+    Automatic = 4,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct ConnectionCandidate {
+    /// Server hostname or IP address.
+    pub host: String,
+
+    /// Server port.
+    pub port: u16,
+
+    /// Transport layer security.
+    pub security: ConnectionSecurity,
+}
+
+impl fmt::Display for ConnectionCandidate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}:{}", self.host, self.port, self.security)?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct ConfiguredServerLoginParam {
+    pub connection: ConnectionCandidate,
+
+    /// Username.
+    pub user: String,
+}
+
+impl fmt::Display for ConfiguredServerLoginParam {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Do not print the username,
+        // we do not want it to end up in the logs.
+        write!(f, "{}", self.connection)?;
+        Ok(())
+    }
+}
+
+pub(crate) async fn prioritize_server_login_params(
+    sql: &Sql,
+    params: &[ConfiguredServerLoginParam],
+    alpn: &str,
+) -> Result<Vec<ConfiguredServerLoginParam>> {
+    let mut res: Vec<(Option<i64>, ConfiguredServerLoginParam)> = Vec::with_capacity(params.len());
+    for param in params {
+        let timestamp = load_connection_timestamp(
+            sql,
+            alpn,
+            &param.connection.host,
+            param.connection.port,
+            None,
+        )
+        .await?;
+        res.push((timestamp, param.clone()));
+    }
+    res.sort_by_key(|(ts, _param)| std::cmp::Reverse(*ts));
+    Ok(res.into_iter().map(|(_ts, param)| param).collect())
+}
+
+/// Login parameters saved to the database
+/// after successful configuration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ConfiguredLoginParam {
+    /// `From:` address that was used at the time of configuration.
+    pub addr: String,
+
+    /// List of IMAP candidates to try.
+    pub imap: Vec<ConfiguredServerLoginParam>,
+
+    /// Custom IMAP user.
+    ///
+    /// This overwrites autoconfig if non-empty.
+    pub imap_user: String,
+
+    pub imap_password: String,
+
+    // IMAP folder to watch.
+    //
+    // If not stored, should be interpreted as "INBOX".
+    // If stored, should be a folder name and not empty.
+    pub imap_folder: Option<String>,
+
+    /// List of SMTP candidates to try.
+    pub smtp: Vec<ConfiguredServerLoginParam>,
+
+    /// Custom SMTP user.
+    ///
+    /// This overwrites autoconfig if non-empty.
+    pub smtp_user: String,
+
+    pub smtp_password: String,
+
+    /// TLS options: whether to allow invalid certificates and/or
+    /// invalid hostnames
+    pub certificate_checks: ConfiguredCertificateChecks,
+}
+
+/// JSON representation of ConfiguredLoginParam
+/// for the database and sync messages.
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct ConfiguredLoginParamJson {
+    pub addr: String,
+    pub imap: Vec<ConfiguredServerLoginParam>,
+
+    /// IMAP folder to watch.
+    ///
+    /// Defaults to "INBOX" if unset.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub imap_folder: Option<String>,
+
+    pub imap_user: String,
+    pub imap_password: String,
+    pub smtp: Vec<ConfiguredServerLoginParam>,
+    pub smtp_user: String,
+    pub smtp_password: String,
+
+    pub certificate_checks: ConfiguredCertificateChecks,
+
+    /// Deprecated 2026-07, always false
+    #[serde(default)]
+    pub oauth2: bool,
+}
+
+impl fmt::Display for ConfiguredLoginParam {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let certificate_checks = self.certificate_checks;
+        if let Ok(parsed_addr) = EmailAddress::new(&self.addr) {
+            // Only include the domain.
+            write!(f, "***@{}", parsed_addr.domain)?;
+        } else {
+            // Should not happen, but if the address
+            // does not have a distinct domain part,
+            // print it as is.
+            write!(f, "{}", self.addr)?;
+        };
+        write!(f, " imap:[")?;
+        let mut first = true;
+        for imap in &self.imap {
+            if !first {
+                write!(f, ", ")?;
+            }
+            write!(f, "{imap}")?;
+            first = false;
+        }
+        write!(f, "]")?;
+        if let Some(folder) = &self.imap_folder {
+            write!(f, " folder:{folder:?}")?;
+        }
+        write!(f, " smtp:[")?;
+        let mut first = true;
+        for smtp in &self.smtp {
+            if !first {
+                write!(f, ", ")?;
+            }
+            write!(f, "{smtp}")?;
+            first = false;
+        }
+        write!(f, "] cert_{certificate_checks}")?;
+        Ok(())
+    }
+}
+
+impl ConfiguredLoginParam {
+    /// Load configured account settings from the database.
+    ///
+    /// Returns transport ID and configured parameters
+    /// of the current primary transport.
+    /// Returns `None` if account is not configured.
+    pub(crate) async fn load(context: &Context) -> Result<Option<(u32, Self)>> {
+        let Some(self_addr) = context.get_config(Config::ConfiguredAddr).await? else {
+            return Ok(None);
+        };
+
+        let Some((id, json)) = context
+            .sql
+            .query_row_optional(
+                "SELECT id, configured_param FROM transports WHERE addr=?",
+                (&self_addr,),
+                |row| {
+                    let id: u32 = row.get(0)?;
+                    let json: String = row.get(1)?;
+                    Ok((id, json))
+                },
+            )
+            .await?
+        else {
+            bail!("Self address {self_addr} doesn't have a corresponding transport");
+        };
+        Ok(Some((id, Self::from_json(&json)?)))
+    }
+
+    /// Loads configured login parameters for all transports.
+    ///
+    /// Returns a vector of all transport IDs
+    /// paired with the configured parameters for the transports and the published state.
+    pub(crate) async fn load_all(context: &Context) -> Result<Vec<(u32, Self, bool)>> {
+        context
+            .sql
+            .query_map_vec(
+                "SELECT id, configured_param, is_published FROM transports",
+                (),
+                |row| {
+                    let id: u32 = row.get(0)?;
+                    let json: String = row.get(1)?;
+                    let param = Self::from_json(&json)?;
+                    let is_published: bool = row.get(2)?;
+                    Ok((id, param, is_published))
+                },
+            )
+            .await
+    }
+
+    /// Loads legacy configured param. Only used for tests and the migration.
+    pub(crate) async fn load_legacy(context: &Context) -> Result<Option<Self>> {
+        if !context.get_config_bool(Config::Configured).await? {
+            return Ok(None);
+        }
+
+        let addr = context
+            .get_config(Config::ConfiguredAddr)
+            .await?
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+
+        let certificate_checks: ConfiguredCertificateChecks = if let Some(certificate_checks) =
+            context
+                .get_config_parsed::<i32>(Config::ConfiguredImapCertificateChecks)
+                .await?
+        {
+            num_traits::FromPrimitive::from_i32(certificate_checks)
+                .context("Invalid configured_imap_certificate_checks value")?
+        } else {
+            // This is true for old accounts configured using C core
+            // which did not check TLS certificates.
+            ConfiguredCertificateChecks::OldAutomatic
+        };
+
+        let send_pw = context
+            .get_config(Config::ConfiguredSendPw)
+            .await?
+            .context("SMTP password is not configured")?;
+        let mail_pw = context
+            .get_config(Config::ConfiguredMailPw)
+            .await?
+            .context("IMAP password is not configured")?;
+        let imap;
+        let smtp;
+
+        let mail_user = context
+            .get_config(Config::ConfiguredMailUser)
+            .await?
+            .unwrap_or_default();
+        let send_user = context
+            .get_config(Config::ConfiguredSendUser)
+            .await?
+            .unwrap_or_default();
+
+        if let (Some(configured_mail_servers), Some(configured_send_servers)) = (
+            context.get_config(Config::ConfiguredImapServers).await?,
+            context.get_config(Config::ConfiguredSmtpServers).await?,
+        ) {
+            imap = serde_json::from_str(&configured_mail_servers)
+                .context("Failed to parse configured IMAP servers")?;
+            smtp = serde_json::from_str(&configured_send_servers)
+                .context("Failed to parse configured SMTP servers")?;
+        } else {
+            // Load legacy settings storing a single IMAP and single SMTP server.
+            let mail_server = context
+                .get_config(Config::ConfiguredMailServer)
+                .await?
+                .unwrap_or_default();
+            let mail_port = context
+                .get_config_parsed::<u16>(Config::ConfiguredMailPort)
+                .await?
+                .unwrap_or_default();
+
+            let mail_security: Socket = context
+                .get_config_parsed::<i32>(Config::ConfiguredMailSecurity)
+                .await?
+                .and_then(num_traits::FromPrimitive::from_i32)
+                .unwrap_or_default();
+
+            let send_server = context
+                .get_config(Config::ConfiguredSendServer)
+                .await?
+                .context("SMTP server is not configured")?;
+            let send_port = context
+                .get_config_parsed::<u16>(Config::ConfiguredSendPort)
+                .await?
+                .unwrap_or_default();
+            let send_security: Socket = context
+                .get_config_parsed::<i32>(Config::ConfiguredSendSecurity)
+                .await?
+                .and_then(num_traits::FromPrimitive::from_i32)
+                .unwrap_or_default();
+
+            imap = vec![ConfiguredServerLoginParam {
+                connection: ConnectionCandidate {
+                    host: mail_server,
+                    port: mail_port,
+                    security: mail_security.try_into()?,
+                },
+                user: mail_user.clone(),
+            }];
+            smtp = vec![ConfiguredServerLoginParam {
+                connection: ConnectionCandidate {
+                    host: send_server,
+                    port: send_port,
+                    security: send_security.try_into()?,
+                },
+                user: send_user.clone(),
+            }];
+        }
+
+        Ok(Some(ConfiguredLoginParam {
+            addr,
+            imap,
+            imap_folder: None,
+            imap_user: mail_user,
+            imap_password: mail_pw,
+            smtp,
+            smtp_user: send_user,
+            smtp_password: send_pw,
+            certificate_checks,
+        }))
+    }
+
+    pub(crate) async fn save_to_transports_table(
+        self,
+        context: &Context,
+        entered_param: &EnteredLoginParam,
+        timestamp: i64,
+    ) -> Result<()> {
+        let is_published = true;
+        save_transport(
+            context,
+            entered_param,
+            &self.into(),
+            timestamp,
+            is_published,
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub(crate) fn from_json(json: &str) -> Result<Self> {
+        let json: ConfiguredLoginParamJson = serde_json::from_str(json)?;
+
+        ensure_and_debug_assert!(
+            json.imap_folder
+                .as_ref()
+                .is_none_or(|folder| !folder.is_empty()),
+            "Configured watched folder name cannot be empty"
+        );
+
+        Ok(ConfiguredLoginParam {
+            addr: json.addr,
+            imap: json.imap,
+            imap_folder: json.imap_folder,
+            imap_user: json.imap_user,
+            imap_password: json.imap_password,
+            smtp: json.smtp,
+            smtp_user: json.smtp_user,
+            smtp_password: json.smtp_password,
+
+            certificate_checks: json.certificate_checks,
+        })
+    }
+
+    pub(crate) fn into_json(self) -> Result<String> {
+        let json: ConfiguredLoginParamJson = self.into();
+        Ok(serde_json::to_string(&json)?)
+    }
+
+    pub(crate) fn strict_tls(&self, connected_through_proxy: bool) -> Result<bool> {
+        let disable_strict_tls =
+            crate::provider::legacy_settings_for_addr(&self.addr)?.disable_strict_tls;
+        Ok(match self.certificate_checks {
+            ConfiguredCertificateChecks::OldAutomatic if disable_strict_tls => false,
+            ConfiguredCertificateChecks::OldAutomatic => connected_through_proxy,
+            ConfiguredCertificateChecks::Automatic => !disable_strict_tls,
+            ConfiguredCertificateChecks::Strict => true,
+            ConfiguredCertificateChecks::AcceptInvalidCertificates
+            | ConfiguredCertificateChecks::AcceptInvalidCertificates2 => false,
+        })
+    }
+}
+
+impl From<ConfiguredLoginParam> for ConfiguredLoginParamJson {
+    fn from(configured_login_param: ConfiguredLoginParam) -> Self {
+        Self {
+            addr: configured_login_param.addr,
+            imap: configured_login_param.imap,
+            imap_user: configured_login_param.imap_user,
+            imap_password: configured_login_param.imap_password,
+            imap_folder: configured_login_param.imap_folder,
+            smtp: configured_login_param.smtp,
+            smtp_user: configured_login_param.smtp_user,
+            smtp_password: configured_login_param.smtp_password,
+
+            certificate_checks: configured_login_param.certificate_checks,
+            oauth2: false,
+        }
+    }
+}
+
+/// Saves transport to the database.
+/// Returns whether transports are modified.
+pub(crate) async fn save_transport(
+    context: &Context,
+    entered_param: &EnteredLoginParam,
+    configured: &ConfiguredLoginParamJson,
+    add_timestamp: i64,
+    is_published: bool,
+) -> Result<bool> {
+    ensure_and_debug_assert!(
+        configured
+            .imap_folder
+            .as_ref()
+            .is_none_or(|folder| !folder.is_empty()),
+        "Configured watched folder name cannot be empty"
+    );
+
+    let addr = addr_normalize(&configured.addr);
+    let configured_addr = context.get_config(Config::ConfiguredAddr).await?;
+    let mut modified = context
+        .sql
+        .execute(
+            "INSERT INTO transports (addr, entered_param, configured_param, add_timestamp, is_published)
+             VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT (addr)
+             DO UPDATE SET entered_param=excluded.entered_param,
+                           configured_param=excluded.configured_param,
+                           add_timestamp=excluded.add_timestamp,
+                           is_published=excluded.is_published
+             WHERE entered_param != excluded.entered_param
+                 OR configured_param != excluded.configured_param
+                 OR add_timestamp < excluded.add_timestamp
+                 OR is_published != excluded.is_published",
+            (
+                &addr,
+                serde_json::to_string(entered_param)?,
+                serde_json::to_string(configured)?,
+                add_timestamp,
+                is_published,
+            ),
+        )
+        .await?
+        > 0;
+
+    if configured_addr.is_none() {
+        // If there is no transport yet, set the new transport as the primary one
+        context
+            .sql
+            .set_raw_config(Config::ConfiguredAddr.as_ref(), Some(&addr))
+            .await?;
+        modified = true;
+    }
+    Ok(modified)
+}
+
+/// Sends a sync message to synchronize transports across devices.
+pub(crate) async fn send_sync_transports(context: &Context) -> Result<()> {
+    info!(context, "Sending transport synchronization message.");
+
+    // Regenerate public key to include all transports.
+    context.self_public_key.lock().await.take();
+
+    // Synchronize all transport configurations.
+    //
+    // Transport with ID 1 is never synchronized
+    // because it can only be created during initial configuration.
+    // This also guarantees that credentials for the first
+    // transport are never sent in sync messages,
+    // so this is not worse than when not using multi-transport.
+    // If transport ID 1 is reconfigured,
+    // likely because the password has changed,
+    // user has to reconfigure it manually on all devices.
+    let transports = context
+        .sql
+        .query_map_vec(
+            "SELECT entered_param, configured_param, add_timestamp, is_published
+             FROM transports WHERE id>1",
+            (),
+            |row| {
+                let entered_json: String = row.get(0)?;
+                let entered: EnteredLoginParam = serde_json::from_str(&entered_json)?;
+                let configured_json: String = row.get(1)?;
+                let configured: ConfiguredLoginParamJson = serde_json::from_str(&configured_json)?;
+                let timestamp: i64 = row.get(2)?;
+                let is_published: bool = row.get(3)?;
+                Ok(TransportData {
+                    configured,
+                    entered,
+                    timestamp,
+                    is_published,
+                })
+            },
+        )
+        .await?;
+    let removed_transports = context
+        .sql
+        .query_map_vec(
+            "SELECT addr, remove_timestamp FROM removed_transports",
+            (),
+            |row| {
+                let addr: String = row.get(0)?;
+                let timestamp: i64 = row.get(1)?;
+                Ok(RemovedTransportData { addr, timestamp })
+            },
+        )
+        .await?;
+    context
+        .add_sync_item(SyncData::Transports {
+            transports,
+            removed_transports,
+        })
+        .await?;
+    context.scheduler.interrupt_smtp().await;
+
+    Ok(())
+}
+
+/// Process received data for transport synchronization.
+pub(crate) async fn sync_transports(
+    context: &Context,
+    transports: &[TransportData],
+    removed_transports: &[RemovedTransportData],
+) -> Result<()> {
+    let mut modified = false;
+    for TransportData {
+        configured,
+        entered,
+        timestamp,
+        is_published,
+    } in transports
+    {
+        modified |= save_transport(context, entered, configured, *timestamp, *is_published).await?;
+    }
+
+    let reelected = context
+        .sql
+        .transaction(|transaction| {
+            for RemovedTransportData { addr, timestamp } in removed_transports {
+                let count: i64 =
+                    transaction
+                        .query_row("SELECT COUNT(*) FROM transports", (), |row| row.get(0))?;
+                if count <= 1 {
+                    // Removing the last transport would unconfigure the account.
+                    break;
+                }
+                modified |= transaction.execute(
+                    "DELETE FROM transports
+                     WHERE addr=? AND add_timestamp<=?",
+                    (addr, timestamp),
+                )? > 0;
+                transaction.execute(
+                    "INSERT INTO removed_transports (addr, remove_timestamp)
+                     VALUES (?, ?)
+                     ON CONFLICT (addr) DO
+                     UPDATE SET remove_timestamp = excluded.remove_timestamp
+                     WHERE excluded.remove_timestamp > remove_timestamp",
+                    (addr, timestamp),
+                )?;
+            }
+
+            maybe_reelect_local_primary(transaction)
+        })
+        .await?;
+
+    if let Some(new_addr) = reelected {
+        info!(context, "Re-elected primary transport {new_addr:?}.");
+        context.sql.uncache_raw_config("configured_addr").await;
+        modified = true;
+    }
+
+    if modified {
+        context.self_public_key.lock().await.take();
+        context
+            .restart_io_after_fetch
+            .store(true, Ordering::Relaxed);
+        context.emit_event(EventType::TransportsModified);
+    }
+    Ok(())
+}
+
+/// Elects a new primary transport for the device if the current one
+/// is not published or vanished, and there is a better candidate.
+///
+/// Returns the newly elected address if the primary transport changed.
+fn maybe_reelect_local_primary(transaction: &mut rusqlite::Transaction) -> Result<Option<String>> {
+    let configured_addr: String = transaction.query_row(
+        "SELECT value FROM config WHERE keyname='configured_addr'",
+        (),
+        |row| row.get(0),
+    )?;
+    // Newest transports first, they are the most likely to work.
+    let transports: Vec<(String, bool)> = transaction
+        .prepare(
+            "SELECT addr, is_published FROM transports
+             ORDER BY add_timestamp DESC, id DESC",
+        )?
+        .query_map((), |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+
+    // Nothing to do if the current primary is still there and published.
+    if transports
+        .iter()
+        .any(|(addr, is_published)| *is_published && *addr == configured_addr)
+    {
+        return Ok(None);
+    }
+    // Take an unpublished transport only if nothing is published.
+    let published = transports.iter().find(|(_, is_published)| *is_published);
+    let Some((new_addr, _)) = published.or_else(|| transports.first()) else {
+        return Ok(None);
+    };
+    if *new_addr == configured_addr {
+        // The primary transport may be the only remaining one.
+        return Ok(None);
+    }
+    transaction.execute(
+        "UPDATE config SET value=? WHERE keyname='configured_addr'",
+        (new_addr,),
+    )?;
+    Ok(Some(new_addr.clone()))
+}
+
+/// Adds transport entry to the `transports` table with empty configuration.
+pub(crate) async fn add_pseudo_transport(context: &Context, addr: &str) -> Result<()> {
+    context.sql
+        .execute(
+            "INSERT INTO transports (addr, entered_param, configured_param) VALUES (?, ?, ?)",
+            (
+                addr,
+                serde_json::to_string(&EnteredLoginParam{addr: addr.to_string(), ..Default::default()})?,
+                format!(r#"{{"addr":"{addr}","imap":[],"imap_user":"","imap_password":"","smtp":[],"smtp_user":"","smtp_password":"","certificate_checks":"Automatic","oauth2":false}}"#)
+            ),
+        )
+        .await?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod transport_tests;

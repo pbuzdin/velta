@@ -1,0 +1,381 @@
+# GitHub Actions workflow to
+# lint Rust and Python code
+# and run Rust tests, Python tests and async Python tests.
+
+name: Rust CI
+
+# Cancel previously started workflow runs
+# when the branch is updated.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions: {}
+
+env:
+  RUSTFLAGS: -Dwarnings
+  RUST_VERSION: 1.97.1
+
+  # Minimum Supported Rust Version
+  MSRV: 1.89.0
+
+jobs:
+  lint_rust:
+    name: Lint Rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          show-progress: false
+          persist-credentials: false
+      - name: Install rustfmt and clippy
+        run: rustup toolchain install $RUST_VERSION --profile minimal --component rustfmt --component clippy
+      - run: rustup override set $RUST_VERSION
+        shell: bash
+      - name: Cache rust cargo artifacts
+        uses: swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-bin: false
+      - name: Run rustfmt
+        run: cargo fmt --all -- --check
+      - name: Run clippy
+        run: scripts/clippy.sh
+      - name: Check with all features
+        run: cargo check --workspace --all-targets --all-features
+      - name: Check with only default features
+        run: cargo check --all-targets
+
+  cargo_deny:
+    name: cargo deny
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          show-progress: false
+          persist-credentials: false
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25
+        with:
+          arguments: --workspace --all-features --locked
+          command: check
+          command-arguments: "-Dwarnings"
+
+  docs:
+    name: Rust doc comments
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      RUSTDOCFLAGS: -Dwarnings
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          show-progress: false
+          persist-credentials: false
+      - name: Cache rust cargo artifacts
+        uses: swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-bin: false
+      - name: Rustdoc
+        run: cargo doc --document-private-items --no-deps
+
+  rust_tests:
+    name: Rust tests
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rust: latest
+          - os: windows-latest
+            rust: latest
+          - os: macos-latest
+            rust: latest
+
+          # Minimum Supported Rust Version
+          - os: ubuntu-latest
+            rust: minimum
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - run:
+          echo "RUSTUP_TOOLCHAIN=$MSRV" >> $GITHUB_ENV
+        shell: bash
+        if: matrix.rust == 'minimum'
+      - run:
+          echo "RUSTUP_TOOLCHAIN=$RUST_VERSION" >> $GITHUB_ENV
+        shell: bash
+        if: matrix.rust == 'latest'
+
+      - uses: actions/checkout@v7
+        with:
+          show-progress: false
+          persist-credentials: false
+
+      - name: Install Rust ${{ matrix.rust }}
+        run: rustup toolchain install --profile minimal $RUSTUP_TOOLCHAIN
+        shell: bash
+      - run: rustup override set $RUSTUP_TOOLCHAIN
+        shell: bash
+
+      - name: Cache rust cargo artifacts
+        uses: swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-bin: false
+
+      - name: Install nextest
+        uses: taiki-e/install-action@3d7d7cd5ac7f994c1892ae0c06165095b9139094
+        with:
+          tool: nextest
+
+      - name: Tests
+        env:
+          RUST_BACKTRACE: 1
+        run: cargo nextest run --workspace --locked
+
+      - name: Doc-Tests
+        env:
+          RUST_BACKTRACE: 1
+        run: cargo test --workspace --locked --doc
+
+      - name: Test cargo vendor
+        run: cargo vendor
+
+  c_library:
+    name: Build C library
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          show-progress: false
+          persist-credentials: false
+
+      - name: Cache rust cargo artifacts
+        uses: swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-bin: false
+
+      - name: Build C library
+        run: cargo build -p deltachat_ffi --locked
+
+      - name: Upload C library
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.os }}-libdeltachat.a
+          path: target/debug/libdeltachat.a
+          retention-days: 1
+
+  rpc_server:
+    name: Build deltachat-rpc-server
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          show-progress: false
+          persist-credentials: false
+
+      - name: Cache rust cargo artifacts
+        uses: swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-bin: false
+
+      - name: Build deltachat-rpc-server
+        run: cargo build -p deltachat-rpc-server --locked
+
+      - name: Upload deltachat-rpc-server
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.os }}-deltachat-rpc-server
+          path: ${{ matrix.os == 'windows-latest' && 'target/debug/deltachat-rpc-server.exe' || 'target/debug/deltachat-rpc-server' }}
+          retention-days: 1
+
+  python_lint:
+    name: Python lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          show-progress: false
+          persist-credentials: false
+
+      - name: Install tox
+        run: pip install tox
+
+      - name: Lint Python bindings
+        working-directory: python
+        run: tox -e lint
+
+      - name: Lint deltachat-rpc-client
+        working-directory: deltachat-rpc-client
+        run: tox -e lint
+
+  # mypy does not work with PyPy since mypy 1.19
+  # as it introduced native `librt` dependency
+  # that uses CPython internals.
+  # We only run mypy with CPython because of this.
+  cffi_python_mypy:
+    name: CFFI Python mypy
+    needs: ["c_library", "python_lint"]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          show-progress: false
+          persist-credentials: false
+
+      - name: Download libdeltachat.a
+        uses: actions/download-artifact@v7
+        with:
+          name: ubuntu-latest-libdeltachat.a
+          path: target/debug
+
+      - name: Install tox
+        run: pip install tox
+
+      - name: Run mypy
+        env:
+          DCC_RS_TARGET: debug
+          DCC_RS_DEV: ${{ github.workspace }}
+        working-directory: python
+        run: tox -e mypy
+
+
+  cffi_python_tests:
+    name: CFFI Python tests
+    needs: ["c_library", "python_lint"]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Currently used Rust version.
+          - os: ubuntu-latest
+            python: 3.14
+          - os: macos-latest
+            python: 3.14
+
+          # PyPy tests
+          - os: ubuntu-latest
+            python: pypy3.10
+          - os: macos-latest
+            python: pypy3.10
+
+          # Minimum Supported Python Version = 3.10
+          # This is the minimum version for which manylinux Python wheels are
+          # built. Test it with minimum supported Rust version.
+          - os: ubuntu-latest
+            python: "3.10"
+
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          show-progress: false
+          persist-credentials: false
+
+      - name: Download libdeltachat.a
+        uses: actions/download-artifact@v7
+        with:
+          name: ${{ matrix.os }}-libdeltachat.a
+          path: target/debug
+
+      - name: Install python
+        uses: actions/setup-python@v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install tox
+        run: pip install tox
+
+      - name: Run python tests
+        env:
+          CHATMAIL_DOMAIN: ${{ vars.CHATMAIL_DOMAIN }}
+          DCC_RS_TARGET: debug
+          DCC_RS_DEV: ${{ github.workspace }}
+        working-directory: python
+        run: tox -e doc,py
+
+  rpc_python_tests:
+    name: JSON-RPC Python tests
+    needs: ["python_lint", "rpc_server"]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: 3.14
+          - os: macos-latest
+            python: 3.14
+          - os: windows-latest
+            python: 3.14
+
+          # PyPy tests
+          - os: ubuntu-latest
+            python: pypy3.10
+          - os: macos-latest
+            python: pypy3.10
+
+          # Minimum Supported Python Version = 3.10
+          - os: ubuntu-latest
+            python: "3.10"
+
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          show-progress: false
+          persist-credentials: false
+
+      - name: Install python
+        uses: actions/setup-python@v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install tox
+        run: pip install tox
+
+      - name: Download deltachat-rpc-server
+        uses: actions/download-artifact@v7
+        with:
+          name: ${{ matrix.os }}-deltachat-rpc-server
+          path: target/debug
+
+      - name: Make deltachat-rpc-server executable
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: chmod +x target/debug/deltachat-rpc-server
+
+      - name: Add deltachat-rpc-server to path
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: echo ${{ github.workspace }}/target/debug >> $GITHUB_PATH
+
+      - name: Add deltachat-rpc-server to path
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: |
+          "${{ github.workspace }}/target/debug" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Run deltachat-rpc-client tests
+        env:
+          CHATMAIL_DOMAIN: ${{ vars.CHATMAIL_DOMAIN }}
+        working-directory: deltachat-rpc-client
+        run: tox -e py

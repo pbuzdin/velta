@@ -1,0 +1,69 @@
+"""Account manager module."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from ._utils import AttrDict, futuremethod
+from .account import Account
+
+if TYPE_CHECKING:
+    from .rpc import Rpc
+
+
+class DeltaChat:
+    """Delta Chat accounts manager.
+
+    This is the root of the object oriented API.
+    """
+
+    def __init__(self, rpc: "Rpc") -> None:
+        """Initialize account manager."""
+        self.rpc = rpc
+
+    def add_account(self) -> Account:
+        """Create a new account database."""
+        account_id = self.rpc.add_account()
+        return Account(self, account_id)
+
+    def get_all_accounts(self) -> list[Account]:
+        """Return a list of all available accounts."""
+        account_ids = self.rpc.get_all_account_ids()
+        return [Account(self, account_id) for account_id in account_ids]
+
+    def start_io(self) -> None:
+        """Start the I/O of all accounts."""
+        self.rpc.start_io_for_all_accounts()
+
+    def stop_io(self) -> None:
+        """Stop the I/O of all accounts."""
+        self.rpc.stop_io_for_all_accounts()
+
+    @futuremethod
+    def background_fetch(self, timeout_in_seconds: int) -> None:
+        """Run background fetch for all accounts."""
+        yield self.rpc.background_fetch.future(timeout_in_seconds)
+
+    def stop_background_fetch(self) -> None:
+        """Stop ongoing background fetch."""
+        self.rpc.stop_background_fetch()
+
+    def maybe_network(self) -> None:
+        """Indicate that the network conditions might have changed."""
+        self.rpc.maybe_network()
+
+    def get_system_info(self) -> AttrDict:
+        """Get information about the Delta Chat core in this system."""
+        return AttrDict(self.rpc.get_system_info())
+
+    def set_translations(self, translations: dict[str, str]) -> None:
+        """Set stock translation strings."""
+        self.rpc.set_stock_strings(translations)
+
+    def set_location(self, latitude, longitude, accuracy) -> bool:
+        """Set location, return True if location streaming should continue."""
+        return self.rpc.set_location(latitude, longitude, accuracy)
+
+    def stop_sending_locations(self) -> None:
+        """Stop sending locations to all chats."""
+        return self.rpc.stop_sending_locations()

@@ -1,0 +1,29 @@
+[package]
+name = "deltachat-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "MPL-2.0"
+
+[dev-dependencies]
+bolero = "0.13.4"
+
+[dependencies]
+mailparse = { workspace = true }
+deltachat = { path = ".." }
+format-flowed = { path = "../format-flowed" }
+
+[[test]]
+name = "fuzz_dateparse"
+path = "fuzz_targets/fuzz_dateparse.rs"
+harness = false
+
+[[test]]
+name = "fuzz_mailparse"
+path = "fuzz_targets/fuzz_mailparse.rs"
+harness = false
+
+[[test]]
+name = "fuzz_format_flowed"
+path = "fuzz_targets/fuzz_format_flowed.rs"
+harness = false

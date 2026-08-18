@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Velta — connection diagnostics</title>
+<style>
+  body { font: 14px/1.6 system-ui, sans-serif; background: #0f0f14; color: #eee; max-width: 640px; margin: 24px auto; padding: 0 16px; }
+  h1 { font-size: 19px; }
+  .row { display: flex; gap: 10px; align-items: baseline; padding: 10px 12px; border-radius: 10px; background: #1a1a22; margin: 8px 0; }
+  .badge { flex: none; font-weight: 700; }
+  .ok .badge { color: #37c85f; }
+  .fail .badge { color: #e05252; }
+  .run .badge { color: #e6a23c; }
+  .detail { color: #999; font-size: 12.5px; word-break: break-all; }
+  code { background: #000; padding: 1px 6px; border-radius: 5px; }
+  #ver { color: #666; font-size: 12px; margin-top: 20px; }
+  button { background: #5aa2e6; color: #fff; border: 0; border-radius: 8px; padding: 9px 18px; font-size: 14px; }
+</style>
+</head>
+<body>
+<h1>Background service diagnostics</h1>
+<p>This page probes the Velta Core service from your browser, step by step.</p>
+<div id="log"></div>
+<button id="rerun">Run again</button>
+<div id="ver"></div>
+
+<script>
+const log = document.getElementById("log");
+const WS_URL = "ws://127.0.0.1:20808";
+const HTTP_URL = "http://127.0.0.1:20809";
+
+function row(name) {
+  const el = document.createElement("div");
+  el.className = "row run";
+  el.innerHTML = `<span class="badge">…</span><div><div>${name}</div><div class="detail"></div></div>`;
+  log.appendChild(el);
+  return {
+    ok(detail) { el.className = "row ok"; el.querySelector(".badge").textContent = "OK"; el.querySelector(".detail").textContent = detail || ""; },
+    fail(detail) { el.className = "row fail"; el.querySelector(".badge").textContent = "FAIL"; el.querySelector(".detail").textContent = detail || ""; },
+  };
+}
+
+async function testWs() {
+  const r = row("WebSocket ws://127.0.0.1:20808 (old transport)");
+  return new Promise(res => {
+    let ws;
+    try { ws = new WebSocket(WS_URL); } catch (e) { r.fail("constructor threw: " + e); return res(false); }
+    const t = setTimeout(() => { try { ws.close(); } catch {} r.fail("timeout — service not listening?"); res(false); }, 2000);
+    ws.onopen = () => { clearTimeout(t); r.ok("socket opened"); try { ws.close(); } catch {} res(true); };
+    ws.onerror = () => { clearTimeout(t); r.fail("browser blocked/refused the socket (expected on HTTPS-hosted PWAs in Chrome — use HTTP below)"); res(false); };
+  });
+}
+
+async function testHealth() {
+  const r = row("HTTP GET http://127.0.0.1:20809/health");
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 3000);
+    const res = await fetch(HTTP_URL + "/health", { signal: ctrl.signal });
+    clearTimeout(t);
+    const text = await res.text();
+    if (res.ok && text.trim() === "ok") { r.ok('service answered "ok"'); return true; }
+    r.fail("unexpected response: HTTP " + res.status + " " + JSON.stringify(text));
+    return false;
+  } catch (e) { r.fail("fetch failed: " + e); return false; }
+}
+
+async function testRpc() {
+  const r = row("HTTP POST /rpc — get_all_account_ids (full JSON-RPC round trip)");
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    const res = await fetch(HTTP_URL + "/rpc", {
+      method: "POST",
+      body: JSON.stringify({ jsonrpc: "2.0", id: 999001, method: "get_all_account_ids", params: [] }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(t);
+    const text = await res.text();
+    try {
+      const msg = JSON.parse(text);
+      if (msg.result !== undefined) { r.ok("core answered: " + text); return true; }
+      r.fail("core error: " + text);
+    } catch { r.fail("non-JSON response: " + text.slice(0, 200)); }
+    return false;
+  } catch (e) { r.fail("fetch failed: " + e); return false; }
+}
+
+async function testAccount() {
+  const r = row("HTTP POST /rpc — get_account_info (needs an account id)");
+  try {
+    const idsRes = await fetch(HTTP_URL + "/rpc", {
+      method: "POST",
+      body: JSON.stringify({ jsonrpc: "2.0", id: 999002, method: "get_all_account_ids", params: [] }),
+    });
+    const ids = (await idsRes.json()).result || [];
+    if (!ids.length) { r.ok("no accounts yet — normal on a fresh install; the PWA will offer onboarding"); return true; }
+    const res = await fetch(HTTP_URL + "/rpc", {
+      method: "POST",
+      body: JSON.stringify({ jsonrpc: "2.0", id: 999003, method: "get_account_info", params: [ids[0]] }),
+    });
+    const msg = await res.json();
+    r.ok(JSON.stringify(msg.result).slice(0, 200));
+    return true;
+  } catch (e) { r.fail("failed: " + e); return false; }
+}
+
+async function main() {
+  log.innerHTML = "";
+  document.getElementById("ver").textContent =
+    "app build: " + (await fetch("sw.js").then(r => r.text()).then(t => (t.match(/delta-web-v\d+/) || ["?"])[0]).catch(() => "?"))
+    + " · served from: " + location.origin + " · " + navigator.userAgent;
+  await testWs();
+  const health = await testHealth();
+  if (health) { await testRpc(); await testAccount(); }
+  const advice = document.createElement("p");
+  advice.innerHTML = health
+    ? "The service is reachable. If the app still shows demo mode, it is running an <b>old cached version</b> — close the PWA completely and reopen it twice, or clear site data."
+    : "The HTTP bridge is not reachable from this browser. Check that the new APK is installed and the “Velta core running” notification is present.";
+  log.appendChild(advice);
+}
+
+document.getElementById("rerun").addEventListener("click", main);
+main();
+</script>
+</body>
+</html>

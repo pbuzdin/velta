@@ -1,0 +1,45 @@
+name: "Publish @deltachat/jsonrpc-client"
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions: {}
+
+jobs:
+  pack-module:
+    name: "Publish @deltachat/jsonrpc-client"
+    runs-on: ubuntu-latest
+    environment:
+      name: npm-jsonrpc-client
+      url: https://www.npmjs.com/package/@deltachat/jsonrpc-client
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          show-progress: false
+          persist-credentials: false
+
+      # Configure Node.js for publishing.
+      # Check <https://docs.npmjs.com/trusted-publishers> for the version requirements.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false  # never use caching in release builds
+
+      - name: Install dependencies without running scripts
+        working-directory: deltachat-jsonrpc/typescript
+        run: npm install --ignore-scripts
+
+      - name: Package
+        working-directory: deltachat-jsonrpc/typescript
+        run: |
+          npm run build
+          npm pack .
+
+      - name: Publish
+        working-directory: deltachat-jsonrpc/typescript
+        run: npm publish --provenance deltachat-jsonrpc-client-* --access public

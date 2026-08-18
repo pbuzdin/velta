@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=77", "wheel", "cffi>=1.0.0", "pkgconfig"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deltachat"
+version = "2.59.0"
+license = "MPL-2.0"
+description = "Python bindings for the Delta Chat Core library using CFFI against the Rust-implemented libdeltachat"
+readme = "README.rst"
+requires-python = ">=3.10"
+authors = [
+    { name = "holger krekel, Floris Bruynooghe, Bjoern Petersen and contributors" },
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: Communications :: Chat",
+    "Topic :: Communications :: Email",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "cffi>=1.0.0",
+    "imap-tools",
+    "pluggy",
+    "requests",
+]
+
+[project.urls]
+"Home" = "https://github.com/chatmail/core/"
+"Bug Tracker" = "https://github.com/chatmail/core/issues"
+"Documentation" = "https://py.delta.chat/"
+"Mastodon" = "https://chaos.social/@delta"
+
+[project.entry-points.pytest11]
+"deltachat.testplugin" = "deltachat.testplugin"
+
+[tool.setuptools.package-data]
+deltachat = [
+    "py.typed"
+]
+
+[tool.black]
+line-length = 120
+
+[tool.ruff]
+lint.select = ["E", "F", "W", "YTT", "C4", "ISC", "ICN", "TID", "DTZ", "PLC", "PLE", "PLW", "PIE", "COM", "UP004", "UP010", "UP031", "UP032", "ANN204"]
+lint.ignore = [
+  "PLC0415", # `import` should be at the top-level of a file
+  "PLW1641" # Object does not implement `__hash__` method
+]
+line-length = 120
+
+[tool.isort]
+profile = "black"
