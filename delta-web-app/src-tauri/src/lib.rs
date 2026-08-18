@@ -1,5 +1,4 @@
 use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 #[cfg(not(target_os = "android"))]
 use std::sync::Arc;
