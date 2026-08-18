@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain with Windows target
         uses: dtolnay/rust-toolchain@stable
@@ -43,7 +43,7 @@ jobs:
         run: cargo build -p deltachat-rpc-server --release --target x86_64-pc-windows-gnu
 
       - name: Upload sidecar artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: deltachat-rpc-server-windows-gnu
           path: core/target/x86_64-pc-windows-gnu/release/deltachat-rpc-server.exe
@@ -53,7 +53,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -61,15 +61,15 @@ jobs:
           toolchain: 1.89
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install cargo-tauri
         run: cargo install tauri-cli --version "^2.0" --locked
 
       - name: Download sidecar from Ubuntu build
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: deltachat-rpc-server-windows-gnu
           path: delta-web-app/src-tauri/binaries
@@ -80,14 +80,14 @@ jobs:
           $src = "delta-web-app/src-tauri/binaries/deltachat-rpc-server.exe"
           $dst = "delta-web-app/src-tauri/binaries/deltachat-rpc-server-x86_64-pc-windows-msvc.exe"
           if (Test-Path $dst) { Remove-Item $dst }
-          Rename-Item -Path $src -NewName $dst
+          Move-Item -Path $src -Destination $dst
 
       - name: Build Tauri Windows installer
         working-directory: ./delta-web-app
         run: cargo tauri build
 
       - name: Upload Windows artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: velta-windows
           path: |
