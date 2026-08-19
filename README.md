@@ -6,7 +6,7 @@ A cross-platform **Delta Chat** client experiment built as a single PWA-ish web 
 >
 > This project was built almost entirely through vibe-coding and iterative fixes. It is **not production-ready**: expect rough edges, incomplete features, and bugs. Treat it as a learning/demo project rather than a stable messenger.
 
-## What it is
+## What it is 
 
 Velta shares one web frontend (`app/`) between:
 
