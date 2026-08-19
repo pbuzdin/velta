@@ -97,11 +97,16 @@ jobs:
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
         run: |
-          UNSIGNED="delta-web-app/src-tauri/gen/android/app/build/outputs/apk/arm64-v8a/release/app-arm64-v8a-release-unsigned.apk"
-          ALIGNED="delta-web-app/src-tauri/gen/android/app/build/outputs/apk/arm64-v8a/release/app-arm64-v8a-release-zipaligned.apk"
-          SIGNED="delta-web-app/src-tauri/gen/android/app/build/outputs/apk/arm64-v8a/release/app-arm64-v8a-release-signed.apk"
           mkdir -p signing
           keytool -genkey -v -keystore signing/velta-debug.keystore -alias velta -keyalg RSA -keysize 2048 -validity 10000 -storepass velta123 -keypass velta123 -dname "CN=Velta"
+
+          UNSIGNED=$(find delta-web-app/src-tauri/gen/android/app/build/outputs/apk -name '*-release-unsigned.apk' | head -n 1)
+          if [ -z "$UNSIGNED" ]; then echo "Unsigned APK not found"; exit 1; fi
+          echo "Signing $UNSIGNED"
+
+          ALIGNED="${UNSIGNED%.apk}-zipaligned.apk"
+          SIGNED="${UNSIGNED%.apk}-signed.apk"
+
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -p -f 4 "$UNSIGNED" "$ALIGNED"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign --ks signing/velta-debug.keystore --ks-pass pass:velta123 --key-pass pass:velta123 --out "$SIGNED" "$ALIGNED"
 
@@ -110,13 +115,13 @@ jobs:
         with:
           name: velta-android
           path: |
-            delta-web-app/src-tauri/gen/android/app/build/outputs/apk/arm64-v8a/release/*-signed.apk
-            delta-web-app/src-tauri/gen/android/app/build/outputs/apk/arm64-v8a/release/*-unsigned.apk
+            delta-web-app/src-tauri/gen/android/app/build/outputs/apk/*/release/*-signed.apk
+            delta-web-app/src-tauri/gen/android/app/build/outputs/apk/*/release/*-unsigned.apk
 
       - name: Upload release assets (on tag)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: delta-web-app/src-tauri/gen/android/app/build/outputs/apk/arm64-v8a/release/*-signed.apk
+          files: delta-web-app/src-tauri/gen/android/app/build/outputs/apk/*/release/*-signed.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
