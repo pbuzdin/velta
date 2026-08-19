@@ -90,17 +90,17 @@ Output:
 - `delta-web-app/src-tauri/target/release/bundle/msi/*.msi`
 - `delta-web-app/src-tauri/target/release/bundle/nsis/*.exe`
 
-### Android APK
+### Android APK (arm64-v8a phones)
 
 ```bash
 cd delta-web-app
-cargo tauri android build --apk
+cargo tauri android build --apk --target aarch64
 ```
 
 The unsigned APK will be in:
 
 ```
-delta-web-app/src-tauri/gen/android/app/build/outputs/apk/universal/release/
+delta-web-app/src-tauri/gen/android/app/build/outputs/apk/arm64-v8a/release/
 ```
 
 To sign it locally:
@@ -110,13 +110,15 @@ keytool -genkey -v -keystore velta-debug.keystore -alias velta \
   -keyalg RSA -keysize 2048 -validity 10000 \
   -storepass velta123 -keypass velta123 -dname "CN=Velta"
 
-zipalign -p -f 4 app-universal-release-unsigned.apk app-universal-release-zipaligned.apk
+zipalign -p -f 4 app-arm64-v8a-release-unsigned.apk app-arm64-v8a-release-zipaligned.apk
 
 apksigner sign --ks velta-debug.keystore \
   --ks-pass pass:velta123 --key-pass pass:velta123 \
-  --out app-universal-release-signed.apk \
-  app-universal-release-zipaligned.apk
+  --out app-arm64-v8a-release-signed.apk \
+  app-arm64-v8a-release-zipaligned.apk
 ```
+
+Add `--split-per-abi` if you need separate APKs for other architectures.
 
 ## GitHub Actions
 
@@ -124,11 +126,69 @@ Pre-configured workflows live in `.github/workflows/`:
 
 | Workflow | What it builds |
 |---|---|
-| `build-android.yml` | Universal Android APK on `ubuntu-latest` |
+| `build-android.yml` | arm64-v8a Android APK on `ubuntu-latest` |
 | `build-windows.yml` | Windows installer on `windows-latest`, compiling the sidecar natively (needs Perl + NASM) |
 | `build-windows-cross.yml` | Windows installer where the sidecar is cross-compiled on Ubuntu to avoid installing Perl/NASM on Windows |
 
 The Android and cross-compiled Windows workflows are the easiest starting points if you just want an artifact.
+
+## Deep links
+
+Velta can open invite and account-setup links directly instead of making the user copy-paste them.
+
+### Supported link formats
+
+| Platform | Link type | What happens |
+|---|---|---|
+| Android | `https://i.delta.chat/#FINGERPRINT&v=3&…` | Intercepted by the Android intent filter and processed in-app. |
+| Android / PWA | `dcaccount:https://nine.testrun.org/new` | Configures a new chatmail account. |
+| Desktop (Windows/Linux) | `velta://invite?url=<encoded i.delta.chat URL>` | Opens Velta and joins the 1:1 or group chat. |
+| Desktop (Windows/Linux) | `velta://account?url=<encoded dcaccount URL>` | Opens Velta and creates a chatmail account. |
+| Contact verification | `OPENPGP4FPR:…` | Can be processed as a SecureJoin/verification QR. |
+
+### Why Windows needs a custom `velta://` scheme
+
+Windows does **not** allow a normal desktop app to intercept a specific `https://` host like `i.delta.chat` — that power belongs to the default browser. So on Windows Velta registers a custom URI scheme (`velta://`) through `tauri-plugin-deep-link`. The first time the app runs it writes the registry entry for the scheme, after which the OS will launch Velta for any `velta://…` link.
+
+### Wrapping an invite link for Windows
+
+Take an official Android invite link:
+
+```
+https://i.delta.chat/#DD1FDB8A5621D4A89DE00542234A2D9967B07594&v=3&i=fbrK144cdHV&s=GI2Y07eCqylGp6j5J_QCZ1vz&a=0so6eoc9s%40d13.buro.dev&n=Pavel
+```
+
+Encode the part after `url=` and build a `velta://` link:
+
+```
+velta://invite?url=https%3A%2F%2Fi.delta.chat%2F%23DD1FDB8A5621D4A89DE00542234A2D9967B07594%26v%3D3%26i%3DfbrK144cdHV%26s%3DGI2Y07eCqylGp6j5J_QCZ1vz%26a%3D0so6eoc9s%2540d13.buro.dev%26n%3DPavel
+```
+
+Quick JavaScript helper:
+
+```js
+function toVeltaInvite(httpsUrl) {
+  return "velta://invite?url=" + encodeURIComponent(httpsUrl);
+}
+```
+
+Clicking that link will focus an existing Velta window or start a new one, show a progress modal, and run `secureJoin()` against the decoded invite.
+
+### How it is implemented
+
+- **Android** — `delta-web-app/src-tauri/gen/android/app/src/main/AndroidManifest.xml` declares a `VIEW` intent filter for `https://i.delta.chat`. The Rust layer emits the URL to the frontend as a `deeplink` event.
+- **Windows/Linux** — `tauri-plugin-deep-link` registers the `velta://` scheme. `tauri-plugin-single-instance` (with the `deep-link` feature) forwards second-instance launches to the running window. The plugin emits a `deep-link://new-url` event that the frontend listens to.
+- **Common frontend handling** — `app/js/app.js` has `extractJoinLink()`, `extractInviteLink()`, and `extractVeltaLink()`. They normalise every supported format and route it to either the SecureJoin flow (`joinFromInvite`) or the account-setup flow (`addAccountFromInvite`).
+
+### Testing locally
+
+- **Android** — tap an `https://i.delta.chat/#…` link from any app. The system should offer to open it with Velta.
+- **Windows** — after installing and running Velta once, open a `velta://invite?url=…` link from a browser address bar or a local HTML file. The app should open and show the join progress modal.
+
+### Limitations
+
+- Windows cannot intercept the official `https://i.delta.chat/#…` links directly. To make those links open Velta automatically on Windows, a browser extension that rewrites them to `velta://` URLs would be required.
+- macOS deep links are configured in the same `velta://` desktop path, but they are currently untested.
 
 ## Known limitations
 

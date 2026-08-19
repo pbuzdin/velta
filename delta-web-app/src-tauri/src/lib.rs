@@ -54,11 +54,17 @@ pub fn log(_msg: &str) {
 }
 
 pub fn maybe_extract_deeplink(arg: &str) -> Option<String> {
-    if arg.starts_with("dcaccount:") || arg.starts_with("https://i.delta.chat/") || arg.starts_with("OPENPGP4FPR:") {
+    if arg.starts_with("velta:") || arg.starts_with("dcaccount:") || arg.starts_with("https://i.delta.chat/") || arg.starts_with("OPENPGP4FPR:") {
         return Some(arg.to_string());
     }
     if arg.starts_with("web+dcaccount:") {
         return Some(arg.replacen("web+dcaccount:", "", 1));
+    }
+    if arg.starts_with("web+velta:") {
+        return Some(arg.replacen("web+velta:", "", 1));
+    }
+    if let Some(pos) = arg.find("velta://") {
+        return Some(arg[pos..].to_string());
     }
     if let Some(pos) = arg.find("dcaccount:") {
         return Some(arg[pos..].to_string());
@@ -219,7 +225,7 @@ async fn init_android_core(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             log("setup started");
@@ -325,7 +331,20 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, get_initial_deeplink, get_sidecar_status])
+        .invoke_handler(tauri::generate_handler![js_log, rpc, get_initial_deeplink, get_sidecar_status]);
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        builder = builder
+            .plugin(tauri_plugin_single_instance::init(|_app, argv, cwd| {
+                log(&format!("single-instance args: {argv:?} cwd={cwd}"));
+                // The deep-link plugin (with the single-instance feature) forwards
+                // the URL to the running instance as a `deep-link://new-url` event.
+            }))
+            .plugin(tauri_plugin_deep_link::init());
+    }
+
+    builder
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app, _event| {
@@ -334,6 +353,7 @@ pub fn run() {
                 if let Some(url) = urls.first() {
                     let s = url.to_string();
                     log(&format!("deeplink opened: {s}"));
+                    *INITIAL_DEEPLINK.lock().unwrap() = Some(s.clone());
                     _app.emit("deeplink", s).ok();
                 }
             }

@@ -41,5 +41,11 @@
       }
     }
   },
-  "plugins": {}
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["velta"]
+      }
+    }
+  }
 }
