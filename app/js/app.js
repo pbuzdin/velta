@@ -465,6 +465,7 @@ async function addAccountFromInvite(link) {
      • web+dcaccount: protocol handler → index.html?qr=dcaccount:…
      • ?dcaccount=dcaccount:…  or  #dcaccount=dcaccount:…
      • #/addrelay/<urlencoded dcaccount link>
+     • velta://invite?url=<url-encoded i.delta.chat link>  (Windows custom scheme)
    Only acts when a real background core is available; in demo mode it
    tells the user to install the service instead. */
 function extractInviteLink(rawUrl = location.href) {
@@ -482,18 +483,37 @@ function extractInviteLink(rawUrl = location.href) {
 }
 
 // i.delta.chat securejoin invite (1:1 or group), passed via
-// ?invite= / #invite= — note the fragment never leaves the device.
+// ?invite= / #invite= — or as the raw fragment on a real i.delta.chat URL.
 function extractJoinLink(rawUrl = location.href) {
   let url;
   try { url = new URL(rawUrl, location.href); } catch { return null; }
   let link = url.searchParams.get("invite");
-  if (!link && url.hash.startsWith("#invite=")) {
-    link = decodeURIComponent(url.hash.slice(8));
+  if (!link && url.hash) {
+    const h = url.hash.slice(1);
+    if (h.startsWith("invite=")) {
+      link = decodeURIComponent(h.slice(7));
+    } else if (/^https:\/\/i\.delta\.chat\//.test(rawUrl) && /^[0-9A-Fa-f]{40}/.test(h)) {
+      // Raw fragment from an OS-level deep link: #FINGERPRINT&v=3&...
+      link = `https://i.delta.chat/#${h}`;
+    }
   }
   return link && /^https:\/\/i\.delta\.chat\//.test(link) ? link : null;
 }
 
+// Windows custom-scheme wrapper: velta://invite?url=<encoded https://i.delta.chat/…>
+// or velta://account?url=<encoded dcaccount:…>.
+function extractVeltaLink(rawUrl) {
+  let url;
+  try { url = new URL(rawUrl, location.href); } catch { return null; }
+  if (url.protocol !== "velta:") return null;
+  const inner = url.searchParams.get("url");
+  if (!inner) return null;
+  try { return decodeURIComponent(inner); } catch { return inner; }
+}
+
 async function handleDeeplinkFromUrl(rawUrl, { clearUrl = false } = {}) {
+  const velta = extractVeltaLink(rawUrl);
+  if (velta) rawUrl = velta;
   const joinLink = extractJoinLink(rawUrl);
   const link = extractInviteLink(rawUrl);
   if (!joinLink && !link) return;
@@ -561,19 +581,42 @@ function inviteQrProvider(chatId) {
   };
 }
 
+// Show a non-blocking progress modal for long-running join/configure operations.
+function showProgressModal(title, initialMessage) {
+  const body = document.createElement("div");
+  body.innerHTML = `
+    <div style="display:flex;align-items:center;gap:14px;padding:8px 0">
+      <div style="width:26px;height:26px;border:3px solid var(--accent);border-top-color:transparent;border-radius:50%;animation:ob-spin .8s linear infinite"></div>
+      <div style="font-size:15px;line-height:1.45" id="progress-text"></div>
+    </div>`;
+  body.querySelector("#progress-text").textContent = initialMessage;
+  const { close } = showModal({ title, body });
+  return {
+    close,
+    update: (msg) => {
+      const el = body.querySelector("#progress-text");
+      if (el) el.textContent = msg;
+    }
+  };
+}
+
 // Join a 1:1 or group chat from an i.delta.chat invite link / QR text.
 async function joinFromInvite(link) {
   if (!core.secureJoin) {
     toast("Joining chats needs the background core — not available in demo mode", 4500);
     return;
   }
-  toast("Joining — verifying contact…", 3000);
+  const { update, close } = showProgressModal("Joining chat", "Parsing invite link…");
   try {
+    update("Starting SecureJoin handshake…");
     const chatId = await core.secureJoin(link);
+    update("Opening chat…");
     await refreshChatList();
     openChat(chatId);
-    toast("Joined — the verification handshake runs in the background", 4000);
+    update("Joined successfully");
+    setTimeout(close, 700);
   } catch (err) {
+    close();
     toast("Join failed: " + err.message, 4500);
   }
 }
@@ -749,7 +792,15 @@ async function boot() {
         if (initial) await handleDeeplinkFromUrl(initial);
       }
       if (tauri?.event?.listen) {
+        // Mobile custom event emitted by our Rust layer.
         tauri.event.listen("deeplink", ev => { if (ev.payload) handleDeeplinkFromUrl(ev.payload); });
+        // Desktop event emitted by tauri-plugin-deep-link (Windows / Linux / macOS).
+        tauri.event.listen("deep-link://new-url", ev => {
+          const urls = Array.isArray(ev.payload) ? ev.payload : [ev.payload];
+          for (const url of urls) {
+            if (url) handleDeeplinkFromUrl(url);
+          }
+        });
       }
     } catch (err) {
       console.warn("Tauri deep-link setup failed:", err);
