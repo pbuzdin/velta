@@ -80,7 +80,7 @@ jobs:
           rustflags = ["-C", "link-arg=--target=x86_64-linux-android24"]
           EOF
 
-      - name: Build Android APK (universal)
+      - name: Build Android APK (arm64-v8a)
         working-directory: ./delta-web-app
         env:
           JAVA_HOME: ${{ env.JAVA_HOME_17_X64 }}
@@ -91,27 +91,15 @@ jobs:
           export CXX_aarch64_linux_android="$NDK/bin/aarch64-linux-android24-clang++"
           export AR_aarch64_linux_android="$NDK/bin/llvm-ar"
           export RANLIB_aarch64_linux_android="$NDK/bin/llvm-ranlib"
-          export CC_armv7_linux_androideabi="$NDK/bin/armv7a-linux-androideabi24-clang"
-          export CXX_armv7_linux_androideabi="$NDK/bin/armv7a-linux-androideabi24-clang++"
-          export AR_armv7_linux_androideabi="$NDK/bin/llvm-ar"
-          export RANLIB_armv7_linux_androideabi="$NDK/bin/llvm-ranlib"
-          export CC_i686_linux_android="$NDK/bin/i686-linux-android24-clang"
-          export CXX_i686_linux_android="$NDK/bin/i686-linux-android24-clang++"
-          export AR_i686_linux_android="$NDK/bin/llvm-ar"
-          export RANLIB_i686_linux_android="$NDK/bin/llvm-ranlib"
-          export CC_x86_64_linux_android="$NDK/bin/x86_64-linux-android24-clang"
-          export CXX_x86_64_linux_android="$NDK/bin/x86_64-linux-android24-clang++"
-          export AR_x86_64_linux_android="$NDK/bin/llvm-ar"
-          export RANLIB_x86_64_linux_android="$NDK/bin/llvm-ranlib"
-          cargo tauri android build --apk
+          cargo tauri android build --apk --target aarch64
 
       - name: Sign APK with debug keystore
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
         run: |
-          UNSIGNED="delta-web-app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk"
-          ALIGNED="delta-web-app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-zipaligned.apk"
-          SIGNED="delta-web-app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-signed.apk"
+          UNSIGNED="delta-web-app/src-tauri/gen/android/app/build/outputs/apk/arm64-v8a/release/app-arm64-v8a-release-unsigned.apk"
+          ALIGNED="delta-web-app/src-tauri/gen/android/app/build/outputs/apk/arm64-v8a/release/app-arm64-v8a-release-zipaligned.apk"
+          SIGNED="delta-web-app/src-tauri/gen/android/app/build/outputs/apk/arm64-v8a/release/app-arm64-v8a-release-signed.apk"
           mkdir -p signing
           keytool -genkey -v -keystore signing/velta-debug.keystore -alias velta -keyalg RSA -keysize 2048 -validity 10000 -storepass velta123 -keypass velta123 -dname "CN=Velta"
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -p -f 4 "$UNSIGNED" "$ALIGNED"
@@ -122,13 +110,13 @@ jobs:
         with:
           name: velta-android
           path: |
-            delta-web-app/src-tauri/gen/android/app/build/outputs/apk/universal/release/*-signed.apk
-            delta-web-app/src-tauri/gen/android/app/build/outputs/apk/universal/release/*-unsigned.apk
+            delta-web-app/src-tauri/gen/android/app/build/outputs/apk/arm64-v8a/release/*-signed.apk
+            delta-web-app/src-tauri/gen/android/app/build/outputs/apk/arm64-v8a/release/*-unsigned.apk
 
       - name: Upload release assets (on tag)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: delta-web-app/src-tauri/gen/android/app/build/outputs/apk/universal/release/*-signed.apk
+          files: delta-web-app/src-tauri/gen/android/app/build/outputs/apk/arm64-v8a/release/*-signed.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
