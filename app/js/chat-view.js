@@ -49,6 +49,34 @@ function fileUrl(path) {
   return path;
 }
 
+// On Android the file picker can return a content URI / temporary path that the
+// Delta Chat core cannot read directly. Copy the file into our app-local data
+// directory and return an absolute filesystem path the core can copy into blobs.
+async function resolveAttachmentPath(originalPath, filename) {
+  const tauri = window.__TAURI__;
+  const invoke = tauri?.core?.invoke || tauri?.invoke;
+  if (!invoke) return originalPath;
+
+  // Desktop usually returns an absolute path already — pass it through.
+  const normalized = originalPath.replace(/\\/g, "/");
+  if (/^([a-zA-Z]:|\/data\/|\\/storage\/)/.test(normalized)) return originalPath;
+
+  try {
+    const destName = `${Date.now()}-${filename || "file"}`;
+    const absDest = await invoke("resolve_upload_path", { filename: `uploads/${destName}` });
+    rustLog(`resolveAttachmentPath original=${originalPath} dest=${absDest}`);
+    if (!absDest) throw new Error("resolve_upload_path returned empty");
+
+    // Read original bytes and write to app-local destination.
+    const bytes = await invoke("plugin:fs|read_file", { path: originalPath });
+    await invoke("plugin:fs|write_file", { path: absDest, contents: bytes });
+    return absDest;
+  } catch (e) {
+    rustLog(`resolveAttachmentPath failed: ${e}; falling back to original`);
+    return originalPath;
+  }
+}
+
 function extOf(path) {
   if (!path) return "";
   const base = path.replace(/\\/g, "/").split("/").pop() || "";
@@ -337,7 +365,7 @@ export class ChatView {
       }
     } else if (m.viewtype === "video") {
       if (m.downloadState === "Done" && m.filePath) {
-        bubble += `<div class="msg-video"><video data-src="video" controls preload="metadata"></video></div>`;
+        bubble += `<div class="msg-video"><video data-src="video" controls preload="metadata" playsinline></video></div>`;
       } else {
         const size = m.fileSize ? formatBytes(m.fileSize) : "";
         bubble += `<div class="msg-file download-btn" role="button" data-act="download">
@@ -385,7 +413,11 @@ export class ChatView {
     const mediaVideo = row.querySelector('.msg-video video[data-src]');
     if (mediaVideo) {
       mediaVideo.src = fileUrl(m.filePath);
+      mediaVideo.onloadedmetadata = () => rustLog(`media video loaded id=${m.id} src=${mediaVideo.src}`);
       mediaVideo.onerror = () => rustLog(`media video error src=${mediaVideo.src} original=${m.filePath}`);
+      // On Android WebView the first frame is often not shown automatically;
+      // forcing a seek helps generate the poster frame.
+      mediaVideo.oncanplay = () => { try { mediaVideo.currentTime = 0.001; } catch {} };
     }
     const mediaAudio = row.querySelector('.msg-audio audio[data-src]');
     if (mediaAudio) {
@@ -584,12 +616,16 @@ export class ChatView {
     });
     document.getElementById("btn-attach").addEventListener("click", e => {
       const r = e.currentTarget.getBoundingClientRect();
+      const menuHeight = 210; // approximate height of the attach menu
+      // Prefer showing above the button; fall back to below when near the top.
+      const y = r.top > menuHeight + 16 ? r.top - menuHeight : r.bottom + 8;
+      const x = Math.min(r.left, window.innerWidth - 220);
       const menu = showContextMenu([
         { label: "Photo", icon: ICO.photo, onClick: () => this._sendAttachment("image") },
         { label: "Video", icon: ICO.photo, onClick: () => this._sendAttachment("video") },
         { label: "File", icon: ICO.file, onClick: () => this._sendAttachment("file") },
         { label: "Voice message", icon: ICO.mic, onClick: () => this._sendAttachment("voice") },
-      ], r.left, r.top - 240);
+      ], x, y);
       menu.classList.add("attach-pop");
     });
   }
@@ -645,7 +681,8 @@ export class ChatView {
       else if (kind === "video" || ["mp4", "mov", "mkv", "avi", "webm"].includes(ext)) viewtype = "video";
       else if (["mp3", "m4a", "ogg", "wav", "flac"].includes(ext)) viewtype = "audio";
 
-      const msg = await this.core.sendMessage(this.chat.id, { text: "", viewtype, file: path, filename: name });
+      const resolved = await resolveAttachmentPath(path, name);
+      const msg = await this.core.sendMessage(this.chat.id, { text: "", viewtype, file: resolved, filename: name });
       this.appendOutgoing(msg);
       this.onChatsChanged();
     } catch (err) {

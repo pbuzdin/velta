@@ -94,7 +94,16 @@ export class JsonRpcCore extends EventTarget {
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       try {
-        this.transport.send(line);
+        const result = this.transport.send(line);
+        // Tauri IPC returns a promise; catch invoke errors immediately
+        if (result && typeof result.then === "function") {
+          result.catch(e => {
+            if (this.pending.has(id)) {
+              this.pending.delete(id);
+              reject(e);
+            }
+          });
+        }
       } catch (e) {
         this.pending.delete(id);
         reject(e);
@@ -439,9 +448,33 @@ export class JsonRpcCore extends EventTarget {
     }
     const msgId = await this._call("send_msg", this.accountId, chatId, data);
     this.msgIdCache.get(chatId)?.push(msgId);
-    const msg = await this._getDecoratedMessage(msgId);
+
+    // Outgoing media messages start in OutPreparing (18). Wait briefly until the
+    // core has finished copying/processing the blob so get_message returns the
+    // correct viewType and file path instead of plain text.
+    const raw = await this._waitForPreparedMessage(msgId);
+    const msg = raw ? this._mapMessage(raw) : await this._getDecoratedMessage(msgId);
     if (msg) this._emit("msg-sent", { chatId, msg });
     return msg;
+  }
+
+  async _waitForPreparedMessage(msgId, timeoutMs = 6000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      try {
+        const m = await this._call("get_message", this.accountId, msgId);
+        // 18 = OutPreparing. Keep polling while the blob is still being copied.
+        if (m.state !== 18) {
+          rustLog(`sendMessage prepared id=${msgId} state=${m.state} viewType=${m.viewType}`);
+          return m;
+        }
+      } catch (e) {
+        rustLog(`sendMessage prepare poll error: ${e}`);
+      }
+      await new Promise(r => setTimeout(r, 250));
+    }
+    rustLog(`sendMessage prepare timeout for id=${msgId}`);
+    return null;
   }
 
   async getMessage(msgId) {

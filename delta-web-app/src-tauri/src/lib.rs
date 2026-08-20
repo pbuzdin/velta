@@ -93,6 +93,15 @@ fn get_accounts_dir(app: tauri::AppHandle) -> String {
     accounts_dir(&app).to_string_lossy().to_string()
 }
 
+#[tauri::command]
+fn resolve_upload_path(app: tauri::AppHandle, filename: String) -> String {
+    use tauri::path::BaseDirectory;
+    app.path()
+        .resolve(&format!("uploads/{}", filename), BaseDirectory::AppLocalData)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
+
 pub fn set_initial_deeplink_from_env() {
     if let Some(link) = std::env::args().skip(1).find_map(|a| maybe_extract_deeplink(&a)) {
         *INITIAL_DEEPLINK.lock().unwrap() = Some(link);
@@ -210,7 +219,9 @@ async fn init_android_core(
                 }
             };
             log(&format!("rpc <- {line}"));
-            app.emit("dc-rpc", line).ok();
+            if let Err(e) = app.emit("dc-rpc", &line) {
+                log(&format!("android emit error: {e}"));
+            }
         }
     });
 
@@ -233,6 +244,7 @@ pub fn run() {
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             log("setup started");
 
@@ -337,7 +349,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, get_initial_deeplink, get_sidecar_status, get_accounts_dir]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path]);
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
