@@ -56,6 +56,19 @@ if (window.__TAURI__) {
 }
 
 const core = await createCore();
+
+// Tell the frontend where blobs live so media URLs can be resolved absolutely.
+if (window.__TAURI__) {
+  try {
+    const tauri = window.__TAURI__;
+    const accountsDir = await tauri.core.invoke("get_accounts_dir");
+    window.veltaAccountsDir = accountsDir;
+    appLog(`accounts dir: ${accountsDir}`);
+  } catch (err) {
+    appLog(`get_accounts_dir failed: ${err?.message || err}`);
+  }
+}
+
 updateConnStatus();
 
 /* ---------------- connection status pill ---------------- */

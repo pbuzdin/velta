@@ -37,20 +37,20 @@ pub fn set_log_dir(path: PathBuf) {
 }
 
 pub fn log(_msg: &str) {
-    // Logging to velta.log is disabled for stable releases.
-    // let log_file = log_dir().join("velta.log");
-    // let _ = std::fs::create_dir_all(log_dir());
-    // let _ = OpenOptions::new()
-    //     .create(true)
-    //     .append(true)
-    //     .open(log_file)
-    //     .and_then(|mut f| {
-    //         let now = std::time::SystemTime::now()
-    //             .duration_since(std::time::UNIX_EPOCH)
-    //             .unwrap_or_default();
-    //         let line = format!("[{}.{:03}] {}\n", now.as_secs(), now.subsec_millis(), _msg);
-    //         f.write_all(line.as_bytes())
-    //     });
+    let log_file = log_dir().join("velta.log");
+    let _ = std::fs::create_dir_all(log_dir());
+    let _ = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_file)
+        .and_then(|mut f| {
+            use std::io::Write;
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default();
+            let line = format!("[{}.{:03}] {}\n", now.as_secs(), now.subsec_millis(), _msg);
+            f.write_all(line.as_bytes())
+        });
 }
 
 pub fn maybe_extract_deeplink(arg: &str) -> Option<String> {
@@ -86,6 +86,11 @@ fn set_sidecar_status(app: &tauri::AppHandle, status: serde_json::Value) {
 #[tauri::command]
 fn get_sidecar_status() -> serde_json::Value {
     SIDECAR_STATUS.lock().unwrap().clone().unwrap_or_else(|| serde_json::json!({"running": false, "stage": "unknown"}))
+}
+
+#[tauri::command]
+fn get_accounts_dir(app: tauri::AppHandle) -> String {
+    accounts_dir(&app).to_string_lossy().to_string()
 }
 
 pub fn set_initial_deeplink_from_env() {
@@ -227,6 +232,7 @@ async fn init_android_core(
 pub fn run() {
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             log("setup started");
 
@@ -331,7 +337,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, get_initial_deeplink, get_sidecar_status]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, get_initial_deeplink, get_sidecar_status, get_accounts_dir]);
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
