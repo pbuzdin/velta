@@ -9,6 +9,10 @@
     "core:event:allow-emit",
     "core:event:allow-unlisten",
     "opener:default",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "fs:default",
+    "fs:read-all",
+    "fs:write-all",
+    "fs:scope-applocaldata-recursive"
   ]
 }

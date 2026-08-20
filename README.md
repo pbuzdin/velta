@@ -57,7 +57,11 @@ cargo install tauri-cli --version "^2.0" --locked
 - Android SDK + NDK r27 (e.g. `ndk;27.2.12479018`)
 - JDK 17
 - Targets installed via rustup:
-  `aarch64-linux-android`, `armv7-linux-androideabi`, `i686-linux-android`, `x86_64-linux-android`
+  `aarch64-linux-android`, `armv7-linux-androideabi`, `i686-linux-androideabi`, `x86_64-linux-android`
+
+#### WSL-only NDK note
+
+If you install the NDK inside WSL (e.g. `~/android/sdk/ndk/r27c`) make sure the extracted NDK preserves symlinks. Python's `zipfile` module strips symlinks by default, which breaks the LLVM toolchain. Extract the NDK zip with a symlink-aware tool such as `unzip` or a small Python helper that checks `zipfile.ZipInfo.create_system == 3` before writing entries. After extraction verify that toolchain binaries like `toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang` resolve correctly.
 
 ## Build locally
 
@@ -224,12 +228,11 @@ Delta Chat splits very large messages into a small placeholder plus a downloadab
 ### Platform notes
 
 - **Windows / desktop** — file pickers return real filesystem paths and everything works end-to-end.
-- **Android** — the Tauri dialog may return a `content://` URI that the Delta Chat core cannot read directly. The current attachment implementation is desktop-first; Android will need a copy-to-local-temp step before `send_msg` is called.
+- **Android** — the Tauri dialog may return a `content://` URI that the Delta Chat core cannot read directly. Velta copies picked files into the app’s local data directory using `tauri-plugin-fs` before passing an absolute path to `send_msg`.
 
 ## Known limitations
 
 - This is a **PoC**. Group creation, contact discovery, QR invites, and real-time message rendering all work in basic flows but have not been stress-tested.
-- The app icon and adaptive Android icon may need further polishing.
 - Logging to `velta.log` is disabled in the stable branch; use the status pill and browser/Tauri dev tools to diagnose issues.
 - On Windows, the app needs the sidecar binary to talk to the real core. If the sidecar fails to start the frontend falls back to the mock core.
 - On Android, the app currently uses the in-process core inside the Tauri APK. A separate background-service variant (`delta-core-service/`) is only a skeleton.

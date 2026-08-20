@@ -22,7 +22,12 @@ window.addEventListener("unhandledrejection", e => appLog(`JS unhandled rejectio
 const $ = (id) => document.getElementById(id);
 {
   const el = $("conn-status");
-  if (el) { el.dataset.state = "connecting"; $("conn-label").textContent = "Checking for background service…"; }
+  if (el) {
+    el.dataset.state = "connecting";
+    $("conn-label").textContent = window.__TAURI__
+      ? "Starting embedded core…"
+      : "Checking for background service…";
+  }
 }
 
 // In the Tauri shell, show sidecar startup progress while the core is being located.

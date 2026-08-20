@@ -77,7 +77,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── delta-web-app/            # Tauri v2 wrapper skeleton
 │   └── src-tauri/
 │       ├── Cargo.toml        # depends on deltachat-jsonrpc (path on Android)
-│       ├── tauri.conf.json   # frontendDist: ../../app, version 1.1.0
+│       ├── tauri.conf.json   # frontendDist: ../../app, version 1.1.3
 │       ├── capabilities/     # Tauri v2 ACL (default.json, mobile.json)
 │       ├── src/
 │       │   ├── lib.rs        # Windows sidecar bridge + Android in-process core

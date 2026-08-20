@@ -37,12 +37,11 @@ android {
             }
         }
         getByName("release") {
-            isMinifyEnabled = true
-            proguardFiles(
-                *fileTree(".") { include("**/*.pro") }
-                    .plus(getDefaultProguardFile("proguard-android-optimize.txt"))
-                    .toList().toTypedArray()
-            )
+            // Minification is disabled for this proof-of-concept because the
+            // Tauri/Rust JNI bridge and plugin commands are easily broken by
+            // ProGuard stripping. The APK is larger but startup is reliable.
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
     kotlinOptions {

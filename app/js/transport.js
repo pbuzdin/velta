@@ -55,7 +55,8 @@ function tauriTransport() {
       ]);
     },
     send(line) {
-      invoke("rpc", { request: line });
+      // Return the promise so rpc-core can catch invoke errors
+      return invoke("rpc", { request: line });
     },
   };
 }
