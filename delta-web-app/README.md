@@ -185,6 +185,7 @@ Logs for the Tauri build:
 - [x] Event loop (`get_next_event`) + chat-list refresh deliver incoming chats and messages live.
 - [x] Safe-area insets keep the UI clear of the Android status/navigation bars.
 - [x] Capability files grant Tauri event permissions on desktop and mobile.
+- [x] File, photo, video and generic-file sending works on desktop; large messages show a download button that fetches the full body.
 
 ## Notes
 

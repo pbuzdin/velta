@@ -8,6 +8,7 @@
     "core:event:allow-listen",
     "core:event:allow-emit",
     "core:event:allow-unlisten",
-    "opener:default"
+    "opener:default",
+    "dialog:allow-open"
   ]
 }

@@ -30,6 +30,32 @@ const ICO = {
   check: `<svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
 };
 
+function fileUrl(path) {
+  if (!path) return "";
+  try {
+    const tauri = window.__TAURI__;
+    if (tauri?.core?.convertFileSrc) {
+      let resolved = path.replace(/\\/g, "/");
+      const isAbs = /^([a-zA-Z]:|\/)/.test(resolved);
+      if (!isAbs && window.veltaAccountsDir) {
+        const base = window.veltaAccountsDir.replace(/\\/g, "/").replace(/\/$/, "");
+        resolved = `${base}/${resolved.replace(/^\/+/, "")}`;
+      }
+      const url = tauri.core.convertFileSrc(resolved);
+      rustLog(`fileUrl path=${path} resolved=${resolved} url=${url}`);
+      return url;
+    }
+  } catch (e) { rustLog(`fileUrl error: ${e}`); }
+  return path;
+}
+
+function extOf(path) {
+  if (!path) return "";
+  const base = path.replace(/\\/g, "/").split("/").pop() || "";
+  const i = base.lastIndexOf(".");
+  return i > 0 ? base.slice(i + 1).toLowerCase() : "";
+}
+
 export class ChatView {
   constructor(core, { onChatsChanged, onForward }) {
     this.core = core;
@@ -299,15 +325,44 @@ export class ChatView {
         <span class="q-name">${escapeHtml(m.quote.fromContact?.name || "")}</span>
         <span class="q-text">${escapeHtml(m.quote.text || "")}</span></div>`;
     }
-    if (m.viewtype === "image") {
-      bubble += `<div class="msg-image" style="background:${m.img}"><span>📷 photo.jpg</span></div>`;
+    if (m.viewtype === "image" || m.viewtype === "gif" || m.viewtype === "sticker") {
+      if (m.downloadState === "Done" && m.filePath) {
+        bubble += `<div class="msg-image"><img data-src="image" alt=""></div>`;
+      } else {
+        const size = m.fileSize ? formatBytes(m.fileSize) : "";
+        bubble += `<div class="msg-file download-btn" role="button" data-act="download">
+          <div class="file-ico">${ICO.download}</div>
+          <div><div class="file-name">${escapeHtml(m.fileName || "Photo")}</div><div class="file-size">${m.downloadState === "InProgress" ? "Downloading…" : size || "Tap to download"}</div></div>
+        </div>`;
+      }
+    } else if (m.viewtype === "video") {
+      if (m.downloadState === "Done" && m.filePath) {
+        bubble += `<div class="msg-video"><video data-src="video" controls preload="metadata"></video></div>`;
+      } else {
+        const size = m.fileSize ? formatBytes(m.fileSize) : "";
+        bubble += `<div class="msg-file download-btn" role="button" data-act="download">
+          <div class="file-ico">${ICO.download}</div>
+          <div><div class="file-name">${escapeHtml(m.fileName || "Video")}</div><div class="file-size">${m.downloadState === "InProgress" ? "Downloading…" : size || "Tap to download"}</div></div>
+        </div>`;
+      }
+    } else if (m.viewtype === "audio" || m.viewtype === "voice") {
+      if (m.downloadState === "Done" && m.filePath) {
+        bubble += `<div class="msg-audio"><audio data-src="audio" controls preload="metadata"></audio></div>`;
+      } else {
+        const label = m.viewtype === "voice" ? "Voice message" : "Audio";
+        bubble += `<div class="msg-file download-btn" role="button" data-act="download">
+          <div class="file-ico">${ICO.download}</div>
+          <div><div class="file-name">${escapeHtml(m.fileName || label)}</div><div class="file-size">${m.downloadState === "InProgress" ? "Downloading…" : "Tap to download"}</div></div>
+        </div>`;
+      }
     } else if (m.viewtype === "file") {
-      bubble += `<div class="msg-file"><div class="file-ico">${ICO.download}</div><div><div class="file-name">${escapeHtml(m.fileName)}</div><div class="file-size">${formatBytes(m.fileSize)}</div></div></div>`;
-    } else if (m.viewtype === "voice") {
-      bubble += `<div class="msg-voice"><div class="play"><svg viewBox="0 0 24 24" style="width:20px;height:20px"><path d="M8 5v14l11-7z" fill="currentColor"/></svg></div>
-        <div class="wave">${(m.wave || []).map(h => `<i style="height:${h}px"></i>`).join("")}</div>
-        <div class="vtime">0:${String(m.duration).padStart(2, "0")}</div></div>`;
+      const isDownloaded = m.downloadState === "Done";
+      bubble += `<div class="msg-file${isDownloaded ? "" : " download-btn"}" role="button" data-act="${isDownloaded ? "open" : "download"}">
+        <div class="file-ico">${ICO.download}</div>
+        <div><div class="file-name">${escapeHtml(m.fileName || "File")}</div><div class="file-size">${m.downloadState === "InProgress" ? "Downloading…" : (m.fileSize ? formatBytes(m.fileSize) : "Tap to download")}</div></div>
+      </div>`;
     }
+
     if (m.text) bubble += `<div class="msg-text">${linkify(m.text)}`;
     else bubble += `<div class="msg-text">`;
     const edited = m.edited ? `<span class="edited">edited</span>` : "";
@@ -320,6 +375,23 @@ export class ChatView {
     }
     inner += `<div class="bubble">${bubble}</div>`;
     row.innerHTML = inner;
+
+    // Wire up real local file URLs for images / video / audio.
+    const mediaImg = row.querySelector('.msg-image img[data-src]');
+    if (mediaImg) {
+      mediaImg.src = fileUrl(m.filePath);
+      mediaImg.onerror = () => rustLog(`media img error src=${mediaImg.src} original=${m.filePath}`);
+    }
+    const mediaVideo = row.querySelector('.msg-video video[data-src]');
+    if (mediaVideo) {
+      mediaVideo.src = fileUrl(m.filePath);
+      mediaVideo.onerror = () => rustLog(`media video error src=${mediaVideo.src} original=${m.filePath}`);
+    }
+    const mediaAudio = row.querySelector('.msg-audio audio[data-src]');
+    if (mediaAudio) {
+      mediaAudio.src = fileUrl(m.filePath);
+      mediaAudio.onerror = () => rustLog(`media audio error src=${mediaAudio.src} original=${m.filePath}`);
+    }
 
     row.addEventListener("contextmenu", e => {
       e.preventDefault();
@@ -334,7 +406,14 @@ export class ChatView {
       const chip = e.target.closest("[data-react]");
       if (chip) { this.core.addReaction(this.chat.id, m.id, chip.dataset.react); return; }
       const quote = e.target.closest("[data-quote]");
-      if (quote) this._jumpToMessage(Number(quote.dataset.quote));
+      if (quote) { this._jumpToMessage(Number(quote.dataset.quote)); return; }
+      const mediaAction = e.target.closest("[data-act]");
+      if (mediaAction) {
+        e.stopPropagation();
+        if (mediaAction.dataset.act === "download") this._downloadMedia(m.id);
+        else if (mediaAction.dataset.act === "open") this._openFile(m.filePath);
+        return;
+      }
     });
     return row;
   }
@@ -507,9 +586,10 @@ export class ChatView {
       const r = e.currentTarget.getBoundingClientRect();
       const menu = showContextMenu([
         { label: "Photo", icon: ICO.photo, onClick: () => this._sendAttachment("image") },
+        { label: "Video", icon: ICO.photo, onClick: () => this._sendAttachment("video") },
         { label: "File", icon: ICO.file, onClick: () => this._sendAttachment("file") },
         { label: "Voice message", icon: ICO.mic, onClick: () => this._sendAttachment("voice") },
-      ], r.left, r.top - 190);
+      ], r.left, r.top - 240);
       menu.classList.add("attach-pop");
     });
   }
@@ -530,17 +610,72 @@ export class ChatView {
 
   async _sendAttachment(kind) {
     if (!this.chat) return;
-    let msg;
-    if (kind === "image") {
-      const grads = ["linear-gradient(135deg,#e96443,#904e95)", "linear-gradient(135deg,#11998e,#38ef7d)", "linear-gradient(135deg,#fc4a1a,#f7b733)"];
-      msg = await this.core.sendMessage(this.chat.id, { text: "", viewtype: "image", extra: { img: grads[Math.floor(Math.random() * grads.length)] } });
-    } else if (kind === "file") {
-      msg = await this.core.sendMessage(this.chat.id, { text: "", viewtype: "file", extra: { fileName: "document.pdf", fileSize: 250000 + Math.floor(Math.random() * 4000000) } });
-    } else {
-      msg = await this.core.sendMessage(this.chat.id, { text: "", viewtype: "voice", extra: { duration: 5 + Math.floor(Math.random() * 40) } });
+
+    // Voice recording is not implemented yet — keep the old demo placeholder.
+    if (kind === "voice") {
+      const msg = await this.core.sendMessage(this.chat.id, { text: "", viewtype: "voice", extra: { duration: 5 + Math.floor(Math.random() * 40) } });
+      this.appendOutgoing(msg);
+      this.onChatsChanged();
+      return;
     }
-    this.appendOutgoing(msg);
-    this.onChatsChanged();
+
+    let filters;
+    if (kind === "image") {
+      filters = [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp"] }];
+    } else if (kind === "video") {
+      filters = [{ name: "Videos", extensions: ["mp4", "mov", "mkv", "avi", "webm"] }];
+    } else {
+      filters = [{ name: "All files", extensions: ["*"] }];
+    }
+
+    const tauri = window.__TAURI__;
+    const invoke = tauri?.core?.invoke || tauri?.invoke;
+    if (!invoke) {
+      toast("File picker is only available in the Tauri app");
+      return;
+    }
+
+    try {
+      const path = await invoke("plugin:dialog|open", { options: { multiple: false, filters } });
+      if (!path) return;
+      const name = path.replace(/\\/g, "/").split("/").pop();
+      const ext = extOf(path);
+      let viewtype = "file";
+      if (kind === "image" || ["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext)) viewtype = "image";
+      else if (kind === "video" || ["mp4", "mov", "mkv", "avi", "webm"].includes(ext)) viewtype = "video";
+      else if (["mp3", "m4a", "ogg", "wav", "flac"].includes(ext)) viewtype = "audio";
+
+      const msg = await this.core.sendMessage(this.chat.id, { text: "", viewtype, file: path, filename: name });
+      this.appendOutgoing(msg);
+      this.onChatsChanged();
+    } catch (err) {
+      toast("Could not send file: " + (err.message || err), 4000);
+      console.error(err);
+    }
+  }
+
+  async _downloadMedia(msgId) {
+    try {
+      await this.core.downloadFullMessage(msgId);
+      const msg = await this.core.getMessage(msgId);
+      this.onMsgUpdated(this.chat.id, msg);
+    } catch (err) {
+      toast("Download failed: " + (err.message || err), 4000);
+      console.error(err);
+    }
+  }
+
+  _openFile(path) {
+    if (!path) return;
+    const tauri = window.__TAURI__;
+    const invoke = tauri?.core?.invoke || tauri?.invoke;
+    if (invoke) {
+      invoke("plugin:opener|open_path", { path }).catch(err => {
+        toast("Could not open file: " + (err.message || err), 3000);
+      });
+    } else {
+      toast("File opening is only available in the Tauri app");
+    }
   }
 
   /* ================= scrolling ================= */

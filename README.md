@@ -190,6 +190,42 @@ Clicking that link will focus an existing Velta window or start a new one, show 
 - Windows cannot intercept the official `https://i.delta.chat/#…` links directly. To make those links open Velta automatically on Windows, a browser extension that rewrites them to `velta://` URLs would be required.
 - macOS deep links are configured in the same `velta://` desktop path, but they are currently untested.
 
+## Sending files, photos and videos
+
+The composer has a paper-clip attachment button. From there you can send:
+
+| Type | How it is sent | How it is shown |
+|---|---|---|
+| Photo | `viewtype: Image` with the original file path | Rendered inline as an `<img>` |
+| Video | `viewtype: Video` | Rendered inline as a `<video controls>` element |
+| Audio / voice | `viewtype: Audio` or `Voice` | Rendered inline as an `<audio controls>` element |
+| Any file | `viewtype: File` | Shown as a file card with name, size and a download/open action |
+
+Implementation files:
+
+- `app/js/chat-view.js` — attachment menu, native file picker (`plugin:dialog|open`), media rendering and the download button.
+- `app/js/rpc-core.js` — `sendMessage()`, `getMessage()` and `downloadFullMessage()` wrappers around the core JSON-RPC methods.
+- `app/css/main.css` — styles for `.msg-image`, `.msg-video`, `.msg-audio` and `.msg-file`.
+
+### How media is loaded
+
+Real media blobs live in the Delta Chat account directory and cannot be reached by a `file://` URL from the WebView. For images, video and audio the UI uses `__TAURI__.core.convertFileSrc(path)` (Tauri’s local-file access helper) to generate a WebView-safe URL, then sets it as the `src` of the inline element. Files are opened with `plugin:opener|open_path`.
+
+### Downloading large messages
+
+Delta Chat splits very large messages into a small placeholder plus a downloadable body. When a message has `downloadState` other than `Done`, Velta shows a card with a download icon instead of the media player. Tapping it calls `download_full_message(msgId)` and then refreshes the message, which swaps the placeholder for the real image / video / audio player or the open-file card.
+
+### Attachment size limit
+
+`Config::DownloadLimit` defaults to `0` (no automatic size limit), so the core normally downloads the whole message automatically. For outgoing attachments the Delta Chat core recommends staying below roughly **18 MB** of raw file data (around 24 MB after base64 encoding), defined by `RECOMMENDED_FILE_SIZE` in `deltachat-core-rust`. Velta does not enforce this itself; it just passes the file to the core.
+
+`Config::MediaQuality` (`0` = Balanced, `1` = Worse) controls image compression on send, so the UI does not need to resize images before sending.
+
+### Platform notes
+
+- **Windows / desktop** — file pickers return real filesystem paths and everything works end-to-end.
+- **Android** — the Tauri dialog may return a `content://` URI that the Delta Chat core cannot read directly. The current attachment implementation is desktop-first; Android will need a copy-to-local-temp step before `send_msg` is called.
+
 ## Known limitations
 
 - This is a **PoC**. Group creation, contact discovery, QR invites, and real-time message rendering all work in basic flows but have not been stress-tested.

@@ -240,10 +240,25 @@ export class JsonRpcCore extends EventTarget {
   _mapViewtype(v) {
     switch (v) {
       case "Image": case "Gif": case "Sticker": return "image";
-      case "Voice": case "Audio": return "voice";
-      case "File": case "Video": return "file";
+      case "Voice": return "voice";
+      case "Audio": return "audio";
+      case "Video": return "video";
+      case "File": return "file";
       case "Webxdc": return "webxdc";
       default: return "text";
+    }
+  }
+
+  _toCoreViewtype(v) {
+    switch (v) {
+      case "image": return "Image";
+      case "video": return "Video";
+      case "file": return "File";
+      case "voice": return "Voice";
+      case "audio": return "Audio";
+      case "gif": return "Gif";
+      case "sticker": return "Sticker";
+      default: return "Text";
     }
   }
 
@@ -298,8 +313,11 @@ export class JsonRpcCore extends EventTarget {
       quote: this._mapQuote(m.quote),
       reactions: this._mapReactions(m.reactions),
       fwdFrom: m.isForwarded ? (m.overrideSenderName || sender.displayName || "") : null,
-      fileName: m.file ? m.file.split("/").pop() : null,
+      filePath: m.file || null,
+      fileName: m.fileName || (m.file ? m.file.split("/").pop() : null),
       fileSize: m.fileBytes ?? null,
+      fileMime: m.fileMime || null,
+      downloadState: m.downloadState || "Done",
       img: null, // real blobs need blob-dir serving; placeholder for now
       duration: m.duration ? Math.round(m.duration / 1000) : undefined,
       fromContact: out
@@ -412,13 +430,27 @@ export class JsonRpcCore extends EventTarget {
     return { messages, hasMore: start > 0 };
   }
 
-  async sendMessage(chatId, { text, quoteId = null }) {
-    const data = { text, quotedMessageId: quoteId ?? null };
+  async sendMessage(chatId, { text = "", quoteId = null, viewtype = "text", file = null, filename = null } = {}) {
+    const data = { text: text || "", quotedMessageId: quoteId ?? null };
+    if (viewtype && viewtype !== "text") data.viewType = this._toCoreViewtype(viewtype);
+    if (file) {
+      data.file = file;
+      if (filename) data.filename = filename;
+    }
     const msgId = await this._call("send_msg", this.accountId, chatId, data);
     this.msgIdCache.get(chatId)?.push(msgId);
     const msg = await this._getDecoratedMessage(msgId);
     if (msg) this._emit("msg-sent", { chatId, msg });
     return msg;
+  }
+
+  async getMessage(msgId) {
+    const m = await this._call("get_message", this.accountId, msgId);
+    return this._mapMessage(m);
+  }
+
+  async downloadFullMessage(msgId) {
+    await this._call("download_full_message", this.accountId, msgId);
   }
 
   // Accept a contact request — unblocks the chat so it becomes a normal
