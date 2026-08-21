@@ -58,6 +58,7 @@ function tauriTransport() {
       // Return the promise so rpc-core can catch invoke errors
       return invoke("rpc", { request: line });
     },
+    async reconnect() { return true; },
   };
 }
 
@@ -164,12 +165,16 @@ export async function probeService() {
   return probeHttp();
 }
 
-export async function createCore() {
-  rustLog("createCore started");
+export async function createCore({ onDiagnostic = () => {} } = {}) {
+  const diagnostic = (level, message) => {
+    rustLog(message);
+    onDiagnostic(level, message);
+  };
+  diagnostic("info", "Core connection started");
   const attempts = [];
   if (window.DcBridge) attempts.push(() => androidWebViewTransport());
   if (window.__TAURI__) {
-    rustLog("tauri global detected");
+    diagnostic("info", "Tauri runtime detected; probing embedded core");
     attempts.push(() => tauriTransport());
   }
   attempts.push(websocketTransport);
@@ -181,43 +186,31 @@ export async function createCore() {
   const deadline = Date.now() + GLOBAL_TIMEOUT_MS;
 
   for (const make of attempts) {
-    if (Date.now() > deadline) {
-      rustLog("global timeout reached, skipping remaining backends");
+    if (Date.now() >= deadline) {
+      diagnostic("error", "Core connection deadline reached; skipping remaining backends");
       break;
     }
     let transport = null;
-    try { transport = await make(); } catch (e) { rustLog(`probe failed: ${e}`); }
+    try { transport = await make(); } catch (e) { diagnostic("warning", `Backend probe failed: ${e}`); }
     if (!transport) continue;
-    rustLog(`trying backend ${transport.name}`);
+    diagnostic("info", `Trying ${transport.label || transport.name}`);
     const initAttempts = transport.name === "android-webview" ? 5 : transport.name === "tauri" ? 3 : 1;
     for (let i = 1; i <= initAttempts; i++) {
-      if (Date.now() > deadline) {
-        rustLog(`global timeout reached during ${transport.name} attempt ${i}`);
-        break;
-      }
-      rustLog("global timeout reached, skipping remaining backends");
-      break;
-    }
-    let transport = null;
-    try { transport = await make(); } catch (e) { rustLog(`probe failed: ${e}`); }
-    if (!transport) continue;
-    rustLog(`trying backend ${transport.name}`);
-    const initAttempts = transport.name === "android-webview" ? 5 : transport.name === "tauri" ? 3 : 1;
-    for (let i = 1; i <= initAttempts; i++) {
-      if (Date.now() > deadline) {
-        rustLog(`global timeout reached during ${transport.name} attempt ${i}`);
+      if (Date.now() >= deadline) {
+        diagnostic("error", `Connection deadline reached during ${transport.name} attempt ${i}`);
         break;
       }
       try {
         const core = new JsonRpcCore(transport);
-        rustLog(`init ${transport.name} attempt ${i}`);
+        diagnostic("info", `Initializing ${transport.name} (attempt ${i}/${initAttempts})`);
         await core.init();
         core.backend = { kind: transport.name, label: transport.label || transport.name, connected: true };
         console.info("[delta-web] using backend:", transport.name);
         statusEvent(true, transport.name);
+        diagnostic("info", `Connected to ${transport.label || transport.name}`);
         return core;
       } catch (e) {
-        rustLog(`init failed ${transport.name}: ${e}`);
+        diagnostic("error", `${transport.name} initialization failed: ${e?.message || e}`);
         console.warn(`[delta-web] backend init failed (${transport.name}, attempt ${i}/${initAttempts}):`, e);
         if (i === initAttempts) {
           statusEvent(false, transport.name);
@@ -228,7 +221,7 @@ export async function createCore() {
       }
     }
   }
-  rustLog("falling back to mock core");
+  diagnostic("warning", "No real core responded; entering demo mode");
   console.info("[delta-web] falling back to mock core");
   const mock = new MockCore();
   mock.backend = { kind: "mock", label: "demo mode (no local core)", connected: false };
