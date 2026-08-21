@@ -175,13 +175,39 @@ export async function createCore() {
   attempts.push(websocketTransport);
   attempts.push(async () => (await probeHttp()) ? httpTransport() : null);
 
+  // Global timeout: if no backend connects within 20s, bail to mock immediately.
+  // This prevents the UI from being stuck on "connecting" for 30+ seconds.
+  const GLOBAL_TIMEOUT_MS = 20_000;
+  const deadline = Date.now() + GLOBAL_TIMEOUT_MS;
+
   for (const make of attempts) {
+    if (Date.now() > deadline) {
+      rustLog("global timeout reached, skipping remaining backends");
+      break;
+    }
     let transport = null;
     try { transport = await make(); } catch (e) { rustLog(`probe failed: ${e}`); }
     if (!transport) continue;
     rustLog(`trying backend ${transport.name}`);
     const initAttempts = transport.name === "android-webview" ? 5 : transport.name === "tauri" ? 3 : 1;
     for (let i = 1; i <= initAttempts; i++) {
+      if (Date.now() > deadline) {
+        rustLog(`global timeout reached during ${transport.name} attempt ${i}`);
+        break;
+      }
+      rustLog("global timeout reached, skipping remaining backends");
+      break;
+    }
+    let transport = null;
+    try { transport = await make(); } catch (e) { rustLog(`probe failed: ${e}`); }
+    if (!transport) continue;
+    rustLog(`trying backend ${transport.name}`);
+    const initAttempts = transport.name === "android-webview" ? 5 : transport.name === "tauri" ? 3 : 1;
+    for (let i = 1; i <= initAttempts; i++) {
+      if (Date.now() > deadline) {
+        rustLog(`global timeout reached during ${transport.name} attempt ${i}`);
+        break;
+      }
       try {
         const core = new JsonRpcCore(transport);
         rustLog(`init ${transport.name} attempt ${i}`);
