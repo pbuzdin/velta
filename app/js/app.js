@@ -148,7 +148,7 @@ bindEarlyRecoveryActions();
 
 // In the Tauri shell, show sidecar startup progress while the core is being located.
 let lastSidecarStatus = null;
-if (window.__TAURI__ && !/Android/i.test(navigator.userAgent)) {
+if (window.__TAURI__) {
   const tauri = window.__TAURI__;
   const invoke = tauri.core?.invoke || tauri.invoke;
   const event = tauri.event || tauri;
