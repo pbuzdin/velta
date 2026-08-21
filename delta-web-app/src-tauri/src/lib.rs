@@ -199,8 +199,15 @@ async fn init_android_core(
 
     log(&format!("android accounts directory: {}", accounts_dir.display()));
 
+    // Emit initial progress status
+    app_handle.emit("dc-sidecar-status", serde_json::json!({"running": true, "stage": "initializing"})).ok();
+
     let accounts = Accounts::new(accounts_dir, true).await?;
     let accounts = Arc::new(RwLock::new(accounts));
+
+    // Emit progress after accounts initialization
+    app_handle.emit("dc-sidecar-status", serde_json::json!({"running": true, "stage": "configuring"})).ok();
+
     let state = CommandApi::from_arc(accounts.clone()).await;
 
     let (client, mut out_receiver) = RpcClient::new();
@@ -269,6 +276,12 @@ pub fn run() {
             {
                 let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
                 let tx = rt.block_on(init_android_core(app.handle().clone(), accounts)).map_err(|e| e.to_string())?;
+                
+                // Signal that the in-process core is ready for connections
+                app.emit("dc-core-ready", ()).ok();
+                // Mirror desktop sidecar status for frontend UI
+                set_sidecar_status(&app.handle(), serde_json::json!({"running": true, "stage": "ready"}));
+                
                 app.manage(RpcState {
                     _rt: rt,
                     tx: Mutex::new(Some(tx)),

@@ -51,7 +51,7 @@ function tauriTransport() {
     async setReceiver(fn) {
       await Promise.race([
         event.listen("dc-rpc", ev => fn(ev.payload)),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("tauri event listen timeout")), 5000))
+        new Promise((_, reject) => setTimeout(() => reject(new Error("tauri event listen timeout")), 15000))
       ]);
     },
     send(line) {
@@ -171,6 +171,26 @@ export async function createCore({ onDiagnostic = () => {} } = {}) {
     onDiagnostic(level, message);
   };
   diagnostic("info", "Core connection started");
+
+  // On Android Tauri, wait for the in-process core ready signal before probing.
+  // This prevents racing the core initialization which can take several seconds.
+  if (window.__TAURI__ && /Android/i.test(navigator.userAgent)) {
+    diagnostic("info", "Android Tauri detected; waiting for core ready signal");
+    await new Promise(resolve => {
+      const handler = () => {
+        window.removeEventListener("dc-core-ready", handler);
+        resolve();
+      };
+      window.addEventListener("dc-core-ready", handler);
+      // Fallback timeout in case the signal never arrives
+      setTimeout(() => {
+        window.removeEventListener("dc-core-ready", handler);
+        diagnostic("warning", "Core ready signal timeout; proceeding anyway");
+        resolve();
+      }, 15000);
+    });
+  }
+
   const attempts = [];
   if (window.DcBridge) attempts.push(() => androidWebViewTransport());
   if (window.__TAURI__) {
