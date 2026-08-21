@@ -3,7 +3,21 @@ import { createCore, probeService } from "./transport.js";
 import "./components.js";
 import { escapeHtml, escapeAttr } from "./components.js";
 import { ChatView } from "./chat-view.js";
+import { DiagnosticsStore, DIAGNOSTICS_CHAT_ID } from "./diagnostics.js";
 import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite } from "./ui.js";
+
+const diagnostics = new DiagnosticsStore();
+let core = null;
+let diagnosticsOpen = false;
+let chatView = null;
+let coreStartupPromise = null;
+const state = {
+  account: null,
+  chats: [],
+  activeChatId: null,
+  query: "",
+  theme: localStorage.getItem("dw-theme") || "dark",
+};
 
 function appLog(msg) {
   try {
@@ -12,6 +26,7 @@ function appLog(msg) {
     if (invoke) invoke("js_log", { msg }).catch(() => {});
   } catch {}
   console.log("[velta]", msg);
+  diagnostics.append("info", msg);
 }
 
 window.addEventListener("error", e => appLog(`JS error: ${e.message} at ${e.filename}:${e.lineno}`));
@@ -20,6 +35,107 @@ window.addEventListener("unhandledrejection", e => appLog(`JS unhandled rejectio
 // Show what we're doing from the very first paint — createCore() below can
 // take a moment while it probes for the background service.
 const $ = (id) => document.getElementById(id);
+
+function renderDiagnosticsMessages() {
+  if (!diagnosticsOpen) return;
+  const history = $("history");
+  if (!history) return;
+  history.replaceChildren();
+  for (const message of diagnostics.messages) {
+    const row = document.createElement("div");
+    row.className = "msg-row service";
+    row.dataset.msgid = message.id;
+    const bubble = document.createElement("div");
+    bubble.className = "service-msg";
+    bubble.textContent = `${new Date(message.ts).toLocaleTimeString()}  ${message.text}`;
+    row.appendChild(bubble);
+    history.appendChild(row);
+  }
+  requestAnimationFrame(() => {
+    const scroll = $("history-scroll");
+    if (scroll) scroll.scrollTop = scroll.scrollHeight;
+  });
+}
+
+function renderInitialDiagnosticsChat() {
+  const list = $("chat-list");
+  if (!list) return;
+  const item = document.createElement("dc-chat-item");
+  item.setData(diagnostics.getChat());
+  item.addEventListener("click", openDiagnosticsChat);
+  list.replaceChildren(item);
+}
+
+function bindEarlyRecoveryActions() {
+  $("btn-restart-core")?.addEventListener("click", async () => {
+    diagnostics.append("info", "Restart core I/O requested during startup");
+    if (!core) {
+      diagnostics.append("warning", "Core is still starting; reloading the UI to retry initialization");
+      setTimeout(() => location.reload(), 150);
+      return;
+    }
+    try {
+      if (!core.restartIo) throw new Error("Core I/O restart is unavailable for this backend");
+      await core.restartIo();
+      diagnostics.append("info", "Core I/O restarted successfully");
+      toast("Core I/O restarted");
+    } catch (error) {
+      diagnostics.append("error", `Core restart failed: ${error?.message || error}`);
+      toast(`Core restart failed: ${error?.message || error}`, 5000);
+    }
+  }, { once: true });
+
+  $("btn-reconnect-ui")?.addEventListener("click", async () => {
+    diagnostics.append("info", "UI reconnect requested during startup");
+    if (!core) {
+      diagnostics.append("info", "Core has not completed initialization; retrying the UI");
+      if (coreStartupPromise) {
+        try { await coreStartupPromise; } catch {}
+      }
+      if (!core) location.reload();
+      return;
+    }
+    try {
+      const ok = await core.reconnect?.();
+      if (!ok) throw new Error("Transport reconnect is unavailable");
+      core.backend.connected = true;
+      updateConnStatus(true);
+      await refreshChatList();
+      diagnostics.append("info", "UI reconnected successfully");
+      toast("UI reconnected to core");
+    } catch (error) {
+      diagnostics.append("error", `UI reconnect failed: ${error?.message || error}`);
+      toast(`Reconnect failed: ${error?.message || error}`, 5000);
+    }
+  }, { once: true });
+}
+
+function openDiagnosticsChat() {
+  diagnosticsOpen = true;
+  chatView?.stopLive();
+  state.activeChatId = DIAGNOSTICS_CHAT_ID;
+  $("no-chat").hidden = true;
+  $("chat-view").hidden = false;
+  document.querySelector(".app").classList.add("chat-open");
+  const head = document.createElement("dc-chat-head");
+  head.setData(diagnostics.getChat());
+  $("chat-head-info").replaceChildren(head);
+  $("chat-head-actions").style.visibility = "hidden";
+  $("main-composer").hidden = true;
+  $("diagnostic-actions").hidden = false;
+  $("reply-preview").hidden = true;
+  renderDiagnosticsMessages();
+  renderChatList();
+}
+
+diagnostics.addEventListener("changed", () => {
+  renderDiagnosticsMessages();
+  if (core) refreshChatList();
+  else renderInitialDiagnosticsChat();
+});
+
+renderInitialDiagnosticsChat();
+bindEarlyRecoveryActions();
 {
   const el = $("conn-status");
   if (el) {
@@ -32,7 +148,7 @@ const $ = (id) => document.getElementById(id);
 
 // In the Tauri shell, show sidecar startup progress while the core is being located.
 let lastSidecarStatus = null;
-if (window.__TAURI__) {
+if (window.__TAURI__ && !/Android/i.test(navigator.userAgent)) {
   const tauri = window.__TAURI__;
   const invoke = tauri.core?.invoke || tauri.invoke;
   const event = tauri.event || tauri;
@@ -40,8 +156,10 @@ if (window.__TAURI__) {
 
   function applySidecarStatus(status) {
     lastSidecarStatus = status;
+    diagnostics.append(status.error ? "error" : "info", `Embedded core: ${status.stage || (status.running ? "running" : "stopped")}${status.error ? ` — ${status.error}` : ""}`);
     const el = $("conn-status"), label = $("conn-label");
     if (!el || !label) return;
+    if (core?.backend?.connected) return;
     if (status.running) {
       label.textContent = status.stage === "ready" ? "Core ready · connecting…" : "Starting local core…";
       el.title = `Delta Chat sidecar is ${status.stage || "starting"}`;
@@ -60,7 +178,17 @@ if (window.__TAURI__) {
   }
 }
 
-const core = await createCore();
+coreStartupPromise = createCore({ onDiagnostic: (level, message) => diagnostics.append(level, message) });
+try {
+  core = await coreStartupPromise;
+} catch (error) {
+  diagnostics.append("error", `Core startup crashed: ${error?.message || error}`);
+  diagnostics.append("warning", "Continuing in demo mode so diagnostics and recovery controls remain available");
+  const { MockCore } = await import("./mock-core.js");
+  core = new MockCore();
+  core.backend = { kind: "mock", label: "demo mode (startup failure)", connected: false };
+}
+core.addEventListener?.("diagnostic", e => diagnostics.append(e.detail?.level || "info", e.detail?.message || "Core event"));
 
 // Tell the frontend where blobs live so media URLs can be resolved absolutely.
 if (window.__TAURI__) {
@@ -167,14 +295,6 @@ async function recheckService() {
   }
 }
 
-const state = {
-  account: null,
-  chats: [],
-  activeChatId: null,
-  query: "",
-  theme: localStorage.getItem("dw-theme") || "dark",
-};
-
 /* ---------------- theme ---------------- */
 applyTheme();
 function applyTheme() {
@@ -191,7 +311,8 @@ function toggleTheme() {
 /* ---------------- chat list ---------------- */
 async function refreshChatList() {
   try {
-    state.chats = await core.getChatList({ query: state.query });
+    const chats = await core.getChatList({ query: state.query });
+    state.chats = [diagnostics.getChat(), ...chats.filter(chat => chat.id !== DIAGNOSTICS_CHAT_ID)];
     renderChatList();
   } catch (err) {
     appLog(`refreshChatList error: ${err.message}`);
@@ -223,6 +344,7 @@ function renderChatList() {
 }
 
 function chatContextMenu(chat, x, y) {
+  if (chat.id === DIAGNOSTICS_CHAT_ID) return;
   const icons = {
     pin: `<svg viewBox="0 0 24 24"><path d="M9 4h6l1 7 3 3v2h-6v5l-1 1-1-1v-5H5v-2l3-3z" fill="currentColor"/></svg>`,
     mute: `<svg viewBox="0 0 24 24"><path d="M12 3a5 5 0 00-5 5v3l-2 4h14l-2-4V8a5 5 0 00-5-5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>`,
@@ -247,9 +369,15 @@ function chatContextMenu(chat, x, y) {
 }
 
 /* ---------------- chat open/close ---------------- */
-let chatView;
-
 async function openChat(chatId) {
+  if (chatId === DIAGNOSTICS_CHAT_ID) {
+    openDiagnosticsChat();
+    return;
+  }
+  diagnosticsOpen = false;
+  $("diagnostic-actions").hidden = true;
+  $("main-composer").hidden = false;
+  $("chat-head-actions").style.visibility = "";
   const chat = await core.getChat(chatId);
   if (chat.kind === "deaddrop") {
     const ok = await confirmModal("Contact request", `"${chat.name}" wants to start a conversation with you. Accept it to read the messages and reply.`, "Accept", false);
@@ -282,11 +410,15 @@ async function openChat(chatId) {
 }
 
 function closeChat() {
+  diagnosticsOpen = false;
   chatView?.stopLive();
   state.activeChatId = null;
   $("chat-view").hidden = true;
   $("no-chat").hidden = false;
   document.querySelector(".app").classList.remove("chat-open");
+  $("diagnostic-actions").hidden = true;
+  $("main-composer").hidden = false;
+  $("chat-head-actions").style.visibility = "";
   renderChatList();
 }
 

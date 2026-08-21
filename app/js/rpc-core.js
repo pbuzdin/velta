@@ -68,8 +68,17 @@ export class JsonRpcCore extends EventTarget {
     this.pending.clear();
     await this.transport.setReceiver(this._onLine);
     await this._call("select_account", this.accountId);
+    await this._call("start_io_for_all_accounts");
     this.msgIdCache.clear();
     this._emit("chat-updated", { chatId: 0 });
+    return true;
+  }
+
+  async restartIo() {
+    await this._call("stop_io_for_all_accounts");
+    await this._call("start_io_for_all_accounts");
+    await this._call("maybe_network");
+    this._emit("diagnostic", { level: "info", message: "Core network I/O restarted" });
     return true;
   }
 
@@ -128,7 +137,9 @@ export class JsonRpcCore extends EventTarget {
         const ev = await this._call("get_next_event");
         rustLog(`event raw: ${JSON.stringify(ev).slice(0, 400)}`);
         if (ev?.event) this._handleCoreEvent(ev.event).catch(() => {});
-      } catch { /* shutting down etc. */ }
+      } catch (error) {
+        this._emit("diagnostic", { level: "warning", message: `Event polling failed: ${error?.message || error}` });
+      }
       await new Promise(r => setTimeout(r, 250));
     }
   }
@@ -138,6 +149,19 @@ export class JsonRpcCore extends EventTarget {
     const msgId = ev.msg_id;
     rustLog(`event kind=${ev.kind} chatId=${chatId ?? "null"} msgId=${msgId ?? "null"}`);
     switch (ev.kind) {
+      case "Info":
+      case "Warning":
+      case "Error":
+      case "ImapConnected":
+      case "SmtpConnected":
+      case "SmtpMessageSent":
+      case "ImapInboxIdle":
+      case "ConnectivityChanged":
+        this._emit("diagnostic", {
+          level: ev.kind === "Error" ? "error" : ev.kind === "Warning" ? "warning" : "info",
+          message: ev.msg || ev.comment || ev.kind,
+        });
+        break;
       case "IncomingMsg":
       case "IncomingMsgBunch": {
         // IncomingMsgBunch carries no chat_id/msg_id — use 0 ("any chat").
