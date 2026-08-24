@@ -172,23 +172,28 @@ export async function createCore({ onDiagnostic = () => {} } = {}) {
   };
   diagnostic("info", "Core connection started");
 
-  // On Android Tauri, wait for the in-process core ready signal before probing.
-  // This prevents racing the core initialization which can take several seconds.
+  // On Android Tauri, poll the core status command until the in-process core
+  // is ready. We poll a command (not a one-shot event) because the event would
+  // race with WebView initialization and be lost before the listener is bound.
   if (window.__TAURI__ && /Android/i.test(navigator.userAgent)) {
-    diagnostic("info", "Android Tauri detected; waiting for core ready signal");
-    await new Promise(resolve => {
-      const handler = () => {
-        window.removeEventListener("dc-core-ready", handler);
-        resolve();
-      };
-      window.addEventListener("dc-core-ready", handler);
-      // Fallback timeout in case the signal never arrives
-      setTimeout(() => {
-        window.removeEventListener("dc-core-ready", handler);
-        diagnostic("warning", "Core ready signal timeout; proceeding anyway");
-        resolve();
-      }, 15000);
-    });
+    diagnostic("info", "Android Tauri detected; polling for core ready");
+    const tauri = window.__TAURI__;
+    const core = tauri.core || tauri;
+    const invoke = core.invoke ? core.invoke.bind(core) : tauri.invoke.bind(tauri);
+    const pollDeadline = Date.now() + 25000;
+    while (Date.now() < pollDeadline) {
+      try {
+        const status = await invoke("get_sidecar_status");
+        if (status && status.running && status.stage === "ready") {
+          diagnostic("info", "Android core reports ready");
+          break;
+        }
+      } catch (e) {
+        diagnostic("warning", `get_sidecar_status failed: ${e}`);
+      }
+      await new Promise(r => setTimeout(r, 1000));
+    }
+    diagnostic("info", "Android core poll finished; proceeding to connect");
   }
 
   const attempts = [];
