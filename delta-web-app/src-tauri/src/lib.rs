@@ -276,12 +276,11 @@ pub fn run() {
             {
                 let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
                 let tx = rt.block_on(init_android_core(app.handle().clone(), accounts)).map_err(|e| e.to_string())?;
-                
-                // Signal that the in-process core is ready for connections
-                app.emit("dc-core-ready", ()).ok();
-                // Mirror desktop sidecar status for frontend UI
-                set_sidecar_status(&app.handle(), serde_json::json!({"running": true, "stage": "ready"}));
-                
+
+                // Mirror desktop sidecar status for frontend UI; the frontend polls
+                // get_sidecar_status() to learn when the core is ready.
+                set_sidecar_status(app.handle(), serde_json::json!({"running": true, "stage": "ready"}));
+
                 app.manage(RpcState {
                     _rt: rt,
                     tx: Mutex::new(Some(tx)),
