@@ -188,6 +188,15 @@ try {
   core = new MockCore();
   core.backend = { kind: "mock", label: "demo mode (startup failure)", connected: false };
 }
+// createCore has a bounded handshake, but keep the UI honest if a future
+// backend violates that contract. A startup failure must never leave the
+// initial "connecting…" pill spinning indefinitely.
+if (!core) {
+  diagnostics.append("error", "Core startup returned no backend");
+  const { MockCore } = await import("./mock-core.js");
+  core = new MockCore();
+  core.backend = { kind: "mock", label: "demo mode (no local core)", connected: false };
+}
 core.addEventListener?.("diagnostic", e => diagnostics.append(e.detail?.level || "info", e.detail?.message || "Core event"));
 
 // Tell the frontend where blobs live so media URLs can be resolved absolutely.

@@ -237,6 +237,7 @@ async fn init_android_core(
         }
     });
 
+    log("android core RPC session and response forwarder ready");
     Ok(req_tx)
 }
 
@@ -269,10 +270,13 @@ pub fn run() {
             #[cfg(target_os = "android")]
             {
                 let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-                let tx = rt.block_on(init_android_core(app.handle().clone(), accounts)).map_err(|e| e.to_string())?;
+                log("initializing embedded Android core");
+                let tx = rt.block_on(init_android_core(app.handle().clone(), accounts)).map_err(|e| {
+                    log(&format!("embedded Android core initialization failed: {e}"));
+                    e.to_string()
+                })?;
 
-                // Mirror desktop sidecar status for frontend UI; the frontend polls
-                // get_sidecar_status() to learn when the core is ready.
+                // Keep the status command available for diagnostics.
                 set_sidecar_status(app.handle(), serde_json::json!({"running": true, "stage": "ready"}));
 
                 app.manage(RpcState {
