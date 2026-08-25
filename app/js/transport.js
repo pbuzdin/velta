@@ -49,11 +49,18 @@ function tauriTransport() {
     name: "tauri",
     label: "embedded core (Tauri)",
     async setReceiver(fn) {
-      // event.listen() resolves when the subscription is installed. Do not
-      // race it against a timeout: on Android the first subscription can be
-      // delayed while the WebView event bridge is coming up, and treating that
-      // delay as a failed transport causes the startup handshake to be lost.
-      await event.listen("dc-rpc", ev => fn(ev.payload));
+      // event.listen() must complete before the first request is sent. If the
+      // Android event bridge is not available, however, letting this promise
+      // hang leaves the whole UI permanently on "connecting". Bound it and
+      // let createCore retry/fall back instead.
+      const listenPromise = listen("dc-rpc", ev => fn(ev.payload));
+      await Promise.race([
+        listenPromise,
+        new Promise((_, reject) => setTimeout(
+          () => reject(new Error("tauri event listener setup timeout")),
+          8000,
+        )),
+      ]);
     },
     send(line) {
       // Return the promise so rpc-core can catch invoke errors
