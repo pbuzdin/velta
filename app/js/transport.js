@@ -49,10 +49,11 @@ function tauriTransport() {
     name: "tauri",
     label: "embedded core (Tauri)",
     async setReceiver(fn) {
-      await Promise.race([
-        event.listen("dc-rpc", ev => fn(ev.payload)),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("tauri event listen timeout")), 15000))
-      ]);
+      // event.listen() resolves when the subscription is installed. Do not
+      // race it against a timeout: on Android the first subscription can be
+      // delayed while the WebView event bridge is coming up, and treating that
+      // delay as a failed transport causes the startup handshake to be lost.
+      await event.listen("dc-rpc", ev => fn(ev.payload));
     },
     send(line) {
       // Return the promise so rpc-core can catch invoke errors
@@ -171,30 +172,6 @@ export async function createCore({ onDiagnostic = () => {} } = {}) {
     onDiagnostic(level, message);
   };
   diagnostic("info", "Core connection started");
-
-  // On Android Tauri, poll the core status command until the in-process core
-  // is ready. We poll a command (not a one-shot event) because the event would
-  // race with WebView initialization and be lost before the listener is bound.
-  if (window.__TAURI__ && /Android/i.test(navigator.userAgent)) {
-    diagnostic("info", "Android Tauri detected; polling for core ready");
-    const tauri = window.__TAURI__;
-    const core = tauri.core || tauri;
-    const invoke = core.invoke ? core.invoke.bind(core) : tauri.invoke.bind(tauri);
-    const pollDeadline = Date.now() + 25000;
-    while (Date.now() < pollDeadline) {
-      try {
-        const status = await invoke("get_sidecar_status");
-        if (status && status.running && status.stage === "ready") {
-          diagnostic("info", "Android core reports ready");
-          break;
-        }
-      } catch (e) {
-        diagnostic("warning", `get_sidecar_status failed: ${e}`);
-      }
-      await new Promise(r => setTimeout(r, 1000));
-    }
-    diagnostic("info", "Android core poll finished; proceeding to connect");
-  }
 
   const attempts = [];
   if (window.DcBridge) attempts.push(() => androidWebViewTransport());
