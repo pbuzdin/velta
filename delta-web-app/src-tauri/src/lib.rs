@@ -199,14 +199,8 @@ async fn init_android_core(
 
     log(&format!("android accounts directory: {}", accounts_dir.display()));
 
-    // Emit initial progress status
-    app_handle.emit("dc-sidecar-status", serde_json::json!({"running": true, "stage": "initializing"})).ok();
-
     let accounts = Accounts::new(accounts_dir, true).await?;
     let accounts = Arc::new(RwLock::new(accounts));
-
-    // Emit progress after accounts initialization
-    app_handle.emit("dc-sidecar-status", serde_json::json!({"running": true, "stage": "configuring"})).ok();
 
     let state = CommandApi::from_arc(accounts.clone()).await;
 

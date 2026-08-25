@@ -172,7 +172,7 @@ if (window.__TAURI__) {
 
   try {
     listen("dc-sidecar-status", ev => applySidecarStatus(ev.payload));
-    invoke("get_sidecar_status").then(applySidecarStatus);
+    invoke("get_sidecar_status").then(applySidecarStatus).catch(() => {});
   } catch (e) {
     console.warn("[delta-web] sidecar status setup failed:", e);
   }
