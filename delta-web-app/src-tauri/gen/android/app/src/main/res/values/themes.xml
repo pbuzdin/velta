@@ -1,7 +1,10 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
     <style name="Theme.delta_web" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <!-- Edge-to-edge: draw app content under system bars and let CSS handle insets. -->
+        <!-- Edge-to-edge: draw app content under system bars and let CSS handle insets.
+             Must match values-night/themes.xml exactly, otherwise the system bars
+             flash opaque during the day→night theme transition and on some OEM
+             ROMs the Activity re-creates itself on first configuration change. -->
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">false</item>

@@ -37,7 +37,13 @@ tauri-plugin-deep-link = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
 [profile.release]
-panic = "abort"
+# panic = "unwind" so a panic during startup (e.g. in init_android_core or the
+# tokio runtime) is caught by Tauri's setup() closure and surfaced via the
+# `dc-sidecar-status` event instead of instantly killing the process. With
+# panic = "abort" a single panic anywhere in the core or RPC session takes the
+# whole app down with no diagnostic path, which on Android manifests as "the
+# app won't start".
+panic = "unwind"
 lto = true
 codegen-units = 1
 strip = true
