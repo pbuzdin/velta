@@ -21,36 +21,91 @@ static LOG_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
 static INITIAL_DEEPLINK: Mutex<Option<String>> = Mutex::new(None);
 static SIDECAR_STATUS: Mutex<Option<serde_json::Value>> = Mutex::new(None);
 
+// Non-blocking logger: messages are pushed onto an unbounded mpsc channel and
+// written from a dedicated background thread, so log() never blocks the IPC /
+// RPC hot path. On Android this is critical — the WebView event bridge and the
+// JSON-RPC session both pass through the main thread context, and a
+// synchronous file open+write per RPC round-trip was stalling the startup
+// handshake long enough for the frontend's event.listen() to time out and
+// fall back to demo mode.
+static LOG_TX: Mutex<Option<std::sync::mpsc::Sender<String>>> = Mutex::new(None);
+
 fn log_dir() -> PathBuf {
     LOG_DIR
         .lock()
         .unwrap()
         .clone()
         .unwrap_or_else(|| {
-            let local_app_data = std::env::var("LOCALAPPDATA").unwrap_or_default();
-            Path::new(&local_app_data).join("Velta").join("logs")
+            // Fallback when set_log_dir() hasn't run yet. On Android,
+            // LOCALAPPDATA is unset and the process CWD is "/" (not writable),
+            // so the old fallback silently failed on every log call. Prefer a
+            // temp directory so log writes never block. The real path is set
+            // by set_log_dir() early in setup() before any meaningful logging.
+            if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+                if !local_app_data.is_empty() {
+                    return Path::new(&local_app_data).join("Velta").join("logs");
+                }
+            }
+            std::env::temp_dir().join("velta-logs")
         })
 }
 
 pub fn set_log_dir(path: PathBuf) {
     *LOG_DIR.lock().unwrap() = Some(path);
+    // Spawn the writer thread lazily on the first set_log_dir() call so it
+    // points at the real log directory.
+    ensure_log_writer();
 }
 
-pub fn log(_msg: &str) {
-    let log_file = log_dir().join("velta.log");
-    let _ = std::fs::create_dir_all(log_dir());
-    let _ = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_file)
-        .and_then(|mut f| {
-            use std::io::Write;
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default();
-            let line = format!("[{}.{:03}] {}\n", now.as_secs(), now.subsec_millis(), _msg);
-            f.write_all(line.as_bytes())
-        });
+fn ensure_log_writer() {
+    let mut guard = LOG_TX.lock().unwrap();
+    if guard.is_some() {
+        return;
+    }
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    *guard = Some(tx);
+    drop(guard);
+
+    // Capture the directory at spawn time — it won't change during the session.
+    let dir = log_dir();
+    std::thread::Builder::new()
+        .name("velta-log-writer".into())
+        .spawn(move || {
+            let _ = std::fs::create_dir_all(&dir);
+            for msg in rx {
+                let log_file = dir.join("velta.log");
+                let res = OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&log_file)
+                    .and_then(|mut f| {
+                        use std::io::Write;
+                        f.write_all(msg.as_bytes())
+                    });
+                // If the log file becomes unwritable (rotated, volume full),
+                // don't kill the thread — just keep draining the channel so
+                // log() callers never block.
+                if res.is_err() {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+            }
+        })
+        .ok();
+}
+
+pub fn log(msg: &str) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let line = format!("[{}.{:03}] {}\n", now.as_secs(), now.subsec_millis(), msg);
+    // Non-blocking send. If the channel doesn't exist yet (before
+    // set_log_dir) or the writer thread has died, the message is dropped —
+    // never block the caller. On Android this is what was killing startup:
+    // every RPC round-trip did a synchronous create_dir_all+open+write under
+    // a global Mutex, blocking the JSON-RPC handshake.
+    if let Some(tx) = LOG_TX.lock().unwrap().as_ref() {
+        let _ = tx.send(line);
+    }
 }
 
 pub fn maybe_extract_deeplink(arg: &str) -> Option<String> {
@@ -156,7 +211,10 @@ impl RpcState {
 
 #[tauri::command]
 fn rpc(request: String, state: State<'_, RpcState>) -> Result<(), String> {
-    log(&format!("rpc -> {}", request));
+    // NOTE: do not log every request here. This command is on the JSON-RPC
+    // hot path — even with the non-blocking logger, formatting a string per
+    // RPC adds alloc pressure and grows velta.log unbounded. Use js_log from
+    // the frontend for targeted diagnostics.
     state.send_rpc(&request)
 }
 
@@ -198,9 +256,13 @@ async fn init_android_core(
     use yerpc::{RpcClient, RpcSession};
 
     log(&format!("android accounts directory: {}", accounts_dir.display()));
+    // Tell the frontend we're past the "starting" stage so the status pill
+    // shows progress instead of looking stuck during Accounts::new().
+    let _ = app_handle.emit("dc-sidecar-status", serde_json::json!({"running": true, "stage": "initializing"}));
 
     let accounts = Accounts::new(accounts_dir, true).await?;
     let accounts = Arc::new(RwLock::new(accounts));
+    let _ = app_handle.emit("dc-sidecar-status", serde_json::json!({"running": true, "stage": "configuring"}));
 
     let state = CommandApi::from_arc(accounts.clone()).await;
 
@@ -219,7 +281,8 @@ async fn init_android_core(
                     continue;
                 }
             };
-            log(&format!("rpc <- {line}"));
+            // NOTE: do not log every response — it's the hot path and would
+            // grow velta.log unbounded. Errors are still logged below.
             if let Err(e) = app.emit("dc-rpc", &line) {
                 log(&format!("android emit error: {e}"));
             }
@@ -229,7 +292,7 @@ async fn init_android_core(
     // Process incoming JSON-RPC requests.
     tokio::spawn(async move {
         while let Some(line) = req_rx.recv().await {
-            log(&format!("rpc -> {line}"));
+            // NOTE: do not log every request here either.
             let session = session.clone();
             tokio::spawn(async move {
                 session.handle_incoming(&line).await;
@@ -248,8 +311,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
-            log("setup started");
-
             let log_dir_path = {
                 #[cfg(target_os = "android")]
                 {
@@ -261,7 +322,12 @@ pub fn run() {
                     Path::new(&local_app_data).join("Velta").join("logs")
                 }
             };
+            // set_log_dir() must run BEFORE the first log() call, otherwise
+            // the very first "setup started" line goes to the fallback path
+            // (temp dir on Android) and the writer thread is bound to the
+            // wrong directory for the whole session.
             set_log_dir(log_dir_path);
+            log("setup started");
 
             let accounts = accounts_dir(app.handle());
             let _ = std::fs::create_dir_all(&accounts);
@@ -328,7 +394,9 @@ pub fn run() {
                                 for line in reader.lines() {
                                     match line {
                                         Ok(line) => {
-                                            log(&format!("rpc <- {line}",));
+                                            // NOTE: do not log every line — it's the
+                                            // hot path and would grow velta.log
+                                            // unbounded. Errors are logged below.
                                             app_handle.emit("dc-rpc", line).ok();
                                         }
                                         Err(e) => {

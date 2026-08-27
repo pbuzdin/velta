@@ -49,18 +49,16 @@ function tauriTransport() {
     name: "tauri",
     label: "embedded core (Tauri)",
     async setReceiver(fn) {
-      // event.listen() must complete before the first request is sent. If the
-      // Android event bridge is not available, however, letting this promise
-      // hang leaves the whole UI permanently on "connecting". Bound it and
-      // let createCore retry/fall back instead.
-      const listenPromise = listen("dc-rpc", ev => fn(ev.payload));
-      await Promise.race([
-        listenPromise,
-        new Promise((_, reject) => setTimeout(
-          () => reject(new Error("tauri event listener setup timeout")),
-          8000,
-        )),
-      ]);
+      // Do NOT race event.listen() against a timeout. On Android the Tauri
+      // event bridge subscription can legitimately take a few seconds to
+      // install while the WebView finishes coming up, and treating that delay
+      // as a transport failure causes the JSON-RPC handshake to be lost —
+      // core.init() then sends get_all_account_ids before the receiver is
+      // wired, the response is dropped, and the app falls back to demo mode.
+      //
+      // The createCore() global deadline (20s) still bounds the overall
+      // startup so a genuinely broken bridge can't hang the UI forever.
+      await listen("dc-rpc", ev => fn(ev.payload));
     },
     send(line) {
       // Return the promise so rpc-core can catch invoke errors
@@ -191,6 +189,8 @@ export async function createCore({ onDiagnostic = () => {} } = {}) {
 
   // Global timeout: if no backend connects within 20s, bail to mock immediately.
   // This prevents the UI from being stuck on "connecting" for 30+ seconds.
+  // This deadline also bounds the tauriTransport().setReceiver() call, which
+  // deliberately no longer has its own per-listener timeout (see comment there).
   const GLOBAL_TIMEOUT_MS = 20_000;
   const deadline = Date.now() + GLOBAL_TIMEOUT_MS;
 
