@@ -176,8 +176,10 @@ fn get_initial_deeplink() -> Option<String> {
 struct RpcState {
     #[cfg(target_os = "android")]
     _rt: tokio::runtime::Runtime,
+    // Shared with the background init task: setup() stores None immediately
+    // and the async core-init task fills it in once the RPC session is ready.
     #[cfg(target_os = "android")]
-    tx: Mutex<Option<tokio::sync::mpsc::UnboundedSender<String>>>,
+    tx: std::sync::Arc<std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<String>>>>,
 
     #[cfg(not(target_os = "android"))]
     stdin: Arc<Mutex<Option<ChildStdin>>>,
@@ -336,18 +338,34 @@ pub fn run() {
             #[cfg(target_os = "android")]
             {
                 let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-                log("initializing embedded Android core");
-                let tx = rt.block_on(init_android_core(app.handle().clone(), accounts)).map_err(|e| {
-                    log(&format!("embedded Android core initialization failed: {e}"));
-                    e.to_string()
-                })?;
+                log("initializing embedded Android core (non-blocking)");
 
-                // Keep the status command available for diagnostics.
-                set_sidecar_status(app.handle(), serde_json::json!({"running": true, "stage": "ready"}));
+                // Share the sender handle with the background init task.
+                // Setup must return immediately so WebView creation is not
+                // delayed, and core initialization continues asynchronously.
+                // Until tx is set, rpc() calls report "not running", which
+                // lets the frontend retry instead of dead-ending on startup.
+                let tx_holder: std::sync::Arc<std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<String>>>> = std::sync::Arc::new(std::sync::Mutex::new(None));
 
                 app.manage(RpcState {
                     _rt: rt,
-                    tx: Mutex::new(Some(tx)),
+                    tx: tx_holder.clone(),
+                });
+
+                let handle = app.handle().clone();
+                let status_handle = app.handle().clone();
+                rt.spawn(async move {
+                    match init_android_core(handle, accounts).await {
+                        Ok(tx) => {
+                            log("android core RPC session ready");
+                            *tx_holder.lock().unwrap() = Some(tx);
+                            set_sidecar_status(&status_handle, serde_json::json!({"running": true, "stage": "ready"}));
+                        }
+                        Err(e) => {
+                            log(&format!("embedded Android core initialization failed: {e}"));
+                            set_sidecar_status(&status_handle, serde_json::json!({"running": false, "stage": "error", "message": e.to_string()}));
+                        }
+                    }
                 });
             }
 
