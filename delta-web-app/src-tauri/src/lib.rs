@@ -347,6 +347,11 @@ pub fn run() {
                 // lets the frontend retry instead of dead-ending on startup.
                 let tx_holder: std::sync::Arc<std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<String>>>> = std::sync::Arc::new(std::sync::Mutex::new(None));
 
+                // Spawn the init task through a cloned handle: rt itself is
+                // moved into RpcState below to keep the runtime alive for the
+                // whole session.
+                let spawn_handle = rt.handle().clone();
+
                 app.manage(RpcState {
                     _rt: rt,
                     tx: tx_holder.clone(),
@@ -354,7 +359,7 @@ pub fn run() {
 
                 let handle = app.handle().clone();
                 let status_handle = app.handle().clone();
-                rt.spawn(async move {
+                spawn_handle.spawn(async move {
                     match init_android_core(handle, accounts).await {
                         Ok(tx) => {
                             log("android core RPC session ready");
