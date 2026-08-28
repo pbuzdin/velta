@@ -4,7 +4,7 @@ This directory is the **Tauri v2** wrapper around the Velta PWA in `../app`.
 It produces a native Windows installer and a native Android APK from a single
 frontend codebase.
 
-**Current stable version:** `1.1.4`  
+**Current stable version:** `1.1.5`  
 **Bundled core:** `deltachat-core-rust 2.59.0`
 
 ## Architecture
