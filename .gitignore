@@ -17,6 +17,9 @@ desktop.ini
 **/target/
 **/Cargo.lock
 !core/Cargo.lock
+# The app is built from a committed lockfile so CI resolves the exact
+# dependency set that was tested locally (e.g. shadowsocks MSRV bumps).
+!delta-web-app/src-tauri/Cargo.lock
 
 # -----------------------------------------------------------------------------
 # Python virtual environments & caches
