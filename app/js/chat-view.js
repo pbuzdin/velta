@@ -59,7 +59,7 @@ async function resolveAttachmentPath(originalPath, filename) {
 
   // Desktop usually returns an absolute path already — pass it through.
   const normalized = originalPath.replace(/\\/g, "/");
-  if (/^([a-zA-Z]:|\/data\/|\\/storage\/)/.test(normalized)) return originalPath;
+  if (/^([a-zA-Z]:|\/data\/|\/storage\/)/.test(normalized)) return originalPath;
 
   try {
     const destName = `${Date.now()}-${filename || "file"}`;

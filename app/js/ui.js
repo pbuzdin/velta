@@ -182,7 +182,7 @@ function showAbout() {
   showModal({
     title: "About Velta",
     body: `
-      <div class="info-row"><span class="k">App</span><span class="v">Velta 1.1.0</span></div>
+      <div class="info-row"><span class="k">App</span><span class="v">Velta 1.1.5</span></div>
       <div class="info-row"><span class="k">Core</span><span class="v">deltachat-core-rust 2.59.0</span></div>
       <div class="info-row"><span class="k">Transport</span><span class="v">chatmail relays (IMAP/SMTP)</span></div>
       <div class="info-row"><span class="k">Encryption</span><span class="v">OpenPGP, end-to-end</span></div>
