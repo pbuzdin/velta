@@ -405,6 +405,7 @@ async function openChat(chatId) {
   const head = document.createElement("dc-chat-head");
   head.setData(chat);
   $("chat-head-info").replaceChildren(head);
+  state.activeChatHead = head;
   head.addEventListener("click", () => showChatInfo(chat));
   // Real member count for groups (the chatlist item doesn't carry it)
   if ((chat.kind === "group" || chat.kind === "channel") && core.getChatMembers) {
@@ -422,6 +423,7 @@ function closeChat() {
   diagnosticsOpen = false;
   chatView?.stopLive();
   state.activeChatId = null;
+  state.activeChatHead = null;
   $("chat-view").hidden = true;
   $("no-chat").hidden = false;
   document.querySelector(".app").classList.remove("chat-open");
@@ -429,6 +431,25 @@ function closeChat() {
   $("main-composer").hidden = false;
   $("chat-head-actions").style.visibility = "";
   renderChatList();
+}
+
+// The header paints before the async member fetch resolves, and group
+// membership changes (members added/removed) arrive later as core events.
+// Re-fetch the count whenever the open group chat is signalled as updated,
+// so the header never goes stale until reopen.
+async function refreshActiveChatHeader(chatId) {
+  const head = state.activeChatHead;
+  const chat = head?.chat;
+  if (!head || !chat || chat.id !== state.activeChatId) return;
+  if (chat.kind !== "group" && chat.kind !== "channel") return;
+  if (chatId && chatId !== chat.id) return;
+  if (!core.getChatMembers) return;
+  try {
+    const members = await core.getChatMembers(chat.id);
+    if (state.activeChatId !== chat.id || chat.memberCount === members.length) return;
+    chat.memberCount = members.length;
+    head.setData(chat);
+  } catch { /* keep the last known count */ }
 }
 
 function showChatInfo(chat) {
@@ -928,7 +949,10 @@ async function boot() {
 
     core.addEventListener("incoming-msg", () => refreshChatList());
     core.addEventListener("msgs-changed", () => refreshChatList());
-    core.addEventListener("chat-updated", () => refreshChatList());
+    core.addEventListener("chat-updated", ev => {
+      refreshChatList();
+      refreshActiveChatHeader(ev?.detail?.chatId);
+    });
     // Fallback: refresh the chat list periodically so contact requests and newly
     // arrived chats appear even if core events are delayed or dropped.
     setInterval(() => { refreshChatList(); }, 4000);
