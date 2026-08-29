@@ -145,8 +145,10 @@ export class JsonRpcCore extends EventTarget {
   }
 
   async _handleCoreEvent(ev) {
-    const chatId = ev.chat_id;
-    const msgId = ev.msg_id;
+    // deltachat-jsonrpc serializes event payloads with camelCase ("chatId"),
+    // but hand-rolled transports may deliver snake_case — accept both.
+    const chatId = ev.chatId ?? ev.chat_id;
+    const msgId = ev.msgId ?? ev.msg_id;
     rustLog(`event kind=${ev.kind} chatId=${chatId ?? "null"} msgId=${msgId ?? "null"}`);
     switch (ev.kind) {
       case "Info":
@@ -601,7 +603,9 @@ export class JsonRpcCore extends EventTarget {
   // Group members as mapped contacts (empty list for 1:1 chats).
   async getChatMembers(chatId) {
     const full = await this._call("get_full_chat_by_id", this.accountId, chatId);
-    const ids = (full.contactIds || []).filter(id => id > 9); // skip reserved ids (self etc.)
+    // Keep self (ContactId::SELF = 1) so the member count and list include
+    // this account; only skip the other reserved ids (info, archived link, …).
+    const ids = (full.contactIds || []).filter(id => id > 9 || id === 1);
     if (!ids.length) return [];
     const byId = await this._call("get_contacts_by_ids", this.accountId, ids);
     return ids.map(id => byId[String(id)]).filter(Boolean).map(c => this._mapContact(c));

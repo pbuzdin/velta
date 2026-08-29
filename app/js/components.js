@@ -108,7 +108,7 @@ class DcChatHead extends Elena(HTMLElement) {
   statusLine() {
     const c = this.chat;
     if (!c) return "";
-    if (c.kind === "group") return `${c.memberCount} members`;
+    if (c.kind === "group") return c.memberCount ? `${c.memberCount} members` : "…";
     if (c.kind === "channel") return `${(c.memberCount || 0).toLocaleString()} subscribers`;
     if (c.kind === "saved") return "your personal space";
     if (c.kind === "device") return "local device messages";

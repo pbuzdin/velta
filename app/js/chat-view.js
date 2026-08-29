@@ -141,6 +141,10 @@ export class ChatView {
   async onIncoming(chatId, msg) {
     rustLog(`chat-view onIncoming chatId=${chatId} current=${this.chat?.id}`);
     if (!this.chat || chatId !== this.chat.id) { this._bumpGoDown(chatId, true); return; }
+    // The same message id can arrive twice (e.g. appended as a download
+    // placeholder first, then re-notified once the full content merged).
+    // Update the existing row in place instead of appending a duplicate.
+    if (this.msgIndex.has(msg.id)) { this.onMsgUpdated(chatId, msg); return; }
     this._insertItems(this._withSeparatorsAppend([msg]));
     this.vs?.setItems(this.items);
     if (this._nearBottom()) {
@@ -165,7 +169,20 @@ export class ChatView {
     } catch { return; }
     if (!this.chat) return;
     const newMsgs = messages.filter(m => m.id > maxId && !this.msgIndex.has(m.id));
-    rustLog(`chat-view onMsgsChanged found ${newMsgs.length} new messages`);
+    // A media message that finished downloading keeps its id, so the "new"
+    // filter above skips it. Re-render rows in place when the download state
+    // or view type changed (e.g. a video Pre-Message placeholder becoming a
+    // playable player once its Post-Message arrives).
+    let updated = 0;
+    for (const m of messages) {
+      const item = this.msgIndex.get(m.id);
+      if (item?.msg && item.msg !== m
+        && (item.msg.downloadState !== m.downloadState || item.msg.viewtype !== m.viewtype)) {
+        this.onMsgUpdated(this.chat.id, m);
+        updated++;
+      }
+    }
+    rustLog(`chat-view onMsgsChanged found ${newMsgs.length} new, ${updated} updated messages`);
     if (!newMsgs.length) return;
     this._insertItems(this._withSeparatorsAppend(newMsgs));
     this.vs?.setItems(this.items);
