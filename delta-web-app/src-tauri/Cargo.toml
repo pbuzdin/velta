@@ -1,6 +1,6 @@
 [package]
 name = "delta-web"
-version = "1.1.6"
+version = "1.1.7"
 description = "Velta — Delta Chat client"
 edition = "2021"
 rust-version = "1.77.2"
@@ -30,6 +30,9 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 anyhow = "1"
 futures-lite = "2"
 yerpc = "0.6"
+# resolve_content_uri: copy picked content:// attachments via ContentResolver.
+jni = "0.21"
+ndk-context = "0.1"
 
 # Desktop-only plugins for deep-link handling (custom URI scheme) and single-instance forwarding.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]

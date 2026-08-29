@@ -41,7 +41,10 @@ function fileUrl(path) {
         const base = window.veltaAccountsDir.replace(/\\/g, "/").replace(/\/$/, "");
         resolved = `${base}/${resolved.replace(/^\/+/, "")}`;
       }
-      const url = tauri.core.convertFileSrc(resolved);
+      // blobfile is our custom protocol (lib.rs) that supports HTTP Range
+      // requests, so <video> can seek inside blobs whose index atom is at
+      // the end of the file — the plain asset protocol can't.
+      const url = tauri.core.convertFileSrc(resolved, "blobfile");
       rustLog(`fileUrl path=${path} resolved=${resolved} url=${url}`);
       return url;
     }
@@ -92,6 +95,7 @@ export class ChatView {
     this.chat = null;
     this.items = [];        // flattened items for the virtual scroller
     this.msgIndex = new Map();
+    this._rowCache = new Map();  // item.key → rendered element (reused across setItems)
     this.hasMore = false;
     this.loadingMore = false;
     this.selection = new Set();
@@ -118,6 +122,7 @@ export class ChatView {
     this._renderReplyPreview();
     this.items = [];
     this.msgIndex.clear();
+    this._rowCache.clear();
     this.vs?.stop();
     this.vs = null;
     this.listEl.replaceChildren();
@@ -224,13 +229,22 @@ export class ChatView {
     item.msg = msg;
     this.vs?.onItemHeightDidChange?.(item);
     const row = this.listEl.querySelector(`[data-msgid="${msg.id}"]`);
-    if (row) row.replaceWith(this._renderMsgItem(item));
+    if (row) {
+      const fresh = this._renderMsgItem(item);
+      row.replaceWith(fresh);
+      this._rowCache.set(item.key, fresh);
+    } else {
+      this._rowCache.delete(item.key);
+    }
   }
 
   onMsgsDeleted(chatId, ids) {
     if (!this.chat || chatId !== this.chat.id) return;
     this.items = this.items.filter(it => !(it.type === "msg" && ids.includes(it.msg.id)));
-    for (const id of ids) this.msgIndex.delete(id);
+    for (const id of ids) {
+      this.msgIndex.delete(id);
+      this._rowCache.delete("m" + id);
+    }
     this.vs?.setItems(this.items);
   }
 
@@ -319,6 +333,17 @@ export class ChatView {
   }
 
   _renderItem(item) {
+    // Reuse already-rendered rows across setItems calls — rebuilding a row
+    // recreates its <video>/<audio> element, which resets playback (the
+    // "flickering player"). Invalidate the cache entry when content changes.
+    const cached = this._rowCache.get(item.key);
+    if (cached) return cached;
+    const el = this._buildItem(item);
+    this._rowCache.set(item.key, el);
+    return el;
+  }
+
+  _buildItem(item) {
     switch (item.type) {
       case "day": {
         const el = document.createElement("div");
@@ -689,16 +714,25 @@ export class ChatView {
     }
 
     try {
-      const path = await invoke("plugin:dialog|open", { options: { multiple: false, filters } });
-      if (!path) return;
-      const name = path.replace(/\\/g, "/").split("/").pop();
-      const ext = extOf(path);
+      let picked = await invoke("plugin:dialog|open", { options: { multiple: false, filters } });
+      if (Array.isArray(picked)) picked = picked[0];
+      if (!picked) return;
+      const name = picked.replace(/\\/g, "/").split("/").pop().split("?")[0];
+      const ext = extOf(name);
       let viewtype = "file";
       if (kind === "image" || ["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext)) viewtype = "image";
       else if (kind === "video" || ["mp4", "mov", "mkv", "avi", "webm"].includes(ext)) viewtype = "video";
       else if (["mp3", "m4a", "ogg", "wav", "flac"].includes(ext)) viewtype = "audio";
 
-      const resolved = await resolveAttachmentPath(path, name);
+      // The Android picker returns content:// URIs that neither tauri-plugin-fs
+      // nor the core can read — copy the bytes into app storage via
+      // ContentResolver first (resolve_content_uri in lib.rs).
+      let resolved;
+      if (/^content:\/\//.test(picked)) {
+        resolved = await invoke("resolve_content_uri", { uri: picked, filename: `${Date.now()}-${name}` });
+      } else {
+        resolved = await resolveAttachmentPath(picked, name);
+      }
       const msg = await this.core.sendMessage(this.chat.id, { text: "", viewtype, file: resolved, filename: name });
       this.appendOutgoing(msg);
       this.onChatsChanged();
