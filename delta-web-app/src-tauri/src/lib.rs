@@ -157,6 +157,279 @@ fn resolve_upload_path(app: tauri::AppHandle, filename: String) -> String {
         .unwrap_or_default()
 }
 
+// ---------- blobfile:// — Range-aware media serving ----------
+
+// The default asset protocol on Android is served by the plain
+// WebViewAssetLoader, which ignores Range requests. Video files whose moov
+// atom sits at the end of the file (most phone recordings) then can't be
+// played: the media player must seek to the end to read the index and back
+// into the data. This custom protocol answers Range requests with proper
+// 206 responses so <video>/<audio> can seek inside any blob.
+
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            if let Ok(byte) = u8::from_str_radix(std::str::from_utf8(&b[i + 1..i + 3]).unwrap_or(""), 16) {
+                out.push(byte);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn guess_mime(path: &str) -> &'static str {
+    let lower = path.to_ascii_lowercase();
+    let ext = lower.rsplit('.').next().unwrap_or("");
+    match ext {
+        "mp4" | "m4v" | "mov" => "video/mp4",
+        "webm" => "video/webm",
+        "mkv" => "video/x-matroska",
+        "avi" => "video/x-msvideo",
+        "3gp" => "video/3gpp",
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        "mp3" => "audio/mpeg",
+        "m4a" => "audio/mp4",
+        "ogg" | "oga" | "opus" => "audio/ogg",
+        "wav" => "audio/wav",
+        "flac" => "audio/flac",
+        "pdf" => "application/pdf",
+        "txt" => "text/plain",
+        _ => "application/octet-stream",
+    }
+}
+
+// "bytes=a-b" | "bytes=a-" | "bytes=-n" → inclusive (start, end)
+fn parse_range(header: &str, len: u64) -> Option<(u64, u64)> {
+    let rest = header.trim().strip_prefix("bytes=")?;
+    let (start_s, end_s) = rest.split_once('-')?;
+    if start_s.is_empty() {
+        let n: u64 = end_s.parse().ok()?;
+        if n == 0 || len == 0 {
+            return None;
+        }
+        let start = len.saturating_sub(n);
+        Some((start, len - 1))
+    } else {
+        let start: u64 = start_s.parse().ok()?;
+        if start >= len {
+            return None;
+        }
+        let end = if end_s.is_empty() { len - 1 } else { end_s.parse::<u64>().ok()?.min(len - 1) };
+        if start > end {
+            return None;
+        }
+        Some((start, end))
+    }
+}
+
+fn serve_blob_file(app: &tauri::AppHandle, request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
+    let not_found = |msg: &str| {
+        tauri::http::Response::builder()
+            .status(404)
+            .body(msg.as_bytes().to_vec())
+            .unwrap()
+    };
+
+    let uri = request.uri().to_string();
+    // http://blobfile.localhost/<encoded-abs-path> (Windows/Android),
+    // blobfile://localhost/<encoded-abs-path>        (macOS/Linux)
+    let path_part = match uri.find("localhost/") {
+        Some(i) => &uri[i + "localhost/".len()..],
+        None => return not_found("bad uri"),
+    };
+    let path_part = path_part.split('?').next().unwrap_or(path_part);
+    let file = percent_decode(path_part);
+
+    // Only serve files that live inside the accounts directory (blobs,
+    // uploads) — never anything else on the filesystem. Canonicalize both
+    // sides: on Android the core reports blobs under /data/user/0 (a symlink
+    // to /data/data), so a raw prefix check would wrongly reject everything.
+    let accounts = accounts_dir(app);
+    let accounts_canon = std::fs::canonicalize(&accounts).unwrap_or(accounts.clone());
+    let fpath = std::path::Path::new(&file);
+    let fpath_canon = fpath.canonicalize().unwrap_or_else(|_| fpath.to_path_buf());
+    if !fpath_canon.starts_with(&accounts_canon) {
+        return not_found("forbidden");
+    }
+    let serve_path = fpath_canon.to_string_lossy().to_string();
+
+    let meta = match std::fs::metadata(&serve_path) {
+        Ok(m) if m.is_file() => m,
+        _ => return not_found("not found"),
+    };
+    let len = meta.len();
+    let mime = guess_mime(&serve_path);
+
+    if let Some(range) = request.headers().get("range").and_then(|v| v.to_str().ok().map(|s| s.to_string())) {
+        if let Some((start, end)) = parse_range(&range, len) {
+            use std::io::{Read, Seek, SeekFrom};
+            let take = (end - start + 1) as usize;
+            let mut buf = vec![0u8; take];
+            let mut filled = 0usize;
+            if let Ok(mut f) = std::fs::File::open(&serve_path) {
+                if f.seek(SeekFrom::Start(start)).is_ok() {
+                    while filled < take {
+                        match f.read(&mut buf[filled..]) {
+                            Ok(0) => break,
+                            Ok(n) => filled += n,
+                            Err(_) => break,
+                        }
+                    }
+                }
+            }
+            buf.truncate(filled);
+            return tauri::http::Response::builder()
+                .status(206)
+                .header("Content-Type", mime)
+                .header("Accept-Ranges", "bytes")
+                .header("Content-Range", format!("bytes {}-{}/{}", start, start + filled as u64 - 1, len))
+                .header("Content-Length", filled)
+                .body(buf)
+                .unwrap();
+        }
+        return tauri::http::Response::builder()
+            .status(416)
+            .header("Content-Range", format!("bytes */{}", len))
+            .body(Vec::new())
+            .unwrap();
+    }
+
+    match std::fs::read(&serve_path) {
+        Ok(data) => tauri::http::Response::builder()
+            .status(200)
+            .header("Content-Type", mime)
+            .header("Accept-Ranges", "bytes")
+            .header("Content-Length", data.len())
+            .body(data)
+            .unwrap(),
+        Err(_) => not_found("read error"),
+    }
+}
+
+// ---------- Android: copy a picked content:// attachment to app storage ----------
+
+// The system file picker returns content:// URIs that neither tauri-plugin-fs
+// nor the Delta Chat core can read directly. Copy the bytes into our uploads
+// directory via the Android ContentResolver and return the real path.
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn resolve_content_uri(app: tauri::AppHandle, uri: String, filename: String) -> Result<String, String> {
+    use tauri::path::BaseDirectory;
+    let dest = app
+        .path()
+        .resolve(&format!("uploads/{}", filename), BaseDirectory::AppLocalData)
+        .map_err(|e| e.to_string())?;
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    let ctx = ndk_context::android_context();
+    let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }.map_err(|e| format!("ndk vm: {e}"))?;
+    let mut env = vm.attach_current_thread().map_err(|e| format!("ndk attach: {e}"))?;
+    let context = unsafe { jni::objects::JObject::from_raw(ctx.context().cast()) };
+
+    let uri_j = env.new_string(&uri).map_err(|e| e.to_string())?;
+    let uri_class = env.find_class("android/net/Uri").map_err(|e| e.to_string())?;
+    let uri_obj = env
+        .call_static_method(&uri_class, "parse", "(Ljava/lang/String;)Landroid/net/Uri;", &[(&uri_j).into()])
+        .map_err(|e| e.to_string())?
+        .l()
+        .map_err(|e| e.to_string())?;
+
+    let cr = env
+        .call_method(&context, "getContentResolver", "()Landroid/content/ContentResolver;", &[])
+        .map_err(|e| e.to_string())?
+        .l()
+        .map_err(|e| e.to_string())?;
+    let is = env
+        .call_method(&cr, "openInputStream", "(Landroid/net/Uri;)Ljava/io/InputStream;", &[(&uri_obj).into()])
+        .map_err(|e| e.to_string())?
+        .l()
+        .map_err(|e| e.to_string())?;
+    if env.exception_check().map_err(|e| e.to_string())? {
+        let _ = env.exception_clear();
+        return Err("openInputStream failed for this content uri".into());
+    }
+
+    let dest_str = dest.to_string_lossy().to_string();
+    let dest_j = env.new_string(&dest_str).map_err(|e| e.to_string())?;
+    let file_obj = env
+        .new_object("java/io/File", "(Ljava/lang/String;)V", &[(&dest_j).into()])
+        .map_err(|e| e.to_string())?;
+    let parent = env
+        .call_method(&file_obj, "getParentFile", "()Ljava/io/File;", &[])
+        .map_err(|e| e.to_string())?
+        .l()
+        .map_err(|e| e.to_string())?;
+    if !parent.is_null() {
+        if let Err(e) = env.call_method(&parent, "mkdirs", "()Z", &[]) {
+            log(&format!("mkdirs error: {e}"));
+        }
+        let _ = env.exception_clear();
+    }
+
+    let fos = env
+        .new_object("java/io/FileOutputStream", "(Ljava/io/File;)V", &[(&file_obj).into()])
+        .map_err(|e| e.to_string())?;
+
+    let buf = env.new_byte_array(64 * 1024).map_err(|e| e.to_string())?;
+    let buf_obj: jni::objects::JObject = (&buf).into();
+    let mut copy_result: Result<(), String> = Ok(());
+    loop {
+        if copy_result.is_err() {
+            break;
+        }
+        let n = match env.call_method(&is, "read", "([B)I", &[(&buf_obj).into()]) {
+            Ok(v) => match v.i() {
+                Ok(n) => n,
+                Err(e) => {
+                    copy_result = Err(format!("InputStream.read: {e}"));
+                    break;
+                }
+            },
+            Err(e) => {
+                copy_result = Err(format!("InputStream.read: {e}"));
+                break;
+            }
+        };
+        if n < 0 {
+            break;
+        }
+        if let Err(e) = env.call_method(
+            &fos,
+            "write",
+            "([BII)V",
+            &[(&buf_obj).into(), jni::objects::JValue::Int(0), jni::objects::JValue::Int(n)],
+        ) {
+            copy_result = Err(format!("FileOutputStream.write: {e}"));
+            break;
+        }
+    }
+
+    if let Err(e) = env.call_method(&fos, "close", "()V", &[]) {
+        log(&format!("fos close error: {e}"));
+    }
+    if let Err(e) = env.call_method(&is, "close", "()V", &[]) {
+        log(&format!("is close error: {e}"));
+    }
+    let _ = env.exception_clear();
+
+    copy_result?;
+    log(&format!("resolve_content_uri copied {} -> {}", uri, dest_str));
+    Ok(dest_str)
+}
+
 pub fn set_initial_deeplink_from_env() {
     if let Some(link) = std::env::args().skip(1).find_map(|a| maybe_extract_deeplink(&a)) {
         *INITIAL_DEEPLINK.lock().unwrap() = Some(link);
@@ -450,7 +723,14 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path]);
+        .register_uri_scheme_protocol("blobfile", |ctx, request| {
+            let mut response = serve_blob_file(ctx.app_handle(), request);
+            // no-store keeps the WebView from caching media responses, so
+            // deleted/updated blobs are never served stale.
+            response.headers_mut().insert("Cache-Control", "no-store".parse().unwrap());
+            response.map(|body| body.into())
+        })
+        .invoke_handler(tauri::generate_handler![js_log, rpc, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri]);
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
