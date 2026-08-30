@@ -5,7 +5,12 @@ import { showContextMenu, showModal, confirmModal, toast, showEmojiPop } from ".
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
 
+import { diagnosticsSink } from "./diagnostics.js";
+
 function rustLog(msg) {
+  try {
+    console.log("[velta]", msg);
+  } catch {}
   try {
     const tauri = window.__TAURI__;
     const invoke = tauri?.core?.invoke || tauri?.invoke;
@@ -46,6 +51,7 @@ function fileUrl(path) {
       // the end of the file — the plain asset protocol can't.
       const url = tauri.core.convertFileSrc(resolved, "blobfile");
       rustLog(`fileUrl path=${path} resolved=${resolved} url=${url}`);
+      diagnosticsSink.append("info", `fileUrl ${url}`);
       return url;
     }
   } catch (e) { rustLog(`fileUrl error: ${e}`); }
@@ -446,17 +452,35 @@ export class ChatView {
     inner += `<div class="bubble">${bubble}</div>`;
     row.innerHTML = inner;
 
-    // Wire up real local file URLs for images / video / audio.
+    // Wire up real local file URLs for images / video / audio. blobfile
+    // supports HTTP Range (seeking); if it fails for any reason, fall back
+    // to the plain asset protocol so media is never worse than before.
     const mediaImg = row.querySelector('.msg-image img[data-src]');
     if (mediaImg) {
       mediaImg.src = fileUrl(m.filePath);
-      mediaImg.onerror = () => rustLog(`media img error src=${mediaImg.src} original=${m.filePath}`);
+      mediaImg.onerror = () => {
+        rustLog(`media img error src=${mediaImg.src} original=${m.filePath}`);
+        diagnosticsSink.append("error", `img ${m.id} failed via blobfile, retrying with asset protocol`);
+        const tauri = window.__TAURI__;
+        if (tauri?.core?.convertFileSrc) {
+          const fallback = tauri.core.convertFileSrc(m.filePath);
+          if (mediaImg.src !== fallback) mediaImg.src = fallback;
+        }
+      };
     }
     const mediaVideo = row.querySelector('.msg-video video[data-src]');
     if (mediaVideo) {
       mediaVideo.src = fileUrl(m.filePath);
       mediaVideo.onloadedmetadata = () => rustLog(`media video loaded id=${m.id} src=${mediaVideo.src}`);
-      mediaVideo.onerror = () => rustLog(`media video error src=${mediaVideo.src} original=${m.filePath}`);
+      mediaVideo.onerror = () => {
+        rustLog(`media video error src=${mediaVideo.src} original=${m.filePath}`);
+        diagnosticsSink.append("error", `video ${m.id} failed to load: ${mediaVideo.error ? (mediaVideo.error.message || mediaVideo.error.code) : "unknown"} — retrying via asset protocol`);
+        const tauri = window.__TAURI__;
+        if (tauri?.core?.convertFileSrc) {
+          const fallback = tauri.core.convertFileSrc(m.filePath);
+          if (mediaVideo.src !== fallback) mediaVideo.src = fallback;
+        }
+      };
       // On Android WebView the first frame is often not shown automatically;
       // forcing a seek helps generate the poster frame.
       mediaVideo.oncanplay = () => { try { mediaVideo.currentTime = 0.001; } catch {} };
@@ -464,7 +488,14 @@ export class ChatView {
     const mediaAudio = row.querySelector('.msg-audio audio[data-src]');
     if (mediaAudio) {
       mediaAudio.src = fileUrl(m.filePath);
-      mediaAudio.onerror = () => rustLog(`media audio error src=${mediaAudio.src} original=${m.filePath}`);
+      mediaAudio.onerror = () => {
+        rustLog(`media audio error src=${mediaAudio.src} original=${m.filePath}`);
+        const tauri = window.__TAURI__;
+        if (tauri?.core?.convertFileSrc) {
+          const fallback = tauri.core.convertFileSrc(m.filePath);
+          if (mediaAudio.src !== fallback) mediaAudio.src = fallback;
+        }
+      };
     }
 
     row.addEventListener("contextmenu", e => {
@@ -730,6 +761,7 @@ export class ChatView {
       let resolved;
       if (/^content:\/\//.test(picked)) {
         resolved = await invoke("resolve_content_uri", { uri: picked, filename: `${Date.now()}-${name}` });
+        diagnosticsSink.append("info", `attachment copied to ${resolved}`);
       } else {
         resolved = await resolveAttachmentPath(picked, name);
       }
@@ -737,6 +769,7 @@ export class ChatView {
       this.appendOutgoing(msg);
       this.onChatsChanged();
     } catch (err) {
+      diagnosticsSink.append("error", `send ${kind} failed: ${err.message || err}`);
       toast("Could not send file: " + (err.message || err), 4000);
       console.error(err);
     }
