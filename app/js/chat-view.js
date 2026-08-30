@@ -1,7 +1,7 @@
 // chat-view.js — virtualized message history (virtual-scroller) + composer
 import { formatTime, formatDay, formatBytes } from "./mock-core.js";
 import { escapeHtml, ticksSvg } from "./components.js";
-import { showContextMenu, showModal, confirmModal, toast, showEmojiPop } from "./ui.js";
+import { showContextMenu, showModal, confirmModal, toast, showEmojiPop, openImageLightbox } from "./ui.js";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
 
@@ -497,6 +497,10 @@ export class ChatView {
     const mediaImg = row.querySelector('.msg-image img[data-src]');
     if (mediaImg) {
       mediaImg.src = fileUrl(m.filePath);
+      mediaImg.addEventListener("click", e => {
+        e.stopPropagation();
+        if (mediaImg.naturalWidth) openImageLightbox(mediaImg.src, m.fileName || "photo");
+      });
       mediaImg.onerror = () => {
         rustLog(`media img error src=${mediaImg.src} original=${m.filePath}`);
         diagnosticsSink.append("error", `img ${m.id} failed via blobfile, retrying with asset protocol`);
