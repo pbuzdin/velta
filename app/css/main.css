@@ -272,6 +272,10 @@ html[data-theme="light"] .msg-meta .ticks.read { color: #1d8bf1; }
 }
 .msg-video video {
   width: 100%; max-height: 320px; display: block;
+  /* Deterministic placeholder ratio keeps the row height stable until the
+     real aspect is set from metadata — prevents virtual-scroller
+     re-measure loops while the video loads. */
+  aspect-ratio: 16 / 9; object-fit: contain; background: #000;
 }
 .msg-audio {
   width: 320px; max-width: 100%; margin: -2px -5px 5px;
