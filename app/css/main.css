@@ -603,3 +603,30 @@ li.failed .step-ico::after { content: "✕"; }
 /* drawer close button */
 .drawer-head { position: relative; }
 .drawer-close { position: absolute; top: 10px; right: 10px; z-index: 2; }
+
+/* ---------- image lightbox ---------- */
+.lightbox {
+  position: fixed; inset: 0; z-index: 2000;
+  background: rgba(0, 0, 0, .96);
+  display: flex; flex-direction: column;
+  touch-action: none; user-select: none;
+}
+.lightbox-bar {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 14px; color: #fff; flex: 0 0 auto;
+}
+.lightbox-cap { font-size: 14px; opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 80%; }
+.lightbox-close {
+  background: none; border: none; color: #fff; font-size: 22px;
+  padding: 4px 10px; cursor: pointer;
+}
+.lightbox-stage {
+  flex: 1; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+.lightbox-img {
+  max-width: 100%; max-height: 100%;
+  will-change: transform;
+  transition: transform .12s ease-out;
+  transform-origin: center center;
+}

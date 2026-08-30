@@ -372,6 +372,14 @@ pub extern "system" fn Java_org_velta_MainActivity_setApplicationContext(
     log("application context stored for Rust commands");
 }
 
+// Desktop has no ContentResolver; the command exists on every platform so the
+// frontend can always call it — on desktop it just reports unsupported.
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn resolve_content_uri(_app: tauri::AppHandle, _uri: String, _filename: String) -> Result<String, String> {
+    Err("picking attachments is only supported on mobile".into())
+}
+
 #[cfg(target_os = "android")]
 #[tauri::command]
 fn resolve_content_uri(app: tauri::AppHandle, uri: String, filename: String) -> Result<String, String> {

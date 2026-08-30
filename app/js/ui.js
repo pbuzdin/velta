@@ -178,11 +178,19 @@ export function showInvite(provider, { title = "Invite to Delta Chat", group = f
     });
 }
 
-function showAbout() {
+async function showAbout() {
+  // Keep the fallback in sync with tauri.conf.json; prefer the runtime
+  // version so the About dialog always matches the built app.
+  let version = "1.1.10";
+  try {
+    const tauri = window.__TAURI__;
+    if (tauri?.app?.getVersion) version = await tauri.app.getVersion();
+    else if (tauri?.core?.invoke) version = await tauri.core.invoke("plugin:app|version");
+  } catch {}
   showModal({
     title: "About Velta",
     body: `
-      <div class="info-row"><span class="k">App</span><span class="v">Velta 1.1.5</span></div>
+      <div class="info-row"><span class="k">App</span><span class="v">Velta ${version}</span></div>
       <div class="info-row"><span class="k">Core</span><span class="v">deltachat-core-rust 2.59.0</span></div>
       <div class="info-row"><span class="k">Transport</span><span class="v">chatmail relays (IMAP/SMTP)</span></div>
       <div class="info-row"><span class="k">Encryption</span><span class="v">OpenPGP, end-to-end</span></div>
@@ -211,4 +219,98 @@ export function showEmojiPop(anchorBtn, onPick) {
   const r = anchorBtn.getBoundingClientRect();
   pop.style.right = Math.max(8, innerWidth - r.right - 40) + "px";
   pop.style.bottom = (innerHeight - r.top + 10) + "px";
+}
+
+
+/* ---------- Fullscreen image lightbox (pinch to zoom) ---------- */
+export function openImageLightbox(src, caption = "") {
+  closeAllPopups();
+  const overlay = document.createElement("div");
+  overlay.className = "lightbox";
+  overlay.innerHTML = `
+    <div class="lightbox-bar">
+      <span class="lightbox-cap"></span>
+      <button class="lightbox-close" aria-label="Close">✕</button>
+    </div>
+    <div class="lightbox-stage"><img class="lightbox-img" alt=""></div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector(".lightbox-cap").textContent = caption;
+  const img = overlay.querySelector(".lightbox-img");
+  const stage = overlay.querySelector(".lightbox-stage");
+  img.src = src;
+
+  let scale = 1, tx = 0, ty = 0;
+  let startDist = 0, startScale = 1, startX = 0, startY = 0, startTx = 0, startTy = 0;
+  let touched = false, lastTap = 0, tapTimer = 0;
+
+  const apply = () => { img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`; };
+  const reset = () => { scale = 1; tx = 0; ty = 0; apply(); };
+
+  const close = () => {
+    document.removeEventListener("keydown", onKey, true);
+    overlay.remove();
+  };
+  const onKey = e => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
+  document.addEventListener("keydown", onKey, true);
+  overlay.querySelector(".lightbox-close").addEventListener("click", close);
+
+  const dist = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+
+  stage.addEventListener("touchstart", e => {
+    touched = true;
+    if (e.touches.length === 2) {
+      startDist = dist(e.touches);
+      startScale = scale;
+    } else if (e.touches.length === 1) {
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      startTx = tx; startTy = ty;
+    }
+  }, { passive: true });
+
+  stage.addEventListener("touchmove", e => {
+    e.preventDefault();
+    if (e.touches.length === 2 && startDist > 0) {
+      scale = Math.min(8, Math.max(1, startScale * dist(e.touches) / startDist));
+      if (scale <= 1.02) { scale = 1; tx = 0; ty = 0; }
+      apply();
+    } else if (e.touches.length === 1 && scale > 1) {
+      tx = startTx + (e.touches[0].clientX - startX);
+      ty = startTy + (e.touches[0].clientY - startY);
+      apply();
+    }
+  }, { passive: false });
+
+  stage.addEventListener("touchend", e => {
+    if (e.touches.length === 0) {
+      startDist = 0;
+      if (scale <= 1.02 && !touched) return;
+      // single quick tap on the image closes; double tap toggles zoom
+      const now = Date.now();
+      if (now - lastTap < 300) {
+        clearTimeout(tapTimer);
+        lastTap = 0;
+        if (scale > 1) reset();
+        else { scale = 2.5; apply(); }
+      } else {
+        lastTap = now;
+        tapTimer = setTimeout(() => { if (lastTap && scale <= 1.02) close(); }, 320);
+      }
+      touched = false;
+    }
+  });
+
+  // desktop: wheel zoom, dblclick toggle, Esc/✕ close
+  stage.addEventListener("wheel", e => {
+    e.preventDefault();
+    scale = Math.min(8, Math.max(1, scale * (e.deltaY < 0 ? 1.15 : 0.87)));
+    if (scale <= 1.02) { scale = 1; tx = 0; ty = 0; }
+    apply();
+  }, { passive: false });
+  stage.addEventListener("dblclick", () => {
+    if (scale > 1) reset(); else { scale = 2.5; apply(); }
+  });
+  stage.addEventListener("click", e => {
+    if (scale <= 1.02 && !e.isTrusted === false && e.detail === 1) close();
+  });
 }
