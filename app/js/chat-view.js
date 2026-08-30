@@ -102,6 +102,7 @@ export class ChatView {
     this.items = [];        // flattened items for the virtual scroller
     this.msgIndex = new Map();
     this._rowCache = new Map();  // item.key → rendered element (reused across setItems)
+    this._rowSigCache = new Map();  // item.key → render signature of the cached row
     this.hasMore = false;
     this.loadingMore = false;
     this.selection = new Set();
@@ -129,6 +130,7 @@ export class ChatView {
     this.items = [];
     this.msgIndex.clear();
     this._rowCache.clear();
+    this._rowSigCache.clear();
     this.vs?.stop();
     this.vs = null;
     this.listEl.replaceChildren();
@@ -228,10 +230,22 @@ export class ChatView {
     if (ticks) ticks.innerHTML = ticksSvg(state, "ticks");
   }
 
+  _rowSignature(m) {
+    return JSON.stringify([
+      m.viewtype, m.downloadState, m.text, m.state, m.edited, m.starred,
+      m.reactions, m.filePath, m.fileName, m.duration, m.fwdFrom, m.quote,
+    ]);
+  }
+
   onMsgUpdated(chatId, msg) {
     if (!this.chat || chatId !== this.chat.id) return;
     const item = this.msgIndex.get(msg.id);
     if (!item) return;
+    const sig = this._rowSignature(msg);
+    if (item.msg && this._rowSigCache.get(item.key) === sig) {
+      item.msg = msg; // data-only change — keep the rendered row untouched
+      return;
+    }
     item.msg = msg;
     this.vs?.onItemHeightDidChange?.(item);
     const row = this.listEl.querySelector(`[data-msgid="${msg.id}"]`);
@@ -239,8 +253,10 @@ export class ChatView {
       const fresh = this._renderMsgItem(item);
       row.replaceWith(fresh);
       this._rowCache.set(item.key, fresh);
+      this._rowSigCache.set(item.key, sig);
     } else {
       this._rowCache.delete(item.key);
+      this._rowSigCache.delete(item.key);
     }
   }
 
@@ -250,6 +266,7 @@ export class ChatView {
     for (const id of ids) {
       this.msgIndex.delete(id);
       this._rowCache.delete("m" + id);
+      this._rowSigCache.delete("m" + id);
     }
     this.vs?.setItems(this.items);
   }
@@ -471,7 +488,12 @@ export class ChatView {
     const mediaVideo = row.querySelector('.msg-video video[data-src]');
     if (mediaVideo) {
       mediaVideo.src = fileUrl(m.filePath);
-      mediaVideo.onloadedmetadata = () => rustLog(`media video loaded id=${m.id} src=${mediaVideo.src}`);
+      mediaVideo.onloadedmetadata = () => {
+        rustLog(`media video loaded id=${m.id} src=${mediaVideo.src}`);
+        if (mediaVideo.videoWidth && mediaVideo.videoHeight) {
+          mediaVideo.style.aspectRatio = `${mediaVideo.videoWidth} / ${mediaVideo.videoHeight}`;
+        }
+      };
       mediaVideo.onerror = () => {
         rustLog(`media video error src=${mediaVideo.src} original=${m.filePath}`);
         diagnosticsSink.append("error", `video ${m.id} failed to load: ${mediaVideo.error ? (mediaVideo.error.message || mediaVideo.error.code) : "unknown"} — retrying via asset protocol`);
