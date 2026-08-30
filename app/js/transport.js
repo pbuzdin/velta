@@ -18,6 +18,9 @@ const HTTP_PROBE_MS = 1500;
 
 function rustLog(msg) {
   try {
+    console.log("[velta]", msg);
+  } catch {}
+  try {
     const tauri = window.__TAURI__;
     const invoke = tauri?.core?.invoke || tauri?.invoke;
     if (invoke) {

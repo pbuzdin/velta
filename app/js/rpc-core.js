@@ -11,6 +11,9 @@ let nextId = 1;
 
 function rustLog(msg) {
   try {
+    console.log("[velta]", msg);
+  } catch {}
+  try {
     const tauri = window.__TAURI__;
     const invoke = tauri?.core?.invoke || tauri?.invoke;
     if (invoke) invoke("js_log", { msg }).catch(() => {});

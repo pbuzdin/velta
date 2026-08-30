@@ -30,6 +30,14 @@ static SIDECAR_STATUS: Mutex<Option<serde_json::Value>> = Mutex::new(None);
 // fall back to demo mode.
 static LOG_TX: Mutex<Option<std::sync::mpsc::Sender<String>>> = Mutex::new(None);
 
+// Optional second log location on the shared external storage, where adb can
+// read it on non-rooted devices (/storage/emulated/0/Android/data/<id>/files).
+static MIRROR_LOG_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+pub fn set_mirror_log_dir(path: PathBuf) {
+    *MIRROR_LOG_DIR.lock().unwrap() = Some(path);
+}
+
 fn log_dir() -> PathBuf {
     LOG_DIR
         .lock()
@@ -87,6 +95,14 @@ fn ensure_log_writer() {
                 // log() callers never block.
                 if res.is_err() {
                     std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                if let Some(mirror) = MIRROR_LOG_DIR.lock().unwrap().clone() {
+                    let _ = std::fs::create_dir_all(&mirror);
+                    let mirror_file = mirror.join("velta.log");
+                    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&mirror_file) {
+                        use std::io::Write;
+                        let _ = f.write_all(msg.as_bytes());
+                    }
                 }
             }
         })
@@ -602,6 +618,14 @@ pub fn run() {
             // (temp dir on Android) and the writer thread is bound to the
             // wrong directory for the whole session.
             set_log_dir(log_dir_path);
+            #[cfg(target_os = "android")]
+            {
+                let ext_logs = PathBuf::from("/storage/emulated/0/Android/data")
+                    .join(app.config().identifier.clone())
+                    .join("files")
+                    .join("logs");
+                set_mirror_log_dir(ext_logs);
+            }
             log("setup started");
 
             let accounts = accounts_dir(app.handle());

@@ -1,6 +1,15 @@
 // diagnostics.js — local-only startup/core log presented as a device chat.
 export const DIAGNOSTICS_CHAT_ID = -9007199254740991;
 
+// Global sink so deep UI code (media loading, attachments) can surface
+// diagnostic lines into the Velta Diagnostics chat, where they are visible
+// via a simple screencap — no adb root or logcat needed.
+export const diagnosticsSink = {
+  append(level, text) {
+    if (window.__veltaDiagnostics) window.__veltaDiagnostics.append(level, text);
+  },
+};
+
 export class DiagnosticsStore extends EventTarget {
   constructor() {
     super();

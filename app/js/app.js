@@ -7,6 +7,7 @@ import { DiagnosticsStore, DIAGNOSTICS_CHAT_ID } from "./diagnostics.js";
 import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite } from "./ui.js";
 
 const diagnostics = new DiagnosticsStore();
+window.__veltaDiagnostics = diagnostics;
 let core = null;
 let diagnosticsOpen = false;
 let chatView = null;
