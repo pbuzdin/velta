@@ -339,21 +339,54 @@ fn serve_blob_file(app: &tauri::AppHandle, request: tauri::http::Request<Vec<u8>
 // nor the Delta Chat core can read directly. Copy the bytes into our uploads
 // directory via the Android ContentResolver and return the real path.
 #[cfg(target_os = "android")]
+static APP_JAVA_VM: Mutex<Option<jni::JavaVM>> = Mutex::new(None);
+#[cfg(target_os = "android")]
+static APP_CONTEXT: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
+
+// Called from MainActivity.onCreate (Kotlin) with the application context.
+// Storing it lets Rust commands use the Android ContentResolver (e.g. for
+// reading content:// attachments picked through the system file picker).
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_org_velta_MainActivity_setApplicationContext(
+    env: jni::JNIEnv,
+    _class: jni::objects::JClass,
+    context: jni::objects::JObject,
+) {
+    let vm = match env.get_java_vm() {
+        Ok(vm) => vm,
+        Err(e) => {
+            log(&format!("setApplicationContext: get_java_vm failed: {e}"));
+            return;
+        }
+    };
+    let global = match env.new_global_ref(&context) {
+        Ok(g) => g,
+        Err(e) => {
+            log(&format!("setApplicationContext: new_global_ref failed: {e}"));
+            return;
+        }
+    };
+    *APP_JAVA_VM.lock().unwrap() = Some(vm);
+    *APP_CONTEXT.lock().unwrap() = Some(global);
+    log("application context stored for Rust commands");
+}
+
+#[cfg(target_os = "android")]
 #[tauri::command]
 fn resolve_content_uri(app: tauri::AppHandle, uri: String, filename: String) -> Result<String, String> {
     use tauri::path::BaseDirectory;
-    let dest = app
-        .path()
-        .resolve(&format!("uploads/{}", filename), BaseDirectory::AppLocalData)
-        .map_err(|e| e.to_string())?;
-    if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
 
-    let ctx = ndk_context::android_context();
-    let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }.map_err(|e| format!("ndk vm: {e}"))?;
-    let mut env = vm.attach_current_thread().map_err(|e| format!("ndk attach: {e}"))?;
-    let context = unsafe { jni::objects::JObject::from_raw(ctx.context().cast()) };
+    // The application context was handed over from MainActivity.onCreate
+    // (see setApplicationContext below) and is stored as a global ref.
+    let ctx_guard = APP_CONTEXT.lock().unwrap();
+    let context = ctx_guard
+        .as_ref()
+        .map(|r| r.as_obj().clone())
+        .ok_or("application context was not handed over yet")?;
+    let vm_guard = APP_JAVA_VM.lock().unwrap();
+    let vm_ref = vm_guard.as_ref().ok_or("jvm was not handed over yet")?;
+    let mut env = vm_ref.attach_current_thread().map_err(|e| format!("jvm attach: {e}"))?;
 
     let uri_j = env.new_string(&uri).map_err(|e| e.to_string())?;
     let uri_class = env.find_class("android/net/Uri").map_err(|e| e.to_string())?;
@@ -368,6 +401,66 @@ fn resolve_content_uri(app: tauri::AppHandle, uri: String, filename: String) -> 
         .map_err(|e| e.to_string())?
         .l()
         .map_err(|e| e.to_string())?;
+
+    // Query the display name (keeps the real filename + extension, so the
+    // attachment is sent as image/video instead of a generic file).
+    let mut display_name = String::new();
+    let proj_str = env.new_string("_display_name").map_err(|e| e.to_string())?;
+    let proj = env
+        .new_object_array(1, "java/lang/String", &proj_str)
+        .map_err(|e| e.to_string())?;
+    let null_obj = jni::objects::JObject::null();
+    let cursor = env
+        .call_method(
+            &cr,
+            "query",
+            "(Landroid/net/Uri;[Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;Ljava/lang/String;)Landroid/database/Cursor;",
+            &[
+                (&uri_obj).into(),
+                (&proj).into(),
+                (&null_obj).into(),
+                (&null_obj).into(),
+                (&null_obj).into(),
+            ],
+        )
+        .map_err(|e| e.to_string())?
+        .l()
+        .map_err(|e| e.to_string())?;
+    let _ = env.exception_clear();
+    if !cursor.is_null() {
+        if let Err(e) = env.call_method(&cursor, "moveToFirst", "()Z", &[]) {
+            log(&format!("cursor moveToFirst: {e}"));
+        }
+        let _ = env.exception_clear();
+        let name_obj = env
+            .call_method(&cursor, "getString", "(I)Ljava/lang/String;", &[jni::objects::JValue::Int(0)])
+            .map_err(|e| e.to_string())?
+            .l()
+            .map_err(|e| e.to_string())?;
+        if !name_obj.is_null() {
+            let name_jstr = jni::objects::JString::from(name_obj);
+            display_name = env.get_string(&name_jstr).map_err(|e| e.to_string())?.to_string_lossy().into_owned();
+        }
+        if let Err(e) = env.call_method(&cursor, "close", "()V", &[]) {
+            log(&format!("cursor close: {e}"));
+        }
+        let _ = env.exception_clear();
+    }
+
+    // Keep the real filename (with extension) so the attachment is typed as
+    // image/video rather than a generic file.
+    let base_name = if display_name.is_empty() {
+        if filename.is_empty() { "attachment.bin".to_string() } else { filename.clone() }
+    } else {
+        display_name.replace(['/', '\\'], "_")
+    };
+    let dest = app
+        .path()
+        .resolve(&format!("uploads/{}", base_name), BaseDirectory::AppLocalData)
+        .map_err(|e| e.to_string())?;
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
     let is = env
         .call_method(&cr, "openInputStream", "(Landroid/net/Uri;)Ljava/io/InputStream;", &[(&uri_obj).into()])
         .map_err(|e| e.to_string())?
@@ -379,6 +472,7 @@ fn resolve_content_uri(app: tauri::AppHandle, uri: String, filename: String) -> 
     }
 
     let dest_str = dest.to_string_lossy().to_string();
+    let _ = &display_name;
     let dest_j = env.new_string(&dest_str).map_err(|e| e.to_string())?;
     let file_obj = env
         .new_object("java/io/File", "(Ljava/lang/String;)V", &[(&dest_j).into()])
