@@ -400,7 +400,7 @@ fn resolve_content_uri(app: tauri::AppHandle, uri: String, filename: String) -> 
         .map_err(|e| e.to_string())?;
 
     let buf = env.new_byte_array(64 * 1024).map_err(|e| e.to_string())?;
-    let buf_obj: jni::objects::JObject = (&buf).into();
+    let buf_obj: jni::objects::JObject = buf.into();
     let mut copy_result: Result<(), String> = Ok(());
     loop {
         if copy_result.is_err() {
@@ -752,7 +752,7 @@ pub fn run() {
             // no-store keeps the WebView from caching media responses, so
             // deleted/updated blobs are never served stale.
             response.headers_mut().insert("Cache-Control", "no-store".parse().unwrap());
-            response.map(|body| body.into())
+            response.map(|body| std::borrow::Cow::Owned(body))
         })
         .invoke_handler(tauri::generate_handler![js_log, rpc, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri]);
 
