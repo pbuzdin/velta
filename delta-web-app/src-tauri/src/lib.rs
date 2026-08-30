@@ -253,11 +253,17 @@ fn serve_blob_file(app: &tauri::AppHandle, request: tauri::http::Request<Vec<u8>
     let not_found = |msg: &str| {
         tauri::http::Response::builder()
             .status(404)
+            .header("Access-Control-Allow-Origin", "*")
             .body(msg.as_bytes().to_vec())
             .unwrap()
     };
 
     let uri = request.uri().to_string();
+    log(&format!(
+        "blobfile request: uri={} range={:?}",
+        uri,
+        request.headers().get("range").and_then(|v| v.to_str().ok())
+    ));
     // http://blobfile.localhost/<encoded-abs-path> (Windows/Android),
     // blobfile://localhost/<encoded-abs-path>        (macOS/Linux)
     let path_part = match uri.find("localhost/") {
@@ -275,7 +281,13 @@ fn serve_blob_file(app: &tauri::AppHandle, request: tauri::http::Request<Vec<u8>
     let accounts_canon = std::fs::canonicalize(&accounts).unwrap_or(accounts.clone());
     let fpath = std::path::Path::new(&file);
     let fpath_canon = fpath.canonicalize().unwrap_or_else(|_| fpath.to_path_buf());
+    log(&format!(
+        "blobfile check: accounts_canon={} file_canon={}",
+        accounts_canon.display(),
+        fpath_canon.display()
+    ));
     if !fpath_canon.starts_with(&accounts_canon) {
+        log("blobfile FORBIDDEN");
         return not_found("forbidden");
     }
     let serve_path = fpath_canon.to_string_lossy().to_string();
@@ -309,6 +321,8 @@ fn serve_blob_file(app: &tauri::AppHandle, request: tauri::http::Request<Vec<u8>
                 .status(206)
                 .header("Content-Type", mime)
                 .header("Accept-Ranges", "bytes")
+                .header("Access-Control-Allow-Origin", "*")
+                .header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges")
                 .header("Content-Range", format!("bytes {}-{}/{}", start, start + filled as u64 - 1, len))
                 .header("Content-Length", filled)
                 .body(buf)
@@ -316,6 +330,7 @@ fn serve_blob_file(app: &tauri::AppHandle, request: tauri::http::Request<Vec<u8>
         }
         return tauri::http::Response::builder()
             .status(416)
+            .header("Access-Control-Allow-Origin", "*")
             .header("Content-Range", format!("bytes */{}", len))
             .body(Vec::new())
             .unwrap();
@@ -326,6 +341,8 @@ fn serve_blob_file(app: &tauri::AppHandle, request: tauri::http::Request<Vec<u8>
             .status(200)
             .header("Content-Type", mime)
             .header("Accept-Ranges", "bytes")
+            .header("Access-Control-Allow-Origin", "*")
+            .header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges")
             .header("Content-Length", data.len())
             .body(data)
             .unwrap(),
@@ -340,6 +357,169 @@ fn serve_blob_file(app: &tauri::AppHandle, request: tauri::http::Request<Vec<u8>
 // directory via the Android ContentResolver and return the real path.
 #[cfg(target_os = "android")]
 static APP_JAVA_VM: Mutex<Option<jni::JavaVM>> = Mutex::new(None);
+
+// ---------- local media HTTP server ----------
+//
+// WebView2 (Windows) does not fire WebResourceRequested for <video>/<audio>
+// element requests, so custom protocols cannot serve media there. A loopback
+// HTTP server with Range support works on every platform and every WebView.
+static MEDIA_PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
+static MEDIA_TOKEN: Mutex<String> = Mutex::new(String::new());
+
+#[tauri::command]
+fn media_base_url() -> String {
+    #[cfg(target_os = "android")]
+    return String::new(); // asset protocol handles media on Android
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let port = MEDIA_PORT.load(std::sync::atomic::Ordering::Relaxed);
+        let token = MEDIA_TOKEN.lock().unwrap().clone();
+        format!("http://127.0.0.1:{port}/{token}")
+    }
+}
+
+fn start_media_server(accounts: PathBuf) {
+    std::thread::Builder::new()
+        .name("media-http".into())
+        .spawn(move || {
+            let listener = match std::net::TcpListener::bind("127.0.0.1:0") {
+                Ok(l) => l,
+                Err(e) => {
+                    log(&format!("media server bind failed: {e}"));
+                    return;
+                }
+            };
+            let port = match listener.local_addr() {
+                Ok(a) => a.port(),
+                Err(_) => return,
+            };
+            MEDIA_PORT.store(port, std::sync::atomic::Ordering::Relaxed);
+            log(&format!("media http server on 127.0.0.1:{port}"));
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let accounts = accounts.clone();
+                std::thread::spawn(move || {
+                    serve_media_connection(&mut stream, &accounts);
+                });
+            }
+        })
+        .ok();
+}
+
+fn serve_media_connection(stream: &mut std::net::TcpStream, accounts: &PathBuf) {
+    use std::io::{Read, Write};
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(10)));
+
+    // read the request head (request line + headers)
+    let mut head = Vec::new();
+    let mut buf = [0u8; 2048];
+    loop {
+        match stream.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                head.extend_from_slice(&buf[..n]);
+                if head.windows(4).any(|w| w == b"
+
+") || head.len() > 64 * 1024 {
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    let head = String::from_utf8_lossy(&head);
+    let mut lines = head.split("
+");
+    let request_line = lines.next().unwrap_or("");
+    let mut path = "";
+    let mut range: Option<String> = None;
+    for part in request_line.split(' ') {
+        if part.starts_with('/') {
+            path = part;
+        }
+    }
+    for line in lines {
+        if let Some(v) = line.strip_prefix("Range: ").or_else(|| line.strip_prefix("range: ")) {
+            range = Some(v.to_string());
+        }
+    }
+
+    let mut not_found = || {
+        let _ = stream.write_all(
+            b"HTTP/1.1 404 Not Found
+Content-Length: 0
+Connection: close
+
+",
+        );
+    };
+
+    // path: /<token>/<percent-encoded-abs-path>
+    let rest = match path.split_once('/') {
+        Some((_, rest)) => rest,
+        None => return not_found(),
+    };
+    let token = MEDIA_TOKEN.lock().unwrap().clone();
+    let (url_token, enc_path) = match rest.split_once('/') {
+        Some(v) => v,
+        None => return not_found(),
+    };
+    if url_token != token {
+        return not_found();
+    }
+    let file = percent_decode(enc_path);
+
+    let accounts_canon = std::fs::canonicalize(accounts).unwrap_or_else(|_| accounts.clone());
+    let fpath = std::path::Path::new(&file);
+    let fpath_canon = fpath.canonicalize().unwrap_or_else(|_| fpath.to_path_buf());
+    if !fpath_canon.starts_with(&accounts_canon) {
+        return not_found();
+    }
+    let serve_path = fpath_canon.to_string_lossy().to_string();
+    let meta = match std::fs::metadata(&serve_path) {
+        Ok(m) if m.is_file() => m,
+        _ => return not_found(),
+    };
+    let len = meta.len();
+    let mime = guess_mime(&serve_path);
+
+    let mut headers = format!(
+        "HTTP/1.1 200 OK
+Content-Type: {mime}
+Accept-Ranges: bytes
+Access-Control-Allow-Origin: *
+"
+    );
+    let mut body = match std::fs::read(&serve_path) {
+        Ok(d) => d,
+        Err(_) => return not_found(),
+    };
+    if let Some(range) = &range {
+        if let Some((start, end)) = parse_range(range, len) {
+            let take = (end - start + 1) as usize;
+            body.truncate(take);
+            headers = format!(
+                "HTTP/1.1 206 Partial Content
+Content-Type: {mime}
+Accept-Ranges: bytes
+Access-Control-Allow-Origin: *
+Content-Range: bytes {start}-{end}/{len}
+Content-Length: {take}
+"
+            );
+        }
+    }
+    headers.push_str(&format!("Content-Length: {}
+Connection: close
+
+", body.len()));
+    if stream.write_all(headers.as_bytes()).is_err() {
+        return;
+    }
+    let _ = stream.write_all(&body);
+    let _ = stream.flush();
+}
 #[cfg(target_os = "android")]
 static APP_CONTEXT: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
 
@@ -728,6 +908,23 @@ pub fn run() {
                     .join("logs");
                 set_mirror_log_dir(ext_logs);
             }
+            // Desktop only: WebView2 does not dispatch protocol-handler
+            // requests for <video>/<audio> elements, so moov-at-end videos
+            // can't seek over blobfile:// there — the loopback server can.
+            // On Android the asset protocol serves media fine and cleartext
+            // loopback http would be blocked by the network security config.
+            #[cfg(not(target_os = "android"))]
+            {
+                *MEDIA_TOKEN.lock().unwrap() = {
+                    let nanos = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.subsec_nanos() as u64 ^ d.as_secs())
+                        .unwrap_or(0);
+                    format!("{:016x}", nanos ^ ((std::process::id() as u64) << 32))
+                };
+                start_media_server(accounts_dir(&app.handle()));
+            }
+
             log("setup started");
 
             let accounts = accounts_dir(app.handle());
@@ -856,7 +1053,7 @@ pub fn run() {
             response.headers_mut().insert("Cache-Control", "no-store".parse().unwrap());
             response.map(|body| std::borrow::Cow::Owned(body))
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url]);
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {

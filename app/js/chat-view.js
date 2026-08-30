@@ -46,12 +46,10 @@ function fileUrl(path) {
         const base = window.veltaAccountsDir.replace(/\\/g, "/").replace(/\/$/, "");
         resolved = `${base}/${resolved.replace(/^\/+/, "")}`;
       }
-      // blobfile is our custom protocol (lib.rs) that supports HTTP Range
-      // requests, so <video> can seek inside blobs whose index atom is at
-      // the end of the file — the plain asset protocol can't.
-      const url = tauri.core.convertFileSrc(resolved, "blobfile");
+      // Serve media through Tauri's asset protocol — the configuration that
+      // reliably rendered images and video posters on every platform.
+      const url = tauri.core.convertFileSrc(resolved);
       rustLog(`fileUrl path=${path} resolved=${resolved} url=${url}`);
-      diagnosticsSink.append("info", `fileUrl ${url}`);
       return url;
     }
   } catch (e) { rustLog(`fileUrl error: ${e}`); }
@@ -491,9 +489,8 @@ export class ChatView {
     inner += `<div class="bubble">${bubble}</div>`;
     row.innerHTML = inner;
 
-    // Wire up real local file URLs for images / video / audio. blobfile
-    // supports HTTP Range (seeking); if it fails for any reason, fall back
-    // to the plain asset protocol so media is never worse than before.
+    // Wire up real local file URLs for images / video / audio. When media
+    // can't load, show a clear placeholder instead of a broken element.
     const mediaImg = row.querySelector('.msg-image img[data-src]');
     if (mediaImg) {
       mediaImg.src = fileUrl(m.filePath);
@@ -503,11 +500,11 @@ export class ChatView {
       });
       mediaImg.onerror = () => {
         rustLog(`media img error src=${mediaImg.src} original=${m.filePath}`);
-        diagnosticsSink.append("error", `img ${m.id} failed via blobfile, retrying with asset protocol`);
-        const tauri = window.__TAURI__;
-        if (tauri?.core?.convertFileSrc) {
-          const fallback = tauri.core.convertFileSrc(m.filePath);
-          if (mediaImg.src !== fallback) mediaImg.src = fallback;
+        diagnosticsSink.append("error", `img ${m.id} failed to load`);
+        const box = mediaImg.closest(".msg-image");
+        if (box && !box.dataset.failed) {
+          box.dataset.failed = "1";
+          box.innerHTML = `<div class="media-fail"><div class="media-fail-ico">${ICO.photo}</div><div>Couldn't load image</div></div>`;
         }
       };
     }
@@ -522,11 +519,11 @@ export class ChatView {
       };
       mediaVideo.onerror = () => {
         rustLog(`media video error src=${mediaVideo.src} original=${m.filePath}`);
-        diagnosticsSink.append("error", `video ${m.id} failed to load: ${mediaVideo.error ? (mediaVideo.error.message || mediaVideo.error.code) : "unknown"} — retrying via asset protocol`);
-        const tauri = window.__TAURI__;
-        if (tauri?.core?.convertFileSrc) {
-          const fallback = tauri.core.convertFileSrc(m.filePath);
-          if (mediaVideo.src !== fallback) mediaVideo.src = fallback;
+        diagnosticsSink.append("error", `video ${m.id} failed to load: ${mediaVideo.error ? (mediaVideo.error.message || mediaVideo.error.code) : "unknown"}`);
+        const box = mediaVideo.closest(".msg-video");
+        if (box && !box.dataset.failed) {
+          box.dataset.failed = "1";
+          box.innerHTML = `<div class="media-fail"><div class="media-fail-ico">${ICO.photo}</div><div>Video can't be played</div></div>`;
         }
       };
       // On Android WebView the first frame is often not shown automatically;
@@ -538,15 +535,18 @@ export class ChatView {
       mediaAudio.src = fileUrl(m.filePath);
       mediaAudio.onerror = () => {
         rustLog(`media audio error src=${mediaAudio.src} original=${m.filePath}`);
-        const tauri = window.__TAURI__;
-        if (tauri?.core?.convertFileSrc) {
-          const fallback = tauri.core.convertFileSrc(m.filePath);
-          if (mediaAudio.src !== fallback) mediaAudio.src = fallback;
+        const box = mediaAudio.closest(".msg-audio");
+        if (box && !box.dataset.failed) {
+          box.dataset.failed = "1";
+          box.innerHTML = `<div class="media-fail"><div class="media-fail-ico">${ICO.mic}</div><div>Audio can't be played</div></div>`;
         }
       };
     }
 
     row.addEventListener("contextmenu", e => {
+      // Alt+right-click passes through to the WebView default menu
+      // (Inspect / devtools) for debugging.
+      if (e.altKey) return;
       e.preventDefault();
       this._msgContextMenu(item, e.clientX, e.clientY);
     });
