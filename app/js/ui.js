@@ -97,7 +97,7 @@ export function confirmModal(title, text, okLabel = "Delete", danger = true) {
 }
 
 /* ---------- Settings drawer ---------- */
-export function buildDrawer({ account, backend, onAddAccount, onToggleTheme, onOpenChat, onInvite, theme }) {
+export function buildDrawer({ account, backend, onAddAccount, onToggleTheme, onOpenChat, onInvite, onToggleMock, theme }) {
   const drawer = document.createElement("div");
   drawer.className = "drawer";
   drawer.id = "drawer";
@@ -118,6 +118,7 @@ export function buildDrawer({ account, backend, onAddAccount, onToggleTheme, onO
       <div class="drawer-sec">Settings</div>
       <button class="ctx-item" data-act="theme"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 109 9c0-1.5-1.2-2.6-2.6-2.6h-1.9a2.5 2.5 0 01-2.5-2.5V5.1C14 4 13.3 3 12 3z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="7.5" cy="10.5" r="1.2" fill="currentColor"/><circle cx="12" cy="7.5" r="1.2" fill="currentColor"/><circle cx="16.5" cy="10.5" r="1.2" fill="currentColor"/></svg><span>${theme === "dark" ? "Light theme" : "Dark theme"}</span></button>
       <button class="ctx-item" data-act="add-account"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 5v4M21 7h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Add account (chatmail)</span></button>
+      <button class="ctx-item" data-act="mock"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 9h6v6H9z" fill="currentColor"/></svg><span>${localStorage.getItem("velta-mock") === "1" ? "Exit mock mode" : "Enter mock mode"}</span></button>
       <button class="ctx-item" data-act="about"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 10v6M12 7v.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><span>About Velta</span></button>
     </div>`;
   document.body.appendChild(drawer);
@@ -145,6 +146,7 @@ export function buildDrawer({ account, backend, onAddAccount, onToggleTheme, onO
     if (act === "saved") onOpenChat("saved");
     if (act === "invite") onInvite?.();
     if (act === "add-account") onAddAccount();
+    if (act === "mock") onToggleMock();
     if (act === "about") showAbout();
   });
 

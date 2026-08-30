@@ -181,6 +181,15 @@ export async function createCore({ onDiagnostic = () => {} } = {}) {
   };
   diagnostic("info", "Core connection started");
 
+  // Mock mode (set from the drawer menu): skip every real backend.
+  if (localStorage.getItem("velta-mock") === "1") {
+    diagnostic("info", "Mock mode enabled; using the demo core");
+    const mock = new MockCore();
+    mock.backend = { kind: "mock", label: "demo mode (mock core)", connected: true };
+    statusEvent(true, "mock");
+    return mock;
+  }
+
   const attempts = [];
   if (window.DcBridge) attempts.push(() => androidWebViewTransport());
   if (window.__TAURI__) {

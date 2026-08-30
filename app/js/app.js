@@ -352,6 +352,7 @@ function renderChatList() {
     if (chat.id === state.activeChatId) item.setAttribute("active", "");
     item.addEventListener("click", () => openChat(chat.id));
     item.addEventListener("contextmenu", e => {
+      if (e.altKey) return; // Alt+right-click → WebView devtools menu
       e.preventDefault();
       chatContextMenu(chat, e.clientX, e.clientY);
     });
@@ -755,6 +756,12 @@ function rebuildDrawer() {
     onToggleTheme: toggleTheme,
     onAddAccount: addAccountFlow,
     onInvite: () => showInvite(inviteQrProvider(null)),
+    onToggleMock: () => {
+      const on = localStorage.getItem("velta-mock") === "1";
+      localStorage.setItem("velta-mock", on ? "0" : "1");
+      toast(on ? "Mock mode off — reloading" : "Mock mode on — reloading");
+      setTimeout(() => location.reload(), 600);
+    },
     onOpenChat: async kind => {
       if (kind === "saved") {
         const chats = await core.getChatList({ query: "" });
@@ -939,6 +946,15 @@ async function boot() {
       showOnboarding();
     }
 
+    try {
+      const tauri = window.__TAURI__;
+      const mediaInvoke = tauri?.core?.invoke || tauri?.invoke;
+      if (mediaInvoke) window.veltaMediaBase = await mediaInvoke("media_base_url");
+      appLog(`media base: ${window.veltaMediaBase}`);
+    } catch (e) {
+      appLog(`media base unavailable: ${e?.message || e}`);
+    }
+
     appLog("boot: init chatView");
     chatView = new ChatView(core, {
       onChatsChanged: refreshChatList,
@@ -1008,8 +1024,13 @@ async function boot() {
     if (autoOpen && !isNaN(+autoOpen)) openChat(+autoOpen);
 
     // PWA: service worker + install prompt
+    // The service worker was removed: native shells (Tauri/Android) serve
+    // bundled assets fresh on every launch, and the SW's cache-first fetch
+    // kept serving STALE js across upgrades — devices kept running old code
+    // with a new Rust shell, which is un-debuggable. Unregister leftovers.
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("sw.js").catch(() => {});
+      navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister())).catch(() => {});
+      if (navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage("unregister");
     }
     let deferredPrompt;
     addEventListener("beforeinstallprompt", e => {
