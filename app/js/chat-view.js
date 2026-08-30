@@ -237,14 +237,36 @@ export class ChatView {
     ]);
   }
 
+  // Report which render-relevant fields flip-flopped between polls — this is
+  // how we catch data that alternates between fetches and loops re-renders.
+  _logSignatureDiff(key, a, b) {
+    try {
+      const fa = JSON.parse(a), fb = JSON.parse(b);
+      const names = ["viewtype","downloadState","text","state","edited","starred","reactions","filePath","fileName","duration","fwdFrom","quote"];
+      const diffs = [];
+      for (let i = 0; i < names.length; i++) {
+        if (JSON.stringify(fa[i]) !== JSON.stringify(fb[i])) {
+          diffs.push(`${names[i]}: ${JSON.stringify(fa[i])} -> ${JSON.stringify(fb[i])}`);
+        }
+      }
+      diagnosticsSink.append("warning", `row ${key} rebuilt: ${diffs.join("; ") || "no field diff"}`);
+    } catch (e) {
+      diagnosticsSink.append("warning", `row ${key} rebuilt (diff failed: ${e})`);
+    }
+  }
+
   onMsgUpdated(chatId, msg) {
     if (!this.chat || chatId !== this.chat.id) return;
     const item = this.msgIndex.get(msg.id);
     if (!item) return;
     const sig = this._rowSignature(msg);
-    if (item.msg && this._rowSigCache.get(item.key) === sig) {
+    const prevSig = this._rowSigCache.get(item.key);
+    if (item.msg && prevSig === sig) {
       item.msg = msg; // data-only change — keep the rendered row untouched
       return;
+    }
+    if (item.msg && prevSig !== undefined) {
+      this._logSignatureDiff(item.key, prevSig, sig);
     }
     item.msg = msg;
     this.vs?.onItemHeightDidChange?.(item);
@@ -770,23 +792,25 @@ export class ChatView {
       let picked = await invoke("plugin:dialog|open", { options: { multiple: false, filters } });
       if (Array.isArray(picked)) picked = picked[0];
       if (!picked) return;
-      const name = picked.replace(/\\/g, "/").split("/").pop().split("?")[0];
+      // The Android picker returns content:// URIs that neither tauri-plugin-fs
+      // nor the core can read — copy the bytes into app storage via
+      // ContentResolver first (resolve_content_uri in lib.rs). The resolved
+      // path carries the real display name, which the type detection needs
+      // (the raw content id has no extension).
+      let resolved;
+      if (/^content:\/\//.test(picked)) {
+        resolved = await invoke("resolve_content_uri", { uri: picked, filename: String(Date.now()) });
+        diagnosticsSink.append("info", `attachment copied to ${resolved}`);
+      } else {
+        resolved = await resolveAttachmentPath(picked, picked.replace(/\\/g, "/").split("/").pop());
+      }
+
+      const name = resolved.replace(/\\/g, "/").split("/").pop() || "attachment";
       const ext = extOf(name);
       let viewtype = "file";
       if (kind === "image" || ["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext)) viewtype = "image";
       else if (kind === "video" || ["mp4", "mov", "mkv", "avi", "webm"].includes(ext)) viewtype = "video";
       else if (["mp3", "m4a", "ogg", "wav", "flac"].includes(ext)) viewtype = "audio";
-
-      // The Android picker returns content:// URIs that neither tauri-plugin-fs
-      // nor the core can read — copy the bytes into app storage via
-      // ContentResolver first (resolve_content_uri in lib.rs).
-      let resolved;
-      if (/^content:\/\//.test(picked)) {
-        resolved = await invoke("resolve_content_uri", { uri: picked, filename: `${Date.now()}-${name}` });
-        diagnosticsSink.append("info", `attachment copied to ${resolved}`);
-      } else {
-        resolved = await resolveAttachmentPath(picked, name);
-      }
       const msg = await this.core.sendMessage(this.chat.id, { text: "", viewtype, file: resolved, filename: name });
       this.appendOutgoing(msg);
       this.onChatsChanged();
