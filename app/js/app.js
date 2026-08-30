@@ -198,7 +198,20 @@ if (!core) {
   core = new MockCore();
   core.backend = { kind: "mock", label: "demo mode (no local core)", connected: false };
 }
-core.addEventListener?.("diagnostic", e => diagnostics.append(e.detail?.level || "info", e.detail?.message || "Core event"));
+// The core's per-transport Info events (IMAP/DNS/quota/idle chatter) flood
+// the Diagnostics chat within seconds and bury everything useful. Keep
+// warnings/errors plus the Info lines that actually describe message
+// arrival and downloads.
+const DIAGNOSTIC_INFO_KEEP = /receive_imf|download|secure|pre-message|post-message|Receiving message/i;
+const DIAGNOSTIC_INFO_SKIP = /ConnectivityChanged|ImapInboxIdle|ImapConnected|SmtpConnected|SmtpMessageSent|imap\.rs|dns\.rs|scheduler\.rs|quota\.rs|select_folder\.rs|idle\.rs|key\.rs/i;
+core.addEventListener?.("diagnostic", e => {
+  const level = e.detail?.level || "info";
+  const message = e.detail?.message || "Core event";
+  if (level === "info") {
+    if (DIAGNOSTIC_INFO_SKIP.test(message) && !DIAGNOSTIC_INFO_KEEP.test(message)) return;
+  }
+  diagnostics.append(level, message);
+});
 
 // Tell the frontend where blobs live so media URLs can be resolved absolutely.
 if (window.__TAURI__) {
