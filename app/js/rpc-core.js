@@ -9,6 +9,8 @@
 
 let nextId = 1;
 
+import { debugLog } from "./diagnostics.js";
+
 function rustLog(msg) {
   try {
     console.log("[velta]", msg);
@@ -138,7 +140,7 @@ export class JsonRpcCore extends EventTarget {
     for (;;) {
       try {
         const ev = await this._call("get_next_event");
-        rustLog(`event raw: ${JSON.stringify(ev).slice(0, 400)}`);
+        debugLog(`event raw: ${JSON.stringify(ev).slice(0, 400)}`);
         if (ev?.event) this._handleCoreEvent(ev.event).catch(() => {});
       } catch (error) {
         this._emit("diagnostic", { level: "warning", message: `Event polling failed: ${error?.message || error}` });
@@ -152,7 +154,7 @@ export class JsonRpcCore extends EventTarget {
     // but hand-rolled transports may deliver snake_case — accept both.
     const chatId = ev.chatId ?? ev.chat_id;
     const msgId = ev.msgId ?? ev.msg_id;
-    rustLog(`event kind=${ev.kind} chatId=${chatId ?? "null"} msgId=${msgId ?? "null"}`);
+    debugLog(`event kind=${ev.kind} chatId=${chatId ?? "null"} msgId=${msgId ?? "null"}`);
     switch (ev.kind) {
       case "Info":
       case "Warning":

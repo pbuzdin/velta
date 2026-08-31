@@ -5,12 +5,9 @@ import { showContextMenu, showModal, confirmModal, toast, showEmojiPop, openImag
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
 
-import { diagnosticsSink } from "./diagnostics.js";
+import { diagnosticsSink, debugLog } from "./diagnostics.js";
 
 function rustLog(msg) {
-  try {
-    console.log("[velta]", msg);
-  } catch {}
   try {
     const tauri = window.__TAURI__;
     const invoke = tauri?.core?.invoke || tauri?.invoke;
@@ -49,7 +46,7 @@ function fileUrl(path) {
       // Serve media through Tauri's asset protocol — the configuration that
       // reliably rendered images and video posters on every platform.
       const url = tauri.core.convertFileSrc(resolved);
-      rustLog(`fileUrl path=${path} resolved=${resolved} url=${url}`);
+      debugLog(`fileUrl path=${path} resolved=${resolved} url=${url}`);
       return url;
     }
   } catch (e) { rustLog(`fileUrl error: ${e}`); }
@@ -122,6 +119,10 @@ export class ChatView {
 
   async open(chatId) {
     this.exitSelection();
+    // Always render from scratch here. "Already open" is guarded in
+    // App.openChat; a DOM-state shortcut is not safe because other surfaces
+    // (the Diagnostics chat writes rows into #history directly) can replace
+    // the scroller's content while this.chat/items still look current.
     this.chat = await this.core.getChat(chatId);
     this.replyTo = null;
     this._renderReplyPreview();
@@ -140,6 +141,24 @@ export class ChatView {
     await this.core.markRead(chatId);
     requestAnimationFrame(() => this._scrollBottom(true));
     this.startLive();
+  }
+
+  // Full teardown: stop polling, dispose the virtual scroller, drop cached
+  // rows and leave #history empty. Used when another surface takes over the
+  // history area (Diagnostics chat) and when the chat is closed.
+  close() {
+    this.stopLive();
+    this.chat = null;
+    this.vs?.stop();
+    this.vs = null;
+    this.items = [];
+    this.msgIndex.clear();
+    this._rowCache.clear();
+    this._rowSigCache.clear();
+    this.replyTo = null;
+    this._renderReplyPreview();
+    this.exitSelection();
+    this.listEl.replaceChildren();
   }
 
   async appendOutgoing(msg) {
@@ -170,7 +189,7 @@ export class ChatView {
   // carries no ids, and the decorated fast-path may fail). Reload the tail
   // and append only what's actually new, preserving scroll/history paging.
   async onMsgsChanged(chatId, { fresh = false } = {}) {
-    rustLog(`chat-view onMsgsChanged chatId=${chatId} current=${this.chat?.id} fresh=${fresh}`);
+    debugLog(`chat-view onMsgsChanged chatId=${chatId} current=${this.chat?.id} fresh=${fresh}`);
     if (!this.chat || (chatId && chatId !== this.chat.id)) return;
     let maxId = 0;
     for (const it of this.items) if (it.type === "msg" && it.msg.id > maxId) maxId = it.msg.id;
@@ -193,7 +212,11 @@ export class ChatView {
         updated++;
       }
     }
-    rustLog(`chat-view onMsgsChanged found ${newMsgs.length} new, ${updated} updated messages`);
+    // Loud when something actually changed (a non-zero here means rows were
+    // appended/rebuilt — the signal for rerender-loop debugging); silent churn
+    // stays behind the debug flag.
+    if (newMsgs.length || updated) rustLog(`chat-view onMsgsChanged found ${newMsgs.length} new, ${updated} updated messages`);
+    else debugLog(`chat-view onMsgsChanged found 0 new, 0 updated messages`);
     if (!newMsgs.length) return;
     this._insertItems(this._withSeparatorsAppend(newMsgs));
     this.vs?.setItems(this.items);
@@ -205,14 +228,18 @@ export class ChatView {
     }
   }
 
-  // Live tail polling while a chat is open — guarantees new messages appear
-  // even if core events are delayed or dropped by the transport.
+  // Live tail polling while a chat is open — a safety net for new messages
+  // when core events are delayed or dropped by the transport. Realtime
+  // delivery is event-driven; this only bounds the worst-case delay, so it
+  // can run slowly. Each tick refetches the tail (2 RPCs + a full remap of 40
+  // messages) — at the old 2s cadence that alone was a multi-GB/day
+  // allocation churn in the WebView.
   startLive() {
     this.stopLive();
-    rustLog(`chat-view startLive chat=${this.chat?.id}`);
+    debugLog(`chat-view startLive chat=${this.chat?.id}`);
     this._liveTimer = setInterval(() => {
       if (this.chat && !document.hidden) this.onMsgsChanged(0, { fresh: true });
-    }, 2000);
+    }, 20000);
   }
 
   stopLive() {
@@ -373,6 +400,18 @@ export class ChatView {
       getItemId: (item) => item.key,
       getEstimatedItemHeight: () => 48,
     });
+    // Debug: trace what drives the scroller (re-render loop investigation).
+    window.__vs = this.vs;
+    if (!debugLog.enabled) return;
+    for (const name of ["setItems", "onItemHeightDidChange", "update", "renderItem", "rerender", "stop", "start"]) {
+      const orig = this.vs[name];
+      if (typeof orig === "function") {
+        this.vs[name] = (...args) => {
+          debugLog(`vs.${name} n=${args[0]?.length ?? ""} t=${Date.now() % 100000}`);
+          return orig.apply(this.vs, args);
+        };
+      }
+    }
   }
 
   _renderItem(item) {
@@ -380,8 +419,16 @@ export class ChatView {
     // recreates its <video>/<audio> element, which resets playback (the
     // "flickering player"). Invalidate the cache entry when content changes.
     const cached = this._rowCache.get(item.key);
-    if (cached) return cached;
+    if (cached) {
+      if (cached.querySelector?.("video")) {
+        debugLog(`render: CACHED video row ${item.key} t=${Date.now() % 100000}`);
+      }
+      return cached;
+    }
     const el = this._buildItem(item);
+    if (el.querySelector?.("video")) {
+      rustLog(`render: NEW video row ${item.key} t=${Date.now() % 100000}`);
+    }
     this._rowCache.set(item.key, el);
     return el;
   }
@@ -491,9 +538,16 @@ export class ChatView {
 
     // Wire up real local file URLs for images / video / audio. When media
     // can't load, show a clear placeholder instead of a broken element.
+    // Media rows change height when their content loads (image decodes,
+    // video metadata sets the aspect ratio) — the virtual scroller must be
+    // told about each change, otherwise its layout math goes stale and the
+    // list jitters while scrolling ("Item index N height changed
+    // unexpectedly" console warnings).
+    const notifyHeight = () => this.vs?.onItemHeightDidChange?.(item);
     const mediaImg = row.querySelector('.msg-image img[data-src]');
     if (mediaImg) {
       mediaImg.src = fileUrl(m.filePath);
+      mediaImg.addEventListener("load", notifyHeight);
       mediaImg.addEventListener("click", e => {
         e.stopPropagation();
         if (mediaImg.naturalWidth) openImageLightbox(mediaImg.src, m.fileName || "photo");
@@ -505,6 +559,7 @@ export class ChatView {
         if (box && !box.dataset.failed) {
           box.dataset.failed = "1";
           box.innerHTML = `<div class="media-fail"><div class="media-fail-ico">${ICO.photo}</div><div>Couldn't load image</div></div>`;
+          notifyHeight();
         }
       };
     }
@@ -512,11 +567,14 @@ export class ChatView {
     if (mediaVideo) {
       mediaVideo.src = fileUrl(m.filePath);
       mediaVideo.onloadedmetadata = () => {
-        rustLog(`media video loaded id=${m.id} src=${mediaVideo.src}`);
+        debugLog(`media video loaded id=${m.id} src=${mediaVideo.src}`);
         if (mediaVideo.videoWidth && mediaVideo.videoHeight) {
           mediaVideo.style.aspectRatio = `${mediaVideo.videoWidth} / ${mediaVideo.videoHeight}`;
         }
+        notifyHeight();
       };
+      // `resize` fires whenever the video's intrinsic dimensions change.
+      mediaVideo.addEventListener("resize", notifyHeight);
       mediaVideo.onerror = () => {
         rustLog(`media video error src=${mediaVideo.src} original=${m.filePath}`);
         diagnosticsSink.append("error", `video ${m.id} failed to load: ${mediaVideo.error ? (mediaVideo.error.message || mediaVideo.error.code) : "unknown"}`);
@@ -524,11 +582,20 @@ export class ChatView {
         if (box && !box.dataset.failed) {
           box.dataset.failed = "1";
           box.innerHTML = `<div class="media-fail"><div class="media-fail-ico">${ICO.photo}</div><div>Video can't be played</div></div>`;
+          notifyHeight();
         }
       };
       // On Android WebView the first frame is often not shown automatically;
-      // forcing a seek helps generate the poster frame.
-      mediaVideo.oncanplay = () => { try { mediaVideo.currentTime = 0.001; } catch {} };
+      // forcing a seek generates the poster frame. Guard it to run ONCE per
+      // element: each seek completion fires canplay again, so an unguarded
+      // oncanplay handler spins a ~10,000 events/sec seek loop that floods
+      // the renderer with decode/event churn (the "infinitely rerendering
+      // video element" — multi-GB memory growth within minutes).
+      mediaVideo.oncanplay = () => {
+        if (mediaVideo.dataset.posterSeek) return;
+        mediaVideo.dataset.posterSeek = "1";
+        try { mediaVideo.currentTime = 0.001; } catch {}
+      };
     }
     const mediaAudio = row.querySelector('.msg-audio audio[data-src]');
     if (mediaAudio) {

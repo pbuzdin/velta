@@ -1,6 +1,27 @@
 // diagnostics.js — local-only startup/core log presented as a device chat.
 export const DIAGNOSTICS_CHAT_ID = -9007199254740991;
 
+// Verbose tracing (poll ticks, scroller calls, media URLs, event dumps).
+// Off by default: at the old cadences this alone produced megabytes of
+// console output and js_log IPC per hour. Enable with
+// localStorage.setItem("velta-debug", "1") or ?debug in the URL.
+export const VELTA_DEBUG = (() => {
+  try {
+    return localStorage.getItem("velta-debug") === "1" || new URLSearchParams(location.search).has("debug");
+  } catch { return false; }
+})();
+
+export function debugLog(msg) {
+  if (!VELTA_DEBUG) return;
+  console.log("[velta]", msg);
+  try {
+    const tauri = window.__TAURI__;
+    const invoke = tauri?.core?.invoke || tauri?.invoke;
+    if (invoke) invoke("js_log", { msg }).catch(() => {});
+  } catch {}
+}
+debugLog.enabled = VELTA_DEBUG;
+
 // Global sink so deep UI code (media loading, attachments) can surface
 // diagnostic lines into the Velta Diagnostics chat, where they are visible
 // via a simple screencap — no adb root or logcat needed.

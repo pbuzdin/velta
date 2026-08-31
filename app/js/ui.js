@@ -183,7 +183,7 @@ export function showInvite(provider, { title = "Invite to Delta Chat", group = f
 async function showAbout() {
   // Keep the fallback in sync with tauri.conf.json; prefer the runtime
   // version so the About dialog always matches the built app.
-  let version = "1.1.10";
+  let version = "1.1.12";
   try {
     const tauri = window.__TAURI__;
     if (tauri?.app?.getVersion) version = await tauri.app.getVersion();
