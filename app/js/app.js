@@ -12,6 +12,12 @@ let core = null;
 let diagnosticsOpen = false;
 let chatView = null;
 let coreStartupPromise = null;
+// Declared at the top: scheduleChatListRefresh() is reachable from the
+// diagnostics "changed" listener while the module is still evaluating (the
+// top-level await below yields to events), so these must not live further
+// down — `let` declarations would still be in their temporal dead zone.
+let chatListRefreshTimer = null;
+let chatListInFlight = false;
 const state = {
   account: null,
   chats: [],
@@ -61,10 +67,9 @@ function renderDiagnosticsMessages() {
 function renderInitialDiagnosticsChat() {
   const list = $("chat-list");
   if (!list) return;
-  const item = document.createElement("dc-chat-item");
-  item.setData(diagnostics.getChat());
-  item.addEventListener("click", openDiagnosticsChat);
-  list.replaceChildren(item);
+  // createChatItem routes the diagnostics id to openDiagnosticsChat and
+  // tracks the chat data so a later renderChatList can reuse the element.
+  list.replaceChildren(createChatItem(diagnostics.getChat(), false));
 }
 
 function bindEarlyRecoveryActions() {
@@ -113,7 +118,11 @@ function bindEarlyRecoveryActions() {
 
 function openDiagnosticsChat() {
   diagnosticsOpen = true;
-  chatView?.stopLive();
+  // The Diagnostics chat writes its rows into #history directly, so the chat
+  // view must fully release the area first — otherwise its scroller still
+  // believes the previous chat is open and interleaves old rows (the
+  // "two chats merged" bug), and switching back skipped re-rendering.
+  chatView?.close();
   state.activeChatId = DIAGNOSTICS_CHAT_ID;
   $("no-chat").hidden = true;
   $("chat-view").hidden = false;
@@ -131,7 +140,9 @@ function openDiagnosticsChat() {
 
 diagnostics.addEventListener("changed", () => {
   renderDiagnosticsMessages();
-  if (core) refreshChatList();
+  // Debounced: diagnostics appends fire per core event (several per second
+  // during sync) — a direct refresh here would multiply the churn.
+  if (core) scheduleChatListRefresh();
   else renderInitialDiagnosticsChat();
 });
 
@@ -332,39 +343,125 @@ function toggleTheme() {
 }
 
 /* ---------------- chat list ---------------- */
+// Event-driven refresh. refreshChatList() refetches the list from the core and
+// re-renders it in place (renderChatList reuses existing <dc-chat-item>
+// elements), so it is cheap — but bursts of core events (IMAP sync, markseen
+// cascades) would still fire dozens of RPC round trips per second, so
+// event-driven callers go through scheduleChatListRefresh() which collapses a
+// burst into one trailing refresh.
+
+function scheduleChatListRefresh(delay = 400) {
+  if (chatListRefreshTimer) return; // a trailing refresh is already pending
+  chatListRefreshTimer = setTimeout(async () => {
+    chatListRefreshTimer = null;
+    await refreshChatList();
+  }, delay);
+}
+
 async function refreshChatList() {
+  if (chatListInFlight) {
+    scheduleChatListRefresh();
+    return;
+  }
+  chatListInFlight = true;
   try {
     const chats = await core.getChatList({ query: state.query });
     state.chats = [diagnostics.getChat(), ...chats.filter(chat => chat.id !== DIAGNOSTICS_CHAT_ID)];
     renderChatList();
   } catch (err) {
-    appLog(`refreshChatList error: ${err.message}`);
+    // Never funnel refresh errors into the Diagnostics store: the store emits
+    // "changed", a listener of which triggers another refresh — an error here
+    // would spin an undebounced rerender loop (and leak renderer memory fast).
+    console.warn("[velta] refreshChatList error:", err?.message || err);
+    try {
+      const tauri = window.__TAURI__;
+      const invoke = tauri?.core?.invoke || tauri?.invoke;
+      if (invoke) invoke("js_log", { msg: `refreshChatList error: ${err?.message || err}` }).catch(() => {});
+    } catch {}
+  } finally {
+    chatListInFlight = false;
   }
 }
 
 function renderChatList() {
   const list = $("chat-list");
-  list.replaceChildren();
-  const frag = document.createDocumentFragment();
-  for (const chat of state.chats) {
-    const item = document.createElement("dc-chat-item");
-    item.setData(chat);
-    if (chat.id === state.activeChatId) item.setAttribute("active", "");
-    item.addEventListener("click", () => openChat(chat.id));
-    item.addEventListener("contextmenu", e => {
-      if (e.altKey) return; // Alt+right-click → WebView devtools menu
-      e.preventDefault();
-      chatContextMenu(chat, e.clientX, e.clientY);
-    });
-    frag.appendChild(item);
+  // Reuse row elements only while their display data is unchanged; recreate
+  // an element when its data or active state changes. Recreating runs the
+  // Elena first-render path (safe); updating data on a hydrated element is
+  // NOT safe: Elena's re-render diff compares live children against a fresh
+  // template clone, and custom elements like <dc-avatar> exist only in the
+  // live tree (innerHTML templates contain the bare, unhydrated tag), so the
+  // diff deletes the avatar's rendered children — blank avatars. With
+  // change-gated recreation, an idle list does zero DOM work and a burst
+  // touches only the chats whose data actually changed.
+  const existing = new Map();
+  for (const child of [...list.children]) {
+    if (child.tagName === "DC-CHAT-ITEM") {
+      const id = Number(child.getAttribute("chat-id"));
+      if (state.chats.some(c => c.id === id)) existing.set(id, child);
+      else child.remove();
+    } else {
+      child.remove(); // stale empty-state placeholder
+    }
   }
+  const items = [];
+  for (const chat of state.chats) {
+    const active = chat.id === state.activeChatId;
+    let item = existing.get(chat.id);
+    if (!item || !chatItemUpToDate(item, chat, active)) {
+      const fresh = createChatItem(chat, active);
+      item?.replaceWith(fresh);
+      item = fresh;
+    }
+    items.push(item);
+  }
+  // Only touch the DOM when the row set/order actually changed; moving
+  // existing nodes preserves them (no custom-element re-init).
+  const sameOrder = items.length === list.children.length &&
+    items.every((el, i) => list.children[i] === el);
+  if (!sameOrder) list.replaceChildren(...items);
   if (!state.chats.length) {
     const empty = document.createElement("div");
     empty.style.cssText = "text-align:center;color:var(--text-dim);padding:30px 16px;font-size:14.5px";
     empty.textContent = state.query ? "No chats found" : "No chats yet — start a new one";
-    frag.appendChild(empty);
+    list.appendChild(empty);
   }
-  list.appendChild(frag);
+}
+
+function createChatItem(chat, active) {
+  const chatId = chat.id;
+  const item = document.createElement("dc-chat-item");
+  item.addEventListener("click", () => openChat(chatId));
+  item.addEventListener("contextmenu", e => {
+    if (e.altKey) return; // Alt+right-click → WebView devtools menu
+    e.preventDefault();
+    const current = state.chats.find(c => c.id === chatId);
+    if (current) chatContextMenu(current, e.clientX, e.clientY);
+  });
+  item._veltaActive = active;
+  item.setData(chat); // sets item.chat — used by chatItemUpToDate
+  if (active) item.setAttribute("active", "");
+  return item;
+}
+
+function chatItemUpToDate(item, chat, active) {
+  if (item._veltaActive !== active) return false;
+  const prev = item.chat;
+  if (!prev) return false;
+  return prev.name === chat.name
+    && prev.kind === chat.kind
+    && prev.avatarColor === chat.avatarColor
+    && prev.lastMsg === chat.lastMsg
+    && prev.lastTs === chat.lastTs
+    && prev.unread === chat.unread
+    && prev.pinned === chat.pinned
+    && prev.muted === chat.muted
+    && prev.archived === chat.archived
+    && prev.verified === chat.verified
+    && prev.encrypted === chat.encrypted
+    && prev.draft === chat.draft
+    && prev.lastFrom === chat.lastFrom
+    && prev.lastState === chat.lastState;
 }
 
 function chatContextMenu(chat, x, y) {
@@ -392,12 +489,25 @@ function chatContextMenu(chat, x, y) {
   ].filter(Boolean), x, y);
 }
 
+// Fresh <dc-chat-head> for the open chat. Always build a new element instead
+// of setData() on an existing one: Elena's re-render diff strips the hydrated
+// children of the nested <dc-avatar> (see renderChatList).
+function renderChatHead(chat) {
+  const head = document.createElement("dc-chat-head");
+  head.setData(chat);
+  head.addEventListener("click", () => showChatInfo(chat));
+  return head;
+}
+
 /* ---------------- chat open/close ---------------- */
 async function openChat(chatId) {
   if (chatId === DIAGNOSTICS_CHAT_ID) {
     openDiagnosticsChat();
     return;
   }
+  // Already showing this chat → keep the live view (and its <video> elements)
+  // instead of tearing everything down and rebuilding media from scratch.
+  if (state.activeChatId === chatId) return;
   diagnosticsOpen = false;
   $("diagnostic-actions").hidden = true;
   $("main-composer").hidden = false;
@@ -427,7 +537,9 @@ async function openChat(chatId) {
     core.getChatMembers(chatId).then(members => {
       if (state.activeChatId !== chatId) return;
       chat.memberCount = members.length;
-      head.setData(chat);
+      const fresh = renderChatHead(chat);
+      state.activeChatHead?.replaceWith(fresh);
+      state.activeChatHead = fresh;
     }).catch(() => {});
   }
   await chatView.open(chatId);
@@ -436,7 +548,7 @@ async function openChat(chatId) {
 
 function closeChat() {
   diagnosticsOpen = false;
-  chatView?.stopLive();
+  chatView?.close();
   state.activeChatId = null;
   state.activeChatHead = null;
   $("chat-view").hidden = true;
@@ -463,7 +575,9 @@ async function refreshActiveChatHeader(chatId) {
     const members = await core.getChatMembers(chat.id);
     if (state.activeChatId !== chat.id || chat.memberCount === members.length) return;
     chat.memberCount = members.length;
-    head.setData(chat);
+    const fresh = renderChatHead(chat);
+    state.activeChatHead?.replaceWith(fresh);
+    state.activeChatHead = fresh;
   } catch { /* keep the last known count */ }
 }
 
@@ -977,15 +1091,17 @@ async function boot() {
       searchTimer = setTimeout(() => { state.query = e.target.value; refreshChatList(); }, 160);
     });
 
-    core.addEventListener("incoming-msg", () => refreshChatList());
-    core.addEventListener("msgs-changed", () => refreshChatList());
+    core.addEventListener("incoming-msg", () => scheduleChatListRefresh());
+    core.addEventListener("msgs-changed", () => scheduleChatListRefresh());
     core.addEventListener("chat-updated", ev => {
-      refreshChatList();
+      scheduleChatListRefresh();
       refreshActiveChatHeader(ev?.detail?.chatId);
     });
-    // Fallback: refresh the chat list periodically so contact requests and newly
-    // arrived chats appear even if core events are delayed or dropped.
-    setInterval(() => { refreshChatList(); }, 4000);
+    // Safety net only: contact requests and new chats normally arrive via
+    // core events (handled above with a debounced refresh). With in-place
+    // chat-list updates a refresh is cheap, but each one still costs two RPC
+    // round trips, so don't run it more often than needed.
+    setInterval(() => { scheduleChatListRefresh(); }, 30000);
 
     addEventListener("dc-core-disconnected", () => {
       toast("Lost connection to local Delta Chat core — is the service running?", 4500);

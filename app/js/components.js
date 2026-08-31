@@ -15,6 +15,20 @@ class DcAvatar extends Elena(HTMLElement) {
   kind = "single";
   size = "46";
 
+  connectedCallback() {
+    super.connectedCallback?.();
+    // Self-heal: Elena's re-render diff compares live children against a
+    // freshly parsed template clone — and a custom element inside a template
+    // is bare (unhydrated), so a diff pass deletes our rendered circle and
+    // leaves us connected but empty. Clearing Elena's render caches forces
+    // the next N() through the full first-render path, restoring the circle.
+    if (this.h && this.childElementCount === 0) {
+      delete this.D;
+      delete this.F;
+      this.N?.();
+    }
+  }
+
   initials() {
     return (this.name || "?").trim().split(/\s+/).filter(w => /[A-Za-z0-9]/.test(w[0] || "")).slice(0, 2).map(w => w[0].toUpperCase()).join("") || "?";
   }
@@ -54,6 +68,16 @@ class DcChatItem extends Elena(HTMLElement) {
   static events = ["click"];
 
   chat = null;
+  // Elena reads prop defaults from instance fields; attribute-style prop
+  // names ("chat-id") can't be declared as class fields, so install them in
+  // the constructor — otherwise every attribute set logs a
+  // "Prop has no default" warning, which during refresh storms was
+  // hundreds of console messages per second.
+  constructor(...args) {
+    super(...args);
+    this["chat-id"] = null;
+    this["active"] = null;
+  }
 
   setData(chat) {
     this.chat = chat;
