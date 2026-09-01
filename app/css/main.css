@@ -281,6 +281,23 @@ html[data-theme="light"] .msg-meta .ticks.read { color: #1d8bf1; }
      re-measure loops while the video loads. */
   aspect-ratio: 16 / 9; object-fit: contain; background: #000;
 }
+dc-video { display: block; }
+.dc-video-ph {
+  width: 100%; aspect-ratio: 16 / 9; display: grid; place-items: center;
+  background: #000; border: 0; cursor: pointer; position: relative;
+  color: #fff; padding: 0; font: inherit;
+}
+.dc-video-ph .dc-video-play {
+  width: 54px; height: 54px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.16); display: grid; place-items: center;
+  padding: 15px;
+}
+.dc-video-ph:active .dc-video-play { background: rgba(255, 255, 255, 0.3); }
+.dc-video-ph .dc-video-dur {
+  position: absolute; right: 8px; bottom: 8px;
+  background: rgba(0, 0, 0, 0.6); border-radius: 6px;
+  font-size: 12px; line-height: 1; padding: 4px 6px; color: #fff;
+}
 .msg-audio {
   width: 320px; max-width: 100%; margin: -2px -5px 5px;
 }
