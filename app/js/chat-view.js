@@ -217,8 +217,17 @@ export class ChatView {
   startLive() {
     this.stopLive();
     debugLog(`chat-view startLive chat=${this.chat?.id}`);
+    this._liveTicks = 0;
     this._liveTimer = setInterval(() => {
-      if (this.chat && !document.hidden) this.onMsgsChanged(0, { fresh: true });
+      if (this.chat && !document.hidden) {
+        // Regular ticks reuse the incrementally maintained id cache — the
+        // tail refetch stays O(40) instead of refetching every message id
+        // in the chat every 20s. Every 5th tick (~100s) rebuilds the ids
+        // to self-heal events dropped by the transport.
+        const fresh = this._liveTicks % 5 === 4;
+        this._liveTicks++;
+        this.onMsgsChanged(0, { fresh });
+      }
     }, 20000);
   }
 
@@ -406,10 +415,16 @@ export class ChatView {
       return cached;
     }
     const el = this._buildItem(item);
-    if (el.querySelector?.("video")) {
-      rustLog(`render: NEW video row ${item.key} t=${Date.now() % 100000}`);
-    }
     this._rowCache.set(item.key, el);
+    // Detached rows keep their event listeners alive while cached — cap the
+    // cache so a long session can't retain the whole history as detached DOM.
+    if (this._rowCache.size > 200) {
+      const oldest = this._rowCache.keys().next().value;
+      if (oldest !== item.key) {
+        this._rowCache.delete(oldest);
+        this._rowSigCache.delete(oldest);
+      }
+    }
     return el;
   }
 
