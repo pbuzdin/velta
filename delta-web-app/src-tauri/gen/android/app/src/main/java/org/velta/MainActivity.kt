@@ -5,6 +5,12 @@ import android.os.Bundle
 import androidx.activity.enableEdgeToEdge
 
 class MainActivity : TauriActivity() {
+  // Re-enable WryActivity's WebView-history BACK handling (TauriActivity
+  // turns it off): BACK pops the SPA history entry pushed by openChat
+  // (chat -> chat list) and only exits once the app is back at its base
+  // state, where canGoBack() is false.
+  override val handleBackNavigation: Boolean = true
+
   companion object {
     init {
       // delta_web.so is loaded by the Tauri runtime; ensure it is available

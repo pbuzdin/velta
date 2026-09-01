@@ -136,6 +136,7 @@ function openDiagnosticsChat() {
   $("diagnostic-actions").hidden = false;
   $("reply-preview").hidden = true;
   renderDiagnosticsMessages();
+  if (history.state?.velta !== "chat") history.pushState({ velta: "chat", chatId: DIAGNOSTICS_CHAT_ID }, "");
   renderChatList();
 }
 
@@ -544,10 +545,21 @@ async function openChat(chatId) {
     }).catch(() => {});
   }
   await chatView.open(chatId);
+  // History entry per open chat: Android BACK pops it (chat -> chat list)
+  // via WryActivity's WebView-history navigation instead of exiting.
+  if (history.state?.velta !== "chat") history.pushState({ velta: "chat", chatId }, "");
   renderChatList();
 }
 
 function closeChat() {
+  if (history.state?.velta === "chat") {
+    history.back(); // popstate -> closeChatUI
+    return;
+  }
+  closeChatUI();
+}
+
+function closeChatUI() {
   diagnosticsOpen = false;
   chatView?.close();
   state.activeChatId = null;
@@ -560,6 +572,12 @@ function closeChat() {
   $("chat-head-actions").style.visibility = "";
   renderChatList();
 }
+
+// Android BACK / gesture pops the entry pushed by openChat; this performs
+// the actual teardown. Diagnostics chat uses the same entry shape.
+window.addEventListener("popstate", (e) => {
+  if (state.activeChatId != null && e.state?.velta !== "chat") closeChatUI();
+});
 
 // The header paints before the async member fetch resolves, and group
 // membership changes (members added/removed) arrive later as core events.
