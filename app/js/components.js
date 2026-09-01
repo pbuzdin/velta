@@ -70,10 +70,6 @@ class DcAvatar extends Elena(HTMLElement) {
     return (this.name || "?").trim().split(/\s+/).filter(w => /[A-Za-z0-9]/.test(w[0] || "")).slice(0, 2).map(w => w[0].toUpperCase()).join("") || "?";
   }
 
-  ariaLabel() {
-    return "Play " + (this.name || "video");
-  }
-
   render() {
     const s = Number(this.size) || 46;
     const special = specialKind(this.kind);
@@ -161,6 +157,10 @@ class DcVideo extends Elena(HTMLElement) {
         diagnosticsSink.append("error", `video "${this.name}" failed to load`);
       });
     }
+  }
+
+  ariaLabel() {
+    return "Play " + (this.name || "video");
   }
 
   render() {
