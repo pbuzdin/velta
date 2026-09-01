@@ -229,8 +229,13 @@ html[data-theme="light"] .service-msg { background: rgba(244,244,244,.75); color
 }
 .msg-fwd {
   font-size: 13px; color: var(--accent);
-  font-style: italic; margin-bottom: 2px;
+  font-style: italic; margin-bottom: 5px;
 }
+/* Media pulls itself up (-2px) to sit flush at the bubble top — but that
+   would swallow the gap after a fwd/quote label, so keep the label's
+   spacing when it directly precedes media. */
+.msg-fwd + .msg-video, .msg-fwd + .msg-image { margin-top: 0; }
+.msg-quote + .msg-video, .msg-quote + .msg-image { margin-top: 0; }
 .msg-quote {
   border-left: 2.5px solid var(--accent);
   background: var(--bg-reply);
@@ -647,8 +652,11 @@ li.failed .step-ico::after { content: "✕"; }
   touch-action: none; user-select: none;
 }
 .lightbox-bar {
+  /* App runs edge-to-edge: keep the close button below the status bar,
+     otherwise the transparent system bar swallows taps on it. */
   display: flex; justify-content: space-between; align-items: center;
-  padding: 10px 14px; color: #f4f4f4; flex: 0 0 auto;
+  padding: max(env(safe-area-inset-top), 10px) 14px 10px;
+  color: #f4f4f4; flex: 0 0 auto;
 }
 .lightbox-cap { font-size: 14px; opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 80%; }
 .lightbox-close {
