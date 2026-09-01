@@ -2,6 +2,7 @@
 import { createCore, probeService } from "./transport.js";
 import "./components.js";
 import { escapeHtml, escapeAttr } from "./components.js";
+import { fileUrl } from "./media.js";
 import { ChatView } from "./chat-view.js";
 import { DiagnosticsStore, DIAGNOSTICS_CHAT_ID } from "./diagnostics.js";
 import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite } from "./ui.js";
@@ -591,7 +592,7 @@ function showChatInfo(chat) {
   const body = document.createElement("div");
   body.innerHTML = `
     <div style="display:flex;justify-content:center;padding:8px 0 14px">
-      <dc-avatar name="${escapeHtml(chat.name)}" color="${chat.avatarColor || "#777"}" kind="${chat.kind}" size="84"></dc-avatar>
+      <dc-avatar name="${escapeHtml(chat.name)}" color="${chat.avatarColor || "#777"}" kind="${chat.kind}" size="84"${chat.avatar ? ` avatar="${escapeAttr(fileUrl(chat.avatar))}"` : ""}></dc-avatar>
     </div>
     ${encNote}
     ${isGroup ? `<div class="info-row"><span class="k">Members</span><span class="v" data-member-count>…</span></div>
