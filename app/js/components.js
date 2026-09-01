@@ -1,6 +1,7 @@
 // components.js — Progressive Web Components built on Elena (@elenajs/core)
 import { Elena, html, unsafeHTML } from "../vendor/elena.js";
 import { formatListTime } from "./mock-core.js";
+import { fileUrl } from "./media.js";
 
 const AVATAR_SVG = `<svg viewBox="0 0 24 24" style="width:55%;height:55%"><path d="M12 4l2.2 4.7 5 .6-3.7 3.4 1 4.9-4.5-2.6-4.5 2.6 1-4.9L4.8 9.3l5-.6z" fill="currentColor"/></svg>`;
 const DEVICE_SVG = `<svg viewBox="0 0 24 24" style="width:55%;height:55%"><rect x="5" y="3" width="14" height="18" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="17.5" r="1.2" fill="currentColor"/></svg>`;
@@ -8,12 +9,15 @@ const DEVICE_SVG = `<svg viewBox="0 0 24 24" style="width:55%;height:55%"><rect 
 /* ---------- <dc-avatar> ---------- */
 class DcAvatar extends Elena(HTMLElement) {
   static tagName = "dc-avatar";
-  static props = ["name", "color", "kind", "size"];
+  static props = ["name", "color", "kind", "size", "avatar"];
 
   name = "?";
   color = "#777";
   kind = "single";
   size = "46";
+  avatar = "";
+  #avatarFailed = false;
+  #lastAvatar = null;
 
   connectedCallback() {
     super.connectedCallback?.();
@@ -29,6 +33,24 @@ class DcAvatar extends Elena(HTMLElement) {
     }
   }
 
+  willUpdate() {
+    if (this.#lastAvatar !== this.avatar) {
+      this.#lastAvatar = this.avatar;
+      this.#avatarFailed = false;
+    }
+  }
+
+  updated() {
+    const img = this.querySelector?.("img.dc-avatar-img");
+    if (img && !img.dataset.errBound) {
+      img.dataset.errBound = "1";
+      img.addEventListener("error", () => {
+        this.#avatarFailed = true;
+        this.requestUpdate();
+      });
+    }
+  }
+
   initials() {
     return (this.name || "?").trim().split(/\s+/).filter(w => /[A-Za-z0-9]/.test(w[0] || "")).slice(0, 2).map(w => w[0].toUpperCase()).join("") || "?";
   }
@@ -39,6 +61,11 @@ class DcAvatar extends Elena(HTMLElement) {
     const style = `width:${s}px;height:${s}px;font-size:${Math.round(s * 0.38)}px;` +
       (special ? "" : `background:${this.color || "#777"};`);
     const cls = "dc-avatar-circle" + (special ? " saved" : "");
+    // The initials stay underneath as the loading/failure fallback; the img
+    // is absolutely positioned and covers them once it decodes.
+    if (!special && this.avatar && !this.#avatarFailed) {
+      return html`<div class="${cls}" style="${style}" aria-hidden="true">${this.initials()}<img class="dc-avatar-img" src="${this.avatar}" alt="" loading="lazy"></div>`;
+    }
     const inner = this.kind === "saved" ? unsafeHTML(AVATAR_SVG)
       : this.kind === "device" ? unsafeHTML(DEVICE_SVG)
       : this.initials();
@@ -104,7 +131,7 @@ class DcChatItem extends Elena(HTMLElement) {
         : c.lastMsg ? escapeHtml(c.lastMsg) : "";
     return html`
       <div class="chat-item${this.active !== null && this.active !== undefined && this.getAttribute("active") !== null ? " active" : ""}" role="option">
-        ${unsafeHTML(`<dc-avatar name="${escapeAttr(c.name)}" color="${c.avatarColor || ""}" kind="${c.kind}" size="48"></dc-avatar>`)}
+        ${unsafeHTML(`<dc-avatar name="${escapeAttr(c.name)}" color="${c.avatarColor || ""}" kind="${c.kind}" size="48"${c.avatar ? ` avatar="${escapeAttr(fileUrl(c.avatar))}"` : ""}></dc-avatar>`)}
         <div class="ci-main">
           <div class="ci-top">
             <div class="ci-name">${c.name} ${unsafeHTML(nameBadges)}</div>

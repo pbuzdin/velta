@@ -1,11 +1,12 @@
 // chat-view.js — virtualized message history (virtual-scroller) + composer
 import { formatTime, formatDay, formatBytes } from "./mock-core.js";
-import { escapeHtml, ticksSvg } from "./components.js";
+import { escapeHtml, escapeAttr, ticksSvg } from "./components.js";
 import { showContextMenu, showModal, confirmModal, toast, showEmojiPop, openImageLightbox } from "./ui.js";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
 
 import { diagnosticsSink, debugLog } from "./diagnostics.js";
+import { fileUrl } from "./media.js";
 
 function rustLog(msg) {
   try {
@@ -31,27 +32,6 @@ const ICO = {
   lock: `<svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 018 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>`,
   check: `<svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
 };
-
-function fileUrl(path) {
-  if (!path) return "";
-  try {
-    const tauri = window.__TAURI__;
-    if (tauri?.core?.convertFileSrc) {
-      let resolved = path.replace(/\\/g, "/");
-      const isAbs = /^([a-zA-Z]:|\/)/.test(resolved);
-      if (!isAbs && window.veltaAccountsDir) {
-        const base = window.veltaAccountsDir.replace(/\\/g, "/").replace(/\/$/, "");
-        resolved = `${base}/${resolved.replace(/^\/+/, "")}`;
-      }
-      // Serve media through Tauri's asset protocol — the configuration that
-      // reliably rendered images and video posters on every platform.
-      const url = tauri.core.convertFileSrc(resolved);
-      debugLog(`fileUrl path=${path} resolved=${resolved} url=${url}`);
-      return url;
-    }
-  } catch (e) { rustLog(`fileUrl error: ${e}`); }
-  return path;
-}
 
 // On Android the file picker can return a content URI / temporary path that the
 // Delta Chat core cannot read directly. Copy the file into our app-local data
@@ -474,7 +454,7 @@ export class ChatView {
       inner += `<div class="msg-checkbox">${this.selection.has(m.id) ? ICO.check : ""}</div>`;
     }
     if (showAvatar) {
-      inner += `<dc-avatar name="${escapeHtml(m.fromContact.name)}" color="${m.fromContact.color}" size="30"></dc-avatar>`;
+      inner += `<dc-avatar name="${escapeHtml(m.fromContact.name)}" color="${m.fromContact.color}" size="30"${m.fromContact.avatar ? ` avatar="${escapeAttr(fileUrl(m.fromContact.avatar))}"` : ""}></dc-avatar>`;
     }
 
     let bubble = "";

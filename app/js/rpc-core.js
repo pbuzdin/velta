@@ -260,6 +260,7 @@ export class JsonRpcCore extends EventTarget {
       unread: c.freshMessageCounter ?? 0,
       draft: null,
       avatarColor: c.color || null,
+      avatar: c.avatarPath || null,
       lastMsg: lastMsg || null,
       lastTs: c.lastUpdated ? c.lastUpdated * 1000 : 0,
       lastFrom: outgoing ? 1 : null,
@@ -321,6 +322,7 @@ export class JsonRpcCore extends EventTarget {
       name: c.displayName || c.name || c.address || "?",
       addr: c.address,
       color: c.color || "#888",
+      avatar: c.profileImage || null,
       online: c.wasSeenRecently ?? false,
       lastSeen: c.lastSeen ? c.lastSeen * 1000 : Date.now(),
       verified: !!c.isVerified,
@@ -438,7 +440,7 @@ export class JsonRpcCore extends EventTarget {
     return {
       id: chatId, name: info.name || "?", kind: "single",
       encrypted: true, verified: false, muted: false, pinned: false,
-      archived: false, avatarColor: info.color || null, contact: null, memberCount: 0,
+      archived: false, avatarColor: info.color || null, avatar: info.avatarPath || null, contact: null, memberCount: 0,
     };
   }
 
