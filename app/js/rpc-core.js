@@ -411,6 +411,11 @@ export class JsonRpcCore extends EventTarget {
     return list.map(c => this._mapContact(c));
   }
 
+  // Multi-line encryption info: own + the contact's OpenPGP fingerprint.
+  async getContactEncryptionInfo(contactId) {
+    return this._call("get_contact_encryption_info", this.accountId, contactId);
+  }
+
   async getChatList({ query = "" } = {}) {
     // (account_id, list_flags, query_string, query_contact_id)
     const ids = await this._call("get_chatlist_entries", this.accountId, null, query || null, null);

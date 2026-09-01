@@ -3,6 +3,7 @@ import { createCore, probeService } from "./transport.js";
 import "./components.js";
 import { escapeHtml, escapeAttr } from "./components.js";
 import { fileUrl } from "./media.js";
+import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintGroups } from "./avatar.js";
 import { ChatView } from "./chat-view.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID } from "./diagnostics.js";
 import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite } from "./ui.js";
@@ -230,6 +231,7 @@ if (window.__TAURI__) {
 coreStartupPromise = createCore({ onDiagnostic: (level, message) => diagnostics.append(level, message) });
 try {
   core = await coreStartupPromise;
+  setFingerprintSource((contactId) => core.getContactEncryptionInfo(contactId));
 } catch (error) {
   diagnostics.append("error", `Core startup crashed: ${error?.message || error}`);
   diagnostics.append("warning", "Continuing in demo mode so diagnostics and recovery controls remain available");
@@ -370,7 +372,7 @@ async function recheckService() {
 applyTheme();
 function applyTheme() {
   document.documentElement.dataset.theme = state.theme;
-  document.querySelector('meta[name="theme-color"]').content = state.theme === "dark" ? "#0f0f14" : "#ffffff";
+  document.querySelector('meta[name="theme-color"]').content = state.theme === "dark" ? "#0f0f14" : "#f4f4f4";
   localStorage.setItem("dw-theme", state.theme);
 }
 function toggleTheme() {
@@ -499,6 +501,41 @@ function chatItemUpToDate(item, chat, active) {
     && prev.draft === chat.draft
     && prev.lastFrom === chat.lastFrom
     && prev.lastState === chat.lastState;
+}
+
+
+// Profile view: the captioned identity tile at half-screen size, with the
+// contact's OpenPGP fingerprint underneath (per the avatar concept this is
+// the only surface where the color-name captions are shown).
+async function showAvatarProfile(chat) {
+  const contactId = chat.contactId ?? (chat.contact ? chat.contact.id : null);
+  let fpr = null;
+  if (contactId) {
+    try { fpr = await fingerprintFor(contactId, chat.contact && chat.contact.addr); } catch {}
+  }
+  const groups = fingerprintGroups(fpr);
+  const isPerson = !isGroupChat(chat) && groups;
+  const svg = isPerson
+    ? buildAvatarSvg({ groups, withCaptions: true, size: 300, radius: 40 })
+    : "";
+  const body = document.createElement("div");
+  body.className = "avatar-profile";
+  body.innerHTML = `
+    <div class="avatar-profile-img">${svg || `<div class="avatar-profile-fallback">${escapeHtml((chat.name || "?").trim().charAt(0).toUpperCase())}</div>`}</div>
+    <div class="avatar-profile-name">${escapeHtml(chat.name)}</div>
+    ${fpr ? `<div class="avatar-profile-fpr">${formatFingerprint(fpr)}</div>` : ""}`;
+  showModal({ title: "Avatar", body });
+}
+
+function isGroupChat(chat) {
+  return chat.kind === "group" || chat.kind === "channel";
+}
+
+function formatFingerprint(fpr) {
+  const groups = fingerprintGroups(fpr) || [];
+  const lines = [];
+  for (let i = 0; i < groups.length; i += 5) lines.push(groups.slice(i, i + 5).join(" "));
+  return lines.join("\n");
 }
 
 function chatContextMenu(chat, x, y) {
@@ -645,7 +682,7 @@ function showChatInfo(chat) {
   const body = document.createElement("div");
   body.innerHTML = `
     <div style="display:flex;justify-content:center;padding:8px 0 14px">
-      <dc-avatar name="${escapeHtml(chat.name)}" color="${chat.avatarColor || "#777"}" kind="${chat.kind}" size="84"${chat.avatar ? ` avatar="${escapeAttr(fileUrl(chat.avatar))}"` : ""}></dc-avatar>
+      <dc-avatar class="chat-info-avatar" name="${escapeHtml(chat.name)}" color="${chat.avatarColor || "#777"}" kind="${chat.kind}" size="84"${chat.contactId ? ` contact-id="${chat.contactId}"` : ""}${chat.contact && chat.contact.addr ? ` addr="${escapeAttr(chat.contact.addr)}"` : ""}${chat.avatar ? ` avatar="${escapeAttr(fileUrl(chat.avatar))}"` : ""}></dc-avatar>
     </div>
     ${encNote}
     ${isGroup ? `<div class="info-row"><span class="k">Members</span><span class="v" data-member-count>…</span></div>
@@ -653,6 +690,7 @@ function showChatInfo(chat) {
     ${contactRows}
     <div class="info-row"><span class="k">Notifications</span><span class="v">${chat.muted ? "Muted" : "On"}</span></div>
     <div class="info-row"><span class="k">Transport</span><span class="v">chatmail relay · ${escapeHtml(state.account.relay)}</span></div>`;
+  body.querySelector(".chat-info-avatar")?.addEventListener("click", () => showAvatarProfile(chat));
   showModal({ title: chat.name, body });
 
   if (isGroup && core.getChatMembers) {

@@ -469,7 +469,7 @@ export class ChatView {
       inner += `<div class="msg-checkbox">${this.selection.has(m.id) ? ICO.check : ""}</div>`;
     }
     if (showAvatar) {
-      inner += `<dc-avatar name="${escapeHtml(m.fromContact.name)}" color="${m.fromContact.color}" size="30"${m.fromContact.avatar ? ` avatar="${escapeAttr(fileUrl(m.fromContact.avatar))}"` : ""}></dc-avatar>`;
+      inner += `<dc-avatar name="${escapeHtml(m.fromContact.name)}" color="${m.fromContact.color}" size="30" contact-id="${m.fromContact.id ?? ""}" addr="${escapeAttr(m.fromContact.addr || "")}"${m.fromContact.avatar ? ` avatar="${escapeAttr(fileUrl(m.fromContact.avatar))}"` : ""}></dc-avatar>`;
     }
 
     let bubble = "";
