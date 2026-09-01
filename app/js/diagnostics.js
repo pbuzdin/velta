@@ -51,6 +51,17 @@ export class DiagnosticsStore extends EventTarget {
       state: "read",
       fromContact: { id: 0, name: "Velta", color: "#5aa2e6" },
     };
+    // Collapse identical consecutive entries (e.g. "Event polling failed"
+    // repeating every 250ms while the core is busy): keep one row and a
+    // counter instead of churning the store and the chat-list item. The
+    // visible text is unchanged, so no "changed" event is needed here.
+    const last = this.messages[this.messages.length - 1];
+    if (last && last.text === message.text) {
+      last.count = (last.count || 1) + 1;
+      last.ts = message.ts;
+      return last;
+    }
+    message.count = 1;
     this.messages.push(message);
     if (this.messages.length > 300) this.messages.splice(0, this.messages.length - 300);
     this.dispatchEvent(new CustomEvent("changed", { detail: message }));

@@ -4,7 +4,7 @@ import "./components.js";
 import { escapeHtml, escapeAttr } from "./components.js";
 import { fileUrl } from "./media.js";
 import { ChatView } from "./chat-view.js";
-import { DiagnosticsStore, DIAGNOSTICS_CHAT_ID } from "./diagnostics.js";
+import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID } from "./diagnostics.js";
 import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite } from "./ui.js";
 
 const diagnostics = new DiagnosticsStore();
@@ -55,7 +55,7 @@ function renderDiagnosticsMessages() {
     row.dataset.msgid = message.id;
     const bubble = document.createElement("div");
     bubble.className = "service-msg";
-    bubble.textContent = `${new Date(message.ts).toLocaleTimeString()}  ${message.text}`;
+    bubble.textContent = `${new Date(message.ts).toLocaleTimeString()}  ${message.text}` + (message.count > 1 ? ` ×${message.count}` : "");
     row.appendChild(bubble);
     history.appendChild(row);
   }
@@ -147,6 +147,41 @@ diagnostics.addEventListener("changed", () => {
   if (core) scheduleChatListRefresh();
   else renderInitialDiagnosticsChat();
 });
+
+/* ---------------- DOM budget watchdog ---------------- */
+// Frontend accumulation detector (rerender loops, unvirtualized growth):
+// samples node/row counts once a minute; when the DOM grows past budget
+// over a ~10-minute window, dump a per-selector census into Diagnostics
+// (rate-limited to one report per 10 minutes).
+const domBudgetSamples = [];
+let lastDomCensusAt = 0;
+setInterval(() => {
+  if (document.hidden) return;
+  const hist = document.getElementById("history");
+  const sample = {
+    t: Date.now(),
+    nodes: document.getElementsByTagName("*").length,
+    rows: hist ? hist.children.length : -1,
+  };
+  domBudgetSamples.push(sample);
+  if (domBudgetSamples.length > 10) domBudgetSamples.shift();
+  if (domBudgetSamples.length < 10) return;
+  const first = domBudgetSamples[0];
+  const growth = sample.nodes - first.nodes;
+  if (growth < 400 || sample.t - lastDomCensusAt < 10 * 60000) return;
+  lastDomCensusAt = sample.t;
+  const census = {};
+  for (const el of document.querySelectorAll("*")) {
+    const cls = typeof el.className === "string" && el.className.trim()
+      ? "." + el.className.trim().split(/\s+/).slice(0, 2).join(".") : "";
+    const key = el.tagName.toLowerCase() + cls;
+    census[key] = (census[key] || 0) + 1;
+  }
+  const top = Object.entries(census).sort((a, b) => b[1] - a[1]).slice(0, 8)
+    .map(([k, v]) => `${k}:${v}`).join(" ");
+  diagnosticsSink.append("warning",
+    `DOM budget: +${growth} nodes in 10 min (${sample.nodes} total, history rows ${sample.rows}). Top: ${top}`);
+}, 60000);
 
 renderInitialDiagnosticsChat();
 bindEarlyRecoveryActions();
