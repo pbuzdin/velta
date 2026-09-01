@@ -3,14 +3,16 @@ import { Elena, html, unsafeHTML } from "../vendor/elena.js";
 import { formatListTime } from "./mock-core.js";
 import { fileUrl } from "./media.js";
 import { diagnosticsSink } from "./diagnostics.js";
+import { buildAvatarSvg, fingerprintFor, cachedFingerprint, fingerprintGroups } from "./avatar.js";
 
 const AVATAR_SVG = `<svg viewBox="0 0 24 24" style="width:55%;height:55%"><path d="M12 4l2.2 4.7 5 .6-3.7 3.4 1 4.9-4.5-2.6-4.5 2.6 1-4.9L4.8 9.3l5-.6z" fill="currentColor"/></svg>`;
 const DEVICE_SVG = `<svg viewBox="0 0 24 24" style="width:55%;height:55%"><rect x="5" y="3" width="14" height="18" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="17.5" r="1.2" fill="currentColor"/></svg>`;
 
 /* ---------- <dc-avatar> ---------- */
+function specialKind(kind) { return kind === "saved" || kind === "device"; }
 class DcAvatar extends Elena(HTMLElement) {
   static tagName = "dc-avatar";
-  static props = ["name", "color", "kind", "size", "avatar"];
+  static props = ["name", "color", "kind", "size", "avatar", "contact-id", "addr"];
 
   name = "?";
   color = "#777";
@@ -19,6 +21,11 @@ class DcAvatar extends Elena(HTMLElement) {
   avatar = "";
   #avatarFailed = false;
   #lastAvatar = null;
+
+  constructor(...args) {
+    super(...args);
+    this["contact-id"] = null;
+  }
 
   connectedCallback() {
     super.connectedCallback?.();
@@ -31,6 +38,13 @@ class DcAvatar extends Elena(HTMLElement) {
       delete this.D;
       delete this.F;
       this.N?.();
+    }
+    // Identity tiles need the contact's fingerprint — resolve it once per
+    // contact and re-render when it arrives (initials show until then).
+    if (!specialKind(this.kind) && !this.avatar && Number(this["contact-id"]) >= 1) {
+      fingerprintFor(Number(this["contact-id"]), this.addr)
+        .then((fpr) => { if (fpr && this.isConnected) this.requestUpdate(); })
+        .catch(() => {});
     }
   }
 
@@ -56,16 +70,26 @@ class DcAvatar extends Elena(HTMLElement) {
     return (this.name || "?").trim().split(/\s+/).filter(w => /[A-Za-z0-9]/.test(w[0] || "")).slice(0, 2).map(w => w[0].toUpperCase()).join("") || "?";
   }
 
+  ariaLabel() {
+    return "Play " + (this.name || "video");
+  }
+
   render() {
     const s = Number(this.size) || 46;
-    const special = this.kind === "saved" || this.kind === "device";
+    const special = specialKind(this.kind);
     const style = `width:${s}px;height:${s}px;font-size:${Math.round(s * 0.38)}px;` +
       (special ? "" : `background:${this.color || "#777"};`);
-    const cls = "dc-avatar-circle" + (special ? " saved" : "");
+    const cls = "dc-avatar-tile" + (special ? " saved" : "") + (!special && this.kind === "single" ? " identity" : "");
     // The initials stay underneath as the loading/failure fallback; the img
     // is absolutely positioned and covers them once it decodes.
     if (!special && this.avatar && !this.#avatarFailed) {
       return html`<div class="${cls}" style="${style}" aria-hidden="true">${this.initials()}<img class="dc-avatar-img" src="${this.avatar}" alt="" loading="lazy"></div>`;
+    }
+    // GPG-fingerprint identity tile for photo-less single contacts.
+    if (!special && this.kind === "single") {
+      const groups = fingerprintGroups(cachedFingerprint(Number(this["contact-id"])));
+      const svg = groups ? buildAvatarSvg({ groups, size: s, radius: 0 }) : "";
+      if (svg) return html`<div class="${cls}" style="${style}" aria-hidden="true">${unsafeHTML(svg)}</div>`;
     }
     const inner = this.kind === "saved" ? unsafeHTML(AVATAR_SVG)
       : this.kind === "device" ? unsafeHTML(DEVICE_SVG)
@@ -146,7 +170,7 @@ class DcVideo extends Elena(HTMLElement) {
     if (!this.#active || !this.src) {
       const d = Number(this.duration) || 0;
       const dur = d > 0 ? `${Math.floor(d / 60)}:${String(Math.floor(d % 60)).padStart(2, "0")}` : "";
-      return html`<button type="button" class="dc-video-ph" aria-label="Play ${this.name}">
+      return html`<button type="button" class="dc-video-ph" aria-label="${this.ariaLabel()}">
         <span class="dc-video-play">${unsafeHTML(PLAY_SVG)}</span>
         ${dur ? html`<span class="dc-video-dur">${dur}</span>` : ""}
       </button>`;
@@ -157,7 +181,7 @@ class DcVideo extends Elena(HTMLElement) {
 DcVideo.define();
 
 const LOCK_SVG = `<svg class="ci-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 018 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>`;
-const VERIFIED_SVG = `<svg class="ci-verified" viewBox="0 0 24 24"><path d="M12 2l2.4 2.1 3.1-.4 1.1 3 3 1.1-.4 3.1L23.3 13l-2.1 2.4.4 3.1-3 1.1-1.1 3-3.1-.4L12 24l-2.4-2.1-3.1.4-1.1-3-3-1.1.4-3.1L.7 13l2.1-2.4-.4-3.1 3-1.1 1.1-3 3.1.4z" fill="currentColor" transform="scale(.92) translate(1,0)"/><path d="M8.5 12.5l2.5 2.5 4.5-5" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const VERIFIED_SVG = `<svg class="ci-verified" viewBox="0 0 24 24"><path d="M12 2l2.4 2.1 3.1-.4 1.1 3 3 1.1-.4 3.1L23.3 13l-2.1 2.4.4 3.1-3 1.1-1.1 3-3.1-.4L12 24l-2.4-2.1-3.1.4-1.1-3-3-1.1.4-3.1L.7 13l2.1-2.4-.4-3.1 3-1.1 1.1-3 3.1.4z" fill="currentColor" transform="scale(.92) translate(1,0)"/><path d="M8.5 12.5l2.5 2.5 4.5-5" fill="none" stroke="#f4f4f4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const PIN_SVG = `<svg class="ci-pin" viewBox="0 0 24 24"><path d="M9 4h6l1 7 3 3v2h-6v5l-1 1-1-1v-5H5v-2l3-3z" fill="currentColor"/></svg>`;
 const MUTE_SVG = `<svg class="ci-mute" viewBox="0 0 24 24"><path d="M12 3a5 5 0 00-5 5v3l-2 4h14l-2-4V8a5 5 0 00-5-5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M4 4l16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
 const TICK1 = `<svg class="ci-ticks" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -213,7 +237,7 @@ class DcChatItem extends Elena(HTMLElement) {
         : c.lastMsg ? escapeHtml(c.lastMsg) : "";
     return html`
       <div class="chat-item${this.active !== null && this.active !== undefined && this.getAttribute("active") !== null ? " active" : ""}" role="option">
-        ${unsafeHTML(`<dc-avatar name="${escapeAttr(c.name)}" color="${c.avatarColor || ""}" kind="${c.kind}" size="48"${c.avatar ? ` avatar="${escapeAttr(fileUrl(c.avatar))}"` : ""}></dc-avatar>`)}
+        ${unsafeHTML(`<dc-avatar name="${escapeAttr(c.name)}" color="${c.avatarColor || ""}" kind="${c.kind}" size="48"${c.contactId ? ` contact-id="${c.contactId}"` : ""}${c.avatar ? ` avatar="${escapeAttr(fileUrl(c.avatar))}"` : ""}></dc-avatar>`)}
         <div class="ci-main">
           <div class="ci-top">
             <div class="ci-name">${c.name} ${unsafeHTML(nameBadges)}</div>
@@ -261,7 +285,7 @@ class DcChatHead extends Elena(HTMLElement) {
     const stText = typeof st === "object" ? st.text : st;
     return html`
       <div class="chat-head-avatar">
-        ${unsafeHTML(`<dc-avatar name="${escapeAttr(c.name)}" color="${c.avatarColor || ""}" kind="${c.kind}" size="42"></dc-avatar>`)}
+        ${unsafeHTML(`<dc-avatar name="${escapeAttr(c.name)}" color="${c.avatarColor || ""}" kind="${c.kind}" size="42"${c.contactId ? ` contact-id="${c.contactId}"` : ""}></dc-avatar>`)}
       </div>
       <div class="chat-head-text">
         <div class="cht-name">${c.name} ${unsafeHTML(c.kind === "single" ? LOCK_SVG : "")}${unsafeHTML(c.verified ? VERIFIED_SVG : "")}</div>
