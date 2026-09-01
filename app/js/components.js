@@ -2,6 +2,7 @@
 import { Elena, html, unsafeHTML } from "../vendor/elena.js";
 import { formatListTime } from "./mock-core.js";
 import { fileUrl } from "./media.js";
+import { diagnosticsSink } from "./diagnostics.js";
 
 const AVATAR_SVG = `<svg viewBox="0 0 24 24" style="width:55%;height:55%"><path d="M12 4l2.2 4.7 5 .6-3.7 3.4 1 4.9-4.5-2.6-4.5 2.6 1-4.9L4.8 9.3l5-.6z" fill="currentColor"/></svg>`;
 const DEVICE_SVG = `<svg viewBox="0 0 24 24" style="width:55%;height:55%"><rect x="5" y="3" width="14" height="18" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="17.5" r="1.2" fill="currentColor"/></svg>`;
@@ -73,6 +74,87 @@ class DcAvatar extends Elena(HTMLElement) {
   }
 }
 DcAvatar.define();
+
+/* ---------- <dc-video> — click-to-load video player ---------- */
+// Every mounted <video> starts a decoder pipeline and issues media range
+// requests for content the user may never play; in a multi-video chat that
+// is decode churn, memory, and (over the asset protocol) seek requests we
+// know can fail. Rows render a static placeholder instead; the real
+// <video> element is created on tap and dropped again when the virtual
+// scroller unmounts the row.
+const PLAY_SVG = `<svg viewBox="0 0 24 24" style="width:100%;height:100%;display:block"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>`;
+const VIDEO_FAIL_SVG = `<svg viewBox="0 0 24 24" style="width:100%;height:100%;display:block"><path d="M4 7h16M9 7V5h6v2m-8 0l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`;
+
+class DcVideo extends Elena(HTMLElement) {
+  static tagName = "dc-video";
+  static props = ["src", "duration", "name"];
+
+  src = "";
+  duration = "";
+  name = "Video";
+  #active = false;
+  #failed = false;
+  #lastSrc = null;
+
+  connectedCallback() {
+    super.connectedCallback?.();
+    // Self-heal (same Elena diff quirk as DcAvatar): a re-render pass can
+    // strip our rendered child while leaving us connected.
+    if (this.h && this.childElementCount === 0) {
+      delete this.D;
+      delete this.F;
+      this.N?.();
+    }
+    if (!this._clickBound) {
+      this._clickBound = true;
+      this.addEventListener("click", (e) => {
+        // In selection mode the row owns the tap (toggle selection) — don't
+        // hijack it for playback.
+        if (this.closest(".msg-row")?.classList.contains("selectable")) return;
+        if (!this.#active && this.src && !this.#failed) {
+          e.stopPropagation(); // play — don't bubble into row selection/menu
+          this.#active = true;
+          this.requestUpdate();
+        }
+      });
+    }
+  }
+
+  willUpdate() {
+    if (this.#lastSrc !== this.src) {
+      this.#lastSrc = this.src;
+      this.#failed = false;
+    }
+  }
+
+  updated() {
+    const v = this.querySelector?.("video");
+    if (v && !v.dataset.errBound) {
+      v.dataset.errBound = "1";
+      v.addEventListener("error", () => {
+        this.#failed = true;
+        this.requestUpdate();
+        diagnosticsSink.append("error", `video "${this.name}" failed to load`);
+      });
+    }
+  }
+
+  render() {
+    if (this.#failed) {
+      return html`<div class="media-fail"><div class="media-fail-ico">${unsafeHTML(VIDEO_FAIL_SVG)}</div><div>Video can't be played</div></div>`;
+    }
+    if (!this.#active || !this.src) {
+      const d = Number(this.duration) || 0;
+      const dur = d > 0 ? `${Math.floor(d / 60)}:${String(Math.floor(d % 60)).padStart(2, "0")}` : "";
+      return html`<button type="button" class="dc-video-ph" aria-label="Play ${this.name}">
+        <span class="dc-video-play">${unsafeHTML(PLAY_SVG)}</span>
+        ${dur ? html`<span class="dc-video-dur">${dur}</span>` : ""}
+      </button>`;
+    }
+    return html`<video controls autoplay playsinline preload="metadata" src="${this.src}"></video>`;
+  }
+}
+DcVideo.define();
 
 const LOCK_SVG = `<svg class="ci-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 018 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>`;
 const VERIFIED_SVG = `<svg class="ci-verified" viewBox="0 0 24 24"><path d="M12 2l2.4 2.1 3.1-.4 1.1 3 3 1.1-.4 3.1L23.3 13l-2.1 2.4.4 3.1-3 1.1-1.1 3-3.1-.4L12 24l-2.4-2.1-3.1.4-1.1-3-3-1.1.4-3.1L.7 13l2.1-2.4-.4-3.1 3-1.1 1.1-3 3.1.4z" fill="currentColor" transform="scale(.92) translate(1,0)"/><path d="M8.5 12.5l2.5 2.5 4.5-5" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;

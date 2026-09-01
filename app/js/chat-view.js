@@ -477,7 +477,9 @@ export class ChatView {
       }
     } else if (m.viewtype === "video") {
       if (m.downloadState === "Done" && m.filePath) {
-        bubble += `<div class="msg-video"><video data-src="video" controls preload="metadata" playsinline></video></div>`;
+        // Click-to-load: <dc-video> renders a static placeholder; the real
+        // <video> (decoder + media requests) is only created on tap.
+        bubble += `<div class="msg-video"><dc-video src="${escapeAttr(fileUrl(m.filePath))}" duration="${m.duration || ""}" name="${escapeHtml(m.fileName || "Video")}"></dc-video></div>`;
       } else {
         const size = m.fileSize ? formatBytes(m.fileSize) : "";
         bubble += `<div class="msg-file download-btn" role="button" data-act="download">
@@ -541,40 +543,6 @@ export class ChatView {
           box.innerHTML = `<div class="media-fail"><div class="media-fail-ico">${ICO.photo}</div><div>Couldn't load image</div></div>`;
           notifyHeight();
         }
-      };
-    }
-    const mediaVideo = row.querySelector('.msg-video video[data-src]');
-    if (mediaVideo) {
-      mediaVideo.src = fileUrl(m.filePath);
-      mediaVideo.onloadedmetadata = () => {
-        debugLog(`media video loaded id=${m.id} src=${mediaVideo.src}`);
-        if (mediaVideo.videoWidth && mediaVideo.videoHeight) {
-          mediaVideo.style.aspectRatio = `${mediaVideo.videoWidth} / ${mediaVideo.videoHeight}`;
-        }
-        notifyHeight();
-      };
-      // `resize` fires whenever the video's intrinsic dimensions change.
-      mediaVideo.addEventListener("resize", notifyHeight);
-      mediaVideo.onerror = () => {
-        rustLog(`media video error src=${mediaVideo.src} original=${m.filePath}`);
-        diagnosticsSink.append("error", `video ${m.id} failed to load: ${mediaVideo.error ? (mediaVideo.error.message || mediaVideo.error.code) : "unknown"}`);
-        const box = mediaVideo.closest(".msg-video");
-        if (box && !box.dataset.failed) {
-          box.dataset.failed = "1";
-          box.innerHTML = `<div class="media-fail"><div class="media-fail-ico">${ICO.photo}</div><div>Video can't be played</div></div>`;
-          notifyHeight();
-        }
-      };
-      // On Android WebView the first frame is often not shown automatically;
-      // forcing a seek generates the poster frame. Guard it to run ONCE per
-      // element: each seek completion fires canplay again, so an unguarded
-      // oncanplay handler spins a ~10,000 events/sec seek loop that floods
-      // the renderer with decode/event churn (the "infinitely rerendering
-      // video element" — multi-GB memory growth within minutes).
-      mediaVideo.oncanplay = () => {
-        if (mediaVideo.dataset.posterSeek) return;
-        mediaVideo.dataset.posterSeek = "1";
-        try { mediaVideo.currentTime = 0.001; } catch {}
       };
     }
     const mediaAudio = row.querySelector('.msg-audio audio[data-src]');
