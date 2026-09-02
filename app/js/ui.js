@@ -97,8 +97,33 @@ export function confirmModal(title, text, okLabel = "Delete", danger = true) {
   });
 }
 
+// Delete confirmation like the official Delta Chat desktop client: always a
+// "Delete for me" action, plus "Delete for everyone" when the core supports
+// it for this selection (self-sent, encrypted messages). Resolves "me",
+// "everyone" or null when cancelled/closed.
+export function confirmDeleteMessagesModal(count, canForAll) {
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = value => { if (!settled) { settled = true; resolve(value); } };
+    const body = document.createElement("div");
+    body.innerHTML = `<p style="font-size:15px;line-height:1.45">${count === 1 ? "Delete this message?" : `Delete ${count} messages?`}</p>`;
+    const foot = document.createElement("div");
+    const mk = (label, value) => {
+      const b = document.createElement("button");
+      b.className = "btn-text";
+      b.textContent = label;
+      if (value) b.style.color = "var(--danger)";
+      b.addEventListener("click", () => { finish(value); close(); });
+      return b;
+    };
+    foot.append(mk("Cancel", null), mk("Delete for me", "me"));
+    if (canForAll) foot.append(mk("Delete for everyone", "everyone"));
+    const { close } = showModal({ title: "Delete messages", body, foot, onClose: () => finish(null) });
+  });
+}
+
 /* ---------- Settings drawer ---------- */
-export function buildDrawer({ account, backend, onAddAccount, onToggleTheme, onOpenChat, onInvite, onToggleMock, onEditName, theme }) {
+export function buildDrawer({ account, backend, onAddAccount, onToggleTheme, onOpenChat, onInvite, onToggleMock, onEditProfile, theme }) {
   const drawer = document.createElement("div");
   drawer.className = "drawer";
   drawer.id = "drawer";
@@ -107,10 +132,7 @@ export function buildDrawer({ account, backend, onAddAccount, onToggleTheme, onO
       <button class="icon-btn drawer-close" data-act="close" title="Close" aria-label="Close menu"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
       <dc-avatar name="${escapeHtml(account.displayName)}" color="${escapeAttr(account.color || "#777")}" size="56"${account.avatar ? ` avatar="${escapeAttr(fileUrl(account.avatar))}"` : ""}></dc-avatar>
       <div>
-        <div class="drawer-name-row">
-          <div class="drawer-name">${escapeHtml(account.displayName)}</div>
-          <button class="icon-btn drawer-edit" data-act="edit-name" title="Change username" aria-label="Change username"><svg viewBox="0 0 24 24"><path d="M14.7 5.3l4 4L8.4 19.6l-4.9.9.9-4.9zM16.8 3.2a1.6 1.6 0 012.3 0l1.7 1.7a1.6 1.6 0 010 2.3l-1.6 1.6-4-4z" fill="currentColor"/></svg></button>
-        </div>
+        <div class="drawer-name">${escapeHtml(account.displayName)}</div>
         <div class="drawer-addr">${escapeHtml(account.addr)}</div>
         <div class="drawer-addr">relay: ${escapeHtml(account.relay)}</div>
         ${backend ? `<div class="drawer-addr" style="opacity:.65">backend: ${escapeHtml(backend)}</div>` : ""}
@@ -118,6 +140,7 @@ export function buildDrawer({ account, backend, onAddAccount, onToggleTheme, onO
     </div>
     <div class="drawer-items">
       <button class="ctx-item" data-act="saved"><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4.5L6 21z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Saved Messages</span></button>
+      <button class="ctx-item" data-act="edit-profile"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M15.5 15.5l4 4M19.5 15.5l-4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Edit profile</span></button>
       <button class="ctx-item" data-act="invite"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="13" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="3" width="8" height="8" rx="1" fill="currentColor"/><rect x="3" y="13" width="8" height="8" rx="1" fill="currentColor"/></svg><span>Invite friends (QR)</span></button>
       <div class="drawer-sec">Settings</div>
       <button class="ctx-item" data-act="theme"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 109 9c0-1.5-1.2-2.6-2.6-2.6h-1.9a2.5 2.5 0 01-2.5-2.5V5.1C14 4 13.3 3 12 3z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="7.5" cy="10.5" r="1.2" fill="currentColor"/><circle cx="12" cy="7.5" r="1.2" fill="currentColor"/><circle cx="16.5" cy="10.5" r="1.2" fill="currentColor"/></svg><span>${theme === "dark" ? "Light theme" : "Dark theme"}</span></button>
@@ -149,7 +172,7 @@ export function buildDrawer({ account, backend, onAddAccount, onToggleTheme, onO
     if (act === "theme") onToggleTheme();
     if (act === "saved") onOpenChat("saved");
     if (act === "invite") onInvite?.();
-    if (act === "edit-name") onEditName?.();
+    if (act === "edit-profile") onEditProfile?.();
     if (act === "add-account") onAddAccount();
     if (act === "mock") onToggleMock();
     if (act === "about") showAbout();
@@ -158,30 +181,74 @@ export function buildDrawer({ account, backend, onAddAccount, onToggleTheme, onO
   return { open, close, el: drawer, overlayEl: overlay };
 }
 
-// Username editor — resolves with the new name (trimmed) or null on cancel.
-export function showEditName(current) {
+// Profile editor — edits the display name and the avatar picture.
+// pickImage: async () => ({ path, url } | null), provided by the caller
+// (Tauri file dialog on desktop, content-URI copy on Android, data-URL in
+// demo mode). Resolves with
+//   { name, avatar: "keep" | "remove" | { path } }  — or null on cancel.
+export function showEditProfile({ name, avatarUrl, color, pickImage }) {
   return new Promise(resolve => {
+    let picked = null;   // { path } once a new picture is chosen
+    let removed = false; // "Remove photo" tapped
     const body = document.createElement("div");
+    body.className = "edit-profile";
     body.innerHTML = `
-      <p style="font-size:14.5px;line-height:1.5;margin:0 0 4px">This name is shown to the people you chat with and appears next to your QR code.</p>
-      <input class="text-field" maxlength="64" autocomplete="off" spellcheck="false" aria-label="Username">`;
+      <div class="ep-avatar"><dc-avatar size="84"></dc-avatar></div>
+      <div class="ep-avatar-actions">
+        <button class="btn-text" data-ep="pick">Change picture</button>
+        <button class="btn-text" data-ep="remove" style="display:none">Remove photo</button>
+      </div>
+      <input class="text-field" maxlength="64" autocomplete="off" spellcheck="false" aria-label="Username" placeholder="Your name">`;
     const input = body.querySelector("input");
-    input.value = current || "";
+    const preview = body.querySelector("dc-avatar");
+    const removeBtn = body.querySelector('[data-ep="remove"]');
+    preview.setAttribute("color", color || "#777");
+    const refreshPreview = () => {
+      const url = removed ? "" : (picked ? (picked.url ?? fileUrl(picked.path)) : avatarUrl);
+      if (url) preview.setAttribute("avatar", url);
+      else preview.removeAttribute("avatar");
+      preview.setAttribute("name", input.value || "?");
+      removeBtn.style.display = (url || picked) ? "" : "none";
+    };
+    input.value = name || "";
+    refreshPreview();
+
+    removeBtn.addEventListener("click", () => { removed = true; picked = null; refreshPreview(); });
+    const pickBtn = body.querySelector('[data-ep="pick"]');
+    pickBtn.addEventListener("click", async () => {
+      // capture the element — event.currentTarget is null after await
+      pickBtn.disabled = true;
+      try {
+        const res = await pickImage?.();
+        if (res) { picked = res; removed = false; refreshPreview(); }
+      } catch (err) {
+        toast("Couldn't load picture: " + (err.message || err), 4000);
+      } finally {
+        pickBtn.disabled = false;
+      }
+    });
+    input.addEventListener("input", refreshPreview);
+
     const foot = document.createElement("div");
+    foot.className = "edit-profile-foot";
     const cancel = document.createElement("button");
     cancel.className = "btn-text"; cancel.textContent = "Cancel";
     const save = document.createElement("button");
     save.className = "btn-text btn-primary"; save.textContent = "Save";
     foot.append(cancel, save);
-    // first settlement wins — close() fires onClose, so guard the resolution
+
+    // first settlement wins — close() fires onClose, which must not win
     let settled = false;
     const finish = value => { if (!settled) { settled = true; resolve(value); } };
-    const { close } = showModal({ title: "Change username", body, foot,
+    const { close } = showModal({ title: "Edit profile", body, foot,
       onClose: () => finish(null) });
     input.focus();
     input.select();
     const submit = () => {
-      const value = input.value.trim();
+      const value = {
+        name: input.value.trim(),
+        avatar: removed ? "remove" : (picked || "keep"),
+      };
       save.disabled = true; input.disabled = true;
       // settle before close — close() fires onClose, which must not win
       finish(value);

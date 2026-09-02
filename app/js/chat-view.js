@@ -113,13 +113,20 @@ export class ChatView {
     this.vs?.stop();
     this.vs = null;
     this.listEl.replaceChildren();
+    // Drop everything the previous scroller session left on the persistent
+    // containers: stale inline paddings (the scroller's virtual space) and a
+    // stale scrollTop make the new scroller start from a mid-history
+    // position, from which it never recovers to the bottom.
+    this.listEl.style.paddingTop = "";
+    this.listEl.style.paddingBottom = "";
+    this.scrollEl.scrollTop = 0;
 
     const { messages, hasMore } = await this.core.getMessages(chatId, { limit: 40 });
     this.hasMore = hasMore;
     this._rebuildItems(messages);
     this._createScroller();
     await this.core.markRead(chatId);
-    requestAnimationFrame(() => this._scrollBottom(true));
+    this._scrollBottomSettling();
     this.startLive();
   }
 
@@ -139,6 +146,9 @@ export class ChatView {
     this._renderReplyPreview();
     this.exitSelection();
     this.listEl.replaceChildren();
+    this.listEl.style.paddingTop = "";
+    this.listEl.style.paddingBottom = "";
+    this.scrollEl.scrollTop = 0;
   }
 
   async appendOutgoing(msg) {
@@ -179,6 +189,19 @@ export class ChatView {
     } catch { return; }
     if (!this.chat) return;
     const newMsgs = messages.filter(m => m.id > maxId && !this.msgIndex.has(m.id));
+    // Remote deletions (e.g. another member asked for a message to be
+    // removed) arrive as MsgsChanged without message ids. Anything inside
+    // the refetched tail window that vanished from the id list is gone from
+    // the chat — drop those rows so the open view reflects it.
+    let deleted = [];
+    if (messages.length) {
+      const tailMin = messages[0].id;
+      const tailIds = new Set(messages.map(m => m.id));
+      for (const it of this.items) {
+        if (it.type === "msg" && it.msg.id >= tailMin && !tailIds.has(it.msg.id)) deleted.push(it.msg.id);
+      }
+      if (deleted.length) this.onMsgsDeleted(this.chat.id, deleted);
+    }
     // A media message that finished downloading keeps its id, so the "new"
     // filter above skips it. Re-render rows in place when the download state
     // or view type changed (e.g. a video Pre-Message placeholder becoming a
@@ -644,9 +667,17 @@ export class ChatView {
   }
 
   async _delete(ids) {
-    const ok = await confirmModal("Delete messages", `Delete ${ids.length} message${ids.length > 1 ? "s" : ""}? This removes them for you and requests deletion at the relay.`);
+    // The core can only request deletion on the other members' devices for
+    // messages that are self-sent AND e2e-encrypted (delete_messages_for_all).
+    const msgs = ids.map(id => this.msgIndex.get(id)?.msg).filter(Boolean);
+    const canForAll = msgs.length === ids.length
+      && msgs.every(m => m.from === 1 && m.encrypted !== false);
+    const scope = canForAll
+      ? "This removes them here, on the relay, and asks the other members' devices to delete them too."
+      : "This removes them for you and requests deletion at the relay.";
+    const ok = await confirmModal("Delete messages", `Delete ${ids.length} message${ids.length > 1 ? "s" : ""}? ${scope}`);
     if (ok) {
-      await this.core.deleteMessages(this.chat.id, ids);
+      await this.core.deleteMessages(this.chat.id, ids, { forAll: canForAll });
       this.exitSelection();
       this.onChatsChanged();
     }
@@ -896,6 +927,35 @@ export class ChatView {
   _scrollBottom(instant = false) {
     this.scrollEl.scrollTo({ top: this.scrollEl.scrollHeight, behavior: instant ? "auto" : "smooth" });
     this._hideGoDown();
+  }
+
+  // After opening a chat the scroller keeps measuring rendered items and
+  // adjusting its virtual paddings for several frames, each of which can
+  // shift the content under a single "jump to bottom". Keep re-asserting the
+  // bottom position until the layout stops moving (or the user scrolls away).
+  _scrollBottomSettling() {
+    this._stopSettling?.();
+    let lastHeight = -1, stableFrames = 0, frames = 0, stopped = false;
+    const onUserScroll = () => { stopped = true; };
+    this.scrollEl.addEventListener("wheel", onUserScroll, { passive: true, once: true });
+    this.scrollEl.addEventListener("touchstart", onUserScroll, { passive: true, once: true });
+    const cleanup = () => {
+      this.scrollEl.removeEventListener("wheel", onUserScroll);
+      this.scrollEl.removeEventListener("touchstart", onUserScroll);
+      this._stopSettling = null;
+    };
+    this._stopSettling = () => { stopped = true; };
+    const tick = () => {
+      if (stopped || !this.chat) { cleanup(); return; }
+      this.scrollEl.scrollTop = this.scrollEl.scrollHeight;
+      this._hideGoDown();
+      const height = this.scrollEl.scrollHeight;
+      if (height === lastHeight) stableFrames++; else { stableFrames = 0; lastHeight = height; }
+      frames++;
+      if (stableFrames >= 4 || frames >= 90) { cleanup(); return; }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
   }
 
   _bumpGoDown(chatId, background = false) {

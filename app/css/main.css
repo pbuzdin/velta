@@ -153,6 +153,10 @@ svg { width: 24px; height: 24px; display: block; }
   flex: 1; position: relative; overflow-y: auto;
   scrollbar-width: thin;
   overscroll-behavior: contain;
+  /* The virtual scroller positions items with padding adjustments and manages
+     scroll offsets itself; the browser's scroll anchoring fights that and can
+     yank the view to stale positions (broken scroll after reopening a chat). */
+  overflow-anchor: none;
   background:
     radial-gradient(1200px 600px at 20% -10%, rgba(90,162,230,.06), transparent 60%),
     radial-gradient(900px 500px at 90% 110%, rgba(135,116,225,.05), transparent 60%),
@@ -560,13 +564,28 @@ dc-chat-item { display: block; }
 }
 .drawer-head .dc-avatar-tile { width: 56px; height: 56px; font-size: 22px; }
 .drawer-name { font-size: 17px; font-weight: 600; }
-.drawer-name-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.drawer-edit {
-  width: 26px; height: 26px; flex: 0 0 auto;
-  opacity: .65; border-radius: 6px;
+
+/* profile editor modal */
+.edit-profile .ep-avatar { display: flex; justify-content: center; padding: 6px 0 2px; }
+.edit-profile .ep-avatar .dc-avatar-tile { border-radius: 18%; }
+.edit-profile .ep-avatar-actions {
+  display: flex; justify-content: center; gap: 6px; padding: 2px 0 6px;
 }
-.drawer-edit:hover { opacity: 1; background: rgba(255,255,255,.14); }
-.drawer-edit svg { width: 15px; height: 15px; }
+.edit-profile .ep-avatar-actions .btn-text { padding: 6px 10px; font-size: 14px; }
+/* footer buttons: matched heights, compact primary (btn-primary defaults to
+   the full-width onboarding style, which stretches into a bar inside a modal) */
+.edit-profile-foot {
+  display: flex; justify-content: flex-end; align-items: center;
+  gap: 10px; padding: 4px 0 2px;
+}
+.edit-profile-foot .btn-text { padding: 9px 12px; font-size: 14.5px; }
+.edit-profile-foot .btn-primary {
+  width: auto; padding: 9px 22px; border-radius: 9px;
+  font-size: 14.5px; font-weight: 600;
+  /* .btn-text's color: var(--accent) wins the cascade over .btn-primary's
+     white (equal specificity, later in file) — blue text on blue pill */
+  color: #f4f4f4;
+}
 .drawer-addr { font-size: 13px; opacity: .8; }
 .drawer-items { padding: 8px; overflow-y: auto; }
 .drawer-sec { font-size: 12.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; padding: 14px 12px 6px; }

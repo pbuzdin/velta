@@ -6,7 +6,7 @@ import { fileUrl } from "./media.js";
 import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintGroups } from "./avatar.js";
 import { ChatView } from "./chat-view.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID } from "./diagnostics.js";
-import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditName } from "./ui.js";
+import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile } from "./ui.js";
 
 const diagnostics = new DiagnosticsStore();
 window.__veltaDiagnostics = diagnostics;
@@ -962,7 +962,7 @@ function rebuildDrawer() {
     onToggleTheme: toggleTheme,
     onAddAccount: addAccountFlow,
     onInvite: () => showInvite(inviteQrProvider(null), { account: state.account }),
-    onEditName: editUsernameFlow,
+    onEditProfile: editProfileFlow,
     onToggleMock: () => {
       const on = localStorage.getItem("velta-mock") === "1";
       localStorage.setItem("velta-mock", on ? "0" : "1");
@@ -979,18 +979,60 @@ function rebuildDrawer() {
   });
 }
 
-// Username editor: modal → set_config(displayname) via the core → refresh.
-async function editUsernameFlow() {
-  const name = await showEditName(state.account?.displayName || "");
-  if (name === null) return; // cancelled
+// Profile editor flow: name + avatar picture.
+// The core's selfavatar config takes a filesystem path it can read, so the
+// picked image goes through the same pipeline as attachments: absolute path
+// on desktop, content-URI copy into uploads/ on Android, data URL in demo.
+async function pickProfileImage() {
+  const tauri = window.__TAURI__;
+  const invoke = tauri?.core?.invoke || tauri?.invoke;
+  if (!invoke) {
+    // No Tauri dialog (plain browser / mock) — local file as data URL.
+    return new Promise(resolve => {
+      const inp = document.createElement("input");
+      inp.type = "file";
+      inp.accept = "image/png,image/jpeg,image/webp,image/gif";
+      inp.onchange = () => {
+        const f = inp.files && inp.files[0];
+        if (!f) return resolve(null);
+        const reader = new FileReader();
+        reader.onload = () => resolve({ path: String(reader.result), url: String(reader.result) });
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(f);
+      };
+      inp.click();
+    });
+  }
+  let picked = await invoke("plugin:dialog|open", { options: {
+    multiple: false,
+    filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
+  } });
+  if (Array.isArray(picked)) picked = picked[0];
+  if (!picked) return null;
+  if (/^content:\/\//.test(picked)) {
+    picked = await invoke("resolve_content_uri", { uri: picked, filename: String(Date.now()) });
+  }
+  return { path: picked, url: null }; // preview resolves via fileUrl()
+}
+
+async function editProfileFlow() {
+  const result = await showEditProfile({
+    name: state.account?.displayName || "",
+    avatarUrl: state.account?.avatar ? fileUrl(state.account.avatar) : "",
+    color: state.account?.color,
+    pickImage: pickProfileImage,
+  });
+  if (!result) return; // cancelled
   try {
-    if (!core.setDisplayName) throw new Error("not available with this backend");
-    await core.setDisplayName(name);
+    if (!core.setDisplayName || !core.setAvatar) throw new Error("not available with this backend");
+    await core.setDisplayName(result.name);
+    if (result.avatar === "remove") await core.setAvatar(null);
+    else if (result.avatar !== "keep") await core.setAvatar(result.avatar.path);
     state.account = await core.getAccount();
     rebuildDrawer();
-    toast(name ? "Username updated" : "Username cleared");
+    toast("Profile updated");
   } catch (err) {
-    toast("Couldn't update username: " + (err.message || err), 4500);
+    toast("Couldn't update profile: " + (err.message || err), 4500);
   }
 }
 
