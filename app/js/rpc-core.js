@@ -395,15 +395,32 @@ export class JsonRpcCore extends EventTarget {
         color: "#5aa2e6", bio: "", relay: "", configured: false,
       };
     }
-    return {
+    const account = {
       id: this.accountId,
       addr: acc.addr || "",
       displayName: acc.displayName || acc.addr || "Account",
-      color: acc.color || "#5aa2e6",
+      color: acc.color || "",
       bio: "",
       relay: (acc.addr || "").split("@")[1] || "",
       configured: true,
     };
+    // get_account_info carries no profile color of its own — the self contact
+    // (id 1) is the authoritative source for color and photo, so the drawer
+    // avatar renders color-coded like every other avatar.
+    try {
+      const self = await this._call("get_contact", this.accountId, 1);
+      if (!account.color) account.color = self.color || "#5aa2e6";
+      account.avatar = self.profileImage || null;
+    } catch {
+      if (!account.color) account.color = "#5aa2e6";
+      account.avatar = null;
+    }
+    return account;
+  }
+
+  async setDisplayName(name) {
+    const trimmed = (name || "").trim();
+    await this._call("set_config", this.accountId, "displayname", trimmed || null);
   }
 
   async getContacts() {

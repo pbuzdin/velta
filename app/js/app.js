@@ -6,7 +6,7 @@ import { fileUrl } from "./media.js";
 import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintGroups } from "./avatar.js";
 import { ChatView } from "./chat-view.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID } from "./diagnostics.js";
-import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite } from "./ui.js";
+import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditName } from "./ui.js";
 
 const diagnostics = new DiagnosticsStore();
 window.__veltaDiagnostics = diagnostics;
@@ -961,7 +961,8 @@ function rebuildDrawer() {
     theme: state.theme,
     onToggleTheme: toggleTheme,
     onAddAccount: addAccountFlow,
-    onInvite: () => showInvite(inviteQrProvider(null)),
+    onInvite: () => showInvite(inviteQrProvider(null), { account: state.account }),
+    onEditName: editUsernameFlow,
     onToggleMock: () => {
       const on = localStorage.getItem("velta-mock") === "1";
       localStorage.setItem("velta-mock", on ? "0" : "1");
@@ -976,6 +977,21 @@ function rebuildDrawer() {
       }
     },
   });
+}
+
+// Username editor: modal → set_config(displayname) via the core → refresh.
+async function editUsernameFlow() {
+  const name = await showEditName(state.account?.displayName || "");
+  if (name === null) return; // cancelled
+  try {
+    if (!core.setDisplayName) throw new Error("not available with this backend");
+    await core.setDisplayName(name);
+    state.account = await core.getAccount();
+    rebuildDrawer();
+    toast(name ? "Username updated" : "Username cleared");
+  } catch (err) {
+    toast("Couldn't update username: " + (err.message || err), 4500);
+  }
 }
 
 // QR invite provider: real SecureJoin QR rendered by the core

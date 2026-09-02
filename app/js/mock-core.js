@@ -190,6 +190,9 @@ export class MockCore extends EventTarget {
 
   // ---- JSON-RPC-shaped async API ----
   async getAccount() { return structuredClone(this.account); }
+  async setDisplayName(name) {
+    this.account.displayName = (name || "").trim() || "You";
+  }
   async getContacts() { return structuredClone(this.contacts); }
 
   async getChatList({ archived = false, query = "" } = {}) {
