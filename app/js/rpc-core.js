@@ -573,18 +573,9 @@ export class JsonRpcCore extends EventTarget {
   // options.forAll: also ask the other chat members' devices to delete the
   // messages (core: delete_messages_for_all — sends an encrypted Chat-Delete
   // request). The core only accepts that for self-sent, encrypted messages
-  // from a single chat; anything else falls back to a local+relay deletion.
+  // from a single chat and rejects otherwise, which the caller surfaces.
   async deleteMessages(chatId, ids, { forAll = false } = {}) {
-    if (forAll && ids.length) {
-      try {
-        await this._call("delete_messages_for_all", this.accountId, ids);
-      } catch (e) {
-        rustLog(`delete_messages_for_all rejected (${e}); deleting locally only`);
-        await this._call("delete_messages", this.accountId, ids);
-      }
-    } else {
-      await this._call("delete_messages", this.accountId, ids);
-    }
+    await this._call(forAll ? "delete_messages_for_all" : "delete_messages", this.accountId, ids);
     const cache = this.msgIdCache.get(chatId);
     if (cache) this.msgIdCache.set(chatId, cache.filter(id => !ids.includes(id)));
     this._emit("msgs-deleted", { chatId, ids });

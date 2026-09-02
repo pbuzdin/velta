@@ -1,7 +1,7 @@
 // chat-view.js — virtualized message history (virtual-scroller) + composer
 import { formatTime, formatDay, formatBytes } from "./mock-core.js";
 import { escapeHtml, escapeAttr, ticksSvg } from "./components.js";
-import { showContextMenu, showModal, confirmModal, toast, showEmojiPop, openImageLightbox } from "./ui.js";
+import { showContextMenu, showModal, confirmDeleteMessagesModal, toast, showEmojiPop, openImageLightbox } from "./ui.js";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
 
@@ -667,19 +667,22 @@ export class ChatView {
   }
 
   async _delete(ids) {
-    // The core can only request deletion on the other members' devices for
-    // messages that are self-sent AND e2e-encrypted (delete_messages_for_all).
+    // Mirror the official Delta Chat desktop dialog: "Delete for everyone"
+    // is offered only when the core can honor it — self-sent messages in an
+    // encrypted chat that isn't self-talk (delete_messages_for_all rules).
     const msgs = ids.map(id => this.msgIndex.get(id)?.msg).filter(Boolean);
     const canForAll = msgs.length === ids.length
-      && msgs.every(m => m.from === 1 && m.encrypted !== false);
-    const scope = canForAll
-      ? "This removes them here, on the relay, and asks the other members' devices to delete them too."
-      : "This removes them for you and requests deletion at the relay.";
-    const ok = await confirmModal("Delete messages", `Delete ${ids.length} message${ids.length > 1 ? "s" : ""}? ${scope}`);
-    if (ok) {
-      await this.core.deleteMessages(this.chat.id, ids, { forAll: canForAll });
+      && this.chat.kind !== "saved"
+      && this.chat.encrypted !== false
+      && msgs.every(m => m.from === 1);
+    const choice = await confirmDeleteMessagesModal(ids.length, canForAll);
+    if (!choice) return;
+    try {
+      await this.core.deleteMessages(this.chat.id, ids, { forAll: choice === "everyone" });
       this.exitSelection();
       this.onChatsChanged();
+    } catch (err) {
+      toast("Couldn't delete messages: " + (err.message || err), 4500);
     }
   }
 

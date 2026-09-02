@@ -523,7 +523,7 @@ dc-chat-item { display: block; }
 .btn-primary:disabled { opacity: .5; cursor: default; }
 .btn-text { color: var(--accent); font-weight: 600; padding: 10px 14px; border-radius: 8px; }
 .btn-text:hover { background: var(--bg-hover); }
-.modal-foot { display: flex; justify-content: flex-end; gap: 4px; padding: 4px 10px 12px; }
+.modal-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; padding: 4px 10px 12px; }
 .text-field {
   width: 100%; background: var(--bg-hover);
   border: 1px solid var(--border); border-radius: 10px;
