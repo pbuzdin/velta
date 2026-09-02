@@ -282,6 +282,11 @@ html[data-theme="light"] .service-msg { background: rgba(244,244,244,.75); color
 
 .msg-text { font-size: 15.5px; line-height: 1.36; white-space: pre-wrap; }
 .msg-text a { color: var(--accent); }
+/* Markdown lists (markdown.js emits <ul>/<ol> as block units; the surrounding
+   msg-text keeps pre-wrap for plain paragraphs) */
+.msg-text ul, .msg-text ol { margin: 2px 0; padding-left: 20px; }
+.msg-text li { margin: 1px 0; display: list-item; }
+.msg-text u { text-underline-offset: 2px; }
 
 /* Invite card: "Pavel invited you to a Chat RU group" / "Chat with Pavel",
    copy button on the right. Rendered instead of the raw invite link. The
