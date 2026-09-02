@@ -49,6 +49,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── components.js     # Elena-based web components (<dc-avatar>, <dc-chat-item>, <dc-chat-head>, <dc-video>)
 │   │   ├── diagnostics.js    # diagnostics chat store + event sink
 │   │   ├── invites.js        # invite-link registry (mirror domains), parsing, invite cards, settings modal
+│   │   ├── markdown.js       # escape-first message markdown: bold/italic/underline, links, lists
 │   │   ├── media.js          # media URL helpers (convertFileSrc / asset protocol)
 │   │   ├── mock-core.js      # in-memory demo core implementing the JSON-RPC surface
 │   │   ├── rpc-core.js       # JsonRpcCore wrapper over transports + event mapping

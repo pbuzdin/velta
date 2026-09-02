@@ -261,6 +261,25 @@ Delta Chat splits very large messages into a small placeholder plus a downloadab
 - **Windows / desktop** — file pickers return real filesystem paths and everything works end-to-end.
 - **Android** — the Tauri dialog may return a `content://` URI that the Delta Chat core cannot read directly. Velta copies picked files into the app’s local data directory using `tauri-plugin-fs` before passing an absolute path to `send_msg`.
 
+## Message formatting and replies
+
+Message text renders a simple, escape-first markdown subset (`app/js/markdown.js`):
+
+| Syntax | Result |
+|---|---|
+| `**bold**` | **bold** |
+| `*italic*` / `_italic_` | *italic* |
+| `__underline__` | underline |
+| `[label](https://…)` | clickable link (bare URLs linkify too) |
+| `- item` / `* item` / `+ item` | bulleted list |
+| `1. item` / `1) item` | numbered list (a start value like `3.` is honored) |
+
+Everything is HTML-escaped before any tag is produced and only `http(s)` targets become links, so message content can never inject markup. Emphasis markers are word-boundary guarded (`2*3*4` and `snake_case_name` stay literal). Invite links (`i.delta.chat` and registered mirror domains) render as invite cards instead of links — see [Deep links](#deep-links).
+
+Hovering a message on desktop shows a small **Reply** pill at the bubble's top-right corner — one click sets the reply (same pipeline as the context menu's Reply) and focuses the composer. The pill is hidden on touch devices and during message selection.
+
+Note: other Delta Chat clients render only the core's markdown subset (bold, italic, strikethrough, code). Underline and lists are Velta-side rendering niceties — other clients show those markers literally.
+
 ## Deleting messages
 
 Deleting a message (long-press / right-click → Delete) opens the same dialog as

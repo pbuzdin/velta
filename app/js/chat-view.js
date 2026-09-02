@@ -7,7 +7,7 @@ const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
 
 import { diagnosticsSink, debugLog } from "./diagnostics.js";
 import { fileUrl } from "./media.js";
-import { parseInviteLink, inviteCardHtml } from "./invites.js";
+import { renderMarkdown } from "./markdown.js";
 
 function rustLog(msg) {
   try {
@@ -547,7 +547,7 @@ export class ChatView {
       </div>`;
     }
 
-    if (m.text) bubble += `<div class="msg-text">${linkify(m.text)}`;
+    if (m.text) bubble += `<div class="msg-text">${renderMarkdown(m.text)}`;
     else bubble += `<div class="msg-text">`;
     const edited = m.edited ? `<span class="edited">edited</span>` : "";
     const star = m.starred ? `<svg class="star-ico" viewBox="0 0 24 24"><path d="M12 3l2.7 5.8 6.3.7-4.7 4.3 1.3 6.2-5.6-3.2-5.6 3.2 1.3-6.2L3 9.5l6.3-.7z" fill="currentColor"/></svg>` : "";
@@ -1016,27 +1016,4 @@ export class ChatView {
   }
 }
 
-// URLs become plain links — except invite links on registered hosts, which
-// render as invite cards (tap to join, side icon to copy). Splitting happens
-// on the RAW text so the card/anchor hrefs carry the unescaped URL; escaping
-// runs per segment at render time.
-function linkify(text) {
-  const parts = [];
-  const re = /\bhttps?:\/\/[^\s<]+/gi;
-  let last = 0;
-  for (let m; (m = re.exec(text)); ) {
-    // don't let trailing punctuation glue onto the link
-    const raw = m[0].replace(/[.,;:!?)\]'}]+$/, "");
-    parts.push({ t: "text", s: text.slice(last, m.index) + m[0].slice(raw.length) });
-    last = m.index + raw.length;
-    const invite = parseInviteLink(raw);
-    if (invite) parts.push({ t: "invite", invite });
-    else parts.push({ t: "url", s: raw });
-  }
-  parts.push({ t: "text", s: text.slice(last) });
-  return parts.map(p =>
-    p.t === "invite" ? inviteCardHtml(p.invite)
-    : p.t === "url" ? `<a href="${escapeAttr(p.s)}" target="_blank" rel="noopener">${escapeHtml(p.s)}</a>`
-    : escapeHtml(p.s)
-  ).join("");
-}
+// Inline text rendering (URLs, invite cards, markdown) lives in markdown.js.
