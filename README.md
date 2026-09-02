@@ -27,13 +27,16 @@ The UI is plain HTML/CSS/ES modules (no bundler). The backend is the upstream [D
 │       ├── tauri.conf.json     # shared Tauri config
 │       ├── tauri.android.conf.json
 │       ├── tauri.ios.conf.json
+│       ├── gen/android/        # generated Android project
 │       └── src/
 │           ├── lib.rs          # sidecar + Android in-process core glue
 │           └── main.rs         # Tauri entry point
-├── delta-core-service/         # Android background-service skeleton (JNI + WS bridge)
-├── deltachat-backend/            # Prebuilt deltachat-rpc-server binaries
+├── delta-core-service/         # Android background-service (JNI + WS bridge) APK
+├── deltachat-backend/          # Prebuilt deltachat-rpc-server binaries
 │   ├── windows-x86_64/
 │   └── android-arm64/
+├── tools/                      # icon generation + WSL APK build/sign helpers
+├── signing/                    # local signing keystore (untracked)
 └── core/                       # Vendored Delta Chat core Rust workspace
 ```
 
@@ -230,12 +233,32 @@ Delta Chat splits very large messages into a small placeholder plus a downloadab
 - **Windows / desktop** — file pickers return real filesystem paths and everything works end-to-end.
 - **Android** — the Tauri dialog may return a `content://` URI that the Delta Chat core cannot read directly. Velta copies picked files into the app’s local data directory using `tauri-plugin-fs` before passing an absolute path to `send_msg`.
 
+## Deleting messages
+
+Deleting a message (long-press / right-click → Delete) opens the same dialog as
+official Delta Chat desktop:
+
+| Action | What happens |
+|---|---|
+| **Delete for me** | Removes the message on this device and deletes it from the relay's storage. Other members keep their copy. |
+| **Delete for everyone** | Also asks every chat member's device to delete the message. The core sends a hidden, encrypted deletion request (`Chat-Delete` header) that other Delta Chat clients honor. |
+
+"Delete for everyone" is only offered when the core can support it: the
+selected messages must be **your own** and **end-to-end encrypted**, and the
+chat must not be Saved Messages. Deleting for everyone is a request — members
+running clients without deletion support will keep their copy.
+
+Related indicator: encrypted chats show no lock icon (e2e is the default).
+Unencrypted 1:1 chats — classic-email contacts that chatmail relays cannot
+encrypt to — are marked with a small open-shackle lock in the chat list and
+chat header instead.
+
 ## Known limitations
 
 - This is a **PoC**. Group creation, contact discovery, QR invites, and real-time message rendering all work in basic flows but have not been stress-tested.
 - Logging to `velta.log` is disabled in the stable branch; use the status pill and browser/Tauri dev tools to diagnose issues.
 - On Windows, the app needs the sidecar binary to talk to the real core. If the sidecar fails to start the frontend falls back to the mock core.
-- On Android, the app currently uses the in-process core inside the Tauri APK. A separate background-service variant (`delta-core-service/`) is only a skeleton.
+- On Android, the app currently uses the in-process core inside the Tauri APK. A separate background-service variant (`delta-core-service/`) builds a working service APK but is secondary to the Tauri app.
 
 ## License
 

@@ -31,7 +31,7 @@ speaks a JSON-RPC interface to the real core, or falls back to
 `app/js/mock-core.js`.
 
 A prebuilt set of command-line RPC servers for Windows and Android is kept in
-`deltachat-backend/` and archived as `deltachat-backend.zip`.
+`deltachat-backend/`.
 
 ---
 
@@ -43,11 +43,14 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   ├── css/main.css          # single stylesheet
 │   ├── icons/                # PWA/Tauri icons, including source asset
 │   ├── js/                   # application logic
-│   │   ├── app.js            # bootstrap, chat list, modals, PWA lifecycle
+│   │   ├── app.js            # bootstrap, chat list, navigation, modals, PWA lifecycle
+│   │   ├── avatar.js         # contact avatars: fingerprint color-grid identity tiles
 │   │   ├── chat-view.js      # message history, composer, selection actions
-│   │   ├── components.js     # Elena-based web components (<dc-avatar>, …)
+│   │   ├── components.js     # Elena-based web components (<dc-avatar>, <dc-chat-item>, <dc-chat-head>, <dc-video>)
+│   │   ├── diagnostics.js    # diagnostics chat store + event sink
+│   │   ├── media.js          # media URL helpers (convertFileSrc / asset protocol)
 │   │   ├── mock-core.js      # in-memory demo core implementing the JSON-RPC surface
-│   │   ├── rpc-core.js       # JsonRpcCore wrapper over transports
+│   │   ├── rpc-core.js       # JsonRpcCore wrapper over transports + event mapping
 │   │   ├── transport.js      # backend auto-detection (Tauri, WebSocket, HTTP, mock)
 │   │   └── ui.js             # drawer, modals, context menus, toasts
 │   ├── vendor/               # third-party frontend libraries
@@ -56,7 +59,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   ├── diag.html             # connection diagnostics page for the service bridge
 │   ├── index.html            # main app shell
 │   ├── manifest.webmanifest  # PWA manifest (name: "Velta")
-│   └── sw.js                 # app-shell service worker (cache: "velta-v18")
+│   └── sw.js                 # app-shell service worker (CACHE constant bumped each release)
 │
 ├── core/                     # Delta Chat core Rust library (upstream copy)
 │   ├── src/                  # main library (~64 Rust modules, see core/src/lib.rs)
@@ -74,26 +77,32 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   ├── CMakeLists.txt        # CMake install wrapper for libdeltachat
 │   └── deny.toml             # cargo-deny policy
 │
-├── delta-web-app/            # Tauri v2 wrapper skeleton
+├── delta-web-app/            # Tauri v2 wrapper
 │   └── src-tauri/
 │       ├── Cargo.toml        # depends on deltachat-jsonrpc (path on Android)
-│       ├── tauri.conf.json   # frontendDist: ../../app, version 1.1.3
+│       ├── tauri.conf.json   # frontendDist: ../../app, version bumped each release
 │       ├── capabilities/     # Tauri v2 ACL (default.json, mobile.json)
+│       ├── gen/android/      # generated Android project (cargo tauri android)
 │       ├── src/
 │       │   ├── lib.rs        # Windows sidecar bridge + Android in-process core
 │       │   └── main.rs       # Tauri entry point
 │       └── build.rs
 │
-├── delta-core-service/       # Android foreground-service skeleton
-│   ├── rust/                 # JNI crate (librpc_core.so) — Cargo.toml only
-│   └── android/              # Gradle shell files
+├── delta-core-service/       # Android foreground-service (JNI core + loopback WS bridge)
+│   ├── rust/                 # JNI crate (librpc_core.so)
+│   ├── android/              # Gradle project; builds delta-core-service.apk
+│   └── README.md
 │
 ├── deltachat-backend/        # Prebuilt deltachat-rpc-server binaries
 │   ├── windows-x86_64/
 │   └── android-arm64/
 │
-└── velta_icon_concept.png    # app icon source asset
+├── signing/                  # local signing keystore (untracked)
+└── tools/                    # icon generation + WSL APK build/sign helper scripts
 ```
+
+Not tracked (local runtime/build artifacts): `accounts/` (local core account
+databases), `*.apk` builds, `signing/*.keystore`.
 
 ---
 
@@ -113,7 +122,8 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 | Python bindings | CFFI (`core/python`) and JSON-RPC (`core/deltachat-rpc-client`) |
 
 The Rust toolchain required for the core is **1.89+** (see `core/Cargo.toml`).
-Tauri (`delta-web-app`) requires Rust **1.77.2+** and Node.js 18+.
+Tauri (`delta-web-app`) requires Rust **1.77.2+** and Node.js **22+** (see the
+README's requirements section).
 
 ---
 
@@ -226,16 +236,22 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   3. WebSocket to `ws://127.0.0.1:20808`
   4. HTTP to `http://127.0.0.1:20809/rpc`
   5. `MockCore` fallback
-- `app/js/rpc-core.js` wraps any transport with a JSON-RPC client and exposes the
-  same events as `mock-core.js`.
-- `app/js/app.js` owns the chat list, navigation, modals, and the PWA shell.
-- `app/js/chat-view.js` owns the conversation history and composer.
-- `app/js/components.js` defines custom elements for avatars, chat items, and
-  message items using Elena.
-- `app/js/ui.js` is a small collection of UI helpers (drawer, context menus,
-  toasts).
+- `app/js/rpc-core.js` wraps any transport with a JSON-RPC client, maps core
+  events to UI events, and exposes the same API surface as `mock-core.js`.
+- `app/js/app.js` owns the chat list, navigation, modals, diagnostics chat, and
+  the PWA shell. It also runs a DOM-budget watchdog that samples node counts.
+- `app/js/chat-view.js` owns the conversation history (virtualized via
+  `virtual-scroller`), composer, selection mode, and the delete-message dialog.
+- `app/js/components.js` defines custom elements (`<dc-avatar>`,
+  `<dc-chat-item>`, `<dc-chat-head>`, `<dc-video>`) using Elena.
+- `app/js/avatar.js` derives contact identity tiles from OpenPGP fingerprints.
+- `app/js/diagnostics.js` is the in-app diagnostics event store ("Velta
+  Diagnostics" chat).
+- `app/js/media.js` resolves local file paths to WebView-safe media URLs.
+- `app/js/ui.js` is a collection of UI helpers (drawer, modals, context menus,
+  toasts, delete-confirmation dialog).
 - `app/js/mock-core.js` is a self-contained demo backend used when no real core
-  is reachable.
+  is reachable (also force-selectable via `localStorage["velta-mock"] = "1"`).
 
 ### 5.2 Core Rust library (`core/src/`)
 
@@ -315,13 +331,34 @@ full API spec.
 
 ### 7.2 Frontend
 
-There is no visible test harness for the PWA. The primary verification path is
-manual:
+There is no automated test harness for the PWA. The primary verification path
+is manual:
 
-1. Open `app/index.html` in a browser with the mock core to verify UI behavior.
+1. Open `app/index.html` in a browser. Force demo mode with
+   `localStorage["velta-mock"] = "1"` (or the drawer's "Enter mock mode"
+   toggle) to verify UI behavior without a backend; the mock ships demo chats,
+   media, and a 2400-message chat for scroller testing.
 2. Run a real backend (`deltachat-rpc-server`, the Tauri app, or the Android
    service) and confirm the transport switches from mock to real.
 3. Use `app/diag.html` to diagnose WebSocket/HTTP connectivity to the service.
+
+For end-to-end verification against a **real core** (message delivery,
+deletion requests, SecureJoin), the setup used during development is:
+
+1. Serve `app/` from any static server with `Cache-Control: no-store`
+   (avoids stale module caching in the browser).
+2. Spawn `deltachat-backend/windows-x86_64/deltachat-rpc-server.exe` with
+   `DC_ACCOUNTS_PATH` pointed at an isolated accounts directory, and bridge
+   its stdio JSON-RPC to a WebSocket server on `ws://127.0.0.1:20808` — the
+   frontend then connects to it automatically as the "local core (service)"
+   backend. A ready-made bridge lives in the local `test-rig/` workspace
+   folder (not committed).
+3. Create two throwaway chatmail accounts (`set_config_from_qr` with
+   `dcaccount:https://<relay>/new`), SecureJoin them to each other, and drive
+   one side via raw RPC while testing the UI on the other.
+
+Relays rate-limit aggressive sending (HTTP 4.7.1 "too much mail"); pace
+test traffic accordingly.
 
 ### 7.3 Python bindings
 
@@ -402,11 +439,16 @@ manual:
 - The `core/` directory is large and self-contained. If your task only touches
   Velta's frontend or wrappers, avoid changing files under `core/` unless you
   are explicitly fixing or extending the core itself.
-- The `delta-web-app/src-tauri` and `delta-core-service/rust` directories are
-  currently skeletons (manifests only). Do not assume full Rust source files exist
-  there; check before editing.
+- `delta-web-app/src-tauri` has full Rust sources plus a `gen/android` project
+  generated by `cargo tauri android` — regenerated files can be large; edit
+  `src/` and `tauri.conf.json` rather than `gen/` where possible.
+- `delta-core-service/` is a working foreground-service APK but is secondary to
+  the Tauri app; check `delta-core-service/README.md` before editing it.
 - The PWA has no build pipeline. All changes to `app/` are immediately testable
   by refreshing the browser or bumping the service-worker cache in `app/sw.js`.
+- Version bumps touch `delta-web-app/src-tauri/tauri.conf.json`, the
+  `delta-web` package in `delta-web-app/src-tauri/Cargo.toml` (+`Cargo.lock`),
+  and the `CACHE` constant in `app/sw.js`; each release commit notes both.
 - When modifying the JSON-RPC API surface, remember that the PWA
   (`app/js/rpc-core.js`), the Python RPC client, and any external consumers must
   stay compatible.
