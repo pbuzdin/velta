@@ -280,6 +280,18 @@ Hovering a message on desktop shows a small **Reply** pill at the bubble's top-r
 
 Note: other Delta Chat clients render only the core's markdown subset (bold, italic, strikethrough, code). Underline and lists are Velta-side rendering niceties — other clients show those markers literally.
 
+## Theming and accessibility
+
+The palette avoids pure black and pure white everywhere — whites live in the `#f2f2f5`/`#f4f4f4` family and blacks in the `#0b0b10`–`#1c1c26` family (the avatar identity tiles already followed this rule). Text and surface pairs are held to **WCAG AA (≥ 4.5:1 contrast)**, measured with the WCAG relative-luminance formula after compositing any translucent layers:
+
+| Pair (dark theme) | Contrast |
+|---|---|
+| Body text `#f2f2f5` on app background `#0f0f14` | 17.1 : 1 |
+| Bubble text on incoming bubble `#1c1c26` | 15.1 : 1 |
+| Bubble text on outgoing bubble `#2b5278` | 7.3 : 1 |
+
+Reply quotes use a dedicated palette per bubble and theme (the generic accent/dim colors measured as low as 2.08 : 1 on the blue outgoing bubble): the quote name and text now measure **5.2 – 7.0 : 1** in every theme/side combination. When introducing a new color, composite it over its real background (rgba layers included) and check the ratio before merging.
+
 ## Deleting messages
 
 Deleting a message (long-press / right-click → Delete) opens the same dialog as

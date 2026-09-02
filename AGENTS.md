@@ -316,6 +316,20 @@ full API spec.
 - Both `core/python` and `core/deltachat-rpc-client` use `pyproject.toml` and
   `setuptools`.
 
+### 6.4 Visual design
+- **No pure black or pure white.** Opaque text and surface colors stay in the
+  soft families: whites `#f2f2f5`/`#f4f4f4`, blacks `#0b0b10`–`#1c1c26`
+  (`avatar.js` states the rule for fingerprint tiles; keep it everywhere).
+- **WCAG AA contrast (≥ 4.5:1)** for every text/background pair. Measure with
+  the WCAG relative-luminance formula and composite translucent layers over
+  their real bubble color first — e.g. reply quotes sit on
+  `--bg-reply` over `--bg-bubble-out`, not on a plain background. The
+  `.msg-quote` palette block in `app/css/main.css` documents the current
+  per-theme/per-side choices (5.2–7.0 : 1). Generic accent/dim tokens often
+  fail on colored bubbles (accent on `--bg-bubble-out` measures 2.58 : 1), so
+  always measure the actual combination.
+
+
 ---
 
 ## 7. Testing strategy
