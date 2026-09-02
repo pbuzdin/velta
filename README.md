@@ -16,6 +16,15 @@ Velta shares one web frontend (`app/`) between:
 
 The UI is plain HTML/CSS/ES modules (no bundler). The backend is the upstream [Delta Chat core](https://github.com/chatmail/core) at version `2.59.0`.
 
+## Screenshots
+
+Captured from the responsive PWA running in demo mode (mock core), dark theme.
+
+|                | Mobile | Desktop |
+|:--------------:|:------:|:-------:|
+| **Chat list**  | ![Mobile chat list](screenshots/mobile-chat-list.png) | ![Desktop chat list](screenshots/desktop-chat-list.png) |
+| **Chat opened** | ![Mobile chat](screenshots/mobile-chat.png) | ![Desktop chat](screenshots/desktop-chat.png) |
+
 ## Project layout
 
 ```
