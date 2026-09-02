@@ -184,7 +184,7 @@ export class MockCore extends EventTarget {
       const m = this._mkMsg(chat, { from, text: LOREM[Math.floor(Math.random() * LOREM.length)], ts: Date.now(), state: "received" });
       chat.messages.push(m);
       if (!chat.muted) chat.unread++;
-      this._emit("incoming-msg", { chatId: chat.id, msg: m });
+      this._emit("incoming-msg", { chatId: chat.id, msg: this._decorate(m) });
     }, 25000);
   }
 

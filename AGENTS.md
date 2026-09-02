@@ -48,6 +48,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── chat-view.js      # message history, composer, selection actions
 │   │   ├── components.js     # Elena-based web components (<dc-avatar>, <dc-chat-item>, <dc-chat-head>, <dc-video>)
 │   │   ├── diagnostics.js    # diagnostics chat store + event sink
+│   │   ├── invites.js        # invite-link registry (mirror domains), parsing, invite cards, settings modal
 │   │   ├── media.js          # media URL helpers (convertFileSrc / asset protocol)
 │   │   ├── mock-core.js      # in-memory demo core implementing the JSON-RPC surface
 │   │   ├── rpc-core.js       # JsonRpcCore wrapper over transports + event mapping
@@ -382,6 +383,10 @@ test traffic accordingly.
 - **PWA protocol handler.** `manifest.webmanifest` registers `web+dcaccount` as a
   protocol handler. Validate incoming `?qr=` parameters before passing them to
   the core.
+- **Invite links.** `app/js/invites.js` parses invite links, mirrors custom hosts onto
+  the canonical `https://i.delta.chat/#…` scheme the core accepts, and renders them as
+  invite cards. Only links whose host is in the domain registry (drawer → "Invite link
+  domains"; built-ins mirror the AndroidManifest intent filters) are treated as invites.
 - **Trusted binaries.** The prebuilt `deltachat-backend/` binaries are static
   except for system libraries. If you rebuild them, prefer vendored OpenSSL and
   SQLite to minimize external runtime dependencies.

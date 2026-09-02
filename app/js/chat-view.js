@@ -7,6 +7,7 @@ const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
 
 import { diagnosticsSink, debugLog } from "./diagnostics.js";
 import { fileUrl } from "./media.js";
+import { parseInviteLink, inviteCardHtml } from "./invites.js";
 
 function rustLog(msg) {
   try {
@@ -481,6 +482,9 @@ export class ChatView {
     }
     const out = m.from === 1;
     const showAvatar = !out && (this.chat.kind === "group");
+    // Event-driven inserts (onIncoming) can carry rows before decoration —
+    // never let a missing fromContact kill the whole render pass.
+    const fc = m.fromContact || { id: m.from, name: "Unknown", color: "#888" };
     const row = document.createElement("div");
     row.className = "msg-row" + (out ? " out" : "") + (showAvatar ? " with-avatar" : "");
     row.dataset.msgid = m.id;
@@ -492,11 +496,11 @@ export class ChatView {
       inner += `<div class="msg-checkbox">${this.selection.has(m.id) ? ICO.check : ""}</div>`;
     }
     if (showAvatar) {
-      inner += `<dc-avatar name="${escapeHtml(m.fromContact.name)}" color="${m.fromContact.color}" size="30" contact-id="${m.fromContact.id ?? ""}" addr="${escapeAttr(m.fromContact.addr || "")}"${m.fromContact.avatar ? ` avatar="${escapeAttr(fileUrl(m.fromContact.avatar))}"` : ""}></dc-avatar>`;
+      inner += `<dc-avatar name="${escapeHtml(fc.name)}" color="${fc.color}" size="30" contact-id="${fc.id ?? ""}" addr="${escapeAttr(fc.addr || "")}"${fc.avatar ? ` avatar="${escapeAttr(fileUrl(fc.avatar))}"` : ""}></dc-avatar>`;
     }
 
     let bubble = "";
-    if (showAvatar) bubble += `<div class="msg-sender" style="color:${m.fromContact.color}">${escapeHtml(m.fromContact.name)}</div>`;
+    if (showAvatar) bubble += `<div class="msg-sender" style="color:${fc.color}">${escapeHtml(fc.name)}</div>`;
     if (m.fwdFrom) bubble += `<div class="msg-fwd">Forwarded from ${escapeHtml(m.fwdFrom)}</div>`;
     if (m.quote) {
       bubble += `<div class="msg-quote" data-quote="${m.quote.id}">
@@ -555,6 +559,21 @@ export class ChatView {
     }
     inner += `<div class="bubble">${bubble}</div>`;
     row.innerHTML = inner;
+
+    // One-click reply (desktop hover): a small pill at the bubble's top-right
+    // corner — the same _setReply the context menu uses, plus composer focus
+    // so the reply really is a single click.
+    const hoverReply = document.createElement("button");
+    hoverReply.type = "button";
+    hoverReply.className = "msg-hover-reply";
+    hoverReply.title = "Reply";
+    hoverReply.innerHTML = `${ICO.reply}<span>Reply</span>`;
+    hoverReply.addEventListener("click", e => {
+      e.stopPropagation();
+      this._setReply(item);
+      document.getElementById("composer-input")?.focus();
+    });
+    row.querySelector(".bubble")?.appendChild(hoverReply);
 
     // Wire up real local file URLs for images / video / audio. When media
     // can't load, show a clear placeholder instead of a broken element.
@@ -997,7 +1016,27 @@ export class ChatView {
   }
 }
 
+// URLs become plain links — except invite links on registered hosts, which
+// render as invite cards (tap to join, side icon to copy). Splitting happens
+// on the RAW text so the card/anchor hrefs carry the unescaped URL; escaping
+// runs per segment at render time.
 function linkify(text) {
-  const esc = escapeHtml(text);
-  return esc.replace(/\bhttps?:\/\/[^\s<]+/g, u => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+  const parts = [];
+  const re = /\bhttps?:\/\/[^\s<]+/gi;
+  let last = 0;
+  for (let m; (m = re.exec(text)); ) {
+    // don't let trailing punctuation glue onto the link
+    const raw = m[0].replace(/[.,;:!?)\]'}]+$/, "");
+    parts.push({ t: "text", s: text.slice(last, m.index) + m[0].slice(raw.length) });
+    last = m.index + raw.length;
+    const invite = parseInviteLink(raw);
+    if (invite) parts.push({ t: "invite", invite });
+    else parts.push({ t: "url", s: raw });
+  }
+  parts.push({ t: "text", s: text.slice(last) });
+  return parts.map(p =>
+    p.t === "invite" ? inviteCardHtml(p.invite)
+    : p.t === "url" ? `<a href="${escapeAttr(p.s)}" target="_blank" rel="noopener">${escapeHtml(p.s)}</a>`
+    : escapeHtml(p.s)
+  ).join("");
 }

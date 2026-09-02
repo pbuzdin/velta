@@ -194,7 +194,7 @@ html[data-theme="light"] .day-sep { background: rgba(244,244,244,.75); color: #5
 }
 
 /* ---------- Message bubbles ---------- */
-.msg-row { display: flex; padding: 2px 6px; }
+.msg-row { display: flex; padding: 2px 6px; position: relative; }
 .msg-row.out { justify-content: flex-end; }
 .msg-row.service { justify-content: center; }
 .msg-row.selectable { cursor: pointer; border-radius: 8px; }
@@ -219,6 +219,36 @@ html[data-theme="light"] .day-sep { background: rgba(244,244,244,.75); color: #5
 }
 .msg-row.with-avatar { align-items: flex-end; gap: 8px; }
 .msg-row.with-avatar .bubble { max-width: min(480px, calc(82% - 40px)); }
+
+/* One-click "Reply" pill (desktop only): fades in at the bubble's top-right
+   corner while hovering the message. Overlaps the bubble edge slightly like
+   Discord's hover actions; hidden entirely on touch devices. */
+.msg-hover-reply {
+  position: absolute; top: -11px; right: -4px; z-index: 3;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px 3px 8px; border-radius: 999px;
+  background: #262b38; color: var(--text);
+  border: 1px solid rgba(244, 244, 244, .18);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .35);
+  font: inherit; font-size: 12.5px; line-height: 1.25; font-weight: 500;
+  cursor: pointer;
+  opacity: 0; pointer-events: none; transform: translateY(3px);
+  transition: opacity .12s ease, transform .12s ease, background .12s ease;
+}
+.msg-hover-reply svg { width: 13px; height: 13px; flex: none; }
+.msg-row:hover .msg-hover-reply {
+  opacity: 1; pointer-events: auto; transform: translateY(0);
+}
+.msg-hover-reply:hover { background: #303648; }
+.msg-row.selectable .msg-hover-reply { display: none; }
+@media (hover: none) {
+  .msg-hover-reply { display: none; }
+}
+html[data-theme="light"] .msg-hover-reply {
+  background: #ffffff; border-color: rgba(16, 16, 16, .14);
+  box-shadow: 0 2px 8px rgba(16, 16, 16, .16);
+}
+html[data-theme="light"] .msg-hover-reply:hover { background: #f0f2f6; }
 
 .service-msg {
   background: rgba(16,16,16,.28);
@@ -252,6 +282,42 @@ html[data-theme="light"] .service-msg { background: rgba(244,244,244,.75); color
 
 .msg-text { font-size: 15.5px; line-height: 1.36; white-space: pre-wrap; }
 .msg-text a { color: var(--accent); }
+
+/* Invite card: "Pavel invited you to a Chat RU group" / "Chat with Pavel",
+   copy button on the right. Rendered instead of the raw invite link. The
+   panel uses a fixed dark palette (not theme vars): it must keep the white
+   names and the address subtitle readable on both the blue outgoing bubble
+   and the gray incoming bubble, in dark and light theme alike. */
+.invite-card {
+  display: flex; align-items: stretch; gap: 0;
+  margin: 6px 0; max-width: 100%;
+  background: rgba(9, 14, 22, .55);
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: 10px; overflow: hidden;
+  vertical-align: middle;
+}
+.invite-main {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  padding: 8px 10px; text-align: left;
+  background: none; border: none; cursor: pointer;
+  color: #fff; font: inherit; line-height: 1.35;
+  user-select: none; -webkit-user-select: none;
+}
+.invite-main:active { background: rgba(255, 255, 255, .10); }
+.invite-line b { color: #fff; font-weight: 700; }
+.invite-sub {
+  font-size: 12.5px; color: rgba(255, 255, 255, .78);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.invite-copy {
+  display: flex; align-items: center;
+  padding: 0 11px; border: none; border-left: 1px solid rgba(255, 255, 255, .18);
+  background: none; cursor: pointer;
+  color: rgba(255, 255, 255, .75);
+}
+.invite-copy:active, .invite-copy:hover { color: #fff; background: rgba(255, 255, 255, .10); }
+.invite-copy svg { width: 16px; height: 16px; }
 .msg-meta {
   float: right; display: inline-flex; align-items: center; gap: 3px;
   font-size: 11.5px; color: var(--text-meta-in);
