@@ -458,6 +458,10 @@ dc-chat-item { display: block; }
 .ci-pin { width: 17px; height: 17px; color: var(--text-dim); flex: none; }
 .ci-mute { width: 16px; height: 16px; color: var(--text-dim); flex: none; }
 .ci-ticks { width: 17px; height: 17px; color: var(--text-dim); flex: none; }
+/* The global `svg { display: block }` rule turns the ticks into their own
+   block line inside .ci-last, adding a whole text line of height to chat
+   items that have one. Keep them inline with the preview text instead. */
+.ci-last .ci-ticks { width: 16px; height: 14px; display: inline-block; vertical-align: middle; }
 .ci-ticks.read { color: var(--accent); }
 
 .chat-head-avatar { cursor: pointer; flex: none; }
