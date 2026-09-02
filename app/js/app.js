@@ -6,6 +6,7 @@ import { fileUrl } from "./media.js";
 import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintGroups } from "./avatar.js";
 import { ChatView } from "./chat-view.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID } from "./diagnostics.js";
+import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal } from "./invites.js";
 import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile } from "./ui.js";
 
 const diagnostics = new DiagnosticsStore();
@@ -884,21 +885,20 @@ function extractInviteLink(rawUrl = location.href) {
 }
 
 // i.delta.chat securejoin invite (1:1 or group), passed via
-// ?invite= / #invite= — or as the raw fragment on a real i.delta.chat URL.
+// ?invite= / #invite= — or as the raw fragment on any registered invite
+// host (see invites.js / the "Invite link domains" setting).
 function extractJoinLink(rawUrl = location.href) {
   let url;
   try { url = new URL(rawUrl, location.href); } catch { return null; }
   let link = url.searchParams.get("invite");
   if (!link && url.hash) {
     const h = url.hash.slice(1);
-    if (h.startsWith("invite=")) {
-      link = decodeURIComponent(h.slice(7));
-    } else if (/^https:\/\/i\.delta\.chat\//.test(rawUrl) && /^[0-9A-Fa-f]{40}/.test(h)) {
-      // Raw fragment from an OS-level deep link: #FINGERPRINT&v=3&...
-      link = `https://i.delta.chat/#${h}`;
-    }
+    if (h.startsWith("invite=")) link = decodeURIComponent(h.slice(7));
   }
-  return link && /^https:\/\/i\.delta\.chat\//.test(link) ? link : null;
+  if (link) return parseInviteLink(link)?.raw ?? null;
+  // Raw fragment from an OS-level deep link: https://<host>/#FINGERPRINT&v=3&…
+  const parsed = parseInviteLink(rawUrl);
+  return parsed ? parsed.raw : null;
 }
 
 // Windows custom-scheme wrapper: velta://invite?url=<encoded https://i.delta.chat/…>
@@ -963,6 +963,7 @@ function rebuildDrawer() {
     onAddAccount: addAccountFlow,
     onInvite: () => showInvite(inviteQrProvider(null), { account: state.account }),
     onEditProfile: editProfileFlow,
+    onInviteDomains: () => showInviteDomainsModal(),
     onToggleMock: () => {
       const on = localStorage.getItem("velta-mock") === "1";
       localStorage.setItem("velta-mock", on ? "0" : "1");
@@ -1065,16 +1066,33 @@ function showProgressModal(title, initialMessage) {
   };
 }
 
-// Join a 1:1 or group chat from an i.delta.chat invite link / QR text.
+// Join a 1:1 or group chat from an invite link / QR text. Asks for
+// confirmation first (who invites / which group — read from the link's own
+// params), like the official client's QR-scan flow.
 async function joinFromInvite(link) {
   if (!core.secureJoin) {
     toast("Joining chats needs the background core — not available in demo mode", 4500);
     return;
   }
-  const { update, close } = showProgressModal("Joining chat", "Parsing invite link…");
+  const parsed = parseInviteLink(link);
+  const label = parsed ? inviteLabel(parsed) : null;
+  let ok;
+  if (label?.kind === "group") {
+    ok = await confirmModal("Join group",
+      `${label.actor} invited you to join the group "${label.group}".`, "Join group", false);
+  } else if (label?.kind === "person") {
+    ok = await confirmModal("Start chat",
+      `Start a chat with ${label.actor}${label.addr ? ` (${label.addr})` : ""}?`, "Start chat", false);
+  } else {
+    ok = await confirmModal("Join chat", "Open this invite and start the SecureJoin handshake?", "Join", false);
+  }
+  if (!ok) return;
+  const { update, close } = showProgressModal("Joining chat", "Starting SecureJoin handshake…");
   try {
-    update("Starting SecureJoin handshake…");
-    const chatId = await core.secureJoin(link);
+    // Mirror links (i.gluek.info & friends) are normalized onto the canonical
+    // i.delta.chat form — the core only parses that scheme, and the payload
+    // lives in the URL fragment, so the host is irrelevant to the join.
+    const chatId = await core.secureJoin(parsed ? parsed.link : link);
     update("Opening chat…");
     await refreshChatList();
     openChat(chatId);
@@ -1089,7 +1107,7 @@ async function joinFromInvite(link) {
 function joinFlow() {
   const body = document.createElement("div");
   body.innerHTML = `
-    <p style="font-size:14.5px;line-height:1.5;margin-bottom:4px">Paste an invite link (<code>https://i.delta.chat/#…</code>) — works for both 1:1 contacts and group chats.</p>
+    <p style="font-size:14.5px;line-height:1.5;margin-bottom:4px">Paste an invite link (<code>https://i.delta.chat/#…</code> or a mirror domain) — works for both 1:1 contacts and group chats.</p>
     <input class="text-field" placeholder="https://i.delta.chat/#DD1F…" id="join-input">`;
   const foot = document.createElement("div");
   const cancel = document.createElement("button");
@@ -1101,8 +1119,8 @@ function joinFlow() {
   cancel.addEventListener("click", close);
   ok.addEventListener("click", () => {
     const v = body.querySelector("#join-input").value.trim();
-    if (!/^https:\/\/i\.delta\.chat\//.test(v) && !/^OPENPGP4FPR:/i.test(v)) {
-      toast("That doesn't look like an i.delta.chat invite link"); return;
+    if (!parseInviteLink(v)) {
+      toast("That doesn't look like an invite link (e.g. https://i.delta.chat/#… or OPENPGP4FPR:…)"); return;
     }
     close();
     joinFromInvite(v);
@@ -1234,6 +1252,8 @@ async function boot() {
     $("btn-menu").addEventListener("click", () => drawer.open());
     $("btn-new-chat").addEventListener("click", newChatFlow);
     bindChatHeadMenu();
+    // Invite cards in messages + any invite-host link tap → join flow
+    bindInviteInterception(link => joinFromInvite(link));
 
     let searchTimer;
     $("search").addEventListener("input", e => {

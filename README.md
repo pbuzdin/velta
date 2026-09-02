@@ -156,11 +156,30 @@ Velta can open invite and account-setup links directly instead of making the use
 
 | Platform | Link type | What happens |
 |---|---|---|
-| Android | `https://i.delta.chat/#FINGERPRINT&v=3&…` | Intercepted by the Android intent filter and processed in-app. |
+| Android | `https://i.delta.chat/#FINGERPRINT&v=3&…` (or a registered mirror domain, e.g. `https://i.gluek.info/#…`) | Intercepted by the Android intent filters and processed in-app. |
 | Android / PWA | `dcaccount:https://nine.testrun.org/new` | Configures a new chatmail account. |
 | Desktop (Windows/Linux) | `velta://invite?url=<encoded i.delta.chat URL>` | Opens Velta and joins the 1:1 or group chat. |
 | Desktop (Windows/Linux) | `velta://account?url=<encoded dcaccount URL>` | Opens Velta and creates a chatmail account. |
 | Contact verification | `OPENPGP4FPR:…` | Can be processed as a SecureJoin/verification QR. |
+
+### Invite link mirrors and invite cards
+
+An invite link's payload lives in the URL fragment (`#FINGERPRINT&v=3&…`) and is never
+sent to a server — the host is decorative. Velta therefore accepts any **registered
+mirror domain** and normalizes the link onto the canonical `i.delta.chat` form before
+handing it to the core (which only parses that scheme).
+
+- **Registry** — built-in hosts (`i.delta.chat`, `i.gluek.info`) plus user-added ones,
+  managed in the drawer under *Settings → Invite link domains* (stored in
+  `localStorage["velta-invite-hosts"]`, logic in `app/js/invites.js`).
+- **OS-level interception is compile-time** — Android intent filters live in
+  `AndroidManifest.xml` and can only be changed by adding the domain there and
+  rebuilding. The runtime registry covers everything inside Velta: OS deep links
+  (already routed to the app), links tapped in chat messages, and pasted links.
+- **Invite cards** — an invite link inside a message renders as a card instead of a raw
+  URL: the main part reads *"Pavel invited you to a Chat RU group"* or *"Chat with
+  Pavel"* (parsed from the link's own `n=`/`g=`/`a=` params) and asks for confirmation
+  before joining; a copy icon on the right copies the original link.
 
 ### Why Windows needs a custom `velta://` scheme
 
@@ -192,9 +211,9 @@ Clicking that link will focus an existing Velta window or start a new one, show 
 
 ### How it is implemented
 
-- **Android** — `delta-web-app/src-tauri/gen/android/app/src/main/AndroidManifest.xml` declares a `VIEW` intent filter for `https://i.delta.chat`. The Rust layer emits the URL to the frontend as a `deeplink` event.
+- **Android** — `delta-web-app/src-tauri/gen/android/app/src/main/AndroidManifest.xml` declares `VIEW` intent filters for `https://i.delta.chat` and mirror domains (`i.gluek.info`; one filter each — add more there and rebuild to extend OS-level interception). The Rust layer emits the URL to the frontend as a `deeplink` event.
 - **Windows/Linux** — `tauri-plugin-deep-link` registers the `velta://` scheme. `tauri-plugin-single-instance` (with the `deep-link` feature) forwards second-instance launches to the running window. The plugin emits a `deep-link://new-url` event that the frontend listens to.
-- **Common frontend handling** — `app/js/app.js` has `extractJoinLink()`, `extractInviteLink()`, and `extractVeltaLink()`. They normalise every supported format and route it to either the SecureJoin flow (`joinFromInvite`) or the account-setup flow (`addAccountFromInvite`).
+- **Common frontend handling** — `app/js/app.js` has `extractJoinLink()`, `extractInviteLink()`, and `extractVeltaLink()`. They normalise every supported format and route it to either the SecureJoin flow (`joinFromInvite`) or the account-setup flow (`addAccountFromInvite`). Link recognition, mirroring, and the invite-card rendering live in `app/js/invites.js`.
 
 ### Testing locally
 
