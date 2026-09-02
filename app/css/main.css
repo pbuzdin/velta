@@ -245,7 +245,7 @@ html[data-theme="light"] .day-sep { background: rgba(244,244,244,.75); color: #5
   .msg-hover-reply { display: none; }
 }
 html[data-theme="light"] .msg-hover-reply {
-  background: #ffffff; border-color: rgba(16, 16, 16, .14);
+  background: #fbfbfc; border-color: rgba(16, 16, 16, .14);
   box-shadow: 0 2px 8px rgba(16, 16, 16, .16);
 }
 html[data-theme="light"] .msg-hover-reply:hover { background: #f0f2f6; }
@@ -278,7 +278,17 @@ html[data-theme="light"] .service-msg { background: rgba(244,244,244,.75); color
   font-size: 13.5px; cursor: pointer;
 }
 .msg-quote .q-name { font-weight: 600; color: var(--accent); display: block; }
-.msg-quote .q-text { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; display: block; }
+/* Quote text: measured WCAG ratios vs each bubble's quote background
+   (accent-on-blue was 2.58:1, text-dim-on-blue 2.08:1 — below AA 4.5).
+   Outgoing bubbles get a dedicated light-on-blue palette. */
+.msg-quote .q-text { color: #9aa3b5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; display: block; }
+.msg-row.out .msg-quote .q-name { color: #d9e9fa; }
+.msg-row.out .msg-quote .q-text { color: #cfe0f2; }
+html[data-theme="light"] .msg-quote .q-name { color: #14507e; }
+html[data-theme="light"] .msg-quote .q-text { color: #4d5a68; }
+/* same specificity as the dark outgoing rules, declared later — wins in light */
+html[data-theme="light"] .msg-row.out .msg-quote .q-name { color: #14507e; }
+html[data-theme="light"] .msg-row.out .msg-quote .q-text { color: #4d5a68; }
 
 .msg-text { font-size: 15.5px; line-height: 1.36; white-space: pre-wrap; }
 .msg-text a { color: var(--accent); }
@@ -297,7 +307,7 @@ html[data-theme="light"] .service-msg { background: rgba(244,244,244,.75); color
   display: flex; align-items: stretch; gap: 0;
   margin: 6px 0; max-width: 100%;
   background: rgba(9, 14, 22, .55);
-  border: 1px solid rgba(255, 255, 255, .22);
+  border: 1px solid rgba(244, 244, 244, .22);
   border-radius: 10px; overflow: hidden;
   vertical-align: middle;
 }
@@ -306,22 +316,22 @@ html[data-theme="light"] .service-msg { background: rgba(244,244,244,.75); color
   display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
   padding: 8px 10px; text-align: left;
   background: none; border: none; cursor: pointer;
-  color: #fff; font: inherit; line-height: 1.35;
+  color: #f2f2f5; font: inherit; line-height: 1.35;
   user-select: none; -webkit-user-select: none;
 }
-.invite-main:active { background: rgba(255, 255, 255, .10); }
-.invite-line b { color: #fff; font-weight: 700; }
+.invite-main:active { background: rgba(244, 244, 244, .10); }
+.invite-line b { color: #f2f2f5; font-weight: 700; }
 .invite-sub {
-  font-size: 12.5px; color: rgba(255, 255, 255, .78);
+  font-size: 12.5px; color: rgba(244, 244, 244, .78);
   max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .invite-copy {
   display: flex; align-items: center;
-  padding: 0 11px; border: none; border-left: 1px solid rgba(255, 255, 255, .18);
+  padding: 0 11px; border: none; border-left: 1px solid rgba(244, 244, 244, .18);
   background: none; cursor: pointer;
-  color: rgba(255, 255, 255, .75);
+  color: rgba(244, 244, 244, .75);
 }
-.invite-copy:active, .invite-copy:hover { color: #fff; background: rgba(255, 255, 255, .10); }
+.invite-copy:active, .invite-copy:hover { color: #f2f2f5; background: rgba(244, 244, 244, .10); }
 .invite-copy svg { width: 16px; height: 16px; }
 .msg-meta {
   float: right; display: inline-flex; align-items: center; gap: 3px;
