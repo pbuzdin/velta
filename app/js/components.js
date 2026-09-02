@@ -2,6 +2,7 @@
 import { Elena, html, unsafeHTML } from "../vendor/elena.js";
 import { formatListTime } from "./mock-core.js";
 import { fileUrl } from "./media.js";
+import { ensurePoster } from "./poster.js";
 import { diagnosticsSink } from "./diagnostics.js";
 import { buildAvatarSvg, fingerprintFor, cachedFingerprint, fingerprintGroups } from "./avatar.js";
 
@@ -107,14 +108,18 @@ const VIDEO_FAIL_SVG = `<svg viewBox="0 0 24 24" style="width:100%;height:100%;d
 
 class DcVideo extends Elena(HTMLElement) {
   static tagName = "dc-video";
-  static props = ["src", "duration", "name"];
+  static props = ["src", "duration", "name", "file", "size"];
 
   src = "";
   duration = "";
   name = "Video";
+  file = "";   // raw file path — poster extraction source (src is a served URL)
+  size = "";   // pre-formatted file size for the corner badge
+  poster = ""; // cached WebP frame URL, resolved lazily
   #active = false;
   #failed = false;
   #lastSrc = null;
+  #posterKicked = false;
 
   connectedCallback() {
     super.connectedCallback?.();
@@ -138,6 +143,24 @@ class DcVideo extends Elena(HTMLElement) {
         }
       });
     }
+    this.#kickPoster();
+  }
+
+  // Rows are virtualized, so being connected means being on screen: extract
+  // (or read the cached) poster exactly once per file. The extraction reads
+  // the file through the scoped Rust command — not the media URL — so it
+  // never touches the range-broken serving path on Android.
+  #kickPoster() {
+    if (this.#posterKicked || this.poster || !this.file || !this.src) return;
+    this.#posterKicked = true;
+    ensurePoster(this.file)
+      .then((url) => {
+        if (url && this.isConnected && !this.#active) {
+          this.poster = url;
+          this.requestUpdate();
+        }
+      })
+      .catch(() => {});
   }
 
   willUpdate() {
@@ -157,6 +180,22 @@ class DcVideo extends Elena(HTMLElement) {
         diagnosticsSink.append("error", `video "${this.name}" failed to load`);
       });
     }
+    const img = this.querySelector?.("img.dc-video-poster");
+    if (img && !img.dataset.errBound) {
+      img.dataset.errBound = "1";
+      // A broken poster must never shadow the plain placeholder. The asset
+      // protocol occasionally fails a first request after launch (observed
+      // net error, then 200 on retry) — retry once before giving up.
+      img.addEventListener("error", () => {
+        if (img.dataset.retried !== "1") {
+          img.dataset.retried = "1";
+          img.src = img.src;
+        } else if (this.poster) {
+          this.poster = "";
+          this.requestUpdate();
+        }
+      });
+    }
   }
 
   ariaLabel() {
@@ -171,7 +210,9 @@ class DcVideo extends Elena(HTMLElement) {
       const d = Number(this.duration) || 0;
       const dur = d > 0 ? `${Math.floor(d / 60)}:${String(Math.floor(d % 60)).padStart(2, "0")}` : "";
       return html`<button type="button" class="dc-video-ph" aria-label="${this.ariaLabel()}">
+        ${this.poster ? html`<img class="dc-video-poster" src="${this.poster}" alt="" decoding="async">` : ""}
         <span class="dc-video-play">${unsafeHTML(PLAY_SVG)}</span>
+        ${this.size ? html`<span class="dc-video-size">${this.size}</span>` : ""}
         ${dur ? html`<span class="dc-video-dur">${dur}</span>` : ""}
       </button>`;
     }
@@ -288,7 +329,7 @@ class DcChatHead extends Elena(HTMLElement) {
     const stText = typeof st === "object" ? st.text : st;
     return html`
       <div class="chat-head-avatar">
-        ${unsafeHTML(`<dc-avatar name="${escapeAttr(c.name)}" color="${c.avatarColor || ""}" kind="${c.kind}" size="42"${c.contactId ? ` contact-id="${c.contactId}"` : ""}></dc-avatar>`)}
+        ${unsafeHTML(`<dc-avatar name="${escapeAttr(c.name)}" color="${c.avatarColor || ""}" kind="${c.kind}" size="42"${c.contactId ? ` contact-id="${c.contactId}"` : ""}${c.avatar ? ` avatar="${escapeAttr(fileUrl(c.avatar))}"` : ""}></dc-avatar>`)}
       </div>
       <div class="chat-head-text">
         <div class="cht-name"><span class="cht-name-text">${c.name}</span>${unsafeHTML((c.kind === "single" && !c.encrypted ? OPEN_LOCK_SVG : "") + (c.verified ? VERIFIED_SVG : ""))}</div>

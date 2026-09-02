@@ -246,6 +246,12 @@ Implementation files:
 
 Real media blobs live in the Delta Chat account directory and cannot be reached by a `file://` URL from the WebView. For images, video and audio the UI uses `__TAURI__.core.convertFileSrc(path)` (Tauri’s local-file access helper) to generate a WebView-safe URL, then sets it as the `src` of the inline element. Files are opened with `plugin:opener|open_path`.
 
+On Android, `<video>`/`<audio>` sources ride a loopback HTTP server (`127.0.0.1:20810`, random per-launch token, account-directory-scoped) instead: the asset protocol there answers the first range read but fails mid-file ones, which kills demuxing of moov-at-end MP4s (most phone recordings). The network security config permits cleartext to loopback only. Posters for the click-to-play placeholder are extracted once per file (blob read → hidden `<video>` → canvas → WebP) into `velta-posters/` inside the account directory and served through the asset protocol.
+
+### Video placeholder: poster frame and size badge
+
+The click-to-play widget shows the extracted poster frame, the file size badge in the top-left corner and the duration in the bottom-right. Extraction is lazy (only when the row is mounted), serialized to one decode at a time, skipped for files above 128 MB, and cached on disk so later mounts are instant. Any failure falls back to the plain placeholder.
+
 ### Downloading large messages
 
 Delta Chat splits very large messages into a small placeholder plus a downloadable body. When a message has `downloadState` other than `Done`, Velta shows a card with a download icon instead of the media player. Tapping it calls `download_full_message(msgId)` and then refreshes the message, which swaps the placeholder for the real image / video / audio player or the open-file card.

@@ -50,7 +50,8 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── diagnostics.js    # diagnostics chat store + event sink
 │   │   ├── invites.js        # invite-link registry (mirror domains), parsing, invite cards, settings modal
 │   │   ├── markdown.js       # escape-first message markdown: bold/italic/underline, links, lists
-│   │   ├── media.js          # media URL helpers (convertFileSrc / asset protocol)
+│   │   ├── media.js          # media URL helpers (loopback server / asset protocol)
+│   │   ├── poster.js         # lazy WebP poster extraction + disk cache
 │   │   ├── mock-core.js      # in-memory demo core implementing the JSON-RPC surface
 │   │   ├── rpc-core.js       # JsonRpcCore wrapper over transports + event mapping
 │   │   ├── transport.js      # backend auto-detection (Tauri, WebSocket, HTTP, mock)
@@ -249,7 +250,8 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
 - `app/js/avatar.js` derives contact identity tiles from OpenPGP fingerprints.
 - `app/js/diagnostics.js` is the in-app diagnostics event store ("Velta
   Diagnostics" chat).
-- `app/js/media.js` resolves local file paths to WebView-safe media URLs.
+- `app/js/media.js` resolves local file paths to WebView-safe media URLs (loopback media server when available, asset protocol otherwise).
+- `app/js/poster.js` extracts and caches WebP poster frames for video placeholders.
 - `app/js/ui.js` is a collection of UI helpers (drawer, modals, context menus,
   toasts, delete-confirmation dialog).
 - `app/js/mock-core.js` is a self-contained demo backend used when no real core
