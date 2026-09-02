@@ -360,6 +360,7 @@ export class JsonRpcCore extends EventTarget {
       fileSize: m.fileBytes ?? null,
       fileMime: m.fileMime || null,
       downloadState: m.downloadState || "Done",
+      encrypted: m.showPadlock !== false, // padlock true = e2e-encrypted
       img: null, // real blobs need blob-dir serving; placeholder for now
       duration: m.duration ? Math.round(m.duration / 1000) : undefined,
       fromContact: out
@@ -421,6 +422,12 @@ export class JsonRpcCore extends EventTarget {
   async setDisplayName(name) {
     const trimmed = (name || "").trim();
     await this._call("set_config", this.accountId, "displayname", trimmed || null);
+  }
+
+  // path: absolute filesystem path the core can read (uploads/ dir), or null
+  // to remove the picture. The core copies the file into its blobdir.
+  async setAvatar(path) {
+    await this._call("set_config", this.accountId, "selfavatar", path || null);
   }
 
   async getContacts() {
@@ -563,8 +570,21 @@ export class JsonRpcCore extends EventTarget {
     this._emit("chat-updated", { chatId });
   }
 
-  async deleteMessages(chatId, ids) {
-    await this._call("delete_messages", this.accountId, ids);
+  // options.forAll: also ask the other chat members' devices to delete the
+  // messages (core: delete_messages_for_all — sends an encrypted Chat-Delete
+  // request). The core only accepts that for self-sent, encrypted messages
+  // from a single chat; anything else falls back to a local+relay deletion.
+  async deleteMessages(chatId, ids, { forAll = false } = {}) {
+    if (forAll && ids.length) {
+      try {
+        await this._call("delete_messages_for_all", this.accountId, ids);
+      } catch (e) {
+        rustLog(`delete_messages_for_all rejected (${e}); deleting locally only`);
+        await this._call("delete_messages", this.accountId, ids);
+      }
+    } else {
+      await this._call("delete_messages", this.accountId, ids);
+    }
     const cache = this.msgIdCache.get(chatId);
     if (cache) this.msgIdCache.set(chatId, cache.filter(id => !ids.includes(id)));
     this._emit("msgs-deleted", { chatId, ids });

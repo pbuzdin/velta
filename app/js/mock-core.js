@@ -193,6 +193,11 @@ export class MockCore extends EventTarget {
   async setDisplayName(name) {
     this.account.displayName = (name || "").trim() || "You";
   }
+  async setAvatar(path) {
+    // demo mode: no core blobdir — store the data URL directly
+    if (path) this.account.avatar = path;
+    else delete this.account.avatar;
+  }
   async getContacts() { return structuredClone(this.contacts); }
 
   async getChatList({ archived = false, query = "" } = {}) {
