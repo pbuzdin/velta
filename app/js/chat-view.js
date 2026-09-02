@@ -520,8 +520,10 @@ export class ChatView {
     } else if (m.viewtype === "video") {
       if (m.downloadState === "Done" && m.filePath) {
         // Click-to-load: <dc-video> renders a static placeholder; the real
-        // <video> (decoder + media requests) is only created on tap.
-        bubble += `<div class="msg-video"><dc-video src="${escapeAttr(fileUrl(m.filePath))}" duration="${m.duration || ""}" name="${escapeHtml(m.fileName || "Video")}"></dc-video></div>`;
+        // <video> (decoder + media requests) is only created on tap. `file`
+        // carries the raw path for poster extraction; `src` is served.
+        const size = m.fileSize ? formatBytes(m.fileSize) : "";
+        bubble += `<div class="msg-video"><dc-video src="${escapeAttr(fileUrl(m.filePath))}" file="${escapeAttr(m.filePath)}" size="${escapeAttr(size)}" duration="${m.duration || ""}" name="${escapeHtml(m.fileName || "Video")}"></dc-video></div>`;
       } else {
         const size = m.fileSize ? formatBytes(m.fileSize) : "";
         bubble += `<div class="msg-file download-btn" role="button" data-act="download">

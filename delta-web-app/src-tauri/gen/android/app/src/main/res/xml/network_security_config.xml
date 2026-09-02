@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The loopback media HTTP server (127.0.0.1:20810) serves <video>/<audio>
+     because the asset protocol cannot answer mid-file range requests on
+     Android. Cleartext stays blocked everywhere else. -->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>

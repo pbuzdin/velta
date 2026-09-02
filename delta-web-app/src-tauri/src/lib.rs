@@ -368,27 +368,90 @@ static MEDIA_TOKEN: Mutex<String> = Mutex::new(String::new());
 
 #[tauri::command]
 fn media_base_url() -> String {
-    #[cfg(target_os = "android")]
-    return String::new(); // asset protocol handles media on Android
+    // Runs on every platform now: the Android asset protocol serves the first
+    // range chunk but fails mid-file reads (moov-at-end videos can't demux),
+    // so <video> sources ride the loopback server everywhere.
+    let port = MEDIA_PORT.load(std::sync::atomic::Ordering::Relaxed);
+    let token = MEDIA_TOKEN.lock().unwrap().clone();
+    format!("http://127.0.0.1:{port}/{token}")
+}
 
-    #[cfg(not(target_os = "android"))]
-    {
-        let port = MEDIA_PORT.load(std::sync::atomic::Ordering::Relaxed);
-        let token = MEDIA_TOKEN.lock().unwrap().clone();
-        format!("http://127.0.0.1:{port}/{token}")
+// ---------- video poster cache ----------
+//
+// Posters are extracted in the WebView (hidden <video> over a blob URL, seek,
+// canvas) and persisted as WebP next to the account database, so a frame is
+// decoded only once per file. The cached image is served through the asset
+// protocol — plain GETs work fine there even though range reads don't.
+
+fn poster_target(src: &str) -> Option<PathBuf> {
+    let p = std::path::Path::new(src);
+    let dir = p.parent()?;
+    let stem = p.file_stem()?.to_string_lossy();
+    let poster_dir = if dir.file_name()?.to_string_lossy() == "dc.db-blobs" {
+        dir.parent()?.join("velta-posters")
+    } else {
+        dir.join("velta-posters")
+    };
+    Some(poster_dir.join(format!("{stem}.webp")))
+}
+
+fn scoped_accounts_path(app: &tauri::AppHandle, path: &str) -> Result<PathBuf, String> {
+    let canon = std::fs::canonicalize(path).map_err(|e| e.to_string())?;
+    // Canonicalize both sides: Windows canonical paths carry a \\?\ prefix
+    // while accounts_dir() doesn't.
+    let accounts = accounts_dir(app);
+    let accounts_canon = std::fs::canonicalize(&accounts).unwrap_or_else(|_| accounts);
+    if !canon.starts_with(accounts_canon) {
+        return Err("path outside the accounts directory".into());
     }
+    Ok(canon)
+}
+
+#[tauri::command]
+fn poster_cache_path(app: tauri::AppHandle, src: String) -> Result<serde_json::Value, String> {
+    scoped_accounts_path(&app, &src)?;
+    let target = poster_target(&src).ok_or("cannot derive poster path")?;
+    let exists = target.is_file();
+    Ok(serde_json::json!({ "path": target.to_string_lossy(), "exists": exists }))
+}
+
+#[tauri::command]
+fn read_media_bytes(app: tauri::AppHandle, src: String) -> Result<tauri::ipc::Response, String> {
+    let canon = scoped_accounts_path(&app, &src)?;
+    let bytes = std::fs::read(&canon).map_err(|e| e.to_string())?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+#[tauri::command]
+fn write_poster(app: tauri::AppHandle, src: String, bytes: Vec<u8>) -> Result<String, String> {
+    scoped_accounts_path(&app, &src)?;
+    let target = poster_target(&src).ok_or("cannot derive poster path")?;
+    if let Some(dir) = target.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&target, &bytes).map_err(|e| e.to_string())?;
+    Ok(target.to_string_lossy().to_string())
 }
 
 fn start_media_server(accounts: PathBuf) {
     std::thread::Builder::new()
         .name("media-http".into())
         .spawn(move || {
-            let listener = match std::net::TcpListener::bind("127.0.0.1:0") {
+            // Prefer the fixed port: the static CSP whitelist references it.
+            // Fall back to an ephemeral port (media may then be CSP-blocked —
+            // logged loudly) rather than losing media entirely.
+            let listener = match std::net::TcpListener::bind("127.0.0.1:20810") {
                 Ok(l) => l,
-                Err(e) => {
-                    log(&format!("media server bind failed: {e}"));
-                    return;
-                }
+                Err(_) => match std::net::TcpListener::bind("127.0.0.1:0") {
+                    Ok(l) => {
+                        log("media http: port 20810 busy, bound ephemeral — media-src CSP mismatch possible");
+                        l
+                    }
+                    Err(e) => {
+                        log(&format!("media server bind failed: {e}"));
+                        return;
+                    }
+                },
             };
             let port = match listener.local_addr() {
                 Ok(a) => a.port(),
@@ -400,7 +463,16 @@ fn start_media_server(accounts: PathBuf) {
                 let Ok(mut stream) = stream else { continue };
                 let accounts = accounts.clone();
                 std::thread::spawn(move || {
-                    serve_media_connection(&mut stream, &accounts);
+                    // Connection-level diagnostics reach logcat via stderr.
+                    let peer = stream.peer_addr().map(|a| a.to_string()).unwrap_or_else(|_| "?".into());
+                    eprintln!("[media] accept from {peer}");
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        serve_media_connection(&mut stream, &accounts);
+                    }));
+                    if result.is_err() {
+                        eprintln!("[media] serve_media_connection PANICKED for {peer}");
+                    }
+                    eprintln!("[media] done {peer}");
                 });
             }
         })
@@ -463,12 +535,17 @@ Connection: close
     let token = MEDIA_TOKEN.lock().unwrap().clone();
     let (url_token, enc_path) = match rest.split_once('/') {
         Some(v) => v,
-        None => return not_found(),
+        None => {
+            eprintln!("[media] 404: no token/path separator in {path:?}");
+            return not_found();
+        }
     };
     if url_token != token {
+        eprintln!("[media] 404: token mismatch (got {url_token:?})");
         return not_found();
     }
     let file = percent_decode(enc_path);
+    eprintln!("[media] request {file} range={range:?}");
 
     let accounts_canon = std::fs::canonicalize(accounts).unwrap_or_else(|_| accounts.clone());
     let fpath = std::path::Path::new(&file);
@@ -908,12 +985,10 @@ pub fn run() {
                     .join("logs");
                 set_mirror_log_dir(ext_logs);
             }
-            // Desktop only: WebView2 does not dispatch protocol-handler
-            // requests for <video>/<audio> elements, so moov-at-end videos
-            // can't seek over blobfile:// there — the loopback server can.
-            // On Android the asset protocol serves media fine and cleartext
-            // loopback http would be blocked by the network security config.
-            #[cfg(not(target_os = "android"))]
+            // The loopback media server runs on every platform: Android's
+            // asset protocol (WebViewAssetLoader) answers the first range
+            // request but fails mid-file reads, so moov-at-end videos die in
+            // the demuxer there; the server's real 206 responses fix playback.
             {
                 *MEDIA_TOKEN.lock().unwrap() = {
                     let nanos = std::time::SystemTime::now()
@@ -1053,7 +1128,7 @@ pub fn run() {
             response.headers_mut().insert("Cache-Control", "no-store".parse().unwrap());
             response.map(|body| std::borrow::Cow::Owned(body))
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster]);
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
