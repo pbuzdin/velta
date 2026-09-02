@@ -1080,6 +1080,9 @@ async function joinFromInvite(link) {
   if (label?.kind === "group") {
     ok = await confirmModal("Join group",
       `${label.actor} invited you to join the group "${label.group}".`, "Join group", false);
+  } else if (label?.kind === "channel") {
+    ok = await confirmModal("Subscribe to channel",
+      `Subscribe to the channel "${label.group}"?`, "Subscribe", false);
   } else if (label?.kind === "person") {
     ok = await confirmModal("Start chat",
       `Start a chat with ${label.actor}${label.addr ? ` (${label.addr})` : ""}?`, "Start chat", false);

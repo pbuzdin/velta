@@ -115,12 +115,14 @@ function parseParams(payload) {
 }
 
 // Human-readable label for an invite, straight from the link's own params
-// (no network): n= inviter name, a= inviter address, g= group name.
-// Returns { kind: "group"|"person", actor, group, addr }.
+// (no network): n= inviter name, a= inviter address, g= group name,
+// b= broadcast channel name (core Qr kind AskJoinBroadcast).
+// Returns { kind: "group"|"channel"|"person", actor, group, addr }.
 export function inviteLabel(parsed) {
   const { params } = parsed;
   const addr = params.a || "";
   const actor = params.n || (addr ? addr.split("@")[0] : "") || "Someone";
+  if (params.b) return { kind: "channel", actor, group: params.b, addr };
   return params.g
     ? { kind: "group", actor, group: params.g, addr }
     : { kind: "person", actor, group: null, addr };
@@ -132,6 +134,8 @@ export function inviteCardHtml(parsed) {
   const label = inviteLabel(parsed);
   const line = label.kind === "group"
     ? `<b>${escapeHtml(label.actor)}</b> invited you to a <b>${escapeHtml(label.group)}</b> group`
+    : label.kind === "channel"
+    ? `Subscribe to <b>${escapeHtml(label.group)}</b>`
     : `Chat with <b>${escapeHtml(label.actor)}</b>`;
   const sub = label.addr && label.addr !== label.actor ? `<span class="invite-sub">${escapeHtml(label.addr)}</span>` : "";
   return `<span class="invite-card">` +
