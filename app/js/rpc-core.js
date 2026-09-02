@@ -468,7 +468,7 @@ export class JsonRpcCore extends EventTarget {
     if (!info) return null;
     return {
       id: chatId, name: info.name || "?", kind: "single",
-      encrypted: true, verified: false, muted: false, pinned: false,
+      encrypted: !!info.isEncrypted, verified: false, muted: false, pinned: false,
       archived: false, avatarColor: info.color || null, avatar: info.avatarPath || null, contact: null, memberCount: 0,
     };
   }

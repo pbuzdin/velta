@@ -97,7 +97,7 @@ export class MockCore extends EventTarget {
       mk({ id: 16, name: "Mara Voss", contactId: 4 }),
       mk({ id: 17, name: "News · Delta Chat", kind: "channel", memberCount: 12800, muted: true, unread: 31 }),
       mk({ id: 18, name: "Tariq Aziz", contactId: 5, archived: true }),
-      mk({ id: 19, name: "Lena Fischer", contactId: 6 }),
+      mk({ id: 19, name: "Lena Fischer", contactId: 6, encrypted: false }),
       mk({ id: 20, name: "Family", kind: "group", memberCount: 4, archived: true }),
       mk({ id: 21, kind: "deaddrop", name: "Contact Requests", unread: 1 }),
     ];
