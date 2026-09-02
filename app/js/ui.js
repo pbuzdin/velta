@@ -1,5 +1,6 @@
 // ui.js — popup/menu/modal/drawer/toast helpers (plain DOM, no framework)
-import { escapeHtml } from "./components.js";
+import { escapeHtml, escapeAttr } from "./components.js";
+import { fileUrl } from "./media.js";
 
 const popups = () => document.getElementById("popups");
 
@@ -97,16 +98,19 @@ export function confirmModal(title, text, okLabel = "Delete", danger = true) {
 }
 
 /* ---------- Settings drawer ---------- */
-export function buildDrawer({ account, backend, onAddAccount, onToggleTheme, onOpenChat, onInvite, onToggleMock, theme }) {
+export function buildDrawer({ account, backend, onAddAccount, onToggleTheme, onOpenChat, onInvite, onToggleMock, onEditName, theme }) {
   const drawer = document.createElement("div");
   drawer.className = "drawer";
   drawer.id = "drawer";
   drawer.innerHTML = `
     <div class="drawer-head">
       <button class="icon-btn drawer-close" data-act="close" title="Close" aria-label="Close menu"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
-      <dc-avatar name="${escapeHtml(account.displayName)}" color="${account.color}" size="56"></dc-avatar>
+      <dc-avatar name="${escapeHtml(account.displayName)}" color="${escapeAttr(account.color || "#777")}" size="56"${account.avatar ? ` avatar="${escapeAttr(fileUrl(account.avatar))}"` : ""}></dc-avatar>
       <div>
-        <div class="drawer-name">${escapeHtml(account.displayName)}</div>
+        <div class="drawer-name-row">
+          <div class="drawer-name">${escapeHtml(account.displayName)}</div>
+          <button class="icon-btn drawer-edit" data-act="edit-name" title="Change username" aria-label="Change username"><svg viewBox="0 0 24 24"><path d="M14.7 5.3l4 4L8.4 19.6l-4.9.9.9-4.9zM16.8 3.2a1.6 1.6 0 012.3 0l1.7 1.7a1.6 1.6 0 010 2.3l-1.6 1.6-4-4z" fill="currentColor"/></svg></button>
+        </div>
         <div class="drawer-addr">${escapeHtml(account.addr)}</div>
         <div class="drawer-addr">relay: ${escapeHtml(account.relay)}</div>
         ${backend ? `<div class="drawer-addr" style="opacity:.65">backend: ${escapeHtml(backend)}</div>` : ""}
@@ -145,6 +149,7 @@ export function buildDrawer({ account, backend, onAddAccount, onToggleTheme, onO
     if (act === "theme") onToggleTheme();
     if (act === "saved") onOpenChat("saved");
     if (act === "invite") onInvite?.();
+    if (act === "edit-name") onEditName?.();
     if (act === "add-account") onAddAccount();
     if (act === "mock") onToggleMock();
     if (act === "about") showAbout();
@@ -153,9 +158,48 @@ export function buildDrawer({ account, backend, onAddAccount, onToggleTheme, onO
   return { open, close, el: drawer, overlayEl: overlay };
 }
 
+// Username editor — resolves with the new name (trimmed) or null on cancel.
+export function showEditName(current) {
+  return new Promise(resolve => {
+    const body = document.createElement("div");
+    body.innerHTML = `
+      <p style="font-size:14.5px;line-height:1.5;margin:0 0 4px">This name is shown to the people you chat with and appears next to your QR code.</p>
+      <input class="text-field" maxlength="64" autocomplete="off" spellcheck="false" aria-label="Username">`;
+    const input = body.querySelector("input");
+    input.value = current || "";
+    const foot = document.createElement("div");
+    const cancel = document.createElement("button");
+    cancel.className = "btn-text"; cancel.textContent = "Cancel";
+    const save = document.createElement("button");
+    save.className = "btn-text btn-primary"; save.textContent = "Save";
+    foot.append(cancel, save);
+    // first settlement wins — close() fires onClose, so guard the resolution
+    let settled = false;
+    const finish = value => { if (!settled) { settled = true; resolve(value); } };
+    const { close } = showModal({ title: "Change username", body, foot,
+      onClose: () => finish(null) });
+    input.focus();
+    input.select();
+    const submit = () => {
+      const value = input.value.trim();
+      save.disabled = true; input.disabled = true;
+      // settle before close — close() fires onClose, which must not win
+      finish(value);
+      close();
+    };
+    save.addEventListener("click", submit);
+    input.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); submit(); }
+    });
+    cancel.addEventListener("click", () => { close(); finish(null); });
+  });
+}
+
 // Invite modal with a real SecureJoin QR rendered by the core.
 // provider: async () => ({ svg, link })
-export function showInvite(provider, { title = "Invite to Delta Chat", group = false } = {}) {
+// account: when set (self invite), the user's color-coded avatar is overlaid
+// in the QR center — the core reserves a clear circle there for exactly that.
+export function showInvite(provider, { title = "Invite to Delta Chat", group = false, account = null } = {}) {
   const body = document.createElement("div");
   body.innerHTML = `
     <p style="font-size:14.5px;line-height:1.5">${group
@@ -171,8 +215,17 @@ export function showInvite(provider, { title = "Invite to Delta Chat", group = f
   });
   provider()
     .then(({ svg, link }) => {
-      body.querySelector(".qr-box").innerHTML = svg || "<div class='qr-loading'>QR unavailable</div>";
+      const box = body.querySelector(".qr-box");
+      box.innerHTML = svg || "<div class='qr-loading'>QR unavailable</div>";
       body.querySelector(".invite-link").textContent = link;
+      // Overlay the user's color-coded avatar on the clear circle the core
+      // leaves in the QR center (design space 515x630, circle center at
+      // 50% / 43.65% of the rendered svg). Intentionally initials-on-color:
+      // that is the "color-coded avatar" identity tile, not the photo.
+      if (account && svg) {
+        box.insertAdjacentHTML("beforeend",
+          `<div class="qr-self"><dc-avatar name="${escapeHtml(account.displayName || "?")}" color="${escapeAttr(account.color || "#777")}" size="120"></dc-avatar></div>`);
+      }
     })
     .catch(err => {
       body.querySelector(".qr-box").innerHTML =
