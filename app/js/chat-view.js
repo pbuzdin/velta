@@ -834,31 +834,26 @@ export class ChatView {
     });
     document.getElementById("btn-attach").addEventListener("click", e => {
       const r = e.currentTarget.getBoundingClientRect();
-      // Menu anchored to the composer footer (the button lives inside it):
-      // shown fully above the footer's top edge, or below the whole footer
-      // when there's no room — positioned after render so the real height
-      // is used (the old hardcoded 210px estimate left a large gap under
-      // the menu, and anchoring to the button let it clip the footer).
-      const footerTop = document.getElementById("main-composer").getBoundingClientRect().top;
+      // Anchored like the emoji tray: bottom edge 10px above the button top,
+      // growing upward — no height measurement needed. Tiny viewports only:
+      // keep it from poking past the top edge.
       const x = Math.min(r.left, window.innerWidth - 220);
       const menu = showContextMenu([
         { label: "Photo", icon: ICO.photo, onClick: () => this._sendAttachment("image") },
         { label: "Video", icon: ICO.photo, onClick: () => this._sendAttachment("video") },
         { label: "File", icon: ICO.file, onClick: () => this._sendAttachment("file") },
         { label: "Voice message", icon: ICO.mic, onClick: () => this._sendAttachment("voice") },
-      ], x, footerTop - 8);
+      ], x, 8);
       menu.classList.add("attach-pop");
-      // place from the real rendered height; re-place shortly after — the
-      // first measurement can predate icon/font layout settling.
-      const place = () => {
-        const mh = menu.getBoundingClientRect().height;
-        const aboveTop = footerTop - mh - 8;
-        menu.style.top = Math.max(8, aboveTop >= 8
-          ? aboveTop
-          : Math.min(footerTop + 8 + r.height, window.innerHeight - mh - 8)) + "px";
-      };
-      place();
-      setTimeout(place, 120);
+      menu.style.top = "auto";
+      menu.style.bottom = (window.innerHeight - r.top + 10) + "px";
+      menu.style.left = x + "px";
+      requestAnimationFrame(() => {
+        if (menu.getBoundingClientRect().top < 8) {
+          menu.style.bottom = "auto";
+          menu.style.top = "8px";
+        }
+      });
     });
   }
 
