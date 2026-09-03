@@ -468,6 +468,7 @@ export class JsonRpcCore extends EventTarget {
     if (!info) return null;
     return {
       id: chatId, name: info.name || "?", kind: "single",
+      contactId: info.dmChatContact ?? null,
       encrypted: !!info.isEncrypted, verified: false, muted: false, pinned: false,
       archived: false, avatarColor: info.color || null, avatar: info.avatarPath || null, contact: null, memberCount: 0,
     };
@@ -649,6 +650,25 @@ export class JsonRpcCore extends EventTarget {
     if (!ids.length) return [];
     const byId = await this._call("get_contacts_by_ids", this.accountId, ids);
     return ids.map(id => byId[String(id)]).filter(Boolean).map(c => this._mapContact(c));
+  }
+
+  async renameContact(contactId, name) {
+    await this._call("change_contact_name", this.accountId, contactId, name);
+  }
+
+  async blockContact(contactId, blocked) {
+    await this._call(blocked ? "block_contact" : "unblock_contact", this.accountId, contactId);
+  }
+
+  async getBlockedContactIds() {
+    const blocked = await this._call("get_blocked_contacts", this.accountId);
+    const arr = Array.isArray(blocked) ? blocked : Object.values(blocked || {});
+    return arr.map(c => c.id).filter(id => id != null);
+  }
+
+  // Returns the chat id of the existing (or newly created) DM chat.
+  async createChatByContactId(contactId) {
+    return this._call("create_chat_by_contact_id", this.accountId, contactId);
   }
 
   // SecureJoin invite QR for this account (chatId=null) or a group chat.

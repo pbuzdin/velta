@@ -101,7 +101,8 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   └── android-arm64/
 │
 ├── signing/                  # local signing keystore (untracked)
-└── tools/                    # icon generation + WSL APK build/sign helper scripts
+└── tools/                    # icon generation, WSL APK build/sign helpers,
+                              serve-dev.py (no-cache static server for app/)
 ```
 
 Not tracked (local runtime/build artifacts): `accounts/` (local core account
@@ -243,11 +244,22 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   events to UI events, and exposes the same API surface as `mock-core.js`.
 - `app/js/app.js` owns the chat list, navigation, modals, diagnostics chat, and
   the PWA shell. It also runs a DOM-budget watchdog that samples node counts.
+  Its `showChatInfo` is the contact/chat profile modal: the 168px photo
+  avatar beside the captioned identity tile, action buttons (Send message,
+  Share profile via `navigator.share` with the personal i.delta.chat invite
+  link, Edit name, Block), and Address / Profile key / Last seen / Chats in
+  common rows. Group message sender avatars open the same modal for their
+  contact (`openContactProfile`).
 - `app/js/chat-view.js` owns the conversation history (virtualized via
   `virtual-scroller`), composer, selection mode, and the delete-message dialog.
 - `app/js/components.js` defines custom elements (`<dc-avatar>`,
   `<dc-chat-item>`, `<dc-chat-head>`, `<dc-video>`) using Elena.
-- `app/js/avatar.js` derives contact identity tiles from OpenPGP fingerprints.
+- `app/js/avatar.js` derives contact identity tiles from OpenPGP fingerprints:
+  an equal-height 4-row color matrix (3 squares / 2 rects / 2 rects / 3
+  squares, one cell per fingerprint group, deterministic colors with
+  perceptual neighbor-clash avoidance) plus a soft-black badge holding the
+  fingerprint glyph — or a contact's photo padded inside it. Every user
+  avatar renders this matrix; group avatars keep solid colors.
 - `app/js/diagnostics.js` is the in-app diagnostics event store ("Velta
   Diagnostics" chat).
 - `app/js/media.js` resolves local file paths to WebView-safe media URLs (loopback media server when available, asset protocol otherwise).
@@ -330,6 +342,14 @@ full API spec.
   per-theme/per-side choices (5.2–7.0 : 1). Generic accent/dim tokens often
   fail on colored bubbles (accent on `--bg-bubble-out` measures 2.58 : 1), so
   always measure the actual combination.
+- **Identity avatars (user contacts)** always render the color matrix as the
+  background — never a solid color. The matrix uses equal-height rows
+  (3 squares / 2 rects / 2 rects / 3 squares), deterministic per-fingerprint
+  colors, and never places similar hues on neighboring cells (see
+  `colorForCell` in `avatar.js`). The fingerprint glyph sits on a soft-black
+  badge (`#1c1c1c`) in soft white (`#f4f4f4`); a contact's photo replaces the
+  glyph as a rounded square padded inside the matrix with a thin dark ring.
+  Group/channel avatars are exempt (solid color + photo/initials).
 
 
 ---
@@ -364,7 +384,11 @@ For end-to-end verification against a **real core** (message delivery,
 deletion requests, SecureJoin), the setup used during development is:
 
 1. Serve `app/` from any static server with `Cache-Control: no-store`
-   (avoids stale module caching in the browser).
+   (avoids stale module caching in the browser). The ready-made option is
+   `python tools/serve-dev.py [port]` (default port 8747) — it serves `app/`
+   with `Cache-Control: no-store`. Plain `python -m http.server` sends no
+   cache headers, and Chromium will then keep serving heuristically-fresh
+   modules for hours without revalidating them.
 2. Spawn `deltachat-backend/windows-x86_64/deltachat-rpc-server.exe` with
    `DC_ACCOUNTS_PATH` pointed at an isolated accounts directory, and bridge
    its stdio JSON-RPC to a WebSocket server on `ws://127.0.0.1:20808` — the

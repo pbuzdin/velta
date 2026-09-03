@@ -42,7 +42,8 @@ class DcAvatar extends Elena(HTMLElement) {
     }
     // Identity tiles need the contact's fingerprint — resolve it once per
     // contact and re-render when it arrives (initials show until then).
-    if (!specialKind(this.kind) && !this.avatar && Number(this["contact-id"]) >= 1) {
+    // Photo contacts need it too: the photo is padded onto the color matrix.
+    if (!specialKind(this.kind) && Number(this["contact-id"]) >= 1) {
       fingerprintFor(Number(this["contact-id"]), this.addr)
         .then((fpr) => { if (fpr && this.isConnected) this.requestUpdate(); })
         .catch(() => {});
@@ -80,9 +81,17 @@ class DcAvatar extends Elena(HTMLElement) {
     // The initials stay underneath as the loading/failure fallback; the img
     // is absolutely positioned and covers them once it decodes.
     if (!special && this.avatar && !this.#avatarFailed) {
+      if (this.kind === "single") {
+        // Photo padded onto the contact's color matrix — the grid always
+        // stays visible around it (empty svg until the fingerprint resolves).
+        const groups = fingerprintGroups(cachedFingerprint(Number(this["contact-id"])));
+        const svg = groups ? buildAvatarSvg({ groups, size: s, radius: 0, badge: false }) : "";
+        return html`<div class="${cls}" style="${style}" aria-hidden="true">${unsafeHTML(svg)}<span class="dc-avatar-photo"><img class="dc-avatar-img" src="${this.avatar}" alt="" loading="lazy"></span></div>`;
+      }
       return html`<div class="${cls}" style="${style}" aria-hidden="true">${this.initials()}<img class="dc-avatar-img" src="${this.avatar}" alt="" loading="lazy"></div>`;
     }
-    // GPG-fingerprint identity tile for photo-less single contacts.
+    // GPG-fingerprint identity tile for photo-less single contacts:
+    // equal-height color matrix with the fingerprint glyph on a dark badge.
     if (!special && this.kind === "single") {
       const groups = fingerprintGroups(cachedFingerprint(Number(this["contact-id"])));
       const svg = groups ? buildAvatarSvg({ groups, size: s, radius: 0 }) : "";
