@@ -130,7 +130,7 @@ export function buildDrawer({ account, backend, onAddAccount, onToggleTheme, onO
   drawer.innerHTML = `
     <div class="drawer-head">
       <button class="icon-btn drawer-close" data-act="close" title="Close" aria-label="Close menu"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
-      <dc-avatar name="${escapeHtml(account.displayName)}" color="${escapeAttr(account.color || "#777")}" size="56"${account.avatar ? ` avatar="${escapeAttr(fileUrl(account.avatar))}"` : ""}></dc-avatar>
+      <dc-avatar name="${escapeHtml(account.displayName)}" color="${escapeAttr(account.color || "#777")}" size="56" contact-id="1"${account.avatar ? ` avatar="${escapeAttr(fileUrl(account.avatar))}"` : ""}></dc-avatar>
       <div>
         <div class="drawer-name">${escapeHtml(account.displayName)}</div>
         <div class="drawer-addr">${escapeHtml(account.addr)}</div>
@@ -195,7 +195,7 @@ export function showEditProfile({ name, avatarUrl, color, pickImage }) {
     const body = document.createElement("div");
     body.className = "edit-profile";
     body.innerHTML = `
-      <div class="ep-avatar"><dc-avatar size="84"></dc-avatar></div>
+      <div class="ep-avatar"><dc-avatar size="84" contact-id="1"></dc-avatar></div>
       <div class="ep-avatar-actions">
         <button class="btn-text" data-ep="pick">Change picture</button>
         <button class="btn-text" data-ep="remove" style="display:none">Remove photo</button>
@@ -293,7 +293,7 @@ export function showInvite(provider, { title = "Invite to Delta Chat", group = f
       // that is the "color-coded avatar" identity tile, not the photo.
       if (account && svg) {
         box.insertAdjacentHTML("beforeend",
-          `<div class="qr-self"><dc-avatar name="${escapeHtml(account.displayName || "?")}" color="${escapeAttr(account.color || "#777")}" size="120"></dc-avatar></div>`);
+          `<div class="qr-self"><dc-avatar name="${escapeHtml(account.displayName || "?")}" color="${escapeAttr(account.color || "#777")}" size="120" contact-id="1"></dc-avatar></div>`);
       }
     })
     .catch(err => {
@@ -305,7 +305,7 @@ export function showInvite(provider, { title = "Invite to Delta Chat", group = f
 async function showAbout() {
   // Keep the fallback in sync with tauri.conf.json; prefer the runtime
   // version so the About dialog always matches the built app.
-  let version = "1.1.12";
+  let version = "1.2.0";
   try {
     const tauri = window.__TAURI__;
     if (tauri?.app?.getVersion) version = await tauri.app.getVersion();

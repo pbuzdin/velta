@@ -1,13 +1,17 @@
 // avatar.js — GPG-fingerprint identity avatars.
 //
 // A contact without a photo gets a square tile generated from their OpenPGP
-// fingerprint: a 3-4-3 grid (three squares, four rectangles, three squares)
-// where each cell's color is deterministically picked from a pool of
-// single-word CSS color keywords by the value of one fingerprint group.
-// The tile is built as a pure SVG string — the same builder produces the
-// caption-less variant (chat list / history, with a fingerprint overlay)
-// and the captioned variant (profile view), so both can be cached to files
-// verbatim later.
+// fingerprint: a 4-row grid of equal-height cells (three squares, two rects,
+// two rects, three squares) where each cell's color is deterministically
+// picked from a pool of single-word CSS color keywords by the value of one
+// fingerprint group — neighboring cells never receive similar colors. The
+// tile is built as a pure SVG string:
+//   • badge=true  — grid + soft-black circle with the light fingerprint glyph
+//                   (chat list / history)
+//   • badge=false — grid only; the caller layers the contact's photo on top
+//                   as a padded rounded square (photo contacts)
+//   • withCaptions=true — color-name captions per cell (profile view), the
+//                   only surface where the color names are shown.
 import { diagnosticsSink } from "./diagnostics.js";
 
 // Single-word CSS color keywords with sRGB triples for contrast math.
@@ -29,17 +33,45 @@ const COLOR_POOL = [
   ["Goldenrod", [218, 165, 32]],
 ];
 
-// Fingerprint glyph (svgrepo 445761, 48x48 viewBox), three <path>s; fill is
-// inherited from the wrapping <g> so the overlay can pick a contrast color.
-const FINGERPRINT_PATHS = `
-<path d="M31.7,37.3V21.9a7.7,7.7,0,0,0-15.4,0V37.3a10.7,10.7,0,0,0,4,8.3,1.8,1.8,0,0,0,.9.4,1.4,1.4,0,0,0,1.2-.6,1.5,1.5,0,0,0-.2-2.2,7.4,7.4,0,0,1-2.8-5.9V21.9a4.6,4.6,0,0,1,9.2,0V37.3a1.5,1.5,0,0,1-1.5,1.5,1.6,1.6,0,0,1-1.6-1.5V21.9a1.5,1.5,0,0,0-3,0V37.6a4.6,4.6,0,0,0,4.6,4.3,4.7,4.7,0,0,0,4.6-4.3Z"/>
-<path d="M24,8.1A13.8,13.8,0,0,0,10.2,21.9V37.3a17,17,0,0,0,1.9,7.9,1.6,1.6,0,0,0,1.4.8l.7-.2a1.6,1.6,0,0,0,.6-2.1,14.1,14.1,0,0,1-1.6-6.4V21.9a10.8,10.8,0,0,1,21.6,0V37.3a7.9,7.9,0,0,1-2.9,6,1.4,1.4,0,0,0-.2,2.1,1.4,1.4,0,0,0,1.2.6,1.6,1.6,0,0,0,.9-.3,10.6,10.6,0,0,0,4-8.4V21.9A13.8,13.8,0,0,0,24,8.1Z"/>
-<path d="M24,2A20,20,0,0,0,4,21.9V40.4a1.5,1.5,0,0,0,1.5,1.5,1.6,1.6,0,0,0,1.6-1.5V21.9a16.9,16.9,0,0,1,33.8,0V37.3a12.9,12.9,0,0,1-1.6,6.4,1.5,1.5,0,0,0,.7,2.1l.7.2a1.4,1.4,0,0,0,1.3-.8A16.5,16.5,0,0,0,44,38V21.9A20,20,0,0,0,24,2Z"/>`;
-
+// Raw per-group color straight from the fingerprint value.
 export function colorForGroup(group) {
   const clean = (group || "").replace(/[^0-9A-Fa-f]/g, "").slice(0, 4);
   if (!clean) return COLOR_POOL[COLOR_POOL.length - 1];
   return COLOR_POOL[parseInt(clean, 16) % COLOR_POOL.length];
+}
+
+// --- perceptual clash avoidance between neighboring cells ---
+function rgbToHsl([r, g, b]) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min, s = l > .5 ? d / (2 - max - min) : d / (max + min);
+  let h;
+  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0));
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  return [h * 60, s, l];
+}
+function hueDist(a, b) { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; }
+function colorsClash(a, b) {
+  const [h1, s1, l1] = rgbToHsl(a[1]), [h2, s2, l2] = rgbToHsl(b[1]);
+  const achromatic = s1 < .15 && s2 < .15;
+  if (achromatic) return Math.abs(l1 - l2) < .3;
+  if (s1 < .15 || s2 < .15) return Math.abs(l1 - l2) < .35; // grey vs color: needs a real lightness gap
+  return hueDist(h1, h2) < 30 && Math.abs(s1 - s2) < .35 && Math.abs(l1 - l2) < .3;
+}
+// which cell sits visually above cell i in the 3/2/2/3 layout
+const ABOVE = { 3: 1, 4: 2, 5: 3, 6: 4, 7: 5, 8: 5, 9: 6 };
+// Cell color = raw group color, stepped 7 places through the pool while it
+// would look too similar to its left or above neighbor (deterministic).
+function colorForCell(groups, i, chosen) {
+  let idx = parseInt((groups[i] || "").replace(/[^0-9A-Fa-f]/g, "").slice(0, 4) || "0", 16) % COLOR_POOL.length;
+  const neighbors = [i - 1, ABOVE[i]].filter(j => j >= 0 && chosen[j]);
+  for (let step = 0; step < COLOR_POOL.length; step++) {
+    const cand = COLOR_POOL[(idx + step * 7) % COLOR_POOL.length];
+    if (!neighbors.some(j => colorsClash(cand, chosen[j]))) return cand;
+  }
+  return COLOR_POOL[idx];
 }
 
 function luminance([r, g, b]) {
@@ -100,32 +132,42 @@ export async function deriveFingerprint(addr) {
   }
 }
 
-// Build the square tile as a standalone SVG string. 12x3 grid: rows of
-// three 40-unit squares, four 30-unit rectangles, three squares.
-export function buildAvatarSvg({ groups, withCaptions = false, size = 120, radius = 26 }) {
+// Fingerprint glyph (fingerprint-03-svgrepo-com), stroked paths, 24x24 viewBox.
+const FINGERPRINT_PATHS = [
+  "M8.10008 21.221C6.71021 19.2375 5.89258 16.8243 5.89258 14.2187C5.89258 10.8443 8.6265 8.10938 11.9989 8.10938C15.3712 8.10938 18.1051 10.8443 18.1051 14.2187",
+  "M18.4361 20.3118C18.3262 20.3179 18.2182 20.3281 18.1073 20.3281C14.7349 20.3281 12.001 17.5931 12.001 14.2188",
+  "M13.2694 21.9999C10.675 20.382 8.94705 17.5024 8.94705 14.2187C8.94705 12.5315 10.3145 11.164 12.0007 11.164C13.6869 11.164 15.0543 12.5315 15.0543 14.2187C15.0543 15.9059 16.4218 17.2733 18.108 17.2733C19.7942 17.2733 21.1616 15.9059 21.1616 14.2187C21.1616 9.1571 17.0602 5.05469 12.0017 5.05469C6.94319 5.05469 2.8418 9.1571 2.8418 14.2187C2.8418 15.3469 2.96806 16.4455 3.20021 17.5045",
+  "M20.5257 5.86313C18.4435 3.4978 15.399 2 12.0002 2C8.60136 2 5.55687 3.4978 3.47461 5.86313",
+].map(d => `<path d="${d}" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`).join("");
+
+const BADGE_DARK = "#1c1c1c"; // soft black — never pure
+const GLYPH_LIGHT = "#f4f4f4"; // soft white — never pure
+
+// Build the square tile as a standalone SVG. Equal-height 4-row grid:
+// three 40x30 squares, two 60x30 rects, two 60x30 rects, three 40x30 squares.
+// badge=true draws the soft-black circle with the light fingerprint glyph;
+// badge=false leaves the grid bare (the caller layers a photo on top).
+export function buildAvatarSvg({ groups, size = 120, radius = 26, withCaptions = false, badge = true }) {
   if (!groups || groups.length !== 10) return "";
+  const chosen = {};
   const cells = groups.map((g, i) => {
-    const [name, rgb] = colorForGroup(g);
-    if (i < 3) return { x: i * 40, y: 0, w: 40, h: 40, name, rgb };
-    if (i < 7) return { x: (i - 3) * 30, y: 40, w: 30, h: 40, name, rgb };
-    return { x: (i - 7) * 40, y: 80, w: 40, h: 40, name, rgb };
+    const [name, rgb] = (chosen[i] = colorForCell(groups, i, chosen));
+    if (i < 3) return { x: i * 40, y: 0, w: 40, h: 30, name, rgb };
+    if (i < 5) return { x: (i - 3) * 60, y: 30, w: 60, h: 30, name, rgb };
+    if (i < 7) return { x: (i - 5) * 60, y: 60, w: 60, h: 30, name, rgb };
+    return { x: (i - 7) * 40, y: 90, w: 40, h: 30, name, rgb };
   });
   const rects = cells.map((c) =>
     `<rect x="${c.x}" y="${c.y}" width="${c.w}" height="${c.h}" fill="${c.name}"/>`).join("");
   const captions = !withCaptions ? "" : cells.map((c) => {
-    const base = c.w >= 40 ? 9 : 7;
-    const fs = Math.min(base, (c.w - 2) / (c.name.length * 0.62)).toFixed(1);
+    const base = c.w >= 40 ? 9 : 8;
+    const fs = Math.min(base, (c.w - 4) / (c.name.length * 0.72)).toFixed(1);
     return `<text x="${c.x + c.w / 2}" y="${c.y + c.h / 2}" text-anchor="middle" dominant-baseline="central" font-family="system-ui,-apple-system,sans-serif" font-weight="700" font-size="${fs}" fill="${contrastTextFor(c.rgb)}">${c.name}</text>`;
   }).join("");
-  // Caption-less variant carries the fingerprint glyph, centered at 70%,
-  // colored for the best contrast against the average tile luminance.
   let overlay = "";
-  if (!withCaptions) {
-    const avg = cells.reduce((a, c) => a + luminance(c.rgb), 0) / cells.length;
-    const light = (luminance([244, 244, 244]) + 0.05) / (avg + 0.05);
-    const dark = (avg + 0.05) / (luminance([32, 32, 32]) + 0.05);
-    const color = light >= dark ? "#f4f4f4" : "#202020";
-    overlay = `<g transform="translate(18,18) scale(1.75)" fill="${color}">${FINGERPRINT_PATHS}</g>`;
+  if (!withCaptions && badge) {
+    overlay = `<circle cx="60" cy="60" r="40" fill="${BADGE_DARK}"/>` +
+      `<g transform="translate(31.2,31.2) scale(2.4)" stroke="${GLYPH_LIGHT}">${FINGERPRINT_PATHS}</g>`;
   }
   const cid = `velta-av-${++clipSeq}`;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 120 120" role="img">` +

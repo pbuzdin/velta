@@ -5,6 +5,11 @@ import { showContextMenu, showModal, confirmDeleteMessagesModal, toast, showEmoj
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
 
+// app.js installs the avatar-profile opener (avoids a circular import);
+// invoked when a group message's sender avatar is tapped.
+let avatarProfileOpener = null;
+export function setAvatarProfileOpener(fn) { avatarProfileOpener = fn; }
+
 import { diagnosticsSink, debugLog } from "./diagnostics.js";
 import { fileUrl } from "./media.js";
 import { renderMarkdown } from "./markdown.js";
@@ -561,6 +566,13 @@ export class ChatView {
     }
     inner += `<div class="bubble">${bubble}</div>`;
     row.innerHTML = inner;
+    if (showAvatar) {
+      row.querySelector("dc-avatar")?.addEventListener("click", (e) => {
+        // The sender's avatar opens their profile — not row selection/menus.
+        e.stopPropagation();
+        avatarProfileOpener?.({ contactId: fc.id, name: fc.name, contact: { addr: fc.addr }, online: fc.online, lastSeen: fc.lastSeen, color: fc.color });
+      });
+    }
 
     // One-click reply (desktop hover): a small pill at the bubble's top-right
     // corner — the same _setReply the context menu uses, plus composer focus

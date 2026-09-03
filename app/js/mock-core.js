@@ -4,8 +4,8 @@
 // to run against the real core.
 
 const CONTACTS = [
-  { id: 2, name: "Ada Byron", addr: "ada@nine.testrun.org", color: "#c6853f", online: true, verified: true },
-  { id: 3, name: "Kenji Sato", addr: "kenji@nine.testrun.org", color: "#3f8fc6", online: false, lastSeen: Date.now() - 32 * 60000, verified: false },
+  { id: 2, name: "Ada Byron", addr: "ada@nine.testrun.org", color: "#c6853f", online: true, verified: true, avatar: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23c6853f'/%3E%3Cstop offset='1' stop-color='%23c65a8e'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23g)'/%3E%3Ccircle cx='32' cy='24' r='11' fill='%23fff' opacity='.92'/%3E%3Cpath d='M12 56c2-12 10-17 20-17s18 5 20 17z' fill='%23fff' opacity='.92'/%3E%3C/svg%3E" },
+  { id: 3, name: "Kenji Sato", addr: "kenji@nine.testrun.org", color: "#3f8fc6", online: false, lastSeen: Date.now() - 32 * 60000, verified: false, avatar: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2311998e'/%3E%3Cstop offset='1' stop-color='%2338ef7d'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23g)'/%3E%3Ccircle cx='32' cy='24' r='11' fill='%23fff' opacity='.92'/%3E%3Cpath d='M12 56c2-12 10-17 20-17s18 5 20 17z' fill='%23fff' opacity='.92'/%3E%3C/svg%3E" },
   { id: 4, name: "Mara Voss", addr: "mara@nine.testrun.org", color: "#6a5acd", online: true, verified: true },
   { id: 5, name: "Tariq Aziz", addr: "tariq@nine.testrun.org", color: "#4fae4f", online: false, lastSeen: Date.now() - 5 * 3600000, verified: false },
   { id: 6, name: "Lena Fischer", addr: "lena@nine.testrun.org", color: "#c65a8e", online: true, verified: false },
@@ -49,6 +49,13 @@ const IMG_GRADIENTS = [
 
 const REACTION_SET = ["👍", "❤️", "😂", "🎉", "😮", "👏"];
 
+// Demo profile images (inline SVG data URIs) so the browser demo exercises
+// the photo-avatar path — image avatars, not just initials tiles.
+const GROUP_AVATARS = {
+  13: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23e96443'/%3E%3Cstop offset='1' stop-color='%23904e95'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23g)'/%3E%3Cpath d='M14 40 10 54h14zM50 40l4 14H40zM32 16 18 44h28z' fill='%23fff' opacity='.92'/%3E%3Cpath d='M32 16l-7 14h14z' fill='%23fff' opacity='.55'/%3E%3C/svg%3E",
+  15: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23396afc'/%3E%3Cstop offset='1' stop-color='%232948ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23g)'/%3E%3Cpath d='M24 22 12 32l12 10M40 22l12 10-12 10' fill='none' stroke='%23fff' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E",
+};
+
 function mulberry32(a) {
   return function () {
     a |= 0; a = (a + 0x6D2B79F5) | 0;
@@ -91,9 +98,9 @@ export class MockCore extends EventTarget {
       mk({ id: 10, kind: "saved", name: "Saved Messages" }),
       mk({ id: 11, kind: "device", name: "Device Messages" }),
       mk({ id: 12, name: "Ada Byron", contactId: 2, pinned: true, verified: true, unread: 2 }),
-      mk({ id: 13, name: "Weekend Crew 🏕", kind: "group", memberCount: 6, pinned: true, unread: 14 }),
+      mk({ id: 13, name: "Weekend Crew 🏕", kind: "group", memberCount: 6, pinned: true, unread: 14, avatar: GROUP_AVATARS[13] }),
       mk({ id: 14, name: "Kenji Sato", contactId: 3, muted: true, unread: 5 }),
-      mk({ id: 15, name: "Delta Web Devs", kind: "group", memberCount: 23, unread: 0 }),
+      mk({ id: 15, name: "Delta Web Devs", kind: "group", memberCount: 23, unread: 0, avatar: GROUP_AVATARS[15] }),
       mk({ id: 16, name: "Mara Voss", contactId: 4 }),
       mk({ id: 17, name: "News · Delta Chat", kind: "channel", memberCount: 12800, muted: true, unread: 31 }),
       mk({ id: 18, name: "Tariq Aziz", contactId: 5, archived: true }),
@@ -214,6 +221,7 @@ export class MockCore extends EventTarget {
           verified: c.verified, unread: c.unread, draft: c.draft,
           encrypted: c.encrypted, archived: c.archived,
           avatarColor: this._chatColor(c),
+          avatar: c.avatar || this._contactAvatar(c),
           lastMsg: last ? this._msgSummary(last) : null,
           lastTs: last ? last.ts : 0,
           lastState: last && last.from === 1 ? last.state : null,
@@ -228,6 +236,12 @@ export class MockCore extends EventTarget {
     if (c.contactId) return this.contacts.find(x => x.id === c.contactId)?.color || "#888";
     const colors = ["#c6853f", "#3f8fc6", "#6a5acd", "#4fae4f", "#c65a8e", "#7d8a99"];
     return colors[c.id % colors.length];
+  }
+
+  // 1:1 chats inherit the contact's photo, like the real core's chatlist item.
+  _contactAvatar(c) {
+    if (!c.contactId) return null;
+    return this.contacts.find(x => x.id === c.contactId)?.avatar || null;
   }
 
   _msgSummary(m) {
@@ -246,10 +260,59 @@ export class MockCore extends EventTarget {
     const contact = c.contactId ? this.contacts.find(x => x.id === c.contactId) : null;
     return {
       id: c.id, name: c.name, kind: c.kind, memberCount: c.memberCount,
+      contactId: c.contactId,
       encrypted: c.encrypted, verified: c.verified, muted: c.muted,
       pinned: c.pinned, archived: c.archived, contact,
       avatarColor: this._chatColor(c),
+      avatar: c.avatar || this._contactAvatar(c),
     };
+  }
+
+  // Demo group membership — deterministic per chat (self is always a member)
+  // so member counts and "chats in common" behave like the real core.
+  async getChatMembers(chatId) {
+    const GROUP_MEMBERS = { 13: [2, 3, 4, 5, 6], 15: [2, 4, 6, 7], 17: [2], 20: [3, 6] };
+    const chat = this.chats.find(c => c.id === chatId);
+    if (!chat || (chat.kind !== "group" && chat.kind !== "channel")) return [];
+    const self = { id: 1, name: this.account.displayName, color: this.account.color };
+    return [self, ...(GROUP_MEMBERS[chat.id] || []).map(id => {
+      const c = this.contacts.find(x => x.id === id);
+      return c && { id: c.id, name: c.name, addr: c.addr, color: c.color, avatar: c.avatar, online: c.online, lastSeen: c.lastSeen };
+    }).filter(Boolean)];
+  }
+
+  async renameContact(contactId, name) {
+    const c = this.contacts.find(x => x.id === Number(contactId));
+    if (!c) return;
+    c.name = name;
+    // 1:1 chats take their name from the contact, like the real core.
+    this.chats.forEach(ch => { if (ch.contactId === c.id && ch.kind === "single") ch.name = name; });
+  }
+
+  async blockContact(contactId, blocked) {
+    const c = this.contacts.find(x => x.id === Number(contactId));
+    if (!c) return;
+    if (blocked) c.blocked = true; else delete c.blocked;
+  }
+
+  async getBlockedContactIds() {
+    return this.contacts.filter(c => c.blocked).map(c => c.id);
+  }
+
+  async createChatByContactId(contactId) {
+    contactId = Number(contactId);
+    let chat = this.chats.find(c => c.contactId === contactId && c.kind === "single");
+    if (chat) return chat.id;
+    const contact = this.contacts.find(x => x.id === contactId);
+    const id = Math.max(...this.chats.map(c => c.id)) + 1;
+    chat = {
+      id, name: contact ? contact.name : "?", kind: "single", contactId,
+      memberCount: 0, pinned: false, muted: false, archived: false,
+      verified: contact ? !!contact.verified : false, unread: 0, draft: null,
+      encrypted: true, messages: [],
+    };
+    this.chats.push(chat);
+    return id;
   }
 
   // Paged history: newest-first pages, like scrolling up through time.
@@ -412,4 +475,23 @@ export function formatDay(ts) {
   const y = new Date(now - 86400e3);
   if (d.toDateString() === y.toDateString()) return "Yesterday";
   return d.toLocaleDateString([], { day: "numeric", month: "long", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
+}
+
+// "just now" / "5 minutes ago" / "3 hours ago" / "2 days ago" — relative time
+// for last-seen info.
+export function timeAgo(ts) {
+  const sec = Math.max(0, (Date.now() - ts) / 1000);
+  if (sec < 60) return "just now";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} minute${min === 1 ? "" : "s"} ago`;
+  const hrs = Math.floor(min / 60);
+  if (hrs < 24) return `${hrs} hour${hrs === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days} day${days === 1 ? "" : "s"} ago`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks} week${weeks === 1 ? "" : "s"} ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months} month${months === 1 ? "" : "s"} ago`;
+  const years = Math.floor(days / 365);
+  return `${years} year${years === 1 ? "" : "s"} ago`;
 }

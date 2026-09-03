@@ -25,6 +25,26 @@ Captured from the responsive PWA running in demo mode (mock core), dark theme.
 | **Chat list**  | ![Mobile chat list](screenshots/mobile-chat-list.png) | ![Desktop chat list](screenshots/desktop-chat-list.png) |
 | **Chat opened** | ![Mobile chat](screenshots/mobile-chat.png) | ![Desktop chat](screenshots/desktop-chat.png) |
 
+## Identity avatars & contact profiles
+
+Every **user** avatar renders a deterministic **color matrix** derived from the
+contact's OpenPGP fingerprint: an equal-height 4-row grid (3 squares, 2 rects,
+2 rects, 3 squares — one cell per fingerprint group), with a fingerprint glyph
+centered on a soft-black badge for photo-less contacts, and the contact's photo
+as a padded rounded square (with a thin dark ring) for contacts that set one.
+Neighboring cells never share similar hues, all colors are soft (no pure
+black/white), and everything is drawn as pure SVG in `app/js/avatar.js`.
+
+Tapping any avatar in a chat opens the **contact profile** modal: the large
+photo avatar beside the captioned identity tile (color names included), the
+contact's address and profile key (OpenPGP fingerprint), last-seen info, a
+native-share button for the personal `i.delta.chat` invite link, plus
+**Send message**, **Edit name** and **Block** actions. Group chats also show a
+**Chats in common** section listing the groups you share with that contact.
+
+Group avatars intentionally keep a solid color with a full-bleed photo or
+initials — the identity matrix is a per-contact feature.
+
 ## Project layout
 
 ```
@@ -44,7 +64,8 @@ Captured from the responsive PWA running in demo mode (mock core), dark theme.
 ├── deltachat-backend/          # Prebuilt deltachat-rpc-server binaries
 │   ├── windows-x86_64/
 │   └── android-arm64/
-├── tools/                      # icon generation + WSL APK build/sign helpers
+├── tools/                      # icon generation, WSL APK build/sign helpers,
+│                               # serve-dev.py (no-cache static server for app/)
 ├── signing/                    # local signing keystore (untracked)
 └── core/                       # Vendored Delta Chat core Rust workspace
 ```

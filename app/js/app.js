@@ -4,10 +4,11 @@ import "./components.js";
 import { escapeHtml, escapeAttr } from "./components.js";
 import { fileUrl } from "./media.js";
 import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintGroups } from "./avatar.js";
-import { ChatView } from "./chat-view.js";
+import { ChatView, setAvatarProfileOpener } from "./chat-view.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal } from "./invites.js";
 import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile } from "./ui.js";
+import { timeAgo } from "./mock-core.js";
 
 const diagnostics = new DiagnosticsStore();
 window.__veltaDiagnostics = diagnostics;
@@ -505,32 +506,22 @@ function chatItemUpToDate(item, chat, active) {
 }
 
 
-// Profile view: the captioned identity tile at half-screen size, with the
-// contact's OpenPGP fingerprint underneath (per the avatar concept this is
-// the only surface where the color-name captions are shown).
-async function showAvatarProfile(chat) {
-  const contactId = chat.contactId ?? (chat.contact ? chat.contact.id : null);
-  let fpr = null;
-  if (contactId) {
-    try { fpr = await fingerprintFor(contactId, chat.contact && chat.contact.addr); } catch {}
-  }
-  const groups = fingerprintGroups(fpr);
-  const isPerson = !isGroupChat(chat) && groups;
-  const svg = isPerson
-    ? buildAvatarSvg({ groups, withCaptions: true, size: 300, radius: 40 })
-    : "";
-  const body = document.createElement("div");
-  body.className = "avatar-profile";
-  body.innerHTML = `
-    <div class="avatar-profile-img">${svg || `<div class="avatar-profile-fallback">${escapeHtml((chat.name || "?").trim().charAt(0).toUpperCase())}</div>`}</div>
-    <div class="avatar-profile-name">${escapeHtml(chat.name)}</div>
-    ${fpr ? `<div class="avatar-profile-fpr">${formatFingerprint(fpr)}</div>` : ""}`;
-  showModal({ title: "Avatar", body });
+// Group message sender avatars open the contact's profile modal — the same
+// showChatInfo sheet, built around the contact instead of a chat object.
+function openContactProfile(contact) {
+  showChatInfo({
+    contactId: contact.contactId ?? contact.id,
+    name: contact.name,
+    contact: { addr: contact.addr, online: contact.online, lastSeen: contact.lastSeen },
+    kind: "single",
+    encrypted: true,
+  });
 }
 
 function isGroupChat(chat) {
   return chat.kind === "group" || chat.kind === "channel";
 }
+setAvatarProfileOpener(openContactProfile);
 
 function formatFingerprint(fpr) {
   const groups = fingerprintGroups(fpr) || [];
@@ -674,25 +665,189 @@ async function refreshActiveChatHeader(chatId) {
 }
 
 function showChatInfo(chat) {
-  const encNote = chat.encrypted
-    ? `<div class="enc-note"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 018 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Messages in this chat are end-to-end encrypted automatically.</span></div>` : "";
   const contactRows = chat.contact ? `
     <div class="info-row"><span class="k">Address</span><span class="v">${escapeHtml(chat.contact.addr)}</span></div>
+    ${chat.contactId ? `<div class="info-row"><span class="k">Profile key</span><span class="v"><span class="avatar-profile-fpr" data-profile-key>…</span></span></div>` : ""}
+    ${chat.contact && (chat.contact.online || chat.contact.lastSeen) ? `<div class="info-row"><span class="k">Last seen</span><span class="v">${escapeHtml(chat.contact.online ? "online" : timeAgo(chat.contact.lastSeen))}</span></div>` : ""}
     <div class="info-row"><span class="k">Verified</span><span class="v">${chat.contact.verified ? "Yes ✓" : "No"}</span></div>` : "";
   const isGroup = chat.kind === "group" || chat.kind === "channel";
   const body = document.createElement("div");
   body.innerHTML = `
-    <div style="display:flex;justify-content:center;padding:8px 0 14px">
-      <dc-avatar class="chat-info-avatar" name="${escapeHtml(chat.name)}" color="${chat.avatarColor || "#777"}" kind="${chat.kind}" size="84"${chat.contactId ? ` contact-id="${chat.contactId}"` : ""}${chat.contact && chat.contact.addr ? ` addr="${escapeAttr(chat.contact.addr)}"` : ""}${chat.avatar ? ` avatar="${escapeAttr(fileUrl(chat.avatar))}"` : ""}></dc-avatar>
+    <div style="display:flex;justify-content:center;align-items:center;gap:16px;padding:8px 0 14px">
+      <dc-avatar class="chat-info-avatar" name="${escapeHtml(chat.name)}" color="${chat.avatarColor || "#777"}" kind="${chat.kind}" size="168"${chat.contactId ? ` contact-id="${chat.contactId}"` : ""}${chat.contact && chat.contact.addr ? ` addr="${escapeAttr(chat.contact.addr)}"` : ""}${chat.avatar ? ` avatar="${escapeAttr(fileUrl(chat.avatar))}"` : ""}></dc-avatar>
+      ${chat.contactId ? `<span class="chat-info-tile" data-caption-tile></span>` : ""}
     </div>
-    ${encNote}
+    ${!isGroup && chat.contactId ? `<div class="profile-actions">
+      <button class="btn-text" data-pa="send">Send message</button>
+      <button class="btn-text" data-pa="share">Share profile</button>
+      <button class="btn-text" data-pa="rename">Edit name</button>
+      <button class="btn-text" data-pa="block" style="color:var(--danger)">Block</button>
+    </div>` : ""}
     ${isGroup ? `<div class="info-row"><span class="k">Members</span><span class="v" data-member-count>…</span></div>
       <div class="modal-list" data-member-list style="max-height:240px;overflow:auto"></div>` : ""}
     ${contactRows}
     <div class="info-row"><span class="k">Notifications</span><span class="v">${chat.muted ? "Muted" : "On"}</span></div>
-    <div class="info-row"><span class="k">Transport</span><span class="v">chatmail relay · ${escapeHtml(state.account.relay)}</span></div>`;
-  body.querySelector(".chat-info-avatar")?.addEventListener("click", () => showAvatarProfile(chat));
-  showModal({ title: chat.name, body });
+    <div class="info-row"><span class="k">Transport</span><span class="v">chatmail relay · ${escapeHtml(state.account.relay)}</span></div>
+    ${!isGroup && chat.contactId ? `<div class="info-row" data-common-head style="display:none"><span class="k" style="color:var(--text);font-weight:600">Chats in common</span></div>
+    <div class="modal-list" data-common-list style="display:none;max-height:180px;overflow:auto"></div>` : ""}`;
+  const modal = showModal({ title: chat.name, body });
+
+  // Profile action buttons (single chats): send, share, rename, block.
+  if (!isGroup && chat.contactId) {
+    const contactId = chat.contactId;
+    const actBtn = (act) => body.querySelector(`[data-pa="${act}"]`);
+    actBtn("send")?.addEventListener("click", async () => {
+      modal.close();
+      const existing = state.chats.find(c => c.contactId === contactId && c.kind === "single");
+      if (existing) return openChat(existing.id);
+      try {
+        const chatId = await core.createChatByContactId(contactId);
+        await refreshChatList();
+        await openChat(Number(chatId));
+      } catch { toast("Couldn't open the chat"); }
+    });
+    actBtn("share")?.addEventListener("click", async () => {
+      // Share the account's personal i.delta.chat invite link (native share
+      // API where available; clipboard fallback otherwise).
+      let link = null;
+      try {
+        if (core.getInviteQr) {
+          const { text } = await core.getInviteQr(null);
+          const parsed = parseInviteLink(text);
+          if (parsed) link = parsed.link;
+        }
+      } catch { /* demo mode falls through to the placeholder link */ }
+      if (!link) {
+        const fpr = "5DB721C142C0137F9A2E4B66C31D08597EA47594";
+        const addr = encodeURIComponent(state.account.addr || "you@example.org");
+        const name = encodeURIComponent(state.account.displayName || "");
+        link = `https://i.delta.chat/#${fpr}&v=3&a=${addr}&n=${name}`;
+      }
+      const text = `Contact me on Delta Chat: ${link}`;
+      try {
+        if (navigator.share) { await navigator.share({ title: chat.name, text, url: link }); return; }
+        throw new Error("unavailable");
+      } catch (err) {
+        if (err && err.name === "AbortError") return; // user closed the share sheet
+        try { await navigator.clipboard.writeText(link); toast("Invite link copied"); }
+        catch { toast("Sharing isn't available here"); }
+      }
+    });
+    actBtn("rename")?.addEventListener("click", () => {
+      const input = document.createElement("input");
+      input.className = "text-field"; input.maxLength = 64;
+      input.value = (chat.contact && chat.contact.name) || chat.name || "";
+      const wrap = document.createElement("div");
+      wrap.appendChild(input);
+      const renameModal = { close: null };
+      const save = document.createElement("button");
+      save.className = "btn-text btn-primary"; save.textContent = "Save";
+      save.addEventListener("click", async () => {
+        const name = input.value.trim();
+        if (!name) return;
+        save.disabled = true;
+        try {
+        await core.renameContact(contactId, name);
+        if (chat.contact) chat.contact.name = name;
+        chat.name = name;
+        renameModal.close();
+        toast("Name updated");
+        refreshChatList();
+        if (state.activeChatHead && state.activeChatId === chat.id) {
+          const fresh = renderChatHead(chat);
+          state.activeChatHead.replaceWith(fresh);
+          state.activeChatHead = fresh;
+        }
+        showChatInfo(chat); // fresh modal with the new name everywhere
+        } catch (err) {
+          toast("Rename failed: " + (err.message || err));
+          save.disabled = false;
+        }
+      });
+      const cancel = document.createElement("button");
+      cancel.className = "btn-text"; cancel.textContent = "Cancel";
+      cancel.addEventListener("click", () => renameModal.close());
+      const foot = document.createElement("div");
+      foot.className = "modal-foot edit-profile-foot";
+      foot.append(cancel, save);
+      const m = showModal({ title: "Edit name", body: wrap, foot });
+      renameModal.close = m.close;
+      setTimeout(() => { input.focus(); input.select(); }, 50);
+    });
+    const blockBtn = actBtn("block");
+    if (core.getBlockedContactIds) {
+      core.getBlockedContactIds().then(ids => {
+        if (blockBtn && ids.includes(contactId)) {
+          blockBtn.textContent = "Unblock";
+          blockBtn.dataset.blocked = "1";
+        }
+      }).catch(() => {});
+    }
+    blockBtn?.addEventListener("click", async () => {
+      const blockedNow = blockBtn.dataset.blocked === "1";
+      const ok = await confirmModal(
+        blockedNow ? "Unblock contact" : "Block contact",
+        blockedNow
+          ? `${chat.name} will be able to write to you again.`
+          : `You will no longer receive messages or requests from ${chat.name}.`,
+        blockedNow ? "Unblock" : "Block", false);
+      if (!ok) return;
+      try {
+        await core.blockContact(contactId, !blockedNow);
+        toast(blockedNow ? "Contact unblocked" : "Contact blocked");
+        blockBtn.textContent = blockedNow ? "Block" : "Unblock";
+        blockBtn.dataset.blocked = blockedNow ? "0" : "1";
+      } catch (err) { toast("Failed: " + (err.message || err)); }
+    });
+  }
+
+  // Same formatted key as the Avatar modal (avatar-profile-fpr), filled in
+  // once the contact's fingerprint resolves. The captioned identity tile
+  // (avatar-profile-img) fills its slot in the same row as the dc-avatar.
+  if (chat.contactId) {
+    fingerprintFor(chat.contactId, chat.contact && chat.contact.addr)
+      .then((fpr) => {
+        const groups = fingerprintGroups(fpr);
+        const slot = body.querySelector("[data-profile-key]");
+        if (slot) slot.textContent = fpr ? formatFingerprint(fpr) : "—";
+        const capSlot = body.querySelector("[data-caption-tile]");
+        if (capSlot && groups) {
+          // radius 0 — the svg element's own border-radius does the rounding.
+          capSlot.innerHTML = buildAvatarSvg({ groups, withCaptions: true, size: 168, radius: 0 });
+        } else if (capSlot) {
+          capSlot.remove();
+        }
+      })
+      .catch(() => {});
+  }
+
+  // Chats in common: group chats the contact is also a member of. Each row
+  // opens that chat; the section disappears entirely if there are none.
+  if (!isGroup && chat.contactId && core.getChatMembers) {
+    core.getChatList({}).then(async chats => {
+      const common = [];
+      for (const c of chats) {
+        if (c.kind !== "group" && c.kind !== "channel") continue;
+        try {
+          const members = await core.getChatMembers(c.id);
+          if (members.some(m => m.id === chat.contactId)) common.push(c);
+        } catch { /* skip chats whose members can't be listed */ }
+      }
+      const head = body.querySelector("[data-common-head]");
+      const list = body.querySelector("[data-common-list]");
+      if (!head || !list || !document.contains(head)) return;
+      if (!common.length) { head.remove(); list.remove(); return; }
+      head.style.display = "";
+      list.style.display = "";
+      for (const c of common) {
+        const row = document.createElement("div");
+        row.className = "info-row clickable";
+        row.innerHTML = `<span class="k">${escapeHtml(c.name)}</span><span class="v">${c.unread ? c.unread + " unread" : ""}</span>`;
+        row.addEventListener("click", () => { modal.close(); openChat(c.id); });
+        list.appendChild(row);
+      }
+    }).catch(() => {});
+  }
 
   if (isGroup && core.getChatMembers) {
     core.getChatMembers(chat.id).then(members => {
@@ -774,6 +929,7 @@ async function pickContactModal(title, multi = false) {
       const item = document.createElement("dc-chat-item");
       item.setData({
         id: "c" + c.id, name: c.name, kind: "single", avatarColor: c.color,
+        contactId: c.id, avatar: c.avatar || null,
         verified: c.verified, encrypted: true, lastMsg: c.addr, lastTs: 0,
         unread: 0, pinned: false, muted: false,
       });

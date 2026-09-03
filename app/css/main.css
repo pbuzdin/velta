@@ -364,16 +364,8 @@ html[data-theme="light"] .msg-meta .ticks.read { color: #1d8bf1; }
   width: 320px; max-width: 100%; margin: -2px -5px 5px;
   border-radius: 10px; overflow: hidden; background: #101010;
 }
-.avatar-profile { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 6px 4px 2px; }
-.avatar-profile-img svg { width: min(52vw, 300px); height: auto; display: block; border-radius: 24px; box-shadow: 0 10px 30px rgba(16,16,16,.25); }
-.avatar-profile-fallback {
-  width: min(52vw, 300px); aspect-ratio: 1; border-radius: 24px;
-  display: grid; place-items: center; background: var(--accent); color: #f4f4f4;
-  font-size: 84px; font-weight: 700;
-}
-.avatar-profile-name { font-weight: 700; font-size: 16px; text-align: center; }
+/* Fingerprint block reused inside the chat-info profile rows. */
 .avatar-profile-fpr { font-size: 12.5px; color: var(--text-dim); text-align: center; line-height: 1.55; white-space: pre-line; }
-.chat-info-avatar { cursor: pointer; }
 .msg-video video {
   width: 100%; max-height: 320px; display: block;
   /* Deterministic placeholder ratio keeps the row height stable until the
@@ -515,10 +507,26 @@ dc-avatar { display: block; flex: none; }
   color: #f4f4f4; font-weight: 600; user-select: none;
   position: relative; overflow: hidden;
 }
+/* The global `svg { width: 24px }` icon rule must not shrink the identity
+   matrix — it has to fill the tile edge to edge. (Saved/device icons keep
+   their size via their inline width/height style.) */
+.dc-avatar-tile > svg { width: 100%; height: 100%; }
 .dc-avatar-tile.saved { background: linear-gradient(135deg, #5aa2e6, #8774e1); }
 .dc-avatar-tile img.dc-avatar-img {
   position: absolute; inset: 0; width: 100%; height: 100%;
   object-fit: cover; border-radius: inherit; /* match the tile mask, not a circle — a 50% clip left the tile's corners visible */
+}
+/* Single contacts with a photo: the picture is a padded rounded square sitting
+   on the color matrix, separated from it by a soft-black ring. Percentages
+   keep every part proportional at any tile size (120-unit viewBox reference:
+   inset 23, box 74, ring 3, photo 68, radius 15). */
+.dc-avatar-tile .dc-avatar-photo {
+  position: absolute; inset: 19.17%; display: block;
+  background: #1c1c1c; padding: 2.5%; border-radius: 24.3%;
+}
+.dc-avatar-tile .dc-avatar-photo img.dc-avatar-img {
+  position: static; inset: auto; display: block;
+  width: 100%; height: 100%; object-fit: cover; border-radius: 22%;
 }
 
 dc-chat-item { display: block; }
@@ -639,6 +647,16 @@ dc-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .info-row .k { color: var(--text-dim); }
 .info-row .v { font-weight: 500; display: flex; align-items: center; gap: 6px; }
 .info-row .v svg { width: 17px; height: 17px; }
+.info-row .v .avatar-profile-fpr { text-align: right; font-size: 12px; }
+/* Clickable chat rows (chats in common). */
+.modal-list .info-row.clickable { cursor: pointer; }
+.modal-list .info-row.clickable:hover { background: var(--bg-hover); }
+/* Profile modal action buttons under the avatars. */
+.profile-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px 8px; padding: 0 0 12px; }
+.profile-actions .btn-text { padding: 8px 10px; font-size: 13.5px; }
+/* Captioned identity tile beside the dc-avatar in the chat-info modal
+   (the global 24px svg rule would otherwise shrink it). */
+.chat-info-tile svg { width: 168px; height: 168px; display: block; border-radius: 22%; }
 .enc-note {
   display: flex; gap: 10px; align-items: flex-start;
   background: rgba(79,174,79,.12); border: 1px solid rgba(79,174,79,.3);
