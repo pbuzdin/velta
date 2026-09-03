@@ -834,17 +834,22 @@ export class ChatView {
     });
     document.getElementById("btn-attach").addEventListener("click", e => {
       const r = e.currentTarget.getBoundingClientRect();
-      const menuHeight = 210; // approximate height of the attach menu
-      // Prefer showing above the button; fall back to below when near the top.
-      const y = r.top > menuHeight + 16 ? r.top - menuHeight : r.bottom + 8;
+      // Menu anchored to the button: shown just above it (or below when near
+      // the top), positioned after render so the real height is used — the
+      // old hardcoded estimate (210px) left a large gap under the menu.
       const x = Math.min(r.left, window.innerWidth - 220);
       const menu = showContextMenu([
         { label: "Photo", icon: ICO.photo, onClick: () => this._sendAttachment("image") },
         { label: "Video", icon: ICO.photo, onClick: () => this._sendAttachment("video") },
         { label: "File", icon: ICO.file, onClick: () => this._sendAttachment("file") },
         { label: "Voice message", icon: ICO.mic, onClick: () => this._sendAttachment("voice") },
-      ], x, y);
+      ], x, r.top - 8);
       menu.classList.add("attach-pop");
+      const mh = menu.getBoundingClientRect().height;
+      const fitsAbove = r.top > mh + 8;
+      menu.style.top = Math.max(8, Math.min(
+        fitsAbove ? r.top - mh - 8 : r.bottom + 8,
+        window.innerHeight - mh - 8)) + "px";
     });
   }
 
