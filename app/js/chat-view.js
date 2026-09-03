@@ -834,22 +834,31 @@ export class ChatView {
     });
     document.getElementById("btn-attach").addEventListener("click", e => {
       const r = e.currentTarget.getBoundingClientRect();
-      // Menu anchored to the button: shown just above it (or below when near
-      // the top), positioned after render so the real height is used — the
-      // old hardcoded estimate (210px) left a large gap under the menu.
+      // Menu anchored to the composer footer (the button lives inside it):
+      // shown fully above the footer's top edge, or below the whole footer
+      // when there's no room — positioned after render so the real height
+      // is used (the old hardcoded 210px estimate left a large gap under
+      // the menu, and anchoring to the button let it clip the footer).
+      const footerTop = document.getElementById("main-composer").getBoundingClientRect().top;
       const x = Math.min(r.left, window.innerWidth - 220);
       const menu = showContextMenu([
         { label: "Photo", icon: ICO.photo, onClick: () => this._sendAttachment("image") },
         { label: "Video", icon: ICO.photo, onClick: () => this._sendAttachment("video") },
         { label: "File", icon: ICO.file, onClick: () => this._sendAttachment("file") },
         { label: "Voice message", icon: ICO.mic, onClick: () => this._sendAttachment("voice") },
-      ], x, r.top - 8);
+      ], x, footerTop - 8);
       menu.classList.add("attach-pop");
-      const mh = menu.getBoundingClientRect().height;
-      const fitsAbove = r.top > mh + 8;
-      menu.style.top = Math.max(8, Math.min(
-        fitsAbove ? r.top - mh - 8 : r.bottom + 8,
-        window.innerHeight - mh - 8)) + "px";
+      // place from the real rendered height; re-place shortly after — the
+      // first measurement can predate icon/font layout settling.
+      const place = () => {
+        const mh = menu.getBoundingClientRect().height;
+        const aboveTop = footerTop - mh - 8;
+        menu.style.top = Math.max(8, aboveTop >= 8
+          ? aboveTop
+          : Math.min(footerTop + 8 + r.height, window.innerHeight - mh - 8)) + "px";
+      };
+      place();
+      setTimeout(place, 120);
     });
   }
 
