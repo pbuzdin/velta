@@ -342,7 +342,7 @@ export function showEmojiPop(anchorBtn, onPick) {
   popups().append(overlay, pop);
   const r = anchorBtn.getBoundingClientRect();
   pop.style.right = Math.max(8, innerWidth - r.right - 40) + "px";
-  pop.style.bottom = (innerHeight - r.top + 10) + "px";
+  pop.style.bottom = Math.round(innerHeight - r.top + 10) + "px";
 }
 
 
