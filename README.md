@@ -70,6 +70,22 @@ initials — the identity matrix is a per-contact feature.
 └── core/                       # Vendored Delta Chat core Rust workspace
 ```
 
+## Libraries & dependencies
+
+The runtime has exactly **two vendored JavaScript libraries** — everything else
+in `app/js/` (markdown renderer, avatar matrix, invite parsing, diagnostics)
+is hand-rolled for Velta.
+
+| Library | What it does here | Upstream |
+|---|---|---|
+| [Elena](https://github.com/arielsalminen/elena) (`@elenajs/core` v1.0.1) | Tiny progressive web-components library — powers `<dc-avatar>`, `<dc-chat-item>`, `<dc-chat-head>`, `<dc-video>` | [arielsalminen/elena](https://github.com/arielsalminen/elena) |
+| [virtual-scroller](https://github.com/catamphetamine/virtual-scroller) (`virtual-scroller-dom`) | Windowed rendering of the message history with variable-height rows, seamless prepends and scroll restoration | [catamphetamine/virtual-scroller](https://github.com/catamphetamine/virtual-scroller) |
+| [Tauri 2](https://github.com/tauri-apps/tauri) | Desktop/Android shell, deep links, sidecar process | [tauri-apps/tauri](https://github.com/tauri-apps/tauri) |
+| [Delta Chat core 2.59.0](https://github.com/chatmail/core) | The messaging engine (Rust): contacts, chats, e2e crypto, IMAP/SMTP | [chatmail/core](https://github.com/chatmail/core) |
+
+Both JS libraries are vendored under `app/vendor/` (no bundler, no `node_modules`
+at runtime). UI icons are individual SVGs from [SVG Repo](https://www.svgrepo.com/).
+
 ## Requirements
 
 - Rust **1.89+**
