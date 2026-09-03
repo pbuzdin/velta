@@ -499,6 +499,11 @@ dc-video { display: block; }
 .icon-btn.in-input { margin-bottom: 4px; }
 .send-btn { color: var(--accent); margin-bottom: 4px; }
 .send-btn:disabled { color: var(--text-dim); cursor: default; }
+/* Composer buttons sized to the input line (bottom-aligned like the input,
+   no extra offset — a 48px button centers its icon on the text line), with
+   icons a notch larger than the generic 24px. */
+#main-composer .icon-btn { width: 48px; height: 48px; margin-bottom: 0; }
+#main-composer .icon-btn svg { width: 26px; height: 26px; }
 
 /* ---------- Elena components ---------- */
 dc-avatar { display: block; flex: none; }
