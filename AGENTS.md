@@ -115,9 +115,9 @@ databases), `*.apk` builds, `signing/*.keystore`.
 | Layer | Technology |
 |-------|------------|
 | Frontend | Plain HTML/CSS/ES modules, no transpiler or bundler |
-| Components | [Elena](https://github.com/elenajs/core) (`app/vendor/elena.js`) |
-| Virtual list | `app/vendor/virtual-scroller.js` |
-| Desktop/Android shell | Tauri v2 (`delta-web-app/src-tauri`) |
+| Components | [Elena](https://github.com/arielsalminen/elena) (`@elenajs/core` v1.0.1, vendored as `app/vendor/elena.js`) |
+| Virtual list | [virtual-scroller](https://github.com/catamphetamine/virtual-scroller) (`virtual-scroller-dom` build, vendored as `app/vendor/virtual-scroller.js`) |
+| Desktop/Android shell | [Tauri v2](https://github.com/tauri-apps/tauri) (`delta-web-app/src-tauri`) |
 | Core runtime | Rust, Tokio async runtime, SQLite (sqlcipher) |
 | Crypto | rPGP, Autocrypt, SecureJoin, TLS via rustls or native-tls |
 | Networking | async-imap, async-smtp, Iroh gossip, shadowsocks proxy support |
