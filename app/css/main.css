@@ -481,7 +481,7 @@ dc-video { display: block; }
 .composer {
   display: flex; align-items: flex-end; gap: 4px;
   padding: 6px 14px calc(10px + env(safe-area-inset-bottom));
-  max-width: 728px; margin: 0 auto; width: 100%;
+  width: 100%;
 }
 .composer-input-wrap {
   flex: 1; display: flex; align-items: flex-end;
