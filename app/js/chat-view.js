@@ -833,11 +833,14 @@ export class ChatView {
       });
     });
     document.getElementById("btn-attach").addEventListener("click", e => {
-      const r = e.currentTarget.getBoundingClientRect();
       // Anchored like the emoji tray: bottom edge 10px above the button top,
-      // growing upward — no height measurement needed. Tiny viewports only:
-      // keep it from poking past the top edge.
-      const x = Math.min(r.left, window.innerWidth - 220);
+      // growing upward. The emoji tray anchors to btn-emoji's rect; using the
+      // same reference here keeps both trays on the exact same bottom line
+      // (btn-attach's top can differ by a sub-pixel from btn-emoji's, since
+      // the emoji button sits inside the textarea's wrap).
+      const anchor = document.getElementById("btn-emoji") || e.currentTarget;
+      const r = anchor.getBoundingClientRect();
+      const x = Math.min(e.currentTarget.getBoundingClientRect().left, window.innerWidth - 220);
       const menu = showContextMenu([
         { label: "Photo", icon: ICO.photo, onClick: () => this._sendAttachment("image") },
         { label: "Video", icon: ICO.photo, onClick: () => this._sendAttachment("video") },
