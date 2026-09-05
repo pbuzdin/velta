@@ -70,6 +70,11 @@ export class MockCore extends EventTarget {
     super();
     const rnd = mulberry32(20260808);
     this.rnd = rnd;
+    // The account-isolation contract (rpc-core.js) is keyed on these; the
+    // mock must expose the same surface or guards like
+    // `chatListInFlight?.epoch === epoch` misbehave (undefined === undefined).
+    this.accountId = 1;
+    this.accountEpoch = 0;
     this.account = {
       id: 1, addr: "you@nine.testrun.org", displayName: "You",
       color: "#5aa2e6", bio: "Delta Web user",

@@ -45,6 +45,7 @@ export class DiagnosticsStore extends EventTarget {
       chatId: DIAGNOSTICS_CHAT_ID,
       kind: "service",
       viewtype: "text",
+      level,
       from: 0,
       text: `[${String(level).toUpperCase()}] ${text}`,
       ts: Date.now(),
@@ -88,4 +89,47 @@ export class DiagnosticsStore extends EventTarget {
       memberCount: 0,
     };
   }
+}
+
+// Console-style row (Chrome DevTools look) for a diagnostics entry, shared by
+// the direct renderer in app.js and chat-view's fallback path. Each row is a
+// left-aligned monospace pill with a hover copy-to-clipboard button in its
+// top-right corner.
+const LEVEL_EMOJI = { error: "❌", warning: "⚠️", info: "ℹ️" };
+
+const COPY_SVG =
+  '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 15V5a2 2 0 012-2h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+
+export function diagnosticRow(message) {
+  const row = document.createElement("div");
+  row.className = "msg-row service";
+  row.dataset.msgid = message.id;
+  const bubble = document.createElement("div");
+  bubble.className = "service-msg";
+  const emoji = LEVEL_EMOJI[message.level] || "ℹ️";
+  const text = String(message.text).replace(/^\[[A-Z]+\] /, "");
+  bubble.textContent =
+    `${new Date(message.ts).toLocaleTimeString()}  ${emoji} ${text}` +
+    (message.count > 1 ? ` ×${message.count}` : "");
+  const copy = document.createElement("button");
+  copy.className = "diag-copy";
+  copy.title = "Copy to clipboard";
+  copy.setAttribute("aria-label", "Copy to clipboard");
+  copy.innerHTML = COPY_SVG;
+  copy.addEventListener("click", async e => {
+    e.stopPropagation();
+    const done = ok => {
+      copy.textContent = ok ? "✓" : "✗";
+      setTimeout(() => { copy.innerHTML = COPY_SVG; }, 1200);
+    };
+    try {
+      await navigator.clipboard.writeText(message.text);
+      done(true);
+    } catch {
+      done(false);
+    }
+  });
+  row.appendChild(bubble);
+  row.appendChild(copy);
+  return row;
 }

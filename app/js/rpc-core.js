@@ -45,6 +45,7 @@ export class JsonRpcCore extends EventTarget {
     this._accountTransitionBusy = false;
     this.pending = new Map();     // rpc id -> {resolve, reject, onLate?}
     this.msgIdCache = new Map();  // chatId -> [msgIds ascending]
+    this._sendingIds = new Set(); // msgIds handed to the core, not yet delivered/failed
     this.eventPollTimeoutMs = EVENT_POLL_TIMEOUT_MS;
     this.msgIdCache = new Map();  // chatId -> [msgIds ascending]
     this._onLine = this._onLine.bind(this);
@@ -60,11 +61,28 @@ export class JsonRpcCore extends EventTarget {
     if (this._isCurrentAccount(epoch)) this._emit(name, detail);
   }
 
+  // Outgoing messages between send_msg and their MsgDelivered/MsgFailed event.
+  // Drives the relay status line's sending dashes.
+  _trackSending(msgId) {
+    this._sendingIds.add(msgId);
+    this._emit("send-activity", { sending: true });
+  }
+
+  _untrackSending(msgId) {
+    if (this._sendingIds.delete(msgId) && this._sendingIds.size === 0) {
+      this._emit("send-activity", { sending: false });
+    }
+  }
+
   _beginAccountChange() {
     if (this._accountTransitionBusy) throw new Error("account transition already in progress");
     this._accountTransitionBusy = true;
     this.accountEpoch++;
     this.msgIdCache = new Map();
+    if (this._sendingIds.size) {
+      this._sendingIds.clear();
+      this._emit("send-activity", { sending: false });
+    }
     this._emit("account-changing", { accountId: this.accountId, accountEpoch: this.accountEpoch });
   }
 
@@ -259,6 +277,7 @@ export class JsonRpcCore extends EventTarget {
       case "SmtpMessageSent":
       case "ImapInboxIdle":
       case "ConnectivityChanged":
+        if (ev.kind === "ConnectivityChanged") this._emitAccount("connectivity-changed", {}, accountEpoch);
         this._emit("diagnostic", {
           level: ev.kind === "Error" ? "error" : ev.kind === "Warning" ? "warning" : "info",
           message: ev.msg || ev.comment || ev.kind,
@@ -298,6 +317,7 @@ export class JsonRpcCore extends EventTarget {
         break;
       }
       case "MsgDelivered":
+        this._untrackSending(msgId);
         this._emitAccount("msg-state", { chatId, msgId, state: "delivered" }, accountEpoch);
         break;
       case "MsgRead":
@@ -305,6 +325,7 @@ export class JsonRpcCore extends EventTarget {
         this._emitAccount("msg-state", { chatId, msgId, state: "read" }, accountEpoch);
         break;
       case "MsgFailed":
+        this._untrackSending(msgId);
         this._emitAccount("msg-state", { chatId, msgId, state: "failed" }, accountEpoch);
         break;
       case "ChatlistChanged":
@@ -572,6 +593,39 @@ export class JsonRpcCore extends EventTarget {
     }
   }
 
+  // Core relay connectivity: 1000 not connected, 2000 connecting,
+  // 3000 working, 4000 connected. Changes arrive as ConnectivityChanged
+  // events ("connectivity-changed" here).
+  async getConnectivity() {
+    return this._call("get_connectivity", this.accountId);
+  }
+
+  /* -- multi-transport relay management (desktop 2.47+ "Relays" UI) -- */
+
+  // Published transports only; unpublished ones count as removed from the
+  // user's point of view and must not be shown.
+  async listTransports() {
+    return this._call("list_transports", this.accountId);
+  }
+
+  // Returns { kind: "account"|"login", domain?|address? } for relay codes.
+  async checkQr(qr) {
+    return this._call("check_qr", this.accountId, qr);
+  }
+
+  // Adds a relay from a dcaccount:/dclogin: code. Runs the core's configure
+  // (ConfigureProgress events flow as "configure-progress") and restarts I/O.
+  async addTransportFromQr(qr) {
+    return this._call("add_transport_from_qr", this.accountId, qr);
+  }
+
+  // Soft removal — the core stops advertising the relay and stops sending
+  // self-sent messages there, but keeps listening for ~90 days so contacts
+  // who still send to the old address don't lose mail, then deletes it.
+  async setTransportUnpublished(addr, unpublished) {
+    return this._call("set_transport_unpublished", this.accountId, addr, unpublished);
+  }
+
   async setDisplayName(name) {
     const trimmed = (name || "").trim();
     await this._call("set_config", this.accountId, "displayname", trimmed || null);
@@ -666,6 +720,7 @@ export class JsonRpcCore extends EventTarget {
       if (filename) data.filename = filename;
     }
     const msgId = await this._call("send_msg", accountId, chatId, data);
+    this._trackSending(msgId);
     if (this._isCurrentAccount(accountEpoch)) this.msgIdCache.get(chatId)?.push(msgId);
 
     // Outgoing media messages start in OutPreparing (18). Wait briefly until the

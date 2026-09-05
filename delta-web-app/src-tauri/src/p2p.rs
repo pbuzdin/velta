@@ -307,7 +307,6 @@ impl P2p {
 
     /// Stops all engine tasks so the endpoint socket is released. Callers
     /// should still drop their own `Arc` references afterwards.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub async fn close(&self) {
         self.cancel.cancel();
         // Give the accept/maintenance/session tasks a moment to unwind.
@@ -1433,18 +1432,34 @@ pub type EngineSlot = std::sync::Arc<Mutex<Option<Arc<P2p>>>>;
 /// for the first moments.
 pub struct P2pState {
     engine: EngineSlot,
+    /// Data directory for a restart after `p2p_set_enabled(true)`.
+    dir: std::sync::Mutex<Option<PathBuf>>,
+    /// Whether the engine should run. The startup task checks this after
+    /// `P2p::start` so a disable request racing the boot spawn still wins.
+    enabled: std::sync::Arc<std::sync::Mutex<bool>>,
 }
 
 impl P2pState {
     pub fn empty() -> Self {
         Self {
             engine: std::sync::Arc::new(Mutex::new(None)),
+            dir: std::sync::Mutex::new(None),
+            enabled: std::sync::Arc::new(std::sync::Mutex::new(true)),
         }
     }
 
     /// A clone of the engine slot to hand to [`spawn_startup`].
     pub fn slot(&self) -> EngineSlot {
         self.engine.clone()
+    }
+
+    /// A clone of the enabled flag to hand to [`spawn_startup`].
+    pub fn enabled_flag(&self) -> std::sync::Arc<std::sync::Mutex<bool>> {
+        self.enabled.clone()
+    }
+
+    pub fn set_dir(&self, dir: PathBuf) {
+        *self.dir.lock().unwrap() = Some(dir);
     }
 }
 
@@ -1457,11 +1472,22 @@ fn engine(state: &P2pState) -> Result<Arc<P2p>> {
         .ok_or_else(|| anyhow!("P2P engine is still starting"))
 }
 
-/// Starts the engine on Tauri's async runtime and publishes it into `slot`.
-pub fn spawn_startup(app: tauri::AppHandle, slot: EngineSlot, dir: PathBuf) {
+/// Starts the engine on Tauri's async runtime and publishes it into `slot`,
+/// unless the engine was disabled in the meantime.
+pub fn spawn_startup(
+    app: tauri::AppHandle,
+    slot: EngineSlot,
+    enabled: std::sync::Arc<std::sync::Mutex<bool>>,
+    dir: PathBuf,
+) {
     tauri::async_runtime::spawn(async move {
         match P2p::start(dir, Sink::Tauri(app.clone())).await {
             Ok(engine) => {
+                if !*enabled.lock().unwrap() {
+                    engine.close().await;
+                    crate::log("p2p chat engine disabled — not starting");
+                    return;
+                }
                 *slot.lock().unwrap() = Some(engine);
                 crate::log("p2p chat engine started");
             }
@@ -1473,6 +1499,35 @@ pub fn spawn_startup(app: tauri::AppHandle, slot: EngineSlot, dir: PathBuf) {
 #[tauri::command]
 pub fn p2p_status(state: tauri::State<'_, P2pState>) -> Result<Value, String> {
     engine(&state).map_err(|e| e.to_string()).map(|e| e.status())
+}
+
+/// Enables or disables the Local chat engine. Disabling stops all engine
+/// tasks (the endpoint socket is released); enabling restarts it. The
+/// preference itself lives in the WebView's localStorage and is applied on
+/// every boot, so a disable here just needs to outlive this session.
+#[tauri::command]
+pub async fn p2p_set_enabled(
+    state: tauri::State<'_, P2pState>,
+    app: tauri::AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    *state.enabled.lock().unwrap() = enabled;
+    if enabled {
+        let dir = state
+            .dir
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or("p2p data dir unavailable")?;
+        spawn_startup(app, state.slot(), state.enabled_flag(), dir);
+    } else {
+        let running = state.engine.lock().unwrap().take();
+        if let Some(engine) = running {
+            engine.close().await;
+            crate::log("p2p chat engine stopped");
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]

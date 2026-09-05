@@ -18,6 +18,7 @@
 <div id="app" class="app">
   <!-- Sidebar -->
   <aside id="sidebar" class="sidebar">
+    <div id="relay-line" class="relay-line" data-state="connecting" role="status"></div>
     <header class="sidebar-head">
       <button id="btn-menu" class="icon-btn" title="Menu" aria-label="Menu">
         <svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -98,6 +99,7 @@
       <div id="diagnostic-actions" class="composer" hidden>
         <button id="btn-restart-core" class="btn-text" type="button">Restart core I/O</button>
         <button id="btn-reconnect-ui" class="btn-text" type="button">Reconnect UI</button>
+        <button id="btn-p2p-toggle" class="btn-text" type="button">Local chat: on</button>
       </div>
 
       <footer id="main-composer" class="composer">

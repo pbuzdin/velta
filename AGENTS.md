@@ -43,11 +43,11 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   ├── css/main.css          # single stylesheet
 │   ├── icons/                # PWA/Tauri icons, including source asset
 │   ├── js/                   # application logic
-│   │   ├── app.js            # bootstrap, chat list, navigation, account switcher, relays, modals, PWA lifecycle
+│   │   ├── app.js            # bootstrap, chat list, navigation, account switcher, relay status line, multi-relay manager, modals, PWA lifecycle
 │   │   ├── avatar.js         # contact avatars: fingerprint color-grid identity tiles
 │   │   ├── chat-view.js      # message history, composer, selection actions
 │   │   ├── components.js     # Elena-based web components (<dc-avatar>, <dc-chat-item>, <dc-chat-head>, <dc-video>)
-│   │   ├── diagnostics.js    # diagnostics chat store + event sink
+│   │   ├── diagnostics.js    # diagnostics chat store + event sink + shared console-style row renderer
 │   │   ├── invites.js        # invite-link registry (mirror domains), parsing, invite cards, settings modal
 │   │   ├── markdown.js       # escape-first message markdown: bold/italic/underline, links, lists
 │   │   ├── media.js          # media URL helpers (loopback server / asset protocol)
@@ -247,8 +247,14 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
 - `app/js/rpc-core.js` wraps any transport with a JSON-RPC client, maps core
   events to UI events, and exposes the same API surface as `mock-core.js`. It
   additionally provides the multi-account surface used by the drawer switcher
-  (`getAllAccounts`, `switchAccount`, `addAccountWithQr`) and `createQrSvg`
-  for rendering arbitrary tickets as QR.
+  (`getAllAccounts`, `switchAccount`, `addAccountWithQr`), the relay status
+  primitives (`getConnectivity`, `connectivity-changed` events,
+  `send-activity` from `sendMessage` until `MsgDelivered`/`MsgFailed`), the
+  multi-transport relay surface (`listTransports`, `checkQr`,
+  `addTransportFromQr`, `setTransportUnpublished`), and `createQrSvg`
+  for rendering arbitrary tickets as QR. Wire types are normalized at this
+  boundary (e.g. drawer taps hand ids through dataset attributes and are
+  always strings — `switchAccount` coerces to u32).
 - **Account isolation contract** (`rpc-core.js` + `app.js` + `chat-view.js`):
   the core keeps an `accountEpoch`, advanced twice around every account
   transition — `account-changing` fires synchronously at the start (the app
@@ -271,6 +277,19 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   dropped. Don't replace it with a normal `_call`.
 - `app/js/app.js` owns the chat list, navigation, modals, diagnostics chat, and
   the PWA shell. It also runs a DOM-budget watchdog that samples node counts.
+  It owns the **relay status line** (`#relay-line`, thin strip atop the
+  sidebar): green relay connected / yellow connecting or retrying / red
+  unreachable after a 45 s NotConnected grace / blue demo or local-chat mode,
+  with animated dashes while a message is in flight to the relay (driven by
+  rpc-core's `send-activity`). It also owns the **multi-relay manager**
+  (`openRelaysModal`, reached from the drawer's "Relays of this profile…" and
+  the profile modal's Transport row): `list_transports` for the list,
+  `set_transport_unpublished` for soft removal (core keeps listening ~90 days
+  so contacts on the old address don't lose mail), `add_transport_from_qr`
+  with `check_qr` validation and `configure-progress` step UI for adding.
+  Sending always goes through the primary relay; there is deliberately no
+  relay selector. The drawer's saved-relays bookmark list was removed —
+  profile = identity (drawer), relay = property of a profile (Relays modal).
   Its `showChatInfo` is the contact/chat profile modal: the 168px photo
   avatar beside the captioned identity tile, action buttons (Send message,
   Share profile via `navigator.share` with the personal i.delta.chat invite
@@ -288,13 +307,21 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   fingerprint glyph — or a contact's photo padded inside it. Every user
   avatar renders this matrix; group avatars keep solid colors.
 - `app/js/diagnostics.js` is the in-app diagnostics event store ("Velta
-  Diagnostics" chat).
+  Diagnostics" chat). Entries render as console-style rows (Chrome DevTools
+  look: monospace, level emoji ❌/⚠️/ℹ️, soft pill, hover copy-to-clipboard
+  button) via the shared `diagnosticRow()` helper used by both app.js's direct
+  renderer and chat-view's service-message fallback. The store collapses
+  identical consecutive entries into one counted row — prefer appending here
+  over toasting for repeatable background errors.
 - `app/js/media.js` resolves local file paths to WebView-safe media URLs (loopback media server when available, asset protocol otherwise).
 - `app/js/poster.js` extracts and caches WebP poster frames for video placeholders.
 - `app/js/ui.js` is a collection of UI helpers (drawer, modals, context menus,
   toasts, delete-confirmation dialog).
 - `app/js/mock-core.js` is a self-contained demo backend used when no real core
   is reachable (also force-selectable via `localStorage["velta-mock"] = "1"`).
+  It must implement the same contract surface as the real core — including
+  `accountId`/`accountEpoch` (the isolation contract keys on them; undefined
+  values made `a?.x === a.x` guards pass on null and crashed demo mode).
 
 ### 5.2 Core Rust library (`core/src/`)
 
@@ -349,10 +376,20 @@ iroh (QUIC, `RelayMode::Disabled`, optional mDNS re-discovery via the
   bidirectional QUIC stream per session; sends to offline peers are queued and
   flushed on reconnect. Events reach the UI as Tauri `p2p-event`s; commands are
   the `p2p_*` Tauri methods registered in `lib.rs`.
+- Enable/disable: `p2p_set_enabled` starts/stops the engine (endpoint socket
+  released, beacons off); the preference lives in the WebView
+  (`localStorage["velta-p2p"]`, applied on every boot by `app/js/p2p.js`).
+  `P2pState` carries the data dir and an enabled flag so a disable request
+  racing the async boot spawn still wins (the spawned startup re-checks the
+  flag after `P2p::start` and closes the engine again if it lost the race).
 - UI (`app/js/p2p.js`): drawer entry (Tauri-only, hidden in browser/PWA mode),
   hub with online dots, "Nearby devices" (UDP beacon on port 53717), invite QR
   display, pairing via beacon tap (requires approval on the other device) or
   pasted code (camera scanning was removed — unreliable in WebViews).
+  Engine-side errors (background connect retries) go to the Diagnostics chat,
+  never toasts — several queued connects can fail at once and the store
+  collapses identical consecutive entries into one counted row. The toggle
+  button lives in the Diagnostics chat's action row.
 - Rust tests: `cargo test --lib p2p::` (loopback pairing + offline queue flush).
 
 ---

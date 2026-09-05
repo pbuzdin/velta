@@ -63,6 +63,34 @@ peers are queued and flushed on reconnect. Engine: `delta-web-app/src-tauri/src/
 UI: `app/js/p2p.js`. A headless terminal hub for debugging lives in
 `delta-web-app/src-tauri/src/bin/p2p-hub.rs`.
 
+Local chat can be switched off (drawer → Diagnostics chat → "Local chat: on/off"):
+the engine stops, the endpoint socket is released, LAN beacons go silent, and
+the drawer entry disappears. The preference persists across restarts.
+
+## Multi-relay accounts
+
+One profile can be reachable on **several chatmail relays** at once — what
+Delta Chat desktop 2.47+ calls "Relays". Messages are received on all of them;
+sending always goes through the primary relay, so there is no relay selector.
+Manage it in the drawer under **Relays of this profile…** (or any profile
+modal → Transport row):
+
+- **Add relay** — paste a `dcaccount:`/`dclogin:` invite code; the core
+  configures it as a second transport (progress modal during setup).
+- **Remove relay** — soft removal: the relay stops being advertised and
+  self-sent messages stop going there immediately, but the core keeps
+  listening on it for ~90 days so contacts that still send to the old address
+  don't lose mail, then deletes it automatically.
+
+⚠️ If you change relays, make sure all your devices run at least version
+2.47.0 — older devices only understand the primary address and may miss
+messages.
+
+The thin status line above the chat list reflects the relay connection:
+green connected, yellow connecting/retrying, red unreachable (after a 45 s
+grace), blue for demo or local-chat-only mode; animated dashes while a
+message is on its way to the relay.
+
 ## Project layout
 
 ```

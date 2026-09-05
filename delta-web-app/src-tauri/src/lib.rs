@@ -1109,11 +1109,14 @@ pub fn run() {
                     .resolve("p2p", tauri::path::BaseDirectory::AppLocalData);
                 let state = p2p::P2pState::empty();
                 let slot = state.slot();
-                app.manage(state);
-                match p2p_dir {
-                    Ok(dir) => p2p::spawn_startup(app.handle().clone(), slot, dir),
-                    Err(e) => log(&format!("p2p data dir unavailable: {e}")),
+                let enabled = state.enabled_flag();
+                if let Ok(dir) = p2p_dir {
+                    state.set_dir(dir.clone());
+                    p2p::spawn_startup(app.handle().clone(), slot, enabled, dir);
+                } else {
+                    log("p2p data dir unavailable");
                 }
+                app.manage(state);
             }
 
             #[cfg(target_os = "android")]
@@ -1238,7 +1241,7 @@ pub fn run() {
             response.headers_mut().insert("Cache-Control", "no-store".parse().unwrap());
             response.map(|body| std::borrow::Cow::Owned(body))
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 

@@ -2,6 +2,7 @@
 import { formatTime, formatDay, formatBytes } from "./mock-core.js";
 import { escapeHtml, escapeAttr, ticksSvg } from "./components.js";
 import { showContextMenu, showModal, confirmDeleteMessagesModal, toast, showEmojiPop, openImageLightbox } from "./ui.js";
+import { diagnosticRow } from "./diagnostics.js";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
 
@@ -520,11 +521,7 @@ export class ChatView {
     const session = this._session;
     const m = item.msg;
     if (m.kind === "service") {
-      const row = document.createElement("div");
-      row.className = "msg-row service";
-      row.dataset.msgid = m.id;
-      row.innerHTML = `<div class="service-msg">${escapeHtml(m.text)}</div>`;
-      return row;
+      return diagnosticRow(m);
     }
     const out = m.from === 1;
     const showAvatar = !out && (this.chat.kind === "group");

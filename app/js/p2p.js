@@ -4,12 +4,28 @@
 
 import { showModal, toast, notifyIncoming } from "./ui.js";
 import { acquireCode } from "./qr-scan.js";
+import { diagnosticsSink } from "./diagnostics.js";
 
 const TICKET_PREFIX = "VELTAP2P1:";
 
 export function p2pAvailable() {
   const t = window.__TAURI__;
   return !!(t && (t.core?.invoke || t.invoke));
+}
+
+// Local chat preference, persisted by the WebView. Off hides the drawer
+// entry and stops the engine (endpoint released, no beacons, no retries).
+export function p2pEnabled() {
+  try { return localStorage.getItem("velta-p2p") !== "0"; } catch { return true; }
+}
+
+export async function setP2pEnabled(enabled) {
+  try { localStorage.setItem("velta-p2p", enabled ? "1" : "0"); } catch {}
+  if (p2pAvailable()) {
+    await tauriInvoke()("p2p_set_enabled", { enabled });
+    if (enabled) ensureListener();
+  }
+  diagnosticsSink.append("info", `Local chat ${enabled ? "enabled" : "disabled"}`);
 }
 
 function tauriInvoke() {
@@ -26,8 +42,12 @@ let pairRequestOpen = false;
 
 // Pairing requests arrive as engine events and must be answerable whether or
 // not the hub is open, so the listener is installed at startup. Kept below
-// the module state so `listening` is initialized before use.
-if (p2pAvailable()) ensureListener();
+// the module state so `listening` is initialized before use. When Local chat
+// is disabled, apply the preference to the engine as early as possible.
+if (p2pAvailable()) {
+  if (p2pEnabled()) ensureListener();
+  else tauriInvoke()("p2p_set_enabled", { enabled: false }).catch(() => {});
+}
 
 function ensureListener() {
   if (listening) return;
@@ -46,7 +66,15 @@ async function handleEvent(ev) {
   if (!ev?.kind) return;
   if (ev.kind === "pair-request") showPairRequest(ev.peerId, ev.name).catch(() => {});
   if (ev.kind === "pairing") toast(`Paired with ${ev.name || "a device"}`);
-  if (ev.kind === "error") toast(ev.message || "Local chat error");
+  if (ev.kind === "error") {
+    // Engine-side errors (connect timeouts on background retries) land in the
+    // Diagnostics chat, not toasts: several queued connects can fail at once
+    // and toasting each one produced toast storms. The diagnostics store
+    // collapses identical consecutive entries into a counted row. Errors the
+    // user caused reach them through the pairing/chat modals instead.
+    const peer = ev.peerId ? ` (${shortId(ev.peerId)})` : "";
+    diagnosticsSink.append("warning", `Local chat${peer}: ${ev.message || "error"}`);
+  }
   if (ev.kind === "message") notifyIncoming(ev.name || "Local chat", (ev.text || "").slice(0, 120));
   if (hub && ["pairing", "presence", "nearby"].includes(ev.kind)) hub.refresh().catch(() => {});
   if (activeChat && ev.peerId === activeChat.peerId &&
