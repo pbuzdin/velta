@@ -4,8 +4,18 @@ This directory is the **Tauri v2** wrapper around the Velta PWA in `../app`.
 It produces a native Windows installer and a native Android APK from a single
 frontend codebase.
 
-**Current stable version:** `1.3.4`  
+**Current stable version:** `1.3.5`  
 **Bundled core:** `deltachat-core-rust 2.59.0`
+
+## What's new in 1.3.5
+
+- **Fixed:** incoming-message notifications and chat updates going silent
+  after the app idled longer than the RPC timeout — the event long-poll no
+  longer abandons a timed-out `get_next_event` (whose backend waiter would
+  consume the event for a response the frontend had already forgotten).
+  Timed-out polls are re-issued with a 240 s backstop and their late
+  responses are dispatched instead of dropped, with account attribution and
+  epoch filtering intact. Regression suite: `tests/rpc-event-poll.test.mjs`.
 
 ## What's new in 1.3.4
 

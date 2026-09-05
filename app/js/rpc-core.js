@@ -9,6 +9,13 @@
 
 let nextId = 1;
 
+// Backstop for the event long-poll. The backend parks get_next_event until an
+// event exists (no server-side timeout), so the ordinary 30 s RPC timeout must
+// not apply — see _callEventPoll. Long enough that healthy polls rarely hit it
+// (only truly quiet accounts), finite so a parked request can't outlive a
+// dead connection indefinitely.
+const EVENT_POLL_TIMEOUT_MS = 240_000;
+
 import { debugLog } from "./diagnostics.js";
 
 function rustLog(msg) {
@@ -36,7 +43,9 @@ export class JsonRpcCore extends EventTarget {
     this.accountId = null;
     this.accountEpoch = 0;
     this._accountTransitionBusy = false;
-    this.pending = new Map();     // rpc id -> {resolve, reject}
+    this.pending = new Map();     // rpc id -> {resolve, reject, onLate?}
+    this.msgIdCache = new Map();  // chatId -> [msgIds ascending]
+    this.eventPollTimeoutMs = EVENT_POLL_TIMEOUT_MS;
     this.msgIdCache = new Map();  // chatId -> [msgIds ascending]
     this._onLine = this._onLine.bind(this);
   }
@@ -127,8 +136,11 @@ export class JsonRpcCore extends EventTarget {
     let msg;
     try { msg = JSON.parse(line); } catch { return; }
     if (msg.id != null && this.pending.has(msg.id)) {
-      const { resolve, reject } = this.pending.get(msg.id);
+      const { resolve, reject, onLate } = this.pending.get(msg.id);
       this.pending.delete(msg.id);
+      // Salvaged long-poll entries are already settled; onLate still runs so
+      // the late response's event is processed instead of dropped.
+      if (onLate) onLate(msg);
       if (msg.error) reject(new Error(msg.error.message || JSON.stringify(msg.error)));
       else resolve(msg.result);
     }
@@ -168,6 +180,54 @@ export class JsonRpcCore extends EventTarget {
     });
   }
 
+  // Long-poll get_next_event. The backend parks the request until an event
+  // exists, so a client-side timeout that DELETED the pending entry would lose
+  // the event: the backend waiter stays parked, consumes the next event, and
+  // its response arrives for an id the frontend no longer expects. This call
+  // therefore uses the long backstop (not the 30 s default) and keeps the
+  // entry registered after the backstop fires — the late response is then
+  // dispatched via onLate instead of dropped. Entries are cleared on
+  // reconnect() (dead socket, no waiter will answer); a transport that wedges
+  // silently without dying can accumulate one parked entry per backstop
+  // period, but can no longer lose its event.
+  _callEventPoll() {
+    const id = nextId++;
+    const line = JSON.stringify({ jsonrpc: "2.0", id, method: "get_next_event", params: [] });
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, {
+        resolve,
+        reject,
+        onLate: msg => this._dispatchPollResult(msg?.result),
+      });
+      try {
+        const result = this.transport.send(line);
+        if (result && typeof result.then === "function") {
+          result.catch(e => {
+            if (this.pending.has(id)) {
+              this.pending.delete(id);
+              reject(e);
+            }
+          });
+        }
+      } catch (e) {
+        this.pending.delete(id);
+        reject(e);
+        return;
+      }
+      setTimeout(() => {
+        // Backstop only rejects the caller so the loop re-polls; the entry
+        // stays registered to receive its late response.
+        if (this.pending.has(id)) reject(new Error("rpc timeout: get_next_event"));
+      }, this.eventPollTimeoutMs);
+    });
+  }
+
+  _dispatchPollResult(ev) {
+    if (!ev) return;
+    debugLog(`event raw: ${JSON.stringify(ev).slice(0, 400)}`);
+    if (ev.event) this._handleCoreEvent(ev.event, ev.contextId ?? ev.context_id).catch(() => {});
+  }
+
   async _pollEvents() {
     if (this._polling) return; // don't start a second loop on reconnect
     this._polling = true;
@@ -175,9 +235,7 @@ export class JsonRpcCore extends EventTarget {
     // Event shape: { event: { kind: "IncomingMsg", chatId, msgId }, contextId }
     for (;;) {
       try {
-        const ev = await this._call("get_next_event");
-        debugLog(`event raw: ${JSON.stringify(ev).slice(0, 400)}`);
-        if (ev?.event) this._handleCoreEvent(ev.event, ev.contextId ?? ev.context_id).catch(() => {});
+        this._dispatchPollResult(await this._callEventPoll());
       } catch (error) {
         this._emit("diagnostic", { level: "warning", message: `Event polling failed: ${error?.message || error}` });
       }

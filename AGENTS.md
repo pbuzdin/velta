@@ -261,8 +261,14 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `ChatView` sessions are invalidated by both `close()` and the epoch;
   unsent text/replies are drafts keyed by (account, chat) in memory.
   `closeAllPopups()` settles confirmations (dismissal = cancel). Keep this
-  contract when touching account-related code; regression suites live in
+  Regression suites live in
   `tests/` (see §7.2).
+- **Event long-poll contract** (`rpc-core.js`): the backend parks
+  `get_next_event` until an event exists and hands each event to exactly one
+  waiter. Event polls therefore use a dedicated 240 s backstop
+  (`eventPollTimeoutMs`) instead of the 30 s RPC timeout, and an expired poll's
+  entry stays registered so its late response is dispatched instead of
+  dropped. Don't replace it with a normal `_call`.
 - `app/js/app.js` owns the chat list, navigation, modals, diagnostics chat, and
   the PWA shell. It also runs a DOM-budget watchdog that samples node counts.
   Its `showChatInfo` is the contact/chat profile modal: the 168px photo
@@ -424,13 +430,16 @@ Regression suites (Node's built-in test runner, no dependencies):
 ```bash
 node --test tests/rpc-account-isolation.test.mjs \
              tests/chat-account-isolation.test.mjs \
-             tests/app-account-isolation.test.mjs
+             tests/app-account-isolation.test.mjs \
+             tests/rpc-event-poll.test.mjs
 ```
 
 These cover the account-isolation contract: stale account results (A→B→A),
 entry-account-pinned RPCs, view lifetime across close/reopen, per-account
-drafts, and popup settlement. Run them after touching `rpc-core.js`,
-`app.js`, `chat-view.js` or `ui.js`.
+drafts, and popup settlement — plus the event long-poll contract: expired
+`get_next_event` requests stay registered so their late responses are
+dispatched (never dropped), with account attribution still enforced. Run them
+after touching `rpc-core.js`, `app.js`, `chat-view.js` or `ui.js`.
 
 Beyond that, the primary verification path is manual:
 

@@ -37,6 +37,7 @@ function fixture(handlers = {}) {
     }
   };
   core._callWithTimeout = (timeout, method, ...params) => core._call(method, ...params);
+  core._callEventPoll = () => core._call("get_next_event");
   for (const name of [
     "account-changing", "account-changed", "chat-updated", "msgs-changed",
     "incoming-msg", "msg-updated", "msg-state", "msg-sent", "msgs-deleted",
