@@ -5,11 +5,12 @@ import { escapeHtml, escapeAttr } from "./components.js";
 import { fileUrl } from "./media.js";
 import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintGroups } from "./avatar.js";
 import { ChatView, setAvatarProfileOpener } from "./chat-view.js";
-import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID } from "./diagnostics.js";
+import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal } from "./invites.js";
 import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming } from "./ui.js";
-import { p2pAvailable, openP2p as openP2pScreen } from "./p2p.js";
+import { p2pAvailable, p2pEnabled, setP2pEnabled, openP2p as openP2pScreen } from "./p2p.js";
 import { timeAgo } from "./mock-core.js";
+import { acquireCode } from "./qr-scan.js";
 
 const diagnostics = new DiagnosticsStore();
 window.__veltaDiagnostics = diagnostics;
@@ -58,17 +59,7 @@ function renderDiagnosticsMessages() {
   if (!diagnosticsOpen) return;
   const history = $("history");
   if (!history) return;
-  history.replaceChildren();
-  for (const message of diagnostics.messages) {
-    const row = document.createElement("div");
-    row.className = "msg-row service";
-    row.dataset.msgid = message.id;
-    const bubble = document.createElement("div");
-    bubble.className = "service-msg";
-    bubble.textContent = `${new Date(message.ts).toLocaleTimeString()}  ${message.text}` + (message.count > 1 ? ` ×${message.count}` : "");
-    row.appendChild(bubble);
-    history.appendChild(row);
-  }
+  history.replaceChildren(...diagnostics.messages.map(diagnosticRow));
   requestAnimationFrame(() => {
     const scroll = $("history-scroll");
     if (scroll) scroll.scrollTop = scroll.scrollHeight;
@@ -125,6 +116,25 @@ function bindEarlyRecoveryActions() {
       toast(`Reconnect failed: ${error?.message || error}`, 5000);
     }
   }, { once: true });
+
+  $("btn-p2p-toggle")?.addEventListener("click", async () => {
+    const enable = !p2pEnabled();
+    try {
+      await setP2pEnabled(enable);
+      toast(enable ? "Local chat enabled" : "Local chat disabled");
+    } catch (error) {
+      diagnostics.append("error", `Local chat toggle failed: ${error?.message || error}`);
+      toast(`Local chat toggle failed: ${error?.message || error}`, 5000);
+    } finally {
+      updateP2pToggle();
+      rebuildDrawer();
+    }
+  });
+}
+
+function updateP2pToggle() {
+  const btn = $("btn-p2p-toggle");
+  if (btn) btn.textContent = `Local chat: ${p2pEnabled() ? "on" : "off"}`;
 }
 
 function openDiagnosticsChat() {
@@ -146,6 +156,7 @@ function openDiagnosticsChat() {
   $("chat-head-actions").style.visibility = "hidden";
   $("main-composer").hidden = true;
   $("diagnostic-actions").hidden = false;
+  updateP2pToggle();
   $("reply-preview").hidden = true;
   renderDiagnosticsMessages();
   if (history.state?.velta !== "chat") history.pushState({ velta: "chat", chatId: DIAGNOSTICS_CHAT_ID }, "");
@@ -349,6 +360,73 @@ addEventListener("dc-core-status", e => {
   updateConnStatus();
 });
 
+/* ---------------- relay status line ---------------- */
+// Thin strip at the top of the chat list reflecting the chatmail relay:
+// green connected, yellow connecting/retrying, red unreachable,
+// blue local-chat mode (no relay in play). Animated dashes while a
+// message is on its way to the relay.
+let relayConnectivity = null;  // last get_connectivity value (1000/2000/3000/4000)
+let relayDownSince = 0;        // first NotConnected observation — red after a grace period
+let relaySending = false;      // any message queued/sending through the relay
+let relayUpgradeTimer = null;
+const RELAY_DOWN_AFTER_MS = 45000;
+
+async function refreshRelayStatus() {
+  if (!core.getConnectivity || core.backend?.kind === "mock") return;
+  const epoch = core.accountEpoch;
+  try {
+    const value = await core.getConnectivity();
+    if (!accountIsCurrent(epoch)) return;
+    relayConnectivity = value;
+    clearTimeout(relayUpgradeTimer);
+    if (value >= 4000) {
+      relayDownSince = 0;
+    } else if (value <= 1000) {
+      if (!relayDownSince) relayDownSince = Date.now();
+      // The core stays silent while offline — schedule the yellow -> red flip.
+      const wait = relayDownSince + RELAY_DOWN_AFTER_MS - Date.now() + 250;
+      relayUpgradeTimer = setTimeout(renderRelayLine, Math.max(wait, 250));
+    } else {
+      relayDownSince = 0;
+    }
+    renderRelayLine();
+  } catch { /* old cores without get_connectivity */ }
+}
+
+function renderRelayLine() {
+  const el = $("relay-line");
+  if (!el) return;
+  let relayState, title;
+  if (core.backend?.kind === "mock") {
+    relayState = "local"; title = "Demo mode — everything stays on this device";
+  } else if (state.account && state.account.configured === false && p2pAvailable()) {
+    relayState = "local"; title = "Local chat mode — no relay configured";
+  } else if (relayConnectivity == null) {
+    relayState = "connecting"; title = "Checking relay…";
+  } else if (relayConnectivity >= 4000) {
+    relayState = "ok"; title = "Relay connected";
+  } else if (relayConnectivity >= 2000) {
+    relayState = "connecting"; title = "Connecting to relay…";
+  } else if (relayDownSince && Date.now() - relayDownSince > RELAY_DOWN_AFTER_MS) {
+    relayState = "down"; title = "Relay unreachable — retrying";
+  } else {
+    relayState = "connecting"; title = "Relay problems — retrying…";
+  }
+  el.dataset.state = relayState;
+  if (relaySending && relayState !== "local") el.setAttribute("data-sending", "");
+  else el.removeAttribute("data-sending");
+  el.title = title;
+  el.setAttribute("aria-label", title);
+}
+
+core.addEventListener?.("connectivity-changed", refreshRelayStatus);
+core.addEventListener?.("send-activity", e => {
+  relaySending = !!e.detail?.sending;
+  renderRelayLine();
+});
+renderRelayLine();
+refreshRelayStatus();
+
 // Socket opened but the core never answered RPC → almost always an old or
 // crashed service build. Say so explicitly instead of silently demo-ing.
 addEventListener("dc-core-init-failed", e => {
@@ -438,7 +516,7 @@ function scheduleChatListRefresh(delay = 400) {
 async function refreshChatList() {
   if (state.accountChanging) return;
   const epoch = core.accountEpoch, query = state.query;
-  if (chatListInFlight?.epoch === epoch && chatListInFlight.query === query) {
+  if (chatListInFlight?.epoch === epoch && chatListInFlight?.query === query) {
     scheduleChatListRefresh();
     return chatListInFlight.promise;
   }
@@ -748,10 +826,14 @@ function showChatInfo(chat) {
       <div class="modal-list" data-member-list style="max-height:240px;overflow:auto"></div>` : ""}
     ${contactRows}
     <div class="info-row"><span class="k">Notifications</span><span class="v">${chat.muted ? "Muted" : "On"}</span></div>
-    <div class="info-row"><span class="k">Transport</span><span class="v">chatmail relay · ${escapeHtml(state.account.relay)}</span></div>
+    <div class="info-row" data-relays style="cursor:pointer"><span class="k">Transport</span><span class="v">chatmail relay · ${escapeHtml(state.account.relay)} ›</span></div>
     ${!isGroup && chat.contactId ? `<div class="info-row" data-common-head style="display:none"><span class="k" style="color:var(--text);font-weight:600">Chats in common</span></div>
     <div class="modal-list" data-common-list style="display:none;max-height:180px;overflow:auto"></div>` : ""}`;
   const modal = showModal({ title: chat.name, body });
+
+  // Relay transports (multi-relay) — tapping the Transport row opens the
+  // relays manager for the current account.
+  body.querySelector("[data-relays]")?.addEventListener("click", () => openRelaysModal());
 
   // Profile action buttons (single chats): send, share, rename, block.
   if (!isGroup && chat.contactId) {
@@ -1209,6 +1291,10 @@ async function refreshAccounts() {
     console.warn("[velta] refreshAccounts error:", error);
     return;
   }
+  // Relay status is account-scoped — re-check whenever the profile picture
+  // refreshes (startup and every account switch).
+  refreshRelayStatus();
+  renderRelayLine();
   rebuildDrawer();
 }
 
@@ -1233,15 +1319,12 @@ function rebuildDrawer() {
     account: state.account,
     backend: core.backend?.label || "unknown backend",
     theme: state.theme,
-    p2p: p2pAvailable(),
+    p2p: p2pAvailable() && p2pEnabled(),
     onP2p: () => openP2pScreen({ renderQr: text => core.createQrSvg(text) }),
     accounts: state.accounts,
     currentAccountId: core.accountId,
     onAccountTap: accountTapFlow,
-    relays: getSavedRelays(),
-    onRelayTap: relayTapFlow,
-    onAddRelay: relayAddFlow,
-    onWelcome: () => showOnboarding({ addNew: true }),
+    onRelays: () => openRelaysModal(),
     onToggleTheme: toggleTheme,
     onAddAccount: addAccountFlow,
     onInvite: () => showInvite(inviteQrProvider(null), { account: state.account }),
@@ -1429,88 +1512,6 @@ function joinFlow() {
   });
 }
 
-/* ---------------- saved relays ---------------- */
-const MAX_SAVED_RELAYS = 3;
-
-function getSavedRelays() {
-  try {
-    const list = JSON.parse(localStorage.getItem("velta-relays") || "[]");
-    return Array.isArray(list) ? list.slice(0, MAX_SAVED_RELAYS) : [];
-  } catch { return []; }
-}
-
-function saveSavedRelays(list) {
-  localStorage.setItem("velta-relays", JSON.stringify(list.slice(0, MAX_SAVED_RELAYS)));
-}
-
-function hostFromLink(link) {
-  return link.replace(/^dcaccount:https?:\/\//i, "").replace(/\/.*$/, "");
-}
-
-// "Add relay…" — save a chatmail host for quick account creation.
-function relayAddFlow() {
-  const body = document.createElement("div");
-  body.innerHTML = `
-    <p style="font-size:14.5px;line-height:1.5;margin-bottom:4px">Save a chatmail relay for quick account creation — e.g. <code>nine.testrun.org</code>. Up to ${MAX_SAVED_RELAYS} relays are kept.</p>
-    <input class="text-field" id="relay-input" placeholder="Relay address — e.g. relay.example.org" autocomplete="off" inputmode="url" autocapitalize="none">`;
-  const foot = document.createElement("div");
-  const cancel = document.createElement("button");
-  cancel.className = "btn-text"; cancel.textContent = "Cancel";
-  const ok = document.createElement("button");
-  ok.className = "btn-text"; ok.textContent = "Save relay";
-  foot.append(cancel, ok);
-  const { close } = showModal({ title: "Add relay", body, foot });
-  const input = body.querySelector("#relay-input");
-  ok.addEventListener("click", () => {
-    const link = normalizeRelayLink(input.value);
-    if (!link) { toast(input.value.trim() ? "That doesn't look like a relay address" : "Enter a relay address"); return; }
-    const host = hostFromLink(link);
-    const list = getSavedRelays();
-    if (list.includes(host)) { toast("Relay already saved"); close(); rebuildDrawer(); return; }
-    if (list.length >= MAX_SAVED_RELAYS) {
-      toast(`Relay list is full (${MAX_SAVED_RELAYS}) — delete one first`);
-      return;
-    }
-    list.unshift(host);
-    saveSavedRelays(list);
-    close();
-    rebuildDrawer();
-    toast(`Relay saved: ${host}`);
-  });
-  input.addEventListener("keydown", e => {
-    if (e.key === "Enter") { e.preventDefault(); ok.click(); }
-  });
-  setTimeout(() => input.focus(), 60);
-}
-
-// Tap on a saved relay: create a new account there, or delete it from the
-// list (existing accounts are never touched by deletion).
-function relayTapFlow(host) {
-  const body = document.createElement("div");
-  body.innerHTML = `<p style="font-size:14.5px;line-height:1.5">Create a new encrypted profile on <b>${escapeHtml(host)}</b>, or remove the relay from your saved list. Existing accounts are not affected by deletion.</p>`;
-  const foot = document.createElement("div");
-  const cancel = document.createElement("button");
-  cancel.className = "btn-text"; cancel.textContent = "Cancel";
-  const del = document.createElement("button");
-  del.className = "btn-text"; del.textContent = "Delete";
-  del.style.color = "var(--danger)";
-  const use = document.createElement("button");
-  use.className = "btn-text"; use.textContent = "Create account";
-  foot.append(cancel, del, use);
-  const { close } = showModal({ title: `Relay ${host}`, body, foot });
-  cancel.addEventListener("click", close);
-  del.addEventListener("click", () => {
-    saveSavedRelays(getSavedRelays().filter(r => r !== host));
-    close();
-    rebuildDrawer();
-    toast(`Relay deleted: ${host}`);
-  });
-  use.addEventListener("click", () => {
-    close();
-    addAccountFromInvite(`dcaccount:https://${host}/new`);
-  });
-}
-
 /* ---------------- onboarding (real core only) ---------------- */
 // Accepts "example.com", "https://example.com", "example.com/new" or a full
 // dcaccount: link and normalizes to dcaccount:https://<host>/new.
@@ -1524,10 +1525,8 @@ function normalizeRelayLink(raw) {
 }
 
 // The "Welcome to Velta" modal. First boot: configures the current
-// (unconfigured) account. From the menu (addNew: true): creates a NEW account
-// on the entered relay via addAccountWithQr, which is safe on configured
-// accounts — it never overwrites an existing profile.
-function showOnboarding({ addNew = false, preset = "" } = {}) {
+// (unconfigured) account on the entered relay.
+function showOnboarding() {
   if (state.accountChanging) return;
   const epoch = core.accountEpoch;
   const body = document.createElement("div");
@@ -1542,7 +1541,6 @@ function showOnboarding({ addNew = false, preset = "" } = {}) {
   showModal({ title: "Welcome to Velta", body, foot });
 
   const input = body.querySelector("#ob-relay");
-  input.value = preset;
   const stepsEl = body.querySelector("#ob-steps");
 
   const addStep = (text) => {
@@ -1561,10 +1559,6 @@ function showOnboarding({ addNew = false, preset = "" } = {}) {
     const raw = input.value;
     const link = normalizeRelayLink(raw);
     if (!link) { toast(raw.trim() ? "That doesn't look like a relay address" : "Enter a relay address"); return; }
-    if (addNew) {
-      await addAccountFromInvite(link);
-      return;
-    }
     const host = link.replace(/^dcaccount:https:\/\//i, "").replace(/\/new.*$/, "");
 
     ok.disabled = true; ok.classList.add("btn-loading"); ok.textContent = "Creating…";
@@ -1614,6 +1608,142 @@ function showOnboarding({ addNew = false, preset = "" } = {}) {
       core.removeEventListener("configure-progress", onProg);
     }
   });
+}
+
+/* ---------------- relay transports (multi-relay) ---------------- */
+// One account can receive on several chatmail relays — what Delta Chat
+// desktop 2.47+ manages under "Relays". Removal is soft: the core keeps
+// listening on an unpublished relay for ~90 days so contacts that still
+// send to the old address don't lose mail, then deletes it automatically.
+const RELAYS_WARNING =
+  "Messages are received on all relays. ⚠️ If you change anything here, " +
+  "make sure all your devices run at least version 2.47.0. " +
+  "Otherwise older devices may miss messages.";
+
+async function openRelaysModal() {
+  if (state.accountChanging) return;
+  if (!core.listTransports) {
+    toast("Relay management is not available on this backend");
+    return;
+  }
+  const epoch = core.accountEpoch;
+  const body = document.createElement("div");
+  body.innerHTML = `
+    <p class="p2p-hint">${escapeHtml(RELAYS_WARNING)}</p>
+    <div data-list><div class="p2p-hint" style="opacity:.6">Loading…</div></div>
+    <div style="margin-top:10px"><button class="btn-text" data-add>Add relay…</button></div>`;
+  showModal({ title: "Relays", body });
+  const listEl = body.querySelector("[data-list]");
+
+  const refresh = async () => {
+    let transports;
+    try {
+      transports = await core.listTransports();
+    } catch (err) {
+      if (accountIsCurrent(epoch)) {
+        listEl.innerHTML = `<div class="p2p-hint" style="color:var(--danger)">Failed to load relays: ${escapeHtml(String(err?.message || err))}</div>`;
+      }
+      return;
+    }
+    if (!accountIsCurrent(epoch)) return;
+    listEl.replaceChildren();
+    if (!transports.length) {
+      const empty = document.createElement("div");
+      empty.className = "p2p-hint"; empty.style.opacity = ".6";
+      empty.textContent = "No relays configured.";
+      listEl.appendChild(empty);
+    }
+    for (const t of transports) {
+      const row = document.createElement("div");
+      row.className = "info-row";
+      const primary = state.account && t.addr === state.account.addr;
+      row.innerHTML = `<span class="k">${escapeHtml(t.addr)}${primary ? " · primary" : ""}</span>
+        <span class="v"><button class="btn-text" data-remove style="color:var(--danger)">Remove</button></span>`;
+      row.querySelector("[data-remove]").addEventListener("click", async () => {
+        const ok = await confirmModal(
+          `Remove ${t.addr}?`,
+          "The relay stops being advertised and self-sent messages stop going there right away, but the core keeps listening on it for about 90 days so messages from contacts who still use it are not lost. After that it is deleted automatically.",
+          "Remove");
+        if (!ok || !accountIsCurrent(epoch)) return;
+        try {
+          await core.setTransportUnpublished(t.addr, true);
+          toast("Relay removed");
+        } catch (err) {
+          toast(String(err?.message || err));
+        }
+        refresh();
+      });
+      listEl.appendChild(row);
+    }
+  };
+  await refresh();
+  body.querySelector("[data-add]").addEventListener("click", () => addRelayFlow(epoch, refresh));
+}
+
+async function addRelayFlow(epoch, refresh) {
+  if (!accountIsCurrent(epoch)) return;
+  const code = await acquireCode({
+    title: "Add relay",
+    hint: "Paste the invite code of the relay to add (dcaccount:… or dclogin:…) — e.g. from the relay's web page. It becomes a second transport for this profile; messages are received on both relays.",
+    validate: c => (/^(dcaccount:|dclogin:|https?:\/\/)/i.test(c.trim()) ? null : "That doesn't look like a relay invite code"),
+  });
+  if (!code || !accountIsCurrent(epoch)) return;
+  const qr = code.trim();
+
+  const body = document.createElement("div");
+  body.innerHTML = `<ul class="ob-steps" data-steps></ul>`;
+  showModal({ title: "Adding relay", body });
+  const stepsEl = body.querySelector("[data-steps]");
+  const addStep = (text) => {
+    stepsEl.querySelectorAll("li.active").forEach(li => { li.classList.remove("active"); li.classList.add("done"); });
+    const li = document.createElement("li");
+    li.className = "active";
+    li.innerHTML = `<span class="step-ico"></span><span>${escapeHtml(text)}</span>`;
+    stepsEl.appendChild(li);
+  };
+  const finishSteps = (ok_) => {
+    stepsEl.querySelectorAll("li.active").forEach(li => { li.classList.remove("active"); li.classList.add(ok_ ? "done" : "failed"); });
+  };
+
+  addStep("Checking the code…");
+  try {
+    const qrInfo = await core.checkQr(qr);
+    if (!accountIsCurrent(epoch)) return;
+    const kind = qrInfo?.kind;
+    if (kind !== "account" && kind !== "login") {
+      throw new Error("This code is not a relay invite");
+    }
+    addStep(`Relay: ${qrInfo.domain || qrInfo.address || qr}`);
+    // Friendly phase lines driven by the core's ConfigureProgress (0..1000).
+    const phases = [
+      [1,   "Connecting to the relay"],
+      [400, "Adding relay to this profile"],
+      [750, "Finalizing"],
+    ];
+    let phaseIdx = 0;
+    const onProg = (e) => {
+      const p = e.detail?.progress || 0;
+      while (phaseIdx < phases.length && p >= phases[phaseIdx][0]) {
+        addStep(phases[phaseIdx][1]);
+        phaseIdx++;
+      }
+    };
+    core.addEventListener("configure-progress", onProg);
+    try {
+      await core.addTransportFromQr(qr);
+      if (!accountIsCurrent(epoch)) return;
+      finishSteps(true);
+      addStep("Relay added — messages are received on both relays");
+      toast("Relay added");
+      refresh();
+    } finally {
+      core.removeEventListener("configure-progress", onProg);
+    }
+  } catch (err) {
+    if (!accountIsCurrent(epoch)) return;
+    finishSteps(false);
+    addStep("Adding relay failed: " + (err?.message || err));
+  }
 }
 
 /* ---------------- boot ---------------- */

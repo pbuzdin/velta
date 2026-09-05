@@ -93,6 +93,19 @@ svg { width: 24px; height: 24px; display: block; }
 .icon-btn:hover { background: var(--bg-hover); }
 
 .chat-list { flex: 1; overflow-y: auto; padding-bottom: 90px; }
+/* Relay status line — thin strip at the very top of the sidebar. The color
+   lives on `color` so the sending-dash gradient can reuse it as currentColor. */
+.relay-line { height: 3px; flex: none; background: currentColor; color: #e6a23c; transition: color .25s; }
+.relay-line[data-state="ok"]         { color: #2ecc71; }
+.relay-line[data-state="connecting"] { color: #e6a23c; }
+.relay-line[data-state="down"]       { color: #e05252; }
+.relay-line[data-state="local"]      { color: #4c8dff; }
+.relay-line[data-sending] {
+  background: repeating-linear-gradient(90deg, currentColor 0 7px, transparent 7px 12px);
+  animation: relay-dashes .45s linear infinite;
+}
+@keyframes relay-dashes { to { background-position: 12px 0; } }
+@media (prefers-reduced-motion: reduce) { .relay-line[data-sending] { animation: none; } }
 .sidebar-foot { position: absolute; bottom: calc(22px + env(safe-area-inset-bottom)); right: 18px; display: flex; align-items: center; gap: 12px; }
 .conn-status { display: flex; align-items: center; gap: 7px; background: var(--panel, #f4f4f4); border-radius: 999px; padding: 7px 13px; box-shadow: 0 2px 8px rgba(16,16,16,.14); cursor: default; user-select: none; }
 .conn-dot { width: 9px; height: 9px; border-radius: 50%; background: #999; flex: none; transition: background .25s; }
@@ -196,7 +209,7 @@ html[data-theme="light"] .day-sep { background: rgba(244,244,244,.75); color: #5
 /* ---------- Message bubbles ---------- */
 .msg-row { display: flex; padding: 2px 6px; position: relative; }
 .msg-row.out { justify-content: flex-end; }
-.msg-row.service { justify-content: center; }
+.msg-row.service { justify-content: flex-start; padding-right: 34px; }
 .msg-row.selectable { cursor: pointer; border-radius: 8px; }
 .msg-row.selected { background: rgba(90,162,230,.16); }
 
@@ -250,13 +263,29 @@ html[data-theme="light"] .msg-hover-reply {
 }
 html[data-theme="light"] .msg-hover-reply:hover { background: #f0f2f6; }
 
+/* Diagnostics entries render as console lines (Chrome DevTools look):
+   monospace, left-aligned, in a soft pill, with a hover copy button
+   in the row's top-right corner. */
 .service-msg {
+  font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  font-size: 12.5px; line-height: 1.5;
+  color: #d7d7de;
   background: rgba(16,16,16,.28);
-  color: #d7d7de; font-size: 13.5px;
-  padding: 5px 13px; border-radius: 14px; margin: 4px 0;
-  text-align: center; max-width: 80%;
+  padding: 4px 12px; margin: 3px 0; border-radius: 10px;
+  max-width: 100%;
+  white-space: pre-wrap; word-break: break-word;
 }
-html[data-theme="light"] .service-msg { background: rgba(244,244,244,.75); color: #5d636e; box-shadow: 0 1px 4px rgba(16,16,16,.10); }
+html[data-theme="light"] .service-msg { background: rgba(244,244,244,.8); color: #464b55; }
+.diag-copy {
+  position: absolute; top: 5px; right: 7px;
+  width: 22px; height: 22px; padding: 0; border: none; border-radius: 6px;
+  background: transparent; color: var(--text-dim, #8a8a93);
+  display: none; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 12px;
+}
+.diag-copy svg { width: 13px; height: 13px; }
+.msg-row.service:hover .diag-copy { display: flex; }
+.diag-copy:hover { background: var(--bg-hover, rgba(127,127,127,.18)); color: var(--text, #f2f2f5); }
 
 .msg-sender {
   font-size: 13.5px; font-weight: 600; margin-bottom: 2px;
@@ -681,7 +710,7 @@ dc-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 }
 .text-field:focus { border-color: var(--accent); }
 
-.info-row { display: flex; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 14.5px; }
+.info-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 14.5px; }
 .info-row:last-child { border-bottom: 0; }
 .info-row .k { color: var(--text-dim); }
 .info-row .v { font-weight: 500; display: flex; align-items: center; gap: 6px; }
