@@ -353,12 +353,46 @@ html[data-theme="light"] .msg-meta .ticks.read { color: #1d8bf1; }
   font-size: 13px; text-shadow: 0 1px 3px rgba(16,16,16,.5);
   background: var(--bg-hover); background-size: cover; position: relative; overflow: hidden;
 }
-/* Full image is always visible (no crop), like deltachat-desktop: the
-   element scales to its natural aspect within a max box. */
-.msg-image img {
-  width: auto; height: auto;
-  max-width: 100%; max-height: min(450px, 45vh);
-  display: block; border-radius: 10px;
+/* Animated image loading: the wrap reserves the final box (aspect-ratio from
+   the message's dimensions, else a 4/3 guess until decode) so the row height
+   is stable while the file loads; the image then fades in over the shimmer.
+   The reserved geometry reproduces the old natural-size-capped img box:
+   min(natural px, bubble width, max-height * ratio). */
+.msg-image .img-wrap {
+  position: relative; overflow: hidden; border-radius: 10px;
+  width: min(320px, 100%); aspect-ratio: 4 / 3;
+  background: var(--bg-hover);
+}
+.msg-image .img-wrap img {
+  width: 100%; height: 100%; display: block;
+  opacity: 0; transform: scale(1.03);
+  transition: opacity .35s ease, transform .45s cubic-bezier(.2, .7, .3, 1);
+}
+.msg-image .img-wrap.ready img { opacity: 1; transform: none; }
+.img-ph {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  color: #8b93a1; background: var(--bg-hover); overflow: hidden;
+}
+.img-ph::after {
+  content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(100deg, transparent 25%, rgba(255,255,255,.08) 45%, rgba(255,255,255,.14) 50%, rgba(255,255,255,.08) 55%, transparent 75%);
+  animation: img-shimmer 1.5s ease-in-out infinite;
+}
+@keyframes img-shimmer { to { transform: translateX(100%); } }
+/* Native QR scanning (Android barcode-scanner plugin): the plugin turns the
+   webview background transparent so the camera feed shows through — hide the
+   opaque app chrome while a scan is active. */
+body.native-scanning,
+body.native-scanning #app {
+  background: transparent !important;
+}
+
+.img-ph-ico { width: 34px; height: 34px; opacity: .5; }
+.img-ph-ico svg { width: 100%; height: 100%; }
+.img-wrap.ready .img-ph { opacity: 0; transition: opacity .3s ease; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+  .img-ph::after { animation: none; }
+  .msg-image .img-wrap img { transition: none; transform: none; }
 }
 .msg-video {
   width: 320px; max-width: 100%; margin: -2px -5px 5px;

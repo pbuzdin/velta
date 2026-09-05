@@ -34,12 +34,47 @@ export class JsonRpcCore extends EventTarget {
     super();
     this.transport = transport;
     this.accountId = null;
+    this.accountEpoch = 0;
+    this._accountTransitionBusy = false;
     this.pending = new Map();     // rpc id -> {resolve, reject}
     this.msgIdCache = new Map();  // chatId -> [msgIds ascending]
     this._onLine = this._onLine.bind(this);
   }
 
   _emit(name, detail) { this.dispatchEvent(new CustomEvent(name, { detail })); }
+
+  _isCurrentAccount(epoch) {
+    return epoch === this.accountEpoch && !this._accountTransitionBusy;
+  }
+
+  _emitAccount(name, detail, epoch) {
+    if (this._isCurrentAccount(epoch)) this._emit(name, detail);
+  }
+
+  _beginAccountChange() {
+    if (this._accountTransitionBusy) throw new Error("account transition already in progress");
+    this._accountTransitionBusy = true;
+    this.accountEpoch++;
+    this.msgIdCache = new Map();
+    this._emit("account-changing", { accountId: this.accountId, accountEpoch: this.accountEpoch });
+  }
+
+  async _finishAccountChange(failed) {
+    try {
+      if (failed) {
+        // Selection can change in the core even when persisting it fails.
+        this.accountId = await this._call("get_selected_account_id");
+      }
+    } catch (error) {
+      this._emit("diagnostic", { level: "warning", message: `Could not reconcile selected account: ${error?.message || error}` });
+    } finally {
+      // Invalidate work started during the transition too, including A -> B -> A.
+      this.accountEpoch++;
+      this.msgIdCache = new Map();
+      this._accountTransitionBusy = false;
+      this._emit("account-changed", { accountId: this.accountId, accountEpoch: this.accountEpoch });
+    }
+  }
 
   /* ---------------- low-level JSON-RPC over the transport ---------------- */
 
@@ -65,6 +100,7 @@ export class JsonRpcCore extends EventTarget {
   // Re-establish the transport (e.g. after the service APK was restarted)
   // without dropping this core instance, so all UI listeners stay bound.
   async reconnect() {
+    const { accountId, accountEpoch } = this;
     if (!this.transport.reconnect) return false;
     const ok = await this.transport.reconnect();
     if (!ok) return false;
@@ -72,10 +108,10 @@ export class JsonRpcCore extends EventTarget {
     for (const { reject } of this.pending.values()) reject(new Error("reconnecting"));
     this.pending.clear();
     await this.transport.setReceiver(this._onLine);
-    await this._call("select_account", this.accountId);
+    if (!this._isCurrentAccount(accountEpoch)) return false;
+    await this._call("select_account", accountId);
     await this._call("start_io_for_all_accounts");
-    this.msgIdCache.clear();
-    this._emit("chat-updated", { chatId: 0 });
+    this._invalidateChat(0, accountEpoch);
     return true;
   }
 
@@ -136,12 +172,12 @@ export class JsonRpcCore extends EventTarget {
     if (this._polling) return; // don't start a second loop on reconnect
     this._polling = true;
     // The core queues events; poll like deltachat-desktop does.
-    // Event shape: { event: { kind: "IncomingMsg", chat_id, msg_id }, context_id }
+    // Event shape: { event: { kind: "IncomingMsg", chatId, msgId }, contextId }
     for (;;) {
       try {
         const ev = await this._call("get_next_event");
         debugLog(`event raw: ${JSON.stringify(ev).slice(0, 400)}`);
-        if (ev?.event) this._handleCoreEvent(ev.event).catch(() => {});
+        if (ev?.event) this._handleCoreEvent(ev.event, ev.contextId ?? ev.context_id).catch(() => {});
       } catch (error) {
         this._emit("diagnostic", { level: "warning", message: `Event polling failed: ${error?.message || error}` });
       }
@@ -149,7 +185,8 @@ export class JsonRpcCore extends EventTarget {
     }
   }
 
-  async _handleCoreEvent(ev) {
+  async _handleCoreEvent(ev, contextId) {
+    const { accountId, accountEpoch } = this;
     // deltachat-jsonrpc serializes event payloads with camelCase ("chatId"),
     // but hand-rolled transports may deliver snake_case — accept both.
     const chatId = ev.chatId ?? ev.chat_id;
@@ -168,54 +205,61 @@ export class JsonRpcCore extends EventTarget {
           level: ev.kind === "Error" ? "error" : ev.kind === "Warning" ? "warning" : "info",
           message: ev.msg || ev.comment || ev.kind,
         });
-        break;
+        return;
+    }
+    // Unknown/foreign contexts must never invalidate chats or decorate messages.
+    if (contextId == null || contextId !== accountId) return;
+    if (ev.kind === "ConfigureProgress") {
+      this._emit("configure-progress", { progress: ev.progress || 0, comment: ev.comment || "" });
+      return;
+    }
+    if (!this._isCurrentAccount(accountEpoch)) return;
+    switch (ev.kind) {
       case "IncomingMsg":
       case "IncomingMsgBunch": {
         // IncomingMsgBunch carries no chat_id/msg_id — use 0 ("any chat").
         const cid = chatId || 0;
-        this._invalidateChat(cid);
+        this._invalidateChat(cid, accountEpoch);
         // Fallback signal so an open chat can reload its tail even if the
         // decorated fast-path below fails or carries no ids.
-        this._emit("msgs-changed", { chatId: cid });
+        this._emitAccount("msgs-changed", { chatId: cid }, accountEpoch);
         if (msgId) {
-          const m = await this._getDecoratedMessage(msgId);
-          if (m) this._emit("incoming-msg", { chatId: m.chatId, msg: m });
+          const m = await this._getDecoratedMessage(msgId, accountId);
+          if (m) this._emitAccount("incoming-msg", { chatId: m.chatId, msg: m }, accountEpoch);
         }
         break;
       }
       case "MsgsChanged": {
         const cid = chatId || 0;
-        this._invalidateChat(cid);
-        this._emit("msgs-changed", { chatId: cid });
+        this._invalidateChat(cid, accountEpoch);
+        this._emitAccount("msgs-changed", { chatId: cid }, accountEpoch);
         if (msgId) {
-          const m = await this._getDecoratedMessage(msgId);
-          if (m) this._emit("msg-updated", { chatId: m.chatId, msg: m });
+          const m = await this._getDecoratedMessage(msgId, accountId);
+          if (m) this._emitAccount("msg-updated", { chatId: m.chatId, msg: m }, accountEpoch);
         }
         break;
       }
       case "MsgDelivered":
-        this._emit("msg-state", { chatId, msgId, state: "delivered" });
+        this._emitAccount("msg-state", { chatId, msgId, state: "delivered" }, accountEpoch);
         break;
       case "MsgRead":
       case "MsgReadCountChanged":
-        this._emit("msg-state", { chatId, msgId, state: "read" });
+        this._emitAccount("msg-state", { chatId, msgId, state: "read" }, accountEpoch);
         break;
       case "MsgFailed":
-        this._emit("msg-state", { chatId, msgId, state: "failed" });
-        break;
-      case "ConfigureProgress":
-        this._emit("configure-progress", { progress: ev.progress || 0, comment: ev.comment || "" });
+        this._emitAccount("msg-state", { chatId, msgId, state: "failed" }, accountEpoch);
         break;
       case "ChatlistChanged":
       case "ChatlistItemChanged":
       case "ChatModified":
       case "MsgsNoticed":
-        this._invalidateChat(chatId || 0);
+        this._invalidateChat(chatId || 0, accountEpoch);
         break;
     }
   }
 
-  _invalidateChat(chatId) {
+  _invalidateChat(chatId, epoch) {
+    if (!this._isCurrentAccount(epoch)) return;
     if (chatId) this.msgIdCache.delete(chatId);
     else this.msgIdCache.clear(); // 0 = unknown/any chat: drop all cached id lists
     this._emit("chat-updated", { chatId });
@@ -360,6 +404,10 @@ export class JsonRpcCore extends EventTarget {
       fileSize: m.fileBytes ?? null,
       fileMime: m.fileMime || null,
       downloadState: m.downloadState || "Done",
+      // Core-reported pixel size of images (0 when unknown) — the chat view
+      // uses these to reserve the exact image box before the file decodes.
+      dimensionsWidth: m.dimensionsWidth > 0 ? m.dimensionsWidth : null,
+      dimensionsHeight: m.dimensionsHeight > 0 ? m.dimensionsHeight : null,
       encrypted: m.showPadlock !== false, // padlock true = e2e-encrypted
       img: null, // real blobs need blob-dir serving; placeholder for now
       duration: m.duration ? Math.round(m.duration / 1000) : undefined,
@@ -379,25 +427,29 @@ export class JsonRpcCore extends EventTarget {
     return list.map(x => ({ emoji: x.emoji, count: x.count, mine: !!x.isFromSelf }));
   }
 
-  async _getDecoratedMessage(msgId) {
+  async _getDecoratedMessage(msgId, accountId = this.accountId) {
     try {
-      const m = await this._call("get_message", this.accountId, msgId);
+      const m = await this._call("get_message", accountId, msgId);
       return this._mapMessage(m);
     } catch { return null; }
   }
 
   /* ---------------- MockCore-compatible API ---------------- */
 
+  // Account-scoped promises return entry-account data even after a switch.
+  // Callers must check accountEpoch before using results in the UI; the core
+  // suppresses stale cache writes/events, but does not cancel source-account RPCs.
   async getAccount() {
-    const acc = await this._call("get_account_info", this.accountId);
+    const { accountId } = this;
+    const acc = await this._call("get_account_info", accountId);
     if (acc.kind === "Unconfigured") {
       return {
-        id: this.accountId, addr: "not configured", displayName: "New account",
+        id: accountId, addr: "not configured", displayName: "New account",
         color: "#5aa2e6", bio: "", relay: "", configured: false,
       };
     }
     const account = {
-      id: this.accountId,
+      id: accountId,
       addr: acc.addr || "",
       displayName: acc.displayName || acc.addr || "Account",
       color: acc.color || "",
@@ -409,7 +461,7 @@ export class JsonRpcCore extends EventTarget {
     // (id 1) is the authoritative source for color and photo, so the drawer
     // avatar renders color-coded like every other avatar.
     try {
-      const self = await this._call("get_contact", this.accountId, 1);
+      const self = await this._call("get_contact", accountId, 1);
       if (!account.color) account.color = self.color || "#5aa2e6";
       account.avatar = self.profileImage || null;
     } catch {
@@ -417,6 +469,45 @@ export class JsonRpcCore extends EventTarget {
       account.avatar = null;
     }
     return account;
+  }
+
+  // Every profile in the accounts file, for the drawer's account switcher.
+  // IO for all accounts is already running (start_io_for_all_accounts at
+  // init), so switching is just select_account + UI refresh.
+  async getAllAccounts() {
+    const current = this.accountId;
+    const ids = await this._call("get_all_account_ids");
+    const infos = await Promise.all(ids.map(id =>
+      this._call("get_account_info", id).catch(() => null)
+    ));
+    return infos
+      .map((acc, i) => ({ acc, id: ids[i] }))
+      .filter(({ acc }) => acc)
+      .map(({ acc, id }) => ({
+        id,
+        addr: acc.addr || "",
+        name: acc.displayName || acc.addr || `Account ${id}`,
+        relay: (acc.addr || "").split("@")[1] || "",
+        configured: acc.kind !== "Unconfigured",
+        isCurrent: id === current,
+      }));
+  }
+
+  // Selects another existing profile and re-points the whole UI at it.
+  // Returns that account's snapshot, not a live selection. Both boundaries
+  // advance accountEpoch; account-changed also fires when selection fails.
+  async switchAccount(id) {
+    this._beginAccountChange();
+    let failed = true;
+    try {
+      await this._call("select_account", id);
+      this.accountId = id;
+      const account = await this.getAccount();
+      failed = false;
+      return account;
+    } finally {
+      await this._finishAccountChange(failed);
+    }
   }
 
   async setDisplayName(name) {
@@ -440,11 +531,11 @@ export class JsonRpcCore extends EventTarget {
     return this._call("get_contact_encryption_info", this.accountId, contactId);
   }
 
-  async getChatList({ query = "" } = {}) {
+  async getChatList({ query = "" } = {}, accountId = this.accountId) {
     // (account_id, list_flags, query_string, query_contact_id)
-    const ids = await this._call("get_chatlist_entries", this.accountId, null, query || null, null);
+    const ids = await this._call("get_chatlist_entries", accountId, null, query || null, null);
     if (!ids.length) return [];
-    const items = await this._call("get_chatlist_items_by_entries", this.accountId, ids);
+    const items = await this._call("get_chatlist_items_by_entries", accountId, ids);
     const chats = [];
     for (const item of Object.values(items)) {
       if (item?.kind === "ChatListItem") {
@@ -460,11 +551,12 @@ export class JsonRpcCore extends EventTarget {
   }
 
   async getChat(chatId) {
-    const list = await this.getChatList({});
+    const { accountId } = this;
+    const list = await this.getChatList({}, accountId);
     const found = list.find(c => c.id === chatId);
     if (found) return found;
     // fallback: minimal info for chats not in the default list
-    const info = await this._call("get_basic_chat_info", this.accountId, chatId).catch(() => null);
+    const info = await this._call("get_basic_chat_info", accountId, chatId).catch(() => null);
     if (!info) return null;
     return {
       id: chatId, name: info.name || "?", kind: "single",
@@ -475,11 +567,12 @@ export class JsonRpcCore extends EventTarget {
   }
 
   async getMessages(chatId, { beforeId = null, limit = 40, fresh = false } = {}) {
-    if (fresh) this.msgIdCache.delete(chatId);
+    const { accountId, accountEpoch } = this;
+    if (fresh && this._isCurrentAccount(accountEpoch)) this.msgIdCache.delete(chatId);
     let ids = this.msgIdCache.get(chatId);
     if (!ids) {
-      ids = await this._call("get_message_ids", this.accountId, chatId, false, false);
-      this.msgIdCache.set(chatId, ids);
+      ids = await this._call("get_message_ids", accountId, chatId, false, false);
+      if (this._isCurrentAccount(accountEpoch)) this.msgIdCache.set(chatId, ids);
     }
     let end = ids.length;
     if (beforeId != null) {
@@ -489,7 +582,7 @@ export class JsonRpcCore extends EventTarget {
     const start = Math.max(0, end - limit);
     const page = ids.slice(start, end);
     if (!page.length) return { messages: [], hasMore: start > 0 };
-    const loaded = await this._call("get_messages", this.accountId, page);
+    const loaded = await this._call("get_messages", accountId, page);
     const messages = [];
     for (const id of page) {
       const entry = loaded[String(id)];
@@ -503,29 +596,30 @@ export class JsonRpcCore extends EventTarget {
   }
 
   async sendMessage(chatId, { text = "", quoteId = null, viewtype = "text", file = null, filename = null } = {}) {
+    const { accountId, accountEpoch } = this;
     const data = { text: text || "", quotedMessageId: quoteId ?? null };
     if (viewtype && viewtype !== "text") data.viewType = this._toCoreViewtype(viewtype);
     if (file) {
       data.file = file;
       if (filename) data.filename = filename;
     }
-    const msgId = await this._call("send_msg", this.accountId, chatId, data);
-    this.msgIdCache.get(chatId)?.push(msgId);
+    const msgId = await this._call("send_msg", accountId, chatId, data);
+    if (this._isCurrentAccount(accountEpoch)) this.msgIdCache.get(chatId)?.push(msgId);
 
     // Outgoing media messages start in OutPreparing (18). Wait briefly until the
     // core has finished copying/processing the blob so get_message returns the
     // correct viewType and file path instead of plain text.
-    const raw = await this._waitForPreparedMessage(msgId);
-    const msg = raw ? this._mapMessage(raw) : await this._getDecoratedMessage(msgId);
-    if (msg) this._emit("msg-sent", { chatId, msg });
+    const raw = await this._waitForPreparedMessage(msgId, accountId);
+    const msg = raw ? this._mapMessage(raw) : await this._getDecoratedMessage(msgId, accountId);
+    if (msg) this._emitAccount("msg-sent", { chatId, msg }, accountEpoch);
     return msg;
   }
 
-  async _waitForPreparedMessage(msgId, timeoutMs = 6000) {
+  async _waitForPreparedMessage(msgId, accountId = this.accountId, timeoutMs = 6000) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       try {
-        const m = await this._call("get_message", this.accountId, msgId);
+        const m = await this._call("get_message", accountId, msgId);
         // 18 = OutPreparing. Keep polling while the blob is still being copied.
         if (m.state !== 18) {
           rustLog(`sendMessage prepared id=${msgId} state=${m.state} viewType=${m.viewType}`);
@@ -552,23 +646,26 @@ export class JsonRpcCore extends EventTarget {
   // Accept a contact request — unblocks the chat so it becomes a normal
   // conversation and the contact can be replied to.
   async acceptChat(chatId) {
-    await this._call("accept_chat", this.accountId, chatId);
-    this._invalidateChat(chatId);
-    this._emit("chat-updated", { chatId: 0 });
+    const { accountId, accountEpoch } = this;
+    await this._call("accept_chat", accountId, chatId);
+    this._invalidateChat(chatId, accountEpoch);
+    this._emitAccount("chat-updated", { chatId: 0 }, accountEpoch);
   }
 
   async blockChat(chatId) {
-    await this._call("block_chat", this.accountId, chatId);
-    this._emit("chat-updated", { chatId: 0 });
+    const { accountId, accountEpoch } = this;
+    await this._call("block_chat", accountId, chatId);
+    this._emitAccount("chat-updated", { chatId: 0 }, accountEpoch);
   }
 
   async markRead(chatId) {
+    const { accountId, accountEpoch } = this;
     try {
       const ids = this.msgIdCache.get(chatId)
-        || await this._call("get_message_ids", this.accountId, chatId, false, false);
-      if (ids?.length) await this._call("markseen_msgs", this.accountId, ids.slice(-50));
+        || await this._call("get_message_ids", accountId, chatId, false, false);
+      if (ids?.length) await this._call("markseen_msgs", accountId, ids.slice(-50));
     } catch { /* nothing to mark */ }
-    this._emit("chat-updated", { chatId });
+    this._emitAccount("chat-updated", { chatId }, accountEpoch);
   }
 
   // options.forAll: also ask the other chat members' devices to delete the
@@ -576,65 +673,73 @@ export class JsonRpcCore extends EventTarget {
   // request). The core only accepts that for self-sent, encrypted messages
   // from a single chat and rejects otherwise, which the caller surfaces.
   async deleteMessages(chatId, ids, { forAll = false } = {}) {
-    await this._call(forAll ? "delete_messages_for_all" : "delete_messages", this.accountId, ids);
+    const { accountId, accountEpoch } = this;
+    await this._call(forAll ? "delete_messages_for_all" : "delete_messages", accountId, ids);
+    if (!this._isCurrentAccount(accountEpoch)) return;
     const cache = this.msgIdCache.get(chatId);
     if (cache) this.msgIdCache.set(chatId, cache.filter(id => !ids.includes(id)));
-    this._emit("msgs-deleted", { chatId, ids });
-    this._emit("chat-updated", { chatId });
+    this._emitAccount("msgs-deleted", { chatId, ids }, accountEpoch);
+    this._emitAccount("chat-updated", { chatId }, accountEpoch);
   }
 
   async starMessages(chatId, ids) {
-    await this._call("save_msgs", this.accountId, ids);
-    this._emit("chat-updated", { chatId });
+    const { accountId, accountEpoch } = this;
+    await this._call("save_msgs", accountId, ids);
+    this._emitAccount("chat-updated", { chatId }, accountEpoch);
   }
 
   async forwardMessages(fromChatId, ids, toChatId) {
-    await this._call("forward_messages", this.accountId, ids, toChatId);
-    this._emit("chat-updated", { chatId: toChatId });
+    const { accountId, accountEpoch } = this;
+    await this._call("forward_messages", accountId, ids, toChatId);
+    this._emitAccount("chat-updated", { chatId: toChatId }, accountEpoch);
   }
 
   async addReaction(chatId, msgId, emoji) {
-    await this._call("send_reaction", this.accountId, msgId, [emoji]);
-    const m = await this._getDecoratedMessage(msgId);
-    if (m) this._emit("msg-updated", { chatId, msg: m });
+    const { accountId, accountEpoch } = this;
+    await this._call("send_reaction", accountId, msgId, [emoji]);
+    const m = await this._getDecoratedMessage(msgId, accountId);
+    if (m) this._emitAccount("msg-updated", { chatId, msg: m }, accountEpoch);
   }
 
   async setChatFlags(chatId, { pinned, muted, archived }) {
+    const { accountId, accountEpoch } = this;
     if (pinned !== undefined || archived !== undefined) {
       const visibility = archived ? "Archived" : pinned ? "Pinned" : "Normal";
-      await this._call("set_chat_visibility", this.accountId, chatId, visibility);
+      await this._call("set_chat_visibility", accountId, chatId, visibility);
     }
     if (muted !== undefined) {
-      await this._call("set_chat_mute_duration", this.accountId, chatId, muted ? "Forever" : "NotMuted");
+      await this._call("set_chat_mute_duration", accountId, chatId, muted ? "Forever" : "NotMuted");
     }
-    this._emit("chat-updated", { chatId });
+    this._emitAccount("chat-updated", { chatId }, accountEpoch);
   }
 
   async createChat(name, contactIds, kind = "group") {
+    const { accountId, accountEpoch } = this;
     let chatId;
     if (kind === "single") {
-      chatId = await this._call("create_chat_by_contact_id", this.accountId, contactIds[0]);
+      chatId = await this._call("create_chat_by_contact_id", accountId, contactIds[0]);
     } else {
-      chatId = await this._call("create_group_chat", this.accountId, name, false);
+      chatId = await this._call("create_group_chat", accountId, name, false);
       for (const cid of contactIds) {
-        await this._call("add_contact_to_chat", this.accountId, chatId, cid);
+        await this._call("add_contact_to_chat", accountId, chatId, cid);
       }
     }
-    this._emit("chat-updated", { chatId });
+    this._emitAccount("chat-updated", { chatId }, accountEpoch);
     return chatId;
   }
 
   // --- onboarding: configure the account (not in MockCore) ---
   async configureWithCredentials(addr, password) {
-    await this._call("add_transport", this.accountId, { addr, password });
-    this._emit("chat-updated", { chatId: 0 });
+    const { accountId, accountEpoch } = this;
+    await this._call("add_transport", accountId, { addr, password });
+    this._emitAccount("chat-updated", { chatId: 0 }, accountEpoch);
   }
 
-  async configureWithQr(qrContent) {
+  async configureWithQr(qrContent, accountId = this.accountId) {
     // Account creation involves network round trips + key generation — allow 3 min.
-    await this._callWithTimeout(180000, "set_config_from_qr", this.accountId, qrContent);
+    await this._callWithTimeout(180000, "set_config_from_qr", accountId, qrContent);
     // The account was unconfigured when init() started IO, so start it now.
-    await this._call("start_io", this.accountId);
+    await this._call("start_io", accountId);
   }
 
   async startIo() {
@@ -643,12 +748,13 @@ export class JsonRpcCore extends EventTarget {
 
   // Group members as mapped contacts (empty list for 1:1 chats).
   async getChatMembers(chatId) {
-    const full = await this._call("get_full_chat_by_id", this.accountId, chatId);
+    const { accountId } = this;
+    const full = await this._call("get_full_chat_by_id", accountId, chatId);
     // Keep self (ContactId::SELF = 1) so the member count and list include
     // this account; only skip the other reserved ids (info, archived link, …).
     const ids = (full.contactIds || []).filter(id => id > 9 || id === 1);
     if (!ids.length) return [];
-    const byId = await this._call("get_contacts_by_ids", this.accountId, ids);
+    const byId = await this._call("get_contacts_by_ids", accountId, ids);
     return ids.map(id => byId[String(id)]).filter(Boolean).map(c => this._mapContact(c));
   }
 
@@ -678,33 +784,44 @@ export class JsonRpcCore extends EventTarget {
     return { text, svg, link: text };
   }
 
+  // Renders arbitrary text (e.g. a local-chat invite ticket) as a QR SVG.
+  async createQrSvg(text) {
+    return this._call("create_qr_svg", text);
+  }
+
   // Join a 1:1 or group chat from an i.delta.chat invite link / QR text.
   // The handshake runs in background; returns the chat to open.
   async secureJoin(qr) {
-    const chatId = await this._call("secure_join", this.accountId, qr);
-    this._invalidateChat(0);
+    const { accountId, accountEpoch } = this;
+    const chatId = await this._call("secure_join", accountId, qr);
+    this._invalidateChat(0, accountEpoch);
     return chatId;
   }
 
   // Add a profile from a dcaccount: / relay invite link.
   // Configures the current account if it's still empty, otherwise creates
   // a new account on the relay and switches to it.
+  // Returns the configured account ID. Uses the same two epoch boundaries
+  // as switchAccount, including when configuring the existing empty profile.
   async addAccountWithQr(qrContent) {
+    let { accountId } = this;
     if (!/^dcaccount:/i.test(qrContent) && !/^https?:\/\//i.test(qrContent)) {
       throw new Error("not a relay invite link");
     }
-    const acc = await this._call("get_account_info", this.accountId);
-    if (acc.kind === "Unconfigured") {
-      await this._callWithTimeout(180000, "set_config_from_qr", this.accountId, qrContent);
-    } else {
-      const newId = await this._call("add_account");
-      await this._call("select_account", newId);
-      this.accountId = newId;
-      await this._callWithTimeout(180000, "set_config_from_qr", newId, qrContent);
-      await this._call("start_io", newId);
-      this.msgIdCache.clear();
+    this._beginAccountChange();
+    let failed = true;
+    try {
+      const acc = await this._call("get_account_info", accountId);
+      if (acc.kind !== "Unconfigured") {
+        accountId = await this._call("add_account");
+        await this._call("select_account", accountId);
+        this.accountId = accountId;
+      }
+      await this.configureWithQr(qrContent, accountId);
+      failed = false;
+      return accountId;
+    } finally {
+      await this._finishAccountChange(failed);
     }
-    this._emit("chat-updated", { chatId: 0 });
-    return this.accountId;
   }
 }

@@ -7,7 +7,7 @@ import { escapeHtml, escapeAttr } from "./components.js";
 // Mirror the AndroidManifest.xml intent filters: OS-level interception of a
 // domain is compiled into the app, this list controls what Velta recognizes
 // at runtime (OS deep links, pasted links, invite cards in chat messages).
-const BUILTIN_HOSTS = ["i.delta.chat", "i.gluek.info"];
+const BUILTIN_HOSTS = ["i.delta.chat", "i.deltachat.id", "i.gluek.info"];
 const HOSTS_KEY = "velta-invite-hosts"; // localStorage JSON array of extra hosts
 // v3 invite URL: https://<host>/#FINGERPRINT&v=3&x=…&i=…&s=…&a=…&n=…&g=…
 // The payload lives in the fragment and is never sent to a server — the host

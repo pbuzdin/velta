@@ -8,6 +8,7 @@ import { ChatView, setAvatarProfileOpener } from "./chat-view.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal } from "./invites.js";
 import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile } from "./ui.js";
+import { p2pAvailable, openP2p as openP2pScreen } from "./p2p.js";
 import { timeAgo } from "./mock-core.js";
 
 const diagnostics = new DiagnosticsStore();
@@ -21,9 +22,15 @@ let coreStartupPromise = null;
 // top-level await below yields to events), so these must not live further
 // down — `let` declarations would still be in their temporal dead zone.
 let chatListRefreshTimer = null;
-let chatListInFlight = false;
+let chatListInFlight = null;
+let searchTimer;
+let chatNavigation = 0;
+let drawer = null;
+let accountRefreshPromise = Promise.resolve();
 const state = {
   account: null,
+  accountChanging: false,
+  accounts: [],  // all core profiles, for the drawer account switcher
   chats: [],
   activeChatId: null,
   query: "",
@@ -121,6 +128,8 @@ function bindEarlyRecoveryActions() {
 }
 
 function openDiagnosticsChat() {
+  if (state.accountChanging) return;
+  chatNavigation++;
   diagnosticsOpen = true;
   // The Diagnostics chat writes its rows into #history directly, so the chat
   // view must fully release the area first — otherwise its scroller still
@@ -265,6 +274,32 @@ core.addEventListener?.("diagnostic", e => {
   diagnostics.append(level, message);
 });
 
+function accountIsCurrent(epoch) {
+  return !state.accountChanging && epoch === core.accountEpoch;
+}
+
+core.addEventListener("account-changing", () => {
+  state.accountChanging = true;
+  clearTimeout(chatListRefreshTimer);
+  clearTimeout(searchTimer);
+  chatListRefreshTimer = null;
+  chatListInFlight = null;
+  state.chats = [];
+  state.query = "";
+  $("search").value = "";
+  closeChatUI();
+  closeAllPopups();
+  if (history.state?.velta === "chat") history.replaceState(null, "");
+  drawer?.el.remove();
+  drawer?.overlayEl?.remove();
+  drawer = null;
+});
+core.addEventListener("account-changed", () => {
+  state.accountChanging = false;
+  setFingerprintSource(contactId => core.getContactEncryptionInfo(contactId));
+  accountRefreshPromise = Promise.all([refreshAccounts(), refreshChatList()]);
+});
+
 // Tell the frontend where blobs live so media URLs can be resolved absolutely.
 if (window.__TAURI__) {
   try {
@@ -392,6 +427,7 @@ function toggleTheme() {
 // burst into one trailing refresh.
 
 function scheduleChatListRefresh(delay = 400) {
+  if (state.accountChanging) return;
   if (chatListRefreshTimer) return; // a trailing refresh is already pending
   chatListRefreshTimer = setTimeout(async () => {
     chatListRefreshTimer = null;
@@ -400,13 +436,18 @@ function scheduleChatListRefresh(delay = 400) {
 }
 
 async function refreshChatList() {
-  if (chatListInFlight) {
+  if (state.accountChanging) return;
+  const epoch = core.accountEpoch, query = state.query;
+  if (chatListInFlight?.epoch === epoch && chatListInFlight.query === query) {
     scheduleChatListRefresh();
-    return;
+    return chatListInFlight.promise;
   }
-  chatListInFlight = true;
+  const request = { epoch, query };
+  chatListInFlight = request;
+  request.promise = (async () => {
   try {
-    const chats = await core.getChatList({ query: state.query });
+    const chats = await core.getChatList({ query });
+    if (!accountIsCurrent(epoch) || query !== state.query || chatListInFlight !== request) return;
     state.chats = [diagnostics.getChat(), ...chats.filter(chat => chat.id !== DIAGNOSTICS_CHAT_ID)];
     renderChatList();
   } catch (err) {
@@ -420,8 +461,10 @@ async function refreshChatList() {
       if (invoke) invoke("js_log", { msg: `refreshChatList error: ${err?.message || err}` }).catch(() => {});
     } catch {}
   } finally {
-    chatListInFlight = false;
+    if (chatListInFlight === request) chatListInFlight = null;
   }
+  })();
+  return request.promise;
 }
 
 function renderChatList() {
@@ -531,6 +574,7 @@ function formatFingerprint(fpr) {
 }
 
 function chatContextMenu(chat, x, y) {
+  const epoch = core.accountEpoch;
   if (chat.id === DIAGNOSTICS_CHAT_ID) return;
   const icons = {
     pin: `<svg viewBox="0 0 24 24"><path d="M9 4h6l1 7 3 3v2h-6v5l-1 1-1-1v-5H5v-2l3-3z" fill="currentColor"/></svg>`,
@@ -547,7 +591,11 @@ function chatContextMenu(chat, x, y) {
     { label: chat.archived ? "Unarchive" : "Archive", icon: icons.archive, onClick: () => core.setChatFlags(chat.id, { archived: !chat.archived }) },
     { label: "Delete chat", icon: icons.trash, danger: true, onClick: async () => {
       if (await confirmModal("Delete chat", `Delete "${chat.name}" and all its messages?`)) {
-        await core.deleteMessages(chat.id, (await core.getMessages(chat.id, { limit: 100000 })).messages.map(m => m.id));
+        if (!accountIsCurrent(epoch)) return;
+        const { messages } = await core.getMessages(chat.id, { limit: 100000 });
+        if (!accountIsCurrent(epoch)) return;
+        await core.deleteMessages(chat.id, messages.map(m => m.id));
+        if (!accountIsCurrent(epoch)) return;
         if (state.activeChatId === chat.id) closeChat();
         refreshChatList();
       }
@@ -567,6 +615,7 @@ function renderChatHead(chat) {
 
 /* ---------------- chat open/close ---------------- */
 async function openChat(chatId) {
+  if (state.accountChanging) return;
   if (chatId === DIAGNOSTICS_CHAT_ID) {
     openDiagnosticsChat();
     return;
@@ -574,17 +623,20 @@ async function openChat(chatId) {
   // Already showing this chat → keep the live view (and its <video> elements)
   // instead of tearing everything down and rebuilding media from scratch.
   if (state.activeChatId === chatId) return;
-  diagnosticsOpen = false;
-  $("diagnostic-actions").hidden = true;
-  $("main-composer").hidden = false;
-  $("chat-head-actions").style.visibility = "";
+  closeChatUI();
+  const navigation = chatNavigation, epoch = core.accountEpoch;
+  const current = () => navigation === chatNavigation && accountIsCurrent(epoch);
+  try {
   const chat = await core.getChat(chatId);
+  if (!current() || !chat) return;
   if (chat.kind === "deaddrop") {
     const ok = await confirmModal("Contact request", `"${chat.name}" wants to start a conversation with you. Accept it to read the messages and reply.`, "Accept", false);
-    if (ok) {
+    if (ok && current()) {
       await core.acceptChat(chatId);
+      if (!current()) return;
       toast("Contact request accepted");
       await refreshChatList();
+      if (!current()) return;
       return openChat(chatId); // now a normal chat — open it
     }
     return;
@@ -601,33 +653,38 @@ async function openChat(chatId) {
   // Real member count for groups (the chatlist item doesn't carry it)
   if ((chat.kind === "group" || chat.kind === "channel") && core.getChatMembers) {
     core.getChatMembers(chatId).then(members => {
-      if (state.activeChatId !== chatId) return;
+      if (!current() || state.activeChatId !== chatId) return;
       chat.memberCount = members.length;
       const fresh = renderChatHead(chat);
       state.activeChatHead?.replaceWith(fresh);
       state.activeChatHead = fresh;
     }).catch(() => {});
   }
-  await chatView.open(chatId);
+  if (!await chatView.open(chatId) || !current()) return;
   // History entry per open chat: Android BACK pops it (chat -> chat list)
   // via WryActivity's WebView-history navigation instead of exiting.
   if (history.state?.velta !== "chat") history.pushState({ velta: "chat", chatId }, "");
   renderChatList();
+  } catch (error) {
+    if (!current()) return;
+    closeChatUI();
+    toast("Couldn't open chat: " + (error.message || error));
+  }
 }
 
 function closeChat() {
-  if (history.state?.velta === "chat") {
-    history.back(); // popstate -> closeChatUI
-    return;
-  }
+  const popHistory = history.state?.velta === "chat";
   closeChatUI();
+  if (popHistory) history.back();
 }
 
 function closeChatUI() {
+  chatNavigation++;
   diagnosticsOpen = false;
   chatView?.close();
   state.activeChatId = null;
   state.activeChatHead = null;
+  $("chat-head-info").replaceChildren();
   $("chat-view").hidden = true;
   $("no-chat").hidden = false;
   document.querySelector(".app").classList.remove("chat-open");
@@ -640,7 +697,7 @@ function closeChatUI() {
 // Android BACK / gesture pops the entry pushed by openChat; this performs
 // the actual teardown. Diagnostics chat uses the same entry shape.
 window.addEventListener("popstate", (e) => {
-  if (state.activeChatId != null && e.state?.velta !== "chat") closeChatUI();
+  if (e.state?.velta !== "chat") closeChatUI();
 });
 
 // The header paints before the async member fetch resolves, and group
@@ -648,6 +705,7 @@ window.addEventListener("popstate", (e) => {
 // Re-fetch the count whenever the open group chat is signalled as updated,
 // so the header never goes stale until reopen.
 async function refreshActiveChatHeader(chatId) {
+  const navigation = chatNavigation, epoch = core.accountEpoch;
   const head = state.activeChatHead;
   const chat = head?.chat;
   if (!head || !chat || chat.id !== state.activeChatId) return;
@@ -656,6 +714,7 @@ async function refreshActiveChatHeader(chatId) {
   if (!core.getChatMembers) return;
   try {
     const members = await core.getChatMembers(chat.id);
+    if (!accountIsCurrent(epoch) || navigation !== chatNavigation) return;
     if (state.activeChatId !== chat.id || chat.memberCount === members.length) return;
     chat.memberCount = members.length;
     const fresh = renderChatHead(chat);
@@ -665,6 +724,8 @@ async function refreshActiveChatHeader(chatId) {
 }
 
 function showChatInfo(chat) {
+  if (state.accountChanging) return;
+  const epoch = core.accountEpoch;
   const contactRows = chat.contact ? `
     <div class="info-row"><span class="k">Address</span><span class="v">${escapeHtml(chat.contact.addr)}</span></div>
     ${chat.contactId ? `<div class="info-row"><span class="k">Profile key</span><span class="v"><span class="avatar-profile-fpr" data-profile-key>…</span></span></div>` : ""}
@@ -702,7 +763,9 @@ function showChatInfo(chat) {
       if (existing) return openChat(existing.id);
       try {
         const chatId = await core.createChatByContactId(contactId);
+        if (!accountIsCurrent(epoch)) return;
         await refreshChatList();
+        if (!accountIsCurrent(epoch)) return;
         await openChat(Number(chatId));
       } catch { toast("Couldn't open the chat"); }
     });
@@ -717,6 +780,7 @@ function showChatInfo(chat) {
           if (parsed) link = parsed.link;
         }
       } catch { /* demo mode falls through to the placeholder link */ }
+      if (!accountIsCurrent(epoch)) return;
       if (!link) {
         const fpr = "5DB721C142C0137F9A2E4B66C31D08597EA47594";
         const addr = encodeURIComponent(state.account.addr || "you@example.org");
@@ -729,6 +793,7 @@ function showChatInfo(chat) {
         throw new Error("unavailable");
       } catch (err) {
         if (err && err.name === "AbortError") return; // user closed the share sheet
+        if (!accountIsCurrent(epoch)) return;
         try { await navigator.clipboard.writeText(link); toast("Invite link copied"); }
         catch { toast("Sharing isn't available here"); }
       }
@@ -748,6 +813,7 @@ function showChatInfo(chat) {
         save.disabled = true;
         try {
         await core.renameContact(contactId, name);
+        if (!accountIsCurrent(epoch)) return;
         if (chat.contact) chat.contact.name = name;
         chat.name = name;
         renameModal.close();
@@ -791,9 +857,10 @@ function showChatInfo(chat) {
           ? `${chat.name} will be able to write to you again.`
           : `You will no longer receive messages or requests from ${chat.name}.`,
         blockedNow ? "Unblock" : "Block", false);
-      if (!ok) return;
+      if (!ok || !accountIsCurrent(epoch)) return;
       try {
         await core.blockContact(contactId, !blockedNow);
+        if (!accountIsCurrent(epoch)) return;
         toast(blockedNow ? "Contact unblocked" : "Contact blocked");
         blockBtn.textContent = blockedNow ? "Block" : "Unblock";
         blockBtn.dataset.blocked = blockedNow ? "0" : "1";
@@ -825,11 +892,13 @@ function showChatInfo(chat) {
   // opens that chat; the section disappears entirely if there are none.
   if (!isGroup && chat.contactId && core.getChatMembers) {
     core.getChatList({}).then(async chats => {
+      if (!accountIsCurrent(epoch)) return;
       const common = [];
       for (const c of chats) {
         if (c.kind !== "group" && c.kind !== "channel") continue;
         try {
           const members = await core.getChatMembers(c.id);
+          if (!accountIsCurrent(epoch)) return;
           if (members.some(m => m.id === chat.contactId)) common.push(c);
         } catch { /* skip chats whose members can't be listed */ }
       }
@@ -872,6 +941,7 @@ function showChatInfo(chat) {
 /* ---------------- chat head menu ---------------- */
 function bindChatHeadMenu() {
   $("btn-chat-menu").addEventListener("click", e => {
+    const epoch = core.accountEpoch;
     const chat = state.chats.find(c => c.id === state.activeChatId);
     if (!chat) return;
     const r = e.currentTarget.getBoundingClientRect();
@@ -884,7 +954,9 @@ function bindChatHeadMenu() {
       "-",
       { label: "Clear history", danger: true, onClick: async () => {
         if (await confirmModal("Clear history", "Delete all messages in this chat?")) {
+          if (!accountIsCurrent(epoch)) return;
           const { messages } = await core.getMessages(chat.id, { limit: 100000 });
+          if (!accountIsCurrent(epoch)) return;
           await core.deleteMessages(chat.id, messages.map(m => m.id));
         }
       } },
@@ -920,7 +992,10 @@ function bindChatHeadMenu() {
 
 /* ---------------- new chat / forward ---------------- */
 async function pickContactModal(title, multi = false) {
+  if (state.accountChanging) return null;
+  const epoch = core.accountEpoch;
   const contacts = await core.getContacts();
+  if (!accountIsCurrent(epoch)) return null;
   return new Promise(resolve => {
     const list = document.createElement("div");
     list.className = "modal-list";
@@ -934,7 +1009,7 @@ async function pickContactModal(title, multi = false) {
         unread: 0, pinned: false, muted: false,
       });
       item.addEventListener("click", () => {
-        if (!multi) { close(); resolve([c]); return; }
+        if (!multi) { resolve([c]); close(); return; }
         if (selected.has(c.id)) selected.delete(c.id); else selected.add(c.id);
         item.style.background = selected.has(c.id) ? "var(--bg-active)" : "";
         ok.disabled = !selected.size;
@@ -950,27 +1025,33 @@ async function pickContactModal(title, multi = false) {
     foot.append(cancel, ok);
     const { close } = showModal({ title, body: list, foot, onClose: () => resolve(null) });
     cancel.addEventListener("click", () => { close(); resolve(null); });
-    ok.addEventListener("click", () => { close(); resolve(contacts.filter(c => selected.has(c.id))); });
+    ok.addEventListener("click", () => { resolve(contacts.filter(c => selected.has(c.id))); close(); });
   });
 }
 
 async function newChatFlow() {
+  if (state.accountChanging) return;
+  const epoch = core.accountEpoch;
   const r = document.getElementById("btn-new-chat").getBoundingClientRect();
   showContextMenu([
     { label: "New chat", onClick: async () => {
       const picked = await pickContactModal("New chat");
-      if (picked) {
+      if (picked && accountIsCurrent(epoch)) {
         const id = await core.createChat(picked[0].name, [picked[0].id], "single");
+        if (!accountIsCurrent(epoch)) return;
         await refreshChatList();
+        if (!accountIsCurrent(epoch)) return;
         openChat(id);
       }
     } },
     { label: "New group", onClick: async () => {
       const picked = await pickContactModal("Add group members", true);
-      if (picked) {
+      if (picked && accountIsCurrent(epoch)) {
         const name = prompt("Group name:", "New group") || "New group";
         const id = await core.createChat(name, picked.map(c => c.id), "group");
+        if (!accountIsCurrent(epoch)) return;
         await refreshChatList();
+        if (!accountIsCurrent(epoch)) return;
         openChat(id);
       }
     } },
@@ -1002,17 +1083,17 @@ function addAccountFlow() {
 
 // Configure a profile from a dcaccount: relay invite link (deeplink or manual).
 async function addAccountFromInvite(link) {
+  if (state.accountChanging) return;
   if (!core.addAccountWithQr) {
     toast("No background service available — install the Delta Core service app to add relay accounts", 5000);
     return;
   }
   toast("Creating account on relay…", 2500);
   try {
-    await core.addAccountWithQr(link);
-    state.account = await core.getAccount();
-    rebuildDrawer();
-    await refreshChatList();
-    toast(`Account ready: ${state.account.addr || "chatmail profile"}`, 3500);
+    const id = await core.addAccountWithQr(link);
+    const epoch = core.accountEpoch;
+    await accountRefreshPromise;
+    if (accountIsCurrent(epoch) && core.accountId === id) toast(`Account ready: ${state.account?.addr || "chatmail profile"}`, 3500);
   } catch (err) {
     toast("Invite failed: " + err.message, 4500);
   }
@@ -1088,6 +1169,8 @@ async function handleDeeplink() {
 addEventListener("hashchange", () => handleDeeplink());
 
 async function forwardFlow(msgIds) {
+  if (state.accountChanging) return;
+  const epoch = core.accountEpoch, fromChatId = state.activeChatId, navigation = chatNavigation;
   const list = document.createElement("div");
   list.className = "modal-list";
   const targets = state.chats.filter(c => !["deaddrop", "device"].includes(c.kind));
@@ -1096,8 +1179,10 @@ async function forwardFlow(msgIds) {
     item.setData(chat);
     item.addEventListener("click", async () => {
       close();
-      await core.forwardMessages(state.activeChatId, msgIds, chat.id);
-      chatView.exitSelection();
+      if (!accountIsCurrent(epoch)) return;
+      await core.forwardMessages(fromChatId, msgIds, chat.id);
+      if (!accountIsCurrent(epoch)) return;
+      if (navigation === chatNavigation) chatView.exitSelection();
       toast(`Forwarded to ${chat.name}`);
       refreshChatList();
     });
@@ -1107,14 +1192,56 @@ async function forwardFlow(msgIds) {
 }
 
 /* ---------------- drawer ---------------- */
-let drawer;
+
+// Pulls the profile list for the account switcher. Feature-detected: demo
+// mode and very old cores have no getAllAccounts.
+async function refreshAccounts() {
+  if (!core.getAllAccounts || state.accountChanging) return;
+  const epoch = core.accountEpoch;
+  try {
+    const [account, accounts] = await Promise.all([core.getAccount(), core.getAllAccounts()]);
+    if (!accountIsCurrent(epoch)) return;
+    state.account = account;
+    state.accounts = accounts;
+  } catch (error) {
+    if (!accountIsCurrent(epoch)) return;
+    state.accounts = [];
+    console.warn("[velta] refreshAccounts error:", error);
+    return;
+  }
+  rebuildDrawer();
+}
+
+// Tap on a profile in the drawer switcher.
+async function accountTapFlow(id) {
+  if (state.accountChanging || String(core.accountId) === String(id)) return;
+  try {
+    toast("Switching account…");
+    const account = await core.switchAccount(id);
+    const epoch = core.accountEpoch;
+    await accountRefreshPromise;
+    if (accountIsCurrent(epoch)) toast(`Switched to ${account.displayName || account.addr}`);
+  } catch (err) {
+    toast("Switch failed: " + (err.message || err));
+  }
+}
 function rebuildDrawer() {
+  if (state.accountChanging) return;
   drawer?.el.remove();
   drawer?.overlayEl?.remove();
   drawer = buildDrawer({
     account: state.account,
     backend: core.backend?.label || "unknown backend",
     theme: state.theme,
+    p2p: p2pAvailable(),
+    onP2p: () => openP2pScreen({ renderQr: text => core.createQrSvg(text) }),
+    accounts: state.accounts,
+    currentAccountId: core.accountId,
+    onAccountTap: accountTapFlow,
+    relays: getSavedRelays(),
+    onRelayTap: relayTapFlow,
+    onAddRelay: relayAddFlow,
+    onWelcome: () => showOnboarding({ addNew: true }),
     onToggleTheme: toggleTheme,
     onAddAccount: addAccountFlow,
     onInvite: () => showInvite(inviteQrProvider(null), { account: state.account }),
@@ -1127,8 +1254,11 @@ function rebuildDrawer() {
       setTimeout(() => location.reload(), 600);
     },
     onOpenChat: async kind => {
+      if (state.accountChanging) return;
+      const epoch = core.accountEpoch;
       if (kind === "saved") {
         const chats = await core.getChatList({ query: "" });
+        if (!accountIsCurrent(epoch)) return;
         const saved = chats.find(c => c.kind === "saved");
         if (saved) openChat(saved.id);
       }
@@ -1173,19 +1303,25 @@ async function pickProfileImage() {
 }
 
 async function editProfileFlow() {
+  if (state.accountChanging) return;
+  const epoch = core.accountEpoch;
   const result = await showEditProfile({
     name: state.account?.displayName || "",
     avatarUrl: state.account?.avatar ? fileUrl(state.account.avatar) : "",
     color: state.account?.color,
     pickImage: pickProfileImage,
   });
-  if (!result) return; // cancelled
+  if (!result || !accountIsCurrent(epoch)) return;
   try {
     if (!core.setDisplayName || !core.setAvatar) throw new Error("not available with this backend");
     await core.setDisplayName(result.name);
+    if (!accountIsCurrent(epoch)) return;
     if (result.avatar === "remove") await core.setAvatar(null);
     else if (result.avatar !== "keep") await core.setAvatar(result.avatar.path);
-    state.account = await core.getAccount();
+    if (!accountIsCurrent(epoch)) return;
+    const account = await core.getAccount();
+    if (!accountIsCurrent(epoch)) return;
+    state.account = account;
     rebuildDrawer();
     toast("Profile updated");
   } catch (err) {
@@ -1196,9 +1332,12 @@ async function editProfileFlow() {
 // QR invite provider: real SecureJoin QR rendered by the core
 // (chatId=null → self contact invite; group id → verified group invite).
 function inviteQrProvider(chatId) {
+  const epoch = core.accountEpoch;
   return async () => {
+    if (!accountIsCurrent(epoch)) throw new Error("Account changed; reopen the invite");
     if (!core.getInviteQr) throw new Error("invites need the real core — not available in demo mode");
     const { svg, text } = await core.getInviteQr(chatId);
+    if (!accountIsCurrent(epoch)) throw new Error("Account changed; reopen the invite");
     return { svg, link: text };
   };
 }
@@ -1226,6 +1365,8 @@ function showProgressModal(title, initialMessage) {
 // confirmation first (who invites / which group — read from the link's own
 // params), like the official client's QR-scan flow.
 async function joinFromInvite(link) {
+  if (state.accountChanging) return;
+  const epoch = core.accountEpoch;
   if (!core.secureJoin) {
     toast("Joining chats needs the background core — not available in demo mode", 4500);
     return;
@@ -1245,15 +1386,17 @@ async function joinFromInvite(link) {
   } else {
     ok = await confirmModal("Join chat", "Open this invite and start the SecureJoin handshake?", "Join", false);
   }
-  if (!ok) return;
+  if (!ok || !accountIsCurrent(epoch)) return;
   const { update, close } = showProgressModal("Joining chat", "Starting SecureJoin handshake…");
   try {
     // Mirror links (i.gluek.info & friends) are normalized onto the canonical
     // i.delta.chat form — the core only parses that scheme, and the payload
     // lives in the URL fragment, so the host is irrelevant to the join.
     const chatId = await core.secureJoin(parsed ? parsed.link : link);
+    if (!accountIsCurrent(epoch)) return;
     update("Opening chat…");
     await refreshChatList();
+    if (!accountIsCurrent(epoch)) return;
     openChat(chatId);
     update("Joined successfully");
     setTimeout(close, 700);
@@ -1286,6 +1429,88 @@ function joinFlow() {
   });
 }
 
+/* ---------------- saved relays ---------------- */
+const MAX_SAVED_RELAYS = 3;
+
+function getSavedRelays() {
+  try {
+    const list = JSON.parse(localStorage.getItem("velta-relays") || "[]");
+    return Array.isArray(list) ? list.slice(0, MAX_SAVED_RELAYS) : [];
+  } catch { return []; }
+}
+
+function saveSavedRelays(list) {
+  localStorage.setItem("velta-relays", JSON.stringify(list.slice(0, MAX_SAVED_RELAYS)));
+}
+
+function hostFromLink(link) {
+  return link.replace(/^dcaccount:https?:\/\//i, "").replace(/\/.*$/, "");
+}
+
+// "Add relay…" — save a chatmail host for quick account creation.
+function relayAddFlow() {
+  const body = document.createElement("div");
+  body.innerHTML = `
+    <p style="font-size:14.5px;line-height:1.5;margin-bottom:4px">Save a chatmail relay for quick account creation — e.g. <code>nine.testrun.org</code>. Up to ${MAX_SAVED_RELAYS} relays are kept.</p>
+    <input class="text-field" id="relay-input" placeholder="Relay address — e.g. relay.example.org" autocomplete="off" inputmode="url" autocapitalize="none">`;
+  const foot = document.createElement("div");
+  const cancel = document.createElement("button");
+  cancel.className = "btn-text"; cancel.textContent = "Cancel";
+  const ok = document.createElement("button");
+  ok.className = "btn-text"; ok.textContent = "Save relay";
+  foot.append(cancel, ok);
+  const { close } = showModal({ title: "Add relay", body, foot });
+  const input = body.querySelector("#relay-input");
+  ok.addEventListener("click", () => {
+    const link = normalizeRelayLink(input.value);
+    if (!link) { toast(input.value.trim() ? "That doesn't look like a relay address" : "Enter a relay address"); return; }
+    const host = hostFromLink(link);
+    const list = getSavedRelays();
+    if (list.includes(host)) { toast("Relay already saved"); close(); rebuildDrawer(); return; }
+    if (list.length >= MAX_SAVED_RELAYS) {
+      toast(`Relay list is full (${MAX_SAVED_RELAYS}) — delete one first`);
+      return;
+    }
+    list.unshift(host);
+    saveSavedRelays(list);
+    close();
+    rebuildDrawer();
+    toast(`Relay saved: ${host}`);
+  });
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); ok.click(); }
+  });
+  setTimeout(() => input.focus(), 60);
+}
+
+// Tap on a saved relay: create a new account there, or delete it from the
+// list (existing accounts are never touched by deletion).
+function relayTapFlow(host) {
+  const body = document.createElement("div");
+  body.innerHTML = `<p style="font-size:14.5px;line-height:1.5">Create a new encrypted profile on <b>${escapeHtml(host)}</b>, or remove the relay from your saved list. Existing accounts are not affected by deletion.</p>`;
+  const foot = document.createElement("div");
+  const cancel = document.createElement("button");
+  cancel.className = "btn-text"; cancel.textContent = "Cancel";
+  const del = document.createElement("button");
+  del.className = "btn-text"; del.textContent = "Delete";
+  del.style.color = "var(--danger)";
+  const use = document.createElement("button");
+  use.className = "btn-text"; use.textContent = "Create account";
+  foot.append(cancel, del, use);
+  const { close } = showModal({ title: `Relay ${host}`, body, foot });
+  cancel.addEventListener("click", close);
+  del.addEventListener("click", () => {
+    saveSavedRelays(getSavedRelays().filter(r => r !== host));
+    close();
+    rebuildDrawer();
+    toast(`Relay deleted: ${host}`);
+  });
+  use.addEventListener("click", () => {
+    close();
+    addAccountFromInvite(`dcaccount:https://${host}/new`);
+  });
+}
+
 /* ---------------- onboarding (real core only) ---------------- */
 // Accepts "example.com", "https://example.com", "example.com/new" or a full
 // dcaccount: link and normalizes to dcaccount:https://<host>/new.
@@ -1298,7 +1523,13 @@ function normalizeRelayLink(raw) {
   return `dcaccount:https://${s}/new`;
 }
 
-function showOnboarding() {
+// The "Welcome to Velta" modal. First boot: configures the current
+// (unconfigured) account. From the menu (addNew: true): creates a NEW account
+// on the entered relay via addAccountWithQr, which is safe on configured
+// accounts — it never overwrites an existing profile.
+function showOnboarding({ addNew = false, preset = "" } = {}) {
+  if (state.accountChanging) return;
+  const epoch = core.accountEpoch;
   const body = document.createElement("div");
   body.innerHTML = `
     <p style="font-size:14.5px;line-height:1.5">Enter a <b>chatmail</b> relay address — an instant end-to-end encrypted profile will be created for you. No email or password needed.</p>
@@ -1311,6 +1542,7 @@ function showOnboarding() {
   showModal({ title: "Welcome to Velta", body, foot });
 
   const input = body.querySelector("#ob-relay");
+  input.value = preset;
   const stepsEl = body.querySelector("#ob-steps");
 
   const addStep = (text) => {
@@ -1325,9 +1557,14 @@ function showOnboarding() {
   };
 
   ok.addEventListener("click", async () => {
+    if (!accountIsCurrent(epoch)) return;
     const raw = input.value;
     const link = normalizeRelayLink(raw);
     if (!link) { toast(raw.trim() ? "That doesn't look like a relay address" : "Enter a relay address"); return; }
+    if (addNew) {
+      await addAccountFromInvite(link);
+      return;
+    }
     const host = link.replace(/^dcaccount:https:\/\//i, "").replace(/\/new.*$/, "");
 
     ok.disabled = true; ok.classList.add("btn-loading"); ok.textContent = "Creating…";
@@ -1353,16 +1590,21 @@ function showOnboarding() {
     core.addEventListener("configure-progress", onProg);
     try {
       await core.configureWithQr(link);
+      if (!accountIsCurrent(epoch)) return;
       addStep("Account created — welcome!");
       finishSteps(true);
-      state.account = await core.getAccount();
+      const account = await core.getAccount();
+      if (!accountIsCurrent(epoch)) return;
+      state.account = account;
       setTimeout(() => {
+        if (!accountIsCurrent(epoch)) return;
         closeAllPopups();
         rebuildDrawer();
         refreshChatList();
         toast(`Account created on ${host}`, 3000);
       }, 900);
     } catch (err) {
+      if (!accountIsCurrent(epoch)) return;
       finishSteps(false);
       addStep("Setup failed: " + (err.message || err));
       finishSteps(false);
@@ -1406,18 +1648,20 @@ async function boot() {
     await refreshChatList();
     appLog("boot: rebuildDrawer");
     rebuildDrawer();
+    refreshAccounts();
 
     appLog("boot: bind ui");
-    $("btn-menu").addEventListener("click", () => drawer.open());
+    $("btn-menu").addEventListener("click", () => drawer?.open());
     $("btn-new-chat").addEventListener("click", newChatFlow);
     bindChatHeadMenu();
     // Invite cards in messages + any invite-host link tap → join flow
     bindInviteInterception(link => joinFromInvite(link));
 
-    let searchTimer;
     $("search").addEventListener("input", e => {
+      if (state.accountChanging) return;
       clearTimeout(searchTimer);
-      searchTimer = setTimeout(() => { state.query = e.target.value; refreshChatList(); }, 160);
+      state.query = e.target.value;
+      searchTimer = setTimeout(refreshChatList, 160);
     });
 
     core.addEventListener("incoming-msg", () => scheduleChatListRefresh());

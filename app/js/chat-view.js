@@ -88,6 +88,8 @@ export class ChatView {
     this.loadingMore = false;
     this.selection = new Set();
     this.replyTo = null;
+    this._session = null;
+    this._drafts = new Map();
 
     this.scrollEl = document.getElementById("history-scroll");
     this.listEl = document.getElementById("history");
@@ -103,45 +105,71 @@ export class ChatView {
 
   /* ================= public ================= */
 
-  async open(chatId) {
-    this.exitSelection();
-    // Always render from scratch here. "Already open" is guarded in
-    // App.openChat; a DOM-state shortcut is not safe because other surfaces
-    // (the Diagnostics chat writes rows into #history directly) can replace
-    // the scroller's content while this.chat/items still look current.
-    this.chat = await this.core.getChat(chatId);
-    this.replyTo = null;
-    this._renderReplyPreview();
-    this.items = [];
-    this.msgIndex.clear();
-    this._rowCache.clear();
-    this._rowSigCache.clear();
-    this.vs?.stop();
-    this.vs = null;
-    this.listEl.replaceChildren();
-    // Drop everything the previous scroller session left on the persistent
-    // containers: stale inline paddings (the scroller's virtual space) and a
-    // stale scrollTop make the new scroller start from a mid-history
-    // position, from which it never recovers to the bottom.
-    this.listEl.style.paddingTop = "";
-    this.listEl.style.paddingBottom = "";
-    this.scrollEl.scrollTop = 0;
+  _isCurrent(session = this._session) {
+    return !!session && session === this._session && session.accountEpoch === this.core.accountEpoch;
+  }
 
-    const { messages, hasMore } = await this.core.getMessages(chatId, { limit: 40 });
-    this.hasMore = hasMore;
-    this._rebuildItems(messages);
-    this._createScroller();
-    await this.core.markRead(chatId);
-    this._scrollBottomSettling();
-    this.startLive();
+  async open(chatId) {
+    // Retire the old scroller, composer and pending work before yielding.
+    this.close();
+    const session = this._session = {
+      accountEpoch: this.core.accountEpoch,
+      draftKey: JSON.stringify([String(this.core.accountId), String(chatId)]),
+      chatId,
+      reload: 0,
+    };
+    try {
+      const chat = await this.core.getChat(chatId);
+      if (!this._isCurrent(session)) return false;
+      const { messages, hasMore } = await this.core.getMessages(chatId, { limit: 40 });
+      if (!this._isCurrent(session)) return false;
+      this.chat = chat;
+      this.hasMore = hasMore;
+      const draft = this._drafts.get(session.draftKey);
+      const input = document.getElementById("composer-input");
+      input.value = draft?.text || "";
+      input.disabled = false;
+      input.style.height = "auto";
+      input.style.height = Math.min(input.scrollHeight, innerHeight * 0.4) + "px";
+      this.replyTo = draft?.replyTo || null;
+      this._renderReplyPreview();
+      this._rebuildItems(messages);
+      this._createScroller();
+      await this.core.markRead(chatId);
+      if (!this._isCurrent(session)) return false;
+      this._scrollBottomSettling();
+      this.startLive();
+      return true;
+    } catch (err) {
+      if (!this._isCurrent(session)) return false;
+      this.close();
+      throw err;
+    }
   }
 
   // Full teardown: stop polling, dispose the virtual scroller, drop cached
   // rows and leave #history empty. Used when another surface takes over the
   // history area (Diagnostics chat) and when the chat is closed.
   close() {
+    const input = document.getElementById("composer-input");
+    // Use the session's owner, not core.accountId: account-changing may have
+    // already advanced the core epoch before the app calls close().
+    if (this.chat && this._session) {
+      if (input.value || this.replyTo) this._drafts.set(this._session.draftKey, { text: input.value, replyTo: this.replyTo });
+      else this._drafts.delete(this._session.draftKey);
+    }
+    this._session = null;
+    input.value = "";
+    input.style.height = "auto";
+    input.disabled = true;
     this.stopLive();
+    this._stopSettling?.();
     this.chat = null;
+    this.hasMore = false;
+    this.loadingMore = false;
+    this._unreadPlaced = false;
+    this._unreadFirstDone = false;
+    this._hideGoDown();
     this.vs?.stop();
     this.vs = null;
     this.items = [];
@@ -158,13 +186,16 @@ export class ChatView {
   }
 
   async appendOutgoing(msg) {
-    if (!this.chat || msg.chatId !== this.chat.id) return;
+    const session = this._session;
+    if (!this._isCurrent(session) || !this.chat || !msg || msg.chatId !== this.chat.id) return;
     this._insertItems(this._withSeparatorsAppend([msg]));
     this.vs?.setItems(this.items);
-    if (this._nearBottom()) requestAnimationFrame(() => this._scrollBottom());
+    if (this._nearBottom()) requestAnimationFrame(() => { if (this._isCurrent(session)) this._scrollBottom(); });
   }
 
   async onIncoming(chatId, msg) {
+    const session = this._session;
+    if (!this._isCurrent(session)) return;
     rustLog(`chat-view onIncoming chatId=${chatId} current=${this.chat?.id}`);
     if (!this.chat || chatId !== this.chat.id) { this._bumpGoDown(chatId, true); return; }
     // The same message id can arrive twice (e.g. appended as a download
@@ -174,7 +205,7 @@ export class ChatView {
     this._insertItems(this._withSeparatorsAppend([msg]));
     this.vs?.setItems(this.items);
     if (this._nearBottom()) {
-      requestAnimationFrame(() => this._scrollBottom());
+      requestAnimationFrame(() => { if (this._isCurrent(session)) this._scrollBottom(); });
       this.core.markRead(chatId);
     } else {
       this._bumpGoDown(chatId);
@@ -186,14 +217,16 @@ export class ChatView {
   // and append only what's actually new, preserving scroll/history paging.
   async onMsgsChanged(chatId, { fresh = false } = {}) {
     debugLog(`chat-view onMsgsChanged chatId=${chatId} current=${this.chat?.id} fresh=${fresh}`);
-    if (!this.chat || (chatId && chatId !== this.chat.id)) return;
+    const session = this._session;
+    if (!this._isCurrent(session) || !this.chat || (chatId && chatId !== this.chat.id)) return;
+    const reload = ++session.reload;
     let maxId = 0;
     for (const it of this.items) if (it.type === "msg" && it.msg.id > maxId) maxId = it.msg.id;
     let messages;
     try {
-      ({ messages } = await this.core.getMessages(this.chat.id, { limit: 40, fresh }));
+      ({ messages } = await this.core.getMessages(session.chatId, { limit: 40, fresh }));
     } catch { return; }
-    if (!this.chat) return;
+    if (!this._isCurrent(session) || session.reload !== reload) return;
     const newMsgs = messages.filter(m => m.id > maxId && !this.msgIndex.has(m.id));
     // Remote deletions (e.g. another member asked for a message to be
     // removed) arrive as MsgsChanged without message ids. Anything inside
@@ -230,7 +263,7 @@ export class ChatView {
     this._insertItems(this._withSeparatorsAppend(newMsgs));
     this.vs?.setItems(this.items);
     if (this._nearBottom()) {
-      requestAnimationFrame(() => this._scrollBottom());
+      requestAnimationFrame(() => { if (this._isCurrent(session)) this._scrollBottom(); });
       this.core.markRead(this.chat.id);
     } else {
       this._bumpGoDown(this.chat.id);
@@ -245,10 +278,11 @@ export class ChatView {
   // allocation churn in the WebView.
   startLive() {
     this.stopLive();
+    const session = this._session;
     debugLog(`chat-view startLive chat=${this.chat?.id}`);
     this._liveTicks = 0;
     this._liveTimer = setInterval(() => {
-      if (this.chat && !document.hidden) {
+      if (this._isCurrent(session) && this.chat && !document.hidden) {
         // Regular ticks reuse the incrementally maintained id cache — the
         // tail refetch stays O(40) instead of refetching every message id
         // in the chat every 20s. Every 5th tick (~100s) rebuilds the ids
@@ -265,7 +299,7 @@ export class ChatView {
   }
 
   onMsgState(chatId, msgId, state) {
-    if (!this.chat || chatId !== this.chat.id) return;
+    if (!this._isCurrent() || !this.chat || chatId !== this.chat.id) return;
     const item = this.msgIndex.get(msgId);
     if (item) item.msg.state = state;
     const row = this.listEl.querySelector(`[data-msgid="${msgId}"]`);
@@ -299,7 +333,7 @@ export class ChatView {
   }
 
   onMsgUpdated(chatId, msg) {
-    if (!this.chat || chatId !== this.chat.id) return;
+    if (!this._isCurrent() || !this.chat || chatId !== this.chat.id) return;
     const item = this.msgIndex.get(msg.id);
     if (!item) return;
     const sig = this._rowSignature(msg);
@@ -326,7 +360,7 @@ export class ChatView {
   }
 
   onMsgsDeleted(chatId, ids) {
-    if (!this.chat || chatId !== this.chat.id) return;
+    if (!this._isCurrent() || !this.chat || chatId !== this.chat.id) return;
     this.items = this.items.filter(it => !(it.type === "msg" && ids.includes(it.msg.id)));
     for (const id of ids) {
       this.msgIndex.delete(id);
@@ -382,32 +416,38 @@ export class ChatView {
   }
 
   async _loadOlder() {
-    if (this.loadingMore || !this.hasMore || !this.items.length) return;
+    const session = this._session;
+    if (!this._isCurrent(session) || !this.chat || this.loadingMore || !this.hasMore || !this.items.length) return;
     this.loadingMore = true;
     const firstMsg = this.items.find(i => i.type === "msg");
     const beforeId = firstMsg?.msg.id ?? null;
-    const { messages, hasMore } = await this.core.getMessages(this.chat.id, { beforeId, limit: 40 });
-    this.hasMore = hasMore;
-    if (messages.length) {
-      const firstDayKey = this.items[0]?.dayKey;
-      const out = [];
-      let lastDay = null;
-      for (const m of messages) {
-        const dayKey = new Date(m.ts).toDateString();
-        if (dayKey !== lastDay) {
-          out.push({ type: "day", key: "day-" + dayKey, dayKey, ts: m.ts });
-          lastDay = dayKey;
+    try {
+      const { messages, hasMore } = await this.core.getMessages(session.chatId, { beforeId, limit: 40 });
+      if (!this._isCurrent(session)) return;
+      this.hasMore = hasMore;
+      if (messages.length) {
+        const out = [];
+        let lastDay = null;
+        for (const m of messages) {
+          const dayKey = new Date(m.ts).toDateString();
+          if (dayKey !== lastDay) {
+            out.push({ type: "day", key: "day-" + dayKey, dayKey, ts: m.ts });
+            lastDay = dayKey;
+          }
+          const item = { type: "msg", key: "m" + m.id, msg: m, dayKey };
+          this.msgIndex.set(m.id, item);
+          out.push(item);
         }
-        const item = { type: "msg", key: "m" + m.id, msg: m, dayKey };
-        this.msgIndex.set(m.id, item);
-        out.push(item);
+        // drop a now-duplicated day separator at the seam
+        if (this.items[0]?.type === "day" && this.items[0].dayKey === lastDay) this.items = this.items.slice(1);
+        this.items = [...out, ...this.items];
+        this.vs?.setItems(this.items, { preserveScrollPositionOnPrependItems: true });
       }
-      // drop a now-duplicated day separator at the seam
-      if (this.items[0]?.type === "day" && this.items[0].dayKey === lastDay) this.items = this.items.slice(1);
-      this.items = [...out, ...this.items];
-      this.vs?.setItems(this.items, { preserveScrollPositionOnPrependItems: true });
+    } catch (err) {
+      if (this._isCurrent(session)) toast("Couldn't load older messages: " + (err.message || err));
+    } finally {
+      if (this._isCurrent(session)) this.loadingMore = false;
     }
-    this.loadingMore = false;
   }
 
   /* ================= virtual scroller ================= */
@@ -477,6 +517,7 @@ export class ChatView {
   }
 
   _renderMsgItem(item) {
+    const session = this._session;
     const m = item.msg;
     if (m.kind === "service") {
       const row = document.createElement("div");
@@ -514,7 +555,16 @@ export class ChatView {
     }
     if (m.viewtype === "image" || m.viewtype === "gif" || m.viewtype === "sticker") {
       if (m.downloadState === "Done" && m.filePath) {
-        bubble += `<div class="msg-image"><img data-src="image" alt=""></div>`;
+        // Animated loading: the placeholder reserves the final box (aspect
+        // from the message's dimensions when the core has them, else a 4/3
+        // guess) so the row height is stable while the image decodes.
+        const dw = m.dimensionsWidth > 0 ? m.dimensionsWidth : 0;
+        const dh = m.dimensionsHeight > 0 ? m.dimensionsHeight : 0;
+        const box = dw && dh
+          ? ` style="width:min(${dw}px, 100%, calc(min(450px, 45vh) * ${(dw / dh).toFixed(4)}));aspect-ratio:${dw} / ${dh}"`
+          : "";
+        const wrapCls = `${m.viewtype === "sticker" ? " sticker" : ""}${box ? "" : " no-dims"}`;
+        bubble += `<div class="msg-image"><div class="img-wrap${wrapCls}"${box}><div class="img-ph"><div class="img-ph-ico">${ICO.photo}</div></div><img data-src="image" alt=""></div></div>`;
       } else {
         const size = m.fileSize ? formatBytes(m.fileSize) : "";
         bubble += `<div class="msg-file download-btn" role="button" data-act="download">
@@ -570,6 +620,7 @@ export class ChatView {
       row.querySelector("dc-avatar")?.addEventListener("click", (e) => {
         // The sender's avatar opens their profile — not row selection/menus.
         e.stopPropagation();
+        if (!this._isCurrent(session)) return;
         avatarProfileOpener?.({ contactId: fc.id, name: fc.name, contact: { addr: fc.addr }, online: fc.online, lastSeen: fc.lastSeen, color: fc.color });
       });
     }
@@ -584,6 +635,7 @@ export class ChatView {
     hoverReply.innerHTML = `${ICO.reply}<span>Reply</span>`;
     hoverReply.addEventListener("click", e => {
       e.stopPropagation();
+      if (!this._isCurrent(session)) return;
       this._setReply(item);
       document.getElementById("composer-input")?.focus();
     });
@@ -596,16 +648,40 @@ export class ChatView {
     // told about each change, otherwise its layout math goes stale and the
     // list jitters while scrolling ("Item index N height changed
     // unexpectedly" console warnings).
-    const notifyHeight = () => this.vs?.onItemHeightDidChange?.(item);
+    const notifyHeight = () => { if (this._isCurrent(session)) this.vs?.onItemHeightDidChange?.(item); };
     const mediaImg = row.querySelector('.msg-image img[data-src]');
     if (mediaImg) {
+      const wrap = mediaImg.closest(".img-wrap");
+      // Fade the loaded image in over the shimmer placeholder. When the core
+      // had no dimensions for this message the placeholder used a 4/3 guess,
+      // so snap the wrap to the image's true geometry (the same
+      // natural-size-capped box the CSS used to produce) before revealing.
+      const reveal = () => {
+        if (!this._isCurrent(session)) return;
+        if (mediaImg.naturalWidth && mediaImg.naturalHeight && wrap) {
+          const r = mediaImg.naturalWidth / mediaImg.naturalHeight;
+          wrap.style.aspectRatio = `${mediaImg.naturalWidth} / ${mediaImg.naturalHeight}`;
+          wrap.style.width = `min(${mediaImg.naturalWidth}px, 100%, calc(min(450px, 45vh) * ${r.toFixed(4)}))`;
+        }
+        if (wrap && !wrap.dataset.ready) {
+          wrap.dataset.ready = "1";
+          wrap.classList.add("ready");
+          setTimeout(() => wrap.querySelector(".img-ph")?.remove(), 400);
+        }
+        notifyHeight();
+      };
+      if (mediaImg.complete && mediaImg.naturalWidth) reveal();
+      mediaImg.addEventListener("load", reveal);
+      // Assign after the listeners: even cached/data-URL images fire `load`
+      // asynchronously, but this order makes the reveal race-free.
       mediaImg.src = fileUrl(m.filePath);
-      mediaImg.addEventListener("load", notifyHeight);
       mediaImg.addEventListener("click", e => {
         e.stopPropagation();
+        if (!this._isCurrent(session)) return;
         if (mediaImg.naturalWidth) openImageLightbox(mediaImg.src, m.fileName || "photo");
       });
       mediaImg.onerror = () => {
+        if (!this._isCurrent(session)) return;
         rustLog(`media img error src=${mediaImg.src} original=${m.filePath}`);
         diagnosticsSink.append("error", `img ${m.id} failed to load`);
         const box = mediaImg.closest(".msg-image");
@@ -620,6 +696,7 @@ export class ChatView {
     if (mediaAudio) {
       mediaAudio.src = fileUrl(m.filePath);
       mediaAudio.onerror = () => {
+        if (!this._isCurrent(session)) return;
         rustLog(`media audio error src=${mediaAudio.src} original=${m.filePath}`);
         const box = mediaAudio.closest(".msg-audio");
         if (box && !box.dataset.failed) {
@@ -632,15 +709,18 @@ export class ChatView {
     row.addEventListener("contextmenu", e => {
       // Alt+right-click passes through to the WebView default menu
       // (Inspect / devtools) for debugging.
-      if (e.altKey) return;
+      if (e.altKey || !this._isCurrent(session)) return;
       e.preventDefault();
       this._msgContextMenu(item, e.clientX, e.clientY);
     });
     let pressTimer;
-    row.addEventListener("touchstart", () => { pressTimer = setTimeout(() => this._msgContextMenu(item, innerWidth / 2, innerHeight / 2), 500); }, { passive: true });
+    row.addEventListener("touchstart", () => {
+      pressTimer = setTimeout(() => { if (this._isCurrent(session)) this._msgContextMenu(item, innerWidth / 2, innerHeight / 2); }, 500);
+    }, { passive: true });
     row.addEventListener("touchend", () => clearTimeout(pressTimer));
     row.addEventListener("touchmove", () => clearTimeout(pressTimer));
     row.addEventListener("click", e => {
+      if (!this._isCurrent(session)) return;
       if (this.selection.size) { this._toggleSelect(m.id, row); return; }
       const chip = e.target.closest("[data-react]");
       if (chip) { this.core.addReaction(this.chat.id, m.id, chip.dataset.react); return; }
@@ -660,6 +740,8 @@ export class ChatView {
   /* ================= message actions ================= */
 
   _msgContextMenu(item, x, y) {
+    const session = this._session;
+    if (!this._isCurrent(session) || this.msgIndex.get(item.msg.id) !== item) return;
     const m = item.msg;
     if (m.kind === "service") return;
     const items = [
@@ -668,19 +750,32 @@ export class ChatView {
     if (m.viewtype === "text" && m.text) items.push({ label: "Copy text", icon: ICO.copy, onClick: () => { navigator.clipboard?.writeText(m.text); toast("Copied"); } });
     items.push(
       { label: "Forward", icon: ICO.forward, onClick: () => this._forward([m.id]) },
-      { label: "Save to Saved Messages", icon: ICO.star, onClick: async () => { await this.core.starMessages(this.chat.id, [m.id]); toast("Saved"); this.onChatsChanged(); } },
+      { label: "Save to Saved Messages", icon: ICO.star, onClick: async () => {
+        try {
+          await this.core.starMessages(session.chatId, [m.id]);
+          if (!this._isCurrent(session)) return;
+          toast("Saved");
+          this.onChatsChanged();
+        } catch (err) {
+          if (this._isCurrent(session)) toast("Couldn't save message: " + (err.message || err));
+        }
+      } },
       { label: "React", icon: QUICK_REACTIONS[0], onClick: () => this._reactionMenu(item, x, y) },
       { label: "Select", icon: ICO.select, onClick: () => this._enterSelection(m.id) },
       { label: "Info", icon: ICO.info, onClick: () => this._showInfo(item) },
       "-",
       { label: "Delete", icon: ICO.trash, danger: true, onClick: () => this._delete([m.id]) },
     );
-    showContextMenu(items, x, y);
+    showContextMenu(items.map(action => action === "-" ? action : {
+      ...action, onClick: () => { if (this._isCurrent(session)) return action.onClick(); },
+    }), x, y);
   }
 
   _reactionMenu(item, x, y) {
+    const session = this._session;
+    if (!this._isCurrent(session) || this.msgIndex.get(item.msg.id) !== item) return;
     showContextMenu(QUICK_REACTIONS.map(e => ({
-      label: e, onClick: () => this.core.addReaction(this.chat.id, item.msg.id, e),
+      label: e, onClick: () => { if (this._isCurrent(session)) return this.core.addReaction(session.chatId, item.msg.id, e); },
     })), x, y - 10);
   }
 
@@ -700,6 +795,8 @@ export class ChatView {
   }
 
   async _delete(ids) {
+    const session = this._session;
+    if (!this._isCurrent(session) || !this.chat) return;
     // Mirror the official Delta Chat desktop dialog: "Delete for everyone"
     // is offered only when the core can honor it — self-sent messages in an
     // encrypted chat that isn't self-talk (delete_messages_for_all rules).
@@ -709,13 +806,14 @@ export class ChatView {
       && this.chat.encrypted !== false
       && msgs.every(m => m.from === 1);
     const choice = await confirmDeleteMessagesModal(ids.length, canForAll);
-    if (!choice) return;
+    if (!choice || !this._isCurrent(session)) return;
     try {
-      await this.core.deleteMessages(this.chat.id, ids, { forAll: choice === "everyone" });
+      await this.core.deleteMessages(session.chatId, ids, { forAll: choice === "everyone" });
+      if (!this._isCurrent(session)) return;
       this.exitSelection();
       this.onChatsChanged();
     } catch (err) {
-      toast("Couldn't delete messages: " + (err.message || err), 4500);
+      if (this._isCurrent(session)) toast("Couldn't delete messages: " + (err.message || err), 4500);
     }
   }
 
@@ -770,6 +868,8 @@ export class ChatView {
   _bindSelectionBar() {
     document.getElementById("btn-sel-close").addEventListener("click", () => this.exitSelection());
     document.querySelector(".sel-actions").addEventListener("click", async e => {
+      const session = this._session;
+      if (!this._isCurrent(session) || !this.chat) return;
       const btn = e.target.closest("[data-sel]");
       if (!btn) return;
       const ids = [...this.selection];
@@ -785,10 +885,15 @@ export class ChatView {
         toast("Copied " + texts.length + " messages");
         this.exitSelection();
       } else if (act === "star") {
-        await this.core.starMessages(this.chat.id, ids);
-        toast("Saved to Saved Messages");
-        this.exitSelection();
-        this.onChatsChanged();
+        try {
+          await this.core.starMessages(session.chatId, ids);
+          if (!this._isCurrent(session)) return;
+          toast("Saved to Saved Messages");
+          this.exitSelection();
+          this.onChatsChanged();
+        } catch (err) {
+          if (this._isCurrent(session)) toast("Couldn't save messages: " + (err.message || err));
+        }
       } else if (act === "delete") this._delete(ids);
       else if (act === "info") {
         const item = this.msgIndex.get(ids[0]);
@@ -800,6 +905,7 @@ export class ChatView {
   /* ================= reply ================= */
 
   _setReply(item) {
+    if (!this._isCurrent() || this.msgIndex.get(item.msg.id) !== item) return;
     this.replyTo = item.msg;
     this._renderReplyPreview();
     document.getElementById("composer-input").focus();
@@ -826,13 +932,18 @@ export class ChatView {
     send.addEventListener("click", () => this._send());
     document.getElementById("btn-reply-close").addEventListener("click", () => { this.replyTo = null; this._renderReplyPreview(); });
     document.getElementById("btn-emoji").addEventListener("click", e => {
+      const session = this._session;
+      if (!this._isCurrent(session) || !this.chat) return;
       showEmojiPop(e.currentTarget, emoji => {
+        if (!this._isCurrent(session)) return;
         input.value += emoji;
         input.focus();
         grow();
       });
     });
     document.getElementById("btn-attach").addEventListener("click", e => {
+      const session = this._session;
+      if (!this._isCurrent(session) || !this.chat) return;
       // Anchored like the emoji tray: bottom edge 10px above the button top,
       // growing upward. The emoji tray anchors to btn-emoji's rect; using the
       // same reference here keeps both trays on the exact same bottom line
@@ -846,12 +957,13 @@ export class ChatView {
         { label: "Video", icon: ICO.photo, onClick: () => this._sendAttachment("video") },
         { label: "File", icon: ICO.file, onClick: () => this._sendAttachment("file") },
         { label: "Voice message", icon: ICO.mic, onClick: () => this._sendAttachment("voice") },
-      ], x, 8);
+      ].map(action => ({ ...action, onClick: () => { if (this._isCurrent(session)) return action.onClick(); } })), x, 8);
       menu.classList.add("attach-pop");
       menu.style.top = "auto";
       menu.style.bottom = (window.innerHeight - r.top + 10) + "px";
       menu.style.left = x + "px";
       requestAnimationFrame(() => {
+        if (!this._isCurrent(session)) return;
         if (menu.getBoundingClientRect().top < 8) {
           menu.style.bottom = "auto";
           menu.style.top = "8px";
@@ -861,27 +973,39 @@ export class ChatView {
   }
 
   async _send() {
+    const session = this._session;
     const input = document.getElementById("composer-input");
     const text = input.value.trim();
-    if (!text || !this.chat) return;
+    if (!this._isCurrent(session) || !text || !this.chat) return;
     input.value = "";
     input.style.height = "auto";
     const quoteId = this.replyTo?.id ?? null;
     this.replyTo = null;
     this._renderReplyPreview();
-    const msg = await this.core.sendMessage(this.chat.id, { text, quoteId });
-    this.appendOutgoing(msg);
-    this.onChatsChanged();
+    try {
+      const msg = await this.core.sendMessage(session.chatId, { text, quoteId });
+      if (!this._isCurrent(session)) return;
+      this.appendOutgoing(msg);
+      this.onChatsChanged();
+    } catch (err) {
+      if (this._isCurrent(session)) toast("Couldn't send message: " + (err.message || err));
+    }
   }
 
   async _sendAttachment(kind) {
-    if (!this.chat) return;
+    const session = this._session;
+    if (!this._isCurrent(session) || !this.chat) return;
 
     // Voice recording is not implemented yet — keep the old demo placeholder.
     if (kind === "voice") {
-      const msg = await this.core.sendMessage(this.chat.id, { text: "", viewtype: "voice", extra: { duration: 5 + Math.floor(Math.random() * 40) } });
-      this.appendOutgoing(msg);
-      this.onChatsChanged();
+      try {
+        const msg = await this.core.sendMessage(session.chatId, { text: "", viewtype: "voice", extra: { duration: 5 + Math.floor(Math.random() * 40) } });
+        if (!this._isCurrent(session)) return;
+        this.appendOutgoing(msg);
+        this.onChatsChanged();
+      } catch (err) {
+        if (this._isCurrent(session)) toast("Couldn't send voice message: " + (err.message || err));
+      }
       return;
     }
 
@@ -903,6 +1027,7 @@ export class ChatView {
 
     try {
       let picked = await invoke("plugin:dialog|open", { options: { multiple: false, filters } });
+      if (!this._isCurrent(session)) return;
       if (Array.isArray(picked)) picked = picked[0];
       if (!picked) return;
       // The Android picker returns content:// URIs that neither tauri-plugin-fs
@@ -913,10 +1038,12 @@ export class ChatView {
       let resolved;
       if (/^content:\/\//.test(picked)) {
         resolved = await invoke("resolve_content_uri", { uri: picked, filename: String(Date.now()) });
+        if (!this._isCurrent(session)) return;
         diagnosticsSink.append("info", `attachment copied to ${resolved}`);
       } else {
         resolved = await resolveAttachmentPath(picked, picked.replace(/\\/g, "/").split("/").pop());
       }
+      if (!this._isCurrent(session)) return;
 
       const name = resolved.replace(/\\/g, "/").split("/").pop() || "attachment";
       const ext = extOf(name);
@@ -924,10 +1051,12 @@ export class ChatView {
       if (kind === "image" || ["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext)) viewtype = "image";
       else if (kind === "video" || ["mp4", "mov", "mkv", "avi", "webm"].includes(ext)) viewtype = "video";
       else if (["mp3", "m4a", "ogg", "wav", "flac"].includes(ext)) viewtype = "audio";
-      const msg = await this.core.sendMessage(this.chat.id, { text: "", viewtype, file: resolved, filename: name });
+      const msg = await this.core.sendMessage(session.chatId, { text: "", viewtype, file: resolved, filename: name });
+      if (!this._isCurrent(session)) return;
       this.appendOutgoing(msg);
       this.onChatsChanged();
     } catch (err) {
+      if (!this._isCurrent(session)) return;
       diagnosticsSink.append("error", `send ${kind} failed: ${err.message || err}`);
       toast("Could not send file: " + (err.message || err), 4000);
       console.error(err);
@@ -935,23 +1064,29 @@ export class ChatView {
   }
 
   async _downloadMedia(msgId) {
+    const session = this._session;
+    if (!this._isCurrent(session) || !this.chat) return;
     try {
       await this.core.downloadFullMessage(msgId);
+      if (!this._isCurrent(session)) return;
       const msg = await this.core.getMessage(msgId);
-      this.onMsgUpdated(this.chat.id, msg);
+      if (!this._isCurrent(session)) return;
+      this.onMsgUpdated(session.chatId, msg);
     } catch (err) {
+      if (!this._isCurrent(session)) return;
       toast("Download failed: " + (err.message || err), 4000);
       console.error(err);
     }
   }
 
   _openFile(path) {
-    if (!path) return;
+    const session = this._session;
+    if (!this._isCurrent(session) || !path) return;
     const tauri = window.__TAURI__;
     const invoke = tauri?.core?.invoke || tauri?.invoke;
     if (invoke) {
       invoke("plugin:opener|open_path", { path }).catch(err => {
-        toast("Could not open file: " + (err.message || err), 3000);
+        if (this._isCurrent(session)) toast("Could not open file: " + (err.message || err), 3000);
       });
     } else {
       toast("File opening is only available in the Tauri app");
@@ -962,10 +1097,16 @@ export class ChatView {
 
   _bindScroll() {
     this.scrollEl.addEventListener("scroll", () => {
+      if (!this._isCurrent() || !this.chat) return;
       if (this.scrollEl.scrollTop < 220) this._loadOlder();
       if (this._nearBottom()) this._hideGoDown();
     }, { passive: true });
-    this.goDownBtn.addEventListener("click", () => { this._scrollBottom(); this._hideGoDown(); if (this.chat) this.core.markRead(this.chat.id); });
+    this.goDownBtn.addEventListener("click", () => {
+      if (!this._isCurrent() || !this.chat) return;
+      this._scrollBottom();
+      this._hideGoDown();
+      this.core.markRead(this.chat.id);
+    });
   }
 
   _nearBottom() {
@@ -983,27 +1124,31 @@ export class ChatView {
   // bottom position until the layout stops moving (or the user scrolls away).
   _scrollBottomSettling() {
     this._stopSettling?.();
+    const session = this._session;
     let lastHeight = -1, stableFrames = 0, frames = 0, stopped = false;
-    const onUserScroll = () => { stopped = true; };
+    let frame;
+    const onUserScroll = () => stop();
     this.scrollEl.addEventListener("wheel", onUserScroll, { passive: true, once: true });
     this.scrollEl.addEventListener("touchstart", onUserScroll, { passive: true, once: true });
-    const cleanup = () => {
+    const stop = () => {
+      stopped = true;
+      cancelAnimationFrame(frame);
       this.scrollEl.removeEventListener("wheel", onUserScroll);
       this.scrollEl.removeEventListener("touchstart", onUserScroll);
-      this._stopSettling = null;
+      if (this._stopSettling === stop) this._stopSettling = null;
     };
-    this._stopSettling = () => { stopped = true; };
+    this._stopSettling = stop;
     const tick = () => {
-      if (stopped || !this.chat) { cleanup(); return; }
+      if (stopped || !this._isCurrent(session) || !this.chat) { stop(); return; }
       this.scrollEl.scrollTop = this.scrollEl.scrollHeight;
       this._hideGoDown();
       const height = this.scrollEl.scrollHeight;
       if (height === lastHeight) stableFrames++; else { stableFrames = 0; lastHeight = height; }
       frames++;
-      if (stableFrames >= 4 || frames >= 90) { cleanup(); return; }
-      requestAnimationFrame(tick);
+      if (stableFrames >= 4 || frames >= 90) { stop(); return; }
+      frame = requestAnimationFrame(tick);
     };
-    requestAnimationFrame(tick);
+    frame = requestAnimationFrame(tick);
   }
 
   _bumpGoDown(chatId, background = false) {

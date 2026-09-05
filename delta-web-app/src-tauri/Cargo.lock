@@ -3,6 +3,20 @@
 version = 3
 
 [[package]]
+name = "acto"
+version = "0.7.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a026259da4f1a13b4af60cda453c392de64c58c12d239c560923e0382f42f2b9"
+dependencies = [
+ "parking_lot",
+ "pin-project-lite",
+ "rustc_version",
+ "smol_str",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1498,13 +1512,19 @@ dependencies = [
 
 [[package]]
 name = "delta-web"
-version = "1.2.0"
+version = "1.3.4"
 dependencies = [
  "anyhow",
+ "data-encoding",
  "deltachat-jsonrpc",
  "futures-lite",
+ "iroh",
  "jni",
+ "qrcode",
+ "rand 0.8.7",
+ "serde",
  "serde_json",
+ "socket2 0.5.10",
  "tauri",
  "tauri-build",
  "tauri-plugin-deep-link",
@@ -1513,6 +1533,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tokio",
+ "tokio-util",
  "yerpc",
 ]
 
@@ -3544,6 +3565,7 @@ dependencies = [
  "strum 0.26.3",
  "stun-rs",
  "surge-ping",
+ "swarm-discovery",
  "thiserror 2.0.20",
  "time",
  "tokio",
@@ -5766,6 +5788,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
+name = "qrcode"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
+
+[[package]]
 name = "qrcodegen"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6993,6 +7021,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8e2fb0f499abb4d162f2bedad68f5ef91a1682b5a03596ddb67efd37768d100"
 
 [[package]]
+name = "smol_str"
+version = "0.1.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fad6c857cbab2627dcf01ec85a623ca4e7dcb5691cbaa3d7fb7653671f0d09c9"
+
+[[package]]
 name = "snafu"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7266,6 +7300,21 @@ dependencies = [
  "rand 0.9.5",
  "socket2 0.6.5",
  "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "swarm-discovery"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3a95032b94c1dc318f55e0b130e3d2176cda022310a65c3df0092764ea69562"
+dependencies = [
+ "acto",
+ "anyhow",
+ "hickory-proto",
+ "rand 0.8.7",
+ "socket2 0.5.10",
  "tokio",
  "tracing",
 ]

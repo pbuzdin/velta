@@ -17,6 +17,9 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 use tauri::{Emitter, Manager, State};
 
+// Public so the p2p-hub debug example can drive the engine headlessly.
+pub mod p2p;
+
 static LOG_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
 static INITIAL_DEEPLINK: Mutex<Option<String>> = Mutex::new(None);
 static SIDECAR_STATUS: Mutex<Option<serde_json::Value>> = Mutex::new(None);
@@ -1006,6 +1009,25 @@ pub fn run() {
             let _ = std::fs::create_dir_all(&accounts);
             log(&format!("accounts directory: {}", accounts.display()));
 
+            // Local-only P2P chat engine — independent of the Delta Chat core,
+            // runs on Tauri's async runtime on every platform. Manage the exact
+            // type the commands expect (P2pState itself, NOT a wrapper — a
+            // mismatch surfaces as "state not managed" at command time); the
+            // engine fills in asynchronously so early p2p_* calls report
+            // "still starting" instead of failing with an unmanaged-state error.
+            {
+                let p2p_dir = app
+                    .path()
+                    .resolve("p2p", tauri::path::BaseDirectory::AppLocalData);
+                let state = p2p::P2pState::empty();
+                let slot = state.slot();
+                app.manage(state);
+                match p2p_dir {
+                    Ok(dir) => p2p::spawn_startup(app.handle().clone(), slot, dir),
+                    Err(e) => log(&format!("p2p data dir unavailable: {e}")),
+                }
+            }
+
             #[cfg(target_os = "android")]
             {
                 let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
@@ -1128,7 +1150,7 @@ pub fn run() {
             response.headers_mut().insert("Cache-Control", "no-store".parse().unwrap());
             response.map(|body| std::borrow::Cow::Owned(body))
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, p2p::p2p_status, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {

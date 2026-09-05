@@ -180,6 +180,19 @@ export class MockCore extends EventTarget {
       const r = mulberry32(m.id);
       m.wave = Array.from({ length: 32 }, () => 4 + Math.floor(r() * 22));
     }
+    if (m.viewtype === "image") {
+      // Deterministic pseudo-dimensions + file plumbing so the chat view's
+      // image placeholder exercises the exact-aspect path (same as the real
+      // core provides via dimensions_width/height).
+      const r = mulberry32(m.id);
+      m.dimensionsWidth = 640 + Math.floor(r() * 1920);
+      m.dimensionsHeight = 480 + Math.floor(r() * 960);
+      if (m.img) {
+        m.filePath = m.img;
+        m.downloadState = "Done";
+        m.fileSize = 80e3 + Math.floor(r() * 3e6);
+      }
+    }
     return m;
   }
 
