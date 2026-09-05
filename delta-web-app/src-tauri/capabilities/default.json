@@ -10,6 +10,7 @@
     "core:event:allow-unlisten",
     "opener:default",
     "dialog:allow-open",
+    "notification:default",
     "fs:default",
     "fs:read-all",
     "fs:write-all",

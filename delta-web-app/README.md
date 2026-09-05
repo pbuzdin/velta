@@ -4,8 +4,23 @@ This directory is the **Tauri v2** wrapper around the Velta PWA in `../app`.
 It produces a native Windows installer and a native Android APK from a single
 frontend codebase.
 
-**Current stable version:** `1.3.6`  
+**Current stable version:** `1.3.7`  
 **Bundled core:** `deltachat-core-rust 2.59.0`
+
+## What's new in 1.3.7
+
+- **New: incoming-message notifications** — messages arriving while the app
+  is in the background show a system notification (sender + message preview,
+  throttled). Android 13+ `POST_NOTIFICATIONS` permission is requested at
+  boot. Tapping a notification opens the app (deep-linking to the specific
+  chat is a planned refinement).
+- **New: upgrade-safe release signing in CI** — the Android workflow signs
+  with a persistent keystore from repo secrets, so successive builds install
+  over each other without uninstalling (which wiped accounts). Without the
+  secrets configured, CI falls back to an ephemeral key with a loud warning;
+  see `.github/workflows/build-android.yml` for the one-time setup.
+- Still open (see `CONCERNS-GPT6.md` §5.3): guaranteed sync under Doze /
+  process death needs a foreground-service integration.
 
 ## What's new in 1.3.6
 

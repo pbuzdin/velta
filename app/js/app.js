@@ -7,7 +7,7 @@ import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintGroups
 import { ChatView, setAvatarProfileOpener } from "./chat-view.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal } from "./invites.js";
-import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile } from "./ui.js";
+import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming } from "./ui.js";
 import { p2pAvailable, openP2p as openP2pScreen } from "./p2p.js";
 import { timeAgo } from "./mock-core.js";
 
@@ -1620,6 +1620,10 @@ function showOnboarding({ addNew = false, preset = "" } = {}) {
 async function boot() {
   try {
     appLog("boot: getAccount");
+    // Android 13+ needs a runtime grant for notifications; feature-detected
+    // and once-per-boot. Declining is fine — notifications just stay off.
+    try { await window.__TAURI__?.notification?.requestPermission?.(); } catch {}
+    state.account = await core.getAccount();
     state.account = await core.getAccount();
     appLog(`boot: account ${state.account.addr} configured=${state.account.configured}`);
 
@@ -1664,7 +1668,14 @@ async function boot() {
       searchTimer = setTimeout(refreshChatList, 160);
     });
 
-    core.addEventListener("incoming-msg", () => scheduleChatListRefresh());
+    core.addEventListener("incoming-msg", ev => {
+      scheduleChatListRefresh();
+      const msg = ev?.detail?.msg;
+      notifyIncoming(
+        msg?.fromContact?.name || msg?.fwdFrom || "New message",
+        (msg?.text || "").replace(/\s+/g, " ").slice(0, 120) || "New message",
+      );
+    });
     core.addEventListener("msgs-changed", () => scheduleChatListRefresh());
     core.addEventListener("chat-updated", ev => {
       scheduleChatListRefresh();

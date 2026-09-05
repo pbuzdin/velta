@@ -327,7 +327,7 @@ export function showInvite(provider, { title = "Invite to Delta Chat", group = f
 async function showAbout() {
   // Keep the fallback in sync with tauri.conf.json; prefer the runtime
   // version so the About dialog always matches the built app.
-  let version = "1.3.6";
+  let version = "1.3.7";
   try {
     const tauri = window.__TAURI__;
     if (tauri?.app?.getVersion) version = await tauri.app.getVersion();
@@ -459,4 +459,19 @@ export function openImageLightbox(src, caption = "") {
   stage.addEventListener("click", e => {
     if (scale <= 1.02 && !e.isTrusted === false && e.detail === 1) close();
   });
+}
+
+/* ---------- incoming-message notifications ---------- */
+// Callers own the policy (who/when — they know which message is new); this is
+// the platform bridge plus a burst throttle. No-op outside the Tauri shell or
+// while the window is visible (the user is looking at the app).
+let lastNotifyAt = 0;
+export function notifyIncoming(title, body) {
+  if (!window.__TAURI__ || !document.hidden) return;
+  const now = Date.now();
+  if (now - lastNotifyAt < 4000) return;
+  lastNotifyAt = now;
+  const t = window.__TAURI__;
+  const invoke = t.core?.invoke || t.invoke;
+  invoke("notify_incoming", { title, body }).catch(() => {});
 }

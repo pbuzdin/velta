@@ -2,7 +2,7 @@
 // Tauri shell (src-tauri/src/p2p.rs). Available only inside the Tauri app —
 // the plain-browser PWA has no iroh endpoint to talk to.
 
-import { showModal, toast } from "./ui.js";
+import { showModal, toast, notifyIncoming } from "./ui.js";
 import { acquireCode } from "./qr-scan.js";
 
 const TICKET_PREFIX = "VELTAP2P1:";
@@ -46,6 +46,7 @@ async function handleEvent(ev) {
   if (ev.kind === "pair-request") showPairRequest(ev.peerId, ev.name).catch(() => {});
   if (ev.kind === "pairing") toast(`Paired with ${ev.name || "a device"}`);
   if (ev.kind === "error") toast(ev.message || "Local chat error");
+  if (ev.kind === "message") notifyIncoming(ev.name || "Local chat", (ev.text || "").slice(0, 120));
   if (hub && ["pairing", "presence", "nearby"].includes(ev.kind)) hub.refresh().catch(() => {});
   if (activeChat && ev.peerId === activeChat.peerId &&
       ["message", "ack", "presence"].includes(ev.kind)) {
