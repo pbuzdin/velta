@@ -4,8 +4,24 @@ This directory is the **Tauri v2** wrapper around the Velta PWA in `../app`.
 It produces a native Windows installer and a native Android APK from a single
 frontend codebase.
 
-**Current stable version:** `1.3.5`  
+**Current stable version:** `1.3.6`  
 **Bundled core:** `deltachat-core-rust 2.59.0`
+
+## What's new in 1.3.6
+
+- **Fixed:** video seeking and mid-file playback on media served by the
+  loopback HTTP server — Range requests now seek to the requested offset and
+  stream exactly the requested interval (the old handler truncated the file
+  from byte 0 without seeking, so `bytes=100-199` returned the first 100
+  bytes labelled as 100-199). Full GETs stream in 64 KiB chunks instead of
+  buffering the entire video in memory, and unusable Range headers get a
+  proper `416` response.
+- **Fixed:** oversized media (poster extraction) could allocate the whole
+  file into memory and IPC before the size check ran — `read_media_bytes`
+  now refuses files above 128 MiB via metadata before any read.
+- Regression tests: `media_tests` in `src-tauri/src/lib.rs` (offset-correct
+  206 payloads, suffix/open-ended ranges, 416, streamed full GET,
+  pre-allocation size guard).
 
 ## What's new in 1.3.5
 

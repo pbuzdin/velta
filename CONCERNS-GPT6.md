@@ -103,20 +103,37 @@ timeout, then an incoming message — remains worthwhile on a real device.
 
 ## 4. Media Ranges And Memory Use
 
-**Priority: High. Status: Open; range error confirmed in source.**
+**Priority: High. Status: Resolved (2026-09-05) — range serving fixed with bounded reads; IPC size guard added; on-device video seeking still worth a spot check.**
 
-The loopback media handler in `delta-web-app/src-tauri/src/lib.rs` reads the whole
-file and truncates the buffer to the requested range length without advancing to
-the requested starting offset. A request for bytes 100-199 therefore receives
-bytes 0-99 labelled as 100-199. This undermines seeking and video metadata reads.
+Two confirmed problems in the media paths:
 
-`app/js/poster.js` also checks its 128 MiB limit after `read_media_bytes` has
-already read and transferred the entire file. The check does not prevent the
-large native/IPC allocation. An actual out-of-memory failure was not tested.
+1. **Loopback media server truncated instead of seeking.** The Range handler
+   in `serve_media_connection` (`delta-web-app/src-tauri/src/lib.rs`) read the
+   whole file and truncated the buffer to the requested length without
+   advancing to the requested offset — a request for bytes 100-199 received
+   bytes 0-99 labelled as 100-199, breaking seeking and moov-at-end video
+   demuxing. (The asset-protocol path, `serve_blob_file`, already seeked
+   correctly.)
+2. **Poster size limit ran too late.** `read_media_bytes` read the entire file
+   into memory and over IPC before `poster.js` checked its 128 MiB cap, so the
+   cap never prevented the large allocation.
 
-Serve the correct byte interval with bounded reads. Enforce poster limits before
-allocation/IPC. Test nonzero offsets, suffix ranges, invalid ranges, and oversized
-files. Preserve the existing serialized poster jobs and graceful fallback.
+Implemented:
+
+- The loopback server now opens the file once and streams: Range requests
+  seek to the offset and stream exactly the requested interval in 64 KiB
+  chunks (correct bytes, bounded memory); full GETs stream in chunks instead
+  of `fs::read`-ing the whole file; a present-but-unusable Range header gets
+  `416` with `Content-Range: bytes */len` instead of a whole-file 200.
+- `read_media_bytes` rejects files above `MAX_MEDIA_IPC_BYTES` (128 MiB) via
+  metadata before any allocation; `poster.js` treats the rejection as before
+  and falls back to the placeholder (its JS-side check remains as a fast path).
+
+Regression coverage: `delta-web-app/src-tauri/src/lib.rs` `media_tests` —
+`parse_range` cases, offset-correct 206 payloads (including `bytes=-n` suffix
+and open-ended ranges), 416 for unsatisfiable ranges, chunk-streamed full GET,
+and oversize rejection before allocation. A real-device check of video
+seeking on a large recording remains worthwhile.
 
 ## 5. Android Background Delivery And Release Continuity
 

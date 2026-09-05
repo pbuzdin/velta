@@ -1,4 +1,4 @@
-use std::fs::OpenOptions;
+﻿use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 #[cfg(not(target_os = "android"))]
 use std::sync::Arc;
@@ -26,7 +26,7 @@ static SIDECAR_STATUS: Mutex<Option<serde_json::Value>> = Mutex::new(None);
 
 // Non-blocking logger: messages are pushed onto an unbounded mpsc channel and
 // written from a dedicated background thread, so log() never blocks the IPC /
-// RPC hot path. On Android this is critical — the WebView event bridge and the
+// RPC hot path. On Android this is critical вЂ” the WebView event bridge and the
 // JSON-RPC session both pass through the main thread context, and a
 // synchronous file open+write per RPC round-trip was stalling the startup
 // handshake long enough for the frontend's event.listen() to time out and
@@ -77,7 +77,7 @@ fn ensure_log_writer() {
     *guard = Some(tx);
     drop(guard);
 
-    // Capture the directory at spawn time — it won't change during the session.
+    // Capture the directory at spawn time вЂ” it won't change during the session.
     let dir = log_dir();
     std::thread::Builder::new()
         .name("velta-log-writer".into())
@@ -94,7 +94,7 @@ fn ensure_log_writer() {
                         f.write_all(msg.as_bytes())
                     });
                 // If the log file becomes unwritable (rotated, volume full),
-                // don't kill the thread — just keep draining the channel so
+                // don't kill the thread вЂ” just keep draining the channel so
                 // log() callers never block.
                 if res.is_err() {
                     std::thread::sleep(std::time::Duration::from_millis(100));
@@ -118,7 +118,7 @@ pub fn log(msg: &str) {
         .unwrap_or_default();
     let line = format!("[{}.{:03}] {}\n", now.as_secs(), now.subsec_millis(), msg);
     // Non-blocking send. If the channel doesn't exist yet (before
-    // set_log_dir) or the writer thread has died, the message is dropped —
+    // set_log_dir) or the writer thread has died, the message is dropped вЂ”
     // never block the caller. On Android this is what was killing startup:
     // every RPC round-trip did a synchronous create_dir_all+open+write under
     // a global Mutex, blocking the JSON-RPC handshake.
@@ -176,7 +176,7 @@ fn resolve_upload_path(app: tauri::AppHandle, filename: String) -> String {
         .unwrap_or_default()
 }
 
-// ---------- blobfile:// — Range-aware media serving ----------
+// ---------- blobfile:// вЂ” Range-aware media serving ----------
 
 // The default asset protocol on Android is served by the plain
 // WebViewAssetLoader, which ignores Range requests. Video files whose moov
@@ -228,7 +228,7 @@ fn guess_mime(path: &str) -> &'static str {
     }
 }
 
-// "bytes=a-b" | "bytes=a-" | "bytes=-n" → inclusive (start, end)
+// "bytes=a-b" | "bytes=a-" | "bytes=-n" в†’ inclusive (start, end)
 fn parse_range(header: &str, len: u64) -> Option<(u64, u64)> {
     let rest = header.trim().strip_prefix("bytes=")?;
     let (start_s, end_s) = rest.split_once('-')?;
@@ -277,7 +277,7 @@ fn serve_blob_file(app: &tauri::AppHandle, request: tauri::http::Request<Vec<u8>
     let file = percent_decode(path_part);
 
     // Only serve files that live inside the accounts directory (blobs,
-    // uploads) — never anything else on the filesystem. Canonicalize both
+    // uploads) вЂ” never anything else on the filesystem. Canonicalize both
     // sides: on Android the core reports blobs under /data/user/0 (a symlink
     // to /data/data), so a raw prefix check would wrongly reject everything.
     let accounts = accounts_dir(app);
@@ -384,7 +384,7 @@ fn media_base_url() -> String {
 // Posters are extracted in the WebView (hidden <video> over a blob URL, seek,
 // canvas) and persisted as WebP next to the account database, so a frame is
 // decoded only once per file. The cached image is served through the asset
-// protocol — plain GETs work fine there even though range reads don't.
+// protocol вЂ” plain GETs work fine there even though range reads don't.
 
 fn poster_target(src: &str) -> Option<PathBuf> {
     let p = std::path::Path::new(src);
@@ -418,10 +418,26 @@ fn poster_cache_path(app: tauri::AppHandle, src: String) -> Result<serde_json::V
     Ok(serde_json::json!({ "path": target.to_string_lossy(), "exists": exists }))
 }
 
+// Posters are extracted from a full in-memory copy of the media вЂ” refuse to
+// buffer oversized files into the IPC layer (the WebView's poster.js has its
+// own fast-path check, but this is the enforced bound).
+const MAX_MEDIA_IPC_BYTES: u64 = 128 * 1024 * 1024;
+
+fn checked_media_read(canon: &std::path::Path) -> Result<Vec<u8>, String> {
+    let meta = std::fs::metadata(canon).map_err(|e| e.to_string())?;
+    if meta.len() > MAX_MEDIA_IPC_BYTES {
+        return Err(format!(
+            "media file too large to read into memory ({} bytes > {MAX_MEDIA_IPC_BYTES})",
+            meta.len()
+        ));
+    }
+    std::fs::read(canon).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn read_media_bytes(app: tauri::AppHandle, src: String) -> Result<tauri::ipc::Response, String> {
     let canon = scoped_accounts_path(&app, &src)?;
-    let bytes = std::fs::read(&canon).map_err(|e| e.to_string())?;
+    let bytes = checked_media_read(&canon)?;
     Ok(tauri::ipc::Response::new(bytes))
 }
 
@@ -441,13 +457,13 @@ fn start_media_server(accounts: PathBuf) {
         .name("media-http".into())
         .spawn(move || {
             // Prefer the fixed port: the static CSP whitelist references it.
-            // Fall back to an ephemeral port (media may then be CSP-blocked —
+            // Fall back to an ephemeral port (media may then be CSP-blocked вЂ”
             // logged loudly) rather than losing media entirely.
             let listener = match std::net::TcpListener::bind("127.0.0.1:20810") {
                 Ok(l) => l,
                 Err(_) => match std::net::TcpListener::bind("127.0.0.1:0") {
                     Ok(l) => {
-                        log("media http: port 20810 busy, bound ephemeral — media-src CSP mismatch possible");
+                        log("media http: port 20810 busy, bound ephemeral вЂ” media-src CSP mismatch possible");
                         l
                     }
                     Err(e) => {
@@ -483,7 +499,7 @@ fn start_media_server(accounts: PathBuf) {
 }
 
 fn serve_media_connection(stream: &mut std::net::TcpStream, accounts: &PathBuf) {
-    use std::io::{Read, Write};
+    use std::io::{Read, Seek, SeekFrom, Write};
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(10)));
 
     // read the request head (request line + headers)
@@ -564,40 +580,93 @@ Connection: close
     let len = meta.len();
     let mime = guess_mime(&serve_path);
 
-    let mut headers = format!(
-        "HTTP/1.1 200 OK
-Content-Type: {mime}
-Accept-Ranges: bytes
-Access-Control-Allow-Origin: *
-"
-    );
-    let mut body = match std::fs::read(&serve_path) {
-        Ok(d) => d,
+    let mut file = match std::fs::File::open(&serve_path) {
+        Ok(f) => f,
         Err(_) => return not_found(),
     };
-    if let Some(range) = &range {
-        if let Some((start, end)) = parse_range(range, len) {
-            let take = (end - start + 1) as usize;
-            body.truncate(take);
-            headers = format!(
-                "HTTP/1.1 206 Partial Content
+
+    // Range request: seek to the offset and stream exactly the requested
+    // interval. (The old path truncated the file from byte 0 without seeking,
+    // serving the wrong bytes labelled as start-end and breaking video
+    // seeking / moov-at-end demuxing.) An unusable Range header gets 416 вЂ”
+    // never a whole-file read.
+    if let Some(header) = &range {
+        let Some((start, end)) = parse_range(header, len) else {
+            let _ = stream.write_all(
+                format!(
+                    "HTTP/1.1 416 Range Not Satisfiable
+Content-Range: bytes */{len}
+Connection: close
+
+"
+                )
+                .as_bytes(),
+            );
+            return;
+        };
+        let take = end - start + 1;
+        if file.seek(SeekFrom::Start(start)).is_err() {
+            return not_found();
+        }
+        let headers = format!(
+            "HTTP/1.1 206 Partial Content
 Content-Type: {mime}
 Accept-Ranges: bytes
 Access-Control-Allow-Origin: *
 Content-Range: bytes {start}-{end}/{len}
 Content-Length: {take}
-"
-            );
-        }
-    }
-    headers.push_str(&format!("Content-Length: {}
 Connection: close
 
-", body.len()));
+"
+        );
+        if stream.write_all(headers.as_bytes()).is_err() {
+            return;
+        }
+        let mut remaining = take;
+        let mut chunk = [0u8; 64 * 1024];
+        while remaining > 0 {
+            let want = std::cmp::min(chunk.len() as u64, remaining) as usize;
+            match file.read(&mut chunk[..want]) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if stream.write_all(&chunk[..n]).is_err() {
+                        break;
+                    }
+                    remaining -= n as u64;
+                }
+                Err(_) => break,
+            }
+        }
+        let _ = stream.flush();
+        return;
+    }
+
+    // Full GET: stream in chunks вЂ” a large video must never be buffered whole.
+    let headers = format!(
+        "HTTP/1.1 200 OK
+Content-Type: {mime}
+Accept-Ranges: bytes
+Access-Control-Allow-Origin: *
+Content-Length: {len}
+Connection: close
+
+"
+    );
     if stream.write_all(headers.as_bytes()).is_err() {
         return;
     }
-    let _ = stream.write_all(&body);
+    let mut chunk = [0u8; 64 * 1024];
+    loop {
+        match file.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                if stream.write_all(&chunk[..n]).is_err() {
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
     let _ = stream.flush();
 }
 #[cfg(target_os = "android")]
@@ -633,7 +702,7 @@ pub extern "system" fn Java_org_velta_MainActivity_setApplicationContext(
 }
 
 // Desktop has no ContentResolver; the command exists on every platform so the
-// frontend can always call it — on desktop it just reports unsupported.
+// frontend can always call it вЂ” on desktop it just reports unsupported.
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
 fn resolve_content_uri(_app: tauri::AppHandle, _uri: String, _filename: String) -> Result<String, String> {
@@ -865,7 +934,7 @@ impl RpcState {
 #[tauri::command]
 fn rpc(request: String, state: State<'_, RpcState>) -> Result<(), String> {
     // NOTE: do not log every request here. This command is on the JSON-RPC
-    // hot path — even with the non-blocking logger, formatting a string per
+    // hot path вЂ” even with the non-blocking logger, formatting a string per
     // RPC adds alloc pressure and grows velta.log unbounded. Use js_log from
     // the frontend for targeted diagnostics.
     state.send_rpc(&request)
@@ -934,7 +1003,7 @@ async fn init_android_core(
                     continue;
                 }
             };
-            // NOTE: do not log every response — it's the hot path and would
+            // NOTE: do not log every response вЂ” it's the hot path and would
             // grow velta.log unbounded. Errors are still logged below.
             if let Err(e) = app.emit("dc-rpc", &line) {
                 log(&format!("android emit error: {e}"));
@@ -1009,9 +1078,9 @@ pub fn run() {
             let _ = std::fs::create_dir_all(&accounts);
             log(&format!("accounts directory: {}", accounts.display()));
 
-            // Local-only P2P chat engine — independent of the Delta Chat core,
+            // Local-only P2P chat engine вЂ” independent of the Delta Chat core,
             // runs on Tauri's async runtime on every platform. Manage the exact
-            // type the commands expect (P2pState itself, NOT a wrapper — a
+            // type the commands expect (P2pState itself, NOT a wrapper вЂ” a
             // mismatch surfaces as "state not managed" at command time); the
             // engine fills in asynchronously so early p2p_* calls report
             // "still starting" instead of failing with an unmanaged-state error.
@@ -1110,7 +1179,7 @@ pub fn run() {
                                 for line in reader.lines() {
                                     match line {
                                         Ok(line) => {
-                                            // NOTE: do not log every line — it's the
+                                            // NOTE: do not log every line вЂ” it's the
                                             // hot path and would grow velta.log
                                             // unbounded. Errors are logged below.
                                             app_handle.emit("dc-rpc", line).ok();
@@ -1177,4 +1246,168 @@ pub fn run() {
                 }
             }
         });
+}
+
+// ---------------------------------------------------------------------------
+// Tests: media range serving + IPC size guard
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod media_tests {
+    use super::*;
+    use std::io::{Read as _, Write as _};
+
+    fn temp_media_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("velta-media-test-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    // Content: byte i = (i % 251) as u8, so any wrong offset or truncated
+    // body produces a different payload.
+    fn make_media_file(dir: &PathBuf, name: &str, len: usize) -> PathBuf {
+        let path = dir.join(name);
+        let data: Vec<u8> = (0..len).map(|i| (i % 251) as u8).collect();
+        std::fs::write(&path, &data).unwrap();
+        path
+    }
+
+    fn start_test_server(accounts: PathBuf) -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut server) = stream else { break };
+                serve_media_connection(&mut server, &accounts);
+            }
+        });
+        port
+    }
+
+    // The server writes headers with bare-LF separators (pre-existing wire
+    // format; WebViews tolerate it), so parse the response as raw bytes.
+    fn exchange(port: u16, request: String) -> Vec<u8> {
+        let mut sock = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        sock.write_all(request.as_bytes()).unwrap();
+        let mut response = Vec::new();
+        let mut buf = [0u8; 8192];
+        loop {
+            match sock.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => response.extend_from_slice(&buf[..n]),
+                Err(_) => break,
+            }
+        }
+        response
+    }
+
+    fn head(response: &[u8]) -> String {
+        let end = response.windows(2).position(|w| w == b"\n\n").map(|i| i + 2).unwrap_or(response.len());
+        String::from_utf8_lossy(&response[..end]).into_owned()
+    }
+
+    fn body(response: &[u8]) -> &[u8] {
+        match response.windows(2).position(|w| w == b"\n\n") {
+            Some(i) => &response[i + 2..],
+            None => &[],
+        }
+    }
+
+    fn get(port: u16, token: &str, path: &str, range: Option<&str>) -> Vec<u8> {
+        let range_line = range.map(|r| format!("Range: {r}\r\n")).unwrap_or_default();
+        exchange(
+            port,
+            format!("GET /{token}/{} HTTP/1.1\r\nHost: x\r\n{range_line}\r\n", path),
+        )
+    }
+
+    #[test]
+    fn parse_range_cases() {
+        assert_eq!(parse_range("bytes=0-99", 1000), Some((0, 99)));
+        assert_eq!(parse_range("bytes=100-199", 1000), Some((100, 199)));
+        assert_eq!(parse_range("bytes=100-", 1000), Some((100, 999)));
+        assert_eq!(parse_range("bytes=-200", 1000), Some((800, 999)));
+        assert_eq!(parse_range("bytes=999-", 1000), Some((999, 999)));
+        // Unsatisfiable or malformed.
+        assert_eq!(parse_range("bytes=1000-", 1000), None);
+        assert_eq!(parse_range("bytes=-0", 1000), None);
+        assert_eq!(parse_range("bytes=500-100", 1000), None);
+        assert_eq!(parse_range("bytes=abc", 1000), None);
+    }
+
+    #[test]
+    fn range_request_serves_the_requested_interval_from_the_right_offset() {
+        let dir = temp_media_dir("range");
+        *MEDIA_TOKEN.lock().unwrap() = "testtoken".into();
+        let path = make_media_file(&dir, "clip.mp4", 1000);
+        let port = start_test_server(dir.clone());
+
+        let response = get(port, "testtoken", &path.to_string_lossy(), Some("bytes=100-199"));
+
+        assert!(head(&response).starts_with("HTTP/1.1 206 Partial Content"), "{}", head(&response));
+        assert!(head(&response).contains("Content-Range: bytes 100-199/1000"), "{}", head(&response));
+        let expected: Vec<u8> = (100..200).map(|i| (i % 251) as u8).collect();
+        assert_eq!(body(&response), expected.as_slice());
+    }
+
+    #[test]
+    fn open_ended_and_suffix_ranges_stay_correct() {
+        let dir = temp_media_dir("openrange");
+        *MEDIA_TOKEN.lock().unwrap() = "testtoken".into();
+        let path = make_media_file(&dir, "clip.mp4", 1000);
+        let port = start_test_server(dir.clone());
+        let tail: Vec<u8> = (900..1000).map(|i| (i % 251) as u8).collect();
+
+        // bytes=900- → the tail, seeked to 900.
+        let response = get(port, "testtoken", &path.to_string_lossy(), Some("bytes=900-"));
+        assert!(head(&response).contains("Content-Range: bytes 900-999/1000"), "{}", head(&response));
+        assert_eq!(body(&response), tail.as_slice());
+
+        // bytes=-100 → also the last 100 bytes.
+        let response = get(port, "testtoken", &path.to_string_lossy(), Some("bytes=-100"));
+        assert!(head(&response).contains("Content-Range: bytes 900-999/1000"), "{}", head(&response));
+        assert_eq!(body(&response), tail.as_slice());
+    }
+
+    #[test]
+    fn unsatisfiable_range_gets_416_not_the_whole_file() {
+        let dir = temp_media_dir("unsat");
+        *MEDIA_TOKEN.lock().unwrap() = "testtoken".into();
+        let path = make_media_file(&dir, "clip.mp4", 1000);
+        let port = start_test_server(dir.clone());
+
+        let response = get(port, "testtoken", &path.to_string_lossy(), Some("bytes=2000-3000"));
+        assert!(head(&response).starts_with("HTTP/1.1 416"), "{}", head(&response));
+        assert!(head(&response).contains("Content-Range: bytes */1000"), "{}", head(&response));
+        assert!(body(&response).is_empty(), "{:?}", body(&response));
+    }
+
+    #[test]
+    fn full_get_streams_the_whole_file() {
+        let dir = temp_media_dir("full");
+        *MEDIA_TOKEN.lock().unwrap() = "testtoken".into();
+        let path = make_media_file(&dir, "clip.mp4", 5000);
+        let port = start_test_server(dir.clone());
+
+        let response = get(port, "testtoken", &path.to_string_lossy(), None);
+        assert!(head(&response).starts_with("HTTP/1.1 200 OK"), "{}", head(&response));
+        assert!(head(&response).contains("Content-Length: 5000"), "{}", head(&response));
+        assert_eq!(body(&response).len(), 5000);
+        let expected: Vec<u8> = (0..5000).map(|i| (i % 251) as u8).collect();
+        assert_eq!(body(&response), expected.as_slice());
+    }
+
+    #[test]
+    fn oversized_media_read_is_refused_before_allocation() {
+        let dir = temp_media_dir("big");
+        let path = dir.join("big.mp4");
+        // Sparse file: size without content, so the test stays fast.
+        let f = std::fs::File::create(&path).unwrap();
+        f.set_len(MAX_MEDIA_IPC_BYTES + 1).unwrap();
+        drop(f);
+
+        let err = checked_media_read(&path).unwrap_err();
+        assert!(err.contains("too large"), "{err}");
+    }
 }
