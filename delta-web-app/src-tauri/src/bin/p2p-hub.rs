@@ -62,7 +62,6 @@ async fn main() -> Result<()> {
     println!("QR HTML      : {}", qr_path.display());
 
     // Status + control-file loop.
-    let mut invite = ticket;
     loop {
         tokio::time::sleep(std::time::Duration::from_millis(400)).await;
         let Ok(cmd) = std::fs::read_to_string(&cmd_file) else {
@@ -85,7 +84,7 @@ async fn main() -> Result<()> {
                     None => println!("[PAIR-ERR] no nearby device matching '{}'", rest.trim()),
                 }
             } else if line == "invite" {
-                invite = p2p.create_invite().await?;
+                let invite = p2p.create_invite().await?;
                 println!("[INVITE] {invite}");
             } else if let Some(rest) = line.strip_prefix("send ") {
                 let mut parts = rest.splitn(2, ' ');
