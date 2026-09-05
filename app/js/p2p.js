@@ -17,16 +17,17 @@ function tauriInvoke() {
   return (t.core?.invoke || t.invoke).bind(t.core || t);
 }
 
-// Pairing requests arrive as engine events and must be answerable whether or
-// not the hub is open, so the listener is installed at startup.
-if (p2pAvailable()) ensureListener();
-
 /* ---------------- event wiring (installed once) ---------------- */
 
 let listening = false;
 let activeChat = null; // { peerId, listEl }
 let hub = null;        // { body, refresh }
 let pairRequestOpen = false;
+
+// Pairing requests arrive as engine events and must be answerable whether or
+// not the hub is open, so the listener is installed at startup. Kept below
+// the module state so `listening` is initialized before use.
+if (p2pAvailable()) ensureListener();
 
 function ensureListener() {
   if (listening) return;
