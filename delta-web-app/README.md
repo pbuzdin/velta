@@ -4,8 +4,39 @@ This directory is the **Tauri v2** wrapper around the Velta PWA in `../app`.
 It produces a native Windows installer and a native Android APK from a single
 frontend codebase.
 
-**Current stable version:** `1.1.5`  
+**Current stable version:** `1.3.4`  
 **Bundled core:** `deltachat-core-rust 2.59.0`
+
+## What's new in 1.3.4
+
+- **Pairing consent:** LAN beacons advertise presence only (name + addresses)
+  — they no longer carry the pairing token. A Nearby tap now sends a pairing
+  request that the other device must explicitly approve (or it expires after
+  120 s); a wrong or forged token is rejected without a prompt. QR-invite
+  pairing is unchanged: presenting the token from a scanned ticket remains
+  the out-of-band proof. `CONCERNS-GPT6.md` §2 tracks the security review.
+- **Account isolation:** switching profiles can no longer leave the previous
+  account's chat actionable or let its in-flight requests land in the new
+  account (stale sends, cache pollution, A→B→A races). Account transitions
+  tear down account-owned UI synchronously, RPCs stay pinned to their entry
+  account, unsent drafts are kept per (account, chat), and open confirmations
+  settle on switch. Regression suites under `tests/` (76 tests, `node --test`).
+
+## What's new in 1.3.x
+
+- **Local chat (beta):** serverless end-to-end-encrypted 1:1 chat between
+  devices on the same network (iroh QUIC, no relay). Devices are discovered
+  via UDP LAN beacons; Nearby pairing requires approval on the other device,
+  or scan an invite QR. See `src-tauri/src/p2p.rs` and `AGENTS.md` §5.4.
+- **Account switcher:** the drawer lists every profile in the accounts file;
+  tap to switch (IO runs for all accounts, so nothing is disconnected).
+- **Relay management:** save up to 3 chatmail relays, create accounts on any
+  of them, or delete them. A "Welcome to Velta" onboarding modal accepts a
+  relay address directly (first boot keeps the old auto-configure flow).
+- **Fixed:** Local chat Retry crash (spawn outside runtime), peers flipping
+  offline (QUIC idle timeout → 20 s keepalives), chat-open crash after
+  pairing. QR camera scanning was removed (unreliable in WebViews); pairing
+  uses LAN beacons, codes are pasted instead.
 
 ## Architecture
 

@@ -1,6 +1,7 @@
 package org.velta
 
 import android.content.Context
+import android.net.wifi.WifiManager
 import android.os.Bundle
 import androidx.activity.enableEdgeToEdge
 
@@ -28,5 +29,15 @@ class MainActivity : TauriActivity() {
     enableEdgeToEdge()
     setApplicationContext(applicationContext)
     super.onCreate(savedInstanceState)
+    // Local chat (p2p.rs) discovers peers on the LAN via iroh's mDNS
+    // (swarm-discovery); Android silently drops multicast packets unless a
+    // MulticastLock is held for the process lifetime.
+    try {
+      val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+      val lock = wifi?.createMulticastLock("velta-p2p-mdns")
+      lock?.setReferenceCounted(false)
+      lock?.acquire()
+    } catch (_: Exception) {
+    }
   }
 }

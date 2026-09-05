@@ -43,7 +43,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   ├── css/main.css          # single stylesheet
 │   ├── icons/                # PWA/Tauri icons, including source asset
 │   ├── js/                   # application logic
-│   │   ├── app.js            # bootstrap, chat list, navigation, modals, PWA lifecycle
+│   │   ├── app.js            # bootstrap, chat list, navigation, account switcher, relays, modals, PWA lifecycle
 │   │   ├── avatar.js         # contact avatars: fingerprint color-grid identity tiles
 │   │   ├── chat-view.js      # message history, composer, selection actions
 │   │   ├── components.js     # Elena-based web components (<dc-avatar>, <dc-chat-item>, <dc-chat-head>, <dc-video>)
@@ -51,7 +51,9 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── invites.js        # invite-link registry (mirror domains), parsing, invite cards, settings modal
 │   │   ├── markdown.js       # escape-first message markdown: bold/italic/underline, links, lists
 │   │   ├── media.js          # media URL helpers (loopback server / asset protocol)
+│   │   ├── p2p.js            # Local chat UI: device pairing, hub, 1:1 chat modal (Tauri only)
 │   │   ├── poster.js         # lazy WebP poster extraction + disk cache
+│   │   ├── qr-scan.js        # code acquisition: paste only (camera scanning removed)
 │   │   ├── mock-core.js      # in-memory demo core implementing the JSON-RPC surface
 │   │   ├── rpc-core.js       # JsonRpcCore wrapper over transports + event mapping
 │   │   ├── transport.js      # backend auto-detection (Tauri, WebSocket, HTTP, mock)
@@ -88,6 +90,8 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │       ├── gen/android/      # generated Android project (cargo tauri android)
 │       ├── src/
 │       │   ├── lib.rs        # Windows sidecar bridge + Android in-process core
+│       │   ├── p2p.rs        # Local chat engine: iroh (relay-less) QUIC pairing + 1:1 chat
+│       │   ├── bin/          # p2p-hub.rs — headless terminal hub (debug helper)
 │       │   └── main.rs       # Tauri entry point
 │       └── build.rs
 │
@@ -241,7 +245,24 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   4. HTTP to `http://127.0.0.1:20809/rpc`
   5. `MockCore` fallback
 - `app/js/rpc-core.js` wraps any transport with a JSON-RPC client, maps core
-  events to UI events, and exposes the same API surface as `mock-core.js`.
+  events to UI events, and exposes the same API surface as `mock-core.js`. It
+  additionally provides the multi-account surface used by the drawer switcher
+  (`getAllAccounts`, `switchAccount`, `addAccountWithQr`) and `createQrSvg`
+  for rendering arbitrary tickets as QR.
+- **Account isolation contract** (`rpc-core.js` + `app.js` + `chat-view.js`):
+  the core keeps an `accountEpoch`, advanced twice around every account
+  transition — `account-changing` fires synchronously at the start (the app
+  tears down chat/popups/drawer/search state), `account-changed` fires in a
+  `finally` after selection succeeds or fails (the app refreshes accounts and
+  the chat list). Every multi-step RPC captures its entry account and passes
+  that snapshot across awaits; cache writes, UI event emissions and async
+  message decoration are dropped when the epoch no longer matches. Foreign
+  or unattributed account events (`contextId`) never mutate state.
+  `ChatView` sessions are invalidated by both `close()` and the epoch;
+  unsent text/replies are drafts keyed by (account, chat) in memory.
+  `closeAllPopups()` settles confirmations (dismissal = cancel). Keep this
+  contract when touching account-related code; regression suites live in
+  `tests/` (see §7.2).
 - `app/js/app.js` owns the chat list, navigation, modals, diagnostics chat, and
   the PWA shell. It also runs a DOM-budget watchdog that samples node counts.
   Its `showChatInfo` is the contact/chat profile modal: the 168px photo
@@ -298,6 +319,35 @@ Exposes the core through `deltachat-jsonrpc/src/api.rs` and the `yerpc` crate.
 The API is consumed by the Velta PWA, the Python `deltachat-rpc-client`, and the
 `deltachat-rpc-server` binary. Use `deltachat-rpc-server --openrpc` to dump the
 full API spec.
+
+### 5.4 Local chat, serverless P2P (`delta-web-app/src-tauri/src/p2p.rs` + `app/js/p2p.js`)
+
+A second chat transport completely independent of the Delta Chat core: 1:1
+end-to-end-encrypted chat between paired devices on the same network, using
+iroh (QUIC, `RelayMode::Disabled`, optional mDNS re-discovery via the
+`discovery-local-network` feature) — modeled on the core's backup transfer
+(`core/src/imex/transfer.rs`).
+
+- Identity: ed25519 key persisted in `<AppLocalData>/p2p/identity.key`; the
+  NodeId is the long-term identity. Store: `profile.json`, `peers.json`,
+  `messages-<node_id>.jsonl`.
+- Pairing: inviter shows a `VELTAP2P1:` ticket (compact base32: NodeId +
+  direct addresses + pairing token, rendered as QR via the core's
+  `create_qr_svg`); joiner scans/pastes it, presents the token in a `hello`
+  frame — token presentation is the out-of-band proof, so the inviter accepts
+  automatically. The token is never broadcast: LAN beacons carry only names
+  and addresses, and a Nearby tap sends an empty-token request that the other
+  device must approve in the UI (`p2p_approve_pair`); wrong tokens are
+  rejected without a prompt. Unpaired NodeIds are otherwise rejected.
+- Messaging: newline-delimited JSON frames (`msg`/`ack`/`ping`) over one
+  bidirectional QUIC stream per session; sends to offline peers are queued and
+  flushed on reconnect. Events reach the UI as Tauri `p2p-event`s; commands are
+  the `p2p_*` Tauri methods registered in `lib.rs`.
+- UI (`app/js/p2p.js`): drawer entry (Tauri-only, hidden in browser/PWA mode),
+  hub with online dots, "Nearby devices" (UDP beacon on port 53717), invite QR
+  display, pairing via beacon tap (requires approval on the other device) or
+  pasted code (camera scanning was removed — unreliable in WebViews).
+- Rust tests: `cargo test --lib p2p::` (loopback pairing + offline queue flush).
 
 ---
 
@@ -369,8 +419,20 @@ full API spec.
 
 ### 7.2 Frontend
 
-There is no automated test harness for the PWA. The primary verification path
-is manual:
+Regression suites (Node's built-in test runner, no dependencies):
+
+```bash
+node --test tests/rpc-account-isolation.test.mjs \
+             tests/chat-account-isolation.test.mjs \
+             tests/app-account-isolation.test.mjs
+```
+
+These cover the account-isolation contract: stale account results (A→B→A),
+entry-account-pinned RPCs, view lifetime across close/reopen, per-account
+drafts, and popup settlement. Run them after touching `rpc-core.js`,
+`app.js`, `chat-view.js` or `ui.js`.
+
+Beyond that, the primary verification path is manual:
 
 1. Open `app/index.html` in a browser. Force demo mode with
    `localStorage["velta-mock"] = "1"` (or the drawer's "Enter mock mode"

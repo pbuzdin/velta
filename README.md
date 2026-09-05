@@ -45,6 +45,24 @@ native-share button for the personal `i.delta.chat` invite link, plus
 Group avatars intentionally keep a solid color with a full-bleed photo or
 initials — the identity matrix is a per-contact feature.
 
+## Local chat (beta)
+
+Velta also ships a second, fully serverless transport: 1:1 end-to-end-encrypted
+chat between paired devices on the same network (iroh QUIC, no relay, no
+account). Devices discover each other via LAN beacons and pair in one of two
+ways:
+
+- **Invite QR / pasted code** — the ticket carries a one-time pairing token;
+  presenting it is the out-of-band proof and pairing completes immediately.
+- **Nearby tap** — sends a pairing request that the other device must
+  explicitly approve in a dialog. Beacons carry names and addresses only,
+  never the pairing token, so a LAN listener cannot pair by listening.
+
+Paired devices exchange end-to-end-encrypted messages; messages to offline
+peers are queued and flushed on reconnect. Engine: `delta-web-app/src-tauri/src/p2p.rs`;
+UI: `app/js/p2p.js`. A headless terminal hub for debugging lives in
+`delta-web-app/src-tauri/src/bin/p2p-hub.rs`.
+
 ## Project layout
 
 ```
@@ -59,6 +77,8 @@ initials — the identity matrix is a per-contact feature.
 │       ├── gen/android/        # generated Android project
 │       └── src/
 │           ├── lib.rs          # sidecar + Android in-process core glue
+│           ├── p2p.rs          # local chat engine (iroh QUIC pairing + 1:1 chat)
+│           ├── bin/p2p-hub.rs  # headless terminal hub (debug helper)
 │           └── main.rs         # Tauri entry point
 ├── delta-core-service/         # Android background-service (JNI + WS bridge) APK
 ├── deltachat-backend/          # Prebuilt deltachat-rpc-server binaries
