@@ -70,18 +70,36 @@ token) is still worthwhile on real hardware.
 
 ## 3. Event Polling And RPC Timeouts
 
-**Priority: High. Status: Open; late-response discard reproduced in memory.**
+**Priority: High. Status: Resolved (2026-09-05) — long-poll with late-response salvage implemented; live-backend verification still recommended.**
 
-`JsonRpcCore._pollEvents` uses the ordinary 30-second RPC timeout for
-`get_next_event`, although the backend waits until an event exists. Removing a
-timed-out frontend request does not cancel the backend waiter. Its eventual
-response can consume an event that the frontend ignores because the pending
-request has already been deleted.
+`JsonRpcCore._pollEvents` used the ordinary 30-second RPC timeout for
+`get_next_event`, although the backend (`core/deltachat-jsonrpc/src/api.rs`)
+parks the request on the event channel until an event exists and hands each
+event to exactly one waiter. Expiring the frontend request did not cancel the
+backend waiter; its eventual response arrived for a pending entry the frontend
+had already deleted, silently dropping the event (lost UI notifications after
+idle periods).
 
-This can lose UI event notifications after idle periods; it is not evidence of
-loss of messages stored in the core. Give long polling an appropriate lifetime
-and coordinate reconnect/cancellation so abandoned waiters cannot consume events.
-Test a quiet period longer than the ordinary timeout followed by message activity.
+Implemented in `app/js/rpc-core.js`:
+
+- Event polling uses a dedicated `_callEventPoll` with a 240 s backstop
+  instead of the 30 s default — the backstop bounds a parked request's
+  lifetime below transport/proxy stall limits without making healthy long
+  polls time out.
+- On backstop expiry the entry is kept registered with an `onLate` hook; the
+  poll loop re-issues, and when the late response eventually arrives it is
+  dispatched through the same account-attribution filtering as live events
+  (`_dispatchPollResult` → `_handleCoreEvent`), never dropped. `reconnect()`
+  clears salvaged entries with the dead transport.
+- Salvaged responses still respect `contextId` attribution and the account
+  epoch, so an idle-period event can no longer be lost and cannot cross an
+  account boundary either.
+
+Regression coverage: `tests/rpc-event-poll.test.mjs` (late-response salvage,
+re-poll after backstop, foreign-account/epoch filtering of salvaged events,
+reconnect recovery); the polling tests in `tests/rpc-account-isolation.test.mjs`
+continue to pass. A live-backend check — quiet account idle past the old 30 s
+timeout, then an incoming message — remains worthwhile on a real device.
 
 ## 4. Media Ranges And Memory Use
 

@@ -1,6 +1,6 @@
 [package]
 name = "delta-web"
-version = "1.3.4"
+version = "1.3.5"
 description = "Velta — Delta Chat client"
 edition = "2021"
 rust-version = "1.77.2"
