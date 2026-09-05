@@ -555,6 +555,10 @@ export class JsonRpcCore extends EventTarget {
   // Returns that account's snapshot, not a live selection. Both boundaries
   // advance accountEpoch; account-changed also fires when selection fails.
   async switchAccount(id) {
+    // Drawer taps hand the id through a data attribute, i.e. always a string;
+    // select_account expects u32. Normalize at the RPC boundary.
+    id = Number(id);
+    if (!Number.isInteger(id)) throw new Error(`Bad account id: ${id}`);
     this._beginAccountChange();
     let failed = true;
     try {
