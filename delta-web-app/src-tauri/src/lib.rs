@@ -441,6 +441,25 @@ fn read_media_bytes(app: tauri::AppHandle, src: String) -> Result<tauri::ipc::Re
     Ok(tauri::ipc::Response::new(bytes))
 }
 
+// ---------- incoming-message notifications ----------
+//
+// The WebView decides WHEN to notify (it knows document.hidden and which
+// message is new); this command is only the bridge to the platform
+// notification API. ponytail ceiling: clicking the notification focuses the
+// app but does not deep-link to the chat (notification action events +
+// window.show wiring left as the upgrade path).
+
+#[tauri::command]
+fn notify_incoming(app: tauri::AppHandle, title: String, body: String) -> Result<(), String> {
+    use tauri_plugin_notification::NotificationExt;
+    app.notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show()
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn write_poster(app: tauri::AppHandle, src: String, bytes: Vec<u8>) -> Result<String, String> {
     scoped_accounts_path(&app, &src)?;
@@ -1219,7 +1238,9 @@ pub fn run() {
             response.headers_mut().insert("Cache-Control", "no-store".parse().unwrap());
             response.map(|body| std::borrow::Cow::Owned(body))
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, p2p::p2p_status, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
+
+    builder = builder.plugin(tauri_plugin_notification::init());
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {

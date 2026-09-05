@@ -137,22 +137,51 @@ seeking on a large recording remains worthwhile.
 
 ## 5. Android Background Delivery And Release Continuity
 
-**Priority: High before everyday use or public releases. Status: Open.**
+**Priority: High before everyday use or public releases. Status: Partially resolved (2026-09-05) — upgrade-safe signing implemented (needs one-time secret setup) and incoming-message notifications implemented; Doze-proof background delivery remains open.**
 
-The Tauri Android app runs the core in its own process. The inspected manifest and
-activity do not provide an integrated background service/notification path; the
-separate `delta-core-service` APK is not wired into that lifecycle. Reliable
-delivery under Doze or process reclamation should not be assumed. Device effects
-were not tested.
+### 5.1 Upgrade-Safe CI Signing — Resolved (setup step remains)
 
-Relevant code: `delta-web-app/src-tauri/src/lib.rs`, the generated Android
-`AndroidManifest.xml` and `MainActivity.kt`, and `delta-core-service/`.
+`.github/workflows/build-android.yml` no longer generates a fresh signing key
+per run. The workflow now:
 
-Separately, `.github/workflows/build-android.yml` generates a fresh signing key
-on each run and publishes the resulting APK on release tags. Those APKs cannot
-normally update one another in place. Uninstalling as a workaround risks deleting
-local accounts and messages. Use a persistent, securely managed release key and
-verify an upgrade between two builds without uninstalling.
+- Decodes a persistent keystore from the `ANDROID_KEYSTORE_B64` repo secret and
+  signs with it (plus `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
+  `ANDROID_KEY_PASSWORD`) — every build upgrades in place.
+- Falls back to an ephemeral generated key with a loud `::warning::` when the
+  secret is absent (forks/PRs), keeping those builds installable but never
+  upgrade-compatible; don't publish those APKs as releases.
+
+One-time setup (documented in the workflow): `keytool -genkey` a release
+keystore locally, `base64 -w0` it into `ANDROID_KEYSTORE_B64`, and set the
+password/alias secrets. Until the secret is configured, tag uploads still use
+the fallback — treat published APKs from before the secret as not
+upgrade-compatible with each other. Verify an upgrade between two CI builds
+without uninstalling once the secret is in place.
+
+### 5.2 Incoming-Message Notifications — Implemented
+
+- `tauri-plugin-notification` registered in `src-tauri/src/lib.rs`; the
+  `notify_incoming` command is a thin bridge to the platform notification API
+  (`app.notification().builder().title().body().show()`).
+- Policy lives in the WebView, which knows `document.hidden` and which message
+  is new: `app.js` notifies on core `incoming-msg` (sender name + first 120
+  characters), `app/js/p2p.js` on local-chat messages; a 4 s burst throttle
+  lives in `ui.js`. Android's `POST_NOTIFICATIONS` permission added to the
+  manifest and requested once at boot.
+- ponytail ceiling (also commented in lib.rs): tapping the notification brings
+  the app to the foreground but does not deep-link to the chat — notification
+  action events + window focus routing is the upgrade path.
+
+### 5.3 Background Delivery Under Doze — Open
+
+The Tauri Android app still runs the core in its own process with no
+foreground service; the OS may defer or drop sync while the app is cached.
+Notifications now surface what arrives while the app runs, but guaranteed
+delivery under Doze/process death still requires a foreground-service
+integration (the separate `delta-core-service` APK implements the core+WS
+bridge but is not wired into this lifecycle). This remains the open part of
+the concern; real-device verification of both notification behavior and
+Doze behavior is outstanding.
 
 ## Additional Findings
 

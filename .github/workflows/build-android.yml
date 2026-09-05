@@ -93,13 +93,37 @@ jobs:
           export RANLIB_aarch64_linux_android="$NDK/bin/llvm-ranlib"
           cargo tauri android build --apk --target aarch64
 
-      - name: Sign APK with debug keystore
+      - name: Prepare release keystore
         env:
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
         run: |
           mkdir -p signing
-          keytool -genkey -v -keystore signing/velta-debug.keystore -alias velta -keyalg RSA -keysize 2048 -validity 10000 -storepass velta123 -keypass velta123 -dname "CN=Velta"
+          if [ -n "$ANDROID_KEYSTORE_B64" ]; then
+            # Persistent release key: every build signs with the SAME key, so
+            # APKs upgrade in place. Create it once locally:
+            #   keytool -genkey -v -keystore velta-release.keystore -alias velta \
+            #     -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Velta"
+            #   base64 -w0 velta-release.keystore   -> repo secret ANDROID_KEYSTORE_B64
+            # plus ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD.
+            echo "$ANDROID_KEYSTORE_B64" | base64 -d > signing/velta-release.keystore
+            echo "KS=signing/velta-release.keystore" >> "$GITHUB_ENV"
+          else
+            # No secret configured (forks/PRs): ephemeral key so the build still
+            # produces an installable APK. Different runs cannot update each
+            # other in place — do not publish these as releases.
+            echo "::warning::ANDROID_KEYSTORE_B64 secret not set — using an ephemeral key; APKs from different runs will NOT be upgrade-compatible"
+            keytool -genkey -v -keystore signing/velta-release.keystore -alias velta -keyalg RSA -keysize 2048 -validity 10000 -storepass velta123 -keypass velta123 -dname "CN=Velta"
+            echo "KS=signing/velta-release.keystore" >> "$GITHUB_ENV"
+          fi
 
+      - name: Sign APK
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          KEYSTORE: ${{ env.KS }}
+          STORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'velta123' }}
+          ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || 'velta' }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD || 'velta123' }}
+        run: |
           UNSIGNED=$(find delta-web-app/src-tauri/gen/android/app/build/outputs/apk -name '*-release-unsigned.apk' | head -n 1)
           if [ -z "$UNSIGNED" ]; then echo "Unsigned APK not found"; exit 1; fi
           echo "Signing $UNSIGNED"
@@ -108,7 +132,7 @@ jobs:
           SIGNED="${UNSIGNED%.apk}-signed.apk"
 
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -p -f 4 "$UNSIGNED" "$ALIGNED"
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign --ks signing/velta-debug.keystore --ks-pass pass:velta123 --key-pass pass:velta123 --out "$SIGNED" "$ALIGNED"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign --ks "$KEYSTORE" --ks-pass pass:"$STORE_PASS" --ks-key-alias "$ALIAS" --key-pass pass:"$KEY_PASS" --out "$SIGNED" "$ALIGNED"
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v7
