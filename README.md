@@ -373,6 +373,17 @@ Delta Chat splits very large messages into a small placeholder plus a downloadab
 
 `Config::MediaQuality` (`0` = Balanced, `1` = Worse) controls image compression on send, so the UI does not need to resize images before sending.
 
+### Media caching and chat switching
+
+Switching chats is tuned to avoid redundant work: the rendered-message LRU
+(`_rowCache` in `app/js/chat-view.js`) survives chat switches — reopening a
+chat reuses its rendered rows instead of rebuilding them (it is only dropped
+when the account changes, since message ids are per-account). Media responses
+are served `Cache-Control: max-age=31536000, immutable`: core blob names are
+content-deduplicated, so the same URL always means the same bytes and the
+WebView serves images from its cache instead of re-reading and re-decoding
+them on every visit.
+
 ### Platform notes
 
 - **Windows / desktop** — file pickers return real filesystem paths and everything works end-to-end.
