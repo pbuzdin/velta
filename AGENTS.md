@@ -53,7 +53,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── media.js          # media URL helpers (loopback server / asset protocol)
 │   │   ├── p2p.js            # Local chat UI: device pairing, hub, 1:1 chat modal (Tauri only)
 │   │   ├── poster.js         # lazy WebP poster extraction + disk cache
-│   │   ├── qr-scan.js        # code acquisition: paste only (camera scanning removed)
+│   │   ├── qr-scan.js        # code acquisition: paste or camera scan (native BarcodeDetector, no bundled decoder)
 │   │   ├── mock-core.js      # in-memory demo core implementing the JSON-RPC surface
 │   │   ├── rpc-core.js       # JsonRpcCore wrapper over transports + event mapping
 │   │   ├── transport.js      # backend auto-detection (Tauri, WebSocket, HTTP, mock)
@@ -251,8 +251,14 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   primitives (`getConnectivity`, `connectivity-changed` events,
   `send-activity` from `sendMessage` until `MsgDelivered`/`MsgFailed`), the
   multi-transport relay surface (`listTransports`, `checkQr`,
-  `addTransportFromQr`, `setTransportUnpublished`), and `createQrSvg`
-  for rendering arbitrary tickets as QR. Wire types are normalized at this
+  `addTransportFromQr`, `setTransportUnpublished`), the second-device backup
+  transfer (`provideBackup`, `getBackupQr`, `addAccountWithBackup` with the
+  same two epoch boundaries as `addAccountWithQr`, `stopOngoingProcess`;
+  transfer progress arrives as `imex-progress` events, 1000 = done, 0 =
+  failed), the vCard surface (`parseVcard`, `importVcard`, `makeVcard`) and
+  `getMessageHtml` (original body of messages the mail simplifier cut, marked
+  by a trailing " [...]"). It also exposes `createQrSvg` for rendering
+  arbitrary tickets as QR. Wire types are normalized at this
   boundary (e.g. drawer taps hand ids through dataset attributes and are
   always strings — `switchAccount` coerces to u32).
 - **Account isolation contract** (`rpc-core.js` + `app.js` + `chat-view.js`):
@@ -285,10 +291,14 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   (`openRelaysModal`, reached from the drawer's "Relays of this profile…" and
   the profile modal's Transport row): `list_transports` for the list,
   `set_transport_unpublished` for soft removal (core keeps listening ~90 days
-  so contacts on the old address don't lose mail), `add_transport_from_qr`
+  so contacts on the old address don't lose mail),   `add_transport_from_qr`
   with `check_qr` validation and `configure-progress` step UI for adding.
   Sending always goes through the primary relay; there is deliberately no
-  relay selector. The drawer's saved-relays bookmark list was removed —
+  relay selector. It also owns the **second-device flow** (`secondDeviceFlow`,
+  drawer → "Add a second device…"): the old device shows a `provide_backup`
+  QR (rendered via `createQrSvg`) and waits, completion detected via
+  `imex-progress`; the new device scans/pastes a `dcbackup:` code and
+  `addAccountWithBackup` imports it into a fresh account. The drawer's saved-relays bookmark list was removed —
   profile = identity (drawer), relay = property of a profile (Relays modal).
   Its `showChatInfo` is the contact/chat profile modal: the 168px photo
   avatar beside the captioned identity tile, action buttons (Send message,
@@ -298,6 +308,18 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   contact (`openContactProfile`).
 - `app/js/chat-view.js` owns the conversation history (virtualized via
   `virtual-scroller`), composer, selection mode, and the delete-message dialog.
+  It also owns the **shared-contact cards** (messages with viewtype `Vcard`:
+  avatar/name/addr hydrate from the vCard attachment via `parseVcard`; tap
+  imports via `importVcard` and opens the DM), the **Read more** button for
+  messages the mail simplifier cut (" [...]" suffix → `getMessageHtml`,
+  parsed without script execution and rendered as plain text), and the
+  **image send flow** shared by clipboard paste and the file picker: a
+  preview modal with caption + Send/Crop (`_imagePreviewModal` is built with
+  `createElement` + listeners so the test stub can click it), free-form
+  canvas cropper (`openImageCropper`), and upload of the final bytes via
+  `resolve_upload_path` + `plugin:fs|write_file` (the fs plugin reads the
+  path from the IPC `path` header and the bytes from the raw body — a
+  Uint8Array as the whole invoke body).
 - `app/js/components.js` defines custom elements (`<dc-avatar>`,
   `<dc-chat-item>`, `<dc-chat-head>`, `<dc-video>`) using Elena.
 - `app/js/avatar.js` derives contact identity tiles from OpenPGP fingerprints:
@@ -321,7 +343,9 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   is reachable (also force-selectable via `localStorage["velta-mock"] = "1"`).
   It must implement the same contract surface as the real core — including
   `accountId`/`accountEpoch` (the isolation contract keys on them; undefined
-  values made `a?.x === a.x` guards pass on null and crashed demo mode).
+  values made `a?.x === a.x` guards pass on null and crashed demo mode) — and
+  carries demo no-ops for the newer surfaces it can't simulate meaningfully
+  (vCard parse/import/make, second-device backup transfer).
 
 ### 5.2 Core Rust library (`core/src/`)
 
@@ -385,7 +409,8 @@ iroh (QUIC, `RelayMode::Disabled`, optional mDNS re-discovery via the
 - UI (`app/js/p2p.js`): drawer entry (Tauri-only, hidden in browser/PWA mode),
   hub with online dots, "Nearby devices" (UDP beacon on port 53717), invite QR
   display, pairing via beacon tap (requires approval on the other device) or
-  pasted code (camera scanning was removed — unreliable in WebViews).
+  pasted/scanned code (`acquireCode` offers native `BarcodeDetector` scanning
+  where the WebView supports it, paste everywhere else).
   Engine-side errors (background connect retries) go to the Diagnostics chat,
   never toasts — several queued connects can fail at once and the store
   collapses identical consecutive entries into one counted row. The toggle
@@ -473,10 +498,12 @@ node --test tests/rpc-account-isolation.test.mjs \
 
 These cover the account-isolation contract: stale account results (A→B→A),
 entry-account-pinned RPCs, view lifetime across close/reopen, per-account
-drafts, and popup settlement — plus the event long-poll contract: expired
-`get_next_event` requests stay registered so their late responses are
-dispatched (never dropped), with account attribution still enforced. Run them
-after touching `rpc-core.js`, `app.js`, `chat-view.js` or `ui.js`.
+drafts, popup settlement, attachment flows (the image preview modal is
+settled by clicking its Send button in the stub DOM), and the event
+long-poll contract: expired `get_next_event` requests stay registered so
+their late responses are dispatched (never dropped), with account
+attribution still enforced. Run them after touching `rpc-core.js`, `app.js`,
+`chat-view.js` or `ui.js`.
 
 Beyond that, the primary verification path is manual:
 

@@ -818,7 +818,6 @@ function showChatInfo(chat) {
     </div>
     ${!isGroup && chat.contactId ? `<div class="profile-actions">
       <button class="btn-text" data-pa="send">Send message</button>
-      <button class="btn-text" data-pa="share">Share profile</button>
       <button class="btn-text" data-pa="rename">Edit name</button>
       <button class="btn-text" data-pa="block" style="color:var(--danger)">Block</button>
     </div>` : ""}
@@ -850,35 +849,6 @@ function showChatInfo(chat) {
         if (!accountIsCurrent(epoch)) return;
         await openChat(Number(chatId));
       } catch { toast("Couldn't open the chat"); }
-    });
-    actBtn("share")?.addEventListener("click", async () => {
-      // Share the account's personal i.delta.chat invite link (native share
-      // API where available; clipboard fallback otherwise).
-      let link = null;
-      try {
-        if (core.getInviteQr) {
-          const { text } = await core.getInviteQr(null);
-          const parsed = parseInviteLink(text);
-          if (parsed) link = parsed.link;
-        }
-      } catch { /* demo mode falls through to the placeholder link */ }
-      if (!accountIsCurrent(epoch)) return;
-      if (!link) {
-        const fpr = "5DB721C142C0137F9A2E4B66C31D08597EA47594";
-        const addr = encodeURIComponent(state.account.addr || "you@example.org");
-        const name = encodeURIComponent(state.account.displayName || "");
-        link = `https://i.delta.chat/#${fpr}&v=3&a=${addr}&n=${name}`;
-      }
-      const text = `Contact me on Delta Chat: ${link}`;
-      try {
-        if (navigator.share) { await navigator.share({ title: chat.name, text, url: link }); return; }
-        throw new Error("unavailable");
-      } catch (err) {
-        if (err && err.name === "AbortError") return; // user closed the share sheet
-        if (!accountIsCurrent(epoch)) return;
-        try { await navigator.clipboard.writeText(link); toast("Invite link copied"); }
-        catch { toast("Sharing isn't available here"); }
-      }
     });
     actBtn("rename")?.addEventListener("click", () => {
       const input = document.createElement("input");
@@ -1327,6 +1297,7 @@ function rebuildDrawer() {
     onRelays: () => openRelaysModal(),
     onToggleTheme: toggleTheme,
     onAddAccount: addAccountFlow,
+    onSecondDevice: secondDeviceFlow,
     onInvite: () => showInvite(inviteQrProvider(null), { account: state.account }),
     onEditProfile: editProfileFlow,
     onInviteDomains: () => showInviteDomainsModal(),
@@ -1746,8 +1717,125 @@ async function addRelayFlow(epoch, refresh) {
   }
 }
 
-/* ---------------- boot ---------------- */
-async function boot() {
+// Second-device setup (backup transfer): this device shows a QR and waits,
+// or receives a profile from another device's QR.
+async function secondDeviceFlow() {
+  if (state.accountChanging) return;
+  if (!core.getBackupQr || !core.getBackup) {
+    toast("Second-device setup is not available on this backend");
+    return;
+  }
+  const epoch = core.accountEpoch;
+  const body = document.createElement("div");
+  body.innerHTML = `
+    <p class="p2p-hint">Move this profile to a new device, or receive a profile from another one. Both devices must be on the same network.</p>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+      <button class="btn-text btn-primary" data-old>Show QR on this device</button>
+      <button class="btn-text" data-new>Receive a profile on this device…</button>
+    </div>
+    <div data-pane></div>`;
+  let started = false;
+  let progHandler = null;
+  const cleanup = () => {
+    if (progHandler) { core.removeEventListener("imex-progress", progHandler); progHandler = null; }
+    if (started) core.stopOngoingProcess?.().catch?.(() => {});
+  };
+  const { close } = showModal({ title: "Add a second device", body, onClose: cleanup });
+  const pane = body.querySelector("[data-pane]");
+
+  body.querySelector("[data-old]").addEventListener("click", () => {
+    if (!accountIsCurrent(epoch)) return;
+    started = true;
+    pane.innerHTML = `
+      <div class="qr-box" style="margin-top:10px"><div class="qr-loading">Preparing QR…</div></div>
+      <div class="p2p-hint" style="opacity:.6">On the new device, tap "Receive a profile on this device" and scan or paste this code. Keep both devices on this screen until the transfer finishes.</div>
+      <div style="margin-top:8px"><button class="btn-text" data-cancel>Cancel</button></div>`;
+    progHandler = (e) => {
+      if ((e.detail?.progress || 0) >= 1000) transferDone();
+    };
+    core.addEventListener("imex-progress", progHandler);
+    const transferDone = () => {
+      if (!accountIsCurrent(epoch)) return;
+      cleanup();
+      toast("Profile transferred to the second device");
+      close();
+    };
+    // Blocks server-side until a device retrieves the backup; it can outlive
+    // the RPC timeout — completion is detected via ImexProgress above.
+    core.provideBackup().then(transferDone).catch(() => {});
+    body.querySelector("[data-cancel]").addEventListener("click", () => close());
+    core.getBackupQr().then(async (qrText) => {
+      const svg = await core.createQrSvg(qrText);
+      if (accountIsCurrent(epoch)) pane.querySelector(".qr-box").innerHTML = svg;
+    }).catch((err) => {
+      if (accountIsCurrent(epoch)) pane.querySelector(".qr-box").innerHTML =
+        `<div class="qr-loading">Couldn't prepare the transfer:<br>${escapeHtml(String(err?.message || err))}</div>`;
+    });
+  });
+
+  body.querySelector("[data-new]").addEventListener("click", async () => {
+    if (!accountIsCurrent(epoch)) return;
+    const code = await acquireCode({
+      title: "Receive a profile",
+      hint: "Scan or paste the code shown on the other device (dcbackup:…). A copy of that profile is created here; the other device stays signed in.",
+      validate: c => (/^dcbackup:/i.test(c.trim()) ? null : "That doesn't look like a second-device code"),
+    });
+    if (!code || !accountIsCurrent(epoch)) return;
+    started = true;
+
+    const stepsBody = document.createElement("div");
+    stepsBody.innerHTML = `<ul class="ob-steps" data-steps></ul>`;
+    showModal({ title: "Receiving profile", body: stepsBody });
+    const stepsEl = stepsBody.querySelector("[data-steps]");
+    const addStep = (text) => {
+      stepsEl.querySelectorAll("li.active").forEach(li => { li.classList.remove("active"); li.classList.add("done"); });
+      const li = document.createElement("li");
+      li.className = "active";
+      li.innerHTML = `<span class="step-ico"></span><span>${escapeHtml(text)}</span>`;
+      stepsEl.appendChild(li);
+      return li;
+    };
+    const finishSteps = (ok_) => {
+      stepsEl.querySelectorAll("li.active").forEach(li => { li.classList.remove("active"); li.classList.add(ok_ ? "done" : "failed"); });
+    };
+
+    addStep("Preparing this device…");
+    let seenProgress = false;
+    progHandler = (e) => {
+      const p = e.detail?.progress || 0;
+      if (p >= 1000) {
+        finishSteps(true);
+        addStep("Profile received — signing in");
+        toast("Profile received");
+        core.removeEventListener("imex-progress", progHandler);
+        progHandler = null;
+      } else if (p > 0) {
+        seenProgress = true;
+        addStep(`Receiving profile… ${Math.round(p / 10)}%`);
+      } else if (seenProgress) {
+        finishSteps(false);
+        addStep("Transfer failed");
+        core.removeEventListener("imex-progress", progHandler);
+        progHandler = null;
+      }
+    };
+    core.addEventListener("imex-progress", progHandler);
+    try {
+      const qrInfo = await core.checkQr?.(code)?.catch?.(() => null);
+      if (qrInfo?.kind && qrInfo.kind !== "backup2") throw new Error("This code is not a second-device code");
+      // Returns once the fresh account is selected; the transfer itself
+      // reports via ImexProgress (it can take minutes).
+      await core.addAccountWithBackup(code.trim());
+    } catch (err) {
+      core.removeEventListener("imex-progress", progHandler);
+      progHandler = null;
+      finishSteps(false);
+      addStep("Transfer failed: " + (err?.message || err));
+    }
+  });
+}
+
+/* ---------------- boot ---------------- */async function boot() {
   try {
     appLog("boot: getAccount");
     // Android 13+ needs a runtime grant for notifications; feature-detected
@@ -1776,6 +1864,7 @@ async function boot() {
     chatView = new ChatView(core, {
       onChatsChanged: refreshChatList,
       onForward: forwardFlow,
+      onOpenChat: id => openChat(Number(id)),
     });
 
     appLog("boot: refreshChatList");

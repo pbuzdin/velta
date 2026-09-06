@@ -325,6 +325,7 @@ for (const stage of ["picker", "copy", "send"]) {
         if (stage === "picker") { entered.resolve(); return pending.promise; }
         return "content://photo";
       }
+      if (command === "plugin:fs|read_file") return [1, 2, 3]; // image bytes for the preview
       assert.equal(command, "resolve_content_uri");
       if (stage === "copy") { entered.resolve(); return pending.promise; }
       return "/data/photo.png";
@@ -338,6 +339,14 @@ for (const stage of ["picker", "copy", "send"]) {
       return pending.promise;
     };
     const sending = view._sendAttachment("image");
+    if (stage === "send") {
+      // Images now open the caption/crop preview; settle it with Send.
+      await new Promise(r => setImmediate(r));
+      const sendBtn = document.getElementById("popups")
+        .querySelectorAll("button").find(b => b.textContent === "Send");
+      assert.ok(sendBtn, "preview Send button exists");
+      await sendBtn.fire("click");
+    }
     await entered.promise;
     switchTo("B");
     await view.open(7);
