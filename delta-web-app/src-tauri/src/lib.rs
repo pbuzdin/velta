@@ -172,7 +172,14 @@ fn resolve_upload_path(app: tauri::AppHandle, filename: String) -> String {
     use tauri::path::BaseDirectory;
     app.path()
         .resolve(&format!("uploads/{}", filename), BaseDirectory::AppLocalData)
-        .map(|p| p.to_string_lossy().to_string())
+        .map(|p| {
+            // The fs plugin's write_file does not create parent directories;
+            // this command hands out paths it must guarantee are writable.
+            if let Some(parent) = p.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            p.to_string_lossy().to_string()
+        })
         .unwrap_or_default()
 }
 

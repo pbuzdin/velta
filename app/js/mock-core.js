@@ -333,6 +333,19 @@ export class MockCore extends EventTarget {
     return id;
   }
 
+  // Demo vCard for contacts (same contract as rpc-core).
+  async makeVcard(contactIds) {
+    const c = this.contacts.find(x => x.id === Number(contactIds[0]));
+    return `BEGIN:VCARD\nVERSION:4.0\nFN:${c ? c.name : "Demo"}\nEMAIL;PREF=1:${c ? c.addr : "demo@example.org"}\nEND:VCARD`;
+  }
+
+  // Second-device backup transfer — demo no-ops (same contract as rpc-core).
+  async provideBackup() {}
+  async getBackupQr() { return "dcbackup:demo-second-device"; }
+  async getBackup() {}
+  async stopOngoingProcess() {}
+  async addAccountWithBackup() { return this.accountId; }
+
   // Paged history: newest-first pages, like scrolling up through time.
   async getMessages(chatId, { beforeId = null, limit = 40 } = {}) {
     const c = this.chats.find(x => x.id === chatId);

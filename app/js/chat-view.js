@@ -54,13 +54,17 @@ async function resolveAttachmentPath(originalPath, filename) {
 
   try {
     const destName = `${Date.now()}-${filename || "file"}`;
-    const absDest = await invoke("resolve_upload_path", { filename: `uploads/${destName}` });
+    // resolve_upload_path already puts everything under uploads/
+    const absDest = await invoke("resolve_upload_path", { filename: destName });
     rustLog(`resolveAttachmentPath original=${originalPath} dest=${absDest}`);
     if (!absDest) throw new Error("resolve_upload_path returned empty");
 
-    // Read original bytes and write to app-local destination.
-    const bytes = await invoke("plugin:fs|read_file", { path: originalPath });
-    await invoke("plugin:fs|write_file", { path: absDest, contents: bytes });
+    // Read original bytes and write to app-local destination. write_file
+    // takes the path header and a raw byte body (see _sendImageBlob).
+    const bytes = new Uint8Array(await invoke("plugin:fs|read_file", { path: originalPath }));
+    await invoke("plugin:fs|write_file", bytes, {
+      headers: { path: encodeURIComponent(absDest) },
+    });
     return absDest;
   } catch (e) {
     rustLog(`resolveAttachmentPath failed: ${e}; falling back to original`);
@@ -68,18 +72,141 @@ async function resolveAttachmentPath(originalPath, filename) {
   }
 }
 
-function extOf(path) {
-  if (!path) return "";
+// Free-form image cropper over a preview canvas: drag inside the selection to
+// move it, drag the corner handle to resize, drag outside to start a new one.
+// Resolves with the cropped image as a PNG blob, or null on cancel.
+function openImageCropper(imageUrl) {
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = (v) => {
+      if (settled) return;
+      settled = true;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", endDrag);
+      window.removeEventListener("pointercancel", endDrag);
+      resolve(v);
+    };
+    const body = document.createElement("div");
+    body.innerHTML = `
+      <div data-stage style="display:flex;justify-content:center;background:#0b0b10;border-radius:8px;overflow:hidden">
+        <div data-wrap style="position:relative">
+          <canvas data-canvas style="display:block;max-width:100%;touch-action:none"></canvas>
+          <div data-sel style="position:absolute;border:2px solid #f2f2f5;box-shadow:0 0 0 9999px rgba(11,11,16,.55);pointer-events:none"></div>
+          <div data-handle style="position:absolute;width:20px;height:20px;margin:-10px 0 0 -10px;border:2px solid #f2f2f5;border-radius:5px;background:rgba(11,11,16,.6);cursor:nwse-resize"></div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px;justify-content:center">
+        <button class="btn-text" data-apply style="background:var(--accent);color:#f4f4f4">Apply</button>
+        <button class="btn-text" data-cancelcrop>Cancel</button>
+      </div>`;
+    const { close } = showModal({ title: "Crop image", body, onClose: () => finish(null) });
+    const canvas = body.querySelector("[data-canvas]");
+    const sel = body.querySelector("[data-sel]");
+    const handle = body.querySelector("[data-handle]");
+    const img = new Image();
+    let box = null;   // selection in canvas coordinates { x, y, w, h }
+    const drawSel = () => {
+      const r = canvas.getBoundingClientRect();
+      const k = r.width / canvas.width;
+      sel.style.left = (box.x * k) + "px";
+      sel.style.top = (box.y * k) + "px";
+      sel.style.width = (box.w * k) + "px";
+      sel.style.height = (box.h * k) + "px";
+      handle.style.left = ((box.x + box.w) * k) + "px";
+      handle.style.top = ((box.y + box.h) * k) + "px";
+    };
+    const canvasPoint = (e) => {
+      const r = canvas.getBoundingClientRect();
+      return {
+        x: (e.clientX - r.left) * (canvas.width / r.width),
+        y: (e.clientY - r.top) * (canvas.height / r.height),
+      };
+    };
+    let drag = null; // { mode: "move"|"resize"|"new", sx, sy, orig }
+    canvas.addEventListener("pointerdown", e => {
+      const p = canvasPoint(e);
+      const inside = p.x >= box.x && p.x <= box.x + box.w && p.y >= box.y && p.y <= box.y + box.h;
+      drag = inside
+        ? { mode: "move", sx: p.x, sy: p.y, orig: { ...box } }
+        : { mode: "new", sx: p.x, sy: p.y, orig: { ...box } };
+      if (!inside) box = { x: p.x, y: p.y, w: 0, h: 0 };
+      e.preventDefault();
+    });
+    handle.addEventListener("pointerdown", e => {
+      const p = canvasPoint(e);
+      drag = { mode: "resize", sx: p.x, sy: p.y, orig: { ...box } };
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    // Drag tracking on window: a release outside the canvas (or over the
+    // handle, which captures its own events) must still end the drag.
+    canvas.addEventListener("pointermove", onMove);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", endDrag);
+    window.addEventListener("pointercancel", endDrag);
+
+    function onMove(e) {
+      if (!drag) return;
+      const p = canvasPoint(e);
+      if (drag.mode === "move") {
+        box.x = Math.min(Math.max(0, drag.orig.x + (p.x - drag.sx)), canvas.width - drag.orig.w);
+        box.y = Math.min(Math.max(0, drag.orig.y + (p.y - drag.sy)), canvas.height - drag.orig.h);
+      } else if (drag.mode === "resize") {
+        // bottom-right handle — the top-left corner stays anchored
+        const x2 = Math.min(Math.max(0, p.x), canvas.width);
+        const y2 = Math.min(Math.max(0, p.y), canvas.height);
+        box = { x: drag.orig.x, y: drag.orig.y, w: Math.max(0, x2 - drag.orig.x), h: Math.max(0, y2 - drag.orig.y) };
+      } else {
+        // "new": selection spans from the drag start point to the pointer
+        const x2 = Math.min(Math.max(0, p.x), canvas.width);
+        const y2 = Math.min(Math.max(0, p.y), canvas.height);
+        box = { x: Math.min(drag.sx, x2), y: Math.min(drag.sy, y2), w: Math.abs(x2 - drag.sx), h: Math.abs(y2 - drag.sy) };
+      }
+      drawSel();
+    }
+    function endDrag() {
+      if (!drag) return;
+      if (box.w < 12 || box.h < 12) box = drag.orig; // discard accidental taps
+      drag = null;
+      drawSel();
+    }
+
+    img.onload = () => {
+      const scale = Math.min(1, 420 / img.naturalWidth, 320 / img.naturalHeight);
+      canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      box = { x: 0, y: 0, w: canvas.width, h: canvas.height };
+      // drawSel needs the laid-out canvas rect — wait one frame so the
+      // wrapper has its final size before positioning the overlay.
+      requestAnimationFrame(drawSel);
+    };
+    img.src = imageUrl;
+
+    body.querySelector("[data-apply]").addEventListener("click", () => {
+      const k = img.naturalWidth / canvas.width;
+      const out = document.createElement("canvas");
+      out.width = Math.max(1, Math.round(box.w * k));
+      out.height = Math.max(1, Math.round(box.h * k));
+      out.getContext("2d").drawImage(img, box.x * k, box.y * k, box.w * k, box.h * k, 0, 0, out.width, out.height);
+      out.toBlob(b => { finish(b); close(); }, "image/png");
+    });
+    body.querySelector("[data-cancelcrop]").addEventListener("click", () => { finish(null); close(); });
+  });
+}
+
+function extOf(path) {  if (!path) return "";
   const base = path.replace(/\\/g, "/").split("/").pop() || "";
   const i = base.lastIndexOf(".");
   return i > 0 ? base.slice(i + 1).toLowerCase() : "";
 }
 
 export class ChatView {
-  constructor(core, { onChatsChanged, onForward }) {
+  constructor(core, { onChatsChanged, onForward, onOpenChat }) {
     this.core = core;
     this.onChatsChanged = onChatsChanged;
     this.onForward = onForward;
+    this.onOpenChat = onOpenChat;
     this.chat = null;
     this.items = [];        // flattened items for the virtual scroller
     this.msgIndex = new Map();
@@ -552,13 +679,13 @@ export class ChatView {
     }
     if (m.viewtype === "image" || m.viewtype === "gif" || m.viewtype === "sticker") {
       if (m.downloadState === "Done" && m.filePath) {
-        // Animated loading: the placeholder reserves the final box (aspect
-        // from the message's dimensions when the core has them, else a 4/3
-        // guess) so the row height is stable while the image decodes.
+        // Animated loading: the placeholder reserves the final box (height
+        // capped, width follows the image's aspect ratio) so the row height
+        // is stable while the image decodes.
         const dw = m.dimensionsWidth > 0 ? m.dimensionsWidth : 0;
         const dh = m.dimensionsHeight > 0 ? m.dimensionsHeight : 0;
         const box = dw && dh
-          ? ` style="width:min(${dw}px, 100%, calc(min(450px, 45vh) * ${(dw / dh).toFixed(4)}));aspect-ratio:${dw} / ${dh}"`
+          ? ` style="height:min(${dh}px, 45vh, 450px); aspect-ratio:${dw} / ${dh}; max-width:100%"`
           : "";
         const wrapCls = `${m.viewtype === "sticker" ? " sticker" : ""}${box ? "" : " no-dims"}`;
         bubble += `<div class="msg-image"><div class="img-wrap${wrapCls}"${box}><div class="img-ph"><div class="img-ph-ico">${ICO.photo}</div></div><img data-src="image" alt=""></div></div>`;
@@ -599,10 +726,29 @@ export class ChatView {
         <div class="file-ico">${ICO.download}</div>
         <div><div class="file-name">${escapeHtml(m.fileName || "File")}</div><div class="file-size">${m.downloadState === "InProgress" ? "Downloading…" : (m.fileSize ? formatBytes(m.fileSize) : "Tap to download")}</div></div>
       </div>`;
+    } else if (m.viewtype === "vcard") {
+      // Shared contact card, styled like the invite cards: avatar on the
+      // left, name/address hydrate async from the vCard attachment
+      // (_hydrateVcardCard below); the tap imports the contact and opens
+      // the DM chat. Re-sharing a contact is the message context menu's
+      // Forward.
+      bubble += `<span class="invite-card vcard-card">` +
+        `<span class="vcard-avatar" data-vcard-avatar></span>` +
+        `<button type="button" class="invite-main" data-vcard-open>` +
+          `<span class="invite-line">Chat with <b data-vcard-name>${escapeHtml(m.text || "contact")}</b></span>` +
+          `<span class="invite-sub" data-vcard-sub hidden></span>` +
+        `</button>` +
+      `</span>`;
     }
 
-    if (m.text) bubble += `<div class="msg-text">${renderMarkdown(m.text)}`;
-    else bubble += `<div class="msg-text">`;
+    if (m.text) {
+      // The core's mail simplifier cuts footers/quotes at receive time and
+      // marks the stored text with " [...]" — offer the original via
+      // get_message_html.
+      const truncated = m.text.endsWith(" [...]");
+      bubble += `<div class="msg-text">${renderMarkdown(m.text)}`;
+      if (truncated) bubble += `<div style="margin-top:6px"><button type="button" class="btn-text" data-readmore style="padding:4px 8px;font-size:13px">Read more</button></div>`;
+    } else bubble += `<div class="msg-text">`;
     const edited = m.edited ? `<span class="edited">edited</span>` : "";
     const star = m.starred ? `<svg class="star-ico" viewBox="0 0 24 24"><path d="M12 3l2.7 5.8 6.3.7-4.7 4.3 1.3 6.2-5.6-3.2-5.6 3.2 1.3-6.2L3 9.5l6.3-.7z" fill="currentColor"/></svg>` : "";
     const ticks = out ? `<span class="ticks-slot">${ticksSvg(m.state, "ticks")}</span>` : "";
@@ -613,6 +759,7 @@ export class ChatView {
     }
     inner += `<div class="bubble">${bubble}</div>`;
     row.innerHTML = inner;
+    if (m.viewtype === "vcard" && m.filePath) this._hydrateVcardCard(row, session, m);
     if (showAvatar) {
       row.querySelector("dc-avatar")?.addEventListener("click", (e) => {
         // The sender's avatar opens their profile — not row selection/menus.
@@ -716,7 +863,7 @@ export class ChatView {
     }, { passive: true });
     row.addEventListener("touchend", () => clearTimeout(pressTimer));
     row.addEventListener("touchmove", () => clearTimeout(pressTimer));
-    row.addEventListener("click", e => {
+    row.addEventListener("click", async e => {
       if (!this._isCurrent(session)) return;
       if (this.selection.size) { this._toggleSelect(m.id, row); return; }
       const chip = e.target.closest("[data-react]");
@@ -730,8 +877,80 @@ export class ChatView {
         else if (mediaAction.dataset.act === "open") this._openFile(m.filePath);
         return;
       }
+      const vcardBtn = e.target.closest("[data-vcard-open]");
+      if (vcardBtn) { e.stopPropagation(); this._openVcardContact(m); return; }
+      const readMore = e.target.closest("[data-readmore]");
+      if (readMore) { e.stopPropagation(); this._showFullMessage(m); return; }
     });
     return row;
+  }
+
+  // Show the original, unsimplified message text. The mail HTML from the
+  // core is untrusted remote content: parsed without script execution and
+  // rendered as plain text only.
+  async _showFullMessage(m) {
+    const body = document.createElement("div");
+    body.innerHTML = `<div class="p2p-hint" style="opacity:.6">Loading full message…</div>`;
+    showModal({ title: "Full message", body });
+    let html = null;
+    try {
+      html = await this.core.getMessageHtml(m.id);
+    } catch (err) {
+      html = null;
+    }
+    if (!html) {
+      body.innerHTML = `<div class="p2p-hint" style="opacity:.6">The full version isn't available for this message.</div>`;
+      return;
+    }
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    doc.querySelectorAll("script,style,iframe,object,embed").forEach(el => el.remove());
+    const pre = document.createElement("div");
+    pre.style.cssText = "white-space:pre-wrap;overflow:auto;max-height:60vh;font-size:14.5px;line-height:1.5;word-break:break-word";
+    pre.textContent = (doc.body?.textContent || html).trim();
+    body.replaceChildren(pre);
+  }
+
+  // Fill a shared-contact card's avatar, name and address from its vCard
+  // attachment. Fire-and-forget: the card already shows the message summary.
+  _hydrateVcardCard(row, session, m) {
+    this.core.parseVcard(m.filePath).then(([c]) => {
+      if (!this._isCurrent(session) || !c) return;
+      const card = row.querySelector(".vcard-card");
+      const nameEl = row.querySelector("[data-vcard-name]");
+      const subEl = row.querySelector("[data-vcard-sub]");
+      const avEl = row.querySelector("[data-vcard-avatar]");
+      if (!card) return;
+      card.dataset.name = c.displayName || "";
+      card.dataset.addr = c.addr || "";
+      if (nameEl && c.displayName) nameEl.textContent = c.displayName;
+      if (subEl && c.addr) { subEl.textContent = c.addr; subEl.hidden = false; }
+      if (avEl) {
+        if (c.profileImage) {
+          // Base64 PHOTO sniffing: JPEG streams start "/9j/", PNG "iVBOR".
+          const mime = c.profileImage.startsWith("iVBOR") ? "png" : "jpeg";
+          const img = new Image();
+          img.alt = "";
+          img.src = `data:image/${mime};base64,${c.profileImage}`;
+          avEl.replaceChildren(img);
+        } else {
+          avEl.textContent = (c.displayName || c.addr || "?").trim().charAt(0).toUpperCase();
+          avEl.style.background = c.color || "#777";
+        }
+      }
+    }).catch(() => {});
+  }
+
+  // Tap on a shared-contact card: import the vCard and open the DM chat.
+  async _openVcardContact(m) {
+    try {
+      const contactIds = await this.core.importVcard(m.filePath);
+      const contactId = contactIds?.[0];
+      if (!contactId) { toast("This contact card is empty"); return; }
+      const chatId = await this.core.createChatByContactId(contactId);
+      this.onOpenChat?.(Number(chatId));
+    } catch (err) {
+      toast("Couldn't add contact: " + (err?.message || err));
+    }
   }
 
   /* ================= message actions ================= */
@@ -926,6 +1145,16 @@ export class ChatView {
     input.addEventListener("keydown", e => {
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); this._send(); }
     });
+    input.addEventListener("paste", e => {
+      const session = this._session;
+      if (!this._isCurrent(session) || !this.chat) return;
+      const items = [...(e.clipboardData?.items || [])];
+      let file = items.find(i => i.kind === "file" && i.type.startsWith("image/"))?.getAsFile();
+      if (!file) file = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith("image/"));
+      if (!file) return; // fall through to normal text paste
+      e.preventDefault();
+      this._imageSendFlow(file, session);
+    });
     send.addEventListener("click", () => this._send());
     document.getElementById("btn-reply-close").addEventListener("click", () => { this.replyTo = null; this._renderReplyPreview(); });
     document.getElementById("btn-emoji").addEventListener("click", e => {
@@ -966,6 +1195,88 @@ export class ChatView {
           menu.style.top = "8px";
         }
       });
+    });
+  }
+
+  // Shared image send flow (paste and file picker): preview with caption →
+  // optional crop loop → send. corePath is the core-readable path of the
+  // original file when one exists (picker); clipboard blobs (null) are
+  // written to the uploads directory first.
+  async _imageSendFlow(blob, session, corePath = null) {
+    const tauri = window.__TAURI__;
+    const invoke = tauri?.core?.invoke || tauri?.invoke;
+    if (!invoke) { toast("Sending images is only available in the app"); return; }
+    let current = blob;
+    let text = "";
+    let outPath = corePath;
+    for (;;) {
+      const act = await this._imagePreviewModal(current, text);
+      if (!act) return; // preview dismissed
+      text = act.text;
+      if (act.action === "send") {
+        try {
+          let filePath = outPath;
+          let filename;
+          if (filePath) {
+            filename = filePath.replace(/\\/g, "/").split("/").pop();
+          } else {
+            const ext = current.type === "image/jpeg" ? "jpg" : current.type === "image/webp" ? "webp" : current.type === "image/gif" ? "gif" : "png";
+            filename = `image-${Date.now()}.${ext}`;
+            filePath = await invoke("resolve_upload_path", { filename });
+            diagnosticsSink.append("info", `image: upload path = ${filePath}`);
+            if (!filePath) throw new Error("resolve_upload_path returned empty");
+            const bytes = new Uint8Array(await current.arrayBuffer());
+            await invoke("plugin:fs|write_file", bytes, {
+              headers: { path: encodeURIComponent(filePath) },
+            });
+            diagnosticsSink.append("info", `image: wrote ${bytes.length} bytes`);
+          }
+          const msg = await this.core.sendMessage(session.chatId, { text, viewtype: "image", file: filePath, filename });
+          if (!this._isCurrent(session)) return;
+          this.appendOutgoing(msg);
+          this.onChatsChanged();
+        } catch (err) {
+          diagnosticsSink.append("error", `image send failed: ${err?.message || err}`);
+          if (this._isCurrent(session)) toast("Could not send image: " + (err?.message || err));
+        }
+        return;
+      }
+      const cropUrl = URL.createObjectURL(act.blob);
+      const cropped = await openImageCropper(cropUrl).finally(() => URL.revokeObjectURL(cropUrl));
+      if (cropped) { current = cropped; outPath = null; } // cropped bytes need writing
+    }
+  }
+
+  // Send/Crop preview with a caption field. Resolves null (dismissed),
+  // { action: "send", blob, text } or { action: "crop", blob, text }.
+  // Interactive elements are built explicitly (createElement + listeners),
+  // keeping the modal click-testable without an HTML parser.
+  _imagePreviewModal(blob, text = "") {
+    return new Promise(resolve => {
+      let settled = false;
+      const url = URL.createObjectURL(blob);
+      const finish = (v) => { if (settled) return; settled = true; URL.revokeObjectURL(url); resolve(v); };
+      const body = document.createElement("div");
+      const img = document.createElement("img");
+      img.src = url; img.alt = "";
+      img.style.cssText = "max-width:100%;max-height:40vh;border-radius:8px";
+      const ta = document.createElement("textarea");
+      ta.className = "text-field"; ta.dataset.caption = ""; ta.rows = 2;
+      ta.placeholder = "Add a caption…"; ta.value = text;
+      ta.style.cssText = "margin-top:10px";
+      const actions = document.createElement("div");
+      actions.style.cssText = "display:flex;gap:8px;margin-top:10px;justify-content:center";
+      const send = document.createElement("button");
+      send.type = "button"; send.className = "btn-text";
+      send.style.cssText = "background:var(--accent);color:#f4f4f4";
+      send.textContent = "Send";
+      const crop = document.createElement("button");
+      crop.type = "button"; crop.className = "btn-text"; crop.textContent = "Crop";
+      actions.append(send, crop);
+      body.append(img, ta, actions);
+      const { close } = showModal({ title: "Send image", body, onClose: () => finish(null) });
+      send.addEventListener("click", () => { finish({ action: "send", blob, text: ta.value.trim() }); close(); });
+      crop.addEventListener("click", () => { finish({ action: "crop", blob, text: ta.value }); close(); });
     });
   }
 
@@ -1042,11 +1353,19 @@ export class ChatView {
       }
       if (!this._isCurrent(session)) return;
 
+      // Images go through the same preview/crop/caption flow as pastes.
+      if (kind === "image" || ["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(extOf(resolved))) {
+        const mime = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" }[extOf(resolved).toLowerCase()] || "image/png";
+        const bytes = new Uint8Array(await invoke("plugin:fs|read_file", { path: resolved }));
+        const blob = new Blob([bytes], { type: mime });
+        if (!this._isCurrent(session)) return;
+        return this._imageSendFlow(blob, session, resolved);
+      }
+
       const name = resolved.replace(/\\/g, "/").split("/").pop() || "attachment";
       const ext = extOf(name);
       let viewtype = "file";
-      if (kind === "image" || ["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext)) viewtype = "image";
-      else if (kind === "video" || ["mp4", "mov", "mkv", "avi", "webm"].includes(ext)) viewtype = "video";
+      if (["mp4", "mov", "mkv", "avi", "webm"].includes(ext)) viewtype = "video";
       else if (["mp3", "m4a", "ogg", "wav", "flac"].includes(ext)) viewtype = "audio";
       const msg = await this.core.sendMessage(session.chatId, { text: "", viewtype, file: resolved, filename: name });
       if (!this._isCurrent(session)) return;

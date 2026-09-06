@@ -290,6 +290,11 @@ export class JsonRpcCore extends EventTarget {
       this._emit("configure-progress", { progress: ev.progress || 0, comment: ev.comment || "" });
       return;
     }
+    if (ev.kind === "ImexProgress") {
+      // Second-device backup transfer progress (0..1000; 1000 = done, 0 = failed).
+      this._emit("imex-progress", { progress: ev.progress || 0 });
+      return;
+    }
     if (!this._isCurrentAccount(accountEpoch)) return;
     switch (ev.kind) {
       case "IncomingMsg":
@@ -408,6 +413,7 @@ export class JsonRpcCore extends EventTarget {
       case "Audio": return "audio";
       case "Video": return "video";
       case "File": return "file";
+      case "Vcard": return "vcard";
       case "Webxdc": return "webxdc";
       default: return "text";
     }
@@ -751,8 +757,14 @@ export class JsonRpcCore extends EventTarget {
     return null;
   }
 
-  async getMessage(msgId) {
-    const m = await this._call("get_message", this.accountId, msgId);
+  // Original (unsimplified) mail body of a message as HTML, or null when the
+  // message has none. Messages received with a cut footer/quote end in
+  // " [...]" in their text — the full version lives here.
+  async getMessageHtml(msgId) {
+    return this._call("get_message_html", this.accountId, msgId);
+  }
+
+  async getMessage(msgId) {    const m = await this._call("get_message", this.accountId, msgId);
     return this._mapMessage(m);
   }
 
@@ -894,6 +906,24 @@ export class JsonRpcCore extends EventTarget {
     return this._call("create_chat_by_contact_id", this.accountId, contactId);
   }
 
+  // Parses a vCard attachment file (core-side path, e.g. a message's filePath).
+  // Returns the contacts in their original order ({ addr, displayName, key, … }).
+  async parseVcard(path) {
+    return this._call("parse_vcard", path);
+  }
+
+  // Imports contacts from a vCard file (core-side path). Returns the ids of
+  // the created/modified contacts in the order they appear in the vCard.
+  async importVcard(path) {
+    return this._call("import_vcard", this.accountId, path);
+  }
+
+  // Returns a vCard (text) containing the contacts with the given ids — the
+  // canonical shareable form of a contact (this core has no contact QRs).
+  async makeVcard(contactIds) {
+    return this._call("make_vcard", this.accountId, contactIds);
+  }
+
   // SecureJoin invite QR for this account (chatId=null) or a group chat.
   // Returns { text, svg, link } — the core renders the SVG itself.
   async getInviteQr(chatId = null) {
@@ -940,5 +970,49 @@ export class JsonRpcCore extends EventTarget {
     } finally {
       await this._finishAccountChange(failed);
     }
+  }
+
+  // ---- second-device setup (backup transfer over the LAN) ----
+
+  // Old device: offer this account's backup until a remote device retrieves
+  // it. The call blocks server-side for the whole transfer — don't await it
+  // in a timeout-sensitive path; completion arrives via ImexProgress.
+  async provideBackup() {
+    return this._call("provide_backup", this.accountId);
+  }
+
+  // QR text for a running provideBackup(). Blocks on the backend until the
+  // provider is up (fails after 60 s).
+  async getBackupQr() {
+    return this._call("get_backup_qr", this.accountId);
+  }
+
+  // New device: receive a profile from another device's backup QR. Imports
+  // into a fresh account (reuses the current one if still unconfigured) and
+  // starts IO on it. The transfer itself runs fire-and-forget — it can take
+  // minutes; track it via imex-progress events. Same two epoch boundaries
+  // as addAccountWithQr.
+  async addAccountWithBackup(qrContent) {
+    this._beginAccountChange();
+    let failed = true;
+    try {
+      const acc = await this._call("get_account_info", this.accountId);
+      let targetId = this.accountId;
+      if (acc.kind !== "Unconfigured") {
+        targetId = await this._call("add_account");
+        await this._call("select_account", targetId);
+        this.accountId = targetId;
+      }
+      this._call("get_backup", targetId, qrContent).catch(() => {});
+      failed = false;
+      return targetId;
+    } finally {
+      await this._finishAccountChange(failed);
+    }
+  }
+
+  // Cancels the current account's ongoing process (backup provide/receive).
+  async stopOngoingProcess() {
+    return this._call("stop_ongoing_process", this.accountId);
   }
 }

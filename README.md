@@ -37,8 +37,7 @@ black/white), and everything is drawn as pure SVG in `app/js/avatar.js`.
 
 Tapping any avatar in a chat opens the **contact profile** modal: the large
 photo avatar beside the captioned identity tile (color names included), the
-contact's address and profile key (OpenPGP fingerprint), last-seen info, a
-native-share button for the personal `i.delta.chat` invite link, plus
+contact's address and profile key (OpenPGP fingerprint), last-seen info, plus
 **Send message**, **Edit name** and **Block** actions. Group chats also show a
 **Chats in common** section listing the groups you share with that contact.
 
@@ -66,6 +65,29 @@ UI: `app/js/p2p.js`. A headless terminal hub for debugging lives in
 Local chat can be switched off (drawer → Diagnostics chat → "Local chat: on/off"):
 the engine stops, the endpoint socket is released, LAN beacons go silent, and
 the drawer entry disappears. The preference persists across restarts.
+
+## Shared contacts (vCards)
+
+When someone sends a **person contact** into a chat (a `.vcf` vCard attachment),
+Velta renders it as a compact contact card — avatar, display name and email
+address — styled like the invite cards. Tapping the card imports the contact
+(the vCard carries the contact's public key, which is the point of contact
+gossip) and opens the direct-message chat. Re-sharing a received contact is the
+message context menu's **Forward**. This core generation has no contact QR
+codes — SecureJoin QRs exist only for the own profile and for groups — so the
+vCard is the canonical shareable form.
+
+## Second-device setup (backup transfer)
+
+The drawer's **Add a second device…** moves a profile between devices over the
+LAN using the core's backup transfer:
+
+- **Old device** shows a QR (its `provide_backup` offer) and waits.
+- **New device** taps **Receive a profile on this device…**, scans or pastes
+  the code (`dcbackup:…`, camera scan supported where the platform offers the
+  native `BarcodeDetector` API), and a fresh account is created and filled
+  from the transfer — progress is reported live, and the other device stays
+  signed in.
 
 ## Multi-relay accounts
 
@@ -312,7 +334,11 @@ Clicking that link will focus an existing Velta window or start a new one, show 
 
 ## Sending files, photos and videos
 
-The composer has a paper-clip attachment button. From there you can send:
+The composer has a paper-clip attachment button, and images can also be
+**pasted from the clipboard** (paste a screenshot straight into the composer).
+Both paths run through the same send-image flow: a preview with an optional
+**caption** and a free-form **Crop** step (drag to move the selection, corner
+handle to resize) before sending. From the attachment menu you can send:
 
 | Type | How it is sent | How it is shown |
 |---|---|---|
@@ -364,6 +390,11 @@ Message text renders a simple, escape-first markdown subset (`app/js/markdown.js
 | `[label](https://…)` | clickable link (bare URLs linkify too) |
 | `- item` / `* item` / `+ item` | bulleted list |
 | `1. item` / `1) item` | numbered list (a start value like `3.` is honored) |
+
+Long messages whose footer/quote was cut by the core's mail simplifier end in
+`[...]`; those render a **Read more** button that loads the original body from
+the core (`get_message_html`), parsed without script execution and shown as
+plain text.
 
 Everything is HTML-escaped before any tag is produced and only `http(s)` targets become links, so message content can never inject markup. Emphasis markers are word-boundary guarded (`2*3*4` and `snake_case_name` stay literal). Invite links (`i.delta.chat` and registered mirror domains) render as invite cards instead of links — see [Deep links](#deep-links). Invites carrying a `b=` parameter are broadcast channels and render as *"Subscribe to ChannelName"* with a Subscribe confirmation instead of the group wording.
 

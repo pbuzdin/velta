@@ -132,8 +132,31 @@ export function confirmDeleteMessagesModal(count, canForAll) {
   });
 }
 
+/* ---------- Version info (drawer footer + About) ---------- */
+const CORE_VERSION = "2.59.0";
+const FALLBACK_APP_VERSION = "1.3.12";
+
+async function getAppVersion() {
+  try {
+    const tauri = window.__TAURI__;
+    if (tauri?.app?.getVersion) return await tauri.app.getVersion();
+    if (tauri?.core?.invoke) return await tauri.core.invoke("plugin:app|version");
+  } catch {}
+  return FALLBACK_APP_VERSION;
+}
+
+// The app-shell cache name (velta-vNN) doubles as the service worker version.
+async function getSwVersion() {
+  try {
+    const keys = await caches.keys();
+    const m = keys.map(k => /^velta-(v\d+)$/.exec(k)).find(Boolean);
+    if (m) return m[1];
+  } catch {}
+  return null;
+}
+
 /* ---------- Settings drawer ---------- */
-export function buildDrawer({ account, backend, onAddAccount, onToggleTheme, onOpenChat, onInvite, onToggleMock, onEditProfile, onInviteDomains, onP2p, p2p = false, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme }) {
+export function buildDrawer({ account, backend, onAddAccount, onSecondDevice, onToggleTheme, onOpenChat, onInvite, onToggleMock, onEditProfile, onInviteDomains, onP2p, p2p = false, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme }) {
   const drawer = document.createElement("div");
   drawer.className = "drawer";
   drawer.id = "drawer";
@@ -156,14 +179,29 @@ export function buildDrawer({ account, backend, onAddAccount, onToggleTheme, onO
       <div class="drawer-sec">Settings</div>
       <button class="ctx-item" data-act="theme"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 109 9c0-1.5-1.2-2.6-2.6-2.6h-1.9a2.5 2.5 0 01-2.5-2.5V5.1C14 4 13.3 3 12 3z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="7.5" cy="10.5" r="1.2" fill="currentColor"/><circle cx="12" cy="7.5" r="1.2" fill="currentColor"/><circle cx="16.5" cy="10.5" r="1.2" fill="currentColor"/></svg><span>${theme === "dark" ? "Light theme" : "Dark theme"}</span></button>
       <button class="ctx-item" data-act="add-account"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 5v4M21 7h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Add profile…</span></button>
+      <button class="ctx-item" data-act="second-device"><svg viewBox="0 0 24 24"><rect x="2.5" y="4" width="11" height="17" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="16" y="8" width="5.5" height="13" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Add a second device…</span></button>
       <button class="ctx-item" data-act="relays"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Relays of this profile…</span></button>
       <div class="drawer-sec">Accounts</div>
       ${accounts.length ? accounts.map(a => `<button class="ctx-item" data-act="account" data-account="${escapeAttr(a.id)}"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>${a.id === currentAccountId ? `<path d="M8.5 12.5l2.5 2.5 5-5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>` : ""}</svg><span>${escapeHtml(a.name || a.addr)}${a.id === currentAccountId ? " · current" : ""}</span></button>`).join("") : ""}
       <button class="ctx-item" data-act="invite-domains"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Invite link domains</span></button>
       <button class="ctx-item" data-act="mock"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 9h6v6H9z" fill="currentColor"/></svg><span>${localStorage.getItem("velta-mock") === "1" ? "Exit mock mode" : "Enter mock mode"}</span></button>
       <button class="ctx-item" data-act="about"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 10v6M12 7v.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><span>About Velta</span></button>
+    </div>
+    <div class="drawer-foot" data-versions>
+      <div class="drawer-ver"><span>Velta</span><span data-v="app">…</span></div>
+      <div class="drawer-ver"><span>Chatmail core</span><span data-v="core">${CORE_VERSION}</span></div>
+      <div class="drawer-ver"><span>Service worker</span><span data-v="sw">…</span></div>
     </div>`;
   document.body.appendChild(drawer);
+
+  // Fill the async parts of the footer once the drawer exists.
+  (async () => {
+    const box = drawer.querySelector("[data-versions]");
+    if (!box) return;
+    box.querySelector('[data-v="app"]').textContent = await getAppVersion();
+    const sw = await getSwVersion();
+    box.querySelector('[data-v="sw"]').textContent = sw || "not registered";
+  })();
 
   const overlay = document.createElement("div");
   overlay.className = "pop-overlay transparent";
@@ -190,6 +228,7 @@ export function buildDrawer({ account, backend, onAddAccount, onToggleTheme, onO
     if (act === "p2p") onP2p?.();
     if (act === "edit-profile") onEditProfile?.();
     if (act === "add-account") onAddAccount();
+    if (act === "second-device") onSecondDevice?.();
     if (act === "account") onAccountTap?.(btn.dataset.account);
     if (act === "relays") onRelays?.();
     if (act === "invite-domains") onInviteDomains?.();
@@ -283,8 +322,8 @@ export function showEditProfile({ name, avatarUrl, color, pickImage }) {
 
 // Invite modal with a real SecureJoin QR rendered by the core.
 // provider: async () => ({ svg, link })
-// account: when set (self invite), the user's color-coded avatar is overlaid
-// in the QR center — the core reserves a clear circle there for exactly that.
+// account: when set (self invite), the Velta logo is overlaid in the QR
+// center — the core reserves a clear circle there for exactly that.
 export function showInvite(provider, { title = "Invite to Delta Chat", group = false, account = null } = {}) {
   const body = document.createElement("div");
   body.innerHTML = `
@@ -304,13 +343,12 @@ export function showInvite(provider, { title = "Invite to Delta Chat", group = f
       const box = body.querySelector(".qr-box");
       box.innerHTML = svg || "<div class='qr-loading'>QR unavailable</div>";
       body.querySelector(".invite-link").textContent = link;
-      // Overlay the user's color-coded avatar on the clear circle the core
-      // leaves in the QR center (design space 515x630, circle center at
-      // 50% / 43.65% of the rendered svg). Intentionally initials-on-color:
-      // that is the "color-coded avatar" identity tile, not the photo.
+      // Overlay the Velta logo on the clear circle the core leaves in the
+      // QR center (design space 515x630, circle center at 50% / 43.65% of
+      // the rendered svg).
       if (account && svg) {
         box.insertAdjacentHTML("beforeend",
-          `<div class="qr-self"><dc-avatar name="${escapeHtml(account.displayName || "?")}" color="${escapeAttr(account.color || "#777")}" size="120" contact-id="1"></dc-avatar></div>`);
+          `<div class="qr-self"><img src="./icons/v-logo.svg" alt=""></div>`);
       }
     })
     .catch(err => {
@@ -320,19 +358,14 @@ export function showInvite(provider, { title = "Invite to Delta Chat", group = f
 }
 
 async function showAbout() {
-  // Keep the fallback in sync with tauri.conf.json; prefer the runtime
-  // version so the About dialog always matches the built app.
-  let version = "1.3.7";
-  try {
-    const tauri = window.__TAURI__;
-    if (tauri?.app?.getVersion) version = await tauri.app.getVersion();
-    else if (tauri?.core?.invoke) version = await tauri.core.invoke("plugin:app|version");
-  } catch {}
+  // Prefer the runtime version so the About dialog always matches the built
+  // app; the core version is the pinned core/ workspace version.
+  const version = await getAppVersion();
   showModal({
     title: "About Velta",
     body: `
-      <div class="info-row"><span class="k">App</span><span class="v">Velta ${version}</span></div>
-      <div class="info-row"><span class="k">Core</span><span class="v">deltachat-core-rust 2.59.0</span></div>
+      <div class="info-row"><span class="k">App</span><span class="v">Velta ${escapeHtml(version)}</span></div>
+      <div class="info-row"><span class="k">Core</span><span class="v">deltachat-core-rust ${CORE_VERSION}</span></div>
       <div class="info-row"><span class="k">Transport</span><span class="v">chatmail relays (IMAP/SMTP)</span></div>
       <div class="info-row"><span class="k">Encryption</span><span class="v">OpenPGP, end-to-end</span></div>
       <div class="info-row"><span class="k">UI stack</span><span class="v">Elena progressive web components</span></div>

@@ -362,6 +362,18 @@ html[data-theme="light"] .msg-row.out .msg-quote .q-text { color: #4d5a68; }
 }
 .invite-copy:active, .invite-copy:hover { color: #f2f2f5; background: rgba(244, 244, 244, .10); }
 .invite-copy svg { width: 16px; height: 16px; }
+/* Shared-contact card avatar: compact fixed-size tile, centered next to the
+   text — never stretches the card (fixed dimensions, no aspect/intrinsic
+   sizing from the decoded image). */
+.vcard-avatar {
+  flex: none; align-self: center;
+  width: 36px; height: 36px; margin-left: 8px;
+  display: flex; align-items: center; justify-content: center;
+  background: #777; overflow: hidden; border-radius: 8px;
+  font-size: 20px; font-weight: 600; color: #f4f4f4;
+  user-select: none; -webkit-user-select: none;
+}
+.vcard-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .msg-meta {
   float: right; display: inline-flex; align-items: center; gap: 3px;
   font-size: 11.5px; color: var(--text-meta-in);
@@ -393,7 +405,7 @@ html[data-theme="light"] .msg-meta .ticks.read { color: #1d8bf1; }
   background: var(--bg-hover);
 }
 .msg-image .img-wrap img {
-  width: 100%; height: 100%; display: block;
+  width: 100%; height: 100%; display: block; object-fit: cover;
   opacity: 0; transform: scale(1.03);
   transition: opacity .35s ease, transform .45s cubic-bezier(.2, .7, .3, 1);
 }
@@ -776,6 +788,8 @@ dc-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 }
 .drawer-addr { font-size: 13px; opacity: .8; }
 .drawer-items { padding: 8px; overflow-y: auto; }
+.drawer-foot { padding: 8px 16px 14px; border-top: 1px solid rgba(244, 244, 244, .08); }
+.drawer-ver { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--text-dim); padding: 2px 0; }
 .drawer-sec { font-size: 12.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; padding: 14px 12px 6px; }
 
 /* emoji pop */
@@ -814,20 +828,18 @@ dc-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
   display: flex; align-items: center; justify-content: center;
 }
 .qr-box svg { width: 200px; height: 200px; display: block; }
-/* Color-coded self avatar sitting on the clear circle the core leaves in the
-   QR center (circle center is at 50% / 43.65% of the 515x630 design card). */
+/* Dark badge over the circle the core reserves in the QR center (circle
+   center is at 50% / 43.65% of the 515x630 design card). Opaque on purpose:
+   it covers the avatar the core embeds underneath and carries the Velta logo. */
 .qr-self {
   position: absolute; left: 50%; top: 43.65%;
   width: 20%; aspect-ratio: 1;
   transform: translate(-50%, -50%);
+  background: #1c1c1c;
+  border-radius: 50%;
   pointer-events: none;
 }
-.qr-self dc-avatar { display: block; width: 100%; height: 100%; }
-.qr-self .dc-avatar-tile {
-  width: 100% !important; height: 100% !important;
-  font-size: 7.6cqw !important;
-  border-radius: 16%;
-}
+.qr-self img { display: block; width: 100%; height: 100%; }
 .qr-loading { color: #555; font-size: 13px; text-align: center; padding: 16px 8px; }
 .invite-link {
   font-family: ui-monospace, monospace; font-size: 12.5px;
