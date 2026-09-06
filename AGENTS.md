@@ -319,7 +319,9 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   canvas cropper (`openImageCropper`), and upload of the final bytes via
   `resolve_upload_path` + `plugin:fs|write_file` (the fs plugin reads the
   path from the IPC `path` header and the bytes from the raw body — a
-  Uint8Array as the whole invoke body).
+  Uint8Array as the whole invoke body). The rendered-row LRU (`_rowCache`)
+  survives `close()` so reopening a chat reuses its rows; `open()` clears it
+  when the account changed (message ids are per-account).
 - `app/js/components.js` defines custom elements (`<dc-avatar>`,
   `<dc-chat-item>`, `<dc-chat-head>`, `<dc-video>`) using Elena.
 - `app/js/avatar.js` derives contact identity tiles from OpenPGP fingerprints:
@@ -335,7 +337,7 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   renderer and chat-view's service-message fallback. The store collapses
   identical consecutive entries into one counted row — prefer appending here
   over toasting for repeatable background errors.
-- `app/js/media.js` resolves local file paths to WebView-safe media URLs (loopback media server when available, asset protocol otherwise).
+- `app/js/media.js` resolves local file paths to WebView-safe media URLs (loopback media server when available, asset protocol otherwise). Blob media is served `Cache-Control: immutable` — core blob names are content-deduplicated, so the WebView can cache image bytes across chat switches.
 - `app/js/poster.js` extracts and caches WebP poster frames for video placeholders.
 - `app/js/ui.js` is a collection of UI helpers (drawer, modals, context menus,
   toasts, delete-confirmation dialog).

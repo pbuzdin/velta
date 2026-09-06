@@ -1243,9 +1243,11 @@ pub fn run() {
         })
         .register_uri_scheme_protocol("blobfile", |ctx, request| {
             let mut response = serve_blob_file(ctx.app_handle(), request);
-            // no-store keeps the WebView from caching media responses, so
-            // deleted/updated blobs are never served stale.
-            response.headers_mut().insert("Cache-Control", "no-store".parse().unwrap());
+            // Blob URLs are content-deduplicated by the core (same name =
+            // same bytes), so media is immutable: let the WebView cache it.
+            // Reopening a chat then decodes images from memory/disk cache
+            // instead of re-reading and re-decoding every blob.
+            response.headers_mut().insert("Cache-Control", "max-age=31536000, immutable".parse().unwrap());
             response.map(|body| std::borrow::Cow::Owned(body))
         })
         .invoke_handler(tauri::generate_handler![js_log, rpc, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);

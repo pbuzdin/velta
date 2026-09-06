@@ -240,6 +240,14 @@ export class ChatView {
   async open(chatId) {
     // Retire the old scroller, composer and pending work before yielding.
     this.close();
+    // The row cache survives switches (keys are per-chat message ids), but
+    // ids are per-account — drop it when the account changed since the last
+    // chat was open.
+    if (this._rowCacheAccount !== this.core.accountId) {
+      this._rowCache.clear();
+      this._rowSigCache.clear();
+      this._rowCacheAccount = this.core.accountId;
+    }
     const session = this._session = {
       accountEpoch: this.core.accountEpoch,
       draftKey: JSON.stringify([String(this.core.accountId), String(chatId)]),
@@ -302,8 +310,9 @@ export class ChatView {
     this.vs = null;
     this.items = [];
     this.msgIndex.clear();
-    this._rowCache.clear();
-    this._rowSigCache.clear();
+    // The rendered-row LRU survives close() — reopening a chat reuses the
+    // rows instead of rebuilding them; open() clears it on account change
+    // (message ids are per-account).
     this.replyTo = null;
     this._renderReplyPreview();
     this.exitSelection();
