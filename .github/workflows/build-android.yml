@@ -23,7 +23,10 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # github.job disambiguates reusable-workflow calls: inside the Release run
+  # every called workflow inherits the caller's name, so without this both
+  # jobs would land in one group and cancel each other.
+  group: ${{ github.workflow }}-${{ github.job }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
