@@ -1112,25 +1112,14 @@ async function newChatFlow() {
   ], r.left, r.top - 170);
 }
 
-function addAccountFlow() {
-  const body = document.createElement("div");
-  body.innerHTML = `
-    <p style="font-size:14.5px;line-height:1.5;margin-bottom:4px">Paste a chatmail invite link (<code>dcaccount:</code>) or scan a QR code in the Delta Chat app to add another profile.</p>
-    <input class="text-field" placeholder="dcaccount:https://nine.testrun.org/new" id="invite-input">`;
-  const foot = document.createElement("div");
-  const cancel = document.createElement("button");
-  cancel.className = "btn-text"; cancel.textContent = "Cancel";
-  const ok = document.createElement("button");
-  ok.className = "btn-text"; ok.textContent = "Add account";
-  foot.append(cancel, ok);
-  const { close } = showModal({ title: "Add account", body, foot });
-  cancel.addEventListener("click", close);
-  ok.addEventListener("click", async () => {
-    const v = body.querySelector("#invite-input").value.trim();
-    if (!v.startsWith("dcaccount:")) { toast("That doesn't look like a dcaccount: link"); return; }
-    close();
-    await addAccountFromInvite(v);
+async function addAccountFlow() {
+  const code = await acquireCode({
+    title: "Add account",
+    hint: "Paste a chatmail invite link (<code>dcaccount:…</code>), just a relay domain like <code>nine.testrun.org</code>, or scan a QR code in the Delta Chat app to add another profile.",
+    validate: c => (normalizeRelayLink(c) ? null : "That doesn't look like a chatmail relay or dcaccount: link"),
   });
+  if (!code) return;
+  await addAccountFromInvite(normalizeRelayLink(code));
 }
 
 // Configure a profile from a dcaccount: relay invite link (deeplink or manual).
@@ -1157,8 +1146,9 @@ async function addAccountFromInvite(link) {
      • ?dcaccount=dcaccount:…  or  #dcaccount=dcaccount:…
      • #/addrelay/<urlencoded dcaccount link>
      • velta://invite?url=<url-encoded i.delta.chat link>  (Windows custom scheme)
-   Only acts when a real background core is available; in demo mode it
-   tells the user to install the service instead. */
+   A dcaccount: invite asks whether to add the relay to the current profile
+   or create a new profile on it. Relay-adding needs a real core; in demo
+   mode it tells the user instead. */
 function extractInviteLink(rawUrl = location.href) {
   let url;
   try { url = new URL(rawUrl, location.href); } catch { return null; }
@@ -1210,7 +1200,33 @@ async function handleDeeplinkFromUrl(rawUrl, { clearUrl = false } = {}) {
   // clean the URL so a reload doesn't re-run the invite
   if (clearUrl) history.replaceState(null, "", location.pathname);
   if (joinLink) await joinFromInvite(joinLink);
-  if (link) await addAccountFromInvite(link);
+  if (!link) return;
+  // A dcaccount: link is ambiguous once a profile exists — it can become a
+  // second relay on the current profile or create a new profile on that relay.
+  const epoch = core.accountEpoch;
+  const choice = await chooseRelayOrNewProfile(link);
+  if (choice === "relay") await addRelayFlow(epoch, null, link);
+  else if (choice === "new") await addAccountFromInvite(link);
+}
+
+// Ask what a clicked/pasted dcaccount: invite should do. Resolve "relay",
+// "new", or null (dismissed).
+function chooseRelayOrNewProfile(link) {
+  return new Promise(resolve => {
+    const host = link.replace(/^dcaccount:https?:\/\//i, "").replace(/\/.*$/, "");
+    const body = document.createElement("div");
+    body.innerHTML = `
+      <p class="p2p-hint">Use the <b>${escapeHtml(host)}</b> invite to…</p>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+        <button class="btn-text btn-primary" data-relay>Add the relay to this profile</button>
+        <button class="btn-text" data-new>Create a new profile on it</button>
+      </div>`;
+    let settled = false;
+    const pick = v => { if (settled) return; settled = true; close(); resolve(v); };
+    body.querySelector("[data-relay]").addEventListener("click", () => pick("relay"));
+    body.querySelector("[data-new]").addEventListener("click", () => pick("new"));
+    const { close } = showModal({ title: "Relay invite", body, onClose: () => resolve(null) });
+  });
 }
 
 async function handleDeeplink() {
@@ -1651,9 +1667,15 @@ async function openRelaysModal() {
   body.querySelector("[data-add]").addEventListener("click", () => addRelayFlow(epoch, refresh));
 }
 
-async function addRelayFlow(epoch, refresh) {
+async function addRelayFlow(epoch, refresh, presetCode) {
   if (!accountIsCurrent(epoch)) return;
-  const code = await acquireCode({
+  if (!core.checkQr || !core.addTransportFromQr) {
+    toast("No background service available — install the Delta Core service app to add relays", 5000);
+    return;
+  }
+  // presetCode comes from a deeplink (already dcaccount:-prefixed by
+  // extractInviteLink); without one, ask for a pasted/scanned code.
+  const code = presetCode ?? await acquireCode({
     title: "Add relay",
     hint: "Paste the invite code of the relay to add (dcaccount:… or dclogin:…) — e.g. from the relay's web page. It becomes a second transport for this profile; messages are received on both relays.",
     validate: c => (/^(dcaccount:|dclogin:|https?:\/\/)/i.test(c.trim()) ? null : "That doesn't look like a relay invite code"),

@@ -283,8 +283,8 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   dropped. Don't replace it with a normal `_call`.
 - `app/js/app.js` owns the chat list, navigation, modals, diagnostics chat, and
   the PWA shell. It also runs a DOM-budget watchdog that samples node counts.
-  It owns the **relay status line** (`#relay-line`, thin strip atop the
-  sidebar): green relay connected / yellow connecting or retrying / red
+  It owns the **relay status line** (`#relay-line`, thin strip below the
+  sidebar header): green relay connected / yellow connecting or retrying / red
   unreachable after a 45 s NotConnected grace / blue demo or local-chat mode,
   with animated dashes while a message is in flight to the relay (driven by
   rpc-core's `send-activity`). It also owns the **multi-relay manager**
@@ -293,6 +293,10 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `set_transport_unpublished` for soft removal (core keeps listening ~90 days
   so contacts on the old address don't lose mail),   `add_transport_from_qr`
   with `check_qr` validation and `configure-progress` step UI for adding.
+  `addRelayFlow` also takes a preset code, so a clicked/pasted `dcaccount:`
+  deeplink (`handleDeeplinkFromUrl` → `chooseRelayOrNewProfile`) can offer
+  "add the relay to this profile" alongside the legacy "create a new
+  profile" path (`addAccountFromInvite`).
   Sending always goes through the primary relay; there is deliberately no
   relay selector. It also owns the **second-device flow** (`secondDeviceFlow`,
   drawer → "Add a second device…"): the old device shows a `provide_backup`
@@ -632,6 +636,14 @@ test traffic accordingly.
 - Version bumps touch `delta-web-app/src-tauri/tauri.conf.json`, the
   `delta-web` package in `delta-web-app/src-tauri/Cargo.toml` (+`Cargo.lock`),
   and the `CACHE` constant in `app/sw.js`; each release commit notes both.
+- Releases: `.github/workflows/release.yml` (v* tag push or manual dispatch)
+  calls the two reusable build workflows and publishes a GitHub release
+  `v<version>` with `Velta-<version>-<abi>.apk` (signed with the persistent
+  keystore secrets) and `Velta_<version>_x64-setup.exe`; the version comes
+  from `tauri.conf.json`. Tag pushes do not run the build workflows directly
+  — release.yml is the single tag→release path. The keystore and its password
+  live in `signing/` (gitignored) and in the four `ANDROID_KEY*` repo
+  secrets; losing both means installed APKs can never be updated again.
 - When modifying the JSON-RPC API surface, remember that the PWA
   (`app/js/rpc-core.js`), the Python RPC client, and any external consumers must
   stay compatible.

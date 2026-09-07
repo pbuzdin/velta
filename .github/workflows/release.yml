@@ -1,0 +1,76 @@
+name: Release
+
+# Builds the Android APK and the Windows NSIS installer and publishes them
+# as a GitHub release named after the version in tauri.conf.json. Triggered
+# by a v* tag push or manually from the Actions tab.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  android:
+    uses: ./.github/workflows/build-android.yml
+    secrets: inherit
+
+  windows:
+    uses: ./.github/workflows/build-windows.yml
+    secrets: inherit
+
+  release:
+    needs: [android, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Read version
+        id: ver
+        run: |
+          VERSION=$(jq -r .version delta-web-app/src-tauri/tauri.conf.json)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version: $VERSION"
+
+      # On a tag push use the pushed tag; on a manual dispatch create v<version>.
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${{ steps.ver.outputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download Android APK
+        uses: actions/download-artifact@v7
+        with:
+          name: velta-android
+          path: release-assets
+
+      - name: Download Windows installer
+        uses: actions/download-artifact@v7
+        with:
+          name: velta-windows
+          path: release-assets
+
+      - name: List release assets
+        run: ls -lh release-assets
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: Velta v${{ steps.ver.outputs.version }}
+          files: |
+            release-assets/*.apk
+            release-assets/Velta_*_x64-setup.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
