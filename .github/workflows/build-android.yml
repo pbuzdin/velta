@@ -1,6 +1,7 @@
 name: Build Android APK
 
 on:
+  workflow_call:
   push:
     branches: [main, master]
     paths:
@@ -10,7 +11,6 @@ on:
       - 'deltachat-backend/**'
       - 'core/**'
       - '.github/workflows/build-*.yml'
-    tags: ["v*"]
   pull_request:
     branches: [main, master]
     paths:
@@ -134,18 +134,18 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -p -f 4 "$UNSIGNED" "$ALIGNED"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign --ks "$KEYSTORE" --ks-pass pass:"$STORE_PASS" --ks-key-alias "$ALIAS" --key-pass pass:"$KEY_PASS" --out "$SIGNED" "$ALIGNED"
 
+      - name: Rename signed APK with version
+        run: |
+          VERSION=$(jq -r .version delta-web-app/src-tauri/tauri.conf.json)
+          mkdir -p dist
+          for f in delta-web-app/src-tauri/gen/android/app/build/outputs/apk/*/release/*-signed.apk; do
+            abi=$(basename "$(dirname "$(dirname "$f")")")
+            cp "$f" "dist/Velta-${VERSION}-${abi}.apk"
+          done
+          ls -lh dist
+
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v7
         with:
           name: velta-android
-          path: |
-            delta-web-app/src-tauri/gen/android/app/build/outputs/apk/*/release/*-signed.apk
-            delta-web-app/src-tauri/gen/android/app/build/outputs/apk/*/release/*-unsigned.apk
-
-      - name: Upload release assets (on tag)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: delta-web-app/src-tauri/gen/android/app/build/outputs/apk/*/release/*-signed.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          path: dist/*.apk

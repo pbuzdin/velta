@@ -213,6 +213,23 @@ Output:
 - `delta-web-app/src-tauri/target/release/bundle/msi/*.msi`
 - `delta-web-app/src-tauri/target/release/bundle/nsis/*.exe`
 
+### Releases via GitHub Actions
+
+The `Release` workflow (`.github/workflows/release.yml`) builds both artifacts
+and publishes them as a GitHub release. It runs on every `v*` tag push and can
+also be triggered manually from the Actions tab (it then creates the matching
+tag itself). The release assets are named after the version in
+`delta-web-app/src-tauri/tauri.conf.json` — the single source of truth:
+
+- `Velta-<version>-<abi>.apk` — signed Android APK (`build-android.yml`)
+- `Velta_<version>_x64-setup.exe` — NSIS Windows installer (`build-windows.yml`)
+
+APKs are signed with the persistent release keystore stored in the repo
+secrets (`ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`,
+`ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`), so every build upgrades in
+place over the previous one. Without the secrets (forks/PRs) the workflow
+falls back to an ephemeral key and warns — those APKs must not be published.
+
 ### Android APK (arm64-v8a phones)
 
 ```bash
@@ -264,9 +281,9 @@ Velta can open invite and account-setup links directly instead of making the use
 | Platform | Link type | What happens |
 |---|---|---|
 | Android | `https://i.delta.chat/#FINGERPRINT&v=3&…` (or a registered mirror domain, e.g. `https://i.gluek.info/#…`) | Intercepted by the Android intent filters and processed in-app. |
-| Android / PWA | `dcaccount:https://nine.testrun.org/new` | Configures a new chatmail account. |
+| Android / PWA | `dcaccount:https://nine.testrun.org/new` | Opens a chooser: add the relay to the current profile, or create a new chatmail account. |
 | Desktop (Windows/Linux) | `velta://invite?url=<encoded i.delta.chat URL>` | Opens Velta and joins the 1:1 or group chat. |
-| Desktop (Windows/Linux) | `velta://account?url=<encoded dcaccount URL>` | Opens Velta and creates a chatmail account. |
+| Desktop (Windows/Linux) | `velta://account?url=<encoded dcaccount URL>` | Opens Velta and offers the relay/new-profile chooser. |
 | Contact verification | `OPENPGP4FPR:…` | Can be processed as a SecureJoin/verification QR. |
 
 ### Invite link mirrors and invite cards

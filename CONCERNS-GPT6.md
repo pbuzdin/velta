@@ -137,9 +137,9 @@ seeking on a large recording remains worthwhile.
 
 ## 5. Android Background Delivery And Release Continuity
 
-**Priority: High before everyday use or public releases. Status: Partially resolved (2026-09-05) — upgrade-safe signing implemented (needs one-time secret setup) and incoming-message notifications implemented; Doze-proof background delivery remains open.**
+**Priority: High before everyday use or public releases. Status: Resolved for signing (2026-09-07) — persistent keystore generated, all four `ANDROID_KEY*` repo secrets configured on pbuzdin/velta, and a CI run verified signing via the secret (no ephemeral fallback); incoming-message notifications implemented; Doze-proof background delivery remains open.**
 
-### 5.1 Upgrade-Safe CI Signing — Resolved (setup step remains)
+### 5.1 Upgrade-Safe CI Signing — Resolved (secrets configured 2026-09-07)
 
 `.github/workflows/build-android.yml` no longer generates a fresh signing key
 per run. The workflow now:
@@ -151,12 +151,13 @@ per run. The workflow now:
   secret is absent (forks/PRs), keeping those builds installable but never
   upgrade-compatible; don't publish those APKs as releases.
 
-One-time setup (documented in the workflow): `keytool -genkey` a release
-keystore locally, `base64 -w0` it into `ANDROID_KEYSTORE_B64`, and set the
-password/alias secrets. Until the secret is configured, tag uploads still use
-the fallback — treat published APKs from before the secret as not
-upgrade-compatible with each other. Verify an upgrade between two CI builds
-without uninstalling once the secret is in place.
+One-time setup (done 2026-09-07): the keystore lives in `signing/`
+(gitignored: `velta-release.keystore`, `velta-release.keystore.b64`,
+`velta-release.password.txt`) and the base64 + password/alias secrets are set
+on the repo. `signing/velta-release.keystore` + the password must be backed up
+outside the machine — losing both permanently breaks upgrade-in-place for all
+installed APKs. CI run 34079283887 verified the secret path (no `::warning::`,
+`Sign APK: success`).
 
 ### 5.2 Incoming-Message Notifications — Implemented
 
