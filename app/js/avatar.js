@@ -60,13 +60,15 @@ function colorsClash(a, b) {
   if (s1 < .15 || s2 < .15) return Math.abs(l1 - l2) < .35; // grey vs color: needs a real lightness gap
   return hueDist(h1, h2) < 30 && Math.abs(s1 - s2) < .35 && Math.abs(l1 - l2) < .3;
 }
-// which cell sits visually above cell i in the 3/2/2/3 layout
-const ABOVE = { 3: 1, 4: 2, 5: 3, 6: 4, 7: 5, 8: 5, 9: 6 };
+// which cells sit visually above cell i in the 3/2/2/3 layout — ALL cells
+// sharing an edge, not just the max-overlap one (cell 1 also touches cell 4
+// along 20px; guarding only the primary neighbor let two Tomatoes touch).
+const ABOVE = { 3: [1, 0], 4: [2, 1], 5: [3], 6: [4], 7: [5], 8: [6, 5], 9: [6] };
 // Cell color = raw group color, stepped 7 places through the pool while it
-// would look too similar to its left or above neighbor (deterministic).
+// would look too similar to its left or any above neighbor (deterministic).
 function colorForCell(groups, i, chosen) {
   let idx = parseInt((groups[i] || "").replace(/[^0-9A-Fa-f]/g, "").slice(0, 4) || "0", 16) % COLOR_POOL.length;
-  const neighbors = [i - 1, ABOVE[i]].filter(j => j >= 0 && chosen[j]);
+  const neighbors = [i - 1, ...(ABOVE[i] || [])].filter(j => j >= 0 && chosen[j]);
   for (let step = 0; step < COLOR_POOL.length; step++) {
     const cand = COLOR_POOL[(idx + step * 7) % COLOR_POOL.length];
     if (!neighbors.some(j => colorsClash(cand, chosen[j]))) return cand;
