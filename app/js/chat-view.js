@@ -654,8 +654,17 @@ export class ChatView {
   }
 
   _renderMsgItem(item) {
-    const session = this._session;
     const m = item.msg;
+    const chatId = this.chat.id;
+    // Handlers below live on cached rows that survive close()/open() — the
+    // build-time session would be stale after any chat switch and silently
+    // kill every click (lightbox, avatar profile, context menu, reply pill).
+    // Validate at EVENT time instead: current session (account epoch per the
+    // isolation contract) AND the row's chat still open. Rows are per-chat
+    // (message ids are per-account; the cache is cleared on account change),
+    // so this cannot leak actions across chats or accounts.
+    const alive = () => this._isCurrent() && this.chat?.id === chatId;
+    const liveItem = () => (alive() ? this.msgIndex.get(m.id) : null);
     if (m.kind === "service") {
       return diagnosticRow(m);
     }
@@ -768,12 +777,12 @@ export class ChatView {
     }
     inner += `<div class="bubble">${bubble}</div>`;
     row.innerHTML = inner;
-    if (m.viewtype === "vcard" && m.filePath) this._hydrateVcardCard(row, session, m);
+    if (m.viewtype === "vcard" && m.filePath) this._hydrateVcardCard(row, m);
     if (showAvatar) {
       row.querySelector("dc-avatar")?.addEventListener("click", (e) => {
         // The sender's avatar opens their profile — not row selection/menus.
         e.stopPropagation();
-        if (!this._isCurrent(session)) return;
+        if (!alive()) return;
         avatarProfileOpener?.({ contactId: fc.id, name: fc.name, contact: { addr: fc.addr }, online: fc.online, lastSeen: fc.lastSeen, color: fc.color });
       });
     }
@@ -788,8 +797,9 @@ export class ChatView {
     hoverReply.innerHTML = `${ICO.reply}<span>Reply</span>`;
     hoverReply.addEventListener("click", e => {
       e.stopPropagation();
-      if (!this._isCurrent(session)) return;
-      this._setReply(item);
+      const it = liveItem();
+      if (!it) return;
+      this._setReply(it);
       document.getElementById("composer-input")?.focus();
     });
     row.querySelector(".bubble")?.appendChild(hoverReply);
@@ -801,7 +811,7 @@ export class ChatView {
     // told about each change, otherwise its layout math goes stale and the
     // list jitters while scrolling ("Item index N height changed
     // unexpectedly" console warnings).
-    const notifyHeight = () => { if (this._isCurrent(session)) this.vs?.onItemHeightDidChange?.(item); };
+    const notifyHeight = () => { const it = liveItem(); if (it) this.vs?.onItemHeightDidChange?.(it); };
     const mediaImg = row.querySelector('.msg-image img[data-src]');
     if (mediaImg) {
       const wrap = mediaImg.closest(".img-wrap");
@@ -810,7 +820,7 @@ export class ChatView {
       // so snap the wrap to the image's true geometry (the same
       // natural-size-capped box the CSS used to produce) before revealing.
       const reveal = () => {
-        if (!this._isCurrent(session)) return;
+        if (!alive()) return;
         if (mediaImg.naturalWidth && mediaImg.naturalHeight && wrap) {
           const r = mediaImg.naturalWidth / mediaImg.naturalHeight;
           wrap.style.aspectRatio = `${mediaImg.naturalWidth} / ${mediaImg.naturalHeight}`;
@@ -830,11 +840,11 @@ export class ChatView {
       mediaImg.src = fileUrl(m.filePath);
       mediaImg.addEventListener("click", e => {
         e.stopPropagation();
-        if (!this._isCurrent(session)) return;
+        if (!alive()) return;
         if (mediaImg.naturalWidth) openImageLightbox(mediaImg.src, m.fileName || "photo");
       });
       mediaImg.onerror = () => {
-        if (!this._isCurrent(session)) return;
+        if (!alive()) return;
         rustLog(`media img error src=${mediaImg.src} original=${m.filePath}`);
         diagnosticsSink.append("error", `img ${m.id} failed to load`);
         const box = mediaImg.closest(".msg-image");
@@ -849,7 +859,7 @@ export class ChatView {
     if (mediaAudio) {
       mediaAudio.src = fileUrl(m.filePath);
       mediaAudio.onerror = () => {
-        if (!this._isCurrent(session)) return;
+        if (!alive()) return;
         rustLog(`media audio error src=${mediaAudio.src} original=${m.filePath}`);
         const box = mediaAudio.closest(".msg-audio");
         if (box && !box.dataset.failed) {
@@ -862,18 +872,19 @@ export class ChatView {
     row.addEventListener("contextmenu", e => {
       // Alt+right-click passes through to the WebView default menu
       // (Inspect / devtools) for debugging.
-      if (e.altKey || !this._isCurrent(session)) return;
+      const it = liveItem();
+      if (e.altKey || !it) return;
       e.preventDefault();
-      this._msgContextMenu(item, e.clientX, e.clientY);
+      this._msgContextMenu(it, e.clientX, e.clientY);
     });
     let pressTimer;
     row.addEventListener("touchstart", () => {
-      pressTimer = setTimeout(() => { if (this._isCurrent(session)) this._msgContextMenu(item, innerWidth / 2, innerHeight / 2); }, 500);
+      pressTimer = setTimeout(() => { const it = liveItem(); if (it) this._msgContextMenu(it, innerWidth / 2, innerHeight / 2); }, 500);
     }, { passive: true });
     row.addEventListener("touchend", () => clearTimeout(pressTimer));
     row.addEventListener("touchmove", () => clearTimeout(pressTimer));
     row.addEventListener("click", async e => {
-      if (!this._isCurrent(session)) return;
+      if (!alive()) return;
       if (this.selection.size) { this._toggleSelect(m.id, row); return; }
       const chip = e.target.closest("[data-react]");
       if (chip) { this.core.addReaction(this.chat.id, m.id, chip.dataset.react); return; }
@@ -921,9 +932,11 @@ export class ChatView {
 
   // Fill a shared-contact card's avatar, name and address from its vCard
   // attachment. Fire-and-forget: the card already shows the message summary.
-  _hydrateVcardCard(row, session, m) {
+  // Guarded at continuation time against account epoch and chat identity —
+  // rows are cached across chat switches, so build-time sessions go stale.
+  _hydrateVcardCard(row, m) {
     this.core.parseVcard(m.filePath).then(([c]) => {
-      if (!this._isCurrent(session) || !c) return;
+      if (!this._isCurrent() || this.chat?.id !== m.chatId || !c) return;
       const card = row.querySelector(".vcard-card");
       const nameEl = row.querySelector("[data-vcard-name]");
       const subEl = row.querySelector("[data-vcard-sub]");
