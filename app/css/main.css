@@ -207,7 +207,11 @@ html[data-theme="light"] .day-sep { background: rgba(244,244,244,.75); color: #5
 }
 
 /* ---------- Message bubbles ---------- */
-.msg-row { display: flex; padding: 2px 6px; position: relative; }
+/* content-visibility skips layout/paint for off-viewport rows; the intrinsic
+   48px estimate must match the scroller's getEstimatedItemHeight in
+   chat-view.js, and `auto` remembers each row's real size once rendered so
+   scroll height stays correct on the way back up. */
+.msg-row { display: flex; padding: 2px 6px; position: relative; content-visibility: auto; contain-intrinsic-size: auto 48px; }
 .msg-row.out { justify-content: flex-end; }
 .msg-row.service { justify-content: flex-start; padding-right: 34px; }
 .msg-row.selectable { cursor: pointer; border-radius: 8px; }

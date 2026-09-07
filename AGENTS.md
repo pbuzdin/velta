@@ -312,6 +312,9 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   contact (`openContactProfile`).
 - `app/js/chat-view.js` owns the conversation history (virtualized via
   `virtual-scroller`), composer, selection mode, and the delete-message dialog.
+  Off-viewport `.msg-row`s carry `content-visibility: auto` +
+  `contain-intrinsic-size: auto 48px` (main.css) — the 48px placeholder must
+  stay in sync with the scroller's `getEstimatedItemHeight: () => 48`.
   It also owns the **shared-contact cards** (messages with viewtype `Vcard`:
   avatar/name/addr hydrate from the vCard attachment via `parseVcard`; tap
   imports via `importVcard` and opens the DM), the **Read more** button for
