@@ -147,8 +147,23 @@ const GLYPH_LIGHT = "#f4f4f4"; // soft white — never pure
 // three 40x30 squares, two 60x30 rects, two 60x30 rects, three 40x30 squares.
 // badge=true draws the soft-black circle with the light fingerprint glyph;
 // badge=false leaves the grid bare (the caller layers a photo on top).
+//
+// The result is cached per (fingerprint, variant, size) — chat-list re-renders
+// rebuild every <dc-avatar> and the color-matrix math plus string assembly
+// dominated that path. radius=0 callers (all of them today) skip the clipPath:
+// it would be a no-op, and a cached string reused across many DOM insertions
+// must not carry an id (duplicate-id clip-path references break when the
+// first row owning the id unmounts).
+// 🐴 ceiling: Elena's unsafeHTML still parses the cached string into DOM on
+// every render; upgrade path if profiling shows that parse matters: return
+// template-content clones instead of strings.
+const svgCache = new Map(); // cacheKey → svg string
+
 export function buildAvatarSvg({ groups, size = 120, radius = 26, withCaptions = false, badge = true }) {
   if (!groups || groups.length !== 10) return "";
+  const cacheKey = groups.join("") + `|${withCaptions ? 1 : 0}|${badge ? 1 : 0}|${radius}|${size}`;
+  const cached = svgCache.get(cacheKey);
+  if (cached) return cached;
   const chosen = {};
   const cells = groups.map((g, i) => {
     const [name, rgb] = (chosen[i] = colorForCell(groups, i, chosen));
@@ -169,10 +184,13 @@ export function buildAvatarSvg({ groups, size = 120, radius = 26, withCaptions =
     overlay = `<circle cx="60" cy="60" r="40" fill="${BADGE_DARK}"/>` +
       `<g transform="translate(31.2,31.2) scale(2.4)" stroke="${GLYPH_LIGHT}">${FINGERPRINT_PATHS}</g>`;
   }
-  const cid = `velta-av-${++clipSeq}`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 120 120" role="img">` +
-    `<defs><clipPath id="${cid}"><rect width="120" height="120" rx="${radius}"/></clipPath></defs>` +
-    `<g clip-path="url(#${cid})">${rects}${overlay}${captions}</g></svg>`;
+  // clipPath only for radius > 0 (no current caller) — see the cache note above.
+  const cid = radius > 0 ? `velta-av-${++clipSeq}` : null;
+  const defs = cid ? `<defs><clipPath id="${cid}"><rect width="120" height="120" rx="${radius}"/></clipPath></defs>` : "";
+  const clip = cid ? ` clip-path="url(#${cid})"` : "";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 120 120" role="img">${defs}<g${clip}>${rects}${overlay}${captions}</g></svg>`;
+  svgCache.set(cacheKey, svg);
+  return svg;
 }
 let clipSeq = 0;
 
