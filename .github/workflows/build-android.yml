@@ -143,6 +143,12 @@ jobs:
           mkdir -p dist
           for f in delta-web-app/src-tauri/gen/android/app/build/outputs/apk/*/release/*-signed.apk; do
             abi=$(basename "$(dirname "$(dirname "$f")")")
+            # Tauri always names the --apk output flavor "universal"; this
+            # pipeline compiles only the aarch64 target, so the APK contains
+            # arm64-v8a libs alone — name the asset accordingly. If more
+            # --target ABIs are ever added, drop this mapping back to the
+            # real flavor name.
+            [ "$abi" = "universal" ] && abi=arm64
             cp "$f" "dist/Velta-${VERSION}-${abi}.apk"
           done
           ls -lh dist
