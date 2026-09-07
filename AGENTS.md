@@ -316,6 +316,13 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   itself (ResizeObserver), and a row collapsing to its `contain-intrinsic-size`
   placeholder when scrolled out of view desyncs the scroller's height cache
   (scroll jumps on remount; "height has changed from 52 to 436" warnings).
+  Day chips are rendered inside the first message row of each day
+  (`dayFirst` flag), never as separate list items: the scroller's diff needs
+  the whole previous items array to appear contiguously after a prepend, and
+  separator items broke that on day-crossing batches — failed diffs forced a
+  full relayout with estimated heights and no scroll restoration (the
+  "scroll jumps more and more" bug when paging up). Keep `_loadOlder`
+  prepends pure message prefixes.
   Bubbles use `contain: layout style` but not paint (the reply pill overflows
   the bubble edge); `.chat-item` cards use full `contain: layout paint style`.
   It also owns the **shared-contact cards** (messages with viewtype `Vcard`:

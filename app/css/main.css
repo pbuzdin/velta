@@ -187,8 +187,12 @@ html[data-theme="light"] .history-scroll {
     var(--bg-chat);
 }
 
-.day-sep {
-  align-self: center;
+/* Day chip: rendered INSIDE the first msg-row of each day (dayFirst flag) —
+   day chips must not be separate virtual-list items (see chat-view.js
+   _annotateMessages). width:100% + flex-wrap on .msg-row gives the chip its
+   own line inside the row. */
+.day-chip {
+  width: 100%; display: flex; justify-content: center;
   background: rgba(16,16,16,.28);
   color: #d7d7de;
   font-size: 13px; padding: 5px 13px; border-radius: 14px;
@@ -196,7 +200,9 @@ html[data-theme="light"] .history-scroll {
   position: sticky; top: 8px; z-index: 2;
   backdrop-filter: blur(6px);
 }
-html[data-theme="light"] .day-sep { background: rgba(244,244,244,.75); color: #5d636e; box-shadow: 0 1px 4px rgba(16,16,16,.12); }
+html[data-theme="light"] .day-chip { background: rgba(244,244,244,.75); color: #5d636e; box-shadow: 0 1px 4px rgba(16,16,16,.12); }
+/* service messages (diagnosticRow) can start a day too — block wrap */
+.msg-row.day-first { display: block; }
 
 .unread-sep {
   align-self: stretch; text-align: center;
@@ -207,7 +213,8 @@ html[data-theme="light"] .day-sep { background: rgba(244,244,244,.75); color: #5
 }
 
 /* ---------- Message bubbles ---------- */
-.msg-row { display: flex; padding: 2px 6px; position: relative; }
+/* flex-wrap lets the 100%-width day chip take its own line inside the row */
+.msg-row { display: flex; flex-wrap: wrap; padding: 2px 6px; position: relative; }
 .msg-row.out { justify-content: flex-end; }
 .msg-row.service { justify-content: flex-start; padding-right: 34px; }
 .msg-row.selectable { cursor: pointer; border-radius: 8px; }

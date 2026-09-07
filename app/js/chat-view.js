@@ -325,7 +325,7 @@ export class ChatView {
   async appendOutgoing(msg) {
     const session = this._session;
     if (!this._isCurrent(session) || !this.chat || !msg || msg.chatId !== this.chat.id) return;
-    this._insertItems(this._withSeparatorsAppend([msg]));
+    this._insertItems(this._annotateMessages([msg], this.items[this.items.length - 1]?.dayKey ?? null));
     this.vs?.setItems(this.items);
     if (this._nearBottom()) requestAnimationFrame(() => { if (this._isCurrent(session)) this._scrollBottom(); });
   }
@@ -339,7 +339,7 @@ export class ChatView {
     // placeholder first, then re-notified once the full content merged).
     // Update the existing row in place instead of appending a duplicate.
     if (this.msgIndex.has(msg.id)) { this.onMsgUpdated(chatId, msg); return; }
-    this._insertItems(this._withSeparatorsAppend([msg]));
+    this._insertItems(this._annotateMessages([msg], this.items[this.items.length - 1]?.dayKey ?? null));
     this.vs?.setItems(this.items);
     if (this._nearBottom()) {
       requestAnimationFrame(() => { if (this._isCurrent(session)) this._scrollBottom(); });
@@ -397,7 +397,7 @@ export class ChatView {
     if (newMsgs.length || updated) rustLog(`chat-view onMsgsChanged found ${newMsgs.length} new, ${updated} updated messages`);
     else debugLog(`chat-view onMsgsChanged found 0 new, 0 updated messages`);
     if (!newMsgs.length) return;
-    this._insertItems(this._withSeparatorsAppend(newMsgs));
+    this._insertItems(this._annotateMessages(newMsgs, this.items[this.items.length - 1]?.dayKey ?? null));
     this.vs?.setItems(this.items);
     if (this._nearBottom()) {
       requestAnimationFrame(() => { if (this._isCurrent(session)) this._scrollBottom(); });
@@ -507,31 +507,35 @@ export class ChatView {
     this.vs?.setItems(this.items);
   }
 
-  /* ================= items & separators ================= */
+  /* ================= items & day chips ================= */
 
   _rebuildItems(messages) {
     this.items = [];
     this.msgIndex.clear();
-    this._insertItems(this._withSeparatorsAppend(messages), true);
+    this._insertItems(this._annotateMessages(messages), true);
   }
 
-  _withSeparatorsAppend(messages) {
+  // Day chips ride INSIDE the first message row of each day (dayFirst flag)
+  // instead of being separate list items: the virtual scroller's diff needs
+  // the entire previous items array to appear contiguously after a prepend,
+  // and separator items broke that on every day-crossing batch (key
+  // collisions with existing separators, seam removals) — the failed diff
+  // forced a full relayout with estimated heights and no scroll restoration,
+  // i.e. the scroll jumps when paging up through long histories.
+  _annotateMessages(messages, prevDayKey = null) {
     const out = [];
-    let lastDay = this.items.length ? this.items[this.items.length - 1].dayKey : null;
+    let lastDay = prevDayKey;
     let firstUnreadPlaced = this._unreadPlaced;
     for (const m of messages) {
       const dayKey = new Date(m.ts).toDateString();
-      if (dayKey !== lastDay) {
-        out.push({ type: "day", key: "day-" + dayKey, dayKey, ts: m.ts });
-        lastDay = dayKey;
-      }
       if (!firstUnreadPlaced && this.chat?.unread > 0 && m.from !== 1 && this._isFirstUnread(m)) {
         out.push({ type: "unread", key: "unread-sep", dayKey });
         firstUnreadPlaced = true;
       }
-      const item = { type: "msg", key: "m" + m.id, msg: m, dayKey };
+      const item = { type: "msg", key: "m" + m.id, msg: m, dayKey, dayFirst: dayKey !== lastDay };
       this.msgIndex.set(m.id, item);
       out.push(item);
+      lastDay = dayKey;
     }
     if (firstUnreadPlaced) this._unreadPlaced = true;
     return out;
@@ -563,22 +567,25 @@ export class ChatView {
       if (!this._isCurrent(session)) return;
       this.hasMore = hasMore;
       if (messages.length) {
-        const out = [];
-        let lastDay = null;
-        for (const m of messages) {
-          const dayKey = new Date(m.ts).toDateString();
-          if (dayKey !== lastDay) {
-            out.push({ type: "day", key: "day-" + dayKey, dayKey, ts: m.ts });
-            lastDay = dayKey;
-          }
-          const item = { type: "msg", key: "m" + m.id, msg: m, dayKey };
-          this.msgIndex.set(m.id, item);
-          out.push(item);
-        }
-        // drop a now-duplicated day separator at the seam
-        if (this.items[0]?.type === "day" && this.items[0].dayKey === lastDay) this.items = this.items.slice(1);
+        // Pure message prefix: prepends must never touch existing items or the
+        // scroller's diff (which needs the whole previous array contiguous)
+        // fails and forces a relayout-without-scroll-restore (= jump).
+        const oldFirst = this.items[0];
+        const out = this._annotateMessages(messages, oldFirst?.dayKey ?? null);
         this.items = [...out, ...this.items];
         this.vs?.setItems(this.items, { preserveScrollPositionOnPrependItems: true });
+        // The previous first row loses its day chip when the batch ends on the
+        // same day — rebuild it so the day isn't labelled twice.
+        if (out.length && oldFirst?.type === "msg" && oldFirst.dayFirst
+          && out[out.length - 1].dayKey === oldFirst.dayKey) {
+          oldFirst.dayFirst = false;
+          const fresh = this._buildItem(oldFirst);
+          this._rowCache.set(oldFirst.key, fresh);
+          this._rowSigCache.set(oldFirst.key, this._rowSignature(oldFirst.msg));
+          const mounted = this.listEl.querySelector(`[data-msgid="${oldFirst.msg.id}"]`);
+          if (mounted) mounted.replaceWith(fresh);
+          this.vs?.onItemHeightDidChange?.(oldFirst);
+        }
       }
     } catch (err) {
       if (this._isCurrent(session)) toast("Couldn't load older messages: " + (err.message || err));
@@ -636,12 +643,6 @@ export class ChatView {
 
   _buildItem(item) {
     switch (item.type) {
-      case "day": {
-        const el = document.createElement("div");
-        el.className = "day-sep";
-        el.textContent = formatDay(item.ts);
-        return el;
-      }
       case "unread": {
         const el = document.createElement("div");
         el.className = "unread-sep";
@@ -651,6 +652,13 @@ export class ChatView {
       default:
         return this._renderMsgItem(item);
     }
+  }
+
+  _dayChipEl(item) {
+    const el = document.createElement("div");
+    el.className = "day-chip";
+    el.textContent = formatDay(item.msg.ts);
+    return el;
   }
 
   _renderMsgItem(item) {
@@ -666,7 +674,12 @@ export class ChatView {
     const alive = () => this._isCurrent() && this.chat?.id === chatId;
     const liveItem = () => (alive() ? this.msgIndex.get(m.id) : null);
     if (m.kind === "service") {
-      return diagnosticRow(m);
+      const row = diagnosticRow(m);
+      if (!item.dayFirst) return row;
+      const wrap = document.createElement("div");
+      wrap.className = "msg-row day-first";
+      wrap.append(this._dayChipEl(item), row);
+      return wrap;
     }
     const out = m.from === 1;
     const showAvatar = !out && (this.chat.kind === "group");
@@ -680,6 +693,8 @@ export class ChatView {
     if (this.selection.has(m.id)) row.classList.add("selected");
 
     let inner = "";
+    // Day chip rides inside the first row of the day (see _annotateMessages).
+    if (item.dayFirst) inner += `<div class="day-chip">${escapeHtml(formatDay(m.ts))}</div>`;
     if (this.selection.size) {
       inner += `<div class="msg-checkbox">${this.selection.has(m.id) ? ICO.check : ""}</div>`;
     }
