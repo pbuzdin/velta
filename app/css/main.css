@@ -241,7 +241,17 @@ html[data-theme="light"] .day-sep { background: rgba(244,244,244,.75); color: #5
   border-bottom-right-radius: 6px;
 }
 .msg-row.with-avatar { align-items: flex-end; gap: 8px; }
-.msg-row.with-avatar .bubble { max-width: min(480px, calc(82% - 40px)); }
+/* reserve 42px avatar + 8px gap */
+.msg-row.with-avatar .bubble { max-width: min(480px, calc(82% - 50px)); }
+
+/* Desktop hover: the padded photo grows to fill the tile edge to edge.
+   hover:hover + pointer:fine keeps it off touch devices, where hover
+   states stick. Transition lives in the same media block so touch never
+   pays for it. */
+@media (hover: hover) and (pointer: fine) {
+  .msg-row dc-avatar .dc-avatar-photo { transition: inset .12s ease, padding .12s ease; }
+  .msg-row dc-avatar:hover .dc-avatar-photo { inset: 0; padding: 0; }
+}
 
 /* One-click "Reply" pill (desktop only): fades in at the bubble's top-right
    corner while hovering the message. Overlaps the bubble edge slightly like
