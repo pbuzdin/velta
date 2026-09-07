@@ -855,7 +855,6 @@ dc-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
   position: relative;
   container-type: inline-size;
   width: 220px; min-height: 120px; margin: 12px auto;
-  background: #f4f4f4; border: 10px solid #f4f4f4; border-radius: 8px;
   display: flex; align-items: center; justify-content: center;
 }
 .qr-box svg { width: 200px; height: 200px; display: block; }
