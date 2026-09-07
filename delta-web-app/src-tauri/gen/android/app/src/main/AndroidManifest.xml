@@ -9,6 +9,10 @@
     <!-- Incoming-message notifications (Android 13+ runtime permission;
          requested from the WebView via tauri-plugin-notification). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- QR scanning: getUserMedia in the WebView only works if CAMERA is
+         declared; wry forwards the WebView's permission request to the OS
+         when the user starts a scan. -->
+    <uses-permission android:name="android.permission.CAMERA" />
 
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />

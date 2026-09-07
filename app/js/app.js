@@ -1416,6 +1416,7 @@ function showOnboarding() {
   body.innerHTML = `
     <p style="font-size:14.5px;line-height:1.5">Enter a <b>chatmail</b> relay address — an instant end-to-end encrypted profile will be created for you. No email or password needed.</p>
     <input class="text-field" id="ob-relay" placeholder="Relay address — e.g. nine.testrun.org" autocomplete="off" inputmode="url" autocapitalize="none">
+    ${"BarcodeDetector" in window ? `<div style="margin-top:10px"><button class="btn-text" id="ob-scan" type="button">Scan a QR code</button></div>` : ""}
     <ul class="ob-steps" id="ob-steps"></ul>`;
   const foot = document.createElement("div");
   const ok = document.createElement("button");
@@ -1425,6 +1426,19 @@ function showOnboarding() {
 
   const input = body.querySelector("#ob-relay");
   const stepsEl = body.querySelector("#ob-steps");
+
+  // Camera permission is requested only inside acquireCode, when the user
+  // taps "Scan QR code" there — never on opening the welcome modal.
+  body.querySelector("#ob-scan")?.addEventListener("click", async () => {
+    const code = await acquireCode({
+      title: "Scan relay QR",
+      hint: "Point the camera at the relay's QR code — or paste the code below.",
+      validate: c => normalizeRelayLink(c) ? null : "That QR code is not a relay invite",
+    });
+    if (!code || !accountIsCurrent(epoch)) return;
+    input.value = code;
+    ok.click();
+  });
 
   const addStep = (text) => {
     stepsEl.querySelectorAll("li.active").forEach(li => { li.classList.remove("active"); li.classList.add("done"); });
