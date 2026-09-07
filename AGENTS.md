@@ -312,11 +312,12 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   contact (`openContactProfile`).
 - `app/js/chat-view.js` owns the conversation history (virtualized via
   `virtual-scroller`), composer, selection mode, and the delete-message dialog.
-  Off-viewport `.msg-row`s carry `content-visibility: auto` +
-  `contain-intrinsic-size: auto 48px` (main.css) — the 48px placeholder must
-  stay in sync with the scroller's `getEstimatedItemHeight: () => 48`. Bubbles
-  use `contain: layout style` but not paint (the reply pill overflows the
-  bubble edge); `.chat-item` cards use full `contain: layout paint style`.
+  Rows must NOT get `content-visibility` — the scroller measures mounted rows
+  itself (ResizeObserver), and a row collapsing to its `contain-intrinsic-size`
+  placeholder when scrolled out of view desyncs the scroller's height cache
+  (scroll jumps on remount; "height has changed from 52 to 436" warnings).
+  Bubbles use `contain: layout style` but not paint (the reply pill overflows
+  the bubble edge); `.chat-item` cards use full `contain: layout paint style`.
   It also owns the **shared-contact cards** (messages with viewtype `Vcard`:
   avatar/name/addr hydrate from the vCard attachment via `parseVcard`; tap
   imports via `importVcard` and opens the DM), the **Read more** button for
