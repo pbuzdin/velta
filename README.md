@@ -97,7 +97,7 @@ sending always goes through the primary relay, so there is no relay selector.
 Manage it in the drawer under **Relays of this profile…** (or any profile
 modal → Transport row):
 
-- **Add relay** — paste a `dcaccount:`/`dclogin:` invite code; the core
+- **Add relay** — paste a `dcaccount:`/`dclogin:` invite code or just the relay's domain (`nine.testrun.org`); the core
   configures it as a second transport (progress modal during setup).
 - **Remove relay** — soft removal: the relay stops being advertised and
   self-sent messages stop going there immediately, but the core keeps

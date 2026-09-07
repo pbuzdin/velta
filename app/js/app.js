@@ -1677,11 +1677,13 @@ async function addRelayFlow(epoch, refresh, presetCode) {
   // extractInviteLink); without one, ask for a pasted/scanned code.
   const code = presetCode ?? await acquireCode({
     title: "Add relay",
-    hint: "Paste the invite code of the relay to add (dcaccount:… or dclogin:…) — e.g. from the relay's web page. It becomes a second transport for this profile; messages are received on both relays.",
-    validate: c => (/^(dcaccount:|dclogin:|https?:\/\/)/i.test(c.trim()) ? null : "That doesn't look like a relay invite code"),
+    hint: "Paste the relay's invite code (dcaccount:… or dclogin:…), just its domain (nine.testrun.org), or scan its QR. It becomes a second transport for this profile; messages are received on both relays.",
+    validate: c => (/^(dcaccount:|dclogin:)/i.test(c.trim()) || normalizeRelayLink(c) ? null : "That doesn't look like a relay address or invite code"),
   });
   if (!code || !accountIsCurrent(epoch)) return;
-  const qr = code.trim();
+  // Bare domains / https links normalize to dcaccount:https://<host>/new;
+  // dclogin: (rejected by normalizeRelayLink) passes through for checkQr.
+  const qr = normalizeRelayLink(code) ?? code.trim();
 
   const body = document.createElement("div");
   body.innerHTML = `<ul class="ob-steps" data-steps></ul>`;
