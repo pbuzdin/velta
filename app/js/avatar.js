@@ -2,10 +2,11 @@
 //
 // A contact without a photo gets a square tile generated from their OpenPGP
 // fingerprint: a 4-row grid of equal-height cells (three squares, two rects,
-// two rects, three squares) where each cell's color is deterministically
-// picked from a pool of single-word CSS color keywords by the value of one
-// fingerprint group — neighboring cells never receive similar colors. The
-// tile is built as a pure SVG string:
+// two rects, three squares) whose ten cells are visually distinct — each
+// cell's color is deterministically picked from a pool of single-word CSS
+// color keywords by the value of one fingerprint group, a color already used
+// in the tile is skipped, and edge-sharing neighbors never receive similar
+// colors. The tile is built as a pure SVG string:
 //   • badge=true  — grid + soft-black circle with the light fingerprint glyph
 //                   (chat list / history)
 //   • badge=false — grid only; the caller layers the contact's photo on top
@@ -64,16 +65,24 @@ function colorsClash(a, b) {
 // sharing an edge, not just the max-overlap one (cell 1 also touches cell 4
 // along 20px; guarding only the primary neighbor let two Tomatoes touch).
 const ABOVE = { 3: [1, 0], 4: [2, 1], 5: [3], 6: [4], 7: [5], 8: [6, 5], 9: [6] };
-// Cell color = raw group color, stepped 7 places through the pool while it
-// would look too similar to its left or any above neighbor (deterministic).
+// Cell color = raw group color, stepped 7 places through the pool. Two
+// constraints, in priority order: never similar to an edge-sharing neighbor
+// (hard), and never a color already used elsewhere in the tile (strong
+// preference — 40 colors for 10 cells makes ten distinct hues always
+// reachable; if a tile paints itself into a corner, the first non-clashing
+// repeat is taken rather than risking a neighbor clash).
 function colorForCell(groups, i, chosen) {
   let idx = parseInt((groups[i] || "").replace(/[^0-9A-Fa-f]/g, "").slice(0, 4) || "0", 16) % COLOR_POOL.length;
   const neighbors = [i - 1, ...(ABOVE[i] || [])].filter(j => j >= 0 && chosen[j]);
+  const used = new Set(Object.values(chosen).map(([name]) => name));
+  let fallback = null;
   for (let step = 0; step < COLOR_POOL.length; step++) {
     const cand = COLOR_POOL[(idx + step * 7) % COLOR_POOL.length];
-    if (!neighbors.some(j => colorsClash(cand, chosen[j]))) return cand;
+    if (neighbors.some(j => colorsClash(cand, chosen[j]))) continue;
+    if (!used.has(cand[0])) return cand;
+    if (!fallback) fallback = cand;
   }
-  return COLOR_POOL[idx];
+  return fallback ?? COLOR_POOL[idx];
 }
 
 function luminance([r, g, b]) {
