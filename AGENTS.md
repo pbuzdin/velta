@@ -357,7 +357,11 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
 - `app/js/media.js` resolves local file paths to WebView-safe media URLs (loopback media server when available, asset protocol otherwise). Blob media is served `Cache-Control: immutable` — core blob names are content-deduplicated, so the WebView can cache image bytes across chat switches.
 - `app/js/poster.js` extracts and caches WebP poster frames for video placeholders.
 - `app/js/ui.js` is a collection of UI helpers (drawer, modals, context menus,
-  toasts, delete-confirmation dialog).
+  toasts, delete-confirmation dialog). The drawer footer (`drawer-foot`) shows
+  the app version (Tauri app version when `window.__TAURI__` is present) plus
+  the Tauri framework version in Tauri mode, or the service worker cache
+  version in PWA mode. `.qr-box` carries no background/border of its own — the
+  core's QR SVG is self-contained (opaque card, quiet zone, stroke).
 - `app/js/mock-core.js` is a self-contained demo backend used when no real core
   is reachable (also force-selectable via `localStorage["velta-mock"] = "1"`).
   It must implement the same contract surface as the real core — including

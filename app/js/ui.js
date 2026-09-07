@@ -155,8 +155,18 @@ async function getSwVersion() {
   return null;
 }
 
+// Tauri framework version (not the app version).
+async function getTauriVersion() {
+  try {
+    const v = await window.__TAURI__?.app?.getTauriVersion?.();
+    if (v) return v;
+  } catch {}
+  return null;
+}
+
 /* ---------- Settings drawer ---------- */
 export function buildDrawer({ account, backend, onAddAccount, onSecondDevice, onToggleTheme, onOpenChat, onInvite, onToggleMock, onEditProfile, onInviteDomains, onP2p, p2p = false, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme }) {
+  const isTauri = !!window.__TAURI__;
   const drawer = document.createElement("div");
   drawer.className = "drawer";
   drawer.id = "drawer";
@@ -190,7 +200,8 @@ export function buildDrawer({ account, backend, onAddAccount, onSecondDevice, on
     <div class="drawer-foot" data-versions>
       <div class="drawer-ver"><span>Velta</span><span data-v="app">…</span></div>
       <div class="drawer-ver"><span>Chatmail core</span><span data-v="core">${CORE_VERSION}</span></div>
-      <div class="drawer-ver"><span>Service worker</span><span data-v="sw">…</span></div>
+      ${isTauri ? `<div class="drawer-ver"><span>Tauri</span><span data-v="tauri">…</span></div>` : ""}
+      ${isTauri ? "" : `<div class="drawer-ver"><span>Service worker</span><span data-v="sw">…</span></div>`}
     </div>`;
   document.body.appendChild(drawer);
 
@@ -199,8 +210,13 @@ export function buildDrawer({ account, backend, onAddAccount, onSecondDevice, on
     const box = drawer.querySelector("[data-versions]");
     if (!box) return;
     box.querySelector('[data-v="app"]').textContent = await getAppVersion();
-    const sw = await getSwVersion();
-    box.querySelector('[data-v="sw"]').textContent = sw || "not registered";
+    const tv = await getTauriVersion();
+    if (tv) box.querySelector('[data-v="tauri"]').textContent = tv;
+    else box.querySelector('[data-v="tauri"]')?.closest(".drawer-ver")?.remove();
+    if (!isTauri) {
+      const sw = await getSwVersion();
+      box.querySelector('[data-v="sw"]').textContent = sw || "not registered";
+    }
   })();
 
   const overlay = document.createElement("div");
