@@ -1,5 +1,5 @@
 // app.js — Delta Web bootstrap: chat list, navigation, modals, PWA
-import { createCore, probeService } from "./transport.js";
+import { createCore } from "./transport.js";
 import "./components.js";
 import { escapeHtml, escapeAttr } from "./components.js";
 import { fileUrl } from "./media.js";
@@ -107,7 +107,6 @@ function bindEarlyRecoveryActions() {
       const ok = await core.reconnect?.();
       if (!ok) throw new Error("Transport reconnect is unavailable");
       core.backend.connected = true;
-      updateConnStatus(true);
       await refreshChatList();
       diagnostics.append("info", "UI reconnected successfully");
       toast("UI reconnected to core");
@@ -208,18 +207,8 @@ setInterval(() => {
 
 renderInitialDiagnosticsChat();
 bindEarlyRecoveryActions();
-{
-  const el = $("conn-status");
-  if (el) {
-    el.dataset.state = "connecting";
-    $("conn-label").textContent = window.__TAURI__
-      ? "Starting embedded core…"
-      : "Checking for background service…";
-  }
-}
 
-// In the Tauri shell, show sidecar startup progress while the core is being located.
-let lastSidecarStatus = null;
+// In the Tauri shell, record sidecar startup progress in diagnostics while the core is being located.
 if (window.__TAURI__) {
   const tauri = window.__TAURI__;
   const invoke = tauri.core?.invoke || tauri.invoke;
@@ -227,19 +216,7 @@ if (window.__TAURI__) {
   const listen = event.listen ? event.listen.bind(event) : tauri.listen.bind(tauri);
 
   function applySidecarStatus(status) {
-    lastSidecarStatus = status;
     diagnostics.append(status.error ? "error" : "info", `Embedded core: ${status.stage || (status.running ? "running" : "stopped")}${status.error ? ` — ${status.error}` : ""}`);
-    const el = $("conn-status"), label = $("conn-label");
-    if (!el || !label) return;
-    if (core?.backend?.connected) return;
-    if (status.running) {
-      label.textContent = status.stage === "ready" ? "Core ready · connecting…" : "Starting local core…";
-      el.title = `Delta Chat sidecar is ${status.stage || "starting"}`;
-    } else {
-      el.dataset.state = "mock";
-      label.textContent = status.error ? `Sidecar failed: ${status.error}` : `Sidecar: ${status.stage || "stopped"}`;
-      el.title = status.error ? `Delta Chat sidecar failed: ${status.error}` : "Delta Chat sidecar is not running";
-    }
   }
 
   try {
@@ -323,41 +300,8 @@ if (window.__TAURI__) {
   }
 }
 
-updateConnStatus();
-
-/* ---------------- connection status pill ---------------- */
-function updateConnStatus(connectedOverride) {
-  const el = $("conn-status"), label = $("conn-label");
-  if (!el || !core.backend) return;
-  const connected = connectedOverride ?? core.backend.connected;
-  const stateName = core.backend.kind === "mock" ? "mock" : connected ? "online" : "offline";
-  el.dataset.state = stateName;
-
-  if (core.backend.kind === "mock" && lastSidecarStatus) {
-    const s = lastSidecarStatus;
-    if (s.running) {
-      label.textContent = s.stage === "ready" ? "Core ready but not responding" : "Starting local core…";
-      el.title = "The Delta Chat sidecar started, but the frontend could not handshake with it. Check velta.log for details.";
-    } else {
-      label.textContent = s.error ? `Sidecar failed: ${s.error}` : `Sidecar: ${s.stage || "stopped"}`;
-      el.title = s.error ? `Delta Chat sidecar failed: ${s.error}` : "Delta Chat sidecar is not running";
-    }
-    return;
-  }
-
-  label.textContent =
-    core.backend.kind === "mock" ? "Demo mode — no local core"
-    : connected ? `Connected · ${core.backend.label}`
-    : `Disconnected · ${core.backend.label}`;
-  el.title = core.backend.kind === "mock"
-    ? "No background deltachat core found. Tap to check again, or install the Delta Core service app."
-    : connected ? "PWA is connected to the background deltachat core"
-    : "Lost connection to the background core. Tap to reconnect.";
-}
-
 addEventListener("dc-core-status", e => {
   if (core.backend) core.backend.connected = !!e.detail.connected;
-  updateConnStatus();
 });
 
 /* ---------------- relay status line ---------------- */
@@ -434,54 +378,6 @@ addEventListener("dc-core-init-failed", e => {
     toast("Found the background service, but it didn't answer — restart the Delta Core service (or update it if it's an older build)", 6000);
   }
 });
-
-// Tap the pill while in demo mode or disconnected to re-check for the service.
-let rechecking = false;
-async function recheckService() {
-  if (rechecking) return;
-  const el = $("conn-status");
-  if (!el || (el.dataset.state !== "mock" && el.dataset.state !== "offline")) return;
-  rechecking = true;
-  el.dataset.state = "connecting";
-  $("conn-label").textContent = "Checking for background service…";
-  try {
-    if (core.backend?.kind === "mock") {
-      if (lastSidecarStatus) {
-        // Tauri desktop: explain why the local sidecar is not being used
-        const s = lastSidecarStatus;
-        if (s.error) {
-          toast(`Local core sidecar failed: ${s.error}`, 6000);
-        } else if (s.running) {
-          toast("Sidecar started but the core handshake timed out — the sidecar may still be initializing. Try restarting Velta.", 6000);
-        } else {
-          toast(`Local core sidecar is ${s.stage || "not running"}. Try reinstalling Velta.`, 6000);
-        }
-      } else {
-        // PWA / no Tauri sidecar: probe the background service APK
-        const found = await probeService();
-        if (found) {
-          toast("Background service found — switching to the real core…", 2000);
-          setTimeout(() => location.reload(), 900);
-        } else {
-          toast("No background service reachable — is the Delta Core service app running?", 4000);
-        }
-      }
-    } else {
-      // websocket backend that lost its connection → reconnect in place
-      const ok = await core.reconnect?.();
-      if (ok) {
-        core.backend.connected = true;
-        toast("Reconnected to the local Delta Chat core", 2500);
-        refreshChatList();
-      } else {
-        toast("Still can't reach the background service — is it running?", 4000);
-      }
-    }
-  } finally {
-    rechecking = false;
-    updateConnStatus();
-  }
-}
 
 /* ---------------- theme ---------------- */
 applyTheme();
@@ -1934,9 +1830,6 @@ async function secondDeviceFlow() {
       toast("Lost connection to local Delta Chat core — is the service running?", 4500);
     });
 
-    appLog("boot: updateConnStatus");
-    updateConnStatus();
-    $("conn-status").addEventListener("click", recheckService);
     appLog("boot: handleDeeplink");
     await handleDeeplink();
 

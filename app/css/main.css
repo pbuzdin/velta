@@ -107,16 +107,6 @@ svg { width: 24px; height: 24px; display: block; }
 @keyframes relay-dashes { to { background-position: 12px 0; } }
 @media (prefers-reduced-motion: reduce) { .relay-line[data-sending] { animation: none; } }
 .sidebar-foot { position: absolute; bottom: calc(22px + env(safe-area-inset-bottom)); right: 18px; display: flex; align-items: center; gap: 12px; }
-.conn-status { display: flex; align-items: center; gap: 7px; background: var(--panel, #f4f4f4); border-radius: 999px; padding: 7px 13px; box-shadow: 0 2px 8px rgba(16,16,16,.14); cursor: default; user-select: none; }
-.conn-dot { width: 9px; height: 9px; border-radius: 50%; background: #999; flex: none; transition: background .25s; }
-.conn-status[data-state="online"]  .conn-dot { background: #37c85f; box-shadow: 0 0 0 3px rgba(55,200,95,.18); }
-.conn-status[data-state="offline"] .conn-dot { background: #e05252; box-shadow: 0 0 0 3px rgba(224,82,82,.16); }
-.conn-status[data-state="mock"]    .conn-dot { background: #e6a23c; box-shadow: 0 0 0 3px rgba(230,162,60,.16); }
-.conn-status[data-state="connecting"] .conn-dot { background: #999; animation: conn-pulse 1.2s ease-in-out infinite; }
-.conn-status[data-state="offline"], .conn-status[data-state="mock"] { cursor: pointer; }
-.conn-status[data-state="offline"]:active, .conn-status[data-state="mock"]:active { transform: scale(.97); }
-@keyframes conn-pulse { 50% { opacity: .35; } }
-.conn-label { font-size: 12.5px; color: var(--text-dim, #777); white-space: nowrap; }
 .fab {
   width: 54px; height: 54px; border-radius: 50%;
   background: var(--accent); color: #f4f4f4;
