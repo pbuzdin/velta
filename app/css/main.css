@@ -227,6 +227,10 @@ html[data-theme="light"] .day-sep { background: rgba(244,244,244,.75); color: #5
   box-shadow: 0 1px 2px rgba(16,16,16,.25);
   word-wrap: break-word;
   animation: msgIn .12s ease-out;
+  /* No paint containment: the reply pill (msg-hover-reply) is a child that
+     intentionally overflows the bubble edge and would be clipped. Off-screen
+     rows get paint containment via content-visibility:auto on .msg-row. */
+  contain: layout style;
 }
 @keyframes msgIn { from { opacity: 0; transform: translateY(4px); } }
 .msg-row.out .bubble {
@@ -619,6 +623,9 @@ dc-chat-item { display: block; }
   padding: 9px 12px; cursor: pointer;
   border-radius: 10px; margin: 0 6px;
   position: relative; user-select: none;
+  /* Cards have no overflow children — contain keeps a badge/draft/hover
+     change from invalidating layout or repainting sibling rows. */
+  contain: layout paint style;
 }
 .chat-item:hover { background: var(--bg-hover); }
 .chat-item.active { background: var(--bg-active); }
