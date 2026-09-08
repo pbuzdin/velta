@@ -196,6 +196,14 @@ cargo tauri android dev
 cargo tauri android build
 ```
 
+**Never build the Android APK with `delta-web-app/src-tauri/binaries/` present.**
+That directory holds the Windows sidecar staged for the desktop installer
+(README "Build locally"); `tauri.conf.json` lists it under `bundle.resources`,
+and Tauri packages resources verbatim into every target — including the APK's
+`assets/` (+22 MB of useless Windows PE; 68 MB APK instead of ~45 MB). The
+`tools/wsl-android-build*.sh` scripts delete the directory as a guard; if you
+build by hand, remove it first.
+
 Note: `delta-web-app/src-tauri/Cargo.toml` currently pins the core via git. For
 local development against the bundled `core/`, uncomment the `path` dependency.
 
