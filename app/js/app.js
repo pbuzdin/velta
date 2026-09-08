@@ -1956,10 +1956,15 @@ async function secondDeviceFlow() {
     try { await window.__TAURI__?.notification?.requestPermission?.(); } catch {}
     // The core may still be warming up right after a restart — retry before
     // giving up: a dead getAccount must not abort boot into a dead UI.
+    // Each attempt gets its own 15s ceiling so a wedged RPC cycles the loop
+    // (and logs) instead of leaving the splash silent for minutes.
     let account = null;
     for (let attempt = 1; attempt <= 3 && !account; attempt++) {
       try {
-        account = await core.getAccount();
+        account = await Promise.race([
+          core.getAccount(),
+          new Promise((_, rej) => setTimeout(() => rej(new Error("getAccount timed out (15s)")), 15000)),
+        ]);
       } catch (err) {
         diagnostics.append("error", `getAccount attempt ${attempt} failed: ${err?.message || err}`);
         if (attempt < 3) await new Promise(r => setTimeout(r, 3000));
