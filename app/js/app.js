@@ -1417,12 +1417,16 @@ function showOnboarding() {
     <p style="font-size:14.5px;line-height:1.5">Enter a <b>chatmail</b> relay address — an instant end-to-end encrypted profile will be created for you. No email or password needed.</p>
     <input class="text-field" id="ob-relay" placeholder="Relay address — e.g. nine.testrun.org" autocomplete="off" inputmode="url" autocapitalize="none">
     ${"BarcodeDetector" in window ? `<div style="margin-top:10px"><button class="btn-text" id="ob-scan" type="button">Scan a QR code</button></div>` : ""}
-    <ul class="ob-steps" id="ob-steps"></ul>`;
+    <ul class="ob-steps" id="ob-steps"></ul>
+    <div id="ob-alt" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:8px">
+      <button class="btn-text" id="ob-second" type="button">Add as second device…</button>
+      <button class="btn-text" id="ob-restore" type="button">Restore from a backup…</button>
+    </div>`;
   const foot = document.createElement("div");
   const ok = document.createElement("button");
   ok.className = "btn-text"; ok.textContent = "Create account";
   foot.appendChild(ok);
-  showModal({ title: "Welcome to Velta", body, foot });
+  const { close: closeWelcome } = showModal({ title: "Welcome to Velta", body, foot });
 
   const input = body.querySelector("#ob-relay");
   const stepsEl = body.querySelector("#ob-steps");
@@ -1446,10 +1450,72 @@ function showOnboarding() {
     li.className = "active";
     li.innerHTML = `<span class="step-ico"></span><span>${escapeHtml(text)}</span>`;
     stepsEl.appendChild(li);
+    return li;
   };
+
   const finishSteps = (ok_) => {
     stepsEl.querySelectorAll("li.active").forEach(li => { li.classList.remove("active"); li.classList.add(ok_ ? "done" : "failed"); });
   };
+
+  const altEl = body.querySelector("#ob-alt");
+  body.querySelector("#ob-second").addEventListener("click", async () => {
+    if (await receiveSecondDeviceProfile(epoch)) closeWelcome();
+  });
+
+  body.querySelector("#ob-restore").addEventListener("click", async () => {
+    if (!core.importBackup) { toast("Restore is not available on this backend"); return; }
+    const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+    if (!invoke) { toast("Restore from a backup file needs the Velta app — use \"Add as second device\" instead"); return; }
+    let picked = await invoke("plugin:dialog|open", { options: {
+      multiple: false,
+      filters: [{ name: "Velta backup", extensions: ["tar"] }],
+    } });
+    if (Array.isArray(picked)) picked = picked[0];
+    if (!picked || !accountIsCurrent(epoch)) return;
+    if (/^content:\/\//.test(picked)) {
+      try {
+        picked = await invoke("resolve_content_uri", { uri: picked, filename: `backup-${Date.now()}.tar` });
+      } catch (err) {
+        toast("Couldn't read the backup file: " + (err?.message || err));
+        return;
+      }
+    }
+
+    altEl.hidden = true;
+    ok.disabled = true; input.disabled = true;
+    stepsEl.replaceChildren();
+    const prog = addStep("Restoring profile…").querySelector("span:last-child");
+    let seenProgress = false;
+    const onProg = (e) => {
+      const p = e.detail?.progress || 0;
+      if (p >= 1000) {
+        finishSteps(true);
+        addStep("Profile restored — restarting");
+        core.removeEventListener("imex-progress", onProg);
+        setTimeout(() => location.reload(), 800);
+      } else if (p > 0) {
+        seenProgress = true;
+        prog.textContent = `Restoring profile… ${Math.round(p / 10)}%`;
+      } else if (seenProgress) {
+        finishSteps(false);
+        addStep("Restore failed");
+        core.removeEventListener("imex-progress", onProg);
+        altEl.hidden = false;
+        ok.disabled = false; input.disabled = false;
+      }
+    };
+    core.addEventListener("imex-progress", onProg);
+    // Fire-and-forget: the import can take minutes and would outrun the RPC
+    // timeout — progress and failure arrive via ImexProgress above.
+    core.importBackup(picked).catch(() => {
+      if (seenProgress) return;
+      finishSteps(false);
+      addStep("Restore failed: couldn't import the backup");
+      core.removeEventListener("imex-progress", onProg);
+      altEl.hidden = false;
+      ok.disabled = false; input.disabled = false;
+    });
+  });
 
   ok.addEventListener("click", async () => {
     if (!accountIsCurrent(epoch)) return;
@@ -1460,6 +1526,7 @@ function showOnboarding() {
 
     ok.disabled = true; ok.classList.add("btn-loading"); ok.textContent = "Creating…";
     input.disabled = true;
+    altEl.hidden = true;
     stepsEl.replaceChildren();
     addStep(`Attempting to connect to relay at ${host}`);
 
@@ -1651,11 +1718,78 @@ async function addRelayFlow(epoch, refresh, presetCode) {
   }
 }
 
+// Receive a profile on this device from another device's dcbackup: code
+// (scanned or pasted). Used by the second-device modal and by onboarding.
+// Resolves true once the fresh account was created and selected; the transfer
+// itself runs fire-and-forget and reports via ImexProgress.
+async function receiveSecondDeviceProfile(epoch, onStart) {
+  if (!core.addAccountWithBackup) {
+    toast("Second-device setup is not available on this backend");
+    return false;
+  }
+  const code = await acquireCode({
+    title: "Receive a profile",
+    hint: "Scan or paste the code shown on the other device (dcbackup:…). A copy of that profile is created here; the other device stays signed in.",
+    validate: c => (/^dcbackup:/i.test(c.trim()) ? null : "That doesn't look like a second-device code"),
+  });
+  if (!code || !accountIsCurrent(epoch)) return false;
+  onStart?.();
+
+  const stepsBody = document.createElement("div");
+  stepsBody.innerHTML = `<ul class="ob-steps" data-steps></ul>`;
+  showModal({ title: "Receiving profile", body: stepsBody });
+  const stepsEl = stepsBody.querySelector("[data-steps]");
+  const addStep = (text) => {
+    stepsEl.querySelectorAll("li.active").forEach(li => { li.classList.remove("active"); li.classList.add("done"); });
+    const li = document.createElement("li");
+    li.className = "active";
+    li.innerHTML = `<span class="step-ico"></span><span>${escapeHtml(text)}</span>`;
+    stepsEl.appendChild(li);
+    return li;
+  };
+  const finishSteps = (ok_) => {
+    stepsEl.querySelectorAll("li.active").forEach(li => { li.classList.remove("active"); li.classList.add(ok_ ? "done" : "failed"); });
+  };
+
+  addStep("Preparing this device…");
+  let seenProgress = false;
+  const progHandler = (e) => {
+    const p = e.detail?.progress || 0;
+    if (p >= 1000) {
+      finishSteps(true);
+      addStep("Profile received — signing in");
+      toast("Profile received");
+      core.removeEventListener("imex-progress", progHandler);
+    } else if (p > 0) {
+      seenProgress = true;
+      addStep(`Receiving profile… ${Math.round(p / 10)}%`);
+    } else if (seenProgress) {
+      finishSteps(false);
+      addStep("Transfer failed");
+      core.removeEventListener("imex-progress", progHandler);
+    }
+  };
+  core.addEventListener("imex-progress", progHandler);
+  try {
+    const qrInfo = await core.checkQr?.(code)?.catch?.(() => null);
+    if (qrInfo?.kind && qrInfo.kind !== "backup2") throw new Error("This code is not a second-device code");
+    // Returns once the fresh account is selected; the transfer itself
+    // reports via ImexProgress (it can take minutes).
+    await core.addAccountWithBackup(code.trim());
+  } catch (err) {
+    core.removeEventListener("imex-progress", progHandler);
+    finishSteps(false);
+    addStep("Transfer failed: " + (err?.message || err));
+    return false;
+  }
+  return true;
+}
+
 // Second-device setup (backup transfer): this device shows a QR and waits,
 // or receives a profile from another device's QR.
 async function secondDeviceFlow() {
   if (state.accountChanging) return;
-  if (!core.getBackupQr || !core.getBackup) {
+  if (!core.provideBackup || !core.getBackupQr || !core.addAccountWithBackup) {
     toast("Second-device setup is not available on this backend");
     return;
   }
@@ -1707,65 +1841,9 @@ async function secondDeviceFlow() {
     });
   });
 
-  body.querySelector("[data-new]").addEventListener("click", async () => {
+  body.querySelector("[data-new]").addEventListener("click", () => {
     if (!accountIsCurrent(epoch)) return;
-    const code = await acquireCode({
-      title: "Receive a profile",
-      hint: "Scan or paste the code shown on the other device (dcbackup:…). A copy of that profile is created here; the other device stays signed in.",
-      validate: c => (/^dcbackup:/i.test(c.trim()) ? null : "That doesn't look like a second-device code"),
-    });
-    if (!code || !accountIsCurrent(epoch)) return;
-    started = true;
-
-    const stepsBody = document.createElement("div");
-    stepsBody.innerHTML = `<ul class="ob-steps" data-steps></ul>`;
-    showModal({ title: "Receiving profile", body: stepsBody });
-    const stepsEl = stepsBody.querySelector("[data-steps]");
-    const addStep = (text) => {
-      stepsEl.querySelectorAll("li.active").forEach(li => { li.classList.remove("active"); li.classList.add("done"); });
-      const li = document.createElement("li");
-      li.className = "active";
-      li.innerHTML = `<span class="step-ico"></span><span>${escapeHtml(text)}</span>`;
-      stepsEl.appendChild(li);
-      return li;
-    };
-    const finishSteps = (ok_) => {
-      stepsEl.querySelectorAll("li.active").forEach(li => { li.classList.remove("active"); li.classList.add(ok_ ? "done" : "failed"); });
-    };
-
-    addStep("Preparing this device…");
-    let seenProgress = false;
-    progHandler = (e) => {
-      const p = e.detail?.progress || 0;
-      if (p >= 1000) {
-        finishSteps(true);
-        addStep("Profile received — signing in");
-        toast("Profile received");
-        core.removeEventListener("imex-progress", progHandler);
-        progHandler = null;
-      } else if (p > 0) {
-        seenProgress = true;
-        addStep(`Receiving profile… ${Math.round(p / 10)}%`);
-      } else if (seenProgress) {
-        finishSteps(false);
-        addStep("Transfer failed");
-        core.removeEventListener("imex-progress", progHandler);
-        progHandler = null;
-      }
-    };
-    core.addEventListener("imex-progress", progHandler);
-    try {
-      const qrInfo = await core.checkQr?.(code)?.catch?.(() => null);
-      if (qrInfo?.kind && qrInfo.kind !== "backup2") throw new Error("This code is not a second-device code");
-      // Returns once the fresh account is selected; the transfer itself
-      // reports via ImexProgress (it can take minutes).
-      await core.addAccountWithBackup(code.trim());
-    } catch (err) {
-      core.removeEventListener("imex-progress", progHandler);
-      progHandler = null;
-      finishSteps(false);
-      addStep("Transfer failed: " + (err?.message || err));
-    }
+    receiveSecondDeviceProfile(epoch, () => { started = true; });
   });
 }
 
