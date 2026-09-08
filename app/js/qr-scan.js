@@ -46,7 +46,7 @@ async function decodeWithJsQr(video) {
   return res?.data || null;
 }
 
-export function acquireCode({ title, hint, validate }) {
+export function acquireCode({ title, hint, validate, autoScan = false }) {
   return new Promise(resolve => {
     let settled = false;
     let stream = null;
@@ -152,6 +152,7 @@ export function acquireCode({ title, hint, validate }) {
         return;
       }
       if (!canUseCamera()) { toast("Camera API is not available in this WebView"); return; }
+      if (!scanning) toast("Starting camera…"); // instant feedback while the permission prompt may be pending
       try {
         stream = await Promise.race([
           navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }),
@@ -173,5 +174,8 @@ export function acquireCode({ title, hint, validate }) {
       tick();
     };
     scanBtn.addEventListener("click", toggleScan);
+    // Callers can request the camera right away (e.g. the splash's
+    // "Scan a QR code" button) instead of requiring a second tap here.
+    if (autoScan) setTimeout(() => { if (!settled) toggleScan(); }, 60);
   });
 }
