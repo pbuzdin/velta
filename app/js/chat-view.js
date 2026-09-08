@@ -604,15 +604,28 @@ export class ChatView {
     });
     // Debug: trace what drives the scroller (re-render loop investigation).
     window.__vs = this.vs;
-    if (!debugLog.enabled) return;
-    for (const name of ["setItems", "onItemHeightDidChange", "update", "renderItem", "rerender", "stop", "start"]) {
-      const orig = this.vs[name];
-      if (typeof orig === "function") {
-        this.vs[name] = (...args) => {
-          debugLog(`vs.${name} n=${args[0]?.length ?? ""} t=${Date.now() % 100000}`);
-          return orig.apply(this.vs, args);
-        };
+    // The scroller's async update can race a setItems that removed an item
+    // (e.g. the unread separator vanishing when messages are marked read):
+    // its rendered-items snapshot then indexes one past the container's
+    // childNodes ("Element with index N was not found… There're only N-1").
+    // The next update re-syncs the rendered list, so swallow exactly that
+    // known race instead of letting it escape as an uncaught rejection.
+    const wrap = (name, orig) => function (...args) {
+      if (debugLog.enabled) debugLog(`vs.${name} n=${args[0]?.length ?? ""} t=${Date.now() % 100000}`);
+      const r = orig.apply(this, args);
+      if (r && typeof r.catch === "function") {
+        r.catch(err => {
+          if (String(err?.message || "").includes("was not found in the list of Rendered Item Elements")) {
+            debugLog(`vs.${name} desync race swallowed: ${err.message}`);
+            return undefined;
+          }
+          throw err;
+        });
       }
+      return r;
+    };
+    for (const name of ["setItems", "onItemHeightDidChange", "update", "renderItem", "rerender", "stop", "start"]) {
+      if (typeof this.vs[name] === "function") this.vs[name] = wrap(name, this.vs[name]);
     }
   }
 
