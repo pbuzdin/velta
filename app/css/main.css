@@ -844,7 +844,7 @@ dc-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 
 /* Welcome splash (first boot, unconfigured account) */
 .splash {
-  position: fixed; inset: 0; z-index: 90;
+  position: fixed; inset: 0; z-index: 40; /* above app UI (≤10), below modal overlays (50+) and toasts (80) */
   background: var(--bg, #0f0f14);
   display: flex; flex-direction: column;
   overflow: hidden;
