@@ -232,7 +232,19 @@ if (window.__TAURI__) {
 // later decides whether it becomes the setup screen or disappears.
 let splashSession = null;
 
-coreStartupPromise = createCore({ onDiagnostic: (level, message) => diagnostics.append(level, message) });
+// Mirror diagnostics into velta.log (js_log): the in-app store is only
+// visible on the phone's splash footer, while velta.log is pullable via
+// adb (run-as) — every core/transport diagnostic must land in both.
+coreStartupPromise = createCore({
+  onDiagnostic: (level, message) => {
+    diagnostics.append(level, message);
+    try {
+      const tauri = window.__TAURI__;
+      const invoke = tauri?.core?.invoke || tauri?.invoke;
+      if (invoke) invoke("js_log", { msg: `[diag:${level}] ${message}` }).catch(() => {});
+    } catch {}
+  },
+});
 splashSession = showSplash();
 try {
   core = await coreStartupPromise;
@@ -1953,7 +1965,14 @@ async function secondDeviceFlow() {
     appLog("boot: getAccount");
     // Android 13+ needs a runtime grant for notifications; feature-detected
     // and once-per-boot. Declining is fine — notifications just stay off.
-    try { await window.__TAURI__?.notification?.requestPermission?.(); } catch {}
+    // The plugin's promise can hang when the dialog was dismissed earlier —
+    // never let it block boot.
+    try {
+      await Promise.race([
+        window.__TAURI__?.notification?.requestPermission?.(),
+        new Promise(r => setTimeout(r, 2500)),
+      ]);
+    } catch {}
     // The core may still be warming up right after a restart — retry before
     // giving up: a dead getAccount must not abort boot into a dead UI.
     // Each attempt gets its own 15s ceiling so a wedged RPC cycles the loop
