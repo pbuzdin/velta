@@ -348,7 +348,8 @@ function parseConnectivityHtml(html) {
     if (m[1]) continue; // unpublished relay — phasing out, not a live transport
     const colors = [...m[2].matchAll(/class="(red|green|yellow|grey) dot"/g)].map(c => c[1]);
     if (!colors.length) continue;
-    const domain = (m[2].match(/<b>([^<]+)<\/b>/) || [])[1] || "relay";
+    // The core writes the colon inside the bold tag ("<b>domain:</b>") — strip it.
+    const domain = ((m[2].match(/<b>([^<]+)<\/b>/) || [])[1] || "relay").replace(/:\s*$/, "");
     const text = (m[2].split(/<\/b>/i)[1] || "").replace(/<[^>]*>/g, "").split("\n")[0].trim();
     colors.sort((a, b) => weight[b] - weight[a]);
     out.push({ domain, text, state: stateFor[colors[0]] || "connecting" });
