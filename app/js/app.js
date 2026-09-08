@@ -1644,13 +1644,19 @@ function showSplash() {
   });
 
   // --- app log footer (collapsed <details>) ---
+  const logSummary = el.querySelector(".splash-log summary");
   const renderLog = () => {
     logPre.textContent = diagnostics.messages
-      .map(m => m.count > 1 ? `${m.text} (×${m.count})` : m.text)
+      .map(m => {
+        const t = new Date(m.ts).toTimeString().slice(0, 8);
+        return m.count > 1 ? `${t} ${m.text} (×${m.count})` : `${t} ${m.text}`;
+      })
       .join("\n");
+    logSummary.textContent = `App log (${diagnostics.messages.length}) — errors & debug`;
     logPre.scrollTop = logPre.scrollHeight;
   };
   diagnostics.addEventListener("changed", renderLog);
+  renderLog();
   el.querySelector(".splash-log").addEventListener("toggle", (e) => {
     if (e.target.open) renderLog();
   });
