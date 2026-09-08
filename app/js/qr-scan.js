@@ -1,14 +1,50 @@
 // qr-scan.js — acquire an out-of-band code (P2P invite, relay invite, backup
-// ticket, …) by pasting it or by scanning it with the camera. Scanning uses
-// the native BarcodeDetector API (getUserMedia + platform decoder, no bundled
-// library). The earlier getUserMedia + jsQR scanner was removed because QR
-// decoding never worked reliably in the Android WebView; BarcodeDetector
-// delegates decoding to the platform instead.
-// 🐴 ceiling: WebViews without BarcodeDetector hide the scan button and fall
-// back to paste; upgrade path is a bundled WASM decoder if native coverage
-// proves insufficient in practice.
+// ticket, …) by pasting it or by scanning it with the camera. Camera
+// permission is requested only when the user taps "Scan QR code" — never on
+// opening the dialog.
+//
+// Decoder: the native BarcodeDetector API where the platform offers it, with
+// the vendored jsQR (app/vendor/jsQR.js, loaded on demand) as fallback — many
+// Android System WebViews ship no Shape Detection API at all, which used to
+// leave camera scanning silently unavailable on those devices. Every failure
+// point (no camera API, permission not answered, decoder errors, empty code)
+// surfaces as a toast instead of failing silently.
 
 import { showModal, toast } from "./ui.js";
+
+const canUseCamera = () => !!navigator.mediaDevices?.getUserMedia;
+
+// jsQR is a UMD bundle loaded on demand so it costs nothing at app boot.
+let jsQrLoader = null;
+function loadJsQr() {
+  if (window.jsQR) return Promise.resolve(window.jsQR);
+  if (!jsQrLoader) {
+    jsQrLoader = new Promise(resolve => {
+      const s = document.createElement("script");
+      s.src = "./vendor/jsQR.js";
+      s.onload = () => resolve(window.jsQR || null);
+      s.onerror = () => resolve(null);
+      document.head.appendChild(s);
+    });
+  }
+  return jsQrLoader;
+}
+
+// Decode one video frame with jsQR via a reused offscreen canvas.
+async function decodeWithJsQr(video) {
+  const jsQR = await loadJsQr();
+  if (!jsQR) throw new Error("jsQR decoder not available");
+  const w = video.videoWidth, h = video.videoHeight;
+  if (!w || !h) return null;
+  const c = decodeWithJsQr._canvas || (decodeWithJsQr._canvas = document.createElement("canvas"));
+  const scale = Math.min(1, 640 / w);
+  c.width = Math.round(w * scale);
+  c.height = Math.round(h * scale);
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(video, 0, 0, c.width, c.height);
+  const res = jsQR(ctx.getImageData(0, 0, c.width, c.height).data, c.width, c.height, { inversionAttempts: "attemptBoth" });
+  return res?.data || null;
+}
 
 export function acquireCode({ title, hint, validate }) {
   return new Promise(resolve => {
@@ -25,7 +61,7 @@ export function acquireCode({ title, hint, validate }) {
       resolve(value);
     };
 
-    const canScan = "BarcodeDetector" in window;
+    const canScan = canUseCamera();
     const body = document.createElement("div");
     body.innerHTML = `
       <p style="font-size:14.5px;line-height:1.5">${hint}</p>
@@ -34,13 +70,14 @@ export function acquireCode({ title, hint, validate }) {
       <div style="margin-top:10px"><button class="btn-text" data-scan-btn>Scan QR code</button></div>
       <div data-scan hidden style="margin-top:10px">
         <video muted playsinline style="width:100%;border-radius:10px;background:#0b0b10"></video>
-      </div>` : ""}`;
+      </div>` : `
+      <p style="font-size:13px;color:var(--text-dim,#777);margin-top:8px">Camera scanning is not available here — paste the code instead.</p>`}`;
     const ta = body.querySelector("textarea");
     const { close } = showModal({ title, body, onClose: () => finish(null) });
 
     const submit = code => {
       code = (code || "").trim();
-      if (!code) return;
+      if (!code) { toast("That QR code contains no data"); return; }
       const err = validate?.(code);
       if (err) { toast(err); return; }
       close();
@@ -57,44 +94,78 @@ export function acquireCode({ title, hint, validate }) {
     const scanArea = body.querySelector("[data-scan]");
     const video = body.querySelector("video");
     let scanning = false;
+    let decoder = null;
+    let decodeErrors = 0;
+    let startedAt = 0;
+    let hinted = false;
+
+    const stopScanningUi = () => {
+      scanArea.hidden = true;
+      scanBtn.textContent = "Scan QR code";
+    };
+
+    // Native BarcodeDetector when usable; on first use failure fall back to
+    // jsQR for the rest of the session.
+    const makeDecoder = async () => {
+      if ("BarcodeDetector" in window) {
+        try {
+          const detector = new BarcodeDetector({ formats: ["qr_code"] });
+          await detector.detect(video); // probe: some builds expose but fail
+          return async v => (await detector.detect(v))[0]?.rawValue || null;
+        } catch {}
+      }
+      return decodeWithJsQr;
+    };
+
+    const tick = async () => {
+      if (!scanning || !stream) return;
+      try {
+        const raw = await decoder(video);
+        decodeErrors = 0;
+        if (raw) {
+          scanning = false;
+          stopScan();
+          stopScanningUi();
+          submit(raw);
+          return;
+        }
+      } catch (err) {
+        if (++decodeErrors === 10) toast("QR reader is failing: " + (err?.message || err));
+      }
+      if (!hinted && startedAt && Date.now() - startedAt > 12000) {
+        // 12 s of live frames without a hit — nudge instead of staying mute.
+        hinted = true;
+        toast("No code found yet — hold the QR fully inside the frame");
+      }
+      if (stream) setTimeout(tick, 120);
+    };
 
     const toggleScan = async () => {
       if (scanning) {
         scanning = false;
         stopScan();
-        scanArea.hidden = true;
-        scanBtn.textContent = "Scan QR code";
+        stopScanningUi();
         return;
       }
+      if (!canUseCamera()) { toast("Camera API is not available in this WebView"); return; }
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment" },
-        });
+        stream = await Promise.race([
+          navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }),
+          new Promise((_, rej) => setTimeout(() => rej(new Error("camera did not start — answer the permission prompt or grant camera access in system settings")), 10000)),
+        ]);
       } catch (err) {
         toast("Camera unavailable: " + (err?.message || err));
         return;
       }
       if (settled) { stopScan(); return; }
+      if (!decoder) decoder = await makeDecoder();
       scanning = true;
+      startedAt = Date.now();
+      hinted = false;
       scanBtn.textContent = "Use paste instead";
       scanArea.hidden = false;
       video.srcObject = stream;
       try { await video.play(); } catch {}
-      const detector = new BarcodeDetector({ formats: ["qr_code"] });
-      const tick = async () => {
-        if (!scanning || !stream) return;
-        try {
-          const codes = await detector.detect(video);
-          if (codes.length) {
-            scanning = false;
-            stopScan();
-            scanArea.hidden = true;
-            submit(codes[0].rawValue);
-            return;
-          }
-        } catch {}
-        if (stream) setTimeout(tick, 150);
-      };
       tick();
     };
     scanBtn.addEventListener("click", toggleScan);

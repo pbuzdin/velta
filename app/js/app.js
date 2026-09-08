@@ -1416,7 +1416,7 @@ function showOnboarding() {
   body.innerHTML = `
     <p style="font-size:14.5px;line-height:1.5">Enter a <b>chatmail</b> relay address — an instant end-to-end encrypted profile will be created for you. No email or password needed.</p>
     <input class="text-field" id="ob-relay" placeholder="Relay address — e.g. nine.testrun.org" autocomplete="off" inputmode="url" autocapitalize="none">
-    ${"BarcodeDetector" in window ? `<div style="margin-top:10px"><button class="btn-text" id="ob-scan" type="button">Scan a QR code</button></div>` : ""}
+    ${navigator.mediaDevices?.getUserMedia ? `<div style="margin-top:10px"><button class="btn-text" id="ob-scan" type="button">Scan a QR code</button></div>` : ""}
     <ul class="ob-steps" id="ob-steps"></ul>
     <div id="ob-alt" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:8px">
       <button class="btn-text" id="ob-second" type="button">Add as second device…</button>
