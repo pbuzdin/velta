@@ -314,9 +314,10 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   the reserved circle) and waits, completion detected via
   `imex-progress`; the new device scans/pastes a `dcbackup:` code and
   `addAccountWithBackup` imports it into a fresh account — the receive path
-  is `receiveSecondDeviceProfile`, shared with the onboarding modal. The
-  **Welcome to Velta** onboarding (`showOnboarding`, shown when the account is
-  unconfigured) offers three paths: create a profile on a relay (input or
+  is `receiveSecondDeviceProfile`, shared with the splash. The
+  **Welcome to Velta** splash (`showSplash`, a full-screen page shown when
+  the account is unconfigured — large logo, tagline, three setup paths, and
+  a collapsed app-log footer fed from the diagnostics store): create a profile on a relay (input or
   camera scan of a relay QR, permission only on tapping Scan), add as second
   device (dcbackup receive), and restore from a backup file (Tauri file
   dialog → `resolve_content_uri` on Android → `importBackup`, fire-and-forget

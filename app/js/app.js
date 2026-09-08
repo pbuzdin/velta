@@ -1425,33 +1425,85 @@ function normalizeRelayLink(raw) {
   return `dcaccount:https://${s}/new`;
 }
 
-// The "Welcome to Velta" modal. First boot: configures the current
-// (unconfigured) account on the entered relay.
-function showOnboarding() {
+// The "Welcome to Velta" splash. Shown full-screen whenever the current
+// account is unconfigured (first boot): large Velta logo, tagline, the three
+// setup paths (create an account / add as a second device / restore from a
+// backup) and a collapsed app-log footer for errors and debug messages.
+// Removes itself once a profile is ready — the create flow hides it
+// directly, the second-device receive resolves, restore reloads the app.
+function showSplash() {
   if (state.accountChanging) return;
   const epoch = core.accountEpoch;
-  const body = document.createElement("div");
-  body.innerHTML = `
-    <p style="font-size:14.5px;line-height:1.5">Enter a <b>chatmail</b> relay address — an instant end-to-end encrypted profile will be created for you. No email or password needed.</p>
-    <input class="text-field" id="ob-relay" placeholder="Relay address — e.g. nine.testrun.org" autocomplete="off" inputmode="url" autocapitalize="none">
-    ${navigator.mediaDevices?.getUserMedia ? `<div style="margin-top:10px"><button class="btn-text" id="ob-scan" type="button">Scan a QR code</button></div>` : ""}
-    <ul class="ob-steps" id="ob-steps"></ul>
-    <div id="ob-alt" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:8px">
-      <button class="btn-text" id="ob-second" type="button">Add as second device…</button>
-      <button class="btn-text" id="ob-restore" type="button">Restore from a backup…</button>
-    </div>`;
-  const foot = document.createElement("div");
-  const ok = document.createElement("button");
-  ok.className = "btn-text"; ok.textContent = "Create account";
-  foot.appendChild(ok);
-  const { close: closeWelcome } = showModal({ title: "Welcome to Velta", body, foot });
+  const el = document.createElement("div");
+  el.className = "splash"; el.id = "splash";
+  el.innerHTML = `
+    <div class="splash-main">
+      <img class="splash-logo" src="./icons/v-logo.svg" alt="Velta logo">
+      <h1 class="splash-title">Welcome to Velta</h1>
+      <p class="splash-tag">End-to-end encrypted messaging built on Delta Chat — no phone number, no central server. Pick how to set up your profile:</p>
+      <div class="splash-actions" data-actions>
+        <button class="btn-primary splash-btn" data-create type="button">Create an account</button>
+        <button class="btn-text splash-btn" data-second type="button">Add as a second device…</button>
+        <button class="btn-text splash-btn" data-restore type="button">Restore from a backup…</button>
+      </div>
+      <div class="splash-form" data-form hidden>
+        <p class="splash-hint">Enter a <b>chatmail</b> relay address — an instant end-to-end encrypted profile will be created for you. No email or password needed.</p>
+        <input class="text-field" data-relay placeholder="Relay address — e.g. nine.testrun.org" autocomplete="off" inputmode="url" autocapitalize="none">
+        ${navigator.mediaDevices?.getUserMedia ? `<div style="margin-top:10px"><button class="btn-text" data-scan type="button">Scan a QR code</button></div>` : ""}
+        <div style="margin-top:12px"><button class="btn-primary splash-btn" data-ok type="button">Create account</button></div>
+      </div>
+      <ul class="ob-steps" data-steps></ul>
+    </div>
+    <details class="splash-log">
+      <summary>App log — errors &amp; debug</summary>
+      <div class="splash-log-bar"><button class="btn-text" data-copylog type="button">Copy log</button></div>
+      <pre data-logpre></pre>
+    </details>`;
+  document.body.appendChild(el);
 
-  const input = body.querySelector("#ob-relay");
-  const stepsEl = body.querySelector("#ob-steps");
+  const actionsEl = el.querySelector("[data-actions]");
+  const formEl = el.querySelector("[data-form]");
+  const stepsEl = el.querySelector("[data-steps]");
+  const input = el.querySelector("[data-relay]");
+  const ok = el.querySelector("[data-ok]");
+  const logPre = el.querySelector("[data-logpre]");
+
+  const hideSplash = () => el.remove();
+  const finishOk = () => {
+    hideSplash();
+    closeAllPopups();
+    rebuildDrawer();
+    refreshChatList();
+  };
+
+  const addStep = (text) => {
+    stepsEl.querySelectorAll("li.active").forEach(li => { li.classList.remove("active"); li.classList.add("done"); });
+    const li = document.createElement("li");
+    li.className = "active";
+    li.innerHTML = `<span class="step-ico"></span><span>${escapeHtml(text)}</span>`;
+    stepsEl.appendChild(li);
+    return li;
+  };
+  const finishSteps = (ok_) => {
+    stepsEl.querySelectorAll("li.active").forEach(li => { li.classList.remove("active"); li.classList.add(ok_ ? "done" : "failed"); });
+  };
+
+  const showActions = () => {
+    actionsEl.hidden = false;
+    formEl.hidden = true;
+    stepsEl.replaceChildren();
+  };
+
+  // --- create an account ---
+  el.querySelector("[data-create]").addEventListener("click", () => {
+    actionsEl.hidden = true;
+    formEl.hidden = false;
+    setTimeout(() => input.focus(), 60);
+  });
 
   // Camera permission is requested only inside acquireCode, when the user
-  // taps "Scan QR code" there — never on opening the welcome modal.
-  body.querySelector("#ob-scan")?.addEventListener("click", async () => {
+  // taps "Scan QR code" there — never on opening the splash.
+  el.querySelector("[data-scan]")?.addEventListener("click", async () => {
     const code = await acquireCode({
       title: "Scan relay QR",
       hint: "Point the camera at the relay's QR code — or paste the code below.",
@@ -1462,28 +1514,18 @@ function showOnboarding() {
     ok.click();
   });
 
-  const addStep = (text) => {
-    stepsEl.querySelectorAll("li.active").forEach(li => { li.classList.remove("active"); li.classList.add("done"); });
-    const li = document.createElement("li");
-    li.className = "active";
-    li.innerHTML = `<span class="step-ico"></span><span>${escapeHtml(text)}</span>`;
-    stepsEl.appendChild(li);
-    return li;
-  };
-
-  const finishSteps = (ok_) => {
-    stepsEl.querySelectorAll("li.active").forEach(li => { li.classList.remove("active"); li.classList.add(ok_ ? "done" : "failed"); });
-  };
-
-  const altEl = body.querySelector("#ob-alt");
-  body.querySelector("#ob-second").addEventListener("click", async () => {
-    if (await receiveSecondDeviceProfile(epoch)) closeWelcome();
+  // --- add as a second device ---
+  el.querySelector("[data-second]").addEventListener("click", async () => {
+    actionsEl.hidden = true;
+    if (await receiveSecondDeviceProfile(epoch)) finishOk();
+    else showActions();
   });
 
-  body.querySelector("#ob-restore").addEventListener("click", async () => {
+  // --- restore from a backup ---
+  el.querySelector("[data-restore]").addEventListener("click", async () => {
     if (!core.importBackup) { toast("Restore is not available on this backend"); return; }
     const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
-    if (!invoke) { toast("Restore from a backup file needs the Velta app — use \"Add as second device\" instead"); return; }
+    if (!invoke) { toast("Restore from a backup file needs the Velta app — use \"Add as a second device\" instead"); return; }
     let picked = await invoke("plugin:dialog|open", { options: {
       multiple: false,
       filters: [{ name: "Velta backup", extensions: ["tar"] }],
@@ -1499,8 +1541,7 @@ function showOnboarding() {
       }
     }
 
-    altEl.hidden = true;
-    ok.disabled = true; input.disabled = true;
+    actionsEl.hidden = true;
     stepsEl.replaceChildren();
     const prog = addStep("Restoring profile…").querySelector("span:last-child");
     let seenProgress = false;
@@ -1518,8 +1559,7 @@ function showOnboarding() {
         finishSteps(false);
         addStep("Restore failed");
         core.removeEventListener("imex-progress", onProg);
-        altEl.hidden = false;
-        ok.disabled = false; input.disabled = false;
+        showActions();
       }
     };
     core.addEventListener("imex-progress", onProg);
@@ -1530,8 +1570,7 @@ function showOnboarding() {
       finishSteps(false);
       addStep("Restore failed: couldn't import the backup");
       core.removeEventListener("imex-progress", onProg);
-      altEl.hidden = false;
-      ok.disabled = false; input.disabled = false;
+      showActions();
     });
   });
 
@@ -1544,7 +1583,6 @@ function showOnboarding() {
 
     ok.disabled = true; ok.classList.add("btn-loading"); ok.textContent = "Creating…";
     input.disabled = true;
-    altEl.hidden = true;
     stepsEl.replaceChildren();
     addStep(`Attempting to connect to relay at ${host}`);
 
@@ -1574,21 +1612,35 @@ function showOnboarding() {
       state.account = account;
       setTimeout(() => {
         if (!accountIsCurrent(epoch)) return;
-        closeAllPopups();
-        rebuildDrawer();
-        refreshChatList();
+        finishOk();
         toast(`Account created on ${host}`, 3000);
       }, 900);
     } catch (err) {
       if (!accountIsCurrent(epoch)) return;
       finishSteps(false);
       addStep("Setup failed: " + (err.message || err));
-      finishSteps(false);
       ok.disabled = false; ok.classList.remove("btn-loading"); ok.textContent = "Retry";
       input.disabled = false;
     } finally {
       core.removeEventListener("configure-progress", onProg);
     }
+  });
+
+  // --- app log footer (collapsed <details>) ---
+  const renderLog = () => {
+    logPre.textContent = diagnostics.messages
+      .map(m => m.count > 1 ? `${m.text} (×${m.count})` : m.text)
+      .join("\n");
+    logPre.scrollTop = logPre.scrollHeight;
+  };
+  diagnostics.addEventListener("changed", renderLog);
+  el.querySelector(".splash-log").addEventListener("toggle", (e) => {
+    if (e.target.open) renderLog();
+  });
+  el.querySelector("[data-copylog]").addEventListener("click", () => {
+    navigator.clipboard?.writeText(logPre.textContent)
+      .then(() => toast("Log copied"))
+      .catch(() => toast("Couldn't copy the log"));
   });
 }
 
@@ -1885,7 +1937,7 @@ async function secondDeviceFlow() {
     // Onboarding: real core without configured account → ask for credentials
     if (core.configureWithCredentials && state.account.configured === false) {
       appLog("boot: showing onboarding");
-      showOnboarding();
+      showSplash();
     }
 
     try {

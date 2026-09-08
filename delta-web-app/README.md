@@ -72,8 +72,8 @@ frontend codebase.
 - **Account switcher:** the drawer lists every profile in the accounts file;
   tap to switch (IO runs for all accounts, so nothing is disconnected).
 - **Relay management:** save up to 3 chatmail relays, create accounts on any
-  of them, or delete them. The "Welcome to Velta" onboarding modal offers
-  three paths — create a profile on a relay (typed address or camera scan of
+  of them, or delete them. The "Welcome to Velta" splash (full-screen, shown
+  on first boot with a collapsed app-log footer) offers three paths — create a profile on a relay (typed address or camera scan of
   the relay QR), add as second device (receive a `dcbackup:` transfer), or
   restore from a backup file.
 - **Fixed:** Local chat Retry crash (spawn outside runtime), peers flipping
