@@ -253,7 +253,9 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   multi-transport relay surface (`listTransports`, `checkQr`,
   `addTransportFromQr`, `setTransportUnpublished`), the second-device backup
   transfer (`provideBackup`, `getBackupQr`, `addAccountWithBackup` with the
-  same two epoch boundaries as `addAccountWithQr`, `stopOngoingProcess`;
+  same two epoch boundaries as `addAccountWithQr`, `importBackup` (file
+  restore into the current account, fire-and-forget + `imex-progress`),
+  `stopOngoingProcess`;
   transfer progress arrives as `imex-progress` events, 1000 = done, 0 =
   failed), the vCard surface (`parseVcard`, `importVcard`, `makeVcard`) and
   `getMessageHtml` (original body of messages the mail simplifier cut, marked

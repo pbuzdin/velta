@@ -1011,6 +1011,13 @@ export class JsonRpcCore extends EventTarget {
     }
   }
 
+  // Restore a profile from a local backup file (tar) into the current
+  // account. Fire-and-forget on the wire — the import can take minutes;
+  // track it via imex-progress events (1000 = done, 0 = failed).
+  async importBackup(path) {
+    return this._call("import_backup", this.accountId, path, null);
+  }
+
   // Cancels the current account's ongoing process (backup provide/receive).
   async stopOngoingProcess() {
     return this._call("stop_ongoing_process", this.accountId);
