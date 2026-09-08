@@ -987,6 +987,13 @@ export class JsonRpcCore extends EventTarget {
     return this._call("get_backup_qr", this.accountId);
   }
 
+  // The backup QR as the 515x630 design card: reserves a clear center circle
+  // instead of baking the Delta Chat logo into the modules, so the UI can
+  // overlay its own badge (same geometry as the invite QR).
+  async getBackupQrSvg() {
+    return this._call("get_backup_qr_svg", this.accountId);
+  }
+
   // New device: receive a profile from another device's backup QR. Imports
   // into a fresh account (reuses the current one if still unconfigured) and
   // starts IO on it. The transfer itself runs fire-and-forget — it can take

@@ -1789,7 +1789,7 @@ async function receiveSecondDeviceProfile(epoch, onStart) {
 // or receives a profile from another device's QR.
 async function secondDeviceFlow() {
   if (state.accountChanging) return;
-  if (!core.provideBackup || !core.getBackupQr || !core.addAccountWithBackup) {
+  if (!core.provideBackup || !core.getBackupQrSvg || !core.addAccountWithBackup) {
     toast("Second-device setup is not available on this backend");
     return;
   }
@@ -1832,14 +1832,13 @@ async function secondDeviceFlow() {
     // the RPC timeout — completion is detected via ImexProgress above.
     core.provideBackup().then(transferDone).catch(() => {});
     body.querySelector("[data-cancel]").addEventListener("click", () => close());
-    core.getBackupQr().then(async (qrText) => {
-      const svg = await core.createQrSvg(qrText);
+    core.getBackupQrSvg().then((svg) => {
       if (accountIsCurrent(epoch)) {
         pane.querySelector(".qr-box").innerHTML = svg;
-        // The plain QR bakes a Delta Chat logo into its center — cover it
-        // with the Velta badge (square 512x512 design space, center 50%).
+        // The card reserves a clear circle at 50% / 43.65% — same overlay
+        // as the invite QR.
         pane.querySelector(".qr-box").insertAdjacentHTML("beforeend",
-          `<div class="qr-self" style="top:50%"><img src="./icons/v-logo.svg" alt=""></div>`);
+          `<div class="qr-self"><img src="./icons/v-logo.svg" alt=""></div>`);
       }
     }).catch((err) => {
       if (accountIsCurrent(epoch)) pane.querySelector(".qr-box").innerHTML =
