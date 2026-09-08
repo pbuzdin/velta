@@ -22,12 +22,17 @@ export function debugLog(msg) {
 }
 debugLog.enabled = VELTA_DEBUG;
 
-// Global sink so deep UI code (media loading, attachments) can surface
-// diagnostic lines into the Velta Diagnostics chat, where they are visible
-// via a simple screencap — no adb root or logcat needed.
+// Global sink so deep UI code (media loading, attachments, QR scanning) can
+// surface diagnostic lines into the Velta Diagnostics chat, where they are
+// visible via a simple screencap — no adb root or logcat needed. Entries are
+// also mirrored into velta.log (adb + run-as readable).
 export const diagnosticsSink = {
   append(level, text) {
     if (window.__veltaDiagnostics) window.__veltaDiagnostics.append(level, text);
+    try {
+      const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+      if (invoke) invoke("js_log", { msg: `[sink:${level}] ${text}` }).catch(() => {});
+    } catch {}
   },
 };
 
