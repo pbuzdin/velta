@@ -1501,13 +1501,14 @@ function showSplash() {
     setTimeout(() => input.focus(), 60);
   });
 
-  // Camera permission is requested only inside acquireCode, when the user
-  // taps "Scan QR code" there — never on opening the splash.
+  // Camera permission is requested inside acquireCode — the sheet opens with
+  // the camera starting immediately (autoScan), no second tap needed.
   el.querySelector("[data-scan]")?.addEventListener("click", async () => {
     const code = await acquireCode({
       title: "Scan relay QR",
       hint: "Point the camera at the relay's QR code — or paste the code below.",
       validate: c => normalizeRelayLink(c) ? null : "That QR code is not a relay invite",
+      autoScan: true,
     });
     if (!code || !accountIsCurrent(epoch)) return;
     input.value = code;
