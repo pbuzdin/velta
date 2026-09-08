@@ -112,7 +112,7 @@ svg { width: 24px; height: 24px; display: block; }
   animation: relay-dashes .45s linear infinite;
 }
 @keyframes relay-dashes { to { background-position: 12px 0; } }
-@media (prefers-reduced-motion: reduce) { .relay-line[data-sending] { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .relay-line .relay-seg[data-sending] { animation: none; } }
 .sidebar-foot { position: absolute; bottom: calc(22px + env(safe-area-inset-bottom)); right: 18px; display: flex; align-items: center; gap: 12px; }
 .fab {
   width: 54px; height: 54px; border-radius: 50%;

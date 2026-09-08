@@ -414,13 +414,21 @@ function renderRelayLine() {
   // through the transport matching `configured_addr` (= state.account.addr).
   const sendDomain = (state.account?.addr || "").split("@")[1]?.toLowerCase();
   const segs = relaySegments.length ? relaySegments : [{ state: relayState, text: title }];
-  el.replaceChildren(...segs.map(s => {
+  if (relaySending && relayState !== "local") {
+    const segDomains = segs.map(s => s.domain || "—");
+    const matched = segs.some(s => s.domain && s.domain.toLowerCase() === sendDomain);
+    diagnosticsSink.append("info", `relay: sending via ${sendDomain || "?"}; segments [${segDomains.join(", ")}]${matched ? "" : " — NO domain match"}`);
+  }
+  el.replaceChildren(...segs.map((s, i) => {
     const seg = document.createElement("span");
     seg.className = "relay-seg";
     seg.dataset.state = s.state;
-    if (relaySending && relayState !== "local" && s.domain && s.domain.toLowerCase() === sendDomain) {
-      seg.setAttribute("data-sending", "");
-    }
+    const isSendSeg = relaySending && relayState !== "local" && (
+      (s.domain && s.domain.toLowerCase() === sendDomain) ||
+      // A single relay is always the sending relay, even if its domain
+      // couldn't be matched against the account address.
+      (segs.length === 1 && !sendDomain));
+    if (isSendSeg) seg.setAttribute("data-sending", "");
     seg.title = s.domain ? `${s.domain}: ${s.text}` : (s.text || title);
     return seg;
   }));
