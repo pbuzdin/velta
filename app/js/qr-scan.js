@@ -111,9 +111,10 @@ export function acquireCode({ title, hint, validate, autoScan = false }) {
 
     const submit = code => {
       code = (code || "").trim();
-      if (!code) { toast("That QR code contains no data"); return; }
+      if (!code) { diagnosticsSink.append("warning", "scan: empty payload"); toast("That QR code contains no data"); return; }
       const err = validate?.(code);
-      if (err) { toast(err); return; }
+      if (err) { diagnosticsSink.append("info", `scan: code rejected by validator (${code.length} chars)`); toast(err); return; }
+      diagnosticsSink.append("info", `scan: code accepted (${code.length} chars)`);
       close();
       finish(code);
     };
