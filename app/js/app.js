@@ -331,7 +331,30 @@ let relayConnectivity = null;  // last get_connectivity value (1000/2000/3000/40
 let relayDownSince = 0;        // first NotConnected observation — red after a grace period
 let relaySending = false;      // any message queued/sending through the relay
 let relayUpgradeTimer = null;
+let relaySegments = [];        // per-relay [{ domain, text, state }] — [] falls back to the combined view
 const RELAY_DOWN_AFTER_MS = 45000;
+
+// The core exposes per-transport status only inside its connectivity HTML
+// page: one <li class="transport[ unpublished]"> per relay, each folder
+// rendered as `<span class="(green|red|yellow|grey) dot"></span> <b>domain:</b>
+// text`. Worst dot color wins per relay.
+// 🐴 ceiling: parsing the core's HTML page — upgrade path is a dedicated
+// per-transport connectivity JSON-RPC in the core.
+function parseConnectivityHtml(html) {
+  const out = [];
+  const weight = { red: 3, yellow: 2, grey: 1, green: 0 };
+  const stateFor = { green: "ok", yellow: "connecting", grey: "connecting", red: "down" };
+  for (const m of html.matchAll(/<li class="transport( unpublished)?">([\s\S]*?)<\/li>/g)) {
+    if (m[1]) continue; // unpublished relay — phasing out, not a live transport
+    const colors = [...m[2].matchAll(/class="(red|green|yellow|grey) dot"/g)].map(c => c[1]);
+    if (!colors.length) continue;
+    const domain = (m[2].match(/<b>([^<]+)<\/b>/) || [])[1] || "relay";
+    const text = (m[2].split(/<\/b>/i)[1] || "").replace(/<[^>]*>/g, "").split("\n")[0].trim();
+    colors.sort((a, b) => weight[b] - weight[a]);
+    out.push({ domain, text, state: stateFor[colors[0]] || "connecting" });
+  }
+  return out;
+}
 
 async function refreshRelayStatus() {
   if (!core.getConnectivity || core.backend?.kind === "mock") return;
@@ -353,6 +376,16 @@ async function refreshRelayStatus() {
     }
     renderRelayLine();
   } catch { /* old cores without get_connectivity */ }
+  // Per-relay segments (best effort — an old core or a stopped scheduler
+  // leaves relaySegments empty and the line falls back to the combined view).
+  try {
+    if (core.getConnectivityHtml) {
+      const html = await core.getConnectivityHtml();
+      if (!accountIsCurrent(epoch)) return;
+      relaySegments = parseConnectivityHtml(html);
+      renderRelayLine();
+    }
+  } catch { /* per-relay view unavailable */ }
 }
 
 function renderRelayLine() {
@@ -374,6 +407,17 @@ function renderRelayLine() {
   } else {
     relayState = "connecting"; title = "Relay problems — retrying…";
   }
+  // One segment per relay (equal widths); a single relay fills the whole
+  // line. Without a parsed per-relay view, one segment carries the combined
+  // state — visually identical to the old bar.
+  const segs = relaySegments.length ? relaySegments : [{ state: relayState, text: title }];
+  el.replaceChildren(...segs.map(s => {
+    const seg = document.createElement("span");
+    seg.className = "relay-seg";
+    seg.dataset.state = s.state;
+    seg.title = s.domain ? `${s.domain}: ${s.text}` : (s.text || title);
+    return seg;
+  }));
   el.dataset.state = relayState;
   if (relaySending && relayState !== "local") el.setAttribute("data-sending", "");
   else el.removeAttribute("data-sending");

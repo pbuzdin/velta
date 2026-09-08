@@ -95,12 +95,17 @@ svg { width: 24px; height: 24px; display: block; }
 .chat-list { flex: 1; overflow-y: auto; padding-bottom: 90px; }
 /* Relay status line — thin strip just below the sidebar header. The color
    lives on `color` so the sending-dash gradient can reuse it as currentColor. */
-.relay-line { height: 3px; flex: none; background: currentColor; color: #e6a23c; transition: color .25s; }
-.relay-line[data-state="ok"]         { color: #2ecc71; }
-.relay-line[data-state="connecting"] { color: #e6a23c; }
-.relay-line[data-state="down"]       { color: #e05252; }
-.relay-line[data-state="local"]      { color: #4c8dff; }
-.relay-line[data-sending] {
+/* Relay status strip: one equal-width segment per configured relay
+   (up to MAX_RELAYS=5 in the core), each colored by that relay's own
+   state; a single relay fills the line. Lives on per-segment `color` so
+   the sending-dash gradient can reuse it as currentColor. */
+.relay-line { display: flex; gap: 2px; height: 3px; flex: none; }
+.relay-line .relay-seg { flex: 1 1 0; min-width: 0; background: currentColor; color: #e6a23c; transition: color .25s; }
+.relay-line .relay-seg[data-state="ok"]         { color: #2ecc71; }
+.relay-line .relay-seg[data-state="connecting"] { color: #e6a23c; }
+.relay-line .relay-seg[data-state="down"]       { color: #e05252; }
+.relay-line .relay-seg[data-state="local"]      { color: #4c8dff; }
+.relay-line[data-sending] .relay-seg {
   background: repeating-linear-gradient(90deg, currentColor 0 7px, transparent 7px 12px);
   animation: relay-dashes .45s linear infinite;
 }
