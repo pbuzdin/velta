@@ -1046,6 +1046,11 @@ async function addAccountFromInvite(link) {
    or create a new profile on it. Relay-adding needs a real core; in demo
    mode it tells the user instead. */
 function extractInviteLink(rawUrl = location.href) {
+  // Raw scheme deep links (dcaccount:https://host/new, dclogin:…) arrive as
+  // opaque URLs — URL parsing gives protocol "dcaccount:" and pathname as
+  // the rest; rebuild the original link text from it.
+  const schemeMatch = /^(dcaccount|dclogin):(.*)$/i.exec(rawUrl.trim());
+  if (schemeMatch) return schemeMatch[0];
   let url;
   try { url = new URL(rawUrl, location.href); } catch { return null; }
   let link = url.searchParams.get("qr") || url.searchParams.get("dcaccount");
@@ -1087,9 +1092,22 @@ function extractVeltaLink(rawUrl) {
   try { return decodeURIComponent(inner); } catch { return inner; }
 }
 
+// dcbackup<version>: transfer code received as an OS deep link — route it
+// into the second-device receive flow.
+function extractBackupLink(rawUrl = location.href) {
+  const m = /^dcbackup\d*:.*$/i.exec((rawUrl || "").trim());
+  return m ? m[0] : null;
+}
+
 async function handleDeeplinkFromUrl(rawUrl, { clearUrl = false } = {}) {
   const velta = extractVeltaLink(rawUrl);
   if (velta) rawUrl = velta;
+  const backupLink = extractBackupLink(rawUrl);
+  if (backupLink) {
+    if (clearUrl) history.replaceState(null, "", location.pathname);
+    receiveSecondDeviceProfile(core.accountEpoch, null, backupLink);
+    return;
+  }
   const joinLink = extractJoinLink(rawUrl);
   const link = extractInviteLink(rawUrl);
   if (!joinLink && !link) return;
@@ -1109,13 +1127,13 @@ async function handleDeeplinkFromUrl(rawUrl, { clearUrl = false } = {}) {
 // "new", or null (dismissed).
 function chooseRelayOrNewProfile(link) {
   return new Promise(resolve => {
-    const host = link.replace(/^dcaccount:https?:\/\//i, "").replace(/\/.*$/, "");
+    const host = link.replace(/^dc(account|login):https?:\/\//i, "").replace(/\/.*$/, "");
     const body = document.createElement("div");
     body.innerHTML = `
       <p class="p2p-hint">Use the <b>${escapeHtml(host)}</b> invite to…</p>
       <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
         <button class="btn-text btn-primary" data-relay>Add the relay to this profile</button>
-        <button class="btn-text" data-new>Create a new profile on it</button>
+        ${/^dclogin:/i.test(link) ? "" : `<button class="btn-text" data-new>Create a new profile on it</button>`}
       </div>`;
     let settled = false;
     const pick = v => { if (settled) return; settled = true; close(); resolve(v); };
@@ -1722,12 +1740,12 @@ async function addRelayFlow(epoch, refresh, presetCode) {
 // (scanned or pasted). Used by the second-device modal and by onboarding.
 // Resolves true once the fresh account was created and selected; the transfer
 // itself runs fire-and-forget and reports via ImexProgress.
-async function receiveSecondDeviceProfile(epoch, onStart) {
+async function receiveSecondDeviceProfile(epoch, onStart, presetCode) {
   if (!core.addAccountWithBackup) {
     toast("Second-device setup is not available on this backend");
     return false;
   }
-  const code = await acquireCode({
+  const code = presetCode?.trim() || await acquireCode({
     title: "Receive a profile",
     hint: "Scan or paste the code shown on the other device (DCBACKUP2:…). A copy of that profile is created here; the other device stays signed in.",
     // Core backup QRs are "DCBACKUP" + version digits + ":" (qr.rs:455) —
