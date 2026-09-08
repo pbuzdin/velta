@@ -1834,7 +1834,13 @@ async function secondDeviceFlow() {
     body.querySelector("[data-cancel]").addEventListener("click", () => close());
     core.getBackupQr().then(async (qrText) => {
       const svg = await core.createQrSvg(qrText);
-      if (accountIsCurrent(epoch)) pane.querySelector(".qr-box").innerHTML = svg;
+      if (accountIsCurrent(epoch)) {
+        pane.querySelector(".qr-box").innerHTML = svg;
+        // The plain QR bakes a Delta Chat logo into its center — cover it
+        // with the Velta badge (square 512x512 design space, center 50%).
+        pane.querySelector(".qr-box").insertAdjacentHTML("beforeend",
+          `<div class="qr-self" style="top:50%"><img src="./icons/v-logo.svg" alt=""></div>`);
+      }
     }).catch((err) => {
       if (accountIsCurrent(epoch)) pane.querySelector(".qr-box").innerHTML =
         `<div class="qr-loading">Couldn't prepare the transfer:<br>${escapeHtml(String(err?.message || err))}</div>`;
