@@ -311,7 +311,11 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `addRelayFlow` also takes a preset code, so a clicked/pasted `dcaccount:`
   deeplink (`handleDeeplinkFromUrl` → `chooseRelayOrNewProfile`) can offer
   "add the relay to this profile" alongside the legacy "create a new
-  profile" path (`addAccountFromInvite`).
+  profile" path (`addAccountFromInvite`). Android registers the raw
+  `dcaccount:`/`dclogin:`/`dcbackup:` schemes as intent filters; raw scheme
+  URLs are opaque (no query/hash to parse), so `extractInviteLink` matches
+  them with a regex and `extractBackupLink` routes `dcbackup:` deep links
+  into `receiveSecondDeviceProfile` (presetCode).
   Sending always goes through the primary relay (`configured_addr`); the
   Relays modal offers **"Use for sending"** per non-primary relay
   (`rpc-core.setSendRelay` → core `set_config("configured_addr", …)`, which
@@ -321,9 +325,10 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   drawer → "Add a second device…"): the old device shows a `provide_backup`
   QR (the `get_backup_qr_svg` design card with the `.qr-self` v-logo badge on
   the reserved circle) and waits, completion detected via
-  `imex-progress`; the new device scans/pastes a `dcbackup:` code and
-  `addAccountWithBackup` imports it into a fresh account — the receive path
-  is `receiveSecondDeviceProfile`, shared with the splash. The
+  `imex-progress`; the new device scans/pastes a `DCBACKUP<n>:…` code (the
+  core's format — validate with `/^dcbackup\d*:/i`, not a bare `dcbackup:`),
+  and `addAccountWithBackup` imports it into a fresh account — the receive
+  path is `receiveSecondDeviceProfile`, shared with the splash. The
   **Welcome to Velta** splash (`showSplash`, a full-screen page shown when
   the account is unconfigured — large logo, tagline, three setup paths, and
   a collapsed app-log footer fed from the diagnostics store): create a profile on a relay (input or
