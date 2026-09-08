@@ -105,7 +105,9 @@ svg { width: 24px; height: 24px; display: block; }
 .relay-line .relay-seg[data-state="connecting"] { color: #e6a23c; }
 .relay-line .relay-seg[data-state="down"]       { color: #e05252; }
 .relay-line .relay-seg[data-state="local"]      { color: #4c8dff; }
-.relay-line[data-sending] .relay-seg {
+/* Sending dashes on the sending relay's segment only (marked per-segment
+   in renderRelayLine — the primary transport, i.e. state.account.addr). */
+.relay-line .relay-seg[data-sending] {
   background: repeating-linear-gradient(90deg, currentColor 0 7px, transparent 7px 12px);
   animation: relay-dashes .45s linear infinite;
 }

@@ -409,12 +409,18 @@ function renderRelayLine() {
   }
   // One segment per relay (equal widths); a single relay fills the whole
   // line. Without a parsed per-relay view, one segment carries the combined
-  // state — visually identical to the old bar.
+  // state — visually identical to the old bar. The sending animation applies
+  // only to the sending (primary) relay's segment — messages always go out
+  // through the transport matching `configured_addr` (= state.account.addr).
+  const sendDomain = (state.account?.addr || "").split("@")[1]?.toLowerCase();
   const segs = relaySegments.length ? relaySegments : [{ state: relayState, text: title }];
   el.replaceChildren(...segs.map(s => {
     const seg = document.createElement("span");
     seg.className = "relay-seg";
     seg.dataset.state = s.state;
+    if (relaySending && relayState !== "local" && s.domain && s.domain.toLowerCase() === sendDomain) {
+      seg.setAttribute("data-sending", "");
+    }
     seg.title = s.domain ? `${s.domain}: ${s.text}` : (s.text || title);
     return seg;
   }));
@@ -1773,8 +1779,25 @@ async function openRelaysModal() {
       const row = document.createElement("div");
       row.className = "info-row";
       const primary = state.account && t.addr === state.account.addr;
-      row.innerHTML = `<span class="k">${escapeHtml(t.addr)}${primary ? " · primary" : ""}</span>
-        <span class="v"><button class="btn-text" data-remove style="color:var(--danger)">Remove</button></span>`;
+      row.innerHTML = `<span class="k">${escapeHtml(t.addr)}${primary ? " · sending" : ""}</span>
+        <span class="v">${primary ? "" : `<button class="btn-text" data-sendvia>Use for sending</button>`}<button class="btn-text" data-remove style="color:var(--danger)">Remove</button></span>`;
+      row.querySelector("[data-sendvia]")?.addEventListener("click", async () => {
+        const ok = await confirmModal(
+          `Send via ${t.addr}?`,
+          "New messages will be sent through this relay and it becomes the address new contacts see. Messages currently waiting to be sent are dropped (they carry the old sender address). The change syncs to your other devices.",
+          "Use for sending");
+        if (!ok || !accountIsCurrent(epoch)) return;
+        try {
+          await core.setSendRelay(t.addr);
+          toast(`Sending via ${t.addr}`);
+          state.account = await core.getAccount();
+          rebuildDrawer();
+          refreshRelayStatus();
+          refresh();
+        } catch (err) {
+          toast(String(err?.message || err));
+        }
+      });
       row.querySelector("[data-remove]").addEventListener("click", async () => {
         const ok = await confirmModal(
           `Remove ${t.addr}?`,
