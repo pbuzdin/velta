@@ -53,7 +53,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── media.js          # media URL helpers (loopback server / asset protocol)
 │   │   ├── p2p.js            # Local chat UI: device pairing, hub, 1:1 chat modal (Tauri only)
 │   │   ├── poster.js         # lazy WebP poster extraction + disk cache
-│   │   ├── qr-scan.js        # code acquisition: paste or camera scan (native BarcodeDetector, vendored jsQR fallback for WebViews without it)
+│   │   ├── qr-scan.js        # code acquisition: paste or camera scan (native BarcodeDetector probed with a 2s timeout, vendored jsQR fallback — many Android WebViews ship no Shape Detection API or one whose detect() hangs)
 │   │   ├── mock-core.js      # in-memory demo core implementing the JSON-RPC surface
 │   │   ├── rpc-core.js       # JsonRpcCore wrapper over transports + event mapping
 │   │   ├── transport.js      # backend auto-detection (Tauri, WebSocket, HTTP, mock)
@@ -321,7 +321,21 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   camera scan of a relay QR, permission only on tapping Scan), add as second
   device (dcbackup receive), and restore from a backup file (Tauri file
   dialog → `resolve_content_uri` on Android → `importBackup`, fire-and-forget
-  with `imex-progress`, app restarts on success). The drawer's saved-relays
+  with `imex-progress`, app restarts on success).
+- **Boot hang on Android (do not regress):** `tauri-plugin-notification`'s
+  `requestPermission()` can hang forever on some Android 13+ builds (Vivo)
+  once the dialog has been dismissed — boot() used to die silently at its
+  first `await`, producing a dead UI with an amber relay line. Never await a
+  plugin permission call without a timeout: boot races it (2.5 s) and the
+  splash (`showSplash`, the boot surface shown before the core connects)
+  makes any remaining hang visible and copyable on the phone.
+- **On-device diagnosis:** all core/transport diagnostics are mirrored into
+  `velta.log` (via `js_log`) — pull over adb with
+  `adb shell run-as org.velta cat /data/data/org.velta/logs/velta.log`,
+  which requires `android:debuggable="true"` in the AndroidManifest (a
+  diagnosis-only ceiling — strip it from release builds). Scoped storage
+  hides `/sdcard/Android/data/org.velta` from adb on Android 13+; Vivo also
+  requires the "Install via USB" developer toggle for `adb install`. The drawer's saved-relays
   bookmark list was removed —
   profile = identity (drawer), relay = property of a profile (Relays modal).
   Its `showChatInfo` is the contact/chat profile modal: the 168px photo
