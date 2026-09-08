@@ -85,8 +85,9 @@ LAN using the core's backup transfer:
 - **Old device** shows a QR (its `provide_backup` offer, rendered as the
   design card with the Velta logo) and waits.
 - **New device** taps **Receive a profile on this device…**, scans or pastes
-  the code (`dcbackup:…`, camera scan supported where the platform offers the
-  native `BarcodeDetector` API), and a fresh account is created and filled
+  the code (`DCBACKUP2:…`, camera scan everywhere — native `BarcodeDetector`
+  where the platform provides it, a built-in decoder fallback where it
+  doesn't), and a fresh account is created and filled
   from the transfer — progress is reported live, and the other device stays
   signed in.
 
