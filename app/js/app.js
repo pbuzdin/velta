@@ -1536,7 +1536,9 @@ function showSplash() {
       validate: c => normalizeRelayLink(c) ? null : "That QR code is not a relay invite",
       autoScan: true,
     });
-    if (!code || !accountIsCurrent(epoch)) return;
+    if (!code) return;
+    if (!accountIsCurrent(epoch)) { diagnosticsSink.append("warning", "scan: relay code arrived after account change — ignored"); return; }
+    diagnosticsSink.append("info", `scan: relay code → create flow (${code.length} chars)`);
     input.value = code;
     ok.click();
   });
