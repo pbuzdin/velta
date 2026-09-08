@@ -48,12 +48,18 @@ async function decodeWithJsQr(video) {
 }
 
 // Native BarcodeDetector when usable; on first-use failure (or a probe that
-// never answers — some WebView builds construct the detector but hang on
-// detect()) fall back to jsQR for the rest of the app session.
+// never answers) fall back to jsQR for the rest of the app session. The video
+// must already be playing — probing a source-less element always throws
+// "Invalid element or state".
 let nativeDecoderBroken = false;
 async function makeDecoder(video) {
   if (!nativeDecoderBroken && "BarcodeDetector" in window) {
     try {
+      // Wait for the first frame before probing (max ~4s).
+      const t0 = Date.now();
+      while (video.readyState < 2 && Date.now() - t0 < 4000) {
+        await new Promise(r => setTimeout(r, 100));
+      }
       const detector = new BarcodeDetector({ formats: ["qr_code"] });
       await Promise.race([
         detector.detect(video),
@@ -181,8 +187,6 @@ export function acquireCode({ title, hint, validate, autoScan = false }) {
       }
       if (settled) { stopScan(); return; }
       diagnosticsSink.append("info", `scan: camera started (${stream.getVideoTracks()[0]?.label || "track"})`);
-      if (!decoder) decoder = await makeDecoder(video);
-      diagnosticsSink.append("info", "scan: decoder ready");
       scanning = true;
       startedAt = Date.now();
       hinted = false;
@@ -192,6 +196,10 @@ export function acquireCode({ title, hint, validate, autoScan = false }) {
       try { await video.play(); } catch (err) {
         diagnosticsSink.append("warning", `scan: video.play failed: ${err?.message || err}`);
       }
+      // Probe only after the preview is live — a source-less video element
+      // makes every native detect() throw "Invalid element or state".
+      if (!decoder) decoder = await makeDecoder(video);
+      diagnosticsSink.append("info", "scan: decoder ready");
       tick();
     };
     scanBtn.addEventListener("click", toggleScan);
