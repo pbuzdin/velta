@@ -341,7 +341,7 @@ export class MockCore extends EventTarget {
 
   // Second-device backup transfer — demo no-ops (same contract as rpc-core).
   async provideBackup() {}
-  async getBackupQr() { return "dcbackup:demo-second-device"; }
+  async getBackupQr() { return "DCBACKUP2:demo-second-device&demo"; }
   async getBackup() {}
   async stopOngoingProcess() {}
   async addAccountWithBackup() { return this.accountId; }

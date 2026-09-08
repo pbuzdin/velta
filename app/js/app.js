@@ -1718,7 +1718,7 @@ async function addRelayFlow(epoch, refresh, presetCode) {
   }
 }
 
-// Receive a profile on this device from another device's dcbackup: code
+// Receive a profile on this device from another device's DCBACKUP<n>: code
 // (scanned or pasted). Used by the second-device modal and by onboarding.
 // Resolves true once the fresh account was created and selected; the transfer
 // itself runs fire-and-forget and reports via ImexProgress.
@@ -1729,8 +1729,10 @@ async function receiveSecondDeviceProfile(epoch, onStart) {
   }
   const code = await acquireCode({
     title: "Receive a profile",
-    hint: "Scan or paste the code shown on the other device (dcbackup:…). A copy of that profile is created here; the other device stays signed in.",
-    validate: c => (/^dcbackup:/i.test(c.trim()) ? null : "That doesn't look like a second-device code"),
+    hint: "Scan or paste the code shown on the other device (DCBACKUP2:…). A copy of that profile is created here; the other device stays signed in.",
+    // Core backup QRs are "DCBACKUP" + version digits + ":" (qr.rs:455) —
+    // e.g. DCBACKUP2:<token>&<addr>. Don't require a bare "dcbackup:".
+    validate: c => (/^dcbackup\d*:/i.test(c.trim()) ? null : "That doesn't look like a second-device code"),
   });
   if (!code || !accountIsCurrent(epoch)) return false;
   onStart?.();
