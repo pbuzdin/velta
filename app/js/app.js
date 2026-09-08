@@ -1508,8 +1508,6 @@ function showSplash() {
   actionsEl.hidden = true;
   addStep("Connecting to the encryption core…");
 
-  return { hide: hideSplash, showActions: () => showActions() };
-
   // --- create an account ---
   el.querySelector("[data-create]").addEventListener("click", () => {
     actionsEl.hidden = true;
@@ -1665,6 +1663,9 @@ function showSplash() {
       .then(() => toast("Log copied"))
       .catch(() => toast("Couldn't copy the log"));
   });
+
+  // All listeners are wired — hand the boot surface back to boot().
+  return { hide: hideSplash, showActions: () => showActions() };
 }
 
 /* ---------------- relay transports (multi-relay) ---------------- */
