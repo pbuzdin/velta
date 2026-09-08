@@ -108,15 +108,21 @@ export function acquireCode({ title, hint, validate, autoScan = false }) {
       scanBtn.textContent = "Scan QR code";
     };
 
-    // Native BarcodeDetector when usable; on first use failure fall back to
-    // jsQR for the rest of the session.
+    // Native BarcodeDetector when usable; on first-use failure (or a probe
+    // that never answers — some WebView builds construct the detector but
+    // hang on detect()) fall back to jsQR for the rest of the session.
     const makeDecoder = async () => {
       if ("BarcodeDetector" in window) {
         try {
           const detector = new BarcodeDetector({ formats: ["qr_code"] });
-          await detector.detect(video); // probe: some builds expose but fail
+          await Promise.race([
+            detector.detect(video),
+            new Promise((_, rej) => setTimeout(() => rej(new Error("BarcodeDetector probe timed out")), 2000)),
+          ]);
           return async v => (await detector.detect(v))[0]?.rawValue || null;
-        } catch {}
+        } catch {
+          toast("Native QR reader unusable — using the built-in decoder");
+        }
       }
       return decodeWithJsQr;
     };
