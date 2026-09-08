@@ -227,7 +227,13 @@ if (window.__TAURI__) {
   }
 }
 
+// The splash is the boot surface: it shows immediately (with the live app
+// log) so any startup hang or failure is visible and copyable, and boot()
+// later decides whether it becomes the setup screen or disappears.
+let splashSession = null;
+
 coreStartupPromise = createCore({ onDiagnostic: (level, message) => diagnostics.append(level, message) });
+splashSession = showSplash();
 try {
   core = await coreStartupPromise;
   setFingerprintSource((contactId) => core.getContactEncryptionInfo(contactId));
@@ -1433,7 +1439,9 @@ function normalizeRelayLink(raw) {
 // directly, the second-device receive resolves, restore reloads the app.
 function showSplash() {
   if (state.accountChanging) return;
-  const epoch = core.accountEpoch;
+  // The splash shows before the core exists (boot surface); capture the
+  // account epoch lazily — handlers run only after boot, when core is live.
+  let epoch = null;
   const el = document.createElement("div");
   el.className = "splash"; el.id = "splash";
   el.innerHTML = `
@@ -1489,10 +1497,18 @@ function showSplash() {
   };
 
   const showActions = () => {
+    epoch = core?.accountEpoch;
     actionsEl.hidden = false;
     formEl.hidden = true;
     stepsEl.replaceChildren();
   };
+
+  // Loading state until boot knows the account: actions stay hidden and the
+  // log footer is the only visible activity.
+  actionsEl.hidden = true;
+  addStep("Connecting to the encryption core…");
+
+  return { hide: hideSplash, showActions: () => showActions() };
 
   // --- create an account ---
   el.querySelector("[data-create]").addEventListener("click", () => {
@@ -1931,15 +1947,27 @@ async function secondDeviceFlow() {
     // Android 13+ needs a runtime grant for notifications; feature-detected
     // and once-per-boot. Declining is fine — notifications just stay off.
     try { await window.__TAURI__?.notification?.requestPermission?.(); } catch {}
-    state.account = await core.getAccount();
-    state.account = await core.getAccount();
+    // The core may still be warming up right after a restart — retry before
+    // giving up: a dead getAccount must not abort boot into a dead UI.
+    let account = null;
+    for (let attempt = 1; attempt <= 3 && !account; attempt++) {
+      try {
+        account = await core.getAccount();
+      } catch (err) {
+        diagnostics.append("error", `getAccount attempt ${attempt} failed: ${err?.message || err}`);
+        if (attempt < 3) await new Promise(r => setTimeout(r, 3000));
+      }
+    }
+    if (!account) {
+      diagnostics.append("error", "Core is not responding — setup stays on screen, the log above has the details");
+      return;
+    }
+    state.account = account;
     appLog(`boot: account ${state.account.addr} configured=${state.account.configured}`);
 
-    // Onboarding: real core without configured account → ask for credentials
-    if (core.configureWithCredentials && state.account.configured === false) {
-      appLog("boot: showing onboarding");
-      showSplash();
-    }
+    // Splash: setup actions when unconfigured; gone once a profile is ready.
+    if (core.configureWithCredentials && state.account.configured === false) splashSession?.showActions();
+    else splashSession?.hide();
 
     try {
       const tauri = window.__TAURI__;
