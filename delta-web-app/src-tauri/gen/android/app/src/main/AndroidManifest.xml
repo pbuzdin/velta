@@ -58,6 +58,17 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="i.deltachat.id" />
             </intent-filter>
+            <!-- Chatmail scheme links (scanned QR codes, taps in other apps):
+                 account creation (dcaccount:), login to an existing relay
+                 account (dclogin:), and second-device transfers (dcbackup:). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="dcaccount" />
+                <data android:scheme="dclogin" />
+                <data android:scheme="dcbackup" />
+            </intent-filter>
         </activity>
 
         <provider
