@@ -48,6 +48,14 @@ EOF
 
 cd ~/velta/delta-web-app
 
+# The Windows sidecar (staged for the desktop installer) must NOT exist here:
+# tauri.conf.json's bundle.resources map packages it into the Android APK
+# assets verbatim (+22 MB of useless Windows PE). See AGENTS.md §4.3.
+# Tauri copies resources into the generated Android project once and never
+# cleans stale files, so remove both the staging dir and the stale copy.
+rm -rf src-tauri/binaries
+rm -f src-tauri/gen/android/app/src/main/assets/deltachat-rpc-server.exe
+
 # Builds from a Windows-mounted checkout can inherit timestamps slightly ahead
 # of the WSL clock.  Normalize source mtimes so OpenSSL's recursive make does
 # not treat freshly generated objects as stale or future-dated.
