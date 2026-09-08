@@ -82,12 +82,17 @@ vCard is the canonical shareable form.
 The drawer's **Add a second device…** moves a profile between devices over the
 LAN using the core's backup transfer:
 
-- **Old device** shows a QR (its `provide_backup` offer) and waits.
+- **Old device** shows a QR (its `provide_backup` offer, rendered as the
+  design card with the Velta logo) and waits.
 - **New device** taps **Receive a profile on this device…**, scans or pastes
   the code (`dcbackup:…`, camera scan supported where the platform offers the
   native `BarcodeDetector` API), and a fresh account is created and filled
   from the transfer — progress is reported live, and the other device stays
   signed in.
+
+First boot offers the same choices in the **Welcome to Velta** modal: create a
+new profile on a relay (type the address or scan its QR), **add as second
+device** (receive via `dcbackup:` code), or **restore from a backup** file.
 
 ## Multi-relay accounts
 

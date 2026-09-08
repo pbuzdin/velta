@@ -302,9 +302,18 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   Sending always goes through the primary relay; there is deliberately no
   relay selector. It also owns the **second-device flow** (`secondDeviceFlow`,
   drawer → "Add a second device…"): the old device shows a `provide_backup`
-  QR (rendered via `createQrSvg`) and waits, completion detected via
+  QR (the `get_backup_qr_svg` design card with the `.qr-self` v-logo badge on
+  the reserved circle) and waits, completion detected via
   `imex-progress`; the new device scans/pastes a `dcbackup:` code and
-  `addAccountWithBackup` imports it into a fresh account. The drawer's saved-relays bookmark list was removed —
+  `addAccountWithBackup` imports it into a fresh account — the receive path
+  is `receiveSecondDeviceProfile`, shared with the onboarding modal. The
+  **Welcome to Velta** onboarding (`showOnboarding`, shown when the account is
+  unconfigured) offers three paths: create a profile on a relay (input or
+  camera scan of a relay QR, permission only on tapping Scan), add as second
+  device (dcbackup receive), and restore from a backup file (Tauri file
+  dialog → `resolve_content_uri` on Android → `importBackup`, fire-and-forget
+  with `imex-progress`, app restarts on success). The drawer's saved-relays
+  bookmark list was removed —
   profile = identity (drawer), relay = property of a profile (Relays modal).
   Its `showChatInfo` is the contact/chat profile modal: the 168px photo
   avatar beside the captioned identity tile, action buttons (Send message,
