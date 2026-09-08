@@ -11,6 +11,7 @@
 // surfaces as a toast instead of failing silently.
 
 import { showModal, toast } from "./ui.js";
+import { diagnosticsSink } from "./diagnostics.js";
 
 const canUseCamera = () => !!navigator.mediaDevices?.getUserMedia;
 
@@ -58,12 +59,16 @@ async function makeDecoder(video) {
         detector.detect(video),
         new Promise((_, rej) => setTimeout(() => rej(new Error("BarcodeDetector probe timed out")), 2000)),
       ]);
+      diagnosticsSink.append("info", "scan: using native BarcodeDetector");
       return async v => (await detector.detect(v))[0]?.rawValue || null;
-    } catch {
+    } catch (err) {
       // One toast per session — informational, not an error.
       nativeDecoderBroken = true;
+      diagnosticsSink.append("info", `scan: native BarcodeDetector unusable (${err?.message || err}) — falling back to jsQR`);
       toast("Native QR reader unusable — using the built-in decoder");
     }
+  } else if (nativeDecoderBroken) {
+    diagnosticsSink.append("info", "scan: using jsQR (native reader known-broken this session)");
   }
   return decodeWithJsQr;
 }
@@ -143,7 +148,8 @@ export function acquireCode({ title, hint, validate, autoScan = false }) {
           return;
         }
       } catch (err) {
-        if (++decodeErrors === 10) toast("QR reader is failing: " + (err?.message || err));
+        if (++decodeErrors === 1) diagnosticsSink.append("warning", `scan: decoder error: ${err?.message || err}`);
+        if (decodeErrors === 10) toast("QR reader is failing: " + (err?.message || err));
       }
       if (!hinted && startedAt && Date.now() - startedAt > 12000) {
         // 12 s of live frames without a hit — nudge instead of staying mute.
@@ -162,24 +168,30 @@ export function acquireCode({ title, hint, validate, autoScan = false }) {
       }
       if (!canUseCamera()) { toast("Camera API is not available in this WebView"); return; }
       if (!scanning) toast("Starting camera…"); // instant feedback while the permission prompt may be pending
+      diagnosticsSink.append("info", "scan: requesting camera");
       try {
         stream = await Promise.race([
           navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }),
           new Promise((_, rej) => setTimeout(() => rej(new Error("camera did not start — answer the permission prompt or grant camera access in system settings")), 10000)),
         ]);
       } catch (err) {
+        diagnosticsSink.append("error", `scan: camera request failed: ${err?.message || err}`);
         toast("Camera unavailable: " + (err?.message || err));
         return;
       }
       if (settled) { stopScan(); return; }
+      diagnosticsSink.append("info", `scan: camera started (${stream.getVideoTracks()[0]?.label || "track"})`);
       if (!decoder) decoder = await makeDecoder(video);
+      diagnosticsSink.append("info", "scan: decoder ready");
       scanning = true;
       startedAt = Date.now();
       hinted = false;
       scanBtn.textContent = "Use paste instead";
       scanArea.hidden = false;
       video.srcObject = stream;
-      try { await video.play(); } catch {}
+      try { await video.play(); } catch (err) {
+        diagnosticsSink.append("warning", `scan: video.play failed: ${err?.message || err}`);
+      }
       tick();
     };
     scanBtn.addEventListener("click", toggleScan);
