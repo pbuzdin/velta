@@ -115,8 +115,8 @@ export function acquireCode({ title, hint, validate, autoScan = false }) {
       const err = validate?.(code);
       if (err) { diagnosticsSink.append("info", `scan: code rejected by validator (${code.length} chars)`); toast(err); return; }
       diagnosticsSink.append("info", `scan: code accepted (${code.length} chars)`);
+      finish(code); // settle BEFORE close — close() fires onClose, which must not win
       close();
-      finish(code);
     };
 
     ta.addEventListener("keydown", e => {
