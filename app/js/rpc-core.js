@@ -631,11 +631,18 @@ export class JsonRpcCore extends EventTarget {
     return this._call("add_transport_from_qr", this.accountId, qr);
   }
 
+  // Make `addr` the sending (primary) transport. The core validates that the
+  // address belongs to a configured transport, republishes/re-signs the
+  // public key, syncs the change to other devices, clears the SMTP queue
+  // (queued messages carry the old From address) and restarts IO.
+  async setSendRelay(addr) {
+    return this._call("set_config", this.accountId, "configured_addr", addr);
+  }
+
   // Soft removal — the core stops advertising the relay and stops sending
   // self-sent messages there, but keeps listening for ~90 days so contacts
   // who still send to the old address don't lose mail, then deletes it.
-  async setTransportUnpublished(addr, unpublished) {
-    return this._call("set_transport_unpublished", this.accountId, addr, unpublished);
+  async setTransportUnpublished(addr, unpublished) {    return this._call("set_transport_unpublished", this.accountId, addr, unpublished);
   }
 
   async setDisplayName(name) {

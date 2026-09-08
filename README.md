@@ -100,12 +100,16 @@ device** (receive via `dcbackup:` code), or **restore from a backup** file.
 
 One profile can be reachable on **several chatmail relays** at once — what
 Delta Chat desktop 2.47+ calls "Relays". Messages are received on all of them;
-sending always goes through the primary relay, so there is no relay selector.
-Manage it in the drawer under **Relays of this profile…** (or any profile
-modal → Transport row):
+sending always goes through the **primary** relay. Pick which one sends under
+**Relays of this profile…** → **"Use for sending"** on any relay (messages
+currently waiting to be sent are dropped, since they carry the old sender
+address; the change syncs to your other devices). The status bar shows one
+segment per relay, each colored by that relay's own status, with the sending
+animation on the sending relay's segment only.
 
 - **Add relay** — paste a `dcaccount:`/`dclogin:` invite code or just the relay's domain (`nine.testrun.org`); the core
   configures it as a second transport (progress modal during setup).
+- **Use for sending** — makes that relay the primary (sending) transport.
 - **Remove relay** — soft removal: the relay stops being advertised and
   self-sent messages stop going there immediately, but the core keeps
   listening on it for ~90 days so contacts that still send to the old address

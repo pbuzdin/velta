@@ -312,8 +312,12 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   deeplink (`handleDeeplinkFromUrl` → `chooseRelayOrNewProfile`) can offer
   "add the relay to this profile" alongside the legacy "create a new
   profile" path (`addAccountFromInvite`).
-  Sending always goes through the primary relay; there is deliberately no
-  relay selector. It also owns the **second-device flow** (`secondDeviceFlow`,
+  Sending always goes through the primary relay (`configured_addr`); the
+  Relays modal offers **"Use for sending"** per non-primary relay
+  (`rpc-core.setSendRelay` → core `set_config("configured_addr", …)`, which
+  republishes/re-signs the key, syncs, clears the SMTP queue — queued
+  messages carry the old From — and restarts IO). The segmented status line
+  marks only the sending relay's segment with the sending dashes. It also owns the **second-device flow** (`secondDeviceFlow`,
   drawer → "Add a second device…"): the old device shows a `provide_backup`
   QR (the `get_backup_qr_svg` design card with the `.qr-self` v-logo badge on
   the reserved circle) and waits, completion detected via
