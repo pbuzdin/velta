@@ -606,6 +606,12 @@ export class JsonRpcCore extends EventTarget {
     return this._call("get_connectivity", this.accountId);
   }
 
+  // HTML overview listing each transport with its per-folder connectivity
+  // dots — the only per-relay status the core exposes (parsed in app.js).
+  async getConnectivityHtml() {
+    return this._call("get_connectivity_html", this.accountId);
+  }
+
   /* -- multi-transport relay management (desktop 2.47+ "Relays" UI) -- */
 
   // Published transports only; unpublished ones count as removed from the

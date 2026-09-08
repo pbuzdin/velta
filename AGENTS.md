@@ -293,9 +293,15 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
 - `app/js/app.js` owns the chat list, navigation, modals, diagnostics chat, and
   the PWA shell. It also runs a DOM-budget watchdog that samples node counts.
   It owns the **relay status line** (`#relay-line`, thin strip below the
-  sidebar header): green relay connected / yellow connecting or retrying / red
-  unreachable after a 45 s NotConnected grace / blue demo or local-chat mode,
-  with animated dashes while a message is in flight to the relay (driven by
+  sidebar header): one equal-width segment per configured relay (up to
+  `MAX_RELAYS = 5` in the core, `configure.rs`), each colored by that relay's
+  own status — green connected / yellow connecting or retrying / red
+  unreachable / blue demo or local-chat mode. Per-relay status comes from
+  parsing the core's `get_connectivity_html` (the only per-transport status
+  the core exposes; ceiling noted in `parseConnectivityHtml`). With one relay
+  the line is the old single bar; the combined `get_connectivity` view still
+  drives the 45 s NotConnected grace and the line's overall semantics, with
+  animated dashes while a message is in flight to the relay (driven by
   rpc-core's `send-activity`). It also owns the **multi-relay manager**
   (`openRelaysModal`, reached from the drawer's "Relays of this profile…" and
   the profile modal's Transport row): `list_transports` for the list,
