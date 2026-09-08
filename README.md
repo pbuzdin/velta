@@ -90,7 +90,8 @@ LAN using the core's backup transfer:
   from the transfer — progress is reported live, and the other device stays
   signed in.
 
-First boot offers the same choices in the **Welcome to Velta** modal: create a
+First boot shows a full-screen **Welcome to Velta** splash with the same
+choices: create a
 new profile on a relay (type the address or scan its QR), **add as second
 device** (receive via `dcbackup:` code), or **restore from a backup** file.
 

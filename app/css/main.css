@@ -842,6 +842,40 @@ dc-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 }
 @keyframes toastIn { from { opacity: 0; transform: translateY(10px); } }
 
+/* Welcome splash (first boot, unconfigured account) */
+.splash {
+  position: fixed; inset: 0; z-index: 90;
+  background: var(--bg, #0f0f14);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.splash-main {
+  flex: 1; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; padding: 32px 24px 12px;
+}
+.splash-logo { width: 132px; height: 132px; margin-bottom: 18px; }
+.splash-title { font-size: 30px; font-weight: 700; margin: 0 0 10px; }
+.splash-tag { font-size: 14.5px; line-height: 1.55; color: var(--text-dim, #999); max-width: 420px; margin: 0 0 26px; }
+.splash-actions, .splash-form { width: min(420px, 100%); display: flex; flex-direction: column; gap: 10px; }
+.splash-btn { width: 100%; }
+.splash-hint { font-size: 14.5px; line-height: 1.5; margin: 0 0 4px; }
+.splash .ob-steps { text-align: left; width: min(420px, 100%); margin-top: 14px; }
+.splash-log {
+  flex: none; max-height: 38vh;
+  border-top: 1px solid var(--border);
+  background: var(--panel, #16161d);
+  font-family: ui-monospace, monospace; font-size: 12px;
+}
+.splash-log summary { cursor: pointer; padding: 10px 16px; color: var(--text-dim, #999); user-select: none; }
+.splash-log-bar { display: flex; justify-content: flex-end; padding: 0 12px; }
+.splash-log pre {
+  margin: 0; padding: 4px 16px 14px;
+  max-height: 30vh; overflow-y: auto;
+  white-space: pre-wrap; word-break: break-all;
+  color: var(--text-dim, #aaa); text-align: left;
+}
+
 /* QR invite */
 .qr-box {
   position: relative;
