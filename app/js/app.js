@@ -1816,7 +1816,7 @@ async function addRelayFlow(epoch, refresh, presetCode) {
 
   const body = document.createElement("div");
   body.innerHTML = `<ul class="ob-steps" data-steps></ul>`;
-  showModal({ title: "Adding relay", body });
+  const { close: closeAdding } = showModal({ title: "Adding relay", body });
   const stepsEl = body.querySelector("[data-steps]");
   const addStep = (text) => {
     stepsEl.querySelectorAll("li.active").forEach(li => { li.classList.remove("active"); li.classList.add("done"); });
@@ -1860,6 +1860,13 @@ async function addRelayFlow(epoch, refresh, presetCode) {
       addStep("Relay added — messages are received on both relays");
       toast("Relay added");
       refresh();
+      // Success must not leave the steps modal open — close it and, if the
+      // flow was started from the Relays modal, show the updated list again.
+      setTimeout(() => {
+        if (!accountIsCurrent(epoch)) return;
+        closeAdding();
+        if (refresh) openRelaysModal();
+      }, 900);
     } finally {
       core.removeEventListener("configure-progress", onProg);
     }
