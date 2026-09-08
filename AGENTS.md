@@ -53,7 +53,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── media.js          # media URL helpers (loopback server / asset protocol)
 │   │   ├── p2p.js            # Local chat UI: device pairing, hub, 1:1 chat modal (Tauri only)
 │   │   ├── poster.js         # lazy WebP poster extraction + disk cache
-│   │   ├── qr-scan.js        # code acquisition: paste or camera scan (native BarcodeDetector, no bundled decoder)
+│   │   ├── qr-scan.js        # code acquisition: paste or camera scan (native BarcodeDetector, vendored jsQR fallback for WebViews without it)
 │   │   ├── mock-core.js      # in-memory demo core implementing the JSON-RPC surface
 │   │   ├── rpc-core.js       # JsonRpcCore wrapper over transports + event mapping
 │   │   ├── transport.js      # backend auto-detection (Tauri, WebSocket, HTTP, mock)
@@ -451,8 +451,9 @@ iroh (QUIC, `RelayMode::Disabled`, optional mDNS re-discovery via the
 - UI (`app/js/p2p.js`): drawer entry (Tauri-only, hidden in browser/PWA mode),
   hub with online dots, "Nearby devices" (UDP beacon on port 53717), invite QR
   display, pairing via beacon tap (requires approval on the other device) or
-  pasted/scanned code (`acquireCode` offers native `BarcodeDetector` scanning
-  where the WebView supports it, paste everywhere else).
+   pasted/scanned code (`acquireCode` offers camera scanning — native
+   `BarcodeDetector` where the WebView supports it, vendored jsQR fallback
+   otherwise — plus paste everywhere else).
   Engine-side errors (background connect retries) go to the Diagnostics chat,
   never toasts — several queued connects can fail at once and the store
   collapses identical consecutive entries into one counted row. The toggle
