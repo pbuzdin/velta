@@ -732,6 +732,11 @@ dc-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
   width: 100%;
 }
 .btn-primary:disabled { opacity: .5; cursor: default; }
+/* Combined classes: .btn-text (later in file, equal specificity) would
+   otherwise win color, and .btn-text:hover would replace the accent
+   background — rendering primaries as plain text buttons. */
+.btn-text.btn-primary { color: #f4f4f4; background: var(--accent); }
+.btn-text.btn-primary:hover { background: var(--accent); filter: brightness(1.08); }
 .btn-text { color: var(--accent); font-weight: 600; padding: 10px 14px; border-radius: 8px; }
 .btn-text:hover { background: var(--bg-hover); }
 .modal-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; padding: 4px 10px 12px; }
@@ -803,9 +808,6 @@ dc-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .edit-profile-foot .btn-primary {
   width: auto; padding: 9px 22px; border-radius: 9px;
   font-size: 14.5px; font-weight: 600;
-  /* .btn-text's color: var(--accent) wins the cascade over .btn-primary's
-     white (equal specificity, later in file) — blue text on blue pill */
-  color: #f4f4f4;
 }
 .drawer-addr { font-size: 13px; opacity: .8; }
 .drawer-items { padding: 8px; overflow-y: auto; flex: 1; min-height: 0; }
