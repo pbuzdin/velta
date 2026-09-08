@@ -53,8 +53,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── media.js          # media URL helpers (loopback server / asset protocol)
 │   │   ├── p2p.js            # Local chat UI: device pairing, hub, 1:1 chat modal (Tauri only)
 │   │   ├── poster.js         # lazy WebP poster extraction + disk cache
-│   │   ├── qr-scan.js        # code acquisition: paste or camera scan (native BarcodeDetector probed with a 2s timeout, vendored jsQR fallback — many Android WebViews ship no Shape Detection API or one whose detect() hangs)
-│   │   ├── mock-core.js      # in-memory demo core implementing the JSON-RPC surface
+│   │   ├── qr-scan.js        # code acquisition: paste or camera scan (native BarcodeDetector probed with a 2s timeout, vendored jsQR fallback — many Android WebViews ship no Shape Detection API or one whose detect() hangs)│   │   ├── mock-core.js      # in-memory demo core implementing the JSON-RPC surface
 │   │   ├── rpc-core.js       # JsonRpcCore wrapper over transports + event mapping
 │   │   ├── transport.js      # backend auto-detection (Tauri, WebSocket, HTTP, mock)
 │   │   └── ui.js             # drawer, modals, context menus, toasts
@@ -498,6 +497,21 @@ iroh (QUIC, `RelayMode::Disabled`, optional mDNS re-discovery via the
 - SVG icons are inline strings; no icon library.
 - CSS is a single hand-written file (`app/css/main.css`).
 - The service worker cache version is a hard-coded constant in `app/sw.js`.
+- **Modal async flows: settle BEFORE close.** `showModal`'s `close()` fires
+  `onClose` synchronously, and `onClose` handlers typically resolve the flow's
+  promise with null/`false`. If the flow calls `close()` first, the close-path
+  settlement wins the `settled` race and the real result is silently dropped
+  (this swallowed every successful QR scan once — the reject toasts worked,
+  successes vanished). Always `finish(result); close();` — never the reverse.
+- **Never open the Android soft keyboard over the camera.** Focusing an input
+  raises the keyboard; any scan flow must `blur()` inputs while scanning and
+  focus back only when returning to paste mode (`qr-scan.js` gates its initial
+  `focus()` on the camera being unavailable).
+- **CSS `display` beats the `hidden` attribute.** An element with both a
+  class rule `display: flex|block|…` and the `hidden` attribute stays visible
+  (author styles always win over the UA rule). Add an explicit
+  `.foo[hidden] { display: none; }` whenever a styled container is toggled
+  via `hidden` (bit us on the splash's action/form panes).
 
 ### 6.3 Python
 

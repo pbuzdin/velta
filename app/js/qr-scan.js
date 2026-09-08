@@ -125,7 +125,9 @@ export function acquireCode({ title, hint, validate, autoScan = false }) {
     // Android soft keyboards deliver Enter unreliably — always give paste a
     // tappable submit.
     body.querySelector("[data-use-btn]").addEventListener("click", () => submit(ta.value));
-    setTimeout(() => ta.focus(), 60);
+    // Focus opens the Android soft keyboard — don't raise it while the camera
+    // is about to start; focus the paste field only when the camera is off.
+    if (!autoScan && !canScan) setTimeout(() => ta.focus(), 60);
 
     if (!canScan) return;
     const scanBtn = body.querySelector("[data-scan-btn]");
@@ -171,8 +173,10 @@ export function acquireCode({ title, hint, validate, autoScan = false }) {
         scanning = false;
         stopScan();
         stopScanningUi();
+        setTimeout(() => ta.focus(), 60); // back to paste — raise the keyboard
         return;
       }
+      ta.blur(); // scanning — the soft keyboard must stay down
       if (!canUseCamera()) { toast("Camera API is not available in this WebView"); return; }
       if (!scanning) toast("Starting camera…"); // instant feedback while the permission prompt may be pending
       diagnosticsSink.append("info", "scan: requesting camera");
