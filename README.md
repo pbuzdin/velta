@@ -292,7 +292,9 @@ Velta can open invite and account-setup links directly instead of making the use
 | Platform | Link type | What happens |
 |---|---|---|
 | Android | `https://i.delta.chat/#FINGERPRINT&v=3&…` (or a registered mirror domain, e.g. `https://i.gluek.info/#…`) | Intercepted by the Android intent filters and processed in-app. |
-| Android / PWA | `dcaccount:https://nine.testrun.org/new` | Opens a chooser: add the relay to the current profile, or create a new chatmail account. |
+| Android / PWA | `dcaccount:https://nine.testrun.org/new` | Opens a chooser: add the relay to the current profile, or create a new chatmail account. Velta is registered for the raw `dcaccount:` scheme on Android (system chooser if other chat apps also handle it). |
+| Android | `dclogin:…` | Chooser: add the (existing) relay account to the current profile. |
+| Android | `DCBACKUP2:…` (second-device code) | Opens Velta's "Receive a profile" transfer flow directly. |
 | Desktop (Windows/Linux) | `velta://invite?url=<encoded i.delta.chat URL>` | Opens Velta and joins the 1:1 or group chat. |
 | Desktop (Windows/Linux) | `velta://account?url=<encoded dcaccount URL>` | Opens Velta and offers the relay/new-profile chooser. |
 | Contact verification | `OPENPGP4FPR:…` | Can be processed as a SecureJoin/verification QR. |
