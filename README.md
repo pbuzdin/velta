@@ -62,9 +62,10 @@ peers are queued and flushed on reconnect. Engine: `delta-web-app/src-tauri/src/
 UI: `app/js/p2p.js`. A headless terminal hub for debugging lives in
 `delta-web-app/src-tauri/src/bin/p2p-hub.rs`.
 
-Local chat can be switched off (drawer → Diagnostics chat → "Local chat: on/off"):
-the engine stops, the endpoint socket is released, LAN beacons go silent, and
-the drawer entry disappears. The preference persists across restarts.
+Local chat is **disabled by default**. Switch it on/off (drawer → Diagnostics
+chat → "Local chat: on/off"): when off, the engine never starts (no endpoint
+socket, no LAN beacons) and the drawer entry disappears. The preference
+persists across restarts.
 
 ## Shared contacts (vCards)
 
@@ -91,10 +92,11 @@ LAN using the core's backup transfer:
   from the transfer — progress is reported live, and the other device stays
   signed in.
 
-First boot shows a full-screen **Welcome to Velta** splash with the same
-choices: create a
-new profile on a relay (type the address or scan its QR), **add as second
-device** (receive via `dcbackup:` code), or **restore from a backup** file.
+The **Welcome to Velta** splash (full-screen, with the same choices: create a
+new profile on a relay — type the address or scan its QR — **add as second
+device** via a `dcbackup:` code, or **restore from a backup** file) is shown
+only while there is no configured profile. Returning users with at least one
+account boot straight into the app.
 
 ## Multi-relay accounts
 
@@ -122,7 +124,10 @@ messages.
 The thin status line above the chat list reflects the relay connection:
 green connected, yellow connecting/retrying, red unreachable (after a 45 s
 grace), blue for demo or local-chat-only mode; animated dashes while a
-message is on its way to the relay.
+message is on its way to the relay. Hovering the line (or pulling down at
+the top of the chat list on mobile) reveals a detail bar overlaying the
+list with one row per relay — status and quota usage — fed by the core's
+connectivity page.
 
 ## Project layout
 

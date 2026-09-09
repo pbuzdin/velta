@@ -302,7 +302,17 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   the line is the old single bar; the combined `get_connectivity` view still
   drives the 45 s NotConnected grace and the line's overall semantics, with
   animated dashes while a message is in flight to the relay (driven by
-  rpc-core's `send-activity`). It also owns the **multi-relay manager**
+  rpc-core's `send-activity`). Hovering the line (or pulling down at the top
+  of the chat list on mobile — touch listeners on `#chat-list`) reveals the
+  **relay detail bar** (`#relay-detail`, absolutely positioned inside
+  `.relay-zone` so it overlays the chat list instead of pushing it down):
+  one row per relay with a state dot, domain, status text and the relay's
+  quota (usage/limit + percent, parsed from the connectivity page's
+  `quota-list`; same HTML-parsing ceiling as the segments). The transport
+  `<li>`s nest the quota `<ul>`, so `parseConnectivityHtml` slices the
+  transports section and matches each transport to the next `<li
+  class="transport">` / end of section — a first-`</li>` match silently
+  truncates the quota. It also owns the **multi-relay manager**
   (`openRelaysModal`, reached from the drawer's "Relays of this profile…" and
   the profile modal's Transport row): `list_transports` for the list,
   `set_transport_unpublished` for soft removal (core keeps listening ~90 days
@@ -329,20 +339,23 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   core's format — validate with `/^dcbackup\d*:/i`, not a bare `dcbackup:`),
   and `addAccountWithBackup` imports it into a fresh account — the receive
   path is `receiveSecondDeviceProfile`, shared with the splash. The
-  **Welcome to Velta** splash (`showSplash`, a full-screen page shown when
-  the account is unconfigured — large logo, tagline, three setup paths, and
-  a collapsed app-log footer fed from the diagnostics store): create a profile on a relay (input or
+  **Welcome to Velta** splash (`showSplash`) is created **on demand**, not at
+  boot: boot() shows it only when the account is unconfigured (setup screen:
+  large logo, tagline, three setup paths, and a collapsed app-log footer fed
+  from the diagnostics store — create a profile on a relay (input or
   camera scan of a relay QR, permission only on tapping Scan), add as second
   device (dcbackup receive), and restore from a backup file (Tauri file
   dialog → `resolve_content_uri` on Android → `importBackup`, fire-and-forget
-  with `imex-progress`, app restarts on success).
+  with `imex-progress`, app restarts on success)) or when the core failed to
+  answer after its retries (log surface). Returning users with a configured
+  profile never see it — do not regress this into an unconditional boot splash.
 - **Boot hang on Android (do not regress):** `tauri-plugin-notification`'s
   `requestPermission()` can hang forever on some Android 13+ builds (Vivo)
   once the dialog has been dismissed — boot() used to die silently at its
   first `await`, producing a dead UI with an amber relay line. Never await a
-  plugin permission call without a timeout: boot races it (2.5 s) and the
-  splash (`showSplash`, the boot surface shown before the core connects)
-  makes any remaining hang visible and copyable on the phone.
+  plugin permission call without a timeout: boot races it (2.5 s). Diagnostics
+  are mirrored to velta.log (js_log) regardless, so a hang stays pullable via
+  adb even when no splash is on screen.
 - **On-device diagnosis:** all core/transport diagnostics are mirrored into
   `velta.log` (via `js_log`) — pull over adb with
   `adb shell run-as org.velta cat /data/data/org.velta/logs/velta.log`,
@@ -405,7 +418,18 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
 - `app/js/media.js` resolves local file paths to WebView-safe media URLs (loopback media server when available, asset protocol otherwise). Blob media is served `Cache-Control: immutable` — core blob names are content-deduplicated, so the WebView can cache image bytes across chat switches.
 - `app/js/poster.js` extracts and caches WebP poster frames for video placeholders.
 - `app/js/ui.js` is a collection of UI helpers (drawer, modals, context menus,
-  toasts, delete-confirmation dialog). The drawer footer (`drawer-foot`) shows
+  toasts, delete-confirmation dialog). The drawer head (`drawer-head`) shows
+  the avatar (tap → the self profile sheet via `onProfile`; `showChatInfo`
+  skips the Send/Rename/Block row for the self contact, id 1), the display
+  name, and pill-button links: **Edit profile** and **Switch account** — the
+  latter toggles an account dropdown (`.acct-pop`, anchored to the button,
+  entries styled like the buttons) listing profiles with the current one
+  checked; it renders only when there is more than zero accounts. No
+  address/relay/backend lines in the head. The drawer is as wide as the chat
+  list (`clamp(300px, 33vw, 420px)`, full width on mobile). While open, a
+  capture-phase document `pointerdown` listener closes it on any tap outside
+  (the transparent overlay stays and swallows the click so nothing underneath
+  activates). The drawer footer (`drawer-foot`) shows
   the app version (Tauri app version when `window.__TAURI__` is present) plus
   the Tauri framework version in Tauri mode, or the service worker cache
   version in PWA mode. `.qr-box` carries no background/border of its own — the
@@ -471,12 +495,15 @@ iroh (QUIC, `RelayMode::Disabled`, optional mDNS re-discovery via the
   bidirectional QUIC stream per session; sends to offline peers are queued and
   flushed on reconnect. Events reach the UI as Tauri `p2p-event`s; commands are
   the `p2p_*` Tauri methods registered in `lib.rs`.
-- Enable/disable: `p2p_set_enabled` starts/stops the engine (endpoint socket
-  released, beacons off); the preference lives in the WebView
-  (`localStorage["velta-p2p"]`, applied on every boot by `app/js/p2p.js`).
-  `P2pState` carries the data dir and an enabled flag so a disable request
-  racing the async boot spawn still wins (the spawned startup re-checks the
-  flag after `P2p::start` and closes the engine again if it lost the race).
+- Enable/disable: **local chat is disabled by default** — the Rust flag
+  (`P2pState::empty`) starts `false` and `spawn_startup` refuses to start when
+  disabled (checked before *and* after `P2p::start`, so a disable request
+  racing the boot spawn still wins). `p2p_set_enabled` starts/stops the engine
+  (endpoint socket released, beacons off); the opt-in preference lives in the
+  WebView (`localStorage["velta-p2p"] === "1"`, applied on every boot by
+  `app/js/p2p.js`, which calls `p2p_set_enabled(true)` only when opted in).
+  Don't regress the default to enabled — a fresh install must not open QUIC
+  sockets or broadcast LAN beacons without the user asking for it.
 - UI (`app/js/p2p.js`): drawer entry (Tauri-only, hidden in browser/PWA mode),
   hub with online dots, "Nearby devices" (UDP beacon on port 53717), invite QR
   display, pairing via beacon tap (requires approval on the other device) or

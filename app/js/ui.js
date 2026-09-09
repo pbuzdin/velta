@@ -134,7 +134,7 @@ export function confirmDeleteMessagesModal(count, canForAll) {
 
 /* ---------- Version info (drawer footer + About) ---------- */
 const CORE_VERSION = "2.59.0";
-const FALLBACK_APP_VERSION = "1.3.21";
+const FALLBACK_APP_VERSION = "1.3.22";
 
 async function getAppVersion() {
   try {
@@ -165,7 +165,7 @@ async function getTauriVersion() {
 }
 
 /* ---------- Settings drawer ---------- */
-export function buildDrawer({ account, backend, onAddAccount, onSecondDevice, onToggleTheme, onOpenChat, onInvite, onToggleMock, onEditProfile, onInviteDomains, onP2p, p2p = false, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme }) {
+export function buildDrawer({ account, onAddAccount, onSecondDevice, onToggleTheme, onOpenChat, onInvite, onToggleMock, onProfile, onEditProfile, onInviteDomains, onP2p, p2p = false, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme }) {
   const isTauri = !!window.__TAURI__;
   const drawer = document.createElement("div");
   drawer.className = "drawer";
@@ -173,17 +173,20 @@ export function buildDrawer({ account, backend, onAddAccount, onSecondDevice, on
   drawer.innerHTML = `
     <div class="drawer-head">
       <button class="icon-btn drawer-close" data-act="close" title="Close" aria-label="Close menu"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
-      <dc-avatar name="${escapeHtml(account.displayName)}" color="${escapeAttr(account.color || "#777")}" size="56" contact-id="1"${account.avatar ? ` avatar="${escapeAttr(fileUrl(account.avatar))}"` : ""}></dc-avatar>
+      <dc-avatar data-act="profile" style="cursor:pointer" name="${escapeHtml(account.displayName)}" color="${escapeAttr(account.color || "#777")}" size="56" contact-id="1"${account.avatar ? ` avatar="${escapeAttr(fileUrl(account.avatar))}"` : ""}></dc-avatar>
       <div>
         <div class="drawer-name">${escapeHtml(account.displayName)}</div>
-        <div class="drawer-addr">${escapeHtml(account.addr)}</div>
-        <div class="drawer-addr">relay: ${escapeHtml(account.relay)}</div>
-        ${backend ? `<div class="drawer-addr" style="opacity:.65">backend: ${escapeHtml(backend)}</div>` : ""}
+        <div class="drawer-links">
+          <button type="button" data-act="edit-profile">Edit profile</button>
+          ${accounts.length ? `<button type="button" data-act="switch-account">Switch account<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <div class="acct-pop" data-acct-pop hidden>
+            ${accounts.map(a => `<button class="ctx-item" data-act="account" data-account="${escapeAttr(a.id)}"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>${a.id === currentAccountId ? `<path d="M8.5 12.5l2.5 2.5 5-5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>` : ""}</svg><span>${escapeHtml(a.name || a.addr)}${a.id === currentAccountId ? " · current" : ""}</span></button>`).join("")}
+          </div>` : ""}
+        </div>
       </div>
     </div>
     <div class="drawer-items">
       <button class="ctx-item" data-act="saved"><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4.5L6 21z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Saved Messages</span></button>
-      <button class="ctx-item" data-act="edit-profile"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M15.5 15.5l4 4M19.5 15.5l-4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Edit profile</span></button>
       <button class="ctx-item" data-act="invite"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="13" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="3" width="8" height="8" rx="1" fill="currentColor"/><rect x="3" y="13" width="8" height="8" rx="1" fill="currentColor"/></svg><span>Invite friends (QR)</span></button>
       ${p2p ? `<button class="ctx-item" data-act="p2p"><svg viewBox="0 0 24 24"><path d="M2.5 9.5a14 14 0 0119 0M5.5 13a9.5 9.5 0 0113 0M8.5 16.5a5 5 0 017 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="19.5" r="1.4" fill="currentColor"/></svg><span>Local chat (beta)</span></button>` : ""}
       <div class="drawer-sec">Settings</div>
@@ -191,8 +194,6 @@ export function buildDrawer({ account, backend, onAddAccount, onSecondDevice, on
       <button class="ctx-item" data-act="add-account"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 5v4M21 7h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Add profile…</span></button>
       <button class="ctx-item" data-act="second-device"><svg viewBox="0 0 24 24"><rect x="2.5" y="4" width="11" height="17" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="16" y="8" width="5.5" height="13" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Add a second device…</span></button>
       <button class="ctx-item" data-act="relays"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Relays of this profile…</span></button>
-      <div class="drawer-sec">Accounts</div>
-      ${accounts.length ? accounts.map(a => `<button class="ctx-item" data-act="account" data-account="${escapeAttr(a.id)}"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>${a.id === currentAccountId ? `<path d="M8.5 12.5l2.5 2.5 5-5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>` : ""}</svg><span>${escapeHtml(a.name || a.addr)}${a.id === currentAccountId ? " · current" : ""}</span></button>`).join("") : ""}
       <button class="ctx-item" data-act="invite-domains"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Invite link domains</span></button>
       <button class="ctx-item" data-act="mock"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 9h6v6H9z" fill="currentColor"/></svg><span>${localStorage.getItem("velta-mock") === "1" ? "Exit mock mode" : "Enter mock mode"}</span></button>
       <button class="ctx-item" data-act="about"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 10v6M12 7v.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><span>About Velta</span></button>
@@ -225,11 +226,25 @@ export function buildDrawer({ account, backend, onAddAccount, onSecondDevice, on
   overlay.addEventListener("pointerdown", close);
   popups().appendChild(overlay);
 
-  function open() { drawer.classList.add("open"); overlay.style.display = "block"; }
+  const acctPop = drawer.querySelector("[data-acct-pop]");
+
+  // Outside tap closes the drawer. Capture phase, so it wins over whatever
+  // lives under the tap; the transparent overlay (z 50) still swallows the
+  // click so nothing under the drawer activates. Belt and suspenders: the
+  // document listener works even where the overlay doesn't get the event.
+  const onDocPointer = e => { if (!drawer.contains(e.target)) close(); };
+
+  function open() {
+    drawer.classList.add("open");
+    overlay.style.display = "block";
+    document.addEventListener("pointerdown", onDocPointer, true);
+  }
   function close() {
     drawer.classList.remove("open");
+    if (acctPop) acctPop.hidden = true;
     // the overlay may already be gone (wiped by closeAllPopups) — guard it
     if (overlay.isConnected) overlay.style.display = "none";
+    document.removeEventListener("pointerdown", onDocPointer, true);
   }
   activeDrawer = { close };
 
@@ -237,11 +252,13 @@ export function buildDrawer({ account, backend, onAddAccount, onSecondDevice, on
     const btn = e.target.closest("[data-act]");
     if (!btn) return;
     const act = btn.dataset.act;
+    if (act === "switch-account") { acctPop.hidden = !acctPop.hidden; return; }
     close();
     if (act === "theme") onToggleTheme();
     if (act === "saved") onOpenChat("saved");
     if (act === "invite") onInvite?.();
     if (act === "p2p") onP2p?.();
+    if (act === "profile") onProfile?.();
     if (act === "edit-profile") onEditProfile?.();
     if (act === "add-account") onAddAccount();
     if (act === "second-device") onSecondDevice?.();

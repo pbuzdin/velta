@@ -27,7 +27,10 @@
         <input id="search" type="search" placeholder="Search" autocomplete="off">
       </div>
     </header>
-    <div id="relay-line" class="relay-line" data-state="connecting" role="status"></div>
+    <div class="relay-zone">
+      <div id="relay-line" class="relay-line" data-state="connecting" role="status"></div>
+      <div id="relay-detail" class="relay-detail"></div>
+    </div>
     <nav id="chat-list" class="chat-list" role="listbox" aria-label="Chats"></nav>
     <footer class="sidebar-foot">
       <button id="btn-new-chat" class="fab" title="New chat" aria-label="New chat">

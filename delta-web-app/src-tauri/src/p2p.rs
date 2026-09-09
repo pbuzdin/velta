@@ -1444,7 +1444,7 @@ impl P2pState {
         Self {
             engine: std::sync::Arc::new(Mutex::new(None)),
             dir: std::sync::Mutex::new(None),
-            enabled: std::sync::Arc::new(std::sync::Mutex::new(true)),
+            enabled: std::sync::Arc::new(std::sync::Mutex::new(false)),
         }
     }
 
@@ -1473,13 +1473,18 @@ fn engine(state: &P2pState) -> Result<Arc<P2p>> {
 }
 
 /// Starts the engine on Tauri's async runtime and publishes it into `slot`,
-/// unless the engine was disabled in the meantime.
+/// unless the engine was disabled (the flag is re-checked after `P2p::start`
+/// so a disable request racing the spawn still wins).
 pub fn spawn_startup(
     app: tauri::AppHandle,
     slot: EngineSlot,
     enabled: std::sync::Arc<std::sync::Mutex<bool>>,
     dir: PathBuf,
 ) {
+    if !*enabled.lock().unwrap() {
+        crate::log("p2p chat engine disabled — not starting");
+        return;
+    }
     tauri::async_runtime::spawn(async move {
         match P2p::start(dir, Sink::Tauri(app.clone())).await {
             Ok(engine) => {
