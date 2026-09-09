@@ -227,9 +227,9 @@ if (window.__TAURI__) {
   }
 }
 
-// The splash is the boot surface: it shows immediately (with the live app
-// log) so any startup hang or failure is visible and copyable, and boot()
-// later decides whether it becomes the setup screen or disappears.
+// The splash is created on demand: boot shows it only when the account is
+// unconfigured (setup screen) or the core failed to answer (log surface).
+// Returning users with a configured profile never see it.
 let splashSession = null;
 
 // Mirror diagnostics into velta.log (js_log): the in-app store is only
@@ -245,7 +245,7 @@ coreStartupPromise = createCore({
     } catch {}
   },
 });
-splashSession = showSplash();
+
 try {
   core = await coreStartupPromise;
   setFingerprintSource((contactId) => core.getContactEncryptionInfo(contactId));
@@ -339,20 +339,32 @@ const RELAY_DOWN_AFTER_MS = 45000;
 // rendered as `<span class="(green|red|yellow|grey) dot"></span> <b>domain:</b>
 // text`. Worst dot color wins per relay.
 // 🐴 ceiling: parsing the core's HTML page — upgrade path is a dedicated
-// per-transport connectivity JSON-RPC in the core.
+// per-transport connectivity/quota JSON-RPC in the core.
 function parseConnectivityHtml(html) {
   const out = [];
   const weight = { red: 3, yellow: 2, grey: 1, green: 0 };
   const stateFor = { green: "ok", yellow: "connecting", grey: "connecting", red: "down" };
-  for (const m of html.matchAll(/<li class="transport( unpublished)?">([\s\S]*?)<\/li>/g)) {
+  // The transport <li>s nest a quota <ul><li>, so match each transport from
+  // its opening tag to the next one (or the end of the transports section,
+  // i.e. the next <h3> / </body>) instead of the first </li>.
+  const start = html.indexOf('<li class="transport');
+  if (start < 0) return out;
+  let end = html.indexOf("<h3>", start + 1);
+  if (end < 0) end = html.indexOf("</body>", start);
+  const block = html.slice(start, end < 0 ? undefined : end);
+  for (const m of block.matchAll(/<li class="transport( unpublished)?">([\s\S]*?)(?=<li class="transport|$)/g)) {
     if (m[1]) continue; // unpublished relay — phasing out, not a live transport
     const colors = [...m[2].matchAll(/class="(red|green|yellow|grey) dot"/g)].map(c => c[1]);
     if (!colors.length) continue;
     // The core writes the colon inside the bold tag ("<b>domain:</b>") — strip it.
     const domain = ((m[2].match(/<b>([^<]+)<\/b>/) || [])[1] || "relay").replace(/:\s*$/, "");
-    const text = (m[2].split(/<\/b>/i)[1] || "").replace(/<[^>]*>/g, "").split("\n")[0].trim();
+    const text = (m[2].split(/<\/b>/i)[1] || "").split(/<br/i)[0].replace(/<[^>]*>/g, "").trim();
+    // Quota section (quota-list): usage/limit line(s) plus the percent from
+    // the progress bar, tag-stripped — e.g. "1.3 GiB of 2 GiB used 67%".
+    const quotaEl = m[2].match(/<ul class="quota-list">([\s\S]*?)<\/ul>/);
+    const quota = quotaEl ? quotaEl[1].replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim() : "";
     colors.sort((a, b) => weight[b] - weight[a]);
-    out.push({ domain, text, state: stateFor[colors[0]] || "connecting" });
+    out.push({ domain, text, state: stateFor[colors[0]] || "connecting", quota });
   }
   return out;
 }
@@ -438,6 +450,44 @@ function renderRelayLine() {
   else el.removeAttribute("data-sending");
   el.title = title;
   el.setAttribute("aria-label", title);
+
+  // Detail bar (hover / pull-down reveal): one row per relay — status, quota.
+  const detail = document.getElementById("relay-detail");
+  if (detail) {
+    detail.replaceChildren(...segs.map(s => {
+      const row = document.createElement("div");
+      row.className = "relay-detail-row";
+      row.dataset.state = s.state;
+      const dot = document.createElement("span"); dot.className = "relay-detail-dot";
+      const dom = document.createElement("span"); dom.className = "relay-detail-domain";
+      dom.textContent = s.domain || "Relay";
+      const txt = document.createElement("span"); txt.className = "relay-detail-text";
+      txt.textContent = s.quota ? `${s.text || title} · ${s.quota}` : (s.text || title);
+      row.append(dot, dom, txt);
+      return row;
+    }));
+  }
+}
+
+// Mobile: pulling down at the top of the chat list reveals the detail bar
+// (pull-to-refresh gesture); it hides itself again after a few seconds.
+const chatListEl = document.getElementById("chat-list");
+const relayDetailEl = document.getElementById("relay-detail");
+let relayPullY = null;
+let relayPullTimer = null;
+if (chatListEl && relayDetailEl) {
+  chatListEl.addEventListener("touchstart", e => {
+    relayPullY = chatListEl.scrollTop <= 0 ? e.touches[0].clientY : null;
+  }, { passive: true });
+  chatListEl.addEventListener("touchmove", e => {
+    if (relayPullY == null || chatListEl.scrollTop > 0) return;
+    if (e.touches[0].clientY - relayPullY > 32) {
+      relayDetailEl.classList.add("pull-open");
+      clearTimeout(relayPullTimer);
+      relayPullTimer = setTimeout(() => relayDetailEl.classList.remove("pull-open"), 4000);
+    }
+  }, { passive: true });
+  chatListEl.addEventListener("touchend", () => { relayPullY = null; }, { passive: true });
 }
 
 core.addEventListener?.("connectivity-changed", refreshRelayStatus);
@@ -617,6 +667,19 @@ function isGroupChat(chat) {
 }
 setAvatarProfileOpener(openContactProfile);
 
+// Drawer avatar tap: the user's own profile sheet. Contact 1 is the self
+// contact (ContactId::SELF); showChatInfo skips the contact action buttons
+// for it.
+function openSelfProfile() {
+  showChatInfo({
+    contactId: 1,
+    name: state.account.displayName,
+    contact: { addr: state.account.addr, verified: true },
+    kind: "single",
+    encrypted: true,
+  });
+}
+
 function formatFingerprint(fpr) {
   const groups = fingerprintGroups(fpr) || [];
   const lines = [];
@@ -789,7 +852,7 @@ function showChatInfo(chat) {
       <dc-avatar class="chat-info-avatar" name="${escapeHtml(chat.name)}" color="${chat.avatarColor || "#777"}" kind="${chat.kind}" size="168"${chat.contactId ? ` contact-id="${chat.contactId}"` : ""}${chat.contact && chat.contact.addr ? ` addr="${escapeAttr(chat.contact.addr)}"` : ""}${chat.avatar ? ` avatar="${escapeAttr(fileUrl(chat.avatar))}"` : ""}></dc-avatar>
       ${chat.contactId ? `<span class="chat-info-tile" data-caption-tile></span>` : ""}
     </div>
-    ${!isGroup && chat.contactId ? `<div class="profile-actions">
+    ${!isGroup && chat.contactId && chat.contactId !== 1 ? `<div class="profile-actions">
       <button class="btn-text" data-pa="send">Send message</button>
       <button class="btn-text" data-pa="rename">Edit name</button>
       <button class="btn-text" data-pa="block" style="color:var(--danger)">Block</button>
@@ -807,8 +870,8 @@ function showChatInfo(chat) {
   // relays manager for the current account.
   body.querySelector("[data-relays]")?.addEventListener("click", () => openRelaysModal());
 
-  // Profile action buttons (single chats): send, share, rename, block.
-  if (!isGroup && chat.contactId) {
+  // Profile action buttons (single chats, not the self contact): send, share, rename, block.
+  if (!isGroup && chat.contactId && chat.contactId !== 1) {
     const contactId = chat.contactId;
     const actBtn = (act) => body.querySelector(`[data-pa="${act}"]`);
     actBtn("send")?.addEventListener("click", async () => {
@@ -1294,7 +1357,6 @@ function rebuildDrawer() {
   drawer?.overlayEl?.remove();
   drawer = buildDrawer({
     account: state.account,
-    backend: core.backend?.label || "unknown backend",
     theme: state.theme,
     p2p: p2pAvailable() && p2pEnabled(),
     onP2p: () => openP2pScreen({ renderQr: text => core.createQrSvg(text) }),
@@ -1306,6 +1368,7 @@ function rebuildDrawer() {
     onAddAccount: addAccountFlow,
     onSecondDevice: secondDeviceFlow,
     onInvite: () => showInvite(inviteQrProvider(null), { account: state.account }),
+    onProfile: openSelfProfile,
     onEditProfile: editProfileFlow,
     onInviteDomains: () => showInviteDomainsModal(),
     onToggleMock: () => {
@@ -2076,14 +2139,20 @@ async function secondDeviceFlow() {
     }
     if (!account) {
       diagnostics.append("error", "Core is not responding — setup stays on screen, the log above has the details");
+      // No splash so far (returning users boot straight in); the log surface
+      // is only needed now that the core failed to answer.
+      splashSession = showSplash();
       return;
     }
     state.account = account;
     appLog(`boot: account ${state.account.addr} configured=${state.account.configured}`);
 
-    // Splash: setup actions when unconfigured; gone once a profile is ready.
-    if (core.configureWithCredentials && state.account.configured === false) splashSession?.showActions();
-    else splashSession?.hide();
+    // Splash: setup screen only when there is no configured profile —
+    // returning users never see it.
+    if (core.configureWithCredentials && state.account.configured === false) {
+      splashSession = showSplash();
+      splashSession?.showActions();
+    }
 
     try {
       const tauri = window.__TAURI__;

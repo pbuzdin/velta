@@ -13,10 +13,11 @@ export function p2pAvailable() {
   return !!(t && (t.core?.invoke || t.invoke));
 }
 
-// Local chat preference, persisted by the WebView. Off hides the drawer
-// entry and stops the engine (endpoint released, no beacons, no retries).
+// Local chat preference, persisted by the WebView. Disabled by default —
+// opting in starts the engine; off hides the drawer entry and keeps the
+// engine stopped (endpoint released, no beacons, no retries).
 export function p2pEnabled() {
-  try { return localStorage.getItem("velta-p2p") !== "0"; } catch { return true; }
+  try { return localStorage.getItem("velta-p2p") === "1"; } catch { return false; }
 }
 
 export async function setP2pEnabled(enabled) {
@@ -42,11 +43,11 @@ let pairRequestOpen = false;
 
 // Pairing requests arrive as engine events and must be answerable whether or
 // not the hub is open, so the listener is installed at startup. Kept below
-// the module state so `listening` is initialized before use. When Local chat
-// is disabled, apply the preference to the engine as early as possible.
-if (p2pAvailable()) {
-  if (p2pEnabled()) ensureListener();
-  else tauriInvoke()("p2p_set_enabled", { enabled: false }).catch(() => {});
+// the module state so `listening` is initialized before use. The Rust side
+// boots with the engine stopped; opting in is what starts it.
+if (p2pAvailable() && p2pEnabled()) {
+  tauriInvoke()("p2p_set_enabled", { enabled: true }).catch(() => {});
+  ensureListener();
 }
 
 function ensureListener() {
