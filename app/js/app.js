@@ -369,7 +369,42 @@ function parseConnectivityHtml(html) {
   return out;
 }
 
+// Relay-status refresh coalescing. refreshRelayStatus is driven by
+// connectivity-changed, but its own get_connectivity RPCs make the core
+// recompute connectivity and emit further ConnectivityChanged events, so an
+// unguarded handler feeds back into itself and multiplies an event storm
+// (observed live: thousands of events/s). Rule: at most one refresh in
+// flight, polls at most once per gap, and everything arriving meanwhile
+// collapses into a single trailing refresh.
+let relayRefreshBusy = false;
+let relayRefreshAgain = false;
+let relayRefreshLastStart = 0;
+const RELAY_REFRESH_MIN_GAP_MS = 1500;
+
 async function refreshRelayStatus() {
+  if (relayRefreshBusy) { relayRefreshAgain = true; return; }
+  const wait = RELAY_REFRESH_MIN_GAP_MS - (Date.now() - relayRefreshLastStart);
+  if (wait > 0) {
+    if (!relayRefreshAgain) {
+      relayRefreshAgain = true;
+      setTimeout(() => { relayRefreshAgain = false; refreshRelayStatus(); }, wait);
+    }
+    return;
+  }
+  relayRefreshBusy = true;
+  relayRefreshLastStart = Date.now();
+  try {
+    await refreshRelayStatusInner();
+  } finally {
+    relayRefreshBusy = false;
+    if (relayRefreshAgain) {
+      relayRefreshAgain = false;
+      refreshRelayStatus();
+    }
+  }
+}
+
+async function refreshRelayStatusInner() {
   if (!core.getConnectivity || core.backend?.kind === "mock") return;
   const epoch = core.accountEpoch;
   try {

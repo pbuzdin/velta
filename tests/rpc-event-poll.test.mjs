@@ -72,15 +72,34 @@ test("a late response to an expired long poll is dispatched, not dropped", async
   // The backend answers the OLD waiter; the entry was kept for salvage.
   transport.receive(JSON.stringify({ jsonrpc: "2.0", id: transport.sent[0].id, result: read }));
   await eventually(() => events.length >= 1);
+  assert.equal(events.length, 1, "a salvaged late response is dispatched exactly once");
   assert.deepEqual(events[0], { chatId: CHAT, msgId: MSG, state: "read" });
 
   // The re-issued poll is answered through the normal path.
   transport.receive(JSON.stringify({ jsonrpc: "2.0", id: transport.sent[1].id, result: read }));
   await eventually(() => events.length >= 2);
+  assert.equal(events.length, 2, "the live response is dispatched exactly once (used to double)");
   assert.deepEqual(events[1], { chatId: CHAT, msgId: MSG, state: "read" });
 
   await park();
   assert.equal(core.pending.size, 0, "answered entries must be settled and cleared");
+});
+
+test("a live long-poll response is dispatched exactly once, not twice", async t => {
+  const { core, transport, events, park } = setup(t);
+  void core._pollEvents();
+  await eventually(() => transport.sent.length >= 1);
+
+  // Normal path: the response resolves the awaited poll. The salvage hook
+  // used to run here too, so every core event reached the UI twice —
+  // visible as doubled onIncoming lines 1-5 ms apart in velta.log.
+  transport.receive(JSON.stringify({ jsonrpc: "2.0", id: transport.sent[0].id, result: delivered }));
+  await eventually(() => events.length >= 1);
+  await new Promise(r => setTimeout(r, 60)); // a duplicate dispatch would land within this window
+  assert.equal(events.length, 1);
+  assert.deepEqual(events[0], { chatId: CHAT, msgId: MSG, state: "delivered" });
+
+  await park();
 });
 
 test("salvaged events still respect account attribution and the epoch", async t => {

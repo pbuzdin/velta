@@ -210,6 +210,9 @@ test("epoch alone invalidates async results and immediate actions", async t => {
 test("an older tail request cannot undo a newer tail", async t => {
   const { view, core } = setup(t);
   await view.open(7);
+  // Throttle off: this exercises the reload-ordering race between two
+  // overlapping refetches, not burst coalescing.
+  view.tailRefetchGapMs = 0;
   const older = deferred(), newer = deferred();
   core.getMessages = () => older.promise;
   const first = view.onMsgsChanged(7);
