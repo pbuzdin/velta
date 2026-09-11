@@ -129,6 +129,18 @@ the top of the chat list on mobile) reveals a detail bar overlaying the
 list with one row per relay — status and quota usage — fed by the core's
 connectivity page.
 
+## Core upgrades
+
+The Delta Chat core is vendored in `core/` and consumed three ways: as the
+Windows sidecar binary, as the in-process library inside the Android APK, and
+as the prebuilt `deltachat-backend/` servers used by the PWA/test rig. The
+frontend talks to it over one integration point (`app/js/rpc-core.js`), so a
+core change can surface as frontend symptoms (event storms, re-render churn)
+rather than clean errors. [COREUPDATE.md](COREUPDATE.md) is the step-by-step
+upgrade plan: the RPC/event contract to preserve, offline gates, live and
+two-account checks, the event-storm regression pass, device checks, and
+rollback rules.
+
 ## Project layout
 
 ```

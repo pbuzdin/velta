@@ -607,7 +607,8 @@ Regression suites (Node's built-in test runner, no dependencies):
 node --test tests/rpc-account-isolation.test.mjs \
              tests/chat-account-isolation.test.mjs \
              tests/app-account-isolation.test.mjs \
-             tests/rpc-event-poll.test.mjs
+             tests/rpc-event-poll.test.mjs \
+             tests/chat-msg-update-hardening.test.mjs
 ```
 
 These cover the account-isolation contract: stale account results (A→B→A),
@@ -615,9 +616,13 @@ entry-account-pinned RPCs, view lifetime across close/reopen, per-account
 drafts, popup settlement, attachment flows (the image preview modal is
 settled by clicking its Send button in the stub DOM), and the event
 long-poll contract: expired `get_next_event` requests stay registered so
-their late responses are dispatched (never dropped), with account
-attribution still enforced. Run them after touching `rpc-core.js`, `app.js`,
-`chat-view.js` or `ui.js`.
+their late responses are dispatched (never dropped) and dispatched exactly
+once, with account attribution still enforced. The hardening suite pins the
+event-storm defenses: duplicate message updates take the changed path at
+most once (no repeated `onItemHeightDidChange` for unmounted rows), row
+signatures survive unmounted updates, and `msgs-changed` bursts collapse
+into one tail refetch per gap. Run them after touching `rpc-core.js`,
+`app.js`, `chat-view.js` or `ui.js`.
 
 Beyond that, the primary verification path is manual:
 
@@ -726,10 +731,39 @@ test traffic accordingly.
 | Diagnose service | Open `http://localhost:8080/diag.html` |
 | Run Python CFFI tests | `cd core/python && pytest` |
 | Run Python RPC tests | `cd core/deltachat-rpc-client && pytest` |
+| Upgrade the core | Follow `COREUPDATE.md` |
 
 ---
 
 ## 11. Notes for agents
+
+Do-not-regress notes for the event-storm hardening (added 1.3.23; the
+failure mode was a core event storm rendering as endless chat-history
+re-renders, `[virtual-scroller] The item is no longer rendered onscreen
+(onItemHeightDidChange)` console spam, and a relay-status feedback loop):
+
+- `rpc-core.js` `_onLine`: the event-poll `onLate` hook must run only for
+  entries the backstop already rejected (`entry.settled`). Running it for a
+  live entry too dispatches every single core event exactly twice — the
+  doubled `onIncoming` lines 1-5 ms apart in `velta.log` were this.
+- `chat-view.js` `onMsgUpdated`: call `onItemHeightDidChange` only when the
+  row is mounted, and for unmounted rows *set* the new row signature instead
+  of deleting it — deleting it made every duplicate event retake the full
+  changed path (and re-notify the scroller for an off-screen item) forever.
+- `chat-view.js` `_renderItem` seeds `_rowSigCache` at build time; do not
+  remove, or the first duplicate update silently rebuilds mounted rows.
+- `chat-view.js` `onMsgsChanged` coalesces refetch bursts
+  (`tailRefetchGapMs`); `app.js` `refreshRelayStatus` coalesces
+  connectivity-driven polls (its own `get_connectivity` RPCs emit further
+  `ConnectivityChanged` events — the unguarded handler multiplied storms).
+  Tests shrink both via their instance knobs, not by deleting the gates.
+- Core-side: a mail the core fetches and ignores (`receive_imf.rs` ignore
+  path) must still be marked seen on the server, or IMAP idle re-fetches it
+  forever — one looping mail stalled an inbox with events every ~2 s. Check
+  COREUPDATE.md §7 on every core upgrade.
+
+`COREUPDATE.md` is the core-upgrade test plan; consult it before merging an
+upstream core or swapping `deltachat-rpc-server` binaries.
 
 - The `core/` directory is large and self-contained. If your task only touches
   Velta's frontend or wrappers, avoid changing files under `core/` unless you
