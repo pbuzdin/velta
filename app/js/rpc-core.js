@@ -154,11 +154,15 @@ export class JsonRpcCore extends EventTarget {
     let msg;
     try { msg = JSON.parse(line); } catch { return; }
     if (msg.id != null && this.pending.has(msg.id)) {
-      const { resolve, reject, onLate } = this.pending.get(msg.id);
+      const entry = this.pending.get(msg.id);
+      const { resolve, reject, onLate } = entry;
       this.pending.delete(msg.id);
-      // Salvaged long-poll entries are already settled; onLate still runs so
-      // the late response's event is processed instead of dropped.
-      if (onLate) onLate(msg);
+      // onLate exists only for event-poll entries, and must run only when
+      // the caller was already backstopped (entry.settled): those callers
+      // are gone, so the late response is processed here instead of dropped.
+      // A live poll entry is delivered through its resolve() below; running
+      // the hook there too dispatched every single core event exactly twice.
+      if (onLate && entry.settled) onLate(msg);
       if (msg.error) reject(new Error(msg.error.message || JSON.stringify(msg.error)));
       else resolve(msg.result);
     }
@@ -234,8 +238,13 @@ export class JsonRpcCore extends EventTarget {
       }
       setTimeout(() => {
         // Backstop only rejects the caller so the loop re-polls; the entry
-        // stays registered to receive its late response.
-        if (this.pending.has(id)) reject(new Error("rpc timeout: get_next_event"));
+        // stays registered to receive its late response. settled marks the
+        // caller as gone so _onLine routes the late response through onLate
+        // instead of the (already rejected) resolve.
+        if (this.pending.has(id)) {
+          this.pending.get(id).settled = true;
+          reject(new Error("rpc timeout: get_next_event"));
+        }
       }, this.eventPollTimeoutMs);
     });
   }

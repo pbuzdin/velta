@@ -218,6 +218,11 @@ export class ChatView {
     this.replyTo = null;
     this._session = null;
     this._drafts = new Map();
+    // onMsgsChanged refetch coalescing window (tests shrink it).
+    this.tailRefetchGapMs = 2000;
+    this._tailRefetchAt = 0;
+    this._tailRefetchTimer = null;
+    this._pendingTailRefetch = null;
 
     this.scrollEl = document.getElementById("history-scroll");
     this.listEl = document.getElementById("history");
@@ -299,6 +304,8 @@ export class ChatView {
     input.style.height = "auto";
     input.disabled = true;
     this.stopLive();
+    if (this._tailRefetchTimer) { clearTimeout(this._tailRefetchTimer); this._tailRefetchTimer = null; }
+    this._pendingTailRefetch = null;
     this._stopSettling?.();
     this.chat = null;
     this.hasMore = false;
@@ -352,10 +359,29 @@ export class ChatView {
   // Fallback refresh: the core signals "messages changed" (IncomingMsgBunch
   // carries no ids, and the decorated fast-path may fail). Reload the tail
   // and append only what's actually new, preserving scroll/history paging.
+  // Bursts are collapsed: at most one refetch per gap (each is 2+ RPCs, and
+  // during an event storm this was the dominant work item), with a single
+  // trailing refetch that remembers whether any suppressed call asked for a
+  // fresh id rebuild.
   async onMsgsChanged(chatId, { fresh = false } = {}) {
     debugLog(`chat-view onMsgsChanged chatId=${chatId} current=${this.chat?.id} fresh=${fresh}`);
     const session = this._session;
     if (!this._isCurrent(session) || !this.chat || (chatId && chatId !== this.chat.id)) return;
+    const sinceLast = Date.now() - this._tailRefetchAt;
+    if (sinceLast < this.tailRefetchGapMs) {
+      const pending = this._pendingTailRefetch || (this._pendingTailRefetch = { fresh: false });
+      if (fresh) pending.fresh = true;
+      if (!this._tailRefetchTimer) {
+        this._tailRefetchTimer = setTimeout(() => {
+          this._tailRefetchTimer = null;
+          const args = this._pendingTailRefetch;
+          this._pendingTailRefetch = null;
+          if (args) this.onMsgsChanged(0, args);
+        }, this.tailRefetchGapMs - sinceLast);
+      }
+      return;
+    }
+    this._tailRefetchAt = Date.now();
     const reload = ++session.reload;
     let maxId = 0;
     for (const it of this.items) if (it.type === "msg" && it.msg.id > maxId) maxId = it.msg.id;
@@ -483,16 +509,22 @@ export class ChatView {
       this._logSignatureDiff(item.key, prevSig, sig);
     }
     item.msg = msg;
-    this.vs?.onItemHeightDidChange?.(item);
     const row = this.listEl.querySelector(`[data-msgid="${msg.id}"]`);
     if (row) {
+      this.vs?.onItemHeightDidChange?.(item);
       const fresh = this._renderMsgItem(item);
       row.replaceWith(fresh);
       this._rowCache.set(item.key, fresh);
       this._rowSigCache.set(item.key, sig);
     } else {
+      // Not mounted: drop the stale cached row so the scroller rebuilds it
+      // from the updated item on next mount, and record the new signature.
+      // Deleting the signature instead made every duplicate event take this
+      // full "changed" path again (and re-fire onItemHeightDidChange for an
+      // unmounted item, which the scroller warns about) — one duplicate fed
+      // the next forever during event storms.
       this._rowCache.delete(item.key);
-      this._rowSigCache.delete(item.key);
+      this._rowSigCache.set(item.key, sig);
     }
   }
 
@@ -642,6 +674,10 @@ export class ChatView {
     }
     const el = this._buildItem(item);
     this._rowCache.set(item.key, el);
+    // Record the rendered content's signature so the first onMsgUpdated can
+    // compare against it instead of treating "no known signature" as a
+    // change (which silently rebuilt the row on every duplicate event).
+    if (item.type === "msg") this._rowSigCache.set(item.key, this._rowSignature(item.msg));
     // Detached rows keep their event listeners alive while cached — cap the
     // cache so a long session can't retain the whole history as detached DOM.
     if (this._rowCache.size > 200) {
