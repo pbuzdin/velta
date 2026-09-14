@@ -933,7 +933,10 @@ export class JsonRpcCore extends EventTarget {
     try {
       const ids = this.msgIdCache.get(chatId)
         || await this._call("get_message_ids", accountId, chatId, false, false);
-      if (ids?.length) await this._call("markseen_msgs", accountId, ids.slice(-50));
+      // All of them, not a capped slice: a capped markseen leaves residual
+      // unread after opening a chat with many fresh messages, so the badge
+      // never clears (open = read is the upstream Delta Chat behavior).
+      if (ids?.length) await this._call("markseen_msgs", accountId, ids);
     } catch { /* nothing to mark */ }
     this._emitAccount("chat-updated", { chatId }, accountEpoch);
   }

@@ -948,10 +948,10 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .qr-box {
   position: relative;
   container-type: inline-size;
-  width: 220px; min-height: 120px; margin: 12px auto;
+  width: 308px; min-height: 120px; margin: 12px auto;
   display: flex; align-items: center; justify-content: center;
 }
-.qr-box svg { width: 200px; height: 200px; display: block; }
+.qr-box svg { width: 280px; height: 280px; display: block; }
 /* Dark badge over the circle the core reserves in the QR center (circle
    center is at 50% / 43.65% of the 515x630 design card). Opaque on purpose:
    it covers the avatar the core embeds underneath and carries the Velta logo. */

@@ -876,6 +876,18 @@ re-renders, `[virtual-scroller] The item is no longer rendered onscreen
   "all your devices run at least 2.47.0" warning was removed as outdated
   (RELAYS_WARNING deleted; CORE-CAPABILITIES.MD records the decision).
 
+- Reading/history polish (since 1.3.32): the virtual scroller prerenders 3×
+  the viewport (`getPrerenderMarginRatio: () => 3` in chat-view's
+  `_createScroller`; default 1 ≈ 10 messages) for smoother fast-scroll
+  reach-back — rows are signature-cached, so the cost is DOM size only.
+  `.qr-box` is 40% larger (308px box / 280px svg). `VeltaAvatar` declares an
+  `addr` field default — the last undeclared Elena prop, so the "Prop has no
+  default" console-warning class is extinct; keep every `static props` entry
+  backed by a field or a constructor install. `markRead` marks ALL fresh
+  messages seen (the old 50-id slice left residual unread after opening a
+  chat with many fresh messages — badge never cleared); open = read-all is
+  the upstream Delta Chat behavior.
+
 `COREUPDATE.md` is the core-upgrade test plan; consult it before merging an
 upstream core or swapping `deltachat-rpc-server` binaries. Release-by-release
 core capabilities and their Velta integration notes: `CORE-CAPABILITIES.MD`.

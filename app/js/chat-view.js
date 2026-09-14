@@ -678,6 +678,9 @@ export class ChatView {
       getScrollableContainer: () => this.scrollEl,
       getItemId: (item) => item.key,
       getEstimatedItemHeight: () => 48,
+      // Default 1 prerenders one viewport of rows (~10 messages) past the
+      // visible area; 3 gives ~30 for smoother fast-scroll reach-back.
+      getPrerenderMarginRatio: () => 3,
     });
     // Debug: trace what drives the scroller (re-render loop investigation).
     window.__vs = this.vs;

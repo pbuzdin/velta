@@ -20,6 +20,7 @@ class VeltaAvatar extends Elena(HTMLElement) {
   kind = "single";
   size = "46";
   avatar = "";
+  addr = ""; // no default → Elena warns once per instance on every render
   #avatarFailed = false;
   #lastAvatar = null;
 
