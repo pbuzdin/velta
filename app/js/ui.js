@@ -439,7 +439,7 @@ export function openImageLightbox(src, caption = "") {
       <span class="lightbox-cap"></span>
       <button class="lightbox-close" aria-label="Close">✕</button>
     </div>
-    <div class="lightbox-stage"><img class="lightbox-img" alt=""></div>`;
+    <div class="lightbox-stage"><img class="lightbox-img" decoding="async" alt=""></div>`;
   document.body.appendChild(overlay);
   overlay.querySelector(".lightbox-cap").textContent = caption;
   const img = overlay.querySelector(".lightbox-img");

@@ -770,7 +770,7 @@ export class ChatView {
           ? ` style="height:min(${dh}px, 45vh, 450px); aspect-ratio:${dw} / ${dh}; max-width:100%"`
           : "";
         const wrapCls = `${m.viewtype === "sticker" ? " sticker" : ""}${box ? "" : " no-dims"}`;
-        bubble += `<div class="msg-image"><div class="img-wrap${wrapCls}"${box}><div class="img-ph"><div class="img-ph-ico">${ICO.photo}</div></div><img data-src="image" alt=""></div></div>`;
+        bubble += `<div class="msg-image"><div class="img-wrap${wrapCls}"${box}><div class="img-ph"><div class="img-ph-ico">${ICO.photo}</div></div><img data-src="image" decoding="async" alt=""></div></div>`;
       } else {
         const size = m.fileSize ? formatBytes(m.fileSize) : "";
         bubble += `<div class="msg-file download-btn" role="button" data-act="download">
