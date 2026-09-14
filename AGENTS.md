@@ -46,6 +46,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── app.js            # bootstrap, chat list, navigation, account switcher, relay status line, multi-relay manager, modals, PWA lifecycle
 │   │   ├── avatar.js         # contact avatars: fingerprint color-grid identity tiles
 │   │   ├── chat-view.js      # message history, composer, selection actions
+│   │   ├── calls.js          # audio calls: WebRTC media + core signaling state machine
 │   │   ├── components.js     # Elena-based web components (<velta-avatar>, <velta-chat-item>, <velta-chat-head>, <velta-video>)
 │   │   ├── diagnostics.js    # diagnostics chat store + event sink + shared console-style row renderer
 │   │   ├── invites.js        # invite-link registry (mirror domains), parsing, invite cards, settings modal
@@ -778,6 +779,19 @@ re-renders, `[virtual-scroller] The item is no longer rendered onscreen
   of skipping the remaining stages. `openChat` returns early when the
   ChatView stage failed, and boot's outer catch shows the splash when
   `!uiLive`. Keep these guards when touching boot.
+- Audio calls (since 1.3.26, `calls.js`): the core does encrypted call
+  signaling (place/accept/end ride as messages; `place_call_info` is the
+  caller's SDP offer, `accept_call_info` the answer — raw SDP, non-trickle
+  ICE) and the WebView does the media (`RTCPeerConnection` + `getUserMedia`,
+  ICE servers from the core's `ice_servers()`). Events map to
+  `incoming-call` / `outgoing-call-accepted` / `incoming-call-accepted`
+  (`fromThisDevice: false` = another device accepted — stand down) /
+  `call-ended`. The WebRTC/DOM adapter is injected into `CallManager` so
+  `tests/call-state-machine.test.mjs` runs headless; keep it injected.
+  Mic grants: desktop uses the `--use-fake-ui-for-media-stream` browser arg
+  (wry denies permission requests by default — only clipboard is allowed);
+  Android needs `RECORD_AUDIO` in the gen manifest, granted by wry's
+  `RustWebChromeClient`. Video calls are not offered.
 
 `COREUPDATE.md` is the core-upgrade test plan; consult it before merging an
 upstream core or swapping `deltachat-rpc-server` binaries. Release-by-release

@@ -15,7 +15,8 @@
         "height": 740,
         "minWidth": 380,
         "minHeight": 520,
-        "resizable": true
+        "resizable": true,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --use-fake-ui-for-media-stream"
       }
     ],
     "security": {

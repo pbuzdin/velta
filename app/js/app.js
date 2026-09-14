@@ -5,6 +5,7 @@ import { escapeHtml, escapeAttr } from "./components.js";
 import { fileUrl } from "./media.js";
 import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintGroups } from "./avatar.js";
 import { ChatView, setAvatarProfileOpener } from "./chat-view.js";
+import { initCalls } from "./calls.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal } from "./invites.js";
 import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming } from "./ui.js";
@@ -17,6 +18,7 @@ window.__veltaDiagnostics = diagnostics;
 let core = null;
 let diagnosticsOpen = false;
 let chatView = null;
+let calls = null;
 let coreStartupPromise = null;
 // Declared at the top: scheduleChatListRefresh() is reachable from the
 // diagnostics "changed" listener while the module is still evaluating (the
@@ -807,6 +809,9 @@ async function openChat(chatId) {
   $("chat-head-info").replaceChildren(head);
   state.activeChatHead = head;
   head.addEventListener("click", () => showChatInfo(chat));
+  const callBtn = $("btn-call");
+  callBtn.hidden = chat.kind !== "single";
+  callBtn.onclick = chat.kind === "single" ? () => calls?.startOutgoing(chat.id, chat.name) : null;
   // Real member count for groups (the chatlist item doesn't carry it)
   if ((chat.kind === "group" || chat.kind === "channel") && core.getChatMembers) {
     core.getChatMembers(chatId).then(members => {
@@ -2162,6 +2167,10 @@ async function secondDeviceFlow() {
 let uiLive = false; // set once the drawer + menu are wired and usable
 async function boot() {
   try {
+    // Calls first: the incoming-call listener must exist as early as the
+    // event stream is available, or a call arriving during boot is missed.
+    calls = initCalls(core, { notify: (msg) => toast(msg, 4500) });
+
     appLog("boot: getAccount");
     // Flush anything the pre-app.js safety net (boot-net.js) caught while
     // modules loaded, then retire its banner — the errors live here now.

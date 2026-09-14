@@ -74,6 +74,23 @@ persists across restarts.
 </details>
 
 <details>
+<summary>Audio calls (beta)</summary>
+
+Single chats have an audio-call button in the chat header (core 2.60+).
+Calls are end-to-end encrypted like everything else: the core carries the
+call signaling — the offer and answer SDP ride in encrypted messages — and
+hands the app the relay's STUN/TURN servers, while the audio itself flows
+over a WebRTC peer connection inside the app's WebView.
+
+- The call button appears in single chats only; group calls are not offered yet.
+- Desktop (WebView2) grants the microphone through a launch argument; on
+  Android the app asks for the record-audio permission on the first call.
+- Missed, declined and ended calls appear in the chat, and calls ring only
+  while the app is open — a backgrounded app shows the call as missed.
+
+</details>
+
+<details>
 <summary>Shared contacts (vCards)</summary>
 
 When someone sends a **person contact** into a chat (a `.vcf` vCard attachment),

@@ -272,6 +272,23 @@ export class MockCore extends EventTarget {
     }
   }
 
+  /* -- audio calls (demo: outgoing mock "connects" after a short ring) -- */
+  async placeOutgoingCall(chatId, placeCallInfo, hasVideo = false) {
+    const id = (this._callId = (this._callId || 9000) + 1);
+    setTimeout(() => {
+      this._emit("outgoing-call-accepted", { msgId: id, chatId, acceptCallInfo: "mock-answer" });
+    }, 2500);
+    return id;
+  }
+  async acceptIncomingCall(msgId, acceptCallInfo) {}
+  async endCall(msgId) {
+    this._emit("call-ended", { msgId, chatId: null });
+  }
+  async callInfo(msgId) {
+    return { sdpOffer: "mock-offer", hasVideo: false, state: "Ringing" };
+  }
+  async iceServers() { return []; }
+
   async getChat(chatId) {
     const c = this.chats.find(x => x.id === chatId);
     if (!c) return null;

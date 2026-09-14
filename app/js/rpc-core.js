@@ -347,6 +347,37 @@ export class JsonRpcCore extends EventTarget {
         // device that made the change too, not only on synced devices.
         this._emitAccount("transports-modified", {}, accountEpoch);
         break;
+      case "IncomingCall":
+        // placeCallInfo carries the caller's SDP offer, but read the fresh
+        // copy via callInfo() on accept — it is valid even if this event
+        // was missed while the app was closed.
+        this._emitAccount("incoming-call", {
+          msgId: msgId,
+          chatId: chatId,
+          placeCallInfo: ev.placeCallInfo ?? ev.place_call_info ?? "",
+          hasVideo: !!ev.hasVideo,
+        }, accountEpoch);
+        break;
+      case "IncomingCallAccepted":
+        // fromThisDevice: true is the echo of our own accept; false means
+        // another of this account's devices accepted — stop ringing.
+        this._emitAccount("incoming-call-accepted", {
+          msgId: msgId,
+          chatId: chatId,
+          fromThisDevice: !!ev.fromThisDevice,
+        }, accountEpoch);
+        break;
+      case "OutgoingCallAccepted":
+        // The peer accepted our outgoing call; acceptCallInfo is the SDP answer.
+        this._emitAccount("outgoing-call-accepted", {
+          msgId: msgId,
+          chatId: chatId,
+          acceptCallInfo: ev.acceptCallInfo ?? ev.accept_call_info ?? "",
+        }, accountEpoch);
+        break;
+      case "CallEnded":
+        this._emitAccount("call-ended", { msgId: msgId, chatId: chatId }, accountEpoch);
+        break;
       case "ChatlistChanged":
       case "ChatlistItemChanged":
       case "ChatModified":
@@ -658,6 +689,37 @@ export class JsonRpcCore extends EventTarget {
   // sends keyupdate messages so contacts learn the new address set.
   async deleteTransport(addr) {
     return this._call("delete_transport", this.accountId, addr);
+  }
+
+  /* -- audio calls (core 2.60+): encrypted signaling, client WebRTC -- */
+
+  // place_call_info is the caller's SDP offer (raw SDP, non-trickle ICE —
+  // candidates are gathered before the call is placed, so one message
+  // carries the whole offer).
+  async placeOutgoingCall(chatId, placeCallInfo, hasVideo = false) {
+    return this._call("place_outgoing_call", this.accountId, chatId, placeCallInfo, hasVideo);
+  }
+
+  // accept_call_info is the callee's SDP answer.
+  async acceptIncomingCall(msgId, acceptCallInfo) {
+    return this._call("accept_incoming_call", this.accountId, msgId, acceptCallInfo);
+  }
+
+  // Cancels an outgoing call, declines an incoming one, or hangs up.
+  async endCall(msgId) {
+    return this._call("end_call", this.accountId, msgId);
+  }
+
+  // { sdpOffer, hasVideo, state } — sdpOffer is present even if the
+  // incoming-call event was missed (e.g. the app was closed).
+  async callInfo(msgId) {
+    return this._call("call_info", this.accountId, msgId);
+  }
+
+  // JSON string of relay-provided STUN/TURN servers for RTCPeerConnection.
+  async iceServers() {
+    const raw = await this._call("ice_servers", this.accountId);
+    try { return JSON.parse(raw); } catch { return []; }
   }
 
   async setDisplayName(name) {
