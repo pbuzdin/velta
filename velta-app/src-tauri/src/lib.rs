@@ -183,139 +183,8 @@ fn resolve_upload_path(app: tauri::AppHandle, filename: String) -> String {
         .unwrap_or_default()
 }
 
-// ---------- webxdc:// -- serving webxdc app files ----------
-//
-// The WebView cannot relay its own asset fetches, so the handler performs
-// real JSON-RPC round-trips to the core: requests use string ids prefixed
-// "wxdc-", which the response forwarders route back into wxdc_pending
-// (see RpcState). Every served app gets its own origin (webxdc://localhost
-// on mac/linux, http://webxdc.localhost on Windows/Android), so the app's
-// scripts stay outside the host page's CSP and origin.
-
-const WEBXDC_SHIM: &str = include_str!("webxdc-shim.js");
-
-fn webxdc_resolve_line(app: &tauri::AppHandle, line: &str) {
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else { return; };
-    let Some(id) = value.get("id").and_then(|v| v.as_str()).map(str::to_string) else { return; };
-    let state = app.state::<RpcState>();
-    if let Some(sender) = state.wxdc_pending.lock().unwrap().remove(&id) {
-        let _ = sender.send(line.to_string());
-    }
-}
-
-async fn webxdc_rpc(app: &tauri::AppHandle, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
-    let state = app.state::<RpcState>();
-    let id = format!("wxdc-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0));
-    let request = serde_json::json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
-    let (tx, rx) = tokio::sync::oneshot::channel::<String>();
-    state.wxdc_pending.lock().unwrap().insert(id, tx);
-    state.send_rpc(&request.to_string())?;
-    let line = tokio::time::timeout(std::time::Duration::from_secs(30), rx)
-        .await
-        .map_err(|_| "webxdc request timed out".to_string())?
-        .map_err(|_| "webxdc request dropped".to_string())?;
-    let value: serde_json::Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
-    if let Some(err) = value.get("error") {
-        return Err(format!("webxdc rpc error: {err}"));
-    }
-    Ok(value.get("result").cloned().unwrap_or(serde_json::Value::Null))
-}
-
-async fn webxdc_serve(app: tauri::AppHandle, request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
-    use base64::Engine as _;
-    let not_found = || {
-        tauri::http::Response::builder()
-            .status(404)
-            .header("Access-Control-Allow-Origin", "*")
-            .body(b"not found".to_vec())
-            .unwrap()
-    };
-    let uri = request.uri().to_string();
-    // http://webxdc.localhost/<account>/<msg>/<path> and webxdc://localhost/<...>
-    let rest = match uri.split_once("://") {
-        Some((_, rest)) => match rest.split_once('/') {
-            Some((_, rest)) => rest,
-            None => return not_found(),
-        },
-        None => return not_found(),
-    };
-    let rest = rest.split('?').next().unwrap_or(rest);
-    let mut segments = rest.split('/');
-    let account: u32 = match segments.next().and_then(|s| s.parse().ok()) {
-        Some(v) => v,
-        None => return not_found(),
-    };
-    let msg: u32 = match segments.next().and_then(|s| s.parse().ok()) {
-        Some(v) => v,
-        None => return not_found(),
-    };
-    let path = segments.collect::<Vec<_>>().join("/");
-    let path = percent_decode(&path);
-    let path = if path.is_empty() { "index.html".to_string() } else { path };
-
-    if path == "__velta-shim.js" {
-        return tauri::http::Response::builder()
-            .header("Content-Type", "text/javascript; charset=utf-8")
-            .header("Cache-Control", "no-cache")
-            .body(WEBXDC_SHIM.as_bytes().to_vec())
-            .unwrap();
-    }
-
-    let is_index = path == "index.html";
-    let base64_blob = match webxdc_rpc(&app, "get_webxdc_blob", serde_json::json!([account, msg, path])).await {
-        Ok(serde_json::Value::String(b64)) => b64,
-        _ => return not_found(),
-    };
-    let mut bytes = match base64::engine::general_purpose::STANDARD_NO_PAD.decode(base64_blob.trim_end_matches('=')) {
-        Ok(b) => b,
-        Err(_) => return not_found(),
-    };
-
-    if is_index {
-        // Inject the shim + init data before the app's own scripts run.
-        let html = String::from_utf8_lossy(&bytes).to_string();
-        let head_at = html.find("<head").map(|i| html[i..].find('>').map(|j| i + j + 1)).unwrap_or(None).unwrap_or(0);
-        let mut injected = String::with_capacity(html.len() + 256);
-        injected.push_str(&html[..head_at]);
-        injected.push_str("<script src="__velta-shim.js"></script>");
-        injected.push_str(&html[head_at..]);
-        bytes = injected.into_bytes();
-    }
-
-    let mime = guess_mime(&path).to_string();
-    tauri::http::Response::builder()
-        .header("Content-Type", mime)
-        .header("Cache-Control", "no-cache")
-        .header("Access-Control-Allow-Origin", "*")
-        .body(bytes)
-        .unwrap()
-}
-
-fn percent_decode(input: &str) -> String {
-    let bytes = input.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    let hex = |b: u8| -> Option<u8> {
-        match b {
-            b'0'..=b'9' => Some(b - b'0'),
-            b'a'..=b'f' => Some(b - b'a' + 10),
-            b'A'..=b'F' => Some(b - b'A' + 10),
-            _ => None,
-        }
-    };
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let (Some(h), Some(l)) = (hex(bytes[i + 1]), hex(bytes[i + 2])) {
-                out.push(h * 16 + l);
-                i += 3;
-                continue;
-            }
-        }
-        out.push(bytes[i]);
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).to_string()
-}
+mod webxdc_serve;
+use webxdc_serve::{webxdc_resolve_line, webxdc_serve};
 
 // ---------- blobfile:// вЂ” Range-aware media serving ----------
 
@@ -1058,7 +927,7 @@ struct RpcState {
     // protocol handlers (the WebView cannot relay its own asset fetches).
     // Those requests use string ids prefixed "wxdc-" so the response
     // forwarders hand them back here instead of emitting to the WebView.
-    wxdc_pending: Arc<std::sync::Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
+    wxdc_pending: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
     #[cfg(target_os = "android")]
     _rt: tokio::runtime::Runtime,
     // Shared with the background init task: setup() stores None immediately
@@ -1161,18 +1030,18 @@ async fn init_android_core(
     let app = app_handle.clone();
     tokio::spawn(async move {
         while let Some(message) = out_receiver.next().await {
-            {
-                let is_wxdc = message
-                    .get("id")
-                    .and_then(|id| id.as_str())
-                    .map(|id| id.starts_with("wxdc-"))
-                    .unwrap_or(false);
-                if is_wxdc {
-                    if let Ok(line) = serde_json::to_string(&message) {
-                        webxdc_resolve_line(&app, &line);
-                    }
-                    continue;
+            let is_wxdc = match &message {
+                yerpc::Message::Response(response) => matches!(
+                    &response.id,
+                    Some(yerpc::Id::String(id)) if id.starts_with("wxdc-")
+                ),
+                _ => false,
+            };
+            if is_wxdc {
+                if let Ok(line) = serde_json::to_string(&message) {
+                    webxdc_resolve_line(&app, &line);
                 }
+                continue;
             }
             let line = match serde_json::to_string(&message) {
                 Ok(line) => line,
@@ -1296,7 +1165,7 @@ pub fn run() {
                 let spawn_handle = rt.handle().clone();
 
                 app.manage(RpcState {
-                    wxdc_pending: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+                    wxdc_pending: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
                     _rt: rt,
                     tx: tx_holder.clone(),
                 });
@@ -1351,7 +1220,7 @@ pub fn run() {
                             let stdout = child.stdout.take().unwrap();
 
                             app.manage(RpcState {
-                                wxdc_pending: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+                                wxdc_pending: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
                                 stdin: Arc::new(Mutex::new(Some(stdin))),
                             });
                             set_sidecar_status(&app_handle, serde_json::json!({"running": true, "stage": "ready"}));
@@ -1402,7 +1271,7 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol("webxdc", move |ctx, request, responder| {
     let app = ctx.app_handle().clone();
     tauri::async_runtime::spawn(async move {
-        let response = webxdc_serve(&app, request).await;
+        let response = webxdc_serve(app, request).await;
         responder.respond(response);
     });
 })
