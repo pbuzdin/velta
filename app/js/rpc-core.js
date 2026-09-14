@@ -342,6 +342,11 @@ export class JsonRpcCore extends EventTarget {
         this._untrackSending(msgId);
         this._emitAccount("msg-state", { chatId, msgId, state: "failed" }, accountEpoch);
         break;
+      case "TransportsModified":
+        // Relay added/removed/sending changed; 2.60.0+ emits this on the
+        // device that made the change too, not only on synced devices.
+        this._emitAccount("transports-modified", {}, accountEpoch);
+        break;
       case "ChatlistChanged":
       case "ChatlistItemChanged":
       case "ChatModified":
@@ -648,10 +653,11 @@ export class JsonRpcCore extends EventTarget {
     return this._call("set_config", this.accountId, "configured_addr", addr);
   }
 
-  // Soft removal — the core stops advertising the relay and stops sending
-  // self-sent messages there, but keeps listening for ~90 days so contacts
-  // who still send to the old address don't lose mail, then deletes it.
-  async setTransportUnpublished(addr, unpublished) {    return this._call("set_transport_unpublished", this.accountId, addr, unpublished);
+  // Removes the relay immediately (core 2.60.0+). The core refuses only to
+  // remove the last relay, re-electing the sending transport as needed, and
+  // sends keyupdate messages so contacts learn the new address set.
+  async deleteTransport(addr) {
+    return this._call("delete_transport", this.accountId, addr);
   }
 
   async setDisplayName(name) {

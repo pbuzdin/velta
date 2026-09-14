@@ -1512,7 +1512,7 @@ dependencies = [
 
 [[package]]
 name = "delta-web"
-version = "1.3.23"
+version = "1.3.24"
 dependencies = [
  "anyhow",
  "data-encoding",
@@ -1535,12 +1535,12 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tokio",
  "tokio-util",
- "yerpc",
+ "yerpc 0.6.4",
 ]
 
 [[package]]
 name = "deltachat"
-version = "2.59.0"
+version = "2.60.0"
 dependencies = [
  "anyhow",
  "astral-tokio-tar",
@@ -1631,7 +1631,7 @@ dependencies = [
 
 [[package]]
 name = "deltachat-jsonrpc"
-version = "2.59.0"
+version = "2.60.0"
 dependencies = [
  "anyhow",
  "async-channel 2.5.0",
@@ -1645,7 +1645,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "typescript-type-def",
- "yerpc",
+ "yerpc 0.7.0",
 ]
 
 [[package]]
@@ -4171,9 +4171,9 @@ dependencies = [
 
 [[package]]
 name = "mail-builder"
-version = "0.4.4"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "900998f307338c4013a28ab14d760b784067324b164448c6d98a89e44810473b"
+checksum = "4c942e8a4b83f9351236c1e531ea9fa0237913d63c7fc36818430e0128a1ddf3"
 
 [[package]]
 name = "mailparse"
@@ -9633,6 +9633,24 @@ version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1dc24983fbe850227bfc1de89bf8cbfb3e2463afc322e0de2f155c4c23d06445"
 dependencies = [
+ "async-channel 1.9.0",
+ "async-lock",
+ "async-trait",
+ "futures",
+ "futures-util",
+ "log",
+ "serde",
+ "serde_json",
+ "typescript-type-def",
+ "yerpc_derive 0.6.4",
+]
+
+[[package]]
+name = "yerpc"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6924db1f1011f1d22566c45c7090aa66c3107c3c463ca32beaa8b2327127040a"
+dependencies = [
  "anyhow",
  "async-channel 1.9.0",
  "async-lock",
@@ -9644,7 +9662,7 @@ dependencies = [
  "serde",
  "serde_json",
  "typescript-type-def",
- "yerpc_derive",
+ "yerpc_derive 0.7.0",
 ]
 
 [[package]]
@@ -9652,6 +9670,19 @@ name = "yerpc_derive"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57a173fe41d2a23686dd190f5654c0f73afecdcd9e8bf9e18ae1b083a4d54923"
+dependencies = [
+ "convert_case 0.5.0",
+ "darling 0.20.11",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "yerpc_derive"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42c374248c189b15a7f0660db3984e9dcc790ec15f4b44e932e92be49de829f9"
 dependencies = [
  "convert_case 0.5.0",
  "darling 0.20.11",

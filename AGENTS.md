@@ -258,7 +258,10 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   primitives (`getConnectivity`, `connectivity-changed` events,
   `send-activity` from `sendMessage` until `MsgDelivered`/`MsgFailed`), the
   multi-transport relay surface (`listTransports`, `checkQr`,
-  `addTransportFromQr`, `setTransportUnpublished`), the second-device backup
+  `addTransportFromQr`, `deleteTransport` — removal is immediate since core
+  2.60.0, the core refuses only the last relay and re-elects sending;
+  `transports-modified` events drive the reactive relay line), the
+  second-device backup
   transfer (`provideBackup`, `getBackupQr`, `addAccountWithBackup` with the
   same two epoch boundaries as `addAccountWithQr`, `importBackup` (file
   restore into the current account, fire-and-forget + `imex-progress`),
@@ -723,7 +726,7 @@ test traffic accordingly.
 
 | Task | Command |
 |------|---------|
-| Run core tests | `cd core && cargo test --all` |
+| Run core tests | `wsl -e bash -lc "cd /mnt/c/Users/pave/Velta/velta/core && cargo nextest run --workspace --locked"` (plain `cargo test` flakes on time-shift tests — see `COREUPDATE.md` §4) |
 | Run core lints | `cd core && scripts/clippy.sh && scripts/deny.sh` |
 | Build core RPC server | `cd core && cargo build -p deltachat-rpc-server --release` |
 | Run Tauri dev | `cd delta-web-app && cargo tauri dev` |
@@ -763,7 +766,25 @@ re-renders, `[virtual-scroller] The item is no longer rendered onscreen
   COREUPDATE.md §7 on every core upgrade.
 
 `COREUPDATE.md` is the core-upgrade test plan; consult it before merging an
-upstream core or swapping `deltachat-rpc-server` binaries.
+upstream core or swapping `deltachat-rpc-server` binaries. Release-by-release
+core capabilities and their Velta integration notes: `CORE-CAPABILITIES.MD`.
+
+- Core 2.60.0 relay removal (since 1.3.24): the Remove button goes through
+  `rpc-core.js` `deleteTransport` → core `delete_transport` — removal is
+  immediate, the core refuses only the *last* relay and re-elects the sending
+  transport, and informs contacts via keyupdate messages.
+  `set_transport_unpublished` no longer exists in the core; never
+  reintroduce it. The `transports-modified` listener in `app.js` (relay
+  status line + any open Relays modal) must stay — it is the only signal for
+  relay changes synced from another device — and `refreshRelayStatus` keeps
+  its coalescing because transports-modified arrives in bursts together with
+  connectivity-changed.
+- Build environment: run core `cargo` commands (tests, sidecar release
+  builds) in WSL — native Windows cargo fails in `openssl-sys` (SQLCipher
+  bundled build) because the MSYS perl lacks `Locale::Maketext::Simple`.
+  The Windows sidecar exe itself is built by `build-windows.yml` on tag
+  push, so local stale binaries in `delta-web-app/src-tauri/binaries/` are
+  refreshed only at release time.
 
 - The `core/` directory is large and self-contained. If your task only touches
   Velta's frontend or wrappers, avoid changing files under `core/` unless you

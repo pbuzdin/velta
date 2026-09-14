@@ -25,21 +25,21 @@ jobs:
         with:
           node-version: 24
       - name: Add Rust cache
-        uses: swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
+        uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-bin: false
       - name: npm install
-        working-directory: deltachat-jsonrpc/typescript
+        working-directory: deltachat-jsonrpc-bindings/typescript
         run: npm install
       - name: Build TypeScript, run Rust tests, generate bindings
-        working-directory: deltachat-jsonrpc/typescript
+        working-directory: deltachat-jsonrpc-bindings/typescript
         run: npm run build
       - name: Run integration tests
-        working-directory: deltachat-jsonrpc/typescript
+        working-directory: deltachat-jsonrpc-bindings/typescript
         run: npm run test
         env:
           CHATMAIL_DOMAIN: ${{ vars.CHATMAIL_DOMAIN }}
       - name: Run linter
-        working-directory: deltachat-jsonrpc/typescript
+        working-directory: deltachat-jsonrpc-bindings/typescript
         run: npm run prettier:check

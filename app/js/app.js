@@ -526,6 +526,12 @@ if (chatListEl && relayDetailEl) {
 }
 
 core.addEventListener?.("connectivity-changed", refreshRelayStatus);
+core.addEventListener?.("transports-modified", () => {
+  // Relay set changed — locally (2.60.0+ emits on the modifying device too)
+  // or synced from another device. refreshRelayStatus is coalesced.
+  refreshRelayStatus();
+  document.querySelector("[data-relays-modal]")?.dispatchEvent(new CustomEvent("relays-refresh"));
+});
 core.addEventListener?.("send-activity", e => {
   relaySending = !!e.detail?.sending;
   renderRelayLine();
@@ -1841,9 +1847,10 @@ function showSplash() {
 
 /* ---------------- relay transports (multi-relay) ---------------- */
 // One account can receive on several chatmail relays — what Delta Chat
-// desktop 2.47+ manages under "Relays". Removal is soft: the core keeps
-// listening on an unpublished relay for ~90 days so contacts that still
-// send to the old address don't lose mail, then deletes it automatically.
+// desktop 2.47+ manages under "Relays". Removal (core 2.60.0+) is immediate:
+// the core stops using the relay right away, refuses only to remove the last
+// one (re-electing the sending transport as needed) and sends keyupdate
+// messages so contacts converge on the new address set.
 const RELAYS_WARNING =
   "Messages are received on all relays. ⚠️ If you change anything here, " +
   "make sure all your devices run at least version 2.47.0. " +
@@ -1908,11 +1915,11 @@ async function openRelaysModal() {
       row.querySelector("[data-remove]").addEventListener("click", async () => {
         const ok = await confirmModal(
           `Remove ${t.addr}?`,
-          "The relay stops being advertised and self-sent messages stop going there right away, but the core keeps listening on it for about 90 days so messages from contacts who still use it are not lost. After that it is deleted automatically.",
+          "The relay stops being used right away and your contacts are informed automatically, but messages still on their way to the old address may arrive for a short while. Your last relay cannot be removed.",
           "Remove");
         if (!ok || !accountIsCurrent(epoch)) return;
         try {
-          await core.setTransportUnpublished(t.addr, true);
+          await core.deleteTransport(t.addr);
           toast("Relay removed");
         } catch (err) {
           toast(String(err?.message || err));
@@ -1922,6 +1929,12 @@ async function openRelaysModal() {
       listEl.appendChild(row);
     }
   };
+  // Live refresh when the core reports a transport change (local or synced
+  // from another device); the [data-relays-modal] hook is dispatched from
+  // the transports-modified listener. Closing the modal detaches the body,
+  // which makes further dispatches no-ops.
+  body.dataset.relaysModal = "true";
+  body.addEventListener("relays-refresh", refresh);
   await refresh();
   body.querySelector("[data-add]").addEventListener("click", () => addRelayFlow(epoch, refresh));
 }

@@ -331,11 +331,11 @@ async fn test_mailparse_0_16_0_panic() {
     );
 }
 
+/// Test that From with multiple addresses is not allowed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn test_parse_first_addr() {
+async fn test_multiple_from_addresses() {
     let context = TestContext::new().await;
     let raw = b"From: hello@one.org, world@two.org\n\
-                    Chat-Disposition-Notification-To: wrong\n\
                     Content-Type: text/plain\n\
                     Chat-Version: 1.0\n\
                     \n\
@@ -343,11 +343,27 @@ async fn test_parse_first_addr() {
                     ";
 
     let mimeparser = MimeMessage::from_bytes(&context.ctx, &raw[..]).await;
-
     assert!(mimeparser.is_err());
-    context
-        .assert_warn("Invalid address found: must contain a '@' symbol")
-        .await;
+}
+
+/// Tests that Chat-Disposition-Notification-To value does not matter.
+///
+/// Even if it does not look like an address, it is still an MDN request.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_chat_disposition_notification_any_value() {
+    let context = TestContext::new().await;
+    let raw = b"From: alice@example.org\n\
+                    Chat-Disposition-Notification-To: wrong\n\
+                    Content-Type: text/plain\n\
+                    Chat-Version: 1.0\n\
+                    \n\
+                    test1\n\
+                    ";
+
+    let mimeparser = MimeMessage::from_bytes(&context.ctx, &raw[..])
+        .await
+        .unwrap();
+    assert!(mimeparser.wants_mdn);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -570,8 +586,6 @@ This is no guarantee the content was read.\n\
 --kJBbU58X1xeWNHgBtTbMk80M5qnV4N\n\
 Content-Type: message/disposition-notification\n\
 \n\
-Reporting-UA: Delta Chat 1.0.0-beta.22\n\
-Original-Recipient: rfc822;bob@example.org\n\
 Final-Recipient: rfc822;bob@example.org\n\
 Original-Message-ID: <foo@example.org>\n\
 Disposition: manual-action/MDN-sent-automatically; displayed\n\
@@ -626,8 +640,6 @@ This is no guarantee the content was read.\n\
 --kJBbU58X1xeWNHgBtTbMk80M5qnV4N\n\
 Content-Type: message/disposition-notification\n\
 \n\
-Reporting-UA: Delta Chat 1.0.0-beta.22\n\
-Original-Recipient: rfc822;bob@example.org\n\
 Final-Recipient: rfc822;bob@example.org\n\
 Original-Message-ID: <bar@example.org>\n\
 Disposition: manual-action/MDN-sent-automatically; displayed\n\
@@ -650,8 +662,6 @@ This is no guarantee the content was read.\n\
 --zuOJlsTfZAukyawEPVdIgqWjaM9w2W\n\
 Content-Type: message/disposition-notification\n\
 \n\
-Reporting-UA: Delta Chat 1.0.0-beta.22\n\
-Original-Recipient: rfc822;bob@example.org\n\
 Final-Recipient: rfc822;bob@example.org\n\
 Original-Message-ID: <baz@example.org>\n\
 Disposition: manual-action/MDN-sent-automatically; displayed\n\
@@ -697,8 +707,6 @@ This is no guarantee the content was read.\n\
 --kJBbU58X1xeWNHgBtTbMk80M5qnV4N\n\
 Content-Type: message/disposition-notification\n\
 \n\
-Reporting-UA: Delta Chat 1.0.0-beta.22\n\
-Original-Recipient: rfc822;bob@example.org\n\
 Final-Recipient: rfc822;bob@example.org\n\
 Original-Message-ID: <foo@example.org>\n\
 Disposition: manual-action/MDN-sent-automatically; displayed\n\
@@ -1499,7 +1507,7 @@ Some reply
     Ok(())
 }
 
-// Test that WantsMdn parameter is not set on outgoing messages.
+/// Test that WantsMdn parameter is not set on outgoing messages.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_outgoing_wants_mdn() -> Result<()> {
     let mut tcm = TestContextManager::new();
@@ -1520,6 +1528,46 @@ async fn test_outgoing_wants_mdn() -> Result<()> {
     // Message is outgoing, don't send read receipt to self.
     assert!(alice2_msg.param.get_bool(Param::WantsMdn).is_none());
 
+    Ok(())
+}
+
+/// Tests that message does not want an MDN if the sender did not request it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_sender_mdns_disabled() -> Result<()> {
+    let mut tcm = TestContextManager::new();
+    let alice = &tcm.alice().await;
+    alice.set_config_bool(Config::MdnsEnabled, false).await?;
+    let bob = &tcm.bob().await;
+    assert!(!alice.should_request_mdns().await?);
+
+    let chat_id = alice.create_chat(bob).await.id;
+    let sent = alice.send_text(chat_id, "Message.").await;
+
+    let bob_msg = bob.recv_msg(&sent).await;
+    assert!(bob_msg.param.get_bool(Param::WantsMdn).is_none());
+    Ok(())
+}
+
+/// Tests that message may want an MDN if receiver disabled them.
+///
+/// MDN still should not be sent, but may be sent
+/// if receiver re-enables MDNs after receiving the message
+/// and before reading it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_receiver_mdns_disabled() -> Result<()> {
+    let mut tcm = TestContextManager::new();
+    let alice = &tcm.alice().await;
+    let bob = &tcm.bob().await;
+    bob.set_config_bool(Config::MdnsEnabled, false).await?;
+    assert!(alice.should_request_mdns().await?);
+
+    let chat_id = alice.create_chat(bob).await.id;
+    let sent = alice.send_text(chat_id, "Message.").await;
+
+    // Message wants an MDN, but Bob should not send it.
+    let bob_msg = bob.recv_msg(&sent).await;
+    assert!(bob_msg.param.get_bool(Param::WantsMdn).unwrap());
+    assert!(!bob.should_send_mdns().await?);
     Ok(())
 }
 
@@ -1574,7 +1622,6 @@ async fn test_ignore_read_receipt_to_self() -> Result<()> {
                  --SNIPP\r\n\
                  Content-Type: message/disposition-notification\r\n\
                  \r\n\
-                 Original-Recipient: rfc822;bob@example.com\r\n\
                  Final-Recipient: rfc822;bob@example.com\r\n\
                  Original-Message-ID: <first@example.com>\r\n\
                  Disposition: manual-action/MDN-sent-automatically; displayed\r\n\

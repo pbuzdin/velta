@@ -7,8 +7,9 @@ undocumented JSON-RPC/event surface, and because core behavior changes
 (e.g. event emission rates, IMAP idle loops) surface as *frontend* symptoms:
 re-render storms, log spam, and battery drain rather than clean errors.
 
-Last updated for core `2.59.0` (see `core/Cargo.toml` `version` and the
-statement in `README.md`).
+Last updated for core `2.60.0` (see `core/Cargo.toml` `version` and the
+statement in `README.md`; feature-by-feature notes per release live in
+`CORE-CAPABILITIES.MD`).
 
 ## 1. Where the core is consumed
 
@@ -33,7 +34,10 @@ compatible if all of the following hold:
 `send_msg`, `markseen_msgs`, `delete_messages`, `delete_messages_for_all`,
 `forward_messages`, `save_msgs`, `send_reaction`, `download_full_message`,
 `get_connectivity`, `get_connectivity_html`, `set_config`/
-`set_config_from_qr`/`check_qr` (account + relay flows), `provide_backup`/
+`set_config_from_qr`/`check_qr` (account + relay flows), `list_transports`/
+`add_transport_from_qr`/`delete_transport` (multi-relay; since core 2.60.0
+removal is immediate via `delete_transport` — `set_transport_unpublished`
+no longer exists), `provide_backup`/
 `get_backup_qr` + imex family, vCard family, chatlist methods. Payloads use
 the JSON-RPC positional style; message loads expect the
 `MessageLoadResult { kind: "message" }` tag.
@@ -42,7 +46,10 @@ the JSON-RPC positional style; message loads expect the
 `IncomingMsgBunch` (no ids — frontend treats as "any chat"), `MsgsChanged`,
 `MsgDelivered`, `MsgRead`, `MsgReadCountChanged`, `MsgFailed`,
 `ChatlistChanged`, `ChatlistItemChanged`, `ChatModified`, `MsgsNoticed`,
-`ConnectivityChanged`, `ConfigureProgress`, `ImexProgress`, and the
+`TransportsModified` (relays changed — mapped to `transports-modified`;
+2.60.0+ emits it on the modifying device too, so it drives the reactive
+relay status line and any open Relays modal), `ConnectivityChanged`,
+`ConfigureProgress`, `ImexProgress`, and the
 Info/Warning/Error family. Events arrive as `get_next_event` long-poll
 responses shaped `{ contextId, event: { kind, chatId, msgId, ... } }`.
 
@@ -63,18 +70,35 @@ exactly one waiter; response survives a client-side timeout) are load-bearing
       `version`, and the upstream version you are merging/upgrading to.
 - [ ] Clean working tree; note the app version you will release with.
 - [ ] Baseline on the OLD core, so failures later are attributable:
-      `cd core && cargo test --all` and `node --test tests/` (both must pass
-      before you start; don't chase pre-existing failures mid-upgrade).
+      core tests under nextest in WSL (§4) and `node --test tests/` (both
+      must pass before you start; don't chase pre-existing failures
+      mid-upgrade).
 
 ## 4. Phase 1 — Offline gates (no network, no accounts)
 
 ```bash
-cd core && cargo test --all          # core unit/integration tests
+wsl -e bash -lc "cd /mnt/c/Users/pave/Velta/velta/core && \
+  cargo nextest run --workspace --locked"   # core tests, process-per-test
 cd core && scripts/clippy.sh && scripts/deny.sh   # CI quality gates
 node --test tests/                   # frontend contract suites (repo root)
 ```
 
-- [ ] `cargo test --all` green (skip `--ignored` slow tests unless the
+Native Windows `cargo` cannot build the core: `openssl-sys` (SQLCipher
+bundled) needs a perl with `Locale::Maketext::Simple`, which the MSYS perl
+lacks — always run core `cargo` commands in WSL.
+
+Plain `cargo test` is **not** a reliable gate: 2.60.0's suite has known
+cross-test pollution via the process-global `SystemTime::shift()` test
+helper (the tests print this warning themselves) — a varying set of ~4
+time-dependent tests (`test_maybe_warn_on_outdated`, blob dedup, calls,
+pinned-messages, …) fails per run, and every one of them passes in process
+isolation. This is why upstream CI gates on `cargo nextest run --workspace`
+(process-per-test). If nextest is not installed, re-run failed tests each
+in its own `cargo test -p deltachat --lib <name>` process and require those
+to pass.
+
+- [ ] Core tests green under nextest / process-isolated reruns (skip
+      `--ignored` slow tests unless the
       upgrade touches their area).
 - [ ] Frontend suites green: `rpc-event-poll.test.mjs` (event long-poll
       contract: exactly-once dispatch, late-response salvage, account

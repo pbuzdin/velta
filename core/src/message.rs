@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::str;
 
-use anyhow::{Context as _, Result, ensure, format_err};
+use anyhow::{Context as _, Result, ensure};
 use deltachat_contact_tools::{VcardContact, parse_vcard};
 use deltachat_derive::{FromSql, ToSql};
 use humansize::BINARY;
@@ -17,7 +17,7 @@ use crate::blob::BlobObject;
 use crate::chat::{Chat, ChatId, ChatIdBlocked, ChatVisibility, send_msg};
 use crate::chatlist_events;
 use crate::config::Config;
-use crate::constants::{Blocked, Chattype, DC_CHAT_ID_TRASH, DC_MSG_ID_LAST_SPECIAL};
+use crate::constants::{Blocked, Chattype};
 use crate::contact::{self, Contact, ContactId};
 use crate::context::Context;
 use crate::debug_logging::set_debug_logging_xdc;
@@ -49,13 +49,18 @@ use crate::tools::{
 pub struct MsgId(u32);
 
 impl MsgId {
+    /// Markers added before each day in a local timezone.
+    pub const DAYMARKER: MsgId = MsgId::new(9);
+    /// Largest reserved message ID.
+    pub const LAST_SPECIAL: MsgId = MsgId::new(9);
+
     /// Create a new [MsgId].
-    pub fn new(id: u32) -> MsgId {
+    pub const fn new(id: u32) -> MsgId {
         MsgId(id)
     }
 
     /// Create a new unset [MsgId].
-    pub fn new_unset() -> MsgId {
+    pub const fn new_unset() -> MsgId {
         MsgId(0)
     }
 
@@ -63,7 +68,7 @@ impl MsgId {
     ///
     /// This kind of message ID can not be used for real messages.
     pub fn is_special(self) -> bool {
-        self.0 <= DC_MSG_ID_LAST_SPECIAL
+        (0..=Self::LAST_SPECIAL.0).contains(&self.0)
     }
 
     /// Whether the message ID is unset.
@@ -132,7 +137,7 @@ impl MsgId {
 INSERT OR REPLACE INTO msgs (id, rfc724_mid, pre_rfc724_mid, timestamp, chat_id, deleted)
 SELECT ?1, rfc724_mid, pre_rfc724_mid, timestamp, ?, ? FROM msgs WHERE id=?1
                 ",
-                (self, DC_CHAT_ID_TRASH, on_server),
+                (self, ChatId::TRASH, on_server),
             )
             .await?;
 
@@ -355,18 +360,8 @@ impl std::fmt::Display for MsgId {
 /// Allow converting [MsgId] to an SQLite type.
 ///
 /// This allows you to directly store [MsgId] into the database.
-///
-/// # Errors
-///
-/// This **does** ensure that no special message IDs are written into
-/// the database and the conversion will fail if this is not the case.
 impl rusqlite::types::ToSql for MsgId {
     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
-        if self.0 <= DC_MSG_ID_LAST_SPECIAL {
-            return Err(rusqlite::Error::ToSqlConversionFailure(
-                format_err!("Invalid MsgId {}", self.0).into(),
-            ));
-        }
         let val = rusqlite::types::Value::Integer(i64::from(self.0));
         let out = rusqlite::types::ToSqlOutput::Owned(val);
         Ok(out)
@@ -518,7 +513,7 @@ impl Message {
                  FROM msgs m
                  LEFT JOIN chats c ON c.id=m.chat_id
                  LEFT JOIN msgs_mdns mdns ON mdns.msg_id=m.id
-                 WHERE m.id=? AND chat_id!=3 -- DC_CHAT_ID_TRASH
+                 WHERE m.id=? AND chat_id!=3 -- ChatId::TRASH
                  LIMIT 1",
                 (id,),
                 |row| {
@@ -602,7 +597,7 @@ impl Message {
             .sql
             .query_row_optional(
                 "SELECT id FROM msgs WHERE rfc724_mid=? AND chat_id != ?",
-                (rfc724_mid, DC_CHAT_ID_TRASH),
+                (rfc724_mid, ChatId::TRASH),
                 |row| {
                     let msg_id: MsgId = row.get(0)?;
                     Ok(msg_id)
@@ -1319,7 +1314,7 @@ impl Message {
             .sql
             .query_get_value(
                 "SELECT id FROM msgs WHERE starred=? AND chat_id!=?",
-                (self.id, DC_CHAT_ID_TRASH),
+                (self.id, ChatId::TRASH),
             )
             .await?;
         Ok(res)
@@ -2018,7 +2013,7 @@ pub(crate) async fn insert_tombstone(context: &Context, rfc724_mid: &str) -> Res
         .sql
         .insert(
             "INSERT INTO msgs(rfc724_mid, chat_id) VALUES (?,?)",
-            (rfc724_mid, DC_CHAT_ID_TRASH),
+            (rfc724_mid, ChatId::TRASH),
         )
         .await?;
     let msg_id = MsgId::new(u32::try_from(row_id)?);
@@ -2100,15 +2095,16 @@ pub async fn estimate_deletion_cnt(
         .count(
             "SELECT COUNT(*)
              FROM msgs m
-             WHERE m.id > ?
-               AND timestamp < ?
-               AND chat_id != ?
-               AND chat_id != ? AND hidden = 0;",
+             WHERE m.id > ?1
+               AND timestamp < ?2      -- Sorting timestamp may be 0 for system messages
+               AND timestamp_rcvd < ?2 -- so we check 'received' timestamp as well.
+               AND chat_id != ?3
+               AND chat_id != ?4 AND hidden = 0;",
             (
-                DC_MSG_ID_LAST_SPECIAL,
+                MsgId::LAST_SPECIAL,
                 threshold_timestamp,
                 self_chat_id,
-                DC_CHAT_ID_TRASH,
+                ChatId::TRASH,
             ),
         )
         .await?;

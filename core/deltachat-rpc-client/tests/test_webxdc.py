@@ -1,9 +1,9 @@
-def test_webxdc(acfactory, data) -> None:
-    alice, bob = acfactory.get_online_accounts(2)
+def test_webxdc(acf, rpcdata) -> None:
+    alice, bob = acf.get_online_accounts(2)
 
     alice_contact_bob = alice.create_contact(bob, "Bob")
     alice_chat_bob = alice_contact_bob.create_chat()
-    alice_chat_bob.send_message(text="Let's play chess!", file=data.get_path("webxdc/chess.xdc"))
+    alice_chat_bob.send_message(text="Let's play chess!", file=rpcdata.get_path("webxdc/chess.xdc"))
 
     event = bob.wait_for_incoming_msg_event()
     bob_chat_alice = bob.get_chat_by_id(event.chat_id)
@@ -21,7 +21,7 @@ def test_webxdc(acfactory, data) -> None:
         "isAppSender": False,
         "isBroadcast": False,
         "sendUpdateInterval": 1000,
-        "sendUpdateMaxSize": 18874368,
+        "sendUpdateMaxSize": 2**20 * (30 - 1) * 3 // 4,
     }
 
     status_updates = message.get_webxdc_status_updates()
@@ -43,12 +43,12 @@ def test_webxdc(acfactory, data) -> None:
     ]
 
 
-def test_webxdc_insert_lots_of_updates(acfactory, data) -> None:
-    alice, bob = acfactory.get_online_accounts(2)
+def test_webxdc_insert_lots_of_updates(acf, rpcdata) -> None:
+    alice, bob = acf.get_online_accounts(2)
 
     alice_contact_bob = alice.create_contact(bob, "Bob")
     alice_chat_bob = alice_contact_bob.create_chat()
-    message = alice_chat_bob.send_message(text="Let's play chess!", file=data.get_path("webxdc/chess.xdc"))
+    message = alice_chat_bob.send_message(text="Let's play chess!", file=rpcdata.get_path("webxdc/chess.xdc"))
 
     for i in range(2000):
         message.send_webxdc_status_update({"payload": str(i)}, "description")
