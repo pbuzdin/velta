@@ -440,6 +440,23 @@ html[data-theme="light"] .msg-row.out .msg-quote .q-text { color: #4d5a68; }
 html[data-theme="light"] .msg-meta .ticks.read { color: #1d8bf1; }
 .msg-meta .star-ico { width: 13px; height: 13px; }
 
+/* In-flight send: dotted ring from ticksSvg("pending") spins in place. */
+.msg-meta .ticks-spin { animation: ticks-spin .9s linear infinite; }
+@keyframes ticks-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .msg-meta .ticks-spin { animation: none; } }
+
+/* Failed send: resend button at the bubble's bottom-left (floats against
+   the right-floating .msg-meta on the same line). */
+.msg-resend {
+  float: left; display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; margin: 4px 0 0 0; padding: 2px;
+  border: none; background: none; cursor: pointer; border-radius: 50%;
+  color: var(--danger, #e5484d); user-select: none;
+}
+html[data-theme="light"] .msg-resend { color: #d13438; }
+.msg-resend svg { width: 15px; height: 15px; display: block; }
+.msg-resend:hover { background: rgba(229, 72, 77, .14); }
+
 .msg-image {
   max-width: 100%;
   border-radius: 10px; margin: -2px -5px 5px;
@@ -489,7 +506,9 @@ body.native-scanning #app {
   .msg-image .img-wrap img { transition: none; transform: none; }
 }
 .msg-video {
-  width: 320px; max-width: 100%; margin: -2px -5px 5px;
+  /* Positive top margin: a negative one let the box overlap the sender/
+     quote line above. Side bleed (like .msg-image) keeps it edge-to-edge. */
+  width: 320px; max-width: 100%; margin: 2px -5px 5px;
   border-radius: 10px; overflow: hidden; background: #101010;
 }
 /* Fingerprint block reused inside the chat-info profile rows. */

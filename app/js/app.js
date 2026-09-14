@@ -580,6 +580,23 @@ function scheduleChatListRefresh(delay = 400) {
   }, delay);
 }
 
+// Report UI visibility to the Rust shell: the Android background event
+// poller only drains core events while this WebView is paused (the
+// foreground CoreService keeps the process alive). Events it consumed never
+// reached the frontend, so on becoming visible we refetch what's on screen.
+function reportUiVisible() {
+  try {
+    const tauri = window.__TAURI__;
+    const invoke = tauri?.core?.invoke || tauri?.invoke;
+    invoke?.("set_ui_visible", { visible: !document.hidden })?.catch?.(() => {});
+  } catch {}
+  if (!document.hidden && core) {
+    scheduleChatListRefresh();
+    if (state.activeChatId) chatView?.onMsgsChanged(state.activeChatId);
+  }
+}
+document.addEventListener("visibilitychange", reportUiVisible);
+
 async function refreshChatList() {
   if (state.accountChanging) return;
   const epoch = core.accountEpoch, query = state.query;
@@ -2216,6 +2233,7 @@ async function boot() {
     // event stream is available, or a call arriving during boot is missed.
     calls = initCalls(core, { notify: (msg) => toast(msg, 4500) });
     initWebxdc(core);
+    reportUiVisible(); // visibilitychange won't fire for the initial load
 
     // Live core version for the drawer footer / about modal — the running
     // core (sidecar or in-process) is the source of truth, not the constant.

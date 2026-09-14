@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Background sync: the CoreService foreground service keeps the
+         process (with the in-process Delta Chat core) alive after the user
+         leaves the app. remoteMessaging has no Android 15 time cap. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
     <!-- Media access for picking attachments (Android 13+ granular permissions). -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
@@ -76,6 +81,13 @@
                 <data android:scheme="dcbackup" />
             </intent-filter>
         </activity>
+
+        <!-- Keeps the core running in the background; started from
+             MainActivity.onCreate. -->
+        <service
+            android:name=".CoreService"
+            android:exported="false"
+            android:foregroundServiceType="remoteMessaging" />
 
         <provider
           android:name="androidx.core.content.FileProvider"

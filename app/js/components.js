@@ -251,8 +251,14 @@ const MUTE_SVG = `<svg class="ci-mute" viewBox="0 0 24 24"><path d="M12 3a5 5 0 
 const TICK1 = `<svg class="ci-ticks" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const TICK2 = `<svg class="ci-ticks" viewBox="0 0 24 24"><path d="M3 13l4 4L17 7M10 15l2 2 8-8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
+// Dotted ring for in-flight sends — spins via the .ticks-spin CSS rule.
+const SENDING_RING = [["12", "4"], ["17.7", "6.3"], ["20", "12"], ["17.7", "17.7"], ["12", "20"], ["6.3", "17.7"], ["4", "12"], ["6.3", "6.3"]]
+  .map(([x, y]) => `<circle cx="${x}" cy="${y}" r="1.7" fill="currentColor"/>`)
+  .join("");
+
 export function ticksSvg(state, cls = "ci-ticks") {
-  if (state === "pending") return `<svg class="${cls}" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3.5 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+  if (state === "pending") return `<svg class="${cls} ticks-spin" viewBox="0 0 24 24">${SENDING_RING}</svg>`;
+  if (state === "failed") return ""; // the bubble shows a resend button instead
   if (state === "sent") return TICK1.replace('ci-ticks', cls);
   const read = state === "read" ? " read" : "";
   return TICK2.replace('ci-ticks', cls + read);

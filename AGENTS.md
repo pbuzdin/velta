@@ -211,6 +211,30 @@ build by hand, remove it first.
 Note: `velta-app/src-tauri/Cargo.toml` currently pins the core via git. For
 local development against the bundled `core/`, uncomment the `path` dependency.
 
+### 4.3.1 Rebuilding the Windows sidecar from the vendored core
+
+`cargo build -p deltachat-rpc-server --release` in `core/` builds vendored
+OpenSSL (rusqlite `bundled-sqlcipher-vendored-openssl` +
+async-native-tls/vendored). On a stock Windows toolchain this fails twice —
+both failures were hit and cost a 13-minute dead build; never repeat them:
+
+- **Perl must be Strawberry Perl (or another full Windows perl).** Git Bash's
+  bundled perl is missing core modules — OpenSSL's Configure aborts with
+  `Can't locate Locale/Maketext/Simple.pm in @INC` (via `Params/Check.pm` →
+  `IPC/Cmd.pm`). A portable Strawberry zip extracted to `tools/` and put
+  first on `PATH` works; no installer or admin needed.
+- **NASM is needed for asm builds.** Without it, set `OPENSSL_NO_ASM=1`
+  (builds fine, skips hand-tuned assembly).
+
+Then copy `core/target/release/deltachat-rpc-server.exe` to
+`velta-app/src-tauri/binaries/deltachat-rpc-server-x86_64-pc-windows-msvc.exe`
+*and* `velta-app/src-tauri/binaries/deltachat-rpc-server.exe`, and verify the
+swap by piping a `get_system_info` JSON-RPC request into the exe's stdin —
+it must report the vendored core's version (v2.60.0 since 1.3.30; the
+previous prebuilt was silently v2.59.0, which the drawer footer exposed).
+`.github/workflows/build-windows.yml` does the same via
+chocolatey-installed StrawberryPerl + NASM.
+
 ### 4.4 Android background service (`velta-core-service/`)
 
 The skeleton currently contains only Cargo/Gradle manifests. To rebuild when the
@@ -740,6 +764,17 @@ test traffic accordingly.
 - Account data lives in the platform app-data directory:
   - Windows: `%APPDATA%/org.deltaweb.app/accounts`
   - Android: app-private storage.
+- **Background sync (since 1.3.30, Android main APK).** `CoreService.kt` is a
+  `remoteMessaging` foreground service started from `MainActivity.onCreate`;
+  it keeps the process — and the in-process core — alive after the app is
+  backgrounded. While the UI is hidden, Rust's `start_bg_event_poller`
+  (lib.rs) drains `get_next_event_batch` itself (ids prefixed `bg-`, routed
+  via `RpcState.bg_pending` like the `wxdc-` round-trips) and posts native
+  notifications for IncomingMsg events. The frontend reports visibility via
+  `set_ui_visible`; events the poller consumed never reached the WebView, so
+  the JS `visibilitychange` handler refetches the chat list and open chat on
+  resume. Keep the poller gated on `UI_VISIBLE` — ungated it would steal
+  events from the frontend's own polling.
 
 ### 9.3 Android background service
 

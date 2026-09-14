@@ -1,17 +1,13 @@
 # Velta
 
-A cross-platform **Delta Chat** client experiment built as a single PWA-ish web app wrapped by **Tauri 2**.
+A cross-platform **Delta Chat** client built as a single PWA-ish web app wrapped by **Tauri 2**.
 
-> ⚠️ **Status: Proof-of-Concept / 100% vibecoded**
->
-> This project was built almost entirely through vibe-coding and iterative fixes. It is **not production-ready**: expect rough edges, incomplete features, and bugs. Treat it as a learning/demo project rather than a stable messenger.
-
-## What it is 
+## What it is
 
 Velta shares one web frontend (`app/`) between:
 
 - **Windows desktop** — a Tauri 2 app that bundles `deltachat-rpc-server.exe` as a sidecar.
-- **Android mobile** — the same Tauri 2 app, but the Delta Chat core runs in-process inside the APK.
+- **Android mobile** — the same Tauri 2 app, but the Delta Chat core runs in-process inside the APK. A foreground service keeps sync (and notifications) running after the app is backgrounded.
 - **Browser/PWA** — the same frontend can be served statically and connects to a local `velta-core-service` over loopback WebSocket/HTTP, or falls back to a mock core for demo purposes. The PWA's target deployment is a **remote core service over WSS/TLS** — the loopback bridge remains the local/dev path.
 
 The UI is plain HTML/CSS/ES modules (no bundler). The backend is the upstream [Delta Chat core](https://github.com/chatmail/core) at version `2.60.0`.
@@ -594,10 +590,10 @@ text, so nothing needs to be configured per bot.
 <summary>Known limitations</summary>
 
 - External https links in messages open in the system browser (on Android they are routed there explicitly — the WebView drops `target=_blank` by itself).
-- This is a **PoC**. Group creation, contact discovery, QR invites, and real-time message rendering all work in basic flows but have not been stress-tested.
+- Group creation, contact discovery, QR invites, and real-time message rendering all work in basic flows but have not been stress-tested.
 - Logging to `velta.log` is disabled in the stable branch; use the status pill and browser/Tauri dev tools to diagnose issues.
 - On Windows, the app needs the sidecar binary to talk to the real core. If the sidecar fails to start the frontend falls back to the mock core.
-- On Android, the app currently uses the in-process core inside the Tauri APK. A separate background-service variant (`velta-core-service/`) builds a working service APK but is secondary to the Tauri app.
+- On Android, the in-process core rides a built-in foreground service (`CoreService`): messages keep syncing and arrive as system notifications while the app is backgrounded. A separate headless service APK (`velta-core-service/`) still exists for the PWA-in-browser mode.
 
 </details>
 

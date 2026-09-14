@@ -484,6 +484,19 @@ fn notify_incoming(app: tauri::AppHandle, title: String, body: String) -> Result
         .map_err(|e| e.to_string())
 }
 
+// ---------- background event draining (Android) ----------
+
+// Whether the frontend UI can currently process core events itself. The JS
+// side reports visibility via set_ui_visible; when the app is hidden the
+// WebView's JS stalls (and the process would freeze without the foreground
+// service), so the Rust-side background poller takes over event draining.
+static UI_VISIBLE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[tauri::command]
+fn set_ui_visible(visible: bool) {
+    UI_VISIBLE.store(visible, std::sync::atomic::Ordering::SeqCst);
+}
+
 #[tauri::command]
 fn write_poster(app: tauri::AppHandle, src: String, bytes: Vec<u8>) -> Result<String, String> {
     scoped_accounts_path(&app, &src)?;
@@ -942,6 +955,10 @@ struct RpcState {
     // Those requests use string ids prefixed "wxdc-" so the response
     // forwarders hand them back here instead of emitting to the WebView.
     wxdc_pending: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
+    // Background event poller (Android): get_next_event_batch round-trips
+    // use ids prefixed "bg-", routed back here by the response forwarder.
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    bg_pending: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
     #[cfg(target_os = "android")]
     _rt: tokio::runtime::Runtime,
     // Shared with the background init task: setup() stores None immediately
@@ -1057,6 +1074,25 @@ async fn init_android_core(
                 }
                 continue;
             }
+            let is_bg = match &message {
+                yerpc::Message::Response(response) => matches!(
+                    &response.id,
+                    Some(yerpc::Id::String(id)) if id.starts_with("bg-")
+                ),
+                _ => false,
+            };
+            if is_bg {
+                if let Ok(line) = serde_json::to_string(&message) {
+                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
+                        if let Some(id) = value.get("id").and_then(|v| v.as_str()).map(str::to_string) {
+                            if let Some(sender) = app.state::<RpcState>().bg_pending.lock().unwrap().remove(&id) {
+                                let _ = sender.send(line);
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
             let line = match serde_json::to_string(&message) {
                 Ok(line) => line,
                 Err(e) => {
@@ -1085,6 +1121,114 @@ async fn init_android_core(
 
     log("android core RPC session and response forwarder ready");
     Ok(req_tx)
+}
+
+// Round-trip a JSON-RPC call from Rust while the UI is hidden. Requests use
+// ids prefixed "bg-"; the response forwarder routes them back through
+// bg_pending (same pattern as the "wxdc-" webxdc round-trips).
+#[cfg(target_os = "android")]
+static BG_RPC_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(target_os = "android")]
+async fn bg_rpc(
+    tx: &tokio::sync::mpsc::UnboundedSender<String>,
+    state: &RpcState,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let id = format!("bg-{}", BG_RPC_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+    let request = serde_json::json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
+    let (resp_tx, resp_rx) = tokio::sync::oneshot::channel::<String>();
+    state.bg_pending.lock().unwrap().insert(id, resp_tx);
+    tx.send(request.to_string()).map_err(|_| "core rpc channel closed".to_string())?;
+    let line = tokio::time::timeout(std::time::Duration::from_secs(60), resp_rx)
+        .await
+        .map_err(|_| "bg rpc timed out".to_string())?
+        .map_err(|_| "bg rpc dropped".to_string())?;
+    let value: serde_json::Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
+    if let Some(err) = value.get("error") {
+        return Err(format!("bg rpc error: {err}"));
+    }
+    Ok(value.get("result").cloned().unwrap_or(serde_json::Value::Null))
+}
+
+// Post one system notification per drain cycle: title = chat name of the
+// newest message, body = its text (or a bare count when several arrived).
+#[cfg(target_os = "android")]
+async fn bg_notify_incoming(
+    app: &tauri::AppHandle,
+    tx: &tokio::sync::mpsc::UnboundedSender<String>,
+    state: &RpcState,
+    hits: Vec<(u32, u32, u32)>, // (account, chatId, msgId)
+) {
+    use tauri_plugin_notification::NotificationExt;
+    let Some(&(account, chat_id, msg_id)) = hits.last() else { return };
+    let count = hits.len();
+    let mut title = String::from("Velta");
+    let mut body = if count > 1 { format!("{count} new messages") } else { "New message".to_string() };
+
+    if let Ok(msg) = bg_rpc(tx, state, "get_message", serde_json::json!([account, msg_id])).await {
+        if let Some(text) = msg.get("text").and_then(|t| t.as_str()) {
+            let text = text.trim();
+            if !text.is_empty() {
+                let short: String = text.chars().take(120).collect();
+                body = if text.chars().count() > 120 { format!("{short}\u{2026}") } else { short };
+            }
+        }
+    }
+    if let Ok(chat) = bg_rpc(tx, state, "get_chat", serde_json::json!([account, chat_id])).await {
+        if let Some(name) = chat.get("name").and_then(|n| n.as_str()) {
+            if !name.trim().is_empty() {
+                title = name.trim().to_string();
+                if count > 1 {
+                    body = format!("{title}: {body}");
+                }
+            }
+        }
+    }
+    let _ = app.notification().builder().title(title).body(body).show();
+}
+
+// Drain the core's event queue while the UI cannot: with the foreground
+// service keeping the process alive, this is what turns background mail
+// into notifications. Events consumed here never reach the frontend; the
+// JS visibilitychange handler refetches the chat list and the open chat
+// when the app becomes visible again.
+#[cfg(target_os = "android")]
+fn start_bg_event_poller(app: tauri::AppHandle, tx: tokio::sync::mpsc::UnboundedSender<String>) {
+    tauri::async_runtime::spawn(async move {
+        log("background event poller started");
+        loop {
+            if UI_VISIBLE.load(std::sync::atomic::Ordering::SeqCst) {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                continue;
+            }
+            let state = app.state::<RpcState>();
+            match bg_rpc(&tx, &state, "get_next_event_batch", serde_json::json!([])).await {
+                Ok(result) => {
+                    let events = result.as_array().cloned().unwrap_or_default();
+                    let mut hits: Vec<(u32, u32, u32)> = Vec::new();
+                    for ev in &events {
+                        if ev.pointer("/event/kind").and_then(|k| k.as_str()) != Some("IncomingMsg") {
+                            continue;
+                        }
+                        hits.push((
+                            ev.get("contextId").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                            ev.pointer("/event/chatId").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                            ev.pointer("/event/msgId").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                        ));
+                    }
+                    if !hits.is_empty() && !UI_VISIBLE.load(std::sync::atomic::Ordering::SeqCst) {
+                        bg_notify_incoming(&app, &tx, &state, hits).await;
+                    }
+                }
+                Err(_) => {
+                    // Core not ready yet or the round-trip was dropped: back off.
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                }
+            }
+        }
+    });
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1180,16 +1324,19 @@ pub fn run() {
 
                 app.manage(RpcState {
                     wxdc_pending: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+                    bg_pending: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
                     _rt: rt,
                     tx: tx_holder.clone(),
                 });
 
                 let handle = app.handle().clone();
                 let status_handle = app.handle().clone();
+                let bg_handle = app.handle().clone();
                 spawn_handle.spawn(async move {
                     match init_android_core(handle, accounts).await {
                         Ok(tx) => {
                             log("android core RPC session ready");
+                            start_bg_event_poller(bg_handle, tx.clone());
                             *tx_holder.lock().unwrap() = Some(tx);
                             set_sidecar_status(&status_handle, serde_json::json!({"running": true, "stage": "ready"}));
                         }
@@ -1235,6 +1382,7 @@ pub fn run() {
 
                             app.manage(RpcState {
                                 wxdc_pending: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+                                bg_pending: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
                                 stdin: Arc::new(Mutex::new(Some(stdin))),
                             });
                             set_sidecar_status(&app_handle, serde_json::json!({"running": true, "stage": "ready"}));
@@ -1298,7 +1446,7 @@ pub fn run() {
             response.headers_mut().insert("Cache-Control", "max-age=31536000, immutable".parse().unwrap());
             response.map(|body| std::borrow::Cow::Owned(body))
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 

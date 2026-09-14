@@ -778,6 +778,12 @@ export class JsonRpcCore extends EventTarget {
     return this._call("get_system_info");
   }
 
+  // Retry delivery of a failed outgoing message: the core flips it back to
+  // OutPending, re-queues it, and MsgDelivered/MsgFailed events follow.
+  async resendMessage(msgId) {
+    return this._call("resend_messages", this.accountId, [msgId]);
+  }
+
   async getContact(contactId) {
     const c = await this._call("get_contact", this.accountId, contactId);
     return this._mapContact(c);

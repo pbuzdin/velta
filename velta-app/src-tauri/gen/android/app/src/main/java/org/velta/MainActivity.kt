@@ -29,6 +29,14 @@ class MainActivity : TauriActivity() {
     enableEdgeToEdge()
     setApplicationContext(applicationContext)
     super.onCreate(savedInstanceState)
+    // Keep the process (and the in-process Delta Chat core) alive after the
+    // user leaves the app: promote to a foreground service with a persistent
+    // low-importance notification. Background notifications are posted by
+    // Rust's background event poller; see start_bg_event_poller in lib.rs.
+    try {
+      CoreService.start(this)
+    } catch (_: Exception) {
+    }
     // Local chat (p2p.rs) discovers peers on the LAN via iroh's mDNS
     // (swarm-discovery); Android silently drops multicast packets unless a
     // MulticastLock is held for the process lifetime.

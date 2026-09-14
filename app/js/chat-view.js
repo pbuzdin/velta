@@ -40,6 +40,7 @@ const ICO = {
   mic: `<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 11a7 7 0 0014 0M12 18v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
   lock: `<svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 018 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>`,
   check: `<svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  resend: `<svg viewBox="0 0 24 24"><polyline points="2.5 5.5 2.5 11 8 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.2 14.5a8 8 0 1 0 1.5-8L2.5 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
 };
 
 // On Android the file picker can return a content URI / temporary path that the
@@ -470,6 +471,42 @@ export class ChatView {
     const row = this.listEl.querySelector(`[data-msgid="${msgId}"]`);
     const ticks = row?.querySelector(".msg-meta .ticks-slot");
     if (ticks) ticks.innerHTML = ticksSvg(state, "ticks");
+    this._syncResend(row, msgId, state);
+  }
+
+  // Failed outgoing rows carry a bottom-left resend button; row rebuilds get
+  // it from the template, live state transitions get it from here.
+  _syncResend(row, msgId, state) {
+    if (!row) return;
+    const btn = row.querySelector(".msg-resend");
+    if (state === "failed" && !btn) {
+      const el = document.createElement("button");
+      el.type = "button";
+      el.className = "msg-resend";
+      el.title = "Resend";
+      el.setAttribute("aria-label", "Resend message");
+      el.innerHTML = ICO.resend;
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const m = this.msgIndex.get(msgId)?.msg;
+        if (m) this._resendMessage(m);
+      });
+      row.querySelector(".msg-meta")?.before(el);
+    } else if (state !== "failed" && btn) {
+      btn.remove();
+    }
+  }
+
+  // Retry a failed outgoing message: the core flips it back to OutPending,
+  // re-queues it, and the usual MsgDelivered/MsgFailed events take over.
+  async _resendMessage(m) {
+    try {
+      await this.core.resendMessage(m.id);
+      this.onMsgState(m.chatId, m.id, "pending");
+    } catch (err) {
+      toast(`Resend failed: ${err?.message || err}`);
+      diagnosticsSink.append("error", `resend ${m.id}: ${err?.message || err}`);
+    }
   }
 
   _rowSignature(m) {
@@ -850,7 +887,11 @@ export class ChatView {
     const edited = m.edited ? `<span class="edited">edited</span>` : "";
     const star = m.starred ? `<svg class="star-ico" viewBox="0 0 24 24"><path d="M12 3l2.7 5.8 6.3.7-4.7 4.3 1.3 6.2-5.6-3.2-5.6 3.2 1.3-6.2L3 9.5l6.3-.7z" fill="currentColor"/></svg>` : "";
     const ticks = out ? `<span class="ticks-slot">${ticksSvg(m.state, "ticks")}</span>` : "";
-    bubble += `<span class="msg-meta">${edited}${star}${formatTime(m.ts)}${ticks}</span></div>`;
+    // Failed sends keep the meta clean (no ticks) and get a resend button
+    // at the bubble's bottom-left instead. No whitespace before the button:
+    // msg-text is pre-wrap.
+    const resend = out && m.state === "failed" ? `<button type="button" class="msg-resend" data-act="resend" title="Resend" aria-label="Resend message">${ICO.resend}</button>` : "";
+    bubble += `<span class="msg-meta">${edited}${star}${formatTime(m.ts)}${ticks}</span>${resend}</div>`;
     if (m.reactions?.length) {
       bubble += `<div class="msg-reactions">${m.reactions.map(r =>
         `<span class="reaction-chip${r.mine ? " mine" : ""}" data-react="${r.emoji}">${r.emoji} ${r.count}</span>`).join("")}</div>`;
@@ -1040,6 +1081,7 @@ export class ChatView {
         e.stopPropagation();
         if (mediaAction.dataset.act === "download") this._downloadMedia(m.id);
         else if (mediaAction.dataset.act === "open") this._openFile(m.filePath);
+        else if (mediaAction.dataset.act === "resend") this._resendMessage(m);
         return;
       }
       const vcardBtn = e.target.closest("[data-vcard-open]");
