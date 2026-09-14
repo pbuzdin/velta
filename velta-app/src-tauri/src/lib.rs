@@ -26,7 +26,7 @@ static SIDECAR_STATUS: Mutex<Option<serde_json::Value>> = Mutex::new(None);
 
 // Non-blocking logger: messages are pushed onto an unbounded mpsc channel and
 // written from a dedicated background thread, so log() never blocks the IPC /
-// RPC hot path. On Android this is critical вЂ” the WebView event bridge and the
+// RPC hot path. On Android this is critical -- the WebView event bridge and the
 // JSON-RPC session both pass through the main thread context, and a
 // synchronous file open+write per RPC round-trip was stalling the startup
 // handshake long enough for the frontend's event.listen() to time out and
@@ -77,7 +77,7 @@ fn ensure_log_writer() {
     *guard = Some(tx);
     drop(guard);
 
-    // Capture the directory at spawn time вЂ” it won't change during the session.
+    // Capture the directory at spawn time -- it won't change during the session.
     let dir = log_dir();
     std::thread::Builder::new()
         .name("velta-log-writer".into())
@@ -94,7 +94,7 @@ fn ensure_log_writer() {
                         f.write_all(msg.as_bytes())
                     });
                 // If the log file becomes unwritable (rotated, volume full),
-                // don't kill the thread вЂ” just keep draining the channel so
+                // don't kill the thread -- just keep draining the channel so
                 // log() callers never block.
                 if res.is_err() {
                     std::thread::sleep(std::time::Duration::from_millis(100));
@@ -118,7 +118,7 @@ pub fn log(msg: &str) {
         .unwrap_or_default();
     let line = format!("[{}.{:03}] {}\n", now.as_secs(), now.subsec_millis(), msg);
     // Non-blocking send. If the channel doesn't exist yet (before
-    // set_log_dir) or the writer thread has died, the message is dropped вЂ”
+    // set_log_dir) or the writer thread has died, the message is dropped --
     // never block the caller. On Android this is what was killing startup:
     // every RPC round-trip did a synchronous create_dir_all+open+write under
     // a global Mutex, blocking the JSON-RPC handshake.
@@ -186,7 +186,7 @@ fn resolve_upload_path(app: tauri::AppHandle, filename: String) -> String {
 mod webxdc_serve;
 use webxdc_serve::{webxdc_resolve_line, webxdc_serve};
 
-// ---------- blobfile:// вЂ” Range-aware media serving ----------
+// ---------- blobfile:// -- Range-aware media serving ----------
 
 // The default asset protocol on Android is served by the plain
 // WebViewAssetLoader, which ignores Range requests. Video files whose moov
@@ -286,8 +286,22 @@ fn serve_blob_file(app: &tauri::AppHandle, request: tauri::http::Request<Vec<u8>
     let path_part = path_part.split('?').next().unwrap_or(path_part);
     let file = percent_decode(path_part);
 
+    // Boot probe from media.js: an <img> load of this path proves the webview
+    // dispatches custom-protocol requests at all (WebView2's media stack can
+    // bypass them even when images through the same scheme work — the probe
+    // is an <img>, so a 200 here vouches for the image pipeline exactly).
+    // Anything answering keeps media on the loopback HTTP server chain.
+    if path_part == "__velta-probe" {
+        return tauri::http::Response::builder()
+            .header("Content-Type", "text/plain")
+            .header("Access-Control-Allow-Origin", "*")
+            .header("Cache-Control", "no-store")
+            .body(b"ok".to_vec())
+            .unwrap();
+    }
+
     // Only serve files that live inside the accounts directory (blobs,
-    // uploads) вЂ” never anything else on the filesystem. Canonicalize both
+    // uploads) -- never anything else on the filesystem. Canonicalize both
     // sides: on Android the core reports blobs under /data/user/0 (a symlink
     // to /data/data), so a raw prefix check would wrongly reject everything.
     let accounts = accounts_dir(app);
@@ -394,7 +408,7 @@ fn media_base_url() -> String {
 // Posters are extracted in the WebView (hidden <video> over a blob URL, seek,
 // canvas) and persisted as WebP next to the account database, so a frame is
 // decoded only once per file. The cached image is served through the asset
-// protocol вЂ” plain GETs work fine there even though range reads don't.
+// protocol -- plain GETs work fine there even though range reads don't.
 
 fn poster_target(src: &str) -> Option<PathBuf> {
     let p = std::path::Path::new(src);
@@ -428,7 +442,7 @@ fn poster_cache_path(app: tauri::AppHandle, src: String) -> Result<serde_json::V
     Ok(serde_json::json!({ "path": target.to_string_lossy(), "exists": exists }))
 }
 
-// Posters are extracted from a full in-memory copy of the media вЂ” refuse to
+// Posters are extracted from a full in-memory copy of the media -- refuse to
 // buffer oversized files into the IPC layer (the WebView's poster.js has its
 // own fast-path check, but this is the enforced bound).
 const MAX_MEDIA_IPC_BYTES: u64 = 128 * 1024 * 1024;
@@ -486,13 +500,13 @@ fn start_media_server(accounts: PathBuf) {
         .name("media-http".into())
         .spawn(move || {
             // Prefer the fixed port: the static CSP whitelist references it.
-            // Fall back to an ephemeral port (media may then be CSP-blocked вЂ”
+            // Fall back to an ephemeral port (media may then be CSP-blocked --
             // logged loudly) rather than losing media entirely.
             let listener = match std::net::TcpListener::bind("127.0.0.1:20810") {
                 Ok(l) => l,
                 Err(_) => match std::net::TcpListener::bind("127.0.0.1:0") {
                     Ok(l) => {
-                        log("media http: port 20810 busy, bound ephemeral вЂ” media-src CSP mismatch possible");
+                        log("media http: port 20810 busy, bound ephemeral -- media-src CSP mismatch possible");
                         l
                     }
                     Err(e) => {
@@ -617,7 +631,7 @@ Connection: close
     // Range request: seek to the offset and stream exactly the requested
     // interval. (The old path truncated the file from byte 0 without seeking,
     // serving the wrong bytes labelled as start-end and breaking video
-    // seeking / moov-at-end demuxing.) An unusable Range header gets 416 вЂ”
+    // seeking / moov-at-end demuxing.) An unusable Range header gets 416 --
     // never a whole-file read.
     if let Some(header) = &range {
         let Some((start, end)) = parse_range(header, len) else {
@@ -670,7 +684,7 @@ Connection: close
         return;
     }
 
-    // Full GET: stream in chunks вЂ” a large video must never be buffered whole.
+    // Full GET: stream in chunks -- a large video must never be buffered whole.
     let headers = format!(
         "HTTP/1.1 200 OK
 Content-Type: {mime}
@@ -731,7 +745,7 @@ pub extern "system" fn Java_org_velta_MainActivity_setApplicationContext(
 }
 
 // Desktop has no ContentResolver; the command exists on every platform so the
-// frontend can always call it вЂ” on desktop it just reports unsupported.
+// frontend can always call it -- on desktop it just reports unsupported.
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
 fn resolve_content_uri(_app: tauri::AppHandle, _uri: String, _filename: String) -> Result<String, String> {
@@ -968,7 +982,7 @@ impl RpcState {
 #[tauri::command]
 fn rpc(request: String, state: State<'_, RpcState>) -> Result<(), String> {
     // NOTE: do not log every request here. This command is on the JSON-RPC
-    // hot path вЂ” even with the non-blocking logger, formatting a string per
+    // hot path -- even with the non-blocking logger, formatting a string per
     // RPC adds alloc pressure and grows velta.log unbounded. Use js_log from
     // the frontend for targeted diagnostics.
     state.send_rpc(&request)
@@ -1050,7 +1064,7 @@ async fn init_android_core(
                     continue;
                 }
             };
-            // NOTE: do not log every response вЂ” it's the hot path and would
+            // NOTE: do not log every response -- it's the hot path and would
             // grow velta.log unbounded. Errors are still logged below.
             if let Err(e) = app.emit("velta-rpc", &line) {
                 log(&format!("android emit error: {e}"));
@@ -1125,9 +1139,9 @@ pub fn run() {
             let _ = std::fs::create_dir_all(&accounts);
             log(&format!("accounts directory: {}", accounts.display()));
 
-            // Local-only P2P chat engine вЂ” independent of the Delta Chat core,
+            // Local-only P2P chat engine -- independent of the Delta Chat core,
             // runs on Tauri's async runtime on every platform. Manage the exact
-            // type the commands expect (P2pState itself, NOT a wrapper вЂ” a
+            // type the commands expect (P2pState itself, NOT a wrapper -- a
             // mismatch surfaces as "state not managed" at command time); the
             // engine fills in asynchronously so early p2p_* calls report
             // "still starting" instead of failing with an unmanaged-state error.
@@ -1231,7 +1245,7 @@ pub fn run() {
                                 for line in reader.lines() {
                                     match line {
                                         Ok(line) => {
-                                            // NOTE: do not log every line вЂ” it's the
+                                            // NOTE: do not log every line -- it's the
                                             // hot path and would grow velta.log
                                             // unbounded. Errors are logged below.
                                             if line.contains("\"id\":\"wxdc-") {

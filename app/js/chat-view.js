@@ -977,6 +977,14 @@ export class ChatView {
       mediaImg.onerror = () => {
         if (!alive()) return;
         rustLog(`media img error src=${mediaImg.src} original=${m.filePath}`);
+        // One-shot swap to the legacy chain (media HTTP server / asset
+        // protocol) before giving up.
+        const fb = mediaFallbackUrl(m.filePath);
+        if (fb && mediaImg.dataset.fallback !== "1" && mediaImg.src !== fb) {
+          mediaImg.dataset.fallback = "1";
+          mediaImg.src = fb;
+          return;
+        }
         diagnosticsSink.append("error", `img ${m.id} failed to load`);
         const box = mediaImg.closest(".msg-image");
         if (box && !box.dataset.failed) {
@@ -992,6 +1000,12 @@ export class ChatView {
       mediaAudio.onerror = () => {
         if (!alive()) return;
         rustLog(`media audio error src=${mediaAudio.src} original=${m.filePath}`);
+        const fb = mediaFallbackUrl(m.filePath);
+        if (fb && mediaAudio.dataset.fallback !== "1" && mediaAudio.src !== fb) {
+          mediaAudio.dataset.fallback = "1";
+          mediaAudio.src = fb;
+          return;
+        }
         const box = mediaAudio.closest(".msg-audio");
         if (box && !box.dataset.failed) {
           box.dataset.failed = "1";

@@ -1,7 +1,7 @@
 // components.js — Progressive Web Components built on Elena (@elenajs/core)
 import { Elena, html, unsafeHTML } from "../vendor/elena.js";
 import { formatListTime, timeAgo } from "./mock-core.js";
-import { fileUrl } from "./media.js";
+import { fileUrl, mediaFallbackUrl } from "./media.js";
 import { ensurePoster } from "./poster.js";
 import { diagnosticsSink } from "./diagnostics.js";
 import { buildAvatarSvg, fingerprintFor, cachedFingerprint, fingerprintGroups } from "./avatar.js";
@@ -184,6 +184,17 @@ class VeltaVideo extends Elena(HTMLElement) {
     if (v && !v.dataset.errBound) {
       v.dataset.errBound = "1";
       v.addEventListener("error", () => {
+        // WebView2's media stack bypasses custom-protocol interception even
+        // when images through the same scheme load, so a blobfile src can
+        // fail here on an otherwise healthy setup — swap to the legacy chain
+        // (media HTTP server / asset protocol) once before giving up.
+        const fb = mediaFallbackUrl(this.file);
+        if (fb && this.src && this.src !== fb && this.dataset.fallback !== "1") {
+          this.dataset.fallback = "1";
+          this.src = fb; // willUpdate clears #failed; re-render replays
+          this.requestUpdate();
+          return;
+        }
         this.#failed = true;
         this.requestUpdate();
         diagnosticsSink.append("error", `video "${this.name}" failed to load`);

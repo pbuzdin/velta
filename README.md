@@ -12,7 +12,7 @@ Velta shares one web frontend (`app/`) between:
 
 - **Windows desktop** — a Tauri 2 app that bundles `deltachat-rpc-server.exe` as a sidecar.
 - **Android mobile** — the same Tauri 2 app, but the Delta Chat core runs in-process inside the APK.
-- **Browser/PWA** — the same frontend can be served statically and connects to a local `velta-core-service` over loopback WebSocket/HTTP, or falls back to a mock core for demo purposes.
+- **Browser/PWA** — the same frontend can be served statically and connects to a local `velta-core-service` over loopback WebSocket/HTTP, or falls back to a mock core for demo purposes. The PWA's target deployment is a **remote core service over WSS/TLS** — the loopback bridge remains the local/dev path.
 
 The UI is plain HTML/CSS/ES modules (no bundler). The backend is the upstream [Delta Chat core](https://github.com/chatmail/core) at version `2.60.0`.
 
@@ -459,9 +459,13 @@ Implementation files:
 
 ### How media is loaded
 
-Real media blobs live in the Delta Chat account directory and cannot be reached by a `file://` URL from the WebView. For images, video and audio the UI uses `__TAURI__.core.convertFileSrc(path)` (Tauri’s local-file access helper) to generate a WebView-safe URL, then sets it as the `src` of the inline element. Files are opened with `plugin:opener|open_path`.
+Real media blobs live in the Delta Chat account directory and cannot be reached by a `file://` URL from the WebView. `app/js/media.js` resolves paths through a three-tier chain:
 
-On Android, `<video>`/`<audio>` sources ride a loopback HTTP server (`127.0.0.1:20810`, random per-launch token, account-directory-scoped) instead: the asset protocol there answers the first range read but fails mid-file ones, which kills demuxing of moov-at-end MP4s (most phone recordings). The network security config permits cleartext to loopback only. Posters for the click-to-play placeholder are extracted once per file (blob read → hidden `<video>` → canvas → WebP) into `velta-posters/` inside the account directory and served through the asset protocol.
+1. **`blobfile://` custom protocol** (primary once boot-probed) — a Tauri URI-scheme handler in `lib.rs` serves account-dir-scoped blobs with real 206 range responses, no TCP listener. At startup the frontend loads a probe image through the scheme; a webview that never dispatches custom-protocol requests (WebView2's media stack can bypass them even when images through the same scheme load) keeps the legacy chain.
+2. **Loopback media HTTP server** — `127.0.0.1:20810`, random per-launch token, account-directory-scoped, real ranges. This is the probe-negative path and the one-shot per-element fallback: `<img>`/`<video>`/`<audio>` that fail on a blobfile URL swap to it once before showing an error placeholder. On Android this server remains what `<video>`/`<audio>` can always rely on, since the asset protocol there answers the first range read but fails mid-file ones, which kills demuxing of moov-at-end MP4s (most phone recordings). The network security config permits cleartext to loopback only.
+3. **Tauri asset protocol** — plain GETs (posters) work everywhere.
+
+Files are opened with `plugin:opener|open_path`. Posters for the click-to-play placeholder are extracted once per file (blob read → hidden `<video>` → canvas → WebP) into `velta-posters/` inside the account directory and served through the asset protocol.
 
 ### Video placeholder: poster frame and size badge
 
@@ -564,11 +568,15 @@ chat header instead.
 <summary>Webxdc mini-apps (beta)</summary>
 
 Messages containing a `.xdc` mini-app render as an app card — tap to open
-the app in a full-screen overlay (same-origin sandbox, close button in the
-title bar). App state syncs to every chat member through end-to-end
-encrypted status updates, and the relay's STUN/TURN servers power the
-connection. Realtime (low-latency) channels and `sendToChat` export are not
-wired yet — apps that rely on them degrade gracefully to status updates.
+the app in a full-screen overlay (opaque-origin sandbox, close button in the
+title bar). The iframe runs **without** `allow-same-origin`, so every app
+document gets a unique opaque origin: mini-apps can reach neither the host
+page nor each other's data, and the injected shim backs
+`localStorage`/`sessionStorage` with memory in that origin (app state
+syncs to every chat member through end-to-end encrypted status updates,
+and the relay's STUN/TURN servers power the connection). Realtime
+(low-latency) channels and `sendToChat` export are not wired yet — apps
+that rely on them degrade gracefully to status updates.
 
 </details>
 

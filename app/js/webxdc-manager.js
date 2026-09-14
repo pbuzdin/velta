@@ -134,7 +134,13 @@ export function openWebxdc(msgId, fallbackName = "Webxdc app") {
   const account = core.accountId;
   const base = baseFor(account);
   const iframe = document.createElement("iframe");
-  iframe.setAttribute("sandbox", "allow-scripts allow-same-origin allow-downloads allow-forms allow-modals");
+  // No allow-same-origin: each app document gets a unique opaque origin, so
+  // webxdc apps can neither reach the host page nor each other's data. The
+  // shim's postMessage bridge and no-cors subresource loads work unchanged;
+  // webxdc_serve sends Access-Control-Allow-Origin: * for fetch() calls.
+  // webxdc-shim.js backs localStorage/sessionStorage with memory in that
+  // origin (app state lives in status updates anyway).
+  iframe.setAttribute("sandbox", "allow-scripts allow-downloads allow-forms allow-modals");
   iframe.setAttribute("allow", "autoplay");
   iframe.src = `${base}/${msgId}/index.html`;
   iframe.className = "webxdc-frame";

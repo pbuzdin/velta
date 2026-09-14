@@ -52,14 +52,14 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── diagnostics.js    # diagnostics chat store + event sink + shared console-style row renderer
 │   │   ├── invites.js        # invite-link registry (mirror domains), parsing, invite cards, settings modal
 │   │   ├── markdown.js       # escape-first message markdown: bold/italic/underline, links, lists + bot command extraction
-│   │   ├── media.js          # media URL helpers (loopback server / asset protocol)
+│   │   ├── media.js          # media URL helpers: blobfile:// protocol (boot-probed) → loopback server → asset protocol + per-element fallback
 │   │   ├── p2p.js            # Local chat UI: device pairing, hub, 1:1 chat modal (Tauri only)
 │   │   ├── poster.js         # lazy WebP poster extraction + disk cache
 │   │   ├── qr-scan.js        # code acquisition: paste or camera scan (native BarcodeDetector probed with a 2s timeout, vendored jsQR fallback — many Android WebViews ship no Shape Detection API or one whose detect() hangs)
 │   │   ├── mock-core.js      # in-memory demo core implementing the JSON-RPC surface
 │   │   ├── rpc-core.js       # JsonRpcCore wrapper over transports + event mapping
 │   │   ├── transport.js      # backend auto-detection (Tauri, WebSocket, HTTP, mock)
-│   │   ├── webxdc-manager.js # webxdc host: sandboxed app overlay, shim postMessage relay, per-instance serials
+│   │   ├── webxdc-manager.js # webxdc host: opaque-origin sandboxed app overlay, shim postMessage relay, per-instance serials
 │   │   └── ui.js             # drawer, modals, context menus, toasts
 │   ├── vendor/               # third-party frontend libraries
 │   │   ├── elena.js          # lightweight web-components library
@@ -427,7 +427,7 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   renderer and chat-view's service-message fallback. The store collapses
   identical consecutive entries into one counted row — prefer appending here
   over toasting for repeatable background errors.
-- `app/js/media.js` resolves local file paths to WebView-safe media URLs (loopback media server when available, asset protocol otherwise). Blob media is served `Cache-Control: immutable` — core blob names are content-deduplicated, so the WebView can cache image bytes across chat switches.
+- `app/js/media.js` resolves local file paths to WebView-safe media URLs. Resolution order: (1) the `blobfile://` custom protocol (registered in `lib.rs`, serves account-dir-scoped blobs with real 206 ranges over a fixed origin, no TCP listener) once an `<img>` boot probe has proven this webview dispatches custom-protocol requests at all — the probe is an `<img>`, so a 200 vouches for the image pipeline exactly; (2) the loopback media HTTP server (kept running — it is the probe-negative path, and WebView2's media stack bypasses custom-protocol interception even when images through the same scheme load); (3) the asset protocol. `<img>`/`<video>`/`<audio>` error handlers swap to the legacy chain once (`mediaFallbackUrl`) before showing a failure placeholder — keep those swaps when touching media rendering. Blob media is served `Cache-Control: immutable` — core blob names are content-deduplicated, so the WebView can cache image bytes across chat switches.
 - `app/js/poster.js` extracts and caches WebP poster frames for video placeholders.
 - `app/js/ui.js` is a collection of UI helpers (drawer, modals, context menus,
   toasts, delete-confirmation dialog). The drawer head (`drawer-head`) shows
@@ -684,9 +684,22 @@ test traffic accordingly.
   keys or plaintext mail credentials; it only speaks JSON-RPC to the core.
 - **Loopback-only service.** The Android service bridge binds to `127.0.0.1:20808`
   and `127.0.0.1:20809`. Do not expose these ports to other interfaces.
-- **CSP.** The Tauri `tauri.conf.json` sets a restrictive CSP:
-  `default-src 'self'; img-src 'self' data: blob: file:; style-src 'self' 'unsafe-inline'`.
-  Keep it tight when adding new frontend capabilities.
+- **CSP.** The Tauri `tauri.conf.json` and `tauri.android.conf.json` set a
+  restrictive CSP rooted in `default-src 'self'` with no `unsafe-inline` or
+  `unsafe-eval` for scripts (inline scripts are blocked — that is relied on,
+  e.g. by `boot-net.js`); `img-src`/`media-src` additionally allow the
+  `blobfile:`/`webxdc:` custom-scheme origins and the loopback media server.
+  Keep it tight when adding new frontend capabilities, and update **both**
+  conf files together.
+- **Webxdc sandbox is opaque-origin.** `webxdc-manager.js` deliberately omits
+  `allow-same-origin` from the iframe sandbox: every mini-app document gets a
+  unique opaque origin and can reach neither the host page nor other apps'
+  data. The shim's postMessage bridge works unchanged (`webxdc_serve`
+  answers with `Access-Control-Allow-Origin: *`), and `webxdc-shim.js`
+  shadows `localStorage`/`sessionStorage` with an in-memory store because
+  real storage throws in opaque origins. Do not re-add `allow-same-origin`
+  — all webxdc apps share the `webxdc.localhost` origin, so same-origin
+  would let a malicious app read every other app's blobs.
 - **PWA protocol handler.** `manifest.webmanifest` registers `web+dcaccount` as a
   protocol handler. Validate incoming `?qr=` parameters before passing them to
   the core.
@@ -711,6 +724,13 @@ test traffic accordingly.
 - If `deltachat-rpc-server` or the Android service is running on the same
   device, the app connects over loopback WebSocket/HTTP; otherwise it falls
   back to the mock core.
+- **Direction (since 1.3.29):** the PWA's target deployment is a *remote*
+  core service reached over WSS/TLS — `transport.js` currently hardwires the
+  loopback endpoints (`ws://127.0.0.1:20808`, `http://127.0.0.1:20809`), and
+  a remote transport will replace them. Note the CSP implication before
+  adding origins: a meta CSP in `index.html` is still missing, so outside
+  the Tauri shell the only XSS layer is the frontend's escape-first
+  rendering.
 
 ### 9.2 Tauri desktop/Android app
 
