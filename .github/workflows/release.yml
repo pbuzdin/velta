@@ -71,6 +71,6 @@ jobs:
           name: Velta v${{ steps.ver.outputs.version }}
           files: |
             release-assets/*.apk
-            release-assets/Velta_*_x64-setup.exe
+            release-assets/**/Velta_*_x64-setup.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

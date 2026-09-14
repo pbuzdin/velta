@@ -6,6 +6,7 @@ import { fileUrl } from "./media.js";
 import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintGroups } from "./avatar.js";
 import { ChatView, setAvatarProfileOpener } from "./chat-view.js";
 import { initCalls } from "./calls.js";
+import { initWebxdc } from "./webxdc-manager.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal } from "./invites.js";
 import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming } from "./ui.js";
@@ -2189,6 +2190,7 @@ async function boot() {
     // Calls first: the incoming-call listener must exist as early as the
     // event stream is available, or a call arriving during boot is missed.
     calls = initCalls(core, { notify: (msg) => toast(msg, 4500) });
+    initWebxdc(core);
 
     appLog("boot: getAccount");
     // Flush anything the pre-app.js safety net (boot-net.js) caught while

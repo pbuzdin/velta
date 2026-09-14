@@ -3,6 +3,7 @@ import { formatTime, formatDay, formatBytes } from "./mock-core.js";
 import { escapeHtml, escapeAttr, ticksSvg } from "./components.js";
 import { showContextMenu, showModal, confirmDeleteMessagesModal, toast, showEmojiPop, openImageLightbox } from "./ui.js";
 import { diagnosticRow } from "./diagnostics.js";
+import { openWebxdc, prefetchInfo, appIconUrl } from "./webxdc-manager.js";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
 
@@ -13,7 +14,7 @@ export function setAvatarProfileOpener(fn) { avatarProfileOpener = fn; }
 
 import { diagnosticsSink, debugLog } from "./diagnostics.js";
 import { fileUrl } from "./media.js";
-import { renderMarkdown } from "./markdown.js";
+import { renderMarkdown, extractBotCommands } from "./markdown.js";
 
 function rustLog(msg) {
   try {
@@ -35,6 +36,7 @@ const ICO = {
   download: `<svg viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M4 19h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   photo: `<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="10" r="1.6" fill="currentColor"/><path d="M4 17l5-5 3.5 3.5L16 12l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`,
   file: `<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 3v4h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`,
+  webxdc: `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="3" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="3" y="13" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M17.5 13.5v6m-3-3h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
   mic: `<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 11a7 7 0 0014 0M12 18v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
   lock: `<svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 018 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>`,
   check: `<svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
@@ -802,6 +804,14 @@ export class ChatView {
           <div><div class="file-name">${escapeHtml(m.fileName || label)}</div><div class="file-size">${m.downloadState === "InProgress" ? "Downloading…" : "Tap to download"}</div></div>
         </div>`;
       }
+    } else if (m.viewtype === "webxdc") {
+      // Webxdc mini-app: an app card (icon + name + summary hydrate async
+      // from the app manifest); tapping opens the app in the webxdc overlay.
+      const appName = (m.fileName || "app.xdc").replace(/\.xdc$/i, "");
+      bubble += `<div class="msg-webxdc" role="button" data-act="open-webxdc">
+        <div class="webxdc-ico"><img data-webxdc-icon="${m.id}" alt="" decoding="async">${ICO.webxdc || ICO.download}</div>
+        <div><div class="file-name">${escapeHtml(appName)}</div><div class="file-sub"><span class="webxdc-summary">Webxdc app</span> · tap to open</div></div>
+      </div>`;
     } else if (m.viewtype === "file") {
       const isDownloaded = m.downloadState === "Done";
       bubble += `<div class="msg-file${isDownloaded ? "" : " download-btn"}" role="button" data-act="${isDownloaded ? "open" : "download"}">
@@ -829,6 +839,12 @@ export class ChatView {
       // get_message_html.
       const truncated = m.text.endsWith(" [...]");
       bubble += `<div class="msg-text">${renderMarkdown(m.text)}`;
+      if (m.isBot) {
+        const cmds = extractBotCommands(m.text);
+        if (cmds.length) {
+          bubble += `<div class="msg-cmds">${cmds.map((c) => `<button type="button" class="msg-cmd" data-cmd="${escapeAttr(c)}">${escapeHtml(c)}</button>`).join("")}</div>`;
+        }
+      }
       if (truncated) bubble += `<div style="margin-top:6px"><button type="button" class="btn-text" data-readmore style="padding:4px 8px;font-size:13px">Read more</button></div>`;
     } else bubble += `<div class="msg-text">`;
     const edited = m.edited ? `<span class="edited">edited</span>` : "";
@@ -876,6 +892,57 @@ export class ChatView {
     // list jitters while scrolling ("Item index N height changed
     // unexpectedly" console warnings).
     const notifyHeight = () => { const it = liveItem(); if (it) this.vs?.onItemHeightDidChange?.(it); };
+    const webxdcCard = row.querySelector('.msg-webxdc[data-act="open-webxdc"]');
+    if (webxdcCard && webxdcCard.dataset.wired !== "1") {
+      webxdcCard.dataset.wired = "1";
+      webxdcCard.addEventListener("click", () => {
+        if (!alive()) return;
+        openWebxdc(m.id, webxdcCard.querySelector(".file-name")?.textContent || "Webxdc app");
+      });
+      prefetchInfo(m.id).then((info) => {
+        if (!info || !alive() || webxdcCard.isConnected === false) return;
+        const name = webxdcCard.querySelector(".file-name");
+        const summary = webxdcCard.querySelector(".webxdc-summary");
+        if (info.name && name) name.textContent = info.name;
+        if (summary && info.summary) summary.textContent = info.summary;
+        const iconImg = webxdcCard.querySelector("img[data-webxdc-icon]");
+        if (iconImg && info.icon) {
+          iconImg.src = appIconUrl(m.id, info.icon);
+          iconImg.style.display = "";
+        }
+      }).catch(() => {});
+    }
+    if (m.isBot) {
+      row.querySelectorAll(".msg-cmd[data-cmd]").forEach((cmdBtn) => {
+        cmdBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const input = document.getElementById("composer-input");
+          if (!input) return;
+          input.value = cmdBtn.dataset.cmd;
+          input.focus();
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+      });
+    }
+    if (/Android/.test(navigator.userAgent)) {
+      // Android WebView drops target=_blank (no multi-window support in wry):
+      // route message links to the system browser via the opener plugin.
+      row.querySelectorAll('a[href]').forEach((a) => {
+        a.addEventListener("click", (e) => {
+          const href = a.getAttribute("href") || "";
+          if (!/^https?:/i.test(href)) return;
+          e.preventDefault();
+          try {
+            const tauri = window.__TAURI__;
+            const invoke = tauri?.core?.invoke || tauri?.invoke;
+            invoke("plugin:opener|open_url", { url: href })
+              .catch(() => window.open(href, "_blank"));
+          } catch {
+            window.open(href, "_blank");
+          }
+        });
+      });
+    }
     const mediaImg = row.querySelector('.msg-image img[data-src]');
     if (mediaImg) {
       const wrap = mediaImg.closest(".img-wrap");

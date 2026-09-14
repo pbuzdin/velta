@@ -561,8 +561,21 @@ chat header instead.
 </details>
 
 <details>
+<summary>Webxdc mini-apps (beta)</summary>
+
+Messages containing a `.xdc` mini-app render as an app card — tap to open
+the app in a full-screen overlay (same-origin sandbox, close button in the
+title bar). App state syncs to every chat member through end-to-end
+encrypted status updates, and the relay's STUN/TURN servers power the
+connection. Realtime (low-latency) channels and `sendToChat` export are not
+wired yet — apps that rely on them degrade gracefully to status updates.
+
+</details>
+
+<details>
 <summary>Known limitations</summary>
 
+- External https links in messages open in the system browser (on Android they are routed there explicitly — the WebView drops `target=_blank` by itself).
 - This is a **PoC**. Group creation, contact discovery, QR invites, and real-time message rendering all work in basic flows but have not been stress-tested.
 - Logging to `velta.log` is disabled in the stable branch; use the status pill and browser/Tauri dev tools to diagnose issues.
 - On Windows, the app needs the sidecar binary to talk to the real core. If the sidecar fails to start the frontend falls back to the mock core.

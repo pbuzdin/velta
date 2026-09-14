@@ -83,3 +83,12 @@ function formatInline(escaped) {
     .replace(/(^|[^\w*])\*([^*\n]+)\*(?![\w*])/g, "$1<em>$2</em>")
     .replace(/(^|[^\w_])_([^_\n]+)_(?![\w_])/g, "$1<em>$2</em>");
 }
+
+// Bot command extraction for chat-view's command chips: every /token that
+// stands alone in the text (deduped, capped at 8 — bots rarely offer more).
+export function extractBotCommands(rawText) {
+  const out = [];
+  const re = /(^|\s)(\/[a-zA-Z0-9_-]{1,32})(?=\s|$)/g;
+  for (const m of (rawText || "").matchAll(re)) out.push(m[2]);
+  return [...new Set(out)].slice(0, 8);
+}

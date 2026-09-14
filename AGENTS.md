@@ -794,6 +794,19 @@ re-renders, `[virtual-scroller] The item is no longer rendered onscreen
   (wry denies permission requests by default — only clipboard is allowed);
   Android needs `RECORD_AUDIO` in the gen manifest, granted by wry's
   `RustWebChromeClient`. Video calls are not offered.
+- Webxdc mini-apps (since 1.3.28, `webxdc-manager.js` + the `webxdc://`
+  protocol handler in lib.rs): the handler serves `<account>/<msg>/<path>`
+  blobs via `webxdc_rpc` round-trips (ids prefixed "wxdc-" are routed by the
+  response forwarders into `wxdc_pending` — NOT emitted to the WebView) and
+  injects `webxdc-shim.js` (include_str!) into index.html. The shim defines
+  `window.webxdc` and talks to the host over postMessage; the host relays to
+  `get_webxdc_status_updates` / `send_webxdc_status_update`, tracking
+  per-instance serials. Realtime channels and `sendToChat` are not wired.
+  CSP: `frame-src` + `img-src` gained the `webxdc.localhost` origins — keep
+  them when editing the CSP. Bot messages render command chips
+  (`extractBotCommands` in markdown.js, chips fill the composer); on Android
+  message links are routed to `plugin:opener|open_url` (wry drops
+  target=_blank).
 
 `COREUPDATE.md` is the core-upgrade test plan; consult it before merging an
 upstream core or swapping `deltachat-rpc-server` binaries. Release-by-release

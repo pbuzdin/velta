@@ -378,6 +378,17 @@ export class JsonRpcCore extends EventTarget {
       case "CallEnded":
         this._emitAccount("call-ended", { msgId: msgId, chatId: chatId }, accountEpoch);
         break;
+      case "WebxdcStatusUpdate":
+        // serial points at the newest known update — the webxdc manager
+        // fetches everything newer than its own last serial.
+        this._emitAccount("webxdc-status-update", {
+          msgId: msgId,
+          serial: ev.statusUpdateSerial ?? ev.status_update_serial ?? 0,
+        }, accountEpoch);
+        break;
+      case "WebxdcInstanceDeleted":
+        this._emitAccount("webxdc-instance-deleted", { msgId: msgId }, accountEpoch);
+        break;
       case "ChatlistChanged":
       case "ChatlistItemChanged":
       case "ChatModified":
@@ -720,6 +731,30 @@ export class JsonRpcCore extends EventTarget {
   async iceServers() {
     const raw = await this._call("ice_servers", this.accountId);
     try { return JSON.parse(raw); } catch { return []; }
+  }
+
+  /* -- webxdc apps -- */
+
+  async getWebxdcInfo(msgId) {
+    return this._call("get_webxdc_info", this.accountId, msgId);
+  }
+
+  // Returns the raw JSON string from the core: an array of updates, each
+  // carrying payload + serial (+ max_serial). Parse on the caller side.
+  async getWebxdcStatusUpdates(msgId, lastSerial) {
+    return this._call("get_webxdc_status_updates", this.accountId, msgId, lastSerial);
+  }
+
+  async sendWebxdcStatusUpdate(msgId, updateStr, description = null) {
+    return this._call("send_webxdc_status_update", this.accountId, msgId, updateStr, description);
+  }
+
+  async sendWebxdcRealtimeData(msgId, dataBytes) {
+    return this._call("send_webxdc_realtime_data", this.accountId, msgId, dataBytes);
+  }
+
+  async leaveWebxdcRealtime(msgId) {
+    return this._call("leave_webxdc_realtime", this.accountId, msgId);
   }
 
   async setDisplayName(name) {

@@ -288,6 +288,16 @@ export class MockCore extends EventTarget {
     return { sdpOffer: "mock-offer", hasVideo: false, state: "Ringing" };
   }
   async iceServers() { return []; }
+  async getWebxdcInfo(msgId) {
+    return { name: "Demo webxdc", icon: "", document: null, summary: "Demo webxdc app",
+      sourceCodeUrl: "", internetAccess: false, selfAddr: "demo@localhost", selfName: "Demo user",
+      isAppSender: true, isBroadcast: false, sendUpdateInterval: 1000, sendUpdateMaxSize: 0 };
+  }
+  async getWebxdcStatusUpdates(msgId, lastSerial) { return "[]"; }
+  async sendWebxdcStatusUpdate(msgId, updateStr, descr) {}
+  async sendWebxdcRealtimeData(msgId, data) {}
+  async leaveWebxdcRealtime(msgId) {}
+  async getWebxdcHref(infoMsgId) { return null; }
 
   async getChat(chatId) {
     const c = this.chats.find(x => x.id === chatId);
