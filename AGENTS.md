@@ -6,7 +6,7 @@ build/test commands, and conventions as they actually exist in this checkout.
 
 > **Scope note:** This repository is a Velta-specific workspace layered around a
 > copy of the upstream [Delta Chat core](https://github.com/chatmail/core)
-> (version `2.59.0`). The `core/` directory is effectively a vendored copy of
+> (version `2.60.0`). The `core/` directory is effectively a vendored copy of
 > that Rust project. Wrapper code for Velta's own clients lives in `app/`,
 > `delta-web-app/`, `delta-core-service/`, and `deltachat-backend/`.
 
@@ -77,7 +77,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   ├── fuzz/                 # Fuzz targets
 │   ├── scripts/              # CI helper scripts (clippy, deny, tests, wheels)
 │   ├── test-data/            # fixtures for Rust tests
-│   ├── Cargo.toml            # workspace manifest, version 2.59.0
+│   ├── Cargo.toml            # workspace manifest, version 2.60.0
 │   ├── CMakeLists.txt        # CMake install wrapper for libdeltachat
 │   └── deny.toml             # cargo-deny policy
 │
@@ -139,10 +139,11 @@ README's requirements section).
 ### 4.1 Core Rust library (`core/`)
 
 ```bash
-cd core
+cd core   # run from WSL — native Windows cargo fails in openssl-sys (SQLCipher)
 
-# Run all Rust tests
-cargo test --all
+# Run all Rust tests; use nextest — plain `cargo test` flakes a varying
+# set of ~4 time-shift tests per run (see COREUPDATE.md §4)
+cargo nextest run --workspace --locked
 
 # Run only the default non-ignored tests (the fast set)
 cargo test
@@ -318,8 +319,10 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   truncates the quota. It also owns the **multi-relay manager**
   (`openRelaysModal`, reached from the drawer's "Relays of this profile…" and
   the profile modal's Transport row): `list_transports` for the list,
-  `set_transport_unpublished` for soft removal (core keeps listening ~90 days
-  so contacts on the old address don't lose mail),   `add_transport_from_qr`
+  `delete_transport` for removal (immediate since core 2.60.0: the core
+  refuses only the *last* relay, re-elects the sending transport as needed
+  and informs contacts via keyupdate messages; `transports-modified` events
+  refresh the modal and status line live),   `add_transport_from_qr`
   with `check_qr` validation and `configure-progress` step UI for adding.
   `addRelayFlow` also takes a preset code, so a clicked/pasted `dcaccount:`
   deeplink (`handleDeeplinkFromUrl` → `chooseRelayOrNewProfile`) can offer

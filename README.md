@@ -112,10 +112,11 @@ animation on the sending relay's segment only.
 - **Add relay** — paste a `dcaccount:`/`dclogin:` invite code or just the relay's domain (`nine.testrun.org`); the core
   configures it as a second transport (progress modal during setup).
 - **Use for sending** — makes that relay the primary (sending) transport.
-- **Remove relay** — soft removal: the relay stops being advertised and
-  self-sent messages stop going there immediately, but the core keeps
-  listening on it for ~90 days so contacts that still send to the old address
-  don't lose mail, then deletes it automatically.
+- **Remove relay** — immediate removal (core 2.60.0): the relay stops being
+  used right away and your contacts are informed automatically, but messages
+  still on their way to the old address may arrive for a short while. Your
+  last relay cannot be removed — the core re-elects a sending relay if
+  needed.
 
 ⚠️ If you change relays, make sure all your devices run at least version
 2.47.0 — older devices only understand the primary address and may miss
@@ -139,7 +140,9 @@ core change can surface as frontend symptoms (event storms, re-render churn)
 rather than clean errors. [COREUPDATE.md](COREUPDATE.md) is the step-by-step
 upgrade plan: the RPC/event contract to preserve, offline gates, live and
 two-account checks, the event-storm regression pass, device checks, and
-rollback rules.
+rollback rules. What each core release gives Velta — the new features rated
+by value with their integration notes — lives in
+[CORE-CAPABILITIES.MD](CORE-CAPABILITIES.MD).
 
 ## Project layout
 
