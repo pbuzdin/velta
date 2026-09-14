@@ -1206,6 +1206,19 @@ async function addAccountFlow() {
   await addAccountFromInvite(normalizeRelayLink(code));
 }
 
+// Ask for notification permission once the user has a working account —
+// never at plain boot (a startup prompt with no context is how prompts get
+// denied forever). The plugin's promise can hang when the dialog was
+// dismissed earlier — never let it block the flow (AGENTS §11).
+async function askNotificationPermission() {
+  try {
+    await Promise.race([
+      window.__TAURI__?.notification?.requestPermission?.(),
+      new Promise(r => setTimeout(r, 2500)),
+    ]);
+  } catch {}
+}
+
 // Configure a profile from a dcaccount: relay invite link (deeplink or manual).
 async function addAccountFromInvite(link) {
   if (state.accountChanging) return;
@@ -1218,6 +1231,7 @@ async function addAccountFromInvite(link) {
     const id = await core.addAccountWithQr(link);
     const epoch = core.accountEpoch;
     await accountRefreshPromise;
+    if (accountIsCurrent(epoch)) await askNotificationPermission();
     if (accountIsCurrent(epoch) && core.accountId === id) toast(`Account ready: ${state.account?.addr || "chatmail profile"}`, 3500);
   } catch (err) {
     toast("Invite failed: " + err.message, 4500);
@@ -1716,7 +1730,10 @@ function showSplash() {
   // --- add as a second device ---
   el.querySelector("[data-second]").addEventListener("click", async () => {
     actionsEl.hidden = true;
-    if (await receiveSecondDeviceProfile(epoch)) finishOk();
+    if (await receiveSecondDeviceProfile(epoch)) {
+      await askNotificationPermission();
+      finishOk();
+    }
     else showActions();
   });
 
@@ -1750,6 +1767,7 @@ function showSplash() {
         finishSteps(true);
         addStep("Profile restored — restarting");
         core.removeEventListener("imex-progress", onProg);
+        localStorage.setItem("velta-ask-notifications", "1");
         setTimeout(() => location.reload(), 800);
       } else if (p > 0) {
         seenProgress = true;
@@ -1809,6 +1827,7 @@ function showSplash() {
       const account = await core.getAccount();
       if (!accountIsCurrent(epoch)) return;
       state.account = account;
+      await askNotificationPermission();
       setTimeout(() => {
         if (!accountIsCurrent(epoch)) return;
         finishOk();
@@ -2181,16 +2200,6 @@ async function boot() {
       const banner = document.getElementById("boot-error");
       if (banner) banner.hidden = true;
     } catch {}
-    // Android 13+ needs a runtime grant for notifications; feature-detected
-    // and once-per-boot. Declining is fine — notifications just stay off.
-    // The plugin's promise can hang when the dialog was dismissed earlier —
-    // never let it block boot.
-    try {
-      await Promise.race([
-        window.__TAURI__?.notification?.requestPermission?.(),
-        new Promise(r => setTimeout(r, 2500)),
-      ]);
-    } catch {}
     // The core may still be warming up right after a restart — retry before
     // giving up: a dead getAccount must not abort boot into a dead UI.
     // Each attempt gets its own 15s ceiling so a wedged RPC cycles the loop
@@ -2223,6 +2232,15 @@ async function boot() {
       splashSession = showSplash();
       splashSession?.showActions();
     }
+
+    // Notifications: asked once, right after the user finishes creating or
+    // restoring an account (those flows set the flag) — never at plain boot.
+    try {
+      if (localStorage.getItem("velta-ask-notifications") === "1") {
+        localStorage.removeItem("velta-ask-notifications");
+        await askNotificationPermission();
+      }
+    } catch {}
 
     try {
       const tauri = window.__TAURI__;

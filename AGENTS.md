@@ -360,9 +360,11 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `requestPermission()` can hang forever on some Android 13+ builds (Vivo)
   once the dialog has been dismissed — boot() used to die silently at its
   first `await`, producing a dead UI with an amber relay line. Never await a
-  plugin permission call without a timeout: boot races it (2.5 s). Diagnostics
-  are mirrored to velta.log (js_log) regardless, so a hang stays pullable via
-  adb even when no splash is on screen.
+  plugin permission call without a timeout: callers race it (2.5 s). Since
+  1.3.26 the ask happens only after the user creates or restores an account
+  (`askNotificationPermission()`, flag-gated after the restore reload) — not
+  at boot. Diagnostics are mirrored to velta.log (js_log) regardless, so a
+  hang stays pullable via adb even when no splash is on screen.
 - **On-device diagnosis:** all core/transport diagnostics are mirrored into
   `velta.log` (via `js_log`) — pull over adb with
   `adb shell run-as org.velta cat /data/data/org.velta/logs/velta.log`,
