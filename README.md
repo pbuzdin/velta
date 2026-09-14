@@ -573,6 +573,16 @@ wired yet — apps that rely on them degrade gracefully to status updates.
 </details>
 
 <details>
+<summary>Bot commands</summary>
+
+Messages from bots render their slash commands as tappable chips right in
+the bubble — tap one and the command lands in the composer, ready to send.
+Works for any bot chat; the chips are extracted from the bot's own message
+text, so nothing needs to be configured per bot.
+
+</details>
+
+<details>
 <summary>Known limitations</summary>
 
 - External https links in messages open in the system browser (on Android they are routed there explicitly — the WebView drops `target=_blank` by itself).

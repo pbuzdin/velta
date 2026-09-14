@@ -45,18 +45,21 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   ├── js/                   # application logic
 │   │   ├── app.js            # bootstrap, chat list, navigation, account switcher, relay status line, multi-relay manager, modals, PWA lifecycle
 │   │   ├── avatar.js         # contact avatars: fingerprint color-grid identity tiles
-│   │   ├── chat-view.js      # message history, composer, selection actions
+│   │   ├── boot-net.js       # pre-app.js error/unhandledrejection net: Diagnostics sink once app.js lives, #boot-error banner before
+│   │   ├── chat-view.js      # message history, composer, selection actions, webxdc cards, bot command chips
 │   │   ├── calls.js          # audio calls: WebRTC media + core signaling state machine
 │   │   ├── components.js     # Elena-based web components (<velta-avatar>, <velta-chat-item>, <velta-chat-head>, <velta-video>)
 │   │   ├── diagnostics.js    # diagnostics chat store + event sink + shared console-style row renderer
 │   │   ├── invites.js        # invite-link registry (mirror domains), parsing, invite cards, settings modal
-│   │   ├── markdown.js       # escape-first message markdown: bold/italic/underline, links, lists
+│   │   ├── markdown.js       # escape-first message markdown: bold/italic/underline, links, lists + bot command extraction
 │   │   ├── media.js          # media URL helpers (loopback server / asset protocol)
 │   │   ├── p2p.js            # Local chat UI: device pairing, hub, 1:1 chat modal (Tauri only)
 │   │   ├── poster.js         # lazy WebP poster extraction + disk cache
-│   │   ├── qr-scan.js        # code acquisition: paste or camera scan (native BarcodeDetector probed with a 2s timeout, vendored jsQR fallback — many Android WebViews ship no Shape Detection API or one whose detect() hangs)│   │   ├── mock-core.js      # in-memory demo core implementing the JSON-RPC surface
+│   │   ├── qr-scan.js        # code acquisition: paste or camera scan (native BarcodeDetector probed with a 2s timeout, vendored jsQR fallback — many Android WebViews ship no Shape Detection API or one whose detect() hangs)
+│   │   ├── mock-core.js      # in-memory demo core implementing the JSON-RPC surface
 │   │   ├── rpc-core.js       # JsonRpcCore wrapper over transports + event mapping
 │   │   ├── transport.js      # backend auto-detection (Tauri, WebSocket, HTTP, mock)
+│   │   ├── webxdc-manager.js # webxdc host: sandboxed app overlay, shim postMessage relay, per-instance serials
 │   │   └── ui.js             # drawer, modals, context menus, toasts
 │   ├── vendor/               # third-party frontend libraries
 │   │   ├── elena.js          # lightweight web-components library
