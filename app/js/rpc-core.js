@@ -773,6 +773,16 @@ export class JsonRpcCore extends EventTarget {
     return list.map(c => this._mapContact(c));
   }
 
+  // System-level info (no account needed): deltachat_core_version, sqlite, arch...
+  async getSystemInfo() {
+    return this._call("get_system_info");
+  }
+
+  async getContact(contactId) {
+    const c = await this._call("get_contact", this.accountId, contactId);
+    return this._mapContact(c);
+  }
+
   // Multi-line encryption info: own + the contact's OpenPGP fingerprint.
   async getContactEncryptionInfo(contactId) {
     return this._call("get_contact_encryption_info", this.accountId, contactId);

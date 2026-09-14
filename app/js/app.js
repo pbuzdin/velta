@@ -9,7 +9,7 @@ import { initCalls } from "./calls.js";
 import { initWebxdc } from "./webxdc-manager.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal } from "./invites.js";
-import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming } from "./ui.js";
+import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay } from "./ui.js";
 import { p2pAvailable, p2pEnabled, setP2pEnabled, openP2p as openP2pScreen } from "./p2p.js";
 import { timeAgo } from "./mock-core.js";
 import { acquireCode } from "./qr-scan.js";
@@ -771,6 +771,25 @@ function renderChatHead(chat) {
   return head;
 }
 
+// Presence: fetch the contact's online/last-seen (the core tracks it from
+// incoming messages) and re-render the active chat head subtitle. The chat
+// object from getChatList lacks the contact — hydrated here on open, on
+// chat-updated for the active chat, and on the 30s list refresh tick.
+async function refreshChatHeadPresence(chatId) {
+  const chat = state.chats.find(c => c.id === chatId) || state.activeChatHead?.chat;
+  if (!chat || chat.kind !== "single" || !chat.contactId || !core.getContact) return;
+  try {
+    const contact = await core.getContact(chat.contactId);
+    if (state.activeChatId !== chat.id) return;
+    chat.contact = { ...contact, name: contact.name || chat.name, contactId };
+    if (state.activeChatHead) {
+      const fresh = renderChatHead(chat);
+      state.activeChatHead?.replaceWith(fresh);
+      state.activeChatHead = fresh;
+    }
+  } catch {}
+}
+
 /* ---------------- chat open/close ---------------- */
 async function openChat(chatId) {
   if (state.accountChanging) return;
@@ -813,6 +832,7 @@ async function openChat(chatId) {
   const callBtn = $("btn-call");
   callBtn.hidden = chat.kind !== "single";
   callBtn.onclick = chat.kind === "single" ? () => calls?.startOutgoing(chat.id, chat.name) : null;
+  refreshChatHeadPresence(chatId);
   // Real member count for groups (the chatlist item doesn't carry it)
   if ((chat.kind === "group" || chat.kind === "channel") && core.getChatMembers) {
     core.getChatMembers(chatId).then(members => {
@@ -886,9 +906,14 @@ async function refreshActiveChatHeader(chatId) {
   } catch { /* keep the last known count */ }
 }
 
-function showChatInfo(chat) {
+async function showChatInfo(chat) {
   if (state.accountChanging) return;
   const epoch = core.accountEpoch;
+  // Hydrate presence for 1:1 profiles opened without it (the core tracks
+  // last-seen from incoming messages; the self contact has none).
+  if (!chat.contact && chat.kind === "single" && chat.contactId && chat.contactId !== 1 && core.getContact) {
+    try { chat.contact = { ...(await core.getContact(chat.contactId)), contactId: chat.contactId }; } catch {}
+  }
   const contactRows = chat.contact ? `
     <div class="info-row"><span class="k">Address</span><span class="v">${escapeHtml(chat.contact.addr)}</span></div>
     ${chat.contactId ? `<div class="info-row"><span class="k">Profile key</span><span class="v"><span class="avatar-profile-fpr" data-profile-key>…</span></span></div>` : ""}
@@ -2192,6 +2217,12 @@ async function boot() {
     calls = initCalls(core, { notify: (msg) => toast(msg, 4500) });
     initWebxdc(core);
 
+    // Live core version for the drawer footer / about modal — the running
+    // core (sidecar or in-process) is the source of truth, not the constant.
+    core.getSystemInfo?.().then((info) => {
+      if (info?.deltachat_core_version) setCoreVersionDisplay(info.deltachat_core_version);
+    }).catch(() => {});
+
     appLog("boot: getAccount");
     // Flush anything the pre-app.js safety net (boot-net.js) caught while
     // modules loaded, then retire its banner — the errors live here now.
@@ -2316,12 +2347,19 @@ async function boot() {
     core.addEventListener("chat-updated", ev => {
       scheduleChatListRefresh();
       refreshActiveChatHeader(ev?.detail?.chatId);
+      const updId = ev?.detail?.chatId;
+      if (updId && updId === state.activeChatId) refreshChatHeadPresence(updId);
     });
     // Safety net only: contact requests and new chats normally arrive via
     // core events (handled above with a debounced refresh). With in-place
     // chat-list updates a refresh is cheap, but each one still costs two RPC
     // round trips, so don't run it more often than needed.
-    setInterval(() => { scheduleChatListRefresh(); }, 30000);
+    setInterval(() => {
+      scheduleChatListRefresh();
+      const activeId = state.activeChatId;
+      const activeChat = activeId != null ? state.chats.find(c => c.id === activeId) : null;
+      if (activeChat?.kind === "single") refreshChatHeadPresence(activeId);
+    }, 30000);
 
     addEventListener("velta-core-disconnected", () => {
       toast("Lost connection to local Delta Chat core — is the service running?", 4500);

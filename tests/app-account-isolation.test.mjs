@@ -124,6 +124,7 @@ function setup(t) {
       open: async id => { effects.opens.push([core.accountId, id]); return true; },
     },
     closeAllPopups: () => { effects.popupsClosed++; node("popups").replaceChildren(); },
+    refreshChatHeadPresence: () => {},
     refreshAccounts: async () => { effects.accounts.push(core.accountId); },
     setFingerprintSource: callback => effects.fingerprints.push(callback),
     toast: (...args) => effects.toasts.push(args),

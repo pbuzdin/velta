@@ -225,6 +225,18 @@ export class MockCore extends EventTarget {
   }
   async getContacts() { return structuredClone(this.contacts); }
 
+  async getSystemInfo() {
+    return { deltachat_core_version: "v" + "1.3.28-mock", sqlite_version: "", arch: "", level: "awesome" };
+  }
+
+  async getContact(contactId) {
+    const c = this.contacts.find(x => x.id === contactId);
+    if (!c) return null;
+    return { id: c.id, name: c.name, addr: c.addr, color: c.color,
+      avatar: c.avatar || null, online: !!c.online, verified: !!c.verified,
+      bot: !!c.bot, lastSeen: c.lastSeen ?? (c.online ? Date.now() : Date.now() - 3600e3) };
+  }
+
   async getChatList({ archived = false, query = "" } = {}) {
     const q = query.trim().toLowerCase();
     let list = this.chats.filter(c => !!c.archived === archived);

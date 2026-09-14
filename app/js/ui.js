@@ -133,7 +133,16 @@ export function confirmDeleteMessagesModal(count, canForAll) {
 }
 
 /* ---------- Version info (drawer footer + About) ---------- */
-const CORE_VERSION = "2.59.0";
+// Fallback only: the live core version is fetched via get_system_info in
+// app.js boot and pushed here with setCoreVersionDisplay (the running
+// sidecar/in-process core is the source of truth, not this constant).
+let CORE_VERSION = "2.60.0";
+
+export function setCoreVersionDisplay(v) {
+  if (!v) return;
+  CORE_VERSION = String(v).replace(/^v/, "");
+  document.querySelectorAll('[data-v="core"]').forEach((el) => { el.textContent = CORE_VERSION; });
+}
 const FALLBACK_APP_VERSION = "1.3.28";
 
 async function getAppVersion() {

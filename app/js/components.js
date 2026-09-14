@@ -1,6 +1,6 @@
 // components.js — Progressive Web Components built on Elena (@elenajs/core)
 import { Elena, html, unsafeHTML } from "../vendor/elena.js";
-import { formatListTime } from "./mock-core.js";
+import { formatListTime, timeAgo } from "./mock-core.js";
 import { fileUrl } from "./media.js";
 import { ensurePoster } from "./poster.js";
 import { diagnosticsSink } from "./diagnostics.js";
@@ -325,7 +325,7 @@ class VeltaChatHead extends Elena(HTMLElement) {
     if (c.contact) {
       if (c.contact.bot) return "bot";
       if (c.contact.online) return { online: true, text: "online" };
-      return "last seen " + formatListTime(c.contact.lastSeen || Date.now());
+      return "last seen " + timeAgo(c.contact.lastSeen || Date.now());
     }
     return "";
   }

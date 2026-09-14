@@ -68,6 +68,9 @@ exactly one waiter; response survives a client-side timeout) are load-bearing
 
 - [ ] Record the current core ref: `git -C core log -1`, `core/Cargo.toml`
       `version`, and the upstream version you are merging/upgrading to.
+- [ ] Update the hardcoded core version in `app/js/ui.js` (`CORE_VERSION`,
+      drawer footer + about modal) and `README.md`'s core-version mentions —
+      the drawer footer also self-corrects at runtime via `get_system_info`.
 - [ ] Clean working tree; note the app version you will release with.
 - [ ] Baseline on the OLD core, so failures later are attributable:
       core tests under nextest in WSL (§4) and `node --test tests/` (both
