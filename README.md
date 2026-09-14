@@ -144,10 +144,6 @@ animation on the sending relay's segment only.
   last relay cannot be removed — the core re-elects a sending relay if
   needed.
 
-⚠️ If you change relays, make sure all your devices run at least version
-2.47.0 — older devices only understand the primary address and may miss
-messages.
-
 The thin status line above the chat list reflects the relay connection:
 green connected, yellow connecting/retrying, red unreachable (after a 45 s
 grace), blue for demo or local-chat-only mode; animated dashes while a

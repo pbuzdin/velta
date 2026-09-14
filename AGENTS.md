@@ -866,6 +866,16 @@ re-renders, `[virtual-scroller] The item is no longer rendered onscreen
   message links are routed to `plugin:opener|open_url` (wry drops
   target=_blank).
 
+- Forwarded-message label + bubble polish (since 1.3.31): the forward label
+  announces the content type ("Forwarded a picture / video / an audio / a
+  message", `FWD_NOUNS` in chat-view.js), not the original sender name; the
+  label uses the meta-dim colors (`--text-meta-in` / out override) because
+  accent blue was unreadable on the outgoing bubble. All three media blocks
+  (`.msg-image`, `.msg-video`, `.msg-audio`) use a positive top margin — a
+  negative one collapsed into the sender/quote line above. The relays modal's
+  "all your devices run at least 2.47.0" warning was removed as outdated
+  (RELAYS_WARNING deleted; CORE-CAPABILITIES.MD records the decision).
+
 `COREUPDATE.md` is the core-upgrade test plan; consult it before merging an
 upstream core or swapping `deltachat-rpc-server` binaries. Release-by-release
 core capabilities and their Velta integration notes: `CORE-CAPABILITIES.MD`.

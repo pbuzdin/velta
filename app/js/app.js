@@ -1920,11 +1920,6 @@ function showSplash() {
 // the core stops using the relay right away, refuses only to remove the last
 // one (re-electing the sending transport as needed) and sends keyupdate
 // messages so contacts converge on the new address set.
-const RELAYS_WARNING =
-  "Messages are received on all relays. ⚠️ If you change anything here, " +
-  "make sure all your devices run at least version 2.47.0. " +
-  "Otherwise older devices may miss messages.";
-
 async function openRelaysModal() {
   if (state.accountChanging) return;
   if (!core.listTransports) {
@@ -1934,7 +1929,6 @@ async function openRelaysModal() {
   const epoch = core.accountEpoch;
   const body = document.createElement("div");
   body.innerHTML = `
-    <p class="p2p-hint">${escapeHtml(RELAYS_WARNING)}</p>
     <div data-list><div class="p2p-hint" style="opacity:.6">Loading…</div></div>
     <div style="margin-top:10px"><button class="btn-text" data-add>Add relay…</button></div>`;
   showModal({ title: "Relays", body });

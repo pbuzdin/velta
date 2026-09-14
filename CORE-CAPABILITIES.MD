@@ -54,9 +54,9 @@ Velta code that must change:
 | `app/js/app.js:1842-1846` | Comment block describing the 90-day unpublish model | Rewrite to the immediate-removal model |
 | `app/js/mock-core.js` | Mock transport surface | Mirror `delete_transport` (drop `set_transport_unpublished` if mocked) so the frontend suites exercise the new shape |
 
-Because Velta's sync warning (`RELAYS_WARNING`, "make sure all your devices
-run at least version 2.47.0") is about multi-relay sync in general it can
-stay, but removal now also syncs as an immediate change — older *Velta*
+The old multi-relay sync warning (`RELAYS_WARNING`, "make sure all your
+devices run at least version 2.47.0") has been removed from the relays
+modal as outdated — removal now also syncs as an immediate change — older *Velta*
 builds calling `set_transport_unpublished` against a 2.60.0 core will get a
 method-not-found error on every Remove press, so **frontend and core must
 ship together** (no mixed versions within one backend — which matches how

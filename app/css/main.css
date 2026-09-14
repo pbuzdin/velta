@@ -344,14 +344,15 @@ html[data-theme="light"] .service-msg { background: rgba(244,244,244,.8); color:
   font-size: 13.5px; font-weight: 600; margin-bottom: 2px;
 }
 .msg-fwd {
-  font-size: 13px; color: var(--accent);
+  /* Meta-dim colors, not --accent: accent blue is unreadable on the
+     outgoing bubble's blue background. */
+  font-size: 13px; color: var(--text-meta-in);
   font-style: italic; margin-bottom: 5px;
 }
-/* Media pulls itself up (-2px) to sit flush at the bubble top — but that
-   would swallow the gap after a fwd/quote label, so keep the label's
-   spacing when it directly precedes media. */
-.msg-fwd + .msg-video, .msg-fwd + .msg-image { margin-top: 0; }
-.msg-quote + .msg-video, .msg-quote + .msg-image { margin-top: 0; }
+.msg-row.out .msg-fwd { color: var(--text-meta-out); }
+/* Keep a fwd/quote label tightly coupled to the media it labels. */
+.msg-fwd + .msg-video, .msg-fwd + .msg-image, .msg-fwd + .msg-audio { margin-top: 0; }
+.msg-quote + .msg-video, .msg-quote + .msg-image, .msg-quote + .msg-audio { margin-top: 0; }
 .msg-quote {
   border-left: 2.5px solid var(--accent);
   background: var(--bg-reply);
@@ -459,7 +460,7 @@ html[data-theme="light"] .msg-resend { color: #d13438; }
 
 .msg-image {
   max-width: 100%;
-  border-radius: 10px; margin: -2px -5px 5px;
+  border-radius: 10px; margin: 2px -5px 5px;
   display: grid; place-items: center; color: #f4f4f4;
   font-size: 13px; text-shadow: 0 1px 3px rgba(16,16,16,.5);
   background: var(--bg-hover); background-size: cover; position: relative; overflow: hidden;
@@ -550,7 +551,7 @@ velta-video { display: block; }
   font-size: 12px; line-height: 1; padding: 4px 6px; color: #f2f2f5;
 }
 .msg-audio {
-  width: 320px; max-width: 100%; margin: -2px -5px 5px;
+  width: 320px; max-width: 100%; margin: 2px -5px 5px;
 }
 .msg-audio audio {
   width: 100%; display: block;

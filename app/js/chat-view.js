@@ -25,6 +25,12 @@ function rustLog(msg) {
 }
 
 
+// Forwarded messages announce what they carry, not who sent them:
+// "Forwarded a picture" / "an audio" / "a video", everything else "a message".
+const FWD_NOUNS = { image: "picture", gif: "picture", video: "video", audio: "audio", voice: "audio" };
+const FWD_NOUN = (viewtype) => FWD_NOUNS[viewtype] || "message";
+const FWD_ARTICLE = (viewtype) => (/^[aeiou]/.test(FWD_NOUN(viewtype)) ? "an " : "a ");
+
 const ICO = {
   reply: `<svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5M4 9h9a7 7 0 017 7v2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   copy: `<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 15V5a2 2 0 012-2h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
@@ -792,7 +798,7 @@ export class ChatView {
 
     let bubble = "";
     if (showAvatar) bubble += `<div class="msg-sender" style="color:${fc.color}">${escapeHtml(fc.name)}</div>`;
-    if (m.fwdFrom) bubble += `<div class="msg-fwd">Forwarded from ${escapeHtml(m.fwdFrom)}</div>`;
+    if (m.fwdFrom) bubble += `<div class="msg-fwd">Forwarded ${FWD_ARTICLE(m.viewtype)}${FWD_NOUN(m.viewtype)}</div>`;
     if (m.quote) {
       bubble += `<div class="msg-quote" data-quote="${m.quote.id}">
         <span class="q-name">${escapeHtml(m.quote.fromContact?.name || "")}</span>
