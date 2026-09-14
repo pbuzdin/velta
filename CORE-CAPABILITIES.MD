@@ -5,11 +5,11 @@ worth to us, and what (if anything) we have to change to use it. Companion to
 `COREUPDATE.md` — that document is *how* to ship a core upgrade through the
 test gates; this document is *what the upgrade buys* and *what it breaks*.
 
-Snapshot: **2026-09-14**. Velta vendors core **2.59.0** (2026-08-14,
-`core/Cargo.toml`). Upstream latest is **2.60.0** (2026-09-11, tag
-`v2.60.0` in [chatmail/core](https://github.com/chatmail/core), commit
-`a2d8ced1`). The delta to review is exactly the 2.60.0 section of upstream
-`CHANGELOG.md`.
+Snapshot: **2026-09-14**, written against vendored core **2.59.0**
+(2026-08-14) with upstream **2.60.0** (2026-09-11, tag `v2.60.0` in
+[chatmail/core](https://github.com/chatmail/core), commit `a2d8ced1`) as the
+review target. **Shipped in release 1.3.24**: Velta now vendors 2.60.0 and
+the migration in §1 has been applied.
 
 **Verdict: yes, we can and should update.** One breaking change touches Velta
 code (the relay-removal API), two wording blocks go stale, everything else is
