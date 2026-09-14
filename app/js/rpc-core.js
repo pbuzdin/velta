@@ -46,6 +46,9 @@ export class JsonRpcCore extends EventTarget {
     this.pending = new Map();     // rpc id -> {resolve, reject, onLate?}
     this.msgIdCache = new Map();  // chatId -> [msgIds ascending]
     this._sendingIds = new Set(); // msgIds handed to the core, not yet delivered/failed
+    // Latest known delivery state per outgoing msgId (MsgDelivered/MsgRead/
+    // MsgFailed) — lets a just-inserted sent row reconcile past events.
+    this._msgStateHints = new Map();
     this.eventPollTimeoutMs = EVENT_POLL_TIMEOUT_MS;
     this.msgIdCache = new Map();  // chatId -> [msgIds ascending]
     this._onLine = this._onLine.bind(this);
@@ -79,6 +82,7 @@ export class JsonRpcCore extends EventTarget {
     this._accountTransitionBusy = true;
     this.accountEpoch++;
     this.msgIdCache = new Map();
+    this._msgStateHints.clear();
     if (this._sendingIds.size) {
       this._sendingIds.clear();
       this._emit("send-activity", { sending: false });
@@ -332,14 +336,17 @@ export class JsonRpcCore extends EventTarget {
       }
       case "MsgDelivered":
         this._untrackSending(msgId);
+        if (msgId) this._msgStateHints.set(msgId, "delivered");
         this._emitAccount("msg-state", { chatId, msgId, state: "delivered" }, accountEpoch);
         break;
       case "MsgRead":
       case "MsgReadCountChanged":
+        if (msgId) this._msgStateHints.set(msgId, "read");
         this._emitAccount("msg-state", { chatId, msgId, state: "read" }, accountEpoch);
         break;
       case "MsgFailed":
         this._untrackSending(msgId);
+        if (msgId) this._msgStateHints.set(msgId, "failed");
         this._emitAccount("msg-state", { chatId, msgId, state: "failed" }, accountEpoch);
         break;
       case "TransportsModified":
@@ -511,7 +518,7 @@ export class JsonRpcCore extends EventTarget {
       online: c.wasSeenRecently ?? false,
       lastSeen: c.lastSeen ? c.lastSeen * 1000 : Date.now(),
       verified: !!c.isVerified,
-      bot: false,
+      bot: !!c.isBot, // core sends camelCase isBot on every ContactObject
     };
   }
 
@@ -875,7 +882,14 @@ export class JsonRpcCore extends EventTarget {
     // correct viewType and file path instead of plain text.
     const raw = await this._waitForPreparedMessage(msgId, accountId);
     const msg = raw ? this._mapMessage(raw) : await this._getDecoratedMessage(msgId, accountId);
-    if (msg) this._emitAccount("msg-sent", { chatId, msg }, accountEpoch);
+    if (msg) {
+      // A fast relay can fire MsgDelivered before the row is even inserted
+      // (chat-view then drops the msg-state event for the unknown row) —
+      // reconcile here so the pending spinner doesn't stick spinning.
+      msg.state = this._msgStateHints.get(msgId) ?? msg.state;
+      this._msgStateHints.delete(msgId);
+      this._emitAccount("msg-sent", { chatId, msg }, accountEpoch);
+    }
     return msg;
   }
 

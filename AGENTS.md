@@ -888,6 +888,20 @@ re-renders, `[virtual-scroller] The item is no longer rendered onscreen
   chat with many fresh messages — badge never cleared); open = read-all is
   the upstream Delta Chat behavior.
 
+- Bot chips + send-spinner fixes (since 1.3.33): bot command chips were
+  dead-on-arrival — gated on `m.isBot`, a field nothing produced. The bot
+  flag lives on the sender contact (core `ContactObject.isBot`, camelCase):
+  `_mapContact` maps it as `bot`, and chat-view reads `m.fromContact?.bot`
+  on both the render and click paths (mock's `_decorate` already passed the
+  raw contact through, so demo mode works for free). The outgoing pending
+  spinner had a race: a fast relay's MsgDelivered could arrive before the
+  sent row was inserted, chat-view dropped the msg-state event for the
+  unknown row, and the spinner stuck spinning. rpc-core now records the
+  latest terminal state per msgId (`_msgStateHints`, cleared on account
+  change) and `sendMessage` reconciles the fresh row against it before
+  emitting `msg-sent`. The spinner still runs for the real SMTP round-trip
+  by design — that part is honest, not a bug.
+
 `COREUPDATE.md` is the core-upgrade test plan; consult it before merging an
 upstream core or swapping `deltachat-rpc-server` binaries. Release-by-release
 core capabilities and their Velta integration notes: `CORE-CAPABILITIES.MD`.

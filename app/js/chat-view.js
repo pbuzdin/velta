@@ -885,7 +885,7 @@ export class ChatView {
       // get_message_html.
       const truncated = m.text.endsWith(" [...]");
       bubble += `<div class="msg-text">${renderMarkdown(m.text)}`;
-      if (m.isBot) {
+      if (m.fromContact?.bot) { // bot flag rides the sender contact (mock + core)
         const cmds = extractBotCommands(m.text);
         if (cmds.length) {
           bubble += `<div class="msg-cmds">${cmds.map((c) => `<button type="button" class="msg-cmd" data-cmd="${escapeAttr(c)}">${escapeHtml(c)}</button>`).join("")}</div>`;
@@ -962,7 +962,7 @@ export class ChatView {
         }
       }).catch(() => {});
     }
-    if (m.isBot) {
+    if (m.fromContact?.bot) { // bot flag rides the sender contact (mock + core)
       row.querySelectorAll(".msg-cmd[data-cmd]").forEach((cmdBtn) => {
         cmdBtn.addEventListener("click", (e) => {
           e.stopPropagation();
