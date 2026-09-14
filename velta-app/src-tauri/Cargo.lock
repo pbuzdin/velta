@@ -1617,7 +1617,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "typescript-type-def",
- "yerpc 0.7.0",
+ "yerpc",
 ]
 
 [[package]]
@@ -8629,7 +8629,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tokio",
  "tokio-util",
- "yerpc 0.6.4",
+ "yerpc",
 ]
 
 [[package]]
@@ -9629,24 +9629,6 @@ dependencies = [
 
 [[package]]
 name = "yerpc"
-version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1dc24983fbe850227bfc1de89bf8cbfb3e2463afc322e0de2f155c4c23d06445"
-dependencies = [
- "async-channel 1.9.0",
- "async-lock",
- "async-trait",
- "futures",
- "futures-util",
- "log",
- "serde",
- "serde_json",
- "typescript-type-def",
- "yerpc_derive 0.6.4",
-]
-
-[[package]]
-name = "yerpc"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6924db1f1011f1d22566c45c7090aa66c3107c3c463ca32beaa8b2327127040a"
@@ -9662,20 +9644,7 @@ dependencies = [
  "serde",
  "serde_json",
  "typescript-type-def",
- "yerpc_derive 0.7.0",
-]
-
-[[package]]
-name = "yerpc_derive"
-version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57a173fe41d2a23686dd190f5654c0f73afecdcd9e8bf9e18ae1b083a4d54923"
-dependencies = [
- "convert_case 0.5.0",
- "darling 0.20.11",
- "proc-macro2",
- "quote",
- "syn 2.0.119",
+ "yerpc_derive",
 ]
 
 [[package]]

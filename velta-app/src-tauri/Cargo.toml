@@ -43,7 +43,7 @@ iroh = { version = "0.35", default-features = false, features = ["discovery-loca
 [target.'cfg(target_os = "android")'.dependencies]
 deltachat-jsonrpc = { path = "../../core/deltachat-jsonrpc" }
 futures-lite = "2"
-yerpc = "0.6"
+yerpc = "0.7"
 # resolve_content_uri: copy picked content:// attachments via ContentResolver.
 jni = "0.21"
 
