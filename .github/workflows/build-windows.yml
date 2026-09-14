@@ -6,8 +6,8 @@ on:
     branches: [main, master]
     paths:
       - 'app/**'
-      - 'delta-web-app/**'
-      - 'delta-core-service/**'
+      - 'velta-app/**'
+      - 'velta-core-service/**'
       - 'deltachat-backend/**'
       - 'core/**'
       - '.github/workflows/build-*.yml'
@@ -15,8 +15,8 @@ on:
     branches: [main, master]
     paths:
       - 'app/**'
-      - 'delta-web-app/**'
-      - 'delta-core-service/**'
+      - 'velta-app/**'
+      - 'velta-core-service/**'
       - 'deltachat-backend/**'
       - 'core/**'
       - '.github/workflows/build-*.yml'
@@ -75,12 +75,12 @@ jobs:
 
       - name: Stage sidecar for Tauri bundle
         run: |
-          New-Item -ItemType Directory -Force -Path "delta-web-app/src-tauri/binaries"
+          New-Item -ItemType Directory -Force -Path "velta-app/src-tauri/binaries"
           Copy-Item "core/target/release/deltachat-rpc-server.exe" `
-            "delta-web-app/src-tauri/binaries/deltachat-rpc-server-x86_64-pc-windows-msvc.exe"
+            "velta-app/src-tauri/binaries/deltachat-rpc-server-x86_64-pc-windows-msvc.exe"
 
       - name: Build Tauri Windows installer
-        working-directory: ./delta-web-app
+        working-directory: ./velta-app
         run: cargo tauri build
 
       - name: Upload Windows artifacts
@@ -88,5 +88,5 @@ jobs:
         with:
           name: velta-windows
           path: |
-            delta-web-app/src-tauri/target/release/bundle/msi/*.msi
-            delta-web-app/src-tauri/target/release/bundle/nsis/*.exe
+            velta-app/src-tauri/target/release/bundle/msi/*.msi
+            velta-app/src-tauri/target/release/bundle/nsis/*.exe

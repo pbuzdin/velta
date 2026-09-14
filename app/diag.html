@@ -109,7 +109,7 @@ async function testAccount() {
 async function main() {
   log.innerHTML = "";
   document.getElementById("ver").textContent =
-    "app build: " + (await fetch("sw.js").then(r => r.text()).then(t => (t.match(/delta-web-v\d+/) || ["?"])[0]).catch(() => "?"))
+    "app build: " + (await fetch("sw.js").then(r => r.text()).then(t => (t.match(/velta-v\d+/) || ["?"])[0]).catch(() => "?"))
     + " · served from: " + location.origin + " · " + navigator.userAgent;
   await testWs();
   const health = await testHealth();

@@ -1,4 +1,4 @@
-/* ===== Delta Web — Telegram-style theme ===== */
+/* ===== Velta — Telegram-style theme ===== */
 :root {
   --bg: #0f0f14;
   --bg-sidebar: #181820;
@@ -278,8 +278,8 @@ html[data-theme="light"] .day-chip { background: rgba(244,244,244,.75); color: #
    states stick. Transition lives in the same media block so touch never
    pays for it. */
 @media (hover: hover) and (pointer: fine) {
-  .msg-row dc-avatar .dc-avatar-photo { transition: inset .12s ease, padding .12s ease; }
-  .msg-row dc-avatar:hover .dc-avatar-photo { inset: 0; padding: 0; }
+  .msg-row velta-avatar .velta-avatar-photo { transition: inset .12s ease, padding .12s ease; }
+  .msg-row velta-avatar:hover .velta-avatar-photo { inset: 0; padding: 0; }
 }
 
 /* One-click "Reply" pill (desktop only): fades in at the bubble's top-right
@@ -501,31 +501,31 @@ body.native-scanning #app {
      re-measure loops while the video loads. */
   aspect-ratio: 16 / 9; object-fit: contain; background: #101010;
 }
-dc-video { display: block; }
-.dc-video-ph {
+velta-video { display: block; }
+.velta-video-ph {
   width: 100%; aspect-ratio: 16 / 9; display: grid; place-items: center;
   background: #101010; border: 0; cursor: pointer; position: relative;
   color: #f4f4f4; padding: 0; font: inherit;
 }
-.dc-video-ph .dc-video-poster {
+.velta-video-ph .velta-video-poster {
   position: absolute; inset: 0; width: 100%; height: 100%;
   object-fit: cover; display: block; filter: brightness(0.72);
 }
-.dc-video-ph .dc-video-play {
+.velta-video-ph .velta-video-play {
   position: relative; z-index: 1;
   width: 54px; height: 54px; border-radius: 50%;
   background: rgba(244, 244, 244, 0.16); display: grid; place-items: center;
   padding: 15px;
 }
-.dc-video-ph:active .dc-video-play { background: rgba(244, 244, 244, 0.3); }
+.velta-video-ph:active .velta-video-play { background: rgba(244, 244, 244, 0.3); }
 /* Badge backgrounds composite to ≥ 4.5:1 against #f2f2f5 text even over a
    fully white poster frame (WCAG AA — see AGENTS 6.4). */
-.dc-video-ph .dc-video-size {
+.velta-video-ph .velta-video-size {
   position: absolute; top: 8px; left: 8px; z-index: 1;
   background: rgba(11, 11, 16, 0.86); border-radius: 6px;
   font-size: 12px; line-height: 1; padding: 4px 6px; color: #f2f2f5;
 }
-.dc-video-ph .dc-video-dur {
+.velta-video-ph .velta-video-dur {
   position: absolute; right: 8px; bottom: 8px; z-index: 1;
   background: rgba(11, 11, 16, 0.86); border-radius: 6px;
   font-size: 12px; line-height: 1; padding: 4px 6px; color: #f2f2f5;
@@ -634,8 +634,8 @@ dc-video { display: block; }
 #main-composer .icon-btn svg { width: 26px; height: 26px; }
 
 /* ---------- Elena components ---------- */
-dc-avatar { display: block; flex: none; }
-.dc-avatar-tile {
+velta-avatar { display: block; flex: none; }
+.velta-avatar-tile {
   border-radius: 22%; display: grid; place-items: center;
   color: #f4f4f4; font-weight: 600; user-select: none;
   position: relative; overflow: hidden;
@@ -643,9 +643,9 @@ dc-avatar { display: block; flex: none; }
 /* The global `svg { width: 24px }` icon rule must not shrink the identity
    matrix — it has to fill the tile edge to edge. (Saved/device icons keep
    their size via their inline width/height style.) */
-.dc-avatar-tile > svg { width: 100%; height: 100%; }
-.dc-avatar-tile.saved { background: linear-gradient(135deg, #5aa2e6, #8774e1); }
-.dc-avatar-tile img.dc-avatar-img {
+.velta-avatar-tile > svg { width: 100%; height: 100%; }
+.velta-avatar-tile.saved { background: linear-gradient(135deg, #5aa2e6, #8774e1); }
+.velta-avatar-tile img.velta-avatar-img {
   position: absolute; inset: 0; width: 100%; height: 100%;
   object-fit: cover; border-radius: inherit; /* match the tile mask, not a circle — a 50% clip left the tile's corners visible */
 }
@@ -653,16 +653,16 @@ dc-avatar { display: block; flex: none; }
    on the color matrix, separated from it by a soft-black ring. Percentages
    keep every part proportional at any tile size (120-unit viewBox reference:
    inset 23, box 74, ring 3, photo 68, radius 15). */
-.dc-avatar-tile .dc-avatar-photo {
+.velta-avatar-tile .velta-avatar-photo {
   position: absolute; inset: 19.17%; display: block;
   background: #1c1c1c; padding: 2.5%; border-radius: 24.3%;
 }
-.dc-avatar-tile .dc-avatar-photo img.dc-avatar-img {
+.velta-avatar-tile .velta-avatar-photo img.velta-avatar-img {
   position: static; inset: auto; display: block;
   width: 100%; height: 100%; object-fit: cover; border-radius: 22%;
 }
 
-dc-chat-item { display: block; }
+velta-chat-item { display: block; }
 .chat-item {
   display: flex; align-items: center; gap: 11px;
   padding: 9px 12px; cursor: pointer;
@@ -702,9 +702,9 @@ dc-chat-item { display: block; }
 .ci-ticks.read { color: var(--accent); }
 
 .chat-head-avatar { cursor: pointer; flex: none; }
-/* dc-chat-head is a custom element (inline by default) — without flex the
+/* velta-chat-head is a custom element (inline by default) — without flex the
    avatar and the name column don't share a row. */
-dc-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .chat-head-text { flex: 1; min-width: 0; cursor: pointer; }
 .cht-name { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 6px; min-width: 0; }
 .cht-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -795,7 +795,7 @@ dc-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 /* Profile modal action buttons under the avatars. */
 .profile-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px 8px; padding: 0 0 12px; }
 .profile-actions .btn-text { padding: 8px 10px; font-size: 13.5px; }
-/* Captioned identity tile beside the dc-avatar in the chat-info modal
+/* Captioned identity tile beside the velta-avatar in the chat-info modal
    (the global 24px svg rule would otherwise shrink it). */
 .chat-info-tile svg { width: 168px; height: 168px; display: block; border-radius: 22%; }
 .enc-note {
@@ -824,7 +824,7 @@ dc-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
   background: linear-gradient(135deg, #2b5278, #3d3a6e);
   color: #f4f4f4; display: flex; gap: 14px; align-items: center;
 }
-.drawer-head .dc-avatar-tile { width: 56px; height: 56px; font-size: 22px; }
+.drawer-head .velta-avatar-tile { width: 56px; height: 56px; font-size: 22px; }
 .drawer-name { font-size: 17px; font-weight: 600; }
 .drawer-links { display: flex; gap: 8px; margin-top: 8px; position: relative; }
 .drawer-links button {
@@ -840,7 +840,7 @@ dc-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 
 /* profile editor modal */
 .edit-profile .ep-avatar { display: flex; justify-content: center; padding: 6px 0 2px; }
-.edit-profile .ep-avatar .dc-avatar-tile { border-radius: 18%; }
+.edit-profile .ep-avatar .velta-avatar-tile { border-radius: 18%; }
 .edit-profile .ep-avatar-actions {
   display: flex; justify-content: center; gap: 6px; padding: 2px 0 6px;
 }

@@ -5,8 +5,8 @@ on:
     branches: [main, master]
     paths:
       - 'app/**'
-      - 'delta-web-app/**'
-      - 'delta-core-service/**'
+      - 'velta-app/**'
+      - 'velta-core-service/**'
       - 'deltachat-backend/**'
       - 'core/**'
       - '.github/workflows/build-*.yml'
@@ -14,8 +14,8 @@ on:
     branches: [main, master]
     paths:
       - 'app/**'
-      - 'delta-web-app/**'
-      - 'delta-core-service/**'
+      - 'velta-app/**'
+      - 'velta-core-service/**'
       - 'deltachat-backend/**'
       - 'core/**'
       - '.github/workflows/build-*.yml'
@@ -89,18 +89,18 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           name: deltachat-rpc-server-windows-gnu
-          path: delta-web-app/src-tauri/binaries
+          path: velta-app/src-tauri/binaries
 
       - name: Rename sidecar for Tauri bundle
         shell: pwsh
         run: |
-          $src = "delta-web-app/src-tauri/binaries/deltachat-rpc-server.exe"
-          $dst = "delta-web-app/src-tauri/binaries/deltachat-rpc-server-x86_64-pc-windows-msvc.exe"
+          $src = "velta-app/src-tauri/binaries/deltachat-rpc-server.exe"
+          $dst = "velta-app/src-tauri/binaries/deltachat-rpc-server-x86_64-pc-windows-msvc.exe"
           if (Test-Path $dst) { Remove-Item $dst }
           Move-Item -Path $src -Destination $dst
 
       - name: Build Tauri Windows installer
-        working-directory: ./delta-web-app
+        working-directory: ./velta-app
         run: cargo tauri build
 
       - name: Upload Windows artifacts
@@ -108,15 +108,15 @@ jobs:
         with:
           name: velta-windows
           path: |
-            delta-web-app/src-tauri/target/release/bundle/msi/*.msi
-            delta-web-app/src-tauri/target/release/bundle/nsis/*.exe
+            velta-app/src-tauri/target/release/bundle/msi/*.msi
+            velta-app/src-tauri/target/release/bundle/nsis/*.exe
 
       - name: Upload release assets (on tag)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            delta-web-app/src-tauri/target/release/bundle/msi/*.msi
-            delta-web-app/src-tauri/target/release/bundle/nsis/*.exe
+            velta-app/src-tauri/target/release/bundle/msi/*.msi
+            velta-app/src-tauri/target/release/bundle/nsis/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

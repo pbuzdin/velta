@@ -134,7 +134,7 @@ export function confirmDeleteMessagesModal(count, canForAll) {
 
 /* ---------- Version info (drawer footer + About) ---------- */
 const CORE_VERSION = "2.59.0";
-const FALLBACK_APP_VERSION = "1.3.24";
+const FALLBACK_APP_VERSION = "1.3.25";
 
 async function getAppVersion() {
   try {
@@ -173,7 +173,7 @@ export function buildDrawer({ account, onAddAccount, onSecondDevice, onToggleThe
   drawer.innerHTML = `
     <div class="drawer-head">
       <button class="icon-btn drawer-close" data-act="close" title="Close" aria-label="Close menu"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
-      <dc-avatar data-act="profile" style="cursor:pointer" name="${escapeHtml(account.displayName)}" color="${escapeAttr(account.color || "#777")}" size="56" contact-id="1"${account.avatar ? ` avatar="${escapeAttr(fileUrl(account.avatar))}"` : ""}></dc-avatar>
+      <velta-avatar data-act="profile" style="cursor:pointer" name="${escapeHtml(account.displayName)}" color="${escapeAttr(account.color || "#777")}" size="56" contact-id="1"${account.avatar ? ` avatar="${escapeAttr(fileUrl(account.avatar))}"` : ""}></velta-avatar>
       <div>
         <div class="drawer-name">${escapeHtml(account.displayName)}</div>
         <div class="drawer-links">
@@ -284,14 +284,14 @@ export function showEditProfile({ name, avatarUrl, color, pickImage }) {
     const body = document.createElement("div");
     body.className = "edit-profile";
     body.innerHTML = `
-      <div class="ep-avatar"><dc-avatar size="84" contact-id="1"></dc-avatar></div>
+      <div class="ep-avatar"><velta-avatar size="84" contact-id="1"></velta-avatar></div>
       <div class="ep-avatar-actions">
         <button class="btn-text" data-ep="pick">Change picture</button>
         <button class="btn-text" data-ep="remove" style="display:none">Remove photo</button>
       </div>
       <input class="text-field" maxlength="64" autocomplete="off" spellcheck="false" aria-label="Username" placeholder="Your name">`;
     const input = body.querySelector("input");
-    const preview = body.querySelector("dc-avatar");
+    const preview = body.querySelector("velta-avatar");
     const removeBtn = body.querySelector('[data-ep="remove"]');
     preview.setAttribute("color", color || "#777");
     const refreshPreview = () => {

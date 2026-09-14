@@ -5,12 +5,12 @@ Usage:
     python tools/generate-icons.py IMG_20260808_215950.jpg
 
 Outputs:
-    delta-web-app/src-tauri/icons/{32x32,128x128,128x128@2x,icon}.png
-    delta-web-app/src-tauri/icons/icon.ico
+    velta-app/src-tauri/icons/{32x32,128x128,128x128@2x,icon}.png
+    velta-app/src-tauri/icons/icon.ico
     app/icons/{icon-192,icon-512,maskable-512}.png
     app/icons/velta-logo-src.png
     app/icons/icon.svg            (traced vector)
-    delta-web-app/src-tauri/icons/icon.svg
+    velta-app/src-tauri/icons/icon.svg
 """
 import io
 import struct
@@ -22,7 +22,7 @@ import vtracer
 
 SRC = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("IMG_20260808_215950.jpg")
 ROOT = Path(__file__).resolve().parent.parent
-TAURI_ICONS = ROOT / "delta-web-app" / "src-tauri" / "icons"
+TAURI_ICONS = ROOT / "velta-app" / "src-tauri" / "icons"
 APP_ICONS = ROOT / "app" / "icons"
 
 TAURI_ICONS.mkdir(parents=True, exist_ok=True)
@@ -108,7 +108,7 @@ with open(ico_path, "wb") as ico:
         ico.write(data)
 
 # Android adaptive + legacy launcher icons.
-ANDROID_RES = ROOT / "delta-web-app" / "src-tauri" / "gen" / "android" / "app" / "src" / "main" / "res"
+ANDROID_RES = ROOT / "velta-app" / "src-tauri" / "gen" / "android" / "app" / "src" / "main" / "res"
 
 
 def extract_foreground_and_background(src: Image.Image, sample_border: int = 80):

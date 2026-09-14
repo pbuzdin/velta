@@ -17,9 +17,9 @@ Every consumer must be rebuilt or swapped when the core changes:
 
 | Consumer | Core form | Where it comes from |
 |---|---|---|
-| Windows desktop (Tauri) | sidecar process | `delta-web-app/src-tauri/binaries/deltachat-rpc-server-x86_64-pc-windows-msvc.exe` |
+| Windows desktop (Tauri) | sidecar process | `velta-app/src-tauri/binaries/deltachat-rpc-server-x86_64-pc-windows-msvc.exe` |
 | Android (Tauri) | in-process Rust library | `core` workspace built into the APK by the gradle/NDK build |
-| `delta-core-service` APK | JNI + WS bridge | separate APK, same core workspace |
+| `velta-core-service` APK | JNI + WS bridge | separate APK, same core workspace |
 | Browser/PWA / test rig | remote sidecar over WS/HTTP | `deltachat-backend/windows-x86_64/` and `deltachat-backend/android-arm64/` prebuilts |
 
 ## 2. The frontend contract (what must keep working)
@@ -107,7 +107,7 @@ to pass.
       `chat-msg-update-hardening.test.mjs` (duplicate-update short-circuit,
       tail-refetch coalescing), `app-account-isolation.test.mjs`.
 - [ ] Frontend compiles clean against the new core's shapes: run
-      `cd delta-web-app && cargo tauri dev` and boot past the splash.
+      `cd velta-app && cargo tauri dev` and boot past the splash.
 
 ## 5. Phase 2 — Single-account live check (desktop, real relay)
 
@@ -179,7 +179,7 @@ re-checking on every upgrade:
 
 - [ ] Android APK with the in-process core: boot, receive while foreground,
       notification shows sender + snippet, tap-through works.
-- [ ] `delta-core-service` APK still pairs and bridges (secondary, but same
+- [ ] `velta-core-service` APK still pairs and bridges (secondary, but same
       core workspace).
 - [ ] Deep links (`velta://`, `dcaccount:`, `dclogin:`, `dcbackup:`) still
       route.
@@ -194,7 +194,7 @@ idle+active session shows no repeating-line storms.
 
 Rollback: the prebuilts are per-release artifacts — keep the previous
 `deltachat-backend/*/deltachat-rpc-server*` and
-`delta-web-app/src-tauri/binaries/` binaries (or the previous release tag)
+`velta-app/src-tauri/binaries/` binaries (or the previous release tag)
 and re-swap; the frontend has no schema migration state (accounts live in the
 core's account dir — downgrade across a core that migrated the database is
 NOT safe; test db-open-on-old-core before shipping a risky upgrade).
@@ -205,7 +205,7 @@ NOT safe; test db-open-on-old-core before shipping a risky upgrade).
 # Core RPC server (Windows sidecar / test rig)
 cd core && cargo build -p deltachat-rpc-server --release
 # → copy target/release/deltachat-rpc-server.exe into
-#   delta-web-app/src-tauri/binaries/ (renamed with the target triple) and
+#   velta-app/src-tauri/binaries/ (renamed with the target triple) and
 #   deltachat-backend/windows-x86_64/
 
 # Android cross-compile for the prebuilt dir: see tools/ and

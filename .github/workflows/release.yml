@@ -34,7 +34,7 @@ jobs:
       - name: Read version
         id: ver
         run: |
-          VERSION=$(jq -r .version delta-web-app/src-tauri/tauri.conf.json)
+          VERSION=$(jq -r .version velta-app/src-tauri/tauri.conf.json)
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
           echo "Version: $VERSION"

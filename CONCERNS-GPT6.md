@@ -4,7 +4,7 @@ Reviewed: 2026-09-05
 
 ## Scope And Assessment
 
-This review covers Velta's client code in `app/` and `delta-web-app/`, including
+This review covers Velta's client code in `app/` and `velta-app/`, including
 the current uncommitted changes. It is not an audit of the vendored Delta Chat
 core, a penetration test, or a certification of the shipped Android/Windows apps.
 
@@ -51,7 +51,7 @@ The reviewed code broadcast the current pairing token in every LAN beacon and
 auto-persisted any unknown peer that presented it, so a reachable LAN
 participant could pair without recipient approval.
 
-Implemented in `delta-web-app/src-tauri/src/p2p.rs` and `app/js/p2p.js`:
+Implemented in `velta-app/src-tauri/src/p2p.rs` and `app/js/p2p.js`:
 
 - Beacons no longer carry the pairing token — discovery lists names and
   addresses only. A LAN listener learns nothing pairable.
@@ -108,7 +108,7 @@ timeout, then an incoming message — remains worthwhile on a real device.
 Two confirmed problems in the media paths:
 
 1. **Loopback media server truncated instead of seeking.** The Range handler
-   in `serve_media_connection` (`delta-web-app/src-tauri/src/lib.rs`) read the
+   in `serve_media_connection` (`velta-app/src-tauri/src/lib.rs`) read the
    whole file and truncated the buffer to the requested length without
    advancing to the requested offset — a request for bytes 100-199 received
    bytes 0-99 labelled as 100-199, breaking seeking and moov-at-end video
@@ -129,7 +129,7 @@ Implemented:
   metadata before any allocation; `poster.js` treats the rejection as before
   and falls back to the placeholder (its JS-side check remains as a fast path).
 
-Regression coverage: `delta-web-app/src-tauri/src/lib.rs` `media_tests` —
+Regression coverage: `velta-app/src-tauri/src/lib.rs` `media_tests` —
 `parse_range` cases, offset-correct 206 payloads (including `bytes=-n` suffix
 and open-ended ranges), 416 for unsatisfiable ranges, chunk-streamed full GET,
 and oversize rejection before allocation. A real-device check of video
@@ -179,7 +179,7 @@ The Tauri Android app still runs the core in its own process with no
 foreground service; the OS may defer or drop sync while the app is cached.
 Notifications now surface what arrives while the app runs, but guaranteed
 delivery under Doze/process death still requires a foreground-service
-integration (the separate `delta-core-service` APK implements the core+WS
+integration (the separate `velta-core-service` APK implements the core+WS
 bridge but is not wired into this lifecycle). This remains the open part of
 the concern; real-device verification of both notification behavior and
 Doze behavior is outstanding.

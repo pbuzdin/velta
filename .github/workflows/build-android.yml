@@ -6,8 +6,8 @@ on:
     branches: [main, master]
     paths:
       - 'app/**'
-      - 'delta-web-app/**'
-      - 'delta-core-service/**'
+      - 'velta-app/**'
+      - 'velta-core-service/**'
       - 'deltachat-backend/**'
       - 'core/**'
       - '.github/workflows/build-*.yml'
@@ -15,8 +15,8 @@ on:
     branches: [main, master]
     paths:
       - 'app/**'
-      - 'delta-web-app/**'
-      - 'delta-core-service/**'
+      - 'velta-app/**'
+      - 'velta-core-service/**'
       - 'deltachat-backend/**'
       - 'core/**'
       - '.github/workflows/build-*.yml'
@@ -84,7 +84,7 @@ jobs:
           EOF
 
       - name: Build Android APK (arm64-v8a)
-        working-directory: ./delta-web-app
+        working-directory: ./velta-app
         env:
           JAVA_HOME: ${{ env.JAVA_HOME_17_X64 }}
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
@@ -127,7 +127,7 @@ jobs:
           ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || 'velta' }}
           KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD || 'velta123' }}
         run: |
-          UNSIGNED=$(find delta-web-app/src-tauri/gen/android/app/build/outputs/apk -name '*-release-unsigned.apk' | head -n 1)
+          UNSIGNED=$(find velta-app/src-tauri/gen/android/app/build/outputs/apk -name '*-release-unsigned.apk' | head -n 1)
           if [ -z "$UNSIGNED" ]; then echo "Unsigned APK not found"; exit 1; fi
           echo "Signing $UNSIGNED"
 
@@ -139,9 +139,9 @@ jobs:
 
       - name: Rename signed APK with version
         run: |
-          VERSION=$(jq -r .version delta-web-app/src-tauri/tauri.conf.json)
+          VERSION=$(jq -r .version velta-app/src-tauri/tauri.conf.json)
           mkdir -p dist
-          for f in delta-web-app/src-tauri/gen/android/app/build/outputs/apk/*/release/*-signed.apk; do
+          for f in velta-app/src-tauri/gen/android/app/build/outputs/apk/*/release/*-signed.apk; do
             abi=$(basename "$(dirname "$(dirname "$f")")")
             # Tauri always names the --apk output flavor "universal"; this
             # pipeline compiles only the aarch64 target, so the APK contains

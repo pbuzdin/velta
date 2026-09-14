@@ -1,4 +1,4 @@
-// app.js — Delta Web bootstrap: chat list, navigation, modals, PWA
+// app.js — Velta bootstrap: chat list, navigation, modals, PWA
 import { createCore } from "./transport.js";
 import "./components.js";
 import { escapeHtml, escapeAttr } from "./components.js";
@@ -149,7 +149,7 @@ function openDiagnosticsChat() {
   $("no-chat").hidden = true;
   $("chat-view").hidden = false;
   document.querySelector(".app").classList.add("chat-open");
-  const head = document.createElement("dc-chat-head");
+  const head = document.createElement("velta-chat-head");
   head.setData(diagnostics.getChat());
   $("chat-head-info").replaceChildren(head);
   $("chat-head-actions").style.visibility = "hidden";
@@ -220,10 +220,10 @@ if (window.__TAURI__) {
   }
 
   try {
-    listen("dc-sidecar-status", ev => applySidecarStatus(ev.payload));
+    listen("velta-sidecar-status", ev => applySidecarStatus(ev.payload));
     invoke("get_sidecar_status").then(applySidecarStatus).catch(() => {});
   } catch (e) {
-    console.warn("[delta-web] sidecar status setup failed:", e);
+    console.warn("[velta] sidecar status setup failed:", e);
   }
 }
 
@@ -318,7 +318,7 @@ if (window.__TAURI__) {
   }
 }
 
-addEventListener("dc-core-status", e => {
+addEventListener("velta-core-status", e => {
   if (core.backend) core.backend.connected = !!e.detail.connected;
 });
 
@@ -541,9 +541,9 @@ refreshRelayStatus();
 
 // Socket opened but the core never answered RPC → almost always an old or
 // crashed service build. Say so explicitly instead of silently demo-ing.
-addEventListener("dc-core-init-failed", e => {
+addEventListener("velta-core-init-failed", e => {
   if (e.detail.backend === "websocket") {
-    toast("Found the background service, but it didn't answer — restart the Delta Core service (or update it if it's an older build)", 6000);
+    toast("Found the background service, but it didn't answer — restart the Velta Core service (or update it if it's an older build)", 6000);
   }
 });
 
@@ -562,7 +562,7 @@ function toggleTheme() {
 
 /* ---------------- chat list ---------------- */
 // Event-driven refresh. refreshChatList() refetches the list from the core and
-// re-renders it in place (renderChatList reuses existing <dc-chat-item>
+// re-renders it in place (renderChatList reuses existing <velta-chat-item>
 // elements), so it is cheap — but bursts of core events (IMAP sync, markseen
 // cascades) would still fire dozens of RPC round trips per second, so
 // event-driven callers go through scheduleChatListRefresh() which collapses a
@@ -615,14 +615,14 @@ function renderChatList() {
   // an element when its data or active state changes. Recreating runs the
   // Elena first-render path (safe); updating data on a hydrated element is
   // NOT safe: Elena's re-render diff compares live children against a fresh
-  // template clone, and custom elements like <dc-avatar> exist only in the
+  // template clone, and custom elements like <velta-avatar> exist only in the
   // live tree (innerHTML templates contain the bare, unhydrated tag), so the
   // diff deletes the avatar's rendered children — blank avatars. With
   // change-gated recreation, an idle list does zero DOM work and a burst
   // touches only the chats whose data actually changed.
   const existing = new Map();
   for (const child of [...list.children]) {
-    if (child.tagName === "DC-CHAT-ITEM") {
+    if (child.tagName === "VELTA-CHAT-ITEM") {
       const id = Number(child.getAttribute("chat-id"));
       if (state.chats.some(c => c.id === id)) existing.set(id, child);
       else child.remove();
@@ -656,7 +656,7 @@ function renderChatList() {
 
 function createChatItem(chat, active) {
   const chatId = chat.id;
-  const item = document.createElement("dc-chat-item");
+  const item = document.createElement("velta-chat-item");
   item.addEventListener("click", () => openChat(chatId));
   item.addEventListener("contextmenu", e => {
     if (e.altKey) return; // Alt+right-click → WebView devtools menu
@@ -758,11 +758,11 @@ function chatContextMenu(chat, x, y) {
   ].filter(Boolean), x, y);
 }
 
-// Fresh <dc-chat-head> for the open chat. Always build a new element instead
+// Fresh <velta-chat-head> for the open chat. Always build a new element instead
 // of setData() on an existing one: Elena's re-render diff strips the hydrated
-// children of the nested <dc-avatar> (see renderChatList).
+// children of the nested <velta-avatar> (see renderChatList).
 function renderChatHead(chat) {
-  const head = document.createElement("dc-chat-head");
+  const head = document.createElement("velta-chat-head");
   head.setData(chat);
   head.addEventListener("click", () => showChatInfo(chat));
   return head;
@@ -800,7 +800,7 @@ async function openChat(chatId) {
   $("no-chat").hidden = true;
   $("chat-view").hidden = false;
   document.querySelector(".app").classList.add("chat-open");
-  const head = document.createElement("dc-chat-head");
+  const head = document.createElement("velta-chat-head");
   head.setData(chat);
   $("chat-head-info").replaceChildren(head);
   state.activeChatHead = head;
@@ -890,7 +890,7 @@ function showChatInfo(chat) {
   const body = document.createElement("div");
   body.innerHTML = `
     <div style="display:flex;justify-content:center;align-items:center;gap:16px;padding:8px 0 14px">
-      <dc-avatar class="chat-info-avatar" name="${escapeHtml(chat.name)}" color="${chat.avatarColor || "#777"}" kind="${chat.kind}" size="168"${chat.contactId ? ` contact-id="${chat.contactId}"` : ""}${chat.contact && chat.contact.addr ? ` addr="${escapeAttr(chat.contact.addr)}"` : ""}${chat.avatar ? ` avatar="${escapeAttr(fileUrl(chat.avatar))}"` : ""}></dc-avatar>
+      <velta-avatar class="chat-info-avatar" name="${escapeHtml(chat.name)}" color="${chat.avatarColor || "#777"}" kind="${chat.kind}" size="168"${chat.contactId ? ` contact-id="${chat.contactId}"` : ""}${chat.contact && chat.contact.addr ? ` addr="${escapeAttr(chat.contact.addr)}"` : ""}${chat.avatar ? ` avatar="${escapeAttr(fileUrl(chat.avatar))}"` : ""}></velta-avatar>
       ${chat.contactId ? `<span class="chat-info-tile" data-caption-tile></span>` : ""}
     </div>
     ${!isGroup && chat.contactId && chat.contactId !== 1 ? `<div class="profile-actions">
@@ -999,7 +999,7 @@ function showChatInfo(chat) {
 
   // Same formatted key as the Avatar modal (avatar-profile-fpr), filled in
   // once the contact's fingerprint resolves. The captioned identity tile
-  // (avatar-profile-img) fills its slot in the same row as the dc-avatar.
+  // (avatar-profile-img) fills its slot in the same row as the velta-avatar.
   if (chat.contactId) {
     fingerprintFor(chat.contactId, chat.contact && chat.contact.addr)
       .then((fpr) => {
@@ -1130,7 +1130,7 @@ async function pickContactModal(title, multi = false) {
     list.className = "modal-list";
     const selected = new Set();
     for (const c of contacts) {
-      const item = document.createElement("dc-chat-item");
+      const item = document.createElement("velta-chat-item");
       item.setData({
         id: "c" + c.id, name: c.name, kind: "single", avatarColor: c.color,
         contactId: c.id, avatar: c.avatar || null,
@@ -1203,7 +1203,7 @@ async function addAccountFlow() {
 async function addAccountFromInvite(link) {
   if (state.accountChanging) return;
   if (!core.addAccountWithQr) {
-    toast("No background service available — install the Delta Core service app to add relay accounts", 5000);
+    toast("No background service available — install the Velta Core service app to add relay accounts", 5000);
     return;
   }
   toast("Creating account on relay…", 2500);
@@ -1338,7 +1338,7 @@ async function forwardFlow(msgIds) {
   list.className = "modal-list";
   const targets = state.chats.filter(c => !["deaddrop", "device"].includes(c.kind));
   for (const chat of targets) {
-    const item = document.createElement("dc-chat-item");
+    const item = document.createElement("velta-chat-item");
     item.setData(chat);
     item.addEventListener("click", async () => {
       close();
@@ -1942,7 +1942,7 @@ async function openRelaysModal() {
 async function addRelayFlow(epoch, refresh, presetCode) {
   if (!accountIsCurrent(epoch)) return;
   if (!core.checkQr || !core.addTransportFromQr) {
-    toast("No background service available — install the Delta Core service app to add relays", 5000);
+    toast("No background service available — install the Velta Core service app to add relays", 5000);
     return;
   }
   // presetCode comes from a deeplink (already dcaccount:-prefixed by
@@ -2257,7 +2257,7 @@ async function secondDeviceFlow() {
     // round trips, so don't run it more often than needed.
     setInterval(() => { scheduleChatListRefresh(); }, 30000);
 
-    addEventListener("dc-core-disconnected", () => {
+    addEventListener("velta-core-disconnected", () => {
       toast("Lost connection to local Delta Chat core — is the service running?", 4500);
     });
 

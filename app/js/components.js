@@ -9,10 +9,10 @@ import { buildAvatarSvg, fingerprintFor, cachedFingerprint, fingerprintGroups } 
 const AVATAR_SVG = `<svg viewBox="0 0 24 24" style="width:55%;height:55%"><path d="M12 4l2.2 4.7 5 .6-3.7 3.4 1 4.9-4.5-2.6-4.5 2.6 1-4.9L4.8 9.3l5-.6z" fill="currentColor"/></svg>`;
 const DEVICE_SVG = `<svg viewBox="0 0 24 24" style="width:55%;height:55%"><rect x="5" y="3" width="14" height="18" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="17.5" r="1.2" fill="currentColor"/></svg>`;
 
-/* ---------- <dc-avatar> ---------- */
+/* ---------- <velta-avatar> ---------- */
 function specialKind(kind) { return kind === "saved" || kind === "device"; }
-class DcAvatar extends Elena(HTMLElement) {
-  static tagName = "dc-avatar";
+class VeltaAvatar extends Elena(HTMLElement) {
+  static tagName = "velta-avatar";
   static props = ["name", "color", "kind", "size", "avatar", "contact-id", "addr"];
 
   name = "?";
@@ -58,7 +58,7 @@ class DcAvatar extends Elena(HTMLElement) {
   }
 
   updated() {
-    const img = this.querySelector?.("img.dc-avatar-img");
+    const img = this.querySelector?.("img.velta-avatar-img");
     if (img && !img.dataset.errBound) {
       img.dataset.errBound = "1";
       img.addEventListener("error", () => {
@@ -77,7 +77,7 @@ class DcAvatar extends Elena(HTMLElement) {
     const special = specialKind(this.kind);
     const style = `width:${s}px;height:${s}px;font-size:${Math.round(s * 0.38)}px;` +
       (special ? "" : `background:${this.color || "#777"};`);
-    const cls = "dc-avatar-tile" + (special ? " saved" : "") + (!special && this.kind === "single" ? " identity" : "");
+    const cls = "velta-avatar-tile" + (special ? " saved" : "") + (!special && this.kind === "single" ? " identity" : "");
     // The initials stay underneath as the loading/failure fallback; the img
     // is absolutely positioned and covers them once it decodes.
     if (!special && this.avatar && !this.#avatarFailed) {
@@ -86,9 +86,9 @@ class DcAvatar extends Elena(HTMLElement) {
         // stays visible around it (empty svg until the fingerprint resolves).
         const groups = fingerprintGroups(cachedFingerprint(Number(this["contact-id"])));
         const svg = groups ? buildAvatarSvg({ groups, size: s, radius: 0, badge: false }) : "";
-        return html`<div class="${cls}" style="${style}" aria-hidden="true">${unsafeHTML(svg)}<span class="dc-avatar-photo"><img class="dc-avatar-img" src="${this.avatar}" alt="" loading="lazy"></span></div>`;
+        return html`<div class="${cls}" style="${style}" aria-hidden="true">${unsafeHTML(svg)}<span class="velta-avatar-photo"><img class="velta-avatar-img" src="${this.avatar}" alt="" loading="lazy"></span></div>`;
       }
-      return html`<div class="${cls}" style="${style}" aria-hidden="true">${this.initials()}<img class="dc-avatar-img" src="${this.avatar}" alt="" loading="lazy"></div>`;
+      return html`<div class="${cls}" style="${style}" aria-hidden="true">${this.initials()}<img class="velta-avatar-img" src="${this.avatar}" alt="" loading="lazy"></div>`;
     }
     // GPG-fingerprint identity tile for photo-less single contacts:
     // equal-height color matrix with the fingerprint glyph on a dark badge.
@@ -103,9 +103,9 @@ class DcAvatar extends Elena(HTMLElement) {
     return html`<div class="${cls}" style="${style}" aria-hidden="true">${inner}</div>`;
   }
 }
-DcAvatar.define();
+VeltaAvatar.define();
 
-/* ---------- <dc-video> — click-to-load video player ---------- */
+/* ---------- <velta-video> — click-to-load video player ---------- */
 // Every mounted <video> starts a decoder pipeline and issues media range
 // requests for content the user may never play; in a multi-video chat that
 // is decode churn, memory, and (over the asset protocol) seek requests we
@@ -115,8 +115,8 @@ DcAvatar.define();
 const PLAY_SVG = `<svg viewBox="0 0 24 24" style="width:100%;height:100%;display:block"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>`;
 const VIDEO_FAIL_SVG = `<svg viewBox="0 0 24 24" style="width:100%;height:100%;display:block"><path d="M4 7h16M9 7V5h6v2m-8 0l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`;
 
-class DcVideo extends Elena(HTMLElement) {
-  static tagName = "dc-video";
+class VeltaVideo extends Elena(HTMLElement) {
+  static tagName = "velta-video";
   static props = ["src", "duration", "name", "file", "size"];
 
   src = "";
@@ -132,7 +132,7 @@ class DcVideo extends Elena(HTMLElement) {
 
   connectedCallback() {
     super.connectedCallback?.();
-    // Self-heal (same Elena diff quirk as DcAvatar): a re-render pass can
+    // Self-heal (same Elena diff quirk as VeltaAvatar): a re-render pass can
     // strip our rendered child while leaving us connected.
     if (this.h && this.childElementCount === 0) {
       delete this.D;
@@ -189,7 +189,7 @@ class DcVideo extends Elena(HTMLElement) {
         diagnosticsSink.append("error", `video "${this.name}" failed to load`);
       });
     }
-    const img = this.querySelector?.("img.dc-video-poster");
+    const img = this.querySelector?.("img.velta-video-poster");
     if (img && !img.dataset.errBound) {
       img.dataset.errBound = "1";
       // A broken poster must never shadow the plain placeholder. The asset
@@ -218,17 +218,17 @@ class DcVideo extends Elena(HTMLElement) {
     if (!this.#active || !this.src) {
       const d = Number(this.duration) || 0;
       const dur = d > 0 ? `${Math.floor(d / 60)}:${String(Math.floor(d % 60)).padStart(2, "0")}` : "";
-      return html`<button type="button" class="dc-video-ph" aria-label="${this.ariaLabel()}">
-        ${this.poster ? html`<img class="dc-video-poster" src="${this.poster}" alt="" decoding="async">` : ""}
-        <span class="dc-video-play">${unsafeHTML(PLAY_SVG)}</span>
-        ${this.size ? html`<span class="dc-video-size">${this.size}</span>` : ""}
-        ${dur ? html`<span class="dc-video-dur">${dur}</span>` : ""}
+      return html`<button type="button" class="velta-video-ph" aria-label="${this.ariaLabel()}">
+        ${this.poster ? html`<img class="velta-video-poster" src="${this.poster}" alt="" decoding="async">` : ""}
+        <span class="velta-video-play">${unsafeHTML(PLAY_SVG)}</span>
+        ${this.size ? html`<span class="velta-video-size">${this.size}</span>` : ""}
+        ${dur ? html`<span class="velta-video-dur">${dur}</span>` : ""}
       </button>`;
     }
     return html`<video controls autoplay playsinline preload="metadata" src="${this.src}"></video>`;
   }
 }
-DcVideo.define();
+VeltaVideo.define();
 
 // Open-shackle lock, shown only on chats that can carry unencrypted mail
 // (classic-email contacts), i.e. chat.isEncrypted === false. Encrypted chats
@@ -247,9 +247,9 @@ export function ticksSvg(state, cls = "ci-ticks") {
   return TICK2.replace('ci-ticks', cls + read);
 }
 
-/* ---------- <dc-chat-item> ---------- */
-class DcChatItem extends Elena(HTMLElement) {
-  static tagName = "dc-chat-item";
+/* ---------- <velta-chat-item> ---------- */
+class VeltaChatItem extends Elena(HTMLElement) {
+  static tagName = "velta-chat-item";
   static props = ["chat-id", "active"];
   static events = ["click"];
 
@@ -290,7 +290,7 @@ class DcChatItem extends Elena(HTMLElement) {
         : c.lastMsg ? escapeHtml(c.lastMsg) : "";
     return html`
       <div class="chat-item${this.active !== null && this.active !== undefined && this.getAttribute("active") !== null ? " active" : ""}" role="option">
-        ${unsafeHTML(`<dc-avatar name="${escapeAttr(c.name)}" color="${c.avatarColor || ""}" kind="${c.kind}" size="48"${c.contactId ? ` contact-id="${c.contactId}"` : ""}${c.avatar ? ` avatar="${escapeAttr(fileUrl(c.avatar))}"` : ""}></dc-avatar>`)}
+        ${unsafeHTML(`<velta-avatar name="${escapeAttr(c.name)}" color="${c.avatarColor || ""}" kind="${c.kind}" size="48"${c.contactId ? ` contact-id="${c.contactId}"` : ""}${c.avatar ? ` avatar="${escapeAttr(fileUrl(c.avatar))}"` : ""}></velta-avatar>`)}
         <div class="ci-main">
           <div class="ci-top">
             <div class="ci-name">${c.name} ${unsafeHTML(nameBadges)}</div>
@@ -304,11 +304,11 @@ class DcChatItem extends Elena(HTMLElement) {
       </div>`;
   }
 }
-DcChatItem.define();
+VeltaChatItem.define();
 
-/* ---------- <dc-chat-head> ---------- */
-class DcChatHead extends Elena(HTMLElement) {
-  static tagName = "dc-chat-head";
+/* ---------- <velta-chat-head> ---------- */
+class VeltaChatHead extends Elena(HTMLElement) {
+  static tagName = "velta-chat-head";
   static events = ["click"];
 
   chat = null;
@@ -338,7 +338,7 @@ class DcChatHead extends Elena(HTMLElement) {
     const stText = typeof st === "object" ? st.text : st;
     return html`
       <div class="chat-head-avatar">
-        ${unsafeHTML(`<dc-avatar name="${escapeAttr(c.name)}" color="${c.avatarColor || ""}" kind="${c.kind}" size="42"${c.contactId ? ` contact-id="${c.contactId}"` : ""}${c.avatar ? ` avatar="${escapeAttr(fileUrl(c.avatar))}"` : ""}></dc-avatar>`)}
+        ${unsafeHTML(`<velta-avatar name="${escapeAttr(c.name)}" color="${c.avatarColor || ""}" kind="${c.kind}" size="42"${c.contactId ? ` contact-id="${c.contactId}"` : ""}${c.avatar ? ` avatar="${escapeAttr(fileUrl(c.avatar))}"` : ""}></velta-avatar>`)}
       </div>
       <div class="chat-head-text">
         <div class="cht-name"><span class="cht-name-text">${c.name}</span>${unsafeHTML((c.kind === "single" && !c.encrypted ? OPEN_LOCK_SVG : "") + (c.verified ? VERIFIED_SVG : ""))}</div>
@@ -346,7 +346,7 @@ class DcChatHead extends Elena(HTMLElement) {
       </div>`;
   }
 }
-DcChatHead.define();
+VeltaChatHead.define();
 
 export function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));

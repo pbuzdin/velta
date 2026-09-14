@@ -77,7 +77,7 @@ export class MockCore extends EventTarget {
     this.accountEpoch = 0;
     this.account = {
       id: 1, addr: "you@nine.testrun.org", displayName: "You",
-      color: "#5aa2e6", bio: "Delta Web user",
+      color: "#5aa2e6", bio: "Velta user",
       relay: "nine.testrun.org",
     };
     this.contacts = CONTACTS;
@@ -105,7 +105,7 @@ export class MockCore extends EventTarget {
       mk({ id: 12, name: "Ada Byron", contactId: 2, pinned: true, verified: true, unread: 2 }),
       mk({ id: 13, name: "Weekend Crew 🏕", kind: "group", memberCount: 6, pinned: true, unread: 14, avatar: GROUP_AVATARS[13] }),
       mk({ id: 14, name: "Kenji Sato", contactId: 3, muted: true, unread: 5 }),
-      mk({ id: 15, name: "Delta Web Devs", kind: "group", memberCount: 23, unread: 0, avatar: GROUP_AVATARS[15] }),
+      mk({ id: 15, name: "Velta Devs", kind: "group", memberCount: 23, unread: 0, avatar: GROUP_AVATARS[15] }),
       mk({ id: 16, name: "Mara Voss", contactId: 4 }),
       mk({ id: 17, name: "News · Delta Chat", kind: "channel", memberCount: 12800, muted: true, unread: 31 }),
       mk({ id: 18, name: "Tariq Aziz", contactId: 5, archived: true }),
@@ -137,7 +137,7 @@ export class MockCore extends EventTarget {
     ];
     this.chats[1].messages = [
       this._mkMsg(this.chats[1], { kind: "service", text: "Messages are end-to-end encrypted.", ts: now - 86400e3 * 3 }),
-      this._mkMsg(this.chats[1], { from: 1, text: "Welcome to Delta Web 🎉 This account is connected through the chatmail relay nine.testrun.org.", ts: now - 86400e3 * 3 + 60e3 }),
+      this._mkMsg(this.chats[1], { from: 1, text: "Welcome to Velta 🎉 This account is connected through the chatmail relay nine.testrun.org.", ts: now - 86400e3 * 3 + 60e3 }),
     ];
   }
 

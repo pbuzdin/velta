@@ -748,7 +748,7 @@ export class ChatView {
       inner += `<div class="msg-checkbox">${this.selection.has(m.id) ? ICO.check : ""}</div>`;
     }
     if (showAvatar) {
-      inner += `<dc-avatar name="${escapeHtml(fc.name)}" color="${fc.color}" size="42" contact-id="${fc.id ?? ""}" addr="${escapeAttr(fc.addr || "")}"${fc.avatar ? ` avatar="${escapeAttr(fileUrl(fc.avatar))}"` : ""}></dc-avatar>`;
+      inner += `<velta-avatar name="${escapeHtml(fc.name)}" color="${fc.color}" size="42" contact-id="${fc.id ?? ""}" addr="${escapeAttr(fc.addr || "")}"${fc.avatar ? ` avatar="${escapeAttr(fileUrl(fc.avatar))}"` : ""}></velta-avatar>`;
     }
 
     let bubble = "";
@@ -780,11 +780,11 @@ export class ChatView {
       }
     } else if (m.viewtype === "video") {
       if (m.downloadState === "Done" && m.filePath) {
-        // Click-to-load: <dc-video> renders a static placeholder; the real
+        // Click-to-load: <velta-video> renders a static placeholder; the real
         // <video> (decoder + media requests) is only created on tap. `file`
         // carries the raw path for poster extraction; `src` is served.
         const size = m.fileSize ? formatBytes(m.fileSize) : "";
-        bubble += `<div class="msg-video"><dc-video src="${escapeAttr(fileUrl(m.filePath))}" file="${escapeAttr(m.filePath)}" size="${escapeAttr(size)}" duration="${m.duration || ""}" name="${escapeHtml(m.fileName || "Video")}"></dc-video></div>`;
+        bubble += `<div class="msg-video"><velta-video src="${escapeAttr(fileUrl(m.filePath))}" file="${escapeAttr(m.filePath)}" size="${escapeAttr(size)}" duration="${m.duration || ""}" name="${escapeHtml(m.fileName || "Video")}"></velta-video></div>`;
       } else {
         const size = m.fileSize ? formatBytes(m.fileSize) : "";
         bubble += `<div class="msg-file download-btn" role="button" data-act="download">
@@ -843,7 +843,7 @@ export class ChatView {
     row.innerHTML = inner;
     if (m.viewtype === "vcard" && m.filePath) this._hydrateVcardCard(row, m);
     if (showAvatar) {
-      row.querySelector("dc-avatar")?.addEventListener("click", (e) => {
+      row.querySelector("velta-avatar")?.addEventListener("click", (e) => {
         // The sender's avatar opens their profile — not row selection/menus.
         e.stopPropagation();
         if (!alive()) return;

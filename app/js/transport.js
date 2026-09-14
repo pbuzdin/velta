@@ -1,5 +1,5 @@
 // transport.js — picks the best available deltachat core backend:
-//   1. inside the Android WebView app → direct JS bridge (window.DcBridge),
+//   1. inside the Android WebView app → direct JS bridge (window.VeltaBridge),
 //      no network involved at all
 //   2. inside the Tauri shell         → in-process core via Tauri IPC
 //   3. background-service APK         → core via ws://127.0.0.1:20808
@@ -32,11 +32,11 @@ function rustLog(msg) {
 /* ---------------- Android WebView JS bridge (in-app, no network) ---------------- */
 
 function androidWebViewTransport() {
-  const bridge = window.DcBridge;
+  const bridge = window.VeltaBridge;
   return {
     name: "android-webview",
     label: "in-app core (Android)",
-    setReceiver(fn) { window.__dcOnLine = fn; },
+    setReceiver(fn) { window.__veltaOnLine = fn; },
     send(line) { bridge.send(line); },
     async reconnect() { return true; }, // in-process bridge can't drop
   };
@@ -61,7 +61,7 @@ function tauriTransport() {
       //
       // The createCore() global deadline (20s) still bounds the overall
       // startup so a genuinely broken bridge can't hang the UI forever.
-      await listen("dc-rpc", ev => fn(ev.payload));
+      await listen("velta-rpc", ev => fn(ev.payload));
     },
     send(line) {
       // Return the promise so rpc-core can catch invoke errors
@@ -90,7 +90,7 @@ function probeWebSocket() {
 }
 
 function statusEvent(connected, backend) {
-  dispatchEvent(new CustomEvent("dc-core-status", { detail: { connected, backend } }));
+  dispatchEvent(new CustomEvent("velta-core-status", { detail: { connected, backend } }));
 }
 
 async function websocketTransport() {
@@ -102,7 +102,7 @@ async function websocketTransport() {
     socket.onclose = () => {
       if (socket !== ws) return; // stale socket from an old connection
       statusEvent(false, "websocket");
-      dispatchEvent(new CustomEvent("dc-core-disconnected"));
+      dispatchEvent(new CustomEvent("velta-core-disconnected"));
     };
   };
   wire(ws);
@@ -156,7 +156,7 @@ function httpTransport() {
           if (!alive) return;
           alive = false;
           statusEvent(false, "http");
-          dispatchEvent(new CustomEvent("dc-core-disconnected"));
+          dispatchEvent(new CustomEvent("velta-core-disconnected"));
         });
     },
     async reconnect() {
@@ -191,7 +191,7 @@ export async function createCore({ onDiagnostic = () => {} } = {}) {
   }
 
   const attempts = [];
-  if (window.DcBridge) attempts.push(() => androidWebViewTransport());
+  if (window.VeltaBridge) attempts.push(() => androidWebViewTransport());
   if (window.__TAURI__) {
     diagnostic("info", "Tauri runtime detected; probing embedded core");
     attempts.push(() => tauriTransport());
@@ -226,16 +226,16 @@ export async function createCore({ onDiagnostic = () => {} } = {}) {
         diagnostic("info", `Initializing ${transport.name} (attempt ${i}/${initAttempts})`);
         await core.init();
         core.backend = { kind: transport.name, label: transport.label || transport.name, connected: true };
-        console.info("[delta-web] using backend:", transport.name);
+        console.info("[velta] using backend:", transport.name);
         statusEvent(true, transport.name);
         diagnostic("info", `Connected to ${transport.label || transport.name}`);
         return core;
       } catch (e) {
         diagnostic("error", `${transport.name} initialization failed: ${e?.message || e}`);
-        console.warn(`[delta-web] backend init failed (${transport.name}, attempt ${i}/${initAttempts}):`, e);
+        console.warn(`[velta] backend init failed (${transport.name}, attempt ${i}/${initAttempts}):`, e);
         if (i === initAttempts) {
           statusEvent(false, transport.name);
-          dispatchEvent(new CustomEvent("dc-core-init-failed", { detail: { backend: transport.name } }));
+          dispatchEvent(new CustomEvent("velta-core-init-failed", { detail: { backend: transport.name } }));
         } else {
           await new Promise(r => setTimeout(r, 1500));
         }
@@ -243,7 +243,7 @@ export async function createCore({ onDiagnostic = () => {} } = {}) {
     }
   }
   diagnostic("warning", "No real core responded; entering demo mode");
-  console.info("[delta-web] falling back to mock core");
+  console.info("[velta] falling back to mock core");
   const mock = new MockCore();
   mock.backend = { kind: "mock", label: "demo mode (no local core)", connected: false };
   return mock;

@@ -1,5 +1,5 @@
-// sw.js — Delta Web service worker (app-shell cache)
-const CACHE = "velta-v162";
+// sw.js — Velta service worker (app-shell cache)
+const CACHE = "velta-v163";
 const ASSETS = [
   "./",
   "./index.html", "./diag.html",

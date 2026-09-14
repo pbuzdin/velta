@@ -160,7 +160,7 @@ const GLYPH_LIGHT = "#f4f4f4"; // soft white — never pure
 // badge=false leaves the grid bare (the caller layers a photo on top).
 //
 // The result is cached per (fingerprint, variant, size) — chat-list re-renders
-// rebuild every <dc-avatar> and the color-matrix math plus string assembly
+// rebuild every <velta-avatar> and the color-matrix math plus string assembly
 // dominated that path. radius=0 callers (all of them today) skip the clipPath:
 // it would be a no-op, and a cached string reused across many DOM insertions
 // must not carry an id (duplicate-id clip-path references break when the

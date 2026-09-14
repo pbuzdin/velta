@@ -45,7 +45,7 @@ linker = "/home/pave/android/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x8
 rustflags = ["-C", "link-arg=--target=x86_64-linux-android24"]
 EOF
 
-cd ~/velta/delta-web-app
+cd ~/velta/velta-app
 
 # The Windows sidecar (staged for the desktop installer) must NOT exist here:
 # tauri.conf.json's bundle.resources map packages it into the Android APK

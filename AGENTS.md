@@ -8,7 +8,7 @@ build/test commands, and conventions as they actually exist in this checkout.
 > copy of the upstream [Delta Chat core](https://github.com/chatmail/core)
 > (version `2.60.0`). The `core/` directory is effectively a vendored copy of
 > that Rust project. Wrapper code for Velta's own clients lives in `app/`,
-> `delta-web-app/`, `delta-core-service/`, and `deltachat-backend/`.
+> `velta-app/`, `velta-core-service/`, and `deltachat-backend/`.
 
 ---
 
@@ -17,9 +17,9 @@ build/test commands, and conventions as they actually exist in this checkout.
 **Velta** is a cross-platform Delta Chat client built as a Progressive Web App
 (PWA) that can be hosted in several shells:
 
-- **Tauri desktop/Android app** (`delta-web-app/`) — the web UI is embedded in a
+- **Tauri desktop/Android app** (`velta-app/`) — the web UI is embedded in a
   system WebView and the Delta Chat Rust core is linked in-process.
-- **Background Android service** (`delta-core-service/`) — a headless APK that runs
+- **Background Android service** (`velta-core-service/`) — a headless APK that runs
   the core as a foreground service and exposes it to the PWA over a loopback
   WebSocket/HTTP bridge.
 - **Standalone browser** — the PWA can be served from a static host and falls back
@@ -46,7 +46,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── app.js            # bootstrap, chat list, navigation, account switcher, relay status line, multi-relay manager, modals, PWA lifecycle
 │   │   ├── avatar.js         # contact avatars: fingerprint color-grid identity tiles
 │   │   ├── chat-view.js      # message history, composer, selection actions
-│   │   ├── components.js     # Elena-based web components (<dc-avatar>, <dc-chat-item>, <dc-chat-head>, <dc-video>)
+│   │   ├── components.js     # Elena-based web components (<velta-avatar>, <velta-chat-item>, <velta-chat-head>, <velta-video>)
 │   │   ├── diagnostics.js    # diagnostics chat store + event sink + shared console-style row renderer
 │   │   ├── invites.js        # invite-link registry (mirror domains), parsing, invite cards, settings modal
 │   │   ├── markdown.js       # escape-first message markdown: bold/italic/underline, links, lists
@@ -81,7 +81,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   ├── CMakeLists.txt        # CMake install wrapper for libdeltachat
 │   └── deny.toml             # cargo-deny policy
 │
-├── delta-web-app/            # Tauri v2 wrapper
+├── velta-app/            # Tauri v2 wrapper
 │   └── src-tauri/
 │       ├── Cargo.toml        # depends on deltachat-jsonrpc (path on Android)
 │       ├── tauri.conf.json   # frontendDist: ../../app, version bumped each release
@@ -94,9 +94,9 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │       │   └── main.rs       # Tauri entry point
 │       └── build.rs
 │
-├── delta-core-service/       # Android foreground-service (JNI core + loopback WS bridge)
+├── velta-core-service/       # Android foreground-service (JNI core + loopback WS bridge)
 │   ├── rust/                 # JNI crate (librpc_core.so)
-│   ├── android/              # Gradle project; builds delta-core-service.apk
+│   ├── android/              # Gradle project; builds velta-core-service.apk
 │   └── README.md
 │
 ├── deltachat-backend/        # Prebuilt deltachat-rpc-server binaries
@@ -120,16 +120,16 @@ databases), `*.apk` builds, `signing/*.keystore`.
 | Frontend | Plain HTML/CSS/ES modules, no transpiler or bundler |
 | Components | [Elena](https://github.com/arielsalminen/elena) (`@elenajs/core` v1.0.1, vendored as `app/vendor/elena.js`) |
 | Virtual list | [virtual-scroller](https://github.com/catamphetamine/virtual-scroller) (`virtual-scroller-dom` build, vendored as `app/vendor/virtual-scroller.js`) |
-| Desktop/Android shell | [Tauri v2](https://github.com/tauri-apps/tauri) (`delta-web-app/src-tauri`) |
+| Desktop/Android shell | [Tauri v2](https://github.com/tauri-apps/tauri) (`velta-app/src-tauri`) |
 | Core runtime | Rust, Tokio async runtime, SQLite (sqlcipher) |
 | Crypto | rPGP, Autocrypt, SecureJoin, TLS via rustls or native-tls |
 | Networking | async-imap, async-smtp, Iroh gossip, shadowsocks proxy support |
 | Core protocol | JSON-RPC 2.0 over Tauri IPC, WebSocket, HTTP, or stdio |
-| Android core bridge | JNI (`delta-core-service/rust`) + foreground service |
+| Android core bridge | JNI (`velta-core-service/rust`) + foreground service |
 | Python bindings | CFFI (`core/python`) and JSON-RPC (`core/deltachat-rpc-client`) |
 
 The Rust toolchain required for the core is **1.89+** (see `core/Cargo.toml`).
-Tauri (`delta-web-app`) requires Rust **1.77.2+** and Node.js **22+** (see the
+Tauri (`velta-app`) requires Rust **1.77.2+** and Node.js **22+** (see the
 README's requirements section).
 
 ---
@@ -179,10 +179,10 @@ core unless a real backend is reachable.
 To refresh the service-worker cache after editing, bump the `CACHE` constant in
 `app/sw.js`.
 
-### 4.3 Tauri desktop/Android app (`delta-web-app/`)
+### 4.3 Tauri desktop/Android app (`velta-app/`)
 
 ```bash
-cd delta-web-app
+cd velta-app
 
 # Desktop dev run
 cargo tauri dev
@@ -196,7 +196,7 @@ cargo tauri android dev
 cargo tauri android build
 ```
 
-**Never build the Android APK with `delta-web-app/src-tauri/binaries/` present.**
+**Never build the Android APK with `velta-app/src-tauri/binaries/` present.**
 That directory holds the Windows sidecar staged for the desktop installer
 (README "Build locally"); `tauri.conf.json` lists it under `bundle.resources`,
 and Tauri packages resources verbatim into every target — including the APK's
@@ -204,16 +204,16 @@ and Tauri packages resources verbatim into every target — including the APK's
 `tools/wsl-android-build*.sh` scripts delete the directory as a guard; if you
 build by hand, remove it first.
 
-Note: `delta-web-app/src-tauri/Cargo.toml` currently pins the core via git. For
+Note: `velta-app/src-tauri/Cargo.toml` currently pins the core via git. For
 local development against the bundled `core/`, uncomment the `path` dependency.
 
-### 4.4 Android background service (`delta-core-service/`)
+### 4.4 Android background service (`velta-core-service/`)
 
 The skeleton currently contains only Cargo/Gradle manifests. To rebuild when the
 source is added:
 
 ```bash
-cd delta-core-service/rust
+cd velta-core-service/rust
 CC_aarch64_linux_android=$NDK/aarch64-linux-android24-clang \
 CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$NDK/aarch64-linux-android24-clang \
 cargo build --release --target aarch64-linux-android
@@ -247,7 +247,7 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
 ### 5.1 Frontend (`app/`)
 
 - `app/js/transport.js` is the central adapter. It probes, in order:
-  1. Android WebView native bridge (`window.DcBridge`)
+  1. Android WebView native bridge (`window.VeltaBridge`)
   2. Tauri IPC (`window.__TAURI__`)
   3. WebSocket to `ws://127.0.0.1:20808`
   4. HTTP to `http://127.0.0.1:20809/rpc`
@@ -406,8 +406,8 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   Uint8Array as the whole invoke body). The rendered-row LRU (`_rowCache`)
   survives `close()` so reopening a chat reuses its rows; `open()` clears it
   when the account changed (message ids are per-account).
-- `app/js/components.js` defines custom elements (`<dc-avatar>`,
-  `<dc-chat-item>`, `<dc-chat-head>`, `<dc-video>`) using Elena.
+- `app/js/components.js` defines custom elements (`<velta-avatar>`,
+  `<velta-chat-item>`, `<velta-chat-head>`, `<velta-video>`) using Elena.
 - `app/js/avatar.js` derives contact identity tiles from OpenPGP fingerprints:
   an equal-height 4-row color matrix (3 squares / 2 rects / 2 rects / 3
   squares, one cell per fingerprint group, deterministic colors with
@@ -478,7 +478,7 @@ The API is consumed by the Velta PWA, the Python `deltachat-rpc-client`, and the
 `deltachat-rpc-server` binary. Use `deltachat-rpc-server --openrpc` to dump the
 full API spec.
 
-### 5.4 Local chat, serverless P2P (`delta-web-app/src-tauri/src/p2p.rs` + `app/js/p2p.js`)
+### 5.4 Local chat, serverless P2P (`velta-app/src-tauri/src/p2p.rs` + `app/js/p2p.js`)
 
 A second chat transport completely independent of the Delta Chat core: 1:1
 end-to-end-encrypted chat between paired devices on the same network, using
@@ -709,7 +709,7 @@ test traffic accordingly.
 ### 9.2 Tauri desktop/Android app
 
 - The Tauri Rust layer embeds `deltachat-jsonrpc` as a library and exposes two
-  commands: `invoke("rpc", { request })` to call the core, and `emit("dc-rpc")`
+  commands: `invoke("rpc", { request })` to call the core, and `emit("velta-rpc")`
   to push core events to the WebView.
 - Account data lives in the platform app-data directory:
   - Windows: `%APPDATA%/org.deltaweb.app/accounts`
@@ -732,7 +732,7 @@ test traffic accordingly.
 | Run core tests | `wsl -e bash -lc "cd /mnt/c/Users/pave/Velta/velta/core && cargo nextest run --workspace --locked"` (plain `cargo test` flakes on time-shift tests — see `COREUPDATE.md` §4) |
 | Run core lints | `cd core && scripts/clippy.sh && scripts/deny.sh` |
 | Build core RPC server | `cd core && cargo build -p deltachat-rpc-server --release` |
-| Run Tauri dev | `cd delta-web-app && cargo tauri dev` |
+| Run Tauri dev | `cd velta-app && cargo tauri dev` |
 | Serve PWA locally | `cd app && python -m http.server 8080` |
 | Diagnose service | Open `http://localhost:8080/diag.html` |
 | Run Python CFFI tests | `cd core/python && pytest` |
@@ -786,21 +786,21 @@ core capabilities and their Velta integration notes: `CORE-CAPABILITIES.MD`.
   builds) in WSL — native Windows cargo fails in `openssl-sys` (SQLCipher
   bundled build) because the MSYS perl lacks `Locale::Maketext::Simple`.
   The Windows sidecar exe itself is built by `build-windows.yml` on tag
-  push, so local stale binaries in `delta-web-app/src-tauri/binaries/` are
+  push, so local stale binaries in `velta-app/src-tauri/binaries/` are
   refreshed only at release time.
 
 - The `core/` directory is large and self-contained. If your task only touches
   Velta's frontend or wrappers, avoid changing files under `core/` unless you
   are explicitly fixing or extending the core itself.
-- `delta-web-app/src-tauri` has full Rust sources plus a `gen/android` project
+- `velta-app/src-tauri` has full Rust sources plus a `gen/android` project
   generated by `cargo tauri android` — regenerated files can be large; edit
   `src/` and `tauri.conf.json` rather than `gen/` where possible.
-- `delta-core-service/` is a working foreground-service APK but is secondary to
-  the Tauri app; check `delta-core-service/README.md` before editing it.
+- `velta-core-service/` is a working foreground-service APK but is secondary to
+  the Tauri app; check `velta-core-service/README.md` before editing it.
 - The PWA has no build pipeline. All changes to `app/` are immediately testable
   by refreshing the browser or bumping the service-worker cache in `app/sw.js`.
-- Version bumps touch `delta-web-app/src-tauri/tauri.conf.json`, the
-  `delta-web` package in `delta-web-app/src-tauri/Cargo.toml` (+`Cargo.lock`),
+- Version bumps touch `velta-app/src-tauri/tauri.conf.json`, the
+  `velta-app` package in `velta-app/src-tauri/Cargo.toml` (+`Cargo.lock`),
   and the `CACHE` constant in `app/sw.js`; each release commit notes both.
 - Releases: `.github/workflows/release.yml` (v* tag push or manual dispatch)
   calls the two reusable build workflows and publishes a GitHub release

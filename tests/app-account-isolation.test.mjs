@@ -151,7 +151,7 @@ function setup(t) {
     core.accountEpoch++;
     emit("account-changed");
   };
-  const shown = () => node("chat-list").children.filter(el => el.tagName === "DC-CHAT-ITEM").map(el => el.chat.name);
+  const shown = () => node("chat-list").children.filter(el => el.tagName === "VELTA-CHAT-ITEM").map(el => el.chat.name);
   t.after(() => assert.deepEqual(effects.toasts, [], "Unexpected openChat error or stale toast"));
   return { app, core, context, node, effects, timers, emit, switchTo, shown };
 }

@@ -12,7 +12,7 @@ Velta shares one web frontend (`app/`) between:
 
 - **Windows desktop** — a Tauri 2 app that bundles `deltachat-rpc-server.exe` as a sidecar.
 - **Android mobile** — the same Tauri 2 app, but the Delta Chat core runs in-process inside the APK.
-- **Browser/PWA** — the same frontend can be served statically and connects to a local `delta-core-service` over loopback WebSocket/HTTP, or falls back to a mock core for demo purposes.
+- **Browser/PWA** — the same frontend can be served statically and connects to a local `velta-core-service` over loopback WebSocket/HTTP, or falls back to a mock core for demo purposes.
 
 The UI is plain HTML/CSS/ES modules (no bundler). The backend is the upstream [Delta Chat core](https://github.com/chatmail/core) at version `2.60.0`.
 
@@ -58,9 +58,9 @@ ways:
   never the pairing token, so a LAN listener cannot pair by listening.
 
 Paired devices exchange end-to-end-encrypted messages; messages to offline
-peers are queued and flushed on reconnect. Engine: `delta-web-app/src-tauri/src/p2p.rs`;
+peers are queued and flushed on reconnect. Engine: `velta-app/src-tauri/src/p2p.rs`;
 UI: `app/js/p2p.js`. A headless terminal hub for debugging lives in
-`delta-web-app/src-tauri/src/bin/p2p-hub.rs`.
+`velta-app/src-tauri/src/bin/p2p-hub.rs`.
 
 Local chat is **disabled by default**. Switch it on/off (drawer → Diagnostics
 chat → "Local chat: on/off"): when off, the engine never starts (no endpoint
@@ -149,7 +149,7 @@ by value with their integration notes — lives in
 ```
 .
 ├── app/                        # Velta web frontend (vanilla JS, no build)
-├── delta-web-app/              # Tauri 2 wrapper for Windows + Android
+├── velta-app/              # Tauri 2 wrapper for Windows + Android
 │   └── src-tauri/
 │       ├── Cargo.toml          # Rust crate + deltachat-jsonrpc dependency
 │       ├── tauri.conf.json     # shared Tauri config
@@ -161,7 +161,7 @@ by value with their integration notes — lives in
 │           ├── p2p.rs          # local chat engine (iroh QUIC pairing + 1:1 chat)
 │           ├── bin/p2p-hub.rs  # headless terminal hub (debug helper)
 │           └── main.rs         # Tauri entry point
-├── delta-core-service/         # Android background-service (JNI + WS bridge) APK
+├── velta-core-service/         # Android background-service (JNI + WS bridge) APK
 ├── deltachat-backend/          # Prebuilt deltachat-rpc-server binaries
 │   ├── windows-x86_64/
 │   └── android-arm64/
@@ -179,7 +179,7 @@ is hand-rolled for Velta.
 
 | Library | What it does here | Upstream |
 |---|---|---|
-| [Elena](https://github.com/arielsalminen/elena) (`@elenajs/core` v1.0.1) | Tiny progressive web-components library — powers `<dc-avatar>`, `<dc-chat-item>`, `<dc-chat-head>`, `<dc-video>` | [arielsalminen/elena](https://github.com/arielsalminen/elena) |
+| [Elena](https://github.com/arielsalminen/elena) (`@elenajs/core` v1.0.1) | Tiny progressive web-components library — powers `<velta-avatar>`, `<velta-chat-item>`, `<velta-chat-head>`, `<velta-video>` | [arielsalminen/elena](https://github.com/arielsalminen/elena) |
 | [virtual-scroller](https://github.com/catamphetamine/virtual-scroller) (`virtual-scroller-dom`) | Windowed rendering of the message history with variable-height rows, seamless prepends and scroll restoration | [catamphetamine/virtual-scroller](https://github.com/catamphetamine/virtual-scroller) |
 | [Tauri 2](https://github.com/tauri-apps/tauri) | Desktop/Android shell, deep links, sidecar process | [tauri-apps/tauri](https://github.com/tauri-apps/tauri) |
 | [Delta Chat core 2.60.0](https://github.com/chatmail/core) | The messaging engine (Rust): contacts, chats, e2e crypto, IMAP/SMTP | [chatmail/core](https://github.com/chatmail/core) |
@@ -227,22 +227,22 @@ cargo build -p deltachat-rpc-server --release
 Stage it for Tauri:
 
 ```powershell
-New-Item -ItemType Directory -Force -Path "delta-web-app/src-tauri/binaries"
+New-Item -ItemType Directory -Force -Path "velta-app/src-tauri/binaries"
 Copy-Item "core/target/release/deltachat-rpc-server.exe" `
-  "delta-web-app/src-tauri/binaries/deltachat-rpc-server-x86_64-pc-windows-msvc.exe"
+  "velta-app/src-tauri/binaries/deltachat-rpc-server-x86_64-pc-windows-msvc.exe"
 ```
 
 Then build the installer:
 
 ```bash
-cd delta-web-app
+cd velta-app
 cargo tauri build
 ```
 
 Output:
 
-- `delta-web-app/src-tauri/target/release/bundle/msi/*.msi`
-- `delta-web-app/src-tauri/target/release/bundle/nsis/*.exe`
+- `velta-app/src-tauri/target/release/bundle/msi/*.msi`
+- `velta-app/src-tauri/target/release/bundle/nsis/*.exe`
 
 ### Releases via GitHub Actions
 
@@ -250,7 +250,7 @@ The `Release` workflow (`.github/workflows/release.yml`) builds both artifacts
 and publishes them as a GitHub release. It runs on every `v*` tag push and can
 also be triggered manually from the Actions tab (it then creates the matching
 tag itself). The release assets are named after the version in
-`delta-web-app/src-tauri/tauri.conf.json` — the single source of truth:
+`velta-app/src-tauri/tauri.conf.json` — the single source of truth:
 
 - `Velta-<version>-<abi>.apk` — signed Android APK (`build-android.yml`)
 - `Velta_<version>_x64-setup.exe` — NSIS Windows installer (`build-windows.yml`)
@@ -264,14 +264,14 @@ falls back to an ephemeral key and warns — those APKs must not be published.
 ### Android APK (arm64-v8a phones)
 
 ```bash
-cd delta-web-app
+cd velta-app
 cargo tauri android build --apk --target aarch64
 ```
 
 The unsigned APK will be in:
 
 ```
-delta-web-app/src-tauri/gen/android/app/build/outputs/apk/arm64-v8a/release/
+velta-app/src-tauri/gen/android/app/build/outputs/apk/arm64-v8a/release/
 ```
 
 To sign it locally:
@@ -368,7 +368,7 @@ Clicking that link will focus an existing Velta window or start a new one, show 
 
 ### How it is implemented
 
-- **Android** — `delta-web-app/src-tauri/gen/android/app/src/main/AndroidManifest.xml` declares `VIEW` intent filters for `https://i.delta.chat` and mirror domains (`i.gluek.info`; one filter each — add more there and rebuild to extend OS-level interception). The Rust layer emits the URL to the frontend as a `deeplink` event.
+- **Android** — `velta-app/src-tauri/gen/android/app/src/main/AndroidManifest.xml` declares `VIEW` intent filters for `https://i.delta.chat` and mirror domains (`i.gluek.info`; one filter each — add more there and rebuild to extend OS-level interception). The Rust layer emits the URL to the frontend as a `deeplink` event.
 - **Windows/Linux** — `tauri-plugin-deep-link` registers the `velta://` scheme. `tauri-plugin-single-instance` (with the `deep-link` feature) forwards second-instance launches to the running window. The plugin emits a `deep-link://new-url` event that the frontend listens to.
 - **Common frontend handling** — `app/js/app.js` has `extractJoinLink()`, `extractInviteLink()`, and `extractVeltaLink()`. They normalise every supported format and route it to either the SecureJoin flow (`joinFromInvite`) or the account-setup flow (`addAccountFromInvite`). Link recognition, mirroring, and the invite-card rendering live in `app/js/invites.js`.
 
@@ -500,7 +500,7 @@ chat header instead.
 - This is a **PoC**. Group creation, contact discovery, QR invites, and real-time message rendering all work in basic flows but have not been stress-tested.
 - Logging to `velta.log` is disabled in the stable branch; use the status pill and browser/Tauri dev tools to diagnose issues.
 - On Windows, the app needs the sidecar binary to talk to the real core. If the sidecar fails to start the frontend falls back to the mock core.
-- On Android, the app currently uses the in-process core inside the Tauri APK. A separate background-service variant (`delta-core-service/`) builds a working service APK but is secondary to the Tauri app.
+- On Android, the app currently uses the in-process core inside the Tauri APK. A separate background-service variant (`velta-core-service/`) builds a working service APK but is secondary to the Tauri app.
 
 ## License
 

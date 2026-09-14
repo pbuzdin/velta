@@ -19,7 +19,7 @@ desktop.ini
 !core/Cargo.lock
 # The app is built from a committed lockfile so CI resolves the exact
 # dependency set that was tested locally (e.g. shadowsocks MSRV bumps).
-!delta-web-app/src-tauri/Cargo.lock
+!velta-app/src-tauri/Cargo.lock
 
 # -----------------------------------------------------------------------------
 # Python virtual environments & caches
@@ -50,18 +50,18 @@ local.properties
 *.jks
 *.keystore
 # Tauri Android generated assets that are rebuilt from source
-delta-web-app/src-tauri/gen/android/app/build/
-delta-web-app/src-tauri/gen/android/.gradle/
-delta-web-app/src-tauri/gen/android/app/.cxx/
-delta-web-app/src-tauri/gen/android/**/*.so
+velta-app/src-tauri/gen/android/app/build/
+velta-app/src-tauri/gen/android/.gradle/
+velta-app/src-tauri/gen/android/app/.cxx/
+velta-app/src-tauri/gen/android/**/*.so
 
 # -----------------------------------------------------------------------------
 # Prebuilt sidecar / backend binaries (built in CI or locally)
 # -----------------------------------------------------------------------------
 deltachat-backend/
 deltachat-backend.zip
-delta-web-app/src-tauri/binaries/*.exe
-delta-web-app/Velta_*.apk
+velta-app/src-tauri/binaries/*.exe
+velta-app/Velta_*.apk
 signing/
 
 # -----------------------------------------------------------------------------

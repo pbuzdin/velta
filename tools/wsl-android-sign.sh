@@ -6,7 +6,7 @@ export JAVA_HOME=/home/pave/jdk/jdk-17
 export ANDROID_HOME=/home/pave/android
 export PATH="$JAVA_HOME/bin:$ANDROID_HOME/build-tools/35.0.0:$PATH"
 
-cd ~/velta/delta-web-app
+cd ~/velta/velta-app
 
 UNSIGNED=src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
 ALIGNED=src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-zipaligned.apk
