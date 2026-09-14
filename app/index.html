@@ -12,9 +12,15 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="stylesheet" href="css/main.css">
+<script src="js/boot-net.js"></script>
 <script src="vendor/virtual-scroller.js"></script>
 </head>
 <body>
+<div id="boot-error" hidden>
+  <strong>Velta hit a startup error</strong>
+  <code></code>
+  <button type="button" id="boot-error-reload">Reload</button>
+</div>
 <div id="app" class="app">
   <!-- Sidebar -->
   <aside id="sidebar" class="sidebar">

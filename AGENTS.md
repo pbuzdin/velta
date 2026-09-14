@@ -768,6 +768,17 @@ re-renders, `[virtual-scroller] The item is no longer rendered onscreen
   forever — one looping mail stalled an inbox with events every ~2 s. Check
   COREUPDATE.md §7 on every core upgrade.
 
+- Boot error safety net (since 1.3.26): `app/index.html` loads
+  `js/boot-net.js` before every other script — it routes
+  `error`/`unhandledrejection` into the Diagnostics sink once app.js is
+  alive, and into the static `#boot-error` banner before that (the CSP
+  forbids inline scripts, so the net is an external file). `boot()` is
+  stage-isolated: the drawer + menu bind first and set `uiLive`;
+  ChatView/chat-list/bind-ui failures are logged and boot continues instead
+  of skipping the remaining stages. `openChat` returns early when the
+  ChatView stage failed, and boot's outer catch shows the splash when
+  `!uiLive`. Keep these guards when touching boot.
+
 `COREUPDATE.md` is the core-upgrade test plan; consult it before merging an
 upstream core or swapping `deltachat-rpc-server` binaries. Release-by-release
 core capabilities and their Velta integration notes: `CORE-CAPABILITIES.MD`.
@@ -802,6 +813,10 @@ core capabilities and their Velta integration notes: `CORE-CAPABILITIES.MD`.
 - Version bumps touch `velta-app/src-tauri/tauri.conf.json`, the
   `velta-app` package in `velta-app/src-tauri/Cargo.toml` (+`Cargo.lock`),
   and the `CACHE` constant in `app/sw.js`; each release commit notes both.
+- README convention (since 1.3.26): every `##` section below "Screenshots"
+  is wrapped in `<details><summary>Title</summary>…</details>` so the front
+  page stays short — keep the wrapper when adding sections, and keep the
+  blank line after `</summary>` so the content still renders as markdown.
 - Releases: `.github/workflows/release.yml` (v* tag push or manual dispatch)
   calls the two reusable build workflows and publishes a GitHub release
   `v<version>` with `Velta-<version>-<abi>.apk` (signed with the persistent

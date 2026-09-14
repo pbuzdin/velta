@@ -775,6 +775,8 @@ async function openChat(chatId) {
     openDiagnosticsChat();
     return;
   }
+  // The ChatView boot stage failed — nothing to open into.
+  if (!chatView) return;
   // Already showing this chat → keep the live view (and its <video> elements)
   // instead of tearing everything down and rebuilding media from scratch.
   if (state.activeChatId === chatId) return;
@@ -1345,7 +1347,7 @@ async function forwardFlow(msgIds) {
       if (!accountIsCurrent(epoch)) return;
       await core.forwardMessages(fromChatId, msgIds, chat.id);
       if (!accountIsCurrent(epoch)) return;
-      if (navigation === chatNavigation) chatView.exitSelection();
+      if (navigation === chatNavigation) chatView?.exitSelection();
       toast(`Forwarded to ${chat.name}`);
       refreshChatList();
     });
@@ -2156,9 +2158,20 @@ async function secondDeviceFlow() {
   });
 }
 
-/* ---------------- boot ---------------- */async function boot() {
+/* ---------------- boot ---------------- */
+let uiLive = false; // set once the drawer + menu are wired and usable
+async function boot() {
   try {
     appLog("boot: getAccount");
+    // Flush anything the pre-app.js safety net (boot-net.js) caught while
+    // modules loaded, then retire its banner — the errors live here now.
+    try {
+      for (const msg of window.__veltaBootErrors || []) {
+        diagnostics.append("error", `pre-boot: ${msg}`);
+      }
+      const banner = document.getElementById("boot-error");
+      if (banner) banner.hidden = true;
+    } catch {}
     // Android 13+ needs a runtime grant for notifications; feature-detected
     // and once-per-boot. Declining is fine — notifications just stay off.
     // The plugin's promise can hang when the dialog was dismissed earlier —
@@ -2211,32 +2224,56 @@ async function secondDeviceFlow() {
       appLog(`media base unavailable: ${e?.message || e}`);
     }
 
-    appLog("boot: init chatView");
-    chatView = new ChatView(core, {
-      onChatsChanged: refreshChatList,
-      onForward: forwardFlow,
-      onOpenChat: id => openChat(Number(id)),
-    });
-
-    appLog("boot: refreshChatList");
-    await refreshChatList();
+    // Drawer + menu first: the profile/account recovery paths must stay
+    // usable even when a later boot stage fails. uiLive marks the point
+    // after which a boot failure keeps the (partially working) UI instead
+    // of falling back to the splash.
     appLog("boot: rebuildDrawer");
-    rebuildDrawer();
-    refreshAccounts();
+    try {
+      rebuildDrawer();
+      refreshAccounts();
+      $("btn-menu").addEventListener("click", () => drawer?.open());
+      uiLive = true;
+    } catch (err) {
+      diagnostics.append("error", `boot: drawer failed: ${err?.message || err}`);
+    }
+
+    appLog("boot: init chatView");
+    try {
+      chatView = new ChatView(core, {
+        onChatsChanged: refreshChatList,
+        onForward: forwardFlow,
+        onOpenChat: id => openChat(Number(id)),
+      });
+    } catch (err) {
+      diagnostics.append("error", `boot: ChatView failed: ${err?.message || err}`);
+    }
+
+    if (chatView) {
+      appLog("boot: refreshChatList");
+      try {
+        await refreshChatList();
+      } catch (err) {
+        diagnostics.append("error", `boot: chat list failed: ${err?.message || err}`);
+      }
+    }
 
     appLog("boot: bind ui");
-    $("btn-menu").addEventListener("click", () => drawer?.open());
-    $("btn-new-chat").addEventListener("click", newChatFlow);
-    bindChatHeadMenu();
-    // Invite cards in messages + any invite-host link tap → join flow
-    bindInviteInterception(link => joinFromInvite(link));
+    try {
+      $("btn-new-chat").addEventListener("click", newChatFlow);
+      bindChatHeadMenu();
+      // Invite cards in messages + any invite-host link tap → join flow
+      bindInviteInterception(link => joinFromInvite(link));
 
-    $("search").addEventListener("input", e => {
-      if (state.accountChanging) return;
-      clearTimeout(searchTimer);
-      state.query = e.target.value;
-      searchTimer = setTimeout(refreshChatList, 160);
-    });
+      $("search").addEventListener("input", e => {
+        if (state.accountChanging) return;
+        clearTimeout(searchTimer);
+        state.query = e.target.value;
+        searchTimer = setTimeout(refreshChatList, 160);
+      });
+    } catch (err) {
+      diagnostics.append("error", `boot: bind ui failed: ${err?.message || err}`);
+    }
 
     core.addEventListener("incoming-msg", ev => {
       scheduleChatListRefresh();
@@ -2307,12 +2344,14 @@ async function secondDeviceFlow() {
     });
 
     document.addEventListener("keydown", e => {
-      if (e.key === "Escape") { chatView.exitSelection(); closeAllPopups(); }
+      if (e.key === "Escape") { chatView?.exitSelection(); closeAllPopups(); }
     });
     appLog("boot: done");
   } catch (err) {
     appLog(`boot FAILED: ${err?.message || err}\n${err?.stack || ""}`);
     toast(`Startup error: ${err?.message || err}`, 8000);
+    // No usable UI yet → the splash is the error surface (it shows this log).
+    if (!uiLive && !splashSession) splashSession = showSplash();
     throw err;
   }
 }

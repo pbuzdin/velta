@@ -134,7 +134,7 @@ export function confirmDeleteMessagesModal(count, canForAll) {
 
 /* ---------- Version info (drawer footer + About) ---------- */
 const CORE_VERSION = "2.59.0";
-const FALLBACK_APP_VERSION = "1.3.25";
+const FALLBACK_APP_VERSION = "1.3.26";
 
 async function getAppVersion() {
   try {

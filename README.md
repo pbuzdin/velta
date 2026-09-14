@@ -25,7 +25,8 @@ Captured from the responsive PWA running in demo mode (mock core), dark theme.
 | **Chat list**  | ![Mobile chat list](screenshots/mobile-chat-list.png) | ![Desktop chat list](screenshots/desktop-chat-list.png) |
 | **Chat opened** | ![Mobile chat](screenshots/mobile-chat.png) | ![Desktop chat](screenshots/desktop-chat.png) |
 
-## Identity avatars & contact profiles
+<details>
+<summary>Identity avatars &amp; contact profiles</summary>
 
 Every **user** avatar renders a deterministic **color matrix** derived from the
 contact's OpenPGP fingerprint: an equal-height 4-row grid (3 squares, 2 rects,
@@ -44,7 +45,10 @@ contact's address and profile key (OpenPGP fingerprint), last-seen info, plus
 Group avatars intentionally keep a solid color with a full-bleed photo or
 initials — the identity matrix is a per-contact feature.
 
-## Local chat (beta)
+</details>
+
+<details>
+<summary>Local chat (beta)</summary>
 
 Velta also ships a second, fully serverless transport: 1:1 end-to-end-encrypted
 chat between paired devices on the same network (iroh QUIC, no relay, no
@@ -67,7 +71,10 @@ chat → "Local chat: on/off"): when off, the engine never starts (no endpoint
 socket, no LAN beacons) and the drawer entry disappears. The preference
 persists across restarts.
 
-## Shared contacts (vCards)
+</details>
+
+<details>
+<summary>Shared contacts (vCards)</summary>
 
 When someone sends a **person contact** into a chat (a `.vcf` vCard attachment),
 Velta renders it as a compact contact card — avatar, display name and email
@@ -78,7 +85,10 @@ message context menu's **Forward**. This core generation has no contact QR
 codes — SecureJoin QRs exist only for the own profile and for groups — so the
 vCard is the canonical shareable form.
 
-## Second-device setup (backup transfer)
+</details>
+
+<details>
+<summary>Second-device setup (backup transfer)</summary>
 
 The drawer's **Add a second device…** moves a profile between devices over the
 LAN using the core's backup transfer:
@@ -98,7 +108,10 @@ device** via a `dcbackup:` code, or **restore from a backup** file) is shown
 only while there is no configured profile. Returning users with at least one
 account boot straight into the app.
 
-## Multi-relay accounts
+</details>
+
+<details>
+<summary>Multi-relay accounts</summary>
 
 One profile can be reachable on **several chatmail relays** at once — what
 Delta Chat desktop 2.47+ calls "Relays". Messages are received on all of them;
@@ -130,7 +143,10 @@ the top of the chat list on mobile) reveals a detail bar overlaying the
 list with one row per relay — status and quota usage — fed by the core's
 connectivity page.
 
-## Core upgrades
+</details>
+
+<details>
+<summary>Core upgrades</summary>
 
 The Delta Chat core is vendored in `core/` and consumed three ways: as the
 Windows sidecar binary, as the in-process library inside the Android APK, and
@@ -144,7 +160,10 @@ rollback rules. What each core release gives Velta — the new features rated
 by value with their integration notes — lives in
 [CORE-CAPABILITIES.MD](CORE-CAPABILITIES.MD).
 
-## Project layout
+</details>
+
+<details>
+<summary>Project layout</summary>
 
 ```
 .
@@ -171,7 +190,10 @@ by value with their integration notes — lives in
 └── core/                       # Vendored Delta Chat core Rust workspace
 ```
 
-## Libraries & dependencies
+</details>
+
+<details>
+<summary>Libraries &amp; dependencies</summary>
 
 The runtime has exactly **two vendored JavaScript libraries** — everything else
 in `app/js/` (markdown renderer, avatar matrix, invite parsing, diagnostics)
@@ -187,7 +209,10 @@ is hand-rolled for Velta.
 Both JS libraries are vendored under `app/vendor/` (no bundler, no `node_modules`
 at runtime). UI icons are individual SVGs from [SVG Repo](https://www.svgrepo.com/).
 
-## Requirements
+</details>
+
+<details>
+<summary>Requirements</summary>
 
 - Rust **1.89+**
 - Node.js **22+** (only for the Tauri tooling)
@@ -213,7 +238,10 @@ cargo install tauri-cli --version "^2.0" --locked
 
 If you install the NDK inside WSL (e.g. `~/android/sdk/ndk/r27c`) make sure the extracted NDK preserves symlinks. Python's `zipfile` module strips symlinks by default, which breaks the LLVM toolchain. Extract the NDK zip with a symlink-aware tool such as `unzip` or a small Python helper that checks `zipfile.ZipInfo.create_system == 3` before writing entries. After extraction verify that toolchain binaries like `toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang` resolve correctly.
 
-## Build locally
+</details>
+
+<details>
+<summary>Build locally</summary>
 
 ### Windows installer
 
@@ -291,7 +319,10 @@ apksigner sign --ks velta-debug.keystore \
 
 Add `--split-per-abi` if you need separate APKs for other architectures.
 
-## GitHub Actions
+</details>
+
+<details>
+<summary>GitHub Actions</summary>
 
 Pre-configured workflows live in `.github/workflows/`:
 
@@ -303,7 +334,10 @@ Pre-configured workflows live in `.github/workflows/`:
 
 The Android and cross-compiled Windows workflows are the easiest starting points if you just want an artifact.
 
-## Deep links
+</details>
+
+<details>
+<summary>Deep links</summary>
 
 Velta can open invite and account-setup links directly instead of making the user copy-paste them.
 
@@ -382,7 +416,10 @@ Clicking that link will focus an existing Velta window or start a new one, show 
 - Windows cannot intercept the official `https://i.delta.chat/#…` links directly. To make those links open Velta automatically on Windows, a browser extension that rewrites them to `velta://` URLs would be required.
 - macOS deep links are configured in the same `velta://` desktop path, but they are currently untested.
 
-## Sending files, photos and videos
+</details>
+
+<details>
+<summary>Sending files, photos and videos</summary>
 
 The composer has a paper-clip attachment button, and images can also be
 **pasted from the clipboard** (paste a screenshot straight into the composer).
@@ -439,7 +476,10 @@ them on every visit.
 - **Windows / desktop** — file pickers return real filesystem paths and everything works end-to-end.
 - **Android** — the Tauri dialog may return a `content://` URI that the Delta Chat core cannot read directly. Velta copies picked files into the app’s local data directory using `tauri-plugin-fs` before passing an absolute path to `send_msg`.
 
-## Message formatting and replies
+</details>
+
+<details>
+<summary>Message formatting and replies</summary>
 
 Message text renders a simple, escape-first markdown subset (`app/js/markdown.js`):
 
@@ -463,7 +503,10 @@ Hovering a message on desktop shows a small **Reply** pill at the bubble's top-r
 
 Note: other Delta Chat clients render only the core's markdown subset (bold, italic, strikethrough, code). Underline and lists are Velta-side rendering niceties — other clients show those markers literally.
 
-## Theming and accessibility
+</details>
+
+<details>
+<summary>Theming and accessibility</summary>
 
 The palette avoids pure black and pure white everywhere — whites live in the `#f2f2f5`/`#f4f4f4` family and blacks in the `#0b0b10`–`#1c1c26` family (the avatar identity tiles already followed this rule). Text and surface pairs are held to **WCAG AA (≥ 4.5:1 contrast)**, measured with the WCAG relative-luminance formula after compositing any translucent layers:
 
@@ -475,7 +518,10 @@ The palette avoids pure black and pure white everywhere — whites live in the `
 
 Reply quotes use a dedicated palette per bubble and theme (the generic accent/dim colors measured as low as 2.08 : 1 on the blue outgoing bubble): the quote name and text now measure **5.2 – 7.0 : 1** in every theme/side combination. When introducing a new color, composite it over its real background (rgba layers included) and check the ratio before merging.
 
-## Deleting messages
+</details>
+
+<details>
+<summary>Deleting messages</summary>
 
 Deleting a message (long-press / right-click → Delete) opens the same dialog as
 official Delta Chat desktop:
@@ -495,13 +541,21 @@ Unencrypted 1:1 chats — classic-email contacts that chatmail relays cannot
 encrypt to — are marked with a small open-shackle lock in the chat list and
 chat header instead.
 
-## Known limitations
+</details>
+
+<details>
+<summary>Known limitations</summary>
 
 - This is a **PoC**. Group creation, contact discovery, QR invites, and real-time message rendering all work in basic flows but have not been stress-tested.
 - Logging to `velta.log` is disabled in the stable branch; use the status pill and browser/Tauri dev tools to diagnose issues.
 - On Windows, the app needs the sidecar binary to talk to the real core. If the sidecar fails to start the frontend falls back to the mock core.
 - On Android, the app currently uses the in-process core inside the Tauri APK. A separate background-service variant (`velta-core-service/`) builds a working service APK but is secondary to the Tauri app.
 
-## License
+</details>
+
+<details>
+<summary>License</summary>
 
 See [`LICENSE`](LICENSE).
+
+</details>
