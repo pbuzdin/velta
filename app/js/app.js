@@ -27,7 +27,6 @@ let coreStartupPromise = null;
 // down — `let` declarations would still be in their temporal dead zone.
 let chatListRefreshTimer = null;
 let chatListInFlight = null;
-let searchTimer;
 let chatNavigation = 0;
 let drawer = null;
 let accountRefreshPromise = Promise.resolve();
@@ -290,12 +289,10 @@ function accountIsCurrent(epoch) {
 core.addEventListener("account-changing", () => {
   state.accountChanging = true;
   clearTimeout(chatListRefreshTimer);
-  clearTimeout(searchTimer);
   chatListRefreshTimer = null;
   chatListInFlight = null;
   state.chats = [];
   state.query = "";
-  $("search").value = "";
   closeChatUI();
   closeAllPopups();
   if (history.state?.velta === "chat") history.replaceState(null, "");
@@ -2370,11 +2367,34 @@ async function boot() {
       // Invite cards in messages + any invite-host link tap → join flow
       bindInviteInterception(link => joinFromInvite(link));
 
-      $("search").addEventListener("input", e => {
-        if (state.accountChanging) return;
-        clearTimeout(searchTimer);
-        state.query = e.target.value;
-        searchTimer = setTimeout(refreshChatList, 160);
+      $("btn-search").addEventListener("click", () => {
+        const input = document.createElement("input");
+        input.className = "text-field";
+        input.placeholder = "Search chats…";
+        const results = document.createElement("div");
+        results.className = "modal-list";
+        const wrap = document.createElement("div");
+        wrap.append(input, results);
+        const render = () => {
+          const q = input.value.trim().toLowerCase();
+          results.replaceChildren();
+          if (q.length < 2) {
+            results.innerHTML = `<p style="color:var(--text-dim);font-size:14px;padding:8px 0">Type to search chats.</p>`;
+            return;
+          }
+          const hits = state.chats.filter(c => (c.name || "").toLowerCase().includes(q)).slice(0, 30);
+          for (const c of hits) {
+            const b = document.createElement("button");
+            b.className = "ctx-item";
+            b.textContent = c.name;
+            b.addEventListener("click", () => { closeAllPopups(); openChat(c.id); });
+            results.appendChild(b);
+          }
+          if (!hits.length) results.innerHTML = `<p style="color:var(--text-dim);font-size:14px;padding:8px 0">No chats found.</p>`;
+        };
+        input.addEventListener("input", render);
+        showModal({ title: "Search chats", body: wrap });
+        setTimeout(() => input.focus(), 50);
       });
     } catch (err) {
       diagnostics.append("error", `boot: bind ui failed: ${err?.message || err}`);

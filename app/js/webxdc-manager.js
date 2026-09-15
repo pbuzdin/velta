@@ -130,7 +130,7 @@ export function isWebxdcOpen(msgId) {
 
 export function openWebxdc(msgId, fallbackName = "Webxdc app") {
   if (typeof document === "undefined") return;
-  if (active) closeWebxdc();
+  if (active) closeWebxdcFrame(); // reopen: no history touch, entry reused below
   const account = core.accountId;
   const base = baseFor(account);
   const iframe = document.createElement("iframe");
@@ -164,7 +164,10 @@ export function openWebxdc(msgId, fallbackName = "Webxdc app") {
 
   active = { msgId: Number(msgId), iframe, serial: serials.get(Number(msgId)) || 0 };
   wrap.querySelector(".webxdc-close").addEventListener("click", () => closeWebxdc());
-
+  // Android BACK closes the app: the pushed history entry pops (WebView
+  // history navigation) and popstate tears the overlay down — same pattern
+  // as openChat/closeChat in app.js and the HTML attachment viewer.
+  if (history.state?.velta !== "webxdc") history.pushState({ velta: "webxdc" }, "");
   window.addEventListener("message", onWindowMessage);
 }
 
@@ -178,9 +181,21 @@ function onWindowMessage(e) {
     .catch((error) => post({ type: "velta-webxdc-response", id: d.id, error: String(error?.message || error) }));
 }
 
-export function closeWebxdc() {
-  if (!active) return;
+// BACK pops the entry pushed by openWebxdc; ✕/programmatic closes consume
+// the same entry via history.back() — either way the frame tears down once.
+window.addEventListener("popstate", (e) => {
+  if (active && e.state?.velta !== "webxdc") closeWebxdcFrame();
+});
+
+function closeWebxdcFrame() {
   document.getElementById("webxdc-overlay")?.remove();
   window.removeEventListener("message", onWindowMessage);
   active = null;
+}
+
+export function closeWebxdc() {
+  if (!active) return;
+  const ownEntry = history.state?.velta === "webxdc";
+  closeWebxdcFrame();
+  if (ownEntry) history.back();
 }

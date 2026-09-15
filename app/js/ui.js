@@ -143,7 +143,7 @@ export function setCoreVersionDisplay(v) {
   CORE_VERSION = String(v).replace(/^v/, "");
   document.querySelectorAll('[data-v="core"]').forEach((el) => { el.textContent = CORE_VERSION; });
 }
-const FALLBACK_APP_VERSION = "1.3.35";
+const FALLBACK_APP_VERSION = "1.3.36";
 
 async function getAppVersion() {
   try {

@@ -65,23 +65,20 @@ svg { width: 24px; height: 24px; display: block; }
   position: relative; z-index: 5;
 }
 .sidebar-head {
+  position: relative; /* anchors the centered brand mark */
   display: flex; align-items: center; gap: 6px;
   padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
 }
-.search-wrap {
-  flex: 1; display: flex; align-items: center; gap: 8px;
-  background: var(--bg-hover);
-  border-radius: 22px; padding: 0 14px;
-  border: 1px solid transparent;
+/* Brand mark centered between the menu and search buttons. The V glyph
+   covers only ~57% of the SVG viewBox, so the img is oversized to make the
+   visible mark ~22px, matching the 40px icon buttons beside it. */
+.sidebar-logo {
+  position: absolute; left: 50%; top: calc(50% + env(safe-area-inset-top) / 2);
+  transform: translate(-50%, -50%);
+  height: 38px; width: auto; opacity: .9;
+  pointer-events: none;
 }
-.search-wrap:focus-within { border-color: var(--accent); }
-.search-ico { width: 18px; height: 18px; color: var(--text-dim); flex: none; }
-#search {
-  flex: 1; height: 40px; background: none; border: 0; outline: 0;
-  color: var(--text);
-}
-#search::placeholder { color: var(--text-dim); }
-#search::-webkit-search-cancel-button { display: none; }
+#btn-search { margin-left: auto; }
 
 .icon-btn {
   width: 40px; height: 40px; flex: none;
@@ -1193,7 +1190,8 @@ li.failed .step-ico::after { content: "✕"; }
 }
 .html-view-bar {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 12px; color: var(--text); font-size: 14px;
+  /* App runs edge-to-edge: keep the title below the status bar. */
+  padding: max(env(safe-area-inset-top), 8px) 12px 8px; color: var(--text); font-size: 14px;
 }
 .html-view-frame {
   flex: 1; width: 100%; border: 0;
@@ -1229,7 +1227,8 @@ html[data-theme="light"] .html-view-frame { color-scheme: light; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  /* App runs edge-to-edge: keep the title below the status bar. */
+  padding: max(env(safe-area-inset-top), 8px) 12px 8px;
   color: #eef2f7;
   background: rgba(16, 20, 26, 0.95);
 }

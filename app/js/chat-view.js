@@ -13,7 +13,7 @@ let avatarProfileOpener = null;
 export function setAvatarProfileOpener(fn) { avatarProfileOpener = fn; }
 
 import { diagnosticsSink, debugLog } from "./diagnostics.js";
-import { fileUrl } from "./media.js";
+import { fileUrl, mediaFallbackUrl } from "./media.js";
 import { renderMarkdown, extractBotCommands } from "./markdown.js";
 
 function rustLog(msg) {
@@ -1643,17 +1643,27 @@ export class ChatView {
     bar.className = "html-view-bar";
     const title = document.createElement("span");
     title.textContent = name || "HTML preview";
-    const close = document.createElement("button");
-    close.type = "button";
-    close.className = "icon-btn";
-    close.textContent = "✕";
-    close.setAttribute("aria-label", "Close");
-    close.addEventListener("click", () => wrap.remove());
-    bar.append(title, close);
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "icon-btn";
+    closeBtn.textContent = "✕";
+    closeBtn.setAttribute("aria-label", "Close");
+    closeBtn.addEventListener("click", () => closeViewer());
+    bar.append(title, closeBtn);
     const frame = document.createElement("iframe");
     frame.className = "html-view-frame";
     frame.setAttribute("sandbox", "allow-scripts"); // no allow-same-origin
     const url = fileUrl(path);
+    // Android BACK closes the viewer: the pushed history entry pops (WebView
+    // history navigation) and popstate tears the overlay down — same pattern
+    // as openChat/closeChat in app.js.
+    window.addEventListener("popstate", () => wrap.remove(), { once: true });
+    const closeViewer = () => {
+      if (history.state?.velta === "html-view") history.back();
+      else wrap.remove();
+    };
+    // Reopening replaces the stale entry instead of stacking a second one.
+    if (history.state?.velta !== "html-view") history.pushState({ velta: "html-view" }, "");
     // Prefer fetch -> srcdoc: navigating a sandboxed opaque-origin frame to
     // a custom-protocol URL makes Tauri's injected init script throw
     // ("Cannot read properties of undefined (reading 'plugins')"), while
