@@ -43,7 +43,7 @@ jobs:
       - name: Install Rust toolchain with Windows target
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.97
+          toolchain: 1.98
           targets: x86_64-pc-windows-gnu
 
       - name: Install cross-compile toolchain
@@ -75,7 +75,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.97
+          toolchain: 1.98
 
       - name: Install Node.js
         uses: actions/setup-node@v7
