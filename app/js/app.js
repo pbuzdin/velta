@@ -849,6 +849,9 @@ async function openChat(chatId) {
   const callBtn = $("btn-call");
   callBtn.hidden = chat.kind !== "single";
   callBtn.onclick = chat.kind === "single" ? () => calls?.startOutgoing(chat.id, chat.name) : null;
+  // Device messages are read-only system posts — no composer. Every open
+  // sets it explicitly (closeChatUI restores it to visible).
+  $("main-composer").hidden = chat.kind === "device";
   refreshChatHeadPresence(chatId);
   // Real member count for groups (the chatlist item doesn't carry it)
   if ((chat.kind === "group" || chat.kind === "channel") && core.getChatMembers) {

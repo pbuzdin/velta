@@ -857,6 +857,7 @@ export class ChatView {
       bubble += `<div class="msg-webxdc" role="button" data-act="open-webxdc">
         <div class="webxdc-ico"><img data-webxdc-icon="${m.id}" alt="" decoding="async">${ICO.webxdc || ICO.download}</div>
         <div><div class="file-name">${escapeHtml(appName)}</div><div class="file-sub"><span class="webxdc-summary">Webxdc app</span> · tap to open</div></div>
+        <button type="button" class="webxdc-start" data-act="open-webxdc">Start</button>
       </div>`;
     } else if (m.viewtype === "file") {
       const isDownloaded = m.downloadState === "Done";
@@ -1089,7 +1090,7 @@ export class ChatView {
       if (mediaAction) {
         e.stopPropagation();
         if (mediaAction.dataset.act === "download") this._downloadMedia(m.id);
-        else if (mediaAction.dataset.act === "open") this._openFile(m.filePath);
+        else if (mediaAction.dataset.act === "open") this._openFile(m.filePath, m.fileName);
         else if (mediaAction.dataset.act === "resend") this._resendMessage(m);
         return;
       }
@@ -1613,9 +1614,13 @@ export class ChatView {
     }
   }
 
-  _openFile(path) {
+  _openFile(path, name = null) {
     const session = this._session;
     if (!this._isCurrent(session) || !path) return;
+    // HTML attachments are untrusted web content: open them in a sandboxed
+    // iframe (no allow-same-origin -> opaque origin, no access to the app or
+    // the network context of this page) instead of the system browser.
+    if (/\.x?html?$/i.test(path)) return this._openHtmlIsolated(path, name);
     const tauri = window.__TAURI__;
     const invoke = tauri?.core?.invoke || tauri?.invoke;
     if (invoke) {
@@ -1625,6 +1630,49 @@ export class ChatView {
     } else {
       toast("File opening is only available in the Tauri app");
     }
+  }
+
+  // Isolated viewer for HTML file attachments: same overlay pattern as the
+  // webxdc overlay; sandbox without allow-same-origin keeps the document in
+  // an opaque origin (scripts run, but can touch nothing of ours).
+  _openHtmlIsolated(path, name = null) {
+    document.getElementById("html-view-overlay")?.remove();
+    const wrap = document.createElement("div");
+    wrap.id = "html-view-overlay";
+    const bar = document.createElement("div");
+    bar.className = "html-view-bar";
+    const title = document.createElement("span");
+    title.textContent = name || "HTML preview";
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "icon-btn";
+    close.textContent = "✕";
+    close.setAttribute("aria-label", "Close");
+    close.addEventListener("click", () => wrap.remove());
+    bar.append(title, close);
+    const frame = document.createElement("iframe");
+    frame.className = "html-view-frame";
+    frame.setAttribute("sandbox", "allow-scripts"); // no allow-same-origin
+    const url = fileUrl(path);
+    // Prefer fetch -> srcdoc: navigating a sandboxed opaque-origin frame to
+    // a custom-protocol URL makes Tauri's injected init script throw
+    // ("Cannot read properties of undefined (reading 'plugins')"), while
+    // srcdoc documents don't. The direct navigation stays as fallback for
+    // transports where fetch is blocked (no CORS on the serving origin).
+    fetch(url).then(r => (r.ok ? r.text() : Promise.reject(r.status)))
+      .then(html => {
+        // The iframe element's color-scheme only sets the canvas — the
+        // document's own scrollbar follows ITS color-scheme, so inject it.
+        const dark = document.documentElement.dataset.theme !== "light";
+        const inject = `<style>html{color-scheme:${dark ? "dark" : "light"}}</style>`;
+        const head = /<head[^>]*>/i.exec(html) || /<html[^>]*>/i.exec(html);
+        frame.srcdoc = head
+          ? html.slice(0, head.index + head[0].length) + inject + html.slice(head.index + head[0].length)
+          : inject + html;
+      })
+      .catch(() => { frame.src = url; });
+    wrap.append(bar, frame);
+    document.body.appendChild(wrap);
   }
 
   /* ================= scrolling ================= */

@@ -4,6 +4,14 @@
 // (status updates) — see app/js/webxdc-manager.js on the host side.
 (function () {
   "use strict";
+  // The host passes the shell theme (?velta-theme=) — apply it as the
+  // document's color-scheme so scrollbars and default canvas match. An
+  // app's own color-scheme CSS overrides this (inline < author rules with
+  // !important, or a later-declared rule on a more specific selector).
+  try {
+    var t = new URLSearchParams(location.search).get("velta-theme");
+    if (t === "dark" || t === "light") document.documentElement.style.colorScheme = t;
+  } catch (e) {}
   var serial = 0;
   var listener = null;
   var updates = [];

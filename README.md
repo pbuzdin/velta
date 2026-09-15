@@ -12,6 +12,27 @@ Velta shares one web frontend (`app/`) between:
 
 The UI is plain HTML/CSS/ES modules (no bundler). The backend is the upstream [Delta Chat core](https://github.com/chatmail/core) at version `2.60.0`.
 
+## Privacy
+
+Velta ships **zero analytics, telemetry, or crash reporting** — verified
+against the codebase: the frontend's only network calls go to loopback helper
+services on your own device, and the Delta Chat core talks exclusively to the
+chatmail relays you configure (that is the messaging itself; calls use the
+relays' STUN/TURN when needed). There is no update-check, no usage tracking,
+and no crash uploader. One installer-level exception: on Windows, a machine
+missing the WebView2 runtime fetches it via Tauri's install bootstrap — that
+is the installer, not the app, and it sends nothing about you.
+
+## HTML attachments
+
+HTML files sent into a chat open **inside Velta, isolated**: the attachment
+renders in a sandboxed iframe with no `allow-same-origin`, so its scripts run
+in an opaque origin that cannot touch the app, your sessions, or cookies
+(links inside are inert by design — the sandbox blocks popups and top-level
+navigation). The viewer is themed to match dark/light via an injected
+`color-scheme`, and the file is never copied to a temp file or opened in the
+system browser.
+
 ## Screenshots
 
 Captured from the responsive PWA running in demo mode (mock core), dark theme.
@@ -566,9 +587,11 @@ document gets a unique opaque origin: mini-apps can reach neither the host
 page nor each other's data, and the injected shim backs
 `localStorage`/`sessionStorage` with memory in that origin (app state
 syncs to every chat member through end-to-end encrypted status updates,
-and the relay's STUN/TURN servers power the connection). Realtime
-(low-latency) channels and `sendToChat` export are not wired yet — apps
-that rely on them degrade gracefully to status updates.
+and the relay's STUN/TURN servers power the connection). The app frame is
+themed to match the shell (dark canvas, dark scrollbars) — an app can still
+set its own `color-scheme`. Realtime (low-latency) channels and `sendToChat`
+export are not wired yet — apps that rely on them degrade gracefully to
+status updates.
 
 </details>
 

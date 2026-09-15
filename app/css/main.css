@@ -1163,12 +1163,46 @@ li.failed .step-ico::after { content: "✕"; }
 
 /* ===== Webxdc mini-apps ===== */
 .msg-webxdc {
+  position: relative;
   display: flex;
   gap: 10px;
   align-items: center;
   min-width: 220px;
+  padding: 8px;
+  border-radius: 10px;
+  background: var(--bg-hover); /* visible card surface on the bubble */
   cursor: pointer;
 }
+.webxdc-start {
+  position: absolute; right: 8px; bottom: 4px;
+  padding: 3px 12px;
+  border: none; border-radius: 999px;
+  background: var(--accent);
+  /* Near-black, not #fff: white on accent blue was ~2.6:1 (dark) / ~3.1:1
+     (light) — both fail 4.5:1; near-black clears it on both accents. */
+  color: #10141c;
+  font-size: 12.5px; font-weight: 600; cursor: pointer;
+}
+.webxdc-start:hover { filter: brightness(1.15); }
+
+/* Isolated HTML attachment viewer */
+#html-view-overlay {
+  position: fixed; inset: 0; z-index: 850;
+  display: flex; flex-direction: column;
+  background: var(--bg);
+}
+.html-view-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; color: var(--text); font-size: 14px;
+}
+.html-view-frame {
+  flex: 1; width: 100%; border: 0;
+  background: var(--bg);
+  /* Dark canvas + dark scrollbar for the frame; the attachment can still
+     paint itself white once it loads. Light theme overrides. */
+  color-scheme: dark;
+}
+html[data-theme="light"] .html-view-frame { color-scheme: light; }
 .webxdc-ico {
   width: 44px;
   height: 44px;
@@ -1200,4 +1234,9 @@ li.failed .step-ico::after { content: "✕"; }
   background: rgba(16, 20, 26, 0.95);
 }
 .webxdc-title { font-weight: 600; font-size: 14px; }
-.webxdc-frame { flex: 1; border: 0; width: 100%; background: #fff; }
+.webxdc-frame {
+  flex: 1; border: 0; width: 100%;
+  background: var(--bg); /* no white flash before the app paints itself */
+  color-scheme: dark; /* dark canvas + dark scrollbars; app can override */
+}
+html[data-theme="light"] .webxdc-frame { color-scheme: light; background: #fff; }

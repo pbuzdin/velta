@@ -902,6 +902,23 @@ re-renders, `[virtual-scroller] The item is no longer rendered onscreen
   emitting `msg-sent`. The spinner still runs for the real SMTP round-trip
   by design — that part is honest, not a bug.
 
+- Frame theming + isolated HTML viewer (since 1.3.34): the HTML viewer and
+  webxdc iframes are themed via CSS `color-scheme` — but the iframe
+  element's scheme only paints the CANVAS; the frame's scrollbar follows the
+  inner document's own color-scheme, so it must be injected: the HTML viewer
+  fetches the attachment and puts a `<style>html{color-scheme:…}</style>`
+  into the srcdoc document; webxdc frames receive `?velta-theme=` on their
+  URL and webxdc-shim.js applies it to `documentElement.style.colorScheme`.
+  Do not navigate the sandboxed iframe to a custom-protocol URL if srcdoc
+  works — WebView2 runs Tauri's init scripts in opaque-origin frames too,
+  and they throw `Cannot read properties of undefined (reading 'plugins')`
+  (cosmetic, but confusing). Device chats (`kind === "device"`) hide the
+  composer (read-only system posts); `.msg-webxdc` cards carry a Start chip
+  and a `--bg-hover` surface. README's "Privacy" section states zero
+  analytics/telemetry — verified against the codebase 2026-09-15 (only
+  loopback fetches; relays are the messaging; the Windows WebView2 install
+  bootstrap is the sole documented exception). Keep that true.
+
 `COREUPDATE.md` is the core-upgrade test plan; consult it before merging an
 upstream core or swapping `deltachat-rpc-server` binaries. Release-by-release
 core capabilities and their Velta integration notes: `CORE-CAPABILITIES.MD`.

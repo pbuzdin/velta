@@ -234,6 +234,7 @@ fn guess_mime(path: &str) -> &'static str {
         "flac" => "audio/flac",
         "pdf" => "application/pdf",
         "txt" => "text/plain",
+        "html" | "htm" | "xhtml" => "text/html", // HTML attachments render in the isolated viewer
         _ => "application/octet-stream",
     }
 }

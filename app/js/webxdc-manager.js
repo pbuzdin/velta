@@ -142,7 +142,10 @@ export function openWebxdc(msgId, fallbackName = "Webxdc app") {
   // origin (app state lives in status updates anyway).
   iframe.setAttribute("sandbox", "allow-scripts allow-downloads allow-forms allow-modals");
   iframe.setAttribute("allow", "autoplay");
-  iframe.src = `${base}/${msgId}/index.html`;
+  // Theme rides the query string; webxdc-shim.js applies it as the
+  // document's color-scheme so the frame's scrollbars match the shell.
+  const theme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+  iframe.src = `${base}/${msgId}/index.html?velta-theme=${theme}`;
   iframe.className = "webxdc-frame";
 
   const wrap = document.createElement("div");
