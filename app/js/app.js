@@ -118,24 +118,6 @@ function bindEarlyRecoveryActions() {
     }
   }, { once: true });
 
-  $("btn-p2p-toggle")?.addEventListener("click", async () => {
-    const enable = !p2pEnabled();
-    try {
-      await setP2pEnabled(enable);
-      toast(enable ? "Local chat enabled" : "Local chat disabled");
-    } catch (error) {
-      diagnostics.append("error", `Local chat toggle failed: ${error?.message || error}`);
-      toast(`Local chat toggle failed: ${error?.message || error}`, 5000);
-    } finally {
-      updateP2pToggle();
-      rebuildDrawer();
-    }
-  });
-}
-
-function updateP2pToggle() {
-  const btn = $("btn-p2p-toggle");
-  if (btn) btn.textContent = `Local chat: ${p2pEnabled() ? "on" : "off"}`;
 }
 
 function openDiagnosticsChat() {
@@ -157,7 +139,6 @@ function openDiagnosticsChat() {
   $("chat-head-actions").style.visibility = "hidden";
   $("main-composer").hidden = true;
   $("diagnostic-actions").hidden = false;
-  updateP2pToggle();
   $("reply-preview").hidden = true;
   renderDiagnosticsMessages();
   if (history.state?.velta !== "chat") history.pushState({ velta: "chat", chatId: DIAGNOSTICS_CHAT_ID }, "");
@@ -1494,7 +1475,20 @@ function rebuildDrawer() {
     account: state.account,
     theme: state.theme,
     p2p: p2pAvailable() && p2pEnabled(),
+    p2pAvailable: p2pAvailable(),
+    p2pOn: p2pEnabled(),
     onP2p: () => openP2pScreen({ renderQr: text => core.createQrSvg(text) }),
+    onP2pToggle: async () => {
+      const enable = !p2pEnabled();
+      try {
+        await setP2pEnabled(enable);
+        toast(enable ? "Local chat enabled" : "Local chat disabled");
+      } catch (error) {
+        diagnostics.append("error", `Local chat toggle failed: ${error?.message || error}`);
+        toast(`Local chat toggle failed: ${error?.message || error}`, 5000);
+      }
+      rebuildDrawer();
+    },
     accounts: state.accounts,
     currentAccountId: core.accountId,
     onAccountTap: accountTapFlow,
@@ -1722,6 +1716,7 @@ function showSplash() {
         <button class="btn-primary splash-btn" data-create type="button">Create an account</button>
         <button class="btn-text splash-btn" data-second type="button">Add as a second device…</button>
         <button class="btn-text splash-btn" data-restore type="button">Restore from a backup…</button>
+        <button class="btn-text splash-btn" data-local type="button">Enter local chat…</button>
       </div>
       <div class="splash-form" data-form hidden>
         <p class="splash-hint">Enter a <b>chatmail</b> relay address — an instant end-to-end encrypted profile will be created for you. No email or password needed.</p>
@@ -1808,6 +1803,26 @@ function showSplash() {
       finishOk();
     }
     else showActions();
+  });
+
+  // --- enter local chat ---
+  // No relay account needed: switch local chat on and drop into the app.
+  // The relay bar then reads "Local chat mode — no relay configured"; a
+  // relay profile can still be created later via the drawer's Add profile.
+  el.querySelector("[data-local]").addEventListener("click", async () => {
+    if (!accountIsCurrent(epoch)) return;
+    actionsEl.hidden = true;
+    stepsEl.replaceChildren();
+    addStep("Starting local chat…");
+    try {
+      await setP2pEnabled(true);
+      finishSteps(true);
+      finishOk();
+    } catch (err) {
+      finishSteps(false);
+      diagnosticsSink.append("error", `local chat: ${err?.message || err}`);
+      showActions();
+    }
   });
 
   // --- restore from a backup ---
@@ -2302,8 +2317,10 @@ async function boot() {
     appLog(`boot: account ${state.account.addr} configured=${state.account.configured}`);
 
     // Splash: setup screen only when there is no configured profile —
-    // returning users never see it.
-    if (core.configureWithCredentials && state.account.configured === false) {
+    // returning users never see it. Local-chat-only users skip it too: they
+    // deliberately skipped relay setup (the drawer's Add profile still
+    // reaches it); disabling local chat puts the splash back.
+    if (core.configureWithCredentials && state.account.configured === false && !p2pEnabled()) {
       splashSession = showSplash();
       splashSession?.showActions();
     }
