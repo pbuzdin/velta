@@ -19,8 +19,9 @@ frontend codebase.
   over each other without uninstalling (which wiped accounts). Without the
   secrets configured, CI falls back to an ephemeral key with a loud warning;
   see `.github/workflows/build-android.yml` for the one-time setup.
-- Still open (see `CONCERNS-GPT6.md` §5.3): guaranteed sync under Doze /
-  process death needs a foreground-service integration.
+- Guaranteed sync under Doze / process death: shipped in the main APK as a
+  `remoteMessaging` foreground service (`CoreService`) with a Rust-side
+  background event poller — see the main README's background-sync notes.
 
 ## What's new in 1.3.6
 
@@ -55,7 +56,7 @@ frontend codebase.
   request that the other device must explicitly approve (or it expires after
   120 s); a wrong or forged token is rejected without a prompt. QR-invite
   pairing is unchanged: presenting the token from a scanned ticket remains
-  the out-of-band proof. `CONCERNS-GPT6.md` §2 tracks the security review.
+  the out-of-band proof (the pairing-consent security review passed 2026-09-05).
 - **Account isolation:** switching profiles can no longer leave the previous
   account's chat actionable or let its in-flight requests land in the new
   account (stale sends, cache pollution, A→B→A races). Account transitions
