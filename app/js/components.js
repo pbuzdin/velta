@@ -279,8 +279,13 @@ class VeltaChatItem extends Elena(HTMLElement) {
   // hundreds of console messages per second.
   constructor(...args) {
     super(...args);
-    this["chat-id"] = null;
-    this["active"] = null;
+    // "" (string), NOT null: Elena picks the conversion from typeof the
+    // default — typeof null is "object", which made it JSON-parse every
+    // attribute value, logging "Invalid JSON: c49" for the string ids the
+    // pick/forward lists use. app.js reads the attribute back with
+    // Number(...) so a string default is safe here too.
+    this["chat-id"] = "";
+    this["active"] = "";
   }
 
   setData(chat) {

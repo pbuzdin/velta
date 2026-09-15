@@ -883,7 +883,19 @@ re-renders, `[virtual-scroller] The item is no longer rendered onscreen
   `.qr-box` is 40% larger (308px box / 280px svg). `VeltaAvatar` declares an
   `addr` field default — the last undeclared Elena prop, so the "Prop has no
   default" console-warning class is extinct; keep every `static props` entry
-  backed by a field or a constructor install. `markRead` marks ALL fresh
+  backed by a field or a constructor install, and keep the default
+  STRING-typed, never `null`: `typeof null` is `"object"`, which made Elena
+  JSON-parse every attribute value (VeltaChatItem logged
+  "Invalid JSON: c49" for the string ids the pick/forward lists use).
+- Modal/button conventions (since 1.3.35): never use native `prompt()` —
+  group creation asks via a `showModal` input (`askGroupName` in app.js).
+  When building a modal foot from elements, append the buttons via a
+  `DocumentFragment` (direct children of `.modal-foot` inherit its one-row
+  right-aligned flex); a wrapper div left-aligns them outside the flex.
+  `.btn-primary` defaults to a full-width onboarding bar — set
+  `width: auto` when it shares a foot with other buttons. `.modal-foot`
+  side padding (18px) matches `.modal-body` so buttons align with body
+  content — keep them equal if either changes. `markRead` marks ALL fresh
   messages seen (the old 50-id slice left residual unread after opening a
   chat with many fresh messages — badge never cleared); open = read-all is
   the upstream Delta Chat behavior.

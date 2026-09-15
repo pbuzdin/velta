@@ -1198,7 +1198,7 @@ async function pickContactModal(title, multi = false) {
       });
       list.appendChild(item);
     }
-    const foot = document.createElement("div");
+    const foot = document.createDocumentFragment(); // direct child of .modal-foot -> one-row flex
     const cancel = document.createElement("button");
     cancel.className = "btn-text"; cancel.textContent = "Cancel";
     const ok = document.createElement("button");
@@ -1228,8 +1228,10 @@ async function newChatFlow() {
     } },
     { label: "New group", onClick: async () => {
       const picked = await pickContactModal("Add group members", true);
-      if (picked && accountIsCurrent(epoch)) {
-        const name = prompt("Group name:", "New group") || "New group";
+      if (!picked || !accountIsCurrent(epoch)) return;
+      const name = await askGroupName();
+      if (!name || !accountIsCurrent(epoch)) return;
+      {
         const id = await core.createChat(name, picked.map(c => c.id), "group");
         if (!accountIsCurrent(epoch)) return;
         await refreshChatList();
@@ -1240,6 +1242,34 @@ async function newChatFlow() {
     { label: "Join chat via invite link", onClick: joinFlow },
     { label: "Add account via invite link", onClick: addAccountFlow },
   ], r.left, r.top - 170);
+}
+
+// Group-name modal — the native prompt() renders as an OS dialog and is
+// disabled outright in some WebViews. Same shape as p2p's promptName.
+function askGroupName() {
+  return new Promise(resolve => {
+    const body = document.createElement("div");
+    body.innerHTML = `<input class="text-field" maxlength="60" placeholder="Group name" value="New group">`;
+    const input = body.querySelector("input");
+    // Fragment, not a wrapping div: the buttons land as direct children of
+    // .modal-foot and inherit its one-row flex layout.
+    const foot = document.createDocumentFragment();
+    const cancel = document.createElement("button");
+    cancel.className = "btn-text"; cancel.textContent = "Cancel";
+    const ok = document.createElement("button");
+    ok.className = "btn-text btn-primary";
+    ok.style.width = "auto"; // btn-primary defaults to the full-width onboarding bar
+    ok.textContent = "Create group";
+    foot.append(cancel, ok);
+    const done = value => { close(); resolve(value); };
+    const { close } = showModal({ title: "New group", body, foot, onClose: () => resolve(null) });
+    ok.addEventListener("click", () => done(input.value.trim() || "New group"));
+    cancel.addEventListener("click", () => done(null));
+    input.addEventListener("keydown", e => {
+      if (e.key === "Enter") done(input.value.trim() || "New group");
+    });
+    setTimeout(() => { input.focus(); input.select(); }, 60);
+  });
 }
 
 async function addAccountFlow() {
@@ -1643,7 +1673,7 @@ function joinFlow() {
   body.innerHTML = `
     <p style="font-size:14.5px;line-height:1.5;margin-bottom:4px">Paste an invite link (<code>https://i.delta.chat/#…</code> or a mirror domain) — works for both 1:1 contacts and group chats.</p>
     <input class="text-field" placeholder="https://i.delta.chat/#DD1F…" id="join-input">`;
-  const foot = document.createElement("div");
+  const foot = document.createDocumentFragment(); // direct child of .modal-foot -> one-row flex
   const cancel = document.createElement("button");
   cancel.className = "btn-text"; cancel.textContent = "Cancel";
   const ok = document.createElement("button");

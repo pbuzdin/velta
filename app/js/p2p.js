@@ -97,7 +97,7 @@ async function showPairRequest(peerId, name) {
         pair with this device for Local chat — direct end-to-end-encrypted messages between
         devices on the same network.</p>
         <p class="p2p-hint" style="opacity:.75">Pair only if you recognize this device.</p>`;
-      const foot = document.createElement("div");
+      const foot = document.createDocumentFragment(); // direct child of .modal-foot -> one-row flex
       const deny = document.createElement("button");
       deny.className = "btn-text"; deny.textContent = "Deny";
       const ok = document.createElement("button");
@@ -179,7 +179,7 @@ function promptName() {
       Wi-Fi network — no accounts, no servers.</p>
       <input class="text-field" maxlength="64" placeholder="Device name">`;
     const input = body.querySelector("input");
-    const foot = document.createElement("div");
+    const foot = document.createDocumentFragment(); // direct child of .modal-foot -> one-row flex
     const cancel = document.createElement("button");
     cancel.className = "btn-text"; cancel.textContent = "Cancel";
     const ok = document.createElement("button");
