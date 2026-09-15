@@ -135,7 +135,7 @@ connectivity page.
 </details>
 
 <details>
-<summary>Deep links</summary>
+<summary>Deep links: formats and invite cards</summary>
 
 Velta can open invite and account-setup links directly instead of making the user copy-paste them.
 
@@ -169,6 +169,11 @@ handing it to the core (which only parses that scheme).
   URL: the main part reads *"Pavel invited you to a Chat RU group"* or *"Chat with
   Pavel"* (parsed from the link's own `n=`/`g=`/`a=` params) and asks for confirmation
   before joining; a copy icon on the right copies the original link.
+
+</details>
+
+<details>
+<summary>Deep links on Windows: velta:// scheme, testing, limitations</summary>
 
 ### Why Windows needs a custom `velta://` scheme
 
@@ -214,6 +219,8 @@ Clicking that link will focus an existing Velta window or start a new one, show 
 - Windows cannot intercept the official `https://i.delta.chat/#…` links directly. To make those links open Velta automatically on Windows, a browser extension that rewrites them to `velta://` URLs would be required.
 - macOS deep links are configured in the same `velta://` desktop path, but they are currently untested.
 
+
+
 </details>
 
 <details>
@@ -256,6 +263,11 @@ The click-to-play widget shows the extracted poster frame, the file size badge i
 
 Delta Chat splits very large messages into a small placeholder plus a downloadable body. When a message has `downloadState` other than `Done`, Velta shows a card with a download icon instead of the media player. Tapping it calls `download_full_message(msgId)` and then refreshes the message, which swaps the placeholder for the real image / video / audio player or the open-file card.
 
+</details>
+
+<details>
+<summary>Media internals: size limit, caching, platform notes</summary>
+
 ### Attachment size limit
 
 `Config::DownloadLimit` defaults to `0` (no automatic size limit), so the core normally downloads the whole message automatically. For outgoing attachments the Delta Chat core recommends staying below roughly **18 MB** of raw file data (around 24 MB after base64 encoding), defined by `RECOMMENDED_FILE_SIZE` in `deltachat-core-rust`. Velta does not enforce this itself; it just passes the file to the core.
@@ -277,6 +289,8 @@ them on every visit.
 
 - **Windows / desktop** — file pickers return real filesystem paths and everything works end-to-end.
 - **Android** — the Tauri dialog may return a `content://` URI that the Delta Chat core cannot read directly. Velta copies picked files into the app’s local data directory using `tauri-plugin-fs` before passing an absolute path to `send_msg`.
+
+
 
 </details>
 
