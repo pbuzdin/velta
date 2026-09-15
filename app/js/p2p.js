@@ -207,13 +207,17 @@ function renderHub(invoke, renderQr, status) {
     close,
     refresh: async () => {
       const st = await invoke("p2p_status");
-      renderHubInto(body, invoke, renderQr, st, {
-        openChat: id => openChatModal(invoke, id),
-        pairNearby: id => pairNearbyFlow(invoke, id),
-      });
+      renderHubInto(body, invoke, renderQr, st, actions);
     },
   };
-  renderHubInto(body, invoke, renderQr, status, { openChat: id => openChatModal(invoke, id) });
+  // One actions object for the initial render and every poll refresh — the
+  // initial call used to omit pairNearby, leaving Pair dead until the first
+  // 4s poll re-rendered the hub.
+  const actions = {
+    openChat: id => openChatModal(invoke, id),
+    pairNearby: id => pairNearbyFlow(invoke, id),
+  };
+  renderHubInto(body, invoke, renderQr, status, actions);
   // Nearby list changes as devices come and go — poll lightly while open.
   const poll = setInterval(() => {
     if (!hub || hub.close !== close) { clearInterval(poll); return; }
@@ -286,7 +290,7 @@ function renderHubInto(body, invoke, renderQr, status, actions) {
   });
 }
 
-async function pairNearbyFlow(invoke, id) {
+export async function pairNearbyFlow(invoke, id) {
   const { setStep, fail, close } = openPairingModal();
   setStep(`Requesting ${shortId(id)}… — the other device must approve`, 40);
   let peer;
@@ -313,7 +317,7 @@ function shortId(nodeId) {
 
 /* ---------------- invite / add contact ---------------- */
 
-async function showInviteModal(invoke, renderQr) {
+export async function showInviteModal(invoke, renderQr) {
   const body = document.createElement("div");
   body.innerHTML = `
     <p class="p2p-hint">On the other device open <b>Local chat → Add contact</b> and scan this
@@ -335,7 +339,7 @@ async function showInviteModal(invoke, renderQr) {
   });
 }
 
-async function addContact(invoke) {
+export async function addContact(invoke) {
   const code = await acquireCode({
     title: "Add contact",
     hint: "Paste the invite code shown on the other device (Local chat → Show invite → Copy code).",

@@ -21,7 +21,7 @@ async fn main() -> Result<()> {
     let _ = std::fs::remove_file(&cmd_file);
 
     let (tx, rx) = std::sync::mpsc::channel();
-    let p2p = P2p::start(dir.clone(), Sink::Test(tx)).await?;
+    let p2p = P2p::start(dir.clone(), dir.join("blobs"), Sink::Test(tx)).await?;
     p2p.set_name("Velta Hub".into())?;
 
     // Event printer.

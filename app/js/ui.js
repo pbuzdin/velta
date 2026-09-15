@@ -143,7 +143,7 @@ export function setCoreVersionDisplay(v) {
   CORE_VERSION = String(v).replace(/^v/, "");
   document.querySelectorAll('[data-v="core"]').forEach((el) => { el.textContent = CORE_VERSION; });
 }
-const FALLBACK_APP_VERSION = "1.3.37";
+const FALLBACK_APP_VERSION = "1.3.38";
 
 async function getAppVersion() {
   try {
@@ -174,7 +174,7 @@ async function getTauriVersion() {
 }
 
 /* ---------- Settings drawer ---------- */
-export function buildDrawer({ account, onAddAccount, onSecondDevice, onToggleTheme, onOpenChat, onInvite, onToggleMock, onProfile, onEditProfile, onInviteDomains, onP2p, p2p = false, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme }) {
+export function buildDrawer({ account, onAddAccount, onSecondDevice, onToggleTheme, onOpenChat, onInvite, onToggleMock, onProfile, onEditProfile, onInviteDomains, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme }) {
   const isTauri = !!window.__TAURI__;
   const drawer = document.createElement("div");
   drawer.className = "drawer";
@@ -198,7 +198,6 @@ export function buildDrawer({ account, onAddAccount, onSecondDevice, onToggleThe
       <button class="ctx-item" data-act="saved"><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4.5L6 21z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Saved Messages</span></button>
       <button class="ctx-item" data-act="invite"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="13" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="3" width="8" height="8" rx="1" fill="currentColor"/><rect x="3" y="13" width="8" height="8" rx="1" fill="currentColor"/></svg><span>Invite friends (QR)</span></button>
       ${p2pAvailable ? `<button class="ctx-item" data-act="p2p-toggle"><svg viewBox="0 0 24 24"><path d="M2.5 9.5a14 14 0 0119 0M5.5 13a9.5 9.5 0 0113 0M8.5 16.5a5 5 0 017 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="19.5" r="1.4" fill="currentColor"/></svg><span>Local chat: ${p2pOn ? "on" : "off"}</span></button>` : ""}
-      ${p2p ? `<button class="ctx-item" data-act="p2p"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="5" cy="6" r="2.2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="19" cy="6" r="2.2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="5" cy="18" r="2.2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="19" cy="18" r="2.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M6.8 7.5l3.4 3M17.2 7.5l-3.4 3M6.8 16.5l3.4-3M17.2 16.5l-3.4-3" stroke="currentColor" stroke-width="1.6"/></svg><span>Local chat (beta)</span></button>` : ""}
       <div class="drawer-sec">Settings</div>
       <button class="ctx-item" data-act="theme"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 109 9c0-1.5-1.2-2.6-2.6-2.6h-1.9a2.5 2.5 0 01-2.5-2.5V5.1C14 4 13.3 3 12 3z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="7.5" cy="10.5" r="1.2" fill="currentColor"/><circle cx="12" cy="7.5" r="1.2" fill="currentColor"/><circle cx="16.5" cy="10.5" r="1.2" fill="currentColor"/></svg><span>${theme === "dark" ? "Light theme" : "Dark theme"}</span></button>
       <button class="ctx-item" data-act="add-account"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 5v4M21 7h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Add profile…</span></button>
@@ -267,7 +266,6 @@ export function buildDrawer({ account, onAddAccount, onSecondDevice, onToggleThe
     if (act === "theme") onToggleTheme();
     if (act === "saved") onOpenChat("saved");
     if (act === "invite") onInvite?.();
-    if (act === "p2p") onP2p?.();
     if (act === "p2p-toggle") onP2pToggle?.();
     if (act === "profile") onProfile?.();
     if (act === "edit-profile") onEditProfile?.();

@@ -42,10 +42,24 @@ peers are queued and flushed on reconnect. Engine: `velta-app/src-tauri/src/p2p.
 UI: `app/js/p2p.js`. A headless terminal hub for debugging lives in
 `velta-app/src-tauri/src/bin/p2p-hub.rs`.
 
-Local chat is **disabled by default**. Switch it on/off (drawer → Diagnostics
-chat → "Local chat: on/off"): when off, the engine never starts (no endpoint
-socket, no LAN beacons) and the drawer entry disappears. The preference
-persists across restarts.
+Local chat is **disabled by default**. Switch it on/off in the drawer
+("Local chat: on/off"): when off, the engine never starts (no endpoint
+socket, no LAN beacons) and the card and drawer rows disappear. The
+preference persists across restarts. On first run the welcome screen offers
+"Enter local chat…" — it enables local chat and skips relay setup; enabling
+local chat again later brings the setup screen back.
+
+**Local chats look like regular chats.** Each paired peer appears in the chat
+list and opens in the standard chat view (adapter: `app/js/local-chat.js`
+wraps the core, so the virtualized list, composer, drafts and read-tick
+rendering all work unchanged). Text and **media files** (images, video, audio,
+any file up to 256 MB) are supported: files transfer as base64-chunked frames
+over the same encrypted session, land in `p2p-blobs/<peer>/` under the
+accounts directory and render through the regular media pipeline. Peer names
+arrive only from pairing. The hub — device identity, invite QR, add contact,
+nearby-device pairing — is a collapsible card pinned above the chat list
+while local chat is on; peers must be online to receive media (text queues
+offline). Voice messages and transfer-progress UI are not implemented yet.
 
 </details>
 
@@ -414,7 +428,7 @@ Reply quotes use a dedicated palette per bubble and theme (the generic accent/di
 <details>
 <summary>Known limitations</summary>
 
-- External https links in messages open in the system browser (on Android they are routed there explicitly — the WebView drops `target=_blank` by itself).
+- **In-app browser (Android)** — external https links in messages open in a Telegram-style internal viewer: close button, page title + domain, loading bar, and an open-in-system-browser escape hatch. It is a sandboxed iframe, so sites that refuse embedding (X-Frame-Options / frame-ancestors) show a blank frame — use the bar's external-open button for those. The page title is fetched separately by the shell (`fetch_page_title`, 5 s timeout, 256 KB cap).
 - Group creation, contact discovery, QR invites, and real-time message rendering all work in basic flows but have not been stress-tested.
 - Logging to `velta.log` is disabled in the stable branch; use the status pill and browser/Tauri dev tools to diagnose issues.
 - On Windows, the app needs the sidecar binary to talk to the real core. If the sidecar fails to start the frontend falls back to the mock core.

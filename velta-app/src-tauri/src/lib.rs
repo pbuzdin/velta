@@ -162,6 +162,55 @@ fn get_sidecar_status() -> serde_json::Value {
     SIDECAR_STATUS.lock().unwrap().clone().unwrap_or_else(|| serde_json::json!({"running": false, "stage": "unknown"}))
 }
 
+/// Best-effort page <title> for the in-app browser bar. Bounded read (256 KB)
+/// and a hard timeout — a slow or hostile page must not hang the bar. Any
+/// failure is reported as an empty string; the bar falls back to the domain.
+#[tauri::command]
+async fn fetch_page_title(url: String) -> Result<String, String> {
+    if !url.starts_with("https://") {
+        return Err("only https URLs are supported".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let agent = ureq::AgentBuilder::new()
+            .timeout(std::time::Duration::from_secs(5))
+            .build();
+        let resp = match agent.get(&url).call() {
+            Ok(r) => r,
+            Err(_) => return Ok(String::new()),
+        };
+        let mut body = Vec::new();
+        use std::io::Read;
+        let _ = resp
+            .into_reader()
+            .take(256 * 1024)
+            .read_to_end(&mut body);
+        let text = String::from_utf8_lossy(&body);
+        let lower = text.to_ascii_lowercase();
+        let Some(start) = lower.find("<title") else { return Ok(String::new()) };
+        let Some(open_end) = lower[start..].find('>') else { return Ok(String::new()) };
+        let from = start + open_end + 1;
+        let Some(close) = lower[from..].find("</title") else { return Ok(String::new()) };
+        let mut title = html_escape_decode(text[from..from + close].trim());
+        if title.len() > 200 {
+            title = title.chars().take(200).collect();
+        }
+        Ok(title)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn html_escape_decode(s: &str) -> String {
+    s.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[tauri::command]
 fn get_accounts_dir(app: tauri::AppHandle) -> String {
     accounts_dir(&app).to_string_lossy().to_string()
@@ -1297,9 +1346,13 @@ pub fn run() {
                 let state = p2p::P2pState::empty();
                 let slot = state.slot();
                 let enabled = state.enabled_flag();
+                // Media blobs must sit under the accounts dir: the blobfile /
+                // media-server pipeline refuses to serve anything outside it.
+                let blobs_dir = accounts_dir(app.handle()).join("p2p-blobs");
                 if let Ok(dir) = p2p_dir {
                     state.set_dir(dir.clone());
-                    p2p::spawn_startup(app.handle().clone(), slot, enabled, dir);
+                    state.set_blobs(blobs_dir.clone());
+                    p2p::spawn_startup(app.handle().clone(), slot, enabled, dir, blobs_dir);
                 } else {
                     log("p2p data dir unavailable");
                 }
@@ -1447,7 +1500,7 @@ pub fn run() {
             response.headers_mut().insert("Cache-Control", "max-age=31536000, immutable".parse().unwrap());
             response.map(|body| std::borrow::Cow::Owned(body))
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, fetch_page_title, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 

@@ -10,7 +10,8 @@ import { initWebxdc } from "./webxdc-manager.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal } from "./invites.js";
 import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay } from "./ui.js";
-import { p2pAvailable, p2pEnabled, setP2pEnabled, openP2p as openP2pScreen } from "./p2p.js";
+import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact } from "./p2p.js";
+import { withLocalChat, hubModel } from "./local-chat.js";
 import { timeAgo } from "./mock-core.js";
 import { acquireCode } from "./qr-scan.js";
 
@@ -230,13 +231,13 @@ coreStartupPromise = createCore({
 });
 
 try {
-  core = await coreStartupPromise;
+  core = withLocalChat(await coreStartupPromise);
   setFingerprintSource((contactId) => core.getContactEncryptionInfo(contactId));
 } catch (error) {
   diagnostics.append("error", `Core startup crashed: ${error?.message || error}`);
   diagnostics.append("warning", "Continuing in demo mode so diagnostics and recovery controls remain available");
   const { MockCore } = await import("./mock-core.js");
-  core = new MockCore();
+  core = withLocalChat(new MockCore());
   core.backend = { kind: "mock", label: "demo mode (startup failure)", connected: false };
 }
 // createCore has a bounded handshake, but keep the UI honest if a future
@@ -245,7 +246,7 @@ try {
 if (!core) {
   diagnostics.append("error", "Core startup returned no backend");
   const { MockCore } = await import("./mock-core.js");
-  core = new MockCore();
+  core = withLocalChat(new MockCore());
   core.backend = { kind: "mock", label: "demo mode (no local core)", connected: false };
 }
 // The core's per-transport Info events (IMAP/DNS/quota/idle chatter) flood
@@ -590,6 +591,7 @@ async function refreshChatList() {
     if (!accountIsCurrent(epoch) || query !== state.query || chatListInFlight !== request) return;
     state.chats = [diagnostics.getChat(), ...chats.filter(chat => chat.id !== DIAGNOSTICS_CHAT_ID)];
     renderChatList();
+    renderLocalChatCard();
   } catch (err) {
     // Never funnel refresh errors into the Diagnostics store: the store emits
     // "changed", a listener of which triggers another refresh — an error here
@@ -605,6 +607,61 @@ async function refreshChatList() {
   }
   })();
   return request.promise;
+}
+
+// Local chat hub card: lives at the top of the chat list while local chat
+// is on. Replaces the old hub modal — pairing/invite stay as small modals.
+let lcCardSeq = 0;
+async function renderLocalChatCard() {
+  const el = $("lc-card");
+  if (!el) return;
+  const seq = ++lcCardSeq;
+  const model = await hubModel().catch(() => null);
+  if (seq !== lcCardSeq) return; // superseded by a newer render
+  if (!model) { el.hidden = true; return; }
+  el.hidden = false;
+  const wifiSvg = `<svg viewBox="0 0 24 24" width="18" height="18"><path d="M2.5 9.5a14 14 0 0119 0M5.5 13a9.5 9.5 0 0113 0M8.5 16.5a5 5 0 017 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="19.5" r="1.4" fill="currentColor"/></svg>`;
+  const short = (model.device.nodeId || "").slice(0, 8);
+  const peerRows = model.peers.map(p => `
+    <div class="lc-row" data-open="${escapeAttr(p.id)}">
+      <span class="lc-dot ${p.online ? "on" : ""}"></span>
+      <span class="lc-row-name">${escapeHtml(p.name)}</span>
+      ${p.queued ? `<span class="lc-row-queued">${p.queued} queued</span>` : ""}
+    </div>`).join("");
+  const nearbyRows = model.nearby.map(n => `
+    <div class="lc-row" data-pair="${escapeAttr(n.id)}">
+      <span class="lc-dot on"></span>
+      <span class="lc-row-name">${escapeHtml(n.name || n.id.slice(0, 12))}</span>
+      <button class="btn-text" data-pair="${escapeAttr(n.id)}">Pair</button>
+    </div>`).join("");
+  el.innerHTML = `
+    <div class="lc-card-head" data-toggle>
+      ${wifiSvg}
+      <span class="lc-card-title">Local chat</span>
+      <span class="lc-card-chevron"><svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+    </div>
+    <div class="lc-card-body">
+      <div class="lc-device">This device: <b>${escapeHtml(model.device.name)}</b>${short ? ` <span style="opacity:.55">(${escapeHtml(short)})</span>` : ""}</div>
+      <div class="lc-actions">
+        <button class="btn-text" data-invite>Show invite</button>
+        <button class="btn-text" data-add>Add contact</button>
+      </div>
+      ${nearbyRows ? `<div class="lc-sec">Nearby — discovered on this network</div>${nearbyRows}` : ""}
+      ${peerRows ? `<div class="lc-sec">Paired devices</div>${peerRows}` : ""}
+    </div>`;
+  el.querySelector("[data-toggle]").addEventListener("click", () => el.classList.toggle("open"));
+  const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+  const renderQr = text => core.createQrSvg(text);
+  el.querySelector("[data-invite]").addEventListener("click", () =>
+    showInviteModal(invoke, renderQr).catch(err => toast(String(err?.message || err))));
+  el.querySelector("[data-add]").addEventListener("click", () =>
+    addContact(invoke).catch(err => toast(String(err?.message || err))));
+  el.querySelectorAll("[data-pair]").forEach(btn => btn.addEventListener("click", e => {
+    e.stopPropagation();
+    pairNearbyFlow(invoke, btn.dataset.pair).catch(err => toast(String(err?.message || err)));
+  }));
+  el.querySelectorAll("[data-open]").forEach(row => row.addEventListener("click", () =>
+    openChat(row.dataset.open)));
 }
 
 function renderChatList() {
@@ -1474,10 +1531,8 @@ function rebuildDrawer() {
   drawer = buildDrawer({
     account: state.account,
     theme: state.theme,
-    p2p: p2pAvailable() && p2pEnabled(),
     p2pAvailable: p2pAvailable(),
     p2pOn: p2pEnabled(),
-    onP2p: () => openP2pScreen({ renderQr: text => core.createQrSvg(text) }),
     onP2pToggle: async () => {
       const enable = !p2pEnabled();
       try {
@@ -2425,7 +2480,12 @@ async function boot() {
         (msg?.text || "").replace(/\s+/g, " ").slice(0, 120) || "New message",
       );
     });
-    core.addEventListener("msgs-changed", () => scheduleChatListRefresh());
+    core.addEventListener("msgs-changed", () => {
+      scheduleChatListRefresh();
+      // Local chat (and any transport without push-to-view) relies on this to
+      // pull new messages into the open chat without waiting for the 20s tick.
+      if (state.activeChatId) chatView?.onMsgsChanged(state.activeChatId);
+    });
     core.addEventListener("chat-updated", ev => {
       scheduleChatListRefresh();
       refreshActiveChatHeader(ev?.detail?.chatId);

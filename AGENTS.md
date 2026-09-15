@@ -980,3 +980,43 @@ core capabilities and their Velta integration notes: `CORE-CAPABILITIES.MD`.
 - When modifying the JSON-RPC API surface, remember that the PWA
   (`app/js/rpc-core.js`), the Python RPC client, and any external consumers must
   stay compatible.
+
+- Overlay/BACK conventions (since 1.3.36): every fullscreen overlay (HTML
+  attachment viewer, webxdc, in-app browser) pushes one `{velta:…}` history
+  entry on open; WryActivity's OnBackPressedCallback calls `mWebView.goBack()`
+  when it can, so the pop pops the entry and a `popstate` listener tears the
+  overlay down — app.js's own popstate handler treats a revealed
+  `{velta:"chat"}` state as "keep the chat". Close buttons and programmatic
+  closes must consume the entry via `history.back()` (never leave stale
+  entries), and reopening an already-open overlay must REPLACE its entry —
+  `history.back()` is async, so back-then-push races and loses the entry.
+  Message ids the chat view must stay NUMERIC: `_resendTail`/`onMsgsChanged`
+  compare ids with `>` — string ids silently drop every message from the
+  "append only new" filter (local-chat.js learned this the hard way; its ids
+  are `1e9 + seq`).
+
+- Local chat architecture (since 1.3.38): P2P peers are rendered as regular
+  chats by `app/js/local-chat.js`, a Proxy AROUND the core object — getChat
+  List/getChat/getMessages/sendMessage/markRead are intercepted for
+  `p2p:<peerId>` string chat ids, everything else passes through untouched.
+  Do not special-case p2p ids inside chat-view.js; add adapter methods
+  instead. Media goes over FileBegin/FileChunk/FileEnd frames (base64, 96 KB
+  raw per frame, 256 MB cap) in p2p.rs and lands in
+  `<accounts>/p2p-blobs/<nodeId>/` — that directory MUST stay under the
+  accounts dir because blobfile/media-server refuse paths outside it, and
+  that check is the sandbox: peer-supplied file names are sanitized
+  (basename only, safe chars) before they ever touch the filesystem. The
+  offline media queue does not exist (send_file bails when the peer is
+  offline; text still queues) and transfer progress is emitted as events but
+  not yet rendered — both are the natural next steps.
+
+- In-app browser (since 1.3.38): Android message links open
+  `inapp-browser.js`'s overlay (bar: close / fetched title + domain /
+  open-external) over a sandboxed iframe; the title comes from the
+  `fetch_page_title` command (ureq, 5 s timeout, 256 KB cap) because a
+  cross-origin iframe's title is unreadable. `frame-src` in BOTH
+  tauri.conf.json and tauri.android.conf.json carries `https:` for this —
+  sites that forbid framing (X-Frame-Options) still show a blank frame; the
+  external-open button is the escape hatch. The old per-chat special case is
+  gone: the handler lives in chat-view's row binding, so local and relay
+  chats behave identically.

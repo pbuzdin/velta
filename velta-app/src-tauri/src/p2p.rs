@@ -35,6 +35,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context as _, Result};
+use data_encoding::BASE64;
 use data_encoding::{BASE64URL_NOPAD, HEXLOWER};
 use iroh::{endpoint::{Connection, RecvStream, SendStream, TransportConfig}, Endpoint, NodeAddr, NodeId, RelayMode, SecretKey};
 use rand::RngCore;
@@ -71,13 +72,17 @@ const NEIGHBOR_TTL: Duration = Duration::from_secs(10);
 // ---------------------------------------------------------------------------
 
 /// Chat frame exchanged on an established session (newline-delimited JSON).
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Frame {
     /// A chat message from the remote peer.
     Msg { id: String, ts: u64, text: String },
     /// Acknowledgement for a message delivered earlier.
     Ack { id: String },
+    /// Media transfer: header, then base64 chunks, then completion.
+    FileBegin { id: String, ts: u64, name: String, size: u64, mime: String },
+    FileChunk { id: String, data: String },
+    FileEnd { id: String },
     /// Session keepalive / opening frame.
     Ping,
 }
@@ -118,6 +123,102 @@ struct StoredMsg {
     /// "queued", "sent" or "acked" (out only); "acked" for inbound.
     state: String,
     text: String,
+    /// Present for media messages (phase 2 local chat media).
+    #[serde(default)]
+    file: Option<StoredFile>,
+}
+
+/// Where a media file lives on THIS device once the transfer completed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct StoredFile {
+    name: String,
+    size: u64,
+    mime: String,
+    path: String,
+}
+
+/// An inbound media transfer assembled across FileBegin/FileChunk frames.
+struct FileRx {
+    partial: PathBuf,
+    dir: PathBuf,
+    name: String,
+    size: u64,
+    mime: String,
+    ts: u64,
+    got: u64,
+}
+
+/// Cap for one local-chat media transfer.
+const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Strip any path components and odd characters from a peer-supplied name —
+/// the name is untrusted and must never escape the blob directory.
+fn sanitize_name(name: &str) -> String {
+    let base = name
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("")
+        .chars()
+        .filter(|c| c.is_alphanumeric() || matches!(c, '.' | '_' | '-' | ' '))
+        .collect::<String>()
+        .trim()
+        .to_string();
+    let mut out = base;
+    if out.len() > 80 {
+        out = out.chars().take(80).collect();
+    }
+    if out.is_empty() {
+        "file.bin".into()
+    } else {
+        out
+    }
+}
+
+/// Best-effort mime from extension (rendering is driven by the extension
+/// downstream, so unknown types degrade to a generic file card).
+fn mime_for(name: &str) -> String {
+    let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+    match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        "mp4" | "m4v" | "mov" => "video/mp4",
+        "webm" => "video/webm",
+        "mp3" => "audio/mpeg",
+        "m4a" => "audio/mp4",
+        "ogg" | "opus" => "audio/ogg",
+        "wav" => "audio/wav",
+        "pdf" => "application/pdf",
+        "txt" => "text/plain",
+        _ => "application/octet-stream",
+    }
+    .into()
+}
+
+/// `name`, `name (1)`, `name (2)`, … — never overwrite an existing blob.
+fn unique_path(dir: &std::path::Path, name: &str) -> PathBuf {
+    let stem = std::path::Path::new(name)
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "file".into());
+    let ext = std::path::Path::new(name)
+        .extension()
+        .map(|s| format!(".{}", s.to_string_lossy()))
+        .unwrap_or_default();
+    let stamp = now_ms();
+    for i in 0..1000u32 {
+        let candidate = if i == 0 {
+            dir.join(format!("{stem}{ext}"))
+        } else {
+            dir.join(format!("{stem} ({i}){ext}"))
+        };
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    dir.join(format!("{stem}-{stamp}{ext}"))
 }
 
 /// Peer row in `peers.json`.
@@ -217,6 +318,11 @@ impl Sink {
 /// The P2P chat engine, shared between Tauri commands and session tasks.
 pub struct P2p {
     dir: PathBuf,
+    /// Media blobs land here (must sit under the accounts dir so the existing
+    /// blobfile/media pipeline can serve them).
+    blobs_dir: PathBuf,
+    /// In-progress inbound file transfers keyed by transfer id.
+    rx_files: Mutex<HashMap<String, FileRx>>,
     endpoint: Endpoint,
     sink: Sink,
     inner: Mutex<Inner>,
@@ -231,8 +337,9 @@ impl P2p {
 
     /// Loads (or creates) the identity and store in `dir`, binds the endpoint
     /// and starts the accept + maintenance loops.
-    pub async fn start(dir: PathBuf, sink: Sink) -> Result<Arc<P2p>> {
+    pub async fn start(dir: PathBuf, blobs_dir: PathBuf, sink: Sink) -> Result<Arc<P2p>> {
         std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
+        std::fs::create_dir_all(&blobs_dir).with_context(|| format!("create {}", blobs_dir.display()))?;
 
         let secret = load_or_create_identity(&dir)?;
         let name = load_profile(&dir).unwrap_or_default();
@@ -276,6 +383,8 @@ impl P2p {
 
         let p2p = Arc::new(P2p {
             dir,
+            blobs_dir,
+            rx_files: Mutex::new(HashMap::new()),
             endpoint,
             sink,
             inner: Mutex::new(Inner {
@@ -518,6 +627,7 @@ impl P2p {
                 dir: "out".into(),
                 state: if sent_now { "sent" } else { "queued" }.into(),
                 text,
+                file: None,
             };
             if !sent_now {
                 peer.queued.push(stored.clone());
@@ -532,6 +642,102 @@ impl P2p {
             self.clone().trigger_connect(node_id);
         }
         Ok(id)
+    }
+
+    /// Sends a media file to a peer: copies it into our blobs dir, then
+    /// streams FileBegin/FileChunk/FileEnd frames through the live session.
+    /// Requires an online peer — offline queuing of large transfers is out of
+    /// scope for this cut (ponytail: add spool-to-disk queue if users hit it).
+    pub fn send_file(
+        self: &Arc<Self>,
+        peer_str: &str,
+        src: &str,
+        name: &str,
+    ) -> Result<(String, PathBuf)> {
+        const CHUNK_RAW: usize = 96 * 1024; // base64 ~128KB < MAX_FRAME
+        const MAX_FILE: u64 = 256 * 1024 * 1024;
+        let node_id = NodeId::from_str(peer_str)?;
+        let meta = std::fs::metadata(src).context("source file missing")?;
+        if !meta.is_file() {
+            bail!("not a file");
+        }
+        if meta.len() > MAX_FILE {
+            bail!("file too large for local chat (cap 256 MB)");
+        }
+        let safe = sanitize_name(name);
+        let mime = mime_for(&safe);
+
+        // Sender keeps a copy under blobs so the UI (and the transfer) read
+        // from one canonical location that the media pipeline may serve.
+        let dest_dir = self.blobs_dir.join("self");
+        std::fs::create_dir_all(&dest_dir)?;
+        let id = random_id();
+        let dest = dest_dir.join(format!("{id}_{safe}"));
+        std::fs::copy(src, &dest).with_context(|| format!("copy into blobs dir"))?;
+        let size = std::fs::metadata(&dest)?.len();
+
+        // Frames are built up-front; a mid-send session death loses the tail —
+        // the peer's partial is discarded by the size check on FileEnd.
+        let data = std::fs::read(&dest)?;
+        let mut frames = Vec::new();
+        frames.push(Frame::FileBegin {
+            id: id.clone(),
+            ts: now_ms(),
+            name: safe.clone(),
+            size,
+            mime: mime.clone(),
+        });
+        for chunk in data.chunks(CHUNK_RAW) {
+            frames.push(Frame::FileChunk {
+                id: id.clone(),
+                data: BASE64.encode(chunk),
+            });
+        }
+        frames.push(Frame::FileEnd { id: id.clone() });
+
+        let ts = now_ms();
+        let now_online = {
+            let mut inner = self.inner.lock().unwrap();
+            let peer = inner
+                .peers
+                .get_mut(&node_id)
+                .ok_or_else(|| anyhow!("unknown peer"))?;
+            peer.live.retain(|h| !h.tx.is_closed());
+            let mut sent_now = false;
+            if let Some(handle) = peer.live.first() {
+                for f in &frames {
+                    if handle.tx.send(f.clone()).is_err() {
+                        sent_now = false;
+                        break;
+                    }
+                    sent_now = true;
+                }
+            }
+            let stored = StoredMsg {
+                id: id.clone(),
+                ts,
+                dir: "out".into(),
+                state: if sent_now { "sent" } else { "queued" }.into(),
+                text: String::new(),
+                file: Some(StoredFile {
+                    name: safe,
+                    size,
+                    mime,
+                    path: dest.to_string_lossy().to_string(),
+                }),
+            };
+            if !sent_now {
+                bail!("peer is offline — media can't be queued yet, send text instead");
+            }
+            peer.msgs.push(stored);
+            let msgs = peer.msgs.clone();
+            self.persist_messages(&node_id, &msgs);
+            sent_now
+        };
+        if !now_online {
+            self.clone().trigger_connect(node_id);
+        }
+        Ok((id, dest))
     }
 
     /// Last `limit` messages of a peer, oldest first.
@@ -864,6 +1070,7 @@ impl P2p {
                             dir: "in".into(),
                             state: "acked".into(),
                             text: text.clone(),
+                            file: None,
                         });
                         let msgs = peer.msgs.clone();
                         self.persist_messages(&node_id, &msgs);
@@ -876,6 +1083,97 @@ impl P2p {
                     "id": id,
                     "ts": ts,
                     "text": text,
+                }));
+            }
+            Frame::FileBegin { id, ts, name, size, mime } => {
+                if size > MAX_FILE_BYTES {
+                    self.sink.emit(json!({
+                        "kind": "error", "peerId": node_id.to_string(),
+                        "message": format!("rejected file: {} bytes over the cap", size),
+                    }));
+                    return;
+                }
+                let dir = self.blobs_dir.join(node_id.to_string());
+                let _ = std::fs::create_dir_all(&dir);
+                let partial = dir.join(format!("partial-{id}"));
+                match std::fs::File::create(&partial) {
+                    Ok(_) => {
+                        self.rx_files.lock().unwrap().insert(
+                            id.clone(),
+                            FileRx { partial, dir, name: sanitize_name(&name), size, mime, ts, got: 0 },
+                        );
+                    }
+                    Err(e) => self.sink.emit(json!({
+                        "kind": "error", "peerId": node_id.to_string(),
+                        "message": format!("cannot receive file: {e}"),
+                    })),
+                }
+            }
+            Frame::FileChunk { id, data } => {
+                let mut rx = self.rx_files.lock().unwrap();
+                if let Some(t) = rx.get_mut(&id) {
+                    let bytes = match BASE64.decode(data.as_bytes()) {
+                        Ok(b) => b,
+                        Err(_) => { rx.remove(&id); return; }
+                    };
+                    if t.got + bytes.len() as u64 > t.size {
+                        // Oversized or corrupt transfer — drop the partial.
+                        rx.remove(&id);
+                        return;
+                    }
+                    use std::io::Write;
+                    if t.partial.exists() {
+                        let mut f = std::fs::OpenOptions::new().append(true).open(&t.partial).ok();
+                        if let Some(f) = f.as_mut() { let _ = f.write_all(&bytes); }
+                    }
+                    t.got += bytes.len() as u64;
+                }
+            }
+            Frame::FileEnd { id } => {
+                let done = self.rx_files.lock().unwrap().remove(&id);
+                let Some(t) = done else { return };
+                let _ = std::fs::File::open(&t.partial).and_then(|f| f.sync_all());
+                if t.got != t.size {
+                    let _ = std::fs::remove_file(&t.partial);
+                    return;
+                }
+                let final_path = unique_path(&t.dir, &t.name);
+                if std::fs::rename(&t.partial, &final_path).is_err() {
+                    return;
+                }
+                let display = final_path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| t.name.clone());
+                {
+                    let mut inner = self.inner.lock().unwrap();
+                    if let Some(peer) = inner.peers.get_mut(&node_id) {
+                        peer.msgs.push(StoredMsg {
+                            id: id.clone(),
+                            ts: t.ts,
+                            dir: "in".into(),
+                            state: "acked".into(),
+                            text: String::new(),
+                            file: Some(StoredFile {
+                                name: display.clone(),
+                                size: t.got,
+                                mime: t.mime.clone(),
+                                path: final_path.to_string_lossy().to_string(),
+                            }),
+                        });
+                        let msgs = peer.msgs.clone();
+                        self.persist_messages(&node_id, &msgs);
+                    }
+                }
+                tx.send(Frame::Ack { id: id.clone() }).ok();
+                self.sink.emit(json!({
+                    "kind": "message",
+                    "peerId": node_id.to_string(),
+                    "id": id,
+                    "ts": t.ts,
+                    "text": "",
+                    "file": { "name": display, "size": t.got, "mime": t.mime,
+                              "path": final_path.to_string_lossy() },
                 }));
             }
         }
@@ -1434,6 +1732,8 @@ pub struct P2pState {
     engine: EngineSlot,
     /// Data directory for a restart after `p2p_set_enabled(true)`.
     dir: std::sync::Mutex<Option<PathBuf>>,
+    /// Media blob root for a restart (set together with `dir`).
+    blobs: std::sync::Mutex<Option<PathBuf>>,
     /// Whether the engine should run. The startup task checks this after
     /// `P2p::start` so a disable request racing the boot spawn still wins.
     enabled: std::sync::Arc<std::sync::Mutex<bool>>,
@@ -1444,6 +1744,7 @@ impl P2pState {
         Self {
             engine: std::sync::Arc::new(Mutex::new(None)),
             dir: std::sync::Mutex::new(None),
+            blobs: std::sync::Mutex::new(None),
             enabled: std::sync::Arc::new(std::sync::Mutex::new(false)),
         }
     }
@@ -1460,6 +1761,14 @@ impl P2pState {
 
     pub fn set_dir(&self, dir: PathBuf) {
         *self.dir.lock().unwrap() = Some(dir);
+    }
+
+    pub fn set_blobs(&self, blobs: PathBuf) {
+        *self.blobs.lock().unwrap() = Some(blobs);
+    }
+
+    pub fn blobs(&self) -> Option<PathBuf> {
+        self.blobs.lock().unwrap().clone()
     }
 }
 
@@ -1480,13 +1789,14 @@ pub fn spawn_startup(
     slot: EngineSlot,
     enabled: std::sync::Arc<std::sync::Mutex<bool>>,
     dir: PathBuf,
+    blobs_dir: PathBuf,
 ) {
     if !*enabled.lock().unwrap() {
         crate::log("p2p chat engine disabled — not starting");
         return;
     }
     tauri::async_runtime::spawn(async move {
-        match P2p::start(dir, Sink::Tauri(app.clone())).await {
+        match P2p::start(dir, blobs_dir, Sink::Tauri(app.clone())).await {
             Ok(engine) => {
                 if !*enabled.lock().unwrap() {
                     engine.close().await;
@@ -1524,7 +1834,10 @@ pub async fn p2p_set_enabled(
             .unwrap()
             .clone()
             .ok_or("p2p data dir unavailable")?;
-        spawn_startup(app, state.slot(), state.enabled_flag(), dir);
+        let Some(blobs) = state.blobs() else {
+            return Err("p2p blobs dir unavailable".into());
+        };
+        spawn_startup(app, state.slot(), state.enabled_flag(), dir, blobs);
     } else {
         let running = state.engine.lock().unwrap().take();
         if let Some(engine) = running {
@@ -1568,6 +1881,20 @@ pub fn p2p_send(
         .map_err(|e| e.to_string())?
         .send(&peer_id, &text)
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn p2p_send_file(
+    state: tauri::State<'_, P2pState>,
+    peer_id: String,
+    path: String,
+    name: String,
+) -> Result<serde_json::Value, String> {
+    let (id, stored_path) = engine(&state)
+        .map_err(|e| e.to_string())?
+        .send_file(&peer_id, &path, &name)
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "id": id, "path": stored_path.to_string_lossy() }))
 }
 
 #[tauri::command]

@@ -1245,3 +1245,26 @@ html[data-theme="light"] .html-view-frame { color-scheme: light; }
   color-scheme: dark; /* dark canvas + dark scrollbars; app can override */
 }
 html[data-theme="light"] .webxdc-frame { color-scheme: light; background: #fff; }
+
+/* ---------- Local chat hub card (sidebar) ---------- */
+.lc-card {
+  margin: 8px 10px 0; padding: 10px 12px;
+  background: var(--bg-hover); border: 1px solid var(--border); border-radius: 14px;
+  flex: none; z-index: 5;
+}
+.lc-card-head { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.lc-card-title { font-weight: 600; font-size: 14px; color: var(--text); flex: 1; }
+.lc-card-chevron { color: var(--text-dim); transition: transform .15s; }
+.lc-card.open .lc-card-chevron { transform: rotate(180deg); }
+.lc-card-body { display: none; margin-top: 8px; }
+.lc-card.open .lc-card-body { display: block; }
+.lc-device { font-size: 13px; color: var(--text-dim); }
+.lc-device b { color: var(--text); font-weight: 600; }
+.lc-actions { display: flex; gap: 8px; margin-top: 8px; }
+.lc-sec { font-size: 12px; color: var(--text-dim); margin-top: 10px; opacity: .8; }
+.lc-row { display: flex; align-items: center; gap: 10px; padding: 8px 6px; border-radius: 10px; cursor: pointer; }
+.lc-row:hover { background: rgba(127,127,127,.14); }
+.lc-row-name { flex: 1; font-size: 14px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lc-row-queued { font-size: 12px; opacity: .7; }
+.lc-dot { width: 9px; height: 9px; border-radius: 50%; background: #7a7a85; flex: none; }
+.lc-dot.on { background: #2ecc71; }

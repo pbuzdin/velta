@@ -1,6 +1,6 @@
 [package]
 name = "velta-app"
-version = "1.3.37"
+version = "1.3.38"
 description = "Velta — Delta Chat client"
 edition = "2021"
 rust-version = "1.77.2"
@@ -33,6 +33,8 @@ tokio-util = "0.7"
 anyhow = "1"
 rand = "0.8"
 data-encoding = "2"
+# fetch_page_title: best-effort <title> for the in-app browser bar.
+ureq = "2"
 socket2 = "0.5"
 # Terminal QR rendering for the p2p-hub debug example.
 qrcode = { version = "0.14", default-features = false }

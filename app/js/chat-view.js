@@ -14,6 +14,7 @@ export function setAvatarProfileOpener(fn) { avatarProfileOpener = fn; }
 
 import { diagnosticsSink, debugLog } from "./diagnostics.js";
 import { fileUrl, mediaFallbackUrl } from "./media.js";
+import { openInAppBrowser } from "./inapp-browser.js";
 import { renderMarkdown, extractBotCommands } from "./markdown.js";
 
 function rustLog(msg) {
@@ -977,20 +978,14 @@ export class ChatView {
     }
     if (/Android/.test(navigator.userAgent)) {
       // Android WebView drops target=_blank (no multi-window support in wry):
-      // route message links to the system browser via the opener plugin.
+      // message links open in the in-app browser overlay (Telegram-style);
+      // its bar has an open-in-system-browser escape hatch.
       row.querySelectorAll('a[href]').forEach((a) => {
         a.addEventListener("click", (e) => {
           const href = a.getAttribute("href") || "";
           if (!/^https?:/i.test(href)) return;
           e.preventDefault();
-          try {
-            const tauri = window.__TAURI__;
-            const invoke = tauri?.core?.invoke || tauri?.invoke;
-            invoke("plugin:opener|open_url", { url: href })
-              .catch(() => window.open(href, "_blank"));
-          } catch {
-            window.open(href, "_blank");
-          }
+          openInAppBrowser(href);
         });
       });
     }
