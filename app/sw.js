@@ -1,5 +1,5 @@
 // sw.js — Velta service worker (app-shell cache)
-const CACHE = "velta-v174";
+const CACHE = "velta-v175";
 const ASSETS = [
   "./",
   "./index.html", "./diag.html",

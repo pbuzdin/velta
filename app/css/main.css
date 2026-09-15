@@ -925,7 +925,13 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .splash-actions[hidden], .splash-form[hidden] { display: none; }
 .splash-btn { width: 100%; }
 .splash-hint { font-size: 14.5px; line-height: 1.5; margin: 0 0 4px; }
-.splash .ob-steps { text-align: left; width: min(420px, 100%); margin-top: 14px; }
+/* Splash onboarding steps: spinner sits mid-splash, its text stacked below
+   it, both centered. */
+.splash .ob-steps {
+  text-align: center; width: min(420px, 100%);
+  margin: 14px auto 0; align-items: center;
+}
+.splash .ob-steps li { flex-direction: column; justify-content: center; gap: 8px; }
 .splash-log {
   flex: none; max-height: 38vh;
   border-top: 1px solid var(--border);
