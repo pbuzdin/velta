@@ -450,6 +450,12 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   the rosette shows in the header and profile only — keep it that way unless
   the core exposes verification on chatlist items. Group protection status
   is not exposed by the JSON-RPC chat types at all.
+- **Presence status line** (chat head subtitle, profile "Last seen" row):
+  `_mapContact` maps the core's `lastSeen: 0` (= never seen) to `null`, and
+  consumers treat `null` as "nothing known" — the chat head shows no
+  subtitle and the profile sheet hides the row. Do not reintroduce a
+  `Date.now()` fallback: it rendered "last seen just now" for never-seen
+  contacts (fixed 1.4.5).
 - `app/js/avatar.js` derives contact identity tiles from OpenPGP fingerprints:
   an equal-height 4-row color matrix (3 squares / 2 rects / 2 rects / 3
   squares, one cell per fingerprint group, deterministic colors with
