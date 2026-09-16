@@ -71,8 +71,8 @@
     </g>
     <!-- row 2 -->
     <g transform="translate(24,146)">
-      <rect width="128" height="62" rx="8" fill="#7d7d8a"/>
-      <text y="80" class="label">--text-meta-in</text><text y="96" class="mono">#7d7d8a</text>
+      <rect width="128" height="62" rx="8" fill="#8f8f9c"/>
+      <text y="80" class="label">--text-meta-in</text><text y="96" class="mono">#8f8f9c</text>
     </g>
     <g transform="translate(166,146)">
       <rect width="128" height="62" rx="8" fill="#a8c6e2"/>
@@ -146,8 +146,8 @@
       <text y="80" class="label" fill="#6f7480">--text-meta-in</text><text y="96" class="mono" fill="#6f7480">#9aa0ab</text>
     </g>
     <g transform="translate(1160,24)">
-      <rect width="128" height="62" rx="8" fill="#4d9bdb"/>
-      <text y="80" class="label" fill="#6f7480">--text-meta-out</text><text y="96" class="mono" fill="#6f7480">#4d9bdb</text>
+      <rect width="128" height="62" rx="8" fill="#2a6ea6"/>
+      <text y="80" class="label" fill="#6f7480">--text-meta-out</text><text y="96" class="mono" fill="#6f7480">#2a6ea6</text>
     </g>
     <g transform="translate(24,142)">
       <text class="small" fill="#5d636e">Bubble-in is the page background (#f4f4f4) with a border — received messages read as paper on the grey-blue canvas.</text>
@@ -347,7 +347,7 @@
       <text x="28" y="28" font-size="13" font-weight="600" fill="#5aa2e6">Pavel</text>
       <text x="28" y="48" class="small" fill="#8b8b96">Обзавёлся сбердевайсом?</text>
       <text x="14" y="76" class="body">Да, с утра</text>
-      <text x="230" y="110" class="small" fill="#7d7d8a">16:25</text>
+      <text x="230" y="110" class="small" fill="#8f8f9c">16:25</text>
       <text x="330" y="20" class="mono" text-anchor="end">--bg-bubble-in · meta-in</text>
     </g>
     <!-- out bubble with quote, read -->
@@ -508,7 +508,7 @@
         <g transform="translate(16,84)">
           <rect width="260" height="52" rx="14" fill="#1c1c26"/>
           <text x="14" y="32" class="small" fill="#f2f2f5">Обзавёлся сбердевайсом?</text>
-          <text x="196" y="44" font-size="11" fill="#7d7d8a">17:18</text>
+          <text x="196" y="44" font-size="11" fill="#8f8f9c">17:18</text>
         </g>
         <g transform="translate(252,148)">
           <rect width="260" height="52" rx="14" fill="#2b5278"/>

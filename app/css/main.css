@@ -12,7 +12,7 @@
   --accent-2: #8774e1;
   --text: #f2f2f5;
   --text-dim: #8b8b96;
-  --text-meta-in: #7d7d8a;
+  --text-meta-in: #8f8f9c;
   --text-meta-out: #a8c6e2;
   --green: #4fae4f;
   --danger: #e05a5a;
@@ -34,7 +34,7 @@ html[data-theme="light"] {
   --text: #16181d;
   --text-dim: #6f7480;
   --text-meta-in: #9aa0ab;
-  --text-meta-out: #4d9bdb;
+  --text-meta-out: #2a6ea6;
   --border: rgba(16,16,16,.08);
   --shadow: 0 4px 18px rgba(16,16,16,.18);
   color-scheme: light;
