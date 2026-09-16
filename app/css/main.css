@@ -19,6 +19,7 @@
   --border: rgba(244,244,244,.07);
   --shadow: 0 4px 18px rgba(16,16,16,.45);
   --radius-bubble: 14px;
+  --head-h: 56px; /* shared height of the sidebar and chat header bars */
   color-scheme: dark;
 }
 html[data-theme="light"] {
@@ -75,6 +76,8 @@ svg { width: 24px; height: 24px; display: block; }
   position: relative; /* anchors the centered brand mark */
   display: flex; align-items: center; gap: 6px;
   padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
+  box-sizing: border-box;
+  height: calc(var(--head-h) + env(safe-area-inset-top));
 }
 /* Brand mark centered between the menu and search buttons. The V glyph
    covers only ~57% of the SVG viewBox, so the img is oversized to make the
@@ -181,7 +184,9 @@ svg { width: 24px; height: 24px; display: block; }
   display: flex; align-items: center; gap: 4px;
   background: var(--bg-sidebar);
   border-bottom: 1px solid var(--border);
-  padding: calc(5px + env(safe-area-inset-top)) 10px 5px 12px;
+  padding: calc(7px + env(safe-area-inset-top)) 10px 7px 12px;
+  box-sizing: border-box;
+  height: calc(var(--head-h) + env(safe-area-inset-top));
   position: relative; z-index: 3;
 }
 .chat-head-info { flex: 1; min-width: 0; }
