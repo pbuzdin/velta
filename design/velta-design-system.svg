@@ -203,32 +203,39 @@
       <path d="M8.5 12.5l2.5 2.5 4.5-5" fill="none" stroke="#f4f4f4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
       <text y="46" class="mono" text-anchor="middle">verified</text>
     </g>
-    <g transform="translate(110,40)">
+    <g transform="translate(104,40)">
       <path d="M9 4h6l1 7 3 3v2h-6v5l-1 1-1-1v-5H5v-2l3-3z" fill="#8b8b96"/>
       <text y="46" class="mono" text-anchor="middle">pinned</text>
     </g>
-    <g transform="translate(186,40)">
+    <g transform="translate(178,40)">
       <path d="M12 3a5 5 0 00-5 5v3l-2 4h14l-2-4V8a5 5 0 00-5-5z" fill="none" stroke="#8b8b96" stroke-width="1.8" stroke-linejoin="round"/>
       <path d="M4 4l16 16" stroke="#8b8b96" stroke-width="2"/>
       <text y="46" class="mono" text-anchor="middle">muted</text>
     </g>
-    <g transform="translate(262,40)">
+    <g transform="translate(252,40)">
       <path d="M2.5 9.5a14 14 0 0119 0M5.5 13a9.5 9.5 0 0113 0M8.5 16.5a5 5 0 017 0" fill="none" stroke="#8774e1" stroke-width="2"/>
       <circle cx="12" cy="19.5" r="1.4" fill="#8774e1"/>
       <text y="46" class="mono" text-anchor="middle">p2p chat</text>
     </g>
-    <g transform="translate(344,40)">
+    <g transform="translate(326,40)">
       <rect x="5" y="11" width="14" height="10" rx="2" fill="none" stroke="#e0a03a" stroke-width="2"/>
       <path d="M8 11V7a4 4 0 017.6-1.7" fill="none" stroke="#e0a03a" stroke-width="2" stroke-linecap="round"/>
       <text y="46" class="mono" text-anchor="middle">plain email</text>
     </g>
-    <g transform="translate(428,44)">
+    <g transform="translate(404,44)">
       <path d="M5 13l4 4L19 7" fill="none" stroke="#a8c6e2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
       <text x="12" y="46" class="mono" text-anchor="middle">sent</text>
     </g>
-    <g transform="translate(496,44)">
+    <g transform="translate(476,44)">
+      <g fill="#a8c6e2">
+        <circle cx="12" cy="4" r="1.7"/><circle cx="17.7" cy="6.3" r="1.7"/><circle cx="20" cy="12" r="1.7"/><circle cx="17.7" cy="17.7" r="1.7"/>
+        <circle cx="12" cy="20" r="1.7"/><circle cx="6.3" cy="17.7" r="1.7"/><circle cx="4" cy="12" r="1.7"/><circle cx="6.3" cy="6.3" r="1.7"/>
+      </g>
+      <text x="12" y="46" class="mono" text-anchor="middle">pending</text>
+    </g>
+    <g transform="translate(548,44)">
       <path d="M3 13l4 4L17 7M10 15l2 2 8-8" fill="none" stroke="#5aa2e6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-      <text x="24" y="46" class="mono">delivered / read</text>
+      <text x="12" y="46" class="mono" text-anchor="middle">delivered/read</text>
     </g>
   </g>
 
