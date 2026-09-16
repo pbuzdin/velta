@@ -55,7 +55,7 @@ jobs:
           # newline inside a -H header breaks the request — flatten it.
           TITLE="$(printf '%s' "${{ github.event.head_commit.message }}" | tr '\n' ' ')"
           curl -H "Title: $TITLE" \
-               -H "Tags: Velta,robot,shield" \
+               -H "Tags: Velta,robot" \
                -d "Author: ${{ github.actor }}
                Link: ${{ github.event.head_commit.url }}" \
                https://ntfy.gluek.info/velta_changelog
