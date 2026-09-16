@@ -360,7 +360,9 @@ class VeltaChatHead extends Elena(HTMLElement) {
     if (c.contact) {
       if (c.contact.bot) return "bot";
       if (c.contact.online) return { online: true, text: "online" };
-      return "last seen " + timeAgo(c.contact.lastSeen || Date.now());
+      // lastSeen null = never seen (core sends 0) — no honest status line.
+      if (!c.contact.lastSeen) return "";
+      return "last seen " + timeAgo(c.contact.lastSeen);
     }
     return "";
   }

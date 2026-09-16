@@ -516,7 +516,7 @@ export class JsonRpcCore extends EventTarget {
       color: c.color || "#888",
       avatar: c.profileImage || null,
       online: c.wasSeenRecently ?? false,
-      lastSeen: c.lastSeen ? c.lastSeen * 1000 : Date.now(),
+      lastSeen: c.lastSeen ? c.lastSeen * 1000 : null, // core sends 0 = never seen
       verified: !!c.isVerified,
       bot: !!c.isBot, // core sends camelCase isBot on every ContactObject
     };
