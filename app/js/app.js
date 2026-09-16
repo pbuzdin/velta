@@ -539,7 +539,8 @@ themeQuery.addEventListener?.("change", () => {
 function applyTheme() {
   const effective = state.theme === "auto" ? (themeQuery.matches ? "light" : "dark") : state.theme;
   document.documentElement.dataset.theme = effective;
-  document.querySelector('meta[name="theme-color"]').content = effective === "dark" ? "#0f0f14" : "#f4f4f4";
+  const themeColors = { dark: "#0f0f14", brutal: "#22222b" };
+  document.querySelector('meta[name="theme-color"]').content = themeColors[effective] || "#f4f4f4";
   localStorage.setItem("dw-theme", state.theme);
 }
 
@@ -2568,6 +2569,12 @@ async function boot() {
     appLog("boot: bind ui");
     try {
       $("btn-new-chat").addEventListener("click", newChatFlow);
+      // Chat-list bottom action bar: the "+" opens the same new-chat/group
+      // context menu as before (anchored to its button), QR shows this
+      // profile's invite code, scan opens the camera join flow.
+      $("bar-menu").addEventListener("click", () => drawer?.open());
+      $("bar-qr").addEventListener("click", () => showInvite(inviteQrProvider(null), { account: state.account }));
+      $("bar-scan").addEventListener("click", () => joinFlow());
       bindChatHeadMenu();
       // Invite cards in messages + any invite-host link tap → join flow
       bindInviteInterception(link => joinFromInvite(link));

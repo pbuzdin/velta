@@ -448,6 +448,21 @@ chat-list payload does not carry, and hydrating a contact per row would cost
 an RPC each. Contact verification is a 1:1 concept — group protection status
 is a separate core feature the JSON-RPC chat types don't expose yet.
 
+**Brutal theme** (Settings → Theme → Brutal). A third, always-dark theme
+built on neobrutalism principles and translated to Velta's token set — no
+React/TypeScript, just a `html[data-theme="brutal"]` block in `main.css`:
+flat panels with 2px ink borders, hard offset shadows, small radii, hover
+press-down, and a vivid main yellow for selected rows and outgoing bubbles
+(ink text on yellow, with dedicated quote/blockquote/meta colors). Like
+every Velta theme it avoids pure black and pure white. Being explicit, it
+never participates in the Auto (system) switch.
+
+**Chat-list action bar.** The old floating "+" FAB is now a four-button
+bottom bar in the chat list: **Menu** (settings drawer), **My QR** (profile
+invite code), **Scan QR** (camera join flow), and **+** (the new chat /
+new group / join-via-link menu, same as before). It is theme-independent —
+every theme renders it from its own tokens.
+
 </details>
 
 <details>

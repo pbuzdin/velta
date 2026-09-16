@@ -96,7 +96,7 @@ svg { width: 24px; height: 24px; display: block; }
 }
 .icon-btn:hover { background: var(--bg-hover); }
 
-.chat-list { flex: 1; overflow-y: auto; padding-bottom: 90px; }
+.chat-list { flex: 1; overflow-y: auto; padding-bottom: 10px; }
 /* Relay status line — thin strip just below the sidebar header. The color
    lives on `color` so the sending-dash gradient can reuse it as currentColor. */
 /* Relay status strip: one equal-width segment per configured relay
@@ -145,15 +145,23 @@ svg { width: 24px; height: 24px; display: block; }
 .relay-detail-row[data-state="local"]      .relay-detail-dot { background: #4c8dff; }
 .relay-detail-domain { font-weight: 600; color: var(--text); flex: none; }
 .relay-detail-text { color: var(--text-dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sidebar-foot { position: absolute; bottom: calc(22px + env(safe-area-inset-bottom)); right: 18px; display: flex; align-items: center; gap: 12px; }
-.fab {
-  width: 54px; height: 54px; border-radius: 50%;
-  background: var(--accent); color: #f4f4f4;
-  display: grid; place-items: center;
-  box-shadow: var(--shadow);
-  transition: transform .15s, background .15s;
+.list-bar {
+  display: flex; align-items: stretch; gap: 6px;
+  padding: 8px 10px calc(10px + env(safe-area-inset-bottom));
+  background: var(--bg-sidebar);
+  border-top: 1px solid var(--border);
 }
-.fab:hover { transform: scale(1.06); }
+.bar-btn {
+  flex: 1; height: 46px;
+  display: grid; place-items: center;
+  background: none; border: none; border-radius: 8px;
+  color: var(--text); cursor: pointer;
+  transition: transform .1s, background .15s, box-shadow .1s;
+}
+.bar-btn svg { width: 22px; height: 22px; }
+.bar-btn:hover { background: var(--bg-hover); }
+.bar-btn.bar-accent { background: var(--accent); color: #f4f4f4; }
+.bar-btn.bar-accent:hover { transform: scale(1.05); }
 
 /* ---------- Main ---------- */
 .main { flex: 1; min-width: 0; display: flex; background: var(--bg-chat); position: relative; }
@@ -1347,3 +1355,140 @@ html[data-theme="light"] .webxdc-frame { color-scheme: light; background: #fff; 
 .mfp-pct { font-size: 12px; color: var(--text-dim); margin-top: 4px; text-align: right; }
 .mfp-fail { font-size: 12.5px; color: #e5484d; margin-top: 6px; }
 .msg-transfer.is-failed .btn-text { padding: 2px 8px; margin-top: 4px; font-size: 13px; }
+
+/* ---------- Neobrutalist dark theme ("brutal") ---------- */
+/* Neobrutalism (neobrutalism.dev) translated to Velta's token set: flat
+   panels, 2px ink borders, hard offset shadows, small radii, hover
+   press-down. Dark only; like every Velta theme it avoids pure black
+   (#000) and pure white (#fff). Selected chat rows and outgoing bubbles
+   share the vivid main yellow with dark ink text. */
+html[data-theme="brutal"] {
+  --bg: #22222b;
+  --bg-sidebar: #2a2a35;
+  --bg-chat: #1b1b22;
+  --bg-hover: rgba(244, 244, 244, .07);
+  --bg-active: #ffd23f;
+  --bg-bubble-in: #2d2d38;
+  --bg-bubble-out: #ffd23f;
+  --bg-reply: rgba(18, 16, 22, .08);
+  --accent: #8f7ff0;
+  --accent-2: #4fd1c5;
+  --text: #f2f0e9;
+  --text-dim: #a3a0ad;
+  --text-meta-in: #918e9c;
+  --text-meta-out: #55480a;
+  --green: #3ecf5a;
+  --danger: #ef6461;
+  --border: #45434f;
+  --shadow: 4px 4px 0 #121017;
+  --radius-bubble: 6px;
+  --nb-ink: #121017;      /* strong borders + hard shadow ink */
+  --nb-main: #ffd23f;     /* the vivid main yellow */
+  --nb-main-ink: #211d05; /* text on main yellow */
+  color-scheme: dark;
+}
+
+/* Frame: heavy ink rules instead of hairlines */
+html[data-theme="brutal"] .sidebar { border-right: 2px solid var(--nb-ink); }
+html[data-theme="brutal"] .sidebar-head,
+html[data-theme="brutal"] .chat-head { border-bottom: 2px solid var(--nb-ink); }
+html[data-theme="brutal"] .icon-btn { border: 2px solid transparent; border-radius: 6px; }
+html[data-theme="brutal"] .icon-btn:hover {
+  border-color: var(--nb-ink); background: var(--nb-main);
+  color: var(--nb-main-ink); box-shadow: 2px 2px 0 var(--nb-ink);
+}
+
+/* Chat rows: bordered cards that press into their shadow */
+html[data-theme="brutal"] .chat-item {
+  margin: 6px 8px; border: 2px solid var(--nb-ink);
+  border-radius: 8px; background: var(--bg-sidebar);
+  transition: transform .08s, box-shadow .08s;
+}
+html[data-theme="brutal"] .chat-item:hover {
+  transform: translate(-1px, -1px); box-shadow: 2px 2px 0 var(--nb-ink);
+}
+html[data-theme="brutal"] .chat-item.active {
+  background: var(--nb-main); box-shadow: 3px 3px 0 var(--nb-ink);
+  transform: none;
+}
+html[data-theme="brutal"] .chat-item.active .ci-name,
+html[data-theme="brutal"] .chat-item.active .ci-last { color: var(--nb-main-ink); }
+html[data-theme="brutal"] .chat-item.active .ci-time,
+html[data-theme="brutal"] .chat-item.active .ci-mute { color: rgba(18, 16, 22, .7); }
+html[data-theme="brutal"] .ci-badge {
+  border: 2px solid var(--nb-ink); background: var(--nb-main);
+  color: var(--nb-main-ink); font-weight: 600;
+}
+html[data-theme="brutal"] .ci-verified { color: var(--nb-main-ink); }
+html[data-theme="brutal"] .day-chip {
+  border: 2px solid var(--nb-ink); border-radius: 6px;
+  background: var(--bg-sidebar); box-shadow: 2px 2px 0 var(--nb-ink);
+}
+
+/* Bubbles: bordered cards with hard shadows; outgoing = main yellow */
+html[data-theme="brutal"] .bubble {
+  border: 2px solid var(--nb-ink);
+  box-shadow: 3px 3px 0 var(--nb-ink);
+}
+html[data-theme="brutal"] .msg-row.out .bubble { background: var(--nb-main); }
+html[data-theme="brutal"] .msg-row.out .bubble .msg-text,
+html[data-theme="brutal"] .msg-row.out .msg-fwd { color: var(--nb-main-ink); }
+html[data-theme="brutal"] .msg-row.out .msg-meta { color: var(--text-meta-out); }
+html[data-theme="brutal"] .msg-meta .ticks.read { color: var(--nb-main-ink); }
+html[data-theme="brutal"] .msg-row.out .msg-text a {
+  color: var(--nb-main-ink); text-decoration-thickness: 2px;
+}
+/* The 1.4.3 light-on-blue quote palettes don't apply on yellow — ink text */
+html[data-theme="brutal"] .msg-row.out .msg-quote {
+  border-left-color: var(--nb-main-ink); background: rgba(18, 16, 22, .1);
+}
+html[data-theme="brutal"] .msg-row.out .msg-quote .q-name { color: #2b2406; }
+html[data-theme="brutal"] .msg-row.out .msg-quote .q-text { color: #3d3410; }
+html[data-theme="brutal"] .msg-row.out .msg-text blockquote {
+  border-left-color: var(--nb-main-ink); color: #332b08;
+}
+html[data-theme="brutal"] .msg-row.out .msg-text blockquote,
+html[data-theme="brutal"] .msg-row.out .msg-text blockquote * { color: #332b08; }
+
+/* Controls: bordered, hard-shadowed, press-down */
+html[data-theme="brutal"] .text-field,
+html[data-theme="brutal"] input.text-field {
+  border: 2px solid var(--nb-ink); border-radius: 8px;
+  background: var(--bg-chat); box-shadow: 2px 2px 0 var(--nb-ink);
+}
+html[data-theme="brutal"] .btn-primary {
+  border: 2px solid var(--nb-ink); border-radius: 8px;
+  background: var(--nb-main); color: var(--nb-main-ink);
+  box-shadow: 4px 4px 0 var(--nb-ink);
+}
+html[data-theme="brutal"] .btn-primary:active {
+  transform: translate(3px, 3px); box-shadow: 1px 1px 0 var(--nb-ink);
+}
+html[data-theme="brutal"] .modal {
+  border: 2px solid var(--nb-ink); border-radius: 10px;
+  box-shadow: 6px 6px 0 var(--nb-ink);
+}
+html[data-theme="brutal"] .drawer { border-right: 2px solid var(--nb-ink); }
+html[data-theme="brutal"] .ctx-item { border-radius: 6px; }
+html[data-theme="brutal"] .ctx-item:hover {
+  background: var(--nb-main); color: var(--nb-main-ink);
+}
+html[data-theme="brutal"] .scale-opt input[type="radio"] {
+  accent-color: var(--nb-main);
+}
+
+/* Bottom action bar: joins the ink frame */
+html[data-theme="brutal"] .list-bar {
+  border-top: 2px solid var(--nb-ink);
+  padding-left: 12px; padding-right: 12px;
+}
+html[data-theme="brutal"] .bar-btn {
+  border: 2px solid var(--nb-ink); border-radius: 8px;
+  background: var(--bg-bubble-in); box-shadow: 2px 2px 0 var(--nb-ink);
+}
+html[data-theme="brutal"] .bar-btn:hover { background: var(--nb-main); color: var(--nb-main-ink); }
+html[data-theme="brutal"] .bar-btn:active { transform: translate(2px, 2px); box-shadow: none; }
+html[data-theme="brutal"] .bar-btn.bar-accent {
+  background: var(--accent); color: #17131f;
+}
+html[data-theme="brutal"] .bar-btn.bar-accent:hover { background: var(--accent); }

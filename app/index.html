@@ -46,9 +46,18 @@ try {
       <div id="relay-detail" class="relay-detail"></div>
     </div>
     <nav id="chat-list" class="chat-list" role="listbox" aria-label="Chats"></nav>
-    <footer class="sidebar-foot">
-      <button id="btn-new-chat" class="fab" title="New chat" aria-label="New chat">
-        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+    <footer class="list-bar" role="toolbar" aria-label="Chat list actions">
+      <button id="bar-menu" class="bar-btn" title="Menu" aria-label="Menu">
+        <svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <button id="bar-qr" class="bar-btn" title="Show my QR code" aria-label="Show my QR code">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="13" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="3" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="3" y="13" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><path d="M6 6h2v2H6zM16 6h2v2h-2zM6 16h2v2H6z" fill="currentColor"/></svg>
+      </button>
+      <button id="bar-scan" class="bar-btn" title="Scan QR code" aria-label="Scan QR code">
+        <svg viewBox="0 0 24 24"><path d="M3 8V5a2 2 0 012-2h3M16 3h3a2 2 0 012 2v3M21 16v3a2 2 0 01-2 2h-3M8 21H5a2 2 0 01-2-2v-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3 12h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <button id="btn-new-chat" class="bar-btn bar-accent" title="New chat or group" aria-label="New chat or group">
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>
       </button>
     </footer>
   </aside>

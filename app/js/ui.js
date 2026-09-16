@@ -145,7 +145,7 @@ export function setCoreVersionDisplay(v) {
 }
 const FALLBACK_APP_VERSION = "1.4.2";
 
-const THEME_LABELS = { auto: "Auto", dark: "Dark", light: "Light" };
+const THEME_LABELS = { auto: "Auto", dark: "Dark", light: "Light", brutal: "Brutal" };
 
 // Interface scale — a coherent whole-UI zoom for users on huge system font
 // scales ("pensioner mode") whose WebView text-only zoom breaks the px-sized

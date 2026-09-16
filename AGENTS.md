@@ -456,6 +456,21 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   subtitle and the profile sheet hides the row. Do not reintroduce a
   `Date.now()` fallback: it rendered "last seen just now" for never-seen
   contacts (fixed 1.4.5).
+- **Theming contract**: `THEME_LABELS` in ui.js drives the picker;
+  `applyTheme` (app.js) sets `html[data-theme]` and the theme-color meta.
+  Themes: `auto` (system dark/light), `dark`, `light`, and `brutal` (since
+  1.4.6 — neobrutalist dark, explicit only, never matched by Auto). A theme
+  is a token block in `main.css` (`html[data-theme="<name>"]`) plus targeted
+  component overrides appended AFTER the base rules — the brutal block
+  re-overrides the 1.4.3 outgoing-quote palettes for its yellow bubbles, so
+  keep it last in the file. Every new theme value must be added to
+  `THEME_LABELS` and `applyTheme`'s theme-color map together.
+- **Chat-list action bar** (`.list-bar` in index.html, since 1.4.6): four
+  buttons — Menu (opens the same drawer as `#btn-menu`), My QR
+  (`showInvite(inviteQrProvider(null))`), Scan QR (`joinFlow()`), and
+  `#btn-new-chat` (kept its id: `newChatFlow` anchors its context menu to
+  this button's rect). The old `.fab`/`.sidebar-foot` are gone — do not
+  resurrect them.
 - `app/js/avatar.js` derives contact identity tiles from OpenPGP fingerprints:
   an equal-height 4-row color matrix (3 squares / 2 rects / 2 rects / 3
   squares, one cell per fingerprint group, deterministic colors with
