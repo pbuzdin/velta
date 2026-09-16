@@ -75,12 +75,14 @@ const NEIGHBOR_TTL: Duration = Duration::from_secs(10);
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Frame {
-    /// A chat message from the remote peer.
-    Msg { id: String, ts: u64, text: String },
+    /// A chat message from the remote peer. `reply_to` quotes another
+    /// message by its id (optional for wire compatibility with old peers).
+    Msg { id: String, ts: u64, text: String, #[serde(default)] reply_to: Option<String>, #[serde(default)] reply_text: Option<String> },
     /// Acknowledgement for a message delivered earlier.
     Ack { id: String },
     /// Media transfer: header, then base64 chunks, then completion.
-    FileBegin { id: String, ts: u64, name: String, size: u64, mime: String },
+    /// `caption` is optional for wire compatibility with older peers.
+    FileBegin { id: String, ts: u64, name: String, size: u64, mime: String, #[serde(default)] caption: String },
     FileChunk { id: String, data: String },
     FileEnd { id: String },
     /// Session keepalive / opening frame.
@@ -123,6 +125,13 @@ struct StoredMsg {
     /// "queued", "sent" or "acked" (out only); "acked" for inbound.
     state: String,
     text: String,
+    /// Id of the message this one replies to (local chat replies).
+    #[serde(default)]
+    reply_to: Option<String>,
+    /// Quoted text sent alongside `reply_to` so the receiver can render the
+    /// header without looking the message up.
+    #[serde(default)]
+    reply_text: Option<String>,
     /// Present for media messages (phase 2 local chat media).
     #[serde(default)]
     file: Option<StoredFile>,
@@ -144,6 +153,7 @@ struct FileRx {
     name: String,
     size: u64,
     mime: String,
+    caption: String,
     ts: u64,
     got: u64,
 }
@@ -593,7 +603,7 @@ impl P2p {
 
     /// Queues a message for delivery, sending immediately if the peer is
     /// online. Returns the message id.
-    pub fn send(self: &Arc<Self>, peer_str: &str, text: &str) -> Result<String> {
+    pub fn send(self: &Arc<Self>, peer_str: &str, text: &str, reply_to: Option<&str>, reply_text: Option<&str>) -> Result<Value> {
         let node_id = NodeId::from_str(peer_str)?;
         let text = text.to_string();
         if text.is_empty() || text.len() > 64 * 1024 {
@@ -616,6 +626,8 @@ impl P2p {
                     id: id.clone(),
                     ts,
                     text: text.clone(),
+                    reply_to: reply_to.map(|s| s.to_string()),
+                    reply_text: reply_text.map(|s| s.to_string()),
                 };
                 if handle.tx.send(frame).is_ok() {
                     sent_now = true;
@@ -627,6 +639,8 @@ impl P2p {
                 dir: "out".into(),
                 state: if sent_now { "sent" } else { "queued" }.into(),
                 text,
+                reply_to: reply_to.map(|s| s.to_string()),
+                reply_text: reply_text.map(|s| s.to_string()),
                 file: None,
             };
             if !sent_now {
@@ -641,7 +655,9 @@ impl P2p {
         if !now_online {
             self.clone().trigger_connect(node_id);
         }
-        Ok(id)
+        // The UI surfaces the queued-vs-sent distinction: a queued text shows
+        // a pending clock until flush_queue puts it on the wire.
+        Ok(json!({ "id": id, "queued": !now_online }))
     }
 
     /// Sends a media file to a peer: copies it into our blobs dir, then
@@ -653,6 +669,7 @@ impl P2p {
         peer_str: &str,
         src: &str,
         name: &str,
+        caption: &str,
     ) -> Result<(String, PathBuf)> {
         const CHUNK_RAW: usize = 96 * 1024; // base64 ~128KB < MAX_FRAME
         const MAX_FILE: u64 = 256 * 1024 * 1024;
@@ -686,6 +703,7 @@ impl P2p {
             name: safe.clone(),
             size,
             mime: mime.clone(),
+            caption: caption.to_string(),
         });
         for chunk in data.chunks(CHUNK_RAW) {
             frames.push(Frame::FileChunk {
@@ -718,7 +736,9 @@ impl P2p {
                 ts,
                 dir: "out".into(),
                 state: if sent_now { "sent" } else { "queued" }.into(),
-                text: String::new(),
+                text: caption.to_string(),
+                reply_to: None,
+                reply_text: None,
                 file: Some(StoredFile {
                     name: safe,
                     size,
@@ -738,6 +758,40 @@ impl P2p {
             self.clone().trigger_connect(node_id);
         }
         Ok((id, dest))
+    }
+
+    /// Removes a paired device: closes its sessions, deletes the pairing,
+    /// history and received blobs. The peer can re-pair with a fresh invite.
+    pub fn remove_peer(self: &Arc<Self>, peer_str: &str) -> Result<()> {
+        let node_id = NodeId::from_str(peer_str)?;
+        {
+            let mut inner = self.inner.lock().unwrap();
+            let peer = inner
+                .peers
+                .remove(&node_id)
+                .ok_or_else(|| anyhow!("unknown peer"))?;
+            // Dropping the senders breaks the sessions (rx.recv() -> None).
+            drop(peer);
+            inner.pair_requests.remove(&node_id);
+            let peers: Vec<PersistedPeer> = inner
+                .peers
+                .iter()
+                .map(|(id, p)| PersistedPeer {
+                    node_id: id.to_string(),
+                    name: p.name.clone(),
+                    addrs: p.addrs.iter().map(|a| a.to_string()).collect(),
+                })
+                .collect();
+            std::fs::write(
+                self.dir.join("peers.json"),
+                serde_json::to_vec(&PeersFile { peers })?,
+            )?;
+        }
+        let _ = std::fs::remove_file(self.messages_path(&node_id));
+        let _ = std::fs::remove_dir_all(self.blobs_dir.join(node_id.to_string()));
+        self.sink
+            .emit(json!({ "kind": "presence", "peerId": node_id.to_string(), "online": false }));
+        Ok(())
     }
 
     /// Last `limit` messages of a peer, oldest first.
@@ -793,6 +847,13 @@ impl P2p {
         if !addrs.is_empty() {
             peer.addrs = addrs;
         }
+        self.persist_peers(&inner)?;
+        Ok(())
+    }
+
+    /// Rewrites peers.json (addresses + names) from the live map. Callers hold
+    /// the inner lock; the small file keeps a blocking write acceptable.
+    fn persist_peers(&self, inner: &Inner) -> Result<()> {
         let peers: Vec<PersistedPeer> = inner
             .peers
             .iter()
@@ -834,10 +895,17 @@ impl P2p {
                 id: msg.id.clone(),
                 ts: msg.ts,
                 text: msg.text.clone(),
+                reply_to: msg.reply_to.clone(),
+                reply_text: msg.reply_text.clone(),
             })
             .ok();
             let mut sent = msg;
             sent.state = "sent".into();
+            // Tell the UI its pending text is on the wire now.
+            self.sink.emit(json!({
+                "kind": "msg-state", "peerId": node_id.to_string(),
+                "id": sent.id.clone(), "state": "sent",
+            }));
             peer.msgs.push(sent);
         }
         let msgs = peer.msgs.clone();
@@ -974,6 +1042,7 @@ impl P2p {
                 .map(|h| h.id)
                 .unwrap_or(0)
         };
+        let mut send_progress: HashMap<String, (u64, u64)> = HashMap::new();
         if std::env::var("VELTA_P2P_DEBUG").is_ok() {
             eprintln!("[p2p-dbg] session task started for {}", node_id);
         }
@@ -995,6 +1064,27 @@ impl P2p {
                         Some(frame) => {
                             if std::env::var("VELTA_P2P_DEBUG").is_ok() {
                                 eprintln!("[p2p-dbg] session writing frame to {}", node_id);
+                            }
+                            // Send-side media progress: bytes confirmed written
+                            // to the wire for this transfer.
+                            if let Frame::FileBegin { id, size, .. } = &frame {
+                                send_progress.insert(id.clone(), (0, *size));
+                            }
+                            if let Frame::FileChunk { id, data } = &frame {
+                                let decoded = data.len() * 3 / 4;
+                                let e = send_progress.entry(id.clone()).or_insert((0u64, 0u64));
+                                e.0 += decoded as u64;
+                                self.sink.emit(json!({
+                                    "kind": "file-progress", "peerId": node_id.to_string(),
+                                    "id": id, "dir": "send", "got": e.0, "size": e.1,
+                                }));
+                            }
+                            if let Frame::FileEnd { id } = &frame {
+                                send_progress.remove(id);
+                                self.sink.emit(json!({
+                                    "kind": "file-progress", "peerId": node_id.to_string(),
+                                    "id": id, "dir": "send", "got": 0, "size": 0, "done": true,
+                                }));
                             }
                             if write_json(&mut send, &frame).await.is_err() {
                                 if std::env::var("VELTA_P2P_DEBUG").is_ok() {
@@ -1024,6 +1114,15 @@ impl P2p {
                 }
             }
         }
+        // Session ended with transfers still in flight: their tail frames were
+        // lost on the dead stream. Tell the UI which sends failed so it can
+        // offer retry — there is no resume.
+        for (id, _) in send_progress {
+            self.sink.emit(json!({
+                "kind": "file-progress", "peerId": node_id.to_string(),
+                "id": id, "dir": "send", "failed": true,
+            }));
+        }
         self.remove_live(node_id, handle_id);
     }
 
@@ -1047,7 +1146,7 @@ impl P2p {
                 self.sink
                     .emit(json!({ "kind": "ack", "peerId": node_id.to_string(), "id": id }));
             }
-            Frame::Msg { id, ts, text } => {
+            Frame::Msg { id, ts, text, reply_to, reply_text } => {
                 // Dedupe: both sides may open sessions simultaneously.
                 let dup = {
                     let inner = self.inner.lock().unwrap();
@@ -1070,6 +1169,8 @@ impl P2p {
                             dir: "in".into(),
                             state: "acked".into(),
                             text: text.clone(),
+                            reply_to: reply_to.clone(),
+                            reply_text: reply_text.clone(),
                             file: None,
                         });
                         let msgs = peer.msgs.clone();
@@ -1083,9 +1184,11 @@ impl P2p {
                     "id": id,
                     "ts": ts,
                     "text": text,
+                    "reply_to": reply_to,
+                    "reply_text": reply_text,
                 }));
             }
-            Frame::FileBegin { id, ts, name, size, mime } => {
+            Frame::FileBegin { id, ts, name, size, mime, caption } => {
                 if size > MAX_FILE_BYTES {
                     self.sink.emit(json!({
                         "kind": "error", "peerId": node_id.to_string(),
@@ -1100,7 +1203,7 @@ impl P2p {
                     Ok(_) => {
                         self.rx_files.lock().unwrap().insert(
                             id.clone(),
-                            FileRx { partial, dir, name: sanitize_name(&name), size, mime, ts, got: 0 },
+                            FileRx { partial, dir, name: sanitize_name(&name), size, mime, caption, ts, got: 0 },
                         );
                     }
                     Err(e) => self.sink.emit(json!({
@@ -1121,6 +1224,10 @@ impl P2p {
                         rx.remove(&id);
                         return;
                     }
+                    self.sink.emit(json!({
+                        "kind": "file-progress", "peerId": node_id.to_string(),
+                        "id": id, "dir": "recv", "got": t.got, "size": t.size,
+                    }));
                     use std::io::Write;
                     if t.partial.exists() {
                         let mut f = std::fs::OpenOptions::new().append(true).open(&t.partial).ok();
@@ -1153,7 +1260,9 @@ impl P2p {
                             ts: t.ts,
                             dir: "in".into(),
                             state: "acked".into(),
-                            text: String::new(),
+                            text: t.caption.clone(),
+                            reply_to: None,
+                            reply_text: None,
                             file: Some(StoredFile {
                                 name: display.clone(),
                                 size: t.got,
@@ -1171,7 +1280,7 @@ impl P2p {
                     "peerId": node_id.to_string(),
                     "id": id,
                     "ts": t.ts,
-                    "text": "",
+                    "text": t.caption,
                     "file": { "name": display, "size": t.got, "mime": t.mime,
                               "path": final_path.to_string_lossy() },
                 }));
@@ -1450,6 +1559,7 @@ impl P2p {
         if !addrs.contains(&from) {
             addrs.push(from);
         }
+        let addrs_copy = addrs.clone(); // `addrs` moves into the nearby entry below
 
         let mut inner = self.inner.lock().unwrap();
         let is_new = !inner.nearby.contains_key(&node_id);
@@ -1464,6 +1574,16 @@ impl P2p {
         }
         if !addrs.is_empty() {
             entry.addrs = addrs;
+        }
+        // A paired peer whose addresses changed (DHCP, Wi-Fi roam) would be
+        // dialed at a dead IP forever — beacons are the live address book.
+        if !addrs_copy.is_empty() {
+            if let Some(peer) = inner.peers.get_mut(&node_id) {
+                if peer.addrs != addrs_copy {
+                    peer.addrs = addrs_copy;
+                    let _ = self.persist_peers(&inner); // best-effort, same as add_peer
+                }
+            }
         }
         // Prune stale neighbors occasionally.
         if inner.nearby.len() > 64 {
@@ -1876,10 +1996,12 @@ pub fn p2p_send(
     state: tauri::State<'_, P2pState>,
     peer_id: String,
     text: String,
-) -> Result<String, String> {
+    reply_to: Option<String>,
+    reply_text: Option<String>,
+) -> Result<serde_json::Value, String> {
     engine(&state)
         .map_err(|e| e.to_string())?
-        .send(&peer_id, &text)
+        .send(&peer_id, &text, reply_to.as_deref(), reply_text.as_deref())
         .map_err(|e| e.to_string())
 }
 
@@ -1889,12 +2011,21 @@ pub fn p2p_send_file(
     peer_id: String,
     path: String,
     name: String,
+    caption: String,
 ) -> Result<serde_json::Value, String> {
     let (id, stored_path) = engine(&state)
         .map_err(|e| e.to_string())?
-        .send_file(&peer_id, &path, &name)
+        .send_file(&peer_id, &path, &name, &caption)
         .map_err(|e| e.to_string())?;
     Ok(serde_json::json!({ "id": id, "path": stored_path.to_string_lossy() }))
+}
+
+#[tauri::command]
+pub fn p2p_remove_peer(state: tauri::State<'_, P2pState>, peer_id: String) -> Result<(), String> {
+    engine(&state)
+        .map_err(|e| e.to_string())?
+        .remove_peer(&peer_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

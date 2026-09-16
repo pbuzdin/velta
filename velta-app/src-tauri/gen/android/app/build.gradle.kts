@@ -58,6 +58,8 @@ rust {
 
 dependencies {
     implementation("androidx.webkit:webkit:1.14.0")
+    // Chrome Custom Tabs for the in-app message-link browser (InAppBrowser.kt).
+    implementation("androidx.browser:browser:1.8.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.activity:activity-ktx:1.10.1")
     implementation("com.google.android.material:material:1.12.0")

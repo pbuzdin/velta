@@ -40,6 +40,20 @@ function injectStyles() {
 }
 
 export function openInAppBrowser(url) {
+  // Android: prefer a native Chrome Custom Tab (InAppBrowser.kt via JNI) —
+  // real WebView rendering, no frame-blocking, native title/share/menu; this
+  // is what the Telegram-style screenshot actually is. The iframe overlay
+  // stays as the fallback (no shell, Custom Tabs launch failure, dev).
+  const t = window.__TAURI__;
+  if (t && /Android/.test(navigator.userAgent || "")) {
+    (t?.core?.invoke || t?.invoke)?.("open_in_app_browser", { url })
+      .catch(() => openIframeOverlay(url));
+    return;
+  }
+  openIframeOverlay(url);
+}
+
+function openIframeOverlay(url) {
   injectStyles();
   document.getElementById("inapp-browser")?.remove();
 

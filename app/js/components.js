@@ -246,6 +246,13 @@ VeltaVideo.define();
 // (classic-email contacts), i.e. chat.isEncrypted === false. Encrypted chats
 // show no lock at all — e2e is the default there, not something to celebrate.
 const OPEN_LOCK_SVG = `<svg class="ci-lock open" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 11V7a4 4 0 017.6-1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+// Local (P2P) chats ride QUIC/TLS with the peer identity pinned by pairing —
+// encrypted, so instead of the open lock they carry this wifi mark.
+export const WIFI_SVG = `<svg class="ci-wifi" viewBox="0 0 24 24"><path d="M2.5 9.5a14 14 0 0119 0M5.5 13a9.5 9.5 0 0113 0M8.5 16.5a5 5 0 017 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="19.5" r="1.4" fill="currentColor"/></svg>`;
+// Chat-name badge: p2p wifi replaces the open lock; verified keeps its badge.
+const nameBadgesFor = c =>
+  (c.isP2p ? WIFI_SVG : c.kind === "single" && !c.encrypted ? OPEN_LOCK_SVG : "") +
+  (c.verified ? VERIFIED_SVG : "");
 const VERIFIED_SVG = `<svg class="ci-verified" viewBox="0 0 24 24"><path d="M12 2l2.4 2.1 3.1-.4 1.1 3 3 1.1-.4 3.1L23.3 13l-2.1 2.4.4 3.1-3 1.1-1.1 3-3.1-.4L12 24l-2.4-2.1-3.1.4-1.1-3-3-1.1.4-3.1L.7 13l2.1-2.4-.4-3.1 3-1.1 1.1-3 3.1.4z" fill="currentColor" transform="scale(.92) translate(1,0)"/><path d="M8.5 12.5l2.5 2.5 4.5-5" fill="none" stroke="#f4f4f4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const PIN_SVG = `<svg class="ci-pin" viewBox="0 0 24 24"><path d="M9 4h6l1 7 3 3v2h-6v5l-1 1-1-1v-5H5v-2l3-3z" fill="currentColor"/></svg>`;
 const MUTE_SVG = `<svg class="ci-mute" viewBox="0 0 24 24"><path d="M12 3a5 5 0 00-5 5v3l-2 4h14l-2-4V8a5 5 0 00-5-5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M4 4l16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
@@ -297,9 +304,7 @@ class VeltaChatItem extends Elena(HTMLElement) {
   render() {
     const c = this.chat;
     if (!c) return html`<div></div>`;
-    const nameBadges =
-      (c.kind === "single" && !c.encrypted ? OPEN_LOCK_SVG : "") +
-      (c.verified ? VERIFIED_SVG : "");
+    const nameBadges = nameBadgesFor(c);
     let right;
     if (c.unread > 0) right = `<span class="ci-badge${c.muted ? " muted" : ""}">${c.unread > 999 ? "999+" : c.unread}</span>`;
     else if (c.pinned) right = PIN_SVG;
@@ -364,7 +369,7 @@ class VeltaChatHead extends Elena(HTMLElement) {
         ${unsafeHTML(`<velta-avatar name="${escapeAttr(c.name)}" color="${c.avatarColor || ""}" kind="${c.kind}" size="42"${c.contactId ? ` contact-id="${c.contactId}"` : ""}${c.avatar ? ` avatar="${escapeAttr(fileUrl(c.avatar))}"` : ""}></velta-avatar>`)}
       </div>
       <div class="chat-head-text">
-        <div class="cht-name"><span class="cht-name-text">${c.name}</span>${unsafeHTML((c.kind === "single" && !c.encrypted ? OPEN_LOCK_SVG : "") + (c.verified ? VERIFIED_SVG : ""))}</div>
+        <div class="cht-name"><span class="cht-name-text">${c.name}</span>${unsafeHTML(nameBadgesFor(c))}</div>
         <div class="cht-status${online ? " online" : ""}">${stText}</div>
       </div>`;
   }

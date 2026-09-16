@@ -303,7 +303,6 @@ export async function pairNearbyFlow(invoke, id) {
   close();
   toast(peer?.name ? `Paired with ${peer.name}` : "Paired");
   hub?.refresh?.().catch(() => {});
-  openChatModal(invoke, id, peer?.name);
 }
 
 function escapeHtml_(s) {
@@ -332,7 +331,10 @@ export async function showInviteModal(invoke, renderQr) {
   const svg = await renderQr(ticket).catch(() => null);
   const box = body.querySelector(".qr-box");
   if (box.isConnected) {
-    box.innerHTML = svg || "<div class='qr-loading'>QR unavailable — copy the code instead</div>";
+    // The core's QR reserves a clear circle in the middle — brand it with
+    // the Velta logo (same overlay as the relay invite QR in ui.js).
+    box.innerHTML = (svg || "<div class='qr-loading'>QR unavailable — copy the code instead</div>")
+      + `<div class="qr-self qr-self-center"><img src="./icons/v-logo.svg" alt=""></div>`;
   }
   body.querySelector("[data-copy]").addEventListener("click", () => {
     navigator.clipboard?.writeText(ticket).then(() => toast("Invite code copied"));
@@ -368,7 +370,6 @@ export async function addContact(invoke) {
   close();
   toast(peer?.name ? `Paired with ${peer.name}` : "Paired");
   hub?.refresh?.().catch(() => {});
-  if (peer?.id) openChatModal(invoke, peer.id, peer.name);
 }
 
 function openPairingModal() {

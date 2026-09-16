@@ -327,6 +327,33 @@ export class MockCore extends EventTarget {
 
   // Demo group membership — deterministic per chat (self is always a member)
   // so member counts and "chats in common" behave like the real core.
+  // Demo QR: deterministic pseudo-random modules from the text hash, with
+  // the three finder squares so it reads as a QR at a glance.
+  async createQrSvg(text) {
+    const N = 25, cell = 8;
+    let h = 2166136261;
+    for (const ch of String(text)) { h = (h ^ ch.charCodeAt(0)) * 16777619 >>> 0; }
+    const rnd = i => { h = (h ^ i) * 2654435761 >>> 0; return (h >>> 8) & 1; };
+    const inFinder = (x, y) => (x < 7 && y < 7) || (x >= N - 7 && y < 7) || (x < 7 && y >= N - 7);
+    let mods = "";
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      if (inFinder(x, y)) continue;
+      if (rnd(y * N + x)) mods += `<rect x="${x * cell}" y="${y * cell}" width="${cell}" height="${cell}"/>`;
+    }
+    const finder = (fx, fy) => `<rect x="${fx * cell}" y="${fy * cell}" width="${7 * cell}" height="${7 * cell}" fill="none" stroke="#000" stroke-width="${cell}"/><rect x="${(fx + 2) * cell}" y="${(fy + 2) * cell}" width="${3 * cell}" height="${3 * cell}"/>`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${N * cell} ${N * cell}" fill="#000">`
+      + `<rect width="${N * cell}" height="${N * cell}" fill="#fff"/>` + mods
+      + finder(0, 0) + finder(N - 7, 0) + finder(0, N - 7) + "</svg>";
+    return svg;
+  }
+
+  // Demo channels carry no posting rights — exercises the read-only
+  // composer path in preview mode.
+  async canSend(chatId) {
+    const chat = this.chats.find(c => c.id === chatId);
+    return chat ? chat.kind !== "channel" : true;
+  }
+
   async getChatMembers(chatId) {
     const GROUP_MEMBERS = { 13: [2, 3, 4, 5, 6], 15: [2, 4, 6, 7], 17: [2], 20: [3, 6] };
     const chat = this.chats.find(c => c.id === chatId);

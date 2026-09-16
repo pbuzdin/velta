@@ -59,7 +59,23 @@ accounts directory and render through the regular media pipeline. Peer names
 arrive only from pairing. The hub — device identity, invite QR, add contact,
 nearby-device pairing — is a collapsible card pinned above the chat list
 while local chat is on; peers must be online to receive media (text queues
-offline). Voice messages and transfer-progress UI are not implemented yet.
+offline). Voice messages are not offered in local chats (the attach menu hides
+the item) and the audio-call button is hidden there — the P2P engine carries
+no call signaling.
+
+**Transfer and queue states are surfaced in the UI.** An outbound file shows a
+progress bar fed by `file-progress` events (2% steps); a completed transfer
+swaps the bar for the file card, and a session death mid-transfer marks the
+message failed with a Retry button (re-sends the stored copy from byte zero —
+there is no resume; the receiving side simply discards bad partials). Media
+picked while the peer is offline parks in a queue chip at the right edge of
+the composer (`#lc-queue-chip` → popup with per-item send-now/remove); the
+queue auto-flushes, oldest first, on the peer's next `presence` online event.
+Offline texts are queued inside the engine and show a pending clock in the
+bubble: `p2p_send` returns `{id, queued}`, a reconnect flush emits a
+`msg-state` event to upgrade the clock to ticks, and the peer's ack completes
+the read state. Chat names carry a green wifi badge instead of the relay
+chats' open lock (the transport is QUIC/TLS with pairing-pinned identities).
 
 </details>
 

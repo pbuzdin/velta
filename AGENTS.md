@@ -51,9 +51,10 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── components.js     # Elena-based web components (<velta-avatar>, <velta-chat-item>, <velta-chat-head>, <velta-video>)
 │   │   ├── diagnostics.js    # diagnostics chat store + event sink + shared console-style row renderer
 │   │   ├── invites.js        # invite-link registry (mirror domains), parsing, invite cards, settings modal
+│   │   ├── local-chat.js     # local chat core adapter: Proxy interceptor for p2p:<peerId> chats, media transfers/progress, offline queue + auto-flush (see 5.4 / conventions)
 │   │   ├── markdown.js       # escape-first message markdown: bold/italic/underline, links, lists + bot command extraction
 │   │   ├── media.js          # media URL helpers: blobfile:// protocol (boot-probed) → loopback server → asset protocol + per-element fallback
-│   │   ├── p2p.js            # Local chat UI: device pairing, hub, 1:1 chat modal (Tauri only)
+│   │   ├── p2p.js            # Local chat UI: drawer toggle, list card, pairing, legacy 1:1 modal (Tauri only)
 │   │   ├── poster.js         # lazy WebP poster extraction + disk cache
 │   │   ├── qr-scan.js        # code acquisition: paste or camera scan (native BarcodeDetector probed with a 2s timeout, vendored jsQR fallback — many Android WebViews ship no Shape Detection API or one whose detect() hangs)
 │   │   ├── mock-core.js      # in-memory demo core implementing the JSON-RPC surface
@@ -1005,10 +1006,22 @@ core capabilities and their Velta integration notes: `CORE-CAPABILITIES.MD`.
   `<accounts>/p2p-blobs/<nodeId>/` — that directory MUST stay under the
   accounts dir because blobfile/media-server refuse paths outside it, and
   that check is the sandbox: peer-supplied file names are sanitized
-  (basename only, safe chars) before they ever touch the filesystem. The
-  offline media queue does not exist (send_file bails when the peer is
-  offline; text still queues) and transfer progress is emitted as events but
-  not yet rendered — both are the natural next steps.
+  (basename only, safe chars) before they ever touch the filesystem. Transfer
+  and queue states ARE rendered (since 1.4.1): `file-progress` events drive a
+  bubble progress bar (2% steps); a `done` event clears it for the file card,
+  and a `failed` event (session died mid-send) renders a Retry card —
+  `lcRetryTransfer` re-sends the stored blobs copy from byte zero (NO resume;
+  the engine discards bad partials). Media picked while the peer is offline
+  parks in the composer queue chip (`#lc-queue-chip`, popup: send-now/remove)
+  and auto-flushes oldest-first on the peer's `presence` online transition.
+  Offline TEXTS queue inside the engine: `p2p_send` returns `{id, queued}`,
+  the bubble shows the `pending` clock (ticksSvg), the reconnect flush emits
+  a `msg-state` event (queued → sent) and the peer's `ack` completes read.
+  `send_file` still bails when the engine considers the peer offline — the
+  frontend queues proactively on its own `online === false` before calling.
+  Beacons refresh a paired peer's stored addresses (DHCP/roam heals the dial
+  book within one beacon interval); tests in
+  `tests/local-chat-transfer-progress.test.mjs` pin the event contract.
 
 - In-app browser (since 1.3.38): Android message links open
   `inapp-browser.js`'s overlay (bar: close / fetched title + domain /

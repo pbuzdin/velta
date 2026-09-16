@@ -143,7 +143,7 @@ export function setCoreVersionDisplay(v) {
   CORE_VERSION = String(v).replace(/^v/, "");
   document.querySelectorAll('[data-v="core"]').forEach((el) => { el.textContent = CORE_VERSION; });
 }
-const FALLBACK_APP_VERSION = "1.3.38";
+const FALLBACK_APP_VERSION = "1.4.1";
 
 async function getAppVersion() {
   try {
@@ -416,28 +416,6 @@ async function showAbout() {
 }
 
 /* ---------- Emoji pop ---------- */
-const EMOJIS = ["😀","😄","😂","🤣","😊","😍","😘","😎","🤔","🙃","😴","😭","😅","🥹","😇","🤗","👍","👎","👏","🙏","💪","🤝","❤️","🔥","🎉","✨","💯","🚀","🌟","🍕","☕","🎵","📌","✅","❌","⚡","🌍","🐧","🤖","👀","💡","🧠","🫶","😮","🥳","😤","🫠"];
-
-export function showEmojiPop(anchorBtn, onPick) {
-  closeAllPopups();
-  const pop = document.createElement("div");
-  pop.className = "emoji-pop";
-  for (const e of EMOJIS) {
-    const b = document.createElement("button");
-    b.textContent = e;
-    b.addEventListener("click", () => { onPick(e); closeAllPopups(); });
-    pop.appendChild(b);
-  }
-  const overlay = document.createElement("div");
-  overlay.className = "pop-overlay transparent";
-  overlay.addEventListener("pointerdown", closeAllPopups);
-  popups().append(overlay, pop);
-  const r = anchorBtn.getBoundingClientRect();
-  pop.style.right = Math.max(8, innerWidth - r.right - 40) + "px";
-  pop.style.bottom = Math.round(innerHeight - r.top + 10) + "px";
-}
-
-
 /* ---------- Fullscreen image lightbox (pinch to zoom) ---------- */
 export function openImageLightbox(src, caption = "") {
   closeAllPopups();

@@ -815,6 +815,42 @@ fn resolve_content_uri(_app: tauri::AppHandle, _uri: String, _filename: String) 
     Err("picking attachments is only supported on mobile".into())
 }
 
+// Desktop keeps its system-browser convention for message links; the in-app
+// Custom Tab is an Android behavior.
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn open_in_app_browser(_url: String) -> Result<(), String> {
+    Err("in-app browser is only supported on Android".into())
+}
+
+/// Android: launch the URL in a Chrome Custom Tab (native, Telegram-style)
+/// via InAppBrowser.kt. Uses the application context handed over from
+/// MainActivity.onCreate. CustomTabsIntent falls back to the default browser
+/// when no Custom Tabs provider is installed.
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn open_in_app_browser(url: String) -> Result<(), String> {
+    let ctx_guard = APP_CONTEXT.lock().unwrap();
+    let context = ctx_guard
+        .as_ref()
+        .map(|r| r.as_obj().clone())
+        .ok_or("application context was not handed over yet")?;
+    let vm_guard = APP_JAVA_VM.lock().unwrap();
+    let vm_ref = vm_guard.as_ref().ok_or("jvm was not handed over yet")?;
+    let mut env = vm_ref.attach_current_thread().map_err(|e| format!("jvm attach: {e}"))?;
+
+    let class = env.find_class("org/velta/InAppBrowser").map_err(|e| e.to_string())?;
+    let url_j = env.new_string(url).map_err(|e| e.to_string())?;
+    env.call_static_method(
+        &class,
+        "open",
+        "(Landroid/content/Context;Ljava/lang/String;)V",
+        &[(&context).into(), (&url_j).into()],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[cfg(target_os = "android")]
 #[tauri::command]
 fn resolve_content_uri(app: tauri::AppHandle, uri: String, filename: String) -> Result<String, String> {
@@ -1500,7 +1536,7 @@ pub fn run() {
             response.headers_mut().insert("Cache-Control", "max-age=31536000, immutable".parse().unwrap());
             response.map(|body| std::borrow::Cow::Owned(body))
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, fetch_page_title, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, fetch_page_title, open_in_app_browser, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 

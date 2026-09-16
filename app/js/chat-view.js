@@ -1,7 +1,7 @@
 // chat-view.js — virtualized message history (virtual-scroller) + composer
 import { formatTime, formatDay, formatBytes } from "./mock-core.js";
 import { escapeHtml, escapeAttr, ticksSvg } from "./components.js";
-import { showContextMenu, showModal, confirmDeleteMessagesModal, toast, showEmojiPop, openImageLightbox } from "./ui.js";
+import { showContextMenu, showModal, confirmDeleteMessagesModal, toast, openImageLightbox } from "./ui.js";
 import { diagnosticRow } from "./diagnostics.js";
 import { openWebxdc, prefetchInfo, appIconUrl } from "./webxdc-manager.js";
 
@@ -16,6 +16,7 @@ import { diagnosticsSink, debugLog } from "./diagnostics.js";
 import { fileUrl, mediaFallbackUrl } from "./media.js";
 import { openInAppBrowser } from "./inapp-browser.js";
 import { renderMarkdown, extractBotCommands } from "./markdown.js";
+import { lcRetryTransfer } from "./local-chat.js";
 
 function rustLog(msg) {
   try {
@@ -226,6 +227,7 @@ export class ChatView {
     this.loadingMore = false;
     this.selection = new Set();
     this.replyTo = null;
+    this.replyFragment = null;
     this._session = null;
     this._drafts = new Map();
     // onMsgsChanged refetch coalescing window (tests shrink it).
@@ -241,6 +243,7 @@ export class ChatView {
     this._newWhileAway = 0;
 
     this._bindComposer();
+    this._bindSelectionQuote();
     this._bindScroll();
     this._bindSelectionBar();
     this._bindCoreEvents();
@@ -283,6 +286,7 @@ export class ChatView {
       input.style.height = "auto";
       input.style.height = Math.min(input.scrollHeight, innerHeight * 0.4) + "px";
       this.replyTo = draft?.replyTo || null;
+      this.replyFragment = draft?.replyFragment || null;
       this._renderReplyPreview();
       this._rebuildItems(messages);
       this._createScroller();
@@ -306,7 +310,7 @@ export class ChatView {
     // Use the session's owner, not core.accountId: account-changing may have
     // already advanced the core epoch before the app calls close().
     if (this.chat && this._session) {
-      if (input.value || this.replyTo) this._drafts.set(this._session.draftKey, { text: input.value, replyTo: this.replyTo });
+      if (input.value || this.replyTo) this._drafts.set(this._session.draftKey, { text: input.value, replyTo: this.replyTo, replyFragment: this.replyFragment });
       else this._drafts.delete(this._session.draftKey);
     }
     this._session = null;
@@ -331,6 +335,7 @@ export class ChatView {
     // rows instead of rebuilding them; open() clears it on account change
     // (message ids are per-account).
     this.replyTo = null;
+    this.replyFragment = null;
     this._renderReplyPreview();
     this.exitSelection();
     this.listEl.replaceChildren();
@@ -513,6 +518,15 @@ export class ChatView {
     } catch (err) {
       toast(`Resend failed: ${err?.message || err}`);
       diagnosticsSink.append("error", `resend ${m.id}: ${err?.message || err}`);
+    }
+  }
+
+  async _lcRetryTransfer(m) {
+    try {
+      await lcRetryTransfer(m.chatId, m.id);
+      toast("Retrying…");
+    } catch (err) {
+      toast(`Retry failed: ${err?.message || err}`);
     }
   }
 
@@ -808,7 +822,15 @@ export class ChatView {
         <span class="q-name">${escapeHtml(m.quote.fromContact?.name || "")}</span>
         <span class="q-text">${escapeHtml(m.quote.text || "")}</span></div>`;
     }
-    if (m.viewtype === "image" || m.viewtype === "gif" || m.viewtype === "sticker") {
+    if (m.transfer) {
+      const pct = Math.max(0, Math.min(100, m.transfer.pct || 0));
+      const head = `<div class="mfp-name">${escapeHtml(m.fileName || "File")}</div>`;
+      if (m.transfer.failed) {
+        bubble += `<div class="msg-transfer is-failed">${head}<div class="mfp-fail">Transfer interrupted</div><button type="button" class="btn-text" data-act="lc-retry">Retry</button></div>`;
+      } else {
+        bubble += `<div class="msg-transfer">${head}<div class="mfp-bar"><i style="width:${pct}%"></i></div><div class="mfp-pct">${pct}%</div></div>`;
+      }
+    } else if (m.viewtype === "image" || m.viewtype === "gif" || m.viewtype === "sticker") {
       if (m.downloadState === "Done" && m.filePath) {
         // Animated loading: the placeholder reserves the final box (height
         // capped, width follows the image's aspect ratio) so the row height
@@ -1087,6 +1109,7 @@ export class ChatView {
         if (mediaAction.dataset.act === "download") this._downloadMedia(m.id);
         else if (mediaAction.dataset.act === "open") this._openFile(m.filePath, m.fileName);
         else if (mediaAction.dataset.act === "resend") this._resendMessage(m);
+        else if (mediaAction.dataset.act === "lc-retry") this._lcRetryTransfer(m);
         return;
       }
       const vcardBtn = e.target.closest("[data-vcard-open]");
@@ -1337,6 +1360,20 @@ export class ChatView {
   _setReply(item) {
     if (!this._isCurrent() || this.msgIndex.get(item.msg.id) !== item) return;
     this.replyTo = item.msg;
+    this.replyFragment = null;
+    this._renderReplyPreview();
+    document.getElementById("composer-input").focus();
+  }
+
+  // Fragment quote: reply referencing only the selected span of a bubble's
+  // text. Travels as email/DC-style "> " quote lines — every client (Velta
+  // included) renders them as a quote block, so no core changes are needed
+  // and no separate quote header is attached (that would duplicate the quote).
+  _setReplyFragment(msgId, fragment) {
+    const item = this.msgIndex.get(msgId) || this.items.find(i => i.type === "msg" && i.msg.id === msgId);
+    if (!item || !this._isCurrent()) return;
+    this.replyTo = item.msg;
+    this.replyFragment = fragment;
     this._renderReplyPreview();
     document.getElementById("composer-input").focus();
   }
@@ -1346,7 +1383,56 @@ export class ChatView {
     if (!this.replyTo) { bar.hidden = true; return; }
     bar.hidden = false;
     document.getElementById("reply-name").textContent = this.replyTo.fromContact?.name || "You";
-    document.getElementById("reply-text").textContent = this.replyTo.text || this.replyTo.viewtype;
+    document.getElementById("reply-text").textContent = this.replyFragment
+      ? "“" + this.replyFragment + "”"
+      : (this.replyTo.text || this.replyTo.viewtype);
+  }
+
+  // Selection → floating "Reply" chip: watches text selections anchored in a
+  // bubble's text and offers quoting just that fragment.
+  _bindSelectionQuote() {
+    const chip = document.createElement("button");
+    chip.id = "sel-quote-chip";
+    chip.type = "button";
+    chip.hidden = true;
+    chip.textContent = "Reply";
+    chip.addEventListener("pointerdown", e => e.preventDefault()); // keep the selection alive
+    chip.addEventListener("click", () => {
+      const sel = this._pendingQuoteSel;
+      chip.hidden = true;
+      if (sel) this._setReplyFragment(sel.msgId, sel.fragment);
+    });
+    document.body.appendChild(chip);
+    this._selChip = chip;
+
+    let raf = 0;
+    const schedule = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        try { this._updateSelChip(); }
+        catch (e) { (window.__chipErr = window.__chipErr || []).push(e.message + " | " + e.stack.split("\n")[1]); }
+      });
+    };
+    document.addEventListener("selectionchange", schedule);
+    this.scrollEl.addEventListener("scroll", () => { chip.hidden = true; }, { passive: true });
+  }
+
+  _updateSelChip() {
+    const chip = this._selChip;
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) { chip.hidden = true; return; }
+    const range = sel.getRangeAt(0);
+    const startNode = range.startContainer.nodeType === 3 ? range.startContainer.parentElement : range.startContainer;
+    const row = startNode?.closest?.(".msg-text")?.closest(".msg-row");
+    if (!row || !this.listEl.contains(row) || !row.dataset.msgid) { chip.hidden = true; return; }
+    const fragment = sel.toString().replace(/\s+/g, " ").trim().slice(0, 800);
+    const rect = range.getBoundingClientRect();
+    if (!fragment || !rect || (!rect.width && !rect.height)) { chip.hidden = true; return; }
+    this._pendingQuoteSel = { msgId: Number(row.dataset.msgid), fragment, rect };
+    chip.hidden = false;
+    chip.style.left = Math.max(8, Math.min(rect.left + rect.width / 2 - 36, innerWidth - 84)) + "px";
+    chip.style.top = Math.max(8, rect.top - 42) + "px";
   }
 
   /* ================= composer ================= */
@@ -1370,34 +1456,25 @@ export class ChatView {
       this._imageSendFlow(file, session);
     });
     send.addEventListener("click", () => this._send());
-    document.getElementById("btn-reply-close").addEventListener("click", () => { this.replyTo = null; this._renderReplyPreview(); });
-    document.getElementById("btn-emoji").addEventListener("click", e => {
-      const session = this._session;
-      if (!this._isCurrent(session) || !this.chat) return;
-      showEmojiPop(e.currentTarget, emoji => {
-        if (!this._isCurrent(session)) return;
-        input.value += emoji;
-        input.focus();
-        grow();
-      });
-    });
+    document.getElementById("btn-reply-close").addEventListener("click", () => { this.replyTo = null; this.replyFragment = null; this._renderReplyPreview(); });
     document.getElementById("btn-attach").addEventListener("click", e => {
       const session = this._session;
       if (!this._isCurrent(session) || !this.chat) return;
-      // Anchored like the emoji tray: bottom edge 10px above the button top,
-      // growing upward. The emoji tray anchors to btn-emoji's rect; using the
-      // same reference here keeps both trays on the exact same bottom line
-      // (btn-attach's top can differ by a sub-pixel from btn-emoji's, since
-      // the emoji button sits inside the textarea's wrap).
-      const anchor = document.getElementById("btn-emoji") || e.currentTarget;
+      // Anchored to the attach button: bottom edge 10px above its top,
+      // growing upward.
+      const anchor = e.currentTarget;
       const r = anchor.getBoundingClientRect();
       const x = Math.min(e.currentTarget.getBoundingClientRect().left, window.innerWidth - 220);
-      const menu = showContextMenu([
+      const attachItems = [
         { label: "Photo", icon: ICO.photo, onClick: () => this._sendAttachment("image") },
         { label: "Video", icon: ICO.photo, onClick: () => this._sendAttachment("video") },
         { label: "File", icon: ICO.file, onClick: () => this._sendAttachment("file") },
-        { label: "Voice message", icon: ICO.mic, onClick: () => this._sendAttachment("voice") },
-      ].map(action => ({ ...action, onClick: () => { if (this._isCurrent(session)) return action.onClick(); } })), x, 8);
+      ];
+      // Voice messages are not supported in local chat — hide the item there.
+      if (!this.chat?.isP2p) {
+        attachItems.push({ label: "Voice message", icon: ICO.mic, onClick: () => this._sendAttachment("voice") });
+      }
+      const menu = showContextMenu(attachItems.map(action => ({ ...action, onClick: () => { if (this._isCurrent(session)) return action.onClick(); } })), x, 8);
       menu.classList.add("attach-pop");
       menu.style.top = "auto";
       menu.style.bottom = (window.innerHeight - r.top + 10) + "px";
@@ -1501,11 +1578,19 @@ export class ChatView {
     if (!this._isCurrent(session) || !text || !this.chat) return;
     input.value = "";
     input.style.height = "auto";
-    const quoteId = this.replyTo?.id ?? null;
+    const quoteId = this.replyFragment ? null : (this.replyTo?.id ?? null);
+    const quoteText = quoteId != null ? (this.replyTo?.text || "") : null;
+    // Fragment quote travels as "> " quote lines inside the text (renders as
+    // a quote block in every Delta Chat client); a full-message reply keeps
+    // using the core's quotedMessageId.
+    const sendText = this.replyFragment
+      ? this.replyFragment.split("\n").map(l => "> " + l).join("\n") + "\n\n" + text
+      : text;
     this.replyTo = null;
+    this.replyFragment = null;
     this._renderReplyPreview();
     try {
-      const msg = await this.core.sendMessage(session.chatId, { text, quoteId });
+      const msg = await this.core.sendMessage(session.chatId, { text: sendText, quoteId, quoteText });
       if (!this._isCurrent(session)) return;
       this.appendOutgoing(msg);
       this.onChatsChanged();

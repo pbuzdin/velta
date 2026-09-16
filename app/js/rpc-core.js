@@ -820,6 +820,12 @@ export class JsonRpcCore extends EventTarget {
     return chats;
   }
 
+  // Channels the member cannot post in (and other read-only chats) — the
+  // composer hides for these.
+  async canSend(chatId) {
+    return this._call("can_send", this.accountId, chatId);
+  }
+
   async getChat(chatId) {
     const { accountId } = this;
     const list = await this.getChatList({}, accountId);

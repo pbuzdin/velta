@@ -91,7 +91,7 @@ async fn main() -> Result<()> {
                 let prefix = parts.next().unwrap_or("");
                 let text = parts.next().unwrap_or("");
                 match resolve_peer(&p2p, prefix) {
-                    Some(id) => match p2p.send(&id, text) {
+                    Some(id) => match p2p.send(&id, text, None, None) {
                         Ok(msg_id) => println!("[SENT] {msg_id} -> {id}: {text}"),
                         Err(e) => println!("[SEND-ERR] {e:#}"),
                     },

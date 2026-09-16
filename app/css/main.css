@@ -375,6 +375,20 @@ html[data-theme="light"] .msg-row.out .msg-quote .q-text { color: #4d5a68; }
 /* Markdown lists (markdown.js emits <ul>/<ol> as block units; the surrounding
    msg-text keeps pre-wrap for plain paragraphs) */
 .msg-text ul, .msg-text ol { margin: 2px 0; padding-left: 20px; }
+.msg-text blockquote {
+  margin: 2px 0; padding: 2px 0 2px 10px;
+  border-left: 3px solid var(--accent);
+  color: var(--text-dim);
+}
+
+/* Floating "Reply" chip when text is selected inside a bubble (fragment quote) */
+#sel-quote-chip {
+  position: fixed; z-index: 860;
+  border: 0; border-radius: 16px; padding: 6px 14px;
+  background: var(--accent); color: #f4f4f4;
+  font-size: 13px; font-weight: 600;
+  box-shadow: var(--shadow); cursor: pointer;
+}
 .msg-text li { margin: 1px 0; display: list-item; }
 .msg-text u { text-underline-offset: 2px; }
 
@@ -641,7 +655,6 @@ velta-video { display: block; }
   max-height: 40dvh; font-size: 15.5px; line-height: 1.3;
 }
 #composer-input::placeholder { color: var(--text-dim); }
-.icon-btn.in-input { margin-bottom: 4px; }
 .send-btn { color: var(--accent); margin-bottom: 4px; }
 .send-btn:disabled { color: var(--text-dim); cursor: default; }
 /* Composer buttons sized to the input line (bottom-aligned like the input,
@@ -697,6 +710,7 @@ velta-chat-item { display: block; }
 .ci-name { flex: 1; min-width: 0; font-size: 15.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 5px; }
 .ci-lock { width: 13px; height: 13px; color: var(--green); flex: none; }
 .ci-lock.open { color: var(--text-dim); }
+.ci-wifi { width: 13px; height: 13px; color: var(--green); flex: none; }
 .ci-verified { width: 15px; height: 15px; color: var(--accent); flex: none; }
 .ci-time { font-size: 12px; color: var(--text-dim); flex: none; }
 .ci-bottom { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
@@ -878,19 +892,6 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .drawer-ver { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--text-dim); padding: 2px 0; }
 .drawer-sec { font-size: 12.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; padding: 14px 12px 6px; }
 
-/* emoji pop */
-.emoji-pop {
-  position: fixed; z-index: 60;
-  background: var(--bg-sidebar); border: 1px solid var(--border);
-  border-radius: 14px; box-shadow: var(--shadow);
-  padding: 10px; display: grid;
-  grid-template-columns: repeat(8, 1fr); gap: 2px;
-  width: 340px; max-width: calc(100vw - 24px);
-  animation: menuIn .12s;
-}
-.emoji-pop button { font-size: 22px; padding: 6px; border-radius: 8px; }
-.emoji-pop button:hover { background: var(--bg-hover); }
-
 /* attach pop reuses ctx-menu */
 .attach-pop { min-width: 190px; }
 
@@ -967,6 +968,9 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
   pointer-events: none;
 }
 .qr-self img { display: block; width: 100%; height: 100%; transform: translate(0, 2px); }
+/* Local-chat invite QR is a plain 512×512 QR with the logo zone dead-center
+   (96/512 = 18.75%); the badge is slightly larger to fully cover it. */
+.qr-self.qr-self-center { top: 50%; width: 21%; }
 .qr-loading { color: #555; font-size: 13px; text-align: center; padding: 16px 8px; }
 .invite-link {
   font-family: ui-monospace, monospace; font-size: 12.5px;
@@ -1248,7 +1252,7 @@ html[data-theme="light"] .webxdc-frame { color-scheme: light; background: #fff; 
 
 /* ---------- Local chat hub card (sidebar) ---------- */
 .lc-card {
-  margin: 8px 10px 0; padding: 10px 12px;
+  margin: 8px 10px; padding: 10px 12px;
   background: var(--bg-hover); border: 1px solid var(--border); border-radius: 14px;
   flex: none; z-index: 5;
 }
@@ -1258,7 +1262,7 @@ html[data-theme="light"] .webxdc-frame { color-scheme: light; background: #fff; 
 .lc-card.open .lc-card-chevron { transform: rotate(180deg); }
 .lc-card-body { display: none; margin-top: 8px; }
 .lc-card.open .lc-card-body { display: block; }
-.lc-device { font-size: 13px; color: var(--text-dim); }
+.lc-device { font-size: 13px; color: var(--text); }
 .lc-device b { color: var(--text); font-weight: 600; }
 .lc-actions { display: flex; gap: 8px; margin-top: 8px; }
 .lc-sec { font-size: 12px; color: var(--text-dim); margin-top: 10px; opacity: .8; }
@@ -1268,3 +1272,36 @@ html[data-theme="light"] .webxdc-frame { color-scheme: light; background: #fff; 
 .lc-row-queued { font-size: 12px; opacity: .7; }
 .lc-dot { width: 9px; height: 9px; border-radius: 50%; background: #7a7a85; flex: none; }
 .lc-dot.on { background: #2ecc71; }
+
+/* node id suffix on the device line — secondary info stays dim */
+.lc-nodeid { font-size: 12px; color: var(--text-dim); }
+
+/* ---------- Local chat offline media queue tray ---------- */
+/* In-flow flex item at the right edge of .composer-input-wrap: the input
+   shrinks a little instead of the chip overlapping the typed text. */
+#lc-queue-chip {
+  flex: none; align-self: center; margin: 0 10px 0 4px;
+  border: 0; border-radius: 12px; padding: 3px 9px;
+  background: var(--accent); color: #f4f4f4;
+  font-size: 12px; font-weight: 600; cursor: pointer;
+  box-shadow: var(--shadow);
+}
+#lc-queue-pop {
+  position: fixed; z-index: 920;
+  min-width: 300px; max-width: calc(100vw - 24px);
+  background: var(--bg-sidebar); border: 1px solid var(--border);
+  border-radius: 14px; box-shadow: var(--shadow); padding: 10px;
+}
+.lq-head { font-size: 12.5px; color: var(--text-dim); padding: 2px 4px 8px; }
+.lq-row { display: flex; align-items: center; gap: 8px; padding: 6px 4px; }
+.lq-row + .lq-row { border-top: 1px solid var(--border); }
+.lq-name { flex: 1; font-size: 14px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Transfer-in-progress card inside a bubble (local chat media) */
+.msg-transfer { padding: 8px 6px; min-width: 180px; }
+.mfp-name { font-size: 14px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mfp-bar { height: 4px; border-radius: 2px; background: rgba(127,127,127,.25); overflow: hidden; margin-top: 8px; }
+.mfp-bar i { display: block; height: 100%; background: var(--accent); border-radius: 2px; transition: width .4s; }
+.mfp-pct { font-size: 12px; color: var(--text-dim); margin-top: 4px; text-align: right; }
+.mfp-fail { font-size: 12.5px; color: #e5484d; margin-top: 6px; }
+.msg-transfer.is-failed .btn-text { padding: 2px 8px; margin-top: 4px; font-size: 13px; }

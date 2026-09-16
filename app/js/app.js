@@ -11,8 +11,8 @@ import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow }
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal } from "./invites.js";
 import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay } from "./ui.js";
 import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact } from "./p2p.js";
-import { withLocalChat, hubModel } from "./local-chat.js";
-import { timeAgo } from "./mock-core.js";
+import { withLocalChat, hubModel, renameDevice, removePeer, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
+import { timeAgo, formatBytes } from "./mock-core.js";
 import { acquireCode } from "./qr-scan.js";
 
 const diagnostics = new DiagnosticsStore();
@@ -576,6 +576,65 @@ function reportUiVisible() {
 }
 document.addEventListener("visibilitychange", reportUiVisible);
 
+// Offline media queue tray: a chip inside the composer input wrap listing
+// media that will send as soon as the peer is reachable. Rendered only for
+// local chats with queued items.
+function renderLcQueueTray() {
+  const wrap = document.querySelector("#main-composer .composer-input-wrap");
+  if (!wrap) return;
+  const chatId = state.activeChatId;
+  const items = chatId && String(chatId).startsWith("p2p:") ? lcQueueItems(chatId) : [];
+  let chip = document.getElementById("lc-queue-chip");
+  if (!items.length) { chip?.remove(); return; }
+  if (!chip) {
+    chip = document.createElement("button");
+    chip.id = "lc-queue-chip";
+    chip.type = "button";
+    wrap.appendChild(chip);
+    chip.addEventListener("click", e => {
+      e.stopPropagation();
+      toggleLcQueuePop(state.activeChatId); // read live: chip survives chat switches
+    });
+  }
+  chip.textContent = `⏳ ${items.length}`;
+  chip.title = "Offline media queued — tap to manage";
+}
+
+function toggleLcQueuePop(chatId) {
+  const existing = document.getElementById("lc-queue-pop");
+  if (existing) { existing.remove(); return; }
+  const items = lcQueueItems(chatId);
+  const pop = document.createElement("div");
+  pop.id = "lc-queue-pop";
+  pop.innerHTML = `<div class="lq-head">Queued — sends when the device is reachable</div>` + items.map(it => `
+    <div class="lq-row" data-id="${escapeAttr(it.id)}">
+      <span class="lq-name">${escapeHtml(it.name || "file")}${it.size ? ` · ${formatBytes(it.size)}` : ""}</span>
+      <button class="btn-text" data-lq-retry="${escapeAttr(it.id)}">Send now</button>
+      <button class="btn-text" data-lq-cancel="${escapeAttr(it.id)}" aria-label="Remove from queue">✕</button>
+    </div>`).join("");
+  document.body.appendChild(pop);
+  pop.addEventListener("click", async e => {
+    const retryId = e.target.closest("[data-lq-retry]")?.dataset.lqRetry;
+    const cancelId = e.target.closest("[data-lq-cancel]")?.dataset.lqCancel;
+    if (retryId) {
+      try { await retryQueuedItem(chatId, retryId); toast("Sending…"); }
+      catch (err) { toast(String(err?.message || err)); }
+      toggleLcQueuePop(chatId); // re-render with fresh queue
+    }
+    if (cancelId) { cancelQueuedItem(chatId, cancelId); toggleLcQueuePop(chatId); }
+  });
+  const anchor = () => document.getElementById("lc-queue-chip");
+  const place = () => {
+    const a = anchor();
+    if (!a) return;
+    pop.style.right = Math.max(8, innerWidth - a.getBoundingClientRect().right) + "px";
+    pop.style.bottom = Math.round(innerHeight - a.getBoundingClientRect().top + 10) + "px";
+  };
+  place();
+  const outside = ev => { if (!pop.contains(ev.target) && ev.target !== document.getElementById("lc-queue-chip")) { pop.remove(); document.removeEventListener("pointerdown", outside, true); } };
+  document.addEventListener("pointerdown", outside, true);
+}
+
 async function refreshChatList() {
   if (state.accountChanging) return;
   const epoch = core.accountEpoch, query = state.query;
@@ -612,13 +671,20 @@ async function refreshChatList() {
 // Local chat hub card: lives at the top of the chat list while local chat
 // is on. Replaces the old hub modal — pairing/invite stay as small modals.
 let lcCardSeq = 0;
+let lcCardOpen = true;
+let lcCardSig = null; // last rendered model — skip DOM writes when unchanged
 async function renderLocalChatCard() {
   const el = $("lc-card");
   if (!el) return;
   const seq = ++lcCardSeq;
   const model = await hubModel().catch(() => null);
   if (seq !== lcCardSeq) return; // superseded by a newer render
-  if (!model) { el.hidden = true; return; }
+  if (!model) { el.hidden = true; lcCardSig = null; return; }
+  // Rebuild only when the model changed — chat-list refreshes fire on every
+  // msg-state event and a DOM rewrite eats taps on the card's buttons.
+  const sig = JSON.stringify(model);
+  if (sig === lcCardSig) { el.hidden = false; return; }
+  lcCardSig = sig;
   el.hidden = false;
   const wifiSvg = `<svg viewBox="0 0 24 24" width="18" height="18"><path d="M2.5 9.5a14 14 0 0119 0M5.5 13a9.5 9.5 0 0113 0M8.5 16.5a5 5 0 017 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="19.5" r="1.4" fill="currentColor"/></svg>`;
   const short = (model.device.nodeId || "").slice(0, 8);
@@ -627,6 +693,8 @@ async function renderLocalChatCard() {
       <span class="lc-dot ${p.online ? "on" : ""}"></span>
       <span class="lc-row-name">${escapeHtml(p.name)}</span>
       ${p.queued ? `<span class="lc-row-queued">${p.queued} queued</span>` : ""}
+      <button class="btn-text lc-chat" data-chat="${escapeAttr(p.id)}" title="Open chat" aria-label="Open chat with ${escapeAttr(p.name)}">Chat</button>
+      <button class="btn-text lc-remove" data-remove="${escapeAttr(p.rawId || p.id)}" title="Remove device" aria-label="Remove ${escapeAttr(p.name)}">✕</button>
     </div>`).join("");
   const nearbyRows = model.nearby.map(n => `
     <div class="lc-row" data-pair="${escapeAttr(n.id)}">
@@ -635,13 +703,13 @@ async function renderLocalChatCard() {
       <button class="btn-text" data-pair="${escapeAttr(n.id)}">Pair</button>
     </div>`).join("");
   el.innerHTML = `
-    <div class="lc-card-head" data-toggle>
+    <div class="lc-card-head${lcCardOpen ? " open" : ""}" data-toggle>
       ${wifiSvg}
       <span class="lc-card-title">Local chat</span>
       <span class="lc-card-chevron"><svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
     </div>
     <div class="lc-card-body">
-      <div class="lc-device">This device: <b>${escapeHtml(model.device.name)}</b>${short ? ` <span style="opacity:.55">(${escapeHtml(short)})</span>` : ""}</div>
+      <div class="lc-device">This device: <b>${escapeHtml(model.device.name)}</b>${short ? ` <span class="lc-nodeid">(${escapeHtml(short)})</span>` : ""} <button class="btn-text" data-rename>Edit name</button></div>
       <div class="lc-actions">
         <button class="btn-text" data-invite>Show invite</button>
         <button class="btn-text" data-add>Add contact</button>
@@ -649,16 +717,46 @@ async function renderLocalChatCard() {
       ${nearbyRows ? `<div class="lc-sec">Nearby — discovered on this network</div>${nearbyRows}` : ""}
       ${peerRows ? `<div class="lc-sec">Paired devices</div>${peerRows}` : ""}
     </div>`;
-  el.querySelector("[data-toggle]").addEventListener("click", () => el.classList.toggle("open"));
+  if (lcCardOpen) el.classList.add("open");
+  el.querySelector("[data-toggle]").addEventListener("click", () => { lcCardOpen = !lcCardOpen; el.classList.toggle("open"); });
   const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
   const renderQr = text => core.createQrSvg(text);
-  el.querySelector("[data-invite]").addEventListener("click", () =>
-    showInviteModal(invoke, renderQr).catch(err => toast(String(err?.message || err))));
-  el.querySelector("[data-add]").addEventListener("click", () =>
-    addContact(invoke).catch(err => toast(String(err?.message || err))));
+  el.querySelector("[data-invite]").addEventListener("click", () => {
+    if (!invoke) return toast("Pairing needs the Velta app shell");
+    showInviteModal(invoke, renderQr).catch(err => toast(String(err?.message || err)));
+  });
+  el.querySelector("[data-add]").addEventListener("click", () => {
+    if (!invoke) return toast("Pairing needs the Velta app shell");
+    addContact(invoke).catch(err => toast(String(err?.message || err)));
+  });
+  el.querySelector("[data-rename]").addEventListener("click", async () => {
+    const name = await askText("Device name", model.device.name, "Save");
+    if (!name || !name.trim()) return;
+    try {
+      await renameDevice(name.trim());
+      toast("Device renamed");
+      renderLocalChatCard();
+    } catch (err) { toast(String(err?.message || err)); }
+  });
+  el.querySelectorAll("[data-remove]").forEach(btn => btn.addEventListener("click", async e => {
+    e.stopPropagation();
+    const peerId = btn.dataset.remove;
+    const name = btn.closest(".lc-row")?.querySelector(".lc-row-name")?.textContent || "this device";
+    if (!(await confirmModal("Remove device", `Forget "${name}"? Its chat history and received files will be deleted. The device can re-pair with a new invite.`, "Remove"))) return;
+    try {
+      await removePeer(peerId);
+      toast("Device removed");
+      renderLocalChatCard();
+      refreshChatList();
+    } catch (err) { toast(String(err?.message || err)); }
+  }));
   el.querySelectorAll("[data-pair]").forEach(btn => btn.addEventListener("click", e => {
     e.stopPropagation();
     pairNearbyFlow(invoke, btn.dataset.pair).catch(err => toast(String(err?.message || err)));
+  }));
+  el.querySelectorAll("[data-chat]").forEach(btn => btn.addEventListener("click", e => {
+    e.stopPropagation(); // row click opens too — don't open twice
+    openChat(btn.dataset.chat);
   }));
   el.querySelectorAll("[data-open]").forEach(row => row.addEventListener("click", () =>
     openChat(row.dataset.open)));
@@ -882,11 +980,20 @@ async function openChat(chatId) {
   state.activeChatHead = head;
   head.addEventListener("click", () => showChatInfo(chat));
   const callBtn = $("btn-call");
-  callBtn.hidden = chat.kind !== "single";
-  callBtn.onclick = chat.kind === "single" ? () => calls?.startOutgoing(chat.id, chat.name) : null;
+  // Local (P2P) chats have no call signaling — the p2p engine carries no call
+  // frames, so the dial button would only end in "Call failed".
+  callBtn.hidden = chat.kind !== "single" || chat.isP2p;
+  callBtn.onclick = chat.kind === "single" && !chat.isP2p ? () => calls?.startOutgoing(chat.id, chat.name) : null;
   // Device messages are read-only system posts — no composer. Every open
-  // sets it explicitly (closeChatUI restores it to visible).
+  // sets it explicitly (closeChatUI restores it to visible). Channels need a
+  // rights check: members without posting rights get no composer either.
   $("main-composer").hidden = chat.kind === "device";
+  if (chat.kind === "channel" && core.canSend) {
+    core.canSend(chatId).then(can => {
+      if (!current() || state.activeChatId !== chatId) return;
+      $("main-composer").hidden = !can;
+    }).catch(() => {});
+  }
   refreshChatHeadPresence(chatId);
   // Real member count for groups (the chatlist item doesn't carry it)
   if ((chat.kind === "group" || chat.kind === "channel") && core.getChatMembers) {
@@ -903,6 +1010,7 @@ async function openChat(chatId) {
   // via WryActivity's WebView-history navigation instead of exiting.
   if (history.state?.velta !== "chat") history.pushState({ velta: "chat", chatId }, "");
   renderChatList();
+  renderLcQueueTray();
   } catch (error) {
     if (!current()) return;
     closeChatUI();
@@ -1281,6 +1389,30 @@ async function newChatFlow() {
 
 // Group-name modal — the native prompt() renders as an OS dialog and is
 // disabled outright in some WebViews. Same shape as p2p's promptName.
+// One-input modal for the drawer/hub flows (returns the trimmed value or null).
+function askText(title, value, okLabel) {
+  return new Promise(resolve => {
+    const body = document.createElement("div");
+    body.innerHTML = `<input class="text-field" maxlength="64" placeholder="${escapeAttr(title)}">`;
+    const input = body.querySelector("input");
+    input.value = value || "";
+    const foot = document.createDocumentFragment();
+    const cancel = document.createElement("button");
+    cancel.className = "btn-text"; cancel.textContent = "Cancel";
+    const ok = document.createElement("button");
+    ok.className = "btn-text btn-primary";
+    ok.style.width = "auto";
+    ok.textContent = okLabel || "Save";
+    foot.append(cancel, ok);
+    const done = v => { resolve(v); close(); };
+    const { close } = showModal({ title, body, foot, onClose: () => resolve(null) });
+    ok.addEventListener("click", () => done(input.value.trim()));
+    cancel.addEventListener("click", () => done(null));
+    input.addEventListener("keydown", e => { if (e.key === "Enter") done(input.value.trim()); });
+    setTimeout(() => { input.focus(); input.select(); }, 60);
+  });
+}
+
 function askGroupName() {
   return new Promise(resolve => {
     const body = document.createElement("div");
@@ -1296,7 +1428,7 @@ function askGroupName() {
     ok.style.width = "auto"; // btn-primary defaults to the full-width onboarding bar
     ok.textContent = "Create group";
     foot.append(cancel, ok);
-    const done = value => { close(); resolve(value); };
+    const done = value => { resolve(value); close(); };
     const { close } = showModal({ title: "New group", body, foot, onClose: () => resolve(null) });
     ok.addEventListener("click", () => done(input.value.trim() || "New group"));
     cancel.addEventListener("click", () => done(null));
@@ -2485,6 +2617,7 @@ async function boot() {
       // Local chat (and any transport without push-to-view) relies on this to
       // pull new messages into the open chat without waiting for the 20s tick.
       if (state.activeChatId) chatView?.onMsgsChanged(state.activeChatId);
+      renderLcQueueTray();
     });
     core.addEventListener("chat-updated", ev => {
       scheduleChatListRefresh();

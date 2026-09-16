@@ -18,6 +18,12 @@ export function renderMarkdown(rawText) {
   // white-space: pre-wrap line breaks).
   const blocks = [];
   let list = null; // { type: "ul" | "ol", items: string[], start: number }
+  let quote = null; // inner lines of a "> " blockquote group
+  const flushQuote = () => {
+    if (!quote) return;
+    blocks.push("<blockquote>" + quote.map(inline).join("\n") + "</blockquote>");
+    quote = null;
+  };
   const flushList = () => {
     if (!list) return;
     const start = list.type === "ol" && list.start > 1 ? ` start="${list.start}"` : "";
@@ -25,6 +31,15 @@ export function renderMarkdown(rawText) {
     list = null;
   };
   for (const line of text.split("\n")) {
+    const quoted = /^>{1,3} ?(.*)$/.exec(line);
+    if (quoted) {
+      // Email/DC-style quote block — how fragment quotes travel as plain text.
+      flushList();
+      if (!quote) quote = [];
+      quote.push(quoted[1]);
+      continue;
+    }
+    flushQuote();
     const bullet = /^\s*[-*+]\s+(.+)$/.exec(line);
     const numbered = /^\s*(\d{1,9})[.)]\s+(.+)$/.exec(line);
     if (bullet) {
@@ -39,6 +54,7 @@ export function renderMarkdown(rawText) {
     }
   }
   flushList();
+  flushQuote();
   return blocks.join("\n");
 }
 
