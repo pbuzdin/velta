@@ -1028,6 +1028,14 @@ core capabilities and their Velta integration notes: `CORE-CAPABILITIES.MD`.
   — release.yml is the single tag→release path. The keystore and its password
   live in `signing/` (gitignored) and in the four `ANDROID_KEY*` repo
   secrets; losing both means installed APKs can never be updated again.
+- Branch pushes: `.github/workflows/build-and-notify.yml` is the single
+  push/PR caller of the two reusable build workflows (same path filters),
+  and when BOTH builds succeed it posts the commit message to the bouncer
+  changelog feed (`ntfy.gluek.info/bouncer_changelog`, push events only —
+  PR runs stay quiet). The build workflows are `workflow_call` +
+  `workflow_dispatch` only: do not re-add `push:` triggers to
+  `build-android.yml`/`build-windows.yml` — that would build every push
+  twice (their own runs plus the orchestrator's).
 - When modifying the JSON-RPC API surface, remember that the PWA
   (`app/js/rpc-core.js`), the Python RPC client, and any external consumers must
   stay compatible.

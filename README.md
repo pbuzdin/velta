@@ -652,6 +652,15 @@ tag itself). The release assets are named after the version in
 - `Velta-<version>-<abi>.apk` — signed Android APK (`build-android.yml`)
 - `Velta_<version>_x64-setup.exe` — NSIS Windows installer (`build-windows.yml`)
 
+**Branch builds and changelog feed** (`build-and-notify.yml`): every push to
+`main`/`master` touching app code runs the Windows installer and Android APK
+builds in parallel, and when **both** succeed it posts the commit message to
+the bouncer changelog feed (`ntfy.gluek.info/bouncer_changelog`, commit title
++ author + link — the same shape as gluek's `bouncer-changelog.yml`). Pull
+requests build too, but stay quiet. The per-platform workflows are
+`workflow_call`-only — `release.yml` and `build-and-notify.yml` are their only
+callers, so a push builds everything exactly once.
+
 APKs are signed with the persistent release keystore stored in the repo
 secrets (`ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`,
 `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`), so every build upgrades in

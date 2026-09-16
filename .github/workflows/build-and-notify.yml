@@ -1,0 +1,58 @@
+name: Build and notify
+
+# Push entry point for branch builds: runs the Windows installer and the
+# Android APK builds, and when BOTH succeed posts the commit message to the
+# bouncer changelog feed (ntfy), in the shape of gluek's
+# bouncer-changelog.yml. Tag releases keep flowing through release.yml.
+#
+# The per-platform workflows no longer self-trigger on push — this workflow
+# is their only branch-push caller, so a push builds everything exactly once.
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'app/**'
+      - 'velta-app/**'
+      - 'velta-core-service/**'
+      - 'deltachat-backend/**'
+      - 'core/**'
+      - '.github/workflows/build-*.yml'
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'app/**'
+      - 'velta-app/**'
+      - 'velta-core-service/**'
+      - 'deltachat-backend/**'
+      - 'core/**'
+      - '.github/workflows/build-*.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    uses: ./.github/workflows/build-windows.yml
+    secrets: inherit
+
+  android:
+    uses: ./.github/workflows/build-android.yml
+    secrets: inherit
+
+  notify:
+    needs: [windows, android]
+    runs-on: ubuntu-latest
+    # Only pushes carry a head_commit to report; PR runs build but stay quiet.
+    if: github.event_name == 'push'
+    container:
+      image: curlimages/curl:latest
+    steps:
+      - name: Send notification
+        run: |
+          curl -H "Title: ${{ github.event.head_commit.message }}" \
+               -H "Tags: robot,shield" \
+               -d "Author: ${{ github.actor }}
+               Link: ${{ github.event.head_commit.url }}" \
+               https://ntfy.gluek.info/bouncer_changelog
