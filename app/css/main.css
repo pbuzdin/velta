@@ -186,7 +186,7 @@ svg { width: 24px; height: 24px; display: block; }
 .chat-load-bar {
   position: absolute;
   top: calc(var(--head-h) + env(safe-area-inset-top));
-  left: 0; right: 0; height: 4px;
+  left: 0; right: 0; height: 6px; /* same as .relay-line */
   overflow: hidden; z-index: 4; pointer-events: none;
   background: rgba(76, 141, 255, .18);
   opacity: 0; transition: opacity .25s;
