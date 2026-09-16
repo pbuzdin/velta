@@ -12,6 +12,13 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="stylesheet" href="css/main.css">
+<script>
+// Interface scale (drawer option) applies before first paint to avoid a flash.
+try {
+  var _s = localStorage.getItem("velta-ui-scale");
+  if (_s && _s !== "1") document.documentElement.style.zoom = _s;
+} catch (e) {}
+</script>
 <script src="js/boot-net.js"></script>
 <script src="vendor/virtual-scroller.js"></script>
 </head>

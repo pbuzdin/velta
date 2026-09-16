@@ -1234,7 +1234,7 @@ export class ChatView {
 
   _showInfo(item) {
     const m = item.msg;
-    const stateNames = { pending: "Sending…", sent: "Sent", delivered: "Delivered", read: "Read", received: "Received" };
+    const stateNames = { pending: "Sending…", sent: "Sent", delivered: "Delivered", read: "Read", received: "Received", failed: "Failed" };
     showModal({
       title: "Message info",
       body: `

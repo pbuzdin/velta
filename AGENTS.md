@@ -1022,6 +1022,25 @@ core capabilities and their Velta integration notes: `CORE-CAPABILITIES.MD`.
   Beacons refresh a paired peer's stored addresses (DHCP/roam heals the dial
   book within one beacon interval); tests in
   `tests/local-chat-transfer-progress.test.mjs` pin the event contract.
+  Failed texts (since 1.4.2) render the same Retry card as failed transfers:
+  mapMsg maps `failed` to state "failed" and the adapter's resendMessage
+  re-sends the same text/quote as a FRESH message (swap, not append; the
+  failed bubble is restored when the engine rejects the retry — identical
+  contract to lcRetryTransfer). Only failed msgs match; pending/sent ones
+  fall through to the real core.
+
+- Interface scale + theme (since 1.4.2): MainActivity.kt pins the WebView's
+  `textZoom = 100` (bounded retry until the Tauri runtime creates the
+  WebView) — the system font scale otherwise applies text-only zoom that
+  inflates text out of the px-sized boxes (broken layout at the largest
+  scaling factor; reporter's viewport was 320px wide). Scaling is owned by
+  the app instead: drawer spoilers (ui.js) with radios — "Interface scale"
+  (zoom on <html>, persisted `velta-ui-scale`, applied pre-paint by the
+  inline script in index.html <head>) and "Theme" (auto/dark/light; auto
+  follows `prefers-color-scheme` live via matchMedia and is the DEFAULT for
+  fresh installs — `dw-theme` holds the setting). Both apply in place:
+  never rebuildDrawer() on a radio change, it would close the drawer.
+  `text-size-adjust: 100%` on html neutralizes font boosting in browsers.
 
 - In-app browser (since 1.3.38): Android message links open
   `inapp-browser.js`'s overlay (bar: close / fetched title + domain /

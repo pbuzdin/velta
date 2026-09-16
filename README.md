@@ -74,8 +74,20 @@ queue auto-flushes, oldest first, on the peer's next `presence` online event.
 Offline texts are queued inside the engine and show a pending clock in the
 bubble: `p2p_send` returns `{id, queued}`, a reconnect flush emits a
 `msg-state` event to upgrade the clock to ticks, and the peer's ack completes
-the read state. Chat names carry a green wifi badge instead of the relay
-chats' open lock (the transport is QUIC/TLS with pairing-pinned identities).
+the read state. A text whose send fails outright renders a Retry button too
+(resendMessage re-sends the same text and quote as a fresh message; the
+failed bubble is restored if the engine still rejects it). Chat names carry a
+green wifi badge instead of the relay chats' open lock (the transport is
+QUIC/TLS with pairing-pinned identities).
+
+**Interface scale and theme live in the drawer.** Velta pins the WebView's
+`textZoom` to 100 (system font scale otherwise inflates text out of its
+px-sized boxes — broken layouts on devices set to the largest scaling
+factor) and instead offers coherent, in-app scaling: a drawer spoiler with
+Small / Normal / Large applied as a zoom on `<html>` before first paint.
+The theme spoiler adds **Auto**, which follows the system's
+`prefers-color-scheme` live (including the status-bar tint); it is the
+default for fresh installs.
 
 </details>
 

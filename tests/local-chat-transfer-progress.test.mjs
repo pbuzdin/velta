@@ -147,3 +147,48 @@ test("offline text surfaces pending -> sent -> read through engine events", asyn
   msgs = await p2pMsgs();
   assert.equal(msgs[msgs.length - 1].state, "read");
 });
+
+test("failed texts retry in place: swap for a fresh send, restore on failure", async () => {
+  globalThis.__TAURI__.core.invoke = async (cmd, args = {}) => {
+    if (cmd === "p2p_send") throw new Error("connect failed");
+    return baseInvoke(cmd, args);
+  };
+  await core.sendMessage("p2p:x", { text: "will fail" });
+  await new Promise(r => setTimeout(r, 0)); // let the rejection mark it failed
+  let msgs = await p2pMsgs();
+  const failed = msgs[msgs.length - 1];
+  assert.equal(failed.state, "failed"); // no ticks — the Retry button replaces them
+
+  // Successful retry: the failed bubble is swapped for a fresh engine send
+  // with the same text (queued this time).
+  globalThis.__TAURI__.core.invoke = async (cmd, args = {}) => {
+    if (cmd === "p2p_send") return { id: `E${++sendN}`, queued: true };
+    return baseInvoke(cmd, args);
+  };
+  await core.resendMessage(failed.id);
+  msgs = await p2pMsgs();
+  assert.ok(!msgs.some(m => m.state === "failed" && m.text === "will fail"));
+  const fresh = msgs[msgs.length - 1];
+  assert.equal(fresh.text, "will fail");
+  assert.equal(fresh.state, "pending");
+
+  // Failing retry: make a fresh failed text, then the bubble comes back
+  // with its Retry button instead of vanishing.
+  globalThis.__TAURI__.core.invoke = async (cmd, args = {}) => {
+    if (cmd === "p2p_send") throw new Error("connect failed");
+    return baseInvoke(cmd, args);
+  };
+  await core.sendMessage("p2p:x", { text: "will fail twice" });
+  await new Promise(r => setTimeout(r, 0));
+  const twice = (await p2pMsgs()).at(-1);
+  assert.equal(twice.state, "failed");
+  const before = (await p2pMsgs()).length;
+  globalThis.__TAURI__.core.invoke = async (cmd, args = {}) => {
+    if (cmd === "p2p_send") throw new Error("peer is offline");
+    return baseInvoke(cmd, args);
+  };
+  await assert.rejects(() => core.resendMessage(twice.id), /offline/);
+  msgs = await p2pMsgs();
+  assert.equal(msgs.length, before); // restored, not vanished
+  assert.equal(msgs.at(-1).state, "failed");
+});

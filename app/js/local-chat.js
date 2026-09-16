@@ -84,7 +84,7 @@ function mapMsg(p, m) {
     id: m.id, engineId: m.engineId ?? null, chatId: P2P_PREFIX + p.id, kind: "msg",
     viewtype: m.file ? viewtypeFor(m.file.name, m.file.mime) : "text",
     from: m.out ? 1 : 0, text: m.text, ts: m.ts,
-    state: m.out ? (m.acked ? "read" : m.queued ? "pending" : "sent") : "read",
+    state: m.out ? (m.failed ? "failed" : m.acked ? "read" : m.queued ? "pending" : "sent") : "read",
     fromContact: { name: m.out ? "" : p.name, color: colorFor(p.name) },
     starred: false, edited: false, quote: null, reactions: null, fwdFrom: null,
     filePath: null, fileName: null, fileSize: null, fileMime: null,
@@ -521,11 +521,41 @@ function handler(prop) {
     // errors reaching the real core with a string id.
     case "deleteMessages":
     case "setChatFlags":
-    case "resendMessage":
     case "downloadFullMessage":
       return async (t, id) => {
         if (String(id).startsWith(P2P_PREFIX)) return;
         return t[prop](id);
+      };
+
+    // Retry a failed text: swap the failed bubble for a fresh engine send
+    // (same text and quote). On failure the failed bubble is restored —
+    // same contract as lcRetryTransfer. Relay chats fall through.
+    case "resendMessage":
+      return async (t, id) => {
+        for (const p of store.peers.values()) {
+          const m = p.msgs.find(x => x.id === id && x.out && x.failed);
+          if (!m) continue;
+          if (!isTauri()) { // sim preview: no real sends to fail
+            p.msgs = p.msgs.map(x => x.id === id ? { ...x, failed: false, acked: true } : x);
+            emitChanged();
+            return;
+          }
+          p.msgs = p.msgs.filter(x => x.id !== id);
+          try {
+            const res = await invoke()("p2p_send", { peerId: p.id, text: m.text || "", replyTo: m.reply_to ?? null, replyText: m.reply_text ?? null });
+            const fresh = { id: nowId(), engineId: res.id, ts: Date.now(), text: m.text || "", out: true, acked: !res.queued };
+            if (res.queued) fresh.queued = true;
+            if (m.reply_to != null) { fresh.reply_to = m.reply_to; fresh.reply_text = m.reply_text ?? null; }
+            p.msgs.push(fresh);
+          } catch (err) {
+            p.msgs.push(m); // still offline / unknown peer — the Retry button comes back
+            emitChanged();
+            throw err;
+          }
+          emitChanged();
+          return;
+        }
+        return t.resendMessage(id);
       };
 
     default:

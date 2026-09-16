@@ -143,7 +143,34 @@ export function setCoreVersionDisplay(v) {
   CORE_VERSION = String(v).replace(/^v/, "");
   document.querySelectorAll('[data-v="core"]').forEach((el) => { el.textContent = CORE_VERSION; });
 }
-const FALLBACK_APP_VERSION = "1.4.1";
+const FALLBACK_APP_VERSION = "1.4.2";
+
+const THEME_LABELS = { auto: "Auto", dark: "Dark", light: "Light" };
+
+// Interface scale — a coherent whole-UI zoom for users on huge system font
+// scales ("pensioner mode") whose WebView text-only zoom breaks the px-sized
+// layout. Persisted in localStorage["velta-ui-scale"] and applied pre-paint
+// by the inline script in index.html <head>.
+export const UI_SCALES = [["0.85", "Small"], ["1", "Normal"], ["1.15", "Large"]];
+export function uiScaleValue() {
+  try { return localStorage.getItem("velta-ui-scale") || "1"; } catch { return "1"; }
+}
+export function uiScaleLabel() {
+  return (UI_SCALES.find(([s]) => s === uiScaleValue()) || UI_SCALES[1])[1];
+}
+export function applyUiScale() {
+  let v = "1";
+  try { v = localStorage.getItem("velta-ui-scale") || "1"; } catch {}
+  if (v === "1") document.documentElement.style.removeProperty("zoom");
+  else document.documentElement.style.zoom = v;
+}
+export function setUiScale(v) {
+  try {
+    if (v === "1") localStorage.removeItem("velta-ui-scale");
+    else localStorage.setItem("velta-ui-scale", v);
+  } catch {}
+  applyUiScale();
+}
 
 async function getAppVersion() {
   try {
@@ -174,7 +201,7 @@ async function getTauriVersion() {
 }
 
 /* ---------- Settings drawer ---------- */
-export function buildDrawer({ account, onAddAccount, onSecondDevice, onToggleTheme, onOpenChat, onInvite, onToggleMock, onProfile, onEditProfile, onInviteDomains, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme }) {
+export function buildDrawer({ account, onAddAccount, onSecondDevice, onSetTheme, onOpenChat, onInvite, onToggleMock, onProfile, onEditProfile, onInviteDomains, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme }) {
   const isTauri = !!window.__TAURI__;
   const drawer = document.createElement("div");
   drawer.className = "drawer";
@@ -199,7 +226,18 @@ export function buildDrawer({ account, onAddAccount, onSecondDevice, onToggleThe
       <button class="ctx-item" data-act="invite"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="13" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="3" width="8" height="8" rx="1" fill="currentColor"/><rect x="3" y="13" width="8" height="8" rx="1" fill="currentColor"/></svg><span>Invite friends (QR)</span></button>
       ${p2pAvailable ? `<button class="ctx-item" data-act="p2p-toggle"><svg viewBox="0 0 24 24"><path d="M2.5 9.5a14 14 0 0119 0M5.5 13a9.5 9.5 0 0113 0M8.5 16.5a5 5 0 017 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="19.5" r="1.4" fill="currentColor"/></svg><span>Local chat: ${p2pOn ? "on" : "off"}</span></button>` : ""}
       <div class="drawer-sec">Settings</div>
-      <button class="ctx-item" data-act="theme"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 109 9c0-1.5-1.2-2.6-2.6-2.6h-1.9a2.5 2.5 0 01-2.5-2.5V5.1C14 4 13.3 3 12 3z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="7.5" cy="10.5" r="1.2" fill="currentColor"/><circle cx="12" cy="7.5" r="1.2" fill="currentColor"/><circle cx="16.5" cy="10.5" r="1.2" fill="currentColor"/></svg><span>${theme === "dark" ? "Light theme" : "Dark theme"}</span></button>
+      <details class="drawer-details">
+        <summary><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 109 9c0-1.5-1.2-2.6-2.6-2.6h-1.9a2.5 2.5 0 01-2.5-2.5V5.1C14 4 13.3 3 12 3z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="7.5" cy="10.5" r="1.2" fill="currentColor"/><circle cx="12" cy="7.5" r="1.2" fill="currentColor"/><circle cx="16.5" cy="10.5" r="1.2" fill="currentColor"/></svg><span data-theme-summary>Theme: ${THEME_LABELS[theme] || "Auto"}</span></summary>
+        <div class="scale-opts" data-theme-opts>
+          ${Object.entries(THEME_LABELS).map(([v, label]) => `<label class="scale-opt"><input type="radio" name="app-theme" value="${v}"${v === theme ? " checked" : ""}><span>${label}</span></label>`).join("")}
+        </div>
+      </details>
+      <details class="drawer-details">
+        <summary><svg viewBox="0 0 24 24"><path d="M5 19L11.2 5h1.6L19 19M7.2 15h9.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M16.5 5.5L21 10M21 5.5L16.5 10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-scale-summary>Interface scale: ${uiScaleLabel()}</span></summary>
+        <div class="scale-opts" data-scale-opts>
+          ${UI_SCALES.map(([v, label]) => `<label class="scale-opt"><input type="radio" name="ui-scale" value="${v}"${v === uiScaleValue() ? " checked" : ""}><span>${label}</span></label>`).join("")}
+        </div>
+      </details>
       <button class="ctx-item" data-act="add-account"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 5v4M21 7h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Add profile…</span></button>
       <button class="ctx-item" data-act="second-device"><svg viewBox="0 0 24 24"><rect x="2.5" y="4" width="11" height="17" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="16" y="8" width="5.5" height="13" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Add a second device…</span></button>
       <button class="ctx-item" data-act="relays"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Relays of this profile…</span></button>
@@ -237,6 +275,28 @@ export function buildDrawer({ account, onAddAccount, onSecondDevice, onToggleThe
 
   const acctPop = drawer.querySelector("[data-acct-pop]");
 
+  // Interface scale radios (inside the spoiler): apply live, keep the
+  // summary label in sync. Radios have no data-act, so the drawer stays open.
+  drawer.querySelector("[data-scale-opts]")?.addEventListener("change", e => {
+    const v = e.target?.value;
+    if (!v) return;
+    setUiScale(v);
+    const summary = drawer.querySelector("[data-scale-summary]");
+    if (summary) summary.textContent = `Interface scale: ${uiScaleLabel()}`;
+    toast(`Interface scale: ${uiScaleLabel()}`);
+  });
+
+  // Theme radios: "auto" follows the system preference (app.js listens for
+  // changes while auto). Apply in place — no drawer rebuild.
+  drawer.querySelector("[data-theme-opts]")?.addEventListener("change", e => {
+    const v = e.target?.value;
+    if (!v || !THEME_LABELS[v]) return;
+    onSetTheme?.(v);
+    const summary = drawer.querySelector("[data-theme-summary]");
+    if (summary) summary.textContent = `Theme: ${THEME_LABELS[v]}`;
+    toast(`Theme: ${THEME_LABELS[v]}`);
+  });
+
   // Outside tap closes the drawer. Capture phase, so it wins over whatever
   // lives under the tap; the transparent overlay (z 50) still swallows the
   // click so nothing under the drawer activates. Belt and suspenders: the
@@ -263,7 +323,6 @@ export function buildDrawer({ account, onAddAccount, onSecondDevice, onToggleThe
     const act = btn.dataset.act;
     if (act === "switch-account") { acctPop.hidden = !acctPop.hidden; return; }
     close();
-    if (act === "theme") onToggleTheme();
     if (act === "saved") onOpenChat("saved");
     if (act === "invite") onInvite?.();
     if (act === "p2p-toggle") onP2pToggle?.();

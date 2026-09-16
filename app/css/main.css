@@ -42,6 +42,13 @@ html[data-theme="light"] {
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 [hidden] { display: none !important; }
+/* Neutralize browser font-boosting / text inflation: Velta owns its scaling
+   end to end (drawer → Interface scale). The Android shell additionally pins
+   WebView textZoom to 100 (MainActivity.kt). */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
 html, body { height: 100%; overscroll-behavior: none; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -770,6 +777,31 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .ctx-item.danger { color: var(--danger); }
 .ctx-item svg { width: 20px; height: 20px; color: var(--text-dim); }
 .ctx-item.danger svg { color: var(--danger); }
+
+/* Drawer spoiler with interface-scale radios */
+.drawer-details summary {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; padding: 9px 12px; border-radius: 8px;
+  font-size: 14.5px; text-align: left; cursor: pointer; user-select: none;
+  list-style: none; color: var(--text);
+}
+.drawer-details summary::-webkit-details-marker { display: none; }
+.drawer-details summary::after {
+  content: ""; width: 8px; height: 8px; margin-left: auto; flex: none;
+  border-right: 2px solid var(--text-dim); border-bottom: 2px solid var(--text-dim);
+  transform: rotate(-45deg); transition: transform .15s;
+}
+.drawer-details[open] summary::after { transform: rotate(45deg); }
+.drawer-details summary:hover { background: var(--bg-hover); }
+.drawer-details summary svg { width: 20px; height: 20px; color: var(--text-dim); flex: none; }
+.scale-opts { display: flex; flex-direction: column; gap: 2px; padding: 2px 12px 8px 14px; }
+.scale-opt {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 10px; border-radius: 8px; cursor: pointer;
+  font-size: 14px; color: var(--text);
+}
+.scale-opt:hover { background: var(--bg-hover); }
+.scale-opt input { accent-color: var(--accent); flex: none; }
 .ctx-sep { height: 1px; background: var(--border); margin: 5px 8px; }
 
 .modal {

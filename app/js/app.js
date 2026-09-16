@@ -38,7 +38,7 @@ const state = {
   chats: [],
   activeChatId: null,
   query: "",
-  theme: localStorage.getItem("dw-theme") || "dark",
+  theme: localStorage.getItem("dw-theme") || "auto",
 };
 
 function appLog(msg) {
@@ -530,16 +530,17 @@ addEventListener("velta-core-init-failed", e => {
 });
 
 /* ---------------- theme ---------------- */
+// theme: "auto" (follow the system, default) | "dark" | "light".
+const themeQuery = matchMedia("(prefers-color-scheme: light)");
 applyTheme();
+themeQuery.addEventListener?.("change", () => {
+  if (state.theme === "auto") applyTheme();
+});
 function applyTheme() {
-  document.documentElement.dataset.theme = state.theme;
-  document.querySelector('meta[name="theme-color"]').content = state.theme === "dark" ? "#0f0f14" : "#f4f4f4";
+  const effective = state.theme === "auto" ? (themeQuery.matches ? "light" : "dark") : state.theme;
+  document.documentElement.dataset.theme = effective;
+  document.querySelector('meta[name="theme-color"]').content = effective === "dark" ? "#0f0f14" : "#f4f4f4";
   localStorage.setItem("dw-theme", state.theme);
-}
-function toggleTheme() {
-  state.theme = state.theme === "dark" ? "light" : "dark";
-  applyTheme();
-  rebuildDrawer();
 }
 
 /* ---------------- chat list ---------------- */
@@ -1680,7 +1681,7 @@ function rebuildDrawer() {
     currentAccountId: core.accountId,
     onAccountTap: accountTapFlow,
     onRelays: () => openRelaysModal(),
-    onToggleTheme: toggleTheme,
+    onSetTheme: (mode) => { state.theme = mode; applyTheme(); },
     onAddAccount: addAccountFlow,
     onSecondDevice: secondDeviceFlow,
     onInvite: () => showInvite(inviteQrProvider(null), { account: state.account }),
