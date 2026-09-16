@@ -272,6 +272,7 @@ export class ChatView {
       chatId,
       reload: 0,
     };
+    this._loadBar(true);
     try {
       const chat = await this.core.getChat(chatId);
       if (!this._isCurrent(session)) return false;
@@ -299,7 +300,14 @@ export class ChatView {
       if (!this._isCurrent(session)) return false;
       this.close();
       throw err;
+    } finally {
+      this._loadBar(false);
     }
+  }
+
+  // History loading strip under the chat header (see .chat-load-bar).
+  _loadBar(on) {
+    document.getElementById("chat-load-bar")?.toggleAttribute("data-on", on);
   }
 
   // Full teardown: stop polling, dispose the virtual scroller, drop cached

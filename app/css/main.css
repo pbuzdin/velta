@@ -179,7 +179,26 @@ svg { width: 24px; height: 24px; display: block; }
 }
 .no-chat-sub { margin-top: 14px; font-size: 13px; color: var(--text-dim); opacity: .7; }
 
-.chat-view { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.chat-view { display: flex; flex-direction: column; flex: 1; min-width: 0; position: relative; }
+/* History loading strip: thin blue gradient sweeping right, pinned just
+   under the chat header while the open chat's history loads. Blue on a
+   faint tint of itself so the track stays visible on every theme. */
+.chat-load-bar {
+  position: absolute;
+  top: calc(var(--head-h) + env(safe-area-inset-top));
+  left: 0; right: 0; height: 4px;
+  overflow: hidden; z-index: 4; pointer-events: none;
+  background: rgba(76, 141, 255, .18);
+  opacity: 0; transition: opacity .25s;
+}
+.chat-load-bar[data-on] { opacity: 1; }
+.chat-load-bar::before {
+  content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 45%;
+  background: linear-gradient(90deg, transparent, #4c8dff 30%, #8fbcff 50%, #4c8dff 70%, transparent);
+  animation: chat-load-sweep 1.1s ease-in-out infinite;
+}
+@keyframes chat-load-sweep { from { transform: translateX(-100%); } to { transform: translateX(350%); } }
+@media (prefers-reduced-motion: reduce) { .chat-load-bar::before { animation: none; } }
 .chat-head {
   display: flex; align-items: center; gap: 4px;
   background: var(--bg-sidebar);
