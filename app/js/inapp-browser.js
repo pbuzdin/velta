@@ -47,7 +47,14 @@ export function openInAppBrowser(url) {
   const t = window.__TAURI__;
   if (t && /Android/.test(navigator.userAgent || "")) {
     (t?.core?.invoke || t?.invoke)?.("open_in_app_browser", { url })
-      .catch(() => openIframeOverlay(url));
+      .catch((e) => {
+        // Most real sites send X-Frame-Options / frame-ancestors, so the
+        // iframe fallback is useless on Android — hand off to the system
+        // browser instead (plugin:opener also falls back internally).
+        (t?.core?.invoke || t?.invoke)?.("js_log", { msg: `open_in_app_browser failed, using system browser: ${e}` }).catch(() => {});
+        (t?.core?.invoke || t?.invoke)?.("plugin:opener|open_url", { url })
+          .catch(() => openIframeOverlay(url));
+      });
     return;
   }
   openIframeOverlay(url);

@@ -553,6 +553,29 @@ iroh (QUIC, `RelayMode::Disabled`, optional mDNS re-discovery via the
   button lives in the Diagnostics chat's action row.
 - Rust tests: `cargo test --lib p2p::` (loopback pairing + offline queue flush).
 
+### 5.5 In-app browser (`app/js/inapp-browser.js` + `InAppBrowser.kt` + `lib.rs`)
+
+Android link handling chain (since 1.4.1, hardened after 1.4.2): `openInAppBrowser(url)`
+on Android invokes `open_in_app_browser` (JNI → `org.velta.InAppBrowser`).
+Failure chain, in order:
+
+1. **Chrome Custom Tab** — the normal path.
+2. **Default browser** — `InAppBrowser.kt` catches the launch failure
+   (`CustomTabsIntent.launchUrl` does NOT fall back on its own) and re-launches
+   via plain `ACTION_VIEW` + `FLAG_ACTIVITY_NEW_TASK`.
+3. **Iframe overlay** (`openIframeOverlay`) — last resort and dev only. Sites
+   sending X-Frame-Options / frame-ancestors (github.com, most big sites) are
+   blocked by Chromium with `net::ERR_BLOCKED_BY_RESPONSE`; the bar's
+   external-open button is the escape hatch.
+
+JNI gotcha: `find_class` for app classes is unreliable from Rust worker
+threads attached via `attach_current_thread` (boot classloader context), so
+`org.velta.InAppBrowser` is resolved once and cached as a global ref in
+`setApplicationContext` (runs on a Java thread from `MainActivity.onCreate`).
+System classes (`android/net/Uri` etc.) work from anywhere. Desktop keeps its
+system-browser convention — `open_in_app_browser` is `#[cfg(target_os =
+"android")]` and errors elsewhere.
+
 ---
 
 ## 6. Development conventions
@@ -776,6 +799,11 @@ test traffic accordingly.
   the JS `visibilitychange` handler refetches the chat list and open chat on
   resume. Keep the poller gated on `UI_VISIBLE` — ungated it would steal
   events from the frontend's own polling.
+  Notification titles: `bg_notify_incoming` defaults the title to "Velta" and
+  replaces it with the chat name via `get_basic_chat_info` — the RPC surface
+  has NO `get_chat` method, and a wrong method name here fails silently
+  (`if let Ok`), leaving every push titled "Velta" (1.4.2 regression, fixed
+  1.4.3 after a user report).
 
 ### 9.3 Android background service
 
@@ -825,6 +853,11 @@ re-renders, `[virtual-scroller] The item is no longer rendered onscreen
   connectivity-driven polls (its own `get_connectivity` RPCs emit further
   `ConnectivityChanged` events — the unguarded handler multiplied storms).
   Tests shrink both via their instance knobs, not by deleting the gates.
+- `chat-view.js` `onMsgsChanged` also self-heals delivery-state ticks: the
+  tail refetch rebuilds rows whose `state` changed, not only
+  `downloadState`/`viewtype`. Tick state otherwise rides only on
+  `MsgDelivered`/`MsgRead` events — a dropped event used to leave a sending
+  spinner stuck for hours (fixed 1.4.3). Keep `state` in that condition.
 - Core-side: a mail the core fetches and ignores (`receive_imf.rs` ignore
   path) must still be marked seen on the server, or IMAP idle re-fetches it
   forever — one looping mail stalled an inbox with events every ~2 s. Check

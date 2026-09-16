@@ -422,12 +422,15 @@ export class ChatView {
     // A media message that finished downloading keeps its id, so the "new"
     // filter above skips it. Re-render rows in place when the download state
     // or view type changed (e.g. a video Pre-Message placeholder becoming a
-    // playable player once its Post-Message arrives).
+    // playable player once its Post-Message arrives) — or when the delivery
+    // state changed, so a MsgDelivered/MsgRead event that the transport
+    // dropped self-heals here instead of leaving a stuck sending spinner.
     let updated = 0;
     for (const m of messages) {
       const item = this.msgIndex.get(m.id);
       if (item?.msg && item.msg !== m
-        && (item.msg.downloadState !== m.downloadState || item.msg.viewtype !== m.viewtype)) {
+        && (item.msg.downloadState !== m.downloadState || item.msg.viewtype !== m.viewtype
+          || item.msg.state !== m.state)) {
         this.onMsgUpdated(this.chat.id, m);
         updated++;
       }

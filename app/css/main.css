@@ -387,6 +387,16 @@ html[data-theme="light"] .msg-row.out .msg-quote .q-text { color: #4d5a68; }
   border-left: 3px solid var(--accent);
   color: var(--text-dim);
 }
+/* Outgoing bubbles sit on the blue bg — silver text-dim and the accent border
+   don't read there (same treatment as .msg-row.out .msg-quote). */
+.msg-row.out .msg-text blockquote {
+  border-left-color: rgba(244,244,244,.55);
+  color: #dfeaf6;
+}
+html[data-theme="light"] .msg-row.out .msg-text blockquote {
+  border-left-color: #9ec3e8;
+  color: #4d5a68;
+}
 
 /* Floating "Reply" chip when text is selected inside a bubble (fragment quote) */
 #sel-quote-chip {

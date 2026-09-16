@@ -456,11 +456,11 @@ Reply quotes use a dedicated palette per bubble and theme (the generic accent/di
 <details>
 <summary>Known limitations</summary>
 
-- **In-app browser (Android)** — external https links in messages open in a Telegram-style internal viewer: close button, page title + domain, loading bar, and an open-in-system-browser escape hatch. It is a sandboxed iframe, so sites that refuse embedding (X-Frame-Options / frame-ancestors) show a blank frame — use the bar's external-open button for those. The page title is fetched separately by the shell (`fetch_page_title`, 5 s timeout, 256 KB cap).
+- **In-app browser (Android)** — external https links in messages open in a Chrome Custom Tab (Telegram-style: close button, page title + domain, share, open-in-system-browser escape hatch). If no Custom Tabs provider resolves the launch, `InAppBrowser.kt` falls back to the default browser via a plain `ACTION_VIEW`; only if that fails too does the JS side render its iframe overlay. The overlay's sandboxed iframe cannot show sites that send X-Frame-Options / frame-ancestors (Chromium blocks with `net::ERR_BLOCKED_BY_RESPONSE`) — the bar's external-open button is the escape hatch. The Custom Tab class (`org.velta.InAppBrowser`) is cached as a JNI global ref at startup (`setApplicationContext` in `lib.rs`) because `find_class` for app classes is unreliable from Rust worker threads. The page title in the overlay is fetched separately by the shell (`fetch_page_title`, 5 s timeout, 256 KB cap).
 - Group creation, contact discovery, QR invites, and real-time message rendering all work in basic flows but have not been stress-tested.
 - Logging to `velta.log` is disabled in the stable branch; use the status pill and browser/Tauri dev tools to diagnose issues.
 - On Windows, the app needs the sidecar binary to talk to the real core. If the sidecar fails to start the frontend falls back to the mock core.
-- On Android, the in-process core rides a built-in foreground service (`CoreService`): messages keep syncing and arrive as system notifications while the app is backgrounded. A separate headless service APK (`velta-core-service/`) still exists for the PWA-in-browser mode.
+- On Android, the in-process core rides a built-in foreground service (`CoreService`): messages keep syncing and arrive as system notifications while the app is backgrounded. Notifications are titled with the chat/sender name and burst into a count ("N new messages") when several arrive at once; a background event poller (not the WebView) builds them while the app is hidden. A separate headless service APK (`velta-core-service/`) still exists for the PWA-in-browser mode.
 
 </details>
 

@@ -778,13 +778,20 @@ Connection: close
 #[cfg(target_os = "android")]
 static APP_CONTEXT: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
 
+// org.velta.InAppBrowser cached as a global ref: JNI FindClass for app
+// classes is unreliable from Rust worker threads attached via
+// attach_current_thread (wrong classloader context), so it is resolved once
+// in setApplicationContext while running on a Java thread.
+#[cfg(target_os = "android")]
+static APP_INAPP_BROWSER_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
+
 // Called from MainActivity.onCreate (Kotlin) with the application context.
 // Storing it lets Rust commands use the Android ContentResolver (e.g. for
 // reading content:// attachments picked through the system file picker).
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub extern "system" fn Java_org_velta_MainActivity_setApplicationContext(
-    env: jni::JNIEnv,
+    mut env: jni::JNIEnv,
     _class: jni::objects::JClass,
     context: jni::objects::JObject,
 ) {
@@ -804,6 +811,15 @@ pub extern "system" fn Java_org_velta_MainActivity_setApplicationContext(
     };
     *APP_JAVA_VM.lock().unwrap() = Some(vm);
     *APP_CONTEXT.lock().unwrap() = Some(global);
+    match env.find_class("org/velta/InAppBrowser") {
+        Ok(class) => match env.new_global_ref(&class) {
+            Ok(g) => {
+                *APP_INAPP_BROWSER_CLASS.lock().unwrap() = Some(g);
+            }
+            Err(e) => log(&format!("setApplicationContext: InAppBrowser global ref failed: {e}")),
+        },
+        Err(e) => log(&format!("setApplicationContext: InAppBrowser find_class failed: {e}")),
+    }
     log("application context stored for Rust commands");
 }
 
@@ -825,8 +841,8 @@ fn open_in_app_browser(_url: String) -> Result<(), String> {
 
 /// Android: launch the URL in a Chrome Custom Tab (native, Telegram-style)
 /// via InAppBrowser.kt. Uses the application context handed over from
-/// MainActivity.onCreate. CustomTabsIntent falls back to the default browser
-/// when no Custom Tabs provider is installed.
+/// MainActivity.onCreate. InAppBrowser.open falls back to a plain ACTION_VIEW
+/// launch when no Custom Tabs provider resolves the session intent.
 #[cfg(target_os = "android")]
 #[tauri::command]
 fn open_in_app_browser(url: String) -> Result<(), String> {
@@ -839,10 +855,13 @@ fn open_in_app_browser(url: String) -> Result<(), String> {
     let vm_ref = vm_guard.as_ref().ok_or("jvm was not handed over yet")?;
     let mut env = vm_ref.attach_current_thread().map_err(|e| format!("jvm attach: {e}"))?;
 
-    let class = env.find_class("org/velta/InAppBrowser").map_err(|e| e.to_string())?;
+    let class_guard = APP_INAPP_BROWSER_CLASS.lock().unwrap();
+    let class_ref = class_guard
+        .as_ref()
+        .ok_or("InAppBrowser class was not cached at startup")?;
     let url_j = env.new_string(url).map_err(|e| e.to_string())?;
     env.call_static_method(
-        &class,
+        class_ref,
         "open",
         "(Landroid/content/Context;Ljava/lang/String;)V",
         &[(&context).into(), (&url_j).into()],
@@ -1262,7 +1281,10 @@ async fn bg_notify_incoming(
             }
         }
     }
-    if let Ok(chat) = bg_rpc(tx, state, "get_chat", serde_json::json!([account, chat_id])).await {
+    // The RPC surface has no "get_chat" method — the name lookup silently
+    // failed and every background notification stayed titled "Velta".
+    // get_basic_chat_info is the light-weight chat-name fetch.
+    if let Ok(chat) = bg_rpc(tx, state, "get_basic_chat_info", serde_json::json!([account, chat_id])).await {
         if let Some(name) = chat.get("name").and_then(|n| n.as_str()) {
             if !name.trim().is_empty() {
                 title = name.trim().to_string();

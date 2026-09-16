@@ -55,7 +55,17 @@ export function renderMarkdown(rawText) {
   }
   flushList();
   flushQuote();
-  return blocks.join("\n");
+  // pre-wrap renders a "\n" text node as a forced break even next to block
+  // elements, where it doubles into an empty line (block break + text break).
+  // Newlines belong only between two text blocks; <ul>/<ol>/<blockquote>
+  // provide their own line breaks on both sides.
+  let out = "";
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    if (i && !/^<(ul|ol|blockquote)/.test(b) && !/^<(ul|ol|blockquote)/.test(blocks[i - 1])) out += "\n";
+    out += b;
+  }
+  return out;
 }
 
 // Inline pass on one line/block, single combined scan: [label](url) links are
