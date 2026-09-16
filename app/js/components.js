@@ -250,9 +250,16 @@ const OPEN_LOCK_SVG = `<svg class="ci-lock open" viewBox="0 0 24 24"><rect x="5"
 // encrypted, so instead of the open lock they carry this wifi mark.
 export const WIFI_SVG = `<svg class="ci-wifi" viewBox="0 0 24 24"><path d="M2.5 9.5a14 14 0 0119 0M5.5 13a9.5 9.5 0 0113 0M8.5 16.5a5 5 0 017 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="19.5" r="1.4" fill="currentColor"/></svg>`;
 // Chat-name badge: p2p wifi replaces the open lock; verified keeps its badge.
+// Verified rosette: key-contact verification (secure-join QR) lives on the
+// CONTACT — the core's chatlist payload carries no verified field (rpc-core
+// hardcodes it false), so trust the hydrated contact when present. The open
+// chat head gets `chat.contact` from refreshChatHeadPresence; bare list items
+// never hydrate contacts (an RPC per row), so the rosette shows in the header
+// and profile, not the list.
+const chatVerified = c => !!(c.contact ? c.contact.verified : c.verified);
 const nameBadgesFor = c =>
   (c.isP2p ? WIFI_SVG : c.kind === "single" && !c.encrypted ? OPEN_LOCK_SVG : "") +
-  (c.verified ? VERIFIED_SVG : "");
+  (chatVerified(c) ? VERIFIED_SVG : "");
 const VERIFIED_SVG = `<svg class="ci-verified" viewBox="0 0 24 24"><path d="M12 2l2.4 2.1 3.1-.4 1.1 3 3 1.1-.4 3.1L23.3 13l-2.1 2.4.4 3.1-3 1.1-1.1 3-3.1-.4L12 24l-2.4-2.1-3.1.4-1.1-3-3-1.1.4-3.1L.7 13l2.1-2.4-.4-3.1 3-1.1 1.1-3 3.1.4z" fill="currentColor" transform="scale(.92) translate(1,0)"/><path d="M8.5 12.5l2.5 2.5 4.5-5" fill="none" stroke="#f4f4f4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const PIN_SVG = `<svg class="ci-pin" viewBox="0 0 24 24"><path d="M9 4h6l1 7 3 3v2h-6v5l-1 1-1-1v-5H5v-2l3-3z" fill="currentColor"/></svg>`;
 const MUTE_SVG = `<svg class="ci-mute" viewBox="0 0 24 24"><path d="M12 3a5 5 0 00-5 5v3l-2 4h14l-2-4V8a5 5 0 00-5-5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M4 4l16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;

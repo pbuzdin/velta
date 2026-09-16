@@ -436,6 +436,18 @@ contact's address and profile key (OpenPGP fingerprint), last-seen info, plus
 Group avatars intentionally keep a solid color with a full-bleed photo or
 initials — the identity matrix is a per-contact feature.
 
+**Verified badge.** A blue rosette next to a contact's name (chat header,
+profile sheet) means Delta Chat key-contact verification: you hold their
+verified key from a **secure-join QR handshake** — scanned directly, or
+introduced by a verifier you already trust (shown as "Verified" in the
+profile). The rosette appears once the chat head hydrates the contact
+(`refreshChatHeadPresence`), and the profile sheet's Verified row and
+"Chats in common" stay the place to inspect the details. It is deliberately
+absent from bare chat-list rows: verification is a per-contact property the
+chat-list payload does not carry, and hydrating a contact per row would cost
+an RPC each. Contact verification is a 1:1 concept — group protection status
+is a separate core feature the JSON-RPC chat types don't expose yet.
+
 </details>
 
 <details>

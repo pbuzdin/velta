@@ -439,6 +439,17 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   when the account changed (message ids are per-account).
 - `app/js/components.js` defines custom elements (`<velta-avatar>`,
   `<velta-chat-item>`, `<velta-chat-head>`, `<velta-video>`) using Elena.
+- **Verified rosette** (`nameBadgesFor` in components.js): reads
+  `chat.contact.verified` (falling back to `chat.verified`). The contact is
+  the real source — `ContactObject.isVerified` means a secure-join-verified
+  key contact (`verifierId` 0 = direct, else introduced) — while every
+  chat-level path hardcodes `verified: false` because the core's
+  `ChatListItemFetchResult` has no such field. The open chat head gets
+  `chat.contact` from `refreshChatHeadPresence` (open / chat-updated / 30s
+  tick); bare chat-list rows never hydrate contacts (one RPC per row), so
+  the rosette shows in the header and profile only — keep it that way unless
+  the core exposes verification on chatlist items. Group protection status
+  is not exposed by the JSON-RPC chat types at all.
 - `app/js/avatar.js` derives contact identity tiles from OpenPGP fingerprints:
   an equal-height 4-row color matrix (3 squares / 2 rects / 2 rects / 3
   squares, one cell per fingerprint group, deterministic colors with
