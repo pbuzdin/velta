@@ -52,7 +52,7 @@ jobs:
       - name: Send notification
         run: |
           curl -H "Title: ${{ github.event.head_commit.message }}" \
-               -H "Tags: robot,shield" \
+               -H "Tags: Velta,robot,shield" \
                -d "Author: ${{ github.actor }}
                Link: ${{ github.event.head_commit.url }}" \
-               https://ntfy.gluek.info/bouncer_changelog
+               https://ntfy.gluek.info/velta_changelog
