@@ -46,16 +46,15 @@ jobs:
     runs-on: ubuntu-latest
     # Only pushes carry a head_commit to report; PR runs build but stay quiet.
     if: github.event_name == 'push'
-    container:
-      image: curlimages/curl:latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
       - name: Send notification
         run: |
-          # head_commit.message is multi-line for release commits; a raw
-          # newline inside a -H header breaks the request — flatten it.
-          TITLE="$(printf '%s' "${{ github.event.head_commit.message }}" | tr '\n' ' ')"
-          curl -H "Title: $TITLE" \
+          VERSION=$(jq -r .version velta-app/src-tauri/tauri.conf.json)
+          curl -H "Title: Velta: version bumped to $VERSION" \
                -H "Tags: Velta,robot" \
-               -d "Author: ${{ github.actor }}
+               -d "${{ github.event.head_commit.message }}
                Link: ${{ github.event.head_commit.url }}" \
                https://ntfy.gluek.info/velta_changelog
