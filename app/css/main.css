@@ -100,7 +100,7 @@ svg { width: 24px; height: 24px; display: block; }
 }
 .icon-btn:hover { background: var(--bg-hover); }
 
-.chat-list { flex: 1; overflow-y: auto; padding-bottom: 10px; }
+.chat-list { flex: 1; overflow-y: auto; padding-bottom: 10px; scrollbar-gutter: stable both-edges; }
 /* Relay status line — thin strip just below the sidebar header. The color
    lives on `color` so the sending-dash gradient can reuse it as currentColor. */
 /* Relay status strip: one equal-width segment per configured relay
@@ -1532,7 +1532,7 @@ html[data-theme="brutal"] .modal {
 html[data-theme="brutal"] .drawer { border-right: 2px solid var(--nb-ink); }
 html[data-theme="brutal"] .ctx-item { border-radius: 6px; }
 html[data-theme="brutal"] .ctx-item:hover {
-  background: var(--nb-main); color: var(--nb-main-ink);
+  background: var(--bg-hover);
 }
 html[data-theme="brutal"] .scale-opt input[type="radio"] {
   accent-color: var(--nb-main);

@@ -554,7 +554,8 @@ export function formatBytes(n) {
 
 export function formatTime(ts) {
   const d = new Date(ts);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  // 24-hour everywhere, regardless of device locale
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
 export function formatListTime(ts) {

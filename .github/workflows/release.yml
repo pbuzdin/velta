@@ -80,10 +80,23 @@ jobs:
   notify:
     needs: [android, windows, release]
     runs-on: ubuntu-latest
-    # Manual dispatches carry no head_commit to report.
-    if: github.event_name == 'push'
     steps:
+      - name: Resolve tagged commit
+        id: tag
+        run: |
+          TAG="v${{ needs.release.outputs.version }}"
+          git clone --quiet --depth 1 --branch "$TAG" https://github.com/pbuzdin/velta.git repo
+          cd repo
+          {
+            echo "msg=$(git log -1 --format=%B "$TAG" | tr '\n' ' ')"
+            echo "sha=$(git rev-parse "$TAG^{commit}")"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Send notification
         run: |
-          curl -H "Title: Velta: version bumped to ${{ needs.release.outputs.version }}"                -H "Tags: Velta,robot"                -d "${{ github.event.head_commit.message }}
-               Link: ${{ github.event.head_commit.url }}"                https://ntfy.gluek.info/velta_changelog
+          curl \
+            -H "Title: Velta: version bumped to ${{ needs.release.outputs.version }}" \
+            -H "Tags: Velta,robot" \
+            -d "${{ steps.tag.outputs.msg }}
+          Link: https://github.com/pbuzdin/velta/commit/${{ steps.tag.outputs.sha }}" \
+            https://ntfy.gluek.info/velta_changelog
