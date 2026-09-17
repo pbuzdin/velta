@@ -4,8 +4,41 @@ This directory is the **Tauri v2** wrapper around the Velta PWA in `../app`.
 It produces a native Windows installer and a native Android APK from a single
 frontend codebase.
 
-**Current stable version:** `1.3.7`  
-**Bundled core:** `deltachat-core-rust 2.59.0`
+**Current stable version:** `1.4.9`  
+**Bundled core:** `deltachat-core-rust 2.60.0`
+
+## What's new in 1.4.x
+
+The 1.4 series is a UX pass over the shell and the embedded PWA. Highlights:
+
+- **Brutal theme** — a third, always-dark neobrutalist theme (2px ink
+  borders, hard offset shadows, vivid main-yellow selected rows and
+  outgoing bubbles). Theme picker: Auto / Dark / Light / Brutal.
+- **Chat-list action bar** — the bottom bar switches the list between
+  Chats, Contacts, Calls and a QR view; the header search button and the
+  "+" button open in-list views too (live chat search; new chat / group /
+  invite actions). Button visibility is configurable in the drawer, and
+  the drawer is toggled by the bar's Menu button (no more header menu
+  button, no floating context menu).
+- **Calls view** — recent calls ended on this device. The core keeps no
+  call log (calls are plain messages), so Velta records its own local log.
+- **Verified badge** — a rosette next to a contact's name once the
+  contact's key is verified via a secure-join QR handshake.
+- **Chat history loading strip** — a blue gradient sweep under the chat
+  header while history loads.
+- **Virtualized contacts** — the contacts view mounts only the visible
+  rows, keeping the WebView DOM budget flat on large address books.
+- **Notification titles** show the chat name (the background poller had
+  titled every push "Velta"); the release pipeline posts a changelog
+  notification per published version.
+- **24-hour timestamps** everywhere, and WCAG-AA contrast fixes for
+  meta lines, outgoing quotes and both themes.
+- **Android in-app browser fixed** — message links open in a Chrome
+  Custom Tab (with system-browser fallback); the old iframe fallback
+  was blocked by most sites.
+
+Release notes per version: see the GitHub releases page and the main
+README's UX section. The sections below are the 1.3.x history.
 
 ## What's new in 1.3.7
 

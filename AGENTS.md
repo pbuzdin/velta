@@ -473,7 +473,11 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `core.getContacts`; the Calls view reads the LOCAL call log (localStorage
   `velta-call-log`, recorded on the core's `call-ended` event, capped 30) —
   the core has no call-log API, calls are just messages. The QR view
-  renders `inviteQrProvider(null)` in place of the list. Since 1.4.8 the
+  renders `inviteQrProvider(null)` in place of the list. Contact rows mount
+  through a virtual scroller (`sideScroller`, stopped by `stopSideScroller`
+  on every view switch) — real address books have hundreds of contacts and
+  each fingerprint avatar is a ~35-node SVG, flat rendering blew the
+  WebView DOM budget. Since 1.4.8 the
   header search button and `#btn-new-chat` are also view toggles
   (`listView` "search" and "new"): search filters chats in place and the
   button icon flips to a cross via `syncHeaderButtons()` (called from
@@ -485,7 +489,27 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `velta-bar-hidden`): hidden view buttons get `[hidden]`, and
   `applyBarVisibility` adds `.bar-bare` (transparent bar) when all four are
   hidden. Menu and `#btn-new-chat` are always visible; the old
-  `.fab`/`.sidebar-foot` are gone — do not resurrect them.
+  `.fab`/`.sidebar-foot` are gone — do not resurrect them. The sidebar-head
+  Menu button is removed too — the bar button is the only drawer entry
+  point.
+- **Drawer contract** (ui.js `buildDrawer`): no close button and no
+  box-shadow (it slides over the sidebar's own edge; any offset shadow
+  bleeds past it — a right border does the separation). It stops above the
+  list bar (`inset` bottom = `var(--list-bar-h)`). open()/close() dispatch
+  a `velta-drawer` document event; the bar Menu button listens for it to
+  flip hamburger↔cross and to close an open drawer instead of re-opening.
+- **Header heights** are pinned by `--head-h` (56px): `.sidebar-head` and
+  `.chat-head` are border-box `height: calc(var(--head-h) +
+  env(safe-area-inset-top))`. Change the var, not the paddings.
+- **History loading strip** (`#chat-load-bar`): 6px blue gradient sweep
+  pinned under the chat header; `chat-view.open()` turns it on before the
+  history fetch and off in a `finally`. It sits at
+  `top: calc(var(--head-h) + env(safe-area-inset-top))` — keep that offset
+  if the header frame changes.
+- **Times are 24-hour**: `formatTime` (mock-core.js) forces
+  `hour12: false` — it is the single timestamp source for chat rows, list
+  rows and call lists; don't reintroduce locale defaults (they rendered
+  `03:21 AM` on en-US devices).
 - `app/js/avatar.js` derives contact identity tiles from OpenPGP fingerprints:
   an equal-height 4-row color matrix (3 squares / 2 rects / 2 rects / 3
   squares, one cell per fingerprint group, deterministic colors with

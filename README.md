@@ -461,12 +461,23 @@ never participates in the Auto (system) switch.
 list shows: **Chats** (default), **Contacts** (tap to open the chat),
 **Calls** (recent calls on this device), **QR** (your invite code rendered
 in place of the list, with a scan button), **+** (new chat / group /
-join-via-link menu) and **Menu** (settings drawer). The core keeps no call
-log — calls exist only as call messages — so the Calls view lists calls
-ended on this device, recorded locally and capped at 30. Every view button
-can be hidden in Settings → Bottom bar buttons; the Menu and + buttons are
-always visible, and when all view buttons are hidden the bar's background
-turns transparent.
+join-via-link menu) and **Menu** (settings drawer). The header search button
+works the same way — it opens a live chat-name search in place of the list
+and flips to a cross to close. The core keeps no call log — calls exist only
+as call messages — so the Calls view lists calls ended on this device,
+recorded locally and capped at 30. Every view button can be hidden in
+Settings → Bottom bar buttons; the Menu and + buttons are always visible,
+and when all view buttons are hidden the bar's background turns transparent.
+The list renders contact rows through a virtual scroller, so large address
+books don't inflate the DOM.
+
+**History loading strip.** While a chat's history loads, a thin blue
+gradient sweeps left-to-right just under the chat header (relay-blue, the
+same family as the status strip); it is disabled under
+`prefers-reduced-motion`.
+
+**Times are 24-hour** (`03:21`, never `03:21 AM`) regardless of device
+locale; relative times ("last seen", call lists) stay humanized.
 
 </details>
 
@@ -671,6 +682,9 @@ tag itself). The release assets are named after the version in
 
 - `Velta-<version>-<abi>.apk` — signed Android APK (`build-android.yml`)
 - `Velta_<version>_x64-setup.exe` — NSIS Windows installer (`build-windows.yml`)
+
+**Release changelog**: the release body is generated automatically — every
+commit subject since the previous tag, plus a compare link.
 
 **Changelog feed**: after a tag release publishes successfully (both builds
 + the GitHub release), the `Release` workflow posts a notification to
