@@ -115,7 +115,9 @@ jobs:
           git clone --quiet --depth 1 --branch "$TAG" https://github.com/pbuzdin/velta.git repo
           cd repo
           {
-            echo "msg=$(git log -1 --format=%B "$TAG" | tr '\n' ' ')"
+            echo "msg<<MSG_EOF"
+            git log -1 --format=%B "$TAG"
+            echo "MSG_EOF"
             echo "sha=$(git rev-parse "$TAG^{commit}")"
           } >> "$GITHUB_OUTPUT"
 
