@@ -807,10 +807,28 @@ function setListView(view) {
   for (const b of document.querySelectorAll(".list-bar .bar-btn[data-view]")) {
     b.classList.toggle("active", b.dataset.view === listView);
   }
+  syncHeaderButtons();
   if (listView === "chats") { renderChatList(); return; }
   if (listView === "contacts") { renderContactsView(); return; }
   if (listView === "calls") { renderCallsView(); return; }
-  if (listView === "qr") { renderQrView(); }
+  if (listView === "qr") { renderQrView(); return; }
+  if (listView === "search") { renderSearchView(); return; }
+  if (listView === "new") { renderNewChatView(); return; }
+}
+
+// The header search button doubles as the search view toggle: magnifier
+// opens it, the cross closes. "+" highlights while the new-chat view shows.
+function syncHeaderButtons() {
+  const searchOn = listView === "search";
+  const btn = document.getElementById("btn-search");
+  if (btn) {
+    btn.innerHTML = searchOn
+      ? `<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`
+      : `<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+    btn.title = searchOn ? "Close search" : "Search chats";
+  }
+  const plus = document.getElementById("btn-new-chat");
+  plus?.classList.toggle("active", listView === "new");
 }
 
 function sideViewShell(title, subtitle) {
@@ -1489,12 +1507,13 @@ async function pickContactModal(title, multi = false) {
   });
 }
 
-async function newChatFlow() {
-  if (state.accountChanging) return;
-  const epoch = core.accountEpoch;
-  const r = document.getElementById("btn-new-chat").getBoundingClientRect();
-  showContextMenu([
+// New-chat actions, rendered as rows of the "+" side view (they used to be
+// a floating context menu anchored to the FAB). Each action closes the view
+// first; flows that the user cancels land back on the chats list.
+function newChatOptions() {
+  return [
     { label: "New chat", onClick: async () => {
+      const epoch = core.accountEpoch;
       const picked = await pickContactModal("New chat");
       if (picked && accountIsCurrent(epoch)) {
         const id = await core.createChat(picked[0].name, [picked[0].id], "single");
@@ -1505,6 +1524,7 @@ async function newChatFlow() {
       }
     } },
     { label: "New group", onClick: async () => {
+      const epoch = core.accountEpoch;
       const picked = await pickContactModal("Add group members", true);
       if (!picked || !accountIsCurrent(epoch)) return;
       const name = await askGroupName();
@@ -1519,7 +1539,55 @@ async function newChatFlow() {
     } },
     { label: "Join chat via invite link", onClick: joinFlow },
     { label: "Add account via invite link", onClick: addAccountFlow },
-  ], r.left, r.top - 170);
+  ];
+}
+
+function renderNewChatView() {
+  const rows = sideViewShell("Start something", "Pick what to create");
+  for (const opt of newChatOptions()) {
+    const b = document.createElement("button");
+    b.className = "chat-item side-option";
+    b.innerHTML = `<span class="side-option-label">${escapeHtml(opt.label)}</span>
+      <svg viewBox="0 0 24 24" class="side-option-arrow"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    b.addEventListener("click", () => { setListView("chats"); opt.onClick(); });
+    rows.append(b);
+  }
+}
+
+// Search view: live chat-name filter rendered in place of the chats list.
+// The header search button toggles this view and flips to a cross.
+function renderSearchView() {
+  const rows = sideViewShell("Search chats", "Type at least two characters");
+  const input = document.createElement("input");
+  input.className = "text-field side-search-input";
+  input.placeholder = "Search chats…";
+  const results = document.createElement("div");
+  rows.append(input, results);
+  const render = () => {
+    if (listView !== "search") return;
+    const q = input.value.trim().toLowerCase();
+    results.replaceChildren();
+    if (q.length < 2) {
+      results.innerHTML = `<div class="side-view-empty">Type to search chats.</div>`;
+      return;
+    }
+    const hits = state.chats.filter(c => (c.name || "").toLowerCase().includes(q)).slice(0, 30);
+    if (!hits.length) {
+      results.innerHTML = `<div class="side-view-empty">No chats found.</div>`;
+      return;
+    }
+    for (const c of hits) {
+      const b = document.createElement("button");
+      b.className = "chat-item side-option";
+      b.innerHTML = `<span class="side-option-label">${escapeHtml(c.name)}</span>
+        <svg viewBox="0 0 24 24" class="side-option-arrow"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+      b.addEventListener("click", () => openChat(c.id));
+      results.appendChild(b);
+    }
+  };
+  input.addEventListener("input", render);
+  render();
+  setTimeout(() => input.focus(), 60);
 }
 
 // Group-name modal — the native prompt() renders as an OS dialog and is
@@ -2679,7 +2747,6 @@ async function boot() {
     try {
       rebuildDrawer();
       refreshAccounts();
-      $("btn-menu").addEventListener("click", () => drawer?.open());
       uiLive = true;
     } catch (err) {
       diagnostics.append("error", `boot: drawer failed: ${err?.message || err}`);
@@ -2707,7 +2774,6 @@ async function boot() {
 
     appLog("boot: bind ui");
     try {
-      $("btn-new-chat").addEventListener("click", newChatFlow);
       // Chat-list bottom action bar: the "+" opens the same new-chat/group
       // context menu as before (anchored to its button), QR shows this
       // profile's invite code, scan opens the camera join flow.
@@ -2720,35 +2786,9 @@ async function boot() {
       // Invite cards in messages + any invite-host link tap → join flow
       bindInviteInterception(link => joinFromInvite(link));
 
-      $("btn-search").addEventListener("click", () => {
-        const input = document.createElement("input");
-        input.className = "text-field";
-        input.placeholder = "Search chats…";
-        const results = document.createElement("div");
-        results.className = "modal-list";
-        const wrap = document.createElement("div");
-        wrap.append(input, results);
-        const render = () => {
-          const q = input.value.trim().toLowerCase();
-          results.replaceChildren();
-          if (q.length < 2) {
-            results.innerHTML = `<p style="color:var(--text-dim);font-size:14px;padding:8px 0">Type to search chats.</p>`;
-            return;
-          }
-          const hits = state.chats.filter(c => (c.name || "").toLowerCase().includes(q)).slice(0, 30);
-          for (const c of hits) {
-            const b = document.createElement("button");
-            b.className = "ctx-item";
-            b.textContent = c.name;
-            b.addEventListener("click", () => { closeAllPopups(); openChat(c.id); });
-            results.appendChild(b);
-          }
-          if (!hits.length) results.innerHTML = `<p style="color:var(--text-dim);font-size:14px;padding:8px 0">No chats found.</p>`;
-        };
-        input.addEventListener("input", render);
-        showModal({ title: "Search chats", body: wrap });
-        setTimeout(() => input.focus(), 50);
-      });
+      $("btn-search").addEventListener("click", () => setListView(listView === "search" ? "chats" : "search"));
+      $("btn-new-chat").addEventListener("click", () => setListView(listView === "new" ? "chats" : "new"));
+      syncHeaderButtons();
     } catch (err) {
       diagnostics.append("error", `boot: bind ui failed: ${err?.message || err}`);
     }

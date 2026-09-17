@@ -473,7 +473,14 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `core.getContacts`; the Calls view reads the LOCAL call log (localStorage
   `velta-call-log`, recorded on the core's `call-ended` event, capped 30) —
   the core has no call-log API, calls are just messages. The QR view
-  renders `inviteQrProvider(null)` in place of the list. Button visibility
+  renders `inviteQrProvider(null)` in place of the list. Since 1.4.8 the
+  header search button and `#btn-new-chat` are also view toggles
+  (`listView` "search" and "new"): search filters chats in place and the
+  button icon flips to a cross via `syncHeaderButtons()` (called from
+  `setListView` — keep that call when adding views); the new-chat view
+  lists `newChatOptions()` rows. The old floating context menu and the
+  search modal are gone; the sidebar-head Menu button was removed (the
+  list-bar Menu button opens the drawer). Button visibility
   is user-configurable (drawer → Bottom bar buttons, localStorage
   `velta-bar-hidden`): hidden view buttons get `[hidden]`, and
   `applyBarVisibility` adds `.bar-bare` (transparent bar) when all four are
