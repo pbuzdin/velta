@@ -1420,9 +1420,9 @@ html[data-theme="brutal"] {
   --bg-sidebar: #2a2a35;
   --bg-chat: #1b1b22;
   --bg-hover: rgba(244, 244, 244, .07);
-  --bg-active: #ffd23f;
+  --bg-active: #e0b52f;
   --bg-bubble-in: #2d2d38;
-  --bg-bubble-out: #ffd23f;
+  --bg-bubble-out: #e0b52f;
   --bg-reply: rgba(18, 16, 22, .08);
   --accent: #8f7ff0;
   --accent-2: #4fd1c5;
@@ -1436,7 +1436,7 @@ html[data-theme="brutal"] {
   --shadow: 4px 4px 0 #121017;
   --radius-bubble: 6px;
   --nb-ink: #121017;      /* strong borders + hard shadow ink */
-  --nb-main: #ffd23f;     /* the vivid main yellow */
+  --nb-main: #e0b52f;     /* the vivid main yellow */
   --nb-main-ink: #211d05; /* text on main yellow */
   color-scheme: dark;
 }

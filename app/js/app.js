@@ -802,7 +802,17 @@ function recordCallEnded(chatId) {
   } catch { /* storage unavailable — calls view just stays empty */ }
 }
 
+// The contacts view mounts its rows through a virtual scroller — real
+// accounts have hundreds of contacts and each fingerprint avatar is a
+// ~35-node SVG, which blew the WebView DOM budget when rendered flat.
+let sideScroller = null;
+function stopSideScroller() {
+  sideScroller?.stop?.();
+  sideScroller = null;
+}
+
 function setListView(view) {
+  stopSideScroller();
   listView = listView === view ? "chats" : view;
   for (const b of document.querySelectorAll(".list-bar .bar-btn[data-view]")) {
     b.classList.toggle("active", b.dataset.view === listView);
@@ -842,6 +852,7 @@ function sideViewShell(title, subtitle) {
 }
 
 async function renderContactsView() {
+  stopSideScroller();
   const rows = sideViewShell("Contacts", "Tap a contact to open the chat");
   let contacts = [];
   try { contacts = await core.getContacts(); } catch { /* demo mode */ }
@@ -850,7 +861,7 @@ async function renderContactsView() {
     rows.innerHTML = `<div class="side-view-empty">No contacts yet</div>`;
     return;
   }
-  for (const c of contacts) {
+  const renderRow = (c) => {
     const b = document.createElement("button");
     b.className = "chat-item contact-row";
     b.innerHTML = `
@@ -864,8 +875,14 @@ async function renderContactsView() {
         openChat(id);
       } catch (err) { toast(`Could not open chat: ${err?.message || err}`); }
     });
-    rows.append(b);
-  }
+    return b;
+  };
+  // Virtualized: only the visible window of rows exists in the DOM.
+  sideScroller = new VirtualScroller(rows, contacts, renderRow, {
+    getScrollableContainer: () => document.getElementById("chat-list"),
+    getItemId: (c) => String(c.id),
+    getEstimatedItemHeight: () => 58,
+  });
 }
 
 function renderCallsView() {

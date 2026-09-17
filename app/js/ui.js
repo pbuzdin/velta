@@ -208,7 +208,6 @@ export function buildDrawer({ account, onAddAccount, onSecondDevice, onSetTheme,
   drawer.id = "drawer";
   drawer.innerHTML = `
     <div class="drawer-head">
-      <button class="icon-btn drawer-close" data-act="close" title="Close" aria-label="Close menu"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
       <velta-avatar data-act="profile" style="cursor:pointer" name="${escapeHtml(account.displayName)}" color="${escapeAttr(account.color || "#777")}" size="56" contact-id="1"${account.avatar ? ` avatar="${escapeAttr(fileUrl(account.avatar))}"` : ""}></velta-avatar>
       <div>
         <div class="drawer-name">${escapeHtml(account.displayName)}</div>
