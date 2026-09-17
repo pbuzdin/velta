@@ -677,7 +677,13 @@ tag itself). The release assets are named after the version in
 `ntfy.gluek.info/velta_changelog` — title `Velta: version bumped to
 <version>`, body = the tagged commit's full message with a link, `Velta` +
 `robot` tags. Builds run only on `v*` tag pushes (or manual dispatch);
-ordinary branch pushes don't build anything.
+ordinary branch pushes don't build anything. `build-windows-cross.yml`
+(Ubuntu sidecar cross-compile build) is manual-dispatch only as well.
+Do not add per-job `concurrency` blocks to `build-android.yml` /
+`build-windows.yml`: inside a reusable-workflow call `github.job`
+evaluates empty, so both calls collapse into one concurrency group and
+cancel each other (that is what silently killed the 1.4.6–1.4.8
+releases). Serialization belongs to the calling workflow.
 
 APKs are signed with the persistent release keystore stored in the repo
 secrets (`ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`,

@@ -1067,7 +1067,11 @@ core capabilities and their Velta integration notes: `CORE-CAPABILITIES.MD`.
   `notify` job (needs android + windows + release) posting to
   `ntfy.gluek.info/velta_changelog` — title `Velta: version bumped to
   <version>` from tauri.conf.json, body = the tagged commit's full message
-  + link. Manual dispatches stay silent.
+  + link. Manual dispatches stay silent. The per-platform workflows must
+  NOT carry job-level `concurrency` blocks: in a reusable-workflow call
+  `github.job` is empty at group-evaluation time, so android and windows
+  collapse into one group and cancel each other (killed the 1.4.6–1.4.8
+  releases mid-run). `build-windows-cross.yml` is workflow_dispatch-only.
 - When modifying the JSON-RPC API surface, remember that the PWA
   (`app/js/rpc-core.js`), the Python RPC client, and any external consumers must
   stay compatible.
