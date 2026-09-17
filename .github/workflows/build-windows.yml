@@ -55,7 +55,19 @@ jobs:
             ./core
             ./velta-app/src-tauri
 
+      # Frontend-only updates don't change the sidecar: restore the exe built
+      # for this exact core state and skip the ~8-minute core build entirely.
+      # The cache key hashes core sources BEFORE the Rust cache restores
+      # target/ into the tree, so only real source changes move the key.
+      - name: Restore built sidecar
+        id: sidecar
+        uses: actions/cache@v4
+        with:
+          path: core/target/release/deltachat-rpc-server.exe
+          key: sidecar-exe-${{ hashFiles('core/**') }}
+
       - name: Build deltachat-rpc-server sidecar
+        if: steps.sidecar.outputs.cache-hit != 'true'
         working-directory: ./core
         run: cargo build -p deltachat-rpc-server --release
 
