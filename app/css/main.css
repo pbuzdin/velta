@@ -947,16 +947,14 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
   /* same width as the chat list (.sidebar) */
   width: clamp(300px, 33vw, 420px);
   background: var(--bg-sidebar);
-  box-shadow: var(--shadow);
+  /* no box shadow: the drawer slides over the sidebar's own edge and any
+     offset shadow bleeds past it; a right border does the separation */
+  border-right: 1px solid var(--border);
   transform: translateX(-100%);
   transition: transform .22s ease-out;
   display: flex; flex-direction: column;
   pointer-events: none;
 }
-/* A closed drawer sits at translateX(-100%) just off-screen — without this
-   its shadow's right edge bleeds a dark strip into the chat list's left
-   edge. Keep the shadow only while the drawer is open. */
-.drawer:not(.open) { box-shadow: none; }
 
 .drawer.open { transform: none; pointer-events: auto; }
 .drawer-head {
