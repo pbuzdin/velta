@@ -1065,6 +1065,10 @@ core capabilities and their Velta integration notes: `CORE-CAPABILITIES.MD`.
   two per-platform workflows stay `workflow_call` + `workflow_dispatch`
   only; do not re-add `push:` triggers to them. release.yml ends with a
   `notify` job (needs android + windows + release) posting to
+  The release job checks out full history + tags and writes
+  `changelog.md` — every commit subject since the previous tag
+  (`git describe` on the tag's parent) plus the compare link — and
+  passes it to the release as `body_path`.
   `ntfy.gluek.info/velta_changelog` — title `Velta: version bumped to
   <version>` from tauri.conf.json, body = the tagged commit's full message
   + link (the notify job clones the tag to read the message — tag pushes

@@ -32,6 +32,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Read version
         id: ver
@@ -50,6 +53,29 @@ jobs:
           else
             echo "name=${{ steps.ver.outputs.tag }}" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Build changelog since the previous tag
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          PREV=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)
+          if [ -n "$PREV" ]; then
+            echo "Range: $PREV..$TAG"
+            {
+              echo "## What's changed since $PREV"
+              echo
+              echo "Full changelog: https://github.com/pbuzdin/velta/compare/$PREV...$TAG"
+              echo
+              git log --no-merges --format='- %s (%h)' "$PREV..$TAG"
+            } > changelog.md
+          else
+            echo "No previous tag — listing everything up to $TAG"
+            {
+              echo "## What's changed in $TAG"
+              echo
+              git log --no-merges --format='- %s (%h)' "$TAG"
+            } > changelog.md
+          fi
+          cat changelog.md
 
       - name: Download Android APK
         uses: actions/download-artifact@v7
@@ -71,6 +97,7 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.name }}
           name: Velta v${{ steps.ver.outputs.version }}
+          body_path: changelog.md
           files: |
             release-assets/*.apk
             release-assets/**/Velta_*_x64-setup.exe
