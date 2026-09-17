@@ -21,15 +21,20 @@ jobs:
           toolchain: 1.98
           targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
 
-      - name: Install Node.js
-        uses: actions/setup-node@v7
+      # The generated Gradle rustBuild task shells out to `cargo tauri`, so
+      # the CARGO tauri-cli must be on PATH (the npm CLI can't serve it).
+      # Cache the installed binary: the ~4-minute source compile runs only
+      # when the cache key changes.
+      - name: Cache cargo tauri-cli
+        uses: actions/cache@v4
+        id: taurocli
         with:
-          node-version: 22
+          path: ~/.cargo/bin
+          key: tauri-cli-linux-v2
 
-      # The prebuilt npm CLI is the same tauri v2 orchestrator that
-      # `cargo tauri android build` would use — without the ~4-minute compile.
-      - name: Install tauri-cli (prebuilt)
-        run: npm install -g @tauri-apps/cli@^2
+      - name: Install cargo tauri-cli
+        if: steps.taurocli.outputs.cache-hit != 'true'
+        run: cargo install tauri-cli --version "^2.0" --locked
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -84,7 +89,7 @@ jobs:
           export CXX_aarch64_linux_android="$NDK/bin/aarch64-linux-android24-clang++"
           export AR_aarch64_linux_android="$NDK/bin/llvm-ar"
           export RANLIB_aarch64_linux_android="$NDK/bin/llvm-ranlib"
-          tauri android build --apk --target aarch64
+          cargo tauri android build --apk --target aarch64
 
       - name: Prepare release keystore
         env:
