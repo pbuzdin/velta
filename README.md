@@ -425,7 +425,9 @@ contact's OpenPGP fingerprint: an equal-height 4-row grid (3 squares, 2 rects,
 centered on a soft-black badge for photo-less contacts, and the contact's photo
 as a padded rounded square (with a thin dark ring) for contacts that set one.
 Neighboring cells never share similar hues, all colors are soft (no pure
-black/white), and everything is drawn as pure SVG in `app/js/avatar.js`.
+black/white), and everything is drawn as pure SVG in `app/js/avatar.js` —
+painted as a CSS background image per tile (one cached image per fingerprint,
+no inline SVG subtrees), so it stays sharp at any size without costing DOM.
 
 Tapping any avatar in a chat opens the **contact profile** modal: the large
 photo avatar beside the captioned identity tile (color names included), the

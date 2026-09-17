@@ -274,9 +274,16 @@ export function buildDrawer({ account, onAddAccount, onSecondDevice, onSetTheme,
   })();
 
   const overlay = document.createElement("div");
-  overlay.className = "pop-overlay transparent";
+  overlay.className = "pop-overlay transparent drawer-overlay";
   overlay.style.display = "none";
-  overlay.addEventListener("pointerdown", close);
+  // Taps that start on the drawer's own toggle button are skipped: the
+  // button's click handler owns that toggle. Closing on pointerdown raced
+  // the click on touch devices (the WebView retargets the click to the
+  // just-uncovered button) — menu closed and instantly reopened.
+  overlay.addEventListener("pointerdown", e => {
+    if (e.target?.closest?.("#bar-menu")) return;
+    close();
+  });
   popups().appendChild(overlay);
 
   const acctPop = drawer.querySelector("[data-acct-pop]");
@@ -312,7 +319,12 @@ export function buildDrawer({ account, onAddAccount, onSecondDevice, onSetTheme,
   // lives under the tap; the transparent overlay (z 50) still swallows the
   // click so nothing under the drawer activates. Belt and suspenders: the
   // document listener works even where the overlay doesn't get the event.
-  const onDocPointer = e => { if (!drawer.contains(e.target)) close(); };
+  // Taps starting on #bar-menu are skipped (same toggle race as above) —
+  // the button's own click toggles.
+  const onDocPointer = e => {
+    if (e.target?.closest?.("#bar-menu")) return;
+    if (!drawer.contains(e.target)) close();
+  };
 
   function open() {
     drawer.classList.add("open");

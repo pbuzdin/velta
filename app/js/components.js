@@ -4,7 +4,7 @@ import { formatListTime, timeAgo } from "./mock-core.js";
 import { fileUrl, mediaFallbackUrl } from "./media.js";
 import { ensurePoster } from "./poster.js";
 import { diagnosticsSink } from "./diagnostics.js";
-import { buildAvatarSvg, fingerprintFor, cachedFingerprint, fingerprintGroups } from "./avatar.js";
+import { avatarBackgroundUrl, fingerprintFor, cachedFingerprint, fingerprintGroups } from "./avatar.js";
 
 const AVATAR_SVG = `<svg viewBox="0 0 24 24" style="width:55%;height:55%"><path d="M12 4l2.2 4.7 5 .6-3.7 3.4 1 4.9-4.5-2.6-4.5 2.6 1-4.9L4.8 9.3l5-.6z" fill="currentColor"/></svg>`;
 const DEVICE_SVG = `<svg viewBox="0 0 24 24" style="width:55%;height:55%"><rect x="5" y="3" width="14" height="18" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="17.5" r="1.2" fill="currentColor"/></svg>`;
@@ -84,19 +84,22 @@ class VeltaAvatar extends Elena(HTMLElement) {
     if (!special && this.avatar && !this.#avatarFailed) {
       if (this.kind === "single") {
         // Photo padded onto the contact's color matrix — the grid always
-        // stays visible around it (empty svg until the fingerprint resolves).
+        // stays visible around it (plain color until the fingerprint
+        // resolves). Grid rides as a CSS background: no SVG child nodes.
+        // Single-quoted url(): the encoded SVG contains no raw quotes.
         const groups = fingerprintGroups(cachedFingerprint(Number(this["contact-id"])));
-        const svg = groups ? buildAvatarSvg({ groups, size: s, radius: 0, badge: false }) : "";
-        return html`<div class="${cls}" style="${style}" aria-hidden="true">${unsafeHTML(svg)}<span class="velta-avatar-photo"><img class="velta-avatar-img" src="${this.avatar}" alt="" loading="lazy"></span></div>`;
+        const bg = groups ? avatarBackgroundUrl({ groups, badge: false }) : "";
+        return html`<div class="${cls}" style="${style}${bg ? `background-image:url('${bg}');background-size:100% 100%;` : ""}" aria-hidden="true"><span class="velta-avatar-photo"><img class="velta-avatar-img" src="${this.avatar}" alt="" loading="lazy"></span></div>`;
       }
       return html`<div class="${cls}" style="${style}" aria-hidden="true">${this.initials()}<img class="velta-avatar-img" src="${this.avatar}" alt="" loading="lazy"></div>`;
     }
     // GPG-fingerprint identity tile for photo-less single contacts:
-    // equal-height color matrix with the fingerprint glyph on a dark badge.
+    // equal-height color matrix with the fingerprint glyph on a dark badge,
+    // as a CSS background (no child nodes — see avatarBackgroundUrl).
     if (!special && this.kind === "single") {
       const groups = fingerprintGroups(cachedFingerprint(Number(this["contact-id"])));
-      const svg = groups ? buildAvatarSvg({ groups, size: s, radius: 0 }) : "";
-      if (svg) return html`<div class="${cls}" style="${style}" aria-hidden="true">${unsafeHTML(svg)}</div>`;
+      const bg = groups ? avatarBackgroundUrl({ groups, badge: true }) : "";
+      if (bg) return html`<div class="${cls}" style="${style}background-image:url('${bg}');background-size:100% 100%;" aria-hidden="true"></div>`;
     }
     const inner = this.kind === "saved" ? unsafeHTML(AVATAR_SVG)
       : this.kind === "device" ? unsafeHTML(DEVICE_SVG)

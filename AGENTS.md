@@ -476,8 +476,9 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   renders `inviteQrProvider(null)` in place of the list. Contact rows mount
   through a virtual scroller (`sideScroller`, stopped by `stopSideScroller`
   on every view switch) — real address books have hundreds of contacts and
-  each fingerprint avatar is a ~35-node SVG, flat rendering blew the
-  WebView DOM budget. Since 1.4.8 the
+  each fingerprint avatar used to be a ~35-node inline SVG that blew the
+  WebView DOM budget; since 1.4.10 tiles ride as CSS backgrounds (see
+  `avatarBackgroundUrl` in `avatar.js`), so they cost zero child nodes. Since 1.4.8 the
   header search button and `#btn-new-chat` are also view toggles
   (`listView` "search" and "new"): search filters chats in place and the
   button icon flips to a cross via `syncHeaderButtons()` (called from
@@ -515,7 +516,15 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   squares, one cell per fingerprint group, deterministic colors with
   perceptual neighbor-clash avoidance) plus a soft-black badge holding the
   fingerprint glyph — or a contact's photo padded inside it. Every user
-  avatar renders this matrix; group avatars keep solid colors.
+  avatar renders this matrix; group avatars keep solid colors. List/history
+  tiles deliver the matrix as a percent-encoded SVG data-URL CSS background
+  (`avatarBackgroundUrl`, cached per fingerprint — zero child nodes, no
+  per-render DOM parse); only the captioned profile tile stays inline SVG.
+- All `:hover` styling lives inside `@media (hover: hover) and (pointer:
+  fine)` blocks — touch devices report `hover: none` and hover states stick
+  after taps there. Keep new hover rules inside the media query, and keep
+  the two exceptions split: `:active` press feedback and non-hover states
+  (`.relay-detail.pull-open`) stay reachable on touch.
 - `app/js/diagnostics.js` is the in-app diagnostics event store ("Velta
   Diagnostics" chat). Entries render as console-style rows (Chrome DevTools
   look: monospace, level emoji ❌/⚠️/ℹ️, soft pill, hover copy-to-clipboard

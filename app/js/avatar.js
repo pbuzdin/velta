@@ -205,6 +205,26 @@ export function buildAvatarSvg({ groups, size = 120, radius = 26, withCaptions =
 }
 let clipSeq = 0;
 
+// Identity tiles as CSS backgrounds instead of inline SVG subtrees: a
+// percent-encoded data URL costs zero child nodes per tile and skips
+// Elena's per-render DOM parse entirely; the browser decodes and caches
+// one image per unique fingerprint. Still vector — sharp at any size/DPR.
+// Only the node-less grid/badge variants (no captions, no clipPath id).
+const bgCache = new Map(); // fingerprint+variant → data URL
+
+export function avatarBackgroundUrl({ groups, badge = true }) {
+  if (!groups || groups.length !== 10) return "";
+  const key = groups.join("") + (badge ? "|b" : "|g");
+  let url = bgCache.get(key);
+  if (!url) {
+    const svg = buildAvatarSvg({ groups, size: 120, radius: 0, badge });
+    if (!svg) return "";
+    url = "data:image/svg+xml," + encodeURIComponent(svg);
+    bgCache.set(key, url);
+  }
+  return url;
+}
+
 /* ---------- fingerprint lookup (wired by app.js to the active core) ---------- */
 const fprCache = new Map(); // contactId -> Promise<fingerprint|null>
 let fingerprintSource = null;
