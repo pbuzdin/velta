@@ -28,17 +28,10 @@ jobs:
         with:
           node-version: 22
 
-      # The tauri CLI is a ~10-minute source build — cache the binary.
-      - name: Restore tauri-cli
-        uses: actions/cache@v4
-        id: tauri-cli
-        with:
-          path: ~/cargo/bin/tauri.exe
-          key: tauri-cli-v2-windows
-
-      - name: Install cargo-tauri
-        if: steps.tauri-cli.outputs.cache-hit != 'true'
-        run: cargo install tauri-cli --version "^2.0" --locked
+      # The prebuilt npm CLI is the same tauri v2 orchestrator that
+      # `cargo tauri build` would use — without the 10-minute compile.
+      - name: Install tauri-cli (prebuilt)
+        run: npm install -g @tauri-apps/cli@^2
 
       # vendored OpenSSL (via rusqlite/async-native-tls) needs Perl + NASM on Windows.
       - name: Install Strawberry Perl
@@ -53,13 +46,14 @@ jobs:
           choco install nasm -y
           echo "C:\Program Files\NASM" >> $env:GITHUB_PATH
 
-      # Rust dependency + target caches: without them the sidecar and the
-      # app rebuild ~400 crates from scratch on every run (19 + 13 minutes).
-      - name: Cache sidecar build
+      # One cache for BOTH Rust workspaces: two rust-cache steps in one job
+      # overwrite each other's restored ~/.cargo state and defeat the cache.
+      - name: Cache Rust builds
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: ./core
-          key: sidecar-windows
+          workspaces: |
+            ./core
+            ./velta-app/src-tauri
 
       - name: Build deltachat-rpc-server sidecar
         working-directory: ./core
@@ -71,15 +65,9 @@ jobs:
           Copy-Item "core/target/release/deltachat-rpc-server.exe" `
             "velta-app/src-tauri/binaries/deltachat-rpc-server-x86_64-pc-windows-msvc.exe"
 
-      - name: Cache Tauri app build
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ./velta-app/src-tauri
-          key: tauri-app-windows
-
       - name: Build Tauri Windows installer
         working-directory: ./velta-app
-        run: cargo tauri build
+        run: tauri build
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v7
