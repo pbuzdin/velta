@@ -943,6 +943,7 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .drawer {
   /* stops above the list action bar so the bar stays visible and clickable */
   position: fixed; inset: env(safe-area-inset-top) auto var(--list-bar-h) 0; z-index: 55;
+
   /* same width as the chat list (.sidebar) */
   width: clamp(300px, 33vw, 420px);
   background: var(--bg-sidebar);
@@ -952,6 +953,11 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
   display: flex; flex-direction: column;
   pointer-events: none;
 }
+/* A closed drawer sits at translateX(-100%) just off-screen — without this
+   its shadow's right edge bleeds a dark strip into the chat list's left
+   edge. Keep the shadow only while the drawer is open. */
+.drawer:not(.open) { box-shadow: none; }
+
 .drawer.open { transform: none; pointer-events: auto; }
 .drawer-head {
   padding: 22px 18px 16px;
@@ -1445,7 +1451,10 @@ html[data-theme="brutal"] {
 html[data-theme="brutal"] .sidebar { border-right: 2px solid var(--nb-ink); }
 html[data-theme="brutal"] .sidebar-head,
 html[data-theme="brutal"] .chat-head { border-bottom: 2px solid var(--nb-ink); }
-html[data-theme="brutal"] .icon-btn { border: 2px solid transparent; border-radius: 6px; }
+html[data-theme="brutal"] .icon-btn {
+  border: 2px solid transparent; border-radius: 6px;
+  transition: background .15s, color .15s, border-color .15s, box-shadow .15s;
+}
 html[data-theme="brutal"] .icon-btn:hover {
   border-color: var(--nb-ink); background: var(--nb-main);
   color: var(--nb-main-ink); box-shadow: 2px 2px 0 var(--nb-ink);
@@ -1455,10 +1464,10 @@ html[data-theme="brutal"] .icon-btn:hover {
 html[data-theme="brutal"] .chat-item {
   margin: 6px 8px; border: 2px solid var(--nb-ink);
   border-radius: 8px; background: var(--bg-sidebar);
-  transition: transform .08s, box-shadow .08s;
+  transition: border-color .15s, box-shadow .15s;
 }
 html[data-theme="brutal"] .chat-item:hover {
-  transform: translate(-1px, -1px); box-shadow: 2px 2px 0 var(--nb-ink);
+  border-color: var(--nb-main);
 }
 html[data-theme="brutal"] .chat-item.active {
   background: var(--nb-main); box-shadow: 3px 3px 0 var(--nb-ink);
@@ -1513,9 +1522,10 @@ html[data-theme="brutal"] .btn-primary {
   border: 2px solid var(--nb-ink); border-radius: 8px;
   background: var(--nb-main); color: var(--nb-main-ink);
   box-shadow: 4px 4px 0 var(--nb-ink);
+  transition: border-color .15s, box-shadow .15s;
 }
 html[data-theme="brutal"] .btn-primary:active {
-  transform: translate(3px, 3px); box-shadow: 1px 1px 0 var(--nb-ink);
+  border-color: var(--accent-2); box-shadow: 1px 1px 0 var(--nb-ink);
 }
 html[data-theme="brutal"] .modal {
   border: 2px solid var(--nb-ink); border-radius: 10px;
@@ -1538,9 +1548,10 @@ html[data-theme="brutal"] .list-bar {
 html[data-theme="brutal"] .bar-btn {
   border: 2px solid var(--nb-ink); border-radius: 8px;
   background: var(--bg-bubble-in); box-shadow: 2px 2px 0 var(--nb-ink);
+  transition: background .15s, color .15s, border-color .15s, box-shadow .15s;
 }
 html[data-theme="brutal"] .bar-btn:hover { background: var(--nb-main); color: var(--nb-main-ink); }
-html[data-theme="brutal"] .bar-btn:active { transform: translate(2px, 2px); box-shadow: none; }
+html[data-theme="brutal"] .bar-btn:active { border-color: var(--accent-2); box-shadow: none; }
 html[data-theme="brutal"] .bar-btn.bar-accent {
   background: var(--accent); color: #17131f;
 }
