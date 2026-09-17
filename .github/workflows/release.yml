@@ -27,6 +27,8 @@ jobs:
   release:
     needs: [android, windows]
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -74,3 +76,14 @@ jobs:
             release-assets/**/Velta_*_x64-setup.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify:
+    needs: [android, windows, release]
+    runs-on: ubuntu-latest
+    # Manual dispatches carry no head_commit to report.
+    if: github.event_name == 'push'
+    steps:
+      - name: Send notification
+        run: |
+          curl -H "Title: Velta: version bumped to ${{ needs.release.outputs.version }}"                -H "Tags: Velta,robot"                -d "${{ github.event.head_commit.message }}
+               Link: ${{ github.event.head_commit.url }}"                https://ntfy.gluek.info/velta_changelog

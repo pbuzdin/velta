@@ -31,6 +31,15 @@ let chatListInFlight = null;
 let chatNavigation = 0;
 let drawer = null;
 let accountRefreshPromise = Promise.resolve();
+// Bottom action bar visibility (menu is always visible) + which side view
+// the chat-list container currently shows: chats | contacts | calls | qr.
+const BAR_HIDDEN_KEY = "velta-bar-hidden";
+let barHidden = (() => {
+  try { return JSON.parse(localStorage.getItem(BAR_HIDDEN_KEY)) || []; }
+  catch { return []; }
+})();
+let listView = "chats";
+const CALL_LOG_KEY = "velta-call-log";
 const state = {
   account: null,
   accountChanging: false,
@@ -764,7 +773,130 @@ async function renderLocalChatCard() {
     openChat(row.dataset.open)));
 }
 
+// Side views rendered into #chat-list instead of the chats list. Contacts
+// come from the core (get_contacts); calls have NO core call-log API — calls
+// are plain messages (msgId-based RPC), so Velta records its own ended-call
+// log locally (capped, localStorage). QR view renders the profile invite
+// code in place of the modal.
+function applyBarVisibility() {
+  const bar = document.querySelector(".list-bar");
+  let any = false;
+  for (const key of ["chats", "contacts", "calls", "qr"]) {
+    const btn = document.getElementById(`bar-${key}`);
+    if (!btn) continue;
+    const show = !barHidden.includes(key);
+    btn.hidden = !show;
+    any = any || show;
+  }
+  // Menu button can't be hidden; with everything else hidden the bar loses
+  // its background and becomes a floating menu button.
+  bar.classList.toggle("bar-bare", !any);
+}
+
+function recordCallEnded(chatId) {
+  if (!chatId) return;
+  try {
+    const log = JSON.parse(localStorage.getItem(CALL_LOG_KEY)) || [];
+    log.unshift({ chatId, ts: Date.now() });
+    localStorage.setItem(CALL_LOG_KEY, JSON.stringify(log.slice(0, 30)));
+  } catch { /* storage unavailable — calls view just stays empty */ }
+}
+
+function setListView(view) {
+  listView = listView === view ? "chats" : view;
+  for (const b of document.querySelectorAll(".list-bar .bar-btn[data-view]")) {
+    b.classList.toggle("active", b.dataset.view === listView);
+  }
+  if (listView === "chats") { renderChatList(); return; }
+  if (listView === "contacts") { renderContactsView(); return; }
+  if (listView === "calls") { renderCallsView(); return; }
+  if (listView === "qr") { renderQrView(); }
+}
+
+function sideViewShell(title, subtitle) {
+  const list = document.getElementById("chat-list");
+  list.innerHTML = `
+    <div class="side-view">
+      <div class="side-view-title">${escapeHtml(title)}</div>
+      ${subtitle ? `<div class="side-view-sub">${escapeHtml(subtitle)}</div>` : ""}
+      <div class="side-view-rows"></div>`;
+  return list.querySelector(".side-view-rows");
+}
+
+async function renderContactsView() {
+  const rows = sideViewShell("Contacts", "Tap a contact to open the chat");
+  let contacts = [];
+  try { contacts = await core.getContacts(); } catch { /* demo mode */ }
+  if (listView !== "contacts") return; // user switched away mid-fetch
+  if (!contacts.length) {
+    rows.innerHTML = `<div class="side-view-empty">No contacts yet</div>`;
+    return;
+  }
+  for (const c of contacts) {
+    const b = document.createElement("button");
+    b.className = "chat-item contact-row";
+    b.innerHTML = `
+      <velta-avatar name="${escapeAttr(c.name)}" color="${escapeAttr(c.color || "#777")}" size="42" contact-id="${c.id}"${c.avatar ? ` avatar="${escapeAttr(fileUrl(c.avatar))}"` : ""}></velta-avatar>
+      <div class="ci-name">${escapeHtml(c.name)}</div>`;
+    b.addEventListener("click", async () => {
+      try {
+        const id = await core.createChat(c.name, [c.id], "single");
+        setListView("chats");
+        await refreshChatList();
+        openChat(id);
+      } catch (err) { toast(`Could not open chat: ${err?.message || err}`); }
+    });
+    rows.append(b);
+  }
+}
+
+function renderCallsView() {
+  const rows = sideViewShell("Calls", "Calls you ended on this device (kept locally — the core stores no call log)");
+  let log = [];
+  try { log = JSON.parse(localStorage.getItem(CALL_LOG_KEY)) || []; } catch { }
+  if (!log.length) {
+    rows.innerHTML = `<div class="side-view-empty">No calls yet</div>`;
+    return;
+  }
+  for (const e of log) {
+    const chat = state.chats.find(c => c.id === e.chatId);
+    const b = document.createElement("button");
+    b.className = "chat-item call-row";
+    b.innerHTML = `
+      <span class="call-row-ico"><svg viewBox="0 0 24 24"><path d="M6.6 10.8a15.1 15.1 0 006.6 6.6l2.2-2.2a1 1 0 011-.24 11.4 11.4 0 003.6.58 1 1 0 011 1V20a1 1 0 01-1 1A17 17 0 013 4a1 1 0 011-1h3.5a1 1 0 011 1 11.4 11.4 0 00.57 3.6 1 1 0 01-.25 1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></span>
+      <div class="ci-name">${escapeHtml(chat ? chat.name : "Unknown chat")}</div>
+      <div class="ci-time">${timeAgo(e.ts)}</div>`;
+    b.addEventListener("click", () => { setListView("chats"); openChat(e.chatId); });
+    rows.append(b);
+  }
+}
+
+function renderQrView() {
+  const rows = sideViewShell("Your QR code", "Others scan this to reach you with verified encryption");
+  const wrap = document.createElement("div");
+  wrap.className = "qr-view";
+  wrap.innerHTML = `
+    <div class="qr-box"><div class="qr-loading">Generating QR code…</div></div>
+    <div class="invite-link" style="word-break:break-all"></div>
+    <button class="btn-text" data-scan>Scan a code instead</button>`;
+  rows.append(wrap);
+  wrap.querySelector("[data-scan]").addEventListener("click", () => { setListView("chats"); joinFlow(); });
+  inviteQrProvider(null)()
+    .then(({ svg, link }) => {
+      const box = wrap.querySelector(".qr-box");
+      if (listView !== "qr") return;
+      box.innerHTML = svg || "<div class='qr-loading'>QR unavailable</div>";
+      wrap.querySelector(".invite-link").textContent = link;
+    })
+    .catch(err => {
+      if (listView !== "qr") return;
+      wrap.querySelector(".qr-box").innerHTML =
+        `<div class='qr-loading'>Couldn't create the invite:<br>${escapeHtml(String(err?.message || err))}</div>`;
+    });
+}
+
 function renderChatList() {
+  if (listView !== "chats") return; // another side view owns the container
   const list = $("chat-list");
   // Reuse row elements only while their display data is unchanged; recreate
   // an element when its data or active state changes. Recreating runs the
@@ -945,6 +1077,7 @@ async function refreshChatHeadPresence(chatId) {
 /* ---------------- chat open/close ---------------- */
 async function openChat(chatId) {
   if (state.accountChanging) return;
+  if (listView !== "chats") setListView("chats");
   if (chatId === DIAGNOSTICS_CHAT_ID) {
     openDiagnosticsChat();
     return;
@@ -1665,6 +1798,12 @@ function rebuildDrawer() {
   drawer = buildDrawer({
     account: state.account,
     theme: state.theme,
+    barHidden,
+    onBarToggle: (key, visible) => {
+      barHidden = visible ? barHidden.filter(k => k !== key) : [...new Set([...barHidden, key])];
+      localStorage.setItem(BAR_HIDDEN_KEY, JSON.stringify(barHidden));
+      applyBarVisibility();
+    },
     p2pAvailable: p2pAvailable(),
     p2pOn: p2pEnabled(),
     onP2pToggle: async () => {
@@ -2573,8 +2712,10 @@ async function boot() {
       // context menu as before (anchored to its button), QR shows this
       // profile's invite code, scan opens the camera join flow.
       $("bar-menu").addEventListener("click", () => drawer?.open());
-      $("bar-qr").addEventListener("click", () => showInvite(inviteQrProvider(null), { account: state.account }));
-      $("bar-scan").addEventListener("click", () => joinFlow());
+      for (const view of ["chats", "contacts", "calls", "qr"]) {
+        $(`bar-${view}`).addEventListener("click", () => setListView(view));
+      }
+      applyBarVisibility();
       bindChatHeadMenu();
       // Invite cards in messages + any invite-host link tap → join flow
       bindInviteInterception(link => joinFromInvite(link));
@@ -2619,6 +2760,9 @@ async function boot() {
         msg?.fromContact?.name || msg?.fwdFrom || "New message",
         (msg?.text || "").replace(/\s+/g, " ").slice(0, 120) || "New message",
       );
+    });
+    core.addEventListener("call-ended", ev => {
+      recordCallEnded(ev?.detail?.chatId);
     });
     core.addEventListener("msgs-changed", () => {
       scheduleChatListRefresh();

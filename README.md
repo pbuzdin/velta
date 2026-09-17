@@ -457,11 +457,16 @@ press-down, and a vivid main yellow for selected rows and outgoing bubbles
 every Velta theme it avoids pure black and pure white. Being explicit, it
 never participates in the Auto (system) switch.
 
-**Chat-list action bar.** The old floating "+" FAB is now a four-button
-bottom bar in the chat list: **Menu** (settings drawer), **My QR** (profile
-invite code), **Scan QR** (camera join flow), and **+** (the new chat /
-new group / join-via-link menu, same as before). It is theme-independent —
-every theme renders it from its own tokens.
+**Chat-list action bar.** The bottom bar in the chat list switches what the
+list shows: **Chats** (default), **Contacts** (tap to open the chat),
+**Calls** (recent calls on this device), **QR** (your invite code rendered
+in place of the list, with a scan button), **+** (new chat / group /
+join-via-link menu) and **Menu** (settings drawer). The core keeps no call
+log — calls exist only as call messages — so the Calls view lists calls
+ended on this device, recorded locally and capped at 30. Every view button
+can be hidden in Settings → Bottom bar buttons; the Menu and + buttons are
+always visible, and when all view buttons are hidden the bar's background
+turns transparent.
 
 </details>
 
@@ -667,14 +672,12 @@ tag itself). The release assets are named after the version in
 - `Velta-<version>-<abi>.apk` — signed Android APK (`build-android.yml`)
 - `Velta_<version>_x64-setup.exe` — NSIS Windows installer (`build-windows.yml`)
 
-**Branch builds and changelog feed** (`build-and-notify.yml`): every push to
-`main`/`master` touching app code runs the Windows installer and Android APK
-builds in parallel, and when **both** succeed it posts the commit message to
-the bouncer changelog feed (`ntfy.gluek.info/bouncer_changelog`, commit title
-+ author + link — the same shape as gluek's `bouncer-changelog.yml`). Pull
-requests build too, but stay quiet. The per-platform workflows are
-`workflow_call`-only — `release.yml` and `build-and-notify.yml` are their only
-callers, so a push builds everything exactly once.
+**Changelog feed**: after a tag release publishes successfully (both builds
++ the GitHub release), the `Release` workflow posts a notification to
+`ntfy.gluek.info/velta_changelog` — title `Velta: version bumped to
+<version>`, body = the tagged commit's full message with a link, `Velta` +
+`robot` tags. Builds run only on `v*` tag pushes (or manual dispatch);
+ordinary branch pushes don't build anything.
 
 APKs are signed with the persistent release keystore stored in the repo
 secrets (`ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`,

@@ -465,12 +465,20 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   re-overrides the 1.4.3 outgoing-quote palettes for its yellow bubbles, so
   keep it last in the file. Every new theme value must be added to
   `THEME_LABELS` and `applyTheme`'s theme-color map together.
-- **Chat-list action bar** (`.list-bar` in index.html, since 1.4.6): four
-  buttons — Menu (opens the same drawer as `#btn-menu`), My QR
-  (`showInvite(inviteQrProvider(null))`), Scan QR (`joinFlow()`), and
-  `#btn-new-chat` (kept its id: `newChatFlow` anchors its context menu to
-  this button's rect). The old `.fab`/`.sidebar-foot` are gone — do not
-  resurrect them.
+- **Chat-list action bar + side views** (`.list-bar`, reworked 1.4.7):
+  buttons switch what `#chat-list` shows — `setListView` in app.js with
+  `listView` in {"chats","contacts","calls","qr"}; `renderChatList` early-
+  returns unless the view is "chats" (don't remove that gate — refresh
+  storms would clobber the other views). Contacts come from
+  `core.getContacts`; the Calls view reads the LOCAL call log (localStorage
+  `velta-call-log`, recorded on the core's `call-ended` event, capped 30) —
+  the core has no call-log API, calls are just messages. The QR view
+  renders `inviteQrProvider(null)` in place of the list. Button visibility
+  is user-configurable (drawer → Bottom bar buttons, localStorage
+  `velta-bar-hidden`): hidden view buttons get `[hidden]`, and
+  `applyBarVisibility` adds `.bar-bare` (transparent bar) when all four are
+  hidden. Menu and `#btn-new-chat` are always visible; the old
+  `.fab`/`.sidebar-foot` are gone — do not resurrect them.
 - `app/js/avatar.js` derives contact identity tiles from OpenPGP fingerprints:
   an equal-height 4-row color matrix (3 squares / 2 rects / 2 rects / 3
   squares, one cell per fingerprint group, deterministic colors with
@@ -1043,14 +1051,16 @@ core capabilities and their Velta integration notes: `CORE-CAPABILITIES.MD`.
   — release.yml is the single tag→release path. The keystore and its password
   live in `signing/` (gitignored) and in the four `ANDROID_KEY*` repo
   secrets; losing both means installed APKs can never be updated again.
-- Branch pushes: `.github/workflows/build-and-notify.yml` is the single
-  push/PR caller of the two reusable build workflows (same path filters),
-  and when BOTH builds succeed it posts the commit message to the bouncer
-  changelog feed (`ntfy.gluek.info/bouncer_changelog`, push events only —
-  PR runs stay quiet). The build workflows are `workflow_call` +
-  `workflow_dispatch` only: do not re-add `push:` triggers to
-  `build-android.yml`/`build-windows.yml` — that would build every push
-  twice (their own runs plus the orchestrator's).
+- Builds trigger ONLY on `v*` tag pushes (release.yml) or manual dispatch —
+  branch pushes build nothing. `build-and-notify.yml` (branch-push builds)
+  was removed on purpose: on branch pushes the android job kept getting
+  skipped/cancelled and tag releases built everything a second time. The
+  two per-platform workflows stay `workflow_call` + `workflow_dispatch`
+  only; do not re-add `push:` triggers to them. release.yml ends with a
+  `notify` job (needs android + windows + release) posting to
+  `ntfy.gluek.info/velta_changelog` — title `Velta: version bumped to
+  <version>` from tauri.conf.json, body = the tagged commit's full message
+  + link. Manual dispatches stay silent.
 - When modifying the JSON-RPC API surface, remember that the PWA
   (`app/js/rpc-core.js`), the Python RPC client, and any external consumers must
   stay compatible.

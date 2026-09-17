@@ -201,7 +201,7 @@ async function getTauriVersion() {
 }
 
 /* ---------- Settings drawer ---------- */
-export function buildDrawer({ account, onAddAccount, onSecondDevice, onSetTheme, onOpenChat, onInvite, onToggleMock, onProfile, onEditProfile, onInviteDomains, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme }) {
+export function buildDrawer({ account, onAddAccount, onSecondDevice, onSetTheme, onOpenChat, onInvite, onToggleMock, onProfile, onEditProfile, onInviteDomains, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle }) {
   const isTauri = !!window.__TAURI__;
   const drawer = document.createElement("div");
   drawer.className = "drawer";
@@ -237,6 +237,13 @@ export function buildDrawer({ account, onAddAccount, onSecondDevice, onSetTheme,
         <div class="scale-opts" data-scale-opts>
           ${UI_SCALES.map(([v, label]) => `<label class="scale-opt"><input type="radio" name="ui-scale" value="${v}"${v === uiScaleValue() ? " checked" : ""}><span>${label}</span></label>`).join("")}
         </div>
+      </details>
+      <details class="drawer-details">
+        <summary><svg viewBox="0 0 24 24"><rect x="3" y="17" width="18" height="4" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><path d="M6 17v-4m6 4V9m6 8V5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Bottom bar buttons</span></summary>
+        <div class="scale-opts" data-bar-opts>
+          ${[["chats", "Chats"], ["contacts", "Contacts"], ["calls", "Calls"], ["qr", "QR code"]].map(([key, label]) => `<label class="scale-opt"><input type="checkbox" data-bar-key="${key}"${barHidden.includes(key) ? "" : " checked"}><span>${label}</span></label>`).join("")}
+        </div>
+        <div class="bar-opts-hint">Menu button is always visible.</div>
       </details>
       <button class="ctx-item" data-act="add-account"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 5v4M21 7h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Add profile…</span></button>
       <button class="ctx-item" data-act="second-device"><svg viewBox="0 0 24 24"><rect x="2.5" y="4" width="11" height="17" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="16" y="8" width="5.5" height="13" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Add a second device…</span></button>
@@ -288,6 +295,11 @@ export function buildDrawer({ account, onAddAccount, onSecondDevice, onSetTheme,
 
   // Theme radios: "auto" follows the system preference (app.js listens for
   // changes while auto). Apply in place — no drawer rebuild.
+  drawer.querySelector("[data-bar-opts]")?.addEventListener("change", e => {
+    const key = e.target?.dataset?.barKey;
+    if (!key || !onBarToggle) return;
+    onBarToggle(key, e.target.checked);
+  });
   drawer.querySelector("[data-theme-opts]")?.addEventListener("change", e => {
     const v = e.target?.value;
     if (!v || !THEME_LABELS[v]) return;
