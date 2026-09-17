@@ -20,6 +20,7 @@
   --shadow: 0 4px 18px rgba(16,16,16,.45);
   --radius-bubble: 14px;
   --head-h: 56px; /* shared height of the sidebar and chat header bars */
+  --list-bar-h: calc(64px + env(safe-area-inset-bottom)); /* 46px buttons + 18px padding + safe area */
   color-scheme: dark;
 }
 html[data-theme="light"] {
@@ -940,7 +941,8 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 
 /* settings drawer */
 .drawer {
-  position: fixed; inset: env(safe-area-inset-top) auto 0 0; z-index: 55;
+  /* stops above the list action bar so the bar stays visible and clickable */
+  position: fixed; inset: env(safe-area-inset-top) auto var(--list-bar-h) 0; z-index: 55;
   /* same width as the chat list (.sidebar) */
   width: clamp(300px, 33vw, 420px);
   background: var(--bg-sidebar);

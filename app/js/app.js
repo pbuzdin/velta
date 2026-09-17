@@ -2777,7 +2777,21 @@ async function boot() {
       // Chat-list bottom action bar: the "+" opens the same new-chat/group
       // context menu as before (anchored to its button), QR shows this
       // profile's invite code, scan opens the camera join flow.
-      $("bar-menu").addEventListener("click", () => drawer?.open());
+      $("bar-menu").addEventListener("click", () => {
+        if (drawer?.el?.classList.contains("open")) drawer.close();
+        else drawer?.open();
+      });
+      // The Menu button doubles as the drawer toggle: cross while open.
+      const BAR_MENU_ICONS = {
+        open: `<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`,
+        closed: `<svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
+      };
+      document.addEventListener("velta-drawer", e => {
+        const btn = document.getElementById("bar-menu");
+        if (!btn) return;
+        btn.innerHTML = e.detail.open ? BAR_MENU_ICONS.open : BAR_MENU_ICONS.closed;
+        btn.title = e.detail.open ? "Close menu" : "Menu";
+      });
       for (const view of ["chats", "contacts", "calls", "qr"]) {
         $(`bar-${view}`).addEventListener("click", () => setListView(view));
       }

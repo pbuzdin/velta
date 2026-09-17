@@ -319,6 +319,8 @@ export function buildDrawer({ account, onAddAccount, onSecondDevice, onSetTheme,
     drawer.classList.add("open");
     overlay.style.display = "block";
     document.addEventListener("pointerdown", onDocPointer, true);
+    // lets the list-bar Menu button flip its icon to a cross while open
+    document.dispatchEvent(new CustomEvent("velta-drawer", { detail: { open: true } }));
   }
   function close() {
     drawer.classList.remove("open");
@@ -326,6 +328,7 @@ export function buildDrawer({ account, onAddAccount, onSecondDevice, onSetTheme,
     // the overlay may already be gone (wiped by closeAllPopups) — guard it
     if (overlay.isConnected) overlay.style.display = "none";
     document.removeEventListener("pointerdown", onDocPointer, true);
+    document.dispatchEvent(new CustomEvent("velta-drawer", { detail: { open: false } }));
   }
   activeDrawer = { close };
 
