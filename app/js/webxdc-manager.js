@@ -169,9 +169,13 @@ async function getInfo(msgId) {
       sendUpdateInterval: 1000, sendUpdateMaxSize: 0 };
     try {
       const fetched = await core.getWebxdcInfo(msgId);
-      if (fetched) info = { ...info, ...fetched };
-    } catch {}
-    infoCache.set(msgId, info);
+      // Cache only real answers: a rejected or empty RPC (core busy,
+      // forwarded-copy quirks) must stay uncached so a later prefetch
+      // retries the fetch instead of serving the generic fallback forever.
+      if (!fetched) return info;
+      info = { ...info, ...fetched };
+      infoCache.set(msgId, info);
+    } catch { return info; }
   }
   return infoCache.get(msgId);
 }

@@ -908,7 +908,7 @@ export class ChatView {
       // from the app manifest); tapping opens the app in the webxdc overlay.
       const appName = (m.fileName || "app.xdc").replace(/\.xdc$/i, "");
       bubble += `<div class="msg-webxdc" role="button" data-act="open-webxdc">
-        <div class="webxdc-ico"><img data-webxdc-icon="${m.id}" alt="" decoding="async">${ICO.webxdc || ICO.download}</div>
+        <div class="webxdc-ico"><img data-webxdc-icon="${m.id}" alt="" decoding="async"><span class="webxdc-ico-letter" hidden></span><span class="webxdc-ico-glyph">${ICO.webxdc || ICO.download}</span></div>
         <div><div class="file-name">${escapeHtml(appName)}</div><div class="file-sub"><span class="webxdc-summary">Webxdc app</span> · tap to open</div></div>
         <button type="button" class="webxdc-start" data-act="open-webxdc">Start</button>
       </div>`;
@@ -1007,18 +1007,46 @@ export class ChatView {
         if (!alive()) return;
         openWebxdc(m.id, webxdcCard.querySelector(".file-name")?.textContent || "Webxdc app");
       });
-      prefetchInfo(m.id).then((info) => {
+      const appName = (m.fileName || "app.xdc").replace(/\.xdc$/i, "");
+      // Manifest data (name/icon/summary) applies to the card; an app with no
+      // icon gets a letter tile instead of the generic glyph — the official
+      // client always shows the app name, never the .xdc filename.
+      const hydrateWebxdcCard = (info) => {
         if (!info || !alive() || webxdcCard.isConnected === false) return;
         const name = webxdcCard.querySelector(".file-name");
         const summary = webxdcCard.querySelector(".webxdc-summary");
         if (info.name && name) name.textContent = info.name;
-        if (summary && info.summary) summary.textContent = info.summary;
+        if (summary) summary.textContent = info.summary || "App";
+        const title = String(info.name || appName).trim();
         const iconImg = webxdcCard.querySelector("img[data-webxdc-icon]");
-        if (iconImg && info.icon) {
+        const glyph = webxdcCard.querySelector(".webxdc-ico-glyph");
+        const letter = webxdcCard.querySelector(".webxdc-ico-letter");
+        if (info.icon && iconImg) {
           iconImg.src = appIconUrl(m.id, info.icon);
-          iconImg.style.display = "";
+          iconImg.style.display = "block"; // beats the CSS `display: none` default
+          if (glyph) glyph.hidden = true;
+          if (letter) letter.hidden = true;
+        } else if (letter) {
+          letter.textContent = (title[0] || "A").toUpperCase();
+          letter.hidden = false;
+          if (glyph) glyph.hidden = true;
         }
-      }).catch(() => {});
+      };
+      const loadInfo = (attempt = 0) => {
+        prefetchInfo(m.id).then((info) => {
+          if (!alive() || webxdcCard.isConnected === false) return;
+          // A failed RPC returns the generic fallback without a name — retry
+          // once: the core answers with the manifest name/icon once it is idle.
+          if ((!info || !info.name) && attempt === 0) {
+            setTimeout(() => { if (alive() && webxdcCard.isConnected) loadInfo(1); }, 2000);
+            return;
+          }
+          hydrateWebxdcCard(info);
+        }).catch(() => {
+          if (attempt === 0) setTimeout(() => { if (alive() && webxdcCard.isConnected) loadInfo(1); }, 2000);
+        });
+      };
+      loadInfo();
     }
     if (m.fromContact?.bot) { // bot flag rides the sender contact (mock + core)
       row.querySelectorAll(".msg-cmd[data-cmd]").forEach((cmdBtn) => {
