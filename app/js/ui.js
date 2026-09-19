@@ -149,13 +149,14 @@ export function setCoreVersionDisplay(v) {
   CORE_VERSION = String(v).replace(/^v/, "");
   document.querySelectorAll('[data-v="core"]').forEach((el) => { el.textContent = CORE_VERSION; });
 }
-const FALLBACK_APP_VERSION = "1.4.15";
+const FALLBACK_APP_VERSION = "1.4.16";
 
 /* ---------- Update check (drawer banner + menu-button nudge) ---------- */
 // The latest release version lives in a version.txt asset attached to every
-// GitHub release (written by release.yml from tauri.conf.json). The stable
-// "latest" URL + the version fetched from it reconstruct the APK download
-// URL, since release asset names embed the version.
+// GitHub release (written by release.yml from tauri.conf.json). On Tauri the
+// check runs shell-side (get_latest_version command — shell HTTP is not
+// CSP-bound and the hardcoded URL there is the app's only GitHub reach);
+// the direct fetch is the PWA/browser fallback.
 const UPDATE_CHECK_URL = "https://github.com/pbuzdin/velta/releases/latest/download/version.txt";
 const updateApkUrl = (v) => `https://github.com/pbuzdin/velta/releases/download/v${v}/Velta-${v}-arm64.apk`;
 
@@ -170,14 +171,21 @@ function isNewerVersion(remote, current) {
   return false;
 }
 
-// Fire-and-forget from boot(); offline or a blocked fetch just means no banner.
+// Fire-and-forget from boot(); offline or a failed check just means no banner.
 export async function checkForUpdate() {
   let remote;
   try {
-    const res = await fetch(UPDATE_CHECK_URL, { cache: "no-store" });
-    if (!res.ok) return;
-    remote = (await res.text()).trim();
+    const tauri = window.__TAURI__;
+    if (tauri?.core?.invoke) {
+      // Shell-side: no CORS, and CSP carries no github hosts (AGENTS.md §8).
+      remote = (await tauri.core.invoke("get_latest_version")) || "";
+    } else {
+      const res = await fetch(UPDATE_CHECK_URL, { cache: "no-store" });
+      if (!res.ok) return;
+      remote = (await res.text()).trim();
+    }
   } catch { return; }
+  if (!remote) return;
   const current = await getAppVersion();
   if (!isNewerVersion(remote, current)) return;
   updateInfo = { version: remote, url: updateApkUrl(remote) };

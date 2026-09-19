@@ -162,6 +162,37 @@ fn get_sidecar_status() -> serde_json::Value {
     SIDECAR_STATUS.lock().unwrap().clone().unwrap_or_else(|| serde_json::json!({"running": false, "stage": "unknown"}))
 }
 
+/// Latest released Velta version for the drawer update banner. Shell-side
+/// HTTP on purpose: the renderer's fetch of the cross-origin GitHub URL is
+/// blocked by CORS (the release CDN sends no ACAO headers), and shell HTTP
+/// is not CSP-bound — this hardcoded URL is the ONLY GitHub reach the app
+/// has (see AGENTS.md §8). Bounded read + hard timeout like
+/// fetch_page_title; any failure returns an empty string and the frontend
+/// just shows no banner.
+#[tauri::command]
+async fn get_latest_version() -> Result<String, String> {
+    const VERSION_URL: &str =
+        "https://github.com/pbuzdin/velta/releases/latest/download/version.txt";
+    tauri::async_runtime::spawn_blocking(move || {
+        let agent = ureq::AgentBuilder::new()
+            .timeout(std::time::Duration::from_secs(5))
+            .build();
+        let resp = match agent.get(VERSION_URL).call() {
+            Ok(r) => r,
+            Err(_) => return Ok(String::new()),
+        };
+        let mut body = Vec::new();
+        use std::io::Read;
+        let _ = resp
+            .into_reader()
+            .take(64 * 1024)
+            .read_to_end(&mut body);
+        Ok(String::from_utf8_lossy(&body).trim().to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Best-effort page <title> for the in-app browser bar. Bounded read (256 KB)
 /// and a hard timeout — a slow or hostile page must not hang the bar. Any
 /// failure is reported as an empty string; the bar falls back to the domain.
@@ -1617,7 +1648,7 @@ pub fn run() {
             response.headers_mut().insert("Cache-Control", "max-age=31536000, immutable".parse().unwrap());
             response.map(|body| std::borrow::Cow::Owned(body))
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, fetch_page_title, open_in_app_browser, open_webview_browser, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_latest_version, fetch_page_title, open_in_app_browser, open_webview_browser, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 

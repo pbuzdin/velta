@@ -4,7 +4,7 @@
   },
   "app": {
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:20808 http://127.0.0.1:20809 http://127.0.0.1:20810 http://blobfile.localhost blobfile: https://github.com https://objects.githubusercontent.com; frame-src 'self' https: http://webxdc.localhost webxdc: http://127.0.0.1:20810 http://blobfile.localhost blobfile:; img-src 'self' data: blob: file: asset: blobfile: http://blobfile.localhost http://asset.localhost http://127.0.0.1:20810 http://webxdc.localhost; media-src 'self' blob: asset: blobfile: http://blobfile.localhost http://asset.localhost http://127.0.0.1:20810; style-src 'self' 'unsafe-inline'",
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:20808 http://127.0.0.1:20809 http://127.0.0.1:20810 http://blobfile.localhost blobfile:; frame-src 'self' https: http://webxdc.localhost webxdc: http://127.0.0.1:20810 http://blobfile.localhost blobfile:; img-src 'self' data: blob: file: asset: blobfile: http://blobfile.localhost http://asset.localhost http://127.0.0.1:20810 http://webxdc.localhost; media-src 'self' blob: asset: blobfile: http://blobfile.localhost http://asset.localhost http://127.0.0.1:20810; style-src 'self' 'unsafe-inline'",
       "assetProtocol": {
         "enable": true,
         "scope": ["$APPLOCALDATA/**"]

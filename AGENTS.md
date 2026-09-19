@@ -919,18 +919,15 @@ test traffic accordingly.
   has its own looser dev policy (`unsafe-inline` for its single inline
   script). Keep it tight when adding new frontend capabilities, and update
   **all three** places together: both conf files and the meta tag.
-  - `connect-src` currently carries `https://github.com` +
-    `https://objects.githubusercontent.com` (1.4.14, update-banner version
-    check). KNOWN GAP, do not copy this pattern: the fetch is cross-origin
-    and GitHub's release CDN sends no CORS headers, so it fails inside the
-    page — the banner never fires (found 1.4.15, see §11). The fix is a
-    `get_latest_version` ureq command in lib.rs (shell-side HTTP is not
-    CSP-bound); once it ships, REMOVE both github hosts again. Renderer-side
-    GitHub reach cannot be scoped instead: release downloads 302 to a
-    randomized CDN URL, so path pinning can never match, and CSP paths are
-    not a security boundary — the whole `github.com` host is trusted either
-    way. The shell command is the pin: one hardcoded URL in `lib.rs`, zero
-    GitHub reach for the renderer.
+  - `connect-src` is loopback-only again (1.4.16): the github hosts that the
+    update banner briefly added were removed — the version check runs
+    shell-side (`get_latest_version` ureq command in lib.rs), and shell HTTP
+    is not CSP-bound, so the renderer has NO GitHub reach. Do not re-add
+    github hosts for it: release downloads 302 to a randomized CDN URL, so
+    CSP path pinning can never scope them (CSP paths are not a security
+    boundary), and the cross-origin page fetch fails on CORS regardless
+    (GitHub's CDN sends no ACAO headers — that is what silently killed the
+    banner in 1.4.14/1.4.15).
 - **Webxdc sandbox is opaque-origin.** `webxdc-manager.js` deliberately omits
   `allow-same-origin` from the iframe sandbox: every mini-app document gets a
   unique opaque origin and can reach neither the host page nor other apps'
@@ -1333,21 +1330,15 @@ core capabilities and their Velta integration notes: `CORE-CAPABILITIES.MD`.
   a slow accent ring pulse (box-shadow only, no layout shift; disabled under
   `prefers-reduced-motion`). Download routes through
   `plugin:opener|open_url` to the release APK
-  `releases/download/v<version>/Velta-<version>-arm64.apk`. Needs the
-  `github.com` + `objects.githubusercontent.com` connect-src CSP entries in
-  all three CSP places. No banner when versions match, offline, or 404
-  (pre-1.4.14 releases carry no version.txt).
-  **BROKEN AS OF 1.4.14/1.4.15 (found on a real Windows 1.4.14 build):** the
-  version fetch is cross-origin (`tauri.localhost` → `github.com`) and the
-  release CDN sends no `Access-Control-Allow-Origin`, so `fetch` rejects with
-  `TypeError: Failed to fetch` and the banner never appears — on desktop AND
-  Android. CSP is not the blocker. Fix (1.4.16 plan): move the check into the
-  shell — `#[tauri::command] get_latest_version` in lib.rs using the already
-  vendored `ureq` (same crate as `fetch_page_title`), hardcoded to the
-  version.txt URL; `checkForUpdate` calls `invoke("get_latest_version")` on
-  Tauri and keeps the plain fetch as the PWA fallback. Then drop the two
-  github connect-src hosts (see §8 — shell-side HTTP is CSP-exempt and is
-  the only real way to pin the URL).
+  `releases/download/v<version>/Velta-<version>-arm64.apk`.
+  The version check is shell-side since 1.4.16: `get_latest_version`
+  (lib.rs, ureq, hardcoded version.txt URL, 5 s timeout, 64 KB cap) — the
+  renderer's own cross-origin fetch was CORS-blocked by GitHub's CDN
+  (`TypeError: Failed to fetch`), which silently killed the banner in
+  1.4.14/1.4.15; plain browser `fetch` remains only as the PWA fallback.
+  CSP carries no github hosts — keep it that way (see §8). No banner when
+  versions match, offline, or on an empty response (pre-1.4.14 releases
+  carry no version.txt).
 
 - Desktop shell debugging (Windows): WebView2 exposes a CDP port when the
   app is started with
