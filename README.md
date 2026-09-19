@@ -8,7 +8,7 @@ Velta shares one web frontend (`app/`) between:
 
 - **Windows desktop** — a Tauri 2 app that bundles `deltachat-rpc-server.exe` as a sidecar.
 - **Android mobile** — the same Tauri 2 app, but the Delta Chat core runs in-process inside the APK. A foreground service keeps sync (and notifications) running after the app is backgrounded.
-- **Browser/PWA** — the same frontend can be served statically and connects to a local `velta-core-service` over loopback WebSocket/HTTP, or falls back to a mock core for demo purposes. The PWA's target deployment is a **remote core service over WSS/TLS** — the loopback bridge remains the local/dev path.
+- **Browser/PWA** — the same frontend can be served statically and connects to a local `velta-core-service` over loopback WebSocket/HTTP, or falls back to a mock core for demo purposes. The PWA's target deployment is a **remote core service over WSS/TLS** — the loopback bridge remains the local/dev path. If the loopback connection drops mid-session (service restart), the app reconnects automatically — backoff up to 15 s — and refreshes the chat list; no reload needed.
 
 The UI is plain HTML/CSS/ES modules (no bundler). The backend is the upstream [Delta Chat core](https://github.com/chatmail/core) at version `2.60.0`.
 
@@ -473,9 +473,18 @@ and when all view buttons are hidden the bar's background turns transparent.
 The list renders contact rows through a virtual scroller, so large address
 books don't inflate the DOM.
 
-**History loading strip.** While a chat's history loads, a thin blue
-gradient sweeps left-to-right just under the chat header (relay-blue, the
-same family as the status strip); it is disabled under
+**History loading strip.** While a chat's history loads — opening it or
+paging up to older messages — a thin blue gradient sweeps left-to-right just
+under the chat header (relay-blue, the same family as the status strip). It
+stays on for at least 150 ms so fast loads still register, a new load cancels
+a pending fade so back-to-back pages read as one strip, and it is disabled
+under `prefers-reduced-motion`.
+
+**Avatar shimmer placeholders.** Photo avatars (contact photos and custom
+group photos) show a soft skeleton sweep while their bytes are in flight;
+the sweep rides as the image's own background, so it costs zero extra DOM,
+disappears the instant the photo decodes, and cached avatars skip it
+entirely. Same soft-grey family as the loading strip, disabled under
 `prefers-reduced-motion`.
 
 **Times are 24-hour** (`03:21`, never `03:21 AM`) regardless of device
@@ -535,6 +544,24 @@ in an opaque origin that cannot touch the app, your sessions, or cookies
 navigation). The viewer is themed to match dark/light via an injected
 `color-scheme`, and the file is never copied to a temp file or opened in the
 system browser.
+
+</details>
+
+<details>
+<summary>Content Security Policy</summary>
+
+Both delivery paths ship a restrictive CSP rooted in `default-src 'self'`:
+the Tauri shell injects it as a response header (`tauri.conf.json` /
+`tauri.android.conf.json`), and `app/index.html` carries the same policy as a
+meta tag for the browser/PWA path, where no Tauri header exists. Scripts are
+strictly same-origin — no inline scripts, no `unsafe-eval`; the pre-paint
+interface-scale snippet is an external file (`app/js/ui-scale.js`) for exactly
+that reason. `img-src`/`media-src`/`frame-src` open only the app's own media
+surfaces: the `blobfile:` custom protocol, the loopback media server, and the
+opaque-origin `webxdc:` sandbox. The three policy copies must stay in sync
+when origins change. The standalone diagnostics page (`diag.html`) is a dev
+tool with its own looser policy (`unsafe-inline` for its single inline
+script).
 
 </details>
 

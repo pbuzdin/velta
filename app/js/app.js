@@ -2859,8 +2859,27 @@ async function boot() {
       if (activeChat?.kind === "single") refreshChatHeadPresence(activeId);
     }, 30000);
 
+    // Auto-reconnect: the service APK can restart or drop its loopback socket
+    // mid-session; without this loop the only recovery is a full page reload.
+    // Retries forever at a capped interval — the app should come back
+    // whenever the core does, however long that takes.
+    let reconnecting = false;
     addEventListener("velta-core-disconnected", () => {
-      toast("Lost connection to local Delta Chat core — is the service running?", 4500);
+      toast("Lost connection to local Delta Chat core — reconnecting…", 4500);
+      if (reconnecting || typeof core?.reconnect !== "function") return;
+      reconnecting = true;
+      (async () => {
+        for (let delay = 1000; ; delay = Math.min(delay * 2, 15000)) {
+          await new Promise(r => setTimeout(r, delay));
+          try { if (await core.reconnect()) break; } catch { /* still down */ }
+        }
+        reconnecting = false;
+        // Transports fire this on connect; transport.reconnect() doesn't, so
+        // do it here to update the backend.connected flag and status pill.
+        dispatchEvent(new CustomEvent("velta-core-status", { detail: { connected: true, backend: core.backend?.kind } }));
+        scheduleChatListRefresh(0);
+        toast("Reconnected to Delta Chat core", 2500);
+      })();
     });
 
     appLog("boot: handleDeeplink");

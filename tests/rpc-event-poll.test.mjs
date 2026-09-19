@@ -152,9 +152,43 @@ test("reconnect fails parked and salvaged polls and the loop recovers", async t 
 
   // The dead connection's pending calls were failed, including the salvaged
   // long poll; the loop re-polls on the fresh transport.
-  assert.ok(diagnostics.includes("Event polling failed: reconnecting"));
+  // Sparse logging (first failure per streak) means the reconnect rejection
+  // may not be the logged one — any poll-failure diagnostic proves the loop
+  // noticed the dead connection.
+  assert.ok(diagnostics.some(d => d.startsWith("Event polling failed")));
   await eventually(() => transport.sent.length >= 3);
   assert.equal(transport.sent[2].method, "get_next_event");
+
+  await park();
+});
+
+test("dead transport: poll failures log sparsely, then recover when it heals", async t => {
+  const { core, transport, events, diagnostics, park } = setup(t);
+  let down = true;
+  let failures = 0;
+  const realSend = transport.send.bind(transport);
+  transport.send = line => {
+    if (down) { failures++; throw new Error("websocket closed"); }
+    realSend(line);
+  };
+  void core._pollEvents();
+
+  // Delays ramp (250ms x failure count), so ~2s of wall time sees several
+  // failed iterations — but only ONE failure diagnostic.
+  await new Promise(r => setTimeout(r, 2000));
+  assert.ok(failures >= 3, `expected several poll failures, saw ${failures}`);
+  const pollFailLogs = diagnostics.filter(d => d.startsWith("Event polling failed"));
+  assert.equal(pollFailLogs.length, 1, "failure diagnostics must not spam per iteration");
+
+  down = false;
+  await eventually(() => transport.sent.length >= 1); // next real poll goes out
+  transport.receive(JSON.stringify({
+    jsonrpc: "2.0",
+    id: transport.sent.at(-1).id,
+    result: delivered,
+  }));
+  await eventually(() => events.length === 1);
+  assert.equal(events[0].state, "delivered");
 
   await park();
 });

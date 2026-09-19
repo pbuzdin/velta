@@ -793,6 +793,25 @@ velta-avatar { display: block; flex: none; }
   position: static; inset: auto; display: block;
   width: 100%; height: 100%; object-fit: cover; border-radius: 22%;
 }
+/* Photo shimmer: while the photo bytes are in flight the img paints a soft
+   sweep itself; decode covers it and .loaded (set in updated()) drops the
+   background entirely — stops the animation, and keeps alpha-PNG avatars
+   from shimmering through transparent pixels forever. Soft tones only. */
+.velta-avatar-tile img.velta-avatar-img:not(.loaded) {
+  background-color: rgba(122, 132, 153, .16);
+  background-image: linear-gradient(100deg, transparent 25%, rgba(244, 244, 244, .22) 50%, transparent 75%);
+  background-repeat: no-repeat;
+  background-size: 220% 100%;
+  animation: velta-avatar-shimmer 1.4s linear infinite;
+}
+@keyframes velta-avatar-shimmer {
+  from { background-position: 120% 0; }
+  to { background-position: -20% 0; }
+}
+.velta-avatar-tile img.velta-avatar-img.loaded { background: none; }
+@media (prefers-reduced-motion: reduce) {
+  .velta-avatar-tile img.velta-avatar-img:not(.loaded) { animation: none; }
+}
 
 velta-chat-item { display: block; }
 .chat-item {

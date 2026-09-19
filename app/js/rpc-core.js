@@ -264,13 +264,21 @@ export class JsonRpcCore extends EventTarget {
     this._polling = true;
     // The core queues events; poll like deltachat-desktop does.
     // Event shape: { event: { kind: "IncomingMsg", chatId, msgId }, contextId }
+    let failures = 0;
     for (;;) {
       try {
         this._dispatchPollResult(await this._callEventPoll());
+        failures = 0;
       } catch (error) {
-        this._emit("diagnostic", { level: "warning", message: `Event polling failed: ${error?.message || error}` });
+        // While the transport is down (recovery is core.reconnect(), driven
+        // from app.js) the poll fails fast on every iteration — log and
+        // re-poll sparsely with a ramping delay, not 4x/second forever.
+        failures++;
+        if (failures === 1 || failures % 20 === 0) {
+          this._emit("diagnostic", { level: "warning", message: `Event polling failed: ${error?.message || error}` });
+        }
       }
-      await new Promise(r => setTimeout(r, 250));
+      await new Promise(r => setTimeout(r, failures ? Math.min(250 * failures, 5000) : 250));
     }
   }
 

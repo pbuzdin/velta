@@ -306,8 +306,25 @@ export class ChatView {
   }
 
   // History loading strip under the chat header (see .chat-load-bar).
+  // Stays on >= 150 ms so fast loads (mock core, warm pages) still flash
+  // visibly through the .25 s fade — only the indicator is held, never the
+  // data. A new on cancels a pending off (no flicker between back-to-back
+  // pages; a mid-flight chat switch re-runs open()'s own on).
   _loadBar(on) {
-    document.getElementById("chat-load-bar")?.toggleAttribute("data-on", on);
+    const bar = document.getElementById("chat-load-bar");
+    if (!bar) return;
+    clearTimeout(this._loadBarOff);
+    if (on) {
+      this._loadBarOnAt = performance.now();
+      bar.setAttribute("data-on", "");
+      return;
+    }
+    const shownFor = performance.now() - (this._loadBarOnAt || 0);
+    if (shownFor < 150) {
+      this._loadBarOff = setTimeout(() => bar.removeAttribute("data-on"), 150 - shownFor);
+    } else {
+      bar.removeAttribute("data-on");
+    }
   }
 
   // Full teardown: stop polling, dispose the virtual scroller, drop cached
@@ -665,6 +682,7 @@ export class ChatView {
     this.loadingMore = true;
     const firstMsg = this.items.find(i => i.type === "msg");
     const beforeId = firstMsg?.msg.id ?? null;
+    this._loadBar(true); // same history-loading strip as open(); paging up is history loading too
     try {
       const { messages, hasMore } = await this.core.getMessages(session.chatId, { beforeId, limit: 40 });
       if (!this._isCurrent(session)) return;
@@ -693,6 +711,7 @@ export class ChatView {
     } catch (err) {
       if (this._isCurrent(session)) toast("Couldn't load older messages: " + (err.message || err));
     } finally {
+      this._loadBar(false); // unconditional: an early session-invalid return must not leave the bar on
       if (this._isCurrent(session)) this.loadingMore = false;
     }
   }

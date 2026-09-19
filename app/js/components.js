@@ -49,6 +49,11 @@ class VeltaAvatar extends Elena(HTMLElement) {
         .then((fpr) => { if (fpr && this.isConnected) this.requestUpdate(); })
         .catch(() => {});
     }
+    // Bind the img wiring on first connect too: updated() fires only on
+    // re-renders, and a first render that never gets a follow-up update
+    // (fingerprint already cached) stayed unbound — its img shimmered
+    // forever. rAF = after Elena's synchronous first render, before paint.
+    requestAnimationFrame(() => this._bindImg());
   }
 
   willUpdate() {
@@ -59,14 +64,23 @@ class VeltaAvatar extends Elena(HTMLElement) {
   }
 
   updated() {
+    this._bindImg();
+  }
+
+  // Idempotent per img node (dataset guard): error fallback + shimmer stop.
+  _bindImg() {
     const img = this.querySelector?.("img.velta-avatar-img");
-    if (img && !img.dataset.errBound) {
-      img.dataset.errBound = "1";
-      img.addEventListener("error", () => {
-        this.#avatarFailed = true;
-        this.requestUpdate();
-      });
-    }
+    if (!img || img.dataset.errBound) return;
+    img.dataset.errBound = "1";
+    img.addEventListener("error", () => {
+      this.#avatarFailed = true;
+      this.requestUpdate();
+    });
+    // Skeleton shimmer: stop it the moment the bytes decode — a background
+    // left in place would shimmer forever under a transparent-PNG avatar.
+    const loaded = () => img.classList.add("loaded");
+    if (img.complete && img.naturalWidth > 0) loaded();
+    else img.addEventListener("load", loaded, { once: true });
   }
 
   initials() {

@@ -12,13 +12,11 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="stylesheet" href="css/main.css">
-<script>
-// Interface scale (drawer option) applies before first paint to avoid a flash.
-try {
-  var _s = localStorage.getItem("velta-ui-scale");
-  if (_s && _s !== "1") document.documentElement.style.zoom = _s;
-} catch (e) {}
-</script>
+<!-- CSP for the browser/PWA path (no Tauri header there). Keep in sync with
+     velta-app/src-tauri/tauri.conf.json "security.csp" — the Tauri-only
+     scheme tokens (ipc:, asset:, …) are inert in a plain browser. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:20808 http://127.0.0.1:20809 http://127.0.0.1:20810 http://blobfile.localhost blobfile:; frame-src 'self' https: http://webxdc.localhost webxdc: http://127.0.0.1:20810 http://blobfile.localhost blobfile:; img-src 'self' data: blob: file: asset: blobfile: http://blobfile.localhost http://asset.localhost http://127.0.0.1:20810 http://webxdc.localhost; media-src 'self' blob: asset: blobfile: http://blobfile.localhost http://asset.localhost http://127.0.0.1:20810; style-src 'self' 'unsafe-inline'">
+<script src="js/ui-scale.js"></script>
 <script src="js/boot-net.js"></script>
 <script src="vendor/virtual-scroller.js"></script>
 </head>

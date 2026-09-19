@@ -68,7 +68,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   ├── diag.html             # connection diagnostics page for the service bridge
 │   ├── index.html            # main app shell
 │   ├── manifest.webmanifest  # PWA manifest (name: "Velta")
-│   └── sw.js                 # app-shell service worker (CACHE constant bumped each release)
+│   └── sw.js                 # vestigial: boot unregisters all service workers (see §9.1)
 │
 ├── core/                     # Delta Chat core Rust library (upstream copy)
 │   ├── src/                  # main library (~64 Rust modules, see core/src/lib.rs)
@@ -181,8 +181,9 @@ There is **no build step** for the PWA. Open `app/index.html` directly in a
 browser, or serve `app/` from any static web server. The app will use the mock
 core unless a real backend is reachable.
 
-To refresh the service-worker cache after editing, bump the `CACHE` constant in
-`app/sw.js`.
+The service worker is dead by design: boot unregisters every registration
+(app.js, near the PWA comment — cache-first SWs kept serving stale JS across
+upgrades). `app/sw.js` is vestigial; don't rely on it or re-register one.
 
 ### 4.3 Tauri desktop/Android app (`velta-app/`)
 
@@ -323,6 +324,18 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   (`eventPollTimeoutMs`) instead of the 30 s RPC timeout, and an expired poll's
   entry stays registered so its late response is dispatched instead of
   dropped. Don't replace it with a normal `_call`.
+- **Mid-session auto-reconnect** (1.4.11, app.js `velta-core-disconnected` handler):
+  when the loopback WS/HTTP transport drops after boot, app.js retries
+  `core.reconnect()` forever with 1 s doubling backoff capped at 15 s, then
+  re-fires `velta-core-status` connected (transport.reconnect() itself does
+  NOT — skip it and the status pill/backend flag stay "disconnected") and
+  refreshes the chat list. While the transport is down, the rpc-core poll
+  loop re-polls sparsely: delay ramps 250 ms per consecutive failure (cap
+  5 s) and the failure diagnostic logs on the first and every 20th failure
+  only — a dead socket used to emit four diagnostics per second.
+  Pinned by the last test in `tests/rpc-event-poll.test.mjs`. The
+  bridge/Tauri transports cannot drop; MockCore has no `reconnect` (guarded
+  by a typeof check).
 - `app/js/app.js` owns the chat list, navigation, modals, diagnostics chat, and
   the PWA shell. It also runs a DOM-budget watchdog that samples node counts.
   It owns the **relay status line** (`#relay-line`, thin strip below the
@@ -503,14 +516,30 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `.chat-head` are border-box `height: calc(var(--head-h) +
   env(safe-area-inset-top))`. Change the var, not the paddings.
 - **History loading strip** (`#chat-load-bar`): 6px blue gradient sweep
-  pinned under the chat header; `chat-view.open()` turns it on before the
-  history fetch and off in a `finally`. It sits at
+  pinned under the chat header; turned on by BOTH `chat-view.open()` and
+  `_loadOlder()` (paging up is history loading too — 1.4.11; previously only
+  open() wired it and paging showed nothing). `_loadBar()` holds a 150 ms
+  minimum on-time and a new on cancels a pending off, so fast loads still
+  register and back-to-back pages read as one strip; only the indicator is
+  delayed, never the data. It sits at
   `top: calc(var(--head-h) + env(safe-area-inset-top))` — keep that offset
   if the header frame changes.
 - **Times are 24-hour**: `formatTime` (mock-core.js) forces
   `hour12: false` — it is the single timestamp source for chat rows, list
   rows and call lists; don't reintroduce locale defaults (they rendered
   `03:21 AM` on en-US devices).
+- **Avatar photo shimmer** (1.4.11, `components.js` `_bindImg` + the
+  `.velta-avatar-img:not(.loaded)` block in main.css): photo avatars (contact
+  and group photos) paint a skeleton sweep as the img's OWN background while
+  the bytes are in flight — no extra DOM; decode covers it, then `.loaded`
+  drops the background entirely (stops the animation AND keeps alpha-PNG
+  avatars from shimmering through transparent pixels forever). Cached imgs
+  (`img.complete`, blob media is `Cache-Control: immutable`) skip it with no
+  flash. Bind runs from `updated()` AND once from `connectedCallback` via
+  rAF — Elena does not reliably call `updated()` on a first render that
+  arrives via a parent-template diff; a later re-render heals any straggler,
+  and an unbound case is invisible anyway (decoded opaque photo covers the
+  background). `prefers-reduced-motion` gets a static placeholder.
 - `app/js/avatar.js` derives contact identity tiles from OpenPGP fingerprints:
   an equal-height 4-row color matrix (3 squares / 2 rects / 2 rects / 3
   squares, one cell per fingerprint group, deterministic colors with
@@ -764,6 +793,13 @@ signatures survive unmounted updates, and `msgs-changed` bursts collapse
 into one tail refetch per gap. Run them after touching `rpc-core.js`,
 `app.js`, `chat-view.js` or `ui.js`.
 
+Known-broken (pre-existing, noted 2026-09-19): `app-account-isolation`,
+`chat-account-isolation` and `chat-msg-update-hardening` all fail with
+`document/window.addEventListener is not a function` — their DOM stubs don't
+implement `addEventListener`. The `rpc-*`, `call-state-machine` and
+`local-chat-transfer-progress` suites are healthy; verify rpc-core/app.js
+changes against those until the stubs grow the method.
+
 Beyond that, the primary verification path is manual:
 
 1. Open `app/index.html` in a browser. Force demo mode with
@@ -817,8 +853,12 @@ test traffic accordingly.
   `unsafe-eval` for scripts (inline scripts are blocked — that is relied on,
   e.g. by `boot-net.js`); `img-src`/`media-src` additionally allow the
   `blobfile:`/`webxdc:` custom-scheme origins and the loopback media server.
-  Keep it tight when adding new frontend capabilities, and update **both**
-  conf files together.
+  The browser/PWA path (no Tauri header) carries the same policy as a meta
+  tag in `app/index.html` (1.4.11) — Tauri-only scheme tokens (`ipc:`, `asset:`, …)
+  are inert there and kept so the copies stay byte-identical. `diag.html`
+  has its own looser dev policy (`unsafe-inline` for its single inline
+  script). Keep it tight when adding new frontend capabilities, and update
+  **all three** places together: both conf files and the meta tag.
 - **Webxdc sandbox is opaque-origin.** `webxdc-manager.js` deliberately omits
   `allow-same-origin` from the iframe sandbox: every mini-app document gets a
   unique opaque origin and can reach neither the host page nor other apps'
@@ -848,17 +888,18 @@ test traffic accordingly.
 ### 9.1 PWA served statically
 
 - Serve the contents of `app/` over HTTPS.
-- The browser will install the service worker and cache the app shell.
+- The service worker is unregistered at boot (stale-JS-upgrade incidents —
+  see §4.2); `sw.js` is vestigial and nothing caches the app shell in a
+  plain browser.
 - If `deltachat-rpc-server` or the Android service is running on the same
   device, the app connects over loopback WebSocket/HTTP; otherwise it falls
   back to the mock core.
 - **Direction (since 1.3.29):** the PWA's target deployment is a *remote*
   core service reached over WSS/TLS — `transport.js` currently hardwires the
   loopback endpoints (`ws://127.0.0.1:20808`, `http://127.0.0.1:20809`), and
-  a remote transport will replace them. Note the CSP implication before
-  adding origins: a meta CSP in `index.html` is still missing, so outside
-  the Tauri shell the only XSS layer is the frontend's escape-first
-  rendering.
+  a remote transport will replace them. CSP implication when adding
+  origins: the meta CSP in `index.html` must learn every new origin
+  alongside the Tauri conf copies (§8).
 
 ### 9.2 Tauri desktop/Android app
 
@@ -1168,7 +1209,8 @@ core capabilities and their Velta integration notes: `CORE-CAPABILITIES.MD`.
   scaling factor; reporter's viewport was 320px wide). Scaling is owned by
   the app instead: drawer spoilers (ui.js) with radios — "Interface scale"
   (zoom on <html>, persisted `velta-ui-scale`, applied pre-paint by the
-  inline script in index.html <head>) and "Theme" (auto/dark/light; auto
+  blocking external `js/ui-scale.js` in index.html <head> — external
+  because the CSP forbids inline scripts) and "Theme" (auto/dark/light; auto
   follows `prefers-color-scheme` live via matchMedia and is the DEFAULT for
   fresh installs — `dw-theme` holds the setting). Both apply in place:
   never rebuildDrawer() on a radio change, it would close the drawer.
