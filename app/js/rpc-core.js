@@ -560,6 +560,9 @@ export class JsonRpcCore extends EventTarget {
       fileSize: m.fileBytes ?? null,
       fileMime: m.fileMime || null,
       downloadState: m.downloadState || "Done",
+      // Core's mime_modified: a stored original body exists for Read more.
+      // False on forwarded copies — the raw mime is not copied on forward.
+      hasHtml: !!m.hasHtml,
       // Core-reported pixel size of images (0 when unknown) — the chat view
       // uses these to reserve the exact image box before the file decodes.
       dimensionsWidth: m.dimensionsWidth > 0 ? m.dimensionsWidth : null,

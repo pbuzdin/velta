@@ -1,7 +1,7 @@
 // chat-view.js — virtualized message history (virtual-scroller) + composer
 import { formatTime, formatDay, formatBytes } from "./mock-core.js";
 import { escapeHtml, escapeAttr, ticksSvg } from "./components.js";
-import { showContextMenu, showModal, confirmDeleteMessagesModal, toast, openImageLightbox } from "./ui.js";
+import { showContextMenu, showModal, confirmDeleteMessagesModal, toast, openImageLightbox, CLOSE_SVG } from "./ui.js";
 import { diagnosticRow } from "./diagnostics.js";
 import { openWebxdc, prefetchInfo, appIconUrl } from "./webxdc-manager.js";
 
@@ -934,10 +934,14 @@ export class ChatView {
     }
 
     if (m.text) {
-      // The core's mail simplifier cuts footers/quotes at receive time and
-      // marks the stored text with " [...]" — offer the original via
-      // get_message_html.
-      const truncated = m.text.endsWith(" [...]");
+      // "Show Full Message…" (the official client's label): the core stores
+      // the original body whenever the mail simplifier touched the message
+      // (hasHtml = core's mime_modified, mapped in rpc-core). Gate on hasHtml
+      // alone — the original can differ from the simplified bubble even
+      // without the " [...]" cut marker (HTML mails). Forwarded copies carry
+      // no stored original (hasHtml false): no button, because it could open
+      // nothing.
+      const fullMsg = m.hasHtml === true;
       bubble += `<div class="msg-text">${renderMarkdown(m.text)}`;
       if (m.fromContact?.bot) { // bot flag rides the sender contact (mock + core)
         const cmds = extractBotCommands(m.text);
@@ -945,7 +949,7 @@ export class ChatView {
           bubble += `<div class="msg-cmds">${cmds.map((c) => `<button type="button" class="msg-cmd" data-cmd="${escapeAttr(c)}">${escapeHtml(c)}</button>`).join("")}</div>`;
         }
       }
-      if (truncated) bubble += `<div style="margin-top:6px"><button type="button" class="btn-text" data-readmore style="padding:4px 8px;font-size:13px">Read more</button></div>`;
+      if (fullMsg) bubble += `<div style="margin-top:6px"><button type="button" class="btn-text" data-fullmsg style="padding:4px 8px;font-size:13px">Show Full Message…</button></div>`;
     } else bubble += `<div class="msg-text">`;
     const edited = m.edited ? `<span class="edited">edited</span>` : "";
     const star = m.starred ? `<svg class="star-ico" viewBox="0 0 24 24"><path d="M12 3l2.7 5.8 6.3.7-4.7 4.3 1.3 6.2-5.6-3.2-5.6 3.2 1.3-6.2L3 9.5l6.3-.7z" fill="currentColor"/></svg>` : "";
@@ -1144,35 +1148,29 @@ export class ChatView {
       }
       const vcardBtn = e.target.closest("[data-vcard-open]");
       if (vcardBtn) { e.stopPropagation(); this._openVcardContact(m); return; }
-      const readMore = e.target.closest("[data-readmore]");
+      const readMore = e.target.closest("[data-fullmsg]");
       if (readMore) { e.stopPropagation(); this._showFullMessage(m); return; }
     });
     return row;
   }
 
-  // Show the original, unsimplified message text. The mail HTML from the
-  // core is untrusted remote content: parsed without script execution and
-  // rendered as plain text only.
+  // "Show Full Message…": render the original, unsimplified mail in the same
+  // isolated overlay as HTML attachments — sandboxed srcdoc iframe, opaque
+  // origin, scripts run but can touch nothing of ours. Remote images stay
+  // blocked by the page CSP (srcdoc inherits it) — matches the zero-remote-
+  // content privacy stance; loading them needs a deliberate exception later.
   async _showFullMessage(m) {
-    const body = document.createElement("div");
-    body.innerHTML = `<div class="p2p-hint" style="opacity:.6">Loading full message…</div>`;
-    showModal({ title: "Full message", body });
     let html = null;
     try {
       html = await this.core.getMessageHtml(m.id);
-    } catch (err) {
+    } catch {
       html = null;
     }
     if (!html) {
-      body.innerHTML = `<div class="p2p-hint" style="opacity:.6">The full version isn't available for this message.</div>`;
+      toast("The full version isn't available for this message", 3000);
       return;
     }
-    const doc = new DOMParser().parseFromString(html, "text/html");
-    doc.querySelectorAll("script,style,iframe,object,embed").forEach(el => el.remove());
-    const pre = document.createElement("div");
-    pre.style.cssText = "white-space:pre-wrap;overflow:auto;max-height:60vh;font-size:14.5px;line-height:1.5;word-break:break-word";
-    pre.textContent = (doc.body?.textContent || html).trim();
-    body.replaceChildren(pre);
+    this._openHtmlOverlay("Full message", { html });
   }
 
   // Fill a shared-contact card's avatar, name and address from its vCard
@@ -1746,51 +1744,61 @@ export class ChatView {
   // webxdc overlay; sandbox without allow-same-origin keeps the document in
   // an opaque origin (scripts run, but can touch nothing of ours).
   _openHtmlIsolated(path, name = null) {
+    return this._openHtmlOverlay(name || "HTML preview", { url: fileUrl(path) });
+  }
+
+  // Shared overlay: content comes from a fetched url (attachments) or a raw
+  // html string ("Show Full Message…"). One overlay at a time; Android BACK
+  // pops the pushed history entry and tears it down (same pattern as
+  // openChat/closeChat in app.js).
+  _openHtmlOverlay(titleText, { url = null, html = null } = {}) {
     document.getElementById("html-view-overlay")?.remove();
     const wrap = document.createElement("div");
     wrap.id = "html-view-overlay";
     const bar = document.createElement("div");
     bar.className = "html-view-bar";
     const title = document.createElement("span");
-    title.textContent = name || "HTML preview";
+    title.textContent = titleText;
     const closeBtn = document.createElement("button");
     closeBtn.type = "button";
     closeBtn.className = "icon-btn";
-    closeBtn.textContent = "✕";
+    closeBtn.innerHTML = CLOSE_SVG; // bold house icon — unicode ✕ renders hairline
     closeBtn.setAttribute("aria-label", "Close");
+    closeBtn.title = "Close";
     closeBtn.addEventListener("click", () => closeViewer());
     bar.append(title, closeBtn);
     const frame = document.createElement("iframe");
     frame.className = "html-view-frame";
     frame.setAttribute("sandbox", "allow-scripts"); // no allow-same-origin
-    const url = fileUrl(path);
-    // Android BACK closes the viewer: the pushed history entry pops (WebView
-    // history navigation) and popstate tears the overlay down — same pattern
-    // as openChat/closeChat in app.js.
-    window.addEventListener("popstate", () => wrap.remove(), { once: true });
+    // The iframe element's color-scheme only sets the canvas — the
+    // document's own scrollbar follows ITS color-scheme, so inject it.
+    const injectTheme = html => {
+      const dark = document.documentElement.dataset.theme !== "light";
+      const inject = `<style>html{color-scheme:${dark ? "dark" : "light"}}</style>`;
+      const head = /<head[^>]*>/i.exec(html) || /<html[^>]*>/i.exec(html);
+      return head
+        ? html.slice(0, head.index + head[0].length) + inject + html.slice(head.index + head[0].length)
+        : inject + html;
+    };
     const closeViewer = () => {
       if (history.state?.velta === "html-view") history.back();
       else wrap.remove();
     };
     // Reopening replaces the stale entry instead of stacking a second one.
     if (history.state?.velta !== "html-view") history.pushState({ velta: "html-view" }, "");
-    // Prefer fetch -> srcdoc: navigating a sandboxed opaque-origin frame to
-    // a custom-protocol URL makes Tauri's injected init script throw
-    // ("Cannot read properties of undefined (reading 'plugins')"), while
-    // srcdoc documents don't. The direct navigation stays as fallback for
-    // transports where fetch is blocked (no CORS on the serving origin).
-    fetch(url).then(r => (r.ok ? r.text() : Promise.reject(r.status)))
-      .then(html => {
-        // The iframe element's color-scheme only sets the canvas — the
-        // document's own scrollbar follows ITS color-scheme, so inject it.
-        const dark = document.documentElement.dataset.theme !== "light";
-        const inject = `<style>html{color-scheme:${dark ? "dark" : "light"}}</style>`;
-        const head = /<head[^>]*>/i.exec(html) || /<html[^>]*>/i.exec(html);
-        frame.srcdoc = head
-          ? html.slice(0, head.index + head[0].length) + inject + html.slice(head.index + head[0].length)
-          : inject + html;
-      })
-      .catch(() => { frame.src = url; });
+    window.addEventListener("popstate", () => wrap.remove(), { once: true });
+    if (html != null) {
+      frame.srcdoc = injectTheme(html);
+    } else {
+      // Prefer fetch -> srcdoc: navigating a sandboxed opaque-origin frame to
+      // a custom-protocol URL makes Tauri's injected init script throw
+      // ("Cannot read properties of undefined (reading 'plugins')"), while
+      // srcdoc documents don't. The direct navigation stays as fallback for
+      // transports where fetch is blocked (no CORS on the serving origin).
+      fetch(url).then(r => (r.ok ? r.text() : Promise.reject(r.status)))
+        .then(text => { frame.srcdoc = injectTheme(text); })
+        .catch(() => { frame.src = url; });
+    }
     wrap.append(bar, frame);
     document.body.appendChild(wrap);
   }

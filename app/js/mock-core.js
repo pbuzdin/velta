@@ -139,6 +139,18 @@ export class MockCore extends EventTarget {
       this._mkMsg(this.chats[1], { kind: "service", text: "Messages are end-to-end encrypted.", ts: now - 86400e3 * 3 }),
       this._mkMsg(this.chats[1], { from: 1, text: "Welcome to Velta 🎉 This account is connected through the chatmail relay nine.testrun.org.", ts: now - 86400e3 * 3 + 60e3 }),
     ];
+    // Read-more demo pair in the pinned 1:1 chat: a truncated original
+    // (stored body exists → button) and a forwarded copy of a truncated
+    // message (marker copied, no stored body → button must NOT render).
+    this.chats[2].messages.push(
+      this._mkMsg(this.chats[2], { from: 1, text: "Trip plan: we take the morning train, and the long footer with the packing list got cut [...]", ts: now - 120e3, hasHtml: true }),
+      this._mkMsg(this.chats[2], { from: 2, fwdFrom: "Pavel", text: "Forwarded — the original mail this was cut from lives on another device [...]", ts: now - 60e3, hasHtml: false }),
+      // An HTML mail: simplified text in the bubble, formatted original behind
+      // "Show Full Message…" — exercises the srcdoc iframe path with real markup.
+      this._mkMsg(this.chats[2], { from: 2, text: "Release notes newsletter — open for the formatted table", ts: now - 30e3, hasHtml: true,
+        html: "<html><head><style>body{font-family:system-ui;margin:16px;background:#14141c;color:#f2f2f5}h2{margin-top:0}td,th{border:1px solid #4a4f62;padding:6px 10px}</style></head><body><h2>Velta Release Notes</h2><table><tr><th>Version</th><th>Highlight</th></tr><tr><td>1.4.11</td><td>Auto-reconnect, browser CSP, shimmer, Show Full Message</td></tr><tr><td>1.4.10</td><td>Touch-safe drawer toggle</td></tr></table><p>The formatted original mail — the bubble shows only the simplified text.</p></body></html>" }),
+    );
+    this.chats[2].messages.sort((a, b) => a.ts - b.ts);
   }
 
   _randomMsg(chat, ts) {
@@ -413,6 +425,21 @@ export class MockCore extends EventTarget {
   async addAccountWithBackup() { return this.accountId; }
 
   // Paged history: newest-first pages, like scrolling up through time.
+  // Original body for demo messages flagged hasHtml (Read more in the chat
+  // view). Mirrors the core: forwarded copies (hasHtml false) get null.
+  async getMessageHtml(msgId) {
+    for (const c of this.chats) {
+      const m = c.messages.find(x => x.id === msgId);
+      if (m) {
+        if (!m.hasHtml) return null;
+        if (m.html) return m.html;
+        return `<html><body><p>${m.text.replace(/\s?\[\.\.\.\]\s*$/, "")}</p>` +
+          `<p>— the full original: the cut footer and sign-off live here; this is what "Read more" rehydrates.</p></body></html>`;
+      }
+    }
+    return null;
+  }
+
   async getMessages(chatId, { beforeId = null, limit = 40 } = {}) {
     const c = this.chats.find(x => x.id === chatId);
     if (!c) return { messages: [], hasMore: false };

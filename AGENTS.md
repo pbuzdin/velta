@@ -438,9 +438,16 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   the bubble edge); `.chat-item` cards use full `contain: layout paint style`.
   It also owns the **shared-contact cards** (messages with viewtype `Vcard`:
   avatar/name/addr hydrate from the vCard attachment via `parseVcard`; tap
-  imports via `importVcard` and opens the DM), the **Read more** button for
-  messages the mail simplifier cut (" [...]" suffix → `getMessageHtml`,
-  parsed without script execution and rendered as plain text), and the
+  imports via `importVcard` and opens the DM), the **"Show Full Message…"**
+  button (official client's label; `data-fullmsg`), gated on `hasHtml === true`
+  (the core's `mime_modified`, mapped in rpc-core) — the core stores the
+  original body whenever the mail simplifier touched the message, HTML mails
+  included; forwarded copies carry no stored original (hasHtml false) and get
+  no button. Tapping fetches `getMessageHtml` and renders it in the SAME
+  isolated overlay as HTML attachments (`_openHtmlOverlay`: sandboxed srcdoc
+  iframe, `allow-scripts`, no `allow-same-origin`; remote images stay blocked
+  because srcdoc inherits the page CSP — loading them needs a deliberate
+  exception). Null html → toast "full version isn't available", and the
   **image send flow** shared by clipboard paste and the file picker: a
   preview modal with caption + Send/Crop (`_imagePreviewModal` is built with
   `createElement` + listeners so the test stub can click it), free-form
@@ -668,7 +675,13 @@ Android link handling chain (since 1.4.1, hardened after 1.4.2): `openInAppBrows
 on Android invokes `open_in_app_browser` (JNI → `org.velta.InAppBrowser`).
 Failure chain, in order:
 
-1. **Chrome Custom Tab** — the normal path.
+1. **Chrome Custom Tab** — the normal path. Since 1.4.11+ the tab targets an
+   EXPLICIT provider resolved via `CustomTabsClient.getPackageName`
+   (InAppBrowser.kt): a bare CustomTabsIntent resolves like ACTION_VIEW, so on
+   devices whose default browser has no Custom Tabs support (vivo.browser) the
+   link silently opened as a full browser task. The `<queries>`
+   CustomTabsService declaration in AndroidManifest.xml is required for that
+   resolution on API 30+ — keep both in sync.
 2. **Default browser** — `InAppBrowser.kt` catches the launch failure
    (`CustomTabsIntent.launchUrl` does NOT fall back on its own) and re-launches
    via plain `ACTION_VIEW` + `FLAG_ACTIVITY_NEW_TASK`.
@@ -742,7 +755,12 @@ system-browser convention — `open_in_app_browser` is `#[cfg(target_os =
   `.msg-quote` palette block in `app/css/main.css` documents the current
   per-theme/per-side choices (5.2–7.0 : 1). Generic accent/dim tokens often
   fail on colored bubbles (accent on `--bg-bubble-out` measures 2.58 : 1), so
-  always measure the actual combination.
+  always measure the actual combination. Bubble-internal `.btn-text`
+  actions ("Show Full Message…", transfer Retry) are scoped per surface in
+  main.css: `.msg-row.out` uses `--text-meta-out`, light incoming a darkened
+  `#1a68b8`, brutal incoming `--accent-2` — raw accent fails on all three
+  (3.0/2.85/1.67 plus 4.19 on brutal incoming). Keep new inline buttons on
+  those scoped rules, not bare `.btn-text` inside a bubble.
 - **Identity avatars (user contacts)** always render the color matrix as the
   background — never a solid color. The matrix uses equal-height rows
   (3 squares / 2 rects / 2 rects / 3 squares), deterministic per-fingerprint

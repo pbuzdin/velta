@@ -965,6 +965,15 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .btn-text.btn-primary:hover { background: var(--accent); filter: brightness(1.08); }
 }
 .btn-text { color: var(--accent); font-weight: 600; padding: 10px 14px; border-radius: 8px; }
+/* Inline .btn-text actions inside bubbles ("Show Full Message…", transfer
+   Retry): the accent blue fails AA on the blue outgoing bubble (3.0:1 dark,
+   2.85:1 light, 1.67:1 brutal), on light incoming (3.0:1) and is marginal
+   on brutal incoming (4.19:1). Per-surface colors instead: meta-out is the
+   token made for the out bubble (4.59–4.67:1 in every theme), light
+   incoming takes a darkened accent (5.14:1), brutal its accent-2 (7.29:1). */
+.msg-row.out .btn-text { color: var(--text-meta-out); }
+html[data-theme="light"] .msg-row:not(.out) .btn-text { color: #1a68b8; }
+html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2); }
 @media (hover: hover) and (pointer: fine) {
   .btn-text:hover { background: var(--bg-hover); }
 }

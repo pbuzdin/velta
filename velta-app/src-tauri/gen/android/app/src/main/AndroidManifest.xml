@@ -24,6 +24,15 @@
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
 
+    <!-- Custom Tabs provider resolution (InAppBrowser.kt): without this query,
+         package visibility hides every provider on API 30+ and links fall
+         back to the default browser as a full task. -->
+    <queries>
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
+    </queries>
+
     <application
         android:debuggable="true" tools:ignore="HardcodedDebugMode"
         android:icon="@mipmap/ic_launcher"

@@ -350,10 +350,16 @@ Message text renders a simple, escape-first markdown subset (`app/js/markdown.js
 | `- item` / `* item` / `+ item` | bulleted list |
 | `1. item` / `1) item` | numbered list (a start value like `3.` is honored) |
 
-Long messages whose footer/quote was cut by the core's mail simplifier end in
-`[...]`; those render a **Read more** button that loads the original body from
-the core (`get_message_html`), parsed without script execution and shown as
-plain text.
+Messages whose original differs from the simplified bubble — the core's mail
+simplifier cut a footer/quote (the text ends in `[...]`), or an HTML mail was
+flattened to text — render a **Show Full Message…** button (the official
+client's label). Tapping it loads the original body from the core
+(`get_message_html`) and renders it in the same isolated viewer as HTML
+attachments: a sandboxed iframe in an opaque origin, so scripts run but can
+touch nothing of the app. Forwarded copies carry no stored original and get
+no button. Remote images inside the mail stay blocked by default (the page
+CSP applies inside the viewer) — nothing about you leaks to mail-embedded
+trackers.
 
 Everything is HTML-escaped before any tag is produced and only `http(s)` targets become links, so message content can never inject markup. Emphasis markers are word-boundary guarded (`2*3*4` and `snake_case_name` stay literal). Invite links (`i.delta.chat` and registered mirror domains) render as invite cards instead of links — see [Deep links](#deep-links). Invites carrying a `b=` parameter are broadcast channels and render as *"Subscribe to ChannelName"* with a Subscribe confirmation instead of the group wording.
 
@@ -510,7 +516,7 @@ Reply quotes use a dedicated palette per bubble and theme (the generic accent/di
 <details>
 <summary>Known limitations</summary>
 
-- **In-app browser (Android)** — external https links in messages open in a Chrome Custom Tab (Telegram-style: close button, page title + domain, share, open-in-system-browser escape hatch). If no Custom Tabs provider resolves the launch, `InAppBrowser.kt` falls back to the default browser via a plain `ACTION_VIEW`; only if that fails too does the JS side render its iframe overlay. The overlay's sandboxed iframe cannot show sites that send X-Frame-Options / frame-ancestors (Chromium blocks with `net::ERR_BLOCKED_BY_RESPONSE`) — the bar's external-open button is the escape hatch. The Custom Tab class (`org.velta.InAppBrowser`) is cached as a JNI global ref at startup (`setApplicationContext` in `lib.rs`) because `find_class` for app classes is unreliable from Rust worker threads. The page title in the overlay is fetched separately by the shell (`fetch_page_title`, 5 s timeout, 256 KB cap).
+- **In-app browser (Android)** — external https links in messages open in a Chrome Custom Tab (Telegram-style: close button, page title + domain, share, open-in-system-browser escape hatch). The tab targets an explicit Custom Tabs provider (`CustomTabsClient.getPackageName`: the default browser when it supports Custom Tabs, otherwise the first installed candidate — without this, devices whose default browser has no Custom Tabs support, e.g. vivo.browser, opened links as a full browser task). If no provider resolves the launch, `InAppBrowser.kt` falls back to the default browser via a plain `ACTION_VIEW`; only if that fails too does the JS side render its iframe overlay. The overlay's sandboxed iframe cannot show sites that send X-Frame-Options / frame-ancestors (Chromium blocks with `net::ERR_BLOCKED_BY_RESPONSE`) — the bar's external-open button is the escape hatch. The Custom Tab class (`org.velta.InAppBrowser`) is cached as a JNI global ref at startup (`setApplicationContext` in `lib.rs`) because `find_class` for app classes is unreliable from Rust worker threads. The page title in the overlay is fetched separately by the shell (`fetch_page_title`, 5 s timeout, 256 KB cap).
 - Group creation, contact discovery, QR invites, and real-time message rendering all work in basic flows but have not been stress-tested.
 - Logging to `velta.log` is disabled in the stable branch; use the status pill and browser/Tauri dev tools to diagnose issues.
 - On Windows, the app needs the sidecar binary to talk to the real core. If the sidecar fails to start the frontend falls back to the mock core.

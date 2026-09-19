@@ -7,6 +7,12 @@ const popups = () => document.getElementById("popups");
 let activeDrawer = null; // set by buildDrawer, closed by closeAllPopups
 let activeModalClose = null;
 
+// House close icon: bold stroke to match the other icon buttons (the
+// unicode ✕ renders hairline-thin). Used by modals, the image lightbox and
+// the HTML/full-message overlay.
+export const CLOSE_SVG =
+  '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>';
+
 export function closeAllPopups() {
   activeModalClose?.();
   popups().replaceChildren();
@@ -55,7 +61,7 @@ export function showModal({ title, body, foot, onClose }) {
   head.innerHTML = `<div class="modal-title">${escapeHtml(title)}</div>`;
   const close = document.createElement("button");
   close.className = "icon-btn";
-  close.innerHTML = `<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`;
+  close.innerHTML = CLOSE_SVG;
   let closed = false;
   const doClose = () => {
     if (closed) return;
@@ -509,9 +515,10 @@ export function openImageLightbox(src, caption = "") {
   overlay.innerHTML = `
     <div class="lightbox-bar">
       <span class="lightbox-cap"></span>
-      <button class="lightbox-close" aria-label="Close">✕</button>
+      <button class="lightbox-close" aria-label="Close" title="Close"></button>
     </div>
     <div class="lightbox-stage"><img class="lightbox-img" decoding="async" alt=""></div>`;
+  overlay.querySelector(".lightbox-close").innerHTML = CLOSE_SVG;
   document.body.appendChild(overlay);
   overlay.querySelector(".lightbox-cap").textContent = caption;
   const img = overlay.querySelector(".lightbox-img");
