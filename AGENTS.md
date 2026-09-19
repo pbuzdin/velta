@@ -1312,6 +1312,16 @@ core capabilities and their Velta integration notes: `CORE-CAPABILITIES.MD`.
   fresh installs — `dw-theme` holds the setting). Both apply in place:
   never rebuildDrawer() on a radio change, it would close the drawer.
   `text-size-adjust: 100%` on html neutralizes font boosting in browsers.
+  **Keyboard vs header (1.4.17):** with `enableEdgeToEdge()`, API 30+
+  ignores `adjustResize` — the system PANned the window when the soft
+  keyboard opened and the chat header scrolled off-screen. Fix, keep all
+  three parts: `android:windowSoftInputMode="adjustResize"` in the
+  manifest, an IME-insets listener in MainActivity applying
+  `ime().bottom` as content-view bottom padding while the keyboard is
+  visible (closed-keyboard spacing stays with the page's
+  `env(safe-area-inset-bottom)`), and
+  `interactive-widget=resizes-content` in the viewport meta so the page's
+  layout viewport resizes with the WebView.
   Root zoom scales `getBoundingClientRect()` but NOT `scrollTop`/
   `offsetHeight`, so `.app` must never size itself with viewport units:
   `100dvh` rendered at zoom × N and pushed the list bar below the fold

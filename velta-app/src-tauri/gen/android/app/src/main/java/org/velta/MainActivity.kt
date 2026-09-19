@@ -7,8 +7,11 @@ import android.os.Handler
 import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
   // Re-enable WryActivity's WebView-history BACK handling (TauriActivity
@@ -32,6 +35,19 @@ class MainActivity : TauriActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
+    // Edge-to-edge + API 30+ ignore adjustResize: without this the system
+    // PANS the window when the soft keyboard opens and the chat header ends
+    // up above the screen. Applying the IME inset as bottom padding on the
+    // content view shrinks the WebView instead, so the page relayouts with
+    // the header still at the top and the composer above the keyboard.
+    // Only while the IME is visible — closed-keyboard spacing is handled by
+    // the page's env(safe-area-inset-bottom).
+    ViewCompat.setOnApplyWindowInsetsListener(findViewById(android.R.id.content)) { v, insets ->
+      val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
+      v.setPadding(0, 0, 0, if (imeVisible) insets.getInsets(WindowInsetsCompat.Type.ime()).bottom else 0)
+      insets
+    }
+    window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
     setApplicationContext(applicationContext)
     super.onCreate(savedInstanceState)
     // The second-WebView browser overlay (InAppBrowser.openWebView) needs the
