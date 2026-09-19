@@ -1068,6 +1068,8 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 }
 .drawer-items { padding: 8px; overflow-y: auto; flex: 1; min-height: 0; }
 .drawer-foot { padding: 8px 16px 14px; border-top: 1px solid rgba(244, 244, 244, .08); }
+.drawer-ver { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--text-dim); padding: 2px 0; }
+.drawer-sec { font-size: 12.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; padding: 14px 12px 6px; }
 /* Update banner: pinned at the drawer's bottom (drawer-items scrolls, this
    and the foot do not). Rendered by ui.js renderUpdateBanner when a newer
    release is published (version.txt asset on GitHub releases). */
@@ -1093,6 +1095,8 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
   50% { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 8px rgba(90, 162, 230, 0); }
 }
 @media (prefers-reduced-motion: reduce) { #bar-menu.update { animation: none; } }
+
+/* attach pop reuses ctx-menu */
 .attach-pop { min-width: 190px; }
 
 /* toasts */
