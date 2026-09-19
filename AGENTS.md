@@ -919,6 +919,18 @@ test traffic accordingly.
   has its own looser dev policy (`unsafe-inline` for its single inline
   script). Keep it tight when adding new frontend capabilities, and update
   **all three** places together: both conf files and the meta tag.
+  - `connect-src` currently carries `https://github.com` +
+    `https://objects.githubusercontent.com` (1.4.14, update-banner version
+    check). KNOWN GAP, do not copy this pattern: the fetch is cross-origin
+    and GitHub's release CDN sends no CORS headers, so it fails inside the
+    page — the banner never fires (found 1.4.15, see §11). The fix is a
+    `get_latest_version` ureq command in lib.rs (shell-side HTTP is not
+    CSP-bound); once it ships, REMOVE both github hosts again. Renderer-side
+    GitHub reach cannot be scoped instead: release downloads 302 to a
+    randomized CDN URL, so path pinning can never match, and CSP paths are
+    not a security boundary — the whole `github.com` host is trusted either
+    way. The shell command is the pin: one hardcoded URL in `lib.rs`, zero
+    GitHub reach for the renderer.
 - **Webxdc sandbox is opaque-origin.** `webxdc-manager.js` deliberately omits
   `allow-same-origin` from the iframe sandbox: every mini-app document gets a
   unique opaque origin and can reach neither the host page nor other apps'
@@ -1325,6 +1337,30 @@ core capabilities and their Velta integration notes: `CORE-CAPABILITIES.MD`.
   `github.com` + `objects.githubusercontent.com` connect-src CSP entries in
   all three CSP places. No banner when versions match, offline, or 404
   (pre-1.4.14 releases carry no version.txt).
+  **BROKEN AS OF 1.4.14/1.4.15 (found on a real Windows 1.4.14 build):** the
+  version fetch is cross-origin (`tauri.localhost` → `github.com`) and the
+  release CDN sends no `Access-Control-Allow-Origin`, so `fetch` rejects with
+  `TypeError: Failed to fetch` and the banner never appears — on desktop AND
+  Android. CSP is not the blocker. Fix (1.4.16 plan): move the check into the
+  shell — `#[tauri::command] get_latest_version` in lib.rs using the already
+  vendored `ureq` (same crate as `fetch_page_title`), hardcoded to the
+  version.txt URL; `checkForUpdate` calls `invoke("get_latest_version")` on
+  Tauri and keeps the plain fetch as the PWA fallback. Then drop the two
+  github connect-src hosts (see §8 — shell-side HTTP is CSP-exempt and is
+  the only real way to pin the URL).
+
+- Desktop shell debugging (Windows): WebView2 exposes a CDP port when the
+  app is started with
+  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9223` —
+  `http://127.0.0.1:9223/json/list` lists the page target; drive it with a
+  raw-WebSocket CDP client (`Runtime.evaluate`). This is the only reliable
+  way to inspect the desktop UI: synthetic OS clicks are unusable (a
+  fullscreen topmost key-remapper overlay swallows them, foreground locks
+  block `SetForegroundWindow`, and PrintWindow/DPI coordinate mismatches
+  make blind clicking a lottery). Helper scripts in the parent workspace
+  `tools/`: `shot-velta-window.ps1` (PrintWindow capture, DPI-aware),
+  `focus-velta.ps1` (raise + topmost), `click-at.ps1`, `who-is-at.ps1`
+  (which window owns a screen point).
 
 - In-app browser (since 1.3.38): Android message links open
   `inapp-browser.js`'s overlay (bar: close / fetched title + domain /
