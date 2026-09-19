@@ -395,7 +395,9 @@ chat header instead.
 <details>
 <summary>Webxdc mini-apps (beta)</summary>
 
-Messages containing a `.xdc` mini-app render as an app card — tap to open
+Messages containing a `.xdc` mini-app render as an app card — the app's
+icon (or a letter tile with the app initial when the app ships none), the
+app's name and summary from its manifest, and a Start button; tap to open
 the app in a full-screen overlay (opaque-origin sandbox, close button in the
 title bar). The iframe runs **without** `allow-same-origin`, so every app
 document gets a unique opaque origin: mini-apps can reach neither the host
@@ -404,9 +406,10 @@ page nor each other's data, and the injected shim backs
 syncs to every chat member through end-to-end encrypted status updates,
 and the relay's STUN/TURN servers power the connection). The app frame is
 themed to match the shell (dark canvas, dark scrollbars) — an app can still
-set its own `color-scheme`. Realtime (low-latency) channels and `sendToChat`
-export are not wired yet — apps that rely on them degrade gracefully to
-status updates.
+set its own `color-scheme`. `sendToChat` (including file export to a chat)
+and the file-picking `importFiles` are wired; realtime (low-latency)
+channels are not — apps that rely on them degrade gracefully to status
+updates.
 
 </details>
 
