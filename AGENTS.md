@@ -1085,7 +1085,8 @@ re-renders, `[virtual-scroller] The item is no longer rendered onscreen
   injects `webxdc-shim.js` (include_str!) into index.html. The shim defines
   `window.webxdc` and talks to the host over postMessage; the host relays to
   `get_webxdc_status_updates` / `send_webxdc_status_update`, tracking
-  per-instance serials. Realtime channels and `sendToChat` are not wired.
+  per-instance serials. `sendToChat` and `importFiles` are wired (see the
+  1.4.12+ note below); realtime (low-latency) channels are not.
   CSP: `frame-src` + `img-src` gained the `webxdc.localhost` origins — keep
   them when editing the CSP. Since 1.4.12+: `openWebxdc` refuses to open in
   a plain browser (toast "webxdc apps run in the Velta app" — the
@@ -1115,6 +1116,15 @@ re-renders, `[virtual-scroller] The item is no longer rendered onscreen
   (`extractBotCommands` in markdown.js, chips fill the composer); on Android
   message links are routed to `plugin:opener|open_url` (wry drops
   target=_blank).
+  Chat-history app card (since 1.4.17): shows the manifest name (never the
+  `.xdc` filename), summary or the official client's "App" fallback, and the
+  manifest icon — or a letter tile with the app initial when the app ships
+  none (`.webxdc-ico-letter`); the generic glyph is only a pre-hydrate
+  placeholder. A failed `getWebxdcInfo` RPC stays UNcached in
+  webxdc-manager's `infoCache` (chat-view retries once after 2s) — caching
+  the generic fallback froze forwarded-app cards on filename + glyph
+  (1.4.14–1.4.16 regression on forwarded copies). Keep both halves: the
+  no-cache rule and chat-view's retry.
 
 - Forwarded-message label + bubble polish (since 1.3.31): the forward label
   announces the content type ("Forwarded a picture / video / an audio / a
