@@ -109,6 +109,9 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   └── android-arm64/
 │
 ├── signing/                  # local signing keystore (untracked)
+├── docs/agents/              # per-subsystem agent notes (webxdc, relays,
+│                              p2p/local chat, android-shell, media,
+│                              onboarding) — referenced from §5/§11
 └── tools/                    # icon generation, WSL APK build/sign helpers,
                               serve-dev.py (no-cache static server for app/)
 ```
@@ -295,317 +298,135 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   4. HTTP to `http://127.0.0.1:20809/rpc`
   5. `MockCore` fallback
 - `app/js/rpc-core.js` wraps any transport with a JSON-RPC client, maps core
-  events to UI events, and exposes the same API surface as `mock-core.js`. It
-  additionally provides the multi-account surface used by the drawer switcher
-  (`getAllAccounts`, `switchAccount`, `addAccountWithQr`), the relay status
-  primitives (`getConnectivity`, `connectivity-changed` events,
-  `send-activity` from `sendMessage` until `MsgDelivered`/`MsgFailed`), the
-  multi-transport relay surface (`listTransports`, `checkQr`,
-  `addTransportFromQr`, `deleteTransport` — removal is immediate since core
-  2.60.0, the core refuses only the last relay and re-elects sending;
-  `transports-modified` events drive the reactive relay line), the
-  second-device backup
-  transfer (`provideBackup`, `getBackupQr`, `addAccountWithBackup` with the
-  same two epoch boundaries as `addAccountWithQr`, `importBackup` (file
-  restore into the current account, fire-and-forget + `imex-progress`),
-  `stopOngoingProcess`;
-  transfer progress arrives as `imex-progress` events, 1000 = done, 0 =
-  failed), the vCard surface (`parseVcard`, `importVcard`, `makeVcard`) and
-  `getMessageHtml` (original body of messages the mail simplifier cut, marked
-  by a trailing " [...]"). It also exposes `createQrSvg` for rendering
-  arbitrary tickets as QR. Wire types are normalized at this
-  boundary (e.g. drawer taps hand ids through dataset attributes and are
-  always strings — `switchAccount` coerces to u32).
-- **Account isolation contract** (`rpc-core.js` + `app.js` + `chat-view.js`):
-  the core keeps an `accountEpoch`, advanced twice around every account
-  transition — `account-changing` fires synchronously at the start (the app
-  tears down chat/popups/drawer/search state), `account-changed` fires in a
-  `finally` after selection succeeds or fails (the app refreshes accounts and
-  the chat list). Every multi-step RPC captures its entry account and passes
-  that snapshot across awaits; cache writes, UI event emissions and async
-  message decoration are dropped when the epoch no longer matches. Foreign
-  or unattributed account events (`contextId`) never mutate state.
-  `ChatView` sessions are invalidated by both `close()` and the epoch;
-  unsent text/replies are drafts keyed by (account, chat) in memory.
-  `closeAllPopups()` settles confirmations (dismissal = cancel). Keep this
-  Regression suites live in
-  `tests/` (see §7.2).
-- **Event long-poll contract** (`rpc-core.js`): the backend parks
-  `get_next_event` until an event exists and hands each event to exactly one
-  waiter. Event polls therefore use a dedicated 240 s backstop
-  (`eventPollTimeoutMs`) instead of the 30 s RPC timeout, and an expired poll's
-  entry stays registered so its late response is dispatched instead of
-  dropped. Don't replace it with a normal `_call`.
-- **Mid-session auto-reconnect** (1.4.11, app.js `velta-core-disconnected` handler):
-  when the loopback WS/HTTP transport drops after boot, app.js retries
-  `core.reconnect()` forever with 1 s doubling backoff capped at 15 s, then
-  re-fires `velta-core-status` connected (transport.reconnect() itself does
-  NOT — skip it and the status pill/backend flag stay "disconnected") and
-  refreshes the chat list. While the transport is down, the rpc-core poll
-  loop re-polls sparsely: delay ramps 250 ms per consecutive failure (cap
-  5 s) and the failure diagnostic logs on the first and every 20th failure
-  only — a dead socket used to emit four diagnostics per second.
-  Pinned by the last test in `tests/rpc-event-poll.test.mjs`. The
-  bridge/Tauri transports cannot drop; MockCore has no `reconnect` (guarded
-  by a typeof check).
-- `app/js/app.js` owns the chat list, navigation, modals, diagnostics chat, and
-  the PWA shell. It also runs a DOM-budget watchdog that samples node counts.
-  It owns the **relay status line** (`#relay-line`, thin strip below the
-  sidebar header): one equal-width segment per configured relay (up to
-  `MAX_RELAYS = 5` in the core, `configure.rs`), each colored by that relay's
-  own status — green connected / yellow connecting or retrying / red
-  unreachable / blue demo or local-chat mode. Per-relay status comes from
-  parsing the core's `get_connectivity_html` (the only per-transport status
-  the core exposes; ceiling noted in `parseConnectivityHtml`). With one relay
-  the line is the old single bar; the combined `get_connectivity` view still
-  drives the 45 s NotConnected grace and the line's overall semantics, with
-  animated dashes while a message is in flight to the relay (driven by
-  rpc-core's `send-activity`). Hovering the line (or pulling down at the top
-  of the chat list on mobile — touch listeners on `#chat-list`) reveals the
-  **relay detail bar** (`#relay-detail`, absolutely positioned inside
-  `.relay-zone` so it overlays the chat list instead of pushing it down):
-  one row per relay with a state dot, domain, status text and the relay's
-  quota (usage/limit + percent, parsed from the connectivity page's
-  `quota-list`; same HTML-parsing ceiling as the segments). The transport
-  `<li>`s nest the quota `<ul>`, so `parseConnectivityHtml` slices the
-  transports section and matches each transport to the next `<li
-  class="transport">` / end of section — a first-`</li>` match silently
-  truncates the quota. It also owns the **multi-relay manager**
-  (`openRelaysModal`, reached from the drawer's "Relays of this profile…" and
-  the profile modal's Transport row): `list_transports` for the list,
-  `delete_transport` for removal (immediate since core 2.60.0: the core
-  refuses only the *last* relay, re-elects the sending transport as needed
-  and informs contacts via keyupdate messages; `transports-modified` events
-  refresh the modal and status line live),   `add_transport_from_qr`
-  with `check_qr` validation and `configure-progress` step UI for adding.
-  `addRelayFlow` also takes a preset code, so a clicked/pasted `dcaccount:`
-  deeplink (`handleDeeplinkFromUrl` → `chooseRelayOrNewProfile`) can offer
-  "add the relay to this profile" alongside the legacy "create a new
-  profile" path (`addAccountFromInvite`). Android registers the raw
-  `dcaccount:`/`dclogin:`/`dcbackup:` schemes as intent filters; raw scheme
-  URLs are opaque (no query/hash to parse), so `extractInviteLink` matches
-  them with a regex and `extractBackupLink` routes `dcbackup:` deep links
-  into `receiveSecondDeviceProfile` (presetCode).
-  Sending always goes through the primary relay (`configured_addr`); the
-  Relays modal offers **"Use for sending"** per non-primary relay
-  (`rpc-core.setSendRelay` → core `set_config("configured_addr", …)`, which
-  republishes/re-signs the key, syncs, clears the SMTP queue — queued
-  messages carry the old From — and restarts IO). The segmented status line
-  marks only the sending relay's segment with the sending dashes. It also owns the **second-device flow** (`secondDeviceFlow`,
-  drawer → "Add a second device…"): the old device shows a `provide_backup`
-  QR (the `get_backup_qr_svg` design card with the `.qr-self` v-logo badge on
-  the reserved circle) and waits, completion detected via
-  `imex-progress`; the new device scans/pastes a `DCBACKUP<n>:…` code (the
-  core's format — validate with `/^dcbackup\d*:/i`, not a bare `dcbackup:`),
-  and `addAccountWithBackup` imports it into a fresh account — the receive
-  path is `receiveSecondDeviceProfile`, shared with the splash. The
-  **Welcome to Velta** splash (`showSplash`) is created **on demand**, not at
-  boot: boot() shows it only when the account is unconfigured (setup screen:
-  large logo, tagline, three setup paths, and a collapsed app-log footer fed
-  from the diagnostics store — create a profile on a relay (input or
-  camera scan of a relay QR, permission only on tapping Scan), add as second
-  device (dcbackup receive), and restore from a backup file (Tauri file
-  dialog → `resolve_content_uri` on Android → `importBackup`, fire-and-forget
-  with `imex-progress`, app restarts on success)) or when the core failed to
-  answer after its retries (log surface). Returning users with a configured
-  profile never see it — do not regress this into an unconditional boot splash.
-- **Boot hang on Android (do not regress):** `tauri-plugin-notification`'s
-  `requestPermission()` can hang forever on some Android 13+ builds (Vivo)
-  once the dialog has been dismissed — boot() used to die silently at its
-  first `await`, producing a dead UI with an amber relay line. Never await a
-  plugin permission call without a timeout: callers race it (2.5 s). Since
-  1.3.26 the ask happens only after the user creates or restores an account
-  (`askNotificationPermission()`, flag-gated after the restore reload) — not
-  at boot. Diagnostics are mirrored to velta.log (js_log) regardless, so a
-  hang stays pullable via adb even when no splash is on screen.
-- **On-device diagnosis:** all core/transport diagnostics are mirrored into
-  `velta.log` (via `js_log`) — pull over adb with
-  `adb shell run-as org.velta cat /data/data/org.velta/logs/velta.log`,
-  which requires `android:debuggable="true"` in the AndroidManifest (a
-  diagnosis-only ceiling — strip it from release builds). Scoped storage
-  hides `/sdcard/Android/data/org.velta` from adb on Android 13+; Vivo also
-  requires the "Install via USB" developer toggle for `adb install`. The drawer's saved-relays
-  bookmark list was removed —
-  profile = identity (drawer), relay = property of a profile (Relays modal).
-  Its `showChatInfo` is the contact/chat profile modal: the 168px photo
-  avatar beside the captioned identity tile, action buttons (Send message,
-  Share profile via `navigator.share` with the personal i.delta.chat invite
-  link, Edit name, Block), and Address / Profile key / Last seen / Chats in
-  common rows. Group message sender avatars open the same modal for their
-  contact (`openContactProfile`).
+  events to UI events, and exposes the same API surface as `mock-core.js`:
+  multi-account (`getAllAccounts`/`switchAccount`/`addAccountWithQr`), the
+  relay surface (see docs/agents/relays.md), second-device backup transfer
+  (`provideBackup`/`getBackupQr`/`addAccountWithBackup`/`importBackup`),
+  vCard (`parseVcard`/`importVcard`/`makeVcard`), `getMessageHtml` (original
+  body behind "Show Full Message…"), `createQrSvg`. Wire types are
+  normalized here (drawer ids are always strings; `switchAccount` coerces to
+  u32). KEEP the **account-isolation contract**: `account-changing` fires
+  synchronously at the start of every account transition (the app tears down
+  chat/popups/drawer/search), `account-changed` fires in a `finally` after
+  selection succeeds or fails; every multi-step RPC captures its entry
+  accountId and drops cache writes/UI events/async decoration when the epoch
+  no longer matches; foreign or unattributed events (`contextId`) never
+  mutate state; ChatView sessions are invalidated by `close()` and the
+  epoch; unsent text/replies are drafts keyed by (account, chat);
+  `closeAllPopups()` settles confirmations (dismissal = cancel). Pinned by
+  the tests in §7.2.
+- **Event long-poll contract** (rpc-core): the backend parks `get_next_event`
+  until an event exists and hands each event to exactly one waiter; polls
+  use a dedicated 240 s backstop (`eventPollTimeoutMs`), and an expired
+  poll's entry stays registered so its late response is dispatched, not
+  dropped. Don't replace it with a normal `_call`. (Pinned by
+  `tests/rpc-event-poll.test.mjs`.)
+- **Mid-session auto-reconnect** (1.4.11, app.js `velta-core-disconnected`):
+  retry `core.reconnect()` forever with 1 s doubling backoff capped at 15 s,
+  then re-fire `velta-core-status` connected — `transport.reconnect()` alone
+  does NOT set the status pill — and refresh the chat list. While down, the
+  rpc-core poll loop ramps delay 250 ms per consecutive failure (cap 5 s)
+  and logs the failure on the first and every 20th attempt only.
+- `app.js` owns the chat list, navigation, modals, the diagnostics chat and
+  the PWA shell, plus a DOM-budget watchdog. KEEP: boot is stage-isolated —
+  drawer + menu bind first and set `uiLive`; later-stage failures log and
+  boot continues; `openChat` returns early when the ChatView stage failed;
+  the outer catch shows the splash when `!uiLive`; `js/boot-net.js` loads
+  before every other script (CSP forbids inline scripts) routing
+  errors/unhandledrejection into the Diagnostics sink once app.js is alive,
+  into the static `#boot-error` banner before that. Subsystem notes:
+  docs/agents/relays.md (relay line/detail/manager), onboarding (splash,
+  second device).
 - `app/js/chat-view.js` owns the conversation history (virtualized via
-  `virtual-scroller`), composer, selection mode, and the delete-message dialog.
-  Rows must NOT get `content-visibility` — the scroller measures mounted rows
-  itself (ResizeObserver), and a row collapsing to its `contain-intrinsic-size`
-  placeholder when scrolled out of view desyncs the scroller's height cache
-  (scroll jumps on remount; "height has changed from 52 to 436" warnings).
-  Day chips are rendered inside the first message row of each day
-  (`dayFirst` flag), never as separate list items: the scroller's diff needs
-  the whole previous items array to appear contiguously after a prepend, and
-  separator items broke that on day-crossing batches — failed diffs forced a
-  full relayout with estimated heights and no scroll restoration (the
-  "scroll jumps more and more" bug when paging up). Keep `_loadOlder`
-  prepends pure message prefixes.
-  Bubbles use `contain: layout style` but not paint (the reply pill overflows
-  the bubble edge); `.chat-item` cards use full `contain: layout paint style`.
-  It also owns the **shared-contact cards** (messages with viewtype `Vcard`:
-  avatar/name/addr hydrate from the vCard attachment via `parseVcard`; tap
-  imports via `importVcard` and opens the DM), the **"Show Full Message…"**
-  button (official client's label; `data-fullmsg`), gated on `hasHtml === true`
-  (the core's `mime_modified`, mapped in rpc-core) — the core stores the
-  original body whenever the mail simplifier touched the message, HTML mails
-  included; forwarded copies carry no stored original (hasHtml false) and get
-  no button. Tapping fetches `getMessageHtml` and renders it in the SAME
-  isolated overlay as HTML attachments (`_openHtmlOverlay`: sandboxed srcdoc
-  iframe, `allow-scripts`, no `allow-same-origin`; remote images stay blocked
-  because srcdoc inherits the page CSP — loading them needs a deliberate
-  exception). Null html → toast "full version isn't available", and the
-  **image send flow** shared by clipboard paste and the file picker: a
-  preview modal with caption + Send/Crop (`_imagePreviewModal` is built with
-  `createElement` + listeners so the test stub can click it), free-form
-  canvas cropper (`openImageCropper`), and upload of the final bytes via
-  `resolve_upload_path` + `plugin:fs|write_file` (the fs plugin reads the
-  path from the IPC `path` header and the bytes from the raw body — a
-  Uint8Array as the whole invoke body). The rendered-row LRU (`_rowCache`)
-  survives `close()` so reopening a chat reuses its rows; `open()` clears it
-  when the account changed (message ids are per-account).
-- `app/js/components.js` defines custom elements (`<velta-avatar>`,
-  `<velta-chat-item>`, `<velta-chat-head>`, `<velta-video>`) using Elena.
-- **Verified rosette** (`nameBadgesFor` in components.js): reads
-  `chat.contact.verified` (falling back to `chat.verified`). The contact is
-  the real source — `ContactObject.isVerified` means a secure-join-verified
-  key contact (`verifierId` 0 = direct, else introduced) — while every
-  chat-level path hardcodes `verified: false` because the core's
-  `ChatListItemFetchResult` has no such field. The open chat head gets
-  `chat.contact` from `refreshChatHeadPresence` (open / chat-updated / 30s
-  tick); bare chat-list rows never hydrate contacts (one RPC per row), so
-  the rosette shows in the header and profile only — keep it that way unless
-  the core exposes verification on chatlist items. Group protection status
-  is not exposed by the JSON-RPC chat types at all.
-- **Presence status line** (chat head subtitle, profile "Last seen" row):
-  `_mapContact` maps the core's `lastSeen: 0` (= never seen) to `null`, and
-  consumers treat `null` as "nothing known" — the chat head shows no
-  subtitle and the profile sheet hides the row. Do not reintroduce a
-  `Date.now()` fallback: it rendered "last seen just now" for never-seen
-  contacts (fixed 1.4.5).
-- **Theming contract**: `THEME_LABELS` in ui.js drives the picker;
-  `applyTheme` (app.js) sets `html[data-theme]` and the theme-color meta.
-  Themes: `auto` (system dark/light), `dark`, `light`, and `brutal` (since
-  1.4.6 — neobrutalist dark, explicit only, never matched by Auto). A theme
-  is a token block in `main.css` (`html[data-theme="<name>"]`) plus targeted
-  component overrides appended AFTER the base rules — the brutal block
-  re-overrides the 1.4.3 outgoing-quote palettes for its yellow bubbles, so
-  keep it last in the file. Every new theme value must be added to
-  `THEME_LABELS` and `applyTheme`'s theme-color map together.
-- **Chat-list action bar + side views** (`.list-bar`, reworked 1.4.7):
-  buttons switch what `#chat-list` shows — `setListView` in app.js with
-  `listView` in {"chats","contacts","calls","qr"}; `renderChatList` early-
-  returns unless the view is "chats" (don't remove that gate — refresh
-  storms would clobber the other views). Contacts come from
-  `core.getContacts`; the Calls view reads the LOCAL call log (localStorage
-  `velta-call-log`, recorded on the core's `call-ended` event, capped 30) —
-  the core has no call-log API, calls are just messages. The QR view
-  renders `inviteQrProvider(null)` in place of the list. Contact rows mount
-  through a virtual scroller (`sideScroller`, stopped by `stopSideScroller`
-  on every view switch) — real address books have hundreds of contacts and
-  each fingerprint avatar used to be a ~35-node inline SVG that blew the
-  WebView DOM budget; since 1.4.10 tiles ride as CSS backgrounds (see
-  `avatarBackgroundUrl` in `avatar.js`), so they cost zero child nodes. Since 1.4.8 the
-  header search button and `#btn-new-chat` are also view toggles
-  (`listView` "search" and "new"): search filters chats in place and the
-  button icon flips to a cross via `syncHeaderButtons()` (called from
-  `setListView` — keep that call when adding views); the new-chat view
-  lists `newChatOptions()` rows. The old floating context menu and the
-  search modal are gone; the sidebar-head Menu button was removed (the
-  list-bar Menu button opens the drawer). Button visibility
-  is user-configurable (drawer → Bottom bar buttons, localStorage
-  `velta-bar-hidden`): hidden view buttons get `[hidden]`, and
-  `applyBarVisibility` adds `.bar-bare` (transparent bar) when all four are
-  hidden. Menu and `#btn-new-chat` are always visible; the old
-  `.fab`/`.sidebar-foot` are gone — do not resurrect them. The sidebar-head
-  Menu button is removed too — the bar button is the only drawer entry
-  point.
-- **Drawer contract** (ui.js `buildDrawer`): no close button and no
-  box-shadow (it slides over the sidebar's own edge; any offset shadow
-  bleeds past it — a right border does the separation). It stops above the
-  list bar (`inset` bottom = `var(--list-bar-h)`). open()/close() dispatch
-  a `velta-drawer` document event; the bar Menu button listens for it to
-  flip hamburger↔cross and to close an open drawer instead of re-opening.
+  virtual-scroller), composer, selection mode and the delete dialog. KEEP:
+  rows must NOT get `content-visibility` (the scroller measures mounted rows
+  itself; collapsing desyncs its height cache — scroll jumps on remount);
+  day chips render inside the first message row of each day (`dayFirst`) —
+  separator items broke the scroller's prepend diff; `_loadOlder` prepends
+  stay pure message prefixes. Bubbles use `contain: layout style` (not
+  paint — the reply pill overflows); `.chat-item` cards use full
+  `contain: layout paint style`. The rendered-row LRU (`_rowCache`) survives
+  `close()`; `open()` clears it when the account changed.
+- `app/js/components.js` defines the Elena custom elements
+  (`<velta-avatar>`, `<velta-chat-item>`, `<velta-chat-head>`,
+  `<velta-video>`). KEEP: the verified rosette reads
+  `chat.contact.verified` (the contact is the real source; chat-list rows
+  never hydrate contacts — one RPC per row) and shows in header/profile
+  only; presence maps core `lastSeen: 0` to `null` = unknown (no subtitle,
+  no "last seen just now" — never a `Date.now()` fallback, fixed 1.4.5).
+- `app/js/avatar.js` — fingerprint color-matrix identity tiles, delivered
+  as percent-encoded SVG data-URL CSS backgrounds (`avatarBackgroundUrl`,
+  cached per fingerprint — zero child nodes); group avatars stay solid
+  color; a contact's photo rides inside the matrix tile; photo avatars
+  shimmer via the img's own background until `load` (`.loaded` removes it —
+  Elena does not reliably call `updated()` on first render, so bind from
+  `updated()` AND once via rAF from `connectedCallback`).
+- **Theming contract**: `THEME_LABELS` (ui.js) drives the picker;
+  `applyTheme` (app.js) sets `html[data-theme]` + the theme-color meta.
+  Themes: auto (system), dark, light, brutal (1.4.6 — explicit only, never
+  matched by Auto). A theme is a token block in main.css plus component
+  overrides appended AFTER the base rules (brutal re-overrides the 1.4.3
+  quote palettes — keep it last). Every new theme value lands in
+  `THEME_LABELS` and the theme-color map together.
+- **List action bar + side views** (`.list-bar`, 1.4.7+): buttons switch
+  what `#chat-list` shows via `setListView` over {chats, contacts, calls,
+  qr, search, new}; `renderChatList` early-returns unless the view is
+  "chats" (keep that gate — refresh storms clobber the other views).
+  Contacts come from `core.getContacts` through a virtual scroller
+  (`sideScroller`, stopped by `stopSideScroller` on every view switch);
+  Calls read the LOCAL call log (localStorage `velta-call-log`, capped 30 —
+  the core has no call-log API); QR renders `inviteQrProvider(null)`. The
+  header search button and `#btn-new-chat` are view toggles
+  (`syncHeaderButtons()` from `setListView` — keep that call). Button
+  visibility is user-configurable (drawer → Bottom bar buttons, localStorage
+  `velta-bar-hidden`); `applyBarVisibility` adds `.bar-bare` when all four
+  view buttons are hidden; Menu and `#btn-new-chat` are always visible. The
+  old `.fab`/`.sidebar-foot` and the sidebar-head Menu button are gone —
+  do not resurrect them.
+- **Drawer contract** (ui.js `buildDrawer`): no close button, no offset
+  shadow (slides over the sidebar's own edge; a right border separates).
+  Stops above the list bar (`inset` bottom = `var(--list-bar-h)`).
+  open()/close() dispatch a `velta-drawer` document event (the bar Menu
+  button listens to flip hamburger↔cross and to close instead of re-open).
+  Width `clamp(300px, 33vw, 420px)`, full width on mobile. While open, a
+  capture-phase document `pointerdown` listener closes it on outside taps;
+  the transparent overlay swallows the click.
 - **Header heights** are pinned by `--head-h` (56px): `.sidebar-head` and
-  `.chat-head` are border-box `height: calc(var(--head-h) +
-  env(safe-area-inset-top))`. Change the var, not the paddings.
+  `.chat-head` are border-box
+  `height: calc(var(--head-h) + env(safe-area-inset-top))`. Change the var,
+  not the paddings.
 - **History loading strip** (`#chat-load-bar`): 6px blue gradient sweep
   pinned under the chat header; turned on by BOTH `chat-view.open()` and
-  `_loadOlder()` (paging up is history loading too — 1.4.11; previously only
-  open() wired it and paging showed nothing). `_loadBar()` holds a 150 ms
-  minimum on-time and a new on cancels a pending off, so fast loads still
-  register and back-to-back pages read as one strip; only the indicator is
-  delayed, never the data. It sits at
-  `top: calc(var(--head-h) + env(safe-area-inset-top))` — keep that offset
-  if the header frame changes.
-- **Times are 24-hour**: `formatTime` (mock-core.js) forces
-  `hour12: false` — it is the single timestamp source for chat rows, list
-  rows and call lists; don't reintroduce locale defaults (they rendered
-  `03:21 AM` on en-US devices).
-- **Avatar photo shimmer** (1.4.11, `components.js` `_bindImg` + the
-  `.velta-avatar-img:not(.loaded)` block in main.css): photo avatars (contact
-  and group photos) paint a skeleton sweep as the img's OWN background while
-  the bytes are in flight — no extra DOM; decode covers it, then `.loaded`
-  drops the background entirely (stops the animation AND keeps alpha-PNG
-  avatars from shimmering through transparent pixels forever). Cached imgs
-  (`img.complete`, blob media is `Cache-Control: immutable`) skip it with no
-  flash. Bind runs from `updated()` AND once from `connectedCallback` via
-  rAF — Elena does not reliably call `updated()` on a first render that
-  arrives via a parent-template diff; a later re-render heals any straggler,
-  and an unbound case is invisible anyway (decoded opaque photo covers the
-  background). `prefers-reduced-motion` gets a static placeholder.
-- `app/js/avatar.js` derives contact identity tiles from OpenPGP fingerprints:
-  an equal-height 4-row color matrix (3 squares / 2 rects / 2 rects / 3
-  squares, one cell per fingerprint group, deterministic colors with
-  perceptual neighbor-clash avoidance) plus a soft-black badge holding the
-  fingerprint glyph — or a contact's photo padded inside it. Every user
-  avatar renders this matrix; group avatars keep solid colors. List/history
-  tiles deliver the matrix as a percent-encoded SVG data-URL CSS background
-  (`avatarBackgroundUrl`, cached per fingerprint — zero child nodes, no
-  per-render DOM parse); only the captioned profile tile stays inline SVG.
-- All `:hover` styling lives inside `@media (hover: hover) and (pointer:
-  fine)` blocks — touch devices report `hover: none` and hover states stick
-  after taps there. Keep new hover rules inside the media query, and keep
-  the two exceptions split: `:active` press feedback and non-hover states
-  (`.relay-detail.pull-open`) stay reachable on touch.
-- `app/js/diagnostics.js` is the in-app diagnostics event store ("Velta
-  Diagnostics" chat). Entries render as console-style rows (Chrome DevTools
-  look: monospace, level emoji ❌/⚠️/ℹ️, soft pill, hover copy-to-clipboard
-  button) via the shared `diagnosticRow()` helper used by both app.js's direct
-  renderer and chat-view's service-message fallback. The store collapses
-  identical consecutive entries into one counted row — prefer appending here
-  over toasting for repeatable background errors.
-- `app/js/media.js` resolves local file paths to WebView-safe media URLs. Resolution order: (1) the `blobfile://` custom protocol (registered in `lib.rs`, serves account-dir-scoped blobs with real 206 ranges over a fixed origin, no TCP listener) once an `<img>` boot probe has proven this webview dispatches custom-protocol requests at all — the probe is an `<img>`, so a 200 vouches for the image pipeline exactly; (2) the loopback media HTTP server (kept running — it is the probe-negative path, and WebView2's media stack bypasses custom-protocol interception even when images through the same scheme load); (3) the asset protocol. `<img>`/`<video>`/`<audio>` error handlers swap to the legacy chain once (`mediaFallbackUrl`) before showing a failure placeholder — keep those swaps when touching media rendering. Blob media is served `Cache-Control: immutable` — core blob names are content-deduplicated, so the WebView can cache image bytes across chat switches.
-- `app/js/poster.js` extracts and caches WebP poster frames for video placeholders.
-- `app/js/ui.js` is a collection of UI helpers (drawer, modals, context menus,
-  toasts, delete-confirmation dialog). The drawer head (`drawer-head`) shows
-  the avatar (tap → the self profile sheet via `onProfile`; `showChatInfo`
-  skips the Send/Rename/Block row for the self contact, id 1), the display
-  name, and pill-button links: **Edit profile** and **Switch account** — the
-  latter toggles an account dropdown (`.acct-pop`, anchored to the button,
-  entries styled like the buttons) listing profiles with the current one
-  checked; it renders only when there is more than zero accounts. No
-  address/relay/backend lines in the head. The drawer is as wide as the chat
-  list (`clamp(300px, 33vw, 420px)`, full width on mobile). While open, a
-  capture-phase document `pointerdown` listener closes it on any tap outside
-  (the transparent overlay stays and swallows the click so nothing underneath
-  activates). The drawer footer (`drawer-foot`) shows
-  the app version (Tauri app version when `window.__TAURI__` is present) plus
-  the Tauri framework version in Tauri mode, or the service worker cache
-  version in PWA mode. `.qr-box` carries no background/border of its own — the
-  core's QR SVG is self-contained (opaque card, quiet zone, stroke).
-- `app/js/mock-core.js` is a self-contained demo backend used when no real core
-  is reachable (also force-selectable via `localStorage["velta-mock"] = "1"`).
-  It must implement the same contract surface as the real core — including
-  `accountId`/`accountEpoch` (the isolation contract keys on them; undefined
-  values made `a?.x === a.x` guards pass on null and crashed demo mode) — and
-  carries demo no-ops for the newer surfaces it can't simulate meaningfully
-  (vCard parse/import/make, second-device backup transfer).
+  `_loadOlder()` (paging is history loading too); `_loadBar()` holds a
+  150 ms minimum on-time and a new on cancels a pending off; sits at
+  `top: calc(var(--head-h) + env(safe-area-inset-top))`.
+- **Times are 24-hour**: `formatTime` (mock-core.js) forces `hour12: false`
+  and is the single timestamp source for chat rows, list rows and call
+  lists — don't reintroduce locale defaults (rendered `03:21 AM` on en-US).
+- All `:hover` styling lives inside
+  `@media (hover: hover) and (pointer: fine)` — touch devices report
+  `hover: none` and hover states stick after taps. `:active` press feedback
+  and non-hover states (`.relay-detail.pull-open`) stay reachable on touch.
+- `app/js/diagnostics.js` is the in-app diagnostics store ("Velta
+  Diagnostics" chat): console-style rows (shared `diagnosticRow()` helper),
+  identical consecutive entries collapsed into one counted row — prefer
+  appending here over toasting for repeatable background errors.
+- `app/js/media.js` resolves local paths to WebView-safe media URLs:
+  blobfile probe → loopback HTTP → asset protocol, with one-shot error
+  fallbacks per element. Details and the WebView2 media quirk:
+  docs/agents/media.md.
+- `app/js/poster.js` — lazy WebP poster extraction + disk cache.
+- `app/js/ui.js` — drawer, modals, context menus, toasts, update banner,
+  delete-confirmation dialog. The drawer head shows the avatar (self
+  profile sheet via `onProfile`), display name, Edit profile and Switch
+  account (`.acct-pop` dropdown, current checked). `.qr-box` carries no
+  background/border of its own — the core's QR SVG is self-contained.
+- `app/js/mock-core.js` — self-contained demo backend when no real core is
+  reachable (`localStorage["velta-mock"] = "1"` forces it). Implements the
+  same contract surface as the real core, including
+  `accountId`/`accountEpoch` (undefined values made `a?.x === a.x` guards
+  pass on null and crashed demo mode), with no-op demos for vCard and
+  backup transfer.
 
 ### 5.2 Core Rust library (`core/src/`)
 
@@ -637,104 +458,22 @@ The API is consumed by the Velta PWA, the Python `deltachat-rpc-client`, and the
 `deltachat-rpc-server` binary. Use `deltachat-rpc-server --openrpc` to dump the
 full API spec.
 
-### 5.4 Local chat, serverless P2P (`velta-app/src-tauri/src/p2p.rs` + `app/js/p2p.js`)
+### 5.4 Local chat, serverless P2P (`velta-app/src-tauri/src/p2p.rs` + `app/js/p2p.js` + `app/js/local-chat.js`)
 
-A second chat transport completely independent of the Delta Chat core: 1:1
-end-to-end-encrypted chat between paired devices on the same network, using
-iroh (QUIC, `RelayMode::Disabled`, optional mDNS re-discovery via the
-`discovery-local-network` feature) — modeled on the core's backup transfer
-(`core/src/imex/transfer.rs`).
+A core-independent 1:1 end-to-end-encrypted transport between paired
+devices on the same network (iroh QUIC, relay-less, optional mDNS
+discovery). Pairing tickets, offline queues, media chunking, the
+`local-chat.js` Proxy adapter and its test pins are documented in
+docs/agents/p2p.md. KEEP: local chat is disabled by default — a fresh
+install must not open QUIC sockets or broadcast LAN beacons unasked.
 
-- Identity: ed25519 key persisted in `<AppLocalData>/p2p/identity.key`; the
-  NodeId is the long-term identity. Store: `profile.json`, `peers.json`,
-  `messages-<node_id>.jsonl`.
-- Pairing: inviter shows a `VELTAP2P1:` ticket (compact base32: NodeId +
-  direct addresses + pairing token, rendered as QR via the core's
-  `create_qr_svg`); joiner scans/pastes it, presents the token in a `hello`
-  frame — token presentation is the out-of-band proof, so the inviter accepts
-  automatically. The token is never broadcast: LAN beacons carry only names
-  and addresses, and a Nearby tap sends an empty-token request that the other
-  device must approve in the UI (`p2p_approve_pair`); wrong tokens are
-  rejected without a prompt. Unpaired NodeIds are otherwise rejected.
-- Messaging: newline-delimited JSON frames (`msg`/`ack`/`ping`) over one
-  bidirectional QUIC stream per session; sends to offline peers are queued and
-  flushed on reconnect. Events reach the UI as Tauri `p2p-event`s; commands are
-  the `p2p_*` Tauri methods registered in `lib.rs`.
-- Enable/disable: **local chat is disabled by default** — the Rust flag
-  (`P2pState::empty`) starts `false` and `spawn_startup` refuses to start when
-  disabled (checked before *and* after `P2p::start`, so a disable request
-  racing the boot spawn still wins). `p2p_set_enabled` starts/stops the engine
-  (endpoint socket released, beacons off); the opt-in preference lives in the
-  WebView (`localStorage["velta-p2p"] === "1"`, applied on every boot by
-  `app/js/p2p.js`, which calls `p2p_set_enabled(true)` only when opted in).
-  Don't regress the default to enabled — a fresh install must not open QUIC
-  sockets or broadcast LAN beacons without the user asking for it.
-- UI (`app/js/p2p.js`): drawer entry (Tauri-only, hidden in browser/PWA mode),
-  hub with online dots, "Nearby devices" (UDP beacon on port 53717), invite QR
-  display, pairing via beacon tap (requires approval on the other device) or
-   pasted/scanned code (`acquireCode` offers camera scanning — native
-   `BarcodeDetector` where the WebView supports it, vendored jsQR fallback
-   otherwise — plus paste everywhere else).
-  Engine-side errors (background connect retries) go to the Diagnostics chat,
-  never toasts — several queued connects can fail at once and the store
-  collapses identical consecutive entries into one counted row. The toggle
-  button lives in the Diagnostics chat's action row.
-- Rust tests: `cargo test --lib p2p::` (loopback pairing + offline queue flush).
+### 5.5 In-app browser (Android)
 
-### 5.5 In-app browser (`app/js/inapp-browser.js` + `InAppBrowser.kt` + `lib.rs`)
-
-Android link handling chain (since 1.4.1, hardened after 1.4.2): `openInAppBrowser(url)`
-on Android invokes `open_in_app_browser` (JNI → `org.velta.InAppBrowser`).
-Failure chain, in order:
-
-When no Custom Tabs provider exists on the device (only vivo.browser),
-   the chain falls to a native second-WebView overlay
-   (`InAppBrowser.openWebView`, driven by the `open_webview_browser`
-   command): a fullscreen `android.webkit.WebView` added over the activity
-   (bar: host + open-external + close; BACK handled by an
-   OnBackPressedCallback registered AFTER wry's so it wins while open —
-   see MainActivity.attach; JS + domStorage on, file/content access off, no
-   bridges). Being a top-level browsing context it ignores X-Frame-Options,
-   which is what makes it better than the JS iframe overlay — that stays as
-   the final fallback for old shells. Plain-http pages render in it because
-   the network security config permits cleartext app-wide (1.4.13; the SPA
-   never top-level-navigates and the CSP blocks plain-http subresources, so
-   the shell's own cleartext stays the loopback media server). Provider
-   selection (1.4.14): the user's default browser wins when it offers the
-   CustomTabsService, else the first service provider, else androidx
-   candidates — first-provider-only used to pick Chrome Dev over the default
-   Edge on multi-browser devices. The `<queries>` block declares BOTH the
-   CustomTabsService intent and ACTION_VIEW/https (default-browser
-   resolution needs it on API 30+).
-0. **Launch context matters (1.4.13):** the Custom Tab is launched from the
-   ACTIVITY (InAppBrowser.attach) — launching from the application context
-   crashed with AndroidRuntimeException because modern androidx no longer
-   adds FLAG_ACTIVITY_NEW_TASK for non-Activity contexts, which silently
-   dumped every link onto the WebView overlay even with Chrome installed.
-   The VeltaIAB logcat tag carries the diagnosis lines (`provider=…`,
-   `custom tab launch failed: …`).
-1. **Chrome Custom Tab** — the normal path. Since 1.4.11+ the tab targets an
-   EXPLICIT provider resolved via `CustomTabsClient.getPackageName`
-   (InAppBrowser.kt): a bare CustomTabsIntent resolves like ACTION_VIEW, so on
-   devices whose default browser has no Custom Tabs support (vivo.browser) the
-   link silently opened as a full browser task. The `<queries>`
-   CustomTabsService declaration in AndroidManifest.xml is required for that
-   resolution on API 30+ — keep both in sync.
-2. **Default browser** — `InAppBrowser.kt` catches the launch failure
-   (`CustomTabsIntent.launchUrl` does NOT fall back on its own) and re-launches
-   via plain `ACTION_VIEW` + `FLAG_ACTIVITY_NEW_TASK`.
-3. **Iframe overlay** (`openIframeOverlay`) — last resort and dev only. Sites
-   sending X-Frame-Options / frame-ancestors (github.com, most big sites) are
-   blocked by Chromium with `net::ERR_BLOCKED_BY_RESPONSE`; the bar's
-   external-open button is the escape hatch.
-
-JNI gotcha: `find_class` for app classes is unreliable from Rust worker
-threads attached via `attach_current_thread` (boot classloader context), so
-`org.velta.InAppBrowser` is resolved once and cached as a global ref in
-`setApplicationContext` (runs on a Java thread from `MainActivity.onCreate`).
-System classes (`android/net/Uri` etc.) work from anywhere. Desktop keeps its
-system-browser convention — `open_in_app_browser` is `#[cfg(target_os =
-"android")]` and errors elsewhere.
+Message links open without leaving the app: Custom Tab (the user's default
+browser first, then any visible CustomTabsService provider) → native
+second-WebView overlay → JS iframe fallback. The full chain, its JNI and
+launch-context gotchas and the `<queries>` requirements are documented in
+docs/agents/android-shell.md.
 
 ---
 
@@ -1023,363 +762,143 @@ test traffic accordingly.
 
 ---
 
-## 11. Notes for agents
+## 11. Notes for agents (operational rules)
 
-Do-not-regress notes for the event-storm hardening (added 1.3.23; the
-failure mode was a core event storm rendering as endless chat-history
-re-renders, `[virtual-scroller] The item is no longer rendered onscreen
-(onItemHeightDidChange)` console spam, and a relay-status feedback loop):
+Per-subsystem narratives live in `docs/agents/*.md` (webxdc, relays,
+onboarding, p2p/local chat, android-shell, media) — read the relevant one
+before touching that subsystem. The entries below are cross-cutting
+do-not-regress rules; dates mark when the lesson was learned.
 
-- `rpc-core.js` `_onLine`: the event-poll `onLate` hook must run only for
-  entries the backstop already rejected (`entry.settled`). Running it for a
-  live entry too dispatches every single core event exactly twice — the
-  doubled `onIncoming` lines 1-5 ms apart in `velta.log` were this.
-- `chat-view.js` `onMsgUpdated`: call `onItemHeightDidChange` only when the
-  row is mounted, and for unmounted rows *set* the new row signature instead
-  of deleting it — deleting it made every duplicate event retake the full
-  changed path (and re-notify the scroller for an off-screen item) forever.
-- `chat-view.js` `_renderItem` seeds `_rowSigCache` at build time; do not
-  remove, or the first duplicate update silently rebuilds mounted rows.
-- `chat-view.js` `onMsgsChanged` coalesces refetch bursts
-  (`tailRefetchGapMs`); `app.js` `refreshRelayStatus` coalesces
-  connectivity-driven polls (its own `get_connectivity` RPCs emit further
-  `ConnectivityChanged` events — the unguarded handler multiplied storms).
-  Tests shrink both via their instance knobs, not by deleting the gates.
-- `chat-view.js` `onMsgsChanged` also self-heals delivery-state ticks: the
-  tail refetch rebuilds rows whose `state` changed, not only
-  `downloadState`/`viewtype`. Tick state otherwise rides only on
-  `MsgDelivered`/`MsgRead` events — a dropped event used to leave a sending
-  spinner stuck for hours (fixed 1.4.3). Keep `state` in that condition.
-- Core-side: a mail the core fetches and ignores (`receive_imf.rs` ignore
-  path) must still be marked seen on the server, or IMAP idle re-fetches it
-  forever — one looping mail stalled an inbox with events every ~2 s. Check
-  COREUPDATE.md §7 on every core upgrade.
-
-- Boot error safety net (since 1.3.26): `app/index.html` loads
-  `js/boot-net.js` before every other script — it routes
-  `error`/`unhandledrejection` into the Diagnostics sink once app.js is
-  alive, and into the static `#boot-error` banner before that (the CSP
-  forbids inline scripts, so the net is an external file). `boot()` is
-  stage-isolated: the drawer + menu bind first and set `uiLive`;
-  ChatView/chat-list/bind-ui failures are logged and boot continues instead
-  of skipping the remaining stages. `openChat` returns early when the
-  ChatView stage failed, and boot's outer catch shows the splash when
-  `!uiLive`. Keep these guards when touching boot.
-- Audio calls (since 1.3.26, `calls.js`): the core does encrypted call
+- **Event-storm hardening (1.3.23)** — the failure was a core event storm
+  re-rendering chat history endlessly. KEEP: rpc-core `_onLine` runs the
+  late-response hook only for entries the 240 s backstop already rejected
+  (running it for live entries doubles every event); chat-view
+  `onMsgUpdated` calls `onItemHeightDidChange` only for mounted rows and
+  SETS the new row signature for unmounted ones (deleting it made every
+  duplicate event retake the full changed path); `_renderItem` seeds
+  `_rowSigCache` at build time (removing it makes the first duplicate
+  update rebuild mounted rows); `onMsgsChanged` coalesces refetch bursts
+  (`tailRefetchGapMs`) and self-heals delivery-state ticks (keep `state`
+  in the condition — a dropped event left a sending spinner stuck for
+  hours); `refreshRelayStatus` coalesces connectivity-driven polls. Tests
+  shrink these via instance knobs, never by deleting the gates.
+- **Boot error net (1.3.26+)** — `js/boot-net.js` loads before every other
+  script and routes errors into the Diagnostics sink once app.js is alive,
+  `#boot-error` before that; `boot()` is stage-isolated (`uiLive` — see
+  §5.1 app.js bullet).
+- **Audio calls (1.3.26+, calls.js)** — the core does encrypted call
   signaling (place/accept/end ride as messages; `place_call_info` is the
   caller's SDP offer, `accept_call_info` the answer — raw SDP, non-trickle
-  ICE) and the WebView does the media (`RTCPeerConnection` + `getUserMedia`,
-  ICE servers from the core's `ice_servers()`). Events map to
-  `incoming-call` / `outgoing-call-accepted` / `incoming-call-accepted`
-  (`fromThisDevice: false` = another device accepted — stand down) /
-  `call-ended`. The WebRTC/DOM adapter is injected into `CallManager` so
-  `tests/call-state-machine.test.mjs` runs headless; keep it injected.
-  Mic grants: desktop uses the `--use-fake-ui-for-media-stream` browser arg
-  (wry denies permission requests by default — only clipboard is allowed);
-  Android needs `RECORD_AUDIO` in the gen manifest, granted by wry's
-  `RustWebChromeClient`. Video calls are not offered.
-- Webxdc mini-apps (since 1.3.28, `webxdc-manager.js` + the `webxdc://`
-  protocol handler in lib.rs): the handler serves `<account>/<msg>/<path>`
-  blobs via `webxdc_rpc` round-trips (ids prefixed "wxdc-" are routed by the
-  response forwarders into `wxdc_pending` — NOT emitted to the WebView) and
-  injects `webxdc-shim.js` (include_str!) into index.html. The shim defines
-  `window.webxdc` and talks to the host over postMessage; the host relays to
-  `get_webxdc_status_updates` / `send_webxdc_status_update`, tracking
-  per-instance serials. `sendToChat` and `importFiles` are wired (see the
-  1.4.12+ note below); realtime (low-latency) channels are not.
-  CSP: `frame-src` + `img-src` gained the `webxdc.localhost` origins — keep
-  them when editing the CSP. Since 1.4.12+: `openWebxdc` refuses to open in
-  a plain browser (toast "webxdc apps run in the Velta app" — the
-  webxdc.localhost handler exists only in the Tauri shell; before, the
-  overlay opened with every asset 404ing); `webxdc_serve` aliases
-  `webxdc.js` to the shim (apps using the dev-server convention) and
-  resolves un-prefixed absolute paths (`/assets/…`, vite default base)
-  against `OPEN_APP`, the app whose index.html was served last — one app
-  open at a time makes that safe; spec-compliant apps use relative paths.
-  `sendToChat` is implemented (1.4.12+, spec shapes 1.4.13: the official
-  `webxdc.d.ts` passes `{file: {name, blob|base64}}` — plus a legacy raw-File
-  shape and text-only sends): the shim normalizes and ships the Blob over the
-  postMessage bridge (structured clone), the host confirms via modal, stages
-  the file with the image-send pipeline (`resolve_upload_path` +
-  `plugin:fs|write_file`) and sends it as a file message into the app's chat
-  — that is what email-composer apps need. `importFiles` (the app-side
-  attach picker) is implemented too: tauri dialog open (extension filter
-  only — mimeTypes in the filter are ignored, a dialog-plugin ceiling),
-  `resolve_content_uri` for Android content:// picks, bytes read via fs and
-  returned to the app as File objects over the bridge.
-  The overlay close button uses the shared CLOSE_SVG like every other
-  overlay. The WebView2 `Cannot read properties of undefined (reading
-  'plugins')` crash is Tauri's own core+plugin init scripts running in the
-  opaque-origin frame; webxdc_serve stubs `window.__TAURI_INTERNALS__`
-  (plugins/metadata) into the served index.html before them so the frame's
-  console stays clean — the frame never legitimately uses Tauri APIs. Bot messages render command chips
-  (`extractBotCommands` in markdown.js, chips fill the composer); on Android
-  message links are routed to `plugin:opener|open_url` (wry drops
-  target=_blank).
-  Chat-history app card (since 1.4.17): shows the manifest name (never the
-  `.xdc` filename), summary or the official client's "App" fallback, and the
-  manifest icon — or a letter tile with the app initial when the app ships
-  none (`.webxdc-ico-letter`); the generic glyph is only a pre-hydrate
-  placeholder. A failed `getWebxdcInfo` RPC stays UNcached in
-  webxdc-manager's `infoCache` (chat-view retries once after 2s) — caching
-  the generic fallback froze forwarded-app cards on filename + glyph
-  (1.4.14–1.4.16 regression on forwarded copies). Keep both halves: the
-  no-cache rule and chat-view's retry.
-
-- Forwarded-message label + bubble polish (since 1.3.31): the forward label
-  announces the content type ("Forwarded a picture / video / an audio / a
-  message", `FWD_NOUNS` in chat-view.js), not the original sender name; the
-  label uses the meta-dim colors (`--text-meta-in` / out override) because
-  accent blue was unreadable on the outgoing bubble. All three media blocks
-  (`.msg-image`, `.msg-video`, `.msg-audio`) use a positive top margin — a
-  negative one collapsed into the sender/quote line above. The relays modal's
-  "all your devices run at least 2.47.0" warning was removed as outdated
-  (RELAYS_WARNING deleted; CORE-CAPABILITIES.MD records the decision).
-
-- Reading/history polish (since 1.3.32): the virtual scroller prerenders 3×
-  the viewport (`getPrerenderMarginRatio: () => 3` in chat-view's
-  `_createScroller`; default 1 ≈ 10 messages) for smoother fast-scroll
-  reach-back — rows are signature-cached, so the cost is DOM size only.
-  `.qr-box` is 40% larger (308px box / 280px svg). `VeltaAvatar` declares an
-  `addr` field default — the last undeclared Elena prop, so the "Prop has no
-  default" console-warning class is extinct; keep every `static props` entry
-  backed by a field or a constructor install, and keep the default
-  STRING-typed, never `null`: `typeof null` is `"object"`, which made Elena
-  JSON-parse every attribute value (VeltaChatItem logged
-  "Invalid JSON: c49" for the string ids the pick/forward lists use).
-- Modal/button conventions (since 1.3.35): never use native `prompt()` —
-  group creation asks via a `showModal` input (`askGroupName` in app.js).
-  When building a modal foot from elements, append the buttons via a
-  `DocumentFragment` (direct children of `.modal-foot` inherit its one-row
-  right-aligned flex); a wrapper div left-aligns them outside the flex.
-  `.btn-primary` defaults to a full-width onboarding bar — set
-  `width: auto` when it shares a foot with other buttons. `.modal-foot`
-  side padding (18px) matches `.modal-body` so buttons align with body
-  content — keep them equal if either changes. `markRead` marks ALL fresh
-  messages seen (the old 50-id slice left residual unread after opening a
-  chat with many fresh messages — badge never cleared); open = read-all is
-  the upstream Delta Chat behavior.
-
-- Bot chips + send-spinner fixes (since 1.3.33): bot command chips were
-  dead-on-arrival — gated on `m.isBot`, a field nothing produced. The bot
-  flag lives on the sender contact (core `ContactObject.isBot`, camelCase):
-  `_mapContact` maps it as `bot`, and chat-view reads `m.fromContact?.bot`
-  on both the render and click paths (mock's `_decorate` already passed the
-  raw contact through, so demo mode works for free). The outgoing pending
-  spinner had a race: a fast relay's MsgDelivered could arrive before the
-  sent row was inserted, chat-view dropped the msg-state event for the
-  unknown row, and the spinner stuck spinning. rpc-core now records the
-  latest terminal state per msgId (`_msgStateHints`, cleared on account
-  change) and `sendMessage` reconciles the fresh row against it before
-  emitting `msg-sent`. The spinner still runs for the real SMTP round-trip
-  by design — that part is honest, not a bug.
-
-- Frame theming + isolated HTML viewer (since 1.3.34): the HTML viewer and
-  webxdc iframes are themed via CSS `color-scheme` — but the iframe
-  element's scheme only paints the CANVAS; the frame's scrollbar follows the
-  inner document's own color-scheme, so it must be injected: the HTML viewer
-  fetches the attachment and puts a `<style>html{color-scheme:…}</style>`
-  into the srcdoc document; webxdc frames receive `?velta-theme=` on their
-  URL and webxdc-shim.js applies it to `documentElement.style.colorScheme`.
-  Do not navigate the sandboxed iframe to a custom-protocol URL if srcdoc
-  works — WebView2 runs Tauri's init scripts in opaque-origin frames too,
-  and they throw `Cannot read properties of undefined (reading 'plugins')`
-  (cosmetic, but confusing). Device chats (`kind === "device"`) hide the
-  composer (read-only system posts); `.msg-webxdc` cards carry a Start chip
-  and a `--bg-hover` surface. README's "Privacy" section states zero
-  analytics/telemetry — verified against the codebase 2026-09-15 (only
-  loopback fetches; relays are the messaging; the Windows WebView2 install
-  bootstrap is the sole documented exception). Keep that true.
-
-`COREUPDATE.md` is the core-upgrade test plan; consult it before merging an
-upstream core or swapping `deltachat-rpc-server` binaries. Release-by-release
-core capabilities and their Velta integration notes: `CORE-CAPABILITIES.MD`.
-
-- Core 2.60.0 relay removal (since 1.3.24): the Remove button goes through
-  `rpc-core.js` `deleteTransport` → core `delete_transport` — removal is
-  immediate, the core refuses only the *last* relay and re-elects the sending
-  transport, and informs contacts via keyupdate messages.
-  `set_transport_unpublished` no longer exists in the core; never
-  reintroduce it. The `transports-modified` listener in `app.js` (relay
-  status line + any open Relays modal) must stay — it is the only signal for
-  relay changes synced from another device — and `refreshRelayStatus` keeps
-  its coalescing because transports-modified arrives in bursts together with
-  connectivity-changed.
-- Build environment: run core `cargo` commands (tests, sidecar release
-  builds) in WSL — native Windows cargo fails in `openssl-sys` (SQLCipher
-  bundled build) because the MSYS perl lacks `Locale::Maketext::Simple`.
-  The Windows sidecar exe itself is built by `build-windows.yml` on tag
-  push, so local stale binaries in `velta-app/src-tauri/binaries/` are
-  refreshed only at release time.
-
-- The `core/` directory is large and self-contained. If your task only touches
-  Velta's frontend or wrappers, avoid changing files under `core/` unless you
-  are explicitly fixing or extending the core itself.
-- `velta-app/src-tauri` has full Rust sources plus a `gen/android` project
-  generated by `cargo tauri android` — regenerated files can be large; edit
-  `src/` and `tauri.conf.json` rather than `gen/` where possible.
-- `velta-core-service/` is a working foreground-service APK but is secondary to
-  the Tauri app; check `velta-core-service/README.md` before editing it.
-- The PWA has no build pipeline. All changes to `app/` are immediately testable
-  by refreshing the browser or bumping the service-worker cache in `app/sw.js`.
-- Version bumps touch `velta-app/src-tauri/tauri.conf.json`, the
-  `velta-app` package in `velta-app/src-tauri/Cargo.toml` (+`Cargo.lock`),
+  ICE) and the WebView does media (RTCPeerConnection + getUserMedia, ICE
+  from the core's `ice_servers()`); events map to incoming-call /
+  outgoing-call-accepted / incoming-call-accepted (`fromThisDevice: false`
+  = another device accepted — stand down) / call-ended. The WebRTC/DOM
+  adapter is injected into CallManager so
+  `tests/call-state-machine.test.mjs` runs headless — keep it injected.
+  Desktop mic grant needs `--use-fake-ui-for-media-stream` (wry denies
+  permission requests by default — only clipboard is allowed); Android
+  needs RECORD_AUDIO in the gen manifest, granted by wry's
+  RustWebChromeClient. Video calls are not offered.
+- **Modal async flows (1.3.35)** — settle BEFORE close: `showModal`'s
+  `onClose` resolves the flow's promise with null, so `close()`-first
+  silently drops results (it swallowed every successful QR scan once).
+  Always `finish(result); close();` — never the reverse.
+- **Never open the Android soft keyboard over the camera** — any scan flow
+  must `blur()` inputs while scanning and refocus only when returning to
+  paste mode (`qr-scan.js` gates its initial `focus()` on the camera being
+  unavailable).
+- **CSS `display` beats the `hidden` attribute** — a styled element with
+  `hidden` stays visible; add explicit `.foo[hidden] { display: none }`
+  when toggling a styled container via `hidden` (bit the splash panes).
+- **Never use native `prompt()`** — group creation asks via a `showModal`
+  input (`askGroupName`).
+- **Elena prop defaults** — keep every `static props` entry backed by a
+  field or a constructor install, and keep defaults STRING-typed, never
+  `null`: `typeof null === "object"` made Elena JSON-parse every attribute
+  value (`VeltaChatItem` logged "Invalid JSON: c49" for string ids).
+- **Message ids are numbers** — `_resendTail`/`onMsgsChanged` compare ids
+  with `>`; string ids silently drop messages from the append-only filter.
+- **Overlay/BACK conventions (1.3.36+)** — every fullscreen overlay (HTML
+  viewer, webxdc, in-app browser, image lightbox) pushes ONE `{velta:…}`
+  history entry on open; WryActivity's OnBackPressedCallback calls
+  `mWebView.goBack()` when it can, so BACK pops the entry and a `popstate`
+  listener tears the overlay down (app.js treats a revealed
+  `{velta:"chat"}` as keep-the-chat). Close buttons and programmatic
+  closes consume the entry via `history.back()`; reopening an already-open
+  overlay REPLACES its entry (back-then-push races and loses it).
+- **Update banner (1.4.14+, shell-side since 1.4.16)** — boot fires
+  `checkForUpdate()` (ui.js, fire-and-forget); the latest version comes
+  from the shell command `get_latest_version` (lib.rs, ureq, hardcoded
+  version.txt URL, 5 s timeout) because the renderer's cross-origin fetch
+  is CORS-blocked by GitHub's CDN — do not move it back into the page and
+  do not re-add github CSP hosts (§8). Newer remote → drawer-bottom banner
+  with Download APK (`plugin:opener|open_url`) + `.update` pulse on
+  `#bar-menu` (box-shadow animation, no layout shift; disabled under
+  `prefers-reduced-motion`). No banner when versions match, offline, or
+  empty response (pre-1.4.14 releases carry no version.txt).
+- **Interface scale + theme (1.4.2+)** — `MainActivity` pins the WebView's
+  `textZoom = 100` (system font scale otherwise applies text-only zoom
+  that inflates text out of the px-sized boxes); scaling is app-owned via
+  drawer radios (zoom on `<html>`, `velta-ui-scale`, applied pre-paint by
+  the external `js/ui-scale.js` — the CSP forbids inline scripts). Root
+  zoom multiplies viewport units but not percentages: the shell stays
+  percentage-based (`100dvh` pushed the list bar off-screen, 1.4.14), the
+  vendored virtual-scroller carries the `__vsZoom` rect normalization
+  patch, and `applyUiScale` dispatches `resize` so the scroller re-measures
+  (1.4.14). `text-size-adjust: 100%` on html neutralizes font boosting.
+  Theme radios (auto/dark/light; auto is the default for fresh installs)
+  and scale radios apply in place — never `rebuildDrawer()` on a radio
+  change, it would close the drawer. Keyboard vs header: see
+  docs/agents/android-shell.md (1.4.17).
+- **Build environment** — core cargo commands run in WSL (native Windows
+  cargo fails in openssl-sys: MSYS perl lacks
+  `Locale::Maketext::Simple`); the Windows sidecar exe is built by
+  `build-windows.yml` on tag push, so stale local binaries in
+  `velta-app/src-tauri/binaries/` refresh only at release. Never build the
+  Android APK with that directory present (Tauri bundles it verbatim:
+  +22 MB of Windows PE in every APK); `tools/wsl-android-build*.sh` delete
+  it as a guard.
+- **Scope guards** — `core/` is a large vendored upstream copy: avoid
+  changing it unless the task is fixing/extending the core itself.
+  `velta-app/src-tauri/gen/android` is generated EXCEPT the hand-maintained
+  `AndroidManifest.xml`, Kotlin sources and
+  `res/xml/network_security_config.xml` — edit those by hand, regenerate
+  the rest. `velta-core-service/` is secondary — read its README first.
+- **Version bumps** touch `velta-app/src-tauri/tauri.conf.json`, the
+  `velta-app` package in `velta-app/src-tauri/Cargo.toml` (+`Cargo.lock`)
   and the `CACHE` constant in `app/sw.js`; each release commit notes both.
-- README convention (since 1.3.26): every `##` section below "Screenshots"
-  is wrapped in `<details><summary>Title</summary>…</details>` so the front
-  page stays short — keep the wrapper when adding sections, and keep the
-  blank line after `</summary>` so the content still renders as markdown.
-- Releases: `.github/workflows/release.yml` (v* tag push or manual dispatch)
-  calls the two reusable build workflows and publishes a GitHub release
-  `v<version>` with `Velta-<version>-<abi>.apk` (signed with the persistent
-  keystore secrets), a `version.txt` asset (bare version — the apps fetch
-  `releases/latest/download/version.txt` for the update banner,
-  `ui.js checkForUpdate`) and `Velta_<version>_x64-setup.exe`; the version
-  comes from `tauri.conf.json`. Tag pushes do not run the build workflows directly
-  — release.yml is the single tag→release path. The keystore and its password
-  live in `signing/` (gitignored) and in the four `ANDROID_KEY*` repo
-  secrets; losing both means installed APKs can never be updated again.
-- Builds trigger ONLY on `v*` tag pushes (release.yml) or manual dispatch —
-  branch pushes build nothing. `build-and-notify.yml` (branch-push builds)
-  was removed on purpose: on branch pushes the android job kept getting
-  skipped/cancelled and tag releases built everything a second time. The
-  two per-platform workflows stay `workflow_call` + `workflow_dispatch`
-  only; do not re-add `push:` triggers to them. release.yml ends with a
-  `notify` job (needs android + windows + release) posting to
-  The release job checks out full history + tags and writes
-  `changelog.md` — every commit subject since the previous tag
-  (`git describe` on the tag's parent) plus the compare link — and
-  passes it to the release as `body_path`.
-  `ntfy.gluek.info/velta_changelog` — title `Velta: version bumped to
-  <version>` from tauri.conf.json, body = the tagged commit's full message
-  + link (the notify job clones the tag to read the message — tag pushes
-  and manual dispatches both notify). The per-platform workflows must
-  NOT carry job-level `concurrency` blocks: in a reusable-workflow call
-  `github.job` is empty at group-evaluation time, so android and windows
-  collapse into one group and cancel each other (killed the 1.4.6–1.4.8
-  releases mid-run). `build-windows-cross.yml` is workflow_dispatch-only.
-- When modifying the JSON-RPC API surface, remember that the PWA
-  (`app/js/rpc-core.js`), the Python RPC client, and any external consumers must
+  (The service worker is unregistered at boot — the CACHE bump is release
+  bookkeeping.)
+- **README convention** — every `##` section below "Screenshots" is wrapped
+  in `<details><summary>…</summary>` with a blank line after `</summary>`,
+  so the front page stays short.
+- **Releases** — `release.yml` is the single tag→release path (`v*` tag
+  push or manual dispatch; branch pushes build nothing — do not re-add
+  `push:` triggers to the reusable workflows, and no per-job
+  `concurrency` blocks: inside a reusable-workflow call `github.job` is
+  empty at group-evaluation time, so android and windows collapse into one
+  group and cancel each other — that killed the 1.4.6–1.4.8 releases). It
+  publishes `Velta-<version>-<abi>.apk`, `version.txt` (the update-banner
+  feed) and `Velta_<version>_x64-setup.exe`, writes `changelog.md` from
+  commit subjects, and the notify job posts to
+  `ntfy.gluek.info/velta_changelog`. The keystore lives in `signing/`
+  (gitignored) and the four `ANDROID_KEY*` repo secrets — losing both
+  means installed APKs can never be updated again.
+  `build-windows-cross.yml` is manual-dispatch only.
+- **JSON-RPC compatibility** — when changing the RPC surface, the PWA
+  (`rpc-core.js`), the Python RPC client and any external consumers must
   stay compatible.
-
-- Overlay/BACK conventions (since 1.3.36): every fullscreen overlay (HTML
-  attachment viewer, webxdc, in-app browser, image lightbox) pushes one `{velta:…}` history
-  entry on open; WryActivity's OnBackPressedCallback calls `mWebView.goBack()`
-  when it can, so the pop pops the entry and a `popstate` listener tears the
-  overlay down — app.js's own popstate handler treats a revealed
-  `{velta:"chat"}` state as "keep the chat". Close buttons and programmatic
-  closes must consume the entry via `history.back()` (never leave stale
-  entries), and reopening an already-open overlay must REPLACE its entry —
-  `history.back()` is async, so back-then-push races and loses the entry.
-  Message ids the chat view must stay NUMERIC: `_resendTail`/`onMsgsChanged`
-  compare ids with `>` — string ids silently drop every message from the
-  "append only new" filter (local-chat.js learned this the hard way; its ids
-  are `1e9 + seq`).
-
-- Local chat architecture (since 1.3.38): P2P peers are rendered as regular
-  chats by `app/js/local-chat.js`, a Proxy AROUND the core object — getChat
-  List/getChat/getMessages/sendMessage/markRead are intercepted for
-  `p2p:<peerId>` string chat ids, everything else passes through untouched.
-  Do not special-case p2p ids inside chat-view.js; add adapter methods
-  instead. Media goes over FileBegin/FileChunk/FileEnd frames (base64, 96 KB
-  raw per frame, 256 MB cap) in p2p.rs and lands in
-  `<accounts>/p2p-blobs/<nodeId>/` — that directory MUST stay under the
-  accounts dir because blobfile/media-server refuse paths outside it, and
-  that check is the sandbox: peer-supplied file names are sanitized
-  (basename only, safe chars) before they ever touch the filesystem. Transfer
-  and queue states ARE rendered (since 1.4.1): `file-progress` events drive a
-  bubble progress bar (2% steps); a `done` event clears it for the file card,
-  and a `failed` event (session died mid-send) renders a Retry card —
-  `lcRetryTransfer` re-sends the stored blobs copy from byte zero (NO resume;
-  the engine discards bad partials). Media picked while the peer is offline
-  parks in the composer queue chip (`#lc-queue-chip`, popup: send-now/remove)
-  and auto-flushes oldest-first on the peer's `presence` online transition.
-  Offline TEXTS queue inside the engine: `p2p_send` returns `{id, queued}`,
-  the bubble shows the `pending` clock (ticksSvg), the reconnect flush emits
-  a `msg-state` event (queued → sent) and the peer's `ack` completes read.
-  `send_file` still bails when the engine considers the peer offline — the
-  frontend queues proactively on its own `online === false` before calling.
-  Beacons refresh a paired peer's stored addresses (DHCP/roam heals the dial
-  book within one beacon interval); tests in
-  `tests/local-chat-transfer-progress.test.mjs` pin the event contract.
-  Failed texts (since 1.4.2) render the same Retry card as failed transfers:
-  mapMsg maps `failed` to state "failed" and the adapter's resendMessage
-  re-sends the same text/quote as a FRESH message (swap, not append; the
-  failed bubble is restored when the engine rejects the retry — identical
-  contract to lcRetryTransfer). Only failed msgs match; pending/sent ones
-  fall through to the real core.
-
-- Interface scale + theme (since 1.4.2): MainActivity.kt pins the WebView's
-  `textZoom = 100` (bounded retry until the Tauri runtime creates the
-  WebView) — the system font scale otherwise applies text-only zoom that
-  inflates text out of the px-sized boxes (broken layout at the largest
-  scaling factor; reporter's viewport was 320px wide). Scaling is owned by
-  the app instead: drawer spoilers (ui.js) with radios — "Interface scale"
-  (zoom on <html>, persisted `velta-ui-scale`, applied pre-paint by the
-  blocking external `js/ui-scale.js` in index.html <head> — external
-  because the CSP forbids inline scripts) and "Theme" (auto/dark/light; auto
-  follows `prefers-color-scheme` live via matchMedia and is the DEFAULT for
-  fresh installs — `dw-theme` holds the setting). Both apply in place:
-  never rebuildDrawer() on a radio change, it would close the drawer.
-  `text-size-adjust: 100%` on html neutralizes font boosting in browsers.
-  **Keyboard vs header (1.4.17):** with `enableEdgeToEdge()`, API 30+
-  ignores `adjustResize` — the system PANned the window when the soft
-  keyboard opened and the chat header scrolled off-screen. Fix, keep all
-  three parts: `android:windowSoftInputMode="adjustResize"` in the
-  manifest, an IME-insets listener in MainActivity applying
-  `ime().bottom` as content-view bottom padding while the keyboard is
-  visible (closed-keyboard spacing stays with the page's
-  `env(safe-area-inset-bottom)`), and
-  `interactive-widget=resizes-content` in the viewport meta so the page's
-  layout viewport resizes with the WebView.
-  Root zoom scales `getBoundingClientRect()` but NOT `scrollTop`/
-  `offsetHeight`, so `.app` must never size itself with viewport units:
-  `100dvh` rendered at zoom × N and pushed the list bar below the fold
-  (1.4.14 — shell heights are `100%` of each other; percentages don't get
-  the zoom multiplication). The same mixing blanked the chat via the
-  virtual scroller — the vendored `virtual-scroller.js` carries the
-  `__vsZoom` normalization patch (see `VENDORISSUES.MD`), and ui.js
-  dispatches a `resize` after applying the scale so the scroller re-measures
-  in the new space (`_scrollBottomSettling` re-pins the bottom afterwards).
-
-- Update banner (since 1.4.14): boot fires `checkForUpdate()` (ui.js,
-  fire-and-forget) which fetches `releases/latest/download/version.txt`
-  (GitHub release asset written by release.yml) and, when newer than the
-  running version, pins a banner with a Download APK button at the drawer's
-  bottom (above the version foot) and gives `#bar-menu` an `.update` class —
-  a slow accent ring pulse (box-shadow only, no layout shift; disabled under
-  `prefers-reduced-motion`). Download routes through
-  `plugin:opener|open_url` to the release APK
-  `releases/download/v<version>/Velta-<version>-arm64.apk`.
-  The version check is shell-side since 1.4.16: `get_latest_version`
-  (lib.rs, ureq, hardcoded version.txt URL, 5 s timeout, 64 KB cap) — the
-  renderer's own cross-origin fetch was CORS-blocked by GitHub's CDN
-  (`TypeError: Failed to fetch`), which silently killed the banner in
-  1.4.14/1.4.15; plain browser `fetch` remains only as the PWA fallback.
-  CSP carries no github hosts — keep it that way (see §8). No banner when
-  versions match, offline, or on an empty response (pre-1.4.14 releases
-  carry no version.txt).
-
-- Desktop shell debugging (Windows): WebView2 exposes a CDP port when the
-  app is started with
-  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9223` —
-  `http://127.0.0.1:9223/json/list` lists the page target; drive it with a
-  raw-WebSocket CDP client (`Runtime.evaluate`). This is the only reliable
-  way to inspect the desktop UI: synthetic OS clicks are unusable (a
-  fullscreen topmost key-remapper overlay swallows them, foreground locks
-  block `SetForegroundWindow`, and PrintWindow/DPI coordinate mismatches
-  make blind clicking a lottery). Helper scripts in the parent workspace
-  `tools/`: `shot-velta-window.ps1` (PrintWindow capture, DPI-aware),
-  `focus-velta.ps1` (raise + topmost), `click-at.ps1`, `who-is-at.ps1`
-  (which window owns a screen point).
-
-- In-app browser (since 1.3.38): Android message links open
-  `inapp-browser.js`'s overlay (bar: close / fetched title + domain /
-  open-external) over a sandboxed iframe; the title comes from the
-  `fetch_page_title` command (ureq, 5 s timeout, 256 KB cap) because a
-  cross-origin iframe's title is unreadable. `frame-src` in BOTH
-  tauri.conf.json and tauri.android.conf.json carries `https:` for this —
-  sites that forbid framing (X-Frame-Options) still show a blank frame; the
-  external-open button is the escape hatch. The old per-chat special case is
-  gone: the handler lives in chat-view's row binding, so local and relay
-  chats behave identically.
+- **Core 2.60 relay removal** — relay removal is immediate (the core
+  refuses only the last relay and re-elects sending, informing contacts
+  via keyupdate); `set_transport_unpublished` no longer exists — never
+  reintroduce it. Check COREUPDATE.md §7 on every core upgrade (example:
+  mails the core fetches and ignores must still be marked seen on the
+  server, or IMAP idle re-fetches them forever).
+- **Privacy** — zero analytics/telemetry (verified against the codebase
+  2026-09-15; the only documented exception is the Windows WebView2
+  install bootstrap). Keep it true.
+- **Frame theming (1.3.34)** — the HTML viewer and webxdc iframes are
+  themed via `color-scheme`, injected per frame (srcdoc `<style>` /
+  `?velta-theme=` + `documentElement.style.colorScheme`) because the
+  iframe element's scheme only paints the canvas. Device chats
+  (`kind === "device"`) hide the composer.
