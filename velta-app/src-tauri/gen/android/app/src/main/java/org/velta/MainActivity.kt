@@ -34,6 +34,11 @@ class MainActivity : TauriActivity() {
     enableEdgeToEdge()
     setApplicationContext(applicationContext)
     super.onCreate(savedInstanceState)
+    // The second-WebView browser overlay (InAppBrowser.openWebView) needs the
+    // Activity to add views and to own BACK priority over wry's history
+    // navigation. attach() registers its OnBackPressedCallback AFTER
+    // WryActivity's, so it wins whenever the overlay is open.
+    InAppBrowser.attach(this)
     // Keep the process (and the in-process Delta Chat core) alive after the
     // user leaves the app: promote to a foreground service with a persistent
     // low-importance notification. Background notifications are posted by
@@ -53,6 +58,11 @@ class MainActivity : TauriActivity() {
     } catch (_: Exception) {
     }
     applyTextZoomFix()
+  }
+
+  override fun onDestroy() {
+    InAppBrowser.detach()
+    super.onDestroy()
   }
 
   // Velta owns its scaling end to end: the WebView otherwise applies the

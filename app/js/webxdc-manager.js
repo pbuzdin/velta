@@ -4,6 +4,8 @@
 // protocol handler in the Rust layer, which also injects the shim that
 // defines window.webxdc inside the app.
 
+import { CLOSE_SVG, toast, confirmModal } from "./ui.js";
+
 let core = null;
 let active = null; // { msgId, iframe, serial }
 const serials = new Map(); // msgId -> last delivered serial
@@ -90,10 +92,74 @@ async function handleCall(data) {
       return {};
     }
     case "sendToChat":
-      return { ok: false, error: "sendToChat is not supported yet" };
+      return sendToChat(data.params || {});
+    case "importFiles":
+      return importFiles((data.params || {}).filters);
     default:
       throw new Error(`unknown webxdc method: ${data.method}`);
   }
+}
+
+// webxdc.sendToChat: the app hands us a composed file (e.g. an .eml from an
+// email-composer app); confirm, stage it under uploads/ via the same
+// resolve_upload_path + fs-write pipeline the image send flow uses, and send
+// it as a normal file message into the chat the app lives in.
+async function sendToChat({ file, name, text }) {
+  const tauri = window.__TAURI__;
+  const invoke = tauri?.core?.invoke || tauri?.invoke;
+  if (!invoke) throw new Error("sendToChat requires the Velta app");
+  if (!(file instanceof Blob) && !text) throw new Error("sendToChat: nothing to send");
+  const msgId = active?.msgId;
+  const msg = await core.getMessage(msgId).catch(() => null);
+  if (!msg?.chatId) throw new Error("sendToChat: owning chat not found");
+  const filename = name || file?.name || "file";
+  const ok = await confirmModal("Send to chat", file ? `Send "${filename}" to this chat?` : "Send this text to this chat?", "Send", false);
+  if (!ok) return { ok: false, cancelled: true };
+  let dest = null;
+  if (file instanceof Blob) {
+    dest = await invoke("resolve_upload_path", { filename: `${Date.now()}-${filename}` });
+    if (!dest) throw new Error("resolve_upload_path returned empty");
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    await invoke("plugin:fs|write_file", bytes, { headers: { path: encodeURIComponent(dest) } });
+  }
+  await core.sendMessage(msg.chatId, { viewtype: "file", file: dest, filename, text: text || "" });
+  toast(`Sent ${filename}`, 2200);
+  return { ok: true };
+}
+
+// webxdc.importFiles: the app's file-attach picker. Uses the same tauri
+// dialog + ContentResolver + fs-read pipeline as the chat attachment flow;
+// picked bytes go back to the app as File objects over the postMessage
+// bridge. Ceiling: the dialog plugin filters by extension only — mimeTypes
+// in the filter are ignored (apps re-check types themselves).
+async function importFiles(filters = {}) {
+  const tauri = window.__TAURI__;
+  const invoke = tauri?.core?.invoke || tauri?.invoke;
+  if (!invoke) return [];
+  const exts = (filters.extensions || []).map(e => String(e).replace(/^\./, ""));
+  let picked;
+  try {
+    picked = await invoke("plugin:dialog|open", {
+      options: {
+        multiple: !!filters.multiple,
+        ...(exts.length ? { filters: [{ name: "Files", extensions: exts }] } : {}),
+      },
+    });
+  } catch { return []; }
+  if (!picked) return [];
+  const list = Array.isArray(picked) ? picked : [picked];
+  const files = [];
+  for (let p of list) {
+    try {
+      if (/^content:\/\//.test(p)) {
+        p = await invoke("resolve_content_uri", { uri: p, filename: String(Date.now()) });
+      }
+      const bytes = new Uint8Array(await invoke("plugin:fs|read_file", { path: p }));
+      const name = p.replace(/\\/g, "/").split("/").pop();
+      files.push(new File([bytes], name));
+    } catch { /* skip unreadable pick */ }
+  }
+  return files;
 }
 
 async function getInfo(msgId) {
@@ -130,6 +196,13 @@ export function isWebxdcOpen(msgId) {
 
 export function openWebxdc(msgId, fallbackName = "Webxdc app") {
   if (typeof document === "undefined") return;
+  // The webxdc.localhost handler only exists inside the Tauri shell. In a
+  // plain browser (demo/dev) the frame would 404 every asset and spam the
+  // console — explain instead of opening a dead overlay.
+  if (!window.__TAURI__) {
+    toast("webxdc apps run in the Velta app", 3000);
+    return;
+  }
   if (active) closeWebxdcFrame(); // reopen: no history touch, entry reused below
   const account = core.accountId;
   const base = baseFor(account);
@@ -153,7 +226,7 @@ export function openWebxdc(msgId, fallbackName = "Webxdc app") {
   wrap.innerHTML = `
     <div class="webxdc-bar">
       <div class="webxdc-title"></div>
-      <button type="button" class="webxdc-close icon-btn" title="Close app" aria-label="Close app">✕</button>
+      <button type="button" class="webxdc-close icon-btn" title="Close app" aria-label="Close app">${CLOSE_SVG}</button>
     </div>`;
   wrap.appendChild(iframe);
   document.body.appendChild(wrap);

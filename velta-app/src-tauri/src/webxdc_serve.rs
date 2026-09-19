@@ -13,6 +13,15 @@ use crate::{guess_mime, percent_decode, RpcState};
 
 pub const WEBXDC_SHIM: &str = include_str!("webxdc-shim.js");
 
+// Last app whose index.html was served. Spec-violating apps built with
+// absolute asset paths ("/assets/…" — vite's default base "/") drop the
+// /<account>/<msg>/ prefix, and those requests arrive with no app context.
+// Velta opens exactly one webxdc app at a time, so un-prefixed paths
+// resolve against the app that is currently open. Ceiling: with several
+// Velta windows open, a closed app's assets may resolve against a stale
+// entry — harmless (still 404 unless names collide).
+static OPEN_APP: std::sync::Mutex<Option<(u32, u32)>> = std::sync::Mutex::new(None);
+
 pub fn webxdc_resolve_line(app: &tauri::AppHandle, line: &str) {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else { return; };
     let Some(id) = value.get("id").and_then(|v| v.as_str()).map(str::to_string) else { return; };
@@ -77,19 +86,28 @@ pub async fn webxdc_serve(
     };
     let rest = rest.split('?').next().unwrap_or(rest);
     let mut segments = rest.split('/');
-    let account: u32 = match segments.next().and_then(|s| s.parse().ok()) {
-        Some(v) => v,
-        None => return not_found(),
+    // Absolute-path apps ("/assets/…") carry no <account>/<msg> prefix —
+    // resolve against the currently open app (see OPEN_APP above).
+    let (account, msg, path) = match (
+        segments.next().and_then(|s| s.parse::<u32>().ok()),
+        segments.next().and_then(|s| s.parse::<u32>().ok()),
+    ) {
+        (Some(account), Some(msg)) => (account, msg, segments.collect::<Vec<_>>().join("/")),
+        _ => {
+            let fallback = *OPEN_APP.lock().unwrap();
+            match fallback {
+                Some((account, msg)) => (account, msg, rest.to_string()),
+                None => return not_found(),
+            }
+        }
     };
-    let msg: u32 = match segments.next().and_then(|s| s.parse().ok()) {
-        Some(v) => v,
-        None => return not_found(),
-    };
-    let path = segments.collect::<Vec<_>>().join("/");
     let path = percent_decode(&path);
     let path = if path.is_empty() { "index.html".to_string() } else { path };
 
-    if path == "__velta-shim.js" {
+    // Some apps load `<script src="webxdc.js">` (the webxdc dev-server
+    // convention). The shim is injected into index.html anyway, but alias
+    // the path to it so those requests stop 404ing.
+    if path == "__velta-shim.js" || path == "webxdc.js" {
         return tauri::http::Response::builder()
             .header("Content-Type", "text/javascript; charset=utf-8")
             .header("Cache-Control", "no-cache")
@@ -98,6 +116,11 @@ pub async fn webxdc_serve(
     }
 
     let is_index = path == "index.html";
+    if is_index {
+        // Remember the app being opened — its absolute-path subresource
+        // requests resolve against this (see OPEN_APP above).
+        *OPEN_APP.lock().unwrap() = Some((account, msg));
+    }
     let base64_blob = match webxdc_rpc(&app, "get_webxdc_blob", serde_json::json!([account, msg, path])).await {
         Ok(serde_json::Value::String(b64)) => b64,
         _ => return not_found(),
@@ -109,14 +132,22 @@ pub async fn webxdc_serve(
 
     if is_index {
         // Inject the shim before the app's own scripts run so
-        // window.webxdc exists by the time app code executes.
+        // window.webxdc exists by the time app code executes. Also stub
+        // __TAURI_INTERNALS__: WebView2 runs Tauri's core+plugin init
+        // scripts in opaque-origin frames too, and the plugin guests crash
+        // with "Cannot read properties of undefined (reading 'plugins')"
+        // because the internals object was never defined here. The stub
+        // lands before them (document-created scripts run first), the
+        // frame never legitimately uses Tauri APIs, and the console stays
+        // clean so real app errors are visible.
         let html = String::from_utf8_lossy(&bytes).to_string();
         let head_at = html
             .find("<head")
             .and_then(|i| html[i..].find('>').map(|j| i + j + 1))
             .unwrap_or(0);
-        let mut injected = String::with_capacity(html.len() + 128);
+        let mut injected = String::with_capacity(html.len() + 256);
         injected.push_str(&html[..head_at]);
+        injected.push_str("<script>window.__TAURI_INTERNALS__=window.__TAURI_INTERNALS__||{plugins:{},metadata:{}};</script>");
         injected.push_str("<script src=\"__velta-shim.js\"></script>");
         injected.push_str(&html[head_at..]);
         bytes = injected.into_bytes();

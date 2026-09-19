@@ -675,6 +675,27 @@ Android link handling chain (since 1.4.1, hardened after 1.4.2): `openInAppBrows
 on Android invokes `open_in_app_browser` (JNI → `org.velta.InAppBrowser`).
 Failure chain, in order:
 
+When no Custom Tabs provider exists on the device (only vivo.browser),
+   the chain falls to a native second-WebView overlay
+   (`InAppBrowser.openWebView`, driven by the `open_webview_browser`
+   command): a fullscreen `android.webkit.WebView` added over the activity
+   (bar: host + open-external + close; BACK handled by an
+   OnBackPressedCallback registered AFTER wry's so it wins while open —
+   see MainActivity.attach; JS + domStorage on, file/content access off, no
+   bridges). Being a top-level browsing context it ignores X-Frame-Options,
+   which is what makes it better than the JS iframe overlay — that stays as
+   the final fallback for old shells. Plain-http pages render in it because
+   the network security config permits cleartext app-wide (1.4.13; the SPA
+   never top-level-navigates and the CSP blocks plain-http subresources, so
+   the shell's own cleartext stays the loopback media server). Discovery is by CustomTabsService
+   intent query (any package name), androidx resolution as backup.
+0. **Launch context matters (1.4.13):** the Custom Tab is launched from the
+   ACTIVITY (InAppBrowser.attach) — launching from the application context
+   crashed with AndroidRuntimeException because modern androidx no longer
+   adds FLAG_ACTIVITY_NEW_TASK for non-Activity contexts, which silently
+   dumped every link onto the WebView overlay even with Chrome installed.
+   The VeltaIAB logcat tag carries the diagnosis lines (`provider=…`,
+   `custom tab launch failed: …`).
 1. **Chrome Custom Tab** — the normal path. Since 1.4.11+ the tab targets an
    EXPLICIT provider resolved via `CustomTabsClient.getPackageName`
    (InAppBrowser.kt): a bare CustomTabsIntent resolves like ACTION_VIEW, so on
@@ -1034,7 +1055,31 @@ re-renders, `[virtual-scroller] The item is no longer rendered onscreen
   `get_webxdc_status_updates` / `send_webxdc_status_update`, tracking
   per-instance serials. Realtime channels and `sendToChat` are not wired.
   CSP: `frame-src` + `img-src` gained the `webxdc.localhost` origins — keep
-  them when editing the CSP. Bot messages render command chips
+  them when editing the CSP. Since 1.4.12+: `openWebxdc` refuses to open in
+  a plain browser (toast "webxdc apps run in the Velta app" — the
+  webxdc.localhost handler exists only in the Tauri shell; before, the
+  overlay opened with every asset 404ing); `webxdc_serve` aliases
+  `webxdc.js` to the shim (apps using the dev-server convention) and
+  resolves un-prefixed absolute paths (`/assets/…`, vite default base)
+  against `OPEN_APP`, the app whose index.html was served last — one app
+  open at a time makes that safe; spec-compliant apps use relative paths.
+  `sendToChat` is implemented (1.4.12+, spec shapes 1.4.13: the official
+  `webxdc.d.ts` passes `{file: {name, blob|base64}}` — plus a legacy raw-File
+  shape and text-only sends): the shim normalizes and ships the Blob over the
+  postMessage bridge (structured clone), the host confirms via modal, stages
+  the file with the image-send pipeline (`resolve_upload_path` +
+  `plugin:fs|write_file`) and sends it as a file message into the app's chat
+  — that is what email-composer apps need. `importFiles` (the app-side
+  attach picker) is implemented too: tauri dialog open (extension filter
+  only — mimeTypes in the filter are ignored, a dialog-plugin ceiling),
+  `resolve_content_uri` for Android content:// picks, bytes read via fs and
+  returned to the app as File objects over the bridge.
+  The overlay close button uses the shared CLOSE_SVG like every other
+  overlay. The WebView2 `Cannot read properties of undefined (reading
+  'plugins')` crash is Tauri's own core+plugin init scripts running in the
+  opaque-origin frame; webxdc_serve stubs `window.__TAURI_INTERNALS__`
+  (plugins/metadata) into the served index.html before them so the frame's
+  console stays clean — the frame never legitimately uses Tauri APIs. Bot messages render command chips
   (`extractBotCommands` in markdown.js, chips fill the composer); on Android
   message links are routed to `plugin:opener|open_url` (wry drops
   target=_blank).

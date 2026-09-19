@@ -150,6 +150,11 @@ export class MockCore extends EventTarget {
       this._mkMsg(this.chats[2], { from: 2, text: "Release notes newsletter — open for the formatted table", ts: now - 30e3, hasHtml: true,
         html: "<html><head><style>body{font-family:system-ui;margin:16px;background:#14141c;color:#f2f2f5}h2{margin-top:0}td,th{border:1px solid #4a4f62;padding:6px 10px}</style></head><body><h2>Velta Release Notes</h2><table><tr><th>Version</th><th>Highlight</th></tr><tr><td>1.4.11</td><td>Auto-reconnect, browser CSP, shimmer, Show Full Message</td></tr><tr><td>1.4.10</td><td>Touch-safe drawer toggle</td></tr></table><p>The formatted original mail — the bubble shows only the simplified text.</p></body></html>" }),
     );
+    // A webxdc app card: opens in the app (Tauri webxdc.localhost handler);
+    // in a plain browser the manager explains instead of opening a dead frame.
+    this.chats[2].messages.push(
+      this._mkMsg(this.chats[2], { from: 2, viewtype: "webxdc", fileName: "poll.xdc", text: "", ts: now - 15e3 }),
+    );
     this.chats[2].messages.sort((a, b) => a.ts - b.ts);
   }
 

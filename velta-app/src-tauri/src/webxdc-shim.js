@@ -101,11 +101,36 @@
     sendUpdate: async function (update, description) {
       await call("sendUpdate", { update: update, description: description || "" });
     },
-    sendToChat: async function (file) {
-      var r = await call("sendToChat", { name: file && file.name, type: file && file.type });
+    sendToChat: async function (message) {
+      // Spec: sendToChat({ file: {name, blob|base64}, text? }) — text-only
+      // sends are allowed too, and some older apps pass the File itself.
+      // Normalize everything to {file: Blob, name, text}; the Blob rides the
+      // postMessage bridge (structured clone); the host confirms, stages it
+      // under uploads/ and sends it as a message into the chat.
+      var m = message instanceof Blob ? { file: message } : message || {};
+      var file = null;
+      var name = m.name || "";
+      if (m.file instanceof Blob) { file = m.file; name = m.file.name || name; }
+      else if (m.file && m.file.blob instanceof Blob) { file = m.file.blob; name = m.file.name || name; }
+      else if (m.file && typeof m.file.base64 === "string") {
+        try {
+          var bin = atob(m.file.base64);
+          var arr = new Uint8Array(bin.length);
+          for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+          file = new Blob([arr]);
+          name = m.file.name || name;
+        } catch (e) {}
+      }
+      if (!file && !m.text) return { ok: false, error: "nothing to send" };
+      if (!name) name = (file && file.name) || "file";
+      var r = await call("sendToChat", { file: file, name: name, type: (file && file.type) || "", text: m.text || "" });
       return r && typeof r === "object" ? r : { ok: false };
     },
-    importFiles: async function () { return []; },
+    importFiles: async function (filters) {
+      // Host opens the system picker (tauri dialog, same as chat attachments)
+      // and returns File objects — they ride the postMessage bridge back.
+      return (await call("importFiles", { filters: filters || {} })) || [];
+    },
     getSelfInfo: async function () {
       await call("getInfo", {}).then(function (i) { Object.assign(info, i || {}); });
       return { addr: info.selfAddr, name: info.selfName, color: "#7d8a99" };

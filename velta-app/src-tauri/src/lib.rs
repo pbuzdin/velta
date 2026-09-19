@@ -284,6 +284,19 @@ fn guess_mime(path: &str) -> &'static str {
         "pdf" => "application/pdf",
         "txt" => "text/plain",
         "html" | "htm" | "xhtml" => "text/html", // HTML attachments render in the isolated viewer
+        // webxdc assets: browsers hard-enforce MIME for module scripts
+        // ("Expected a JavaScript-or-Wasm module script") and stylesheets,
+        // so octet-stream breaks every bundler-built app.
+        "js" | "mjs" => "text/javascript",
+        "css" => "text/css",
+        "wasm" => "application/wasm",
+        "json" | "map" => "application/json",
+        "svg" => "image/svg+xml",
+        "ico" => "image/x-icon",
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        "ttf" => "font/ttf",
+        "otf" => "font/otf",
         _ => "application/octet-stream",
     }
 }
@@ -860,9 +873,55 @@ fn open_in_app_browser(url: String) -> Result<(), String> {
         .as_ref()
         .ok_or("InAppBrowser class was not cached at startup")?;
     let url_j = env.new_string(url).map_err(|e| e.to_string())?;
+    let opened = env
+        .call_static_method(
+            class_ref,
+            "open",
+            "(Landroid/content/Context;Ljava/lang/String;)Z",
+            &[(&context).into(), (&url_j).into()],
+        )
+        .map_err(|e| e.to_string())?
+        .z()
+        .map_err(|e| e.to_string())?;
+    if !opened {
+        // No Custom Tabs provider on the device: the frontend opens the
+        // native WebView overlay next (better than a full browser switch).
+        return Err("no custom tabs provider".into());
+    }
+    Ok(())
+}
+
+/// Android: second-WebView browser overlay (the no-Custom-Tabs-provider
+/// fallback; a top-level browsing context, so X-Frame-Options cannot block
+/// it). Desktop keeps its system-browser convention.
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn open_webview_browser(_url: String) -> Result<(), String> {
+    Err("webview browser is only supported on Android".into())
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn open_webview_browser(url: String) -> Result<(), String> {
+    let ctx_guard = APP_CONTEXT.lock().unwrap();
+    let context = ctx_guard
+        .as_ref()
+        .map(|r| r.as_obj().clone())
+        .ok_or("application context was not handed over yet")?;
+    let vm_guard = APP_JAVA_VM.lock().unwrap();
+    let vm_ref = vm_guard.as_ref().ok_or("jvm was not handed over yet")?;
+    let mut env = vm_ref.attach_current_thread().map_err(|e| format!("jvm attach: {e}"))?;
+
+    let class_guard = APP_INAPP_BROWSER_CLASS.lock().unwrap();
+    let class_ref = class_guard
+        .as_ref()
+        .ok_or("InAppBrowser class was not cached at startup")?;
+    let url_j = env.new_string(url).map_err(|e| e.to_string())?;
+    // openWebView posts to the main looper itself; it returns void and never
+    // fails visibly (a missing activity attachment is logged in Kotlin).
     env.call_static_method(
         class_ref,
-        "open",
+        "openWebView",
         "(Landroid/content/Context;Ljava/lang/String;)V",
         &[(&context).into(), (&url_j).into()],
     )
@@ -1558,7 +1617,7 @@ pub fn run() {
             response.headers_mut().insert("Cache-Control", "max-age=31536000, immutable".parse().unwrap());
             response.map(|body| std::borrow::Cow::Owned(body))
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, fetch_page_title, open_in_app_browser, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, fetch_page_title, open_in_app_browser, open_webview_browser, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 

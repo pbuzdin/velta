@@ -40,20 +40,21 @@ function injectStyles() {
 }
 
 export function openInAppBrowser(url) {
-  // Android: prefer a native Chrome Custom Tab (InAppBrowser.kt via JNI) —
-  // real WebView rendering, no frame-blocking, native title/share/menu; this
-  // is what the Telegram-style screenshot actually is. The iframe overlay
-  // stays as the fallback (no shell, Custom Tabs launch failure, dev).
+  // Android chain: Chrome Custom Tab (InAppBrowser.kt via JNI) → the native
+  // second-WebView overlay (no Custom Tabs provider on the device; a
+  // top-level context, so X-Frame-Options cannot block it) → the in-app
+  // iframe overlay (old shell). The bar's open-external button is the escape
+  // hatch in every in-app variant.
   const t = window.__TAURI__;
   if (t && /Android/.test(navigator.userAgent || "")) {
-    (t?.core?.invoke || t?.invoke)?.("open_in_app_browser", { url })
+    const invoke = t?.core?.invoke || t?.invoke;
+    invoke?.("open_in_app_browser", { url })
       .catch((e) => {
-        // Most real sites send X-Frame-Options / frame-ancestors, so the
-        // iframe fallback is useless on Android — hand off to the system
-        // browser instead (plugin:opener also falls back internally).
-        (t?.core?.invoke || t?.invoke)?.("js_log", { msg: `open_in_app_browser failed, using system browser: ${e}` }).catch(() => {});
-        (t?.core?.invoke || t?.invoke)?.("plugin:opener|open_url", { url })
-          .catch(() => openIframeOverlay(url));
+        invoke("js_log", { msg: `open_in_app_browser fell back to the webview overlay: ${e}` }).catch(() => {});
+        invoke("open_webview_browser", { url }).catch((e2) => {
+          invoke("js_log", { msg: `open_webview_browser fell back to the iframe overlay: ${e2}` }).catch(() => {});
+          openIframeOverlay(url);
+        });
       });
     return;
   }
