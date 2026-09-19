@@ -63,7 +63,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 input, textarea { font: inherit; color: inherit; }
 svg { width: 24px; height: 24px; display: block; }
 
-.app { display: flex; height: 100dvh; }
+.app { display: flex; height: 100%; }
 
 /* ---------- Sidebar ---------- */
 .sidebar {
@@ -1068,10 +1068,31 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 }
 .drawer-items { padding: 8px; overflow-y: auto; flex: 1; min-height: 0; }
 .drawer-foot { padding: 8px 16px 14px; border-top: 1px solid rgba(244, 244, 244, .08); }
-.drawer-ver { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--text-dim); padding: 2px 0; }
-.drawer-sec { font-size: 12.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; padding: 14px 12px 6px; }
-
-/* attach pop reuses ctx-menu */
+/* Update banner: pinned at the drawer's bottom (drawer-items scrolls, this
+   and the foot do not). Rendered by ui.js renderUpdateBanner when a newer
+   release is published (version.txt asset on GitHub releases). */
+.update-banner {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  font-size: 13.5px; color: var(--text);
+}
+.update-banner-text { flex: 1; min-width: 0; }
+.update-banner-btn {
+  flex: none; width: auto;
+  padding: 8px 14px; border-radius: 10px;
+  background: var(--accent); color: #f4f4f4; font-weight: 600;
+}
+.update-banner-btn:active { transform: scale(.97); }
+/* While an update is available the bar-menu button grows a polite pulsing
+   ring (no layout shift — box-shadow, not border) to invite a tap. */
+#bar-menu.update { box-shadow: inset 0 0 0 2px var(--accent); animation: update-nudge 2.4s ease-in-out infinite; }
+@keyframes update-nudge {
+  0%, 100% { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 0 rgba(90, 162, 230, .5); }
+  50% { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 8px rgba(90, 162, 230, 0); }
+}
+@media (prefers-reduced-motion: reduce) { #bar-menu.update { animation: none; } }
 .attach-pop { min-width: 190px; }
 
 /* toasts */

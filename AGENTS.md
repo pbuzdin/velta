@@ -116,6 +116,18 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 Not tracked (local runtime/build artifacts): `accounts/` (local core account
 databases), `*.apk` builds, `signing/*.keystore`.
 
+> **Rebranding note:** this checkout predates the Velta rename, so older docs,
+> scripts and muscle memory may reference pre-rebrand paths. The Tauri shell
+> lived at `delta-web-app/src-tauri/` — that directory is GONE; the shell is
+> `velta-app/src-tauri/` (this document already uses only the current names).
+> Two pre-rebrand identifiers also linger on machines that ran old desktop
+> builds: `%LOCALAPPDATA%/chat.delta.desktop.tauri` and `deltachat-tauri` are
+> dead leftovers — current builds use `org.velta` (see §9.2). The WSL build
+> sandbox `~/velta-android-build/velta-app/` (workspace scripts in the parent
+> directory) was migrated from `delta-web-app/` to the current name; because
+> cargo fingerprints embed absolute paths, the first build after the rename
+> recompiles from scratch.
+
 ---
 
 ## 3. Technology stack
@@ -687,8 +699,13 @@ When no Custom Tabs provider exists on the device (only vivo.browser),
    the final fallback for old shells. Plain-http pages render in it because
    the network security config permits cleartext app-wide (1.4.13; the SPA
    never top-level-navigates and the CSP blocks plain-http subresources, so
-   the shell's own cleartext stays the loopback media server). Discovery is by CustomTabsService
-   intent query (any package name), androidx resolution as backup.
+   the shell's own cleartext stays the loopback media server). Provider
+   selection (1.4.14): the user's default browser wins when it offers the
+   CustomTabsService, else the first service provider, else androidx
+   candidates — first-provider-only used to pick Chrome Dev over the default
+   Edge on multi-browser devices. The `<queries>` block declares BOTH the
+   CustomTabsService intent and ACTION_VIEW/https (default-browser
+   resolution needs it on API 30+).
 0. **Launch context matters (1.4.13):** the Custom Tab is launched from the
    ACTIVITY (InAppBrowser.attach) — launching from the application context
    crashed with AndroidRuntimeException because modern androidx no longer
@@ -742,6 +759,10 @@ system-browser convention — `open_in_app_browser` is `#[cfg(target_os =
 - SVG icons are inline strings; no icon library.
 - CSS is a single hand-written file (`app/css/main.css`).
 - The service worker cache version is a hard-coded constant in `app/sw.js`.
+- `app/vendor/` files carry local fixes for upstream bugs (the zoom
+  normalization in `virtual-scroller.js` is a patch, not upstream code).
+  Read `VENDORISSUES.MD` before upgrading or re-vendoring any of them, and
+  re-apply the local patches afterwards.
 - **Modal async flows: settle BEFORE close.** `showModal`'s `close()` fires
   `onClose` synchronously, and `onClose` handlers typically resolve the flow's
   promise with null/`false`. If the flow calls `close()` first, the close-path
@@ -946,7 +967,9 @@ test traffic accordingly.
   commands: `invoke("rpc", { request })` to call the core, and `emit("velta-rpc")`
   to push core events to the WebView.
 - Account data lives in the platform app-data directory:
-  - Windows: `%APPDATA%/org.deltaweb.app/accounts`
+  - Windows: `%LOCALAPPDATA%/org.velta/accounts` (identifier `org.velta`;
+    pre-rebrand desktop builds left `%LOCALAPPDATA%/chat.delta.desktop.tauri`
+    and `%LOCALAPPDATA%/deltachat-tauri` behind — dead, do not use)
   - Android: app-private storage.
 - **Background sync (since 1.3.30, Android main APK).** `CoreService.kt` is a
   `remoteMessaging` foreground service started from `MainActivity.onCreate`;
@@ -1190,8 +1213,10 @@ core capabilities and their Velta integration notes: `CORE-CAPABILITIES.MD`.
 - Releases: `.github/workflows/release.yml` (v* tag push or manual dispatch)
   calls the two reusable build workflows and publishes a GitHub release
   `v<version>` with `Velta-<version>-<abi>.apk` (signed with the persistent
-  keystore secrets) and `Velta_<version>_x64-setup.exe`; the version comes
-  from `tauri.conf.json`. Tag pushes do not run the build workflows directly
+  keystore secrets), a `version.txt` asset (bare version — the apps fetch
+  `releases/latest/download/version.txt` for the update banner,
+  `ui.js checkForUpdate`) and `Velta_<version>_x64-setup.exe`; the version
+  comes from `tauri.conf.json`. Tag pushes do not run the build workflows directly
   — release.yml is the single tag→release path. The keystore and its password
   live in `signing/` (gitignored) and in the four `ANDROID_KEY*` repo
   secrets; losing both means installed APKs can never be updated again.
@@ -1219,7 +1244,7 @@ core capabilities and their Velta integration notes: `CORE-CAPABILITIES.MD`.
   stay compatible.
 
 - Overlay/BACK conventions (since 1.3.36): every fullscreen overlay (HTML
-  attachment viewer, webxdc, in-app browser) pushes one `{velta:…}` history
+  attachment viewer, webxdc, in-app browser, image lightbox) pushes one `{velta:…}` history
   entry on open; WryActivity's OnBackPressedCallback calls `mWebView.goBack()`
   when it can, so the pop pops the entry and a `popstate` listener tears the
   overlay down — app.js's own popstate handler treats a revealed
@@ -1278,6 +1303,28 @@ core capabilities and their Velta integration notes: `CORE-CAPABILITIES.MD`.
   fresh installs — `dw-theme` holds the setting). Both apply in place:
   never rebuildDrawer() on a radio change, it would close the drawer.
   `text-size-adjust: 100%` on html neutralizes font boosting in browsers.
+  Root zoom scales `getBoundingClientRect()` but NOT `scrollTop`/
+  `offsetHeight`, so `.app` must never size itself with viewport units:
+  `100dvh` rendered at zoom × N and pushed the list bar below the fold
+  (1.4.14 — shell heights are `100%` of each other; percentages don't get
+  the zoom multiplication). The same mixing blanked the chat via the
+  virtual scroller — the vendored `virtual-scroller.js` carries the
+  `__vsZoom` normalization patch (see `VENDORISSUES.MD`), and ui.js
+  dispatches a `resize` after applying the scale so the scroller re-measures
+  in the new space (`_scrollBottomSettling` re-pins the bottom afterwards).
+
+- Update banner (since 1.4.14): boot fires `checkForUpdate()` (ui.js,
+  fire-and-forget) which fetches `releases/latest/download/version.txt`
+  (GitHub release asset written by release.yml) and, when newer than the
+  running version, pins a banner with a Download APK button at the drawer's
+  bottom (above the version foot) and gives `#bar-menu` an `.update` class —
+  a slow accent ring pulse (box-shadow only, no layout shift; disabled under
+  `prefers-reduced-motion`). Download routes through
+  `plugin:opener|open_url` to the release APK
+  `releases/download/v<version>/Velta-<version>-arm64.apk`. Needs the
+  `github.com` + `objects.githubusercontent.com` connect-src CSP entries in
+  all three CSP places. No banner when versions match, offline, or 404
+  (pre-1.4.14 releases carry no version.txt).
 
 - In-app browser (since 1.3.38): Android message links open
   `inapp-browser.js`'s overlay (bar: close / fetched title + domain /

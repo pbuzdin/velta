@@ -9,7 +9,7 @@ import { initCalls } from "./calls.js";
 import { initWebxdc } from "./webxdc-manager.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal } from "./invites.js";
-import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay } from "./ui.js";
+import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate } from "./ui.js";
 import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact } from "./p2p.js";
 import { withLocalChat, hubModel, renameDevice, removePeer, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
 import { timeAgo, formatBytes } from "./mock-core.js";
@@ -2768,6 +2768,11 @@ async function boot() {
     } catch (err) {
       diagnostics.append("error", `boot: drawer failed: ${err?.message || err}`);
     }
+
+    // Update banner (drawer bottom) + menu-button nudge. Fire-and-forget:
+    // offline or a blocked fetch just means no banner this session.
+    appLog("boot: check for update");
+    checkForUpdate().catch(err => appLog(`update check failed: ${err?.message || err}`));
 
     appLog("boot: init chatView");
     try {

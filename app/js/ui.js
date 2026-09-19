@@ -149,7 +149,71 @@ export function setCoreVersionDisplay(v) {
   CORE_VERSION = String(v).replace(/^v/, "");
   document.querySelectorAll('[data-v="core"]').forEach((el) => { el.textContent = CORE_VERSION; });
 }
-const FALLBACK_APP_VERSION = "1.4.2";
+const FALLBACK_APP_VERSION = "1.4.14";
+
+/* ---------- Update check (drawer banner + menu-button nudge) ---------- */
+// The latest release version lives in a version.txt asset attached to every
+// GitHub release (written by release.yml from tauri.conf.json). The stable
+// "latest" URL + the version fetched from it reconstruct the APK download
+// URL, since release asset names embed the version.
+const UPDATE_CHECK_URL = "https://github.com/pbuzdin/velta/releases/latest/download/version.txt";
+const updateApkUrl = (v) => `https://github.com/pbuzdin/velta/releases/download/v${v}/Velta-${v}-arm64.apk`;
+
+let updateInfo = null; // { version, url } while an update is available
+
+function isNewerVersion(remote, current) {
+  const parse = (s) => String(s).trim().replace(/^v/, "").split(/[.+-]/).slice(0, 3).map(Number);
+  const a = parse(remote), b = parse(current);
+  for (let i = 0; i < 3; i++) {
+    if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+  }
+  return false;
+}
+
+// Fire-and-forget from boot(); offline or a blocked fetch just means no banner.
+export async function checkForUpdate() {
+  let remote;
+  try {
+    const res = await fetch(UPDATE_CHECK_URL, { cache: "no-store" });
+    if (!res.ok) return;
+    remote = (await res.text()).trim();
+  } catch { return; }
+  const current = await getAppVersion();
+  if (!isNewerVersion(remote, current)) return;
+  updateInfo = { version: remote, url: updateApkUrl(remote) };
+  document.getElementById("bar-menu")?.classList.add("update");
+  renderUpdateBanner();
+}
+
+// Inserted before the drawer foot so it stays pinned at the drawer's bottom
+// (drawer-items scrolls, foot and banner do not). Re-runs on rebuildDrawer.
+function renderUpdateBanner() {
+  if (!updateInfo) return;
+  document.getElementById("bar-menu")?.classList.add("update");
+  const drawer = document.getElementById("drawer");
+  const foot = drawer?.querySelector(".drawer-foot");
+  if (!foot || drawer.querySelector(".update-banner")) return;
+  const banner = document.createElement("div");
+  banner.className = "update-banner";
+  const text = document.createElement("span");
+  text.className = "update-banner-text";
+  text.innerHTML = `<strong>Velta ${escapeHtml(updateInfo.version)}</strong> is available`;
+  const btn = document.createElement("button");
+  btn.className = "update-banner-btn";
+  btn.type = "button";
+  btn.textContent = "Download APK";
+  btn.addEventListener("click", () => {
+    const tauri = window.__TAURI__;
+    if (tauri?.core?.invoke) {
+      tauri.core.invoke("plugin:opener|open_url", { url: updateInfo.url })
+        .catch(() => window.open(updateInfo.url, "_blank", "noopener"));
+    } else {
+      window.open(updateInfo.url, "_blank", "noopener");
+    }
+  });
+  banner.append(text, btn);
+  foot.before(banner);
+}
 
 const THEME_LABELS = { auto: "Auto", dark: "Dark", light: "Light", brutal: "Brutal" };
 
@@ -169,6 +233,11 @@ export function applyUiScale() {
   try { v = localStorage.getItem("velta-ui-scale") || "1"; } catch {}
   if (v === "1") document.documentElement.style.removeProperty("zoom");
   else document.documentElement.style.zoom = v;
+  // CSS zoom changes neither offset sizes nor the window size, so the virtual
+  // scroller's ResizeObserver never fires and it keeps heights measured in the
+  // old scale — re-layouts then mix coordinate spaces and blank the list.
+  // A resize event runs its "viewport changed" path: drop measured heights, re-measure.
+  window.dispatchEvent(new Event("resize"));
 }
 export function setUiScale(v) {
   try {
@@ -264,6 +333,9 @@ export function buildDrawer({ account, onAddAccount, onSecondDevice, onSetTheme,
       ${isTauri ? "" : `<div class="drawer-ver"><span>Service worker</span><span data-v="sw">…</span></div>`}
     </div>`;
   document.body.appendChild(drawer);
+
+  // Update banner lives at the drawer's bottom, above the version foot.
+  renderUpdateBanner();
 
   // Fill the async parts of the footer once the drawer exists.
   (async () => {
@@ -508,8 +580,30 @@ async function showAbout() {
 
 /* ---------- Emoji pop ---------- */
 /* ---------- Fullscreen image lightbox (pinch to zoom) ---------- */
+// Overlay/BACK convention (same as the HTML viewer and webxdc overlay):
+// open pushes a {velta:"lightbox"} history entry, so Android BACK pops it and
+// popstate tears the overlay down — BACK returns to the chat history instead
+// of leaving the chat. ✕/Esc/tap closes consume the entry via history.back()
+// (skipped when the pop already happened). Reopening while open replaces the
+// overlay and reuses the current entry — history.back() is async, so
+// back-then-push would race and lose it.
+let lightboxEl = null, lightboxOnKey = null;
+
+function teardownLightbox(consumeEntry) {
+  if (!lightboxEl) return;
+  const el = lightboxEl;
+  lightboxEl = null;
+  document.removeEventListener("keydown", lightboxOnKey, true);
+  lightboxOnKey = null;
+  el.remove();
+  if (consumeEntry && history.state?.velta === "lightbox") history.back();
+}
+
+window.addEventListener("popstate", () => teardownLightbox(false));
+
 export function openImageLightbox(src, caption = "") {
   closeAllPopups();
+  teardownLightbox(false);
   const overlay = document.createElement("div");
   overlay.className = "lightbox";
   overlay.innerHTML = `
@@ -524,6 +618,8 @@ export function openImageLightbox(src, caption = "") {
   const img = overlay.querySelector(".lightbox-img");
   const stage = overlay.querySelector(".lightbox-stage");
   img.src = src;
+  lightboxEl = overlay;
+  if (history.state?.velta !== "lightbox") history.pushState({ velta: "lightbox" }, "");
 
   let scale = 1, tx = 0, ty = 0;
   let startDist = 0, startScale = 1, startX = 0, startY = 0, startTx = 0, startTy = 0;
@@ -532,12 +628,9 @@ export function openImageLightbox(src, caption = "") {
   const apply = () => { img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`; };
   const reset = () => { scale = 1; tx = 0; ty = 0; apply(); };
 
-  const close = () => {
-    document.removeEventListener("keydown", onKey, true);
-    overlay.remove();
-  };
-  const onKey = e => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
-  document.addEventListener("keydown", onKey, true);
+  const close = () => teardownLightbox(true);
+  lightboxOnKey = e => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
+  document.addEventListener("keydown", lightboxOnKey, true);
   overlay.querySelector(".lightbox-close").addEventListener("click", close);
 
   const dist = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);

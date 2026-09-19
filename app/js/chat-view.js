@@ -1817,6 +1817,12 @@ export class ChatView {
       this._hideGoDown();
       this.core.markRead(this.chat.id);
     });
+    // Resize covers interface-scale (CSS zoom) changes: the virtual scroller
+    // then re-measures and shifts its paddings for a few frames — re-pin to
+    // the latest message if we were at the bottom.
+    window.addEventListener("resize", () => {
+      if (this._isCurrent() && this.chat && this._nearBottom()) this._scrollBottomSettling();
+    });
   }
 
   _nearBottom() {
@@ -1835,17 +1841,23 @@ export class ChatView {
   _scrollBottomSettling() {
     this._stopSettling?.();
     const session = this._session;
-    let lastHeight = -1, stableFrames = 0, frames = 0, stopped = false;
+    let lastHeight = -1, stableFrames = 0, frames = 0, stopped = false, userScrolled = false;
     let frame;
-    const onUserScroll = () => stop();
-    this.scrollEl.addEventListener("wheel", onUserScroll, { passive: true, once: true });
-    this.scrollEl.addEventListener("touchstart", onUserScroll, { passive: true, once: true });
+    const onUserScroll = () => { userScrolled = true; stop(); };
+    this.scrollEl.addEventListener("wheel", onUserScroll, { passive: true });
+    this.scrollEl.addEventListener("touchstart", onUserScroll, { passive: true });
     const stop = () => {
       stopped = true;
       cancelAnimationFrame(frame);
-      this.scrollEl.removeEventListener("wheel", onUserScroll);
-      this.scrollEl.removeEventListener("touchstart", onUserScroll);
       if (this._stopSettling === stop) this._stopSettling = null;
+      // The virtual scroller re-lays out on its own ~100ms "scrolling stopped"
+      // timer and shifts the paddings after we stop pinning — re-assert the
+      // bottom once more after that settles (unless the user took over).
+      setTimeout(() => {
+        this.scrollEl.removeEventListener("wheel", onUserScroll);
+        this.scrollEl.removeEventListener("touchstart", onUserScroll);
+        if (!userScrolled && this._isCurrent(session) && this.chat) this._scrollBottom();
+      }, 450);
     };
     this._stopSettling = stop;
     const tick = () => {

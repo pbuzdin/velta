@@ -92,6 +92,11 @@ jobs:
       - name: List release assets
         run: ls -lh release-assets
 
+      # The apps fetch releases/latest/download/version.txt for the update
+      # banner (ui.js checkForUpdate) — keep the file to the bare version.
+      - name: Write version.txt asset
+        run: echo "${{ steps.ver.outputs.version }}" > release-assets/version.txt
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
@@ -100,6 +105,7 @@ jobs:
           body_path: changelog.md
           files: |
             release-assets/*.apk
+            release-assets/version.txt
             release-assets/**/Velta_*_x64-setup.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

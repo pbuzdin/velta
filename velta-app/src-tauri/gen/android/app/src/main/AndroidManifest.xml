@@ -31,6 +31,14 @@
         <intent>
             <action android:name="android.support.customtabs.action.CustomTabsService" />
         </intent>
+        <!-- Lets InAppBrowser resolve the user's default browser (to prefer
+             it as the custom tab provider); package visibility hides the
+             default on API 30+ without this declaration. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
     </queries>
 
     <application

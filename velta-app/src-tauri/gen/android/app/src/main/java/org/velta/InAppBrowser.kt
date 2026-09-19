@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
 import android.os.Handler
@@ -44,12 +45,12 @@ object InAppBrowser {
     // A bare CustomTabsIntent resolves like ACTION_VIEW: on devices whose
     // default browser has no Custom Tabs support (e.g. vivo.browser) the
     // link opened as a full browser task instead of an in-app tab. Resolve
-    // an explicit provider instead; discovery is by service intent first
-    // (the <queries> declaration makes every provider visible, whatever its
-    // package name), androidx default-first resolution as fallback. Keep in
-    // sync with the <queries> CustomTabsService declaration in
-    // AndroidManifest.xml — without it package visibility hides every
-    // provider on API 30+.
+    // an explicit provider instead; the user's default browser is preferred
+    // when it offers the CustomTabsService, else any provider by service
+    // intent, else androidx candidate resolution. Keep in sync with BOTH
+    // <queries> declarations in AndroidManifest.xml (CustomTabsService +
+    // ACTION_VIEW/https) — without them package visibility hides the
+    // providers and the default browser on API 30+.
     private val CT_CANDIDATES = listOf(
         "com.android.chrome",
         "com.chrome.beta",
@@ -223,19 +224,34 @@ object InAppBrowser {
             .build()
         // Same action string as the <queries> declaration in the manifest.
         val serviceIntent = Intent("android.support.customtabs.action.CustomTabsService")
-        var provider: String? = null
-        try {
-            provider = context.packageManager
-                .queryIntentServices(serviceIntent, 0)
-                ?.firstOrNull()?.serviceInfo?.packageName
-        } catch (_: Exception) { }
+        val services = try {
+            context.packageManager.queryIntentServices(serviceIntent, 0).orEmpty()
+        } catch (_: Exception) { emptyList() }
+        val servicePackages = services.mapTo(mutableSetOf()) { it.serviceInfo.packageName }
+        // The user's DEFAULT browser wins when it can host a custom tab.
+        // PackageManager service order is arbitrary (Chrome Dev used to beat
+        // the default Edge just by sorting first), so only fall back to it
+        // when the default can't host a tab or is unresolvable — the
+        // <queries> ACTION_VIEW/https declaration in the manifest is what
+        // keeps the default resolvable on API 30+.
+        val defaultBrowser = try {
+            context.packageManager.resolveActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse("https://www.example.org")),
+                PackageManager.MATCH_DEFAULT_ONLY
+            )?.activityInfo?.packageName
+        } catch (_: Exception) { null }
+        var provider: String? = when {
+            defaultBrowser != null && defaultBrowser in servicePackages -> defaultBrowser
+            services.isNotEmpty() -> services.first().serviceInfo.packageName
+            else -> null
+        }
         if (provider == null) {
             try {
                 provider = CustomTabsClient.getPackageName(context, CT_CANDIDATES, false)
             } catch (_: Exception) { }
         }
         provider?.let { intent.intent.setPackage(it) }
-        android.util.Log.i(TAG, "provider=$provider")
+        android.util.Log.i(TAG, "provider=$provider default=$defaultBrowser")
         // Launch from the Activity when possible (proper back-stack, no
         // flags needed). From the application context Android requires
         // FLAG_ACTIVITY_NEW_TASK — modern androidx no longer adds it for us,
