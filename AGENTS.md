@@ -535,6 +535,11 @@ docs/agents/android-shell.md.
 
 ## 6. Development conventions
 
+**Language policy: English only.** All agent output — visible replies,
+thinking, code comments, commit messages, and docs — is English, matching the
+project's working language. (User correction 2026-09-21 after mixed-language
+replies; applies regardless of which tools or modes are active.)
+
 ### 6.1 Rust
 
 - The core crate is `#![forbid(unsafe_code)]` and enables a long list of lints in
