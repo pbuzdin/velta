@@ -479,7 +479,8 @@ export class JsonRpcCore extends EventTarget {
 
   _mapViewtype(v) {
     switch (v) {
-      case "Image": case "Gif": case "Sticker": return "image";
+      case "Image": case "Gif": return "image";
+      case "Sticker": return "sticker"; // stickers float — renderer drops the bubble chrome
       case "Voice": return "voice";
       case "Audio": return "audio";
       case "Video": return "video";

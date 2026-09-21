@@ -578,6 +578,15 @@ html[data-theme="light"] .msg-resend { color: #d13438; }
   font-size: 13px; text-shadow: 0 1px 3px rgba(16,16,16,.5);
   background: var(--bg-hover); background-size: cover; position: relative; overflow: hidden;
 }
+/* Stickers float on the chat background like the official client: no bubble
+   fill, no chrome. The time/ticks meta keeps its theme colors — readable on
+   both themes since it sits where the chat background shows through. Two
+   rules out-specificity `.msg-row.out .bubble` (341) and the brutal theme
+   override (1619); the transparent background must beat both. */
+.msg-row .bubble.sticker { background: transparent; box-shadow: none; padding: 0; }
+.msg-row.out .bubble.sticker { background: transparent; }
+.bubble.sticker .msg-image { margin: 0; background: none; overflow: visible; }
+.bubble.sticker .img-wrap { border-radius: 0; background: none; }
 /* Animated image loading: the wrap reserves the final box (aspect-ratio from
    the message's dimensions, else a 4/3 guess until decode) so the row height
    is stable while the file loads; the image then fades in over the shimmer.

@@ -870,8 +870,11 @@ export class ChatView {
         // is stable while the image decodes.
         const dw = m.dimensionsWidth > 0 ? m.dimensionsWidth : 0;
         const dh = m.dimensionsHeight > 0 ? m.dimensionsHeight : 0;
+        // Stickers stay compact (official-client scale) instead of the
+        // 45vh/450px photo cap.
+        const cap = m.viewtype === "sticker" ? "240px" : "45vh, 450px";
         const box = dw && dh
-          ? ` style="height:min(${dh}px, 45vh, 450px); aspect-ratio:${dw} / ${dh}; max-width:100%"`
+          ? ` style="height:min(${dh}px, ${cap}); aspect-ratio:${dw} / ${dh}; max-width:100%"`
           : "";
         const wrapCls = `${m.viewtype === "sticker" ? " sticker" : ""}${box ? "" : " no-dims"}`;
         bubble += `<div class="msg-image"><div class="img-wrap${wrapCls}"${box}><div class="img-ph"><div class="img-ph-ico">${ICO.photo}</div></div><img data-src="image" decoding="async" alt=""></div></div>`;
@@ -966,7 +969,7 @@ export class ChatView {
       bubble += `<div class="msg-reactions">${m.reactions.map(r =>
         `<span class="reaction-chip${r.mine ? " mine" : ""}" data-react="${r.emoji}">${r.emoji} ${r.count}</span>`).join("")}</div>`;
     }
-    inner += `<div class="bubble">${bubble}</div>`;
+    inner += `<div class="bubble${m.viewtype === "sticker" ? " sticker" : ""}">${bubble}</div>`;
     row.innerHTML = inner;
     if (m.viewtype === "vcard" && m.filePath) this._hydrateVcardCard(row, m);
     if (showAvatar) {
