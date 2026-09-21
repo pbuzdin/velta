@@ -829,6 +829,12 @@ static APP_CONTEXT: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
 #[cfg(target_os = "android")]
 static APP_INAPP_BROWSER_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
 
+// org.velta.Notifications cached as a global ref for the same classloader
+// reason as APP_INAPP_BROWSER_CLASS: messaging-style incoming-message
+// notifications are posted from Rust through this Kotlin helper.
+#[cfg(target_os = "android")]
+static APP_NOTIFICATIONS_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
+
 // Called from MainActivity.onCreate (Kotlin) with the application context.
 // Storing it lets Rust commands use the Android ContentResolver (e.g. for
 // reading content:// attachments picked through the system file picker).
@@ -863,6 +869,15 @@ pub extern "system" fn Java_org_velta_MainActivity_setApplicationContext(
             Err(e) => log(&format!("setApplicationContext: InAppBrowser global ref failed: {e}")),
         },
         Err(e) => log(&format!("setApplicationContext: InAppBrowser find_class failed: {e}")),
+    }
+    match env.find_class("org/velta/Notifications") {
+        Ok(class) => match env.new_global_ref(&class) {
+            Ok(g) => {
+                *APP_NOTIFICATIONS_CLASS.lock().unwrap() = Some(g);
+            }
+            Err(e) => log(&format!("setApplicationContext: Notifications global ref failed: {e}")),
+        },
+        Err(e) => log(&format!("setApplicationContext: Notifications find_class failed: {e}")),
     }
     log("application context stored for Rust commands");
 }
@@ -1347,8 +1362,13 @@ async fn bg_rpc(
     Ok(value.get("result").cloned().unwrap_or(serde_json::Value::Null))
 }
 
-// Post one system notification per drain cycle: title = chat name of the
-// newest message, body = its text (or a bare count when several arrived).
+// Post notifications for a drain cycle's incoming messages — one
+// conversation per chat (MessagingStyle via org.velta.Notifications):
+// group name as title, sender name as the second line, plain message text
+// (never a "Group: text" prefix), sender avatar on the left, chat avatar
+// on the right, and consecutive messages of one chat grouped into a single
+// conversation. Falls back to plain title/body when the Kotlin side is not
+// reachable (application context not handed over yet).
 #[cfg(target_os = "android")]
 async fn bg_notify_incoming(
     app: &tauri::AppHandle,
@@ -1357,34 +1377,155 @@ async fn bg_notify_incoming(
     hits: Vec<(u32, u32, u32)>, // (account, chatId, msgId)
 ) {
     use tauri_plugin_notification::NotificationExt;
-    let Some(&(account, chat_id, msg_id)) = hits.last() else { return };
-    let count = hits.len();
-    let mut title = String::from("Velta");
-    let mut body = if count > 1 { format!("{count} new messages") } else { "New message".to_string() };
 
-    if let Ok(msg) = bg_rpc(tx, state, "get_message", serde_json::json!([account, msg_id])).await {
-        if let Some(text) = msg.get("text").and_then(|t| t.as_str()) {
-            let text = text.trim();
-            if !text.is_empty() {
-                let short: String = text.chars().take(120).collect();
-                body = if text.chars().count() > 120 { format!("{short}\u{2026}") } else { short };
-            }
+    // Oldest first so the newest message lands last in each conversation;
+    // cap a burst so a 50-message flood does not spin 50 RPC round trips.
+    let recent: Vec<&(u32, u32, u32)> = hits.iter().rev().take(8).collect();
+    for &&(account, chat_id, msg_id) in recent.iter().rev() {
+        let Ok(msg) = bg_rpc(tx, state, "get_message", serde_json::json!([account, msg_id])).await
+        else {
+            continue;
+        };
+        let text = msg
+            .get("text")
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if text.is_empty() {
+            continue;
         }
-    }
-    // The RPC surface has no "get_chat" method — the name lookup silently
-    // failed and every background notification stayed titled "Velta".
-    // get_basic_chat_info is the light-weight chat-name fetch.
-    if let Ok(chat) = bg_rpc(tx, state, "get_basic_chat_info", serde_json::json!([account, chat_id])).await {
-        if let Some(name) = chat.get("name").and_then(|n| n.as_str()) {
-            if !name.trim().is_empty() {
-                title = name.trim().to_string();
-                if count > 1 {
-                    body = format!("{title}: {body}");
-                }
-            }
+        let from_id = msg.get("fromId").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        let ts_ms = (msg.get("sortTimestamp").and_then(|v| v.as_i64()).unwrap_or(0) * 1000).max(0);
+
+        let (chat_name, chat_avatar, chat_type) = match bg_rpc(
+            tx,
+            state,
+            "get_basic_chat_info",
+            serde_json::json!([account, chat_id]),
+        )
+        .await
+        {
+            Ok(c) => (
+                c.get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("Velta")
+                    .trim()
+                    .to_string(),
+                c.get("profileImage").and_then(|n| n.as_str()).map(str::to_string),
+                c.get("chatType")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("Single")
+                    .to_string(),
+            ),
+            Err(_) => ("Velta".to_string(), None, "Single".to_string()),
+        };
+        let is_group = chat_type != "Single";
+
+        let (sender_name, sender_avatar) =
+            match bg_rpc(tx, state, "get_contact", serde_json::json!([account, from_id])).await {
+                Ok(c) => (
+                    c.get("displayName")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.trim().is_empty())
+                        .or_else(|| c.get("name").and_then(|v| v.as_str()))
+                        .unwrap_or("Contact")
+                        .to_string(),
+                    c.get("profileImage").and_then(|v| v.as_str()).map(str::to_string),
+                ),
+                Err(_) => (if is_group { "Contact".to_string() } else { chat_name.clone() }, None),
+            };
+
+        if kotlin_notify_incoming(
+            app,
+            account,
+            chat_id,
+            is_group,
+            &chat_name,
+            chat_avatar.as_deref(),
+            &sender_name,
+            sender_avatar.as_deref(),
+            &text,
+            ts_ms,
+        )
+        .is_ok()
+        {
+            continue;
         }
+
+        // Fallback: plain title/body (no "Group:" prefix — that was the bug).
+        let title = if is_group { chat_name.clone() } else { sender_name.clone() };
+        let _ = app.notification().builder().title(title).body(text).show();
     }
-    let _ = app.notification().builder().title(title).body(body).show();
+}
+
+// Bridge to org.velta.Notifications.show over JNI (see the Kotlin source for
+// the layout contract). Fails when the application context or the cached
+// class is missing — the caller falls back to the plugin notification.
+#[cfg(target_os = "android")]
+#[allow(clippy::too_many_arguments)]
+fn kotlin_notify_incoming(
+    app: &tauri::AppHandle,
+    account: u32,
+    chat_id: u32,
+    is_group: bool,
+    chat_name: &str,
+    chat_avatar: Option<&str>,
+    sender_name: &str,
+    sender_avatar: Option<&str>,
+    text: &str,
+    timestamp_ms: i64,
+) -> Result<(), String> {
+    let ctx_guard = APP_CONTEXT.lock().unwrap();
+    let context = ctx_guard
+        .as_ref()
+        .map(|r| r.as_obj().clone())
+        .ok_or("application context was not handed over yet")?;
+    let vm_guard = APP_JAVA_VM.lock().unwrap();
+    let vm_ref = vm_guard.as_ref().ok_or("jvm was not handed over yet")?;
+    let mut env = vm_ref.attach_current_thread().map_err(|e| format!("jvm attach: {e}"))?;
+
+    let class_guard = APP_NOTIFICATIONS_CLASS.lock().unwrap();
+    let class_ref = class_guard
+        .as_ref()
+        .ok_or("Notifications class was not cached at startup")?;
+
+    let chat_key = env.new_string(format!("{account}:{chat_id}")).map_err(|e| e.to_string())?;
+    let chat_name_j = env.new_string(chat_name).map_err(|e| e.to_string())?;
+    let chat_avatar_j = opt_jstring(&mut env, chat_avatar)?;
+    let sender_name_j = env.new_string(sender_name).map_err(|e| e.to_string())?;
+    let sender_avatar_j = opt_jstring(&mut env, sender_avatar)?;
+    let text_j = env.new_string(text).map_err(|e| e.to_string())?;
+
+    env.call_static_method(
+        class_ref,
+        "show",
+        "(Landroid/content/Context;Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)V",
+        &[
+            (&context).into(),
+            (&chat_key).into(),
+            jni::objects::JValue::Bool(is_group as u8),
+            (&chat_name_j).into(),
+            (&chat_avatar_j).into(),
+            (&sender_name_j).into(),
+            (&sender_avatar_j).into(),
+            (&text_j).into(),
+            jni::objects::JValue::Long(timestamp_ms),
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[cfg(target_os = "android")]
+fn opt_jstring<'local>(
+    env: &mut jni::JNIEnv<'local>,
+    value: Option<&str>,
+) -> Result<jni::objects::JObject<'local>, String> {
+    match value {
+        Some(s) => Ok(env.new_string(s).map_err(|e| e.to_string())?.into()),
+        None => Ok(jni::objects::JObject::null()),
+    }
 }
 
 // Drain the core's event queue while the UI cannot: with the foreground

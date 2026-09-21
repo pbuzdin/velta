@@ -274,6 +274,19 @@ chocolatey-installed StrawberryPerl + NASM.
 
 ### 4.4 Android background service (`velta-core-service/`)
 
+**Incoming-message notifications (Android)** are posted by
+`bg_notify_incoming` (lib.rs) over JNI into
+`gen/android/.../org/velta/Notifications.kt`: MessagingStyle conversation per
+chat (group name title / sender line / plain text — never a "Group:" prefix),
+sender avatar as the Person icon, chat avatar as largeIcon, follow-up
+messages append to the same conversation. KEEP: the JNI signature there must
+match `Notifications.show`; optional avatar paths pass as null JStrings
+(`opt_jstring`); the fallback when the Kotlin side is unreachable is a plain
+title/body notification. Receiver-type confusion against
+`android.app.Notification.Builder` means the compat inner class did not
+resolve — import `androidx.core.app.NotificationCompat.MessagingStyle`
+explicitly.
+
 The skeleton currently contains only Cargo/Gradle manifests. To rebuild when the
 source is added:
 
