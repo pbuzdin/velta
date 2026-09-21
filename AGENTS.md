@@ -225,6 +225,22 @@ and Tauri packages resources verbatim into every target — including the APK's
 `tools/wsl-android-build*.sh` scripts delete the directory as a guard; if you
 build by hand, remove it first.
 
+**Capabilities need explicit `platforms` scoping.** A capabilities file
+without a `platforms` field applies to ALL platforms, and tauri-build
+validates each capability's permissions against the plugin manifests of the
+target being built — `updater:default`/`process:allow-restart` live in
+desktop-only dependency crates, so the Android build died with
+"Permission updater:default not found" (cost the first v1.4.20 release run).
+Rule: desktop-only permissions stay in a file pinned to
+`"platforms": ["linux", "macOS", "windows"]` (`capabilities/default.json`),
+mobile-only ones in `mobile.json` (`android`/`iOS`); shared ones may repeat
+in both.
+
+**A stale desktop debug app blocks local builds.** `velta-app.exe` left
+running (with its `deltachat-rpc-server.exe` sidecar) makes tauri-build fail
+with "os error 32 ... used by another process" — kill both before
+`cargo check`/`tauri build`.
+
 Note: `velta-app/src-tauri/Cargo.toml` currently pins the core via git. For
 local development against the bundled `core/`, uncomment the `path` dependency.
 
