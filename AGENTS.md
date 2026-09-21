@@ -274,6 +274,11 @@ chocolatey-installed StrawberryPerl + NASM.
 
 ### 4.4 Android background service (`velta-core-service/`)
 
+**Incoming-message notifications** have platform parity: Windows
+`notify_incoming` renders a three-line toast (chat name / sender / text +
+circular sender avatar) via `tauri-winrt-notification` directly — AUMID is
+the config identifier, so toasts only resolve after one installer install
+(`examples/win-toast.rs` is the manual visual check). Android: see below.
 **Incoming-message notifications (Android)** are posted by
 `bg_notify_incoming` (lib.rs) over JNI into
 `gen/android/.../org/velta/Notifications.kt`: MessagingStyle conversation per
