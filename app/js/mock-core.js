@@ -469,7 +469,7 @@ export class MockCore extends EventTarget {
     return d;
   }
 
-  async sendMessage(chatId, { text, quoteId = null, viewtype = "text", extra = {} }) {
+  async sendMessage(chatId, { text, quoteId = null, viewtype = "text", file = null, extra = {} }) {
     const c = this.chats.find(x => x.id === chatId);
     if (!c) throw new Error("no chat");
     let quote = null;
@@ -477,7 +477,9 @@ export class MockCore extends EventTarget {
       const q = c.messages.find(m => m.id === quoteId);
       if (q) quote = { id: q.id, from: q.from, text: this._msgSummary(q) };
     }
-    const m = this._mkMsg(c, { from: 1, text, viewtype, quote, ts: Date.now(), state: "pending", ...extra });
+    const over = { from: 1, text, viewtype, quote, ts: Date.now(), state: "pending", ...extra };
+    if (file) { over.filePath = file; over.downloadState = "Done"; }
+    const m = this._mkMsg(c, over);
     c.messages.push(m);
     this._emit("msg-sent", { chatId, msg: this._decorate(m) });
     // simulate network -> delivered -> read
@@ -563,6 +565,13 @@ export class MockCore extends EventTarget {
     m.edited = true;
     this._emit("msg-updated", { chatId, msg: this._decorate(m) });
   }
+
+  async getStickers() {
+    this._mockStickers ||= { "Demo": ["mock:😀", "mock:🦄", "mock:🚀", "mock:🐙", "mock:🍕", "mock:🌈", "mock:⚡", "mock:🍩"] };
+    return structuredClone(this._mockStickers);
+  }
+
+  async saveSticker() { /* demo: nothing persisted */ }
 
   async setChatFlags(chatId, { pinned, muted, archived }) {
     const c = this.chats.find(x => x.id === chatId);

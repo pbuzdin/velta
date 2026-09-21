@@ -379,6 +379,23 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `.ci-last .ci-ticks` was retuned to 17×12 for the aspect. The single
   "sent" check (`TICK1`) and the selection checkbox (`ICO.check`) are
   unchanged stroke icons.
+- **Viewtype mapping is load-bearing** (rpc-core `_mapViewtype`): the
+  renderer branches on the mapped string ("image", "sticker", …), so a
+  collapse like `case "Sticker": return "image"` silently dead-branches the
+  whole sticker UI (it did — stickers rendered as bubble-wrapped photos,
+  fixed 1.4.20+). Audit mappings against `MessageViewtype` /
+  `MessageState` in `core/deltachat-jsonrpc/src/api/types/message.rs` when
+  touching them. Sticker rows: `bubble.sticker` drops the chrome
+  (transparent bg must out-specificity `.msg-row.out .bubble` AND the
+  brutal override — two rules); 240px cap; wrap bg `none` so transparent
+  PNGs don't sit on the shimmer.
+- **Stickers** (1.4.20+): picker = ui.js `showStickerPicker` fed by core
+  `misc_get_stickers` (rpc-core `getStickers`); received stickers are added
+  via the context menu's "Save sticker" (`misc_save_sticker`, "Default"
+  collection); sending rides `sendMessage {viewtype:"sticker", file}`.
+  Composer trigger is `#btn-sticker` INSIDE `.composer-input-wrap` (right
+  edge). P2P chats: no save/picker interplay. MockCore ships `mock:<emoji>`
+  tile paths the picker renders as text — never feed those to fileUrl.
 - `app/js/components.js` defines the Elena custom elements
   (`<velta-avatar>`, `<velta-chat-item>`, `<velta-chat-head>`,
   `<velta-video>`). KEEP: the verified rosette reads

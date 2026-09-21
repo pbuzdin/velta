@@ -442,7 +442,8 @@ export class JsonRpcCore extends EventTarget {
     let lastMsg = [c.summaryText1, c.summaryText2].filter(Boolean).join(": ");
     if (lastType === "Image" || lastType === "Gif") lastMsg = "📷 " + (c.summaryText2 || "Photo");
     else if (lastType === "Voice" || lastType === "Audio") lastMsg = "🎤 " + (c.summaryText2 || "Voice message");
-    else if (lastType === "File" || lastType === "Video") lastMsg = "📎 " + (c.summaryText2 || "File");
+    else if (lastType === "Video") lastMsg = "🎬 " + (c.summaryText2 || "Video");
+    else if (lastType === "File") lastMsg = "📎 " + (c.summaryText2 || "File");
     else if (lastType === "Sticker") lastMsg = c.summaryText2 || "Sticker";
     const outgoing = c.summaryStatus >= 18 && c.summaryStatus <= 28;
     return {
@@ -1011,6 +1012,16 @@ export class JsonRpcCore extends EventTarget {
     await this._call("send_edit_request", accountId, msgId, text);
     const m = await this._getDecoratedMessage(msgId, accountId);
     if (m) this._emitAccount("msg-updated", { chatId, msg: m }, accountEpoch);
+  }
+
+  // Sticker folder per account: { collection: [file paths] } (DC desktop's
+  // misc_* prototyping API — the picker and "Save sticker" ride it).
+  async getStickers() {
+    return this._call("misc_get_stickers", this.accountId);
+  }
+
+  async saveSticker(msgId, collection = "Default") {
+    await this._call("misc_save_sticker", this.accountId, msgId, collection);
   }
 
   async setChatFlags(chatId, { pinned, muted, archived }) {

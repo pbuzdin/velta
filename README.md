@@ -384,6 +384,21 @@ support editing yet.
 </details>
 
 <details>
+<summary>Stickers</summary>
+
+Stickers (Delta Chat's <code>Sticker</code> view type) render the way the
+official clients show them: floating on the chat background without a bubble
+around them, at a compact size. The composer's input field has a sticker
+button on the right edge that opens a picker fed by the account's sticker
+folder (the same mechanism as Delta Chat desktop — collections are folders
+under the account's <code>stickers/</code> directory, shared with a desktop
+install of the same account). Long-press a sticker you received and pick
+**Save sticker** to add it to the picker. In demo mode the picker ships a
+few emoji placeholders.
+
+</details>
+
+<details>
 <summary>One-click updates (Windows)</summary>
 
 On Windows the drawer's update banner grows an **Update** button: one tap

@@ -50,6 +50,48 @@ export function showContextMenu(items, x, y) {
   return menu;
 }
 
+export function showStickerPicker({ getStickers, onPick }) {
+  closeAllPopups();
+  const pop = document.createElement("div");
+  pop.className = "sticker-pop";
+  const grid = document.createElement("div");
+  grid.className = "sticker-grid";
+  grid.innerHTML = `<div class="sticker-note">Loading…</div>`;
+  pop.append(grid);
+  const overlay = document.createElement("div");
+  overlay.className = "pop-overlay transparent";
+  overlay.addEventListener("pointerdown", closeAllPopups);
+  overlay.addEventListener("contextmenu", e => { e.preventDefault(); closeAllPopups(); });
+  popups().append(overlay, pop);
+  Promise.resolve(getStickers()).then((collections) => {
+    grid.replaceChildren();
+    let n = 0;
+    for (const [name, paths] of Object.entries(collections || {})) {
+      if (!Array.isArray(paths) || !paths.length) continue;
+      const head = document.createElement("div");
+      head.className = "sticker-coll";
+      head.textContent = name;
+      grid.append(head);
+      for (const p of paths) {
+        const t = document.createElement("button");
+        t.type = "button";
+        t.className = "sticker-tile";
+        // MockCore ships emoji placeholders ("mock:😀") — real files go
+        // through the regular media URL chain.
+        if (String(p).startsWith("mock:")) t.textContent = p.slice(5);
+        else t.innerHTML = `<img src="${escapeAttr(fileUrl(p))}" alt="" loading="lazy">`;
+        t.addEventListener("click", () => { closeAllPopups(); onPick(p); });
+        grid.append(t);
+        n++;
+      }
+    }
+    if (!n) grid.innerHTML = `<div class="sticker-note">No stickers yet.<br>Long-press a sticker you received and choose “Save sticker”.</div>`;
+  }).catch(() => {
+    grid.innerHTML = `<div class="sticker-note">Couldn't load stickers.</div>`;
+  });
+  return pop;
+}
+
 export function showModal({ title, body, foot, onClose }) {
   closeAllPopups();
   const overlay = document.createElement("div");

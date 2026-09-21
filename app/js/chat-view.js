@@ -1,7 +1,7 @@
 // chat-view.js — virtualized message history (virtual-scroller) + composer
 import { formatTime, formatDay, formatBytes } from "./mock-core.js";
 import { escapeHtml, escapeAttr, ticksSvg } from "./components.js";
-import { showContextMenu, showModal, confirmDeleteMessagesModal, toast, openImageLightbox, CLOSE_SVG } from "./ui.js";
+import { showContextMenu, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, toast, openImageLightbox, CLOSE_SVG } from "./ui.js";
 import { diagnosticRow } from "./diagnostics.js";
 import { openWebxdc, prefetchInfo, appIconUrl } from "./webxdc-manager.js";
 
@@ -864,7 +864,10 @@ export class ChatView {
         bubble += `<div class="msg-transfer">${head}<div class="mfp-bar"><i style="width:${pct}%"></i></div><div class="mfp-pct">${pct}%</div></div>`;
       }
     } else if (m.viewtype === "image" || m.viewtype === "gif" || m.viewtype === "sticker") {
-      if (m.downloadState === "Done" && m.filePath) {
+      // Demo stickers are emoji placeholders, not files — render the emoji.
+      if (m.viewtype === "sticker" && typeof m.filePath === "string" && m.filePath.startsWith("mock:")) {
+        bubble += `<div class="msg-image"><div class="sticker-emoji">${escapeHtml(m.filePath.slice(5))}</div></div>`;
+      } else if (m.downloadState === "Done" && m.filePath) {
         // Animated loading: the placeholder reserves the final box (height
         // capped, width follows the image's aspect ratio) so the row height
         // is stable while the image decodes.
@@ -1271,6 +1274,14 @@ export class ChatView {
     // hides the entry where the core would refuse. P2P chats keep a separate
     // message store — no edit there yet.
     if (!this.chat?.isP2p && m.from === 1 && m.viewtype === "text" && m.text) items.push({ label: "Edit", icon: ICO.edit, onClick: () => this._setEdit(item) });
+    if (!this.chat?.isP2p && m.viewtype === "sticker" && m.from !== 1 && m.filePath) {
+      items.push({
+        label: "Save sticker", icon: ICO.download,
+        onClick: () => {
+          this.core.saveSticker(m.id).then(() => toast("Sticker saved")).catch((err) => toast("Couldn't save: " + (err.message || err)));
+        },
+      });
+    }
     if (m.viewtype === "text" && m.text) items.push({ label: "Copy text", icon: ICO.copy, onClick: () => { navigator.clipboard?.writeText(m.text); toast("Copied"); } });
     items.push(
       { label: "Forward", icon: ICO.forward, onClick: () => this._forward([m.id]) },
@@ -1544,6 +1555,7 @@ export class ChatView {
       this._imageSendFlow(file, session);
     });
     send.addEventListener("click", () => this._send());
+    document.getElementById("btn-sticker").addEventListener("click", () => this._toggleStickerPicker());
     document.getElementById("btn-reply-close").addEventListener("click", () => { this.replyTo = null; this.replyFragment = null; this.editingMsg = null; this._renderReplyPreview(); });
     document.getElementById("btn-attach").addEventListener("click", e => {
       const session = this._session;
@@ -1574,6 +1586,22 @@ export class ChatView {
           menu.style.top = "8px";
         }
       });
+    });
+  }
+
+  // Sticker picker: anchored above the composer; a picked sticker sends
+  // immediately as a Sticker-viewtype message (transparent bubble).
+  _toggleStickerPicker() {
+    if (document.querySelector(".sticker-pop")) { closeAllPopups(); return; }
+    const session = this._session;
+    showStickerPicker({
+      getStickers: () => this.core.getStickers(),
+      onPick: (path) => {
+        if (!this._isCurrent(session) || !this.chat) return;
+        this.core.sendMessage(session.chatId, { text: "", viewtype: "sticker", file: path })
+          .then((msg) => { if (this._isCurrent(session)) { this.appendOutgoing(msg); this.onChatsChanged(); } })
+          .catch((err) => { if (this._isCurrent(session)) toast("Couldn't send sticker: " + (err.message || err)); });
+      },
     });
   }
 
