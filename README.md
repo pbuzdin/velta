@@ -399,6 +399,28 @@ few emoji placeholders.
 </details>
 
 <details>
+<summary>Notifications</summary>
+
+Incoming-message notifications mirror the official client's conversation
+layout on both mobile platforms:
+
+- **Android** — real MessagingStyle conversations: group name as the title,
+  sender name as the second line, plain message text below (never a
+  "GroupName: text" prefix); the sender's avatar on the left, the chat
+  avatar on the right; follow-up messages of one chat group into a single
+  conversation instead of stacking cards. Built by the background event
+  poller through a small Kotlin helper while the app is hidden.
+- **Windows** — a toast with three text lines (chat name / sender / text)
+  and the sender's avatar cropped circular, rendered via the same
+  notification identity the installer registers. For the identity to
+  resolve, the app must have been installed through the installer at least
+  once (PWA-in-browser and pre-install dev runs show no toasts).
+
+1:1 chats show the sender as the title with just the message text.
+
+</details>
+
+<details>
 <summary>One-click updates (Windows)</summary>
 
 On Windows the drawer's update banner grows an **Update** button: one tap
@@ -567,7 +589,7 @@ Reply quotes use a dedicated palette per bubble and theme (the generic accent/di
 - Group creation, contact discovery, QR invites, and real-time message rendering all work in basic flows but have not been stress-tested.
 - Logging to `velta.log` is disabled in the stable branch; use the status pill and browser/Tauri dev tools to diagnose issues.
 - On Windows, the app needs the sidecar binary to talk to the real core. If the sidecar fails to start the frontend falls back to the mock core.
-- On Android, the in-process core rides a built-in foreground service (`CoreService`): messages keep syncing and arrive as system notifications while the app is backgrounded. Notifications are titled with the chat/sender name and burst into a count ("N new messages") when several arrive at once; a background event poller (not the WebView) builds them while the app is hidden. A separate headless service APK (`velta-core-service/`) still exists for the PWA-in-browser mode.
+- On Android, the in-process core rides a built-in foreground service (`CoreService`): messages keep syncing and arrive as conversation notifications while the app is backgrounded — see [Notifications](#notifications). A background event poller (not the WebView) builds them while the app is hidden. A separate headless service APK (`velta-core-service/`) still exists for the PWA-in-browser mode.
 
 </details>
 
