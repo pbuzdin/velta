@@ -119,6 +119,7 @@ jobs:
             release-assets/*.apk
             release-assets/version.txt
             release-assets/**/Velta_*_x64-setup.exe
+            release-assets/**/*_x64-setup.exe.sig
             release-assets/**/latest.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
