@@ -370,6 +370,35 @@ Note: other Delta Chat clients render only the core's markdown subset (bold, ita
 </details>
 
 <details>
+<summary>Editing sent messages</summary>
+
+Your own text messages can be edited after sending: long-press/right-click the
+bubble and pick **Edit**. The composer switches to edit mode ("Editing
+message" bar, ✕ cancels); Enter applies. Editing updates the message in place
+for every chat member (the bubble shows an *edited* tag), reuses Delta Chat
+core's edit delivery (a hidden edit message synced to recipients), and is
+restricted to what the core allows: your own, plain-text, non-empty messages —
+no attachments, captions, info or HTML mail bodies. P2P local chats don't
+support editing yet.
+
+</details>
+
+<details>
+<summary>One-click updates (Windows)</summary>
+
+On Windows the drawer's update banner grows an **Update** button: one tap
+checks the update feed, downloads and signature-verifies the new installer
+(tauri-plugin-updater, minisign), runs it and relaunches the app — no browser,
+no manual download. Progress shows on the button; the check gate is unchanged
+(version.txt first, the signed manifest re-validated at install). Only
+installs made through the NSIS installer can self-update; a bare
+`velta-app.exe` copied somewhere still needs a manual installer run. Android
+keeps the banner's Download APK flow (system installer takes over) — see
+[AUTOUPDATEPLAN.MD](AUTOUPDATEPLAN.MD) for the roadmap.
+
+</details>
+
+<details>
 <summary>Deleting messages</summary>
 
 Deleting a message (long-press / right-click → Delete) opens the same dialog as
@@ -719,7 +748,13 @@ tag itself). The release assets are named after the version in
 `velta-app/src-tauri/tauri.conf.json` — the single source of truth:
 
 - `Velta-<version>-<abi>.apk` — signed Android APK (`build-android.yml`)
-- `Velta_<version>_x64-setup.exe` — NSIS Windows installer (`build-windows.yml`)
+- `Velta_<version>_x64-setup.exe` — NSIS Windows installer (`build-windows.yml`),
+  plus its `Velta_<version>_x64-setup.exe.sig` updater signature
+- `latest.json` — Windows self-update manifest (installer URL + signature, fed
+  to `tauri-plugin-updater`). Must stay the **last** asset uploaded: it lives
+  at `releases/latest/download/latest.json` and points at the installer in the
+  same release — a manifest visible before its installer bricks that update
+  cycle.
 - `version.txt` — just the version. The Android app fetches
   `releases/latest/download/version.txt` at startup and, when it reports a
   newer version than the running build, shows an update banner at the bottom
