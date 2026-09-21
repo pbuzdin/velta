@@ -555,6 +555,15 @@ export class MockCore extends EventTarget {
     this._emit("msg-updated", { chatId, msg: this._decorate(m) });
   }
 
+  async editMessage(chatId, msgId, text) {
+    const c = this.chats.find(x => x.id === chatId);
+    const m = c?.messages.find(x => x.id === msgId);
+    if (!m) return;
+    m.text = text;
+    m.edited = true;
+    this._emit("msg-updated", { chatId, msg: this._decorate(m) });
+  }
+
   async setChatFlags(chatId, { pinned, muted, archived }) {
     const c = this.chats.find(x => x.id === chatId);
     if (!c) return;

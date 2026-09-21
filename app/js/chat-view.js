@@ -48,6 +48,7 @@ const ICO = {
   mic: `<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 11a7 7 0 0014 0M12 18v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
   lock: `<svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 018 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>`,
   check: `<svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  edit: `<svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   resend: `<svg viewBox="0 0 24 24"><polyline points="2.5 5.5 2.5 11 8 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.2 14.5a8 8 0 1 0 1.5-8L2.5 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
 };
 
@@ -228,6 +229,7 @@ export class ChatView {
     this.selection = new Set();
     this.replyTo = null;
     this.replyFragment = null;
+    this.editingMsg = null;
     this._session = null;
     this._drafts = new Map();
     // onMsgsChanged refetch coalescing window (tests shrink it).
@@ -361,6 +363,7 @@ export class ChatView {
     // (message ids are per-account).
     this.replyTo = null;
     this.replyFragment = null;
+    this.editingMsg = null;
     this._renderReplyPreview();
     this.exitSelection();
     this.listEl.replaceChildren();
@@ -455,7 +458,7 @@ export class ChatView {
       const item = this.msgIndex.get(m.id);
       if (item?.msg && item.msg !== m
         && (item.msg.downloadState !== m.downloadState || item.msg.viewtype !== m.viewtype
-          || item.msg.state !== m.state)) {
+          || item.msg.state !== m.state || item.msg.text !== m.text)) {
         this.onMsgUpdated(this.chat.id, m);
         updated++;
       }
@@ -1153,11 +1156,16 @@ export class ChatView {
       this._msgContextMenu(it, e.clientX, e.clientY);
     });
     let pressTimer;
-    row.addEventListener("touchstart", () => {
+    row.addEventListener("touchstart", e => {
+      // A second finger (pinch / two-finger swipe) never means long-press,
+      // and the WebView can abort the whole gesture with touchcancel once
+      // it claims it — without this listener the timer would survive.
+      if (e.touches.length > 1) { clearTimeout(pressTimer); return; }
       pressTimer = setTimeout(() => { const it = liveItem(); if (it) this._msgContextMenu(it, innerWidth / 2, innerHeight / 2); }, 500);
     }, { passive: true });
     row.addEventListener("touchend", () => clearTimeout(pressTimer));
     row.addEventListener("touchmove", () => clearTimeout(pressTimer));
+    row.addEventListener("touchcancel", () => clearTimeout(pressTimer));
     row.addEventListener("click", async e => {
       if (!alive()) return;
       if (this.selection.size) { this._toggleSelect(m.id, row); return; }
@@ -1256,6 +1264,10 @@ export class ChatView {
     const items = [
       { label: "Reply", icon: ICO.reply, onClick: () => this._setReply(item) },
     ];
+    // Core mirrors these guards (own + plain text + non-empty); the menu just
+    // hides the entry where the core would refuse. P2P chats keep a separate
+    // message store — no edit there yet.
+    if (!this.chat?.isP2p && m.from === 1 && m.viewtype === "text" && m.text) items.push({ label: "Edit", icon: ICO.edit, onClick: () => this._setEdit(item) });
     if (m.viewtype === "text" && m.text) items.push({ label: "Copy text", icon: ICO.copy, onClick: () => { navigator.clipboard?.writeText(m.text); toast("Copied"); } });
     items.push(
       { label: "Forward", icon: ICO.forward, onClick: () => this._forward([m.id]) },
@@ -1421,6 +1433,18 @@ export class ChatView {
     document.getElementById("composer-input").focus();
   }
 
+  _setEdit(item) {
+    if (!this._isCurrent() || this.msgIndex.get(item.msg.id) !== item) return;
+    this.replyTo = null;
+    this.replyFragment = null;
+    this.editingMsg = item.msg;
+    this._renderReplyPreview();
+    const input = document.getElementById("composer-input");
+    input.value = item.msg.text;
+    input.dispatchEvent(new Event("input", { bubbles: true })); // regrow textarea
+    input.focus();
+  }
+
   // Fragment quote: reply referencing only the selected span of a bubble's
   // text. Travels as email/DC-style "> " quote lines — every client (Velta
   // included) renders them as a quote block, so no core changes are needed
@@ -1436,8 +1460,13 @@ export class ChatView {
 
   _renderReplyPreview() {
     const bar = document.getElementById("reply-preview");
-    if (!this.replyTo) { bar.hidden = true; return; }
+    if (!this.replyTo && !this.editingMsg) { bar.hidden = true; return; }
     bar.hidden = false;
+    if (this.editingMsg) {
+      document.getElementById("reply-name").textContent = "Editing message";
+      document.getElementById("reply-text").textContent = this.editingMsg.text || "";
+      return;
+    }
     document.getElementById("reply-name").textContent = this.replyTo.fromContact?.name || "You";
     document.getElementById("reply-text").textContent = this.replyFragment
       ? "“" + this.replyFragment + "”"
@@ -1512,7 +1541,7 @@ export class ChatView {
       this._imageSendFlow(file, session);
     });
     send.addEventListener("click", () => this._send());
-    document.getElementById("btn-reply-close").addEventListener("click", () => { this.replyTo = null; this.replyFragment = null; this._renderReplyPreview(); });
+    document.getElementById("btn-reply-close").addEventListener("click", () => { this.replyTo = null; this.replyFragment = null; this.editingMsg = null; this._renderReplyPreview(); });
     document.getElementById("btn-attach").addEventListener("click", e => {
       const session = this._session;
       if (!this._isCurrent(session) || !this.chat) return;
@@ -1634,6 +1663,17 @@ export class ChatView {
     if (!this._isCurrent(session) || !text || !this.chat) return;
     input.value = "";
     input.style.height = "auto";
+    if (this.editingMsg) {
+      const editing = this.editingMsg;
+      this.editingMsg = null;
+      this._renderReplyPreview();
+      try {
+        await this.core.editMessage(session.chatId, editing.id, text);
+      } catch (err) {
+        if (this._isCurrent(session)) toast("Couldn't edit message: " + (err.message || err));
+      }
+      return;
+    }
     const quoteId = this.replyFragment ? null : (this.replyTo?.id ?? null);
     const quoteText = quoteId != null ? (this.replyTo?.text || "") : null;
     // Fragment quote travels as "> " quote lines inside the text (renders as

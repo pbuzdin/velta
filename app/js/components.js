@@ -281,7 +281,9 @@ const VERIFIED_SVG = `<svg class="ci-verified" viewBox="0 0 24 24"><path d="M12 
 const PIN_SVG = `<svg class="ci-pin" viewBox="0 0 24 24"><path d="M9 4h6l1 7 3 3v2h-6v5l-1 1-1-1v-5H5v-2l3-3z" fill="currentColor"/></svg>`;
 const MUTE_SVG = `<svg class="ci-mute" viewBox="0 0 24 24"><path d="M12 3a5 5 0 00-5 5v3l-2 4h14l-2-4V8a5 5 0 00-5-5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M4 4l16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
 const TICK1 = `<svg class="ci-ticks" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-const TICK2 = `<svg class="ci-ticks" viewBox="0 0 24 24"><path d="M3 13l4 4L17 7M10 15l2 2 8-8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+// Double check from Delta Chat desktop — fill-based, airier than the old
+// stroked pair. 735×490 aspect; CSS boxes keep it centered via default meet.
+const TICK2 = `<svg class="ci-ticks" viewBox="0 0 735 490"><g fill="currentColor"><path d="m143 340-92-92-51 50 122 122 22 23L489 98l-52-52z" transform="translate(0 1)"/><path d="M51 248 0 298l122 122 22 23L489 98l-52-52-294 294z" transform="translate(246 2)"/></g></svg>`;
 
 // Dotted ring for in-flight sends — spins via the .ticks-spin CSS rule.
 const SENDING_RING = [["12", "4"], ["17.7", "6.3"], ["20", "12"], ["17.7", "17.7"], ["12", "20"], ["6.3", "17.7"], ["4", "12"], ["6.3", "6.3"]]

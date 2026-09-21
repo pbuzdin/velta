@@ -1005,6 +1005,13 @@ export class JsonRpcCore extends EventTarget {
     if (m) this._emitAccount("msg-updated", { chatId, msg: m }, accountEpoch);
   }
 
+  async editMessage(chatId, msgId, text) {
+    const { accountId, accountEpoch } = this;
+    await this._call("send_edit_request", accountId, msgId, text);
+    const m = await this._getDecoratedMessage(msgId, accountId);
+    if (m) this._emitAccount("msg-updated", { chatId, msg: m }, accountEpoch);
+  }
+
   async setChatFlags(chatId, { pinned, muted, archived }) {
     const { accountId, accountEpoch } = this;
     if (pinned !== undefined || archived !== undefined) {
