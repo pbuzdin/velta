@@ -240,6 +240,24 @@ Rule: desktop-only permissions stay in a file pinned to
 mobile-only ones in `mobile.json` (`android`/`iOS`); shared ones may repeat
 in both.
 
+**Every capability also needs `windows` targeting.** The runtime matches a
+capability against a webview label; a file without `windows` matches NONE.
+Mobile rode on `default.json`'s implicit-everywhere `windows: ["main"]` until
+the platforms pinning above removed it from Android — `mobile.json` then
+matched no webview, every plugin command was denied ("Command
+plugin:event|listen not allowed by ACL"), core init failed and the app fell
+back to demo mode with no accounts (broke 1.4.21–1.4.22, fixed 67d2e0e /
+v1.4.23). `mobile.json` now carries `"windows": ["main"]`. Diagnose runtime
+ACL denials from the BUILD output, not the sources: read the resolved
+`capabilities.json` under `target/<target>/release/build/velta-app-*/out/`
+and check identifier + platforms + windows for the platform you build.
+
+Related dead code (1.4.23 audit): `transport.js` probes
+`window.VeltaBridge` for an "android-webview" transport that nothing
+injects — Android has always bootstrapped through the `tauri` transport
+(`event.listen` in its `setReceiver` is the first thing an ACL break
+kills). Remove or wire the probe deliberately before trusting it.
+
 **A stale desktop debug app blocks local builds.** `velta-app.exe` left
 running (with its `deltachat-rpc-server.exe` sidecar) makes tauri-build fail
 with "os error 32 ... used by another process" — kill both before
