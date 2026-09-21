@@ -2832,9 +2832,15 @@ async function boot() {
     core.addEventListener("incoming-msg", ev => {
       scheduleChatListRefresh();
       const msg = ev?.detail?.msg;
+      const chat = state.chats.find(c => c.id === msg?.chatId);
       notifyIncoming(
         msg?.fromContact?.name || msg?.fwdFrom || "New message",
         (msg?.text || "").replace(/\s+/g, " ").slice(0, 120) || "New message",
+        {
+          chatName: chat?.name || null,
+          senderName: msg?.fromContact?.name || null,
+          senderAvatar: msg?.fromContact?.avatar || null,
+        },
       );
     });
     core.addEventListener("call-ended", ev => {

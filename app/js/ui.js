@@ -786,12 +786,18 @@ export function openImageLightbox(src, caption = "") {
 // the platform bridge plus a burst throttle. No-op outside the Tauri shell or
 // while the window is visible (the user is looking at the app).
 let lastNotifyAt = 0;
-export function notifyIncoming(title, body) {
+export function notifyIncoming(title, body, info = {}) {
   if (!window.__TAURI__ || !document.hidden) return;
   const now = Date.now();
   if (now - lastNotifyAt < 4000) return;
   lastNotifyAt = now;
   const t = window.__TAURI__;
   const invoke = t.core?.invoke || t.invoke;
-  invoke("notify_incoming", { title, body }).catch(() => {});
+  invoke("notify_incoming", {
+    title,
+    body,
+    chatName: info.chatName || null,
+    senderName: info.senderName || null,
+    senderAvatar: info.senderAvatar || null,
+  }).catch(() => {});
 }

@@ -58,6 +58,9 @@ tauri-plugin-deep-link = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+# Windows toasts with the conversation layout (three text lines + circular
+# sender avatar); same crate the notification plugin uses on Windows.
+tauri-winrt-notification = "0.7"
 
 [profile.release]
 # panic = "unwind" so a panic during startup (e.g. in init_android_core or the

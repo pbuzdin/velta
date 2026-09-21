@@ -567,6 +567,45 @@ fn read_media_bytes(app: tauri::AppHandle, src: String) -> Result<tauri::ipc::Re
 // app but does not deep-link to the chat (notification action events +
 // window.show wiring left as the upgrade path).
 
+// Windows renders the conversation style directly through
+// tauri-winrt-notification: up to three text lines (chat name / sender /
+// message) plus the sender's avatar cropped circular in the app-logo slot —
+// the desktop counterpart of the Android MessagingStyle layout. The AUMID is
+// the config identifier, the same identity the notification plugin uses.
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn notify_incoming(
+    app: tauri::AppHandle,
+    title: String,
+    body: String,
+    chat_name: Option<String>,
+    sender_name: Option<String>,
+    sender_avatar: Option<String>,
+) -> Result<(), String> {
+    use tauri_winrt_notification::{IconCrop, Toast};
+
+    let resolved_title = chat_name
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or(&title);
+    let mut toast = Toast::new(app.config().identifier.as_str()).title(resolved_title);
+    // The sender row is meaningful only in groups (1:1 sender == title).
+    if let Some(sender) = sender_name.as_deref() {
+        if !sender.is_empty() && sender != resolved_title {
+            toast = toast.text1(sender);
+        }
+    }
+    toast = toast.text2(&body);
+    if let Some(avatar) = sender_avatar.as_deref() {
+        let path = std::path::Path::new(avatar);
+        if path.exists() {
+            toast = toast.icon(path, IconCrop::Circular, "sender avatar");
+        }
+    }
+    toast.show().map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
 #[tauri::command]
 fn notify_incoming(app: tauri::AppHandle, title: String, body: String) -> Result<(), String> {
     use tauri_plugin_notification::NotificationExt;
