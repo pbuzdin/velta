@@ -149,7 +149,7 @@ export function setCoreVersionDisplay(v) {
   CORE_VERSION = String(v).replace(/^v/, "");
   document.querySelectorAll('[data-v="core"]').forEach((el) => { el.textContent = CORE_VERSION; });
 }
-const FALLBACK_APP_VERSION = "1.4.17";
+const FALLBACK_APP_VERSION = "1.4.20";
 
 /* ---------- Update check (drawer banner + menu-button nudge) ---------- */
 // The latest release version lives in a version.txt asset attached to every
@@ -209,8 +209,12 @@ function renderUpdateBanner() {
   const btn = document.createElement("button");
   btn.className = "update-banner-btn";
   btn.type = "button";
-  btn.textContent = "Download APK";
+  // Desktop installer installs get the one-click path (updater plugin);
+  // Android sideloads and the PWA still go through the system browser.
+  const desktop = !/android/i.test(navigator.userAgent) && window.__TAURI__?.core?.invoke;
+  btn.textContent = desktop ? "Update" : "Download APK";
   btn.addEventListener("click", () => {
+    if (desktop) return selfUpdate(btn);
     const tauri = window.__TAURI__;
     if (tauri?.core?.invoke) {
       tauri.core.invoke("plugin:opener|open_url", { url: updateInfo.url })
@@ -221,6 +225,39 @@ function renderUpdateBanner() {
   });
   banner.append(text, btn);
   foot.before(banner);
+}
+
+// One-click Windows self-update: the updater plugin verifies the minisign
+// signature, runs the NSIS installer and process.relaunch() restarts into the
+// new version. All download traffic is shell-side — the renderer only talks
+// plugin IPC (CSP carries no github hosts).
+async function selfUpdate(btn) {
+  const tauri = window.__TAURI__;
+  btn.disabled = true;
+  try {
+    const update = await tauri.updater.check();
+    if (!update?.available) {
+      btn.textContent = "No update";
+      btn.disabled = false;
+      return;
+    }
+    let total = 0, got = 0, lastPct = -1;
+    await update.downloadAndInstall((ev) => {
+      if (ev.event === "Started") total = ev.data.contentLength || 0;
+      else if (ev.event === "Progress") {
+        got += ev.data.chunkLength;
+        const pct = total ? Math.round((got / total) * 100) : 0;
+        if (pct !== lastPct) { lastPct = pct; btn.textContent = pct ? `Downloading ${pct}%` : "Downloading…"; }
+      } else if (ev.event === "Finished") btn.textContent = "Installing…";
+    });
+    btn.textContent = "Restarting…";
+    await tauri.process.relaunch(); // replaces the process — never resolves on success
+  } catch (err) {
+    console.error("self-update failed", err);
+    toast("Update failed: " + (err?.message || err));
+    btn.textContent = "Retry update";
+    btn.disabled = false;
+  }
 }
 
 const THEME_LABELS = { auto: "Auto", dark: "Dark", light: "Light", brutal: "Brutal" };

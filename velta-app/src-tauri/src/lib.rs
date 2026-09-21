@@ -1660,7 +1660,11 @@ pub fn run() {
                 // The deep-link plugin (with the single-instance feature) forwards
                 // the URL to the running instance as a `deep-link://new-url` event.
             }))
-            .plugin(tauri_plugin_deep_link::init());
+            .plugin(tauri_plugin_deep_link::init())
+            // Windows self-update: the renderer drives check/download/install
+            // through the plugin's JS API; all traffic stays shell-side.
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .plugin(tauri_plugin_process::init());
     }
 
     builder

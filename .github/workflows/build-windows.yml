@@ -79,6 +79,12 @@ jobs:
 
       - name: Build Tauri Windows installer
         working-directory: ./velta-app
+        env:
+          # Signs the updater artifact (Velta_*_x64-setup.exe.sig). Without
+          # these secrets (e.g. a manual dispatch from a fork) the build fails
+          # on createUpdaterArtifacts — the updater manifest needs a signature.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: tauri build
 
       - name: Upload Windows artifacts
@@ -88,3 +94,4 @@ jobs:
           path: |
             velta-app/src-tauri/target/release/bundle/msi/*.msi
             velta-app/src-tauri/target/release/bundle/nsis/*.exe
+            velta-app/src-tauri/target/release/bundle/nsis/*.sig

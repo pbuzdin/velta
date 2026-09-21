@@ -347,6 +347,22 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   paint — the reply pill overflows); `.chat-item` cards use full
   `contain: layout paint style`. The rendered-row LRU (`_rowCache`) survives
   `close()`; `open()` clears it when the account changed.
+- **Message editing** (1.4.20): own text messages edit via core
+  `send_edit_request` (rpc-core `editMessage` → refetch → `msg-updated`).
+  KEEP: `onMsgsChanged`'s in-place compare must include
+  `item.msg.text !== m.text` — without it, edits arriving from the other
+  device never re-render (only downloadState/viewtype/state were compared).
+  Menu guards mirror the core's (own + plain text + non-empty, not P2P —
+  `local-chat`'s proxy would fall through to the wrong id space).
+- **Long-press guard** (1.4.20): the row's 500 ms context-menu timer cancels
+  on `touchcancel` AND on multi-touch (`touches.length > 1`) — the WebView
+  claims two-finger gestures and answers with `touchcancel`, not `touchmove`,
+  which previously left the timer alive (menu opened mid-swipe).
+- **Read ticks** (1.4.20): the delivered/read double-check is Delta Chat
+  desktop's fill-based SVG in a 3:2 viewBox (`TICK2`, components.js);
+  `.ci-last .ci-ticks` was retuned to 17×12 for the aspect. The single
+  "sent" check (`TICK1`) and the selection checkbox (`ICO.check`) are
+  unchanged stroke icons.
 - `app/js/components.js` defines the Elena custom elements
   (`<velta-avatar>`, `<velta-chat-item>`, `<velta-chat-head>`,
   `<velta-video>`). KEEP: the verified rosette reads
@@ -879,12 +895,20 @@ do-not-regress rules; dates mark when the lesson was learned.
   empty at group-evaluation time, so android and windows collapse into one
   group and cancel each other — that killed the 1.4.6–1.4.8 releases). It
   publishes `Velta-<version>-<abi>.apk`, `version.txt` (the update-banner
-  feed) and `Velta_<version>_x64-setup.exe`, writes `changelog.md` from
-  commit subjects, and the notify job posts to
+  feed), `Velta_<version>_x64-setup.exe` and `latest.json` (the Windows
+  self-update manifest — must stay the last-uploaded asset), writes
+  `changelog.md` from commit subjects, and the notify job posts to
   `ntfy.gluek.info/velta_changelog`. The keystore lives in `signing/`
   (gitignored) and the four `ANDROID_KEY*` repo secrets — losing both
   means installed APKs can never be updated again.
   `build-windows-cross.yml` is manual-dispatch only.
+- **Windows self-update** — the desktop banner button drives
+  `tauri-plugin-updater`: it fetches `latest.json`, verifies the minisign
+  signature, runs the NSIS installer and relaunches (`tauri-plugin-process`).
+  The updater keypair lives in `signing/velta-updater.key` + password file
+  (gitignored) and the `TAURI_SIGNING_PRIVATE_KEY*` repo secrets — losing
+  them kills the updater for every future release. Only installer installs
+  self-update; a bare copied `velta-app.exe` does not.
 - **JSON-RPC compatibility** — when changing the RPC surface, the PWA
   (`rpc-core.js`), the Python RPC client and any external consumers must
   stay compatible.

@@ -92,6 +92,18 @@ jobs:
       - name: List release assets
         run: ls -lh release-assets
 
+      # Manifest for tauri-plugin-updater (Windows self-update). Must be the
+      # LAST asset uploaded: it lives at releases/latest/download/latest.json
+      # and points at the installer in this same release — a manifest visible
+      # before its installer bricks the update for one cycle.
+      - name: Write latest.json updater manifest
+        run: |
+          SIG=$(find release-assets -name "*_x64-setup.exe.sig" | head -1)
+          test -n "$SIG" || { echo "no updater .sig found"; exit 1; }
+          EXE="https://github.com/pbuzdin/velta/releases/download/v${{ steps.ver.outputs.version }}/Velta_${{ steps.ver.outputs.version }}_x64-setup.exe"
+          jq -n --arg ver "${{ steps.ver.outputs.version }}"                 --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)"                 --arg sig "$(cat "$SIG")"                 --arg url "$EXE"             '{version: $ver, pub_date: $date, platforms: {"windows-x86_64": {signature: $sig, url: $url}}}'             > release-assets/latest.json
+          cat release-assets/latest.json
+
       # The apps fetch releases/latest/download/version.txt for the update
       # banner (ui.js checkForUpdate) — keep the file to the bare version.
       - name: Write version.txt asset
@@ -107,6 +119,7 @@ jobs:
             release-assets/*.apk
             release-assets/version.txt
             release-assets/**/Velta_*_x64-setup.exe
+            release-assets/**/latest.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
