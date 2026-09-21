@@ -3,6 +3,7 @@
   "identifier": "mobile",
   "description": "Mobile permissions for Velta",
   "platforms": ["android", "iOS"],
+  "windows": ["main"],
   "permissions": [
     "core:default",
     "core:event:allow-listen",
