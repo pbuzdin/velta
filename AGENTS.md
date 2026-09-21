@@ -394,7 +394,9 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   via the context menu's "Save sticker" (`misc_save_sticker`, "Default"
   collection); sending rides `sendMessage {viewtype:"sticker", file}`.
   Composer trigger is `#btn-sticker` INSIDE `.composer-input-wrap` (right
-  edge). P2P chats: no save/picker interplay. MockCore ships `mock:<emoji>`
+  edge) — icon is the hand-drawn square-with-fold smiley (e888008; an
+  svgrepo circle variant was tried and rejected by the user). P2P chats:
+  no save/picker interplay. MockCore ships `mock:<emoji>`
   tile paths the picker renders as text — never feed those to fileUrl.
 - `app/js/components.js` defines the Elena custom elements
   (`<velta-avatar>`, `<velta-chat-item>`, `<velta-chat-head>`,
