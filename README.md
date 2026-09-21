@@ -770,11 +770,12 @@ tag itself). The release assets are named after the version in
   at `releases/latest/download/latest.json` and points at the installer in the
   same release — a manifest visible before its installer bricks that update
   cycle.
-- `version.txt` — just the version. The Android app fetches
+- `version.txt` — just the version. Apps fetch
   `releases/latest/download/version.txt` at startup and, when it reports a
-  newer version than the running build, shows an update banner at the bottom
-  of the drawer (with a Download APK button) plus a subtle pulsing highlight
-  on the drawer's menu button (1.4.14+).
+  newer version than the running build, show an update banner at the bottom
+  of the drawer plus a subtle pulsing highlight on the drawer's menu button
+  (1.4.14+). Windows 1.4.20+ turns the banner button into a one-click
+  **Update** (see above); Android keeps Download APK.
 
 **Release changelog**: the release body is generated automatically — every
 commit subject since the previous tag, plus a compare link.

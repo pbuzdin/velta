@@ -194,7 +194,11 @@ Build profiles are tuned for size in `Cargo.toml`:
 
 There is **no build step** for the PWA. Open `app/index.html` directly in a
 browser, or serve `app/` from any static web server. The app will use the mock
-core unless a real backend is reachable.
+core unless a real backend is reachable. That also makes it the fastest
+renderer smoke test: serve `app/` over plain http, and full UI flows are
+drivable in demo mode (no Tauri build needed). **KEEP:** every new
+`rpc-core.js` method needs a `mock-core.js` counterpart or demo mode throws
+"not a function" the moment the UI touches it.
 
 The service worker is dead by design: boot unregisters every registration
 (app.js, near the PWA comment — cache-first SWs kept serving stale JS across
@@ -383,7 +387,8 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   renderer branches on the mapped string ("image", "sticker", …), so a
   collapse like `case "Sticker": return "image"` silently dead-branches the
   whole sticker UI (it did — stickers rendered as bubble-wrapped photos,
-  fixed 1.4.20+). Audit mappings against `MessageViewtype` /
+  fixed 1.4.20+). Same class of bug in `_mapChatListItem`'s summary emoji:
+  Video was grouped under the File 📎 icon until split out (🎬). Audit mappings against `MessageViewtype` /
   `MessageState` in `core/deltachat-jsonrpc/src/api/types/message.rs` when
   touching them. Sticker rows: `bubble.sticker` drops the chrome
   (transparent bg must out-specificity `.msg-row.out .bubble` AND the
