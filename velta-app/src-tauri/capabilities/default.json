@@ -3,6 +3,7 @@
   "identifier": "default",
   "description": "Default permissions for Velta",
   "windows": ["main"],
+  "platforms": ["linux", "macOS", "windows"],
   "permissions": [
     "core:default",
     "core:event:allow-listen",
