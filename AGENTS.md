@@ -1025,11 +1025,14 @@ do-not-regress rules; dates mark when the lesson was learned.
   anything non-trivial inline (`node -e "…"`, multi-line JS, `&&`, `$`,
   embedded quotes) through a PowerShell command line gets re-parsed by
   PowerShell's grammar and fails with confusing parser errors — put the
-  code in a temp `.mjs`/`.ps1` file and run that. Also cosmetic-but-noisy:
-  `cargo check 2>&1 |` makes PowerShell print `NativeCommandError` walls for
-  cargo's normal stderr progress — a `Finished` line means success; don't
-  mistake the noise for failure. Encoding pitfalls are a separate rule (§11
-  "Encoding").
+  code in a temp `.mjs`/`.ps1` file and run that. Same grammar rule for
+  calling executables: a QUOTED path must use the call operator —
+  `& "C:/path/tool.CMD" args` — because `'path' args` alone is a string
+  followed by tokens ("Unexpected token" parser error). Also
+  cosmetic-but-noisy: `cargo check 2>&1 |` makes PowerShell print
+  `NativeCommandError` walls for cargo's normal stderr progress — a
+  `Finished` line means success; don't mistake the noise for failure.
+  Encoding pitfalls are a separate rule (§11 "Encoding").
 - **Scope guards** — `core/` is a large vendored upstream copy: avoid
   changing it unless the task is fixing/extending the core itself.
   `velta-app/src-tauri/gen/android` is generated EXCEPT the hand-maintained
