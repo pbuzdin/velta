@@ -626,10 +626,14 @@ async fn test_delete_msgs_offline() -> Result<()> {
     let chat_id = alice.create_chat_id(bob).await;
     let mut msg = Message::new_text("hi".to_string());
     assert!(chat::send_msg_sync(alice, chat_id, &mut msg).await.is_err());
-    let stmt = "SELECT COUNT(*) FROM smtp WHERE msg_id=?";
+    let stmt = "SELECT COUNT(*) FROM smtp2 WHERE msg_id=?";
     assert!(alice.sql.exists(stmt, (msg.id,)).await?);
     delete_msgs(alice, &[msg.id]).await?;
     assert!(!alice.sql.exists(stmt, (msg.id,)).await?);
+
+    alice
+        .assert_warn("No SMTP connection candidates provided")
+        .await;
 
     Ok(())
 }
@@ -753,6 +757,26 @@ async fn test_get_existing_msg_ids() -> Result<()> {
         get_existing_msg_ids(bob, &[msg1_id, msg2_id, msg3_id, msg4_id]).await?,
         vec![msg2_id, msg4_id]
     );
+
+    Ok(())
+}
+
+#[test]
+fn test_can_fail() -> Result<()> {
+    use MessageState::*;
+
+    // states that are not allowed to transition to OutFailed
+    assert!(!Undefined.can_fail());
+    assert!(!InFresh.can_fail());
+    assert!(!InNoticed.can_fail());
+    assert!(!InSeen.can_fail());
+    assert!(!OutDraft.can_fail());
+    assert!(!OutFailed.can_fail());
+    assert!(!OutMdnRcvd.can_fail());
+
+    // states that are allowed to transition to OutFailed
+    assert!(OutPending.can_fail());
+    assert!(OutDelivered.can_fail());
 
     Ok(())
 }

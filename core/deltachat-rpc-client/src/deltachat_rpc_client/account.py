@@ -139,6 +139,18 @@ class Account:
         """Add a new transport using a QR code."""
         yield self._rpc.add_transport_from_qr.future(self.id, qr)
 
+    @futuremethod
+    def init_transports(self, qr: Optional[str] = None):
+        """Add an initial transport on the chatmail relay that answers fastest.
+
+        The profile then adds further ones in the background.
+        A ``DCACCOUNT:`` or ``DCLOGIN:`` ``qr`` code adds a single transport
+        while securejoin codes add the inviter's relays to the candidates.
+
+        Does nothing if the profile already has a transport.
+        """
+        yield self._rpc.init_transports.future(self.id, qr)
+
     def delete_transport(self, addr: str):
         """Delete a transport."""
         self._rpc.delete_transport(self.id, addr)
@@ -150,9 +162,10 @@ class Account:
         return transports
 
     def bring_online(self):
-        """Start I/O and wait until IMAP becomes IDLE."""
+        """Start I/O, wait until all transports became IDLE and drop the events seen so far."""
         self.start_io()
-        self.wait_for_event(EventType.IMAP_INBOX_IDLE)
+        self._rpc.wait_for_all_work_done(self.id)
+        self.clear_all_events()
 
     def create_contact(self, obj: Union[int, str, Contact, "Account"], name: Optional[str] = None) -> Contact:
         """Create a new Contact or return an existing one.
@@ -271,7 +284,7 @@ class Account:
         return Contact(self, SpecialContactId.SELF)
 
     @property
-    def device_contact(self) -> Chat:
+    def device_contact(self) -> Contact:
         """Account's device contact."""
         return Contact(self, SpecialContactId.DEVICE)
 
@@ -359,7 +372,7 @@ class Account:
         return Chat(self, chat_id)
 
     def secure_join(self, qrdata: str) -> Chat:
-        """Continue a Setup-Contact or Verified-Group-Invite protocol started on another device.
+        """Continue the SecureJoin protocol started on another device.
 
         The function returns immediately and the handshake runs in background, sending
         and receiving several messages.

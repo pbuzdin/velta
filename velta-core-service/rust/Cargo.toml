@@ -9,10 +9,10 @@ name = "rpc_core"
 crate-type = ["cdylib"]
 
 [dependencies]
-deltachat-jsonrpc = { git = "https://github.com/chatmail/core" }
+deltachat-jsonrpc = { git = "https://github.com/chatmail/core", tag = "v2.61.0" }
 # For local development:
 # deltachat-jsonrpc = { path = "../../core/deltachat-jsonrpc" }
-yerpc = { version = "0.6.4", features = ["anyhow_expose"] }
+yerpc = { version = "0.7", features = ["anyhow_expose"] }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "net", "io-util"] }
 tokio-tungstenite = "0.24"
 tiny_http = "0.12"

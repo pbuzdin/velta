@@ -13,6 +13,7 @@ use serde::Deserialize;
 
 use crate::autorelay::login_param_from_host;
 use crate::config::Config;
+use crate::configure::MAX_RELAYS;
 use crate::contact::{Contact, ContactId, Origin};
 use crate::context::Context;
 use crate::key::Fingerprint;
@@ -45,7 +46,7 @@ pub(crate) const DCBACKUP_VERSION: i32 = 5;
 /// Scanned QR code.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Qr {
-    /// Ask the user whether to verify the contact.
+    /// Ask the user whether to start chatting with the contact.
     ///
     /// If the user agrees, pass this QR code to [`crate::securejoin::join_securejoin`].
     AskVerifyContact {
@@ -125,7 +126,7 @@ pub enum Qr {
         is_v3: bool,
     },
 
-    /// Contact fingerprint is verified.
+    /// Contact fingerprint matches.
     ///
     /// Ask the user if they want to start chatting.
     FprOk {
@@ -500,7 +501,8 @@ async fn decode_openpgp(context: &Context, qr: &str) -> Result<Qr> {
             addrs.push(normalize_address(primary_addr)?);
         };
         if let Some(secondary_addrs_raw) = param.get("r") {
-            for secondary_address in secondary_addrs_raw.split(',') {
+            let max_secondary = MAX_RELAYS.saturating_sub(addrs.len());
+            for secondary_address in secondary_addrs_raw.split(',').take(max_secondary) {
                 addrs.push(normalize_address(secondary_address)?)
             }
         }
@@ -838,7 +840,8 @@ pub(crate) async fn login_param_from_account_qr(
         .context("Invalid DCACCOUNT scheme")?;
 
     if !payload.starts_with(HTTPS_SCHEME) {
-        let param = login_param_from_host(payload);
+        let mark_as_autorelay = false;
+        let param = login_param_from_host(payload, mark_as_autorelay);
         return Ok(param);
     }
 

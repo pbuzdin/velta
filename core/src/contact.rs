@@ -38,12 +38,34 @@ use crate::param::{Param, Params};
 use crate::pgp::{addresses_from_public_key, merge_openpgp_certificates};
 use crate::sync::{self, Sync::*};
 use crate::tools::{SystemTime, duration_to_str, get_abs_path, normalize_text, time, to_lowercase};
-use crate::{
-    chat, chatlist_events, ensure_and_debug_assert, ensure_and_debug_assert_ne, stock_str,
-};
+use crate::{chat, chatlist_events, ensure_and_debug_assert, stock_str};
 
-/// Time during which a contact is considered as seen recently.
+/// If the contact's "last seen" is newer, the contact freshness is set to "recently seen".
 const SEEN_RECENTLY_SECONDS: i64 = 600;
+
+/// If the contact's "last seen" is older, the contact freshness is set to "old".
+const CONTACT_OLD_SECONDS: i64 = 60 * 24 * 60 * 60;
+
+/// Freshness of a contact, based on when it was last seen.
+///
+/// Used by the UI to highlight contacts:
+/// recently seen contacts get a little green dot on the avatar,
+/// contacts not seen for a long time get a string below the name (e.g. "Seen 2 months ago").
+#[derive(Debug, PartialEq, Eq)]
+pub enum Freshness {
+    /// Contact shall not be highlighted.
+    Normal = 0,
+    /// Contact was seen recently.
+    RecentlySeen = 1,
+    /// Contact was not seen for a long time.
+    Old = 2,
+}
+
+impl From<Freshness> for u32 {
+    fn from(freshness: Freshness) -> Self {
+        freshness as u32
+    }
+}
 
 /// Contact ID, including reserved IDs.
 ///
@@ -488,8 +510,8 @@ pub struct Contact {
     /// The contact ID.
     pub id: ContactId,
 
-    /// Contact name. It is recommended to use `Contact::get_name`,
-    /// `Contact::get_display_name` or `Contact::get_name_n_addr` to access this field.
+    /// Contact name. It is recommended to use `Contact::get_name`
+    /// or `Contact::get_display_name` to access this field.
     /// May be empty, initially set to `authname`.
     name: String,
 
@@ -562,10 +584,10 @@ pub enum Origin {
     /// To: of incoming messages of unknown sender
     IncomingUnknownTo = 0x40,
 
-    /// Address scanned but not verified.
+    /// Address scanned from a QR code.
     UnhandledQrScan = 0x80,
 
-    /// Address scanned from a SecureJoin QR code, but not verified yet.
+    /// Address scanned from a SecureJoin QR code.
     UnhandledSecurejoinQrScan = 0x81,
 
     /// Reply-To: of incoming message of known sender
@@ -596,14 +618,14 @@ pub enum Origin {
     /// address is in our address book
     AddressBook = 0x80000,
 
-    /// set on Alice's side for contacts like Bob that have scanned the QR code offered by her. Only means the contact has once been established using the "securejoin" procedure in the past, getting the current key verification status requires calling contact_is_verified() !
+    /// Set on Alice's side for contacts like Bob that have scanned the QR code offered by her.
+    /// Only means the contact has once been established using the "securejoin" procedure.
     SecurejoinInvited = 0x0100_0000,
 
     /// Set on Bob's side for contacts scanned from a QR code.
     /// Only means the contact has been scanned from the QR code,
     /// but does not mean that securejoin succeeded
     /// or the key has not changed since the last scan.
-    /// Getting the current key verification status requires calling contact_is_verified() !
     SecurejoinJoined = 0x0200_0000,
 
     /// contact added manually by create_contact(), this should be the largest origin as otherwise the user cannot modify the names
@@ -728,9 +750,22 @@ impl Contact {
     }
 
     /// Returns `true` if this contact was seen recently.
-    #[expect(clippy::arithmetic_side_effects)]
-    pub fn was_seen_recently(&self) -> bool {
-        time() - self.last_seen <= SEEN_RECENTLY_SECONDS
+    pub fn get_freshness(&self) -> Freshness {
+        if self.id.is_special() {
+            return Freshness::Normal;
+        }
+
+        let is_old = time().saturating_sub(self.last_seen) > CONTACT_OLD_SECONDS;
+        if is_old || self.last_seen <= 0 {
+            return Freshness::Old;
+        }
+
+        let seen_recently = time().saturating_sub(self.last_seen) <= SEEN_RECENTLY_SECONDS;
+        if seen_recently {
+            return Freshness::RecentlySeen;
+        }
+
+        Freshness::Normal
     }
 
     /// Check if a contact is blocked.
@@ -1578,7 +1613,7 @@ WHERE addr=?
     /// May be an empty string.
     ///
     /// This name is typically used in a form where the user can edit the name of a contact.
-    /// To get a fine name to display in lists etc., use `Contact::get_display_name` or `Contact::get_name_n_addr`.
+    /// To get a fine name to display in lists etc., use `Contact::get_display_name`.
     pub fn get_name(&self) -> &str {
         &self.name
     }
@@ -1596,26 +1631,6 @@ WHERE addr=?
             return &self.authname;
         }
         &self.addr
-    }
-
-    /// Get a summary of name and address.
-    ///
-    /// The returned string is either "Name (email@domain.com)" or just
-    /// "email@domain.com" if the name is unset.
-    ///
-    /// The result should only be used locally and never sent over the network
-    /// as it leaks the local contact name.
-    ///
-    /// The summary is typically used when asking the user something about the contact.
-    /// The attached email address makes the question unique, eg. "Chat with Alan Miller (am@uniquedomain.com)?"
-    pub fn get_name_n_addr(&self) -> String {
-        if !self.name.is_empty() {
-            format!("{} ({})", self.name, self.addr)
-        } else if !self.authname.is_empty() {
-            format!("{} ({})", self.authname, self.addr)
-        } else {
-            (&self.addr).into()
-        }
     }
 
     /// Get the contact's profile image.
@@ -1688,50 +1703,6 @@ WHERE addr=?
             return Ok(true);
         }
         Ok(self.public_key(context).await?.is_some())
-    }
-
-    /// Returns true if the contact
-    /// can be added to verified chats.
-    ///
-    /// If contact is verified
-    /// UI should display green checkmark after the contact name
-    /// in contact list items and
-    /// in chat member list items.
-    ///
-    /// Use [Self::get_verifier_id] to display the verifier contact
-    /// in the info section of the contact profile.
-    pub async fn is_verified(&self, context: &Context) -> Result<bool> {
-        // We're always sort of secured-verified as we could verify the key on this device any time with the key
-        // on this device
-        if self.id == ContactId::SELF {
-            return Ok(true);
-        }
-
-        Ok(self.get_verifier_id(context).await?.is_some())
-    }
-
-    /// Returns the `ContactId` that verified the contact.
-    ///
-    /// If this returns Some(_),
-    /// display green checkmark in the profile and "Introduced by ..." line
-    /// with the name of the contact.
-    ///
-    /// If this returns `Some(None)`, then the contact is verified,
-    /// but it's unclear by whom.
-    pub async fn get_verifier_id(&self, context: &Context) -> Result<Option<Option<ContactId>>> {
-        let verifier_id: u32 = context
-            .sql
-            .query_get_value("SELECT verifier FROM contacts WHERE id=?", (self.id,))
-            .await?
-            .with_context(|| format!("Contact {} does not exist", self.id))?;
-
-        if verifier_id == 0 {
-            Ok(None)
-        } else if verifier_id == self.id.to_u32() {
-            Ok(Some(None))
-        } else {
-            Ok(Some(Some(ContactId::new(verifier_id))))
-        }
     }
 
     /// Returns the number of real (i.e. non-special) contacts in the database.
@@ -1994,68 +1965,6 @@ pub(crate) async fn update_last_seen(
             .interrupt_recently_seen(contact_id, timestamp)
             .await;
     }
-    Ok(())
-}
-
-/// Marks contact `contact_id` as verified by `verifier_id`.
-///
-/// `verifier_id == None` means that the verifier is unknown.
-pub(crate) async fn mark_contact_id_as_verified(
-    context: &Context,
-    contact_id: ContactId,
-    verifier_id: Option<ContactId>,
-) -> Result<()> {
-    ensure_and_debug_assert_ne!(contact_id, ContactId::SELF,);
-    ensure_and_debug_assert_ne!(
-        Some(contact_id),
-        verifier_id,
-        "Contact cannot be verified by self",
-    );
-    let by_self = verifier_id == Some(ContactId::SELF);
-    let mut verifier_id = verifier_id.unwrap_or(contact_id);
-    context
-        .sql
-        .transaction(|transaction| {
-            let contact_fingerprint: String = transaction.query_row(
-                "SELECT fingerprint FROM contacts WHERE id=?",
-                (contact_id,),
-                |row| row.get(0),
-            )?;
-            if contact_fingerprint.is_empty() {
-                bail!("Non-key-contact {contact_id} cannot be verified");
-            }
-            if verifier_id != ContactId::SELF {
-                let (verifier_fingerprint, verifier_verifier_id): (String, ContactId) = transaction
-                    .query_row(
-                        "SELECT fingerprint, verifier FROM contacts WHERE id=?",
-                        (verifier_id,),
-                        |row| Ok((row.get(0)?, row.get(1)?)),
-                    )?;
-                if verifier_fingerprint.is_empty() {
-                    bail!(
-                        "Contact {contact_id} cannot be verified by non-key-contact {verifier_id}"
-                    );
-                }
-                ensure!(
-                    verifier_id == contact_id || verifier_verifier_id != ContactId::UNDEFINED,
-                    "Contact {contact_id} cannot be verified by unverified contact {verifier_id}",
-                );
-                if verifier_verifier_id == verifier_id {
-                    // Avoid introducing incorrect reverse chains: if the verifier itself has an
-                    // unknown verifier, it may be `contact_id` actually (directly or indirectly) on
-                    // the other device (which is needed for getting "verified by unknown contact"
-                    // in the first place).
-                    verifier_id = contact_id;
-                }
-            }
-            transaction.execute(
-                "UPDATE contacts SET verifier=?1
-                 WHERE id=?2 AND (verifier=0 OR verifier=id OR ?3)",
-                (verifier_id, contact_id, by_self),
-            )?;
-            Ok(())
-        })
-        .await?;
     Ok(())
 }
 

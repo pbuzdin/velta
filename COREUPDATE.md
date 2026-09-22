@@ -1,4 +1,4 @@
-# Core Upgrade Test Plan
+﻿# Core Upgrade Test Plan
 
 How to upgrade the vendored Delta Chat core (`core/`) — or swap a prebuilt
 `deltachat-rpc-server` binary — without breaking Velta. This plan exists
@@ -7,7 +7,7 @@ undocumented JSON-RPC/event surface, and because core behavior changes
 (e.g. event emission rates, IMAP idle loops) surface as *frontend* symptoms:
 re-render storms, log spam, and battery drain rather than clean errors.
 
-Last updated for core `2.60.0` (see `core/Cargo.toml` `version` and the
+Last updated for core `2.61.0` (see `core/Cargo.toml` `version` and the
 statement in `README.md`; feature-by-feature notes per release live in
 `CORE-CAPABILITIES.MD`).
 

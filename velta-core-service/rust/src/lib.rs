@@ -5,7 +5,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use futures_lite::stream::StreamExt;
 use futures_util::{SinkExt, StreamExt as WsStreamExt};
-use jni::objects::{GlobalRef, JClass, JObject, JString, JValueOwned};
+use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
 use jni::{JNIEnv, JavaVM};
 use once_cell::sync::OnceCell;
 use tokio::net::TcpListener;
@@ -40,7 +40,7 @@ fn deliver_to_java(line: &str) {
         &listener_ref,
         "onRpcMessage",
         "(Ljava/lang/String;)V",
-        &[JValueOwned::Object(JObject::from(jstr))],
+        &[JValue::Object(&jstr)],
     );
 }
 
@@ -115,7 +115,7 @@ pub extern "system" fn Java_org_velta_coreservice_RpcService_nativeStart(
 
         // forward every response/notification to Java listener and WS clients
         tokio::spawn(async move {
-            while let Some(msg) = out_rx.next().await {
+            while let Some(msg) = futures_lite::StreamExt::next(&mut out_rx).await {
                 match serde_json::to_string(&msg) {
                     Ok(line) => {
                         deliver_to_java(&line);
@@ -248,7 +248,7 @@ async fn handle_ws_client(stream: tokio::net::TcpStream) -> anyhow::Result<()> {
     });
 
     // forward incoming lines to the core
-    while let Some(msg) = read.next().await {
+    while let Some(msg) = WsStreamExt::next(&mut read).await {
         let msg = msg.context("ws read")?;
         if let Message::Text(line) = msg {
             let Some(sess) = SESSION.get() else { continue };
@@ -319,7 +319,7 @@ async fn run_http_bridge() -> anyhow::Result<()> {
                     session.handle_incoming(&body).await;
                 });
                 tokio::spawn(async move {
-                    while let Some(msg) = out_rx.next().await {
+                    while let Some(msg) = futures_lite::StreamExt::next(&mut out_rx).await {
                         if let Ok(line) = serde_json::to_string(&msg) {
                             let _ = tx.send(line).await;
                             break;

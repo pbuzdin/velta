@@ -1448,10 +1448,7 @@ impl MessageState {
     /// Returns true if the message can transition to `OutFailed` state from the current state.
     pub fn can_fail(self) -> bool {
         use MessageState::*;
-        matches!(
-            self,
-            OutPending | OutDelivered | OutMdnRcvd // OutMdnRcvd can still fail because it could be a group message and only some recipients failed.
-        )
+        matches!(self, OutPending | OutDelivered)
     }
 
     /// Returns true for any outgoing message states.
@@ -1697,7 +1694,7 @@ pub async fn delete_msgs_ext(
             if !msg.pre_rfc724_mid.is_empty() {
                 stmt.execute((&msg.pre_rfc724_mid,))?;
             }
-            trans.execute("DELETE FROM smtp WHERE msg_id=?", (msg_id,))?;
+            trans.execute("DELETE FROM smtp2 WHERE msg_id=?", (msg_id,))?;
             trans.execute(
                 "DELETE FROM download WHERE rfc724_mid=?",
                 (&msg.rfc724_mid,),

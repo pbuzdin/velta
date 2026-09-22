@@ -525,9 +525,10 @@ export class JsonRpcCore extends EventTarget {
       addr: c.address,
       color: c.color || "#888",
       avatar: c.profileImage || null,
-      online: c.wasSeenRecently ?? false,
+      // core 2.61.0: was_seen_recently became the freshness enum
+      // ("Normal" | "RecentlySeen" | "Old"); lastSeen stays.
+      online: c.freshness === "RecentlySeen",
       lastSeen: c.lastSeen ? c.lastSeen * 1000 : null, // core sends 0 = never seen
-      verified: !!c.isVerified,
       bot: !!c.isBot, // core sends camelCase isBot on every ContactObject
     };
   }
@@ -609,13 +610,19 @@ export class JsonRpcCore extends EventTarget {
         color: "#5aa2e6", bio: "", relay: "", configured: false,
       };
     }
+    // core 2.61.0: the Account object no longer carries `addr` — the sending
+    // address lives in the `configured_addr` config (what setSendRelay writes).
+    let addr = "";
+    try {
+      addr = (await this._call("get_config", accountId, "configured_addr")) || "";
+    } catch { /* unconfigured or transport hiccup — fall back to "" */ }
     const account = {
       id: accountId,
-      addr: acc.addr || "",
-      displayName: acc.displayName || acc.addr || "Account",
+      addr,
+      displayName: acc.displayName || addr || "Account",
       color: acc.color || "",
       bio: "",
-      relay: (acc.addr || "").split("@")[1] || "",
+      relay: addr.split("@")[1] || "",
       configured: true,
     };
     // get_account_info carries no profile color of its own — the self contact
@@ -641,14 +648,19 @@ export class JsonRpcCore extends EventTarget {
     const infos = await Promise.all(ids.map(id =>
       this._call("get_account_info", id).catch(() => null)
     ));
+    // core 2.61.0: Account objects carry no `addr` — read the sending
+    // address from `configured_addr` per account (one extra RPC per row).
+    const addrs = await Promise.all(ids.map(id =>
+      this._call("get_config", id, "configured_addr").catch(() => null)
+    ));
     return infos
-      .map((acc, i) => ({ acc, id: ids[i] }))
+      .map((acc, i) => ({ acc, id: ids[i], addr: addrs[i] || "" }))
       .filter(({ acc }) => acc)
-      .map(({ acc, id }) => ({
+      .map(({ acc, id, addr }) => ({
         id,
-        addr: acc.addr || "",
-        name: acc.displayName || acc.addr || `Account ${id}`,
-        relay: (acc.addr || "").split("@")[1] || "",
+        addr,
+        name: acc.displayName || addr || `Account ${id}`,
+        relay: addr.split("@")[1] || "",
         configured: acc.kind !== "Unconfigured",
         isCurrent: id === current,
       }));
@@ -708,9 +720,10 @@ export class JsonRpcCore extends EventTarget {
   }
 
   // Make `addr` the sending (primary) transport. The core validates that the
-  // address belongs to a configured transport, republishes/re-signs the
-  // public key, syncs the change to other devices, clears the SMTP queue
-  // (queued messages carry the old From address) and restarts IO.
+  // address belongs to a configured transport and republishes/re-signs the
+  // public key. Core 2.61.0: no I/O restart anymore, and no device-sync
+  // message on this change (other devices learn via TransportsModified when
+  // transports actually change).
   async setSendRelay(addr) {
     return this._call("set_config", this.accountId, "configured_addr", addr);
   }
@@ -882,6 +895,26 @@ export class JsonRpcCore extends EventTarget {
       }
     }
     return { messages, hasMore: start > 0 };
+  }
+
+  // Core fulltext search (SQLite FTS) over message text — every chat type,
+  // groups included. With chatId: that chat only (unlimited results);
+  // without: all chats (core caps at 1000 ids). Returns mapped messages,
+  // newest first, at most `limit`.
+  async searchMessages(query, chatId = null, limit = 30) {
+    const { accountId } = this;
+    const ids = await this._call("search_messages", accountId, query, chatId);
+    const page = ids.slice(-limit).reverse();
+    if (!page.length) return [];
+    const loaded = await this._call("get_messages", accountId, page);
+    const messages = [];
+    for (const id of page) {
+      const entry = loaded[String(id)];
+      if (entry?.kind === "message" || entry?.kind === "Message") {
+        messages.push(this._mapMessage(entry));
+      }
+    }
+    return messages;
   }
 
   async sendMessage(chatId, { text = "", quoteId = null, viewtype = "text", file = null, filename = null } = {}) {

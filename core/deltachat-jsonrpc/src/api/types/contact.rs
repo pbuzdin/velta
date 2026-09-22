@@ -1,10 +1,32 @@
 use anyhow::Result;
+use deltachat::contact;
 use deltachat::context::Context;
 use deltachat::key::{DcKey, SignedPublicKey};
 use serde::Serialize;
 use typescript_type_def::TypeDef;
 
 use super::color_int_to_hex_string;
+
+/// Freshness of a contact, based on when it was last seen.
+#[derive(Serialize, TypeDef, schemars::JsonSchema)]
+pub enum ContactFreshness {
+    /// Contact shall not be highlighted.
+    Normal,
+    /// Contact was seen recently.
+    RecentlySeen,
+    /// Contact was not seen for a long time.
+    Old,
+}
+
+impl From<contact::Freshness> for ContactFreshness {
+    fn from(freshness: contact::Freshness) -> Self {
+        match freshness {
+            contact::Freshness::Normal => ContactFreshness::Normal,
+            contact::Freshness::RecentlySeen => ContactFreshness::RecentlySeen,
+            contact::Freshness::Old => ContactFreshness::Old,
+        }
+    }
+}
 
 #[derive(Serialize, TypeDef, schemars::JsonSchema)]
 #[serde(rename = "Contact", rename_all = "camelCase")]
@@ -17,7 +39,6 @@ pub struct ContactObject {
     id: u32,
     name: String,
     profile_image: Option<String>, // BLOBS
-    name_and_addr: String,
     is_blocked: bool,
 
     /// Is the contact a key contact.
@@ -31,40 +52,9 @@ pub struct ContactObject {
     /// e.g. if we just scanned the fingerprint from a QR code.
     e2ee_avail: bool,
 
-    /// True if the contact
-    /// can be added to protected chats
-    /// because SELF and contact have verified their fingerprints in both directions.
-    ///
-    /// See [`Self::verifier_id`]/`Contact.verifierId` for a guidance how to display these information.
-    is_verified: bool,
-
-    /// The contact ID that verified a contact.
-    ///
-    /// As verifier may be unknown,
-    /// use [`Self::is_verified`]/`Contact.isVerified` to check if a contact can be added to a protected chat.
-    ///
-    /// UI should display the information in the contact's profile as follows:
-    ///
-    /// - If `verifierId` != 0,
-    ///   display text "Introduced by ..."
-    ///   with the name of the contact.
-    ///   Prefix the text by a green checkmark.
-    ///
-    /// - If `verifierId` == 0 and `isVerified` != 0,
-    ///   display "Introduced" prefixed by a green checkmark.
-    ///
-    /// - if `verifierId` == 0 and `isVerified` == 0,
-    ///   display nothing
-    ///
-    /// This contains the contact ID of the verifier.
-    /// If it is `DC_CONTACT_ID_SELF`, we verified the contact ourself.
-    /// If it is None/Null, we don't have verifier information or
-    /// the contact is not verified.
-    verifier_id: Option<u32>,
-
     /// the contact's last seen timestamp
     last_seen: i64,
-    was_seen_recently: bool,
+    freshness: ContactFreshness,
 
     /// If the contact is a bot.
     is_bot: bool,
@@ -79,14 +69,6 @@ impl ContactObject {
             Some(path_buf) => path_buf.to_str().map(|s| s.to_owned()),
             None => None,
         };
-        let is_verified = contact.is_verified(context).await?;
-
-        let verifier_id = contact
-            .get_verifier_id(context)
-            .await?
-            .flatten()
-            .map(|contact_id| contact_id.to_u32());
-
         Ok(ContactObject {
             address: contact.get_addr().to_owned(),
             color: color_int_to_hex_string(contact.get_color()),
@@ -96,14 +78,11 @@ impl ContactObject {
             id: contact.id.to_u32(),
             name: contact.get_name().to_owned(),
             profile_image, //BLOBS
-            name_and_addr: contact.get_name_n_addr(),
             is_blocked: contact.is_blocked(),
             is_key_contact: contact.is_key_contact(),
             e2ee_avail: contact.e2ee_avail(context).await?,
-            is_verified,
-            verifier_id,
             last_seen: contact.last_seen(),
-            was_seen_recently: contact.was_seen_recently(),
+            freshness: contact.get_freshness().into(),
             is_bot: contact.is_bot(),
         })
     }

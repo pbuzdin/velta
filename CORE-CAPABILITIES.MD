@@ -348,3 +348,51 @@ if Velta ever adds calls/P2P WebRTC on top of `p2p.js` local chat.
   rpc hang fix, and config-completion reliability for onboarding.
 - **Roadmap picks from already-vendored features:** pinned messages API
   first, contact client-version second.
+
+---
+
+## 5. Update 2.60.0 → 2.61.0 (2026-09-21, shipped in 1.3.25)
+
+Snapshot: 2026-09-22, written against vendored core 2.61.0. Full change plan:
+`PLAN-UPDATE-CORE-2.61.md`. Same verdict pattern as §1: one breaking cluster
+touches Velta code, the rest is additive or automatic.
+
+### 5.1 Breaking: verification tracking removed
+
+The core no longer tracks contact verification at all: the JSON-RPC Contact
+object loses `isVerified`/`verifierId`, stock string 35 is gone. SecureJoin
+handshakes still work — only the persistent badge/status does not exist
+anymore. Velta migration: verified rosette removed (components.js), profile
+"Verified" row removed (app.js), `_mapContact` no longer maps the field.
+Rating: Velta value n/a (upstream product decision), effort low, done.
+
+### 5.2 Breaking: `addr` removed from the JSON-RPC Account object
+
+`Account::Configured` is now `id, displayName, profileImage, color,
+privateTag`. Upstream's replacement is `list_transports()`; Velta sources the
+sending address from `get_config("configured_addr")` instead — the same key
+`setSendRelay` writes, one extra RPC per account row. Rating: low effort, done.
+
+### 5.3 Breaking: `was_seen_recently` → `freshness`
+
+Contact object now carries `freshness` (`"Normal" | "RecentlySeen" | "Old"`)
+plus the unchanged `lastSeen`. Velta maps `online: freshness === "RecentlySeen"`
+in `_mapContact`; a future UI could dim "Old" contacts (not done — no demand).
+
+### 5.4 Worth adopting later (not done in 1.3.25)
+
+- `is_sending_finished()` — real send-state query for the chat view.
+- `init_transports()` — core-native multi-relay onboarding; could replace
+  parts of the addAccountWithQr flow.
+- Background fetch from all transports + always-emitted
+  `AccountsBackgroundFetchDone` — already automatic for the Android
+  CoreService poller; a future "sync finished, release service" signal.
+- Better image recoding, MDN From fix, NDN/read-receipt failed-state fixes,
+  fastest-relays-first configure — automatic wins, no code.
+
+### 5.5 Pre-existing drift fixed in the same pass
+
+`velta-core-service/rust` resolved the git dependency to a 2.58.0-dev rev and
+its code had latent build breaks (yerpc 0.6 vs 0.7 trait bounds, ambiguous
+`StreamExt::next`, JNI `JValue` borrow shape). Now pinned to tag `v2.61.0`
+with `yerpc = "0.7"` and compiles clean.

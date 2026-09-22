@@ -54,8 +54,10 @@ into `receiveSecondDeviceProfile` (presetCode).
 Sending always goes through the primary relay (`configured_addr`). The
 Relays modal offers **"Use for sending"** per non-primary relay
 (`rpc-core.setSendRelay` → core `set_config("configured_addr", …)`), which
-republishes/re-signs the key, syncs, clears the SMTP queue — queued
-messages carry the old From — and restarts IO. The segmented status line
+republishes/re-signs the key. Since core 2.61.0 this no longer restarts I/O
+and no longer sends a device-sync message of its own — other devices learn
+via `TransportsModified` when transports actually change, and the SMTP queue
+is handled by the core's pre-encryption queueing. The segmented status line
 marks only the sending relay's segment with the sending dashes.
 
 ## Do-not-regress

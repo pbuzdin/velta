@@ -1005,7 +1005,6 @@ function chatItemUpToDate(item, chat, active) {
     && prev.pinned === chat.pinned
     && prev.muted === chat.muted
     && prev.archived === chat.archived
-    && prev.verified === chat.verified
     && prev.encrypted === chat.encrypted
     && prev.draft === chat.draft
     && prev.lastFrom === chat.lastFrom
@@ -1037,7 +1036,7 @@ function openSelfProfile() {
   showChatInfo({
     contactId: 1,
     name: state.account.displayName,
-    contact: { addr: state.account.addr, verified: true },
+    contact: { addr: state.account.addr },
     kind: "single",
     encrypted: true,
   });
@@ -1250,8 +1249,7 @@ async function showChatInfo(chat) {
   const contactRows = chat.contact ? `
     <div class="info-row"><span class="k">Address</span><span class="v">${escapeHtml(chat.contact.addr)}</span></div>
     ${chat.contactId ? `<div class="info-row"><span class="k">Profile key</span><span class="v"><span class="avatar-profile-fpr" data-profile-key>…</span></span></div>` : ""}
-    ${chat.contact && (chat.contact.online || chat.contact.lastSeen) ? `<div class="info-row"><span class="k">Last seen</span><span class="v">${escapeHtml(chat.contact.online ? "online" : timeAgo(chat.contact.lastSeen))}</span></div>` : ""}
-    <div class="info-row"><span class="k">Verified</span><span class="v">${chat.contact.verified ? "Yes ✓" : "No"}</span></div>` : "";
+    ${chat.contact && (chat.contact.online || chat.contact.lastSeen) ? `<div class="info-row"><span class="k">Last seen</span><span class="v">${escapeHtml(chat.contact.online ? "online" : timeAgo(chat.contact.lastSeen))}</span></div>` : ""}` : "";
   const isGroup = chat.kind === "group" || chat.kind === "channel";
   const body = document.createElement("div");
   body.innerHTML = `
@@ -1459,27 +1457,58 @@ function bindChatHeadMenu() {
   });
   $("btn-back").addEventListener("click", closeChat);
   $("btn-chat-search").addEventListener("click", () => {
+    const epoch = core.accountEpoch;
+    const chatId = chat.id;
+    const p2p = chat.isP2p || String(chatId).startsWith("p2p:");
     const input = document.createElement("input");
     input.className = "text-field";
-    input.placeholder = "Search in loaded messages…";
+    input.placeholder = p2p ? "Search in loaded messages…" : "Search in chat…";
     const results = document.createElement("div");
     results.className = "modal-list";
     const wrap = document.createElement("div");
     wrap.append(input, results);
-    input.addEventListener("input", () => {
-      const q = input.value.trim().toLowerCase();
-      results.replaceChildren();
-      if (q.length < 2) return;
-      const hits = chatView.items.filter(i => i.type === "msg" && i.msg.text?.toLowerCase().includes(q)).slice(-12);
-      for (const h of hits) {
-        const b = document.createElement("button");
-        b.className = "ctx-item";
-        b.innerHTML = `<span><b>${escapeHtml(h.msg.fromContact?.name || "")}</b>: ${escapeHtml(h.msg.text.slice(0, 80))}</span>`;
-        b.addEventListener("click", () => { closeAllPopups(); chatView._jumpToMessage(h.msg.id); });
-        results.appendChild(b);
+    const emptyHint = p2p
+      ? `Nothing found in loaded history.`
+      : `Nothing found.`;
+    // Core-backed fulltext search (FTS, all history — groups included).
+    // P2P/local chats live in their own id space: filter loaded rows only.
+    const runSearch = async (q) => {
+      if (q.length < 2) return [];
+      if (p2p) {
+        return chatView.items
+          .filter(i => i.type === "msg" && i.msg.text?.toLowerCase().includes(q))
+          .slice(-12).map(i => i.msg);
       }
-      if (!hits.length) results.innerHTML = `<p style="color:var(--text-dim);font-size:14px;padding:8px 0">Nothing found in loaded history.</p>`;
-    });
+      return await core.searchMessages(q, chatId);
+    };
+    let timer = 0;
+    let seq = 0;
+    const search = () => {
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        const q = input.value.trim().toLowerCase();
+        const mySeq = ++seq;
+        results.replaceChildren();
+        if (q.length < 2) return;
+        let hits = [];
+        try {
+          hits = await runSearch(q);
+        } catch (e) {
+          results.innerHTML = `<p style="color:var(--text-dim);font-size:14px;padding:8px 0">Search failed: ${escapeHtml(String(e?.message || e))}</p>`;
+          return;
+        }
+        if (mySeq !== seq || !accountIsCurrent(epoch)) return;
+        for (const m of hits) {
+          const b = document.createElement("button");
+          b.className = "ctx-item";
+          b.innerHTML = `<span><b>${escapeHtml(m.fromContact?.name || "")}</b>: ${escapeHtml((m.text || "").slice(0, 80))}</span>`;
+          b.addEventListener("click", () => { closeAllPopups(); chatView._jumpToMessage(m.id); });
+          results.appendChild(b);
+        }
+        if (!hits.length) results.innerHTML = `<p style="color:var(--text-dim);font-size:14px;padding:8px 0">${emptyHint}</p>`;
+      }, 250);
+    };
+    input.addEventListener("input", search);
     showModal({ title: "Search in chat", body: wrap });
     setTimeout(() => input.focus(), 50);
   });
@@ -1500,7 +1529,7 @@ async function pickContactModal(title, multi = false) {
       item.setData({
         id: "c" + c.id, name: c.name, kind: "single", avatarColor: c.color,
         contactId: c.id, avatar: c.avatar || null,
-        verified: c.verified, encrypted: true, lastMsg: c.addr, lastTs: 0,
+        encrypted: true, lastMsg: c.addr, lastTs: 0,
         unread: 0, pinned: false, muted: false,
       });
       item.addEventListener("click", () => {
