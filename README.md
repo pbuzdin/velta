@@ -104,7 +104,28 @@ over a WebRTC peer connection inside the app's WebView.
 - Desktop (WebView2) grants the microphone through a launch argument; on
   Android the app asks for the record-audio permission on the first call.
 - Missed, declined and ended calls appear in the chat, and calls ring only
-  while the app is open вЂ” a backgrounded app shows the call as missed.
+  while the app is open — a backgrounded app shows the call as missed.
+
+</details>
+
+<details>
+<summary>Pinned messages</summary>
+
+Any message in a group or private chat can be pinned from the message context
+menu (**Pin** / **Unpin**). The newest pinned message shows in a strip between
+the chat header and the history — tapping it scrolls to the message. Pins sync
+through the core's pinned-messages API (core 2.59+), so they work across
+devices.
+
+</details>
+
+<details>
+<summary>Search in chat</summary>
+
+The chat header's magnifier opens a search over the **full history** — not
+just loaded messages — backed by the core's fulltext index (group chats
+included). Results list sender and text; tapping one jumps to the message.
+Local (nearby) chats are searched within their loaded history only.
 
 </details>
 

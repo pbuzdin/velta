@@ -38,7 +38,11 @@ compatible if all of the following hold:
 `add_transport_from_qr`/`delete_transport` (multi-relay; since core 2.60.0
 removal is immediate via `delete_transport` — `set_transport_unpublished`
 no longer exists), `provide_backup`/
-`get_backup_qr` + imex family, vCard family, chatlist methods. Payloads use
+`get_backup_qr` + imex family, vCard family, chatlist methods,
+`search_messages` (chat fulltext search),
+`set_pinned_message_state`/`get_pinned_messages` (pinned messages),
+`get_chat_contacts` (single-chat contact for out-of-list chats).
+Payloads use
 the JSON-RPC positional style; message loads expect the
 `MessageLoadResult { kind: "message" }` tag.
 
@@ -48,7 +52,9 @@ the JSON-RPC positional style; message loads expect the
 `ChatlistChanged`, `ChatlistItemChanged`, `ChatModified`, `MsgsNoticed`,
 `TransportsModified` (relays changed — mapped to `transports-modified`;
 2.60.0+ emits it on the modifying device too, so it drives the reactive
-relay status line and any open Relays modal), `ConnectivityChanged`,
+relay status line and any open Relays modal), `MessagePinned` /
+`MessageUnpinned` (mapped to `pinned-changed`; drives the chat-view pinned
+strip), `ConnectivityChanged`,
 `ConfigureProgress`, `ImexProgress`, and the
 Info/Warning/Error family. Events arrive as `get_next_event` long-poll
 responses shaped `{ contextId, event: { kind, chatId, msgId, ... } }`.
@@ -57,7 +63,11 @@ responses shaped `{ contextId, event: { kind, chatId, msgId, ... } }`.
 some transports deliver snake_case — `rpc-core.js` accepts both, but a new
 renamed field silently breaks a feature with no error. `MessageState` and
 viewtype enums are mapped in `_mapState`/`_mapViewtype`; new states arriving
-for known messages will render as the fallback branch.
+for known messages will render as the fallback branch. Real 2.61.0 victims
+of exactly this class: `BasicChat` lost `dmChatContact` (single-chat
+contacts now come from `get_chat_contacts` — losing this silently emptied
+the chat-head presence subtitle), the `Account` object lost `addr`, and
+`Contact.was_seen_recently` became the `freshness` enum.
 
 **Delivery contract:** every event must reach the frontend exactly once, and
 `get_next_event` semantics (park until an event exists; each event handed to

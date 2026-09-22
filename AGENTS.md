@@ -367,7 +367,8 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   relay surface (see docs/agents/relays.md), second-device backup transfer
   (`provideBackup`/`getBackupQr`/`addAccountWithBackup`/`importBackup`),
   vCard (`parseVcard`/`importVcard`/`makeVcard`), `getMessageHtml` (original
-  body behind "Show Full MessageвЂ¦"), `createQrSvg`. Wire types are
+  body behind "Show Full MessageвЂ¦"), `createQrSvg`. Chat fulltext
+  search (`searchMessages` -> core `search_messages`; wired into the Search-in-chat modal), pinned messages (`pinMessage`/`getPinnedMessages`, core 2.59+ API). Wire types are
   normalized here (drawer ids are always strings; `switchAccount` coerces to
   u32). KEEP the **account-isolation contract**: `account-changing` fires
   synchronously at the start of every account transition (the app tears down
@@ -402,7 +403,7 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   docs/agents/relays.md (relay line/detail/manager), onboarding (splash,
   second device).
 - `app/js/chat-view.js` owns the conversation history (virtualized via
-  virtual-scroller), composer, selection mode and the delete dialog. KEEP:
+  virtual-scroller), composer, selection mode and the delete dialog, plus the pinned-message strip under the chat head (`_refreshPinnedBar`, fed by `pinned-changed` events). KEEP:
   rows must NOT get `content-visibility` (the scroller measures mounted rows
   itself; collapsing desyncs its height cache вЂ” scroll jumps on remount);
   day chips render inside the first message row of each day (`dayFirst`) вЂ”
@@ -449,11 +450,13 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   tile paths the picker renders as text вЂ” never feed those to fileUrl.
 - `app/js/components.js` defines the Elena custom elements
   (`<velta-avatar>`, `<velta-chat-item>`, `<velta-chat-head>`,
-  `<velta-video>`). KEEP: the verified rosette reads
-  `chat.contact.verified` (the contact is the real source; chat-list rows
-  never hydrate contacts вЂ” one RPC per row) and shows in header/profile
-  only; presence maps core `lastSeen: 0` to `null` = unknown (no subtitle,
-  no "last seen just now" вЂ” never a `Date.now()` fallback, fixed 1.4.5).
+  `<velta-video>`). KEEP: the chat-head subtitle (`cht-status`, `statusLine()`) renders
+  `bot` for bot contacts and `online` / `last seen X ago` for users — the
+  contact is the real source; chat-list rows never hydrate contacts (one RPC
+  per row); presence maps core `lastSeen: 0` to `null` = unknown (no
+  subtitle, no "last seen just now" — never a `Date.now()` fallback, fixed
+  1.4.5). There is no verified rosette any more: core 2.61.0 stopped
+  tracking contact verification.
 - `app/js/avatar.js` вЂ” fingerprint color-matrix identity tiles, delivered
   as percent-encoded SVG data-URL CSS backgrounds (`avatarBackgroundUrl`,
   cached per fingerprint вЂ” zero child nodes); group avatars stay solid
@@ -461,6 +464,15 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   shimmer via the img's own background until `load` (`.loaded` removes it вЂ”
   Elena does not reliably call `updated()` on first render, so bind from
   `updated()` AND once via rAF from `connectedCallback`).
+- **Profile sheet (`showChatInfo`) hydration contract**: the full contact
+  (real avatar, bot flag, presence) is fetched whenever `chat.contact` is
+  absent — group-opened profiles (`openContactProfile`) therefore pass NO
+  partial contact stub, or hydration is blocked and the sheet keeps matrix
+  initials with stale rows. Relay rows: 1:1 contact profiles show the
+  contact's relay from their address (no per-contact relay list upstream);
+  self/group profiles show the account transports — one row, or a collapsed
+  `Relays (n)` details list for several. "Chats in common" lives in the
+  same collapsed-details pattern with a (n) count.
 - **Theming contract**: `THEME_LABELS` (ui.js) drives the picker;
   `applyTheme` (app.js) sets `html[data-theme]` + the theme-color meta.
   Themes: auto (system), dark, light, brutal (1.4.6 вЂ” explicit only, never

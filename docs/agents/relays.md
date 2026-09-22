@@ -31,7 +31,11 @@ first-`</li>` match silently truncates the quota.
 ## Multi-relay manager (`openRelaysModal`)
 
 Reached from the drawer's "Relays of this profile…" and the profile modal's
-Transport row. `list_transports` for the list; `delete_transport` for
+relay row(s) — a single `Relay:` row for one transport, a collapsed
+`Relays (n)` details list for several (`showChatInfo` renders them; 1:1
+contact profiles instead show the contact's own relay from their address,
+since the core exposes no per-contact relay list). `list_transports` for
+the list; `delete_transport` for
 removal — immediate since core 2.60.0: the core refuses only the *last*
 relay, re-elects the sending transport as needed and informs contacts via
 keyupdate messages; `transports-modified` events refresh the modal and the
