@@ -9,7 +9,7 @@ import { initCalls } from "./calls.js";
 import { initWebxdc } from "./webxdc-manager.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal } from "./invites.js";
-import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate, getAppVersion, coreVersion } from "./ui.js";
+import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate } from "./ui.js";
 import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact } from "./p2p.js";
 import { withLocalChat, hubModel, renameDevice, removePeer, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
 import { timeAgo, formatBytes } from "./mock-core.js";
@@ -1259,8 +1259,9 @@ async function showChatInfo(chat) {
   // Relay rows. For 1:1 profiles: the contact's relay, derived from their
   // address (🐴 the core exposes no per-contact relay list — a multi-relay
   // contact's full address set lives in keyupdate internals; upgrade path is
-  // an upstream contact-relay API). For self and group profiles: each of this
-  // account's transports; tapping a row opens the relays manager.
+  // an upstream contact-relay API, a details list like ours below would take
+  // it directly). For self and group profiles: one relay row, or a collapsed
+  // details list with a count when the account has more than one transport.
   let relayRows = "";
   if (!chat.isP2p) {
     const contactAddr = isContactProfile ? chat.contact?.addr : null;
@@ -1270,16 +1271,16 @@ async function showChatInfo(chat) {
       let transports = [];
       try { transports = await core.listTransports(); } catch { /* offline — fall back below */ }
       if (!transports.length && state.account.relay) transports = [{ addr: state.account.addr }];
-      relayRows = transports.map(t => `<div class="info-row" data-relays style="cursor:pointer"><span class="k">Relay</span><span class="v">${escapeHtml(t.addr || "")} ›</span></div>`).join("");
+      const row = t => `<div class="info-row" data-relays style="cursor:pointer"><span class="k">Relay</span><span class="v">${escapeHtml(t.addr || "")} ›</span></div>`;
+      if (transports.length > 1) {
+        relayRows = `<details class="info-details" data-relays-details>
+          <summary class="info-row"><span class="k">Relays</span><span class="v" data-relays-count>(${transports.length})</span></summary>
+          ${transports.map(row).join("")}
+        </details>`;
+      } else if (transports.length === 1) {
+        relayRows = row(transports[0]);
+      }
     }
-  }
-
-  // Version row on the self profile only — the core publishes no per-contact
-  // client version (appversions are own-device IMAP METADATA).
-  let versionRow = "";
-  if (isSelf) {
-    const appVer = await getAppVersion();
-    versionRow = `<div class="info-row"><span class="k">Version</span><span class="v">Velta ${escapeHtml(appVer)} · core ${escapeHtml(coreVersion())}</span></div>`;
   }
 
   const body = document.createElement("div");
@@ -1297,7 +1298,6 @@ async function showChatInfo(chat) {
       <div class="modal-list" data-member-list style="max-height:240px;overflow:auto"></div>` : ""}
     ${contactRows}
     <div class="info-row"><span class="k">Notifications</span><span class="v">${chat.muted ? "Muted" : "On"}</span></div>
-    ${versionRow}
     ${relayRows}
     ${!isGroup && chat.contactId ? `<details class="info-details" data-common hidden>
       <summary class="info-row"><span class="k">Chats in common</span><span class="v" data-common-count></span></summary>

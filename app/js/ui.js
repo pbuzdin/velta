@@ -342,8 +342,6 @@ async function getAppVersion() {
   } catch {}
   return FALLBACK_APP_VERSION;
 }
-export { getAppVersion };
-export function coreVersion() { return CORE_VERSION; }
 
 // The app-shell cache name (velta-vNN) doubles as the service worker version.
 async function getSwVersion() {
