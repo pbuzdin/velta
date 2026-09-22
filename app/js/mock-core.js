@@ -1,4 +1,4 @@
-﻿// mock-core.js вЂ” simulates the deltachat-rpc-server JSON-RPC API (chatmail core).
+// mock-core.js вЂ” simulates the deltachat-rpc-server JSON-RPC API (chatmail core).
 // Swap `MockCore` for a real stdio/WebSocket transport speaking the same
 // method names (get_all_accounts, get_chatlist_entries, get_message_ids, ...)
 // to run against the real core.

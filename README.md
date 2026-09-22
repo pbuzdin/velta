@@ -1,4 +1,4 @@
-﻿# Velta
+# Velta
 
 A cross-platform **Delta Chat** client built as a single PWA-ish web app wrapped by **Tauri 2**.
 

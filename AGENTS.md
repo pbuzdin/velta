@@ -1,4 +1,4 @@
-﻿# Velta вЂ” Agent Guide
+# Velta вЂ” Agent Guide
 
 This document is written for AI coding agents that need to work on the Velta
 project. Read it first. It describes the repository layout, technology stack,
@@ -274,10 +274,18 @@ async-native-tls/vendored). On a stock Windows toolchain this fails twice вЂ�
 both failures were hit and cost a 13-minute dead build; never repeat them:
 
 - **Perl must be Strawberry Perl (or another full Windows perl).** Git Bash's
-  bundled perl is missing core modules вЂ” OpenSSL's Configure aborts with
-  `Can't locate Locale/Maketext/Simple.pm in @INC` (via `Params/Check.pm` в†’
+  bundled perl is missing core modules — OpenSSL's Configure aborts with
+  `Can't locate Locale/Maketext::Simple.pm in @INC` (via `Params/Check.pm` →
   `IPC/Cmd.pm`). A portable Strawberry zip extracted to `tools/` and put
-  first on `PATH` works; no installer or admin needed.
+  first on `PATH` works; no installer or admin needed. The verified
+  toolchain is now vendored locally (both gitignored): `tools/strawberry-perl/`
+  (5.32.1.1 portable, `Locale::Maketext::Simple` confirmed present) and
+  `tools/nasm/` (2.16.03). Build with
+  `$env:PATH = "<repo>\tools\strawberry-perl\perl\bin;<repo>\tools\strawberry-perl\c\bin;<repo>\tools\nasm;$env:PATH"`.
+  Re-extract after a checkout on a fresh machine — download the
+  5.32.1.1 64bit-portable zip (the 5.38.x portable URL 404s) and the NASM
+  win64 zip. See `docs/agents/release-ci.md` for the full recipe and
+  incident notes.
 - **NASM is needed for asm builds.** Without it, set `OPENSSL_NO_ASM=1`
   (builds fine, skips hand-tuned assembly).
 
@@ -610,10 +618,20 @@ replies; applies regardless of which tools or modes are active.)
   focus back only when returning to paste mode (`qr-scan.js` gates its initial
   `focus()` on the camera being unavailable).
 - **CSS `display` beats the `hidden` attribute.** An element with both a
-  class rule `display: flex|block|вЂ¦` and the `hidden` attribute stays visible
+  class rule `display: flex|block|…` and the `hidden` attribute stays visible
   (author styles always win over the UA rule). Add an explicit
   `.foo[hidden] { display: none; }` whenever a styled container is toggled
   via `hidden` (bit us on the splash's action/form panes).
+- **No BOM when rewriting files on Windows.** PowerShell 5.1
+  `Set-Content -Encoding UTF8` always writes a UTF-8 BOM, and tauri-build's
+  JSON parser dies on it (`unable to parse JSON Tauri config file … expected
+  value at line 1 column 1`) — it killed both release workflows of v1.4.24
+  (Windows + Android) at the `velta-app` build-script step while every other
+  tool (cargo, node, browsers) accepted the BOM silently. Rewrite files with
+  `[IO.File]::WriteAllText($f, $text)` / `WriteAllBytes` (BOM-less UTF-8), or
+  after any `Set-Content -Encoding UTF8` sweep, check and strip the
+  `EF BB BF` leading bytes of every touched file before committing. Full
+  incident: `docs/agents/release-ci.md`.
 
 ### 6.3 Python
 

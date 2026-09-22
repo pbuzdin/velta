@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "velta-app"
 version = "1.4.24"
 description = "Velta вЂ” Delta Chat client"
