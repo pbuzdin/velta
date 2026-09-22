@@ -184,6 +184,14 @@ fn sanitize_name(name: &str) -> String {
     }
 }
 
+/// Transfer ids arrive from the peer and are used in on-disk file names:
+/// allow only short alphanumeric/`-`/`_` tokens.
+fn is_safe_transfer_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
 /// Best-effort mime from extension (rendering is driven by the extension
 /// downstream, so unknown types degrade to a generic file card).
 fn mime_for(name: &str) -> String {
@@ -1189,6 +1197,16 @@ impl P2p {
                 }));
             }
             Frame::FileBegin { id, ts, name, size, mime, caption } => {
+                // The transfer id becomes part of the partial file's path, so a
+                // peer-supplied id must be a plain token (ours are random_id()
+                // hex) — never separators or "..".
+                if !is_safe_transfer_id(&id) {
+                    self.sink.emit(json!({
+                        "kind": "error", "peerId": node_id.to_string(),
+                        "message": "rejected file: malformed transfer id",
+                    }));
+                    return;
+                }
                 if size > MAX_FILE_BYTES {
                     self.sink.emit(json!({
                         "kind": "error", "peerId": node_id.to_string(),
@@ -2161,6 +2179,19 @@ mod tests {
         assert_eq!(status["name"], "alice");
         assert_eq!(status["peers"].as_array().unwrap().len(), 1);
         assert_eq!(status["peers"][0]["id"], bob_id.as_str());
+    }
+
+    #[test]
+    fn transfer_ids_with_path_parts_are_rejected() {
+        assert!(is_safe_transfer_id(&random_id()));
+        assert!(is_safe_transfer_id("abc-123_DEF"));
+        assert!(!is_safe_transfer_id(""));
+        assert!(!is_safe_transfer_id(".."));
+        assert!(!is_safe_transfer_id("../x"));
+        assert!(!is_safe_transfer_id("..\\x"));
+        assert!(!is_safe_transfer_id("a/b"));
+        assert!(!is_safe_transfer_id("C:x"));
+        assert!(!is_safe_transfer_id(&"a".repeat(65)));
     }
 
     #[test]
