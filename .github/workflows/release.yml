@@ -141,11 +141,17 @@ jobs:
             echo "sha=$(git rev-parse "$TAG^{commit}")"
           } >> "$GITHUB_OUTPUT"
 
+      # Commit text goes through env, never through ${{ }} inside the
+      # script: quotes/backticks/$( ) in a commit message would otherwise be
+      # parsed by the shell (breaking the step or running as commands).
       - name: Send notification
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+          MSG: ${{ steps.tag.outputs.msg }}
+          SHA: ${{ steps.tag.outputs.sha }}
         run: |
-          curl \
-            -H "Title: Velta: version bumped to ${{ needs.release.outputs.version }}" \
+          printf '%s\nLink: https://github.com/pbuzdin/velta/commit/%s' "$MSG" "$SHA" | curl \
+            -H "Title: Velta: version bumped to $VERSION" \
             -H "Tags: Velta,robot" \
-            -d "${{ steps.tag.outputs.msg }}
-          Link: https://github.com/pbuzdin/velta/commit/${{ steps.tag.outputs.sha }}" \
+            --data-binary @- \
             https://ntfy.gluek.info/velta_changelog

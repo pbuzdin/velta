@@ -104,6 +104,7 @@ jobs:
       - name: Prepare release keystore
         env:
           ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          REF_TYPE: ${{ github.ref_type }}
         run: |
           mkdir -p signing
           if [ -n "$ANDROID_KEYSTORE_B64" ]; then
@@ -119,6 +120,12 @@ jobs:
             # No secret configured (forks/PRs): ephemeral key so the build still
             # produces an installable APK. Different runs cannot update each
             # other in place — do not publish these as releases.
+            # A tag build IS a release: fail instead of publishing an APK that
+            # cannot update existing installs.
+            if [ "$REF_TYPE" = "tag" ]; then
+              echo "::error::ANDROID_KEYSTORE_B64 secret not set — refusing to sign a release with an ephemeral key"
+              exit 1
+            fi
             echo "::warning::ANDROID_KEYSTORE_B64 secret not set — using an ephemeral key; APKs from different runs will NOT be upgrade-compatible"
             keytool -genkey -v -keystore signing/velta-release.keystore -alias velta -keyalg RSA -keysize 2048 -validity 10000 -storepass velta123 -keypass velta123 -dname "CN=Velta"
             echo "KS=signing/velta-release.keystore" >> "$GITHUB_ENV"
