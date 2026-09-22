@@ -1458,6 +1458,8 @@ function bindChatHeadMenu() {
   $("btn-back").addEventListener("click", closeChat);
   $("btn-chat-search").addEventListener("click", () => {
     const epoch = core.accountEpoch;
+    const chat = state.chats.find(c => c.id === state.activeChatId);
+    if (!chat) return;
     const chatId = chat.id;
     const p2p = chat.isP2p || String(chatId).startsWith("p2p:");
     const input = document.createElement("input");
