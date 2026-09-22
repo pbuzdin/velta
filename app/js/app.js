@@ -1842,7 +1842,13 @@ async function handleDeeplinkFromUrl(rawUrl, { clearUrl = false } = {}) {
   const backupLink = extractBackupLink(rawUrl);
   if (backupLink) {
     if (clearUrl) history.replaceState(null, "", location.pathname);
-    receiveSecondDeviceProfile(core.accountEpoch, null, backupLink);
+    // A deep link can come from any web page or app: never import a profile
+    // (and switch to it) without the user confirming first.
+    const epoch = core.accountEpoch;
+    const ok = await confirmModal("Receive a profile",
+      "A second-device code was opened. Receive that profile on this device and switch to it? Only continue if you started the transfer on your other device.",
+      "Receive", false);
+    if (ok && accountIsCurrent(epoch)) receiveSecondDeviceProfile(epoch, null, backupLink);
     return;
   }
   const joinLink = extractJoinLink(rawUrl);
@@ -1875,7 +1881,9 @@ function chooseRelayOrNewProfile(link) {
     let settled = false;
     const pick = v => { if (settled) return; settled = true; close(); resolve(v); };
     body.querySelector("[data-relay]").addEventListener("click", () => pick("relay"));
-    body.querySelector("[data-new]").addEventListener("click", () => pick("new"));
+    // dclogin: links render no "new profile" button — guard the lookup, or
+    // the TypeError aborts the flow before the modal ever opens.
+    body.querySelector("[data-new]")?.addEventListener("click", () => pick("new"));
     const { close } = showModal({ title: "Relay invite", body, onClose: () => resolve(null) });
   });
 }

@@ -1025,7 +1025,7 @@ export class ChatView {
     bubble += `<span class="msg-meta">${edited}${star}${formatTime(m.ts)}${ticks}</span>${resend}</div>`;
     if (m.reactions?.length) {
       bubble += `<div class="msg-reactions">${m.reactions.map(r =>
-        `<span class="reaction-chip${r.mine ? " mine" : ""}" data-react="${r.emoji}">${r.emoji} ${r.count}</span>`).join("")}</div>`;
+        `<span class="reaction-chip${r.mine ? " mine" : ""}" data-react="${escapeAttr(r.emoji)}">${escapeHtml(r.emoji)} ${Number(r.count) || 0}</span>`).join("")}</div>`;
     }
     inner += `<div class="bubble${m.viewtype === "sticker" ? " sticker" : ""}">${bubble}</div>`;
     row.innerHTML = inner;

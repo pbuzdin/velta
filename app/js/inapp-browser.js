@@ -62,6 +62,8 @@ export function openInAppBrowser(url) {
 }
 
 function openIframeOverlay(url) {
+  // Only web pages: a javascript:/data: src would run in the host's origin.
+  if (!/^https?:\/\//i.test(String(url || ""))) return;
   injectStyles();
   document.getElementById("inapp-browser")?.remove();
 
@@ -76,15 +78,21 @@ function openIframeOverlay(url) {
         <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
       </button>
       <div class="iab-meta">
-        <div class="iab-title" data-title>${domain}</div>
-        <div class="iab-domain" data-domain>${domain}</div>
+        <div class="iab-title" data-title></div>
+        <div class="iab-domain" data-domain></div>
       </div>
       <button type="button" class="icon-btn" data-external title="Open in system browser" aria-label="Open in system browser">
         <svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 13v6a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
     </div>
     <div class="iab-progress" data-progress></div>
-    <iframe class="iab-frame" src="${url}" sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-downloads" referrerpolicy="no-referrer-when-downgrade"></iframe>`;
+    <iframe class="iab-frame" sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-downloads" referrerpolicy="no-referrer-when-downgrade"></iframe>`;
+
+  // The URL comes from a message: set it through the DOM, never through the
+  // HTML template (a quote in the link would break out of the attribute).
+  wrap.querySelector("[data-title]").textContent = domain;
+  wrap.querySelector("[data-domain]").textContent = domain;
+  wrap.querySelector("iframe").src = url;
 
   const closeNow = () => wrap.remove();
   const onPop = () => closeNow();
