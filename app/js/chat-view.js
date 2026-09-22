@@ -105,7 +105,7 @@ function openImageCropper(imageUrl) {
         <div data-wrap style="position:relative">
           <canvas data-canvas style="display:block;max-width:100%;touch-action:none"></canvas>
           <div data-sel style="position:absolute;border:2px solid #f2f2f5;box-shadow:0 0 0 9999px rgba(11,11,16,.55);pointer-events:none"></div>
-          <div data-handle style="position:absolute;width:20px;height:20px;margin:-10px 0 0 -10px;border:2px solid #f2f2f5;border-radius:5px;background:rgba(11,11,16,.6);cursor:nwse-resize"></div>
+          <div data-handle style="position:absolute;width:20px;height:20px;margin:-10px 0 0 -10px;border:2px solid #f2f2f5;border-radius:5px;background:rgba(11,11,16,.6);cursor:nwse-resize;touch-action:none"></div>
         </div>
       </div>
       <div style="display:flex;gap:8px;margin-top:10px;justify-content:center">
@@ -143,11 +143,19 @@ function openImageCropper(imageUrl) {
         ? { mode: "move", sx: p.x, sy: p.y, orig: { ...box } }
         : { mode: "new", sx: p.x, sy: p.y, orig: { ...box } };
       if (!inside) box = { x: p.x, y: p.y, w: 0, h: 0 };
+      // Capture the pointer: without it Android's WebView can claim the
+      // gesture (scroll/pan), retarget later moves elsewhere or fire
+      // pointercancel mid-drag, killing the selection drag. Captured moves
+      // still bubble to the window listeners below.
+      try { canvas.setPointerCapture(e.pointerId); } catch {}
       e.preventDefault();
     });
     handle.addEventListener("pointerdown", e => {
       const p = canvasPoint(e);
       drag = { mode: "resize", sx: p.x, sy: p.y, orig: { ...box } };
+      // touch-action:none (inline above) + capture: the handle sits on a
+      // scrollable modal, and Android cancelled every resize drag otherwise.
+      try { handle.setPointerCapture(e.pointerId); } catch {}
       e.preventDefault();
       e.stopPropagation();
     });
@@ -221,6 +229,7 @@ export class ChatView {
     this.onForward = onForward;
     this.onOpenChat = onOpenChat;
     this.chat = null;
+    this._readOnly = false; // read-only chat: reply affordances hide (see readOnly)
     this.items = [];        // flattened items for the virtual scroller
     this.msgIndex = new Map();
     this._rowCache = new Map();  // item.key → rendered element (reused across setItems)
@@ -253,6 +262,17 @@ export class ChatView {
   }
 
   /* ================= public ================= */
+
+  // Read-only chat (device chats, channels the member cannot post in):
+  // there is no composer to reply into, so every reply affordance hides —
+  // hover pill and selection-quote chip via the body class, context menu /
+  // selection bar here, and _setReply as the backstop. app.js derives this
+  // from the chat kind and the core's can_send rights check.
+  get readOnly() { return this._readOnly; }
+  set readOnly(v) {
+    this._readOnly = !!v;
+    document.body.classList.toggle("chat-read-only", this._readOnly);
+  }
 
   _isCurrent(session = this._session) {
     return !!session && session === this._session && session.accountEpoch === this.core.accountEpoch;
@@ -1021,20 +1041,23 @@ export class ChatView {
 
     // One-click reply (desktop hover): a small pill at the bubble's top-right
     // corner — the same _setReply the context menu uses, plus composer focus
-    // so the reply really is a single click.
-    const hoverReply = document.createElement("button");
-    hoverReply.type = "button";
-    hoverReply.className = "msg-hover-reply";
-    hoverReply.title = "Reply";
-    hoverReply.innerHTML = `${ICO.reply}<span>Reply</span>`;
-    hoverReply.addEventListener("click", e => {
-      e.stopPropagation();
-      const it = liveItem();
-      if (!it) return;
-      this._setReply(it);
-      document.getElementById("composer-input")?.focus();
-    });
-    row.querySelector(".bubble")?.appendChild(hoverReply);
+    // so the reply really is a single click. Read-only chats (no composer)
+    // get no pill; the body class also hides any already-mounted ones.
+    if (!this.readOnly) {
+      const hoverReply = document.createElement("button");
+      hoverReply.type = "button";
+      hoverReply.className = "msg-hover-reply";
+      hoverReply.title = "Reply";
+      hoverReply.innerHTML = `${ICO.reply}<span>Reply</span>`;
+      hoverReply.addEventListener("click", e => {
+        e.stopPropagation();
+        const it = liveItem();
+        if (!it) return;
+        this._setReply(it);
+        document.getElementById("composer-input")?.focus();
+      });
+      row.querySelector(".bubble")?.appendChild(hoverReply);
+    }
 
     // Wire up real local file URLs for images / video / audio. When media
     // can't load, show a clear placeholder instead of a broken element.
@@ -1302,9 +1325,9 @@ export class ChatView {
     if (!this._isCurrent(session) || this.msgIndex.get(item.msg.id) !== item) return;
     const m = item.msg;
     if (m.kind === "service") return;
-    const items = [
-      { label: "Reply", icon: ICO.reply, onClick: () => this._setReply(item) },
-    ];
+    const items = [];
+    // No reply without a composer (read-only chats).
+    if (!this.readOnly) items.push({ label: "Reply", icon: ICO.reply, onClick: () => this._setReply(item) });
     // Core mirrors these guards (own + plain text + non-empty); the menu just
     // hides the entry where the core would refuse. P2P chats keep a separate
     // message store — no edit there yet.
@@ -1486,6 +1509,7 @@ export class ChatView {
   /* ================= reply ================= */
 
   _setReply(item) {
+    if (this.readOnly) return;
     if (!this._isCurrent() || this.msgIndex.get(item.msg.id) !== item) return;
     this.replyTo = item.msg;
     this.replyFragment = null;
@@ -1510,6 +1534,7 @@ export class ChatView {
   // included) renders them as a quote block, so no core changes are needed
   // and no separate quote header is attached (that would duplicate the quote).
   _setReplyFragment(msgId, fragment) {
+    if (this.readOnly) return;
     const item = this.msgIndex.get(msgId) || this.items.find(i => i.type === "msg" && i.msg.id === msgId);
     if (!item || !this._isCurrent()) return;
     this.replyTo = item.msg;
@@ -1668,6 +1693,7 @@ export class ChatView {
       text = act.text;
       if (act.action === "send") {
         try {
+          const { quoteId, quoteText, prefix } = this._takeQuote();
           let filePath = outPath;
           let filename;
           if (filePath) {
@@ -1684,7 +1710,7 @@ export class ChatView {
             });
             diagnosticsSink.append("info", `image: wrote ${bytes.length} bytes`);
           }
-          const msg = await this.core.sendMessage(session.chatId, { text, viewtype: "image", file: filePath, filename });
+          const msg = await this.core.sendMessage(session.chatId, { text: prefix + text, viewtype: "image", file: filePath, filename, quoteId, quoteText });
           if (!this._isCurrent(session)) return;
           this.appendOutgoing(msg);
           this.onChatsChanged();
@@ -1733,6 +1759,23 @@ export class ChatView {
     });
   }
 
+  // Consume the pending reply (same semantics for every send path): a
+  // full-message reply rides the core's quotedMessageId; a fragment reply
+  // becomes "> " quote lines prefixed to the text (renders as a quote block
+  // in every Delta Chat client). Attachment sends use this too — picking a
+  // file must not silently drop the reply (it used to).
+  _takeQuote() {
+    const quoteId = this.replyFragment ? null : (this.replyTo?.id ?? null);
+    const quoteText = quoteId != null ? (this.replyTo?.text || "") : null;
+    const prefix = this.replyFragment
+      ? this.replyFragment.split("\n").map(l => "> " + l).join("\n") + "\n\n"
+      : "";
+    this.replyTo = null;
+    this.replyFragment = null;
+    this._renderReplyPreview();
+    return { quoteId, quoteText, prefix };
+  }
+
   async _send() {
     const session = this._session;
     const input = document.getElementById("composer-input");
@@ -1751,17 +1794,8 @@ export class ChatView {
       }
       return;
     }
-    const quoteId = this.replyFragment ? null : (this.replyTo?.id ?? null);
-    const quoteText = quoteId != null ? (this.replyTo?.text || "") : null;
-    // Fragment quote travels as "> " quote lines inside the text (renders as
-    // a quote block in every Delta Chat client); a full-message reply keeps
-    // using the core's quotedMessageId.
-    const sendText = this.replyFragment
-      ? this.replyFragment.split("\n").map(l => "> " + l).join("\n") + "\n\n" + text
-      : text;
-    this.replyTo = null;
-    this.replyFragment = null;
-    this._renderReplyPreview();
+    const { quoteId, quoteText, prefix } = this._takeQuote();
+    const sendText = prefix + text;
     try {
       const msg = await this.core.sendMessage(session.chatId, { text: sendText, quoteId, quoteText });
       if (!this._isCurrent(session)) return;
@@ -1839,7 +1873,8 @@ export class ChatView {
       let viewtype = "file";
       if (["mp4", "mov", "mkv", "avi", "webm"].includes(ext)) viewtype = "video";
       else if (["mp3", "m4a", "ogg", "wav", "flac"].includes(ext)) viewtype = "audio";
-      const msg = await this.core.sendMessage(session.chatId, { text: "", viewtype, file: resolved, filename: name });
+      const { quoteId, quoteText, prefix } = this._takeQuote();
+      const msg = await this.core.sendMessage(session.chatId, { text: prefix, viewtype, file: resolved, filename: name, quoteId, quoteText });
       if (!this._isCurrent(session)) return;
       this.appendOutgoing(msg);
       this.onChatsChanged();

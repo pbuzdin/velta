@@ -1,4 +1,4 @@
-/* ===== Velta вЂ” Telegram-style theme ===== */
+/* ===== Velta — Telegram-style theme ===== */
 :root {
   --bg: #0f0f14;
   --bg-sidebar: #181820;
@@ -45,7 +45,7 @@ html[data-theme="light"] {
 * { box-sizing: border-box; margin: 0; padding: 0; }
 [hidden] { display: none !important; }
 /* Neutralize browser font-boosting / text inflation: Velta owns its scaling
-   end to end (drawer в†’ Interface scale). The Android shell additionally pins
+   end to end (drawer → Interface scale). The Android shell additionally pins
    WebView textZoom to 100 (MainActivity.kt). */
 html {
   -webkit-text-size-adjust: 100%;
@@ -103,7 +103,7 @@ svg { width: 24px; height: 24px; display: block; }
 }
 
 .chat-list { flex: 1; overflow-y: auto; padding-bottom: 10px; scrollbar-gutter: stable both-edges; }
-/* Relay status line вЂ” thin strip just below the sidebar header. The color
+/* Relay status line — thin strip just below the sidebar header. The color
    lives on `color` so the sending-dash gradient can reuse it as currentColor. */
 /* Relay status strip: one equal-width segment per configured relay
    (up to MAX_RELAYS=5 in the core), each colored by that relay's own
@@ -116,7 +116,7 @@ svg { width: 24px; height: 24px; display: block; }
 .relay-line .relay-seg[data-state="down"]       { color: #e05252; }
 .relay-line .relay-seg[data-state="local"]      { color: #4c8dff; }
 /* Sending dashes on the sending relay's segment only (marked per-segment
-   in renderRelayLine вЂ” the primary transport, i.e. state.account.addr). */
+   in renderRelayLine — the primary transport, i.e. state.account.addr). */
 .relay-line .relay-seg[data-sending] {
   background: repeating-linear-gradient(90deg, currentColor 0 7px, transparent 7px 12px);
   animation: relay-dashes .45s linear infinite;
@@ -124,7 +124,7 @@ svg { width: 24px; height: 24px; display: block; }
 @keyframes relay-dashes { to { background-position: 12px 0; } }
 @media (prefers-reduced-motion: reduce) { .relay-line .relay-seg[data-sending] { animation: none; } }
 
-/* Relay detail bar вЂ” per-relay status + quota, fed by renderRelayLine.
+/* Relay detail bar — per-relay status + quota, fed by renderRelayLine.
    Overlays the chat list (absolute under the relay line, never pushes it
    down). Desktop: revealed by hovering the relay line. Mobile: pull down
    at the top of the chat list (pull-open class set by the touch handler
@@ -175,7 +175,7 @@ svg { width: 24px; height: 24px; display: block; }
 @media (hover: hover) and (pointer: fine) {
   .bar-btn.bar-accent:hover { transform: scale(1.05); }
 }
-/* Every view button hidden: the bar melts into the sidebar вЂ” only the
+/* Every view button hidden: the bar melts into the sidebar — only the
    always-visible Menu and the + remain, floating. */
 .list-bar.bar-bare { background: transparent; border-top-color: transparent; }
 
@@ -299,7 +299,7 @@ html[data-theme="light"] .history-scroll {
     var(--bg-chat);
 }
 
-/* Day chip: rendered INSIDE the first msg-row of each day (dayFirst flag) вЂ”
+/* Day chip: rendered INSIDE the first msg-row of each day (dayFirst flag) —
    day chips must not be separate virtual-list items (see chat-view.js
    _annotateMessages). width:100% + flex-wrap on .msg-row gives the chip its
    own line inside the row. */
@@ -313,7 +313,7 @@ html[data-theme="light"] .history-scroll {
   backdrop-filter: blur(6px);
 }
 html[data-theme="light"] .day-chip { background: rgba(244,244,244,.75); color: #5d636e; box-shadow: 0 1px 4px rgba(16,16,16,.12); }
-/* service messages (diagnosticRow) can start a day too вЂ” block wrap */
+/* service messages (diagnosticRow) can start a day too — block wrap */
 .msg-row.day-first { display: block; }
 
 .unread-sep {
@@ -343,7 +343,7 @@ html[data-theme="light"] .day-chip { background: rgba(244,244,244,.75); color: #
   word-wrap: break-word;
   animation: msgIn .12s ease-out;
   /* No paint containment: the reply pill (msg-hover-reply) is a child that
-     overflows the bubble's top edge and would be clipped вЂ” so it must stay
+     overflows the bubble's top edge and would be clipped — so it must stay
      inside its row's bounds. Rows must also never get content-visibility:
      the virtual scroller measures mounted rows itself, and a row collapsing
      to its intrinsic placeholder when scrolled out of view desyncs the
@@ -374,7 +374,7 @@ html[data-theme="light"] .day-chip { background: rgba(244,244,244,.75); color: #
    Discord's hover actions; hidden entirely on touch devices.
    Anchored INSIDE the bubble's top edge: .msg-row's content-visibility:auto
    clips descendants to the row's padding box at all times, and the row has
-   only 2px top padding вЂ” the old top:-11px overhang lost its top half. The
+   only 2px top padding — the old top:-11px overhang lost its top half. The
    right:-4px overhang is safe (6px row padding). */
 .msg-hover-reply {
   position: absolute; top: 0; right: -4px; z-index: 3;
@@ -398,6 +398,12 @@ html[data-theme="light"] .day-chip { background: rgba(244,244,244,.75); color: #
   .msg-hover-reply:hover { background: #303648; }
 }
 .msg-row.selectable .msg-hover-reply { display: none; }
+/* Read-only chats (device chats, channels without posting rights): no
+   composer exists to reply into — hide the hover pill, the selection-quote
+   chip and the selection bar's Reply button (flag set by chat-view.js). */
+body.chat-read-only .msg-hover-reply,
+body.chat-read-only #sel-quote-chip,
+body.chat-read-only [data-sel="reply"] { display: none; }
 @media (hover: none) {
   .msg-hover-reply { display: none; }
 }
@@ -459,14 +465,14 @@ html[data-theme="light"] .service-msg { background: rgba(244,244,244,.8); color:
 }
 .msg-quote .q-name { font-weight: 600; color: var(--accent); display: block; }
 /* Quote text: measured WCAG ratios vs each bubble's quote background
-   (accent-on-blue was 2.58:1, text-dim-on-blue 2.08:1 вЂ” below AA 4.5).
+   (accent-on-blue was 2.58:1, text-dim-on-blue 2.08:1 — below AA 4.5).
    Outgoing bubbles get a dedicated light-on-blue palette. */
 .msg-quote .q-text { color: #9aa3b5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; display: block; }
 .msg-row.out .msg-quote .q-name { color: #d9e9fa; }
 .msg-row.out .msg-quote .q-text { color: #cfe0f2; }
 html[data-theme="light"] .msg-quote .q-name { color: #14507e; }
 html[data-theme="light"] .msg-quote .q-text { color: #4d5a68; }
-/* same specificity as the dark outgoing rules, declared later вЂ” wins in light */
+/* same specificity as the dark outgoing rules, declared later — wins in light */
 html[data-theme="light"] .msg-row.out .msg-quote .q-name { color: #14507e; }
 html[data-theme="light"] .msg-row.out .msg-quote .q-text { color: #4d5a68; }
 
@@ -480,7 +486,7 @@ html[data-theme="light"] .msg-row.out .msg-quote .q-text { color: #4d5a68; }
   border-left: 3px solid var(--accent);
   color: var(--text-dim);
 }
-/* Outgoing bubbles sit on the blue bg вЂ” silver text-dim and the accent border
+/* Outgoing bubbles sit on the blue bg — silver text-dim and the accent border
    don't read there (same treatment as .msg-row.out .msg-quote). */
 .msg-row.out .msg-text blockquote {
   border-left-color: rgba(244,244,244,.55);
@@ -540,8 +546,11 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
   .invite-copy:hover { color: #f2f2f5; background: rgba(244, 244, 244, .10); }
 }
 .invite-copy svg { width: 16px; height: 16px; }
+/* Short-link placeholder while the full invite URL is being fetched. */
+.invite-card.invite-pending .invite-main { cursor: progress; }
+.invite-card.invite-pending .invite-line { opacity: .8; font-style: italic; }
 /* Shared-contact card avatar: compact fixed-size tile, centered next to the
-   text вЂ” never stretches the card (fixed dimensions, no aspect/intrinsic
+   text — never stretches the card (fixed dimensions, no aspect/intrinsic
    sizing from the decoded image). */
 .vcard-avatar {
   flex: none; align-self: center;
@@ -592,7 +601,7 @@ html[data-theme="light"] .msg-resend { color: #d13438; }
   background: var(--bg-hover); background-size: cover; position: relative; overflow: hidden;
 }
 /* Stickers float on the chat background like the official client: no bubble
-   fill, no chrome. The time/ticks meta keeps its theme colors вЂ” readable on
+   fill, no chrome. The time/ticks meta keeps its theme colors — readable on
    both themes since it sits where the chat background shows through. Two
    rules out-specificity `.msg-row.out .bubble` (341) and the brutal theme
    override (1619); the transparent background must beat both. */
@@ -627,7 +636,7 @@ html[data-theme="light"] .msg-resend { color: #d13438; }
 }
 @keyframes img-shimmer { to { transform: translateX(100%); } }
 /* Native QR scanning (Android barcode-scanner plugin): the plugin turns the
-   webview background transparent so the camera feed shows through вЂ” hide the
+   webview background transparent so the camera feed shows through — hide the
    opaque app chrome while a scan is active. */
 body.native-scanning,
 body.native-scanning #app {
@@ -652,7 +661,7 @@ body.native-scanning #app {
 .msg-video video {
   width: 100%; max-height: 320px; display: block;
   /* Deterministic placeholder ratio keeps the row height stable until the
-     real aspect is set from metadata вЂ” prevents virtual-scroller
+     real aspect is set from metadata — prevents virtual-scroller
      re-measure loops while the video loads. */
   aspect-ratio: 16 / 9; object-fit: contain; background: #101010;
 }
@@ -673,8 +682,8 @@ velta-video { display: block; }
   padding: 15px;
 }
 .velta-video-ph:active .velta-video-play { background: rgba(244, 244, 244, 0.3); }
-/* Badge backgrounds composite to в‰Ґ 4.5:1 against #f2f2f5 text even over a
-   fully white poster frame (WCAG AA вЂ” see AGENTS 6.4). */
+/* Badge backgrounds composite to ≥ 4.5:1 against #f2f2f5 text even over a
+   fully white poster frame (WCAG AA — see AGENTS 6.4). */
 .velta-video-ph .velta-video-size {
   position: absolute; top: 8px; left: 8px; z-index: 1;
   background: rgba(11, 11, 16, 0.86); border-radius: 6px;
@@ -780,7 +789,7 @@ velta-video { display: block; }
 }
 #composer-input::placeholder { color: var(--text-dim); }
 /* Sticker picker trigger: tucked inside the input wrap's right edge like the
-   official clients' emoji/sticker button вЂ” not a separate composer column. */
+   official clients' emoji/sticker button — not a separate composer column. */
 #btn-sticker {
   flex: none; align-self: center; width: 34px; height: 34px;
   margin-right: 5px; padding: 0; border: 0; border-radius: 50%;
@@ -818,7 +827,7 @@ velta-video { display: block; }
 .send-btn { color: var(--accent); margin-bottom: 4px; }
 .send-btn:disabled { color: var(--text-dim); cursor: default; }
 /* Composer buttons sized to the input line (bottom-aligned like the input,
-   no extra offset вЂ” a 48px button centers its icon on the text line), with
+   no extra offset — a 48px button centers its icon on the text line), with
    icons a notch larger than the generic 24px. */
 #main-composer .icon-btn { width: 48px; height: 48px; margin-bottom: 0; }
 #main-composer .icon-btn svg { width: 26px; height: 26px; }
@@ -831,13 +840,13 @@ velta-avatar { display: block; flex: none; }
   position: relative; overflow: hidden;
 }
 /* The global `svg { width: 24px }` icon rule must not shrink the identity
-   matrix вЂ” it has to fill the tile edge to edge. (Saved/device icons keep
+   matrix — it has to fill the tile edge to edge. (Saved/device icons keep
    their size via their inline width/height style.) */
 .velta-avatar-tile > svg { width: 100%; height: 100%; }
 .velta-avatar-tile.saved { background: linear-gradient(135deg, #5aa2e6, #8774e1); }
 .velta-avatar-tile img.velta-avatar-img {
   position: absolute; inset: 0; width: 100%; height: 100%;
-  object-fit: cover; border-radius: inherit; /* match the tile mask, not a circle вЂ” a 50% clip left the tile's corners visible */
+  object-fit: cover; border-radius: inherit; /* match the tile mask, not a circle — a 50% clip left the tile's corners visible */
 }
 /* Single contacts with a photo: the picture is a padded rounded square sitting
    on the color matrix, separated from it by a soft-black ring. Percentages
@@ -853,7 +862,7 @@ velta-avatar { display: block; flex: none; }
 }
 /* Photo shimmer: while the photo bytes are in flight the img paints a soft
    sweep itself; decode covers it and .loaded (set in updated()) drops the
-   background entirely вЂ” stops the animation, and keeps alpha-PNG avatars
+   background entirely — stops the animation, and keeps alpha-PNG avatars
    from shimmering through transparent pixels forever. Soft tones only. */
 .velta-avatar-tile img.velta-avatar-img:not(.loaded) {
   background-color: rgba(122, 132, 153, .16);
@@ -877,7 +886,7 @@ velta-chat-item { display: block; }
   padding: 9px 12px; cursor: pointer;
   border-radius: 10px; margin: 0 6px;
   position: relative; user-select: none;
-  /* Cards have no overflow children вЂ” contain keeps a badge/draft/hover
+  /* Cards have no overflow children — contain keeps a badge/draft/hover
      change from invalidating layout or repainting sibling rows. */
   contain: layout paint style;
 }
@@ -913,7 +922,7 @@ velta-chat-item { display: block; }
 .ci-ticks.read { color: var(--accent); }
 
 .chat-head-avatar { cursor: pointer; flex: none; }
-/* velta-chat-head is a custom element (inline by default) вЂ” without flex the
+/* velta-chat-head is a custom element (inline by default) — without flex the
    avatar and the name column don't share a row. */
 velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .chat-head-text { flex: 1; min-width: 0; cursor: pointer; }
@@ -931,7 +940,7 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 }
 .pop-overlay.transparent { background: transparent; }
 /* Drawer's overlay only: stop above the action bar like .drawer does, so the
-   bar-menu toggle gets the whole tap (down, up and click on one element) вЂ”
+   bar-menu toggle gets the whole tap (down, up and click on one element) —
    an overlay edge under the finger made mobile WebViews retarget the click
    and re-toggle the drawer right after closing it. */
 .drawer-overlay { bottom: var(--list-bar-h); }
@@ -1016,17 +1025,17 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .btn-primary:disabled { opacity: .5; cursor: default; }
 /* Combined classes: .btn-text (later in file, equal specificity) would
    otherwise win color, and .btn-text:hover would replace the accent
-   background вЂ” rendering primaries as plain text buttons. */
+   background — rendering primaries as plain text buttons. */
 .btn-text.btn-primary { color: #f4f4f4; background: var(--accent); }
 @media (hover: hover) and (pointer: fine) {
   .btn-text.btn-primary:hover { background: var(--accent); filter: brightness(1.08); }
 }
 .btn-text { color: var(--accent); font-weight: 600; padding: 10px 14px; border-radius: 8px; }
-/* Inline .btn-text actions inside bubbles ("Show Full MessageвЂ¦", transfer
+/* Inline .btn-text actions inside bubbles ("Show Full Message…", transfer
    Retry): the accent blue fails AA on the blue outgoing bubble (3.0:1 dark,
    2.85:1 light, 1.67:1 brutal), on light incoming (3.0:1) and is marginal
    on brutal incoming (4.19:1). Per-surface colors instead: meta-out is the
-   token made for the out bubble (4.59вЂ“4.67:1 in every theme), light
+   token made for the out bubble (4.59–4.67:1 in every theme), light
    incoming takes a darkened accent (5.14:1), brutal its accent-2 (7.29:1). */
 .msg-row.out .btn-text { color: var(--text-meta-out); }
 html[data-theme="light"] .msg-row:not(.out) .btn-text { color: #1a68b8; }
@@ -1152,7 +1161,7 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 }
 .update-banner-btn:active { transform: scale(.97); }
 /* While an update is available the bar-menu button grows a polite pulsing
-   ring (no layout shift вЂ” box-shadow, not border) to invite a tap. */
+   ring (no layout shift — box-shadow, not border) to invite a tap. */
 #bar-menu.update { box-shadow: inset 0 0 0 2px var(--accent); animation: update-nudge 2.4s ease-in-out infinite; }
 @keyframes update-nudge {
   0%, 100% { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 0 rgba(90, 162, 230, .5); }
@@ -1176,7 +1185,7 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 
 /* Welcome splash (first boot, unconfigured account) */
 .splash {
-  position: fixed; inset: 0; z-index: 40; /* above app UI (в‰¤10), below modal overlays (50+) and toasts (80) */
+  position: fixed; inset: 0; z-index: 40; /* above app UI (≤10), below modal overlays (50+) and toasts (80) */
   background: var(--bg, #0f0f14);
   display: flex; flex-direction: column;
   overflow: hidden;
@@ -1236,7 +1245,7 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
   pointer-events: none;
 }
 .qr-self img { display: block; width: 100%; height: 100%; transform: translate(0, 2px); }
-/* Local-chat invite QR is a plain 512Г—512 QR with the logo zone dead-center
+/* Local-chat invite QR is a plain 512×512 QR with the logo zone dead-center
    (96/512 = 18.75%); the badge is slightly larger to fully cover it. */
 .qr-self.qr-self-center { top: 50%; width: 21%; }
 .qr-loading { color: #555; font-size: 13px; text-align: center; padding: 16px 8px; }
@@ -1277,9 +1286,9 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 .step-ico { width: 16px; height: 16px; flex: none; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; }
 li.active .step-ico { border: 2px solid var(--accent); border-top-color: transparent; animation: ob-spin .8s linear infinite; }
 li.done .step-ico { background: var(--accent); color: #f4f4f4; }
-li.done .step-ico::after { content: "вњ“"; }
+li.done .step-ico::after { content: "✓"; }
 li.failed .step-ico { background: #e0685d; color: #f4f4f4; }
-li.failed .step-ico::after { content: "вњ•"; }
+li.failed .step-ico::after { content: "✕"; }
 @keyframes ob-spin { to { transform: rotate(360deg); } }
 .btn-text:disabled { opacity: .55; pointer-events: none; }
 .btn-loading::before { content: ""; display: inline-block; width: 13px; height: 13px; margin-right: 7px; vertical-align: -2px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: ob-spin .8s linear infinite; }
@@ -1460,7 +1469,7 @@ li.failed .step-ico::after { content: "вњ•"; }
   border: none; border-radius: 999px;
   background: var(--accent);
   /* Near-black, not #fff: white on accent blue was ~2.6:1 (dark) / ~3.1:1
-     (light) вЂ” both fail 4.5:1; near-black clears it on both accents. */
+     (light) — both fail 4.5:1; near-black clears it on both accents. */
   color: #10141c;
   font-size: 12.5px; font-weight: 600; cursor: pointer;
 }
@@ -1501,7 +1510,7 @@ html[data-theme="light"] .html-view-frame { color-scheme: light; }
 }
 .webxdc-ico img { width: 100%; height: 100%; object-fit: cover; display: none; }
 /* No icon in the app manifest: a letter tile (app initial on accent) stands
-   in for the icon вЂ” always something app-specific, never a generic glyph. */
+   in for the icon — always something app-specific, never a generic glyph. */
 .webxdc-ico .webxdc-ico-letter {
   width: 100%; height: 100%;
   display: grid; place-items: center;
@@ -1560,7 +1569,7 @@ html[data-theme="light"] .webxdc-frame { color-scheme: light; background: #fff; 
 .lc-dot { width: 9px; height: 9px; border-radius: 50%; background: #7a7a85; flex: none; }
 .lc-dot.on { background: #2ecc71; }
 
-/* node id suffix on the device line вЂ” secondary info stays dim */
+/* node id suffix on the device line — secondary info stays dim */
 .lc-nodeid { font-size: 12px; color: var(--text-dim); }
 
 /* ---------- Local chat offline media queue tray ---------- */
@@ -1681,7 +1690,7 @@ html[data-theme="brutal"] .msg-meta .ticks.read { color: var(--nb-main-ink); }
 html[data-theme="brutal"] .msg-row.out .msg-text a {
   color: var(--nb-main-ink); text-decoration-thickness: 2px;
 }
-/* The 1.4.3 light-on-blue quote palettes don't apply on yellow вЂ” ink text */
+/* The 1.4.3 light-on-blue quote palettes don't apply on yellow — ink text */
 html[data-theme="brutal"] .msg-row.out .msg-quote {
   border-left-color: var(--nb-main-ink); background: rgba(18, 16, 22, .1);
 }

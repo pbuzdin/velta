@@ -152,15 +152,27 @@ export function inviteCardHtml(parsed) {
 // message re-renders):
 //   • .invite-main buttons → onJoin(rawLink)  (app asks to join, then joins)
 //   • .invite-copy buttons → copy the raw link
-//   • plain <a href> to a registered invite host → onJoin too
+//   • pending short-link cards → expand, then onJoin the full link
+//   • plain <a href> to a registered invite host or a short host → onJoin too
 export function bindInviteInterception(onJoin) {
-  document.addEventListener("click", e => {
+  watchShortCards();
+  document.addEventListener("click", async e => {
     const copyBtn = e.target.closest?.("[data-invite-copy]");
     if (copyBtn) {
       e.preventDefault();
       e.stopPropagation();
       const link = copyBtn.getAttribute("data-invite-copy");
       navigator.clipboard?.writeText(link)?.then?.(() => toast("Invite link copied"));
+      return;
+    }
+    const shortBtn = e.target.closest?.("[data-short-expand]");
+    if (shortBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      const url = shortBtn.getAttribute("data-short-expand");
+      const parsed = await expandShortInvite(url);
+      if (parsed) onJoin(parsed.raw);
+      else toast("Could not expand this short invite link");
       return;
     }
     const joinBtn = e.target.closest?.("[data-invite-join]");
@@ -172,14 +184,135 @@ export function bindInviteInterception(onJoin) {
     }
     const a = e.target.closest?.('a[href^="http"]');
     if (a) {
-      const parsed = parseInviteLink(a.getAttribute("href"));
+      const href = a.getAttribute("href");
+      let parsed = parseInviteLink(href);
       if (parsed) {
         e.preventDefault();
         e.stopPropagation();
         onJoin(parsed.raw);
+        return;
+      }
+      if (isShortInviteLink(href)) {
+        e.preventDefault();
+        e.stopPropagation();
+        const expanded = await expandShortInvite(href);
+        if (expanded) onJoin(expanded.raw);
+        else toast("Could not expand this short invite link");
       }
     }
   }, true);
+}
+
+// ---------------------------------------------------------------------------
+// Short invite links (e.g. https://deltachat.id/<name>, the Delta Chat
+// username service): the page JS-redirects to the full i.deltachat.id invite
+// URL, so expansion needs a fetch + extraction — the renderer's fetch is
+// CORS-blocked (the service sends no ACAO headers), so under Tauri it runs
+// shell-side (expand_invite_link); a bare fetch is the fallback for hosts
+// that do send ACAO. Expansions are cached in localStorage (invite links are
+// immutable). Until expanded, cards render a pending placeholder.
+const SHORT_HOSTS = ["deltachat.id"];
+const SHORT_KEY = "velta-short-invites"; // localStorage JSON map: short URL -> full invite URL
+
+export function isShortInviteLink(raw) {
+  const s = String(raw || "").trim();
+  if (!/^https:\/\//i.test(s)) return false;
+  try {
+    const u = new URL(s);
+    return SHORT_HOSTS.includes(u.hostname) && /^\/[A-Za-z0-9][A-Za-z0-9_-]{0,63}\/?$/.test(u.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function shortCacheGet() {
+  try {
+    const map = JSON.parse(localStorage.getItem(SHORT_KEY) || "{}");
+    return map && typeof map === "object" ? map : {};
+  } catch {
+    return {};
+  }
+}
+
+function shortCachePut(shortUrl, fullUrl) {
+  const map = shortCacheGet();
+  map[shortUrl] = fullUrl;
+  try { localStorage.setItem(SHORT_KEY, JSON.stringify(map)); } catch { /* full map */ }
+}
+
+// Sync best-effort for rendering: a cached short link renders as a real
+// invite card immediately, uncached ones as a pending placeholder.
+export function shortInviteCardHtml(shortUrl) {
+  const cached = shortCacheGet()[shortUrl];
+  if (cached) {
+    const parsed = parseInviteLink(cached);
+    if (parsed) return inviteCardHtml(parsed);
+  }
+  return `<span class="invite-card invite-pending" data-short-expand="${escapeAttr(shortUrl)}">` +
+    `<span class="invite-main">` +
+      `<span class="invite-line">Expanding invite…</span>` +
+      `<span class="invite-sub">${escapeHtml(shortUrl)}</span>` +
+    `</span>` +
+    `<button type="button" class="invite-copy" data-invite-copy="${escapeAttr(shortUrl)}" title="Copy short link" aria-label="Copy short link">` +
+      `<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 15V5a2 2 0 012-2h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>` +
+    `</button>` +
+  `</span>`;
+}
+
+// Resolve a short link to a parsed invite (or null). Shell fetch first, bare
+// fetch second; HTML-extracted candidates must parse against the invite
+// registry (parseInviteLink normalizes mirrors onto i.delta.chat).
+export async function expandShortInvite(shortUrl) {
+  const cached = shortCacheGet()[shortUrl];
+  if (cached) return parseInviteLink(cached);
+  let candidates = [];
+  try {
+    const t = window.__TAURI__;
+    const invoke = t?.core?.invoke ?? t?.invoke?.bind(t);
+    if (invoke) {
+      candidates = await invoke("expand_invite_link", { url: shortUrl });
+    } else {
+      const res = await fetch(shortUrl);
+      candidates = [...(await res.text()).matchAll(/https:\/\/[^\s"'<>)]+/g)].map(m => m[0]);
+    }
+  } catch {
+    return null;
+  }
+  const parsed = candidates
+    .map(c => c.replace(/&amp;/g, "&"))
+    .map(c => parseInviteLink(c))
+    .find(Boolean);
+  if (parsed) shortCachePut(shortUrl, parsed.raw);
+  return parsed;
+}
+
+// Swap pending cards for the real invite card once expansion resolves. Runs
+// on a document-level MutationObserver (registered from
+// bindInviteInterception) so it survives virtual-scroller re-renders without
+// coupling to chat-view internals; the hydrating set prevents refetch loops.
+const hydratingShorts = new Set();
+async function hydrateShortCard(el) {
+  const url = el.getAttribute("data-short-expand");
+  if (!url || hydratingShorts.has(url)) return;
+  hydratingShorts.add(url);
+  const parsed = await expandShortInvite(url);
+  const fresh = document.querySelector(`[data-short-expand="${CSS.escape(url)}"]`);
+  if (!fresh) return; // row unmounted while expanding
+  fresh.outerHTML = parsed ? inviteCardHtml(parsed)
+    : `<a href="${escapeAttr(url)}" target="_blank" rel="noopener">${escapeHtml(url)}</a>`;
+  hydratingShorts.delete(url);
+}
+
+function watchShortCards() {
+  new MutationObserver(muts => {
+    for (const m of muts) {
+      for (const n of m.addedNodes) {
+        if (n.nodeType !== 1) continue;
+        if (n.matches("[data-short-expand]")) hydrateShortCard(n);
+        n.querySelectorAll?.("[data-short-expand]").forEach(hydrateShortCard);
+      }
+    }
+  }).observe(document.body, { childList: true, subtree: true });
 }
 
 // "Invite link domains" settings modal: manage the runtime registry of hosts

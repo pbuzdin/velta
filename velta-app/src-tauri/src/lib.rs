@@ -1,4 +1,4 @@
-﻿use std::fs::OpenOptions;
+use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 #[cfg(not(target_os = "android"))]
 use std::sync::Arc;
@@ -242,6 +242,57 @@ fn html_escape_decode(s: &str) -> String {
         .join(" ")
 }
 
+/// Expand a short invite link (e.g. https://deltachat.id/<name>, the Delta
+/// Chat username service): the page JS-redirects to the full
+/// https://i.delta.chat/#FINGERPRINT… invite URL, so there is no HTTP 3xx to
+/// follow — shell-side fetch (renderer fetch is CORS-blocked, same reason as
+/// get_latest_version) and extract every URL candidate that carries a
+/// 40-hex fingerprint after "/#". The frontend picks the candidate that
+/// parses as a registered invite. Bounded read + hard timeout like
+/// fetch_page_title; no candidates -> empty vec, and the UI degrades to a
+/// plain link.
+#[tauri::command]
+async fn expand_invite_link(url: String) -> Result<Vec<String>, String> {
+    if !url.starts_with("https://") {
+        return Err("only https URLs are supported".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let agent = ureq::AgentBuilder::new()
+            .timeout(std::time::Duration::from_secs(5))
+            .build();
+        let resp = match agent.get(&url).call() {
+            Ok(r) => r,
+            Err(_) => return Ok(Vec::new()),
+        };
+        let mut body = Vec::new();
+        use std::io::Read;
+        let _ = resp
+            .into_reader()
+            .take(256 * 1024)
+            .read_to_end(&mut body);
+        let text = String::from_utf8_lossy(&body);
+        let mut out = Vec::new();
+        let mut from = 0;
+        while let Some(pos) = text[from..].find("https://") {
+            let start = from + pos;
+            let end = text[start..]
+                .find(['"', '\'', '<', '>', ' ', ')'])
+                .map(|e| start + e)
+                .unwrap_or(text.len());
+            let candidate = &text[start..end];
+            if let Some(fp) = candidate.split("/#").nth(1) {
+                if fp.len() >= 40 && fp[..40].bytes().all(|b| b.is_ascii_hexdigit()) {
+                    out.push(candidate.to_string());
+                }
+            }
+            from = start + 8;
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 fn get_accounts_dir(app: tauri::AppHandle) -> String {
     accounts_dir(&app).to_string_lossy().to_string()
@@ -332,7 +383,7 @@ fn guess_mime(path: &str) -> &'static str {
     }
 }
 
-// "bytes=a-b" | "bytes=a-" | "bytes=-n" в†’ inclusive (start, end)
+// "bytes=a-b" | "bytes=a-" | "bytes=-n" → inclusive (start, end)
 fn parse_range(header: &str, len: u64) -> Option<(u64, u64)> {
     let rest = header.trim().strip_prefix("bytes=")?;
     let (start_s, end_s) = rest.split_once('-')?;
@@ -1828,7 +1879,7 @@ pub fn run() {
             response.headers_mut().insert("Cache-Control", "max-age=31536000, immutable".parse().unwrap());
             response.map(|body| std::borrow::Cow::Owned(body))
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_latest_version, fetch_page_title, open_in_app_browser, open_webview_browser, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_latest_version, fetch_page_title, expand_invite_link, open_in_app_browser, open_webview_browser, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 

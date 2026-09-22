@@ -89,7 +89,10 @@
             </intent-filter>
             <!-- Chatmail scheme links (scanned QR codes, taps in other apps):
                  account creation (dcaccount:), login to an existing relay
-                 account (dclogin:), and second-device transfers (dcbackup:). -->
+                 account (dclogin:), second-device transfers (dcbackup:), and
+                 SecureJoin invites as text QRs (openpgp4fpr:) — without this
+                 scheme entry Android only offers other Delta Chat clients
+                 (Delta Chat, ArcaneChat) as handlers. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -97,6 +100,7 @@
                 <data android:scheme="dcaccount" />
                 <data android:scheme="dclogin" />
                 <data android:scheme="dcbackup" />
+                <data android:scheme="openpgp4fpr" />
             </intent-filter>
         </activity>
 

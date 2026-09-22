@@ -5,7 +5,7 @@
 // All text is HTML-escaped before any tag is produced; only http(s) URLs
 // become links, so message content can never inject markup.
 import { escapeHtml, escapeAttr } from "./components.js";
-import { parseInviteLink, inviteCardHtml } from "./invites.js";
+import { parseInviteLink, inviteCardHtml, isShortInviteLink, shortInviteCardHtml } from "./invites.js";
 
 const TRAILING_PUNCT = /[.,;:!?)\]'}>]+$/;
 const PLACEHOLDER_RE = /\x00(\d+)\x00/g;
@@ -89,6 +89,7 @@ function inline(raw) {
       trailing = m[0].slice(url.length); // don't let punctuation glue onto the link
       const invite = parseInviteLink(url);
       token = invite ? inviteCardHtml(invite)
+        : isShortInviteLink(url) ? shortInviteCardHtml(url)
         : `<a href="${escapeAttr(url)}" target="_blank" rel="noopener">${escapeHtml(url)}</a>`;
     }
     anchors.push(token);

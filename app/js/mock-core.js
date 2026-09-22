@@ -1,4 +1,4 @@
-// mock-core.js вЂ” simulates the deltachat-rpc-server JSON-RPC API (chatmail core).
+// mock-core.js — simulates the deltachat-rpc-server JSON-RPC API (chatmail core).
 // Swap `MockCore` for a real stdio/WebSocket transport speaking the same
 // method names (get_all_accounts, get_chatlist_entries, get_message_ids, ...)
 // to run against the real core.
@@ -14,29 +14,29 @@ const CONTACTS = [
 
 const LOREM = [
   "hey! did you see the new chatmail relay release?",
-  "Yes!! message delivery is basically instant now рџљЂ",
+  "Yes!! message delivery is basically instant now 🚀",
   "Can you forward me the design doc when you get a chance?",
   "On my way, give me 10 minutes",
-  "The nice thing is it's just email underneath вЂ” no phone number needed",
+  "The nice thing is it's just email underneath — no phone number needed",
   "Exactly. Any SMTP server works, but chatmail relays are way faster",
   "lunch later? there's a new place near the office",
   "sure, 12:30 works for me",
   "I tested the webxdc app you sent, works flawlessly offline",
   "Check out this photo from the weekend hike",
   "voice messages on the train are a lifesaver honestly",
-  "The group is getting big вЂ” should we pin the roadmap?",
-  "Good idea, done рџ“Њ",
-  "remember: everything here is end-to-end encrypted by default рџ”’",
+  "The group is getting big — should we pin the roadmap?",
+  "Good idea, done 📌",
+  "remember: everything here is end-to-end encrypted by default 🔒",
   "I sent the file, it's about 4 MB",
   "got it, thanks!",
-  "see you tomorrow then рџ‘‹",
-  "Haha that's perfect рџ‚",
+  "see you tomorrow then 👋",
+  "Haha that's perfect 😂",
   "Let me know when the APK build finishes",
-  "CI passed, merging now вњ…",
+  "CI passed, merging now ✅",
   "btw the sticker pack you made is amazing",
   "Ok final answer: we ship on Friday",
   "Can't believe how fast the sync is across devices now",
-  "Multi-device just works вЂ” same account everywhere via relays",
+  "Multi-device just works — same account everywhere via relays",
 ];
 
 const IMG_GRADIENTS = [
@@ -47,10 +47,10 @@ const IMG_GRADIENTS = [
   "linear-gradient(135deg,#8e2de2,#4a00e0)",
 ];
 
-const REACTION_SET = ["рџ‘Ќ", "вќ¤пёЏ", "рџ‚", "рџЋ‰", "рџ®", "рџ‘Џ"];
+const REACTION_SET = ["👍", "❤️", "😂", "🎉", "😮", "👏"];
 
 // Demo profile images (inline SVG data URIs) so the browser demo exercises
-// the photo-avatar path вЂ” image avatars, not just initials tiles.
+// the photo-avatar path — image avatars, not just initials tiles.
 const GROUP_AVATARS = {
   13: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23e96443'/%3E%3Cstop offset='1' stop-color='%23904e95'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23g)'/%3E%3Cpath d='M14 40 10 54h14zM50 40l4 14H40zM32 16 18 44h28z' fill='%23fff' opacity='.92'/%3E%3Cpath d='M32 16l-7 14h14z' fill='%23fff' opacity='.55'/%3E%3C/svg%3E",
   15: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23396afc'/%3E%3Cstop offset='1' stop-color='%232948ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23g)'/%3E%3Cpath d='M24 22 12 32l12 10M40 22l12 10-12 10' fill='none' stroke='%23fff' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E",
@@ -103,11 +103,11 @@ export class MockCore extends EventTarget {
       mk({ id: 10, kind: "saved", name: "Saved Messages" }),
       mk({ id: 11, kind: "device", name: "Device Messages" }),
       mk({ id: 12, name: "Ada Byron", contactId: 2, pinned: true, verified: true, unread: 2 }),
-      mk({ id: 13, name: "Weekend Crew рџЏ•", kind: "group", memberCount: 6, pinned: true, unread: 14, avatar: GROUP_AVATARS[13] }),
+      mk({ id: 13, name: "Weekend Crew 🏕", kind: "group", memberCount: 6, pinned: true, unread: 14, avatar: GROUP_AVATARS[13] }),
       mk({ id: 14, name: "Kenji Sato", contactId: 3, muted: true, unread: 5 }),
       mk({ id: 15, name: "Velta Devs", kind: "group", memberCount: 23, unread: 0, avatar: GROUP_AVATARS[15] }),
       mk({ id: 16, name: "Mara Voss", contactId: 4 }),
-      mk({ id: 17, name: "News В· Delta Chat", kind: "channel", memberCount: 12800, muted: true, unread: 31 }),
+      mk({ id: 17, name: "News · Delta Chat", kind: "channel", memberCount: 12800, muted: true, unread: 31 }),
       mk({ id: 18, name: "Tariq Aziz", contactId: 5, archived: true }),
       mk({ id: 19, name: "Lena Fischer", contactId: 6, encrypted: false }),
       mk({ id: 20, name: "Family", kind: "group", memberCount: 4, archived: true }),
@@ -137,18 +137,18 @@ export class MockCore extends EventTarget {
     ];
     this.chats[1].messages = [
       this._mkMsg(this.chats[1], { kind: "service", text: "Messages are end-to-end encrypted.", ts: now - 86400e3 * 3 }),
-      this._mkMsg(this.chats[1], { from: 1, text: "Welcome to Velta рџЋ‰ This account is connected through the chatmail relay nine.testrun.org.", ts: now - 86400e3 * 3 + 60e3 }),
+      this._mkMsg(this.chats[1], { from: 1, text: "Welcome to Velta 🎉 This account is connected through the chatmail relay nine.testrun.org.", ts: now - 86400e3 * 3 + 60e3 }),
     ];
     // Read-more demo pair in the pinned 1:1 chat: a truncated original
-    // (stored body exists в†’ button) and a forwarded copy of a truncated
-    // message (marker copied, no stored body в†’ button must NOT render).
+    // (stored body exists → button) and a forwarded copy of a truncated
+    // message (marker copied, no stored body → button must NOT render).
     this.chats[2].messages.push(
       this._mkMsg(this.chats[2], { from: 1, text: "Trip plan: we take the morning train, and the long footer with the packing list got cut [...]", ts: now - 120e3, hasHtml: true }),
-      this._mkMsg(this.chats[2], { from: 2, fwdFrom: "Pavel", text: "Forwarded вЂ” the original mail this was cut from lives on another device [...]", ts: now - 60e3, hasHtml: false }),
+      this._mkMsg(this.chats[2], { from: 2, fwdFrom: "Pavel", text: "Forwarded — the original mail this was cut from lives on another device [...]", ts: now - 60e3, hasHtml: false }),
       // An HTML mail: simplified text in the bubble, formatted original behind
-      // "Show Full MessageвЂ¦" вЂ” exercises the srcdoc iframe path with real markup.
-      this._mkMsg(this.chats[2], { from: 2, text: "Release notes newsletter вЂ” open for the formatted table", ts: now - 30e3, hasHtml: true,
-        html: "<html><head><style>body{font-family:system-ui;margin:16px;background:#14141c;color:#f2f2f5}h2{margin-top:0}td,th{border:1px solid #4a4f62;padding:6px 10px}</style></head><body><h2>Velta Release Notes</h2><table><tr><th>Version</th><th>Highlight</th></tr><tr><td>1.4.11</td><td>Auto-reconnect, browser CSP, shimmer, Show Full Message</td></tr><tr><td>1.4.10</td><td>Touch-safe drawer toggle</td></tr></table><p>The formatted original mail вЂ” the bubble shows only the simplified text.</p></body></html>" }),
+      // "Show Full Message…" — exercises the srcdoc iframe path with real markup.
+      this._mkMsg(this.chats[2], { from: 2, text: "Release notes newsletter — open for the formatted table", ts: now - 30e3, hasHtml: true,
+        html: "<html><head><style>body{font-family:system-ui;margin:16px;background:#14141c;color:#f2f2f5}h2{margin-top:0}td,th{border:1px solid #4a4f62;padding:6px 10px}</style></head><body><h2>Velta Release Notes</h2><table><tr><th>Version</th><th>Highlight</th></tr><tr><td>1.4.11</td><td>Auto-reconnect, browser CSP, shimmer, Show Full Message</td></tr><tr><td>1.4.10</td><td>Touch-safe drawer toggle</td></tr></table><p>The formatted original mail — the bubble shows only the simplified text.</p></body></html>" }),
     );
     // A webxdc app card: opens in the app (Tauri webxdc.localhost handler);
     // in a plain browser the manager explains instead of opening a dead frame.
@@ -236,7 +236,7 @@ export class MockCore extends EventTarget {
     this.account.displayName = (name || "").trim() || "You";
   }
   async setAvatar(path) {
-    // demo mode: no core blobdir вЂ” store the data URL directly
+    // demo mode: no core blobdir — store the data URL directly
     if (path) this.account.avatar = path;
     else delete this.account.avatar;
   }
@@ -294,9 +294,9 @@ export class MockCore extends EventTarget {
   _msgSummary(m) {
     if (m.kind === "service") return m.text;
     switch (m.viewtype) {
-      case "image": return "рџ“· " + (m.text || "Photo");
-      case "file": return "рџ“Ћ " + m.fileName;
-      case "voice": return "рџЋ¤ Voice message";
+      case "image": return "📷 " + (m.text || "Photo");
+      case "file": return "📎 " + m.fileName;
+      case "voice": return "🎤 Voice message";
       default: return m.text;
     }
   }
@@ -342,7 +342,7 @@ export class MockCore extends EventTarget {
     };
   }
 
-  // Demo group membership вЂ” deterministic per chat (self is always a member)
+  // Demo group membership — deterministic per chat (self is always a member)
   // so member counts and "chats in common" behave like the real core.
   // Demo QR: deterministic pseudo-random modules from the text hash, with
   // the three finder squares so it reads as a QR at a glance.
@@ -364,7 +364,7 @@ export class MockCore extends EventTarget {
     return svg;
   }
 
-  // Demo channels carry no posting rights вЂ” exercises the read-only
+  // Demo channels carry no posting rights — exercises the read-only
   // composer path in preview mode.
   async canSend(chatId) {
     const chat = this.chats.find(c => c.id === chatId);
@@ -422,7 +422,7 @@ export class MockCore extends EventTarget {
     return `BEGIN:VCARD\nVERSION:4.0\nFN:${c ? c.name : "Demo"}\nEMAIL;PREF=1:${c ? c.addr : "demo@example.org"}\nEND:VCARD`;
   }
 
-  // Second-device backup transfer вЂ” demo no-ops (same contract as rpc-core).
+  // Second-device backup transfer — demo no-ops (same contract as rpc-core).
   async provideBackup() {}
   async getBackupQr() { return "DCBACKUP2:demo-second-device&demo"; }
   async getBackup() {}
@@ -439,7 +439,7 @@ export class MockCore extends EventTarget {
         if (!m.hasHtml) return null;
         if (m.html) return m.html;
         return `<html><body><p>${m.text.replace(/\s?\[\.\.\.\]\s*$/, "")}</p>` +
-          `<p>вЂ” the full original: the cut footer and sign-off live here; this is what "Read more" rehydrates.</p></body></html>`;
+          `<p>— the full original: the cut footer and sign-off live here; this is what "Read more" rehydrates.</p></body></html>`;
       }
     }
     return null;
@@ -604,7 +604,7 @@ export class MockCore extends EventTarget {
   }
 
   async getStickers() {
-    this._mockStickers ||= { "Demo": ["mock:рџЂ", "mock:рџ¦„", "mock:рџљЂ", "mock:рџђ™", "mock:рџЌ•", "mock:рџЊ€", "mock:вљЎ", "mock:рџЌ©"] };
+    this._mockStickers ||= { "Demo": ["mock:😀", "mock:🦄", "mock:🚀", "mock:🐙", "mock:🍕", "mock:🌈", "mock:⚡", "mock:🍩"] };
     return structuredClone(this._mockStickers);
   }
 
@@ -662,7 +662,7 @@ export function formatDay(ts) {
   return d.toLocaleDateString([], { day: "numeric", month: "long", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
 }
 
-// "just now" / "5 minutes ago" / "3 hours ago" / "2 days ago" вЂ” relative time
+// "just now" / "5 minutes ago" / "3 hours ago" / "2 days ago" — relative time
 // for last-seen info.
 export function timeAgo(ts) {
   const sec = Math.max(0, (Date.now() - ts) / 1000);

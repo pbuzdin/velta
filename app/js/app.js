@@ -8,7 +8,7 @@ import { ChatView, setAvatarProfileOpener } from "./chat-view.js";
 import { initCalls } from "./calls.js";
 import { initWebxdc } from "./webxdc-manager.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow } from "./diagnostics.js";
-import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal } from "./invites.js";
+import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal, isShortInviteLink, expandShortInvite } from "./invites.js";
 import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate } from "./ui.js";
 import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact } from "./p2p.js";
 import { withLocalChat, hubModel, renameDevice, removePeer, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
@@ -1159,10 +1159,15 @@ async function openChat(chatId) {
   // sets it explicitly (closeChatUI restores it to visible). Channels need a
   // rights check: members without posting rights get no composer either.
   $("main-composer").hidden = chat.kind === "device";
+  // Read-only chats hide every reply affordance too. Channels start assumed
+  // read-only until the rights check resolves; the pill is re-added by row
+  // re-renders / CSS on flip.
+  chatView.readOnly = chat.kind === "device" || chat.kind === "channel";
   if (chat.kind === "channel" && core.canSend) {
     core.canSend(chatId).then(can => {
       if (!current() || state.activeChatId !== chatId) return;
       $("main-composer").hidden = !can;
+      chatView.readOnly = !can;
     }).catch(() => {});
   }
   refreshChatHeadPresence(chatId);
@@ -1207,6 +1212,7 @@ function closeChatUI() {
   document.querySelector(".app").classList.remove("chat-open");
   $("diagnostic-actions").hidden = true;
   $("main-composer").hidden = false;
+  chatView.readOnly = false;
   $("chat-head-actions").style.visibility = "";
   renderChatList();
 }
@@ -2103,7 +2109,11 @@ async function joinFromInvite(link) {
     toast("Joining chats needs the background core — not available in demo mode", 4500);
     return;
   }
-  const parsed = parseInviteLink(link);
+  let parsed = parseInviteLink(link);
+  if (!parsed && isShortInviteLink(link)) {
+    parsed = await expandShortInvite(link);
+    if (!parsed) { toast("Could not expand this short invite link", 4500); return; }
+  }
   const label = parsed ? inviteLabel(parsed) : null;
   let ok;
   if (label?.kind === "group") {
@@ -2141,7 +2151,7 @@ async function joinFromInvite(link) {
 function joinFlow() {
   const body = document.createElement("div");
   body.innerHTML = `
-    <p style="font-size:14.5px;line-height:1.5;margin-bottom:4px">Paste an invite link (<code>https://i.delta.chat/#…</code> or a mirror domain) — works for both 1:1 contacts and group chats.</p>
+    <p style="font-size:14.5px;line-height:1.5;margin-bottom:4px">Paste an invite link (<code>https://i.delta.chat/#…</code>, a mirror domain, or a short link like <code>deltachat.id/&lt;name&gt;</code>) — works for both 1:1 contacts and group chats.</p>
     <input class="text-field" placeholder="https://i.delta.chat/#DD1F…" id="join-input">`;
   const foot = document.createDocumentFragment(); // direct child of .modal-foot -> one-row flex
   const cancel = document.createElement("button");
@@ -2153,7 +2163,7 @@ function joinFlow() {
   cancel.addEventListener("click", close);
   ok.addEventListener("click", () => {
     const v = body.querySelector("#join-input").value.trim();
-    if (!parseInviteLink(v)) {
+    if (!parseInviteLink(v) && !isShortInviteLink(v)) {
       toast("That doesn't look like an invite link (e.g. https://i.delta.chat/#… or OPENPGP4FPR:…)"); return;
     }
     close();
