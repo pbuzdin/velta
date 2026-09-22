@@ -1,4 +1,4 @@
-﻿# Core Upgrade Test Plan
+# Core Upgrade Test Plan
 
 How to upgrade the vendored Delta Chat core (`core/`) — or swap a prebuilt
 `deltachat-rpc-server` binary — without breaking Velta. This plan exists
