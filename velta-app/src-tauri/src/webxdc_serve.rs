@@ -13,6 +13,27 @@ use crate::{guess_mime, percent_decode, RpcState};
 
 pub const WEBXDC_SHIM: &str = include_str!("webxdc-shim.js");
 
+// Webxdc apps must have no network access (webxdc spec). The app's CSP in
+// tauri.conf.json does not cover custom-protocol responses, so every
+// webxdc response carries its own policy: only the webxdc origin plus
+// data:/blob:, no remote hosts, no WebRTC. 'unsafe-inline'/'unsafe-eval'
+// stay allowed for scripts because apps (and the injected
+// __TAURI_INTERNALS__ stub) rely on them. Same policy shape as Delta Chat
+// desktop. The webxdc origins are listed explicitly next to 'self': the
+// frame is sandboxed into an opaque origin, and the app's own assets must
+// keep loading no matter how the WebView resolves 'self' there.
+pub const WEBXDC_CSP: &str = "default-src 'self' http://webxdc.localhost https://webxdc.localhost webxdc://localhost; \
+    style-src 'self' http://webxdc.localhost https://webxdc.localhost webxdc://localhost 'unsafe-inline' blob:; \
+    font-src 'self' http://webxdc.localhost https://webxdc.localhost webxdc://localhost data: blob:; \
+    script-src 'self' http://webxdc.localhost https://webxdc.localhost webxdc://localhost 'unsafe-inline' 'unsafe-eval' blob:; \
+    connect-src 'self' http://webxdc.localhost https://webxdc.localhost webxdc://localhost data: blob:; \
+    img-src 'self' http://webxdc.localhost https://webxdc.localhost webxdc://localhost data: blob:; \
+    media-src 'self' http://webxdc.localhost https://webxdc.localhost webxdc://localhost data: blob:; \
+    frame-src 'self' http://webxdc.localhost https://webxdc.localhost webxdc://localhost data: blob:; \
+    webrtc 'block'";
+
+static WXDC_RPC_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 // Last app whose index.html was served. Spec-violating apps built with
 // absolute asset paths ("/assets/…" — vite's default base "/") drop the
 // /<account>/<msg>/ prefix, and those requests arrive with no app context.
@@ -37,21 +58,26 @@ async fn webxdc_rpc(
     method: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
+    // A counter, not a timestamp: parallel asset requests could share a
+    // nanosecond stamp (100 ns clock resolution on Windows), and a colliding
+    // id overwrote the first waiter in wxdc_pending.
     let id = format!(
         "wxdc-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
+        WXDC_RPC_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     );
     let request = serde_json::json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
     let (tx, rx) = tokio::sync::oneshot::channel::<String>();
     {
         // Scope the State borrow: the response arrives via the forwarders
         // (reader thread / android task) while this future is suspended.
+        // Register the waiter BEFORE sending, or a fast response can arrive
+        // while no one is registered and get dropped.
         let state = app.state::<RpcState>();
-        state.send_rpc(&request.to_string())?;
-        state.wxdc_pending.lock().unwrap().insert(id, tx);
+        state.wxdc_pending.lock().unwrap().insert(id.clone(), tx);
+        if let Err(e) = state.send_rpc(&request.to_string()) {
+            state.wxdc_pending.lock().unwrap().remove(&id);
+            return Err(e);
+        }
     }
     let line = tokio::time::timeout(std::time::Duration::from_secs(30), rx)
         .await
@@ -157,6 +183,7 @@ pub async fn webxdc_serve(
     tauri::http::Response::builder()
         .header("Content-Type", mime)
         .header("Cache-Control", "no-cache")
+        .header("Content-Security-Policy", WEBXDC_CSP)
         .header("Access-Control-Allow-Origin", "*")
         .body(bytes)
         .unwrap()
