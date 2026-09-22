@@ -383,6 +383,25 @@ fn guess_mime(path: &str) -> &'static str {
     }
 }
 
+// Origins of the app's own main window (Tauri serves the frontend at
+// tauri://localhost on macOS/Linux and http(s)://tauri.localhost on
+// Windows/Android). Only these may read blob/media responses cross-origin.
+const APP_ORIGINS: &[&str] = &["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"];
+
+/// CORS gate for the blob/media servers. Requests without an Origin header
+/// (plain <img>/<video>/<audio> loads) pass and get no ACAO header. A request
+/// that carries an Origin must be one of the app's own origins: sandboxed
+/// frames (webxdc apps, the HTML viewer) send `Origin: null` and must never
+/// be able to read files from the accounts directory.
+/// Ok(Some(origin)) -> echo it in Access-Control-Allow-Origin; Err -> 403.
+fn media_cors(origin: Option<&str>) -> Result<Option<String>, ()> {
+    match origin {
+        None => Ok(None),
+        Some(o) if APP_ORIGINS.contains(&o) => Ok(Some(o.to_string())),
+        Some(_) => Err(()),
+    }
+}
+
 // "bytes=a-b" | "bytes=a-" | "bytes=-n" → inclusive (start, end)
 fn parse_range(header: &str, len: u64) -> Option<(u64, u64)> {
     let rest = header.trim().strip_prefix("bytes=")?;
@@ -445,6 +464,21 @@ fn serve_blob_file(app: &tauri::AppHandle, request: tauri::http::Request<Vec<u8>
             .unwrap();
     }
 
+    // Only the app's own window may read blobs cross-origin; sandboxed
+    // frames (webxdc, HTML viewer) arrive with `Origin: null` and are
+    // refused (see media_cors).
+    let acao = match media_cors(request.headers().get("origin").and_then(|v| v.to_str().ok())) {
+        Ok(acao) => acao,
+        Err(()) => {
+            log("blobfile FORBIDDEN (foreign origin)");
+            return tauri::http::Response::builder().status(403).body(b"forbidden".to_vec()).unwrap();
+        }
+    };
+    let cors = |b: tauri::http::response::Builder| match &acao {
+        Some(origin) => b.header("Access-Control-Allow-Origin", origin.as_str()).header("Vary", "Origin"),
+        None => b,
+    };
+
     // Only serve files that live inside the accounts directory (blobs,
     // uploads) -- never anything else on the filesystem. Canonicalize both
     // sides: on Android the core reports blobs under /data/user/0 (a symlink
@@ -489,31 +523,28 @@ fn serve_blob_file(app: &tauri::AppHandle, request: tauri::http::Request<Vec<u8>
                 }
             }
             buf.truncate(filled);
-            return tauri::http::Response::builder()
+            return cors(tauri::http::Response::builder())
                 .status(206)
                 .header("Content-Type", mime)
                 .header("Accept-Ranges", "bytes")
-                .header("Access-Control-Allow-Origin", "*")
                 .header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges")
                 .header("Content-Range", format!("bytes {}-{}/{}", start, start + filled as u64 - 1, len))
                 .header("Content-Length", filled)
                 .body(buf)
                 .unwrap();
         }
-        return tauri::http::Response::builder()
+        return cors(tauri::http::Response::builder())
             .status(416)
-            .header("Access-Control-Allow-Origin", "*")
             .header("Content-Range", format!("bytes */{}", len))
             .body(Vec::new())
             .unwrap();
     }
 
     match std::fs::read(&serve_path) {
-        Ok(data) => tauri::http::Response::builder()
+        Ok(data) => cors(tauri::http::Response::builder())
             .status(200)
             .header("Content-Type", mime)
             .header("Accept-Ranges", "bytes")
-            .header("Access-Control-Allow-Origin", "*")
             .header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges")
             .header("Content-Length", data.len())
             .body(data)
@@ -742,7 +773,10 @@ fn serve_media_connection(stream: &mut std::net::TcpStream, accounts: &PathBuf) 
     use std::io::{Read, Seek, SeekFrom, Write};
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(10)));
 
-    // read the request head (request line + headers)
+    // Read the request head (request line + headers) up to the blank line.
+    // The terminator must be spelled with escapes: a raw CR/LF inside the
+    // literal is normalized by rustc to a bare "\n\n", which never matches a
+    // 4-byte window -- every request then sat until the 10 s read timeout.
     let mut head = Vec::new();
     let mut buf = [0u8; 2048];
     loop {
@@ -750,9 +784,7 @@ fn serve_media_connection(stream: &mut std::net::TcpStream, accounts: &PathBuf) 
             Ok(0) => break,
             Ok(n) => {
                 head.extend_from_slice(&buf[..n]);
-                if head.windows(4).any(|w| w == b"
-
-") || head.len() > 64 * 1024 {
+                if head.windows(4).any(|w| w == b"\r\n\r\n") || head.len() > 64 * 1024 {
                     break;
                 }
             }
@@ -760,30 +792,39 @@ fn serve_media_connection(stream: &mut std::net::TcpStream, accounts: &PathBuf) 
         }
     }
     let head = String::from_utf8_lossy(&head);
-    let mut lines = head.split("
-");
+    let mut lines = head.split("\r\n");
     let request_line = lines.next().unwrap_or("");
     let mut path = "";
     let mut range: Option<String> = None;
+    let mut origin: Option<String> = None;
     for part in request_line.split(' ') {
         if part.starts_with('/') {
             path = part;
         }
     }
     for line in lines {
-        if let Some(v) = line.strip_prefix("Range: ").or_else(|| line.strip_prefix("range: ")) {
-            range = Some(v.to_string());
+        let Some((name, value)) = line.split_once(':') else { continue };
+        let value = value.trim();
+        if name.eq_ignore_ascii_case("range") {
+            range = Some(value.to_string());
+        } else if name.eq_ignore_ascii_case("origin") {
+            origin = Some(value.to_string());
         }
     }
 
     let mut not_found = || {
-        let _ = stream.write_all(
-            b"HTTP/1.1 404 Not Found
-Content-Length: 0
-Connection: close
+        let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+    };
 
-",
-        );
+    // Same CORS gate as the blobfile protocol: sandboxed frames send
+    // `Origin: null` and must not read account files (see media_cors).
+    let cors = match media_cors(origin.as_deref()) {
+        Ok(Some(o)) => format!("Access-Control-Allow-Origin: {o}\r\nVary: Origin\r\n"),
+        Ok(None) => String::new(),
+        Err(()) => {
+            eprintln!("[media] 403: foreign origin {origin:?}");
+            return not_found();
+        }
     };
 
     // path: /<token>/<percent-encoded-abs-path>
@@ -800,7 +841,7 @@ Connection: close
         }
     };
     if url_token != token {
-        eprintln!("[media] 404: token mismatch (got {url_token:?})");
+        eprintln!("[media] 404: token mismatch");
         return not_found();
     }
     let file = percent_decode(enc_path);
@@ -834,11 +875,7 @@ Connection: close
         let Some((start, end)) = parse_range(header, len) else {
             let _ = stream.write_all(
                 format!(
-                    "HTTP/1.1 416 Range Not Satisfiable
-Content-Range: bytes */{len}
-Connection: close
-
-"
+                    "HTTP/1.1 416 Range Not Satisfiable\r\n{cors}Content-Range: bytes */{len}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
                 )
                 .as_bytes(),
             );
@@ -849,15 +886,7 @@ Connection: close
             return not_found();
         }
         let headers = format!(
-            "HTTP/1.1 206 Partial Content
-Content-Type: {mime}
-Accept-Ranges: bytes
-Access-Control-Allow-Origin: *
-Content-Range: bytes {start}-{end}/{len}
-Content-Length: {take}
-Connection: close
-
-"
+            "HTTP/1.1 206 Partial Content\r\nContent-Type: {mime}\r\nAccept-Ranges: bytes\r\n{cors}Content-Range: bytes {start}-{end}/{len}\r\nContent-Length: {take}\r\nConnection: close\r\n\r\n"
         );
         if stream.write_all(headers.as_bytes()).is_err() {
             return;
@@ -883,14 +912,7 @@ Connection: close
 
     // Full GET: stream in chunks -- a large video must never be buffered whole.
     let headers = format!(
-        "HTTP/1.1 200 OK
-Content-Type: {mime}
-Accept-Ranges: bytes
-Access-Control-Allow-Origin: *
-Content-Length: {len}
-Connection: close
-
-"
+        "HTTP/1.1 200 OK\r\nContent-Type: {mime}\r\nAccept-Ranges: bytes\r\n{cors}Content-Length: {len}\r\nConnection: close\r\n\r\n"
     );
     if stream.write_all(headers.as_bytes()).is_err() {
         return;
@@ -1696,12 +1718,15 @@ pub fn run() {
             // request but fails mid-file reads, so moov-at-end videos die in
             // the demuxer there; the server's real 206 responses fix playback.
             {
+                // 128 random bits: the token is the only thing standing
+                // between other local processes/users and the account files
+                // this server can read, so it must not be derivable from the
+                // start time or the PID.
                 *MEDIA_TOKEN.lock().unwrap() = {
-                    let nanos = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.subsec_nanos() as u64 ^ d.as_secs())
-                        .unwrap_or(0);
-                    format!("{:016x}", nanos ^ ((std::process::id() as u64) << 32))
+                    use rand::RngCore;
+                    let mut bytes = [0u8; 16];
+                    rand::rngs::OsRng.fill_bytes(&mut bytes);
+                    data_encoding::HEXLOWER.encode(&bytes)
                 };
                 start_media_server(accounts_dir(&app.handle()));
             }
@@ -1951,8 +1976,6 @@ mod media_tests {
         port
     }
 
-    // The server writes headers with bare-LF separators (pre-existing wire
-    // format; WebViews tolerate it), so parse the response as raw bytes.
     fn exchange(port: u16, request: String) -> Vec<u8> {
         let mut sock = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
         sock.write_all(request.as_bytes()).unwrap();
@@ -1969,23 +1992,77 @@ mod media_tests {
     }
 
     fn head(response: &[u8]) -> String {
-        let end = response.windows(2).position(|w| w == b"\n\n").map(|i| i + 2).unwrap_or(response.len());
+        let end = response.windows(4).position(|w| w == b"\r\n\r\n").map(|i| i + 4).unwrap_or(response.len());
         String::from_utf8_lossy(&response[..end]).into_owned()
     }
 
     fn body(response: &[u8]) -> &[u8] {
-        match response.windows(2).position(|w| w == b"\n\n") {
-            Some(i) => &response[i + 2..],
+        match response.windows(4).position(|w| w == b"\r\n\r\n") {
+            Some(i) => &response[i + 4..],
             None => &[],
         }
     }
 
     fn get(port: u16, token: &str, path: &str, range: Option<&str>) -> Vec<u8> {
+        get_with(port, token, path, range, None)
+    }
+
+    fn get_with(port: u16, token: &str, path: &str, range: Option<&str>, origin: Option<&str>) -> Vec<u8> {
         let range_line = range.map(|r| format!("Range: {r}\r\n")).unwrap_or_default();
+        let origin_line = origin.map(|o| format!("Origin: {o}\r\n")).unwrap_or_default();
         exchange(
             port,
-            format!("GET /{token}/{} HTTP/1.1\r\nHost: x\r\n{range_line}\r\n", path),
+            format!("GET /{token}/{} HTTP/1.1\r\nHost: x\r\n{range_line}{origin_line}\r\n", path),
         )
+    }
+
+    // Regression: the head terminator literal was a raw newline pair, so the
+    // server never saw the end of the request head and every request waited
+    // for the 10 s read timeout before answering.
+    #[test]
+    fn request_head_is_parsed_without_waiting_for_the_read_timeout() {
+        let dir = temp_media_dir("latency");
+        *MEDIA_TOKEN.lock().unwrap() = "testtoken".into();
+        let path = make_media_file(&dir, "clip.mp4", 100);
+        let port = start_test_server(dir.clone());
+
+        let started = std::time::Instant::now();
+        let response = get(port, "testtoken", &path.to_string_lossy(), Some("bytes=0-9"));
+        assert!(head(&response).starts_with("HTTP/1.1 206"), "{}", head(&response));
+        assert!(started.elapsed() < std::time::Duration::from_secs(3), "took {:?}", started.elapsed());
+    }
+
+    #[test]
+    fn sandboxed_frames_cannot_read_media_and_the_app_origin_can() {
+        let dir = temp_media_dir("origin");
+        *MEDIA_TOKEN.lock().unwrap() = "testtoken".into();
+        let path = make_media_file(&dir, "clip.mp4", 100);
+        let port = start_test_server(dir.clone());
+        let p = path.to_string_lossy();
+
+        // Opaque-origin frames (webxdc apps, the HTML viewer) send Origin: null.
+        let denied = get_with(port, "testtoken", &p, None, Some("null"));
+        assert!(head(&denied).starts_with("HTTP/1.1 404"), "{}", head(&denied));
+        assert!(body(&denied).is_empty());
+
+        let allowed = get_with(port, "testtoken", &p, None, Some("http://tauri.localhost"));
+        assert!(head(&allowed).starts_with("HTTP/1.1 200"), "{}", head(&allowed));
+        assert!(head(&allowed).contains("Access-Control-Allow-Origin: http://tauri.localhost"), "{}", head(&allowed));
+
+        // Plain element loads carry no Origin and get no ACAO header.
+        let plain = get(port, "testtoken", &p, None);
+        assert!(head(&plain).starts_with("HTTP/1.1 200"), "{}", head(&plain));
+        assert!(!head(&plain).contains("Access-Control-Allow-Origin"), "{}", head(&plain));
+    }
+
+    #[test]
+    fn media_cors_accepts_only_app_origins() {
+        assert_eq!(media_cors(None), Ok(None));
+        assert_eq!(media_cors(Some("tauri://localhost")), Ok(Some("tauri://localhost".into())));
+        assert_eq!(media_cors(Some("http://tauri.localhost")), Ok(Some("http://tauri.localhost".into())));
+        assert_eq!(media_cors(Some("null")), Err(()));
+        assert_eq!(media_cors(Some("http://webxdc.localhost")), Err(()));
+        assert_eq!(media_cors(Some("https://example.com")), Err(()));
     }
 
     #[test]
