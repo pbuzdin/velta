@@ -1,7 +1,7 @@
 [package]
 name = "velta-app"
 version = "1.4.26"
-description = "Velta вЂ” Delta Chat client"
+description = "Velta — Delta Chat client"
 edition = "2021"
 rust-version = "1.89"
 # src/bin/p2p-hub.rs is auto-discovered as a second binary (debug helper);

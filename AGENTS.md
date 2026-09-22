@@ -823,6 +823,18 @@ test traffic accordingly.
   real storage throws in opaque origins. Do not re-add `allow-same-origin`
   — all webxdc apps share the `webxdc.localhost` origin, so same-origin
   would let a malicious app read every other app's blobs.
+- **Webxdc responses carry their own CSP** (`WEBXDC_CSP`, webxdc_serve.rs):
+  the app CSP does not apply to custom-protocol responses, so without it
+  mini-apps had unrestricted network access. KEEP it on every webxdc
+  response; no remote hosts, `webrtc 'block'`.
+- **Blob/media servers answer only the app's own origin** (`media_cors`,
+  lib.rs): no `Access-Control-Allow-Origin: *`; requests with a foreign
+  Origin — including `null` from sandboxed frames (webxdc, HTML viewer) —
+  are refused. The loopback media token is 128 bits from `OsRng`.
+- **Peer-supplied ids never reach a path unchecked** — local-chat transfer
+  ids go through `is_safe_transfer_id` (p2p.rs) before `partial-{id}`.
+- **Message-derived strings are always escaped** before `innerHTML`,
+  including reactions (the core accepts any short token as a reaction).
 - **PWA protocol handler.** `manifest.webmanifest` registers `web+dcaccount` as a
   protocol handler. Validate incoming `?qr=` parameters before passing them to
   the core.

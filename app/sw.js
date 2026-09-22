@@ -1,4 +1,4 @@
-// sw.js вЂ” Velta service worker (app-shell cache)
+// sw.js — Velta service worker (app-shell cache)
 const CACHE = "velta-v190";
 const ASSETS = [
   "./",
