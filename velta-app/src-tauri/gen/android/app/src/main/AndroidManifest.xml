@@ -41,16 +41,21 @@
         </intent>
     </queries>
 
+    <!-- No hardcoded android:debuggable: release APKs must not be
+         debuggable (run-as would expose the account databases and keys).
+         Debug builds get it from build.gradle.kts (isDebuggable = true), so
+         run-as log access keeps working there.
+         allowBackup/fullBackupContent off: the app data holds private keys
+         and must not be copied into OS or cloud backups. -->
     <application
-        android:debuggable="true" tools:ignore="HardcodedDebugMode"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@style/Theme.velta_app"
         android:usesCleartextTraffic="${usesCleartextTraffic}">
-        <!-- 🐴 ceiling: android:debuggable is ON for on-device log diagnosis
-             (run-as access to the private velta.log). MUST be removed before
-             any release build - it disables SELinux hardening for the app. -->
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
             android:launchMode="singleTask"
