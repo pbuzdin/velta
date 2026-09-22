@@ -1014,11 +1014,13 @@ function chatItemUpToDate(item, chat, active) {
 
 // Group message sender avatars open the contact's profile modal — the same
 // showChatInfo sheet, built around the contact instead of a chat object.
+// No partial contact stub here: showChatInfo hydrates the full contact
+// (real avatar, bot flag, presence) whenever chat.contact is absent — a stub
+// would block that and the sheet would keep the matrix initials.
 function openContactProfile(contact) {
   showChatInfo({
     contactId: contact.contactId ?? contact.id,
     name: contact.name,
-    contact: { addr: contact.addr, online: contact.online, lastSeen: contact.lastSeen },
     kind: "single",
     encrypted: true,
   });
@@ -1254,7 +1256,7 @@ async function showChatInfo(chat) {
   const body = document.createElement("div");
   body.innerHTML = `
     <div style="display:flex;justify-content:center;align-items:center;gap:16px;padding:8px 0 14px">
-      <velta-avatar class="chat-info-avatar" name="${escapeHtml(chat.name)}" color="${chat.avatarColor || "#777"}" kind="${chat.kind}" size="168"${chat.contactId ? ` contact-id="${chat.contactId}"` : ""}${chat.contact && chat.contact.addr ? ` addr="${escapeAttr(chat.contact.addr)}"` : ""}${chat.avatar ? ` avatar="${escapeAttr(fileUrl(chat.avatar))}"` : ""}></velta-avatar>
+      <velta-avatar class="chat-info-avatar" name="${escapeHtml(chat.name)}" color="${chat.avatarColor || "#777"}" kind="${chat.kind}" size="168"${chat.contactId ? ` contact-id="${chat.contactId}"` : ""}${chat.contact && chat.contact.addr ? ` addr="${escapeAttr(chat.contact.addr)}"` : ""}${(chat.avatar || chat.contact?.avatar) ? ` avatar="${escapeAttr(fileUrl(chat.avatar || chat.contact.avatar))}"` : ""}></velta-avatar>
       ${chat.contactId ? `<span class="chat-info-tile" data-caption-tile></span>` : ""}
     </div>
     ${!isGroup && chat.contactId && chat.contactId !== 1 ? `<div class="profile-actions">
