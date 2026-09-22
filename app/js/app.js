@@ -9,7 +9,7 @@ import { initCalls } from "./calls.js";
 import { initWebxdc } from "./webxdc-manager.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal } from "./invites.js";
-import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate } from "./ui.js";
+import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate, getAppVersion, coreVersion } from "./ui.js";
 import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact } from "./p2p.js";
 import { withLocalChat, hubModel, renameDevice, removePeer, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
 import { timeAgo, formatBytes } from "./mock-core.js";
@@ -1253,6 +1253,35 @@ async function showChatInfo(chat) {
     ${chat.contactId ? `<div class="info-row"><span class="k">Profile key</span><span class="v"><span class="avatar-profile-fpr" data-profile-key>…</span></span></div>` : ""}
     ${chat.contact && (chat.contact.online || chat.contact.lastSeen) ? `<div class="info-row"><span class="k">Last seen</span><span class="v">${escapeHtml(chat.contact.online ? "online" : timeAgo(chat.contact.lastSeen))}</span></div>` : ""}` : "";
   const isGroup = chat.kind === "group" || chat.kind === "channel";
+  const isSelf = chat.contactId === 1;
+  const isContactProfile = !isGroup && chat.contactId && !isSelf;
+
+  // Relay rows. For 1:1 profiles: the contact's relay, derived from their
+  // address (🐴 the core exposes no per-contact relay list — a multi-relay
+  // contact's full address set lives in keyupdate internals; upgrade path is
+  // an upstream contact-relay API). For self and group profiles: each of this
+  // account's transports; tapping a row opens the relays manager.
+  let relayRows = "";
+  if (!chat.isP2p) {
+    const contactAddr = isContactProfile ? chat.contact?.addr : null;
+    if (contactAddr) {
+      relayRows = `<div class="info-row"><span class="k">Relay</span><span class="v">${escapeHtml(String(contactAddr).split("@")[1] || contactAddr)}</span></div>`;
+    } else {
+      let transports = [];
+      try { transports = await core.listTransports(); } catch { /* offline — fall back below */ }
+      if (!transports.length && state.account.relay) transports = [{ addr: state.account.addr }];
+      relayRows = transports.map(t => `<div class="info-row" data-relays style="cursor:pointer"><span class="k">Relay</span><span class="v">${escapeHtml(t.addr || "")} ›</span></div>`).join("");
+    }
+  }
+
+  // Version row on the self profile only — the core publishes no per-contact
+  // client version (appversions are own-device IMAP METADATA).
+  let versionRow = "";
+  if (isSelf) {
+    const appVer = await getAppVersion();
+    versionRow = `<div class="info-row"><span class="k">Version</span><span class="v">Velta ${escapeHtml(appVer)} · core ${escapeHtml(coreVersion())}</span></div>`;
+  }
+
   const body = document.createElement("div");
   body.innerHTML = `
     <div style="display:flex;justify-content:center;align-items:center;gap:16px;padding:8px 0 14px">
@@ -1268,14 +1297,17 @@ async function showChatInfo(chat) {
       <div class="modal-list" data-member-list style="max-height:240px;overflow:auto"></div>` : ""}
     ${contactRows}
     <div class="info-row"><span class="k">Notifications</span><span class="v">${chat.muted ? "Muted" : "On"}</span></div>
-    <div class="info-row" data-relays style="cursor:pointer"><span class="k">Transport</span><span class="v">chatmail relay · ${escapeHtml(state.account.relay)} ›</span></div>
-    ${!isGroup && chat.contactId ? `<div class="info-row" data-common-head style="display:none"><span class="k" style="color:var(--text);font-weight:600">Chats in common</span></div>
-    <div class="modal-list" data-common-list style="display:none;max-height:180px;overflow:auto"></div>` : ""}`;
+    ${versionRow}
+    ${relayRows}
+    ${!isGroup && chat.contactId ? `<details class="info-details" data-common hidden>
+      <summary class="info-row"><span class="k">Chats in common</span><span class="v" data-common-count></span></summary>
+      <div class="modal-list" data-common-list style="max-height:180px;overflow:auto"></div>
+    </details>` : ""}`;
   const modal = showModal({ title: chat.name, body });
 
-  // Relay transports (multi-relay) — tapping the Transport row opens the
-  // relays manager for the current account.
-  body.querySelector("[data-relays]")?.addEventListener("click", () => openRelaysModal());
+  // Relay transports (multi-relay) — tapping a relay row opens the relays
+  // manager for the current account.
+  body.querySelectorAll("[data-relays]").forEach(el => el.addEventListener("click", () => openRelaysModal()));
 
   // Profile action buttons (single chats, not the self contact): send, share, rename, block.
   if (!isGroup && chat.contactId && chat.contactId !== 1) {
@@ -1397,12 +1429,12 @@ async function showChatInfo(chat) {
           if (members.some(m => m.id === chat.contactId)) common.push(c);
         } catch { /* skip chats whose members can't be listed */ }
       }
-      const head = body.querySelector("[data-common-head]");
+      const details = body.querySelector("[data-common]");
       const list = body.querySelector("[data-common-list]");
-      if (!head || !list || !document.contains(head)) return;
-      if (!common.length) { head.remove(); list.remove(); return; }
-      head.style.display = "";
-      list.style.display = "";
+      if (!details || !list || !document.contains(details)) return;
+      if (!common.length) return; // no chats in common — details stays hidden
+      const count = details.querySelector("[data-common-count]");
+      if (count) count.textContent = `(${common.length})`;
       for (const c of common) {
         const row = document.createElement("div");
         row.className = "info-row clickable";
@@ -1410,6 +1442,7 @@ async function showChatInfo(chat) {
         row.addEventListener("click", () => { modal.close(); openChat(c.id); });
         list.appendChild(row);
       }
+      details.hidden = false;
     }).catch(() => {});
   }
 

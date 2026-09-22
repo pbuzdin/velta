@@ -362,6 +362,10 @@ export class JsonRpcCore extends EventTarget {
         // device that made the change too, not only on synced devices.
         this._emitAccount("transports-modified", {}, accountEpoch);
         break;
+      case "MessagePinned":
+      case "MessageUnpinned":
+        this._emitAccount("pinned-changed", { chatId }, accountEpoch);
+        break;
       case "IncomingCall":
         // placeCallInfo carries the caller's SDP offer, but read the fresh
         // copy via callInfo() on accept — it is valid even if this event
@@ -571,6 +575,7 @@ export class JsonRpcCore extends EventTarget {
       dimensionsWidth: m.dimensionsWidth > 0 ? m.dimensionsWidth : null,
       dimensionsHeight: m.dimensionsHeight > 0 ? m.dimensionsHeight : null,
       encrypted: m.showPadlock !== false, // padlock true = e2e-encrypted
+      pinned: !!m.isPinned,
       img: null, // real blobs need blob-dir serving; placeholder for now
       duration: m.duration ? Math.round(m.duration / 1000) : undefined,
       fromContact: out
@@ -817,6 +822,18 @@ export class JsonRpcCore extends EventTarget {
     return this._call("resend_messages", this.accountId, [msgId]);
   }
 
+  // Pin/unpin a message (core 2.59+ pinned-messages API; works in group and
+  // private chats). MessagePinned/MessageUnpinned events arrive as
+  // "pinned-changed".
+  async pinMessage(msgId, pinned) {
+    return this._call("set_pinned_message_state", this.accountId, msgId, !!pinned);
+  }
+
+  // All pinned message ids of a chat, in the core's order.
+  async getPinnedMessages(chatId) {
+    return this._call("get_pinned_messages", this.accountId, chatId);
+  }
+
   async getContact(contactId) {
     const c = await this._call("get_contact", this.accountId, contactId);
     return this._mapContact(c);
@@ -857,14 +874,22 @@ export class JsonRpcCore extends EventTarget {
     const list = await this.getChatList({}, accountId);
     const found = list.find(c => c.id === chatId);
     if (found) return found;
-    // fallback: minimal info for chats not in the default list
+    // fallback: minimal info for chats not in the default list (archived etc.)
     const info = await this._call("get_basic_chat_info", accountId, chatId).catch(() => null);
     if (!info) return null;
+    // core 2.61.0: BasicChat no longer carries dmChatContact — derive the
+    // single-chat contact from get_chat_contacts, or presence/bot hydration
+    // (refreshChatHeadPresence) silently bails and cht-status stays empty.
+    let contactId = null;
+    if (info.chatType === "Single") {
+      const ids = await this._call("get_chat_contacts", accountId, chatId).catch(() => []);
+      contactId = ids.find(id => id > 9) ?? null; // skip reserved ids (SELF=1, info, …)
+    }
     return {
-      id: chatId, name: info.name || "?", kind: "single",
-      contactId: info.dmChatContact ?? null,
-      encrypted: !!info.isEncrypted, verified: false, muted: false, pinned: false,
-      archived: false, avatarColor: info.color || null, avatar: info.avatarPath || null, contact: null, memberCount: 0,
+      id: chatId, name: info.name || "?", kind: this._chatKind(info),
+      contactId,
+      encrypted: !!info.isEncrypted, verified: false, muted: !!info.isMuted, pinned: !!info.pinned,
+      archived: !!info.archived, avatarColor: info.color || null, avatar: info.profileImage || null, contact: null, memberCount: 0,
     };
   }
 

@@ -477,6 +477,24 @@ export class MockCore extends EventTarget {
     return hits;
   }
 
+  // Demo twin of rpc-core.pinMessage (core 2.59+ pinned-messages API).
+  async pinMessage(msgId, pinned) {
+    for (const c of this.chats) {
+      const m = c.messages.find(x => x.id === msgId);
+      if (m) {
+        m.isPinned = !!pinned;
+        this._emit("pinned-changed", { chatId: c.id });
+        return;
+      }
+    }
+  }
+
+  async getPinnedMessages(chatId) {
+    const c = this.chats.find(x => x.id === chatId);
+    if (!c) return [];
+    return c.messages.filter(m => m.isPinned).map(m => m.id);
+  }
+
   _decorate(m) {
     const d = structuredClone(m);
     d.fromContact = m.from === 1

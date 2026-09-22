@@ -50,6 +50,7 @@ const ICO = {
   check: `<svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   edit: `<svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   resend: `<svg viewBox="0 0 24 24"><polyline points="2.5 5.5 2.5 11 8 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.2 14.5a8 8 0 1 0 1.5-8L2.5 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
+  pin: `<svg viewBox="0 0 24 24"><path d="M9 4h6l1 7 3 3v2h-6v5l-1 1-1-1v-5H5v-2l3-3z" fill="currentColor"/></svg>`,
 };
 
 // On Android the file picker can return a content URI / temporary path that the
@@ -293,6 +294,7 @@ export class ChatView {
       this._renderReplyPreview();
       this._rebuildItems(messages);
       this._createScroller();
+      this._refreshPinnedBar();
       await this.core.markRead(chatId);
       if (!this._isCurrent(session)) return false;
       this._scrollBottomSettling();
@@ -329,6 +331,38 @@ export class ChatView {
     }
   }
 
+  // Pinned-message strip between the chat head and the history (core 2.59+
+  // pinned-messages API; group and private chats). Shows the most recent
+  // pinned message. 🐴 The core returns the whole pinned list per chat but
+  // the strip shows only the newest one — a multi-pin carousel is the
+  // upgrade path if multiple pins per chat are wanted.
+  _ensurePinnedBar() {
+    if (this.pinnedBar?.isConnected) return this.pinnedBar;
+    const bar = this.pinnedBar = document.createElement("button");
+    bar.id = "pinned-bar";
+    bar.className = "pinned-bar";
+    bar.hidden = true;
+    document.querySelector("#chat-view header.chat-head")?.after(bar);
+    return bar;
+  }
+
+  async _refreshPinnedBar() {
+    const session = this._session;
+    const bar = this._ensurePinnedBar();
+    if (!session || !this.core.getPinnedMessages) { bar.hidden = true; return; }
+    let ids = [];
+    try { ids = await this.core.getPinnedMessages(session.chatId); } catch { ids = []; }
+    if (!this._isCurrent(session)) return;
+    if (!ids.length) { bar.hidden = true; return; }
+    const id = ids[ids.length - 1];
+    const m = await this.core.getMessage(id).catch(() => null);
+    if (!this._isCurrent(session)) return;
+    const snippet = (m?.text || "").slice(0, 60) || (m?.viewtype && m.viewtype !== "text" ? m.viewtype : "message");
+    bar.innerHTML = `${ICO.pin}<span class="pb-text"><b>${escapeHtml(m?.fromContact?.name || "")}</b> ${escapeHtml(snippet)}</span>`;
+    bar.hidden = false;
+    bar.onclick = () => { if (this._isCurrent(session)) this._jumpToMessage(id); };
+  }
+
   // Full teardown: stop polling, dispose the virtual scroller, drop cached
   // rows and leave #history empty. Used when another surface takes over the
   // history area (Diagnostics chat) and when the chat is closed.
@@ -348,6 +382,7 @@ export class ChatView {
     if (this._tailRefetchTimer) { clearTimeout(this._tailRefetchTimer); this._tailRefetchTimer = null; }
     this._pendingTailRefetch = null;
     this._stopSettling?.();
+    if (this.pinnedBar) this.pinnedBar.hidden = true;
     this.chat = null;
     this.hasMore = false;
     this.loadingMore = false;
@@ -1282,6 +1317,17 @@ export class ChatView {
         },
       });
     }
+    if (this.core.pinMessage) {
+      items.push({
+        label: m.pinned ? "Unpin" : "Pin",
+        icon: ICO.pin,
+        onClick: () => {
+          this.core.pinMessage(m.id, !m.pinned)
+            .then(() => { m.pinned = !m.pinned; return this._refreshPinnedBar(); })
+            .catch((err) => toast("Couldn't " + (m.pinned ? "unpin" : "pin") + ": " + (err.message || err)));
+        },
+      });
+    }
     if (m.viewtype === "text" && m.text) items.push({ label: "Copy text", icon: ICO.copy, onClick: () => { navigator.clipboard?.writeText(m.text); toast("Copied"); } });
     items.push(
       { label: "Forward", icon: ICO.forward, onClick: () => this._forward([m.id]) },
@@ -2005,6 +2051,9 @@ export class ChatView {
     this.core.addEventListener("incoming-msg", e => this.onIncoming(e.detail.chatId, e.detail.msg));
     this.core.addEventListener("msgs-changed", e => this.onMsgsChanged(e.detail.chatId, { fresh: true }));
     this.core.addEventListener("msg-sent", e => { /* handled via sendMessage return */ });
+    this.core.addEventListener("pinned-changed", e => {
+      if (e.detail.chatId === this._session?.chatId) this._refreshPinnedBar();
+    });
   }
 }
 
