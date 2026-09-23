@@ -302,6 +302,32 @@ previous prebuilt was silently v2.59.0, which the drawer footer exposed).
 `.github/workflows/build-windows.yml` does the same via
 chocolatey-installed StrawberryPerl + NASM.
 
+### 4.3.2 macOS build (test build, ad-hoc signed)
+
+- `tauri.macos.conf.json` swaps the Windows `bundle.resources` sidecar for
+  `bundle.externalBin: binaries/deltachat-rpc-server` — Tauri resolves
+  `binaries/deltachat-rpc-server-<target-triple>` (or
+  `-universal-apple-darwin`) at BUILD time, even for `cargo check`, and
+  ships it as `Contents/MacOS/deltachat-rpc-server`. `find_sidecar` looks
+  the name up per platform (`SIDECAR_NAME`). KEEP the Windows sidecar out
+  of the macOS bundle and vice versa.
+- `tauri-winrt-notification` MUST stay under `[target.'cfg(windows)']` —
+  under the old `not(android/ios)` gate it dragged the `windows` crates
+  into macOS builds, which do not compile there.
+- Desktop log dir: Windows keeps `%LOCALAPPDATA%\Velta\logs`; macOS/Linux
+  use `app_log_dir()` (`~/Library/Logs/org.velta`) — there is no
+  LOCALAPPDATA, and the relative fallback resolved to an unwritable `/`.
+- `Info.plist` (merged by tauri-build) carries the microphone/camera usage
+  strings; `Entitlements.plist` grants audio-input/camera under the
+  hardened runtime. A new capability that touches a TCC-protected resource
+  needs both.
+- Signing: `signingIdentity: "-"` (ad-hoc), no notarization — users clear
+  the quarantine once (README "Install", release notes). Setting the
+  `APPLE_*` secrets (Developer ID + notarytool) in `build-macos.yml` is the
+  upgrade path; the env identity overrides the config.
+- Updater: `latest.json` carries `darwin-aarch64` + `darwin-x86_64`, both
+  pointing at the one universal `Velta_<version>_universal.app.tar.gz`.
+
 ### 4.4 Android background service (`velta-core-service/`)
 
 **Incoming-message notifications** have platform parity: Windows

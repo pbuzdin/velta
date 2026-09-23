@@ -7,6 +7,7 @@ A cross-platform **Delta Chat** client built as a single PWA-ish web app wrapped
 Velta shares one web frontend (`app/`) between:
 
 - **Windows desktop** — a Tauri 2 app that bundles `deltachat-rpc-server.exe` as a sidecar.
+- **macOS desktop** (test build) — the same Tauri 2 app with `deltachat-rpc-server` bundled as an `externalBin` sidecar; universal (Apple Silicon + Intel), ad-hoc signed, not notarized yet — see [Install on macOS](#install).
 - **Android mobile** — the same Tauri 2 app, but the Delta Chat core runs in-process inside the APK. A foreground service keeps sync (and notifications) running after the app is backgrounded.
 - **Browser/PWA** — the same frontend can be served statically and connects to a local `velta-core-service` over loopback WebSocket/HTTP, or falls back to a mock core for demo purposes. The PWA's target deployment is a **remote core service over WSS/TLS** — the loopback bridge remains the local/dev path. If the loopback connection drops mid-session (service restart), the app reconnects automatically — backoff up to 15 s — and refreshes the chat list; no reload needed.
 
@@ -20,6 +21,46 @@ Captured from the responsive PWA running in demo mode (mock core), dark theme.
 |:--------------:|:------:|:-------:|
 | **Chat list**  | ![Mobile chat list](screenshots/mobile-chat-list.png) | ![Desktop chat list](screenshots/desktop-chat-list.png) |
 | **Chat opened** | ![Mobile chat](screenshots/mobile-chat.png) | ![Desktop chat](screenshots/desktop-chat.png) |
+
+## Install
+
+<details>
+<summary>macOS (test build): opening a non-notarized app</summary>
+
+Download `Velta_<version>_universal.dmg` from the
+[latest release](https://github.com/pbuzdin/velta/releases/latest). It runs on
+Apple Silicon and Intel Macs, macOS 10.15 or newer.
+
+The macOS build is **ad-hoc signed and not notarized** (there is no Apple
+Developer ID yet), so Gatekeeper blocks the first launch with "Velta can't be
+opened" / "Apple could not verify…". The app is not damaged; clear the
+download quarantine once:
+
+1. Open the DMG and drag **Velta** into **Applications**.
+2. Either run, in Terminal:
+
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Velta.app
+   ```
+
+   or try to open Velta once, then open **System Settings → Privacy &
+   Security**, scroll down and click **Open Anyway** (confirm with your
+   password). On macOS 15+ the old right-click → **Open** shortcut no longer
+   bypasses the check — use one of these two ways.
+3. Start Velta normally from then on.
+
+Microphone (audio calls) and camera (QR scanning) are requested on first
+use. The ad-hoc signature changes with every build, so macOS may ask for
+these permissions again after an update, and **System Settings → Privacy &
+Security** can show stale Velta entries — remove them if a permission looks
+granted but does not work.
+
+Data lives in `~/Library/Application Support/org.velta/` (accounts) and logs
+in `~/Library/Logs/org.velta/`. Self-update works like on Windows (signed
+updater archive, see "One-click updates"); updates downloaded by the app are
+not quarantined.
+
+</details>
 
 ## Functions
 
@@ -464,7 +505,7 @@ toggle that freezes the live log (events keep being recorded while paused).
 </details>
 
 <details>
-<summary>One-click updates (Windows)</summary>
+<summary>One-click updates (Windows, macOS)</summary>
 
 On Windows the drawer's update banner grows an **Update** button: one tap
 checks the update feed, downloads and signature-verifies the new installer
@@ -472,7 +513,9 @@ checks the update feed, downloads and signature-verifies the new installer
 no manual download. Progress shows on the button; the check gate is unchanged
 (version.txt first, the signed manifest re-validated at install). Only
 installs made through the NSIS installer can self-update; a bare
-`velta-app.exe` copied somewhere still needs a manual installer run. Android
+`velta-app.exe` copied somewhere still needs a manual installer run. macOS
+updates the same way from the signed `Velta_<version>_universal.app.tar.gz`
+(both architectures, one `latest.json` entry each). Android
 keeps the banner's Download APK flow (system installer takes over) — see
 [AUTOUPDATEPLAN.MD](AUTOUPDATEPLAN.MD) for the roadmap.
 
@@ -780,6 +823,12 @@ cargo install tauri-cli --version "^2.0" --locked
   BOM — see AGENTS.md §6.2), or write from WSL. If you ever see stray Cyrillic in
   English prose, fix the write path — never just the characters.
 
+### macOS build
+
+- macOS with the Xcode Command Line Tools (`xcode-select --install`); full Xcode is not needed.
+- For a universal build: `rustup target add aarch64-apple-darwin x86_64-apple-darwin`.
+- The sidecar builds from the vendored core with the system Perl — no extra tools.
+
 ### Android build
 
 - Android SDK + NDK r27 (e.g. `ndk;27.2.12479018`)
@@ -824,6 +873,31 @@ Output:
 
 - `velta-app/src-tauri/target/release/bundle/msi/*.msi`
 - `velta-app/src-tauri/target/release/bundle/nsis/*.exe`
+
+### macOS app
+
+Build the sidecar for your Mac's architecture and stage it under the
+target-triple name Tauri's `externalBin` expects (see
+`tauri.macos.conf.json`), then build the bundle:
+
+```bash
+cd core
+cargo build -p deltachat-rpc-server --release --locked
+cd ..
+mkdir -p velta-app/src-tauri/binaries
+cp core/target/release/deltachat-rpc-server \
+  "velta-app/src-tauri/binaries/deltachat-rpc-server-$(rustc -vV | sed -n 's/^host: //p')"
+cd velta-app
+cargo tauri build --bundles app,dmg     # add --target universal-apple-darwin for both archs
+```
+
+Output: `velta-app/src-tauri/target/release/bundle/{macos,dmg}/`. The bundle
+is ad-hoc signed (`signingIdentity: "-"`); building on the same Mac needs no
+quarantine removal. For a universal build, stage
+`deltachat-rpc-server-universal-apple-darwin` made with
+`lipo -create` from the arm64 and x86_64 sidecars (as `build-macos.yml`
+does). `createUpdaterArtifacts` needs `TAURI_SIGNING_PRIVATE_KEY`; without
+it, pass `--config '{"bundle":{"createUpdaterArtifacts":false}}'`.
 
 ### Releases via GitHub Actions
 
@@ -911,6 +985,7 @@ Pre-configured workflows live in `.github/workflows/`:
 |---|---|
 | `build-android.yml` | arm64-v8a Android APK on `ubuntu-latest` |
 | `build-windows.yml` | Windows installer on `windows-latest`, compiling the sidecar natively (needs Perl + NASM) |
+| `build-macos.yml` | Universal macOS `.app` + DMG + updater tarball on `macos-14`, sidecars for both architectures merged with `lipo`; ad-hoc signed (Developer ID signing/notarization switch on via the `APPLE_*` secrets) |
 | `build-windows-cross.yml` | Windows installer where the sidecar is cross-compiled on Ubuntu to avoid installing Perl/NASM on Windows |
 
 The Android and cross-compiled Windows workflows are the easiest starting points if you just want an artifact.
