@@ -62,6 +62,9 @@ chat-view.js; add adapter methods instead.
   accounts dir because blobfile/media-server refuse paths outside it, and
   that check is the sandbox: peer-supplied file names are sanitized
   (basename only, safe chars) before they ever touch the filesystem.
+  KEEP (1.4.28): peer-supplied **transfer ids** go through
+  `is_safe_transfer_id` before joining the `partial-{id}` path — the id is
+  also peer input; only short `[A-Za-z0-9_-]` tokens pass.
 - Transfer and queue states ARE rendered (since 1.4.1): `file-progress`
   events drive a bubble progress bar (2% steps); a `done` event clears it
   for the file card, and a `failed` event (session died mid-send) renders

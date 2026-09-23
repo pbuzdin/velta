@@ -19,6 +19,17 @@ the standing read. Rules marked KEEP are do-not-regress.
   storage because real storage throws in opaque origins.
 - CSP: `frame-src` + `img-src` carry the `webxdc.localhost` origins — keep
   them when editing the CSP (all three places, AGENTS.md §8).
+- **Every webxdc response carries its own `Content-Security-Policy`**
+  (`WEBXDC_CSP`, webxdc_serve.rs, 1.4.28): the app CSP in tauri.conf.json
+  does NOT apply to custom-protocol responses, so without it mini-apps had
+  unrestricted network access. KEEP: policy = webxdc origins + `data:`/`blob:`
+  only, no remote hosts, `webrtc 'block'`; `'unsafe-inline'`/`'unsafe-eval'`
+  stay for scripts (apps and the injected `__TAURI_INTERNALS__` stub rely on
+  them). Same shape as Delta Chat desktop's.
+- `webxdc_rpc` registers its waiter in `wxdc_pending` BEFORE sending the
+  request, and ids use a counter (`wxdc-<n>`), not a timestamp — a fast
+  response used to find no waiter, and parallel requests collided on
+  nanosecond ids.
 
 ## WebView2 crash workaround
 

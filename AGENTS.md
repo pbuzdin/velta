@@ -843,6 +843,12 @@ test traffic accordingly.
   ids go through `is_safe_transfer_id` (p2p.rs) before `partial-{id}`.
 - **Message-derived strings are always escaped** before `innerHTML`,
   including reactions (the core accepts any short token as a reaction).
+- **Deep links ask before doing damage** (1.4.28): a `dcbackup:` link (any
+  web page or app can open one) confirms with the user before importing and
+  switching to a profile — `handleDeeplinkFromUrl` shows a `confirmModal`
+  and pins the account epoch across it. KEEP that confirmation. Note
+  `chooseRelayOrNewProfile` renders no "new profile" button for `dclogin:`
+  — the lookup must stay optional-chained or the flow dies on a TypeError.
 - **PWA protocol handler.** `manifest.webmanifest` registers `web+dcaccount` as a
   protocol handler. Validate incoming `?qr=` parameters before passing them to
   the core.
