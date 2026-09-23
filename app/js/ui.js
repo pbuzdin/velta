@@ -410,6 +410,7 @@ export function buildDrawer({ account, onAddAccount, onSecondDevice, onSetTheme,
       <button class="ctx-item" data-act="second-device"><svg viewBox="0 0 24 24"><rect x="2.5" y="4" width="11" height="17" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="16" y="8" width="5.5" height="13" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Add a second device…</span></button>
       <button class="ctx-item" data-act="relays"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Relays of this profile…</span></button>
       <button class="ctx-item" data-act="invite-domains"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Invite link domains</span></button>
+      <button class="ctx-item" data-act="link-preview"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Link previews: ${localStorage.getItem("velta-link-preview") === "0" ? "off" : "on"}</span></button>
       <button class="ctx-item" data-act="mock"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 9h6v6H9z" fill="currentColor"/></svg><span>${localStorage.getItem("velta-mock") === "1" ? "Exit mock mode" : "Enter mock mode"}</span></button>
       <button class="ctx-item" data-act="about"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 10v6M12 7v.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><span>About Velta</span></button>
     </div>
@@ -524,6 +525,16 @@ export function buildDrawer({ account, onAddAccount, onSecondDevice, onSetTheme,
     if (act === "account") onAccountTap?.(btn.dataset.account);
     if (act === "relays") onRelays?.();
     if (act === "invite-domains") onInviteDomains?.();
+    if (act === "link-preview") {
+      // self-contained toggle: flip the persisted flag, update the label
+      // in place, and let already-rendered rows keep their current cards
+      // (fresh renders pick the new state).
+      const on = localStorage.getItem("velta-link-preview") !== "0";
+      if (on) localStorage.setItem("velta-link-preview", "0");
+      else localStorage.removeItem("velta-link-preview");
+      btn.querySelector("span").textContent = `Link previews: ${on ? "off" : "on"}`;
+      toast(`Link previews ${on ? "off" : "on"}`);
+    }
     if (act === "mock") onToggleMock();
     if (act === "about") showAbout();
   });

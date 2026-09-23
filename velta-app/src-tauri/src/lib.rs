@@ -301,6 +301,134 @@ async fn expand_invite_link(url: String) -> Result<Vec<String>, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Open Graph preview for the first link in a message. Same trust model as
+/// expand_invite_link: shell-side fetch of a message-derived https URL
+/// (renderer fetch is CORS-blocked and CSP-bound), bounded reads + hard
+/// timeout. Returns null fields when the page has no OG tags; any transport
+/// failure is an Err and the frontend simply renders no card.
+#[tauri::command]
+async fn fetch_link_preview(url: String) -> Result<serde_json::Value, String> {
+    if !url.starts_with("https://") {
+        return Err("only https URLs are supported".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let agent = ureq::AgentBuilder::new()
+            .timeout(std::time::Duration::from_secs(5))
+            .build();
+        let resp = match agent.get(&url).call() {
+            Ok(r) => r,
+            Err(_) => return Err("fetch failed".into()),
+        };
+        let mut body = Vec::new();
+        use std::io::Read;
+        let _ = resp
+            .into_reader()
+            .take(256 * 1024)
+            .read_to_end(&mut body);
+        let text = String::from_utf8_lossy(&body);
+        let lower = text.to_ascii_lowercase();
+
+        // og: property first, twitter: name second, plain <title>/description
+        // last. Bounded to the same 256 KB window we downloaded.
+        let meta = |names: &[&str]| -> Option<String> {
+            for name in names {
+                for marker in [
+                    format!("property=\"{}\"", name),
+                    format!("name=\"{}\"", name),
+                    format!("property='{}'", name),
+                    format!("name='{}'", name),
+                ] {
+                    if let Some(p) = lower.find(&marker) {
+                        let rest = &text[p + marker.len()..];
+                        if let Some(q) = rest.find("content=\"").or_else(|| rest.find("content='")) {
+                            // rest[q..q+9] is `content="` or `content='` — the
+                            // delimiter is the char at q+8, and the VALUE starts
+                            // at q+9 (reading it as the delimiter grabbed the
+                            // value's first char and swallowed HTML up to its
+                            // next occurrence: title "Yandex" → "andex"/>…").
+                            let delim = rest.as_bytes()[q + 8] as char;
+                            let after = &rest[q + 9..];
+                            if let Some(end) = after.find(delim) {
+                                let v = html_escape_decode(after[..end].trim());
+                                if !v.is_empty() {
+                                    return Some(v.chars().take(300).collect());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            None
+        };
+
+        let title = meta(&["og:title", "twitter:title"]).or_else(|| {
+            // plain <title> fallback, same extraction as fetch_page_title
+            let s = lower.find("<title")?;
+            let open_end = lower[s..].find('>')?;
+            let from = s + open_end + 1;
+            let close = lower[from..].find("</title")?;
+            let v = html_escape_decode(text[from..from + close].trim());
+            if v.is_empty() { None } else { Some(v) }
+        });
+        let description = meta(&["og:description", "twitter:description", "description"]);
+        let image_url = meta(&["og:image", "twitter:image", "twitter:image:src"]);
+
+        // og:image: fetch and inline as a data: URL (CSP img-src allows data:
+        // in all three copies; remote hosts are deliberately not allowed).
+        // Cap at 512 KB; on any failure just ship no image.
+        let mut image_data: Option<String> = None;
+        if let Some(img) = image_url {
+            if img.starts_with("https://") {
+                if let Ok(iresp) = agent.get(&img).call() {
+                    let mime = iresp.content_type().to_string();
+                    if mime.starts_with("image/") {
+                        let mut ib = Vec::new();
+                        if read_bounded(iresp, &mut ib) {
+                            const B64: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+                            let mut out = String::from("data:");
+                            out.push_str(&mime);
+                            out.push_str(";base64,");
+                            for chunk in ib.chunks(3) {
+                                let b = [
+                                    chunk[0],
+                                    *chunk.get(1).unwrap_or(&0),
+                                    *chunk.get(2).unwrap_or(&0),
+                                ];
+                                let n = (b[0] as u32) << 16 | (b[1] as u32) << 8 | b[2] as u32;
+                                for i in 0..4 {
+                                    if i <= chunk.len() {
+                                        out.push(B64[(n >> (18 - 6 * i)) as usize & 0x3F] as char);
+                                    } else {
+                                        out.push('=');
+                                    }
+                                }
+                            }
+                            image_data = Some(out);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(serde_json::json!({
+            "title": title,
+            "description": description,
+            "image": image_data,
+        }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+// bounded read helper: returns false when the cap was hit mid-stream (truncated image)
+fn read_bounded(resp: ureq::Response, buf: &mut Vec<u8>) -> bool {
+    use std::io::Read;
+    match resp.into_reader().take(512 * 1024 + 1).read_to_end(buf) {
+        Ok(n) => n <= 512 * 1024,
+        Err(_) => false,
+    }
+}
+
 #[tauri::command]
 fn get_accounts_dir(app: tauri::AppHandle) -> String {
     accounts_dir(&app).to_string_lossy().to_string()
@@ -2078,7 +2206,7 @@ pub fn run() {
             response.headers_mut().insert("Cache-Control", "max-age=31536000, immutable".parse().unwrap());
             response.map(|body| std::borrow::Cow::Owned(body))
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_latest_version, fetch_page_title, expand_invite_link, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_latest_version, fetch_page_title, expand_invite_link, fetch_link_preview, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 
