@@ -49,6 +49,10 @@ class MainActivity : TauriActivity() {
     }
     window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
     setApplicationContext(applicationContext)
+    // UnifiedPush: register with the default distributor when one exists;
+    // endpoints and push wake-ups flow back into the Rust core via JNI
+    // (UnifiedPushService.kt -> lib.rs). See AGENTS.md §9.4.
+    UnifiedPushService.maybeRegister(this)
     super.onCreate(savedInstanceState)
     // The second-WebView browser overlay (InAppBrowser.openWebView) needs the
     // Activity to add views and to own BACK priority over wry's history

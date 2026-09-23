@@ -150,6 +150,39 @@ function openDiagnosticsChat() {
   $("main-composer").hidden = true;
   $("diagnostic-actions").hidden = false;
   $("reply-preview").hidden = true;
+  // Logging / DevTools switches reflect their runtime state on every open —
+  // the persisted flag is the source of truth, the checkbox follows.
+  const loggingSw = $("sw-logging");
+  const devtoolsSw = $("sw-devtools");
+  if (loggingSw) {
+    loggingSw.checked = localStorage.getItem("velta-logging") !== "0";
+    if (!loggingSw.dataset.bound) {
+      loggingSw.dataset.bound = "1";
+      loggingSw.addEventListener("change", () => {
+        const on = loggingSw.checked;
+        localStorage.setItem("velta-logging", on ? "1" : "0");
+        const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+        invoke?.("set_logging_enabled", { enabled: on }).catch?.(() => {});
+        diagnostics.append("info", `Shell logging ${on ? "enabled" : "disabled"} — velta.log ${on ? "resumes" : "is frozen"} (Diagnostics chat keeps working)`);
+      });
+    }
+  }
+  if (devtoolsSw && !devtoolsSw.dataset.bound) {
+    devtoolsSw.dataset.bound = "1";
+    devtoolsSw.addEventListener("change", async () => {
+      const on = devtoolsSw.checked;
+      const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+      try {
+        await invoke?.("set_devtools", { enabled: on });
+        diagnostics.append("info", on
+          ? "DevTools enabled — desktop: inspector window; Android: chrome://inspect over USB"
+          : "DevTools disabled");
+      } catch (err) {
+        devtoolsSw.checked = !on;
+        diagnostics.append("error", `DevTools toggle failed: ${err?.message || err}`);
+      }
+    });
+  }
   renderDiagnosticsMessages();
   if (history.state?.velta !== "chat") history.pushState({ velta: "chat", chatId: DIAGNOSTICS_CHAT_ID }, "");
   renderChatList();
@@ -200,6 +233,14 @@ setInterval(() => {
 
 renderInitialDiagnosticsChat();
 bindEarlyRecoveryActions();
+
+// Apply the persisted Diagnostics logging switch at boot (default on).
+// js_log gates itself, so this fires before the core connects and there is
+// no window where an early log line escapes the gate.
+if (window.__TAURI__ && localStorage.getItem("velta-logging") === "0") {
+  const invoke = window.__TAURI__.core?.invoke || window.__TAURI__.invoke;
+  invoke?.("set_logging_enabled", { enabled: false })?.catch?.(() => {});
+}
 
 // In the Tauri shell, record sidecar startup progress in diagnostics while the core is being located.
 if (window.__TAURI__) {
