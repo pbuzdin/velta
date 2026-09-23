@@ -1,0 +1,110 @@
+name: Build macOS app
+
+# Universal (Apple Silicon + Intel) Velta.app, packaged as a DMG plus the
+# signed updater tarball. Ad-hoc code signature (tauri.macos.conf.json
+# signingIdentity "-"): no Apple Developer ID yet, so the app is not
+# notarized and users clear the Gatekeeper quarantine once (README "macOS").
+# Setting the APPLE_SIGNING_IDENTITY/APPLE_CERTIFICATE*/APPLE_API_* secrets
+# later switches the same build to Developer ID signing + notarization.
+on:
+  workflow_call:
+  workflow_dispatch:
+
+env:
+  RUST_BACKTRACE: 1
+  CARGO_NET_RETRY: 10
+
+jobs:
+  build-macos:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.98
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Install tauri-cli (prebuilt)
+        run: npm install -g @tauri-apps/cli@^2
+
+      # Restore the sidecars built for this exact core state and skip both
+      # core builds. Runs BEFORE rust-cache so hashFiles sees only sources,
+      # never a restored core/target tree.
+      - name: Restore built sidecars
+        id: sidecar
+        uses: actions/cache@v4
+        with:
+          path: |
+            core/target/aarch64-apple-darwin/release/deltachat-rpc-server
+            core/target/x86_64-apple-darwin/release/deltachat-rpc-server
+          key: sidecar-macos-${{ hashFiles('core/**') }}
+
+      - name: Cache Rust builds
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            ./core
+            ./velta-app/src-tauri
+
+      - name: Build deltachat-rpc-server sidecars (arm64 + x86_64)
+        if: steps.sidecar.outputs.cache-hit != 'true'
+        working-directory: ./core
+        run: |
+          cargo build -p deltachat-rpc-server --release --locked --target aarch64-apple-darwin
+          cargo build -p deltachat-rpc-server --release --locked --target x86_64-apple-darwin
+
+      # Tauri's externalBin wants binaries/deltachat-rpc-server-<triple>; a
+      # universal build looks up the -universal-apple-darwin name.
+      - name: Stage sidecars for the Tauri bundle
+        run: |
+          mkdir -p velta-app/src-tauri/binaries
+          B=velta-app/src-tauri/binaries/deltachat-rpc-server
+          cp core/target/aarch64-apple-darwin/release/deltachat-rpc-server "$B-aarch64-apple-darwin"
+          cp core/target/x86_64-apple-darwin/release/deltachat-rpc-server "$B-x86_64-apple-darwin"
+          lipo -create -output "$B-universal-apple-darwin" "$B-aarch64-apple-darwin" "$B-x86_64-apple-darwin"
+          lipo -info "$B-universal-apple-darwin"
+          # Smoke test: the staged core answers a JSON-RPC call. Keep stdin
+          # open a moment — the server exits on EOF before replying.
+          REPLY=$( ( echo '{"jsonrpc":"2.0","id":1,"method":"get_system_info","params":[]}'; sleep 3 ) \
+            | DC_ACCOUNTS_PATH="$RUNNER_TEMP/accounts" "$B-universal-apple-darwin" 2>/dev/null | head -c 400 )
+          echo "$REPLY"
+          echo "$REPLY" | grep -q deltachat_core_version
+
+      - name: Build Tauri macOS app + DMG
+        working-directory: ./velta-app
+        env:
+          RUSTFLAGS: "-D warnings"
+          # Signs the updater artifact (Velta.app.tar.gz.sig), same secrets
+          # as the Windows build.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: tauri build --target universal-apple-darwin --bundles app,dmg
+
+      # The updater tarball is named Velta.app.tar.gz; give it the version so
+      # release assets never collide across releases.
+      - name: Collect artifacts
+        run: |
+          VERSION=$(jq -r .version velta-app/src-tauri/tauri.conf.json)
+          OUT=velta-app/src-tauri/target/universal-apple-darwin/release/bundle
+          mkdir -p dist
+          cp "$OUT"/dmg/*.dmg dist/
+          cp "$OUT/macos/Velta.app.tar.gz" "dist/Velta_${VERSION}_universal.app.tar.gz"
+          cp "$OUT/macos/Velta.app.tar.gz.sig" "dist/Velta_${VERSION}_universal.app.tar.gz.sig"
+          codesign -dv --verbose=2 "$OUT/macos/Velta.app" 2>&1 | head -20
+          ls -lh dist
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: velta-macos
+          path: dist/*
