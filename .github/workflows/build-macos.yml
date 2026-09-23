@@ -88,7 +88,15 @@ jobs:
           # as the Windows build.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: tauri build --target universal-apple-darwin --bundles app,dmg
+        # Without the key (manual run from a fork) build app + DMG only; a
+        # release still fails later in release.yml, which requires the .sig.
+        run: |
+          EXTRA=()
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY not set — building without updater artifacts"
+            EXTRA=(--config '{"bundle":{"createUpdaterArtifacts":false}}')
+          fi
+          tauri build --target universal-apple-darwin --bundles app,dmg "${EXTRA[@]}"
 
       # The updater tarball is named Velta.app.tar.gz; give it the version so
       # release assets never collide across releases.
@@ -98,8 +106,10 @@ jobs:
           OUT=velta-app/src-tauri/target/universal-apple-darwin/release/bundle
           mkdir -p dist
           cp "$OUT"/dmg/*.dmg dist/
-          cp "$OUT/macos/Velta.app.tar.gz" "dist/Velta_${VERSION}_universal.app.tar.gz"
-          cp "$OUT/macos/Velta.app.tar.gz.sig" "dist/Velta_${VERSION}_universal.app.tar.gz.sig"
+          if [ -f "$OUT/macos/Velta.app.tar.gz.sig" ]; then
+            cp "$OUT/macos/Velta.app.tar.gz" "dist/Velta_${VERSION}_universal.app.tar.gz"
+            cp "$OUT/macos/Velta.app.tar.gz.sig" "dist/Velta_${VERSION}_universal.app.tar.gz.sig"
+          fi
           codesign -dv --verbose=2 "$OUT/macos/Velta.app" 2>&1 | head -20
           ls -lh dist
 
