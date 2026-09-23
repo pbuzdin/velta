@@ -2108,7 +2108,9 @@ mod tests {
 
     async fn start(tag: &str) -> (Arc<P2p>, std_mpsc::Receiver<Value>) {
         let (tx, rx) = std_mpsc::channel();
-        let p2p = P2p::start(temp_dir(tag), Sink::Test(tx)).await.unwrap();
+        let p2p = P2p::start(temp_dir(tag), temp_dir(&format!("{tag}-blobs")), Sink::Test(tx))
+            .await
+            .unwrap();
         p2p.set_name(tag.to_string()).unwrap();
         (p2p, rx)
     }
@@ -2142,18 +2144,18 @@ mod tests {
         wait_for(&alice_rx, 15, |e| e["kind"] == "pairing");
 
         // Bob -> Alice, with ack.
-        let id1 = bob.send(&alice_id, "hi alice").unwrap();
+        let id1 = bob.send(&alice_id, "hi alice", None, None).unwrap();
         let got = wait_for(&alice_rx, 15, |e| e["kind"] == "message");
         assert_eq!(got["text"], "hi alice");
-        wait_for(&bob_rx, 15, |e| e["kind"] == "ack" && e["id"] == id1.as_str());
+        wait_for(&bob_rx, 15, |e| e["kind"] == "ack" && e["id"] == id1["id"]);
 
         // Alice -> Bob, with ack.
-        let id2 = alice.send(&bob_id, "hi bob").unwrap();
+        let id2 = alice.send(&bob_id, "hi bob", None, None).unwrap();
         let got2 = wait_for(&bob_rx, 15, |e| {
             e["kind"] == "message" && e["text"] == "hi bob"
         });
         assert_eq!(got2["text"], "hi bob");
-        wait_for(&alice_rx, 15, |e| e["kind"] == "ack" && e["id"] == id2.as_str());
+        wait_for(&alice_rx, 15, |e| e["kind"] == "ack" && e["id"] == id2["id"]);
 
         // Histories line up on both sides. Each side shows both messages:
         // Bob's outbound "hi alice" (acked) and Alice's inbound "hi bob",
@@ -2172,7 +2174,7 @@ mod tests {
 
         // A third device cannot send to a peer it is not paired with.
         let (mallory, _mallory_rx) = start("mallory").await;
-        assert!(mallory.send(&bob_id, "let me in").is_err());
+        assert!(mallory.send(&bob_id, "let me in", None, None).is_err());
 
         // Status snapshots are sane.
         let status = alice.status();
@@ -2278,12 +2280,12 @@ mod tests {
         let peer = flow.await.unwrap().unwrap();
         assert_eq!(peer["name"], "alice3");
         wait_for(&alice_rx, 15, |e| e["kind"] == "pairing");
-        let id = bob.send(&alice_id, "approved").unwrap();
+        let id = bob.send(&alice_id, "approved", None, None).unwrap();
         let got = wait_for(&alice_rx, 15, |e| {
             e["kind"] == "message" && e["text"] == "approved"
         });
         assert_eq!(got["text"], "approved");
-        wait_for(&bob_rx, 15, |e| e["kind"] == "ack" && e["id"] == id.as_str());
+        wait_for(&bob_rx, 15, |e| e["kind"] == "ack" && e["id"] == id["id"]);
 
         // A stale approval has nothing to resolve.
         assert!(alice.approve_pair(&bob_id, true).is_err());
@@ -2317,18 +2319,20 @@ mod tests {
         // while no session exists yet; the connect + flush path must deliver it.
         let (bob2, bob2_rx) = {
             let (tx, rx) = std_mpsc::channel();
-            let p2p = P2p::start(dir_b, Sink::Test(tx)).await.unwrap();
+            let dir_b_blobs = std::env::temp_dir()
+                .join(format!("velta-p2p-test-bob2-blobs-{}", std::process::id()));
+            let p2p = P2p::start(dir_b, dir_b_blobs, Sink::Test(tx)).await.unwrap();
             (p2p, rx)
         };
         assert_eq!(bob2.node_id().to_string(), bob_id);
         assert_eq!(bob2.status()["peers"].as_array().unwrap().len(), 1);
 
-        let id = bob2.send(&alice_id, "while you were away").unwrap();
+        let id = bob2.send(&alice_id, "while you were away", None, None).unwrap();
 
         // First dial attempt after a cold start can stall (iroh address
         // probing), the 10s maintenance retry then delivers — allow 60s.
         let got = wait_for(&alice_rx, 60, |e| e["kind"] == "message");
         assert_eq!(got["text"], "while you were away");
-        wait_for(&bob2_rx, 60, |e| e["kind"] == "ack" && e["id"] == id.as_str());
+        wait_for(&bob2_rx, 60, |e| e["kind"] == "ack" && e["id"] == id["id"]);
     }
 }
