@@ -1464,15 +1464,23 @@ fn rpc(request: String, state: State<'_, RpcState>) -> Result<(), String> {
     state.send_rpc(&request)
 }
 
+// Windows ships the sidecar as a bundle resource; macOS as a Tauri
+// externalBin, which lands next to the main executable (Contents/MacOS)
+// with the target-triple suffix stripped.
+#[cfg(windows)]
+const SIDECAR_NAME: &str = "deltachat-rpc-server.exe";
+#[cfg(not(any(windows, target_os = "android")))]
+const SIDECAR_NAME: &str = "deltachat-rpc-server";
+
 #[cfg(not(target_os = "android"))]
 fn find_sidecar(app: &tauri::AppHandle) -> Option<PathBuf> {
     use tauri::path::BaseDirectory;
 
     let candidates = [
-        app.path().resolve("deltachat-rpc-server.exe", BaseDirectory::Resource).ok(),
-        std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.join("deltachat-rpc-server.exe"))),
-        std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.join("resources").join("deltachat-rpc-server.exe"))),
-        std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.join("..").join("resources").join("deltachat-rpc-server.exe"))).map(|p| p.canonicalize().unwrap_or(p)),
+        app.path().resolve(SIDECAR_NAME, BaseDirectory::Resource).ok(),
+        std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.join(SIDECAR_NAME))),
+        std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.join("resources").join(SIDECAR_NAME))),
+        std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.join("..").join("resources").join(SIDECAR_NAME))).map(|p| p.canonicalize().unwrap_or(p)),
     ];
 
     for candidate in candidates.into_iter().flatten() {
@@ -1850,10 +1858,20 @@ pub fn run() {
                 {
                     app.path().app_local_data_dir().unwrap_or_else(|_| PathBuf::from(".")).join("logs")
                 }
-                #[cfg(not(target_os = "android"))]
+                #[cfg(windows)]
                 {
                     let local_app_data = std::env::var("LOCALAPPDATA").unwrap_or_default();
                     Path::new(&local_app_data).join("Velta").join("logs")
+                }
+                // macOS/Linux have no LOCALAPPDATA: the Windows branch would
+                // yield the relative "Velta/logs", i.e. "/" as CWD for an
+                // .app bundle (unwritable) — logs silently lost. Use the
+                // platform log dir (~/Library/Logs/org.velta on macOS).
+                #[cfg(not(any(windows, target_os = "android")))]
+                {
+                    app.path()
+                        .app_log_dir()
+                        .unwrap_or_else(|_| std::env::temp_dir().join("velta-logs"))
                 }
             };
             // set_log_dir() must run BEFORE the first log() call, otherwise
