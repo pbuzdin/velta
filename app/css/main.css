@@ -1,4 +1,11 @@
 /* ===== Velta — Telegram-style theme ===== */
+/* Diagnostics chat switches (Logging / DevTools) in #diagnostic-actions. */
+.diag-switch {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13.5px; color: var(--text);
+  user-select: none; -webkit-user-select: none;
+}
+.diag-switch input { accent-color: var(--accent); width: 16px; height: 16px; }
 :root {
   --bg: #0f0f14;
   --bg-sidebar: #181820;

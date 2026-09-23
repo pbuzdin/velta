@@ -32,6 +32,8 @@ static SIDECAR_STATUS: Mutex<Option<serde_json::Value>> = Mutex::new(None);
 // handshake long enough for the frontend's event.listen() to time out and
 // fall back to demo mode.
 static LOG_TX: Mutex<Option<std::sync::mpsc::Sender<String>>> = Mutex::new(None);
+// Runtime logging gate, flipped by set_logging_enabled (Diagnostics chat).
+static LOG_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
 // Optional second log location on the shared external storage, where adb can
 // read it on non-rooted devices (/storage/emulated/0/Android/data/<id>/files).
@@ -113,6 +115,12 @@ fn ensure_log_writer() {
 }
 
 pub fn log(msg: &str) {
+    // Runtime gate (Diagnostics chat "Logging" switch): when off, velta.log
+    // and its mirror freeze. The in-app Diagnostics chat keeps working —
+    // its rows live in the frontend and never pass through here.
+    if !LOG_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
@@ -947,6 +955,22 @@ static APP_INAPP_BROWSER_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::
 #[cfg(target_os = "android")]
 static APP_NOTIFICATIONS_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
 
+// --- UnifiedPush (Android) ---
+// Handles for the JNI callbacks from UnifiedPushService.kt. The accounts
+// manager and the request channel are set once init_android_core finishes;
+// a push endpoint arriving earlier is parked in PENDING_PUSH_TOKEN and
+// applied at the end of that function. The app handle gives the push
+// wake-up access to managed state.
+#[cfg(target_os = "android")]
+static ANDROID_ACCOUNTS: Mutex<Option<std::sync::Arc<tokio::sync::RwLock<deltachat_jsonrpc::api::Accounts>>>>
+    = Mutex::new(None);
+#[cfg(target_os = "android")]
+static PENDING_PUSH_TOKEN: Mutex<Option<String>> = Mutex::new(None);
+#[cfg(target_os = "android")]
+static ANDROID_RPC_TX: Mutex<Option<tokio::sync::mpsc::UnboundedSender<String>>> = Mutex::new(None);
+#[cfg(target_os = "android")]
+static APP_HANDLE: Mutex<Option<tauri::AppHandle>> = Mutex::new(None);
+
 // Called from MainActivity.onCreate (Kotlin) with the application context.
 // Storing it lets Rust commands use the Android ContentResolver (e.g. for
 // reading content:// attachments picked through the system file picker).
@@ -992,6 +1016,70 @@ pub extern "system" fn Java_org_velta_MainActivity_setApplicationContext(
         Err(e) => log(&format!("setApplicationContext: Notifications find_class failed: {e}")),
     }
     log("application context stored for Rust commands");
+}
+
+// --- UnifiedPush JNI callbacks (called from UnifiedPushService.kt) ---
+
+// onNewEndpoint: the serialized "webpush:<endpoint>|<pubkey>|<auth>" token.
+// Applied to the accounts manager immediately when the core is ready — the
+// core then registers it with the relay automatically (IMAP METADATA
+// /private/devicetoken, core push.rs + imap.rs register_token) — otherwise
+// parked in PENDING_PUSH_TOKEN and applied at the end of init_android_core.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_org_velta_UnifiedPushService_pushEndpointReceived(
+    mut env: jni::JNIEnv,
+    _class: jni::objects::JClass,
+    token: jni::objects::JString,
+) {
+    let Ok(jtoken) = env.get_string(&token) else { return };
+    let token: String = jtoken.to_string_lossy().into_owned();
+    // Log the scheme only — the endpoint URL is a capability URL.
+    log(&format!(
+        "push endpoint received ({})",
+        token.split(':').next().unwrap_or("?")
+    ));
+    let accounts = ANDROID_ACCOUNTS.lock().unwrap().clone();
+    match accounts {
+        Some(accounts) => {
+            if let Err(e) = accounts.blocking_read().set_push_device_token(&token) {
+                log(&format!("push endpoint apply failed: {e}"));
+            } else {
+                log("push endpoint applied to the accounts manager");
+            }
+        }
+        None => {
+            *PENDING_PUSH_TOKEN.lock().unwrap() = Some(token);
+            log("push endpoint parked until the core is ready");
+        }
+    }
+}
+
+// onMessage: run one bounded background_fetch so the IMAP loop drains the
+// relay; incoming messages surface through the background poller's parked
+// get_next_event_batch and go out as notifications. No-op when the core is
+// not initialized (cold process start — see AGENTS.md §9.4 for the ceiling).
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_org_velta_UnifiedPushService_pushWakeup(
+    _env: jni::JNIEnv,
+    _class: jni::objects::JClass,
+) {
+    let Some(app) = APP_HANDLE.lock().unwrap().clone() else {
+        log("push wakeup: core not initialized");
+        return;
+    };
+    let Some(tx) = ANDROID_RPC_TX.lock().unwrap().clone() else {
+        log("push wakeup: rpc channel not ready");
+        return;
+    };
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<RpcState>();
+        match bg_rpc(&tx, &state, "background_fetch", serde_json::json!([30.0])).await {
+            Ok(_) => log("push wakeup: background fetch done"),
+            Err(e) => log(&format!("push wakeup: {e}")),
+        }
+    });
 }
 
 // Desktop has no ContentResolver; the command exists on every platform so the
@@ -1266,6 +1354,52 @@ fn js_log(msg: String) {
     log(&msg);
 }
 
+// Diagnostics chat "Logging" switch: gate the shell log writer at runtime.
+#[tauri::command]
+fn set_logging_enabled(enabled: bool) {
+    LOG_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+// Diagnostics chat "DevTools" switch.
+// Desktop: opens/closes the WebView inspector (the `devtools` cargo feature
+// is enabled in all builds). Android: flips WebView remote debugging —
+// chrome://inspect over USB. No Kotlin changes needed:
+// setWebContentsDebuggingEnabled is a static on android.webkit.WebView.
+#[tauri::command]
+fn set_devtools(_app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        let vm_guard = APP_JAVA_VM.lock().unwrap();
+        let vm = vm_guard.as_ref().ok_or("jvm was not handed over yet")?;
+        let mut env = vm
+            .attach_current_thread()
+            .map_err(|e| format!("jvm attach: {e}"))?;
+        let class = env
+            .find_class("android/webkit/WebView")
+            .map_err(|e| format!("WebView class: {e}"))?;
+        env.call_static_method(
+            &class,
+            "setWebContentsDebuggingEnabled",
+            "(Z)V",
+            &[jni::objects::JValue::Bool(enabled as u8)],
+        )
+        .map_err(|e| format!("setWebContentsDebuggingEnabled: {e}"))?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let Some(win) = _app.get_webview_window("main") else {
+            return Err("main window not found".into());
+        };
+        if enabled {
+            win.open_devtools();
+        } else {
+            win.close_devtools();
+        }
+        Ok(())
+    }
+}
+
 #[tauri::command]
 fn get_initial_deeplink() -> Option<String> {
     INITIAL_DEEPLINK.lock().unwrap().take()
@@ -1371,6 +1505,22 @@ async fn init_android_core(
 
     let accounts = Accounts::new(accounts_dir, true).await?;
     let accounts = Arc::new(RwLock::new(accounts));
+    // UnifiedPush: expose the accounts manager to the JNI callbacks
+    // (UnifiedPushService.kt) and apply an endpoint that arrived before the
+    // core was ready.
+    *APP_HANDLE.lock().unwrap() = Some(app_handle.clone());
+    *ANDROID_ACCOUNTS.lock().unwrap() = Some(accounts.clone());
+    // Take the token out of the mutex BEFORE awaiting — the if-let scrutinee
+    // temporary (a non-Send MutexGuard) would otherwise be held across the
+    // await and make this future non-Send.
+    let pending_token = PENDING_PUSH_TOKEN.lock().unwrap().take();
+    if let Some(token) = pending_token {
+        if let Err(e) = accounts.read().await.set_push_device_token(&token) {
+            log(&format!("parked push endpoint apply failed: {e}"));
+        } else {
+            log("parked push endpoint applied to the accounts manager");
+        }
+    }
     let _ = app_handle.emit("velta-sidecar-status", serde_json::json!({"running": true, "stage": "configuring"}));
 
     let state = CommandApi::from_arc(accounts.clone()).await;
@@ -1378,6 +1528,8 @@ async fn init_android_core(
     let (client, mut out_receiver) = RpcClient::new();
     let session = RpcSession::new(client.clone(), state);
     let (req_tx, mut req_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    // UnifiedPush: the push wake-up uses this channel for background_fetch.
+    *ANDROID_RPC_TX.lock().unwrap() = Some(req_tx.clone());
 
     // Forward JSON-RPC responses and events to the WebView.
     let app = app_handle.clone();
@@ -1904,7 +2056,7 @@ pub fn run() {
             response.headers_mut().insert("Cache-Control", "max-age=31536000, immutable".parse().unwrap());
             response.map(|body| std::borrow::Cow::Owned(body))
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_latest_version, fetch_page_title, expand_invite_link, open_in_app_browser, open_webview_browser, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_latest_version, fetch_page_title, expand_invite_link, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 

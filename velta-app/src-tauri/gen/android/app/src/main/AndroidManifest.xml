@@ -116,6 +116,18 @@
             android:exported="false"
             android:foregroundServiceType="remoteMessaging" />
 
+        <!-- UnifiedPush connector: receives push events (endpoint
+             registrations + wake-ups) from the user-chosen distributor app
+             and forwards them into the Rust core via JNI
+             (UnifiedPushService.kt / lib.rs). -->
+        <service
+            android:name=".UnifiedPushService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="org.unifiedpush.android.connector.PUSH_EVENT" />
+            </intent-filter>
+        </service>
+
         <provider
           android:name="androidx.core.content.FileProvider"
           android:authorities="${applicationId}.fileprovider"

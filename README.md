@@ -440,6 +440,26 @@ layout on both mobile platforms:
 
 1:1 chats show the sender as the title with just the message text.
 
+**UnifiedPush (Android, groundwork):** if a UnifiedPush distributor app
+(ntfy, NextPush, self-hosted — your choice, no Google) is installed with a
+default set, Velta registers with it automatically and uses the push channel
+to fetch messages the moment the server announces them. The relay-side
+notifier must support `webpush:` push tokens (stock chatmail deployments
+with the notifier enabled do). The foreground service stays on for now, so
+this is currently an instant-fetch booster rather than a battery saver.
+
+</details>
+
+<details>
+<summary>Diagnostics &amp; debugging</summary>
+
+The pinned "Velta Diagnostics" chat collects startup, core and error
+diagnostics in a screencap-visible console style — no adb or logcat needed.
+Its action bar carries two switches: **Logging** freezes/resumes the shell
+log (`velta.log`), and **DevTools** opens the WebView inspector on Windows
+or enables remote debugging (`chrome://inspect` over USB) on Android. The
+same bar offers "Restart core I/O" and "Reconnect UI" recovery actions.
+
 </details>
 
 <details>

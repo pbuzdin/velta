@@ -542,7 +542,15 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
 - `app/js/diagnostics.js` is the in-app diagnostics store ("Velta
   Diagnostics" chat): console-style rows (shared `diagnosticRow()` helper),
   identical consecutive entries collapsed into one counted row — prefer
-  appending here over toasting for repeatable background errors.
+  appending here over toasting for repeatable background errors. The bar
+  under the chat carries the recovery buttons plus two switches: **Logging**
+  (runtime gate on the shell log writer, `set_logging_enabled` /
+  `LOG_ENABLED` in lib.rs; persisted in localStorage `velta-logging` — the
+  Diagnostics chat itself keeps working when off, it never passes through
+  `log()`) and **DevTools** (`set_devtools`: desktop opens/closes the
+  WebView inspector, Android flips `WebView.setWebContentsDebuggingEnabled`
+  via JNI for chrome://inspect; persisted in `velta-devtools`, applied at
+  boot).
 - `app/js/media.js` resolves local paths to WebView-safe media URLs:
   blobfile probe → loopback HTTP → asset protocol, with one-shot error
   fallbacks per element. Details and the WebView2 media quirk:
@@ -911,6 +919,44 @@ test traffic accordingly.
   concurrent clients.
 - Boot receiver restarts the service after reboot.
 
+### 9.4 UnifiedPush (Android, 1.4.27+ groundwork)
+
+Push notification registration via [UnifiedPush](https://unifiedpush.org/) —
+the user picks a distributor app (ntfy, NextPush, self-hosted); Velta never
+talks to Google.
+
+- **Flow:** `MainActivity.onCreate` → `UnifiedPushService.maybeRegister`
+  (auto-registers only when a default distributor exists — no OS picker from
+  nowhere) → distributor sends the endpoint → `UnifiedPushService.onNewEndpoint`
+  serializes it as `webpush:<endpoint>|<pubkey>|<auth>` (the format the
+  chatmail push relay parses, same as the upstream Delta Chat UnifiedPush
+  flavor) → JNI `pushEndpointReceived` (lib.rs) applies it via
+  `Accounts::set_push_device_token` → the core registers it with the relay
+  automatically (IMAP METADATA `/private/devicetoken`, core `push.rs` +
+  `imap.rs register_token`; token is OpenPGP-encrypted to the relay's
+  "notifiers" key and space-padded to hide the platform).
+- **Push wake-up:** `onMessage` → JNI `pushWakeup` → one bounded
+  `background_fetch` RPC through the `bg-` round-trip → events surface
+  through the background poller's parked `get_next_event_batch` → existing
+  `bg_notify_incoming` notifications. No new notification plumbing.
+- **Core changes: none.** The vendored core already exposes everything
+  (`set_push_device_token`, `background_fetch`/`stop_background_fetch` in
+  core + JSON-RPC); the shell calls the accounts Arc directly via the
+  `ANDROID_ACCOUNTS`/`ANDROID_RPC_TX`/`APP_HANDLE` globals. A token arriving
+  before the core initializes is parked in `PENDING_PUSH_TOKEN`.
+- ** ceilings:** (1) `CoreService` is NOT stopped when push registers —
+  stopping it requires cold-start-by-push support, which needs the Rust core
+  to initialize from a Service (there is no `Application` class; `run()`
+  only fires from the Activity), plus a notification fallback for pushes
+  that arrive before core init. Until then the foreground service stays the
+  reliability guarantee and push adds instant-fetch on top. (2) The VAPID
+  key in `UnifiedPushService.kt` is the upstream chatmail notifier key — a
+  self-hosted relay with its own notifier keypair needs it updated. (3) The
+  relay must run a chatmail version whose notifier understands `webpush:`
+  tokens (verify per deployment).
+- Test with at least two distributors (ntfy + a second one) per the
+  UnifiedPush developer guidance.
+
 ---
 
 ## 10. Quick reference for common tasks
@@ -920,6 +966,7 @@ test traffic accordingly.
 | Run core tests | `wsl -e bash -lc "cd /mnt/c/Users/pave/Velta/velta/core && cargo nextest run --workspace --locked"` (plain `cargo test` flakes on time-shift tests — see `COREUPDATE.md` §4) |
 | Run core lints | `cd core && scripts/clippy.sh && scripts/deny.sh` |
 | Build core RPC server | `cd core && cargo build -p deltachat-rpc-server --release` |
+| Type-check the Android shell | `wsl -e bash -lc "cd /mnt/c/Users/pave/Velta/velta/velta-app/src-tauri && cargo check --target aarch64-linux-android"` (desktop `cargo check` compiles the `cfg(target_os = "android")` code OUT — it proves nothing about JNI/Rust-side Android code) |
 | Run Tauri dev | `cd velta-app && cargo tauri dev` |
 | Serve PWA locally | `cd app && python -m http.server 8080` |
 | Diagnose service | Open `http://localhost:8080/diag.html` |
@@ -1110,4 +1157,9 @@ do-not-regress rules; dates mark when the lesson was learned.
   WSL/bash, or use an editor/API that writes UTF-8 by default. If you
   ever see `вЂ`, `в”`, `В§`, `рџ` or any stray Cyrillic inside English
   prose, STOP and fix the encoding of the whole write path before
-  committing — never "patch" the visible characters only.
+  committing — never "patch" the visible characters only. **Reading counts
+  too**: `Get-Content` without `-Encoding` decodes as CP1251 and
+  `Set-Content`/`Out-File` round-trips the damage back to disk — the v1.4.26
+  version bump re-mojibaked `sw.js`/`Cargo.toml` exactly this way (the BOM
+  check passed, the content was already corrupted; caught by an external
+  PR). Read AND write with explicit UTF-8, or use the edit tools / WSL.
