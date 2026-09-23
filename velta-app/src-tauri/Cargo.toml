@@ -53,11 +53,16 @@ jni = "0.21"
 # Desktop-only plugins for deep-link handling (custom URI scheme) and single-instance forwarding.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-deep-link = "2"
-# One-click self-update on Windows: updater downloads, signature-verifies
-# and runs the NSIS installer; process relaunches after install.
+# One-click self-update on desktop: updater downloads, signature-verifies
+# and installs (NSIS installer on Windows, .app.tar.gz on macOS); process
+# relaunches after install.
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+
+# Windows-only: pulling this crate into macOS/Linux builds drags in the
+# `windows` crates, which do not compile there.
+[target.'cfg(windows)'.dependencies]
 # Windows toasts with the conversation layout (three text lines + circular
 # sender avatar); same crate the notification plugin uses on Windows.
 tauri-winrt-notification = "0.7"
