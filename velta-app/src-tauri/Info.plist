@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged by tauri-build into the macOS bundle's Info.plist. macOS refuses
+     (and on some versions terminates the app for) microphone/camera access
+     without these usage strings. -->
+<plist version="1.0">
+<dict>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Velta uses the microphone for audio calls.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Velta uses the camera to scan QR codes (invites, relay codes, second-device setup).</string>
+</dict>
+</plist>
