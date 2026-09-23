@@ -114,7 +114,9 @@ export function diagnosticRow(message) {
   const emoji = LEVEL_EMOJI[message.level] || "ℹ️";
   const text = String(message.text).replace(/^\[[A-Z]+\] /, "");
   bubble.textContent =
-    `${new Date(message.ts).toLocaleTimeString()}  ${emoji} ${text}` +
+    // 24-hour everywhere (AGENTS.md §5.1): toLocaleTimeString() alone would
+    // render "03:21 AM" on en-US devices.
+    `${new Date(message.ts).toLocaleTimeString([], { hour12: false })}  ${emoji} ${text}` +
     (message.count > 1 ? ` ×${message.count}` : "");
   const copy = document.createElement("button");
   copy.className = "diag-copy";

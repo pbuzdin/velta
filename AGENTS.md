@@ -540,17 +540,21 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `hover: none` and hover states stick after taps. `:active` press feedback
   and non-hover states (`.relay-detail.pull-open`) stay reachable on touch.
 - `app/js/diagnostics.js` is the in-app diagnostics store ("Velta
-  Diagnostics" chat): console-style rows (shared `diagnosticRow()` helper),
-  identical consecutive entries collapsed into one counted row — prefer
-  appending here over toasting for repeatable background errors. The bar
-  under the chat carries the recovery buttons plus two switches: **Logging**
-  (runtime gate on the shell log writer, `set_logging_enabled` /
-  `LOG_ENABLED` in lib.rs; persisted in localStorage `velta-logging` — the
-  Diagnostics chat itself keeps working when off, it never passes through
-  `log()`) and **DevTools** (`set_devtools`: desktop opens/closes the
-  WebView inspector, Android flips `WebView.setWebContentsDebuggingEnabled`
-  via JNI for chrome://inspect; persisted in `velta-devtools`, applied at
-  boot).
+   Diagnostics" chat): console-style rows (shared `diagnosticRow()` helper),
+   identical consecutive entries collapsed into one counted row — prefer
+   appending here over toasting for repeatable background errors. The bar
+   under the chat carries a pause/play button (freezes the live rendering;
+   the store keeps recording, resuming re-renders to catch up), the recovery
+   group "Restart: Core | UI" (`btn-restart-core` / `btn-reconnect-ui`, the
+   only callers of `restartIo`/`reconnect` from the UI) and two switches:
+   **Logging**
+   (runtime gate on the shell log writer, `set_logging_enabled` /
+   `LOG_ENABLED` in lib.rs; persisted in localStorage `velta-logging` — the
+   Diagnostics chat itself keeps working when off, it never passes through
+   `log()`) and **DevTools** (`set_devtools`: desktop opens/closes the
+   WebView inspector, Android flips `WebView.setWebContentsDebuggingEnabled`
+   via JNI for chrome://inspect; persisted in `velta-devtools`, applied at
+   boot).
 - `app/js/media.js` resolves local paths to WebView-safe media URLs:
   blobfile probe → loopback HTTP → asset protocol, with one-shot error
   fallbacks per element. Details and the WebView2 media quirk:
@@ -834,7 +838,11 @@ test traffic accordingly.
 - **Webxdc responses carry their own CSP** (`WEBXDC_CSP`, webxdc_serve.rs):
   the app CSP does not apply to custom-protocol responses, so without it
   mini-apps had unrestricted network access. KEEP it on every webxdc
-  response; no remote hosts, `webrtc 'block'`.
+  response; no remote hosts, webxdc origins + `data:`/`blob:` only. Do NOT
+  add `webrtc 'block'` (Delta Chat desktop ships it): Chromium logs
+  "Unrecognized Content-Security-Policy directive" for every webxdc app and
+  ignores the directive anyway — WebRTC is instead disabled in the injected
+  shim (RTCPeerConnection stubbed before app scripts run, webxdc-shim.js).
 - **Blob/media servers answer only the app's own origin** (`media_cors`,
   lib.rs): no `Access-Control-Allow-Origin: *`; requests with a foreign
   Origin — including `null` from sandboxed frames (webxdc, HTML viewer) —
@@ -945,11 +953,19 @@ talks to Google.
   `background_fetch` RPC through the `bg-` round-trip → events surface
   through the background poller's parked `get_next_event_batch` → existing
   `bg_notify_incoming` notifications. No new notification plumbing.
-- **Core changes: none.** The vendored core already exposes everything
+- **Core surface** — the vendored core already exposed everything needed
   (`set_push_device_token`, `background_fetch`/`stop_background_fetch` in
   core + JSON-RPC); the shell calls the accounts Arc directly via the
   `ANDROID_ACCOUNTS`/`ANDROID_RPC_TX`/`APP_HANDLE` globals. A token arriving
-  before the core initializes is parked in `PENDING_PUSH_TOKEN`.
+  before the core initializes is parked in `PENDING_PUSH_TOKEN`. The only
+  vendored-core edit (1.4.29) is the observability events below — the push
+  registration path itself is untouched upstream behavior.
+- **Observability (1.4.29)** — the Diagnostics chat shows the whole chain:
+  the shell emits `velta-push` when the distributor endpoint is applied, and
+  the core (vendored change in `imap.rs register_token` / scheduler error
+  path) emits `Info`/`Warning` events per transport — "push notifications
+  registered" (relay accepted the token) vs "relay did not accept the push
+  token". The rpc-core `Info`/`Warning` → diagnostic mapping surfaces both.
 - ** ceilings:** (1) `CoreService` is NOT stopped when push registers —
   stopping it requires cold-start-by-push support, which needs the Rust core
   to initialize from a Service (there is no `Application` class; `run()`

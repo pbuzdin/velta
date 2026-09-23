@@ -458,7 +458,8 @@ diagnostics in a screencap-visible console style — no adb or logcat needed.
 Its action bar carries two switches: **Logging** freezes/resumes the shell
 log (`velta.log`), and **DevTools** opens the WebView inspector on Windows
 or enables remote debugging (`chrome://inspect` over USB) on Android. The
-same bar offers "Restart core I/O" and "Reconnect UI" recovery actions.
+same bar offers a "Restart: Core | UI" recovery group and a pause/play
+toggle that freezes the live log (events keep being recorded while paused).
 
 </details>
 

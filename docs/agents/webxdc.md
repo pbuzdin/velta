@@ -23,9 +23,14 @@ the standing read. Rules marked KEEP are do-not-regress.
   (`WEBXDC_CSP`, webxdc_serve.rs, 1.4.28): the app CSP in tauri.conf.json
   does NOT apply to custom-protocol responses, so without it mini-apps had
   unrestricted network access. KEEP: policy = webxdc origins + `data:`/`blob:`
-  only, no remote hosts, `webrtc 'block'`; `'unsafe-inline'`/`'unsafe-eval'`
+  only, no remote hosts; `'unsafe-inline'`/`'unsafe-eval'`
   stay for scripts (apps and the injected `__TAURI_INTERNALS__` stub rely on
-  them). Same shape as Delta Chat desktop's.
+  them). Same shape as Delta Chat desktop's — except `webrtc 'block'`, which
+  DC desktop ships but Chromium does not recognize (console warning per app,
+  directive ignored); deliberately omitted. WebRTC is instead OFF: the shim
+  stubs `RTCPeerConnection`/`webkitRTCPeerConnection` before the app's
+  scripts run (webxdc-shim.js; a determined app can bypass via nested
+  about:blank frames — documented ceiling).
 - `webxdc_rpc` registers its waiter in `wxdc_pending` BEFORE sending the
   request, and ids use a counter (`wxdc-<n>`), not a timestamp — a fast
   response used to find no waiter, and parallel requests collided on

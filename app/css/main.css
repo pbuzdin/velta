@@ -1,11 +1,4 @@
 /* ===== Velta — Telegram-style theme ===== */
-/* Diagnostics chat switches (Logging / DevTools) in #diagnostic-actions. */
-.diag-switch {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 13.5px; color: var(--text);
-  user-select: none; -webkit-user-select: none;
-}
-.diag-switch input { accent-color: var(--accent); width: 16px; height: 16px; }
 :root {
   --bg: #0f0f14;
   --bg-sidebar: #181820;
@@ -1038,6 +1031,20 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .btn-text.btn-primary:hover { background: var(--accent); filter: brightness(1.08); }
 }
 .btn-text { color: var(--accent); font-weight: 600; padding: 10px 14px; border-radius: 8px; }
+/* Diagnostics chat switches (Logging / DevTools): same size and tone as the
+   .btn-text actions they share the #diagnostic-actions bar with. */
+.diag-switch { display: inline-flex; align-items: center; gap: 7px; color: var(--accent); font-weight: 600; padding: 10px 14px; border-radius: 8px; cursor: pointer; user-select: none; -webkit-user-select: none; }
+.diag-switch input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; cursor: pointer; }
+@media (hover: hover) and (pointer: fine) {
+  .diag-switch:hover { background: var(--bg-hover); }
+}
+/* Restart group in #diagnostic-actions: "Restart: [Core|UI]" — one visual
+   control so the bar fits narrow phone widths. */
+.btn-group { display: inline-flex; align-items: center; min-width: 0; }
+.btn-group-label { font-size: 13.5px; color: var(--text-dim); padding: 0 6px 0 10px; white-space: nowrap; }
+.btn-group .btn-text { padding: 10px 12px; border-radius: 0; }
+.btn-group .btn-text:first-of-type { border-radius: 8px 0 0 8px; }
+.btn-group .btn-text:last-of-type { border-radius: 0 8px 8px 0; }
 /* Inline .btn-text actions inside bubbles ("Show Full Message…", transfer
    Retry): the accent blue fails AA on the blue outgoing bubble (3.0:1 dark,
    2.85:1 light, 1.67:1 brutal), on light incoming (3.0:1) and is marginal

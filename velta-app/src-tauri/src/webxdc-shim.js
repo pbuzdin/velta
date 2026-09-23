@@ -4,6 +4,21 @@
 // (status updates) — see app/js/webxdc-manager.js on the host side.
 (function () {
   "use strict";
+  // WebRTC is off for webxdc apps (spec: no network access; CSP has no
+  // portable directive for it — Chromium logs "Unrecognized" and ignores
+  // `webrtc 'block'`). The constructors are stubbed BEFORE the app's own
+  // scripts run. 🐴 ceiling: a determined app can re-obtain a fresh global
+  // (e.g. via a nested about:blank iframe) — this stops accidental use,
+  // not a deliberate bypass.
+  try {
+    const rtcBlocked = function () {
+      throw new Error("WebRTC is not available in webxdc apps");
+    };
+    window.RTCPeerConnection = rtcBlocked;
+    window.webkitRTCPeerConnection = rtcBlocked;
+  } catch (_e) {
+    // no window to guard — nothing to block
+  }
   // The host passes the shell theme (?velta-theme=) — apply it as the
   // document's color-scheme so scrollbars and default canvas match. An
   // app's own color-scheme CSS overrides this (inline < author rules with

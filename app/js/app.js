@@ -19,6 +19,12 @@ const diagnostics = new DiagnosticsStore();
 window.__veltaDiagnostics = diagnostics;
 let core = null;
 let diagnosticsOpen = false;
+// Live-update gate for the open Diagnostics chat (pause button in its action
+// bar): events keep being recorded into the store while paused, only the
+// rendering freezes; resuming re-renders to catch up.
+let diagnosticsPaused = false;
+const DIAG_ICON_PAUSE = '<svg viewBox="0 0 24 24"><path d="M9 5.5v13M15 5.5v13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>';
+const DIAG_ICON_PLAY = '<svg viewBox="0 0 24 24"><path d="M8 5.2l11 6.8-11 6.8z" fill="currentColor"/></svg>';
 let chatView = null;
 let calls = null;
 let coreStartupPromise = null;
@@ -68,14 +74,24 @@ window.addEventListener("unhandledrejection", e => appLog(`JS unhandled rejectio
 const $ = (id) => document.getElementById(id);
 
 function renderDiagnosticsMessages() {
-  if (!diagnosticsOpen) return;
+  // Single choke point for every render path (open, live "changed" events,
+  // resume): while paused the chat shows a frozen snapshot — the store keeps
+  // recording, resuming re-renders to catch up.
+  if (!diagnosticsOpen || diagnosticsPaused) return;
   const history = $("history");
   if (!history) return;
+  const scroll = $("history-scroll");
+  // Preserve the user's scroll position: follow the tail only when they are
+  // already at (or near) the bottom — otherwise a burst of events yanks the
+  // view away mid-read.
+  const pinned = !scroll ||
+    scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 80;
   history.replaceChildren(...diagnostics.messages.map(diagnosticRow));
-  requestAnimationFrame(() => {
-    const scroll = $("history-scroll");
-    if (scroll) scroll.scrollTop = scroll.scrollHeight;
-  });
+  if (pinned) {
+    requestAnimationFrame(() => {
+      if (scroll) scroll.scrollTop = scroll.scrollHeight;
+    });
+  }
 }
 
 function renderInitialDiagnosticsChat() {
@@ -88,17 +104,17 @@ function renderInitialDiagnosticsChat() {
 
 function bindEarlyRecoveryActions() {
   $("btn-restart-core")?.addEventListener("click", async () => {
-    diagnostics.append("info", "Restart core I/O requested during startup");
+    diagnostics.append("info", "Core restart requested during startup");
     if (!core) {
       diagnostics.append("warning", "Core is still starting; reloading the UI to retry initialization");
       setTimeout(() => location.reload(), 150);
       return;
     }
     try {
-      if (!core.restartIo) throw new Error("Core I/O restart is unavailable for this backend");
+      if (!core.restartIo) throw new Error("Core restart is unavailable for this backend");
       await core.restartIo();
-      diagnostics.append("info", "Core I/O restarted successfully");
-      toast("Core I/O restarted");
+      diagnostics.append("info", "Core restarted successfully");
+      toast("Core restarted");
     } catch (error) {
       diagnostics.append("error", `Core restart failed: ${error?.message || error}`);
       toast(`Core restart failed: ${error?.message || error}`, 5000);
@@ -183,12 +199,31 @@ function openDiagnosticsChat() {
       }
     });
   }
+  const pauseBtn = $("btn-diag-pause");
+  if (pauseBtn && !pauseBtn.dataset.bound) {
+    pauseBtn.dataset.bound = "1";
+    pauseBtn.addEventListener("click", () => {
+      diagnosticsPaused = !diagnosticsPaused;
+      pauseBtn.innerHTML = diagnosticsPaused ? DIAG_ICON_PLAY : DIAG_ICON_PAUSE;
+      const label = diagnosticsPaused ? "Resume diagnostics" : "Pause diagnostics";
+      pauseBtn.title = label;
+      pauseBtn.setAttribute("aria-label", label);
+      pauseBtn.setAttribute("aria-pressed", String(diagnosticsPaused));
+      // The store keeps recording while paused — the marker row below lands
+      // in the frozen snapshot and becomes visible on resume.
+      diagnostics.append("info", diagnosticsPaused
+        ? "Diagnostics updates paused (events keep being recorded)"
+        : "Diagnostics updates resumed");
+      if (!diagnosticsPaused) renderDiagnosticsMessages();
+    });
+  }
   renderDiagnosticsMessages();
   if (history.state?.velta !== "chat") history.pushState({ velta: "chat", chatId: DIAGNOSTICS_CHAT_ID }, "");
   renderChatList();
 }
 
 diagnostics.addEventListener("changed", () => {
+  if (diagnosticsPaused) return; // frozen snapshot; the resume click re-renders
   renderDiagnosticsMessages();
   // Debounced: diagnostics appends fire per core event (several per second
   // during sync) — a direct refresh here would multiply the churn.
@@ -256,6 +291,12 @@ if (window.__TAURI__) {
   try {
     listen("velta-sidecar-status", ev => applySidecarStatus(ev.payload));
     invoke("get_sidecar_status").then(applySidecarStatus).catch(() => {});
+    // UnifiedPush: the shell confirms the distributor endpoint was applied to
+    // the core. Per-relay acceptance surfaces separately as core Info/Warning
+    // events ("push notifications registered for transport N") via onDiagnostic.
+    listen("velta-push", () => {
+      diagnostics.append("info", "UnifiedPush: push endpoint registered with the distributor");
+    });
   } catch (e) {
     console.warn("[velta] sidecar status setup failed:", e);
   }

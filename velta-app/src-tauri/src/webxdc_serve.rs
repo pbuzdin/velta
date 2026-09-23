@@ -16,12 +16,18 @@ pub const WEBXDC_SHIM: &str = include_str!("webxdc-shim.js");
 // Webxdc apps must have no network access (webxdc spec). The app's CSP in
 // tauri.conf.json does not cover custom-protocol responses, so every
 // webxdc response carries its own policy: only the webxdc origin plus
-// data:/blob:, no remote hosts, no WebRTC. 'unsafe-inline'/'unsafe-eval'
-// stay allowed for scripts because apps (and the injected
-// __TAURI_INTERNALS__ stub) rely on them. Same policy shape as Delta Chat
-// desktop. The webxdc origins are listed explicitly next to 'self': the
-// frame is sandboxed into an opaque origin, and the app's own assets must
-// keep loading no matter how the WebView resolves 'self' there.
+// data:/blob:, no remote hosts. 'unsafe-inline'/'unsafe-eval' stay allowed
+// for scripts because apps (and the injected __TAURI_INTERNALS__ stub) rely
+// on them. Same policy shape as Delta Chat desktop. The webxdc origins are
+// listed explicitly next to 'self': the frame is sandboxed into an opaque
+// origin, and the app's own assets must keep loading no matter how the
+// WebView resolves 'self' there.
+//
+// No `webrtc 'block'` directive (Delta Chat desktop ships it): Chromium does
+// not recognize it and logs "Unrecognized Content-Security-Policy directive
+// 'webrtc'" for every webxdc app. WebRTC is instead disabled in the injected
+// shim, which stubs the RTCPeerConnection constructors before the app's
+// scripts run (see webxdc-shim.js).
 pub const WEBXDC_CSP: &str = "default-src 'self' http://webxdc.localhost https://webxdc.localhost webxdc://localhost; \
     style-src 'self' http://webxdc.localhost https://webxdc.localhost webxdc://localhost 'unsafe-inline' blob:; \
     font-src 'self' http://webxdc.localhost https://webxdc.localhost webxdc://localhost data: blob:; \
@@ -29,8 +35,7 @@ pub const WEBXDC_CSP: &str = "default-src 'self' http://webxdc.localhost https:/
     connect-src 'self' http://webxdc.localhost https://webxdc.localhost webxdc://localhost data: blob:; \
     img-src 'self' http://webxdc.localhost https://webxdc.localhost webxdc://localhost data: blob:; \
     media-src 'self' http://webxdc.localhost https://webxdc.localhost webxdc://localhost data: blob:; \
-    frame-src 'self' http://webxdc.localhost https://webxdc.localhost webxdc://localhost data: blob:; \
-    webrtc 'block'";
+    frame-src 'self' http://webxdc.localhost https://webxdc.localhost webxdc://localhost data: blob:";
 
 static WXDC_RPC_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 

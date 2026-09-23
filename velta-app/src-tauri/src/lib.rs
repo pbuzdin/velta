@@ -1046,6 +1046,9 @@ pub extern "system" fn Java_org_velta_UnifiedPushService_pushEndpointReceived(
                 log(&format!("push endpoint apply failed: {e}"));
             } else {
                 log("push endpoint applied to the accounts manager");
+                if let Some(app) = APP_HANDLE.lock().unwrap().clone() {
+                    let _ = app.emit("velta-push", serde_json::json!({"stage": "endpoint"}));
+                }
             }
         }
         None => {
@@ -1519,6 +1522,7 @@ async fn init_android_core(
             log(&format!("parked push endpoint apply failed: {e}"));
         } else {
             log("parked push endpoint applied to the accounts manager");
+            let _ = app_handle.emit("velta-push", serde_json::json!({"stage": "endpoint"}));
         }
     }
     let _ = app_handle.emit("velta-sidecar-status", serde_json::json!({"running": true, "stage": "configuring"}));
