@@ -29,7 +29,8 @@ Captured from the responsive PWA running in demo mode (mock core), dark theme.
 
 Download `Velta_<version>_universal.dmg` from the
 [latest release](https://github.com/pbuzdin/velta/releases/latest). It runs on
-Apple Silicon and Intel Macs, macOS 10.15 or newer.
+Apple Silicon and Intel Macs, macOS 10.15 or newer. The macOS build was
+contributed by [@mrgluek](https://github.com/mrgluek) - thank you!
 
 The macOS build is **ad-hoc signed and not notarized** (there is no Apple
 Developer ID yet), so Gatekeeper blocks the first launch with "Velta can't be
@@ -171,6 +172,27 @@ Local (nearby) chats are searched within their loaded history only.
 
 </details>
 
+<details>
+<summary>Link previews</summary>
+
+The first link in a text message renders as a preview card: image, title,
+description and domain, fetched from the page's Open Graph tags when the
+message is on screen. Tapping the card opens the link - in your system
+browser on desktop, in the in-app browser on Android.
+
+Previews can be turned off in two places:
+
+- **Drawer - Link previews**: the global switch (default on).
+- **Chat context menu (long-press/right-click a chat) - Link previews:
+  on/off**: per-chat override that wins over the global switch.
+
+Privacy: the preview is fetched by the app itself (not through relays or
+any third-party service), https only, capped at 256 KB of page and 512 KB
+of image per card, cached in memory for the session. Note the flip side of
+any link preview: fetching it tells the linked site your IP address. If
+that matters for a chat, turn previews off for it.
+
+</details>
 <details>
 <summary>Shared contacts (vCards)</summary>
 

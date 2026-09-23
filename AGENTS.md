@@ -464,7 +464,10 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   (the same check that hides the composer), ChatView applies a
   `chat-read-only` body class for DOM-rendered buttons and guards
   `_setReply`/`_setReplyFragment` as the backstop. Never gate these on
-  `chat.kind === "channel"` alone — the rights check is the source of truth.
+  `chat.kind === "channel"` alone — the rights check is the source of truth. The hidden composer also removes the
+  bottom breathing room; restored by `body.chat-read-only .history-scroll` padding
+  (NOT on `.history` itself — the virtual scroller inline-writes its own
+  padding-bottom there every layout pass and would clobber the rule).
 - **Attachments carry the pending reply** (1.4.26): `_takeQuote()` is the
   single consumer of the pending reply (`replyTo`/`replyFragment`) — full
   replies ride the core's `quotedMessageId`, fragment replies become
@@ -601,6 +604,26 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   fallbacks per element. Details and the WebView2 media quirk:
   docs/agents/media.md.
 - `app/js/poster.js` — lazy WebP poster extraction + disk cache.
+- `app/js/link-preview.js` — OG preview card for the first link in a text
+  message. Fetches shell-side (`fetch_link_preview`, lib.rs — same trust
+  model as `expand_invite_link`: https-only, 5 s timeout, 256 KB page /
+  512 KB image cap) and inlines og:image as a `data:` URL (CSP img-src has
+  `data:` everywhere; remote hosts stay out). In-memory cache per URL;
+  failed fetches cached as null. Setting: drawer → “Link previews”
+  (localStorage `velta-link-preview`, “0” = off, default on; the toggle is
+  self-contained in ui.js — no app.js wiring). KEEP: the card slot is
+  rendered empty (`data-lp`) and hydrates async — the hydration MUST call
+  `notifyHeight()` after unhiding or the virtual scroller’s layout math
+  goes stale (same contract as image decode). Cards never render in demo
+  mode (no Tauri shell → no fetch command). Per-chat override: chat context
+  menu → “Link previews: on/off” (localStorage `velta-link-preview-chats`,
+  `{chatId: “on”|“off”}`, wins over the global drawer value). KEEP: bubble
+  anchors (markdown links AND card links) are handled by the DELEGATED
+  branch in the row click handler (`e.target.closest(`a[href]`)`) — the
+  card's <a> is inserted async after row build, so per-anchor wiring
+  never sees it. Desktop opens links via `openExternal()` =
+  `plugin:opener|open_url` (system browser); Android keeps the in-app
+  browser chain (see §5.5).
 - `app/js/ui.js` — drawer, modals, context menus, toasts, update banner,
   delete-confirmation dialog. The drawer head shows the avatar (self
   profile sheet via `onProfile`), display name, Edit profile and Switch
@@ -1207,6 +1230,19 @@ do-not-regress rules; dates mark when the lesson was learned.
   `?velta-theme=` + `documentElement.style.colorScheme`) because the
   iframe element's scheme only paints the canvas. Device chats
   (`kind === "device"`) hide the composer.
+- **Frontend click/spacing plumbing (1.4.30)** — four failures hit in one feature;
+  all four are permanent rules:
+  1. `window.open`/target=_blank is silently swallowed by wry on desktop — nothing
+  opens, no error. The working desktop path is the opener plugin (`plugin:opener|open_url`,
+  `opener:default` capability; see `openExternal()` in chat-view.js and the update banner).
+  2. Do NOT route desktop links through the in-app iframe overlay — it is the Android
+  branch of `openInAppBrowser`; desktop links go to the system browser.
+  3. DOM inserted ASYNC (link-preview cards) is invisible to per-anchor wiring
+  done at row build — wire click handling by DELEGATION at the row level.
+  4. The virtual scroller inline-writes `style.paddingTop/Bottom` onto `.history
+  every layout pass; spacing rules must target `.history-scroll`, never `.history`.
+  Also: inline `onclick` attributes die under the CSP (no `unsafe-inline`) — wire
+  listeners in DOM code, never as HTML attributes.
 - **Encoding (2026-09-23)** — every text file is UTF-8 without BOM; no
   exceptions. On this Windows checkout the ANSI codepage is CP1251
   (Cyrillic), and tools that read or write with the default encoding —

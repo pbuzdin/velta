@@ -17,6 +17,7 @@ import { fileUrl, mediaFallbackUrl } from "./media.js";
 import { openInAppBrowser } from "./inapp-browser.js";
 import { renderMarkdown, extractBotCommands } from "./markdown.js";
 import { lcRetryTransfer } from "./local-chat.js";
+import { linkPreview, linkPreviewCardHtml, firstLink as firstLinkOf } from "./link-preview.js";
 
 function rustLog(msg) {
   try {
@@ -24,6 +25,19 @@ function rustLog(msg) {
     const invoke = tauri?.core?.invoke || tauri?.invoke;
     if (invoke) invoke("js_log", { msg }).catch(() => {});
   } catch {}
+}
+
+// Desktop: open a URL in the SYSTEM browser. wry swallows window.open /
+// target=_blank new-window requests, so this rides the opener plugin — the
+// same verified path as the update banner (plugin:opener|open_url,
+// opener:default capability). Bare window.open is the non-Tauri fallback.
+function openExternal(url) {
+  try {
+    const tauri = window.__TAURI__;
+    const invoke = tauri?.core?.invoke || tauri?.invoke;
+    if (invoke) return void invoke("plugin:opener|open_url", { url }).catch(() => window.open(url, "_blank", "noopener"));
+  } catch {}
+  window.open(url, "_blank", "noopener");
 }
 
 
@@ -1014,6 +1028,9 @@ export class ChatView {
         }
       }
       if (fullMsg) bubble += `<div style="margin-top:6px"><button type="button" class="btn-text" data-fullmsg style="padding:4px 8px;font-size:13px">Show Full Message…</button></div>`;
+      // Link preview card for the first link: empty slot here, hydrates
+      // async below (notifyHeight keeps the scroller's layout math fresh).
+      bubble += `<div class="msg-link-preview" data-lp hidden></div>`;
     } else bubble += `<div class="msg-text">`;
     const edited = m.edited ? `<span class="edited">edited</span>` : "";
     const star = m.starred ? `<svg class="star-ico" viewBox="0 0 24 24"><path d="M12 3l2.7 5.8 6.3.7-4.7 4.3 1.3 6.2-5.6-3.2-5.6 3.2 1.3-6.2L3 9.5l6.3-.7z" fill="currentColor"/></svg>` : "";
@@ -1067,6 +1084,18 @@ export class ChatView {
     // list jitters while scrolling ("Item index N height changed
     // unexpectedly" console warnings).
     const notifyHeight = () => { const it = liveItem(); if (it) this.vs?.onItemHeightDidChange?.(it); };
+    // Link preview hydration: only plain-text first-link messages carry the
+    // slot; failed/off settings resolve null and the slot stays hidden.
+    const lpSlot = row.querySelector("[data-lp]");
+    if (lpSlot && lpSlot.dataset.lpDone !== "1") {
+      lpSlot.dataset.lpDone = "1";
+      linkPreview(m.text, chatId).then((p) => {
+        if (!p || !alive() || !lpSlot.isConnected) return;
+        lpSlot.innerHTML = linkPreviewCardHtml(p, firstLinkOf(m.text));
+        lpSlot.hidden = false;
+        notifyHeight();
+      });
+    }
     const webxdcCard = row.querySelector('.msg-webxdc[data-act="open-webxdc"]');
     if (webxdcCard && webxdcCard.dataset.wired !== "1") {
       webxdcCard.dataset.wired = "1";
@@ -1124,19 +1153,6 @@ export class ChatView {
           input.value = cmdBtn.dataset.cmd;
           input.focus();
           input.dispatchEvent(new Event("input", { bubbles: true }));
-        });
-      });
-    }
-    if (/Android/.test(navigator.userAgent)) {
-      // Android WebView drops target=_blank (no multi-window support in wry):
-      // message links open in the in-app browser overlay (Telegram-style);
-      // its bar has an open-in-system-browser escape hatch.
-      row.querySelectorAll('a[href]').forEach((a) => {
-        a.addEventListener("click", (e) => {
-          const href = a.getAttribute("href") || "";
-          if (!/^https?:/i.test(href)) return;
-          e.preventDefault();
-          openInAppBrowser(href);
         });
       });
     }
@@ -1233,6 +1249,23 @@ export class ChatView {
     row.addEventListener("click", async e => {
       if (!alive()) return;
       if (this.selection.size) { this._toggleSelect(m.id, row); return; }
+      // Bubble anchors (markdown links, link-preview cards): delegated, not
+      // per-anchor wiring — the preview card's <a> is inserted ASYNC after
+      // row build, so per-anchor wiring never sees it. Android WebView drops
+      // target=_blank → in-app browser overlay; desktop opens in the SYSTEM
+      // browser via the opener plugin (window.open is silently swallowed by
+      // wry's new-window handling — it is NOT a working fallback path).
+      const link = e.target.closest("a[href]");
+      if (link) {
+        const href = link.getAttribute("href") || "";
+        if (/^https?:/i.test(href)) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (/Android/.test(navigator.userAgent)) openInAppBrowser(href);
+          else openExternal(href);
+        }
+        return; // non-http hrefs: browser default, never row selection
+      }
       const chip = e.target.closest("[data-react]");
       if (chip) { this.core.addReaction(this.chat.id, m.id, chip.dataset.react); return; }
       const quote = e.target.closest("[data-quote]");

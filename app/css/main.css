@@ -404,6 +404,12 @@ html[data-theme="light"] .day-chip { background: rgba(244,244,244,.75); color: #
 body.chat-read-only .msg-hover-reply,
 body.chat-read-only #sel-quote-chip,
 body.chat-read-only [data-sel="reply"] { display: none; }
+/* Read-only chats (channels without posting rights, device chats) hide the
+   composer with [hidden] - without extra bottom space the last message row
+   sits flush against the viewport edge. Kept on the SCROLL container: the
+   virtual scroller inline-writes padding-bottom onto .history itself
+   (before/afterItemsHeight spacers), which would clobber a rule there. */
+body.chat-read-only .history-scroll { padding-bottom: 34px; }
 @media (hover: none) {
   .msg-hover-reply { display: none; }
 }
@@ -1463,6 +1469,70 @@ li.failed .step-ico::after { content: "✕"; }
 }
 @media (hover: hover) and (pointer: fine) {
   .msg-cmd:hover { background: rgba(255, 255, 255, 0.14); }
+}
+
+/* ===== Link preview card (first link in a text message) ===== */
+.msg-link-preview { margin-top: 8px; }
+.link-preview {
+  display: block;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-hover);
+  color: inherit;
+  text-decoration: none;
+}
+.link-preview .lp-img {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+}
+.link-preview .lp-body {
+  display: block;
+  padding: 8px 10px;
+}
+.link-preview .lp-host {
+  display: block;
+  font-size: 12px;
+  color: var(--text-meta-in);
+  margin-bottom: 2px;
+}
+/* Out-bubble card text fails AA with the generic tokens (measured on the
+   composited card surface: --bg-hover over --bg-bubble-out, AGENTS.md 6.4):
+   dark desc 2.11 / host 4.00, light desc 3.64 / host 4.21, brutal title 1.64
+   / desc 1.37. Scoped replacements, all >= 4.5. */
+.msg-row.out .link-preview .lp-host { color: #b9d1e8; } /* 4.51 on out card */
+.msg-row.out .link-preview .lp-title { color: var(--text); } /* 6.35 dark / 13.8 light */
+.msg-row.out .link-preview .lp-desc { color: #d1d1d5; } /* 4.66 on out card */
+html[data-theme="light"] .msg-row.out .link-preview .lp-host { color: #28699e; } /* 4.53 */
+html[data-theme="light"] .msg-row.out .link-preview .lp-desc { color: #5e636d; } /* 4.69 */
+html[data-theme="brutal"] .msg-row.out .link-preview .lp-host { color: var(--text-meta-out); } /* 4.84 */
+html[data-theme="brutal"] .msg-row.out .link-preview .lp-title,
+html[data-theme="brutal"] .msg-row.out .link-preview .lp-desc { color: #3d3405; } /* 6.63 */
+.link-preview .lp-title {
+  display: block;
+  font-weight: 600;
+  font-size: 14px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.link-preview .lp-desc {
+  display: block;
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-top: 2px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  /* long unbreakable URLs never line-break, so the clamp never fires and
+     the ellipsis is lost — force break opportunities */
+  overflow-wrap: anywhere;
+}
+@media (hover: hover) and (pointer: fine) {
+  .link-preview:hover { background: rgba(255, 255, 255, 0.12); }
 }
 
 /* ===== Webxdc mini-apps ===== */
