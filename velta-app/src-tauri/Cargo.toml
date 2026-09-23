@@ -4,7 +4,7 @@ version = "1.4.29"
 description = "Velta — Delta Chat client"
 edition = "2021"
 rust-version = "1.89"
-# src/bin/p2p-hub.rs is auto-discovered as a second binary (debug helper);
+# src/bin/p2p-hub.rs is a second binary (debug helper, see [[bin]] below);
 # without this key `cargo tauri dev` cannot decide what to run.
 default-run = "velta-app"
 
@@ -15,6 +15,18 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [[bin]]
 name = "velta-app"
 path = "src/main.rs"
+
+# Headless Local chat debug hub. Behind a feature so release bundles never
+# ship it: Tauri bundles every [[bin]] of the crate, and a universal macOS
+# build (which lipo-merges only the main binary) fails on the missing hub.
+# Run it with: cargo run --bin p2p-hub --features p2p-hub
+[[bin]]
+name = "p2p-hub"
+path = "src/bin/p2p-hub.rs"
+required-features = ["p2p-hub"]
+
+[features]
+p2p-hub = []
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

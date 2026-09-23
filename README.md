@@ -81,7 +81,8 @@ ways:
 Paired devices exchange end-to-end-encrypted messages; messages to offline
 peers are queued and flushed on reconnect. Engine: `velta-app/src-tauri/src/p2p.rs`;
 UI: `app/js/p2p.js`. A headless terminal hub for debugging lives in
-`velta-app/src-tauri/src/bin/p2p-hub.rs`.
+`velta-app/src-tauri/src/bin/p2p-hub.rs` — `cargo run --bin p2p-hub --features p2p-hub`
+(behind a feature so release bundles never ship it).
 
 Local chat is **disabled by default**. Switch it on/off in the drawer
 ("Local chat: on/off"): when off, the engine never starts (no endpoint
