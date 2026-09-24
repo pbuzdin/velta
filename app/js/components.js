@@ -143,7 +143,6 @@ class VeltaVideo extends Elena(HTMLElement) {
   file = "";   // raw file path — poster extraction source (src is a served URL)
   size = "";   // pre-formatted file size for the corner badge
   poster = ""; // cached WebP frame URL, resolved lazily
-  posterRatio = ""; // "W / H" from the loaded poster - placeholder aspect
   #active = false;
   #failed = false;
   #lastSrc = null;
@@ -188,16 +187,6 @@ class VeltaVideo extends Elena(HTMLElement) {
         if (url && this.isConnected && !this.#active) {
           this.poster = url;
           this.requestUpdate();
-          // Respect the poster's real shape when the core sent no message
-          // dimensions: measure the loaded image and switch the placeholder
-          // from the 350px band to an aspect box (same 350px height cap).
-          const probe = new Image();
-          probe.onload = () => {
-            if (!probe.naturalWidth || !probe.naturalHeight || !this.isConnected) return;
-            this.posterRatio = `${probe.naturalWidth} / ${probe.naturalHeight}`;
-            this.requestUpdate();
-          };
-          probe.src = url;
         }
       })
       .catch((e) => diagnosticsSink.append("error", `poster kick failed: ${e?.message || e}`));
@@ -260,7 +249,7 @@ class VeltaVideo extends Elena(HTMLElement) {
     if (!this.#active || !this.src) {
       const d = Number(this.duration) || 0;
       const dur = d > 0 ? `${Math.floor(d / 60)}:${String(Math.floor(d % 60)).padStart(2, "0")}` : "";
-      return html`<button type="button" class="velta-video-ph"${this.posterRatio ? ` style="aspect-ratio:${this.posterRatio}; height:auto; width:100%; max-width:480px"` : ""} aria-label="${this.ariaLabel()}">
+      return html`<button type="button" class="velta-video-ph" aria-label="${this.ariaLabel()}">
         ${this.poster ? html`<img class="velta-video-poster" src="${this.poster}" alt="" decoding="async">` : ""}
         <span class="velta-video-play">${unsafeHTML(PLAY_SVG)}</span>
         ${this.size ? html`<span class="velta-video-size">${this.size}</span>` : ""}
