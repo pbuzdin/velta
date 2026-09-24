@@ -671,7 +671,7 @@ body.native-scanning #app {
 .msg-video video {
   width: 100%; height: 260px; display: block;
   /* JS overrides .msg-video to a true aspect box when the message carries
-     dimensions (style="height:min(Hpx,45vh,350px); aspect-ratio:W/H;
+     dimensions (style="height:min(Hpx,45vh,260px); aspect-ratio:W/H;
      max-width:100%") - then height:100% fills the box. Without it: the
      fixed 260px band. Either way the row height is deterministic
      (virtual-scroller safe). */
@@ -681,15 +681,18 @@ body.native-scanning #app {
 velta-video { display: block; }
 .velta-video-ph {
   /* the poster <img> is the in-flow sizer: the card takes the poster's
-     real shape, capped at 350px tall */
-  min-width: 350px; max-width: 100%; position: relative;
+     real shape (capped 260px tall); no fixed geometry here */
+  max-width: 100%; position: relative;
   background: #101010; border: 0; cursor: pointer;
   color: #f4f4f4; padding: 0; font: inherit; display: block;
 }
 .msg-video[style] .velta-video-ph { height: 100%; }
 .velta-video-ph .velta-video-poster {
-  width: 100%; height: 260px;
-  object-fit: cover; display: block; filter: brightness(0.72);
+  /* the poster IS the shape: no fixed box, aspect comes from the image */
+  display: block; width: auto; max-width: 100%; max-height: 260px;
+  margin: 0 auto; /* narrow (vertical) cards center in the bubble */
+  min-height: 120px; /* guard: a garbage/strip capture still gets a card */
+  object-fit: cover; filter: brightness(0.72);
 }
 .velta-video-ph .velta-video-play {
   position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1;
