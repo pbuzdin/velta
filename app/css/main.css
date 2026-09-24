@@ -681,8 +681,10 @@ body.native-scanning #app {
 velta-video { display: block; }
 .velta-video-ph {
   /* the poster <img> is the in-flow sizer: the card takes the poster's
-     real shape (capped 260px tall); no fixed geometry here */
-  min-width: 200px; max-width: 100%; position: relative;
+     real shape (capped 260px tall). min-height: when the poster fails to
+     load/render the card would collapse to zero - the play button
+     (absolute, 50%/50%) would land outside a 0-height box and vanish. */
+  min-width: 200px; min-height: 260px; max-width: 100%; position: relative;
   background: #101010; border: 0; cursor: pointer;
   color: #f4f4f4; padding: 0; font: inherit; display: block;
 }
