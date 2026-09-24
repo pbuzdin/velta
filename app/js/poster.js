@@ -29,9 +29,11 @@ function videoFrameAsWebP(bytes) {
         v.playsInline = true;
         v.preload = "auto";
         const cleanup = () => {
-            v.removeAttribute("src");
-            v.load();
-            URL.revokeObjectURL(url);
+            try {
+                v.removeAttribute("src");
+                v.load();
+                URL.revokeObjectURL(url);
+            } catch (_) {} // never let teardown break resolve/reject
         };
         const fail = (err) => { cleanup(); reject(err); };
         const timer = setTimeout(() => fail(new Error("poster frame timeout")), 15000);
@@ -68,17 +70,19 @@ function videoFrameAsWebP(bytes) {
             }
         };
         v.addEventListener("loadedmetadata", () => {
+            diagnosticsSink.append("info", `poster: metadata loaded, seeking`);
             const dur = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : 0;
             const at = Math.min(CAPTURE_AT, dur * 0.1);
             if (at > 0) {
                 v.currentTime = at;
             } else {
-                // Already at 0 — seeking there never fires `seeked`.
+                // Already at 0 - seeking there never fires `seeked`.
                 setTimeout(capture, 120); // let the first frame land
             }
         });
         v.addEventListener("seeked", capture, { once: true });
         v.addEventListener("error", () => { clearTimeout(timer); fail(new Error("poster video decode failed")); });
+        diagnosticsSink.append("info", `poster: blob url set, ${bytes.byteLength} bytes`);
         v.src = url;
     });
 }
@@ -92,7 +96,12 @@ function videoFrameAsWebP(bytes) {
 export function ensurePoster(file) {
     if (!file) return Promise.resolve(null);
     if (results.has(file)) return results.get(file);
-    const job = chain.then(() => extract(file)).catch(() => null);
+    const job = chain.then(() => extract(file)).catch((e) => {
+        // never swallow: a rejection here used to vanish (catch -> null) and
+        // left zero traces while kickPoster waited on a null url
+        diagnosticsSink.append("error", `poster extract threw: ${e?.message || e}`);
+        return null;
+    });
     // Keep the pipeline flowing even when a caller ignores the per-file job.
     results.set(file, job);
     chain = job.then(() => {}, () => {});
