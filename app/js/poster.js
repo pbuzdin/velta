@@ -7,6 +7,7 @@
 // WebP and persisted next to the account database. Later mounts get the
 // cached image served through the asset protocol (plain GETs work fine).
 
+import { diagnosticsSink } from "./diagnostics.js";
 const MAX_EXTRACT_BYTES = 128 * 1024 * 1024; // don't buffer huge files for a frame
 const CAPTURE_AT = 1.0; // seconds into the clip (clamped to 10% for shorts)
 const MAX_EDGE = 480; // poster longest side in px
@@ -106,14 +107,15 @@ async function extract(file) {
         if (meta?.exists) return fileUrlOf(meta.path);
 
         const bytes = await invoke("read_media_bytes", { src: file });
-        if (!bytes || bytes.byteLength === 0 || bytes.byteLength > MAX_EXTRACT_BYTES) return null;
+        if (!bytes || bytes.byteLength === 0) { diagnosticsSink.append("error", `poster ${file}: empty read`); return null; }
+        if (bytes.byteLength > MAX_EXTRACT_BYTES) return null; // oversized: expected, not an error
 
         const webp = await videoFrameAsWebP(bytes);
-        if (!webp) return null;
+        if (!webp) { diagnosticsSink.append("error", `poster ${file}: frame capture failed (decode/seek/webp-encode)`); return null; }
 
         const path = await invoke("write_poster", { src: file, bytes: new Uint8Array(webp) });
-        return path ? fileUrlOf(path) : null;
     } catch (e) {
+        diagnosticsSink.append("error", `poster ${file}: ${e?.message || e}`);
         return null;
     }
 }
