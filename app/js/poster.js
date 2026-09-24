@@ -101,7 +101,8 @@ export function ensurePoster(file) {
 
 async function extract(file) {
     const invoke = invokeFn();
-    if (!invoke) return null;
+    if (!invoke) { diagnosticsSink.append("error", "poster: no Tauri invoke"); return null; }
+    diagnosticsSink.append("info", `poster extract enter: ${file}`);
     try {
         const meta = await invoke("poster_cache_path", { src: file });
         if (meta?.exists) return fileUrlOf(meta.path);
