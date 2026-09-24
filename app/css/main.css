@@ -680,19 +680,19 @@ body.native-scanning #app {
 .msg-video[style] video { height: 100%; }
 velta-video { display: block; }
 .velta-video-ph {
-  /* min-width: poster frames are often narrow (portrait videos); the tap
-     target and badges would collapse with width:100% alone. */
-  min-width: 350px; width: 100%; height: 350px; display: grid; place-items: center;
-  background: #101010; border: 0; cursor: pointer; position: relative;
-  color: #f4f4f4; padding: 0; font: inherit;
+  /* the poster <img> is the in-flow sizer: the card takes the poster's
+     real shape, capped at 350px tall */
+  min-width: 350px; max-width: 100%; position: relative;
+  background: #101010; border: 0; cursor: pointer;
+  color: #f4f4f4; padding: 0; font: inherit; display: block;
 }
 .msg-video[style] .velta-video-ph { height: 100%; }
 .velta-video-ph .velta-video-poster {
-  position: absolute; inset: 0; width: 100%; height: 100%;
+  width: 100%; height: auto; max-height: 350px;
   object-fit: cover; display: block; filter: brightness(0.72);
 }
 .velta-video-ph .velta-video-play {
-  position: relative; z-index: 1;
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1;
   width: 54px; height: 54px; border-radius: 50%;
   background: rgba(244, 244, 244, 0.16); display: grid; place-items: center;
   padding: 15px;
