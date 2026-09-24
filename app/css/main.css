@@ -669,11 +669,11 @@ body.native-scanning #app {
 /* Fingerprint block reused inside the chat-info profile rows. */
 .avatar-profile-fpr { font-size: 12.5px; color: var(--text-dim); text-align: center; line-height: 1.55; white-space: pre-line; }
 .msg-video video {
-  width: 100%; height: 350px; display: block;
+  width: 100%; height: 260px; display: block;
   /* JS overrides .msg-video to a true aspect box when the message carries
      dimensions (style="height:min(Hpx,45vh,350px); aspect-ratio:W/H;
      max-width:100%") - then height:100% fills the box. Without it: the
-     fixed 350px band. Either way the row height is deterministic
+     fixed 260px band. Either way the row height is deterministic
      (virtual-scroller safe). */
   object-fit: contain; background: #101010;
 }
@@ -688,7 +688,7 @@ velta-video { display: block; }
 }
 .msg-video[style] .velta-video-ph { height: 100%; }
 .velta-video-ph .velta-video-poster {
-  width: 100%; height: auto; max-height: 350px;
+  width: 100%; height: auto; max-height: 260px;
   object-fit: cover; display: block; filter: brightness(0.72);
 }
 .velta-video-ph .velta-video-play {
