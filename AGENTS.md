@@ -628,6 +628,29 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   never sees it. Desktop opens links via `openExternal()` =
   `plugin:opener|open_url` (system browser); Android keeps the in-app
   browser chain (see §5.5).
+  Per-chat override: chat context menu → “Link previews: on/off” (localStorage `velta-link-preview-chats`).
+- **Posters + video playback (1.4.31)** — the full chain and its traps:
+  - Path resolution: the core returns blob paths RELATIVE to the accounts
+  root (`accounts\<uuid>\dc.db-blobs\<hash>.mp4`); every shell command that
+  touches the filesystem MUST resolve them (`scoped_accounts_path` joins
+  onto accounts_dir) AND strip the `\\?\` canonical prefix before
+  returning paths to the frontend — convertFileSrc percent-encodes the
+  prefix into asset.localhost URLs that 404.
+  - `poster_target` derives from the RESOLVED absolute path — deriving from
+  the raw relative src wrote posters under the process CWD (found 13 KB
+  WebPs in src-tauri/accounts/ while asset URLs pointed at the real dir).
+  - Failure visibility: every poster-extraction failure path now logs to
+  the Diagnostics chat (entry/exit probes were decisive for triage);
+  silent catch-null chains cost three debugging rounds.
+  - Placeholder geometry: the poster <img> is the IN-FLOW SIZER (no fixed
+  box) - card takes the poster's real shape, max-height 260px, centered,
+  `min-height: 260px` on .velta-video-ph (a failed poster collapse hid the
+  absolute-centered play button), min-width 200px. Video plays in the
+  fullscreen lightbox (openVideoLightbox, injected via
+  `setVideoLightboxOpener` - components.js must not import ui.js, cycle).
+  - Poster img retries: 3 attempts / 1s backoff with the counter on the
+  COMPONENT, not the img dataset — Elena re-renders replace the img
+  element and element-scoped counters lose count.
 - `app/js/ui.js` — drawer, modals, context menus, toasts, update banner,
   delete-confirmation dialog. The drawer head shows the avatar (self
   profile sheet via `onProfile`), display name, Edit profile and Switch
