@@ -735,7 +735,20 @@ fn poster_target(src: &str) -> Option<PathBuf> {
 }
 
 fn scoped_accounts_path(app: &tauri::AppHandle, path: &str) -> Result<PathBuf, String> {
-    let canon = std::fs::canonicalize(path).map_err(|e| e.to_string())?;
+    // The core returns paths RELATIVE to the accounts dir (e.g.
+    // accounts\\<uuid>\\dc.db-blobs\\<hash>.mp4) while the process CWD is the
+    // install dir - resolve before canonicalizing or every access fails with
+    // os error 3.
+    let p = std::path::Path::new(path);
+    let absolute = if p.is_relative() {
+        // the core nests uuid dirs under a literal 'accounts' subdir of
+        // accounts_dir (observed on disk: accounts/accounts/<uuid>), so the
+        // relative path is used as-is
+        accounts_dir(app).join(p)
+    } else {
+        p.to_path_buf()
+    };
+    let canon = std::fs::canonicalize(&absolute).map_err(|e| e.to_string())?;
     // Canonicalize both sides: Windows canonical paths carry a \\?\ prefix
     // while accounts_dir() doesn't.
     let accounts = accounts_dir(app);
