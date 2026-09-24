@@ -687,10 +687,6 @@ velta-video { display: block; }
   color: #f4f4f4; padding: 0; font: inherit;
 }
 .msg-video[style] .velta-video-ph { height: 100%; }
-/* poster-derived aspect box (components.js sets inline aspect-ratio +
-   height:auto when the message had no core dimensions) - override the
-   fixed 350px band defaults */
-.velta-video-ph[style] { height: auto; min-width: 0; }
 .velta-video-ph .velta-video-poster {
   position: absolute; inset: 0; width: 100%; height: 100%;
   object-fit: cover; display: block; filter: brightness(0.72);
