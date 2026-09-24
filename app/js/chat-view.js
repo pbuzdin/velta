@@ -1952,8 +1952,16 @@ export class ChatView {
     const tauri = window.__TAURI__;
     const invoke = tauri?.core?.invoke || tauri?.invoke;
     if (invoke) {
-      invoke("plugin:opener|open_path", { path }).catch(err => {
-        if (this._isCurrent(session)) errToast("Could not open file: " + (err.message || err));
+      // The core returns blob paths RELATIVE to the accounts dir; the opener
+      // scope pattern ($APPLOCALDATA/accounts/**) matches absolute paths
+      // only, so resolve before invoking (window.veltaAccountsDir is set at
+      // boot by app.js get_accounts_dir).
+      let abs = path;
+      if (!/^(?:[a-zA-Z]:[\\/]|\/)/.test(path) && window.veltaAccountsDir) {
+        abs = window.veltaAccountsDir.replace(/[\\/]+$/, "") + "/" + path.replace(/^[\\/]+/, "");
+      }
+      invoke("plugin:opener|open_path", { path: abs }).catch(err => {
+        if (this._isCurrent(session)) errToast("Could not open file: " + (err.message || err) + " path=" + abs);
       });
     } else {
       errToast("File opening is only available in the Tauri app");
