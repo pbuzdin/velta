@@ -1230,6 +1230,13 @@ do-not-regress rules; dates mark when the lesson was learned.
   `?velta-theme=` + `documentElement.style.colorScheme`) because the
   iframe element's scheme only paints the canvas. Device chats
   (`kind === "device"`) hide the composer.
+- **Error toasts go to Diagnostics (1.4.30)** — every error-path toast in
+  app.js/chat-view.js routes through `errToast(text, ms)` (toast +
+  `diagnosticsSink.append(`error`, ...)` → Diagnostics chat + velta.log). Toasts
+  vanish in seconds; sink rows persist. New error toasts MUST use errToast,
+  and plugin-invocation failures should include the resolved argument
+  (e.g. the absolute path) in the message — that is what made the open_path
+  bug diagnosable in one round-trip.
 - **Frontend click/spacing plumbing (1.4.30)** — four failures hit in one feature;
   all four are permanent rules:
   1. `window.open`/target=_blank is silently swallowed by wry on desktop — nothing
@@ -1243,6 +1250,24 @@ do-not-regress rules; dates mark when the lesson was learned.
   every layout pass; spacing rules must target `.history-scroll`, never `.history`.
   Also: inline `onclick` attributes die under the CSP (no `unsafe-inline`) — wire
   listeners in DOM code, never as HTML attributes.
+- **Opening file attachments (1.4.30, three-step lesson)** — the tap on a
+  downloaded non-media file failed three ways before it opened; all three
+  layers must be correct together:
+  1. COMMAND permission: `opener:default` does NOT include open_path —
+  `opener:allow-open-path` must be listed in BOTH capability files
+  (platforms rule, §4.3).
+  2. PATH SCOPE: the bare permission ships ZERO scope entries; the plugin
+  computes fs_scope.is_allowed(path) AND any(Entry.matches_path_program) —
+  an empty allow list denies EVERY path (“Not allowed to open path”).
+  The permission must be an object with an allow scope; Velta allows
+  `$APPLOCALDATA/accounts` + `/**` (all attachment blobs live there).
+  3. ABSOLUTE path: the scope matches absolute paths only. The core's
+  `filePath` is relative to the accounts dir — `_openFile` resolves it
+  against `window.veltaAccountsDir` (get_accounts_dir, set at boot) first.
+  Debug order: reproduce → read the resolved `capabilities.json` under
+  `target/<target>/release/build/velta-app-*/out/` → error toast now carries the
+  resolved path. Verify with a REBUILT binary — config fixes never reach a
+  running/installed app.
 - **Encoding (2026-09-23)** — every text file is UTF-8 without BOM; no
   exceptions. On this Windows checkout the ANSI codepage is CP1251
   (Cyrillic), and tools that read or write with the default encoding —
