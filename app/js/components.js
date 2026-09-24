@@ -147,6 +147,7 @@ class VeltaVideo extends Elena(HTMLElement) {
   #failed = false;
   #lastSrc = null;
   #posterKicked = false;
+  #posterRetries = 0; // poster img load attempts (survives Elena img swaps)
 
   connectedCallback() {
     super.connectedCallback?.();
@@ -225,13 +226,20 @@ class VeltaVideo extends Elena(HTMLElement) {
       img.dataset.errBound = "1";
       // A broken poster must never shadow the plain placeholder. The asset
       // protocol occasionally fails a first request after launch (observed
-      // net error, then 200 on retry) — retry once before giving up.
+      // net error, then 200 on retry). Elena re-renders replace the img
+      // element, so the attempt counter lives HERE (component), not on the
+      // img dataset - retries survive element swaps. 3 attempts, 1s backoff.
       img.addEventListener("error", () => {
-        if (img.dataset.retried !== "1") {
-          img.dataset.retried = "1";
-          img.src = img.src;
+        this.#posterRetries = (this.#posterRetries || 0) + 1;
+        if (this.#posterRetries <= 3 && this.poster) {
+          setTimeout(() => {
+            if (this.isConnected && this.poster) {
+              const fresh = this.querySelector?.("img.velta-video-poster");
+              if (fresh) fresh.src = this.poster; // re-assign even if same URL
+            }
+          }, 1000);
         } else if (this.poster) {
-          this.poster = "";
+          this.poster = ""; // give up: black band + play button (min-height)
           this.requestUpdate();
         }
       });
