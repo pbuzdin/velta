@@ -1382,6 +1382,13 @@ li.failed .step-ico::after { content: "✕"; }
   transition: transform .12s ease-out;
   transform-origin: center center;
 }
+/* video lightbox: the stage's touch handlers are off (player controls own
+   gestures), so re-enable default touch behavior for the video surface */
+.lightbox-video .lightbox-stage { touch-action: auto; user-select: none; }
+.lightbox-video .lightbox-video {
+  max-width: 100%; max-height: 100%;
+  background: #101010; outline: none;
+}
 
 /* ---------- failed media placeholder ---------- */
 .media-fail {

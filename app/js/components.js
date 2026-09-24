@@ -123,6 +123,12 @@ class VeltaAvatar extends Elena(HTMLElement) {
 }
 VeltaAvatar.define();
 
+// Video playback route: chat-view.js injects ui.js's openVideoLightbox here
+// (components.js must not import ui.js - ui imports this module). When
+// unwired, <velta-video> falls back to inline bubble playback.
+let videoLightboxOpener = null;
+export function setVideoLightboxOpener(fn) { videoLightboxOpener = fn; }
+
 /* ---------- <velta-video> — click-to-load video player ---------- */
 // Every mounted <video> starts a decoder pipeline and issues media range
 // requests for content the user may never play; in a multi-video chat that
@@ -144,10 +150,10 @@ class VeltaVideo extends Elena(HTMLElement) {
   size = "";   // pre-formatted file size for the corner badge
   poster = ""; // cached WebP frame URL, resolved lazily
   #active = false;
+  #posterRetries = 0; // poster img load attempts (survives Elena img swaps)
+  #posterKicked = false;
   #failed = false;
   #lastSrc = null;
-  #posterKicked = false;
-  #posterRetries = 0; // poster img load attempts (survives Elena img swaps)
 
   connectedCallback() {
     super.connectedCallback?.();
@@ -165,9 +171,16 @@ class VeltaVideo extends Elena(HTMLElement) {
         // hijack it for playback.
         if (this.closest(".msg-row")?.classList.contains("selectable")) return;
         if (!this.#active && this.src && !this.#failed) {
-          e.stopPropagation(); // play — don't bubble into row selection/menu
-          this.#active = true;
-          this.requestUpdate();
+          e.stopPropagation(); // play - don't bubble into row selection/menu
+          // Playback happens in the fullscreen video lightbox (wired via
+          // setVideoLightboxOpener - components.js must not import ui.js);
+          // inline bubble play is the fallback when no opener is wired.
+          if (videoLightboxOpener) {
+            videoLightboxOpener(this.src, this.name || "Video");
+          } else {
+            this.#active = true;
+            this.requestUpdate();
+          }
         }
       });
     }

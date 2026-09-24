@@ -792,6 +792,37 @@ export function openImageLightbox(src, caption = "") {
   });
 }
 
+// Video lightbox: same shell as the image lightbox (bar + close + history
+// entry), stage hosts a <video controls autoplay>. No pinch-zoom - the
+// player's own controls cover it. Click on the video does NOT close
+// (it toggles play/pause natively); close = button/Esc/BACK.
+export function openVideoLightbox(src, caption = "") {
+  closeAllPopups();
+  teardownLightbox(false);
+  const overlay = document.createElement("div");
+  overlay.className = "lightbox lightbox-video";
+  overlay.innerHTML = `
+    <div class="lightbox-bar">
+      <span class="lightbox-cap"></span>
+      <button class="lightbox-close" aria-label="Close" title="Close"></button>
+    </div>
+    <div class="lightbox-stage"><video class="lightbox-video" controls autoplay playsinline></video></div>`;
+  overlay.querySelector(".lightbox-close").innerHTML = CLOSE_SVG;
+  document.body.appendChild(overlay);
+  overlay.querySelector(".lightbox-cap").textContent = caption;
+  const video = overlay.querySelector("video");
+  video.src = src;
+  lightboxEl = overlay;
+  if (history.state?.velta !== "lightbox") history.pushState({ velta: "lightbox" }, "");
+
+  const close = () => teardownLightbox(true);
+  lightboxOnKey = e => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
+  document.addEventListener("keydown", lightboxOnKey, true);
+  overlay.querySelector(".lightbox-close").addEventListener("click", close);
+  // the video's own clicks toggle play/pause - never bubble into stage close
+  video.addEventListener("click", e => e.stopPropagation());
+}
+
 /* ---------- incoming-message notifications ---------- */
 // Callers own the policy (who/when — they know which message is new); this is
 // the platform bridge plus a burst throttle. No-op outside the Tauri shell or
