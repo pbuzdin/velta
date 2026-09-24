@@ -114,6 +114,7 @@ async function extract(file) {
         if (!webp) { diagnosticsSink.append("error", `poster ${file}: frame capture failed (decode/seek/webp-encode)`); return null; }
 
         const path = await invoke("write_poster", { src: file, bytes: new Uint8Array(webp) });
+        return path ? fileUrlOf(path) : null;
     } catch (e) {
         diagnosticsSink.append("error", `poster ${file}: ${e?.message || e}`);
         return null;
