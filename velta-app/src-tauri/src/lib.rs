@@ -761,8 +761,8 @@ fn scoped_accounts_path(app: &tauri::AppHandle, path: &str) -> Result<PathBuf, S
 
 #[tauri::command]
 fn poster_cache_path(app: tauri::AppHandle, src: String) -> Result<serde_json::Value, String> {
-    scoped_accounts_path(&app, &src)?;
-    let target = poster_target(&src).ok_or("cannot derive poster path")?;
+    let canon = scoped_accounts_path(&app, &src)?;
+    let target = poster_target(&canon.to_string_lossy()).ok_or("cannot derive poster path")?;
     let exists = target.is_file();
     Ok(serde_json::json!({ "path": target.to_string_lossy(), "exists": exists }))
 }
@@ -863,8 +863,8 @@ fn set_ui_visible(visible: bool) {
 
 #[tauri::command]
 fn write_poster(app: tauri::AppHandle, src: String, bytes: Vec<u8>) -> Result<String, String> {
-    scoped_accounts_path(&app, &src)?;
-    let target = poster_target(&src).ok_or("cannot derive poster path")?;
+    let canon = scoped_accounts_path(&app, &src)?;
+    let target = poster_target(&canon.to_string_lossy()).ok_or("cannot derive poster path")?;
     if let Some(dir) = target.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
