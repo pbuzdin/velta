@@ -756,7 +756,12 @@ fn scoped_accounts_path(app: &tauri::AppHandle, path: &str) -> Result<PathBuf, S
     if !canon.starts_with(accounts_canon) {
         return Err("path outside the accounts directory".into());
     }
-    Ok(canon)
+    // Strip the \\?\ prefix before returning: paths handed to the frontend
+    // go through convertFileSrc, which percent-encodes it into asset URLs
+    // (asset.localhost/%2F%2F%3F%2F... -> 404).
+    let stripped = canon.to_string_lossy();
+    let cleaned = stripped.strip_prefix(r"\\?\").map(String::from).unwrap_or_else(|| stripped.to_string());
+    Ok(PathBuf::from(cleaned))
 }
 
 #[tauri::command]
