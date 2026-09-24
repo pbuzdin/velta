@@ -27,6 +27,13 @@ function rustLog(msg) {
   } catch {}
 }
 
+// Error toast that ALSO lands in the Diagnostics chat (sink mirrors to
+// velta.log): toasts vanish in 2-4 s, diagnostics persist for triage.
+function errToast(text, ms = 3000) {
+  diagnosticsSink.append("error", text);
+  toast(text, ms);
+}
+
 // Desktop: open a URL in the SYSTEM browser. wry swallows window.open /
 // target=_blank new-window requests, so this rides the opener plugin — the
 // same verified path as the update banner (plugin:opener|open_url,
@@ -616,7 +623,7 @@ export class ChatView {
       await this.core.resendMessage(m.id);
       this.onMsgState(m.chatId, m.id, "pending");
     } catch (err) {
-      toast(`Resend failed: ${err?.message || err}`);
+      errToast(`Resend failed: ${err?.message || err}`);
       diagnosticsSink.append("error", `resend ${m.id}: ${err?.message || err}`);
     }
   }
@@ -626,7 +633,7 @@ export class ChatView {
       await lcRetryTransfer(m.chatId, m.id);
       toast("Retrying…");
     } catch (err) {
-      toast(`Retry failed: ${err?.message || err}`);
+      errToast(`Retry failed: ${err?.message || err}`);
     }
   }
 
@@ -781,7 +788,7 @@ export class ChatView {
         }
       }
     } catch (err) {
-      if (this._isCurrent(session)) toast("Couldn't load older messages: " + (err.message || err));
+      if (this._isCurrent(session)) errToast("Couldn't load older messages: " + (err.message || err));
     } finally {
       this._loadBar(false); // unconditional: an early session-invalid return must not leave the bar on
       if (this._isCurrent(session)) this.loadingMore = false;
@@ -1300,7 +1307,7 @@ export class ChatView {
       html = null;
     }
     if (!html) {
-      toast("The full version isn't available for this message", 3000);
+      errToast("The full version isn't available for this message");
       return;
     }
     this._openHtmlOverlay("Full message", { html });
@@ -1347,7 +1354,7 @@ export class ChatView {
       const chatId = await this.core.createChatByContactId(contactId);
       this.onOpenChat?.(Number(chatId));
     } catch (err) {
-      toast("Couldn't add contact: " + (err?.message || err));
+      errToast("Couldn't add contact: " + (err?.message || err));
     }
   }
 
@@ -1369,7 +1376,7 @@ export class ChatView {
       items.push({
         label: "Save sticker", icon: ICO.download,
         onClick: () => {
-          this.core.saveSticker(m.id).then(() => toast("Sticker saved")).catch((err) => toast("Couldn't save: " + (err.message || err)));
+          this.core.saveSticker(m.id).then(() => toast("Sticker saved")).catch((err) => errToast("Couldn't save: " + (err.message || err)));
         },
       });
     }
@@ -1380,7 +1387,7 @@ export class ChatView {
         onClick: () => {
           this.core.pinMessage(m.id, !m.pinned)
             .then(() => { m.pinned = !m.pinned; return this._refreshPinnedBar(); })
-            .catch((err) => toast("Couldn't " + (m.pinned ? "unpin" : "pin") + ": " + (err.message || err)));
+            .catch((err) => errToast("Couldn't " + (m.pinned ? "unpin" : "pin") + ": " + (err.message || err)));
         },
       });
     }
@@ -1394,7 +1401,7 @@ export class ChatView {
           toast("Saved");
           this.onChatsChanged();
         } catch (err) {
-          if (this._isCurrent(session)) toast("Couldn't save message: " + (err.message || err));
+          if (this._isCurrent(session)) errToast("Couldn't save message: " + (err.message || err));
         }
       } },
       { label: "React", icon: QUICK_REACTIONS[0], onClick: () => this._reactionMenu(item, x, y) },
@@ -1450,7 +1457,7 @@ export class ChatView {
       this.exitSelection();
       this.onChatsChanged();
     } catch (err) {
-      if (this._isCurrent(session)) toast("Couldn't delete messages: " + (err.message || err), 4500);
+      if (this._isCurrent(session)) errToast("Couldn't delete messages: " + (err.message || err), 4500);
     }
   }
 
@@ -1529,7 +1536,7 @@ export class ChatView {
           this.exitSelection();
           this.onChatsChanged();
         } catch (err) {
-          if (this._isCurrent(session)) toast("Couldn't save messages: " + (err.message || err));
+          if (this._isCurrent(session)) errToast("Couldn't save messages: " + (err.message || err));
         }
       } else if (act === "delete") this._delete(ids);
       else if (act === "info") {
@@ -1704,7 +1711,7 @@ export class ChatView {
         if (!this._isCurrent(session) || !this.chat) return;
         this.core.sendMessage(session.chatId, { text: "", viewtype: "sticker", file: path })
           .then((msg) => { if (this._isCurrent(session)) { this.appendOutgoing(msg); this.onChatsChanged(); } })
-          .catch((err) => { if (this._isCurrent(session)) toast("Couldn't send sticker: " + (err.message || err)); });
+          .catch((err) => { if (this._isCurrent(session)) errToast("Couldn't send sticker: " + (err.message || err)); });
       },
     });
   }
@@ -1716,7 +1723,7 @@ export class ChatView {
   async _imageSendFlow(blob, session, corePath = null) {
     const tauri = window.__TAURI__;
     const invoke = tauri?.core?.invoke || tauri?.invoke;
-    if (!invoke) { toast("Sending images is only available in the app"); return; }
+    if (!invoke) { errToast("Sending images is only available in the app"); return; }
     let current = blob;
     let text = "";
     let outPath = corePath;
@@ -1749,7 +1756,7 @@ export class ChatView {
           this.onChatsChanged();
         } catch (err) {
           diagnosticsSink.append("error", `image send failed: ${err?.message || err}`);
-          if (this._isCurrent(session)) toast("Could not send image: " + (err?.message || err));
+          if (this._isCurrent(session)) errToast("Could not send image: " + (err?.message || err));
         }
         return;
       }
@@ -1823,7 +1830,7 @@ export class ChatView {
       try {
         await this.core.editMessage(session.chatId, editing.id, text);
       } catch (err) {
-        if (this._isCurrent(session)) toast("Couldn't edit message: " + (err.message || err));
+        if (this._isCurrent(session)) errToast("Couldn't edit message: " + (err.message || err));
       }
       return;
     }
@@ -1835,7 +1842,7 @@ export class ChatView {
       this.appendOutgoing(msg);
       this.onChatsChanged();
     } catch (err) {
-      if (this._isCurrent(session)) toast("Couldn't send message: " + (err.message || err));
+      if (this._isCurrent(session)) errToast("Couldn't send message: " + (err.message || err));
     }
   }
 
@@ -1851,7 +1858,7 @@ export class ChatView {
         this.appendOutgoing(msg);
         this.onChatsChanged();
       } catch (err) {
-        if (this._isCurrent(session)) toast("Couldn't send voice message: " + (err.message || err));
+        if (this._isCurrent(session)) errToast("Couldn't send voice message: " + (err.message || err));
       }
       return;
     }
@@ -1868,7 +1875,7 @@ export class ChatView {
     const tauri = window.__TAURI__;
     const invoke = tauri?.core?.invoke || tauri?.invoke;
     if (!invoke) {
-      toast("File picker is only available in the Tauri app");
+      errToast("File picker is only available in the Tauri app");
       return;
     }
 
@@ -1914,7 +1921,7 @@ export class ChatView {
     } catch (err) {
       if (!this._isCurrent(session)) return;
       diagnosticsSink.append("error", `send ${kind} failed: ${err.message || err}`);
-      toast("Could not send file: " + (err.message || err), 4000);
+      errToast("Could not send file: " + (err.message || err), 4000);
       console.error(err);
     }
   }
@@ -1930,7 +1937,7 @@ export class ChatView {
       this.onMsgUpdated(session.chatId, msg);
     } catch (err) {
       if (!this._isCurrent(session)) return;
-      toast("Download failed: " + (err.message || err), 4000);
+      errToast("Download failed: " + (err.message || err), 4000);
       console.error(err);
     }
   }
@@ -1946,10 +1953,10 @@ export class ChatView {
     const invoke = tauri?.core?.invoke || tauri?.invoke;
     if (invoke) {
       invoke("plugin:opener|open_path", { path }).catch(err => {
-        if (this._isCurrent(session)) toast("Could not open file: " + (err.message || err), 3000);
+        if (this._isCurrent(session)) errToast("Could not open file: " + (err.message || err));
       });
     } else {
-      toast("File opening is only available in the Tauri app");
+      errToast("File opening is only available in the Tauri app");
     }
   }
 

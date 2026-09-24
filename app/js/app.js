@@ -18,6 +18,12 @@ import { linkPreviewEnabled, setLinkPreviewEnabled } from "./link-preview.js";
 
 const diagnostics = new DiagnosticsStore();
 window.__veltaDiagnostics = diagnostics;
+
+// Error toast that ALSO lands in the Diagnostics chat (see chat-view.js).
+function errToast(text, ms = 3000) {
+  diagnosticsSink.append("error", text);
+  toast(text, ms);
+}
 let core = null;
 let diagnosticsOpen = false;
 // Live-update gate for the open Diagnostics chat (pause button in its action
@@ -118,7 +124,7 @@ function bindEarlyRecoveryActions() {
       toast("Core restarted");
     } catch (error) {
       diagnostics.append("error", `Core restart failed: ${error?.message || error}`);
-      toast(`Core restart failed: ${error?.message || error}`, 5000);
+      errToast(`Core restart failed: ${error?.message || error}`, 5000);
     }
   }, { once: true });
 
@@ -141,7 +147,7 @@ function bindEarlyRecoveryActions() {
       toast("UI reconnected to core");
     } catch (error) {
       diagnostics.append("error", `UI reconnect failed: ${error?.message || error}`);
-      toast(`Reconnect failed: ${error?.message || error}`, 5000);
+      errToast(`Reconnect failed: ${error?.message || error}`, 5000);
     }
   }, { once: true });
 
@@ -956,7 +962,7 @@ async function renderContactsView() {
         setListView("chats");
         await refreshChatList();
         openChat(id);
-      } catch (err) { toast(`Could not open chat: ${err?.message || err}`); }
+      } catch (err) { errToast(`Could not open chat: ${err?.message || err}`); }
     });
     return b;
   };
@@ -1283,7 +1289,7 @@ async function openChat(chatId) {
   } catch (error) {
     if (!current()) return;
     closeChatUI();
-    toast("Couldn't open chat: " + (error.message || error));
+    errToast("Couldn't open chat: " + (error.message || error));
   }
 }
 
@@ -1422,7 +1428,7 @@ async function showChatInfo(chat) {
         await refreshChatList();
         if (!accountIsCurrent(epoch)) return;
         await openChat(Number(chatId));
-      } catch { toast("Couldn't open the chat"); }
+      } catch { errToast("Couldn't open the chat"); }
     });
     actBtn("rename")?.addEventListener("click", () => {
       const input = document.createElement("input");
@@ -1452,7 +1458,7 @@ async function showChatInfo(chat) {
         }
         showChatInfo(chat); // fresh modal with the new name everywhere
         } catch (err) {
-          toast("Rename failed: " + (err.message || err));
+          errToast("Rename failed: " + (err.message || err));
           save.disabled = false;
         }
       });
@@ -1490,7 +1496,7 @@ async function showChatInfo(chat) {
         toast(blockedNow ? "Contact unblocked" : "Contact blocked");
         blockBtn.textContent = blockedNow ? "Block" : "Unblock";
         blockBtn.dataset.blocked = blockedNow ? "0" : "1";
-      } catch (err) { toast("Failed: " + (err.message || err)); }
+      } catch (err) { errToast("Failed: " + (err.message || err)); }
     });
   }
 
@@ -1862,7 +1868,7 @@ async function addAccountFromInvite(link) {
     if (accountIsCurrent(epoch)) await askNotificationPermission();
     if (accountIsCurrent(epoch) && core.accountId === id) toast(`Account ready: ${state.account?.addr || "chatmail profile"}`, 3500);
   } catch (err) {
-    toast("Invite failed: " + err.message, 4500);
+    errToast("Invite failed: " + err.message, 4500);
   }
 }
 
@@ -2046,7 +2052,7 @@ async function accountTapFlow(id) {
     await accountRefreshPromise;
     if (accountIsCurrent(epoch)) toast(`Switched to ${account.displayName || account.addr}`);
   } catch (err) {
-    toast("Switch failed: " + (err.message || err));
+    errToast("Switch failed: " + (err.message || err));
   }
 }
 function rebuildDrawer() {
@@ -2071,7 +2077,7 @@ function rebuildDrawer() {
         toast(enable ? "Local chat enabled" : "Local chat disabled");
       } catch (error) {
         diagnostics.append("error", `Local chat toggle failed: ${error?.message || error}`);
-        toast(`Local chat toggle failed: ${error?.message || error}`, 5000);
+        errToast(`Local chat toggle failed: ${error?.message || error}`, 5000);
       }
       rebuildDrawer();
     },
@@ -2164,7 +2170,7 @@ async function editProfileFlow() {
     rebuildDrawer();
     toast("Profile updated");
   } catch (err) {
-    toast("Couldn't update profile: " + (err.message || err), 4500);
+    errToast("Couldn't update profile: " + (err.message || err), 4500);
   }
 }
 
@@ -2213,7 +2219,7 @@ async function joinFromInvite(link) {
   let parsed = parseInviteLink(link);
   if (!parsed && isShortInviteLink(link)) {
     parsed = await expandShortInvite(link);
-    if (!parsed) { toast("Could not expand this short invite link", 4500); return; }
+    if (!parsed) { errToast("Could not expand this short invite link", 4500); return; }
   }
   const label = parsed ? inviteLabel(parsed) : null;
   let ok;
@@ -2245,7 +2251,7 @@ async function joinFromInvite(link) {
     setTimeout(close, 700);
   } catch (err) {
     close();
-    toast("Join failed: " + err.message, 4500);
+    errToast("Join failed: " + err.message, 4500);
   }
 }
 
@@ -2430,7 +2436,7 @@ function showSplash() {
       try {
         picked = await invoke("resolve_content_uri", { uri: picked, filename: `backup-${Date.now()}.tar` });
       } catch (err) {
-        toast("Couldn't read the backup file: " + (err?.message || err));
+        errToast("Couldn't read the backup file: " + (err?.message || err));
         return;
       }
     }
@@ -3121,7 +3127,7 @@ async function boot() {
     appLog("boot: done");
   } catch (err) {
     appLog(`boot FAILED: ${err?.message || err}\n${err?.stack || ""}`);
-    toast(`Startup error: ${err?.message || err}`, 8000);
+    errToast(`Startup error: ${err?.message || err}`, 8000);
     // No usable UI yet → the splash is the error surface (it shows this log).
     if (!uiLive && !splashSession) splashSession = showSplash();
     throw err;

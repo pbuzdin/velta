@@ -10,7 +10,13 @@
     "core:event:allow-emit",
     "core:event:allow-unlisten",
     "opener:default",
-    "opener:allow-open-path",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [
+        { "path": "$APPLOCALDATA/accounts" },
+        { "path": "$APPLOCALDATA/accounts/**" }
+      ]
+    },
     "dialog:allow-open",
     "notification:default",
     "fs:default",
