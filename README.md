@@ -192,6 +192,23 @@ of image per card, cached in memory for the session. Note the flip side of
 any link preview: fetching it tells the linked site your IP address. If
 that matters for a chat, turn previews off for it.
 
+
+<details>
+<summary>Video messages</summary>
+
+Videos show a thumbnail (a frame extracted from the file) with a play
+button, size and duration. Tapping plays the video fullscreen in a
+lightbox overlay with the player's own controls; close it with the X
+button, Esc, or the system back button.
+
+- Thumbnails are extracted by the app itself and cached on disk, so they
+  appear instantly on later opens.
+- Cards keep the video's true shape: landscape videos render wide,
+  vertical videos render as a narrow centered card (up to 260 px tall).
+- If a thumbnail can't be extracted, the video still plays from a black
+  card with the play button.
+
+</details>
 </details>
 <details>
 <summary>Shared contacts (vCards)</summary>
