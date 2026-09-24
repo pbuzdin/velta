@@ -1,7 +1,7 @@
 // chat-view.js — virtualized message history (virtual-scroller) + composer
 import { formatTime, formatDay, formatBytes } from "./mock-core.js";
-import { escapeHtml, escapeAttr, ticksSvg } from "./components.js";
-import { showContextMenu, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, toast, openImageLightbox, CLOSE_SVG } from "./ui.js";
+import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener } from "./components.js";
+import { showContextMenu, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG } from "./ui.js";
 import { diagnosticRow } from "./diagnostics.js";
 import { openWebxdc, prefetchInfo, appIconUrl } from "./webxdc-manager.js";
 
@@ -11,6 +11,10 @@ const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
 // invoked when a group message's sender avatar is tapped.
 let avatarProfileOpener = null;
 export function setAvatarProfileOpener(fn) { avatarProfileOpener = fn; }
+
+// Video playback routes through the fullscreen lightbox (ui.js) - injected
+// here so <velta-video> (components.js) never imports ui.js directly.
+setVideoLightboxOpener((src, name) => openVideoLightbox(src, name));
 
 import { diagnosticsSink, debugLog } from "./diagnostics.js";
 import { fileUrl, mediaFallbackUrl } from "./media.js";
