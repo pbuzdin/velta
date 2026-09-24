@@ -454,7 +454,11 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   day chips render inside the first message row of each day (`dayFirst`) —
   separator items broke the scroller's prepend diff; `_loadOlder` prepends
   stay pure message prefixes. Bubbles use `contain: layout style` (not
-  paint — the reply pill overflows); `.chat-item` cards use full
+  paint — the reply pill overflows). Media blocks (.msg-image/.msg-video/
+  .msg-audio) deliberately bleed −5px left/right past the bubble padding (edge-to-edge
+  official-client look); it works only because the bubble has no paint
+  containment — keep bubble padding (7px 10px 6px) and the −5px bleed in sync.
+  `.chat-item` cards use full
   `contain: layout paint style`. The rendered-row LRU (`_rowCache`) survives
   `close()`; `open()` clears it when the account changed.
 - **Read-only chats hide every reply affordance** (1.4.26): device chats and
