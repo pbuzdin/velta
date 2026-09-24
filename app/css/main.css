@@ -669,7 +669,7 @@ body.native-scanning #app {
 /* Fingerprint block reused inside the chat-info profile rows. */
 .avatar-profile-fpr { font-size: 12.5px; color: var(--text-dim); text-align: center; line-height: 1.55; white-space: pre-line; }
 .msg-video video {
-  width: 100%; height: 260px; display: block;
+  width: 100%; min-width: 200px; height: 260px; display: block;
   /* JS overrides .msg-video to a true aspect box when the message carries
      dimensions (style="height:min(Hpx,45vh,260px); aspect-ratio:W/H;
      max-width:100%") - then height:100% fills the box. Without it: the
