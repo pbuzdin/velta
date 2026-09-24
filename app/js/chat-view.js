@@ -975,7 +975,7 @@ export class ChatView {
         // dimensions: CSS falls back to the fixed 350px band.
         const dw = m.dimensionsWidth > 0 ? m.dimensionsWidth : 0;
         const dh = m.dimensionsHeight > 0 ? m.dimensionsHeight : 0;
-        const vBox = dw && dh ? ` style="height:min(${dh}px, 45vh, 350px); aspect-ratio:${dw} / ${dh}; max-width:100%"` : "";
+        const vBox = dw && dh ? ` style="height:min(${dh}px, 45vh, 260px); aspect-ratio:${dw} / ${dh}; max-width:100%"` : "";
         bubble += `<div class="msg-video"${vBox}><velta-video src="${escapeAttr(fileUrl(m.filePath))}" file="${escapeAttr(m.filePath)}" size="${escapeAttr(size)}" duration="${m.duration || ""}" name="${escapeHtml(m.fileName || "Video")}"></velta-video></div>`;
       } else {
         const size = m.fileSize ? formatBytes(m.fileSize) : "";
