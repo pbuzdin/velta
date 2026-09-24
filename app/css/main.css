@@ -682,7 +682,7 @@ velta-video { display: block; }
 .velta-video-ph {
   /* the poster <img> is the in-flow sizer: the card takes the poster's
      real shape (capped 260px tall); no fixed geometry here */
-  max-width: 100%; position: relative;
+  min-width: 200px; max-width: 100%; position: relative;
   background: #101010; border: 0; cursor: pointer;
   color: #f4f4f4; padding: 0; font: inherit; display: block;
 }
@@ -691,7 +691,7 @@ velta-video { display: block; }
   /* the poster IS the shape: no fixed box, aspect comes from the image */
   display: block; width: auto; max-width: 100%; max-height: 260px;
   margin: 0 auto; /* narrow (vertical) cards center in the bubble */
-  min-height: 120px; /* guard: a garbage/strip capture still gets a card */
+  min-height: 260px; /* guard: a garbage/strip capture still gets a full band */
   object-fit: cover; filter: brightness(0.72);
 }
 .velta-video-ph .velta-video-play {
