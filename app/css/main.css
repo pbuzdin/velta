@@ -688,7 +688,7 @@ velta-video { display: block; }
 }
 .msg-video[style] .velta-video-ph { height: 100%; }
 .velta-video-ph .velta-video-poster {
-  width: 100%; height: auto; max-height: 260px;
+  width: 100%; height: 260px;
   object-fit: cover; display: block; filter: brightness(0.72);
 }
 .velta-video-ph .velta-video-play {
