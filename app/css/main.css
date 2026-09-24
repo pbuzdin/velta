@@ -1484,7 +1484,9 @@ li.failed .step-ico::after { content: "✕"; }
 .link-preview .lp-img {
   display: block;
   width: 100%;
-  max-height: 220px;
+  /* Fixed band (like the official clients): og:image is often a small logo,
+     and height:auto rendered it as a thin strip; cover crops to fill. */
+  height: 220px;
   object-fit: cover;
 }
 .link-preview .lp-body {
