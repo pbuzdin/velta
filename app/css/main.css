@@ -599,6 +599,10 @@ html[data-theme="light"] .msg-resend { color: #d13438; }
   .msg-resend:hover { background: rgba(229, 72, 77, .14); }
 }
 
+/* Media blocks (image/video/audio) BLEED 5px left/right past the bubble
+   padding (bubble: 7px 10px 6px) - edge-to-edge like the official clients.
+   The bubble's contain: layout style clips nothing (no paint containment),
+   so the bleed renders; keep the pair in sync if bubble padding changes. */
 .msg-image {
   max-width: 100%;
   border-radius: 10px; margin: 2px -5px 5px;
@@ -658,7 +662,7 @@ body.native-scanning #app {
 }
 .msg-video {
   /* Positive top margin: a negative one let the box overlap the sender/
-     quote line above. Side bleed (like .msg-image) keeps it edge-to-edge. */
+     quote line above. */
   width: auto; max-width: 100%; margin: 2px -5px 5px;
   border-radius: 10px; overflow: hidden; background: #101010;
 }
