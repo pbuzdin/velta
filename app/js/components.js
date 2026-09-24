@@ -180,14 +180,16 @@ class VeltaVideo extends Elena(HTMLElement) {
   #kickPoster() {
     if (this.#posterKicked || this.poster || !this.file || !this.src) return;
     this.#posterKicked = true;
+    diagnosticsSink.append("info", `poster kick: ${this.file}`);
     ensurePoster(this.file)
       .then((url) => {
+        if (!url) diagnosticsSink.append("error", `poster kick: no url for ${this.file}`);
         if (url && this.isConnected && !this.#active) {
           this.poster = url;
           this.requestUpdate();
         }
       })
-      .catch(() => {});
+      .catch((e) => diagnosticsSink.append("error", `poster kick failed: ${e?.message || e}`));
   }
 
   willUpdate() {
