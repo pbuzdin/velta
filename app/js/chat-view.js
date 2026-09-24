@@ -970,7 +970,13 @@ export class ChatView {
         // <video> (decoder + media requests) is only created on tap. `file`
         // carries the raw path for poster extraction; `src` is served.
         const size = m.fileSize ? formatBytes(m.fileSize) : "";
-        bubble += `<div class="msg-video"><velta-video src="${escapeAttr(fileUrl(m.filePath))}" file="${escapeAttr(m.filePath)}" size="${escapeAttr(size)}" duration="${m.duration || ""}" name="${escapeHtml(m.fileName || "Video")}"></velta-video></div>`;
+        // Known dimensions (same source as images): aspect-ratio box, height
+        // capped like photos - the card preserves the true shape. No
+        // dimensions: CSS falls back to the fixed 350px band.
+        const dw = m.dimensionsWidth > 0 ? m.dimensionsWidth : 0;
+        const dh = m.dimensionsHeight > 0 ? m.dimensionsHeight : 0;
+        const vBox = dw && dh ? ` style="height:min(${dh}px, 45vh, 350px); aspect-ratio:${dw} / ${dh}; max-width:100%"` : "";
+        bubble += `<div class="msg-video"${vBox}><velta-video src="${escapeAttr(fileUrl(m.filePath))}" file="${escapeAttr(m.filePath)}" size="${escapeAttr(size)}" duration="${m.duration || ""}" name="${escapeHtml(m.fileName || "Video")}"></velta-video></div>`;
       } else {
         const size = m.fileSize ? formatBytes(m.fileSize) : "";
         bubble += `<div class="msg-file download-btn" role="button" data-act="download">
