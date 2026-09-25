@@ -1,11 +1,33 @@
 // chat-view.js — virtualized message history (virtual-scroller) + composer
 import { formatTime, formatDay, formatBytes } from "./mock-core.js";
 import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener } from "./components.js";
-import { showContextMenu, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG } from "./ui.js";
+import { showContextMenu, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG } from "./ui.js";
 import { diagnosticRow } from "./diagnostics.js";
 import { openWebxdc, prefetchInfo, appIconUrl } from "./webxdc-manager.js";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
+
+// Decoded-dimension memory for media the core had no dimensions for: those
+// rows reserve a 4:3 (image) / fixed-band (video) guess, and the true shape
+// only lands at decode = a scroll jump. rememberMediaDims records the real
+// W×H once seen; the next render reserves the exact box up front.
+// ponytail: flat localStorage map, oldest-trimmed at 800 — a core that
+// returns dimensions for everything makes this dead weight, delete then.
+const DIMS_KEY = "velta-media-dims";
+let _mediaDims = null;
+function mediaDims(accountId, msgId) {
+  if (!_mediaDims) {
+    try { _mediaDims = new Map(Object.entries(JSON.parse(localStorage.getItem(DIMS_KEY) || "{}"))); }
+    catch { _mediaDims = new Map(); }
+  }
+  return _mediaDims.get(`${accountId}:${msgId}`) || null;
+}
+function rememberMediaDims(accountId, msgId, w, h) {
+  mediaDims(accountId, msgId); // ensure loaded
+  _mediaDims.set(`${accountId}:${msgId}`, [w, h]);
+  while (_mediaDims.size > 800) _mediaDims.delete(_mediaDims.keys().next().value);
+  try { localStorage.setItem(DIMS_KEY, JSON.stringify(Object.fromEntries(_mediaDims))); } catch { /* full */ }
+}
 
 // app.js installs the avatar-profile opener (avoids a circular import);
 // invoked when a group message's sender avatar is tapped.
@@ -77,6 +99,21 @@ const ICO = {
   resend: `<svg viewBox="0 0 24 24"><polyline points="2.5 5.5 2.5 11 8 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.2 14.5a8 8 0 1 0 1.5-8L2.5 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
   pin: `<svg viewBox="0 0 24 24"><path d="M9 4h6l1 7 3 3v2h-6v5l-1 1-1-1v-5H5v-2l3-3z" fill="currentColor"/></svg>`,
 };
+
+// Short human reason from the core's raw error text, e.g.
+// "Permanent SMTP error: permanent: 5.3.4 Error: message file too big"
+// → "Message file too big". Falls back to the raw text (first line).
+function failReason(error) {
+  if (!error) return "Not sent";
+  let t = String(error).split("\n")[0];
+  // LAST "Error: " segment wins — take everything after the final occurrence
+  // (a greedy match to $ grabs the whole line instead).
+  const i = t.lastIndexOf("Error: ");
+  if (i >= 0) t = t.slice(i + 7);
+  t = t.trim();
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
 
 // On Android the file picker can return a content URI / temporary path that the
 // Delta Chat core cannot read directly. Copy the file into our app-local data
@@ -594,29 +631,32 @@ export class ChatView {
     const row = this.listEl.querySelector(`[data-msgid="${msgId}"]`);
     const ticks = row?.querySelector(".msg-meta .ticks-slot");
     if (ticks) ticks.innerHTML = ticksSvg(state, "ticks");
-    this._syncResend(row, msgId, state);
+    this._syncFail(row, msgId, state);
   }
 
-  // Failed outgoing rows carry a bottom-left resend button; row rebuilds get
-  // it from the template, live state transitions get it from here.
-  _syncResend(row, msgId, state) {
+  // Failed outgoing rows carry a red reason badge in the meta row + a
+  // retry/remove pair left of the bubble (see _renderMsgItem); live state
+  // transitions get them from here.
+  _syncFail(row, msgId, state) {
     if (!row) return;
-    const btn = row.querySelector(".msg-resend");
-    if (state === "failed" && !btn) {
-      const el = document.createElement("button");
-      el.type = "button";
-      el.className = "msg-resend";
-      el.title = "Resend";
-      el.setAttribute("aria-label", "Resend message");
-      el.innerHTML = ICO.resend;
-      el.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const m = this.msgIndex.get(msgId)?.msg;
-        if (m) this._resendMessage(m);
-      });
-      row.querySelector(".msg-meta")?.before(el);
-    } else if (state !== "failed" && btn) {
-      btn.remove();
+    let badge = row.querySelector(".msg-fail-badge");
+    let actions = row.querySelector(".msg-fail-actions");
+    if (state !== "failed") { badge?.remove(); actions?.remove(); return; }
+    const m = this.msgIndex.get(msgId)?.msg;
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.className = "msg-fail-badge";
+      badge.title = m?.error || "Not sent";
+      badge.textContent = failReason(m?.error);
+      row.querySelector(".msg-meta")?.after(badge);
+    }
+    if (!actions) {
+      actions = document.createElement("div");
+      actions.className = "msg-fail-actions";
+      actions.innerHTML =
+        `<button type="button" data-act="resend" title="Retry" aria-label="Retry sending">${ICO.resend}</button>`
+        + `<button type="button" data-act="fail-del" title="Remove" aria-label="Remove message">${ICO.trash}</button>`;
+      row.querySelector(".bubble")?.before(actions);
     }
   }
 
@@ -632,6 +672,22 @@ export class ChatView {
     }
   }
 
+  // Remove a failed outgoing message. forAll: TRUE — the failure state on our
+  // side doesn't guarantee non-delivery (an oversized-media send can still
+  // reach the recipient, core retries / partial delivery), so a local-only
+  // delete leaves the message alive on their client. It's our own message;
+  // the deletion request propagates like any other "delete for everyone".
+  async _deleteFailed(m) {
+    if (!(await confirmModal("Remove message", "Delete this message for everyone?"))) return;
+    try {
+      await this.core.deleteMessages(m.chatId, [m.id], { forAll: true });
+      this.onMsgsDeleted(m.chatId, [m.id]);
+    } catch (err) {
+      errToast(`Delete failed: ${err?.message || err}`);
+      diagnosticsSink.append("error", `fail-del ${m.id}: ${err?.message || err}`);
+    }
+  }
+
   async _lcRetryTransfer(m) {
     try {
       await lcRetryTransfer(m.chatId, m.id);
@@ -644,7 +700,7 @@ export class ChatView {
   _rowSignature(m) {
     return JSON.stringify([
       m.viewtype, m.downloadState, m.text, m.state, m.edited, m.starred,
-      m.reactions, m.filePath, m.fileName, m.duration, m.fwdFrom, m.quote,
+      m.reactions, m.filePath, m.fileName, m.duration, m.fwdFrom, m.quote, m.error,
     ]);
   }
 
@@ -810,6 +866,17 @@ export class ChatView {
       // visible area; 3 gives ~30 for smoother fast-scroll reach-back.
       getPrerenderMarginRatio: () => 3,
     });
+    // Media components (velta-video poster reservation) report row height
+    // changes that happened after mount — keep the scroller's math fresh.
+    // Delegated: Elena re-renders replace the inner elements.
+    if (!this._rowResizedBound) {
+      this._rowResizedBound = true;
+      this.listEl.addEventListener("velta-row-resized", e => {
+        const row = e.target?.closest?.(".msg-row");
+        const item = row && this.msgIndex.get(Number(row.dataset.msgid));
+        if (item) this.vs?.onItemHeightDidChange?.(item);
+      });
+    }
     // Debug: trace what drives the scroller (re-render loop investigation).
     window.__vs = this.vs;
     // The scroller's async update can race a setItems that removed an item
@@ -956,8 +1023,10 @@ export class ChatView {
         // Stickers stay compact (official-client scale) instead of the
         // 45vh/450px photo cap.
         const cap = m.viewtype === "sticker" ? "240px" : "45vh, 450px";
-        const box = dw && dh
-          ? ` style="height:min(${dh}px, ${cap}); aspect-ratio:${dw} / ${dh}; max-width:100%"`
+        // Core dimensions win; else the remembered decode shape (below).
+        const dims = (dw && dh) ? [dw, dh] : mediaDims(this.core.accountId, m.id);
+        const box = dims && dims[0] && dims[1]
+          ? ` style="height:min(${dims[1]}px, ${cap}); aspect-ratio:${dims[0]} / ${dims[1]}; max-width:100%"`
           : "";
         const wrapCls = `${m.viewtype === "sticker" ? " sticker" : ""}${box ? "" : " no-dims"}`;
         bubble += `<div class="msg-image"><div class="img-wrap${wrapCls}"${box}><div class="img-ph"><div class="img-ph-ico">${ICO.photo}</div></div><img data-src="image" decoding="async" alt=""></div></div>`;
@@ -1052,11 +1121,19 @@ export class ChatView {
     const edited = m.edited ? `<span class="edited">edited</span>` : "";
     const star = m.starred ? `<svg class="star-ico" viewBox="0 0 24 24"><path d="M12 3l2.7 5.8 6.3.7-4.7 4.3 1.3 6.2-5.6-3.2-5.6 3.2 1.3-6.2L3 9.5l6.3-.7z" fill="currentColor"/></svg>` : "";
     const ticks = out ? `<span class="ticks-slot">${ticksSvg(m.state, "ticks")}</span>` : "";
-    // Failed sends keep the meta clean (no ticks) and get a resend button
-    // at the bubble's bottom-left instead. No whitespace before the button:
-    // msg-text is pre-wrap.
-    const resend = out && m.state === "failed" ? `<button type="button" class="msg-resend" data-act="resend" title="Resend" aria-label="Resend message">${ICO.resend}</button>` : "";
-    bubble += `<span class="msg-meta">${edited}${star}${formatTime(m.ts)}${ticks}</span>${resend}</div>`;
+    // Failed sends: a small red reason badge in the meta row (floats left,
+    // against the right-floating timestamp) plus retry/remove buttons to the
+    // LEFT of the bubble — the old in-bubble resend icon was too small a
+    // target for the primary action.
+    let failBadge = "";
+    if (out && m.state === "failed") {
+      inner += `<div class="msg-fail-actions">`
+        + `<button type="button" data-act="resend" title="Retry" aria-label="Retry sending">${ICO.resend}</button>`
+        + `<button type="button" data-act="fail-del" title="Remove" aria-label="Remove message">${ICO.trash}</button></div>`;
+      const reason = failReason(m.error);
+      failBadge = `<span class="msg-fail-badge" title="${escapeAttr(m.error || "Not sent")}">${escapeHtml(reason)}</span>`;
+    }
+    bubble += `<span class="msg-meta">${edited}${star}${formatTime(m.ts)}${ticks}</span>${failBadge}</div>`;
     if (m.reactions?.length) {
       bubble += `<div class="msg-reactions">${m.reactions.map(r =>
         `<span class="reaction-chip${r.mine ? " mine" : ""}" data-react="${escapeAttr(r.emoji)}">${escapeHtml(r.emoji)} ${Number(r.count) || 0}</span>`).join("")}</div>`;
@@ -1186,6 +1263,10 @@ export class ChatView {
           const r = mediaImg.naturalWidth / mediaImg.naturalHeight;
           wrap.style.aspectRatio = `${mediaImg.naturalWidth} / ${mediaImg.naturalHeight}`;
           wrap.style.width = `min(${mediaImg.naturalWidth}px, 100%, calc(min(450px, 45vh) * ${r.toFixed(4)}))`;
+          // The core had no dimensions for this message (the reserved box was
+          // a 4/3 guess) — remember the true shape so the NEXT render
+          // reserves the exact box and the decode causes no jump.
+          if (!(m.dimensionsWidth > 0)) rememberMediaDims(this.core.accountId, m.id, mediaImg.naturalWidth, mediaImg.naturalHeight);
         }
         if (wrap && !wrap.dataset.ready) {
           wrap.dataset.ready = "1";
@@ -1293,6 +1374,7 @@ export class ChatView {
         if (mediaAction.dataset.act === "download") this._downloadMedia(m.id);
         else if (mediaAction.dataset.act === "open") this._openFile(m.filePath, m.fileName);
         else if (mediaAction.dataset.act === "resend") this._resendMessage(m);
+        else if (mediaAction.dataset.act === "fail-del") this._deleteFailed(m);
         else if (mediaAction.dataset.act === "lc-retry") this._lcRetryTransfer(m);
         return;
       }
@@ -1730,15 +1812,15 @@ export class ChatView {
   // optional crop loop → send. corePath is the core-readable path of the
   // original file when one exists (picker); clipboard blobs (null) are
   // written to the uploads directory first.
-  async _imageSendFlow(blob, session, corePath = null) {
+  async _imageSendFlow(blob, session, corePath = null, kind = "image") {
     const tauri = window.__TAURI__;
     const invoke = tauri?.core?.invoke || tauri?.invoke;
-    if (!invoke) { errToast("Sending images is only available in the app"); return; }
+    if (!invoke) { errToast("Sending media is only available in the app"); return; }
     let current = blob;
     let text = "";
     let outPath = corePath;
     for (;;) {
-      const act = await this._imagePreviewModal(current, text);
+      const act = await this._imagePreviewModal(current, text, kind);
       if (!act) return; // preview dismissed
       text = act.text;
       if (act.action === "send") {
@@ -1749,7 +1831,7 @@ export class ChatView {
           if (filePath) {
             filename = filePath.replace(/\\/g, "/").split("/").pop();
           } else {
-            const ext = current.type === "image/jpeg" ? "jpg" : current.type === "image/webp" ? "webp" : current.type === "image/gif" ? "gif" : "png";
+            const ext = current.type === "image/jpeg" ? "jpg" : current.type === "image/webp" ? "webp" : current.type === "image/gif" ? "gif" : current.type?.startsWith("video/") ? "mp4" : "png";
             filename = `image-${Date.now()}.${ext}`;
             filePath = await invoke("resolve_upload_path", { filename });
             diagnosticsSink.append("info", `image: upload path = ${filePath}`);
@@ -1760,13 +1842,13 @@ export class ChatView {
             });
             diagnosticsSink.append("info", `image: wrote ${bytes.length} bytes`);
           }
-          const msg = await this.core.sendMessage(session.chatId, { text: prefix + text, viewtype: "image", file: filePath, filename, quoteId, quoteText });
+          const msg = await this.core.sendMessage(session.chatId, { text: prefix + text, viewtype: kind, file: filePath, filename, quoteId, quoteText });
           if (!this._isCurrent(session)) return;
           this.appendOutgoing(msg);
           this.onChatsChanged();
         } catch (err) {
-          diagnosticsSink.append("error", `image send failed: ${err?.message || err}`);
-          if (this._isCurrent(session)) errToast("Could not send image: " + (err?.message || err));
+          diagnosticsSink.append("error", `${kind} send failed: ${err?.message || err}`);
+          if (this._isCurrent(session)) errToast(`Could not send ${kind}: ` + (err?.message || err));
         }
         return;
       }
@@ -1776,19 +1858,23 @@ export class ChatView {
     }
   }
 
-  // Send/Crop preview with a caption field. Resolves null (dismissed),
-  // { action: "send", blob, text } or { action: "crop", blob, text }.
+  // Send preview with a caption field (images get Crop too). src is a Blob
+  // or an already-resolved URL (videos — avoid reading big files into RAM).
+  // Resolves null (dismissed), { action: "send", blob, text } or
+  // { action: "crop", blob, text }.
   // Interactive elements are built explicitly (createElement + listeners),
   // keeping the modal click-testable without an HTML parser.
-  _imagePreviewModal(blob, text = "") {
+  _imagePreviewModal(src, text = "", kind = "image") {
     return new Promise(resolve => {
       let settled = false;
-      const url = URL.createObjectURL(blob);
-      const finish = (v) => { if (settled) return; settled = true; URL.revokeObjectURL(url); resolve(v); };
+      const owned = typeof src !== "string";
+      const url = owned ? URL.createObjectURL(src) : src;
+      const finish = (v) => { if (settled) return; settled = true; if (owned) URL.revokeObjectURL(url); resolve(v); };
       const body = document.createElement("div");
-      const img = document.createElement("img");
-      img.src = url; img.alt = "";
-      img.style.cssText = "max-width:100%;max-height:40vh;border-radius:8px";
+      const media = document.createElement(kind === "video" ? "video" : "img");
+      media.src = url; media.alt = "";
+      if (kind === "video") { media.controls = true; media.autoplay = true; }
+      media.style.cssText = "max-width:100%;max-height:40vh;border-radius:8px";
       const ta = document.createElement("textarea");
       ta.className = "text-field"; ta.dataset.caption = ""; ta.rows = 2;
       ta.placeholder = "Add a caption…"; ta.value = text;
@@ -1799,13 +1885,17 @@ export class ChatView {
       send.type = "button"; send.className = "btn-text";
       send.style.cssText = "background:var(--accent);color:#f4f4f4";
       send.textContent = "Send";
-      const crop = document.createElement("button");
-      crop.type = "button"; crop.className = "btn-text"; crop.textContent = "Crop";
-      actions.append(send, crop);
-      body.append(img, ta, actions);
-      const { close } = showModal({ title: "Send image", body, onClose: () => finish(null) });
-      send.addEventListener("click", () => { finish({ action: "send", blob, text: ta.value.trim() }); close(); });
-      crop.addEventListener("click", () => { finish({ action: "crop", blob, text: ta.value }); close(); });
+      actions.append(send);
+      if (kind !== "video") {
+        const crop = document.createElement("button");
+        crop.type = "button"; crop.className = "btn-text"; crop.textContent = "Crop";
+        crop.addEventListener("click", () => { finish({ action: "crop", blob: src, text: ta.value }); close(); });
+        actions.append(crop);
+      }
+      body.append(media, ta, actions);
+      const { close } = showModal({ title: kind === "video" ? "Send video" : "Send image", body, onClose: () => finish(null) });
+      ta.focus();
+      send.addEventListener("click", () => { finish({ action: "send", blob: src, text: ta.value.trim() }); close(); });
     });
   }
 
@@ -1909,13 +1999,19 @@ export class ChatView {
       }
       if (!this._isCurrent(session)) return;
 
-      // Images go through the same preview/crop/caption flow as pastes.
-      if (kind === "image" || ["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(extOf(resolved))) {
-        const mime = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" }[extOf(resolved).toLowerCase()] || "image/png";
+      // Images and videos go through the same preview/caption flow as pastes.
+      const exts = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" };
+      if (kind === "image" || Object.keys(exts).includes(extOf(resolved))) {
+        const mime = exts[extOf(resolved).toLowerCase()] || "image/png";
         const bytes = new Uint8Array(await invoke("plugin:fs|read_file", { path: resolved }));
         const blob = new Blob([bytes], { type: mime });
         if (!this._isCurrent(session)) return;
-        return this._imageSendFlow(blob, session, resolved);
+        return this._imageSendFlow(blob, session, resolved, "image");
+      }
+      if (kind === "video") {
+        // Preview from the file URL — a 500 MB video must not enter RAM just
+        // to be shown; corePath is kept so send never re-writes the bytes.
+        return this._imageSendFlow(fileUrl(resolved), session, resolved, "video");
       }
 
       const name = resolved.replace(/\\/g, "/").split("/").pop() || "attachment";
