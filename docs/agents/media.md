@@ -1,6 +1,6 @@
 # Media pipeline — agent notes
 
-Extracted from AGENTS.md. Source: `app/js/media.js` + `app/js/poster.js` +
+Extracted from AGENTS.md. Source: `app/js/media.js` +
 the `[media]` server in lib.rs.
 
 ## URL resolution order (media.js)
@@ -31,10 +31,27 @@ Blob media is served `Cache-Control: immutable` — core blob names are
 content-deduplicated, so the WebView can cache image bytes across chat
 switches.
 
-## Posters
+## Video posters (removed)
 
-`app/js/poster.js` extracts and caches WebP poster frames for video
-placeholders.
+The WebP poster-extraction pipeline (`app/js/poster.js`,
+`ensurePoster`, click-to-load) was removed post-1.4.31 — unstable and
+unnecessary: `velta-video` renders a native
+`<video controls preload="metadata" src="...#t=0.1">` and WebView2/Chromium
+paints frame 0 directly. The `#t` fragment forces the first-frame fetch.
+`loadedmetadata` shapes the host box to the real aspect. The shell
+commands `poster_cache_path`/`read_media_bytes`/`write_poster` (lib.rs)
+are frontend-dead but still registered — candidates for removal.
+
+## Path scoping
+
+`scoped_accounts_path` (lib.rs) scopes every shell filesystem command to
+the AppLocalData root — NOT just the accounts subdir: `uploads/`
+(`resolve_upload_path`) is a SIBLING of `accounts/` and legitimately
+holds picked attachments pre-send. Desktop picker files are copied into
+`uploads/` at pick time (`resolveAttachmentPath`, chat-view.js; Android
+content-URIs always were). Paths returned to the frontend have the
+`\\?\` canonical prefix stripped (convertFileSrc percent-encodes it into
+asset.localhost URLs that 404).
 
 ## Related
 
