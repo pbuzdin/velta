@@ -634,6 +634,9 @@ html[data-theme="brutal"] .msg-fail-badge { color: #3d3405; background: rgba(229
 .msg-row.out .bubble.sticker { background: transparent; }
 .bubble.sticker .msg-image { margin: 0; background: none; overflow: visible; }
 .bubble.sticker .img-wrap { border-radius: 0; background: none; }
+/* Transparent sticker PNGs must letterbox, never crop (photo img uses cover
+   to fill the reserved box). */
+.bubble.sticker .img-wrap img { object-fit: contain; }
 /* Animated image loading: the wrap reserves the final box (aspect-ratio from
    the message's dimensions, else a 4/3 guess until decode) so the row height
    is stable while the file loads; the image then fades in over the shimmer.

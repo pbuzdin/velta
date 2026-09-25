@@ -495,9 +495,10 @@ around them, at a compact size. The composer's input field has a sticker
 button on the right edge that opens a picker fed by the account's sticker
 folder (the same mechanism as Delta Chat desktop — collections are folders
 under the account's <code>stickers/</code> directory, shared with a desktop
-install of the same account). Long-press a sticker you received and pick
-**Save sticker** to add it to the picker. In demo mode the picker ships a
-few emoji placeholders.
+install of the same account). Tap a sticker you received and Velta offers
+to add it to your collection — like the official mobile clients; the
+context menu's **Save sticker** adds it directly. In demo mode the picker
+ships a few emoji placeholders.
 
 </details>
 

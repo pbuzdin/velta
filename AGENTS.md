@@ -515,17 +515,45 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `MessageState` in `core/deltachat-jsonrpc/src/api/types/message.rs` when
   touching them. Sticker rows: `bubble.sticker` drops the chrome
   (transparent bg must out-specificity `.msg-row.out .bubble` AND the
-  brutal override — two rules); 240px cap; wrap bg `none` so transparent
-  PNGs don't sit on the shimmer.
+  brutal override — two rules); wrap bg `none` so transparent
+  PNGs don't sit on the shimmer (cap + object-fit rules live in the
+  Stickers bullet below).
 - **Stickers** (1.4.20+): picker = ui.js `showStickerPicker` fed by core
   `misc_get_stickers` (rpc-core `getStickers`); received stickers are added
-  via the context menu's "Save sticker" (`misc_save_sticker`, "Default"
-  collection); sending rides `sendMessage {viewtype:"sticker", file}`.
-  Composer trigger is `#btn-sticker` INSIDE `.composer-input-wrap` (right
-  edge) — icon is the hand-drawn square-with-fold smiley (e888008; an
-  svgrepo circle variant was tried and rejected by the user). P2P chats:
-  no save/picker interplay. MockCore ships `mock:<emoji>`
-  tile paths the picker renders as text — never feed those to fileUrl.
+  by TAPPING the sticker in the chat (official-client behavior) — a
+  confirm asks "Add this sticker to your sticker collection?" then rides
+  `misc_save_sticker` — and the context menu's "Save sticker" remains as
+  the direct path; sending rides `sendMessage {viewtype:"sticker", file}`.
+  Collections are LOCAL per-account folders
+  (`<account>/stickers/<collection>/`, core `misc_save_sticker` just
+  copies the blob) — no device sync; they move only via backup/restore.
+  Render rules: `bubble.sticker` drops the chrome (transparent bg must
+  out-specificity `.msg-row.out .bubble` AND the brutal override — two
+  rules); 240px cap — BOTH in the reserved box AND the decode `reveal()`
+  (the photo's 450px cap made stickers render big and jump); sticker
+  images are `object-fit: contain` (photo img uses `cover` to fill the
+  reserved box — cover CROPS transparent PNGs); tap must NOT open the
+  image lightbox (it's the add-to-collection prompt). Composer trigger is
+  `#btn-sticker` INSIDE `.composer-input-wrap` (right edge) — icon is the
+  hand-drawn square-with-fold smiley (e888008; an svgrepo circle variant
+  was tried and rejected by the user). P2P chats: no save/picker
+  interplay. MockCore ships `mock:<emoji>` tile paths the picker renders
+  as text — never feed those to fileUrl.
+- **JSON-RPC `MessageData` casing (post-1.4.31, silent-kill class)**: the
+  deployed sidecar binary deserializes `send_msg`'s MessageData in
+  SNAKE_CASE (`viewtype`, `quoted_message_id`) while the vendored 2.61
+  source carries `rename_all = "camelCase"` — serde IGNORES unknown
+  fields, so camelCase forms vanish without an error: a sticker sent as
+  `viewType: "Sticker"` became `None`+file → `Viewtype::File` → Image at
+  prepare ("stickers send as images"; proven by probe: snakeCase and the
+  deprecated `send_sticker` keep Sticker). rpc-core `sendMessage` now
+  sends BOTH casings (`viewType`+`viewtype`, `quotedMessageId`+
+  `quoted_message_id`) — each build reads its own, the other is ignored;
+  works on either core. On the next core rebuild, re-probe with
+  `send_msg` `{viewType:"Sticker"}` + `{viewtype:"Sticker"}` on a real
+  binary and delete the snake twins if camelCase wins (probe script:
+  temp `sticker-probe.mjs` pattern — real rpc-server, throwaway account
+  on `d13.buro.dev`, `send_msg`/`send_sticker` to a probe group chat).
 - `app/js/components.js` defines the Elena custom elements
   (`<velta-avatar>`, `<velta-chat-item>`, `<velta-chat-head>`,
   `<velta-video>`). KEEP: the chat-head subtitle (`cht-status`, `statusLine()`) renders
@@ -1270,7 +1298,10 @@ do-not-regress rules; dates mark when the lesson was learned.
   self-update; a bare copied `velta-app.exe` does not.
 - **JSON-RPC compatibility** — when changing the RPC surface, the PWA
   (`rpc-core.js`), the Python RPC client and any external consumers must
-  stay compatible.
+  stay compatible. WATCH: request-body field CASING is a silent trap —
+  serde ignores unknown fields, so a renamed/renamed-back input field
+  (`viewType` vs `viewtype`) vanishes without an error (see the Stickers
+  bullet in §5.1; `sendMessage` now sends both casings).
 - **Core 2.60 relay removal** — relay removal is immediate (the core
   refuses only the last relay and re-elects sending, informing contacts
   via keyupdate); `set_transport_unpublished` no longer exists — never
