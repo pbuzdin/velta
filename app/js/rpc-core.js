@@ -557,6 +557,8 @@ export class JsonRpcCore extends EventTarget {
       text: m.text || "",
       ts: (m.sortTimestamp || m.timestamp) * 1000,
       state: this._mapState(m.state),
+      // Core error text for failed sends (e.g. "5.3.4 message file too big")
+      error: m.error || null,
       starred: !!m.savedMessageId,
       edited: !!m.isEdited,
       quote: this._mapQuote(m.quote),

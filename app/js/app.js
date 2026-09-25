@@ -491,6 +491,11 @@ async function refreshRelayStatusInner() {
     const value = await core.getConnectivity();
     if (!accountIsCurrent(epoch)) return;
     relayConnectivity = value;
+    // "Updating…" strip (desktop-parity, ConnectivityToast.tsx): sweep while
+    // the core is WORKING (3000-3999) — IMAP fetch or SMTP send, the core
+    // can't distinguish. Reuses chat-view's bar with its 150 ms min-on and
+    // no-flicker off; hidden with #chat-view when no chat is open.
+    chatView?._loadBar?.(value >= 3000 && value < 4000);
     clearTimeout(relayUpgradeTimer);
     if (value >= 4000) {
       relayDownSince = 0;
