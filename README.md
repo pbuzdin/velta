@@ -396,13 +396,13 @@ Real media blobs live in the Delta Chat account directory and cannot be reached 
 
 1. **`blobfile://` custom protocol** (primary once boot-probed) — a Tauri URI-scheme handler in `lib.rs` serves account-dir-scoped blobs with real 206 range responses, no TCP listener. At startup the frontend loads a probe image through the scheme; a webview that never dispatches custom-protocol requests (WebView2's media stack can bypass them even when images through the same scheme load) keeps the legacy chain.
 2. **Loopback media HTTP server** — `127.0.0.1:20810`, random per-launch token, account-directory-scoped, real ranges. This is the probe-negative path and the one-shot per-element fallback: `<img>`/`<video>`/`<audio>` that fail on a blobfile URL swap to it once before showing an error placeholder. On Android this server remains what `<video>`/`<audio>` can always rely on, since the asset protocol there answers the first range read but fails mid-file ones, which kills demuxing of moov-at-end MP4s (most phone recordings). Cleartext is permitted app-wide (network security config) so user-opened http links render in the in-app browser; the SPA itself never navigates top-level and its CSP blocks plain-http subresources, so the shell's own cleartext traffic stays the loopback media server.
-3. **Tauri asset protocol** — plain GETs (posters) work everywhere.
+3. **Tauri asset protocol** — plain GETs (static assets) work everywhere.
 
-Files are opened with `plugin:opener|open_path`. Posters for the click-to-play placeholder are extracted once per file (blob read → hidden `<video>` → canvas → WebP) into `velta-posters/` inside the account directory and served through the asset protocol.
+Files are opened with `plugin:opener|open_path`. Video rows render a native `<video preload="metadata">` element — the browser decodes and paints the first frame directly (no extraction pipeline); the file size badge sits top-left, the duration bottom-right, and a centered play button is shown while paused.
 
-### Video placeholder: poster frame and size badge
+### Video placeholder: first frame and badges
 
-The click-to-play widget shows the extracted poster frame, the file size badge in the top-left corner and the duration in the bottom-right. Extraction is lazy (only when the row is mounted), serialized to one decode at a time, skipped for files above 128 MB, and cached on disk so later mounts are instant. Any failure falls back to the plain placeholder.
+The video element loads metadata plus the first frame only (`src="…#t=0.1"`, `preload="metadata"`), so rows stay cheap inside the virtualized list; the real playback opens in the fullscreen lightbox on tap. If the media chain fails, the element falls back to the loopback media server once, then shows an error band.
 
 ### Downloading large messages
 

@@ -55,7 +55,6 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── markdown.js       # escape-first message markdown: bold/italic/underline, links, lists + bot command extraction
 │   │   ├── media.js          # media URL helpers: blobfile:// protocol (boot-probed) → loopback server → asset protocol + per-element fallback
 │   │   ├── p2p.js            # Local chat UI: drawer toggle, list card, pairing, legacy 1:1 modal (Tauri only)
-│   │   ├── poster.js         # lazy WebP poster extraction + disk cache
 │   │   ├── qr-scan.js        # code acquisition: paste or camera scan (native BarcodeDetector probed with a 2s timeout, vendored jsQR fallback — many Android WebViews ship no Shape Detection API or one whose detect() hangs)
 │   │   ├── mock-core.js      # in-memory demo core implementing the JSON-RPC surface
 │   │   ├── rpc-core.js       # JsonRpcCore wrapper over transports + event mapping
@@ -476,10 +475,21 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   single consumer of the pending reply (`replyTo`/`replyFragment`) — full
   replies ride the core's `quotedMessageId`, fragment replies become
   `"> "` quote lines prefixed to the text/caption — and `_send`,
-  `_imageSendFlow` and `_sendAttachment`'s file/video paths all use it.
+  `_sendPendingMedia` and `_sendAttachment`'s file/video paths all use it.
   Adding a new send path MUST call `_takeQuote()` too, or replies get
-  silently dropped (the image path did, pre-1.4.26). The reply stays
-  pending while the preview modal is open or a crop loop runs.
+  silently dropped (the image path did, pre-1.4.26).
+- **Pending attachment strip** (post-1.4.31, #5): no send-preview modal.
+  Picked/pasted media shows in `#media-preview` (strip above the composer,
+  official-client pattern); the caption IS the composer input, focused on
+  attach; Send sends media+caption via `_sendPendingMedia`, X clears.
+  Videos preview from `fileUrl` (bytes never enter RAM); images read into
+  a Blob (paste/crop need it). `_setPendingMedia(kind, src, corePath,
+  name)` — src is a Blob (object URL owned by us) or a URL string.
+  Desktop picker files are COPIED into the accounts `uploads/` dir at
+  pick time (`resolveAttachmentPath` — same as Android content-URIs):
+  shell media commands scope paths to AppLocalData, and out-of-tree
+  picked files broke the poster/send reads. Media does NOT ride drafts —
+  `close()` drops it (official client does the same).
 - **Message editing** (1.4.20): own text messages edit via core
   `send_edit_request` (rpc-core `editMessage` → refetch → `msg-updated`).
   KEEP: `onMsgsChanged`'s in-place compare must include
@@ -580,6 +590,24 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `_loadOlder()` (paging is history loading too); `_loadBar()` holds a
   150 ms minimum on-time and a new on cancels a pending off; sits at
   `top: calc(var(--head-h) + env(safe-area-inset-top))`.
+  ALSO driven by core connectivity: `refreshRelayStatusInner` (app.js)
+  turns it on while `get_connectivity()` is WORKING (3000–3999) — the
+  desktop client's "Updating…" (IMAP fetch or SMTP send; the core can't
+  distinguish). It rides the relay-status coalescing (1.5 s gap guard —
+  get_connectivity RPCs re-trigger ConnectivityChanged, an unguarded
+  handler fed an event storm); piggyback there instead of adding
+  listeners.
+- **Failed sends** (post-1.4.31): red reason badge below the message
+  content (`failReason()` parses the core error — LAST `Error: ` segment
+  wins: "…5.3.4 Error: message file too big" → "Message file too big";
+  a greedy `Error: (.+)$` regex grabs the WHOLE line, use `lastIndexOf`)
+  + retry/remove buttons left of the bubble (`_syncFail` mirrors the
+  template for live `MsgFailed` transitions; `m.error` rides
+  `_rowSignature` so the refetch upgrades "Not sent" to the real text).
+  Remove deletes FOR EVERYONE (`forAll: true`) — `state === "failed"`
+  does NOT guarantee non-delivery (an oversized send can still reach the
+  recipient), a local-only delete left the message alive on the other
+  client. rpc-core `_mapMessage` carries `error: m.error || null`.
 - **Times are 24-hour**: `formatTime` (mock-core.js) forces `hour12: false`
   and is the single timestamp source for chat rows, list rows and call
   lists — don't reintroduce locale defaults (rendered `03:21 AM` on en-US).
@@ -607,7 +635,6 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   blobfile probe → loopback HTTP → asset protocol, with one-shot error
   fallbacks per element. Details and the WebView2 media quirk:
   docs/agents/media.md.
-- `app/js/poster.js` — lazy WebP poster extraction + disk cache.
 - `app/js/link-preview.js` — OG preview card for the first link in a text
   message. Fetches shell-side (`fetch_link_preview`, lib.rs — same trust
   model as `expand_invite_link`: https-only, 5 s timeout, 256 KB page /
@@ -629,28 +656,29 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `plugin:opener|open_url` (system browser); Android keeps the in-app
   browser chain (see §5.5).
   Per-chat override: chat context menu → “Link previews: on/off” (localStorage `velta-link-preview-chats`).
-- **Posters + video playback (1.4.31)** — the full chain and its traps:
-  - Path resolution: the core returns blob paths RELATIVE to the accounts
-  root (`accounts\<uuid>\dc.db-blobs\<hash>.mp4`); every shell command that
-  touches the filesystem MUST resolve them (`scoped_accounts_path` joins
-  onto accounts_dir) AND strip the `\\?\` canonical prefix before
-  returning paths to the frontend — convertFileSrc percent-encodes the
-  prefix into asset.localhost URLs that 404.
-  - `poster_target` derives from the RESOLVED absolute path — deriving from
-  the raw relative src wrote posters under the process CWD (found 13 KB
-  WebPs in src-tauri/accounts/ while asset URLs pointed at the real dir).
-  - Failure visibility: every poster-extraction failure path now logs to
-  the Diagnostics chat (entry/exit probes were decisive for triage);
-  silent catch-null chains cost three debugging rounds.
-  - Placeholder geometry: the poster <img> is the IN-FLOW SIZER (no fixed
-  box) - card takes the poster's real shape, max-height 260px, centered,
-  `min-height: 260px` on .velta-video-ph (a failed poster collapse hid the
-  absolute-centered play button), min-width 200px. Video plays in the
-  fullscreen lightbox (openVideoLightbox, injected via
-  `setVideoLightboxOpener` - components.js must not import ui.js, cycle).
-  - Poster img retries: 3 attempts / 1s backoff with the counter on the
-  COMPONENT, not the img dataset — Elena re-renders replace the img
-  element and element-scoped counters lose count.
+- **Native video frames replace posters (post-1.4.31)** — `poster.js` and
+  the click-to-load `#active` state are GONE. `velta-video` renders a real
+  `<video controls preload="metadata" src="...#t=0.1">`: Chromium/WebView2
+  paints frame 0 natively (the `#t` fragment forces the first-frame fetch),
+  `loadedmetadata` shapes the host box to the true aspect (portrait
+  videos must NOT hit the stale 200px min-width inside a styled box — it
+  inflated the element past the clipped host and put the play button
+  below center), `play`/`pause` toggle a centered `.velta-video-play`
+  affordance, and taps route to the fullscreen lightbox
+  (`setVideoLightboxOpener` — components.js must not import ui.js, cycle).
+  The media-fallback chain (blobfile → media server, once) and the fail
+  band stay. KEEP: heights must stay DEFINITE down the chain
+  (`.msg-video[style]` → `velta-video` → `.velta-video-card` → `video`
+  all `height: 100%`) or percentage resolution collapses to auto and the
+  row height destabilizes (virtual-scroller unsafe).
+  - Path resolution (still load-bearing): the core returns blob paths
+  RELATIVE to the accounts root; `scoped_accounts_path` joins onto the
+  AppLocalData root (accounts/ AND uploads/ are both under it), strips
+  the `\\?\` canonical prefix before returning paths — convertFileSrc
+  percent-encodes the prefix into asset.localhost URLs that 404.
+  - The Rust commands `poster_cache_path`/`read_media_bytes`/`write_poster`
+  are frontend-dead but still registered — remove in a lib.rs cleanup
+  pass (verify the Android service doesn't call them first).
 - `app/js/ui.js` — drawer, modals, context menus, toasts, update banner,
   delete-confirmation dialog. The drawer head shows the avatar (self
   profile sheet via `onProfile`), display name, Edit profile and Switch
