@@ -2,7 +2,6 @@
 import { Elena, html, unsafeHTML } from "../vendor/elena.js";
 import { formatListTime, timeAgo } from "./mock-core.js";
 import { fileUrl, mediaFallbackUrl } from "./media.js";
-import { ensurePoster } from "./poster.js";
 import { diagnosticsSink } from "./diagnostics.js";
 import { avatarBackgroundUrl, fingerprintFor, cachedFingerprint, fingerprintGroups } from "./avatar.js";
 
@@ -136,7 +135,7 @@ export function setVideoLightboxOpener(fn) { videoLightboxOpener = fn; }
 // know can fail. Rows render a static placeholder instead; the real
 // <video> element is created on tap and dropped again when the virtual
 // scroller unmounts the row.
-const PLAY_SVG = `<svg viewBox="0 0 24 24" style="width:100%;height:100%;display:block"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>`;
+const PLAY_SVG = `<svg viewBox="0 0 24 24" style="width:100%;height:100%;display:block"><path d="M6.5 5.5v13l11-6.5z" fill="currentColor"/></svg>`;
 const VIDEO_FAIL_SVG = `<svg viewBox="0 0 24 24" style="width:100%;height:100%;display:block"><path d="M4 7h16M9 7V5h6v2m-8 0l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`;
 
 class VeltaVideo extends Elena(HTMLElement) {
@@ -146,14 +145,11 @@ class VeltaVideo extends Elena(HTMLElement) {
   src = "";
   duration = "";
   name = "Video";
-  file = "";   // raw file path — poster extraction source (src is a served URL)
+  file = "";   // raw file path — fallback URL source (src is a served URL)
   size = "";   // pre-formatted file size for the corner badge
-  poster = ""; // cached WebP frame URL, resolved lazily
-  #active = false;
-  #posterRetries = 0; // poster img load attempts (survives Elena img swaps)
-  #posterKicked = false;
   #failed = false;
   #lastSrc = null;
+  #shaped = false; // host box already patched to the real aspect
 
   connectedCallback() {
     super.connectedCallback?.();
@@ -170,46 +166,24 @@ class VeltaVideo extends Elena(HTMLElement) {
         // In selection mode the row owns the tap (toggle selection) — don't
         // hijack it for playback.
         if (this.closest(".msg-row")?.classList.contains("selectable")) return;
-        if (!this.#active && this.src && !this.#failed) {
+        if (!this.#failed && this.src) {
           e.stopPropagation(); // play - don't bubble into row selection/menu
           // Playback happens in the fullscreen video lightbox (wired via
           // setVideoLightboxOpener - components.js must not import ui.js);
-          // inline bubble play is the fallback when no opener is wired.
+          // inline controls are the fallback when no opener is wired.
           if (videoLightboxOpener) {
             videoLightboxOpener(this.src, this.name || "Video");
-          } else {
-            this.#active = true;
-            this.requestUpdate();
           }
         }
       });
     }
-    this.#kickPoster();
-  }
-
-  // Rows are virtualized, so being connected means being on screen: extract
-  // (or read the cached) poster exactly once per file. The extraction reads
-  // the file through the scoped Rust command — not the media URL — so it
-  // never touches the range-broken serving path on Android.
-  #kickPoster() {
-    if (this.#posterKicked || this.poster || !this.file || !this.src) return;
-    this.#posterKicked = true;
-    diagnosticsSink.append("info", `poster kick: ${this.file}`);
-    ensurePoster(this.file)
-      .then((url) => {
-        if (!url) diagnosticsSink.append("error", `poster kick: no url for ${this.file}`);
-        if (url && this.isConnected && !this.#active) {
-          this.poster = url;
-          this.requestUpdate();
-        }
-      })
-      .catch((e) => diagnosticsSink.append("error", `poster kick failed: ${e?.message || e}`));
   }
 
   willUpdate() {
     if (this.#lastSrc !== this.src) {
       this.#lastSrc = this.src;
       this.#failed = false;
+      this.#shaped = false;
     }
   }
 
@@ -217,6 +191,11 @@ class VeltaVideo extends Elena(HTMLElement) {
     const v = this.querySelector?.("video");
     if (v && !v.dataset.errBound) {
       v.dataset.errBound = "1";
+      // Centered play affordance: visible while paused (incl. frame 0),
+      // hidden while playing — the native controls stay for seek/pause.
+      const card = v.parentElement;
+      v.addEventListener("play", () => card?.classList.add("playing"));
+      v.addEventListener("pause", () => card?.classList.remove("playing"));
       v.addEventListener("error", () => {
         // WebView2's media stack bypasses custom-protocol interception even
         // when images through the same scheme load, so a blobfile src can
@@ -233,67 +212,45 @@ class VeltaVideo extends Elena(HTMLElement) {
         this.requestUpdate();
         diagnosticsSink.append("error", `video "${this.name}" failed to load`);
       });
-    }
-    const img = this.querySelector?.("img.velta-video-poster");
-    if (img && !img.dataset.errBound) {
-      img.dataset.errBound = "1";
-      // Poster shape reservation: when the core had no dimensions the outer
-      // .msg-video box carries no style (CSS fixed-band fallback). Once the
-      // poster decodes we know the real shape — patch the box to it and tell
-      // the chat view (delegated listener) the row height changed, or the
-      // virtual scroller's layout math goes stale (same contract as
-      // link-preview notifyHeight).
-      img.addEventListener("load", () => {
-        if (!img.naturalWidth || !img.naturalHeight) return;
+      // Shape the host box from the real video dimensions once metadata
+      // arrives (native preload — replaces the poster-extraction pipeline):
+      // portrait/landscape videos get their true aspect instead of the
+      // 260px fixed band. Telling the chat view keeps the virtual scroller's
+      // math fresh (same contract as link-preview notifyHeight).
+      v.addEventListener("loadedmetadata", () => {
+        if (this.#shaped || !v.videoWidth || !v.videoHeight) return;
+        this.#shaped = true;
         const host = this.closest?.(".msg-video");
         if (host && !host.style.aspectRatio) {
-          host.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
-          host.style.height = `min(${img.naturalHeight}px, 45vh, 260px)`;
+          host.style.aspectRatio = `${v.videoWidth} / ${v.videoHeight}`;
+          host.style.height = `min(${v.videoHeight}px, 45vh, 260px)`;
           host.style.maxWidth = "100%";
           this.dispatchEvent(new CustomEvent("velta-row-resized", { bubbles: true }));
-        }
-      });
-      // A broken poster must never shadow the plain placeholder. The asset
-      // protocol occasionally fails a first request after launch (observed
-      // net error, then 200 on retry). Elena re-renders replace the img
-      // element, so the attempt counter lives HERE (component), not on the
-      // img dataset - retries survive element swaps. 3 attempts, 1s backoff.
-      img.addEventListener("error", () => {
-        this.#posterRetries = (this.#posterRetries || 0) + 1;
-        if (this.#posterRetries <= 3 && this.poster) {
-          setTimeout(() => {
-            if (this.isConnected && this.poster) {
-              const fresh = this.querySelector?.("img.velta-video-poster");
-              if (fresh) fresh.src = this.poster; // re-assign even if same URL
-            }
-          }, 1000);
-        } else if (this.poster) {
-          this.poster = ""; // give up: black band + play button (min-height)
-          this.requestUpdate();
         }
       });
     }
   }
 
   ariaLabel() {
-    return "Play " + (this.name || "video");
+    return "Play " + (this.name || "Video");
   }
 
   render() {
     if (this.#failed) {
       return html`<div class="media-fail"><div class="media-fail-ico">${unsafeHTML(VIDEO_FAIL_SVG)}</div><div>Video can't be played</div></div>`;
     }
-    if (!this.#active || !this.src) {
-      const d = Number(this.duration) || 0;
-      const dur = d > 0 ? `${Math.floor(d / 60)}:${String(Math.floor(d % 60)).padStart(2, "0")}` : "";
-      return html`<button type="button" class="velta-video-ph" aria-label="${this.ariaLabel()}">
-        ${this.poster ? html`<img class="velta-video-poster" src="${this.poster}" alt="" decoding="async">` : ""}
-        <span class="velta-video-play">${unsafeHTML(PLAY_SVG)}</span>
-        ${this.size ? html`<span class="velta-video-size">${this.size}</span>` : ""}
-        ${dur ? html`<span class="velta-video-dur">${dur}</span>` : ""}
-      </button>`;
-    }
-    return html`<video controls autoplay playsinline preload="metadata" src="${this.src}"></video>`;
+    // Native preload as the poster: metadata + a first-frame fetch via the
+    // #t fragment paints frame 0 with no extraction pipeline at all. The
+    // click handler above routes taps to the lightbox; controls remain for
+    // the no-opener fallback.
+    const d = Number(this.duration) || 0;
+    const dur = d > 0 ? `${Math.floor(d / 60)}:${String(Math.floor(d % 60)).padStart(2, "0")}` : "";
+    return html`<div class="velta-video-card">
+      <video controls preload="metadata" playsinline src="${this.src}${this.src.includes("#") ? "" : "#t=0.1"}"></video>
+      <span class="velta-video-play">${unsafeHTML(PLAY_SVG)}</span>
+      ${this.size ? html`<span class="velta-video-size">${this.size}</span>` : ""}
+      ${dur ? html`<span class="velta-video-dur">${dur}</span>` : ""}
+    </div>`;
   }
 }
 VeltaVideo.define();

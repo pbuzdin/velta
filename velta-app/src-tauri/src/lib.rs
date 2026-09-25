@@ -750,11 +750,18 @@ fn scoped_accounts_path(app: &tauri::AppHandle, path: &str) -> Result<PathBuf, S
     };
     let canon = std::fs::canonicalize(&absolute).map_err(|e| e.to_string())?;
     // Canonicalize both sides: Windows canonical paths carry a \\?\ prefix
-    // while accounts_dir() doesn't.
-    let accounts = accounts_dir(app);
-    let accounts_canon = std::fs::canonicalize(&accounts).unwrap_or_else(|_| accounts);
-    if !canon.starts_with(accounts_canon) {
-        return Err("path outside the accounts directory".into());
+    // while the base dirs don't. Scope = the whole AppLocalData root, not
+    // just the accounts subdir: uploads/ (resolve_upload_path) is a SIBLING
+    // of accounts/ and legitimately holds picked attachments pre-send —
+    // posters and read_media_bytes must reach them too.
+    use tauri::path::BaseDirectory;
+    let base = app
+        .path()
+        .resolve(".", BaseDirectory::AppLocalData)
+        .map_err(|e| e.to_string())?;
+    let base_canon = std::fs::canonicalize(&base).unwrap_or_else(|_| base);
+    if !canon.starts_with(&base_canon) {
+        return Err("path outside the app data directory".into());
     }
     // Strip the \\?\ prefix before returning: paths handed to the frontend
     // go through convertFileSrc, which percent-encodes it into asset URLs
