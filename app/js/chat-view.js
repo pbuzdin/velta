@@ -1269,7 +1269,10 @@ export class ChatView {
         if (mediaImg.naturalWidth && mediaImg.naturalHeight && wrap) {
           const r = mediaImg.naturalWidth / mediaImg.naturalHeight;
           wrap.style.aspectRatio = `${mediaImg.naturalWidth} / ${mediaImg.naturalHeight}`;
-          wrap.style.width = `min(${mediaImg.naturalWidth}px, 100%, calc(min(450px, 45vh) * ${r.toFixed(4)}))`;
+          // Stickers cap at 240px (same as the reserved box) — the photo cap
+          // made stickers render up to 450px AND jump from the reserve.
+          const cap = m.viewtype === "sticker" ? 240 : 450;
+          wrap.style.width = `min(${mediaImg.naturalWidth}px, 100%, calc(min(${cap}px, 45vh) * ${r.toFixed(4)}))`;
           // The core had no dimensions for this message (the reserved box was
           // a 4/3 guess) — remember the true shape so the NEXT render
           // reserves the exact box and the decode causes no jump.
@@ -1290,6 +1293,17 @@ export class ChatView {
       mediaImg.addEventListener("click", e => {
         e.stopPropagation();
         if (!alive()) return;
+        // Received sticker: official-client behavior — tap asks to add it to
+        // the user's sticker collection (misc_save_sticker), no lightbox.
+        if (m.viewtype === "sticker" && m.from !== 1 && m.filePath) {
+          confirmModal("Add sticker", "Add this sticker to your sticker collection?", "Add", false)
+            .then(ok => {
+              if (!ok) return;
+              this.core.saveSticker(m.id).then(() => toast("Sticker saved to your collection"))
+                .catch(err => errToast("Couldn't save: " + (err?.message || err)));
+            });
+          return;
+        }
         if (mediaImg.naturalWidth) openImageLightbox(mediaImg.src, m.fileName || "photo");
       });
       mediaImg.onerror = () => {

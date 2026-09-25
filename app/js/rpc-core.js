@@ -946,11 +946,25 @@ export class JsonRpcCore extends EventTarget {
 
   async sendMessage(chatId, { text = "", quoteId = null, viewtype = "text", file = null, filename = null } = {}) {
     const { accountId, accountEpoch } = this;
-    const data = { text: text || "", quotedMessageId: quoteId ?? null };
-    if (viewtype && viewtype !== "text") data.viewType = this._toCoreViewtype(viewtype);
+    // BOTH casings for the fields whose JSON name differs between core
+    // builds: the deployed sidecar accepts snake_case (`viewtype`,
+    // `quoted_message_id`) — serde silently IGNORES the camelCase forms
+    // there, so a sticker sent as `viewType` became File→Image (the
+    // "stickers send as images" bug) and quote ids would drop. Newer
+    // cores with `rename_all = camelCase` read the camelCase forms and
+    // ignore these snake ones. Send both; each build reads its own.
+    const data = { text: text || "", quotedMessageId: quoteId ?? null, quoted_message_id: quoteId ?? null };
+    if (viewtype && viewtype !== "text") {
+      const coreType = this._toCoreViewtype(viewtype);
+      data.viewType = coreType;
+      data.viewtype = coreType;
+    }
     if (file) {
       data.file = file;
-      if (filename) data.filename = filename;
+      if (filename) {
+        data.filename = filename;
+        data["fileName"] = filename; // legacy casing some builds exposed — harmless extra
+      }
     }
     const msgId = await this._call("send_msg", accountId, chatId, data);
     this._trackSending(msgId);
