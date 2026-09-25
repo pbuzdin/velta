@@ -693,39 +693,38 @@ body.native-scanning #app {
   object-fit: contain; background: #101010;
 }
 .msg-video[style] video { height: 100%; }
-velta-video { display: block; }
-.velta-video-ph {
-  /* the poster <img> is the in-flow sizer: the card takes the poster's
-     real shape (capped 260px tall). min-height: when the poster fails to
-     load/render the card would collapse to zero - the play button
-     (absolute, 50%/50%) would land outside a 0-height box and vanish. */
-  min-width: 200px; min-height: 260px; max-width: 100%; position: relative;
-  background: #101010; border: 0; cursor: pointer;
-  color: #f4f4f4; padding: 0; font: inherit; display: block;
+.msg-video:not([style]) { min-width: 200px; height: 260px; } /* fixed band until metadata shapes it */
+velta-video { display: block; height: 100%; }
+/* Native-preload video card: the <video> IS the poster (first frame via
+   preload=metadata + #t fragment). Badges overlay the playing frame. */
+.velta-video-card { position: relative; width: 100%; height: 100%; }
+.velta-video-card video {
+  display: block; width: 100%; height: 100%;
+  background: #101010;
+  /* min-width: 200px from the band rules must NOT reach inside a styled
+     box: on portrait videos it inflates the element past the host
+     (200×355 under a 146×260 clipped box) and the play button centers on
+     the clipped-away region — below center. The band's floor lives on
+     .msg-video:not([style]). */
+  min-width: 0;
 }
-.msg-video[style] .velta-video-ph { height: 100%; }
-.velta-video-ph .velta-video-poster {
-  /* the poster IS the shape: no fixed box, aspect comes from the image */
-  display: block; width: auto; max-width: 100%; max-height: 260px;
-  margin: 0 auto; /* narrow (vertical) cards center in the bubble */
-  min-height: 260px; /* guard: a garbage/strip capture still gets a full band */
-  object-fit: cover; filter: brightness(0.72);
-}
-.velta-video-ph .velta-video-play {
+/* Centered play affordance while paused: icon markup from the component,
+   hidden once the video plays, back on pause. pointer-events: none — taps
+   fall through to the component's own lightbox routing. */
+.velta-video-play {
   position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1;
-  width: 54px; height: 54px; border-radius: 50%;
-  background: rgba(244, 244, 244, 0.16); display: grid; place-items: center;
-  padding: 15px;
+  width: 54px; height: 54px; border-radius: 50%; pointer-events: none;
+  background: rgba(11, 11, 16, 0.55); display: grid; place-items: center;
+  padding: 15px; color: #f4f4f4;
 }
-.velta-video-ph:active .velta-video-play { background: rgba(244, 244, 244, 0.3); }
-/* Badge backgrounds composite to ≥ 4.5:1 against #f2f2f5 text even over a
-   fully white poster frame (WCAG AA — see AGENTS 6.4). */
-.velta-video-ph .velta-video-size {
+.velta-video-play svg { width: 100%; height: 100%; display: block; }
+.velta-video-card.playing .velta-video-play { display: none; }
+.velta-video-size {
   position: absolute; top: 8px; left: 8px; z-index: 1;
   background: rgba(11, 11, 16, 0.86); border-radius: 6px;
   font-size: 12px; line-height: 1; padding: 4px 6px; color: #f2f2f5;
 }
-.velta-video-ph .velta-video-dur {
+.velta-video-dur {
   position: absolute; right: 8px; bottom: 8px; z-index: 1;
   background: rgba(11, 11, 16, 0.86); border-radius: 6px;
   font-size: 12px; line-height: 1; padding: 4px 6px; color: #f2f2f5;
@@ -811,6 +810,33 @@ velta-video { display: block; }
   padding: 6px 14px calc(10px + env(safe-area-inset-bottom));
   width: 100%;
 }
+/* Pending attachment strip (official-client pattern): sits above the
+   composer row, caption = the composer input itself. */
+.media-preview {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-sidebar);
+  border-top: 1px solid var(--border);
+}
+.media-preview[hidden] { display: none; }
+/* 96x64 box, object-fit: contain — the real aspect ratio shows letterboxed
+   instead of being cropped to a square. */
+#media-preview-thumb {
+  width: 96px; height: 64px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 8px; background: var(--bg-hover); overflow: hidden;
+}
+#media-preview-thumb img,
+#media-preview-thumb video {
+  max-width: 100%; max-height: 100%; object-fit: contain;
+  display: block;
+}
+.media-preview-side { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.media-preview-name {
+  font-size: 13.5px; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+}
+.media-preview .icon-btn { margin-left: auto; }
 .composer-input-wrap {
   flex: 1; display: flex; align-items: flex-end;
   background: var(--bg-sidebar);

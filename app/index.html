@@ -123,6 +123,19 @@
         </button>
       </div>
 
+      <!-- Pending attachment strip (official-client pattern): media block
+           above the composer input, caption = the composer text itself. -->
+      <div id="media-preview" class="media-preview" hidden>
+        <div id="media-preview-thumb"></div>
+        <div class="media-preview-side">
+          <div id="media-preview-name" class="media-preview-name"></div>
+          <button id="btn-media-crop" class="btn-text" type="button" hidden>Crop</button>
+        </div>
+        <button id="btn-media-close" class="icon-btn" aria-label="Remove attachment">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+
       <div id="diagnostic-actions" class="composer" hidden>
         <button id="btn-diag-pause" class="icon-btn" type="button" title="Pause diagnostics" aria-label="Pause diagnostics" aria-pressed="false">
           <svg viewBox="0 0 24 24"><path d="M9 5.5v13M15 5.5v13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>

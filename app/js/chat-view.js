@@ -118,14 +118,19 @@ function failReason(error) {
 // On Android the file picker can return a content URI / temporary path that the
 // Delta Chat core cannot read directly. Copy the file into our app-local data
 // directory and return an absolute filesystem path the core can copy into blobs.
+// Desktop: absolute paths used to pass through unchanged — but shell-side
+// media commands (posters, read_media_bytes) scope every path to the accounts
+// dir (scoped_accounts_path in lib.rs), so an out-of-tree picked file breaks
+// the poster pipeline and send's own reads. Copy those too.
 async function resolveAttachmentPath(originalPath, filename) {
   const tauri = window.__TAURI__;
   const invoke = tauri?.core?.invoke || tauri?.invoke;
   if (!invoke) return originalPath;
 
-  // Desktop usually returns an absolute path already — pass it through.
   const normalized = originalPath.replace(/\\/g, "/");
-  if (/^([a-zA-Z]:|\/data\/|\/storage\/)/.test(normalized)) return originalPath;
+  const inAccounts = window.veltaAccountsDir
+    && normalized.toLowerCase().startsWith(window.veltaAccountsDir.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase() + "/");
+  if (inAccounts) return originalPath; // already app-managed (content-uri copies)
 
   try {
     const destName = `${Date.now()}-${filename || "file"}`;
@@ -302,6 +307,7 @@ export class ChatView {
     this.replyTo = null;
     this.replyFragment = null;
     this.editingMsg = null;
+    this.pendingMedia = null; // attachment awaiting send: {kind, blob?, url, corePath, name}
     this._session = null;
     this._drafts = new Map();
     // onMsgsChanged refetch coalescing window (tests shrink it).
@@ -481,6 +487,7 @@ export class ChatView {
     this.replyTo = null;
     this.replyFragment = null;
     this.editingMsg = null;
+    this._clearPendingMedia(); // media not in drafts — re-attach if needed
     this._renderReplyPreview();
     this.exitSelection();
     this.listEl.replaceChildren();
@@ -1755,10 +1762,17 @@ export class ChatView {
       if (!file) file = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith("image/"));
       if (!file) return; // fall through to normal text paste
       e.preventDefault();
-      this._imageSendFlow(file, session);
+      this._setPendingMedia("image", file);
     });
     send.addEventListener("click", () => this._send());
     document.getElementById("btn-sticker").addEventListener("click", () => this._toggleStickerPicker());
+    document.getElementById("btn-media-close").addEventListener("click", () => this._clearPendingMedia());
+    document.getElementById("btn-media-crop").addEventListener("click", async () => {
+      const pm = this.pendingMedia;
+      if (!pm || pm.kind !== "image" || !pm.blob) return;
+      const cropped = await openImageCropper(pm.url).finally(() => {}); // pm.url still alive — cropped replaces it
+      if (cropped) this._setPendingMedia("image", cropped, null, pm.name); // cropped bytes need writing
+    });
     document.getElementById("btn-reply-close").addEventListener("click", () => { this.replyTo = null; this.replyFragment = null; this.editingMsg = null; this._renderReplyPreview(); });
     document.getElementById("btn-attach").addEventListener("click", e => {
       const session = this._session;
@@ -1808,96 +1822,95 @@ export class ChatView {
     });
   }
 
-  // Shared image send flow (paste and file picker): preview with caption →
-  // optional crop loop → send. corePath is the core-readable path of the
-  // original file when one exists (picker); clipboard blobs (null) are
-  // written to the uploads directory first.
-  async _imageSendFlow(blob, session, corePath = null, kind = "image") {
+  // Pending attachment (official-client pattern): the picked media shows as a
+  // strip above the composer input, the caption IS the composer text, Send
+  // sends both. src is a Blob (paste/crop — object URL owned by us) or an
+  // already-resolved URL string (videos — never read big files into RAM);
+  // corePath is the core-readable path when one exists (picker), else null
+  // (clipboard blobs are written to the uploads directory on send).
+  _setPendingMedia(kind, src, corePath = null, name = null) {
+    this._clearPendingMedia();
+    const owned = typeof src !== "string";
+    this.pendingMedia = {
+      kind, blob: owned ? src : null,
+      url: owned ? URL.createObjectURL(src) : src,
+      corePath, name,
+    };
+    this._renderMediaPreview();
+    document.getElementById("composer-input").focus(); // caption = input (#5)
+  }
+
+  _clearPendingMedia() {
+    if (this.pendingMedia?.blob) URL.revokeObjectURL(this.pendingMedia.url);
+    this.pendingMedia = null;
+    this._renderMediaPreview();
+  }
+
+  _renderMediaPreview() {
+    const bar = document.getElementById("media-preview");
+    const thumb = document.getElementById("media-preview-thumb");
+    const name = document.getElementById("media-preview-name");
+    const crop = document.getElementById("btn-media-crop");
+    const pm = this.pendingMedia;
+    if (!pm) { bar.hidden = true; thumb.replaceChildren(); thumb.classList.remove("ph-word"); name.textContent = ""; crop.hidden = true; return; }
+    bar.hidden = false;
+    thumb.replaceChildren();
+    thumb.classList.remove("ph-word");
+    if (pm.kind === "video") {
+      // Native first-frame thumb: preload=metadata + the #t fragment paints
+      // frame 0 — no poster extraction (unstable, removed).
+      const media = document.createElement("video");
+      media.muted = true; media.playsInline = true;
+      media.preload = "metadata";
+      media.src = pm.url + (pm.url.includes("#") ? "" : "#t=0.1");
+      thumb.append(media);
+    } else {
+      const media = document.createElement("img");
+      media.src = pm.url; media.alt = "";
+      thumb.append(media);
+    }
+    name.textContent = pm.name || (pm.kind === "video" ? "Video" : "Photo");
+    crop.hidden = pm.kind !== "image";
+  }
+
+  // Send the pending attachment with the composer text as its caption.
+  async _sendPendingMedia(session) {
+    const pm = this.pendingMedia;
+    const input = document.getElementById("composer-input");
+    const text = input.value.trim();
     const tauri = window.__TAURI__;
     const invoke = tauri?.core?.invoke || tauri?.invoke;
-    if (!invoke) { errToast("Sending media is only available in the app"); return; }
-    let current = blob;
-    let text = "";
-    let outPath = corePath;
-    for (;;) {
-      const act = await this._imagePreviewModal(current, text, kind);
-      if (!act) return; // preview dismissed
-      text = act.text;
-      if (act.action === "send") {
-        try {
-          const { quoteId, quoteText, prefix } = this._takeQuote();
-          let filePath = outPath;
-          let filename;
-          if (filePath) {
-            filename = filePath.replace(/\\/g, "/").split("/").pop();
-          } else {
-            const ext = current.type === "image/jpeg" ? "jpg" : current.type === "image/webp" ? "webp" : current.type === "image/gif" ? "gif" : current.type?.startsWith("video/") ? "mp4" : "png";
-            filename = `image-${Date.now()}.${ext}`;
-            filePath = await invoke("resolve_upload_path", { filename });
-            diagnosticsSink.append("info", `image: upload path = ${filePath}`);
-            if (!filePath) throw new Error("resolve_upload_path returned empty");
-            const bytes = new Uint8Array(await current.arrayBuffer());
-            await invoke("plugin:fs|write_file", bytes, {
-              headers: { path: encodeURIComponent(filePath) },
-            });
-            diagnosticsSink.append("info", `image: wrote ${bytes.length} bytes`);
-          }
-          const msg = await this.core.sendMessage(session.chatId, { text: prefix + text, viewtype: kind, file: filePath, filename, quoteId, quoteText });
-          if (!this._isCurrent(session)) return;
-          this.appendOutgoing(msg);
-          this.onChatsChanged();
-        } catch (err) {
-          diagnosticsSink.append("error", `${kind} send failed: ${err?.message || err}`);
-          if (this._isCurrent(session)) errToast(`Could not send ${kind}: ` + (err?.message || err));
-        }
-        return;
+    this._clearPendingMedia();
+    input.value = ""; input.style.height = "auto";
+    try {
+      const { quoteId, quoteText, prefix } = this._takeQuote();
+      let filePath = pm.corePath;
+      let filename;
+      if (filePath) {
+        filename = filePath.replace(/\\/g, "/").split("/").pop();
+      } else {
+        const t = pm.blob.type;
+        const ext = t === "image/jpeg" ? "jpg" : t === "image/webp" ? "webp" : t === "image/gif" ? "gif" : t?.startsWith("video/") ? "mp4" : "png";
+        filename = `${pm.kind}-${Date.now()}.${ext}`;
+        filePath = await invoke("resolve_upload_path", { filename });
+        diagnosticsSink.append("info", `media: upload path = ${filePath}`);
+        if (!filePath) throw new Error("resolve_upload_path returned empty");
+        const bytes = new Uint8Array(await pm.blob.arrayBuffer());
+        await invoke("plugin:fs|write_file", bytes, {
+          headers: { path: encodeURIComponent(filePath) },
+        });
+        diagnosticsSink.append("info", `media: wrote ${bytes.length} bytes`);
       }
-      const cropUrl = URL.createObjectURL(act.blob);
-      const cropped = await openImageCropper(cropUrl).finally(() => URL.revokeObjectURL(cropUrl));
-      if (cropped) { current = cropped; outPath = null; } // cropped bytes need writing
+      const msg = await this.core.sendMessage(session.chatId, { text: prefix + text, viewtype: pm.kind, file: filePath, filename, quoteId, quoteText });
+      if (!this._isCurrent(session)) return;
+      this.appendOutgoing(msg);
+      this.onChatsChanged();
+    } catch (err) {
+      diagnosticsSink.append("error", `${pm.kind} send failed: ${err?.message || err}`);
+      if (this._isCurrent(session)) errToast(`Could not send ${pm.kind}: ` + (err?.message || err));
     }
   }
 
-  // Send preview with a caption field (images get Crop too). src is a Blob
-  // or an already-resolved URL (videos — avoid reading big files into RAM).
-  // Resolves null (dismissed), { action: "send", blob, text } or
-  // { action: "crop", blob, text }.
-  // Interactive elements are built explicitly (createElement + listeners),
-  // keeping the modal click-testable without an HTML parser.
-  _imagePreviewModal(src, text = "", kind = "image") {
-    return new Promise(resolve => {
-      let settled = false;
-      const owned = typeof src !== "string";
-      const url = owned ? URL.createObjectURL(src) : src;
-      const finish = (v) => { if (settled) return; settled = true; if (owned) URL.revokeObjectURL(url); resolve(v); };
-      const body = document.createElement("div");
-      const media = document.createElement(kind === "video" ? "video" : "img");
-      media.src = url; media.alt = "";
-      if (kind === "video") { media.controls = true; media.autoplay = true; }
-      media.style.cssText = "max-width:100%;max-height:40vh;border-radius:8px";
-      const ta = document.createElement("textarea");
-      ta.className = "text-field"; ta.dataset.caption = ""; ta.rows = 2;
-      ta.placeholder = "Add a caption…"; ta.value = text;
-      ta.style.cssText = "margin-top:10px";
-      const actions = document.createElement("div");
-      actions.style.cssText = "display:flex;gap:8px;margin-top:10px;justify-content:center";
-      const send = document.createElement("button");
-      send.type = "button"; send.className = "btn-text";
-      send.style.cssText = "background:var(--accent);color:#f4f4f4";
-      send.textContent = "Send";
-      actions.append(send);
-      if (kind !== "video") {
-        const crop = document.createElement("button");
-        crop.type = "button"; crop.className = "btn-text"; crop.textContent = "Crop";
-        crop.addEventListener("click", () => { finish({ action: "crop", blob: src, text: ta.value }); close(); });
-        actions.append(crop);
-      }
-      body.append(media, ta, actions);
-      const { close } = showModal({ title: kind === "video" ? "Send video" : "Send image", body, onClose: () => finish(null) });
-      ta.focus();
-      send.addEventListener("click", () => { finish({ action: "send", blob: src, text: ta.value.trim() }); close(); });
-    });
-  }
 
   // Consume the pending reply (same semantics for every send path): a
   // full-message reply rides the core's quotedMessageId; a fragment reply
@@ -1920,7 +1933,13 @@ export class ChatView {
     const session = this._session;
     const input = document.getElementById("composer-input");
     const text = input.value.trim();
-    if (!this._isCurrent(session) || !text || !this.chat) return;
+    if (!this._isCurrent(session) || !this.chat) return;
+    if (this.pendingMedia) {
+      // Attachment pending: caption = composer text (may be empty).
+      await this._sendPendingMedia(session);
+      return;
+    }
+    if (!text) return;
     input.value = "";
     input.style.height = "auto";
     if (this.editingMsg) {
@@ -1998,23 +2017,26 @@ export class ChatView {
         resolved = await resolveAttachmentPath(picked, picked.replace(/\\/g, "/").split("/").pop());
       }
       if (!this._isCurrent(session)) return;
+      const name = resolved.replace(/\\/g, "/").split("/").pop() || "attachment";
 
-      // Images and videos go through the same preview/caption flow as pastes.
+      // Images and videos go through the pending-attachment strip (caption =
+      // composer text); other files send immediately as before.
       const exts = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" };
       if (kind === "image" || Object.keys(exts).includes(extOf(resolved))) {
         const mime = exts[extOf(resolved).toLowerCase()] || "image/png";
         const bytes = new Uint8Array(await invoke("plugin:fs|read_file", { path: resolved }));
         const blob = new Blob([bytes], { type: mime });
         if (!this._isCurrent(session)) return;
-        return this._imageSendFlow(blob, session, resolved, "image");
+        this._setPendingMedia("image", blob, resolved, name);
+        return;
       }
       if (kind === "video") {
-        // Preview from the file URL — a 500 MB video must not enter RAM just
-        // to be shown; corePath is kept so send never re-writes the bytes.
-        return this._imageSendFlow(fileUrl(resolved), session, resolved, "video");
+        // Preview streams from the file URL — a 500 MB video must not enter
+        // RAM just to be shown; corePath is kept so send never re-writes it.
+        this._setPendingMedia("video", fileUrl(resolved), resolved, name);
+        return;
       }
 
-      const name = resolved.replace(/\\/g, "/").split("/").pop() || "attachment";
       const ext = extOf(name);
       let viewtype = "file";
       if (["mp4", "mov", "mkv", "avi", "webm"].includes(ext)) viewtype = "video";
