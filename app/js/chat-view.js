@@ -342,7 +342,16 @@ export class ChatView {
       this._refreshPinnedBar();
       await this.core.markRead(chatId);
       if (!this._isCurrent(session)) return false;
-      this._scrollBottomSettling();
+      const anchor = this._scrollAnchors.get(session.draftKey);
+      this._userAway = false;
+      if (anchor?.id != null) {
+        // Returning mid-history: jump back to the saved anchor at the saved
+        // viewport offset (instantly, no highlight flash) instead of the
+        // newest message. _jumpToMessage loads older pages until it exists.
+        this._jumpToMessage(anchor.id, { highlight: false, instant: true, dy: anchor.dy });
+      } else {
+        this._scrollBottomSettling();
+      }
       this.startLive();
       return true;
     } catch (err) {
@@ -411,6 +420,12 @@ export class ChatView {
   // Full teardown: stop polling, dispose the virtual scroller, drop cached
   // rows and leave #history empty. Used when another surface takes over the
   // history area (Diagnostics chat) and when the chat is closed.
+  // Scroll-position restore: close() saves the topmost visible message when
+  // the user is NOT at the bottom; open() jumps back to it (loading pages as
+  // needed). Session-scoped — in-memory on this long-lived instance, gone at
+  // app restart (official clients behave the same after an app restart).
+  _scrollAnchors = new Map();
+
   close() {
     const input = document.getElementById("composer-input");
     // Use the session's owner, not core.accountId: account-changing may have
@@ -418,6 +433,19 @@ export class ChatView {
     if (this.chat && this._session) {
       if (input.value || this.replyTo) this._drafts.set(this._session.draftKey, { text: input.value, replyTo: this.replyTo, replyFragment: this.replyFragment });
       else this._drafts.delete(this._session.draftKey);
+      if (this.scrollEl && this._userAway && !this._nearBottom()) {
+        // Topmost row still visible below the viewport top = the anchor, plus
+        // its viewport offset (dy) so restore reproduces the exact position —
+        // centering the row would land a different spot whenever the anchor
+        // was shorter/taller than half a viewport.
+        const top = this.scrollEl.scrollTop;
+        const row = [...this.listEl.querySelectorAll(".msg-row[data-msgid]")]
+          .find(r => r.offsetTop + r.offsetHeight > top + 1);
+        if (row) {
+          const dy = row.getBoundingClientRect().top - this.scrollEl.getBoundingClientRect().top;
+          this._scrollAnchors.set(this._session.draftKey, { id: Number(row.dataset.msgid), dy });
+        }
+      } else this._scrollAnchors.delete(this._session.draftKey);
     }
     this._session = null;
     input.value = "";
@@ -2048,9 +2076,13 @@ export class ChatView {
       if (!this._isCurrent() || !this.chat) return;
       if (this.scrollEl.scrollTop < 220) this._loadOlder();
       if (this._nearBottom()) this._hideGoDown();
+      // Anchor gate for close(): only genuine user scrolling off the bottom
+      // counts (programmatic settles stay near bottom → flag stays false).
+      this._userAway = !this._nearBottom();
     }, { passive: true });
     this.goDownBtn.addEventListener("click", () => {
       if (!this._isCurrent() || !this.chat) return;
+      this._userAway = false;
       this._scrollBottom();
       this._hideGoDown();
       this.core.markRead(this.chat.id);
@@ -2125,16 +2157,125 @@ export class ChatView {
     this.goDownBtn.hidden = true;
   }
 
-  _jumpToMessage(msgId) {
-    const row = this.listEl.querySelector(`[data-msgid="${msgId}"]`);
-    if (row) {
-      row.scrollIntoView({ block: "center", behavior: "smooth" });
-      row.style.transition = "background .3s";
-      row.style.background = "rgba(90,162,230,.25)";
-      setTimeout(() => row.style.background = "", 900);
-    } else {
-      toast("Message is higher up in history — scroll up to load it");
+  // Jump to a message, loading older pages until it exists (search hits,
+  // pinned messages, reply quotes and scroll-position restore can target
+  // messages far above the loaded window). opts.highlight: flash the row
+  // (default on; off for position restore); opts.instant: no smooth scroll;
+  // opts.dy: restore at this viewport offset instead of centering.
+  // The loading strip runs via _loadOlder's own _loadBar on/off — back-to-back
+  // pages don't flicker (new on cancels the pending off).
+  async _jumpToMessage(msgId, { highlight = true, instant = false, dy = null } = {}) {
+    const find = () => this.listEl.querySelector(`[data-msgid="${msgId}"]`);
+    const session = this._session;
+    // inItems, not find(): the target only needs to be LOADED here — mounted
+    // rows follow the scroller's viewport (the steering loop below). Waiting
+    // for a mounted row made the loop page through the whole history upward.
+    const inItems = () => this.items.some(i => i.type === "msg" && i.msg.id === msgId);
+    if (!inItems()) {
+      // items.length stops the loop if _loadOlder no-ops (busy, no more).
+      let prev = -1;
+      while (!inItems() && this.hasMore && this._isCurrent(session) && this.items.length !== prev) {
+        prev = this.items.length;
+        await this._loadOlder();
+      }
     }
+    if (!this._isCurrent(session)) return;
+    if (!find()) {
+      // Loaded but not mounted (far outside the rendered viewport): steer the
+      // scroller to the item's offset — each scroll mounts the rows around it,
+      // and each retry re-estimates from the nearest mounted row's REAL
+      // offsetTop (which includes the scroller's virtual padding), so the
+      // estimate converges. A plain idx*average ignores that padding and
+      // lands short for every mid-list target.
+      // ponytail: 6-retry offset steering; a real scrollToItem API in the
+      // vendored scroller is the upgrade path if far jumps land off-target.
+      const idx = this.items.findIndex(i => i.type === "msg" && i.msg.id === msgId);
+      if (idx < 0) { if (highlight) toast("Message is not in this chat's history"); return; }
+      // Re-estimate from the nearest mounted row's REAL offsetTop each pass
+      // (includes the scroller's virtual padding); stop on a scroll stall —
+      // tall media rows make the average wrong, but each pass still moves
+      // closer. A fixed small retry count under-converges in media-heavy
+      // chats (rows several× the average → never reaches the target).
+      let lastTop = -1;
+      for (let i = 0; i < 40 && !find(); i++) {
+        const mounted = [...this.listEl.querySelectorAll(".msg-row[data-msgid]")];
+        const avg = mounted.length
+          ? mounted.reduce((s, r) => s + r.offsetHeight, 0) / mounted.length
+          : 56;
+        let base = null;
+        if (mounted.length) {
+          // Nearest mounted row by item index → project from its real offset.
+          let best = null, bestDist = Infinity;
+          for (const r of mounted) {
+            const j = this.items.findIndex(it => it.type === "msg" && it.msg.id === Number(r.dataset.msgid));
+            if (j < 0) continue;
+            const d = Math.abs(j - idx);
+            if (d < bestDist) { bestDist = d; best = { top: r.offsetTop, j }; }
+          }
+          if (best) base = best.top + (idx - best.j) * avg;
+        }
+        const target = base ?? idx * avg;
+        this.scrollEl.scrollTop = Math.max(0, target - this.scrollEl.clientHeight / 2);
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+        if (this.scrollEl.scrollTop === lastTop) break; // scroller refused — give up
+        lastTop = this.scrollEl.scrollTop;
+      }
+    }
+    const row = find();
+    if (!row) {
+      if (highlight) toast("Message is higher up in history — scroll up to load it");
+      else debugLog(`jumpToMessage: anchor ${msgId} loaded but never mounted (steering stalled)`);
+      return;
+    }
+    if (!highlight && dy != null) {
+      // Position restore: put the anchor back at its saved viewport offset
+      // (delta between row top and scroller top — viewport math, immune to
+      // offsetParent quirks). Centering would land a different spot.
+      // The scroller keeps measuring mounted rows and shifting its virtual
+      // paddings for several frames after a big jump, and markRead's tail
+      // refetch REPLACES the anchor row element — so re-resolve the row every
+      // frame (never hold the element) and re-assert until the anchor holds
+      // still twice in a row. User input cancels immediately.
+      let stable = 0, frames = 0;
+      const cancel = () => { frames = 1e9; };
+      this.scrollEl.addEventListener("wheel", cancel, { once: true, passive: true });
+      this.scrollEl.addEventListener("touchstart", cancel, { once: true, passive: true });
+      const step = () => {
+        if (!this._isCurrent() || ++frames > 90) return;
+        const r = this.listEl.querySelector(`[data-msgid="${msgId}"]`);
+        if (!r) {
+          // Steering over-shot past the prerender margin: the anchor row is
+          // not mounted here and won't be until we scroll toward it. Project
+          // its offset from the nearest mounted row and step there — once it
+          // mounts, the dy correction below takes over.
+          const idx = this.items.findIndex(i => i.type === "msg" && i.msg.id === msgId);
+          if (idx < 0) return;
+          const mounted = [...this.listEl.querySelectorAll(".msg-row[data-msgid]")];
+          const avg = mounted.length ? mounted.reduce((s, x) => s + x.offsetHeight, 0) / mounted.length : 56;
+          let base = idx * avg;
+          for (const x of mounted) {
+            const j = this.items.findIndex(it => it.type === "msg" && it.msg.id === Number(x.dataset.msgid));
+            if (j >= 0) { base = x.offsetTop + (idx - j) * avg; break; }
+          }
+          this.scrollEl.scrollTop = Math.max(0, base - dy);
+          stable = 0;
+        } else {
+          const cur = r.getBoundingClientRect().top - this.scrollEl.getBoundingClientRect().top;
+          if (Math.abs(cur - dy) >= 1) {
+            this.scrollEl.scrollTop += cur - dy;
+            stable = 0;
+          } else stable++;
+        }
+        if (stable < 30) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+      return;
+    }
+    row.scrollIntoView({ block: "center", behavior: instant ? "auto" : "smooth" });
+    if (!highlight) return;
+    row.style.transition = "background .3s";
+    row.style.background = "rgba(90,162,230,.25)";
+    setTimeout(() => row.style.background = "", 900);
   }
 
   _bindCoreEvents() {
