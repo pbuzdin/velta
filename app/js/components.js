@@ -237,6 +237,22 @@ class VeltaVideo extends Elena(HTMLElement) {
     const img = this.querySelector?.("img.velta-video-poster");
     if (img && !img.dataset.errBound) {
       img.dataset.errBound = "1";
+      // Poster shape reservation: when the core had no dimensions the outer
+      // .msg-video box carries no style (CSS fixed-band fallback). Once the
+      // poster decodes we know the real shape — patch the box to it and tell
+      // the chat view (delegated listener) the row height changed, or the
+      // virtual scroller's layout math goes stale (same contract as
+      // link-preview notifyHeight).
+      img.addEventListener("load", () => {
+        if (!img.naturalWidth || !img.naturalHeight) return;
+        const host = this.closest?.(".msg-video");
+        if (host && !host.style.aspectRatio) {
+          host.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
+          host.style.height = `min(${img.naturalHeight}px, 45vh, 260px)`;
+          host.style.maxWidth = "100%";
+          this.dispatchEvent(new CustomEvent("velta-row-resized", { bubbles: true }));
+        }
+      });
       // A broken poster must never shadow the plain placeholder. The asset
       // protocol occasionally fails a first request after launch (observed
       // net error, then 200 on retry). Elena re-renders replace the img

@@ -585,18 +585,33 @@ html[data-theme="light"] .msg-meta .ticks.read { color: #1d8bf1; }
 @keyframes ticks-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .msg-meta .ticks-spin { animation: none; } }
 
-/* Failed send: resend button at the bubble's bottom-left (floats against
-   the right-floating .msg-meta on the same line). */
-.msg-resend {
-  float: left; display: inline-flex; align-items: center; justify-content: center;
-  width: 22px; height: 22px; margin: 4px 0 0 0; padding: 2px;
+/* Failed send: small red reason badge on its own line below the message
+   content (clears the right-floating timestamp) + retry/remove buttons
+   in a column left of the bubble (out rows right-justify; the actions div
+   precedes the bubble so it lands on the bubble's left side). */
+.msg-fail-badge {
+  display: block; clear: both; float: none;
+  width: fit-content; max-width: 100%;
+  margin: 6px 0 0; padding: 1px 8px;
+  font-size: 11.5px; line-height: 16px; border-radius: 8px;
+  background: rgba(229, 72, 77, .16); color: #f2b8bb;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+html[data-theme="light"] .msg-fail-badge { color: #a4262b; }
+html[data-theme="brutal"] .msg-fail-badge { color: #3d3405; background: rgba(229, 72, 77, .24); }
+.msg-fail-actions {
+  display: flex; flex-direction: column; gap: 6px;
+  align-self: center; margin-right: 6px;
+}
+.msg-fail-actions button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; padding: 5px;
   border: none; background: none; cursor: pointer; border-radius: 50%;
   color: var(--danger, #e5484d); user-select: none;
 }
-html[data-theme="light"] .msg-resend { color: #d13438; }
-.msg-resend svg { width: 15px; height: 15px; display: block; }
+.msg-fail-actions svg { width: 17px; height: 17px; display: block; }
 @media (hover: hover) and (pointer: fine) {
-  .msg-resend:hover { background: rgba(229, 72, 77, .14); }
+  .msg-fail-actions button:hover { background: rgba(229, 72, 77, .14); }
 }
 
 /* Media blocks (image/video/audio) BLEED 5px left/right past the bubble
