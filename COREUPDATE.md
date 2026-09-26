@@ -96,6 +96,12 @@ cd core && scripts/clippy.sh && scripts/deny.sh   # CI quality gates
 node --test tests/                   # frontend contract suites (repo root)
 ```
 
+`deny.sh` needs `cargo-deny`, which is not installed in the WSL distro
+(as of the 2.62.0 upgrade). Either install it once
+(`cargo install cargo-deny --locked` in WSL) or skip it with a stated
+justification — "zero dependency changes in `git diff core/Cargo.lock`"
+is a valid one, since licenses/advisories can only change through deps.
+
 Native Windows `cargo` cannot build the core: `openssl-sys` (SQLCipher
 bundled) needs a perl with `Locale::Maketext::Simple`, which the MSYS perl
 lacks — always run core `cargo` commands in WSL.
@@ -150,9 +156,10 @@ RPC (`deltachat-rpc-client` or the test rig bridge), the other by the UI.
 
 - [ ] Text, reply/quote, forward, reactions, edit if supported.
 - [ ] Media both directions: image (aspect-box reveal), video (poster → tap
-      to load → seeking works — Range correctness regressed once, §CONCERNS
-      #4), voice/audio, file download flow, oversized download ("Tap to
-      download" path).
+      to load → seeking works — a past regression had the sidecar mis-serve
+      HTTP Range requests, which killed seeking; verify seeking in the
+      DevTools network panel shows 206 responses), voice/audio, file
+      download flow, oversized download ("Tap to download" path).
 - [ ] Delete for me / delete for everyone propagates and removes the row.
 - [ ] Group: create, invite via QR (SecureJoin), member list, outgoing to N.
 - [ ] Second-device backup transfer (`DCBACKUP2`), vCard share/import.
@@ -215,12 +222,22 @@ NOT safe; test db-open-on-old-core before shipping a risky upgrade).
 ## 10. Build recipes
 
 ```bash
-# Core RPC server (Windows sidecar / test rig)
-cd core && cargo build -p deltachat-rpc-server --release
-# → copy target/release/deltachat-rpc-server.exe into
-#   velta-app/src-tauri/binaries/ (renamed with the target triple) and
-#   deltachat-backend/windows-x86_64/
+# Core RPC server (Windows sidecar / test rig) — native Windows build,
+# needs tools/strawberry-perl + tools/nasm first on PATH (AGENTS.md §4.3.1);
+# the recipe below writes to a separate target dir so it never fights the
+# WSL test runs over core/target:
+cd core && CARGO_TARGET_DIR=target-win cargo build -p deltachat-rpc-server --release
+# → copy target-win/release/deltachat-rpc-server.exe into
+#   velta-app/src-tauri/binaries/ (renamed with the target triple, and as
+#   plain deltachat-rpc-server.exe) and deltachat-backend/windows-x86_64/
 
-# Android cross-compile for the prebuilt dir: see tools/ and
-# deltachat-backend/android-arm64/ provenance notes in git history.
+# Android (aarch64) prebuilt for deltachat-backend/android-arm64/ (Android
+# PWA test rig only — the shipped APK builds the vendored core itself via
+# gradle/NDK, and CI's build-android.yml handles releases):
+# must be built in WSL with a Linux NDK. Windows-native cross-compile fails
+# in openssl-sys (perl Configure exits 255) even with strawberry-perl on
+# PATH and cargo-ndk driving the NDK wrappers (verified on the 2.62.0
+# upgrade, 2026-09-26). Until rebuilt, that binary stays on its old core —
+# acceptable: its consumer is the test rig, and core RPC changes so far
+# have been additive for what the frontend calls.
 ```
