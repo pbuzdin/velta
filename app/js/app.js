@@ -269,8 +269,15 @@ setInterval(() => {
   }
   const top = Object.entries(census).sort((a, b) => b[1] - a[1]).slice(0, 8)
     .map(([k, v]) => `${k}:${v}`).join(" ");
+  // When the growth is the Diagnostics chat refilling its ring, name the
+  // actual noise — the last few row texts say WHAT flooded the sink.
+  let suffix = "";
+  if ((census["div.msg-row.service"] || 0) >= 100) {
+    const last = window.__veltaDiagnostics?.messages?.slice(-3).map(m => m.text).join(" | ");
+    if (last) suffix = " Last rows: " + last.slice(0, 300);
+  }
   diagnosticsSink.append("warning",
-    `DOM budget: +${growth} nodes in 10 min (${sample.nodes} total, history rows ${sample.rows}). Top: ${top}`);
+    `DOM budget: +${growth} nodes in 10 min (${sample.nodes} total, history rows ${sample.rows}). Top: ${top}${suffix}`);
 }, 60000);
 
 renderInitialDiagnosticsChat();

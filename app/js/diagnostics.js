@@ -69,7 +69,9 @@ export class DiagnosticsStore extends EventTarget {
     }
     message.count = 1;
     this.messages.push(message);
-    if (this.messages.length > 300) this.messages.splice(0, this.messages.length - 300);
+    // Ring cap: 120 rows ≈ 600 DOM nodes with the copy buttons — the DOM
+    // budget watchdog flags the refill either way, keep the worst case small.
+    if (this.messages.length > 120) this.messages.splice(0, this.messages.length - 120);
     this.dispatchEvent(new CustomEvent("changed", { detail: message }));
     return message;
   }
