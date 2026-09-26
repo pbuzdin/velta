@@ -181,6 +181,13 @@ export class MockCore extends EventTarget {
       );
       devs.messages.sort((a, b) => a.ts - b.ts);
     }
+
+    // A past call in the Ada chat (issue #8): renders as a Velta call card.
+    const ada = this.chats.find(c => c.id === 12);
+    if (ada) {
+      ada.messages.push(this._mkMsg(ada, { from: 2, viewtype: "call", text: "", callDuration: 134, ts: now - 900e3 }));
+      ada.messages.sort((a, b) => a.ts - b.ts);
+    }
   }
 
   _randomMsg(chat, ts) {
@@ -281,6 +288,16 @@ export class MockCore extends EventTarget {
   }
   // Demo core answers every send with instant delivery — nothing to reconcile.
   async reconcileSending() {}
+
+  // Call state for demo call messages (viewtype "call"): completed with the
+  // stored duration.
+  async callState(msgId) {
+    for (const chat of this.chats) {
+      const m = chat.messages.find(x => x.id === msgId && x.viewtype === "call");
+      if (m) return { kind: "Completed", duration: m.callDuration || 0 };
+    }
+    throw new Error("not a call message");
+  }
 
   // ---- Relay management demo surface (Relays modal works in demo mode) ----
   async listTransports() {

@@ -123,6 +123,7 @@ export class JsonRpcCore extends EventTarget {
     this.accountEpoch++;
     this.msgIdCache = new Map();
     this._msgStateHints.clear();
+    this._callStateCache = new Map(); // call ids are per-account
     if (this._sendingIds.size) {
       this._sendingIds.clear();
       clearTimeout(this._sendingBackstopTimer);
@@ -533,6 +534,7 @@ export class JsonRpcCore extends EventTarget {
       case "File": return "file";
       case "Vcard": return "vcard";
       case "Webxdc": return "webxdc";
+      case "Call": return "call"; // issue #8: call-message cards
       default: return "text";
     }
   }
@@ -819,6 +821,19 @@ export class JsonRpcCore extends EventTarget {
   // incoming-call event was missed (e.g. the app was closed).
   async callInfo(msgId) {
     return this._call("call_info", this.accountId, msgId);
+  }
+
+  // State for call-message cards: { kind: Alerting|Active|Missed|Declined|
+  // Canceled|Completed{duration} }. Cached per msgId — chat rows re-mount on
+  // every scroll pass and a ended call's state is terminal. Cleared on
+  // account switch (ids are per-account).
+  async callState(msgId) {
+    this._callStateCache = this._callStateCache || new Map();
+    if (this._callStateCache.has(msgId)) return this._callStateCache.get(msgId);
+    const info = await this.callInfo(msgId);
+    const state = info?.state || null;
+    this._callStateCache.set(msgId, state);
+    return state;
   }
 
   // JSON string of relay-provided STUN/TURN servers for RTCPeerConnection.

@@ -1188,6 +1188,12 @@ export class ChatView {
       // Link preview card for the first link: empty slot here, hydrates
       // async below (notifyHeight keeps the scroller's layout math fresh).
       bubble += `<div class="msg-link-preview" data-lp hidden></div>`;
+    } else if (m.viewtype === "call") {
+      // Issue #8: call messages render as a Velta call card — direction,
+      // state and duration come from core call_info (hydrated below); the
+      // message text is just a stock string used as the fallback label.
+      const callOut = m.from === 1;
+      bubble += `<div class="call-card${callOut ? " call-out" : " call-in"}" data-call-card><span class="call-card-ico"><svg viewBox="0 0 24 24"><path d="M6.6 10.8a15.1 15.1 0 006.6 6.6l2.2-2.2a1 1 0 011-.24 11.4 11.4 0 003.6.58 1 1 0 011 1V20a1 1 0 01-1 1A17 17 0 013 4a1 1 0 011-1h3.5a1 1 0 011 1 11.4 11.4 0 00.57 3.6 1 1 0 01-.25 1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></span><span class="call-card-main"><span class="call-card-label" data-call-label>${escapeHtml(m.text || (callOut ? "Outgoing call" : "Incoming call"))}</span><span class="call-card-sub" data-call-sub></span></span></div>`;
     } else bubble += `<div class="msg-text">`;
     const edited = m.edited ? `<span class="edited">edited</span>` : "";
     // Bot chip in the meta row's right corner (same slot as "edited"): the
@@ -1218,6 +1224,7 @@ export class ChatView {
     inner += `<div class="bubble${m.viewtype === "sticker" ? " sticker" : ""}">${bubble}</div>`;
     row.innerHTML = inner;
     if (m.viewtype === "vcard" && m.filePath) this._hydrateVcardCard(row, m);
+    if (m.viewtype === "call") this._hydrateCallCard(row, m);
     if (showAvatar) {
       row.querySelector("velta-avatar")?.addEventListener("click", (e) => {
         // The sender's avatar opens their profile — not row selection/menus.
@@ -1503,6 +1510,37 @@ export class ChatView {
       return;
     }
     this._openHtmlOverlay("Full message", { html });
+  }
+
+  // Fill a call card's label and sub-line from the core's call state
+  // (issue #8). Fire-and-forget with a fallback to the stock message text;
+  // the card is height-stable, so no scroller notification is needed.
+  async _hydrateCallCard(row, m) {
+    let state = null;
+    try {
+      state = await this.core.callState?.(m.id) ?? null;
+    } catch { return; } // not a call / backend without calls — keep fallback text
+    if (!state || !row.isConnected) return;
+    const card = row.querySelector(".call-card");
+    if (!card) return;
+    const label = card.querySelector("[data-call-label]");
+    const sub = card.querySelector("[data-call-sub]");
+    const kind = state.kind || state;
+    const fmt = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+    if (kind === "Completed") {
+      if (label) label.textContent = m.from === 1 ? "Outgoing call" : "Incoming call";
+      if (sub) sub.textContent = `Ended · ${fmt(state.duration || 0)}`;
+    } else if (kind === "Missed") {
+      if (label) label.textContent = "Missed call";
+      card.classList.add("missed");
+    } else if (kind === "Declined") {
+      if (label) label.textContent = "Call declined";
+      card.classList.add("missed");
+    } else if (kind === "Canceled") {
+      if (label) label.textContent = "Call canceled";
+    } else if (kind === "Active" || kind === "Alerting") {
+      if (label) label.textContent = "Call in progress…";
+    }
   }
 
   // Fill a shared-contact card's avatar, name and address from its vCard

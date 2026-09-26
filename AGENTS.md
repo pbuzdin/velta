@@ -1308,6 +1308,15 @@ do-not-regress rules; dates mark when the lesson was learned.
   permission requests by default — only clipboard is allowed); Android
   needs RECORD_AUDIO in the gen manifest, granted by wry's
   RustWebChromeClient. Video calls are not offered.
+- **Call cards (post-1.4.38, issue #8)** — call messages (core viewtype
+  `Call`, mapped to "call" in `_mapViewtype`) render as a call card in the
+  chat instead of the stock text string: direction + state + duration from
+  `rpc-core.callState` (`call_info`; state kinds Alerting/Active/Missed/
+  Declined/Canceled/Completed{duration}), red tint for missed/declined.
+  States are cached per msgId (`_callStateCache`, cleared on account
+  switch) because rows re-mount on every scroll pass — a new per-call RPC
+  per remount would multiply. Mock answers with Completed + the stored
+  duration; a demo call message lives in the Ada chat.
 - **Modal async flows (1.3.35)** — settle BEFORE close: `showModal`'s
   `onClose` resolves the flow's promise with null, so `close()`-first
   silently drops results (it swallowed every successful QR scan once).
