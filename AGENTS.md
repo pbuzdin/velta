@@ -410,6 +410,12 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   multi-account (`getAllAccounts`/`switchAccount`/`addAccountWithQr`), the
   relay surface (see docs/agents/relays.md), second-device backup transfer
   (`provideBackup`/`getBackupQr`/`addAccountWithBackup`/`importBackup`),
+  backup export (`exportBackup` -> core `export_backup`, directory +
+  optional passphrase, progress on `imex-progress`), autorelay onboarding
+  (`initTransports` -> core `init_transports`; the core probes its built-in
+  relay pool and configures the fastest, then grows the profile to ~3
+  transports from IMAP idle hooks — wired into the splash "I don't know a
+  relay name" option),
   vCard (`parseVcard`/`importVcard`/`makeVcard`), `getMessageHtml` (original
   body behind "Show Full Message…"), `createQrSvg`. Chat fulltext
   search (`searchMessages` -> core `search_messages`; wired into the Search-in-chat modal), pinned messages (`pinMessage`/`getPinnedMessages`, core 2.59+ API). Wire types are
@@ -662,7 +668,13 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
 - `app/js/media.js` resolves local paths to WebView-safe media URLs:
   blobfile probe → loopback HTTP → asset protocol, with one-shot error
   fallbacks per element. Details and the WebView2 media quirk:
-  docs/agents/media.md.
+  docs/agents/media.md. `fileUrl(path, {thumb: true})` appends `?w=720` —
+  BOTH the blobfile protocol and the loopback server answer with a cached
+  720px JPEG thumbnail (sha1(path+mtime+size+w) key under
+  `<app-data>/thumbs`, generated in lib.rs via the `image` crate, EXIF
+  orientation applied); animated gif/webp, non-static formats, Range
+  requests and every failure fall through to the original bytes, so the UI
+  can never regress. Bubble images pass thumb:true; the lightbox never does.
 - `app/js/link-preview.js` — OG preview card for the first link in a text
   message. Fetches shell-side (`fetch_link_preview`, lib.rs — same trust
   model as `expand_invite_link`: https-only, 5 s timeout, 256 KB page /
@@ -686,7 +698,9 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   Per-chat override: chat context menu → “Link previews: on/off” (localStorage `velta-link-preview-chats`).
 - **Native video frames replace posters (post-1.4.31)** — `poster.js` and
   the click-to-load `#active` state are GONE. `velta-video` renders a real
-  `<video controls preload="metadata" src="...#t=0.1">`: Chromium/WebView2
+  `<video preload="metadata" src="...#t=0.1">` (no `controls` — Android WebView
+  stacks its own large centered play button on controls videos; controls
+  return only in the no-lightbox fallback via `v.controls = !videoLightboxOpener`): Chromium/WebView2
   paints frame 0 natively (the `#t` fragment forces the first-frame fetch),
   `loadedmetadata` shapes the host box to the true aspect (portrait
   videos must NOT hit the stale 200px min-width inside a styled box — it
@@ -718,6 +732,22 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `accountId`/`accountEpoch` (undefined values made `a?.x === a.x` guards
   pass on null and crashed demo mode), with no-op demos for vCard and
   backup transfer.
+
+- **Post-1.4.34 UI surface** — settings are checkbox rows in the drawer
+  (`data-toggle` labels + change handlers in ui.js; Demo mode is the renamed
+  mock toggle; Send on Enter is `velta-send-enter`, "0" = off, read by the
+  composer keydown, which also guards `isComposing`). Profile flows live in
+  one tabbed modal: `openProfileManagement()` (app.js) — Add profile (relay
+  input + QR scan → `addAccountFromInvite`), Second device (provide-QR pane +
+  receive hand-off), Export backup (`exportBackup` + `imex-progress`;
+  desktop folder picker, fixed `exports/` dir on Android). Tabs lock
+  (`.pm-tabs.locked`) while a flow runs. Modals are full-screen below 600px
+  viewport (`css` media query, `.modal-compact` opts out — confirmations use
+  it). Bubbles cap at `min(480px, 90%)` (avatar rows −50px). Jump targets
+  outside the loaded window (search hits, quotes, pinned bar) fetch older
+  pages via `_jumpFetchAndScroll` (page cap `jumpMaxPages`) then
+  `_scrollToItemSeek` — the scroller has no scroll-to-item API. Arrivals
+  mark-read through `markReadSoon` (400ms coalescing, flushed on close).
 
 ### 5.2 Core Rust library (`core/src/`)
 
@@ -908,8 +938,8 @@ changes against those until the stubs grow the method.
 Beyond that, the primary verification path is manual:
 
 1. Open `app/index.html` in a browser. Force demo mode with
-   `localStorage["velta-mock"] = "1"` (or the drawer's "Enter mock mode"
-   toggle) to verify UI behavior without a backend; the mock ships demo chats,
+   `localStorage["velta-mock"] = "1"` (or the drawer's "Demo mode"
+   checkbox) to verify UI behavior without a backend; the mock ships demo chats,
    media, and a 2400-message chat for scroller testing.
 2. Run a real backend (`deltachat-rpc-server`, the Tauri app, or the Android
    service) and confirm the transport switches from mock to real.
