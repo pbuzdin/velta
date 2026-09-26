@@ -21,6 +21,14 @@ failed to answer after its retries (log surface). The three setup paths:
    on Android → `importBackup`, fire-and-forget with `imex-progress`;
    the app restarts on success.
 
+After a relay create (both the typed-relay and the autorelay button land in
+`runCreate`), the success path asks for a **nickname** (issue #6): a compact
+modal — input prefilled with the default display name, Skip / Save name —
+applied via `setDisplayName` before `finishOk()`. Skippable by design:
+closing the modal or pressing BACK must never block entering the app. The
+second-device and restore paths skip the ask (the profile already has its
+identity).
+
 Returning users with a configured profile never see it — do not regress
 this into an unconditional boot splash.
 

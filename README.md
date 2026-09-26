@@ -276,8 +276,10 @@ The drawer's **Profile management…** modal has three tabs:
 The **Welcome to Velta** splash (full-screen, with the same choices: create a
 new profile on a relay — type the address or scan its QR — **add as second
 device** via a `dcbackup:` code, or **restore from a backup** file) is shown
-only while there is no configured profile. Returning users with at least one
-account boot straight into the app.
+only while there is no configured profile. Right after creating a profile it
+politely asks **"How should we call you?"** — a name is optional, Skip keeps
+the default. Returning users with at least one account boot straight into
+the app.
 
 </details>
 

@@ -2815,10 +2815,45 @@ function showSplash() {
 
   // Shared scaffolding for both create paths (named relay / auto-discovery):
   // trigger+input disabling, the intro step, ConfigureProgress phase lines
-  // (0..1000), success (notification ask + splash teardown + toast) and
-  // failure (Retry) handling. `run()` performs the configure and returns the
-  // fresh account; `hostOf` names the relay in the success toast.
+  // (0..1000), success (notification ask + nickname ask + splash teardown +
+  // toast) and failure (Retry) handling. `run()` performs the configure and
+  // returns the fresh account; `hostOf` names the relay in the success toast.
   const hostOf = (a) => (a?.addr || "").split("@")[1] || a?.relay || "your new relay";
+  // Issue #6: right after the account exists, politely offer a nickname —
+  // once, skippable, never holding onboarding hostage.
+  const askNickname = () => new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.className = "text-field"; input.maxLength = 64;
+    input.placeholder = "How should we call you?";
+    input.value = state.account?.displayName || "";
+    const wrap = document.createElement("div");
+    wrap.appendChild(input);
+    const nm = { close: null };
+    const settle = async (apply) => {
+      if (apply) {
+        const name = input.value.trim();
+        try { if (name) await core.setDisplayName(name); } catch { /* cosmetic */ }
+        state.account = await core.getAccount().catch(() => state.account);
+        rebuildDrawer();
+      }
+      nm.close();
+      resolve();
+    };
+    const skip = document.createElement("button");
+    skip.className = "btn-text"; skip.textContent = "Skip";
+    skip.addEventListener("click", () => settle(false));
+    const save = document.createElement("button");
+    save.className = "btn-text btn-primary"; save.textContent = "Save name";
+    save.addEventListener("click", () => settle(true));
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); settle(true); } });
+    const foot = document.createElement("div");
+    foot.className = "modal-foot edit-profile-foot";
+    foot.append(skip, save);
+    const m = showModal({ title: "Welcome to Velta", body: wrap, foot, compact: true,
+      onClose: () => resolve() });
+    nm.close = m.close;
+    setTimeout(() => input.focus(), 50);
+  });
   const runCreate = async ({ trigger, intro, phases, run }) => {
     trigger.disabled = true; trigger.classList.add("btn-loading"); trigger.textContent = "Creating…";
     input.disabled = true;
@@ -2841,6 +2876,7 @@ function showSplash() {
       if (!accountIsCurrent(epoch)) return;
       state.account = account;
       await askNotificationPermission();
+      await askNickname();
       setTimeout(() => {
         if (!accountIsCurrent(epoch)) return;
         finishOk();
