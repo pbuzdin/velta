@@ -1003,6 +1003,12 @@ cd velta-app
 cargo tauri android build --apk --target aarch64
 ```
 
+On this workspace the build runs inside WSL via `build-velta-android-wsl.sh`
+(in the parent directory) — it needs **~25 GB free on C:** (the WSL disk is a
+file on C: and cannot grow when the drive is full) and exports `RANLIB`/`AR`
+pointing at the NDK's `llvm-ranlib`/`llvm-ar`, which openssl's install step
+requires (see AGENTS.md §4.3.3).
+
 The unsigned APK will be in:
 
 ```

@@ -128,6 +128,13 @@ build (cost: a cold rebuild):
 |--------|--------------|----------------|
 | `velta-app/src-tauri/target/` | 20–45 GB | `cargo tauri dev` / `cargo tauri build` in `velta-app/src-tauri/` |
 | `core/target/` | 10–25 GB | any `cargo build`/`test` in `core/` (WSL) |
+| `velta-core-service/rust/target/` | ~3 GB | `cargo build` in `velta-core-service/rust/` |
+| `core/target-win/` | ~2 GB | sidecar build (§4.3.3 recipe, `CARGO_TARGET_DIR=target-win`) |
+| `core/target-android/` | ~0.6 GB | android cross builds (§4.3.3) |
+
+Measured 2026-09-26: the whole Velta tree held ~43 GB of target dirs; deleting
+all five reclaimed 51 GB on C: (Windows `AppData/Local/Temp` gave ~4 more) and
+the next local APK build succeeded from scratch.
 
 Never delete for space: `velta-app/src-tauri/binaries/` (Windows sidecar,
 see §4.3), `deltachat-backend/` (prebuilt RPC servers), `core/test-data/`
@@ -341,6 +348,31 @@ chocolatey-installed StrawberryPerl + NASM.
   upgrade path; the env identity overrides the config.
 - Updater: `latest.json` carries `darwin-aarch64` + `darwin-x86_64`, both
   pointing at the one universal `Velta_<version>_universal.app.tar.gz`.
+
+### 4.3.3 Local Android APK builds (WSL)
+
+`build-velta-android-wsl.sh` (workspace script in the PARENT directory,
+`C:/Users/pave/Velta/`) copies the tree to `~/velta-android-build` and builds
+a debug universal aarch64 APK via `cargo tauri android build`; it prints the
+APK path at the end. Needs the WSL JDK/SDK/NDK paths baked into the script
+and **~25 GB free on Windows C:** — the build lives inside the WSL
+ext4.vhdx, which lives on C:. Check `df -h /c` before starting: WSL-side
+`df` shows the vhdx's virtual size (1007G), never the Windows free space,
+which is what actually limits the vhdx's growth.
+
+Failure catalog (both hit on 2026-09-26; the fixes live in the script):
+
+- **openssl-src `install_dev` → `make … Error 127`,
+  `aarch64-linux-android-ranlib: not found`.** The NDK ships only
+  `llvm-ranlib`/`llvm-ar` — no target-tripled wrappers, which is what
+  openssl's install recipe invokes. The script exports `RANLIB`/`AR`
+  pointing at `llvm-ranlib`/`llvm-ar` and prepends the NDK toolchain bin to
+  PATH. Keep those exports when editing the script.
+- **Disk full** (above): a gradle JVM fatal error mid-build plus
+  `wsl -e` refusing to start (`CreateInstance E_FAIL`) both mean the vhdx
+  could not grow. Free C: space first — deleting WSL-side files does NOT
+  shrink the vhdx (sparse mode is refused by WSL over corruption risk), so
+  the room must exist on C: before the build starts.
 
 ### 4.4 Android background service (`velta-core-service/`)
 
