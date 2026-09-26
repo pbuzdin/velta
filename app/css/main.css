@@ -575,6 +575,15 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
 }
 .msg-row.out .msg-meta { color: var(--text-meta-out); }
 .msg-meta .edited { font-style: normal; }
+/* Tiny "bot" badge next to the timestamp: bordered uppercase tag so it reads
+   as a label, not text. Inherits the meta color — visible on every theme's
+   incoming bubble (contrast held by the meta color, ≥4.5:1 like the time). */
+.msg-meta .bot-chip {
+  font-size: 8.5px; font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; line-height: 1;
+  padding: 1.5px 4px; border: 1px solid currentColor; border-radius: 4px;
+  opacity: .85; cursor: default;
+}
 .msg-meta svg { width: 16px; height: 16px; }
 /* The ticks are a 3:2 glyph letterboxed in a 16px square (drawn height
    ~10.7px), while the timestamp digits' optical center sits ~1.5px above

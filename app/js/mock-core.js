@@ -164,6 +164,17 @@ export class MockCore extends EventTarget {
       this._mkMsg(this.chats[2], { from: 2, viewtype: "webxdc", fileName: "poll.xdc", text: "", ts: now - 15e3 }),
     );
     this.chats[2].messages.sort((a, b) => a.ts - b.ts);
+
+    // Bot chatter in Velta Devs (Delta Bot, contact 7 carries bot: true) —
+    // showcases the bubble bot chip and the command chips together.
+    const devs = this.chats.find(c => c.id === 15);
+    if (devs) {
+      devs.messages.push(
+        this._mkMsg(devs, { from: 7, text: "Nightly build finished: all platforms green, APK and installers are on the release page.", ts: now - 45e3 }),
+        this._mkMsg(devs, { from: 7, text: "Ask me /latest for the newest tag or /coverage for today's test report.", ts: now - 40e3 }),
+      );
+      devs.messages.sort((a, b) => a.ts - b.ts);
+    }
   }
 
   _randomMsg(chat, ts) {

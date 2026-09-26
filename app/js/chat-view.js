@@ -1176,6 +1176,12 @@ export class ChatView {
       bubble += `<div class="msg-link-preview" data-lp hidden></div>`;
     } else bubble += `<div class="msg-text">`;
     const edited = m.edited ? `<span class="edited">edited</span>` : "";
+    // Bot chip in the meta row's right corner (same slot as "edited"): the
+    // sender contact carries the core's isBot flag (rpc-core + mock). The
+    // desktop hover-reply pill owns the bubble's TOP-right corner, so the
+    // chip lives where it never fights it. Sticker bubbles carry no meta.
+    const botChip = m.kind === "msg" && !out && m.viewtype !== "sticker" && m.fromContact?.bot
+      ? `<span class="bot-chip" title="Sent by a bot">bot</span>` : "";
     const star = m.starred ? `<svg class="star-ico" viewBox="0 0 24 24"><path d="M12 3l2.7 5.8 6.3.7-4.7 4.3 1.3 6.2-5.6-3.2-5.6 3.2 1.3-6.2L3 9.5l6.3-.7z" fill="currentColor"/></svg>` : "";
     const ticks = out ? `<span class="ticks-slot">${ticksSvg(m.state, "ticks")}</span>` : "";
     // Failed sends: a small red reason badge in the meta row (floats left,
@@ -1190,7 +1196,7 @@ export class ChatView {
       const reason = failReason(m.error);
       failBadge = `<span class="msg-fail-badge" title="${escapeAttr(m.error || "Not sent")}">${escapeHtml(reason)}</span>`;
     }
-    bubble += `<span class="msg-meta">${edited}${star}${formatTime(m.ts)}${ticks}</span>${failBadge}</div>`;
+    bubble += `<span class="msg-meta">${edited}${star}${botChip}${formatTime(m.ts)}${ticks}</span>${failBadge}</div>`;
     if (m.reactions?.length) {
       bubble += `<div class="msg-reactions">${m.reactions.map(r =>
         `<span class="reaction-chip${r.mine ? " mine" : ""}" data-react="${escapeAttr(r.emoji)}">${escapeHtml(r.emoji)} ${Number(r.count) || 0}</span>`).join("")}</div>`;
