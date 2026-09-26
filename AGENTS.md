@@ -1317,6 +1317,18 @@ do-not-regress rules; dates mark when the lesson was learned.
   switch) because rows re-mount on every scroll pass — a new per-call RPC
   per remount would multiply. Mock answers with Completed + the stored
   duration; a demo call message lives in the Ada chat.
+- **Chat open position + go-down (post-1.4.38, issue #14)** — open() lands
+  on the latest READ message: with unread, the pin target is the unread
+  separator (`_annotateMessages` places it before the first unread incoming
+  when `chat.unread > 0`); without, the tail. `_pinSettling(computeTop)`
+  re-asserts the target on a 40 ms TIMER — rAF is unusable here (occluded
+  windows never fire it, and that includes headless checks) and the target
+  row may render late (computeTop returns null → hold position). The
+  go-down button shows whenever the view is away from the bottom (it used
+  to appear only on new arrivals — effectively never for manual scrolls);
+  its click pins to the bottom + markRead. Never replace the settling with
+  a single scrollTop write: the virtual scroller's async layout wins and
+  the jump silently lands mid-history.
 - **Modal async flows (1.3.35)** — settle BEFORE close: `showModal`'s
   `onClose` resolves the flow's promise with null, so `close()`-first
   silently drops results (it swallowed every successful QR scan once).

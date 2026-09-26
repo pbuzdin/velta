@@ -400,9 +400,15 @@ export class ChatView {
       this._rebuildItems(messages);
       this._createScroller();
       this._refreshPinnedBar();
+      // Official-client behavior: land on the latest READ message — on the
+      // unread separator when there are unread incoming messages, at the
+      // bottom when everything is read. The pin loop tolerates a target that
+      // is not rendered yet (the scroller renders asynchronously).
+      const unreadPin = this.chat?.unread > 0;
       await this.core.markRead(chatId);
       if (!this._isCurrent(session)) return false;
-      this._scrollBottomSettling();
+      if (unreadPin) this._pinSettling(() => this._unreadSepTop());
+      else this._scrollBottomSettling();
       this.startLive();
       return true;
     } catch (err) {
@@ -2333,11 +2339,14 @@ export class ChatView {
       if (!this._isCurrent() || !this.chat) return;
       if (this.scrollEl.scrollTop < 220) this._loadOlder();
       if (this._nearBottom()) this._hideGoDown();
+      else this._showGoDown(); // away from the bottom — offer the way back
     }, { passive: true });
     this.goDownBtn.addEventListener("click", () => {
       if (!this._isCurrent() || !this.chat) return;
-      this._scrollBottom();
-      this._hideGoDown();
+      // Jump, then keep re-asserting while the scroller mounts rows: a
+      // single scrollTop write loses to its async layout (the "uncertain"
+      // button behavior). markRead covers the unread messages at the tail.
+      this._scrollBottomSettling();
       this.core.markRead(this.chat.id);
     });
     // Resize covers interface-scale (CSS zoom) changes: the virtual scroller
@@ -2357,43 +2366,71 @@ export class ChatView {
     this._hideGoDown();
   }
 
-  // After opening a chat the scroller keeps measuring rendered items and
-  // adjusting its virtual paddings for several frames, each of which can
-  // shift the content under a single "jump to bottom". Keep re-asserting the
-  // bottom position until the layout stops moving (or the user scrolls away).
-  _scrollBottomSettling() {
+  // Show the go-down button whenever the user is scrolled away from the
+  // bottom (not just when new messages arrive) — its click scrolls to the
+  // newest messages (unread included, since they sit at the tail).
+  _showGoDown() {
+    this.goDownBtn.hidden = false;
+  }
+
+  // Generalized settling pin: keeps re-asserting `computeTop()` for a few
+  // frames while the virtual scroller finishes measuring, then re-asserts
+  // once more after its ~100ms layout timer (unless the user took over).
+  _pinSettling(computeTop) {
     this._stopSettling?.();
     const session = this._session;
-    let lastHeight = -1, stableFrames = 0, frames = 0, stopped = false, userScrolled = false;
-    let frame;
+    let lastTop = -1, stableFrames = 0, frames = 0, stopped = false, userScrolled = false;
     const onUserScroll = () => { userScrolled = true; stop(); };
     this.scrollEl.addEventListener("wheel", onUserScroll, { passive: true });
     this.scrollEl.addEventListener("touchstart", onUserScroll, { passive: true });
     const stop = () => {
       stopped = true;
-      cancelAnimationFrame(frame);
+      clearInterval(this._pinTimer);
       if (this._stopSettling === stop) this._stopSettling = null;
       // The virtual scroller re-lays out on its own ~100ms "scrolling stopped"
       // timer and shifts the paddings after we stop pinning — re-assert the
-      // bottom once more after that settles (unless the user took over).
+      // pinned position once more after that settles (unless the user took over).
       setTimeout(() => {
         this.scrollEl.removeEventListener("wheel", onUserScroll);
         this.scrollEl.removeEventListener("touchstart", onUserScroll);
-        if (!userScrolled && this._isCurrent(session) && this.chat) this._scrollBottom();
+        if (!userScrolled && this._isCurrent(session) && this.chat) this.scrollEl.scrollTop = computeTop();
       }, 450);
     };
     this._stopSettling = stop;
     const tick = () => {
       if (stopped || !this._isCurrent(session) || !this.chat) { stop(); return; }
-      this.scrollEl.scrollTop = this.scrollEl.scrollHeight;
-      this._hideGoDown();
-      const height = this.scrollEl.scrollHeight;
-      if (height === lastHeight) stableFrames++; else { stableFrames = 0; lastHeight = height; }
+      // A null target (target row not rendered yet — the scroller renders
+      // asynchronously) holds the current position without counting stability.
+      const top = computeTop();
+      if (top != null) {
+        this.scrollEl.scrollTop = top;
+        this._hideGoDown();
+        const cur = this.scrollEl.scrollTop;
+        if (cur === lastTop) stableFrames++; else { stableFrames = 0; lastTop = cur; }
+      }
       frames++;
       if (stableFrames >= 4 || frames >= 90) { stop(); return; }
-      frame = requestAnimationFrame(tick);
     };
-    frame = requestAnimationFrame(tick);
+    // Timer-driven, not rAF: rAF never fires in occluded/hidden windows
+    // (headless checks, app starting in the background) — the pin must work
+    // exactly then, because the scroller lays out asynchronously in all cases.
+    this._pinTimer = setInterval(tick, 40);
+    this._pinTimer?.unref?.();
+  }
+
+  // Position of the unread separator, slightly below the container top so
+  // the separator and the unread tail are both in view. While the separator
+  // is not rendered yet (scroller renders async), hold the tail — once it
+  // mounts, the pin snaps the view to the unread boundary.
+  _unreadSepTop() {
+    const sep = this.listEl.querySelector(".unread-sep");
+    if (sep) return Math.max(0, sep.offsetTop - 72);
+    return this.scrollEl.scrollHeight;
+  }
+
+  _scrollBottomSettling() {
+    this._hideGoDown();
+    this._pinSettling(() => this.scrollEl.scrollHeight);
   }
 
   _bumpGoDown(chatId, background = false) {
