@@ -2324,6 +2324,7 @@ function showSplash() {
         <input class="text-field" data-relay placeholder="Relay address — e.g. nine.testrun.org" autocomplete="off" inputmode="url" autocapitalize="none">
         ${navigator.mediaDevices?.getUserMedia ? `<div style="margin-top:10px"><button class="btn-text" data-scan type="button">Scan a QR code</button></div>` : ""}
         <div style="margin-top:12px"><button class="btn-primary splash-btn" data-ok type="button">Create account</button></div>
+        ${core?.initTransports ? `<div style="margin-top:4px"><button class="btn-text" data-auto type="button">I don't know a relay name — pick a fast one for me</button></div>` : ""}
       </div>
       <ul class="ob-steps" data-steps></ul>
     </div>
@@ -2480,25 +2481,17 @@ function showSplash() {
     });
   });
 
-  ok.addEventListener("click", async () => {
-    if (!accountIsCurrent(epoch)) return;
-    const raw = input.value;
-    const link = normalizeRelayLink(raw);
-    if (!link) { toast(raw.trim() ? "That doesn't look like a relay address" : "Enter a relay address"); return; }
-    const host = link.replace(/^dcaccount:https:\/\//i, "").replace(/\/new.*$/, "");
-
-    ok.disabled = true; ok.classList.add("btn-loading"); ok.textContent = "Creating…";
+  // Shared scaffolding for both create paths (named relay / auto-discovery):
+  // trigger+input disabling, the intro step, ConfigureProgress phase lines
+  // (0..1000), success (notification ask + splash teardown + toast) and
+  // failure (Retry) handling. `run()` performs the configure and returns the
+  // fresh account; `hostOf` names the relay in the success toast.
+  const hostOf = (a) => (a?.addr || "").split("@")[1] || a?.relay || "your new relay";
+  const runCreate = async ({ trigger, intro, phases, run }) => {
+    trigger.disabled = true; trigger.classList.add("btn-loading"); trigger.textContent = "Creating…";
     input.disabled = true;
     stepsEl.replaceChildren();
-    addStep(`Attempting to connect to relay at ${host}`);
-
-    // Friendly phase lines driven by the core's ConfigureProgress (0..1000).
-    const phases = [
-      [1,   `Relay found at ${host}`],
-      [200, "Requesting new account credentials"],
-      [450, "Generating encryption keys"],
-      [750, "Finalizing account"],
-    ];
+    addStep(intro);
     let phaseIdx = 0;
     const onProg = (e) => {
       const p = e.detail?.progress || 0;
@@ -2509,28 +2502,70 @@ function showSplash() {
     };
     core.addEventListener("configure-progress", onProg);
     try {
-      await core.configureWithQr(link);
+      const account = await run();
       if (!accountIsCurrent(epoch)) return;
       addStep("Account created — welcome!");
       finishSteps(true);
-      const account = await core.getAccount();
       if (!accountIsCurrent(epoch)) return;
       state.account = account;
       await askNotificationPermission();
       setTimeout(() => {
         if (!accountIsCurrent(epoch)) return;
         finishOk();
-        toast(`Account created on ${host}`, 3000);
+        toast(`Account created on ${hostOf(account)}`, 3000);
       }, 900);
     } catch (err) {
       if (!accountIsCurrent(epoch)) return;
       finishSteps(false);
       addStep("Setup failed: " + (err.message || err));
-      ok.disabled = false; ok.classList.remove("btn-loading"); ok.textContent = "Retry";
+      trigger.disabled = false; trigger.classList.remove("btn-loading"); trigger.textContent = "Retry";
       input.disabled = false;
     } finally {
       core.removeEventListener("configure-progress", onProg);
     }
+  };
+
+  ok.addEventListener("click", async () => {
+    if (!accountIsCurrent(epoch)) return;
+    const raw = input.value;
+    const link = normalizeRelayLink(raw);
+    if (!link) { toast(raw.trim() ? "That doesn't look like a relay address" : "Enter a relay address"); return; }
+    const host = link.replace(/^dcaccount:https:\/\//i, "").replace(/\/new.*$/, "");
+    await runCreate({
+      trigger: ok,
+      intro: `Attempting to connect to relay at ${host}`,
+      phases: [
+        [1,   `Relay found at ${host}`],
+        [200, "Requesting new account credentials"],
+        [450, "Generating encryption keys"],
+        [750, "Finalizing account"],
+      ],
+      run: async () => {
+        await core.configureWithQr(link);
+        return core.getAccount();
+      },
+    });
+  });
+
+  // Auto-discovery: the core probes its built-in relay candidate pool and
+  // configures the fastest-answering one (no relay name needed); the profile
+  // grows to ~3 relays in the background afterwards.
+  el.querySelector("[data-auto]")?.addEventListener("click", async () => {
+    if (!accountIsCurrent(epoch) || !core.initTransports) return;
+    await runCreate({
+      trigger: el.querySelector("[data-auto]"),
+      intro: "Looking for a fast relay…",
+      phases: [
+        [1,   "Found a relay that answers fast"],
+        [200, "Requesting new account credentials"],
+        [450, "Generating encryption keys"],
+        [750, "Finalizing account"],
+      ],
+      run: async () => {
+        await core.initTransports();
+        return core.getAccount();
+      },
+    });
   });
 
   // --- app log footer (collapsed <details>) ---

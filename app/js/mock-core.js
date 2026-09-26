@@ -75,11 +75,19 @@ export class MockCore extends EventTarget {
     // `chatListInFlight?.epoch === epoch` misbehave (undefined === undefined).
     this.accountId = 1;
     this.accountEpoch = 0;
-    this.account = {
-      id: 1, addr: "you@nine.testrun.org", displayName: "You",
-      color: "#5aa2e6", bio: "Velta user",
-      relay: "nine.testrun.org",
-    };
+    // Fresh-mode: unconfigured demo account so the splash onboarding shows.
+    if (typeof localStorage !== "undefined" && localStorage.getItem("velta-mock-fresh")) {
+      this.account = {
+        id: 1, addr: "not configured", displayName: "New account",
+        color: "#5aa2e6", bio: "", relay: "", configured: false,
+      };
+    } else {
+      this.account = {
+        id: 1, addr: "you@nine.testrun.org", displayName: "You",
+        color: "#5aa2e6", bio: "Velta user",
+        relay: "nine.testrun.org",
+      };
+    }
     this.contacts = CONTACTS;
     this.msgSeq = 0;
     this._buildChats();
@@ -235,6 +243,25 @@ export class MockCore extends EventTarget {
   async setDisplayName(name) {
     this.account.displayName = (name || "").trim() || "You";
   }
+
+  // ---- onboarding surface (mirrors rpc-core; demo mode is configured, so
+  // the splash never shows — set localStorage "velta-mock-fresh" + reload to
+  // get an unconfigured demo account and exercise the create flows) ----
+  async configureWithCredentials() { await this._mockConfigure("nine.testrun.org"); }
+  async configureWithQr() { await this._mockConfigure("nine.testrun.org"); }
+  // Core-side auto onboarding: "fastest relay" is whatever the mock picked.
+  async initTransports() { await this._mockConfigure("chat.vim.wtf"); }
+
+  async _mockConfigure(relay) {
+    for (const p of [1, 200, 450, 750, 1000]) {
+      await new Promise(r => setTimeout(r, 250));
+      this._emit("configure-progress", { progress: p });
+    }
+    this.account.configured = true;
+    this.account.addr = `you@${relay}`;
+    this.account.relay = relay;
+  }
+
   async setAvatar(path) {
     // demo mode: no core blobdir — store the data URL directly
     if (path) this.account.avatar = path;
