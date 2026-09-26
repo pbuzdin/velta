@@ -2046,8 +2046,6 @@ function openProfileManagement() {
   const { close } = showModal({ title: "Profile management", body, onClose: cleanupTransfer });
 }
 
-/* ---------------- deeplinks ----------------
-
 // Ask for notification permission once the user has a working account —
 // never at plain boot (a startup prompt with no context is how prompts get
 // denied forever). The plugin's promise can hang when the dialog was
