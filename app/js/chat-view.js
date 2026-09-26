@@ -57,7 +57,7 @@ function rustLog(msg) {
 // velta.log): toasts vanish in 2-4 s, diagnostics persist for triage.
 function errToast(text, ms = 3000) {
   diagnosticsSink.append("error", text);
-  toast(text, ms);
+  toast(text, ms, { danger: true });
 }
 
 // Image extensions the lightbox can show when native opening is unavailable

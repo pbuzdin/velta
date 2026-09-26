@@ -1302,16 +1302,51 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 /* attach pop reuses ctx-menu */
 .attach-pop { min-width: 190px; }
 
-/* toasts */
-.toasts { position: fixed; bottom: calc(26px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 80; display: flex; flex-direction: column; gap: 8px; align-items: center; }
+/* toasts — full-width bar anchored above the composer / bottom action bar
+   (same edge the modals respect); z-index 80 keeps it visible over
+   full-screen modal overlays. Timer bar (top, accent/danger) shrinks with
+   the remaining auto-hide time; animationend is the dismiss trigger. */
+.toasts {
+  position: fixed; left: 0; right: 0;
+  bottom: calc(var(--list-bar-h) + 8px);
+  z-index: 80; display: flex; flex-direction: column; gap: 8px;
+  padding: 0 10px; pointer-events: none;
+}
 .toast {
+  pointer-events: auto;
+  position: relative; overflow: hidden;
+  display: flex; align-items: center; gap: 10px;
   background: #22222c; color: #eee;
   border: 1px solid var(--border);
-  padding: 10px 18px; border-radius: 12px;
+  padding: 10px 12px; border-radius: 10px;
   font-size: 14px; box-shadow: var(--shadow);
   animation: toastIn .18s ease-out;
 }
 @keyframes toastIn { from { opacity: 0; transform: translateY(10px); } }
+.toast-timer {
+  position: absolute; top: 0; left: 0; height: 3px; width: 100%;
+  background: var(--accent); transform-origin: left;
+  animation-name: toastTimer; animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+.toast.danger .toast-timer { background: var(--danger); }
+@keyframes toastTimer { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+.toast-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.toast.expanded .toast-text {
+  white-space: normal; word-break: break-word;
+  max-height: 40dvh; overflow-y: auto;
+}
+.toast-chip, .toast-copy {
+  flex: none; cursor: pointer;
+  font-size: 11px; padding: 3px 9px; border-radius: 999px;
+  border: 1px solid var(--border); background: none; color: var(--text-dim);
+}
+.toast-copy:hover { color: var(--text); }
+.toast-close {
+  flex: none; cursor: pointer; background: none; border: 0;
+  color: var(--text-dim); font-size: 15px; line-height: 1; padding: 2px 3px;
+}
+.toast-close:hover { color: var(--text); }
 
 /* Welcome splash (first boot, unconfigured account) */
 .splash {
