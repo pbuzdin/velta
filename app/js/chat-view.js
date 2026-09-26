@@ -1104,9 +1104,10 @@ export class ChatView {
         // is stable while the image decodes.
         const dw = m.dimensionsWidth > 0 ? m.dimensionsWidth : 0;
         const dh = m.dimensionsHeight > 0 ? m.dimensionsHeight : 0;
-        // Stickers stay compact (official-client scale) instead of the
+        // Stickers stay compact (official Android DC renders stickers inside
+        // a 175dp square — media_bubble_sticker_dimens) instead of the
         // 45vh/450px photo cap.
-        const cap = m.viewtype === "sticker" ? "240px" : "45vh, 450px";
+        const cap = m.viewtype === "sticker" ? "175px" : "45vh, 450px";
         // Core dimensions win; else the remembered decode shape (below).
         const dims = (dw && dh) ? [dw, dh] : mediaDims(this.core.accountId, m.id);
         const box = dims && dims[0] && dims[1]
@@ -1359,9 +1360,10 @@ export class ChatView {
         if (mediaImg.naturalWidth && mediaImg.naturalHeight && wrap) {
           const r = mediaImg.naturalWidth / mediaImg.naturalHeight;
           wrap.style.aspectRatio = `${mediaImg.naturalWidth} / ${mediaImg.naturalHeight}`;
-          // Stickers cap at 240px (same as the reserved box) — the photo cap
-          // made stickers render up to 450px AND jump from the reserve.
-          const cap = m.viewtype === "sticker" ? 240 : 450;
+          // Stickers match the official Android cap (175dp, see the reserve
+          // above) — the photo cap made stickers render up to 450px AND
+          // jump from the reserve.
+          const cap = m.viewtype === "sticker" ? 175 : 450;
           wrap.style.width = `min(${mediaImg.naturalWidth}px, 100%, calc(min(${cap}px, 45vh) * ${r.toFixed(4)}))`;
           // The core had no dimensions for this message (the reserved box was
           // a 4/3 guess) — remember the true shape so the NEXT render
@@ -1381,8 +1383,13 @@ export class ChatView {
       // asynchronously, but this order makes the reveal race-free.
       // Bubble loads use the shell's downscaled thumbnail (?w=720); the
       // lightbox below re-requests the original so full-screen shows full
-      // resolution.
-      mediaImg.src = fileUrl(m.filePath, { thumb: true });
+      // resolution. Stickers are the exception: they load the ORIGINAL so
+      // animated stickers play in-chat like official Android, and they are
+      // small files anyway (the 720px thumbnail is a static JPEG that would
+      // kill the animation and its bytes are negligible at ≤175px display).
+      mediaImg.src = m.viewtype === "sticker"
+        ? fileUrl(m.filePath)
+        : fileUrl(m.filePath, { thumb: true });
       mediaImg.addEventListener("click", e => {
         e.stopPropagation();
         if (!alive()) return;
@@ -1400,6 +1407,15 @@ export class ChatView {
               }
               openImageLightbox(fileUrl(m.filePath), m.fileName || "sticker");
             });
+          return;
+        }
+        // Own stickers: lightbox unconditionally. The bubble loads the
+        // (static) thumbnail, which on Android can still be decoding when
+        // the tap lands — the old naturalWidth gate made those taps die
+        // silently. The lightbox loads the original, where animated
+        // stickers play.
+        if (m.viewtype === "sticker" && m.filePath) {
+          openImageLightbox(fileUrl(m.filePath), m.fileName || "sticker");
           return;
         }
         // Original, not the bubble thumbnail: full-screen shows full resolution.

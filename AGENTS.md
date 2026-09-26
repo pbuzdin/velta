@@ -596,11 +596,17 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   copies the blob) — no device sync; they move only via backup/restore.
   Render rules: `bubble.sticker` drops the chrome (transparent bg must
   out-specificity `.msg-row.out .bubble` AND the brutal override — two
-  rules); 240px cap — BOTH in the reserved box AND the decode `reveal()`
-  (the photo's 450px cap made stickers render big and jump); sticker
-  images are `object-fit: contain` (photo img uses `cover` to fill the
-  reserved box — cover CROPS transparent PNGs); tap must NOT open the
-  image lightbox (it's the add-to-collection prompt). Composer trigger is
+  rules); 175px cap (matches official Android DC's
+  `media_bubble_sticker_dimens` 175dp square) — BOTH in the reserved box AND
+  the decode `reveal()` (the photo's 450px cap made stickers render big and
+  jump); sticker images are `object-fit: contain` (photo img uses `cover` to
+  fill the reserved box — cover CROPS transparent PNGs). Sticker bubbles load
+  the ORIGINAL file (no 720px thumbnail): animated stickers play in-chat like
+  official Android, and stickers are small enough that the static-JPEG
+  thumbnail buys nothing. Tap behavior: received sticker = add-to-collection
+  prompt THEN lightbox; own sticker = lightbox UNCONDITIONALLY (no
+  naturalWidth gate — the static thumbnail may still be decoding when tapped,
+  which silently killed taps on Android). Composer trigger is
   `#btn-sticker` INSIDE `.composer-input-wrap` (right edge) — icon is the
   hand-drawn square-with-fold smiley (e888008; an svgrepo circle variant
   was tried and rejected by the user). P2P chats: no save/picker
