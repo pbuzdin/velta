@@ -1315,7 +1315,7 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 .toast {
   pointer-events: auto;
   position: relative; overflow: hidden;
-  display: flex; align-items: center; gap: 10px;
+  display: block;
   background: #22222c; color: #eee;
   border: 1px solid var(--border);
   padding: 10px 12px; border-radius: 10px;
@@ -1331,11 +1331,18 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 }
 .toast.danger .toast-timer { background: var(--danger); }
 @keyframes toastTimer { from { transform: scaleX(1); } to { transform: scaleX(0); } }
-.toast-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.toast.expanded .toast-text {
-  white-space: normal; word-break: break-word;
-  max-height: 40dvh; overflow-y: auto;
+.toast-summary {
+  display: flex; align-items: center; gap: 10px;
+  list-style: none; cursor: pointer;
 }
+.toast-summary::-webkit-details-marker { display: none; }
+.toast-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.toast-more {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--border);
+  word-break: break-word;
+}
+.toast-more-text { flex: 1; }
 .toast-chip, .toast-copy {
   flex: none; cursor: pointer;
   font-size: 11px; padding: 3px 9px; border-radius: 999px;
