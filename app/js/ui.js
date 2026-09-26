@@ -660,14 +660,16 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
   return { open, close, el: drawer, overlayEl: overlay };
 }
 
-// Profile editor — edits the display name and the avatar picture.
+// Profile editor — edits the display name, the avatar picture and the
+// description in one modal (issue #16).
 // pickImage: async () => ({ path, url } | null), provided by the caller
 // (Tauri file dialog on desktop, content-URI copy on Android, data-URL in
 // demo mode). Resolves with
-//   { name, avatar: "keep" | "remove" | { path } }  — or null on cancel.
-// contactId/kind shape the avatar preview (self contact by default; group
-// editors pass contactId: 0 + kind: "group"); title overrides the heading.
-export function showEditProfile({ name, avatarUrl, color, pickImage, contactId = 1, kind = "", title = "Edit profile" }) {
+//   { name, avatar: "keep" | "remove" | { path }, description }
+// — or null on cancel. contactId/kind shape the avatar preview (self contact
+// by default; group editors pass contactId: 0 + kind: "group"); title
+// overrides the heading.
+export function showEditProfile({ name, avatarUrl, color, pickImage, contactId = 1, kind = "", title = "Edit profile", description = "" }) {
   return new Promise(resolve => {
     let picked = null;   // { path } once a new picture is chosen
     let removed = false; // "Remove photo" tapped
@@ -679,8 +681,11 @@ export function showEditProfile({ name, avatarUrl, color, pickImage, contactId =
         <button class="btn-text" data-ep="pick">Change picture</button>
         <button class="btn-text" data-ep="remove" style="display:none">Remove photo</button>
       </div>
-      <input class="text-field" maxlength="64" autocomplete="off" spellcheck="false" aria-label="Username" placeholder="Your name">`;
+      <input class="text-field" maxlength="64" autocomplete="off" spellcheck="false" aria-label="Name" placeholder="Your name">
+      <textarea class="text-field ep-desc" rows="3" spellcheck="false" aria-label="Description" placeholder="Description"></textarea>`;
     const input = body.querySelector("input");
+    const descTa = body.querySelector(".ep-desc");
+    descTa.value = description || "";
     const preview = body.querySelector("velta-avatar");
     const removeBtn = body.querySelector('[data-ep="remove"]');
     preview.setAttribute("color", color || "#777");
@@ -729,8 +734,9 @@ export function showEditProfile({ name, avatarUrl, color, pickImage, contactId =
       const value = {
         name: input.value.trim(),
         avatar: removed ? "remove" : (picked || "keep"),
+        description: descTa.value.trim(),
       };
-      save.disabled = true; input.disabled = true;
+      save.disabled = true; input.disabled = true; descTa.disabled = true;
       // settle before close — close() fires onClose, which must not win
       finish(value);
       close();

@@ -1466,10 +1466,7 @@ async function showChatInfo(chat) {
     </div>
     <div class="profile-name">${escapeHtml(chat.name)}</div>
     <div class="profile-description" data-desc hidden></div>
-    ${(isSelf || isGroup) ? `<div class="profile-actions">
-      <button class="btn-text" data-pa="ep">Edit name &amp; picture</button>
-      <button class="btn-text" data-pa="desc">Add description</button>
-    </div>` : ""}
+    ${(isSelf || isGroup) ? `<div class="profile-actions"><button class="btn-text" data-pa="ep">${isSelf ? "Edit profile" : chat.kind === "channel" ? "Edit channel" : "Edit group"}</button></div>` : ""}
     ${!isGroup && chat.contactId && chat.contactId !== 1 ? `<div class="profile-actions">
       <button class="btn-text" data-pa="send">Send message</button>
       <button class="btn-text" data-pa="rename">Edit name</button>
@@ -1488,10 +1485,10 @@ async function showChatInfo(chat) {
   const modal = showModal({ title: "", body });
 
   // Description block below the name: contact bio/status for profiles, chat
-  // description for groups/channels. Stays hidden when empty; self and
-  // group/channel profiles carry the Add/Edit description button.
+  // description for groups/channels. Stays hidden when empty; the value also
+  // prefills the merged profile editor (issue #16).
   const descEl = body.querySelector("[data-desc]");
-  const descBtn = body.querySelector('[data-pa="desc"]');
+  let currentDesc = "";
   (async () => {
     try {
       let desc = "";
@@ -1501,55 +1498,13 @@ async function showChatInfo(chat) {
       } else if (core.getChatDescription) {
         desc = (await core.getChatDescription(chat.id)) || "";
       }
-      if (desc && desc.trim() && accountIsCurrent(epoch)) {
-        descEl.textContent = desc;
+      currentDesc = desc.trim();
+      if (currentDesc && accountIsCurrent(epoch)) {
+        descEl.textContent = currentDesc;
         descEl.hidden = false;
-        if (descBtn) descBtn.textContent = "Edit description";
       }
     } catch {}
   })();
-
-  // Add/edit the description: the own profile (selfstatus) and groups/
-  // channels (setChatDescription). A 1:1 contact's bio is theirs, not ours.
-  if (descBtn) {
-    descBtn.addEventListener("click", () => {
-      const ta = document.createElement("textarea");
-      ta.className = "text-field"; ta.rows = 4;
-      ta.style.width = "100%";
-      ta.value = descEl.hidden ? "" : descEl.textContent;
-      const wrap = document.createElement("div");
-      wrap.appendChild(ta);
-      const descModal = { close: null };
-      const save = document.createElement("button");
-      save.className = "btn-text btn-primary"; save.textContent = "Save";
-      save.addEventListener("click", async () => {
-        const text = ta.value.trim();
-        save.disabled = true; ta.disabled = true;
-        try {
-          if (isSelf) await core.setSelfStatus(text);
-          else await core.setChatDescription(chat.id, text);
-          if (!accountIsCurrent(epoch)) return;
-          // Don't close() first: a close schedules history.back() that races
-          // the reopened sheet's history entry. Opening showChatInfo while
-          // the editor is up REPLACES it (showModal → closeAllPopups skips
-          // the history consume) — same fresh-sheet effect as Edit name.
-          showChatInfo(chat);
-        } catch (err) {
-          save.disabled = false; ta.disabled = false;
-          errToast("Couldn't save the description: " + (err.message || err));
-        }
-      });
-      const cancel = document.createElement("button");
-      cancel.className = "btn-text"; cancel.textContent = "Cancel";
-      cancel.addEventListener("click", () => descModal.close());
-      const foot = document.createElement("div");
-      foot.className = "modal-foot edit-profile-foot";
-      foot.append(cancel, save);
-      const m = showModal({ title: "Description", body: wrap, foot });
-      descModal.close = m.close;
-      setTimeout(() => ta.focus(), 50);
-    });
-  }
 
   // Edit name & picture: the own profile reuses the drawer's flow; groups and
   // channels apply the same editor to set_chat_name / set_chat_profile_image.
@@ -1570,6 +1525,7 @@ async function showChatInfo(chat) {
         name: chat.name,
         avatarUrl: chat.avatar ? fileUrl(chat.avatar) : "",
         color: chat.avatarColor,
+        description: currentDesc,
         pickImage: pickProfileImage,
         contactId: 0,
         kind: "group",
@@ -1579,6 +1535,7 @@ async function showChatInfo(chat) {
       try {
         const name = result.name.trim();
         if (name && name !== chat.name) await core.renameChat(chat.id, name);
+        if (result.description !== currentDesc) await core.setChatDescription(chat.id, result.description);
         if (result.avatar === "remove") await core.setChatImage(chat.id, null);
         else if (result.avatar !== "keep") await core.setChatImage(chat.id, result.avatar.path);
         if (!accountIsCurrent(epoch)) return;
@@ -2511,10 +2468,15 @@ async function pickProfileImage() {
 async function editProfileFlow() {
   if (state.accountChanging) return;
   const epoch = core.accountEpoch;
+  // Prefill the description from the self contact (the account object does
+  // not carry the status text).
+  let status = "";
+  try { status = (await core.getContact?.(1))?.status || ""; } catch { /* backend offline */ }
   const result = await showEditProfile({
     name: state.account?.displayName || "",
     avatarUrl: state.account?.avatar ? fileUrl(state.account.avatar) : "",
     color: state.account?.color,
+    description: status,
     pickImage: pickProfileImage,
   });
   if (!result || !accountIsCurrent(epoch)) return;
@@ -2524,6 +2486,7 @@ async function editProfileFlow() {
     if (!accountIsCurrent(epoch)) return;
     if (result.avatar === "remove") await core.setAvatar(null);
     else if (result.avatar !== "keep") await core.setAvatar(result.avatar.path);
+    if (core.setSelfStatus && result.description !== status) await core.setSelfStatus(result.description);
     if (!accountIsCurrent(epoch)) return;
     const account = await core.getAccount();
     if (!accountIsCurrent(epoch)) return;

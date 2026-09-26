@@ -1317,6 +1317,9 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 .edit-profile .ep-avatar-actions .btn-text { padding: 6px 10px; font-size: 14px; }
 /* footer buttons: matched heights, compact primary (btn-primary defaults to
    the full-width onboarding style, which stretches into a bar inside a modal) */
+/* Description textarea in the merged profile editor (issue #16): textareas
+   default to a monospace system font — inherit the app font. */
+.edit-profile .ep-desc { display: block; font: inherit; resize: vertical; min-height: 58px; }
 .edit-profile-foot {
   display: flex; justify-content: flex-end; align-items: center;
   gap: 10px; padding: 4px 0 2px;

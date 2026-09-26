@@ -817,16 +817,18 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   pages via `_jumpFetchAndScroll` (page cap `jumpMaxPages`) then
   `_scrollToItemSeek` — the scroller has no scroll-to-item API. Arrivals
   mark-read through `markReadSoon` (400ms coalescing, flushed on close).
-- **Profile/chat info editing (post-1.4.35)** — the sheet's action row
-  (`data-pa`) is context-shaped: self = Edit name & picture (delegates to
-  the drawer's `editProfileFlow`) + Add/Edit description; groups/channels =
-  the same two (`showEditProfile` with `contactId: 0, kind: "group"` →
-  `renameChat` = core `set_chat_name`, `setChatImage` = core
-  `set_chat_profile_image`, null image clears); 1:1 keeps Send / Edit name
-  (the local custom name) / Block, and a contact's bio stays read-only.
-  Description edits ride `setSelfStatus` (config `selfstatus`) for self and
-  `setChatDescription` (core 2.62 `set_chat_description`) for
-  groups/channels; empty clears. MockCore mirrors all five methods —
+- **Profile/chat info editing (post-1.4.35, merged editor per issue #16)** —
+  the sheet's action row (`data-pa`) is context-shaped: ONE editor button
+  opens `showEditProfile` (name + avatar + description in a single modal).
+  Self = Edit profile (delegates to the drawer's `editProfileFlow`, which
+  also applies `setSelfStatus` for config `selfstatus`); groups/channels =
+  the same modal (`contactId: 0, kind: "group"` → `renameChat` = core
+  `set_chat_name`, `setChatImage` = core `set_chat_profile_image`, null
+  image clears, `setChatDescription` = core 2.62 `set_chat_description`);
+  empty string clears a description. 1:1 keeps Send / Edit name (the local
+  custom name) / Block, and a contact's bio stays read-only. Descriptions
+  are applied only when changed (group edits inform members core-side).
+  MockCore mirrors all the methods —
   `tests/description-edit.test.mjs` pins the wrapper arguments and the mock
   roundtrips. KEEP: call `modalHistorySettled()` before reopening the sheet
   after an editor that closed ITSELF (`showEditProfile` does): its close

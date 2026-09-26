@@ -235,14 +235,14 @@ own profile, or the group/channel description — followed by the details rows
 render as invite cards and never trigger web previews (no duplicate card, no
 fingerprint leak).
 
-What you can edit right in the sheet:
+What you can edit right in the sheet, in one editor (name, picture and
+description together):
 
-- **Own profile** — **Edit name & picture** (the same editor as the drawer's
-  Edit profile) and **Add/Edit description** (your status text; saving it
-  empty clears it).
-- **Groups and channels** — the same **Edit name & picture** (renames the
-  chat and sets or removes its picture; members are informed automatically)
-  and **Add/Edit description**.
+- **Own profile** — **Edit profile**: your name, avatar and description
+  (status text; saving it empty clears it).
+- **Groups and channels** — **Edit group / Edit channel**: rename the chat,
+  set or remove its picture (members are informed automatically) and edit
+  the description.
 - **People** — **Edit name** sets a custom name that only you see; the
   bio/status shown in the sheet is theirs and stays read-only.
 
