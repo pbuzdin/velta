@@ -62,22 +62,45 @@ jobs:
         run: |
           TAG="${{ steps.tag.outputs.name }}"
           PREV=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)
+          # Release-notes entries: user-facing conventional commits only —
+          # chore/docs/ci/test/style/build are skipped. Each entry renders as
+          # "- type(scope): \n<subject> (<short-sha>)" with a blank line
+          # after, per the announce format.
+          list_commits() {
+            git log --no-merges --format='%h%x09%s' "$@" | awk -F'\t' '
+              $2 !~ /^(feat|fix|perf|refactor|revert)(\([^)]*\))?:[ ]/ { next }
+              {
+                type = $2; sub(/:.*/, "", type)
+                sub(/^[^:]+:[ ]*/, "", $2)
+                printf "- %s: \n%s (%s)\n\n", type, $2, $1
+              }'
+          }
           if [ -n "$PREV" ]; then
             echo "Range: $PREV..$TAG"
             {
-              echo "## What's changed since $PREV"
+              echo "## What's changed in Velta $TAG"
               echo
               echo "Full changelog: https://github.com/pbuzdin/velta/compare/$PREV...$TAG"
               echo
-              git log --no-merges --format='- %s (%h)' "$PREV..$TAG"
+              list_commits "$PREV..$TAG"
             } > changelog.md
+            {
+              echo "What's changed in Velta $TAG"
+              echo
+              list_commits "$PREV..$TAG"
+            } > announce.md
           else
             echo "No previous tag — listing everything up to $TAG"
             {
-              echo "## What's changed in $TAG"
+              echo "## What's changed in Velta $TAG"
               echo
-              git log --no-merges --format='- %s (%h)' "$TAG"
+              list_commits "$TAG"
             } > changelog.md
+            {
+              echo "What's changed in Velta $TAG"
+              echo
+              list_commits "$TAG"
+            } > announce.md
           fi
           cat changelog.md
 
@@ -151,6 +174,15 @@ jobs:
       - name: Write version.txt asset
         run: echo "${{ steps.ver.outputs.version }}" > release-assets/version.txt
 
+      # The ntfy announce rides the same text as the release notes, minus the
+      # compare link and install notes — uploaded as an artifact so the notify
+      # job needs no repo checkout or git history.
+      - name: Upload announcement text
+        uses: actions/upload-artifact@v7
+        with:
+          name: velta-announce
+          path: announce.md
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
@@ -173,30 +205,21 @@ jobs:
     needs: [android, windows, release]
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve tagged commit
-        id: tag
-        run: |
-          TAG="v${{ needs.release.outputs.version }}"
-          git clone --quiet --depth 1 --branch "$TAG" https://github.com/pbuzdin/velta.git repo
-          cd repo
-          {
-            echo "msg<<MSG_EOF"
-            git log -1 --format=%B "$TAG"
-            echo "MSG_EOF"
-            echo "sha=$(git rev-parse "$TAG^{commit}")"
-          } >> "$GITHUB_OUTPUT"
+      - name: Download announcement text
+        uses: actions/download-artifact@v7
+        with:
+          name: velta-announce
+          path: announce
 
-      # Commit text goes through env, never through ${{ }} inside the
-      # script: quotes/backticks/$( ) in a commit message would otherwise be
+      # The notes go through a file, never through ${{ }} inside the
+      # script: quotes/backticks/$( ) in commit subjects would otherwise be
       # parsed by the shell (breaking the step or running as commands).
       - name: Send notification
         env:
           VERSION: ${{ needs.release.outputs.version }}
-          MSG: ${{ steps.tag.outputs.msg }}
-          SHA: ${{ steps.tag.outputs.sha }}
         run: |
-          printf '%s\nLink: https://github.com/pbuzdin/velta/commit/%s' "$MSG" "$SHA" | curl \
-            -H "Title: Velta: version bumped to $VERSION" \
+          curl \
+            -H "Title: What's changed in Velta v$VERSION" \
             -H "Tags: Velta,robot" \
-            --data-binary @- \
+            --data-binary @announce/announce.md \
             https://ntfy.gluek.info/velta_changelog
