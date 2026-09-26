@@ -191,6 +191,11 @@ class VeltaVideo extends Elena(HTMLElement) {
     const v = this.querySelector?.("video");
     if (v && !v.dataset.errBound) {
       v.dataset.errBound = "1";
+      // Native controls only when no lightbox opener is wired (raw fallback
+      // — inline playback with seek/pause). With the opener the single play
+      // affordance is the centered overlay below; native controls would add
+      // a second button (on Android a large centered one).
+      v.controls = !videoLightboxOpener;
       // Centered play affordance: visible while paused (incl. frame 0),
       // hidden while playing — the native controls stay for seek/pause.
       const card = v.parentElement;
@@ -241,12 +246,14 @@ class VeltaVideo extends Elena(HTMLElement) {
     }
     // Native preload as the poster: metadata + a first-frame fetch via the
     // #t fragment paints frame 0 with no extraction pipeline at all. The
-    // click handler above routes taps to the lightbox; controls remain for
-    // the no-opener fallback.
+    // click handler above routes taps to the lightbox; no `controls` here —
+    // Android WebView draws its own large centered play button on controls
+    // videos, which stacked on top of the overlay below (two play buttons
+    // near the same spot). The no-opener fallback re-adds them in updated().
     const d = Number(this.duration) || 0;
     const dur = d > 0 ? `${Math.floor(d / 60)}:${String(Math.floor(d % 60)).padStart(2, "0")}` : "";
     return html`<div class="velta-video-card">
-      <video controls preload="metadata" playsinline src="${this.src}${this.src.includes("#") ? "" : "#t=0.1"}"></video>
+      <video preload="metadata" playsinline src="${this.src}${this.src.includes("#") ? "" : "#t=0.1"}"></video>
       <span class="velta-video-play">${unsafeHTML(PLAY_SVG)}</span>
       ${this.size ? html`<span class="velta-video-size">${this.size}</span>` : ""}
       ${dur ? html`<span class="velta-video-dur">${dur}</span>` : ""}
