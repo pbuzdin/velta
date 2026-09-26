@@ -1311,7 +1311,7 @@ async function openChat(chatId) {
   // Local (P2P) chats have no call signaling — the p2p engine carries no call
   // frames, so the dial button would only end in "Call failed".
   callBtn.hidden = chat.kind !== "single" || chat.isP2p;
-  callBtn.onclick = chat.kind === "single" && !chat.isP2p ? () => calls?.startOutgoing(chat.id, chat.name) : null;
+  callBtn.onclick = chat.kind === "single" && !chat.isP2p ? () => startCallIfMicOk(chat) : null;
   // Device messages are read-only system posts — no composer. Every open
   // sets it explicitly (closeChatUI restores it to visible). Channels need a
   // rights check: members without posting rights get no composer either.
@@ -2982,6 +2982,16 @@ async function openRelaysModal() {
       return;
     }
     if (!accountIsCurrent(epoch)) return;
+    // Per-relay live status for the stale-transport hint (issue #11 slice 3):
+    // parseConnectivityHtml gives one state per relay domain — best effort,
+    // the modal stays useful without it.
+    let statusByDomain = null;
+    try {
+      if (core.getConnectivityHtml) {
+        statusByDomain = new Map(parseConnectivityHtml(await core.getConnectivityHtml()).map(s => [s.domain, s]));
+      }
+    } catch { /* best effort */ }
+    if (!accountIsCurrent(epoch)) return;
     listEl.replaceChildren();
     if (!transports.length) {
       const empty = document.createElement("div");
@@ -2993,8 +3003,12 @@ async function openRelaysModal() {
       const row = document.createElement("div");
       row.className = "info-row";
       const primary = state.account && t.addr === state.account.addr;
-      row.innerHTML = `<span class="k">${escapeHtml(t.addr)}${primary ? " · sending" : ""}</span>
-        <span class="v">${primary ? "" : `<button class="btn-text" data-sendvia>Use for sending</button>`}<button class="btn-text" data-remove style="color:var(--danger)">Remove</button></span>`;
+      const other = transports.find(x => x.addr !== t.addr);
+      const st = statusByDomain?.get((t.addr || "").split("@").pop());
+      const hint = !st || st.state === "ok" ? "" : ` <span class="relay-row-status">${st.state === "down" ? "unreachable — messages queue until it's back" : "connecting…"}</span>`;
+      const demote = primary && other ? `<button class="btn-text" data-demote>Stop using for sending</button>` : "";
+      row.innerHTML = `<span class="k">${escapeHtml(t.addr)}${primary ? " · sending" : ""}${hint}</span>
+        <span class="v">${primary ? demote : `<button class="btn-text" data-sendvia>Use for sending</button>`}<button class="btn-text" data-remove style="color:var(--danger)">Remove</button></span>`;
       row.querySelector("[data-sendvia]")?.addEventListener("click", async () => {
         const ok = await confirmModal(
           `Send via ${t.addr}?`,
@@ -3004,6 +3018,27 @@ async function openRelaysModal() {
         try {
           await core.setSendRelay(t.addr);
           toast(`Sending via ${t.addr}`);
+          state.account = await core.getAccount();
+          rebuildDrawer();
+          refreshRelayStatus();
+          refresh();
+        } catch (err) {
+          toast(String(err?.message || err));
+        }
+      });
+      // Demotion: sending stays pinned to one relay (configured_addr) and
+      // only re-elects when that relay vanishes — so "Stop using for
+      // sending" on the sending row is the user-facing way to move sending
+      // to another configured relay.
+      row.querySelector("[data-demote]")?.addEventListener("click", async () => {
+        const ok = await confirmModal(
+          `Stop using ${t.addr} for sending?`,
+          `Sending moves to ${other.addr}: new messages go out through it and new contacts see its address. Messages currently waiting to be sent are dropped (they carry the old sender address). The change syncs to your other devices.`,
+          "Stop using for sending");
+        if (!ok || !accountIsCurrent(epoch)) return;
+        try {
+          await core.setSendRelay(other.addr);
+          toast(`Sending via ${other.addr}`);
           state.account = await core.getAccount();
           rebuildDrawer();
           refreshRelayStatus();
@@ -3191,6 +3226,24 @@ async function receiveSecondDeviceProfile(epoch, onStart, presetCode) {
 
 /* ---------------- boot ---------------- */
 let uiLive = false; // set once the drawer + menu are wired and usable
+// Don't dial into a guaranteed failure: when the OS/browser has already
+// denied microphone access (macOS TCC resets after every ad-hoc update are
+// the recurring case — issue #10), say so in a dialog instead of failing
+// inside the call overlay. 'prompt'/'granted'/unsupported API proceed as
+// before — the first getUserMedia still triggers the OS prompt when needed.
+async function startCallIfMicOk(chat) {
+  try {
+    if (navigator.permissions?.query) {
+      const st = await navigator.permissions.query({ name: "microphone" });
+      if (st?.state === "denied") {
+        await confirmModal("Microphone blocked", "Velta can't place calls because microphone access is denied. Enable it in system settings (Windows: Settings → Privacy → Microphone; macOS: System Settings → Privacy → Microphone; Android: App settings → Permissions), then call again.");
+        return;
+      }
+    }
+  } catch { /* permissions API or name unsupported — let getUserMedia decide */ }
+  calls?.startOutgoing(chat.id, chat.name);
+}
+
 async function boot() {
   try {
     // Calls first: the incoming-call listener must exist as early as the

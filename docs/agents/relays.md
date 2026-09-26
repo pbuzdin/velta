@@ -64,6 +64,20 @@ via `TransportsModified` when transports actually change, and the SMTP queue
 is handled by the core's pre-encryption queueing. The segmented status line
 marks only the sending relay's segment with the sending dashes.
 
+**Demotion (post-1.4.37, issue #11):** the core re-elects the sending
+transport only when the pinned one VANISHES
+(`maybe_update_sending_transport`) — so a slow sending relay needs an
+explicit user action. The sending relay's own row offers **"Stop using for
+sending"** (enabled only when another relay exists): it confirms, then calls
+`setSendRelay` on the chosen remaining relay. Do not try to *unset*
+configured_addr — the core forbids it (`config.rs` bails).
+
+**Stale-transport hint (post-1.4.37):** each modal row shows the relay's
+live state from `parseConnectivityHtml` — "unreachable — messages queue
+until it's back" while down, "connecting…" while yellow. Best effort by
+design: the connectivity page is HTML the core formats for humans (parsing
+ceiling above), and the modal stays fully useful without it.
+
 ## Do-not-regress
 
 - The drawer's saved-relays bookmark list was removed — profile = identity

@@ -301,6 +301,10 @@ animation on the sending relay's segment only.
   still on their way to the old address may arrive for a short while. Your
   last relay cannot be removed — the core re-elects a sending relay if
   needed.
+- **Stop using for sending** — on the sending relay's own row: moves sending
+  to another configured relay in one tap, e.g. when the current sending
+  relay is slow. The modal also shows each relay's live state — a relay
+  that's down is marked *unreachable — messages queue until it's back*.
 
 The thin status line above the chat list reflects the relay connection:
 green connected, yellow connecting/retrying, red unreachable (after a 45 s

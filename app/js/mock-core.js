@@ -88,6 +88,9 @@ export class MockCore extends EventTarget {
         relay: "nine.testrun.org",
       };
     }
+    // Demo relay set for the Relays modal (issue #11 slices: demotion +
+    // stale-transport hint are demoable without a real multi-relay account).
+    this.relayDomains = this.account.relay ? [this.account.relay, "chat.vim.wtf"] : [];
     this.contacts = CONTACTS;
     this.msgSeq = 0;
     this._buildChats();
@@ -276,6 +279,43 @@ export class MockCore extends EventTarget {
   // Demo core answers every send with instant delivery — nothing to reconcile.
   async reconcileSending() {}
 
+  // ---- Relay management demo surface (Relays modal works in demo mode) ----
+  async listTransports() {
+    return this.relayDomains.map(d => ({ addr: `you@${d}` }));
+  }
+
+  async setSendRelay(addr) {
+    const domain = String(addr).includes("@") ? addr.split("@")[1] : addr;
+    if (!this.relayDomains.includes(domain)) throw new Error("unknown relay");
+    this.relayDomains = [domain, ...this.relayDomains.filter(d => d !== domain)];
+    this.account.addr = `you@${domain}`;
+    this.account.relay = domain;
+    this._emit("transports-modified", {});
+  }
+
+  async deleteTransport(addr) {
+    const domain = String(addr).includes("@") ? addr.split("@")[1] : addr;
+    if (this.relayDomains.length <= 1) throw new Error("your last relay cannot be removed");
+    this.relayDomains = this.relayDomains.filter(d => d !== domain);
+    if ((this.account.addr || "").endsWith("@" + domain)) {
+      this.account.addr = `you@${this.relayDomains[0]}`;
+      this.account.relay = this.relayDomains[0];
+    }
+    this._emit("transports-modified", {});
+  }
+
+  // Connectivity page in the shape parseConnectivityHtml expects: the first
+  // (sending) relay is connected, every additional one renders as down —
+  // which is what makes the stale-transport hint visible in demo mode.
+  async getConnectivityHtml() {
+    const li = (d, dot, text) => `<li class="transport"><b>${d}:</b> ${dot} ${text}<br></li>`;
+    const [primary, ...rest] = this.relayDomains.length ? this.relayDomains : ["nine.testrun.org"];
+    return `<html><body><h3>Connectivity</h3><ul>` +
+      li(primary, '<span class="green dot"></span>', "Connected") +
+      rest.map(d => li(d, '<span class="red dot"></span>', "Not connected")).join("") +
+      `</ul></body></html>`;
+  }
+
   // Resend: flip the own message back to pending and replay the delivery
   // timeline (mirrors the core's resend_messages: same message, new attempt).
   async resendMessage(msgId) {
@@ -309,6 +349,7 @@ export class MockCore extends EventTarget {
     this.account.configured = true;
     this.account.addr = `you@${relay}`;
     this.account.relay = relay;
+    this.relayDomains = [relay];
   }
 
   async setAvatar(path) {

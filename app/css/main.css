@@ -587,6 +587,11 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
    account has no archived chats (display beats [hidden] — §6.2). */
 .sidebar-head .icon-btn[hidden] { display: none; }
 .sidebar-head .icon-btn.active { color: var(--accent); }
+/* Relays modal: per-relay status hint under the address (issue #11). */
+.relay-row-status {
+  display: block; font-size: 11.5px; font-weight: 400;
+  color: var(--text-dim); margin-top: 1px;
+}
 .archived-sub {
   font-size: 12px; color: var(--text-dim);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
