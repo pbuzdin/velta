@@ -592,6 +592,9 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
 .msg-meta .ticks-slot { display: inline-flex; transform: translateY(-1.5px); }
 .msg-meta .ticks.read { color: #6ec2ff; }
 html[data-theme="light"] .msg-meta .ticks.read { color: #1d8bf1; }
+/* Failed send: the red exclamation in the tick slot (the bubble additionally
+   carries the reason badge + retry/remove). Also used in the chat list. */
+.ticks.failed, .ci-ticks.failed { color: var(--danger); }
 .msg-meta .star-ico { width: 13px; height: 13px; }
 
 /* In-flight send: dotted ring from ticksSvg("pending") spins in place. */

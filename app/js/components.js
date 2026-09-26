@@ -287,8 +287,12 @@ const SENDING_RING = [["12", "4"], ["17.7", "6.3"], ["20", "12"], ["17.7", "17.7
 
 export function ticksSvg(state, cls = "ci-ticks") {
   if (state === "pending") return `<svg class="${cls} ticks-spin" viewBox="0 0 24 24">${SENDING_RING}</svg>`;
-  if (state === "failed") return ""; // the bubble shows a resend button instead
-  if (state === "sent") return TICK1.replace('ci-ticks', cls);
+  // Failed: a bold exclamation — squash-tolerant in the chat list's 3:2 tick
+  // box (a circled icon would render as an ellipse). Colored red via CSS.
+  if (state === "failed") return `<svg class="${cls} failed" viewBox="0 0 24 24"><path d="M12 4v9" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/><circle cx="12" cy="18.8" r="2" fill="currentColor"/></svg>`;
+  // Core semantics: OutDelivered = the RELAY accepted it (one check);
+  // OutMdnRcvd = the recipient's client confirmed seen (two checks).
+  if (state === "sent" || state === "delivered") return TICK1.replace('ci-ticks', cls);
   const read = state === "read" ? " read" : "";
   return TICK2.replace('ci-ticks', cls + read);
 }

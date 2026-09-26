@@ -1603,7 +1603,17 @@ export class ChatView {
 
   _showInfo(item) {
     const m = item.msg;
-    const stateNames = { pending: "Sending…", sent: "Sent", delivered: "Delivered", read: "Read", received: "Received", failed: "Failed" };
+    // Honest pipeline phrasing: chatmail is store-and-forward, so what we
+    // can vouch for ENDS at the own relay's acceptance — "seen" only ever
+    // comes from the recipient's read receipt (MDN). Never promise more.
+    const stateLines = {
+      pending: "Sending — your relay has not accepted it yet (it retries on its own while the relay is unreachable)",
+      sent: "Sent — accepted by your relay",
+      delivered: "Sent — accepted by your relay",
+      read: "Sent and seen (the recipient's device confirmed)",
+      received: "Received",
+      failed: "Failed to send" + (m.error ? `: ${failReason(m.error)}` : ""),
+    };
     showModal({
       title: "Message info",
       body: `
@@ -1611,7 +1621,7 @@ export class ChatView {
       <div class="info-row"><span class="k">Type</span><span class="v">${m.viewtype}</span></div>
       <div class="info-row"><span class="k">From</span><span class="v">${escapeHtml(m.fromContact.name)}</span></div>
       <div class="info-row"><span class="k">Sent</span><span class="v">${new Date(m.ts).toLocaleString()}</span></div>
-      <div class="info-row"><span class="k">State</span><span class="v">${stateNames[m.state] || m.state}</span></div>
+      <div class="info-row"><span class="k">State</span><span class="v">${stateLines[m.state] || m.state}</span></div>
       <div class="info-row"><span class="k">Message ID</span><span class="v">#${m.id}</span></div>`,
     });
   }
