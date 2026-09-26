@@ -539,11 +539,31 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   on `touchcancel` AND on multi-touch (`touches.length > 1`) — the WebView
   claims two-finger gestures and answers with `touchcancel`, not `touchmove`,
   which previously left the timer alive (menu opened mid-swipe).
-- **Read ticks** (1.4.20): the delivered/read double-check is Delta Chat
-  desktop's fill-based SVG in a 3:2 viewBox (`TICK2`, components.js);
-  `.ci-last .ci-ticks` was retuned to 17×12 for the aspect. The single
-  "sent" check (`TICK1`) and the selection checkbox (`ICO.check`) are
-  unchanged stroke icons.
+- **Send/receive ticks** (1.4.20, semantics updated post-1.4.36): the tick
+  icons follow the core's MessageState — `OutPending` renders the spinning
+  ring, `OutDelivered` (the RELAY accepted the message) renders the SINGLE
+  stroke check (`TICK1`), `OutMdnRcvd` (the recipient's client confirmed
+  seen) the double-check (`TICK2`, Delta Chat desktop's fill-based SVG in a
+  3:2 viewBox; `.ci-last .ci-ticks` is retuned to 17×12 for the aspect), and
+  `OutFailed` a bold red exclamation (squash-tolerant in the tick box — a
+  circled icon would render as an ellipse there; the bubble additionally
+  carries the reason badge + retry/remove). Chatmail is store-and-forward:
+  pipeline visibility ENDS at the own relay's acceptance — "seen" comes only
+  from the recipient's MDN. Never promise per-recipient-relay delivery; the
+  message-info sheet phrases the pipeline in those terms
+  (chat-view `_showInfo`). The selection checkbox (`ICO.check`) is separate.
+- **Bot chip (post-1.4.36)** — incoming messages whose sender contact carries
+  the core's `isBot` (`fromContact.bot`, mapped by rpc-core and the mock)
+  render a small bordered "bot" tag in the meta row beside the timestamp —
+  NOT the bubble's top-right corner: the desktop hover-reply pill owns it.
+  Sticker bubbles carry no meta row and go unmarked.
+- **Context-menu Resend (post-1.4.36)** — own messages (non-P2P) offer
+  Resend: core `resend_messages` flips the message back to OutPending and
+  retransmits (recipients get a duplicate); the core rejects info/drafts/
+  pending with an error, which toasts. `rpc-core.resendMessage` re-tracks
+  the id in `_sendingIds` so the relay line spins during the re-send.
+  P2P local chats keep their own retry paths (`_lcRetryTransfer`,
+  the proxy's resendMessage).
 - **Viewtype mapping is load-bearing** (rpc-core `_mapViewtype`): the
   renderer branches on the mapped string ("image", "sticker", …), so a
   collapse like `case "Sticker": return "image"` silently dead-branches the
@@ -683,7 +703,10 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   and non-hover states (`.relay-detail.pull-open`) stay reachable on touch.
 - `app/js/diagnostics.js` is the in-app diagnostics store ("Velta
    Diagnostics" chat): console-style rows (shared `diagnosticRow()` helper),
-   identical consecutive entries collapsed into one counted row — prefer
+   identical consecutive entries collapsed into one counted row, ring-capped
+   at 120 rows (worst case ≈600 DOM nodes with the copy buttons; the DOM
+   budget watchdog's report names the last row texts when the chat itself is
+   the growth) — prefer
    appending here over toasting for repeatable background errors. The bar
    under the chat carries a pause/play button (freezes the live rendering;
    the store keeps recording, resuming re-renders to catch up), the recovery
@@ -1473,6 +1496,17 @@ do-not-regress rules; dates mark when the lesson was learned.
   dividers or moving top-level functions, run
   `node --test tests/app-source-integrity.test.mjs` — it comment-strips
   app.js and asserts the pinned definitions still exist outside comments.
+- **Sending dashes can lose their terminal events (post-1.4.36)** — the
+  relay line's send-activity bookkeeping (`rpc-core _trackSending/
+  _untrackSending`) cleared only on MsgDelivered/MsgFailed, but the Android
+  background poller consumes those events while the app is hidden, a
+  transport reconnect drops mid-flight events, and a pending message deleted
+  before delivery never emits one — the dashes stuck forever (user reports).
+  Two defenses live in rpc-core: `reconcileSending()` (wired to visibility
+  resume and velta-core-status connected) re-checks tracked ids via
+  get_message, and a 90 s backstop (`sendingBackstopMs` knob) force-clears a
+  stuck set. Any new send-like path (e.g. resendMessage) must re-track.
+  Contract + pins: docs/agents/relays.md, tests/send-activity.test.mjs.
 - **Encoding (2026-09-23)** — every text file is UTF-8 without BOM; no
   exceptions. On this Windows checkout the ANSI codepage is CP1251
   (Cyrillic), and tools that read or write with the default encoding —

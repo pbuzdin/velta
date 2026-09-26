@@ -521,6 +521,30 @@ support editing yet.
 </details>
 
 <details>
+<summary>Message ticks and resending</summary>
+
+Outgoing messages show where they are in the pipeline:
+
+- **Clock** — sending: your relay has not accepted the message yet (it also
+  means "queued, retrying" while your relay is unreachable).
+- **One check ✓** — your relay accepted the message. This is as far as the
+  pipeline can be verified: chatmail is store-and-forward, and relays do not
+  report onward delivery back to the sender.
+- **Two checks ✓✓** — the recipient's client confirmed it has seen the
+  message (read receipt).
+- **Red !** — the send failed permanently; the bubble shows the reason and
+  Retry/Remove actions. **Message info** (context menu) phrases each state in
+  full.
+
+Long-press/right-click one of your own messages and pick **Resend** to push
+the same message through the pipeline again — useful when the recipient says
+nothing arrived. The message re-enters the sending state and the tick ladder
+starts over; the core refuses to resend info messages or ones still in
+flight. P2P local chats retry through their own engine instead.
+
+</details>
+
+<details>
 <summary>Stickers</summary>
 
 Stickers (Delta Chat's <code>Sticker</code> view type) render the way the
@@ -646,7 +670,9 @@ updates.
 Messages from bots render their slash commands as tappable chips right in
 the bubble — tap one and the command lands in the composer, ready to send.
 Works for any bot chat; the chips are extracted from the bot's own message
-text, so nothing needs to be configured per bot.
+text, so nothing needs to be configured per bot. Every bubble a bot sends
+also carries a small bordered **bot** tag next to the timestamp, so bot
+messages are distinguishable at a glance.
 
 </details>
 
