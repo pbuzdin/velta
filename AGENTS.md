@@ -539,6 +539,15 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   on `touchcancel` AND on multi-touch (`touches.length > 1`) — the WebView
   claims two-finger gestures and answers with `touchcancel`, not `touchmove`,
   which previously left the timer alive (menu opened mid-swipe).
+- **Double-tap = text selection on touch (post-1.4.38)** — on touch-class
+  devices (`_isTouch`: `hover:none` + `pointer:coarse`) bubble text is
+  unselectable by default and a **double-tap** enters text-selection mode:
+  `_enterBubbleTextSelection` flips `.text-selecting` on the `.msg-text` and
+  programmatically selects it (native handles + Copy). Rationale: long-press
+  belongs to the context menu — a native word selection stole half the
+  gesture and both fired at once (user report). Desktop is untouched (media
+  query gates both the CSS and the gesture); taps on links/reactions/quotes
+  never count toward the double-tap; the next outside tap exits the mode.
 - **Send/receive ticks** (1.4.20, semantics updated post-1.4.36): the tick
   icons follow the core's MessageState — `OutPending` renders the spinning
   ring, `OutDelivered` (the RELAY accepted the message) renders the SINGLE

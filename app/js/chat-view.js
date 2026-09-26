@@ -363,6 +363,13 @@ export class ChatView {
     return !!session && session === this._session && session.accountEpoch === this.core.accountEpoch;
   }
 
+  // Touch-class device: gates the double-tap text-selection gesture (double
+  // click stays native word-selection on desktop). Read fresh per use.
+  get _isTouch() {
+    try { return matchMedia("(hover: none) and (pointer: coarse)").matches; }
+    catch { return false; }
+  }
+
   async open(chatId) {
     // Retire the old scroller, composer and pending work before yielding.
     this.close();
@@ -1460,6 +1467,20 @@ export class ChatView {
     row.addEventListener("click", async e => {
       if (!alive()) return;
       if (this.selection.size) { this._toggleSelect(m.id, row); return; }
+      // Double-tap on a bubble = text-selection mode (issue: long-press both
+      // opened the context menu and natively selected a single word — two
+      // gestures fighting). Touch devices only; desktop double-click keeps
+      // its native word-selection. A tap on links/reactions/quotes never
+      // counts toward it.
+      if (this._isTouch && e.target.closest(".bubble")) {
+        const now = Date.now();
+        if (this._bubbleTap && row === this._bubbleTap.row && now - this._bubbleTap.t < 400) {
+          this._bubbleTap = null;
+          this._enterBubbleTextSelection(row);
+          return;
+        }
+        this._bubbleTap = { t: now, row };
+      }
       // Bubble anchors (markdown links, link-preview cards): delegated, not
       // per-anchor wiring — the preview card's <a> is inserted ASYNC after
       // row build, so per-anchor wiring never sees it. Android WebView drops
@@ -1547,6 +1568,32 @@ export class ChatView {
     } else if (kind === "Active" || kind === "Alerting") {
       if (label) label.textContent = "Call in progress…";
     }
+  }
+
+  // Double-tap on a bubble: make the message text selectable and select all
+  // of it, so the native selection handles + Copy appear (touch devices —
+  // bubbles are unselectable there, see the touch CSS near .bubble). The
+  // next tap outside the selected text exits the mode.
+  _enterBubbleTextSelection(row) {
+    document.querySelectorAll(".msg-text.text-selecting").forEach(el => el.classList.remove("text-selecting"));
+    const target = row.querySelector(".msg-text");
+    if (!target) return; // media/file-only bubble — nothing to select
+    target.classList.add("text-selecting");
+    try {
+      const sel = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(target);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    } catch { /* headless/odd webview — the class still enables manual selection */ }
+    const exit = (e) => {
+      if (e.target.closest?.(".msg-text.text-selecting")) return; // adjusting handles
+      document.removeEventListener("pointerdown", exit, true);
+      target.classList.remove("text-selecting");
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount && target.contains(sel.getRangeAt(0).commonAncestorContainer)) sel.removeAllRanges();
+    };
+    document.addEventListener("pointerdown", exit, true);
   }
 
   // Fill a shared-contact card's avatar, name and address from its vCard

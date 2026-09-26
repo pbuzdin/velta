@@ -351,6 +351,15 @@ html[data-theme="light"] .day-chip { background: rgba(244,244,244,.75); color: #
   contain: layout style;
 }
 @keyframes msgIn { from { opacity: 0; transform: translateY(4px); } }
+/* Touch: bubble text is NOT natively selectable — long-press belongs to the
+   context menu, and a native word selection stole half the gesture (both
+   fired at once). Double-tap enters text-selection mode instead
+   (chat-view _enterBubbleTextSelection flips .text-selecting on the .msg-text).
+   Desktop keeps native mouse selection — hence the media gate. */
+@media (hover: none) and (pointer: coarse) {
+  .bubble, .bubble .msg-text { -webkit-user-select: none; user-select: none; }
+  .bubble .msg-text.text-selecting { -webkit-user-select: text; user-select: text; }
+}
 .msg-row.out .bubble {
   background: var(--bg-bubble-out);
   border-bottom-left-radius: var(--radius-bubble);
