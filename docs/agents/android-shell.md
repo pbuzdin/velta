@@ -100,6 +100,13 @@ which requires `android:debuggable="true"` in the AndroidManifest
 `/sdcard/Android/data/org.velta` on Android 13+; Vivo also requires the
 "Install via USB" developer toggle for `adb install`.
 
+The Diagnostics chat's **DevTools** switch flips
+`WebView.setWebContentsDebuggingEnabled` for `chrome://inspect` over USB.
+The static call MUST run on the Android UI thread — calling it from a Rust
+worker thread threw "Java exception was raised during method invocation"
+(issue #12). `set_devtools` therefore posts through `org/velta/DevTools.kt`
+(`DevTools.set(enabled)`: main-looper `Handler.post`).
+
 ## Desktop (Windows) shell debugging
 
 Start the app with
