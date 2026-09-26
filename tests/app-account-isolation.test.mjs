@@ -106,7 +106,7 @@ function setup(t) {
     core,
     localStorage: { getItem: () => null },
     $: node,
-    document: { createElement: tag => new Element(tag), querySelector: node },
+    document: { createElement: tag => new Element(tag), querySelector: node, body: new Element("body"), addEventListener() {}, removeEventListener() {} },
     window: {},
     history: {
       state: null,
@@ -128,6 +128,7 @@ function setup(t) {
     refreshAccounts: async () => { effects.accounts.push(core.accountId); },
     setFingerprintSource: callback => effects.fingerprints.push(callback),
     toast: (...args) => effects.toasts.push(args),
+    errToast: (...args) => effects.toasts.push(args),
     openDiagnosticsChat: () => assert.fail("Unexpected diagnostics navigation"),
   });
   for (const script of scripts) script.runInContext(context);

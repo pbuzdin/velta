@@ -11,7 +11,7 @@ Velta shares one web frontend (`app/`) between:
 - **Android mobile** — the same Tauri 2 app, but the Delta Chat core runs in-process inside the APK. A foreground service keeps sync (and notifications) running after the app is backgrounded.
 - **Browser/PWA** — the same frontend can be served statically and connects to a local `velta-core-service` over loopback WebSocket/HTTP, or falls back to a mock core for demo purposes. The PWA's target deployment is a **remote core service over WSS/TLS** — the loopback bridge remains the local/dev path. If the loopback connection drops mid-session (service restart), the app reconnects automatically — backoff up to 15 s — and refreshes the chat list; no reload needed.
 
-The UI is plain HTML/CSS/ES modules (no bundler). The backend is the upstream [Delta Chat core](https://github.com/chatmail/core) at version `2.61.0`.
+The UI is plain HTML/CSS/ES modules (no bundler). The backend is the upstream [Delta Chat core](https://github.com/chatmail/core) at version `2.62.0`.
 
 ## Screenshots
 
@@ -835,7 +835,7 @@ is hand-rolled for Velta.
 | [Elena](https://github.com/arielsalminen/elena) (`@elenajs/core` v1.0.1) | Tiny progressive web-components library — powers `<velta-avatar>`, `<velta-chat-item>`, `<velta-chat-head>`, `<velta-video>` | [arielsalminen/elena](https://github.com/arielsalminen/elena) |
 | [virtual-scroller](https://github.com/catamphetamine/virtual-scroller) (`virtual-scroller-dom`) | Windowed rendering of the message history with variable-height rows, seamless prepends and scroll restoration | [catamphetamine/virtual-scroller](https://github.com/catamphetamine/virtual-scroller) |
 | [Tauri 2](https://github.com/tauri-apps/tauri) | Desktop/Android shell, deep links, sidecar process | [tauri-apps/tauri](https://github.com/tauri-apps/tauri) |
-| [Delta Chat core 2.61.0](https://github.com/chatmail/core) | The messaging engine (Rust): contacts, chats, e2e crypto, IMAP/SMTP | [chatmail/core](https://github.com/chatmail/core) |
+| [Delta Chat core 2.62.0](https://github.com/chatmail/core) | The messaging engine (Rust): contacts, chats, e2e crypto, IMAP/SMTP | [chatmail/core](https://github.com/chatmail/core) |
 
 Both JS libraries are vendored under `app/vendor/` (no bundler, no `node_modules`
 at runtime). UI icons are individual SVGs from [SVG Repo](https://www.svgrepo.com/).

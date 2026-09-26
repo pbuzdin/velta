@@ -6,7 +6,7 @@ build/test commands, and conventions as they actually exist in this checkout.
 
 > **Scope note:** This repository is a Velta-specific workspace layered around a
 > copy of the upstream [Delta Chat core](https://github.com/chatmail/core)
-> (version `2.61.0`). The `core/` directory is effectively a vendored copy of
+> (version `2.62.0`). The `core/` directory is effectively a vendored copy of
 > that Rust project. Wrapper code for Velta's own clients lives in `app/`,
 > `velta-app/`, `velta-core-service/`, and `deltachat-backend/`.
 
@@ -81,7 +81,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   ├── fuzz/                 # Fuzz targets
 │   ├── scripts/              # CI helper scripts (clippy, deny, tests, wheels)
 │   ├── test-data/            # fixtures for Rust tests
-│   ├── Cargo.toml            # workspace manifest, version 2.61.0
+│   ├── Cargo.toml            # workspace manifest, version 2.62.0
 │   ├── CMakeLists.txt        # CMake install wrapper for libdeltachat
 │   └── deny.toml             # cargo-deny policy
 │
@@ -311,7 +311,7 @@ Then copy `core/target/release/deltachat-rpc-server.exe` to
 `velta-app/src-tauri/binaries/deltachat-rpc-server-x86_64-pc-windows-msvc.exe`
 *and* `velta-app/src-tauri/binaries/deltachat-rpc-server.exe`, and verify the
 swap by piping a `get_system_info` JSON-RPC request into the exe's stdin —
-it must report the vendored core's version (v2.61.0 since 1.4.24; the
+it must report the vendored core's version (v2.62.0 since 1.4.33; the
 previous prebuilt was silently v2.59.0, which the drawer footer exposed).
 `.github/workflows/build-windows.yml` does the same via
 chocolatey-installed StrawberryPerl + NASM.
