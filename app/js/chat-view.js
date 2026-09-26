@@ -1825,7 +1825,12 @@ export class ChatView {
     const grow = () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, innerHeight * 0.4) + "px"; };
     input.addEventListener("input", grow);
     input.addEventListener("keydown", e => {
-      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); this._send(); }
+      // Send on Enter is a setting (drawer, default on). Off: Enter falls
+      // through to the textarea's native newline insert, whose input event
+      // runs grow() — every line stays visible. Shift+Enter is always a
+      // newline; Enter during IME composition never sends.
+      const sendOnEnter = localStorage.getItem("velta-send-enter") !== "0";
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing && sendOnEnter) { e.preventDefault(); this._send(); }
     });
     input.addEventListener("paste", e => {
       const session = this._session;

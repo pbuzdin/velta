@@ -411,6 +411,7 @@ export function buildDrawer({ account, onAddAccount, onSecondDevice, onSetTheme,
       <button class="ctx-item" data-act="relays"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Relays of this profile…</span></button>
       <button class="ctx-item" data-act="invite-domains"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Invite link domains</span></button>
       <button class="ctx-item" data-act="link-preview"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Link previews: ${localStorage.getItem("velta-link-preview") === "0" ? "off" : "on"}</span></button>
+      <button class="ctx-item" data-act="send-enter"><svg viewBox="0 0 24 24"><path d="M20 5v6a2 2 0 01-2 2H5m0 0l4-4m-4 4l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Send on Enter: ${localStorage.getItem("velta-send-enter") === "0" ? "off" : "on"}</span></button>
       <button class="ctx-item" data-act="mock"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 9h6v6H9z" fill="currentColor"/></svg><span>${localStorage.getItem("velta-mock") === "1" ? "Exit mock mode" : "Enter mock mode"}</span></button>
       <button class="ctx-item" data-act="about"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 10v6M12 7v.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><span>About Velta</span></button>
     </div>
@@ -534,6 +535,15 @@ export function buildDrawer({ account, onAddAccount, onSecondDevice, onSetTheme,
       else localStorage.removeItem("velta-link-preview");
       btn.querySelector("span").textContent = `Link previews: ${on ? "off" : "on"}`;
       toast(`Link previews ${on ? "off" : "on"}`);
+    }
+    if (act === "send-enter") {
+      // self-contained toggle (same shape as link previews). Off: Enter
+      // inserts a newline natively and the composer grows to show it.
+      const on = localStorage.getItem("velta-send-enter") !== "0";
+      if (on) localStorage.setItem("velta-send-enter", "0");
+      else localStorage.removeItem("velta-send-enter");
+      btn.querySelector("span").textContent = `Send on Enter: ${on ? "off" : "on"}`;
+      toast(`Send on Enter ${on ? "off" : "on"}`);
     }
     if (act === "mock") onToggleMock();
     if (act === "about") showAbout();
