@@ -75,6 +75,7 @@ globalThis.customElements = { get: name => elements.get(name), define: (name, el
 globalThis.window = { addEventListener() {}, removeEventListener() {} };
 globalThis.innerHeight = 800;
 globalThis.innerWidth = 1200;
+globalThis.localStorage = { _s: {}, getItem(k) { return this._s[k] ?? null; }, setItem(k, v) { this._s[k] = String(v); }, removeItem(k) { delete this._s[k]; } };
 const { ChatView } = await import("../app/js/chat-view.js");
 const { closeAllPopups } = await import("../app/js/ui.js");
 
@@ -291,4 +292,32 @@ test("jump gives up with a toast when history is exhausted without the target", 
   const after = toasts ? toasts.children.length : before;
   assert.equal(after, before + 1, "give-up toast shown");
   assert.equal(view._hasItem(7), false);
+});
+
+test("composer Enter respects the send-on-enter setting", async t => {
+  const { view, core } = setup(t);
+  await view.open(7);
+  const input = document.getElementById("composer-input");
+  let sent = 0;
+  core.sendMessage = async () => { sent++; return message(99, 7, { text: "hi" }); };
+
+  // Default (unset = on): Enter sends and clears the input.
+  localStorage.setItem("velta-send-enter", "1");
+  input.value = "hi";
+  await input.fire("keydown", { key: "Enter", preventDefault() {} });
+  assert.equal(sent, 1, "Enter sends when the setting is on");
+  assert.equal(input.value, "", "input cleared after send");
+
+  // Off: Enter must not send — the textarea inserts the newline natively and
+  // the composer grows via its input handler.
+  localStorage.setItem("velta-send-enter", "0");
+  input.value = "line one";
+  await input.fire("keydown", { key: "Enter", preventDefault() {} });
+  assert.equal(sent, 1, "no send when the setting is off");
+  assert.equal(input.value, "line one", "text untouched when the setting is off");
+
+  // Shift+Enter is always a newline, regardless of the setting.
+  localStorage.removeItem("velta-send-enter");
+  await input.fire("keydown", { key: "Enter", shiftKey: true, preventDefault() {} });
+  assert.equal(sent, 1, "shift+enter never sends");
 });
