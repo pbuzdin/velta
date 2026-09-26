@@ -363,7 +363,7 @@ async function getTauriVersion() {
 }
 
 /* ---------- Settings drawer ---------- */
-export function buildDrawer({ account, onAddAccount, onSecondDevice, onSetTheme, onOpenChat, onInvite, onToggleMock, onProfile, onEditProfile, onInviteDomains, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle }) {
+export function buildDrawer({ account, onAddAccount, onSecondDevice, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle }) {
   const isTauri = !!window.__TAURI__;
   const drawer = document.createElement("div");
   drawer.className = "drawer";
@@ -385,7 +385,7 @@ export function buildDrawer({ account, onAddAccount, onSecondDevice, onSetTheme,
     <div class="drawer-items">
       <button class="ctx-item" data-act="saved"><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4.5L6 21z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Saved Messages</span></button>
       <button class="ctx-item" data-act="invite"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="13" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="3" width="8" height="8" rx="1" fill="currentColor"/><rect x="3" y="13" width="8" height="8" rx="1" fill="currentColor"/></svg><span>Invite friends (QR)</span></button>
-      ${p2pAvailable ? `<button class="ctx-item" data-act="p2p-toggle"><svg viewBox="0 0 24 24"><path d="M2.5 9.5a14 14 0 0119 0M5.5 13a9.5 9.5 0 0113 0M8.5 16.5a5 5 0 017 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="19.5" r="1.4" fill="currentColor"/></svg><span>Local chat: ${p2pOn ? "on" : "off"}</span></button>` : ""}
+      ${p2pAvailable ? `<label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M2.5 9.5a14 14 0 0119 0M5.5 13a9.5 9.5 0 0113 0M8.5 16.5a5 5 0 017 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="19.5" r="1.4" fill="currentColor"/></svg><span>Local chat: ${p2pOn ? "on" : "off"}</span><input type="checkbox" data-toggle="p2p"${p2pOn ? " checked" : ""}></label>` : ""}
       <div class="drawer-sec">Settings</div>
       <details class="drawer-details">
         <summary><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 109 9c0-1.5-1.2-2.6-2.6-2.6h-1.9a2.5 2.5 0 01-2.5-2.5V5.1C14 4 13.3 3 12 3z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="7.5" cy="10.5" r="1.2" fill="currentColor"/><circle cx="12" cy="7.5" r="1.2" fill="currentColor"/><circle cx="16.5" cy="10.5" r="1.2" fill="currentColor"/></svg><span data-theme-summary>Theme: ${THEME_LABELS[theme] || "Auto"}</span></summary>
@@ -410,9 +410,9 @@ export function buildDrawer({ account, onAddAccount, onSecondDevice, onSetTheme,
       <button class="ctx-item" data-act="second-device"><svg viewBox="0 0 24 24"><rect x="2.5" y="4" width="11" height="17" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="16" y="8" width="5.5" height="13" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Add a second device…</span></button>
       <button class="ctx-item" data-act="relays"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Relays of this profile…</span></button>
       <button class="ctx-item" data-act="invite-domains"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Invite link domains</span></button>
-      <button class="ctx-item" data-act="link-preview"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Link previews: ${localStorage.getItem("velta-link-preview") === "0" ? "off" : "on"}</span></button>
-      <button class="ctx-item" data-act="send-enter"><svg viewBox="0 0 24 24"><path d="M20 5v6a2 2 0 01-2 2H5m0 0l4-4m-4 4l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Send on Enter: ${localStorage.getItem("velta-send-enter") === "0" ? "off" : "on"}</span></button>
-      <button class="ctx-item" data-act="mock"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 9h6v6H9z" fill="currentColor"/></svg><span>${localStorage.getItem("velta-mock") === "1" ? "Exit mock mode" : "Enter mock mode"}</span></button>
+      <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Link previews: ${localStorage.getItem("velta-link-preview") === "0" ? "off" : "on"}</span><input type="checkbox" data-toggle="link-preview"${localStorage.getItem("velta-link-preview") === "0" ? "" : " checked"}></label>
+      <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M20 5v6a2 2 0 01-2 2H5m0 0l4-4m-4 4l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Send on Enter: ${localStorage.getItem("velta-send-enter") === "0" ? "off" : "on"}</span><input type="checkbox" data-toggle="send-enter"${localStorage.getItem("velta-send-enter") === "0" ? "" : " checked"}></label>
+      <label class="ctx-item"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 9h6v6H9z" fill="currentColor"/></svg><span>Demo mode: ${localStorage.getItem("velta-mock") === "1" ? "on" : "off"}</span><input type="checkbox" data-toggle="demo"${localStorage.getItem("velta-mock") === "1" ? " checked" : ""}></label>
       <button class="ctx-item" data-act="about"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 10v6M12 7v.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><span>About Velta</span></button>
     </div>
     <div class="drawer-foot" data-versions>
@@ -510,6 +510,43 @@ export function buildDrawer({ account, onAddAccount, onSecondDevice, onSetTheme,
   }
   activeDrawer = { close };
 
+  // Setting checkboxes (Local chat / Link previews / Send on Enter / Demo
+  // mode): the checkbox is the state indicator, the span keeps the
+  // human-readable "Name: on/off" form. The rows are labels, not data-act
+  // buttons — a click must only flip the checkbox, never close the drawer.
+  const setToggleUi = (key, label, on) => {
+    const row = drawer.querySelector(`[data-toggle="${key}"]`);
+    if (row) row.checked = on;
+    const span = drawer.querySelector(`[data-toggle="${key}"]`)?.closest(".ctx-item")?.querySelector("span");
+    if (span) span.textContent = `${label}: ${on ? "on" : "off"}`;
+  };
+
+  drawer.querySelector('[data-toggle="p2p"]')?.addEventListener("change", e => {
+    setToggleUi("p2p", "Local chat", e.target.checked);
+    onP2pToggle?.(); // flips the real state and rebuilds the drawer
+  });
+  drawer.querySelector('[data-toggle="link-preview"]')?.addEventListener("change", e => {
+    const on = e.target.checked;
+    if (on) localStorage.removeItem("velta-link-preview");
+    else localStorage.setItem("velta-link-preview", "0");
+    setToggleUi("link-preview", "Link previews", on);
+    toast(`Link previews ${on ? "on" : "off"}`);
+  });
+  drawer.querySelector('[data-toggle="send-enter"]')?.addEventListener("change", e => {
+    const on = e.target.checked;
+    if (on) localStorage.removeItem("velta-send-enter");
+    else localStorage.setItem("velta-send-enter", "0");
+    setToggleUi("send-enter", "Send on Enter", on);
+    toast(`Send on Enter ${on ? "on" : "off"}`);
+  });
+  drawer.querySelector('[data-toggle="demo"]')?.addEventListener("change", e => {
+    const on = e.target.checked;
+    localStorage.setItem("velta-mock", on ? "1" : "0");
+    setToggleUi("demo", "Demo mode", on);
+    toast(`Demo mode ${on ? "on" : "off"} — reloading`);
+    setTimeout(() => location.reload(), 600);
+  });
+
   drawer.addEventListener("click", e => {
     const btn = e.target.closest("[data-act]");
     if (!btn) return;
@@ -518,7 +555,6 @@ export function buildDrawer({ account, onAddAccount, onSecondDevice, onSetTheme,
     close();
     if (act === "saved") onOpenChat("saved");
     if (act === "invite") onInvite?.();
-    if (act === "p2p-toggle") onP2pToggle?.();
     if (act === "profile") onProfile?.();
     if (act === "edit-profile") onEditProfile?.();
     if (act === "add-account") onAddAccount();
@@ -526,26 +562,6 @@ export function buildDrawer({ account, onAddAccount, onSecondDevice, onSetTheme,
     if (act === "account") onAccountTap?.(btn.dataset.account);
     if (act === "relays") onRelays?.();
     if (act === "invite-domains") onInviteDomains?.();
-    if (act === "link-preview") {
-      // self-contained toggle: flip the persisted flag, update the label
-      // in place, and let already-rendered rows keep their current cards
-      // (fresh renders pick the new state).
-      const on = localStorage.getItem("velta-link-preview") !== "0";
-      if (on) localStorage.setItem("velta-link-preview", "0");
-      else localStorage.removeItem("velta-link-preview");
-      btn.querySelector("span").textContent = `Link previews: ${on ? "off" : "on"}`;
-      toast(`Link previews ${on ? "off" : "on"}`);
-    }
-    if (act === "send-enter") {
-      // self-contained toggle (same shape as link previews). Off: Enter
-      // inserts a newline natively and the composer grows to show it.
-      const on = localStorage.getItem("velta-send-enter") !== "0";
-      if (on) localStorage.setItem("velta-send-enter", "0");
-      else localStorage.removeItem("velta-send-enter");
-      btn.querySelector("span").textContent = `Send on Enter: ${on ? "off" : "on"}`;
-      toast(`Send on Enter ${on ? "off" : "on"}`);
-    }
-    if (act === "mock") onToggleMock();
     if (act === "about") showAbout();
   });
 

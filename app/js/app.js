@@ -2097,12 +2097,6 @@ function rebuildDrawer() {
     onProfile: openSelfProfile,
     onEditProfile: editProfileFlow,
     onInviteDomains: () => showInviteDomainsModal(),
-    onToggleMock: () => {
-      const on = localStorage.getItem("velta-mock") === "1";
-      localStorage.setItem("velta-mock", on ? "0" : "1");
-      toast(on ? "Mock mode off — reloading" : "Mock mode on — reloading");
-      setTimeout(() => location.reload(), 600);
-    },
     onOpenChat: async kind => {
       if (state.accountChanging) return;
       const epoch = core.accountEpoch;
