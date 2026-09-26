@@ -192,3 +192,31 @@ test("failed texts retry in place: swap for a fresh send, restore on failure", a
   assert.equal(msgs.length, before); // restored, not vanished
   assert.equal(msgs.at(-1).state, "failed");
 });
+
+// Regression: the phase-1 fall-through dropped every argument after the
+// first, so deleting messages in a NORMAL chat while local chat was enabled
+// reached the core as delete_messages(account, null) → serde "invalid type:
+// null, expected a sequence" (user report, webp in Saved Messages).
+test("non-p2p deleteMessages falls through with all arguments", async () => {
+  const calls = [];
+  const inner = { deleteMessages: async (...a) => { calls.push(a); } };
+  const wrapped = withLocalChat(inner);
+  await wrapped.deleteMessages(17, [30, 31], { forAll: true });
+  assert.deepEqual(calls, [[17, [30, 31], { forAll: true }]]);
+});
+
+test("non-p2p setChatFlags falls through with its options", async () => {
+  const calls = [];
+  const inner = { setChatFlags: async (...a) => { calls.push(a); } };
+  const wrapped = withLocalChat(inner);
+  await wrapped.setChatFlags(17, { pinned: true });
+  assert.deepEqual(calls, [[17, { pinned: true }]]);
+});
+
+test("p2p deleteMessages stays a no-op", async () => {
+  const calls = [];
+  const inner = { deleteMessages: async (...a) => { calls.push(a); } };
+  const wrapped = withLocalChat(inner);
+  await wrapped.deleteMessages("p2p:abc", [1]);
+  assert.equal(calls.length, 0);
+});

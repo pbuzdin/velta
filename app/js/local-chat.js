@@ -518,13 +518,17 @@ function handler(prop) {
       };
 
     // Phase-1 scope: these actions are no-ops on local chats rather than
-    // errors reaching the real core with a string id.
+    // errors reaching the real core with a string id. Relay chats fall
+    // through with ALL arguments — dropping them called
+    // deleteMessages(chatId) with ids undefined, which hit the core as
+    // delete_messages(account, null) → "invalid type: null, expected a
+    // sequence" (every message deletion broke while local chat was on).
     case "deleteMessages":
     case "setChatFlags":
     case "downloadFullMessage":
-      return async (t, id) => {
+      return async (t, id, ...rest) => {
         if (String(id).startsWith(P2P_PREFIX)) return;
-        return t[prop](id);
+        return t[prop](id, ...rest);
       };
 
     // Retry a failed text: swap the failed bubble for a fresh engine send
