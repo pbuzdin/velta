@@ -56,7 +56,7 @@ whenever a scripted edit touches that file.
    absolute path — `$PWD\tools\...` inside `core/` silently yields a PATH
    without perl and openssl-sys fails with `Command 'perl' not found`.
 3. Verify: `deltachat-rpc-server.exe --version` must print the vendored
-   core version (2.61.0 since 1.4.24).
+   core version (2.62.0 since 1.4.33; was 2.61.0 in 1.4.24–1.4.32).
 4. Copy to all three destinations:
    - `velta-app/src-tauri/binaries/deltachat-rpc-server-x86_64-pc-windows-msvc.exe`
    - `velta-app/src-tauri/binaries/deltachat-rpc-server.exe`
