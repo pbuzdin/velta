@@ -726,6 +726,17 @@ export class JsonRpcCore extends EventTarget {
     return this._call("add_transport_from_qr", this.accountId, qr);
   }
 
+  // Core-side auto onboarding (core 2.61.0 autorelay): probes the built-in
+  // relay candidate pool and configures the first transport on the relay
+  // that answers fastest; the profile then grows to ~3 relays in the
+  // background (IMAP idle hooks). qr=null means "no relay name known".
+  // ConfigureProgress events flow as "configure-progress", same as
+  // configureWithQr. No-op if the account is already configured.
+  async initTransports(qr = null) {
+    // The core method itself ends with start_io() on success.
+    await this._callWithTimeout(180000, "init_transports", this.accountId, qr);
+  }
+
   // Make `addr` the sending (primary) transport. The core validates that the
   // address belongs to a configured transport and republishes/re-signs the
   // public key. Core 2.61.0: no I/O restart anymore, and no device-sync
