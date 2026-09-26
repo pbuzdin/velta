@@ -46,6 +46,7 @@ export class JsonRpcCore extends EventTarget {
     this.pending = new Map();     // rpc id -> {resolve, reject, onLate?}
     this.msgIdCache = new Map();  // chatId -> [msgIds ascending]
     this._sendingIds = new Set(); // msgIds handed to the core, not yet delivered/failed
+    this._sendingBackstopTimer = null;
     // Latest known delivery state per outgoing msgId (MsgDelivered/MsgRead/
     // MsgFailed) — lets a just-inserted sent row reconcile past events.
     this._msgStateHints = new Map();
@@ -67,13 +68,52 @@ export class JsonRpcCore extends EventTarget {
   // Outgoing messages between send_msg and their MsgDelivered/MsgFailed event.
   // Drives the relay status line's sending dashes.
   _trackSending(msgId) {
+    const wasEmpty = this._sendingIds.size === 0;
     this._sendingIds.add(msgId);
     this._emit("send-activity", { sending: true });
+    if (wasEmpty) this._armSendingBackstop();
   }
 
   _untrackSending(msgId) {
-    if (this._sendingIds.delete(msgId) && this._sendingIds.size === 0) {
+    if (!this._sendingIds.delete(msgId)) return;
+    if (this._sendingIds.size === 0) {
+      clearTimeout(this._sendingBackstopTimer);
       this._emit("send-activity", { sending: false });
+    } else {
+      this._armSendingBackstop(); // keep covering the remaining ids
+    }
+  }
+
+  // MsgDelivered/MsgFailed can be lost without the UI ever seeing them: the
+  // Android background poller consumes events while the app is hidden
+  // (AGENTS §9.2), a transport reconnect drops what was emitted mid-flight,
+  // and a pending message deleted before delivery never delivers at all —
+  // each left the sending dashes stuck on the relay status line. Two
+  // defenses: reconcileSending() asks the core for the real state (wired to
+  // visibility resume and reconnect in app.js), and a backstop force-clears
+  // a set that stayed non-empty for `sendingBackstopMs` (instance knob for
+  // tests; ceiling: a send legitimately pending longer loses its dashes).
+  _armSendingBackstop() {
+    clearTimeout(this._sendingBackstopTimer);
+    this._sendingBackstopTimer = setTimeout(() => {
+      if (!this._sendingIds.size) return;
+      this._sendingIds.clear();
+      this._emit("send-activity", { sending: false });
+    }, this.sendingBackstopMs ?? 90000);
+    this._sendingBackstopTimer?.unref?.();
+  }
+
+  async reconcileSending() {
+    if (!this._sendingIds.size || this._accountTransitionBusy) return;
+    const accountId = this.accountId;
+    const accountEpoch = this.accountEpoch;
+    for (const msgId of [...this._sendingIds]) {
+      if (!this._isCurrentAccount(accountEpoch)) return;
+      let state = null;
+      try {
+        state = this._mapState((await this._call("get_message", accountId, msgId))?.state);
+      } catch { /* gone — deleted before delivery */ }
+      if (state !== "pending") this._untrackSending(msgId);
     }
   }
 
@@ -85,6 +125,7 @@ export class JsonRpcCore extends EventTarget {
     this._msgStateHints.clear();
     if (this._sendingIds.size) {
       this._sendingIds.clear();
+      clearTimeout(this._sendingBackstopTimer);
       this._emit("send-activity", { sending: false });
     }
     this._emit("account-changing", { accountId: this.accountId, accountEpoch: this.accountEpoch });

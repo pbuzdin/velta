@@ -262,6 +262,8 @@ export class MockCore extends EventTarget {
     const chat = this.chats.find(c => c.id === chatId);
     if (chat) chat.avatar = path || null;
   }
+  // Demo core answers every send with instant delivery — nothing to reconcile.
+  async reconcileSending() {}
 
   // ---- onboarding surface (mirrors rpc-core; demo mode is configured, so
   // the splash never shows — set localStorage "velta-mock-fresh" + reload to

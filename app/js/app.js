@@ -400,6 +400,10 @@ if (window.__TAURI__) {
 
 addEventListener("velta-core-status", e => {
   if (core.backend) core.backend.connected = !!e.detail.connected;
+  // A reconnect loses whatever events were emitted mid-flight — MsgDelivered
+  // among them, leaving the sending dashes stuck. Ask the core what actually
+  // happened to the pending sends.
+  if (e.detail.connected) core.reconcileSending?.();
 });
 
 /* ---------------- relay status line ---------------- */
@@ -676,6 +680,9 @@ function reportUiVisible() {
   } catch {}
   if (!document.hidden && core) {
     scheduleChatListRefresh();
+    // Delivery events the background poller consumed while hidden never
+    // reached the JS side — reconcile the sending-dash bookkeeping too.
+    core.reconcileSending?.();
     if (state.activeChatId) chatView?.onMsgsChanged(state.activeChatId);
   }
 }

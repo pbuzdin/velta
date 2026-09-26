@@ -74,3 +74,13 @@ marks only the sending relay's segment with the sending dashes.
 - `refreshRelayStatus` keeps its coalescing: its own `get_connectivity`
   RPCs emit further ConnectivityChanged events, and the unguarded handler
   multiplied storms.
+- Sending dashes (`send-activity`, rpc-core `_trackSending`/`_untrackSending`):
+  the terminal MsgDelivered/MsgFailed events can be LOST — the Android
+  background poller consumes events while the app is hidden, a transport
+  reconnect drops mid-flight events, and a pending message deleted before
+  delivery never emits one — each stuck the dashes on until the next send
+  or account switch (user reports: "stuck on sending animation"). rpc-core
+  now force-clears after 90 s (`sendingBackstopMs` instance knob) and
+  `reconcileSending()` re-checks the tracked ids against the core; app.js
+  calls it on visibility resume and on `velta-core-status` connected.
+  Pinned by `tests/send-activity.test.mjs`.
