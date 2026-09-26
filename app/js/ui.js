@@ -665,14 +665,16 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
 // (Tauri file dialog on desktop, content-URI copy on Android, data-URL in
 // demo mode). Resolves with
 //   { name, avatar: "keep" | "remove" | { path } }  — or null on cancel.
-export function showEditProfile({ name, avatarUrl, color, pickImage }) {
+// contactId/kind shape the avatar preview (self contact by default; group
+// editors pass contactId: 0 + kind: "group"); title overrides the heading.
+export function showEditProfile({ name, avatarUrl, color, pickImage, contactId = 1, kind = "", title = "Edit profile" }) {
   return new Promise(resolve => {
     let picked = null;   // { path } once a new picture is chosen
     let removed = false; // "Remove photo" tapped
     const body = document.createElement("div");
     body.className = "edit-profile";
     body.innerHTML = `
-      <div class="ep-avatar"><velta-avatar size="84" contact-id="1"></velta-avatar></div>
+      <div class="ep-avatar"><velta-avatar size="84"${contactId ? ` contact-id="${contactId}"` : ""}${kind ? ` kind="${kind}"` : ""}></velta-avatar></div>
       <div class="ep-avatar-actions">
         <button class="btn-text" data-ep="pick">Change picture</button>
         <button class="btn-text" data-ep="remove" style="display:none">Remove photo</button>
@@ -719,7 +721,7 @@ export function showEditProfile({ name, avatarUrl, color, pickImage }) {
     // first settlement wins — close() fires onClose, which must not win
     let settled = false;
     const finish = value => { if (!settled) { settled = true; resolve(value); } };
-    const { close } = showModal({ title: "Edit profile", body, foot,
+    const { close } = showModal({ title, body, foot,
       onClose: () => finish(null) });
     input.focus();
     input.select();

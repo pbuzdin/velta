@@ -859,6 +859,27 @@ export class JsonRpcCore extends EventTarget {
     return this._call("get_chat_description", this.accountId, chatId);
   }
 
+  // Empty string clears. Core informs members via a status message on its own.
+  async setChatDescription(chatId, description) {
+    await this._call("set_chat_description", this.accountId, chatId, description ?? "");
+  }
+
+  // Own profile bio/status (config "selfstatus"; the self contact carries it
+  // as Contact.status). null clears.
+  async setSelfStatus(status) {
+    await this._call("set_config", this.accountId, "selfstatus", (status || "").trim() || null);
+  }
+
+  // Group/channel name + picture. set_chat_profile_image with null removes
+  // the image; promoted groups inform members core-side for both.
+  async renameChat(chatId, name) {
+    await this._call("set_chat_name", this.accountId, chatId, (name || "").trim());
+  }
+
+  async setChatImage(chatId, path) {
+    await this._call("set_chat_profile_image", this.accountId, chatId, path || null);
+  }
+
   // Multi-line encryption info: own + the contact's OpenPGP fingerprint.
   async getContactEncryptionInfo(contactId) {
     return this._call("get_contact_encryption_info", this.accountId, contactId);
