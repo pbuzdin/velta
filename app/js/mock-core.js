@@ -477,7 +477,7 @@ export class MockCore extends EventTarget {
     const contact = c.contactId ? this.contacts.find(x => x.id === c.contactId) : null;
     return {
       id: c.id, name: c.name, kind: c.kind, memberCount: c.memberCount,
-      contactId: c.contactId,
+      contactId: c.contactId, unread: c.unread || 0,
       encrypted: c.encrypted, verified: c.verified, muted: c.muted,
       pinned: c.pinned, archived: c.archived, contact,
       avatarColor: this._chatColor(c),
