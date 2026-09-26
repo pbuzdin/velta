@@ -1132,6 +1132,17 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .modal-title { flex: 1; font-size: 18px; font-weight: 600; }
 .modal-body { padding: 6px 18px 18px; overflow-y: auto; }
 .modal-list { display: flex; flex-direction: column; }
+/* Profile/chat info header: avatar, name under it, description block under
+   the name. */
+.profile-name {
+  text-align: center; font-size: 17px; font-weight: 600;
+  padding: 8px 14px 2px;
+}
+.profile-description {
+  text-align: center; font-size: 14px; line-height: 1.45;
+  color: var(--text-dim);
+  padding: 2px 18px 6px; white-space: pre-line;
+}
 /* Profile management tabs (Add profile / Second device / Export backup).
    Locked tabs: a running flow owns the modal until it finishes. */
 .pm-tabs { display: flex; gap: 4px; margin-bottom: 12px; }
