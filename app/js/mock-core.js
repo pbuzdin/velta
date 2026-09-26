@@ -601,6 +601,14 @@ export class MockCore extends EventTarget {
     return { messages: slice, hasMore: start > 0 };
   }
 
+  async getMessage(msgId) {
+    for (const chat of this.chats) {
+      const m = chat.messages.find(x => x.id === msgId);
+      if (m) return this._decorate(m);
+    }
+    return null;
+  }
+
   // Demo twin of rpc-core.searchMessages: substring filter over stored texts,
   // newest first, capped at `limit` per call.
   async searchMessages(query, chatId = null, limit = 30) {
