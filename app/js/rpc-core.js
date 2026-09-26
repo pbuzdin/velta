@@ -1273,6 +1273,13 @@ export class JsonRpcCore extends EventTarget {
     return this._call("get_backup_qr_svg", this.accountId);
   }
 
+  // Full-profile backup export (ImexMode::ExportBackup): writes messages,
+  // contacts and keys into <destination>/<file>.tar. Progress rides
+  // "imex-progress" (0..1000).
+  async exportBackup(destination, passphrase = null) {
+    await this._callWithTimeout(180000, "export_backup", this.accountId, destination, passphrase);
+  }
+
   // New device: receive a profile from another device's backup QR. Imports
   // into a fresh account (reuses the current one if still unconfigured) and
   // starts IO on it. The transfer itself runs fire-and-forget — it can take
