@@ -257,3 +257,38 @@ test("Android open of a non-media file toasts instead of calling the opener plug
   const after = toasts ? toasts.children.length : before;
   assert.equal(after, before + 1, "an honest toast replaces the crashing opener call");
 });
+
+test("fetch-then-jump walks older pages until the target message loads", async t => {
+  const { view, core } = setup(t);
+  await view.open(7);
+  view.jumpSeekAttempts = 1;
+  view.jumpSeekDelayMs = 1;
+  const beforeIds = [];
+  core.getMessages = async (id, opts) => {
+    beforeIds.push(opts.beforeId);
+    if (opts.beforeId === 10) return { messages: [message(9, 7)], hasMore: true };
+    return { messages: [message(8, 7), message(7, 7)], hasMore: false };
+  };
+
+  await view._jumpToMessage(7);
+
+  assert.deepEqual(beforeIds, [10, 9], "walks beforeId chain from the oldest loaded id");
+  assert.equal(view._hasItem(7), true, "target message is loaded");
+  assert.equal(view.hasMore, false);
+});
+
+test("jump gives up with a toast when history is exhausted without the target", async t => {
+  const { view, core } = setup(t);
+  await view.open(7);
+  view.jumpMaxPages = 3;
+  view.jumpSeekAttempts = 1;
+  core.getMessages = async () => ({ messages: [message(50, 7)], hasMore: false });
+  const toasts = document.getElementById("toasts");
+  const before = toasts ? toasts.children.length : 0;
+
+  await view._jumpToMessage(7);
+
+  const after = toasts ? toasts.children.length : before;
+  assert.equal(after, before + 1, "give-up toast shown");
+  assert.equal(view._hasItem(7), false);
+});

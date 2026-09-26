@@ -326,6 +326,12 @@ export class ChatView {
     // messages while the chat is open collapses to one markseen RPC.
     this.markReadDebounceMs = 400;
     this._markReadTimer = null;
+    // Fetch-then-jump: search hits / quotes / pinned-bar jumps fetch older
+    // history until the target loads, then seek to it (tests shrink these).
+    this.jumpMaxPages = 50;
+    this.jumpSeekAttempts = 8;
+    this.jumpSeekDelayMs = 60;
+    this._jumpInFlight = false;
 
     this.scrollEl = document.getElementById("history-scroll");
     this.listEl = document.getElementById("history");
@@ -873,33 +879,37 @@ export class ChatView {
       const { messages, hasMore } = await this.core.getMessages(session.chatId, { beforeId, limit: 40 });
       if (!this._isCurrent(session)) return;
       this.hasMore = hasMore;
-      if (messages.length) {
-        // Pure message prefix: prepends must never touch existing items or the
-        // scroller's diff (which needs the whole previous array contiguous)
-        // fails and forces a relayout-without-scroll-restore (= jump).
-        const oldFirst = this.items[0];
-        const out = this._annotateMessages(messages, oldFirst?.dayKey ?? null);
-        this.items = [...out, ...this.items];
-        this.vs?.setItems(this.items, { preserveScrollPositionOnPrependItems: true });
-        // The previous first row loses its day chip when the batch ends on the
-        // same day — rebuild it so the day isn't labelled twice.
-        if (out.length && oldFirst?.type === "msg" && oldFirst.dayFirst
-          && out[out.length - 1].dayKey === oldFirst.dayKey) {
-          oldFirst.dayFirst = false;
-          const fresh = this._buildItem(oldFirst);
-          this._rowCache.set(oldFirst.key, fresh);
-          this._rowSigCache.set(oldFirst.key, this._rowSignature(oldFirst.msg));
-          const mounted = this.listEl.querySelector(`[data-msgid="${oldFirst.msg.id}"]`);
-          if (mounted) mounted.replaceWith(fresh);
-          this.vs?.onItemHeightDidChange?.(oldFirst);
-        }
-      }
+      if (messages.length) this._prependHistory(messages);
     } catch (err) {
       if (this._isCurrent(session)) errToast("Couldn't load older messages: " + (err.message || err));
     } finally {
       this._loadBar(false); // unconditional: an early session-invalid return must not leave the bar on
       if (this._isCurrent(session)) this.loadingMore = false;
     }
+  }
+
+  // Pure message prefix prepend — shared by scroll-up paging (_loadOlder)
+  // and the fetch-then-jump walk. Prepends must never touch existing items
+  // or the scroller's diff (which needs the whole previous array contiguous)
+  // fails and forces a relayout-without-scroll-restore (= jump).
+  _prependHistory(messages) {
+    const oldFirst = this.items[0];
+    const out = this._annotateMessages(messages, oldFirst?.dayKey ?? null);
+    this.items = [...out, ...this.items];
+    this.vs?.setItems(this.items, { preserveScrollPositionOnPrependItems: true });
+    // The previous first row loses its day chip when the batch ends on the
+    // same day — rebuild it so the day isn't labelled twice.
+    if (out.length && oldFirst?.type === "msg" && oldFirst.dayFirst
+      && out[out.length - 1].dayKey === oldFirst.dayKey) {
+      oldFirst.dayFirst = false;
+      const fresh = this._buildItem(oldFirst);
+      this._rowCache.set(oldFirst.key, fresh);
+      this._rowSigCache.set(oldFirst.key, this._rowSignature(oldFirst.msg));
+      const mounted = this.listEl.querySelector(`[data-msgid="${oldFirst.msg.id}"]`);
+      if (mounted) mounted.replaceWith(fresh);
+      this.vs?.onItemHeightDidChange?.(oldFirst);
+    }
+    return out;
   }
 
   /* ================= virtual scroller ================= */
@@ -2323,12 +2333,95 @@ export class ChatView {
     const row = this.listEl.querySelector(`[data-msgid="${msgId}"]`);
     if (row) {
       row.scrollIntoView({ block: "center", behavior: "smooth" });
-      row.style.transition = "background .3s";
-      row.style.background = "rgba(90,162,230,.25)";
-      setTimeout(() => row.style.background = "", 900);
-    } else {
-      toast("Message is higher up in history — scroll up to load it");
+      this._flashRow(row);
+      return;
     }
+    // Not in the rendered window (search hits, quote jumps, pinned bar):
+    // fetch older pages until the message is part of the loaded items, then
+    // seek to it. The virtual scroller can't scroll to history that isn't
+    // loaded, so fetching IS the jump. The promise is returned so tests
+    // (and anyone else) can await completion.
+    return this._jumpFetchAndScroll(msgId);
+  }
+
+  async _jumpFetchAndScroll(msgId) {
+    const session = this._session;
+    if (!this._isCurrent(session) || !this.chat || this._jumpInFlight) return;
+    this._jumpInFlight = true;
+    this._loadBar(true);
+    try {
+      for (let page = 0; page < this.jumpMaxPages && !this._hasItem(msgId); page++) {
+        if (!this.hasMore) {
+          if (this._isCurrent(session)) toast("Message is no longer in this chat's history");
+          return;
+        }
+        const firstMsg = this.items.find(i => i.type === "msg");
+        const { messages, hasMore } = await this.core.getMessages(session.chatId, { beforeId: firstMsg?.msg.id ?? null, limit: 40 });
+        if (!this._isCurrent(session)) return;
+        this.hasMore = hasMore;
+        if (!messages.length) break;
+        this._prependHistory(messages);
+      }
+      if (!this._hasItem(msgId)) {
+        if (this._isCurrent(session)) toast("Message is higher up in history — scroll up to load it");
+        return;
+      }
+      await this._scrollToItemSeek(msgId, session);
+    } catch (err) {
+      if (this._isCurrent(session)) errToast("Couldn't load history: " + (err?.message || err));
+    } finally {
+      this._jumpInFlight = false;
+      if (this._isCurrent(session)) this._loadBar(false);
+    }
+  }
+
+  _hasItem(msgId) {
+    return this.items.some(i => i.type === "msg" && i.msg.id === msgId);
+  }
+
+  // Bring an item that exists in `this.items` but has no mounted DOM row into
+  // view: the scroller only renders rows around the current scroll offset, so
+  // seek by index distance × average measured row height, re-measuring each
+  // pass — the mounted window moves toward the target geometrically. Zoom
+  // (CSS zoom on <html>) scales getBoundingClientRect but not scrollTop, so
+  // distances are divided out (same coordinate split as the vendor patch).
+  async _scrollToItemSeek(msgId, session) {
+    const zoom = () => {
+      const z = parseFloat(getComputedStyle(document.documentElement).zoom);
+      return z > 0 ? z : 1;
+    };
+    for (let attempt = 0; attempt < this.jumpSeekAttempts; attempt++) {
+      if (!this._isCurrent(session)) return;
+      const row = this.listEl.querySelector(`[data-msgid="${msgId}"]`);
+      if (row) {
+        row.scrollIntoView({ block: "center" });
+        this._flashRow(row);
+        return;
+      }
+      const mounted = [...this.listEl.querySelectorAll("[data-msgid]")];
+      const targetIdx = this.items.findIndex(it => it.type === "msg" && it.msg.id === msgId);
+      if (targetIdx === -1) return;
+      let delta = -this.scrollEl.clientHeight * 2;
+      if (mounted.length) {
+        const firstId = Number(mounted[0].dataset.msgid);
+        const firstIdx = this.items.findIndex(it => it.type === "msg" && it.msg.id === firstId);
+        if (firstIdx !== -1 && mounted.length >= 2) {
+          const rectTop = mounted[0].getBoundingClientRect().top;
+          const rectBottom = mounted[mounted.length - 1].getBoundingClientRect().top;
+          const avg = Math.max(24, (rectBottom - rectTop) / (mounted.length - 1)) / zoom();
+          delta = Math.round((targetIdx - firstIdx) * avg);
+        }
+      }
+      this.scrollEl.scrollTop += delta;
+      await new Promise(r => setTimeout(r, this.jumpSeekDelayMs));
+    }
+  }
+
+  _flashRow(row) {
+    if (!row) return;
+    row.style.transition = "background .3s";
+    row.style.background = "rgba(90,162,230,.25)";
+    setTimeout(() => row.style.background = "", 900);
   }
 
   _bindCoreEvents() {
