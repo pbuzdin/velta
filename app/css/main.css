@@ -1100,6 +1100,13 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
   }
   .modal:not(.modal-compact) .modal-body { flex: 1; }
   .modal:not(.modal-compact) .modal-foot { padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+  /* Chat-list context: stop above the bottom action bar (same offset as the
+     drawer overlay) — the bar stays visible, dimmed under the scrim, and a
+     tap there dismisses the modal. In a chat (search modal) stay full-screen. */
+  body:not(:has(.app.chat-open)) .modal:not(.modal-compact) {
+    height: calc(100dvh - var(--list-bar-h));
+    align-self: start;
+  }
 }
 @keyframes sheetIn { from { opacity: 0; transform: translateY(28px); } }
 .modal-head {
