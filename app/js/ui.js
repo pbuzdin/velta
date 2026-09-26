@@ -148,13 +148,66 @@ export function showModal({ title, body, foot, onClose, compact = false }) {
   return { close: doClose, modal };
 }
 
-export function toast(text, ms = 2200) {
+// Full-width bar pinned above the composer / bottom action bar (see
+// .toasts in main.css; z-index rides above modal overlays). One line with
+// ellipsis; when the text overflows, a chip appears and the first tap
+// expands the text AND pauses the auto-hide timer (second tap collapses and
+// resumes). Expanded toasts gain a copy button; every toast has a close ✕.
+// opts.danger: red timer bar (errToast).
+export function toast(text, ms = 2200, opts = {}) {
   const box = document.getElementById("toasts");
-  const t = document.createElement("div");
-  t.className = "toast";
-  t.textContent = text;
-  box.appendChild(t);
-  setTimeout(() => { t.style.opacity = "0"; t.style.transition = "opacity .25s"; setTimeout(() => t.remove(), 260); }, ms);
+  const duration = Math.max(800, ms || 2200);
+  const el = document.createElement("div");
+  el.className = "toast" + (opts.danger ? " danger" : "");
+  el.innerHTML = `
+    <span class="toast-timer"></span>
+    <span class="toast-text"></span>
+    <button type="button" class="toast-chip" hidden></button>
+    <button type="button" class="toast-copy" hidden>Copy</button>
+    <button type="button" class="toast-close" aria-label="Close">✕</button>`;
+  el.querySelector(".toast-text").textContent = String(text);
+  box.appendChild(el);
+  while (box.children.length > 3) box.firstElementChild.remove();
+
+  const textEl = el.querySelector(".toast-text");
+  const timerBar = el.querySelector(".toast-timer");
+  const chip = el.querySelector(".toast-chip");
+  const copyBtn = el.querySelector(".toast-copy");
+  const clickLabel = matchMedia("(hover: hover) and (pointer: fine)").matches ? "Click" : "Tap";
+
+  const dismiss = () => el.remove();
+  timerBar.style.animationDuration = duration + "ms";
+  timerBar.addEventListener("animationend", dismiss);
+
+  // Expandable only when the text actually overflows one line (measured on
+  // the next frame, after layout). Expanded: text wraps, timer pauses.
+  let expanded = false;
+  let expandable = false;
+  requestAnimationFrame(() => {
+    expandable = textEl.scrollWidth > textEl.clientWidth + 1;
+    if (expandable) {
+      chip.hidden = false;
+      chip.textContent = `${clickLabel} to expand`;
+    }
+  });
+  const setTimer = (running) => { timerBar.style.animationPlayState = running ? "running" : "paused"; };
+  el.addEventListener("click", async (e) => {
+    if (e.target.closest(".toast-close")) return dismiss();
+    if (e.target.closest(".toast-copy")) {
+      try {
+        await navigator.clipboard.writeText(text);
+        copyBtn.textContent = "Copied";
+        setTimeout(() => { copyBtn.textContent = "Copy"; }, 1200);
+      } catch {}
+      return;
+    }
+    if (!expandable) return;
+    expanded = !expanded;
+    el.classList.toggle("expanded", expanded);
+    chip.textContent = `${clickLabel} to ${expanded ? "collapse" : "expand"}`;
+    copyBtn.hidden = !expanded;
+    setTimer(!expanded); // expanded: timer paused; collapsed: resumes
+  });
 }
 
 export function confirmModal(title, text, okLabel = "Delete", danger = true) {
