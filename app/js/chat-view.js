@@ -363,13 +363,6 @@ export class ChatView {
     return !!session && session === this._session && session.accountEpoch === this.core.accountEpoch;
   }
 
-  // Touch-class device: gates the double-tap text-selection gesture (double
-  // click stays native word-selection on desktop). Read fresh per use.
-  get _isTouch() {
-    try { return matchMedia("(hover: none) and (pointer: coarse)").matches; }
-    catch { return false; }
-  }
-
   async open(chatId) {
     // Retire the old scroller, composer and pending work before yielding.
     this.close();
@@ -1470,33 +1463,45 @@ export class ChatView {
       this._msgContextMenu(it, e.clientX, e.clientY);
     });
     let pressTimer;
+    let twoFinger = null; // { t, x, y } — a quick, still two-finger tap
     row.addEventListener("touchstart", e => {
       // A second finger (pinch / two-finger swipe) never means long-press,
       // and the WebView can abort the whole gesture with touchcancel once
       // it claims it — without this listener the timer would survive.
-      if (e.touches.length > 1) { clearTimeout(pressTimer); return; }
+      if (e.touches.length > 1) {
+        clearTimeout(pressTimer);
+        // Two-finger tap on a bubble = text-selection mode (issue: long-press
+        // both opened the context menu and natively selected a single word).
+        // It arms here (second finger down) and fires on touchend only when
+        // the gesture stayed quick and still — scroll/pinch clears it below.
+        twoFinger = e.touches.length === 2
+          ? { t: Date.now(), x: (e.touches[0].clientX + e.touches[1].clientX) / 2, y: (e.touches[0].clientY + e.touches[1].clientY) / 2 }
+          : null;
+        return;
+      }
       pressTimer = setTimeout(() => { const it = liveItem(); if (it) this._msgContextMenu(it, innerWidth / 2, innerHeight / 2); }, 500);
     }, { passive: true });
     row.addEventListener("touchend", () => clearTimeout(pressTimer));
-    row.addEventListener("touchmove", () => clearTimeout(pressTimer));
-    row.addEventListener("touchcancel", () => clearTimeout(pressTimer));
+    row.addEventListener("touchmove", e => {
+      clearTimeout(pressTimer);
+      if (twoFinger && e.touches.length) {
+        const dx = e.touches[0].clientX - twoFinger.x, dy = e.touches[0].clientY - twoFinger.y;
+        if (dx * dx + dy * dy > 100) twoFinger = null; // moved — it's a scroll/pinch
+      }
+    });
+    row.addEventListener("touchcancel", () => { clearTimeout(pressTimer); twoFinger = null; });
+    row.addEventListener("touchend", e => {
+      if (!twoFinger) return;
+      // Both fingers up, quickly, without moving: text-selection mode.
+      if (e.touches.length === 0 && Date.now() - twoFinger.t < 500) {
+        twoFinger = null;
+        const it = liveItem();
+        if (it) this._enterBubbleTextSelection(row);
+      }
+    });
     row.addEventListener("click", async e => {
       if (!alive()) return;
       if (this.selection.size) { this._toggleSelect(m.id, row); return; }
-      // Double-tap on a bubble = text-selection mode (issue: long-press both
-      // opened the context menu and natively selected a single word — two
-      // gestures fighting). Touch devices only; desktop double-click keeps
-      // its native word-selection. A tap on links/reactions/quotes never
-      // counts toward it.
-      if (this._isTouch && e.target.closest(".bubble")) {
-        const now = Date.now();
-        if (this._bubbleTap && row === this._bubbleTap.row && now - this._bubbleTap.t < 400) {
-          this._bubbleTap = null;
-          this._enterBubbleTextSelection(row);
-          return;
-        }
-        this._bubbleTap = { t: now, row };
-      }
       // Bubble anchors (markdown links, link-preview cards): delegated, not
       // per-anchor wiring — the preview card's <a> is inserted ASYNC after
       // row build, so per-anchor wiring never sees it. Android WebView drops
