@@ -36,11 +36,25 @@ switches.
 The WebP poster-extraction pipeline (`app/js/poster.js`,
 `ensurePoster`, click-to-load) was removed post-1.4.31 — unstable and
 unnecessary: `velta-video` renders a native
-`<video controls preload="metadata" src="...#t=0.1">` and WebView2/Chromium
+`<video preload="metadata" src="...#t=0.1">` with NO `controls` (Android
+WebView stacks its own large centered native play button on controls
+videos — double play button; controls return only in the no-lightbox
+fallback via `v.controls = !videoLightboxOpener`) and WebView2/Chromium
 paints frame 0 directly. The `#t` fragment forces the first-frame fetch.
 `loadedmetadata` shapes the host box to the real aspect. The shell
 commands `poster_cache_path`/`read_media_bytes`/`write_poster` (lib.rs)
 are frontend-dead but still registered — candidates for removal.
+
+## Bubble image thumbnails
+
+`fileUrl(path, {thumb: true})` appends `?w=720`; BOTH the blobfile
+protocol and the loopback server answer with a cached 720px JPEG
+thumbnail — key `sha1(path+mtime+size+w)` under `<app-data>/thumbs`,
+generated in lib.rs via the `image` crate, EXIF orientation applied.
+Animated gif/webp, non-static formats, Range requests and every failure
+fall through to the original bytes, so the UI can never regress on a
+failed thumbnail. Bubble images pass `thumb:true`; the lightbox never
+does.
 
 ## Path scoping
 

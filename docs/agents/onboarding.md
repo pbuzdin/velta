@@ -10,7 +10,12 @@ a collapsed app-log footer fed from the diagnostics store) or when the core
 failed to answer after its retries (log surface). The three setup paths:
 
 1. Create a profile on a relay — input or camera scan of a relay QR
-   (camera permission only on tapping Scan).
+   (camera permission only on tapping Scan). Under the input sits
+   "I don't know a relay name — pick a fast one for me": it calls
+   `initTransports` (core-side autorelay — the core probes its built-in
+   relay pool, configures the fastest, then grows the profile to ~3
+   transports from IMAP idle hooks). The button renders only when the
+   core surface has `initTransports` (demo/mock hides it).
 2. Add as a second device — `dcbackup:` receive (see below).
 3. Restore from a backup file — Tauri file dialog → `resolve_content_uri`
    on Android → `importBackup`, fire-and-forget with `imex-progress`;
@@ -21,7 +26,10 @@ this into an unconditional boot splash.
 
 ## Second-device flow (`secondDeviceFlow`)
 
-Drawer → "Add a second device…". The old device shows a `provide_backup`
+Drawer → "Profile management…" → **Second device** tab (post-1.4.34 the
+profile flows — Add profile / Second device / Export backup — live in one
+tabbed modal; the splash's "add as second device" path shares the same
+receive flow). The old device shows a `provide_backup`
 QR (the `get_backup_qr_svg` design card with the `.qr-self` v-logo badge on
 the reserved circle) and waits, completion detected via `imex-progress`;
 the new device scans/pastes a `DCBACKUP<n>:…` code (the core's format —

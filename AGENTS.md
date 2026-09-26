@@ -789,6 +789,27 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   pages via `_jumpFetchAndScroll` (page cap `jumpMaxPages`) then
   `_scrollToItemSeek` — the scroller has no scroll-to-item API. Arrivals
   mark-read through `markReadSoon` (400ms coalescing, flushed on close).
+- **Profile/chat info editing (post-1.4.35)** — the sheet's action row
+  (`data-pa`) is context-shaped: self = Edit name & picture (delegates to
+  the drawer's `editProfileFlow`) + Add/Edit description; groups/channels =
+  the same two (`showEditProfile` with `contactId: 0, kind: "group"` →
+  `renameChat` = core `set_chat_name`, `setChatImage` = core
+  `set_chat_profile_image`, null image clears); 1:1 keeps Send / Edit name
+  (the local custom name) / Block, and a contact's bio stays read-only.
+  Description edits ride `setSelfStatus` (config `selfstatus`) for self and
+  `setChatDescription` (core 2.62 `set_chat_description`) for
+  groups/channels; empty clears. MockCore mirrors all five methods —
+  `tests/description-edit.test.mjs` pins the wrapper arguments and the mock
+  roundtrips. KEEP: call `modalHistorySettled()` before reopening the sheet
+  after an editor that closed ITSELF (`showEditProfile` does): its close
+  schedules `history.back()` and the late popstate tears the reopened sheet
+  down (the reopen reuses the dying `{velta:'modal'}` entry). Opening
+  `showChatInfo` while a modal is still up is race-free (showModal →
+  closeAllPopups replaces it and skips the history consume) — prefer that
+  shape. The self branch must also refresh the sheet stub from
+  `state.account` before reopening (it carries the name captured at open
+  time). The 1:1 Edit-name flow still closes-then-reopens without settling —
+  same latent race, so far tolerated.
 
 ### 5.2 Core Rust library (`core/src/`)
 
@@ -828,6 +849,10 @@ discovery). Pairing tickets, offline queues, media chunking, the
 `local-chat.js` Proxy adapter and its test pins are documented in
 docs/agents/p2p.md. KEEP: local chat is disabled by default — a fresh
 install must not open QUIC sockets or broadcast LAN beacons unasked.
+KEEP also: the Proxy's relay-chat fall-throughs forward the FULL argument
+list (`(t, id, ...rest)`) — an early version dropped `ids`/`{forAll}`, so
+with local chat on every message deletion in normal chats failed with
+serde `invalid type: null, expected a sequence` (fixed post-1.4.35).
 
 ### 5.5 In-app browser (Android)
 
@@ -1355,8 +1380,12 @@ do-not-regress rules; dates mark when the lesson was learned.
   publishes `Velta-<version>-<abi>.apk`, `version.txt` (the update-banner
   feed), `Velta_<version>_x64-setup.exe` and `latest.json` (the Windows
   self-update manifest — must stay the last-uploaded asset), writes
-  `changelog.md` from commit subjects, and the notify job posts to
-  `ntfy.gluek.info/velta_changelog`. The keystore lives in `signing/`
+  `changelog.md` ("What's changed in Velta <tag>" + user-facing
+  conventional commits only — feat/fix/perf/refactor/revert; the rest are
+  skipped) and `announce.md` (same minus the compare link, plus a
+  "Download the release" tag link; rides a workflow artifact to the notify
+  job, which posts it to `ntfy.gluek.info/velta_changelog`). The keystore
+  lives in `signing/`
   (gitignored) and the four `ANDROID_KEY*` repo secrets — losing both
   means installed APKs can never be updated again.
   `build-windows-cross.yml` is manual-dispatch only.
@@ -1372,7 +1401,16 @@ do-not-regress rules; dates mark when the lesson was learned.
   stay compatible. WATCH: request-body field CASING is a silent trap —
   serde ignores unknown fields, so a renamed/renamed-back input field
   (`viewType` vs `viewtype`) vanishes without an error (see the Stickers
-  bullet in §5.1; `sendMessage` now sends both casings).
+  bullet in §5.1; `sendMessage` now sends both casings). WATCH a second
+  silent trap: ARGUMENT COUNT/SHAPE. The core answers a null where a Vec
+  is expected with `invalid type: null, expected a sequence`, while
+  `[accountId, [null]]` (null element) says `expected u32` instead — map
+  a wire error to its exact position by probing the released rpc-server
+  with hand-built params:
+  `printf '{"jsonrpc":"2.0","id":1,"method":"delete_messages","params":[0,null]}' | DC_ACCOUNTS_PATH=<existing tmp dir> deltachat-backend/windows-x86_64/deltachat-rpc-server.exe`
+  (deserialization happens before the account lookup, so no real account
+  is needed). That recipe identified the local-chat Proxy's dropped `ids`
+  argument (post-1.4.35 fix — docs/agents/p2p.md).
 - **Core 2.60 relay removal** — relay removal is immediate (the core
   refuses only the last relay and re-elects sending, informing contacts
   via keyupdate); `set_transport_unpublished` no longer exists — never
@@ -1425,6 +1463,16 @@ do-not-regress rules; dates mark when the lesson was learned.
   `target/<target>/release/build/velta-app-*/out/` → error toast now carries the
   resolved path. Verify with a REBUILT binary — config fixes never reach a
   running/installed app.
+- **A section header can swallow functions (1.4.35)** — a duplicated
+  `/* ---- deeplinks ----` divider whose `*/` was lost turned everything up
+  to the NEXT divider's closer into comment text: `node --check` still
+  passed, grep still "found" the definitions, and at runtime every
+  fresh-install account creation died with "Setup failed:
+  askNotificationPermission is not defined" (shipped in v1.4.34/1.4.35;
+  addAccountFromInvite/deeplinks were dead the same way). After inserting
+  dividers or moving top-level functions, run
+  `node --test tests/app-source-integrity.test.mjs` — it comment-strips
+  app.js and asserts the pinned definitions still exist outside comments.
 - **Encoding (2026-09-23)** — every text file is UTF-8 without BOM; no
   exceptions. On this Windows checkout the ANSI codepage is CP1251
   (Cyrillic), and tools that read or write with the default encoding —

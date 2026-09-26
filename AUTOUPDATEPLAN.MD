@@ -18,11 +18,13 @@ APIs against the current Tauri v2 docs at implementation time.
 - Renderer has no GitHub reach by design (CSP is loopback-only); all
   update traffic must stay shell-side (Rust/Kotlin).
 
-## Phase 1 — Windows: `tauri-plugin-updater` (~half a day)
+## Phase 1 — Windows: `tauri-plugin-updater` — SHIPPED in v1.4.20
 
 First-party, mature, desktop-only. Flow: the plugin checks a JSON manifest,
 verifies a minisign signature, downloads the NSIS installer, runs it and
-relaunches.
+relaunches. Implemented as described below (see README "One-click updates"
+and AGENTS.md §11 "Windows self-update"); notes kept as the implementation
+record. Remaining work: Phase 2 (Android).
 
 1. Add `tauri-plugin-updater` and `tauri-plugin-process` (relaunch after
    install) to `velta-app/src-tauri/Cargo.toml`; register both in lib.rs.

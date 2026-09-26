@@ -235,6 +235,17 @@ own profile, or the group/channel description — followed by the details rows
 render as invite cards and never trigger web previews (no duplicate card, no
 fingerprint leak).
 
+What you can edit right in the sheet:
+
+- **Own profile** — **Edit name & picture** (the same editor as the drawer's
+  Edit profile) and **Add/Edit description** (your status text; saving it
+  empty clears it).
+- **Groups and channels** — the same **Edit name & picture** (renames the
+  chat and sets or removes its picture; members are informed automatically)
+  and **Add/Edit description**.
+- **People** — **Edit name** sets a custom name that only you see; the
+  bio/status shown in the sheet is theirs and stays read-only.
+
 </details>
 <details>
 <summary>Profile management (add, transfer, export)</summary>
@@ -403,7 +414,7 @@ handle to resize) before sending. From the attachment menu you can send:
 | Type | How it is sent | How it is shown |
 |---|---|---|
 | Photo | `viewtype: Image` with the original file path | Rendered inline as an `<img>` |
-| Video | `viewtype: Video` | Rendered inline as a `<video controls>` element |
+| Video | `viewtype: Video` | Rendered as a native first-frame preview; tapping plays it in a fullscreen lightbox (controls live there) |
 | Audio / voice | `viewtype: Audio` or `Voice` | Rendered inline as an `<audio controls>` element |
 | Any file | `viewtype: File` | Shown as a file card with name, size and a download/open action |
 
@@ -986,14 +997,19 @@ tag itself). The release assets are named after the version in
   (1.4.14+). Windows 1.4.20+ turns the banner button into a one-click
   **Update** (see above); Android keeps Download APK.
 
-**Release changelog**: the release body is generated automatically — every
-commit subject since the previous tag, plus a compare link.
+**Release changelog**: the release body is generated automatically — a
+"What's changed in Velta <tag>" heading, the user-facing conventional
+commits since the previous tag (feat/fix/perf/refactor/revert only;
+chore/docs/ci/test/style/build are skipped), plus a compare link — macOS
+install notes are appended.
 
 **Changelog feed**: after a tag release publishes successfully (both builds
 + the GitHub release), the `Release` workflow posts a notification to
-`ntfy.gluek.info/velta_changelog` — title `Velta: version bumped to
-<version>`, body = the tagged commit's full message with a link, `Velta` +
-`robot` tags. Builds run only on `v*` tag pushes (or manual dispatch);
+`ntfy.gluek.info/velta_changelog` — title `What's changed in Velta
+<version>`, body = the same filtered changelog minus the compare link plus
+a "Download the release" link to the tag (passed to the notify job as a
+workflow artifact), `Velta` + `robot` tags. Builds run only on `v*` tag
+pushes (or manual dispatch);
 ordinary branch pushes don't build anything. `build-windows-cross.yml`
 (Ubuntu sidecar cross-compile build) is manual-dispatch only as well.
 Do not add per-job `concurrency` blocks to `build-android.yml` /

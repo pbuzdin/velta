@@ -56,6 +56,18 @@ markRead are intercepted for `p2p:<peerId>` string chat ids, everything
 else passes through untouched. Do not special-case p2p ids inside
 chat-view.js; add adapter methods instead.
 
+KEEP (post-1.4.35): relay-chat fall-throughs must forward the FULL
+argument list — `(t, id, ...rest)`, never just the first parameter. The
+phase-1 fall-through called `deleteMessages(chatId)`, silently dropping
+`ids` and `{forAll}`: with local chat ON, every deletion in a normal chat
+(relay AND Saved Messages) reached the core as
+`delete_messages(account, null)` and failed with serde
+`invalid type: null, expected a sequence` (user report, webp attachment);
+the same drop killed "Delete for everyone" and setChatFlags
+archive/mute/pin. Pinned by tests/local-chat-transfer-progress.test.mjs.
+When adding a method to `P2P_HANDLED`, decide explicitly whether the
+fall-through needs the full signature.
+
 - Media goes over FileBegin/FileChunk/FileEnd frames (base64, 96 KB raw per
   frame, 256 MB cap) in p2p.rs and lands in
   `<accounts>/p2p-blobs/<nodeId>/` — that directory MUST stay under the
