@@ -243,6 +243,25 @@ export class MockCore extends EventTarget {
   async setDisplayName(name) {
     this.account.displayName = (name || "").trim() || "You";
   }
+  async setSelfStatus(status) {
+    this.account.selfStatus = (status || "").trim();
+  }
+  async getChatDescription(chatId) {
+    return this.chats.find(c => c.id === chatId)?.description || "";
+  }
+  async setChatDescription(chatId, description) {
+    const chat = this.chats.find(c => c.id === chatId);
+    if (chat) chat.description = (description || "").trim();
+  }
+  async renameChat(chatId, name) {
+    const chat = this.chats.find(c => c.id === chatId);
+    const trimmed = (name || "").trim();
+    if (chat && trimmed) chat.name = trimmed;
+  }
+  async setChatImage(chatId, path) {
+    const chat = this.chats.find(c => c.id === chatId);
+    if (chat) chat.avatar = path || null;
+  }
 
   // ---- onboarding surface (mirrors rpc-core; demo mode is configured, so
   // the splash never shows — set localStorage "velta-mock-fresh" + reload to
@@ -274,11 +293,17 @@ export class MockCore extends EventTarget {
   }
 
   async getContact(contactId) {
+    if (contactId === 1) {
+      return { id: 1, name: this.account.displayName, addr: this.account.addr, color: this.account.color,
+        avatar: this.account.avatar || null, online: true, verified: false, bot: false,
+        status: this.account.selfStatus || "", lastSeen: Date.now() };
+    }
     const c = this.contacts.find(x => x.id === contactId);
     if (!c) return null;
     return { id: c.id, name: c.name, addr: c.addr, color: c.color,
       avatar: c.avatar || null, online: !!c.online, verified: !!c.verified,
-      bot: !!c.bot, lastSeen: c.lastSeen ?? (c.online ? Date.now() : Date.now() - 3600e3) };
+      bot: !!c.bot, status: c.status || "",
+      lastSeen: c.lastSeen ?? (c.online ? Date.now() : Date.now() - 3600e3) };
   }
 
   async getChatList({ archived = false, query = "" } = {}) {
