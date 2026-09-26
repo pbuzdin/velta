@@ -52,6 +52,7 @@ let barHidden = (() => {
   catch { return []; }
 })();
 let listView = "chats";
+let archivedCount = 0; // archived-folder button visibility (issue #13)
 const CALL_LOG_KEY = "velta-call-log";
 const state = {
   account: null,
@@ -770,6 +771,12 @@ async function refreshChatList() {
     state.chats = [diagnostics.getChat(), ...chats.filter(chat => chat.id !== DIAGNOSTICS_CHAT_ID)];
     renderChatList();
     renderLocalChatCard();
+    // Archived-folder button visibility (issue #13) — fire-and-forget count.
+    core.getChatList({ archived: true }).then(archived => {
+      if (!accountIsCurrent(epoch)) return;
+      archivedCount = archived.length;
+      syncHeaderButtons();
+    }).catch(() => {});
   } catch (err) {
     // Never funnel refresh errors into the Diagnostics store: the store emits
     // "changed", a listener of which triggers another refresh — an error here
@@ -931,6 +938,7 @@ function setListView(view) {
   if (listView === "calls") { renderCallsView(); return; }
   if (listView === "qr") { renderQrView(); return; }
   if (listView === "search") { renderSearchView(); return; }
+  if (listView === "archived") { renderArchivedView(); return; }
   if (listView === "new") { renderNewChatView(); return; }
 }
 
@@ -947,6 +955,12 @@ function syncHeaderButtons() {
   }
   const plus = document.getElementById("btn-new-chat");
   plus?.classList.toggle("active", listView === "new");
+  const arch = document.getElementById("btn-archived");
+  if (arch) {
+    // Issue #13: the folder affordance only exists while chats are archived.
+    arch.hidden = archivedCount === 0 && listView !== "archived";
+    arch.classList.toggle("active", listView === "archived");
+  }
 }
 
 function sideViewShell(title, subtitle) {
@@ -991,6 +1005,31 @@ async function renderContactsView() {
     getItemId: (c) => String(c.id),
     getEstimatedItemHeight: () => 58,
   });
+}
+
+// Archived chats folder (issue #13): a header button instead of the
+// official client's pinned row. Plain side view — archived lists are small.
+async function renderArchivedView() {
+  const rows = sideViewShell("Archived chats", "Chats you archived — writing in one brings it back to the list");
+  let chats = [];
+  try { chats = await core.getChatList({ archived: true }); } catch { /* backend offline */ }
+  if (listView !== "archived") return; // user switched away mid-fetch
+  if (!chats.length) {
+    rows.innerHTML = `<div class="side-view-empty">No archived chats</div>`;
+    return;
+  }
+  for (const c of chats) {
+    const b = document.createElement("button");
+    b.className = "chat-item contact-row";
+    b.innerHTML = `
+      <velta-avatar name="${escapeAttr(c.name)}" color="${escapeAttr(c.avatarColor || "#777")}" kind="${escapeAttr(c.kind)}" size="42"${c.avatar ? ` avatar="${escapeAttr(fileUrl(c.avatar))}"` : ""}></velta-avatar>
+      <div style="min-width:0">
+        <div class="ci-name">${escapeHtml(c.name)}</div>
+        ${c.lastMsg ? `<div class="archived-sub">${escapeHtml(c.lastMsg)}</div>` : ""}
+      </div>`;
+    b.addEventListener("click", () => { setListView("chats"); openChat(c.id); });
+    rows.appendChild(b);
+  }
 }
 
 function renderCallsView() {
@@ -3296,6 +3335,7 @@ async function boot() {
       bindInviteInterception(link => joinFromInvite(link));
 
       $("btn-search").addEventListener("click", () => setListView(listView === "search" ? "chats" : "search"));
+      $("btn-archived").addEventListener("click", () => setListView(listView === "archived" ? "chats" : "archived"));
       $("btn-new-chat").addEventListener("click", () => setListView(listView === "new" ? "chats" : "new"));
       syncHeaderButtons();
     } catch (err) {

@@ -646,8 +646,13 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `THEME_LABELS` and the theme-color map together.
 - **List action bar + side views** (`.list-bar`, 1.4.7+): buttons switch
   what `#chat-list` shows via `setListView` over {chats, contacts, calls,
-  qr, search, new}; `renderChatList` early-returns unless the view is
-  "chats" (keep that gate — refresh storms clobber the other views).
+  qr, search, new, archived}; `renderChatList` early-returns unless the view
+  is "chats" (keep that gate — refresh storms clobber the other views).
+  `archived` (issue #13, post-1.4.37) is the header box button next to the
+  search button — hidden while `archivedCount` is 0 (piggybacked onto
+  refreshChatList via `getChatList({ archived: true })`, list flag 2 =
+  DC_GCL_ARCHIVED_ONLY), and writing from an archived chat unarchives it
+  (every chat-view send routes through `_sendArchivedAware`).
   Contacts come from `core.getContacts` through a virtual scroller
   (`sideScroller`, stopped by `stopSideScroller` on every view switch);
   Calls read the LOCAL call log (localStorage `velta-call-log`, capped 30 —

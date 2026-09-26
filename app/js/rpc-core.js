@@ -929,9 +929,10 @@ export class JsonRpcCore extends EventTarget {
     return this._call("get_contact_encryption_info", this.accountId, contactId);
   }
 
-  async getChatList({ query = "" } = {}, accountId = this.accountId) {
-    // (account_id, list_flags, query_string, query_contact_id)
-    const ids = await this._call("get_chatlist_entries", accountId, null, query || null, null);
+  async getChatList({ query = "", archived = false } = {}, accountId = this.accountId) {
+    // (account_id, list_flags, query_string, query_contact_id) —
+    // list_flags 2 = DC_GCL_ARCHIVED_ONLY (issue #13 archived folder).
+    const ids = await this._call("get_chatlist_entries", accountId, archived ? 2 : null, query || null, null);
     if (!ids.length) return [];
     const items = await this._call("get_chatlist_items_by_entries", accountId, ids);
     const chats = [];

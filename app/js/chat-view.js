@@ -715,6 +715,20 @@ export class ChatView {
 
   // Retry a failed outgoing message: the core flips it back to OutPending,
   // re-queues it, and the usual MsgDelivered/MsgFailed events take over.
+  // Issue #13: writing from an archived chat unarchives it (official-client
+  // behavior). All sends route through here so none of them misses it.
+  async _sendArchivedAware(chatId, data) {
+    const msg = await this.core.sendMessage(chatId, data);
+    if (this.chat && this.chat.id === chatId && this.chat.archived) {
+      try {
+        await this.core.setChatFlags(chatId, { archived: false });
+        this.chat.archived = false;
+        this.onChatsChanged?.();
+      } catch { /* core refused — keep the flag as is */ }
+    }
+    return msg;
+  }
+
   async _resendMessage(m) {
     try {
       await this.core.resendMessage(m.id);
@@ -1917,7 +1931,7 @@ export class ChatView {
       getStickers: () => this.core.getStickers(),
       onPick: (path) => {
         if (!this._isCurrent(session) || !this.chat) return;
-        this.core.sendMessage(session.chatId, { text: "", viewtype: "sticker", file: path })
+        this._sendArchivedAware(session.chatId, { text: "", viewtype: "sticker", file: path })
           .then((msg) => { if (this._isCurrent(session)) { this.appendOutgoing(msg); this.onChatsChanged(); } })
           .catch((err) => { if (this._isCurrent(session)) errToast("Couldn't send sticker: " + (err.message || err)); });
       },
@@ -2003,7 +2017,7 @@ export class ChatView {
         });
         diagnosticsSink.append("info", `media: wrote ${bytes.length} bytes`);
       }
-      const msg = await this.core.sendMessage(session.chatId, { text: prefix + text, viewtype: pm.kind, file: filePath, filename, quoteId, quoteText });
+      const msg = await this._sendArchivedAware(session.chatId, { text: prefix + text, viewtype: pm.kind, file: filePath, filename, quoteId, quoteText });
       if (!this._isCurrent(session)) return;
       this.appendOutgoing(msg);
       this.onChatsChanged();
@@ -2058,7 +2072,7 @@ export class ChatView {
     const { quoteId, quoteText, prefix } = this._takeQuote();
     const sendText = prefix + text;
     try {
-      const msg = await this.core.sendMessage(session.chatId, { text: sendText, quoteId, quoteText });
+      const msg = await this._sendArchivedAware(session.chatId, { text: sendText, quoteId, quoteText });
       if (!this._isCurrent(session)) return;
       this.appendOutgoing(msg);
       this.onChatsChanged();
@@ -2074,7 +2088,7 @@ export class ChatView {
     // Voice recording is not implemented yet — keep the old demo placeholder.
     if (kind === "voice") {
       try {
-        const msg = await this.core.sendMessage(session.chatId, { text: "", viewtype: "voice", extra: { duration: 5 + Math.floor(Math.random() * 40) } });
+        const msg = await this._sendArchivedAware(session.chatId, { text: "", viewtype: "voice", extra: { duration: 5 + Math.floor(Math.random() * 40) } });
         if (!this._isCurrent(session)) return;
         this.appendOutgoing(msg);
         this.onChatsChanged();
@@ -2144,7 +2158,7 @@ export class ChatView {
       if (["mp4", "mov", "mkv", "avi", "webm"].includes(ext)) viewtype = "video";
       else if (["mp3", "m4a", "ogg", "wav", "flac"].includes(ext)) viewtype = "audio";
       const { quoteId, quoteText, prefix } = this._takeQuote();
-      const msg = await this.core.sendMessage(session.chatId, { text: prefix, viewtype, file: resolved, filename: name, quoteId, quoteText });
+      const msg = await this._sendArchivedAware(session.chatId, { text: prefix, viewtype, file: resolved, filename: name, quoteId, quoteText });
       if (!this._isCurrent(session)) return;
       this.appendOutgoing(msg);
       this.onChatsChanged();

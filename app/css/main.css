@@ -583,6 +583,14 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
    LAST glyph too, which left the tag visibly lopsided at this size. Inherits
    the meta color — visible on every theme's incoming bubble (contrast held
    by the meta color, ≥4.5:1 like the time). */
+/* Issue #13: the archived-folder header button hides entirely when the
+   account has no archived chats (display beats [hidden] — §6.2). */
+.sidebar-head .icon-btn[hidden] { display: none; }
+.sidebar-head .icon-btn.active { color: var(--accent); }
+.archived-sub {
+  font-size: 12px; color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .msg-meta .bot-chip {
   font-size: 8.5px; font-weight: 700;
   text-transform: uppercase; line-height: 1;
