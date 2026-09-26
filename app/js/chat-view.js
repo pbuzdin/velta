@@ -60,6 +60,12 @@ function errToast(text, ms = 3000) {
   toast(text, ms);
 }
 
+// Image extensions the lightbox can show when native opening is unavailable
+// (Android) — animated webp included, the <img> element animates it.
+export function isMediaFilePath(path) {
+  return /\.(?:png|jpe?g|gif|webp|bmp|avif)$/i.test(path || "");
+}
+
 // Desktop: open a URL in the SYSTEM browser. wry swallows window.open /
 // target=_blank new-window requests, so this rides the opener plugin — the
 // same verified path as the update banner (plugin:opener|open_url,
@@ -1328,13 +1334,18 @@ export class ChatView {
         e.stopPropagation();
         if (!alive()) return;
         // Received sticker: official-client behavior — tap asks to add it to
-        // the user's sticker collection (misc_save_sticker), no lightbox.
+        // the user's sticker collection (misc_save_sticker), then opens the
+        // lightbox either way (desktop parity: viewer + add-to-collection).
+        // Ask first: the modal layer sits below the lightbox, so a modal
+        // opened after it would render underneath.
         if (m.viewtype === "sticker" && m.from !== 1 && m.filePath) {
           confirmModal("Add sticker", "Add this sticker to your sticker collection?", "Add", false)
             .then(ok => {
-              if (!ok) return;
-              this.core.saveSticker(m.id).then(() => toast("Sticker saved to your collection"))
-                .catch(err => errToast("Couldn't save: " + (err?.message || err)));
+              if (ok) {
+                this.core.saveSticker(m.id).then(() => toast("Sticker saved to your collection"))
+                  .catch(err => errToast("Couldn't save: " + (err?.message || err)));
+              }
+              openImageLightbox(fileUrl(m.filePath), m.fileName || "sticker");
             });
           return;
         }
@@ -2125,6 +2136,19 @@ export class ChatView {
     // iframe (no allow-same-origin -> opaque origin, no access to the app or
     // the network context of this page) instead of the system browser.
     if (/\.x?html?$/i.test(path)) return this._openHtmlIsolated(path, name);
+    // Android: tauri-plugin-opener ships no file-open implementation on
+    // mobile (its Kotlin side only handles URLs — open_path dies in
+    // plugin-internal arg parsing), and the app's private storage is not
+    // reachable from other apps without a FileProvider anyway. Media opens
+    // in the lightbox instead; other types say so honestly.
+    if (/Android/.test(navigator.userAgent)) {
+      if (isMediaFilePath(path)) {
+        openImageLightbox(fileUrl(path), name || "image");
+        return;
+      }
+      errToast("Opening this file type isn't supported on Android yet");
+      return;
+    }
     const tauri = window.__TAURI__;
     const invoke = tauri?.core?.invoke || tauri?.invoke;
     if (invoke) {

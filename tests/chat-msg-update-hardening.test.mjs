@@ -233,3 +233,27 @@ test("a pending debounced read is flushed on close", async t => {
   view.close();
   assert.equal(reads, 1, "close must flush the pending markRead");
 });
+
+test("isMediaFilePath classifies openable media for the Android lightbox path", async t => {
+  const { isMediaFilePath } = await import("../app/js/chat-view.js");
+  assert.equal(isMediaFilePath("/data/x/abc.webp"), true, "animated webp opens in the lightbox");
+  assert.equal(isMediaFilePath("/data/x/photo.JPG"), true, "case-insensitive");
+  assert.equal(isMediaFilePath("/data/x/doc.pdf"), false, "non-media stays out of the lightbox");
+  assert.equal(isMediaFilePath(""), false);
+});
+
+test("Android open of a non-media file toasts instead of calling the opener plugin", async t => {
+  const { view } = setup(t);
+  await view.open(7);
+  const desc = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", { value: { userAgent: "Mozilla/5.0 (Android 15; Mobile)" }, configurable: true });
+  t.after(() => {
+    if (desc) Object.defineProperty(globalThis, "navigator", desc);
+  });
+
+  const toasts = document.getElementById("toasts");
+  const before = toasts ? toasts.children.length : 0;
+  view._openFile("/data/x/dc.db-blobs/doc.pdf", "doc.pdf");
+  const after = toasts ? toasts.children.length : before;
+  assert.equal(after, before + 1, "an honest toast replaces the crashing opener call");
+});
