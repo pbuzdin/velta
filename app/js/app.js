@@ -1188,6 +1188,9 @@ function openSelfProfile() {
     contact: { addr: state.account.addr },
     kind: "single",
     encrypted: true,
+    // getAccount() already resolved the self contact's photo (rpc-core) —
+    // without it the sheet renders the bare fingerprint tile.
+    avatar: state.account?.avatar,
   });
 }
 
@@ -1492,16 +1495,26 @@ async function showChatInfo(chat) {
   (async () => {
     try {
       let desc = "";
+      let photo = null;
       if (chat.contactId) {
         const c = await core.getContact(chat.contactId);
         desc = c?.status || "";
+        photo = c?.avatar || null;
       } else if (core.getChatDescription) {
         desc = (await core.getChatDescription(chat.id)) || "";
       }
       currentDesc = desc.trim();
-      if (currentDesc && accountIsCurrent(epoch)) {
-        descEl.textContent = currentDesc;
-        descEl.hidden = false;
+      if (accountIsCurrent(epoch)) {
+        if (currentDesc) {
+          descEl.textContent = currentDesc;
+          descEl.hidden = false;
+        }
+        // The self contact's photo: the sheet stub may predate it (or the
+        // photo may have been set on another device) — hydrate it late.
+        const ava = body.querySelector(".chat-info-avatar");
+        if (photo && ava && !ava.getAttribute("avatar")) {
+          ava.setAttribute("avatar", fileUrl(photo));
+        }
       }
     } catch {}
   })();

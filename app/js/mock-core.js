@@ -86,6 +86,9 @@ export class MockCore extends EventTarget {
         id: 1, addr: "you@nine.testrun.org", displayName: "You",
         color: "#5aa2e6", bio: "Velta user",
         relay: "nine.testrun.org",
+        // A custom profile pic so the drawer avatar and the self sheet
+        // exercise the photo path in demo mode.
+        avatar: "data:image/svg+xml," + encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='#5aa2e6'/><stop offset='1' stop-color='#7d6ee0'/></linearGradient></defs><rect width='64' height='64' fill='url(#g)'/><circle cx='32' cy='24' r='11' fill='#fff'/><path d='M12 56c2-12 10-17 20-17s18 5 20 17z' fill='#fff'/></svg>"),
       };
     }
     // Demo relay set for the Relays modal (issue #11 slices: demotion +
