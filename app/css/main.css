@@ -334,7 +334,7 @@ html[data-theme="light"] .day-chip { background: rgba(244,244,244,.75); color: #
 
 .bubble {
   position: relative;
-  max-width: min(480px, 82%);
+  max-width: min(480px, 90%);
   background: var(--bg-bubble-in);
   border-radius: var(--radius-bubble);
   border-bottom-left-radius: 6px;
@@ -358,7 +358,7 @@ html[data-theme="light"] .day-chip { background: rgba(244,244,244,.75); color: #
 }
 .msg-row.with-avatar { align-items: flex-end; gap: 8px; }
 /* reserve 42px avatar + 8px gap */
-.msg-row.with-avatar .bubble { max-width: min(480px, calc(82% - 50px)); }
+.msg-row.with-avatar .bubble { max-width: min(480px, calc(90% - 50px)); }
 
 /* Desktop hover: the padded photo grows to fill the tile edge to edge.
    hover:hover + pointer:fine keeps it off touch devices, where hover
