@@ -774,8 +774,17 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   receive hand-off), Export backup (`exportBackup` + `imex-progress`;
   desktop folder picker, fixed `exports/` dir on Android). Tabs lock
   (`.pm-tabs.locked`) while a flow runs. Modals are full-screen below 600px
-  viewport (`css` media query, `.modal-compact` opts out — confirmations use
-  it). Bubbles cap at `min(480px, 90%)` (avatar rows −50px). Jump targets
+  viewport (`.modal-compact` opts out — confirmations use it); on desktop
+  they fill the chat-list pane (width mirrors .sidebar via clamp, height
+  stops above the list bar; in-chat modals stay full-screen via
+  `:has(.app.chat-open)` gating — phones stop above the bottom bar in list
+  context). Modals ride a `{velta:'modal'}` history entry — Android BACK
+  closes the top modal (lightbox pattern; replacement reuses the entry,
+  `modalReplacing` guard). Toasts are `<details class=toast>` bars anchored
+  above the composer/bottom bar: 3px shrinking timer bar (danger red for
+  errToast) whose animationend dismisses, one-line ellipsis,
+  overflow-gated expand chip (re-measured after `document.fonts.ready`),
+  copy button in the open pane, close X in the summary. Bubbles cap at `min(480px, 90%)` (avatar rows −50px). Jump targets
   outside the loaded window (search hits, quotes, pinned bar) fetch older
   pages via `_jumpFetchAndScroll` (page cap `jumpMaxPages`) then
   `_scrollToItemSeek` — the scroller has no scroll-to-item API. Arrivals
