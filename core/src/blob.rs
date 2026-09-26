@@ -288,8 +288,7 @@ impl<'a> BlobObject<'a> {
         context: &Context,
         name: Option<String>,
         viewtype: &mut Viewtype,
-    ) -> Result<String> {
-        let (max_wh, max_bytes) =
+    ) -> Result<String> {        let (max_wh, max_bytes) =
             match MediaQuality::from_i32(context.get_config_int(Config::MediaQuality).await?)
                 .unwrap_or_default()
             {
@@ -339,6 +338,14 @@ impl<'a> BlobObject<'a> {
             *no_exif_ref = exif.is_none();
             // It's strange that BufReader modifies a file position while it takes a non-mut
             // reference. Ok, just rewind it.
+            file.rewind()?;
+            // Velta patch (re-apply on core upgrades, see VENDORISSUES.MD):
+            // animated WebP must not be recoded — the `image` crate decodes
+            // only the first frame, so the recode below would silently turn
+            // an animated, transparent webp into a static JPEG.
+            if is_animated_webp(&mut file).unwrap_or(false) {
+                return Ok(name);
+            }
             file.rewind()?;
             let imgreader = ImageReader::new(std::io::BufReader::new(&file)).with_guessed_format();
             let imgreader = match imgreader {
@@ -553,6 +560,25 @@ fn file_hash(src: &Path) -> Result<blake3::Hash> {
         .context("update_reader")?;
     let hash = hasher.finalize();
     Ok(hash)
+}
+
+/// Velta patch (re-apply on core upgrades, see VENDORISSUES.MD): detects an
+/// animated WebP from its container header. WebP is a RIFF container; each
+/// animation frame lives in an "ANMF" chunk, which only animated files carry
+/// (always near the start, right after the VP8X/ANIM chunks). The `image`
+/// crate decodes only the first frame, so recoding an animated webp would
+/// silently strip the animation — upstream tracks this in the TODO inside
+/// `check_or_recode_to_size`. Animated webps are sent byte-exact instead.
+fn is_animated_webp(file: &mut std::fs::File) -> std::io::Result<bool> {
+    use std::io::Read;
+    file.rewind()?;
+    let mut head = Vec::new();
+    std::io::Read::take(&mut *file, 4096).read_to_end(&mut head)?;
+    file.rewind()?;
+    Ok(head.len() > 12
+        && head.get(0..4) == Some(b"RIFF".as_slice())
+        && head.get(8..12) == Some(b"WEBP".as_slice())
+        && head.windows(4).any(|w| w == b"ANMF"))
 }
 
 /// Returns image file size and Exif.

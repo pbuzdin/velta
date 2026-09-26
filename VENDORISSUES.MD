@@ -137,3 +137,33 @@ probe/fallback ladder in `media.js` documents the behavior.
 
 No issues found; vendored as a fallback for Android WebViews that ship no
 `BarcodeDetector` (or one whose `detect()` hangs — see `qr-scan.js`).
+
+---
+
+## Delta Chat core (vendored `core/`, upstream chatmail/core)
+
+### 7. Recoding an animated WebP strips its animation (static JPEG out)
+
+**Status: patched locally (`core/src/blob.rs` — `is_animated_webp()` early
+exit in `check_or_recode_to_size`; re-apply on every core upgrade, the call
+site is the `Velta patch` block right before the `ImageReader`
+construction).**
+
+`check_or_recode_to_size()` decodes every Image-viewtype attachment with the
+`image` crate when it exceeds the media-quality byte limit or carries Exif,
+then re-encodes as JPEG. The `image` crate decodes only the first frame of an
+animated WebP, and JPEG has no alpha — so a large (or Exif-carrying) animated
+webp sent as a photo arrives as a static, opaque JPEG. Upstream knows: the
+recode block carries a TODO about lost animation/transparency.
+
+Patch: before the decode, sniff the first 4 KiB of the container; a
+RIFF/WEBP header containing an `ANMF` chunk (animation-frame chunk, only
+present in animated webps) returns the blob unchanged — byte-exact send,
+animation and transparency intact. Static webps keep the normal recode path
+(Exif stripping, downscale). Trade-off: an animated webp above the byte limit
+stays above it (chatmail's own size ceiling still applies server-side), and
+Exif metadata is not stripped from animated webps.
+
+Upstream fix: handle animation (or at least skip recoding for formats the
+`image` crate cannot re-encode losslessly) inside
+`check_or_recode_to_size()` — then drop this patch.

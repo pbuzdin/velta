@@ -871,3 +871,29 @@ async fn test_recode_without_downscaling() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_is_animated_webp_detection() {
+    // RIFF/WebP header with an ANMF (animation frame) chunk: animated.
+    let animated: &[u8] = b"RIFF\x24\x00\x00\x00WEBPVP8X \x00\x00\x00\x10\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00ANMF\x0c\x00\x00\x00\x00\x00\x00\x00";
+    // Static webp: same container, no ANMF chunk.
+    let static_webp: &[u8] = b"RIFF\x18\x00\x00\x00WEBPVP8 \x0c\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+    // Not webp at all.
+    let jpeg: &[u8] = b"\xff\xd8\xff\xe0JFIF garbage ANMF ANMF";
+
+    let dir = tempfile::tempdir().unwrap();
+    let write = |name: &str, bytes: &[u8]| {
+        let p = dir.path().join(name);
+        std::fs::write(&p, bytes).unwrap();
+        std::fs::File::open(&p).unwrap()
+    };
+
+    let mut f = write("animated.webp", animated);
+    assert!(is_animated_webp(&mut f).unwrap(), "animated webp must be detected");
+
+    let mut f = write("static.webp", static_webp);
+    assert!(!is_animated_webp(&mut f).unwrap(), "static webp must not be flagged");
+
+    let mut f = write("x.jpg", jpeg);
+    assert!(!is_animated_webp(&mut f).unwrap(), "non-webp must not be flagged");
+}
