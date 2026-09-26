@@ -42,6 +42,11 @@ keyupdate messages; `transports-modified` events refresh the modal and the
 status line live. `add_transport_from_qr` with `check_qr` validation and
 `configure-progress` step UI for adding.
 
+Demo mode: MockCore carries a relay surface (`relayDomains` +
+`listTransports`/`setSendRelay`/`deleteTransport`/`getConnectivityHtml`),
+so the Relays modal is fully demoable — the second demo relay renders
+as unreachable, which exercises the stale-transport hint.
+
 ## Deep links
 
 `addRelayFlow` also takes a preset code, so a clicked/pasted `dcaccount:`
