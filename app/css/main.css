@@ -1088,6 +1088,11 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
     border-radius: 0; border-left: none; border-right: none; border-top: none;
     animation: sheetIn .18s ease-out;
   }
+  /* Edge-to-edge: the page draws under the status bar, so the modal head
+     clears it the same way the sidebar head does (env safe-area top). */
+  .modal:not(.modal-compact) .modal-head {
+    padding-top: calc(16px + env(safe-area-inset-top));
+  }
   .modal:not(.modal-compact) .modal-body { flex: 1; }
   .modal:not(.modal-compact) .modal-foot { padding-bottom: max(14px, env(safe-area-inset-bottom)); }
 }

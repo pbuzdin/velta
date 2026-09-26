@@ -54,6 +54,7 @@ globalThis.HTMLElement = Element;
 const elements = new Map();
 globalThis.customElements = { get: name => elements.get(name), define: (name, el) => elements.set(name, el) };
 globalThis.window = { addEventListener() {}, removeEventListener() {} };
+globalThis.history = { state: null, pushState() {}, back() {}, replaceState() {} };
 globalThis.innerHeight = 800;
 globalThis.innerWidth = 1200;
 const { ChatView } = await import("../app/js/chat-view.js");

@@ -6,6 +6,7 @@ const popups = () => document.getElementById("popups");
 
 let activeDrawer = null; // set by buildDrawer, closed by closeAllPopups
 let activeModalClose = null;
+let modalReplacing = false; // a showModal→closeAllPopups pair is mid-flight — skip the history consume
 
 // House close icon: bold stroke to match the other icon buttons (the
 // unicode ✕ renders hairline-thin). Used by modals, the image lightbox and
@@ -93,7 +94,13 @@ export function showStickerPicker({ getStickers, onPick }) {
 }
 
 export function showModal({ title, body, foot, onClose, compact = false }) {
+  // Android BACK must close a modal, not exit the app: the modal rides a
+  // history entry (same contract as the lightbox). When a modal replaces
+  // another, the entry is reused — history.back() is async, so a
+  // back-here-push-there pair would race and lose the replacement's entry.
+  modalReplacing = true;
   closeAllPopups();
+  modalReplacing = false;
   const overlay = document.createElement("div");
   overlay.className = "pop-overlay";
   const modal = document.createElement("div");
@@ -111,9 +118,15 @@ export function showModal({ title, body, foot, onClose, compact = false }) {
     if (closed) return;
     closed = true;
     if (activeModalClose === doClose) activeModalClose = null;
+    window.removeEventListener("popstate", onModalPop);
+    // Consume our history entry — skipped when the pop already happened
+    // (the BACK that fired onModalPop consumed it for us), and skipped when
+    // a replacing showModal reuses this entry (modalReplacing).
+    if (history.state?.velta === "modal" && !modalReplacing) history.back();
     overlay.remove();
     onClose?.();
   };
+  const onModalPop = () => doClose();
   activeModalClose = doClose;
   close.addEventListener("click", doClose);
   head.appendChild(close);
@@ -130,6 +143,8 @@ export function showModal({ title, body, foot, onClose, compact = false }) {
   overlay.appendChild(modal);
   overlay.addEventListener("pointerdown", e => { if (e.target === overlay) doClose(); });
   popups().appendChild(overlay);
+  if (history.state?.velta !== "modal") history.pushState({ velta: "modal" }, "");
+  window.addEventListener("popstate", onModalPop);
   return { close: doClose, modal };
 }
 
