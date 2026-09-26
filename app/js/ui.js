@@ -92,12 +92,14 @@ export function showStickerPicker({ getStickers, onPick }) {
   return pop;
 }
 
-export function showModal({ title, body, foot, onClose }) {
+export function showModal({ title, body, foot, onClose, compact = false }) {
   closeAllPopups();
   const overlay = document.createElement("div");
   overlay.className = "pop-overlay";
   const modal = document.createElement("div");
-  modal.className = "modal";
+  // compact: keep the floating card even on phones (confirmations); the
+  // default grows to the full viewport on narrow screens (task modals).
+  modal.className = compact ? "modal modal-compact" : "modal";
   const head = document.createElement("div");
   head.className = "modal-head";
   head.innerHTML = `<div class="modal-title">${escapeHtml(title)}</div>`;
@@ -149,7 +151,7 @@ export function confirmModal(title, text, okLabel = "Delete", danger = true) {
     ok.className = "btn-text"; ok.textContent = okLabel;
     if (danger) ok.style.color = "var(--danger)";
     foot.append(cancel, ok);
-    const { close } = showModal({ title, body: `<p style="font-size:15px;line-height:1.45">${escapeHtml(text)}</p>`, foot, onClose: () => resolve(false) });
+    const { close } = showModal({ title, body: `<p style="font-size:15px;line-height:1.45">${escapeHtml(text)}</p>`, foot, compact: true, onClose: () => resolve(false) });
     cancel.addEventListener("click", close);
     ok.addEventListener("click", () => { resolve(true); close(); });
   });
