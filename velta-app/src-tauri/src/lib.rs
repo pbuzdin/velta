@@ -1728,8 +1728,10 @@ fn set_logging_enabled(enabled: bool) {
 // Diagnostics chat "DevTools" switch.
 // Desktop: opens/closes the WebView inspector (the `devtools` cargo feature
 // is enabled in all builds). Android: flips WebView remote debugging —
-// chrome://inspect over USB. No Kotlin changes needed:
-// setWebContentsDebuggingEnabled is a static on android.webkit.WebView.
+// chrome://inspect over USB. The static setWebContentsDebuggingEnabled call
+// MUST run on the Android UI thread (off-thread it throws the Java exception
+// from issue #12), so Rust posts the flag through org/velta/DevTools.kt,
+// which hops to the main looper.
 #[tauri::command]
 fn set_devtools(_app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
     #[cfg(target_os = "android")]
@@ -1740,15 +1742,15 @@ fn set_devtools(_app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
             .attach_current_thread()
             .map_err(|e| format!("jvm attach: {e}"))?;
         let class = env
-            .find_class("android/webkit/WebView")
-            .map_err(|e| format!("WebView class: {e}"))?;
+            .find_class("org/velta/DevTools")
+            .map_err(|e| format!("DevTools class: {e}"))?;
         env.call_static_method(
             &class,
-            "setWebContentsDebuggingEnabled",
+            "set",
             "(Z)V",
             &[jni::objects::JValue::Bool(enabled as u8)],
         )
-        .map_err(|e| format!("setWebContentsDebuggingEnabled: {e}"))?;
+        .map_err(|e| format!("DevTools.set: {e}"))?;
         Ok(())
     }
     #[cfg(not(target_os = "android"))]
