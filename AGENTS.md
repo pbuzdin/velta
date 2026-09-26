@@ -1406,7 +1406,7 @@ do-not-regress rules; dates mark when the lesson was learned.
   `changelog.md` ("What's changed in Velta <tag>" + user-facing
   conventional commits only — feat/fix/perf/refactor/revert; the rest are
   skipped) and `announce.md` (same minus the compare link, plus a
-  "Download the release" tag link; rides a workflow artifact to the notify
+  "Download" tag link; rides a workflow artifact to the notify
   job, which posts it to `ntfy.gluek.info/velta_changelog`). The keystore
   lives in `signing/`
   (gitignored) and the four `ANDROID_KEY*` repo secrets — losing both

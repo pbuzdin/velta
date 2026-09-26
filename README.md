@@ -1033,7 +1033,7 @@ install notes are appended.
 + the GitHub release), the `Release` workflow posts a notification to
 `ntfy.gluek.info/velta_changelog` — title `What's changed in Velta
 <version>`, body = the same filtered changelog minus the compare link plus
-a "Download the release" link to the tag (passed to the notify job as a
+a "Download" link to the tag (passed to the notify job as a
 workflow artifact), `Velta` + `robot` tags. Builds run only on `v*` tag
 pushes (or manual dispatch);
 ordinary branch pushes don't build anything. `build-windows-cross.yml`
