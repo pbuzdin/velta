@@ -1099,6 +1099,21 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .modal-title { flex: 1; font-size: 18px; font-weight: 600; }
 .modal-body { padding: 6px 18px 18px; overflow-y: auto; }
 .modal-list { display: flex; flex-direction: column; }
+/* Profile management tabs (Add profile / Second device / Export backup).
+   Locked tabs: a running flow owns the modal until it finishes. */
+.pm-tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+.pm-tab {
+  flex: 1; padding: 8px 4px; border-radius: 8px; font-size: 13.5px;
+  background: none; border: 1px solid transparent; color: var(--text-dim);
+}
+.pm-tab.active { background: var(--bg-hover); color: var(--text); border-color: var(--border); }
+.pm-tabs.locked .pm-tab { opacity: .45; pointer-events: none; }
+.pm-hint { font-size: 14.5px; line-height: 1.5; margin-bottom: 10px; }
+.pm-pane .text-field { width: 100%; margin-bottom: 10px; }
+.pm-actions { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.pm-actions .btn-primary { flex: 1; }
+.pm-col { flex-direction: column; margin: 10px 0; }
+.pm-progress { margin-top: 10px; font-size: 14.5px; color: var(--text-dim); }
 .modal .chat-item { margin: 0; }
 .btn-primary {
   background: var(--accent); color: #f4f4f4;

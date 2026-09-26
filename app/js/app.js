@@ -1731,7 +1731,7 @@ function newChatOptions() {
       }
     } },
     { label: "Join chat via invite link", onClick: joinFlow },
-    { label: "Add account via invite link", onClick: addAccountFlow },
+    { label: "Add account via invite link", onClick: () => openProfileManagement() },
   ];
 }
 
@@ -1835,15 +1835,196 @@ function askGroupName() {
   });
 }
 
-async function addAccountFlow() {
-  const code = await acquireCode({
-    title: "Add account",
-    hint: "Paste a chatmail invite link (<code>dcaccount:…</code>), just a relay domain like <code>nine.testrun.org</code>, or scan a QR code in the Delta Chat app to add another profile.",
-    validate: c => (normalizeRelayLink(c) ? null : "That doesn't look like a chatmail relay or dcaccount: link"),
+// Profile management: one tabbed modal for the profile lifecycle — add a
+// profile, second-device transfer, backup export. Tabs lock while a flow
+// runs inside one (camera capture and transfers are stateful). The second
+// device "receive" branch hands over to its own full-screen steps, which
+// replaces this modal by design.
+function openProfileManagement() {
+  if (state.accountChanging) return;
+  const epoch = core.accountEpoch;
+  const body = document.createElement("div");
+  body.innerHTML = `
+    <div class="pm-tabs" data-tabs>
+      <button class="pm-tab active" data-tab="add">Add profile</button>
+      <button class="pm-tab" data-tab="device">Second device</button>
+      <button class="pm-tab" data-tab="export">Export backup</button>
+    </div>
+    <div class="pm-pane" data-pane="add">
+      <p class="pm-hint">Paste a <b>chatmail</b> invite link (<span>dcaccount:…</span>) or a relay domain — a new end-to-end encrypted profile is created on it.</p>
+      <input class="text-field" data-relay placeholder="Relay address — e.g. nine.testrun.org" autocomplete="off" inputmode="url" autocapitalize="none">
+      <div class="pm-actions">
+        <button class="btn-text" data-scan>Scan a QR code</button>
+        <button class="btn-primary" data-add>Add profile</button>
+      </div>
+    </div>
+    <div class="pm-pane" data-pane="device" hidden>
+      <p class="p2p-hint">Move this profile to a new device, or receive a profile from another one. Both devices must be on the same network.</p>
+      <div class="pm-actions pm-col">
+        <button class="btn-text btn-primary" data-old>Show QR on this device</button>
+        <button class="btn-text" data-new>Receive a profile on this device…</button>
+      </div>
+      <div data-transfer-pane></div>
+    </div>
+    <div class="pm-pane" data-pane="export" hidden>
+      <p class="pm-hint">Write this profile — messages, contacts and keys — into a backup file. The profile stays signed in.</p>
+      <input class="text-field" data-dest placeholder="Choose a folder…" readonly>
+      <input class="text-field" data-pass type="password" placeholder="Passphrase (optional, min 6 chars)" autocomplete="new-password">
+      <div class="pm-actions"><button class="btn-primary" data-export disabled>Export backup</button></div>
+      <div class="pm-progress" data-progress hidden></div>
+    </div>`;
+
+  const tabsBox = body.querySelector("[data-tabs]");
+  const panes = {
+    add: body.querySelector('[data-pane="add"]'),
+    device: body.querySelector('[data-pane="device"]'),
+    export: body.querySelector('[data-pane="export"]'),
+  };
+  const lock = (on) => tabsBox.classList.toggle("locked", on);
+  tabsBox.addEventListener("click", e => {
+    const tab = e.target.closest("[data-tab]");
+    if (!tab || tabsBox.classList.contains("locked")) return;
+    tabsBox.querySelectorAll(".pm-tab").forEach(t => t.classList.toggle("active", t === tab));
+    for (const [key, pane] of Object.entries(panes)) pane.hidden = key !== tab.dataset.tab;
   });
-  if (!code) return;
-  await addAccountFromInvite(normalizeRelayLink(code));
+
+  /* -- add profile -- */
+  const relayInput = panes.add.querySelector("[data-relay]");
+  const submitAdd = async () => {
+    const link = normalizeRelayLink(relayInput.value);
+    if (!link) {
+      toast(relayInput.value.trim() ? "That doesn't look like a chatmail relay or dcaccount: link" : "Enter a relay address");
+      return;
+    }
+    lock(true);
+    await addAccountFromInvite(link);
+    lock(false);
+    // A successful add switches the active account; drop the modal so the
+    // refreshed drawer/UI takes over.
+    if (accountIsCurrent(epoch) && state.accounts.length > 1) close();
+  };
+  panes.add.querySelector("[data-add]").addEventListener("click", submitAdd);
+  panes.add.querySelector("[data-scan]").addEventListener("click", async () => {
+    const code = await acquireCode({
+      title: "Add account",
+      hint: "Paste a chatmail invite link (<code>dcaccount:…</code>), just a relay domain like <code>nine.testrun.org</code>, or scan a QR code in the Delta Chat app to add another profile.",
+      validate: c => (normalizeRelayLink(c) ? null : "That doesn't look like a chatmail relay or dcaccount: link"),
+    });
+    if (!code) return;
+    relayInput.value = code;
+    submitAdd();
+  });
+
+  /* -- second device -- */
+  let transferStarted = false;
+  let progHandler = null;
+  const transferPane = panes.device.querySelector("[data-transfer-pane]");
+  const cleanupTransfer = () => {
+    if (progHandler) { core.removeEventListener("imex-progress", progHandler); progHandler = null; }
+    if (transferStarted) core.stopOngoingProcess?.().catch?.(() => {});
+  };
+  panes.device.querySelector("[data-old]").addEventListener("click", () => {
+    if (!accountIsCurrent(epoch)) return;
+    transferStarted = true;
+    lock(true);
+    transferPane.innerHTML = `
+      <div class="qr-box" style="margin-top:10px"><div class="qr-loading">Preparing QR…</div></div>
+      <div class="p2p-hint" style="opacity:.6">On the new device, tap "Receive a profile on this device" and scan or paste this code. Keep both devices on this screen until the transfer finishes.</div>
+      <div style="margin-top:8px"><button class="btn-text" data-cancel>Cancel</button></div>`;
+    const transferDone = () => {
+      if (!accountIsCurrent(epoch)) return;
+      cleanupTransfer();
+      toast("Profile transferred to the second device");
+      close();
+    };
+    progHandler = (e) => {
+      if ((e.detail?.progress || 0) >= 1000) transferDone();
+    };
+    core.addEventListener("imex-progress", progHandler);
+    // Blocks server-side until a device retrieves the backup; it can outlive
+    // the RPC timeout — completion is detected via ImexProgress above.
+    core.provideBackup().then(transferDone).catch(() => {});
+    transferPane.querySelector("[data-cancel]").addEventListener("click", () => {
+      cleanupTransfer();
+      transferPane.innerHTML = "";
+      lock(false);
+    });
+    core.getBackupQrSvg().then((svg) => {
+      if (accountIsCurrent(epoch)) {
+        transferPane.querySelector(".qr-box").innerHTML = svg;
+        // The card reserves a clear circle at 50% / 43.65% — same overlay
+        // as the invite QR.
+        transferPane.querySelector(".qr-box").insertAdjacentHTML("beforeend",
+          `<div class="qr-self"><img src="./icons/v-logo.svg" alt=""></div>`);
+      }
+    }).catch((err) => {
+      if (accountIsCurrent(epoch)) transferPane.querySelector(".qr-box").innerHTML =
+        `<div class="qr-loading">Couldn't prepare the transfer:<br>${escapeHtml(String(err?.message || err))}</div>`;
+    });
+  });
+  panes.device.querySelector("[data-new]").addEventListener("click", () => {
+    if (!accountIsCurrent(epoch)) return;
+    // Hands over to its own full-screen code sheet + steps, replacing this
+    // modal (closeAllPopups inside) — nothing to clean up here.
+    receiveSecondDeviceProfile(epoch, () => { transferStarted = true; });
+  });
+
+  /* -- export backup -- */
+  const destInput = panes.export.querySelector("[data-dest]");
+  const passInput = panes.export.querySelector("[data-pass]");
+  const exportBtn = panes.export.querySelector("[data-export]");
+  const progressBox = panes.export.querySelector("[data-progress]");
+  const isAndroid = /Android/.test(navigator.userAgent);
+  if (isAndroid) {
+    // No directory picker on Android — export into a fixed folder next to
+    // the accounts directory and surface the path in the field.
+    destInput.value = (window.veltaAccountsDir || "").replace(/\/accounts\/?$/, "") + "/exports";
+  } else {
+    destInput.addEventListener("click", async () => {
+      const tauri = window.__TAURI__;
+      const invoke = tauri?.core?.invoke || tauri?.invoke;
+      if (!invoke) return;
+      try {
+        const picked = await invoke("plugin:dialog|open", { options: { directory: true, multiple: false, title: "Choose backup folder" } });
+        if (typeof picked === "string" && picked) {
+          destInput.value = picked;
+          exportBtn.disabled = false;
+        }
+      } catch (err) {
+        errToast("Couldn't open the folder picker: " + (err?.message || err));
+      }
+    });
+  }
+  exportBtn.addEventListener("click", async () => {
+    const dest = destInput.value.trim();
+    if (!dest) { toast("Choose a destination folder first"); return; }
+    const pass = passInput.value;
+    if (pass && pass.length < 6) { toast("Passphrase must be at least 6 characters"); return; }
+    lock(true);
+    exportBtn.disabled = true;
+    progressBox.hidden = false;
+    progressBox.textContent = "Exporting…";
+    const onProg = (e) => {
+      const p = e.detail?.progress || 0;
+      progressBox.textContent = p >= 1000 ? "Backup written." : `Exporting… ${Math.round(p / 10)}%`;
+    };
+    core.addEventListener("imex-progress", onProg);
+    try {
+      await core.exportBackup(dest, pass || null);
+    } catch (err) {
+      errToast("Export failed: " + (err?.message || err));
+      progressBox.hidden = true;
+    } finally {
+      core.removeEventListener("imex-progress", onProg);
+      exportBtn.disabled = false;
+      lock(false);
+    }
+  });
+
+  const { close } = showModal({ title: "Profile management", body, onClose: cleanupTransfer });
 }
+
+/* ---------------- deeplinks ----------------
 
 // Ask for notification permission once the user has a working account —
 // never at plain boot (a startup prompt with no context is how prompts get
@@ -2091,8 +2272,7 @@ function rebuildDrawer() {
     onAccountTap: accountTapFlow,
     onRelays: () => openRelaysModal(),
     onSetTheme: (mode) => { state.theme = mode; applyTheme(); },
-    onAddAccount: addAccountFlow,
-    onSecondDevice: secondDeviceFlow,
+    onProfileManagement: () => openProfileManagement(),
     onInvite: () => showInvite(inviteQrProvider(null), { account: state.account }),
     onProfile: openSelfProfile,
     onEditProfile: editProfileFlow,
@@ -2825,73 +3005,6 @@ async function receiveSecondDeviceProfile(epoch, onStart, presetCode) {
     return false;
   }
   return true;
-}
-
-// Second-device setup (backup transfer): this device shows a QR and waits,
-// or receives a profile from another device's QR.
-async function secondDeviceFlow() {
-  if (state.accountChanging) return;
-  if (!core.provideBackup || !core.getBackupQrSvg || !core.addAccountWithBackup) {
-    toast("Second-device setup is not available on this backend");
-    return;
-  }
-  const epoch = core.accountEpoch;
-  const body = document.createElement("div");
-  body.innerHTML = `
-    <p class="p2p-hint">Move this profile to a new device, or receive a profile from another one. Both devices must be on the same network.</p>
-    <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
-      <button class="btn-text btn-primary" data-old>Show QR on this device</button>
-      <button class="btn-text" data-new>Receive a profile on this device…</button>
-    </div>
-    <div data-pane></div>`;
-  let started = false;
-  let progHandler = null;
-  const cleanup = () => {
-    if (progHandler) { core.removeEventListener("imex-progress", progHandler); progHandler = null; }
-    if (started) core.stopOngoingProcess?.().catch?.(() => {});
-  };
-  const { close } = showModal({ title: "Add a second device", body, onClose: cleanup });
-  const pane = body.querySelector("[data-pane]");
-
-  body.querySelector("[data-old]").addEventListener("click", () => {
-    if (!accountIsCurrent(epoch)) return;
-    started = true;
-    pane.innerHTML = `
-      <div class="qr-box" style="margin-top:10px"><div class="qr-loading">Preparing QR…</div></div>
-      <div class="p2p-hint" style="opacity:.6">On the new device, tap "Receive a profile on this device" and scan or paste this code. Keep both devices on this screen until the transfer finishes.</div>
-      <div style="margin-top:8px"><button class="btn-text" data-cancel>Cancel</button></div>`;
-    progHandler = (e) => {
-      if ((e.detail?.progress || 0) >= 1000) transferDone();
-    };
-    core.addEventListener("imex-progress", progHandler);
-    const transferDone = () => {
-      if (!accountIsCurrent(epoch)) return;
-      cleanup();
-      toast("Profile transferred to the second device");
-      close();
-    };
-    // Blocks server-side until a device retrieves the backup; it can outlive
-    // the RPC timeout — completion is detected via ImexProgress above.
-    core.provideBackup().then(transferDone).catch(() => {});
-    body.querySelector("[data-cancel]").addEventListener("click", () => close());
-    core.getBackupQrSvg().then((svg) => {
-      if (accountIsCurrent(epoch)) {
-        pane.querySelector(".qr-box").innerHTML = svg;
-        // The card reserves a clear circle at 50% / 43.65% — same overlay
-        // as the invite QR.
-        pane.querySelector(".qr-box").insertAdjacentHTML("beforeend",
-          `<div class="qr-self"><img src="./icons/v-logo.svg" alt=""></div>`);
-      }
-    }).catch((err) => {
-      if (accountIsCurrent(epoch)) pane.querySelector(".qr-box").innerHTML =
-        `<div class="qr-loading">Couldn't prepare the transfer:<br>${escapeHtml(String(err?.message || err))}</div>`;
-    });
-  });
-
-  body.querySelector("[data-new]").addEventListener("click", () => {
-    if (!accountIsCurrent(epoch)) return;
-    receiveSecondDeviceProfile(epoch, () => { started = true; });
-  });
 }
 
 /* ---------------- boot ---------------- */
