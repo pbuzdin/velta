@@ -1329,7 +1329,10 @@ export class ChatView {
       mediaImg.addEventListener("load", reveal);
       // Assign after the listeners: even cached/data-URL images fire `load`
       // asynchronously, but this order makes the reveal race-free.
-      mediaImg.src = fileUrl(m.filePath);
+      // Bubble loads use the shell's downscaled thumbnail (?w=720); the
+      // lightbox below re-requests the original so full-screen shows full
+      // resolution.
+      mediaImg.src = fileUrl(m.filePath, { thumb: true });
       mediaImg.addEventListener("click", e => {
         e.stopPropagation();
         if (!alive()) return;
@@ -1349,7 +1352,8 @@ export class ChatView {
             });
           return;
         }
-        if (mediaImg.naturalWidth) openImageLightbox(mediaImg.src, m.fileName || "photo");
+        // Original, not the bubble thumbnail: full-screen shows full resolution.
+        if (mediaImg.naturalWidth) openImageLightbox(fileUrl(m.filePath), m.fileName || "photo");
       });
       mediaImg.onerror = () => {
         if (!alive()) return;

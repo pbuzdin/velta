@@ -52,6 +52,8 @@ socket2 = "0.5"
 qrcode = { version = "0.14", default-features = false }
 # Local-only P2P chat (p2p.rs): relay-less iroh with mDNS re-discovery on the LAN.
 iroh = { version = "0.35", default-features = false, features = ["discovery-local-network"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "bmp"] }
+sha1 = "0.10"
 
 # Android links the Delta Chat core in-process instead of spawning a sidecar.
 [target.'cfg(target_os = "android")'.dependencies]

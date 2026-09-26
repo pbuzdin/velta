@@ -641,6 +641,29 @@ fn serve_blob_file(app: &tauri::AppHandle, request: tauri::http::Request<Vec<u8>
     let len = meta.len();
     let mime = guess_mime(&serve_path);
 
+    // Thumbnail request: `?w=N` (max dimension in px), full-body GETs only —
+    // Range callers (video/audio seeking) always want the original. Only
+    // statically-encodable formats are downscaled here; animated gif/webp and
+    // everything else serve the original regardless of the query param.
+    let thumb_w = if request.headers().get("range").is_none() {
+        request
+            .uri()
+            .query()
+            .and_then(|q| {
+                q.split('&').find_map(|kv| kv.strip_prefix("w=")).and_then(|v| v.parse::<u32>().ok())
+            })
+            .filter(|w| (16..=2000).contains(w))
+            .filter(|_| matches!(mime, "image/jpeg" | "image/png" | "image/bmp"))
+    } else {
+        None
+    };
+
+    if let Some(w) = thumb_w {
+        if let Some(resp) = serve_thumbnail(&accounts, &serve_path, &meta, w, &acao) {
+            return resp;
+        }
+    }
+
     if let Some(range) = request.headers().get("range").and_then(|v| v.to_str().ok().map(|s| s.to_string())) {
         if let Some((start, end)) = parse_range(&range, len) {
             use std::io::{Read, Seek, SeekFrom};
@@ -686,6 +709,162 @@ fn serve_blob_file(app: &tauri::AppHandle, request: tauri::http::Request<Vec<u8>
             .body(data)
             .unwrap(),
         Err(_) => not_found("read error"),
+    }
+}
+
+// ---------- blobfile thumbnails (?w=N) ----------
+//
+// Chat bubbles display photos at a few hundred px, but the WebView decodes
+// the full 12 MP original for each row (tens of MB of bitmap RAM per image
+// on Android). The frontend appends ?w=720 to bubble image URLs; this side
+// downscales once to a JPEG in <accounts-dir>/../thumbs/ and serves that.
+// Cache key = sha1(canonical source path + mtime + size + width), so an
+// edited or re-saved source invalidates itself and every consumer can
+// share the cache. Lightbox and video URLs carry no ?w and keep hitting the
+// original bytes.
+
+fn thumb_cache_path(accounts: &std::path::Path, source: &str, meta: &std::fs::Metadata, w: u32) -> std::path::PathBuf {
+    use sha1::{Digest, Sha1};
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let mut h = Sha1::new();
+    h.update(source.as_bytes());
+    h.update(format!("|{mtime}|{}|{w}", meta.len()).as_bytes());
+    let hex = data_encoding::HEXLOWER.encode(&h.finalize());
+    accounts
+        .parent()
+        .unwrap_or(accounts)
+        .join("thumbs")
+        .join(format!("{hex}.jpg"))
+}
+
+// None = no thumbnail produced (source already small enough, undecodable, or
+// read error) — the caller falls through to serving the original.
+fn generate_thumbnail(bytes: &[u8], max_dim: u32) -> Option<Vec<u8>> {
+    use image::ImageDecoder;
+    let reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?;
+    let mut decoder = reader.into_decoder().ok()?;
+    let orientation = decoder
+        .orientation()
+        .unwrap_or(image::metadata::Orientation::NoTransforms);
+    let mut img = image::DynamicImage::from_decoder(decoder).ok()?;
+    img.apply_orientation(orientation);
+    if img.width() <= max_dim && img.height() <= max_dim {
+        return None;
+    }
+    let thumb = img.thumbnail(max_dim, max_dim);
+    let mut out = Vec::new();
+    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 80);
+    thumb.to_rgb8().write_with_encoder(encoder).ok()?;
+    Some(out)
+}
+
+fn jpeg_response(acao: &Option<String>, data: Vec<u8>) -> tauri::http::Response<Vec<u8>> {
+    let b = tauri::http::Response::builder()
+        .status(200)
+        .header("Content-Type", "image/jpeg")
+        .header("Accept-Ranges", "bytes")
+        .header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges")
+        .header("Content-Length", data.len());
+    let b = match acao {
+        Some(origin) => b.header("Access-Control-Allow-Origin", origin.as_str()).header("Vary", "Origin"),
+        None => b,
+    };
+    b.body(data).unwrap()
+}
+
+// Some(resp) = thumbnail served (from cache or freshly generated); None =
+// fall through to the original file.
+fn serve_thumbnail(
+    accounts: &std::path::Path,
+    source: &str,
+    meta: &std::fs::Metadata,
+    w: u32,
+    acao: &Option<String>,
+) -> Option<tauri::http::Response<Vec<u8>>> {
+    let data = load_thumbnail(accounts, source, meta, w)?;
+    Some(jpeg_response(acao, data))
+}
+
+// Cache-or-generate. None = no thumbnail produced (source already small
+// enough, undecodable, or read error) — the caller falls through to serving
+// the original bytes.
+fn load_thumbnail(
+    accounts: &std::path::Path,
+    source: &str,
+    meta: &std::fs::Metadata,
+    w: u32,
+) -> Option<Vec<u8>> {
+    let cache = thumb_cache_path(accounts, source, meta, w);
+    if let Ok(data) = std::fs::read(&cache) {
+        if data.starts_with(&[0xFF, 0xD8]) {
+            log(&format!("thumb cache hit: {}", cache.display()));
+            return Some(data);
+        }
+    }
+    let original = std::fs::read(source).ok()?;
+    let thumb = generate_thumbnail(&original, w)?;
+    if let Some(dir) = cache.parent() {
+        let _ = std::fs::create_dir_all(dir);
+        // Write-then-rename so a concurrent first load never reads a torn file.
+        let tmp = cache.with_extension("tmp");
+        if std::fs::write(&tmp, &thumb).is_ok() {
+            let _ = std::fs::rename(&tmp, &cache);
+        }
+    }
+    log(&format!("thumb generated: {} ({} bytes)", cache.display(), thumb.len()));
+    Some(thumb)
+}
+
+#[cfg(test)]
+mod thumb_tests {
+    use super::*;
+
+    fn png_bytes(w: u32, h: u32) -> Vec<u8> {
+        let img = image::DynamicImage::new_rgb8(w, h);
+        let mut out = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png).unwrap();
+        out
+    }
+
+    #[test]
+    fn thumbnail_downscales_to_max_dimension_and_encodes_jpeg() {
+        let thumb = generate_thumbnail(&png_bytes(4000, 3000), 720).expect("large image must produce a thumbnail");
+        assert_eq!(&thumb[..2], &[0xFF, 0xD8], "output must be JPEG");
+        let decoded = image::load_from_memory(&thumb).unwrap();
+        assert_eq!(decoded.width(), 720);
+        assert!(((decoded.height() as i64) - 540).abs() <= 1, "aspect preserved");
+    }
+
+    #[test]
+    fn thumbnail_skips_images_already_within_bounds() {
+        assert!(generate_thumbnail(&png_bytes(600, 400), 720).is_none(), "small image: serve the original");
+    }
+
+    #[test]
+    fn thumbnail_rejects_undecodable_bytes() {
+        assert!(generate_thumbnail(b"not an image", 720).is_none());
+    }
+
+    #[test]
+    fn cache_key_tracks_path_size_and_width() {
+        let dir = std::env::temp_dir().join(format!("velta-thumb-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("probe.jpg");
+        std::fs::write(&f, b"x").unwrap();
+        let m = std::fs::metadata(&f).unwrap();
+        let accounts = std::path::Path::new("/tmp");
+        let a = thumb_cache_path(accounts, "/tmp/probe.jpg", &m, 720);
+        let b = thumb_cache_path(accounts, "/tmp/probe.jpg", &m, 360);
+        let c = thumb_cache_path(accounts, "/tmp/other.jpg", &m, 720);
+        assert_ne!(a, b, "different widths must not share cache entries");
+        assert_ne!(a, c, "different sources must not share cache entries");
+        assert_eq!(a, thumb_cache_path(accounts, "/tmp/probe.jpg", &m, 720), "same inputs: stable key");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 
@@ -1001,6 +1180,12 @@ fn serve_media_connection(stream: &mut std::net::TcpStream, accounts: &PathBuf) 
             return not_found();
         }
     };
+    // A literal '?' is a query separator (encodeURIComponent encodes any in
+    // the path itself as %3F) — the thumbnail param lives there.
+    let (enc_path, query) = match enc_path.split_once('?') {
+        Some((p, q)) => (p, Some(q.to_string())),
+        None => (enc_path, None),
+    };
     if url_token != token {
         eprintln!("[media] 404: token mismatch");
         return not_found();
@@ -1021,6 +1206,30 @@ fn serve_media_connection(stream: &mut std::net::TcpStream, accounts: &PathBuf) 
     };
     let len = meta.len();
     let mime = guess_mime(&serve_path);
+
+    // Same thumbnail contract as the blobfile protocol: `?w=N` on a plain
+    // GET downscales once and caches; Range callers and every other format
+    // get the original bytes.
+    let thumb_w = if range.is_none() {
+        query
+            .as_deref()
+            .and_then(|q| q.split('&').find_map(|kv| kv.strip_prefix("w=")).and_then(|v| v.parse::<u32>().ok()))
+            .filter(|w| (16..=2000).contains(w))
+            .filter(|_| matches!(mime, "image/jpeg" | "image/png" | "image/bmp"))
+    } else {
+        None
+    };
+    if let Some(w) = thumb_w {
+        if let Some(data) = load_thumbnail(accounts, &serve_path, &meta, w) {
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nAccept-Ranges: bytes\r\n{cors}Content-Length: {}\r\nConnection: close\r\n\r\n",
+                data.len()
+            );
+            let _ = stream.write_all(head.as_bytes());
+            let _ = stream.write_all(&data);
+            return;
+        }
+    }
 
     let mut file = match std::fs::File::open(&serve_path) {
         Ok(f) => f,

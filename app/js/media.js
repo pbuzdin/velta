@@ -42,18 +42,26 @@ try {
   probe.src = `${blobfileBase()}/__velta-probe`;
 } catch {}
 
-export function fileUrl(path) {
+// opts.thumb: ask the blobfile server for a downscaled JPEG (?w=720) —
+// chat bubbles decode at bubble size instead of full camera resolution.
+// The shell ignores the param for non-static formats (animated gif/webp) and
+// small sources; every other backend (media server, asset protocol) never
+// sees it because only the blobfile branch carries it — those serve the
+// original and everything still renders.
+export function fileUrl(path, opts = {}) {
   if (!path) return "";
   try {
     const resolved = resolveUnderAccounts(path);
     if (window.veltaBlobfileOk) {
-      const url = `${blobfileBase()}/${encodeURIComponent(resolved)}`;
+      const q = opts.thumb ? "?w=720" : "";
+      const url = `${blobfileBase()}/${encodeURIComponent(resolved)}${q}`;
       debugLog(`fileUrl path=${path} url=${url} (blobfile)`);
       return url;
     }
     const base = window.veltaMediaBase;
     if (base) {
-      const url = `${base}/${encodeURIComponent(resolved)}`;
+      const q = opts.thumb ? "?w=720" : "";
+      const url = `${base}/${encodeURIComponent(resolved)}${q}`;
       debugLog(`fileUrl path=${path} url=${url} (media server)`);
       return url;
     }
