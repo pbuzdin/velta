@@ -15,6 +15,8 @@ class Element {
     this.listeners = new Map();
     this.style = {};
     this.dataset = {};
+    this.attributes = new Map();
+    this.hidden = false;
     this.className = "";
     this.innerHTML = "";
     this.textContent = "";
@@ -60,13 +62,16 @@ class Element {
   querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
   getBoundingClientRect() { return { top: 20, left: 20, right: 200, bottom: 100, width: 180, height: 80 }; }
   focus() {}
+  setAttribute(name, value) { this.attributes.set(name, String(value)); }
+  getAttribute(name) { return this.attributes.get(name) ?? null; }
+  after(child) { const p = this.parent; if (!p) return child; p.children.splice(p.children.indexOf(this) + 1, 0, child); child.parent = p; return child; }
   scrollTo({ top }) { this.scrollTop = top; }
 }
 
 globalThis.HTMLElement = Element;
 const elements = new Map();
 globalThis.customElements = { get: name => elements.get(name), define: (name, el) => elements.set(name, el) };
-globalThis.window = {};
+globalThis.window = { addEventListener() {}, removeEventListener() {} };
 globalThis.innerHeight = 800;
 globalThis.innerWidth = 1200;
 const { ChatView } = await import("../app/js/chat-view.js");
@@ -89,6 +94,9 @@ function setup(t) {
     getElementById: node,
     querySelector: node,
     createElement: tag => new Element(tag),
+    body: new Element("body"),
+    addEventListener() {},
+    removeEventListener() {},
     hidden: false,
   };
   const frames = new Map();

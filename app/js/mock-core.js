@@ -243,7 +243,7 @@ export class MockCore extends EventTarget {
   async getContacts() { return structuredClone(this.contacts); }
 
   async getSystemInfo() {
-    return { deltachat_core_version: "v" + "2.61.0-mock", sqlite_version: "", arch: "", level: "awesome" };
+    return { deltachat_core_version: "v" + "2.62.0-mock", sqlite_version: "", arch: "", level: "awesome" };
   }
 
   async getContact(contactId) {

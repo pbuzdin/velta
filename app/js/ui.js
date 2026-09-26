@@ -184,14 +184,14 @@ export function confirmDeleteMessagesModal(count, canForAll) {
 // Fallback only: the live core version is fetched via get_system_info in
 // app.js boot and pushed here with setCoreVersionDisplay (the running
 // sidecar/in-process core is the source of truth, not this constant).
-let CORE_VERSION = "2.61.0";
+let CORE_VERSION = "2.62.0";
 
 export function setCoreVersionDisplay(v) {
   if (!v) return;
   CORE_VERSION = String(v).replace(/^v/, "");
   document.querySelectorAll('[data-v="core"]').forEach((el) => { el.textContent = CORE_VERSION; });
 }
-const FALLBACK_APP_VERSION = "1.4.25";
+const FALLBACK_APP_VERSION = "1.4.33";
 
 /* ---------- Update check (drawer banner + menu-button nudge) ---------- */
 // The latest release version lives in a version.txt asset attached to every
