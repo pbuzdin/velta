@@ -44,6 +44,7 @@ import { openInAppBrowser } from "./inapp-browser.js";
 import { renderMarkdown, extractBotCommands } from "./markdown.js";
 import { lcRetryTransfer } from "./local-chat.js";
 import { linkPreview, linkPreviewCardHtml, firstLink as firstLinkOf } from "./link-preview.js";
+import { getReadMarker, setReadMarker, clearReadMarker } from "./read-markers.js";
 
 function rustLog(msg) {
   try {
@@ -104,6 +105,7 @@ const ICO = {
   edit: `<svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   resend: `<svg viewBox="0 0 24 24"><polyline points="2.5 5.5 2.5 11 8 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.2 14.5a8 8 0 1 0 1.5-8L2.5 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
   pin: `<svg viewBox="0 0 24 24"><path d="M9 4h6l1 7 3 3v2h-6v5l-1 1-1-1v-5H5v-2l3-3z" fill="currentColor"/></svg>`,
+  readMarker: `<svg viewBox="0 0 24 24"><path d="M4 16h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M6 11.5l3 3 6-6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
 };
 
 // Short human reason from the core's raw error text, e.g.
@@ -309,6 +311,20 @@ export class ChatView {
     this._rowSigCache = new Map();  // item.key → render signature of the cached row
     this.hasMore = false;
     this.loadingMore = false;
+    // Read tracking (see _checkSeen): the loaded window may stop short of
+    // the newest message when a chat opens at its first unread message or
+    // read marker — hasNewer then pages downwards instead of appending.
+    this.hasNewer = false;
+    this.loadingNewer = false;
+    this._tracked = false;       // open chat uses per-message read tracking (not local chats)
+    this.readMarkerId = null;    // manual "read up to here" marker (read-markers.js)
+    this._firstUnreadId = null;  // "Unread messages" line, fixed per open
+    this._unreadIds = new Set(); // loaded incoming messages not seen yet
+    this._seenPending = [];
+    this._seenTimer = null;
+    this._seenFrame = 0;
+    this._settling = false;
+    this.seenFlushMs = 400;      // markseen batching window (tests shrink it)
     this.selection = new Set();
     this.replyTo = null;
     this.replyFragment = null;
@@ -376,6 +392,7 @@ export class ChatView {
     }
     const session = this._session = {
       accountEpoch: this.core.accountEpoch,
+      accountId: this.core.accountId,
       draftKey: JSON.stringify([String(this.core.accountId), String(chatId)]),
       chatId,
       reload: 0,
@@ -384,10 +401,36 @@ export class ChatView {
     try {
       const chat = await this.core.getChat(chatId);
       if (!this._isCurrent(session)) return false;
-      const { messages, hasMore } = await this.core.getMessages(chatId, { limit: 40 });
+      // Opening position: while the chat has unread messages it opens at
+      // the manual read marker, else at the first unread message; a fully
+      // read chat opens at the bottom. Local chats keep open = read.
+      const tracked = !chat.isP2p && !!this.core.getFirstUnreadMessageId && !!this.core.markSeen;
+      let marker = tracked ? getReadMarker(session.accountId, chatId) : null;
+      let firstUnread = null;
+      if (tracked && chat.unread > 0) {
+        firstUnread = await this.core.getFirstUnreadMessageId(chatId).catch(() => null);
+        if (!this._isCurrent(session)) return false;
+      }
+      let anchorId = firstUnread != null ? (marker ?? firstUnread) : null;
+      const load = (aroundId) => this.core.getMessages(chatId, aroundId != null ? { aroundId, before: 10, limit: 60 } : { limit: 40 });
+      let page = await load(anchorId);
       if (!this._isCurrent(session)) return false;
+      if (anchorId != null && anchorId === marker && !page.messages.some(m => m.id === marker)) {
+        // The marked message is gone (deleted) — drop the stale marker.
+        clearReadMarker(session.accountId, chatId);
+        marker = null;
+        anchorId = firstUnread;
+        page = await load(anchorId);
+        if (!this._isCurrent(session)) return false;
+      }
+      const { messages, hasMore, hasNewer = false } = page;
+      if (anchorId != null && !messages.some(m => m.id === anchorId)) anchorId = null;
       this.chat = chat;
+      this._tracked = tracked;
       this.hasMore = hasMore;
+      this.hasNewer = !!hasNewer;
+      this.readMarkerId = marker;
+      this._firstUnreadId = firstUnread ?? (tracked ? messages.find(m => m.unread)?.id ?? null : null);
       const draft = this._drafts.get(session.draftKey);
       const input = document.getElementById("composer-input");
       input.value = draft?.text || "";
@@ -400,15 +443,17 @@ export class ChatView {
       this._rebuildItems(messages);
       this._createScroller();
       this._refreshPinnedBar();
-      // Official-client behavior: land on the latest READ message — on the
-      // unread separator when there are unread incoming messages, at the
-      // bottom when everything is read. The pin loop tolerates a target that
-      // is not rendered yet (the scroller renders asynchronously).
-      const unreadPin = this.chat?.unread > 0;
-      await this.core.markRead(chatId);
-      if (!this._isCurrent(session)) return false;
-      if (unreadPin) this._pinSettling(() => this._unreadSepTop());
-      else this._scrollBottomSettling();
+      if (!tracked) {
+        await this.core.markRead(chatId);
+        if (!this._isCurrent(session)) return false;
+      }
+      if (anchorId != null) {
+        this._scrollToMessageSettling(anchorId, { marker: anchorId === marker });
+        this._newWhileAway = chat.unread || 0;
+        this._renderGoDown(true);
+      } else {
+        this._scrollBottomSettling();
+      }
       this.startLive();
       return true;
     } catch (err) {
@@ -514,6 +559,14 @@ export class ChatView {
   // history area (Diagnostics chat) and when the chat is closed.
   close() {
     const input = document.getElementById("composer-input");
+    // Rows the user already saw still count — unless the account changed
+    // underneath (the ids would land in the wrong account).
+    if (this._isCurrent()) this._flushSeen();
+    clearTimeout(this._seenTimer);
+    this._seenTimer = null;
+    this._seenPending = [];
+    cancelAnimationFrame(this._seenFrame);
+    this._seenFrame = 0;
     // Use the session's owner, not core.accountId: account-changing may have
     // already advanced the core epoch before the app calls close().
     if (this.chat && this._session) {
@@ -533,8 +586,13 @@ export class ChatView {
     this.chat = null;
     this.hasMore = false;
     this.loadingMore = false;
-    this._unreadPlaced = false;
-    this._unreadFirstDone = false;
+    this.hasNewer = false;
+    this.loadingNewer = false;
+    this.readMarkerId = null;
+    this._firstUnreadId = null;
+    this._unreadIds.clear();
+    this._settling = false;
+    this._tracked = false;
     this._hideGoDown();
     this.vs?.stop();
     this.vs = null;
@@ -558,9 +616,14 @@ export class ChatView {
   async appendOutgoing(msg) {
     const session = this._session;
     if (!this._isCurrent(session) || !this.chat || !msg || msg.chatId !== this.chat.id) return;
+    // The loaded window stops short of the tail: the own message belongs
+    // after messages that are not loaded yet — jump to the real tail.
+    if (this.hasNewer) { this._jumpToLatest(); return; }
     this._insertItems(this._annotateMessages([msg], this.items[this.items.length - 1]?.dayKey ?? null));
     this.vs?.setItems(this.items);
-    if (this._nearBottom()) requestAnimationFrame(() => { if (this._isCurrent(session)) this._scrollBottom(); });
+    // Always follow an own message down — the chat may have opened
+    // mid-history at the first unread message.
+    requestAnimationFrame(() => { if (this._isCurrent(session)) { this._scrollBottom(); this._scheduleSeenCheck(); } });
   }
 
   // Coalesced mark-read for message-arrival paths: the first message in a
@@ -600,11 +663,18 @@ export class ChatView {
     // placeholder first, then re-notified once the full content merged).
     // Update the existing row in place instead of appending a duplicate.
     if (this.msgIndex.has(msg.id)) { this.onMsgUpdated(chatId, msg); return; }
+    if (this.hasNewer) { this._bumpGoDown(chatId); return; } // lands past the loaded window
     this._insertItems(this._annotateMessages([msg], this.items[this.items.length - 1]?.dayKey ?? null));
     this.vs?.setItems(this.items);
     if (this._nearBottom()) {
-      requestAnimationFrame(() => { if (this._isCurrent(session)) this._scrollBottom(); });
-      this.markReadSoon(chatId);
+      if (this._tracked) {
+        // Seen once it is actually on screen (_checkSeen), not on arrival —
+        // a backgrounded app must not send read receipts.
+        requestAnimationFrame(() => { if (this._isCurrent(session)) { this._scrollBottom(); this._scheduleSeenCheck(); } });
+      } else {
+        requestAnimationFrame(() => { if (this._isCurrent(session)) this._scrollBottom(); });
+        this.markReadSoon(chatId);
+      }
     } else {
       this._bumpGoDown(chatId);
     }
@@ -621,6 +691,9 @@ export class ChatView {
     debugLog(`chat-view onMsgsChanged chatId=${chatId} current=${this.chat?.id} fresh=${fresh}`);
     const session = this._session;
     if (!this._isCurrent(session) || !this.chat || (chatId && chatId !== this.chat.id)) return;
+    // A window that stops short of the tail has nothing to diff the tail
+    // against; paging down (_loadNewer) or the go-down jump fetches it.
+    if (this.hasNewer) return;
     const sinceLast = Date.now() - this._tailRefetchAt;
     if (sinceLast < this.tailRefetchGapMs) {
       const pending = this._pendingTailRefetch || (this._pendingTailRefetch = { fresh: false });
@@ -683,8 +756,12 @@ export class ChatView {
     this._insertItems(this._annotateMessages(newMsgs, this.items[this.items.length - 1]?.dayKey ?? null));
     this.vs?.setItems(this.items);
     if (this._nearBottom()) {
-      requestAnimationFrame(() => { if (this._isCurrent(session)) this._scrollBottom(); });
-      this.markReadSoon(this.chat.id);
+      if (this._tracked) {
+        requestAnimationFrame(() => { if (this._isCurrent(session)) { this._scrollBottom(); this._scheduleSeenCheck(); } });
+      } else {
+        requestAnimationFrame(() => { if (this._isCurrent(session)) this._scrollBottom(); });
+        this.markReadSoon(this.chat.id);
+      }
     } else {
       this._bumpGoDown(this.chat.id);
     }
@@ -847,7 +924,7 @@ export class ChatView {
     const row = this.listEl.querySelector(`[data-msgid="${msg.id}"]`);
     if (row) {
       this.vs?.onItemHeightDidChange?.(item);
-      const fresh = this._renderMsgItem(item);
+      const fresh = this._buildItem(item);
       row.replaceWith(fresh);
       this._rowCache.set(item.key, fresh);
       this._rowSigCache.set(item.key, sig);
@@ -868,6 +945,7 @@ export class ChatView {
     this.items = this.items.filter(it => !(it.type === "msg" && ids.includes(it.msg.id)));
     for (const id of ids) {
       this.msgIndex.delete(id);
+      this._unreadIds.delete(id);
       this._rowCache.delete("m" + id);
       this._rowSigCache.delete("m" + id);
     }
@@ -879,7 +957,8 @@ export class ChatView {
   _rebuildItems(messages) {
     this.items = [];
     this.msgIndex.clear();
-    this._insertItems(this._annotateMessages(messages), true);
+    this._unreadIds.clear();
+    this._insertItems(this._annotateMessages(messages));
   }
 
   // Day chips ride INSIDE the first message row of each day (dayFirst flag)
@@ -889,33 +968,28 @@ export class ChatView {
   // collisions with existing separators, seam removals) — the failed diff
   // forced a full relayout with estimated heights and no scroll restoration,
   // i.e. the scroll jumps when paging up through long histories.
+  // The "Unread messages" line and the read marker ride inside their rows
+  // the same way (unreadFirst / readMarker flags) — both can appear in any
+  // page, including prepended ones, without breaking the prefix rule.
   _annotateMessages(messages, prevDayKey = null) {
     const out = [];
     let lastDay = prevDayKey;
-    let firstUnreadPlaced = this._unreadPlaced;
     for (const m of messages) {
       const dayKey = new Date(m.ts).toDateString();
-      if (!firstUnreadPlaced && this.chat?.unread > 0 && m.from !== 1 && this._isFirstUnread(m)) {
-        out.push({ type: "unread", key: "unread-sep", dayKey });
-        firstUnreadPlaced = true;
-      }
-      const item = { type: "msg", key: "m" + m.id, msg: m, dayKey, dayFirst: dayKey !== lastDay };
+      const item = {
+        type: "msg", key: "m" + m.id, msg: m, dayKey, dayFirst: dayKey !== lastDay,
+        unreadFirst: m.id === this._firstUnreadId,
+        readMarker: m.id === this.readMarkerId,
+      };
       this.msgIndex.set(m.id, item);
+      if (m.unread) this._unreadIds.add(m.id);
       out.push(item);
       lastDay = dayKey;
     }
-    if (firstUnreadPlaced) this._unreadPlaced = true;
     return out;
   }
 
-  _isFirstUnread() {
-    if (this._unreadFirstDone) return false;
-    this._unreadFirstDone = true;
-    return true;
-  }
-
-  _insertItems(newItems, reset = false) {
-    if (reset) this._unreadPlaced = false;
+  _insertItems(newItems) {
     if (newItems.length && newItems[0]._prepend) {
       this.items = [...newItems.map(i => (delete i._prepend, i)), ...this.items];
     } else {
@@ -1021,7 +1095,9 @@ export class ChatView {
     // recreates its <video>/<audio> element, which resets playback (the
     // "flickering player"). Invalidate the cache entry when content changes.
     const cached = this._rowCache.get(item.key);
-    if (cached) {
+    // Rows are cached across opens; a row built with other in-row markers
+    // (day chip, unread line, read marker) is stale for this item.
+    if (cached && cached._veltaFlags === this._itemFlags(item)) {
       if (cached.querySelector?.("video")) {
         debugLog(`render: CACHED video row ${item.key} t=${Date.now() % 100000}`);
       }
@@ -1045,17 +1121,34 @@ export class ChatView {
     return el;
   }
 
+  _itemFlags(item) {
+    return `${item.dayFirst ? 1 : 0}${item.unreadFirst ? 1 : 0}${item.readMarker ? 1 : 0}`;
+  }
+
   _buildItem(item) {
-    switch (item.type) {
-      case "unread": {
-        const el = document.createElement("div");
-        el.className = "unread-sep";
-        el.textContent = "Unread messages";
-        return el;
-      }
-      default:
-        return this._renderMsgItem(item);
-    }
+    const el = this._renderMsgItem(item);
+    el._veltaFlags = this._itemFlags(item);
+    return el;
+  }
+
+  _unreadSepEl() {
+    const el = document.createElement("div");
+    el.className = "unread-sep";
+    el.textContent = "Unread messages";
+    return el;
+  }
+
+  // The manual read marker: a line under the marked message; its button
+  // removes the marker.
+  _readMarkerEl() {
+    const el = document.createElement("div");
+    el.className = "read-marker";
+    el.innerHTML = `<span>Read up to here</span><button type="button" class="read-marker-x" title="Remove read marker" aria-label="Remove read marker">${CLOSE_SVG}</button>`;
+    el.querySelector("button").addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (this._isCurrent() && this.chat) this._clearReadMarker();
+    });
+    return el;
   }
 
   _dayChipEl(item) {
@@ -1079,10 +1172,17 @@ export class ChatView {
     const liveItem = () => (alive() ? this.msgIndex.get(m.id) : null);
     if (m.kind === "service") {
       const row = diagnosticRow(m);
-      if (!item.dayFirst) return row;
+      if (!item.dayFirst && !item.unreadFirst && !item.readMarker) {
+        row.dataset.msgid = m.id;
+        return row;
+      }
       const wrap = document.createElement("div");
       wrap.className = "msg-row day-first";
-      wrap.append(this._dayChipEl(item), row);
+      wrap.dataset.msgid = m.id;
+      if (item.dayFirst) wrap.append(this._dayChipEl(item));
+      if (item.unreadFirst) wrap.append(this._unreadSepEl());
+      wrap.append(row);
+      if (item.readMarker) wrap.append(this._readMarkerEl());
       return wrap;
     }
     const out = m.from === 1;
@@ -1099,6 +1199,7 @@ export class ChatView {
     let inner = "";
     // Day chip rides inside the first row of the day (see _annotateMessages).
     if (item.dayFirst) inner += `<div class="day-chip">${escapeHtml(formatDay(m.ts))}</div>`;
+    if (item.unreadFirst) inner += `<div class="unread-sep">Unread messages</div>`;
     if (this.selection.size) {
       inner += `<div class="msg-checkbox">${this.selection.has(m.id) ? ICO.check : ""}</div>`;
     }
@@ -1265,6 +1366,7 @@ export class ChatView {
     }
     inner += `<div class="bubble${m.viewtype === "sticker" ? " sticker" : ""}">${bubble}</div>`;
     row.innerHTML = inner;
+    if (item.readMarker) row.append(this._readMarkerEl());
     if (m.viewtype === "vcard" && m.filePath) this._hydrateVcardCard(row, m);
     if (m.viewtype === "call") this._hydrateCallCard(row, m);
     if (showAvatar) {
@@ -1753,6 +1855,14 @@ export class ChatView {
       } },
       { label: "React", icon: QUICK_REACTIONS[0], onClick: () => this._reactionMenu(item, x, y) },
       { label: "Select", icon: ICO.select, onClick: () => this._enterSelection(m.id) },
+    );
+    // Local chats keep their own store — no read tracking there.
+    if (this._tracked) {
+      items.push(this.readMarkerId === m.id
+        ? { label: "Remove read marker", icon: ICO.readMarker, onClick: () => this._clearReadMarker() }
+        : { label: "Read up to here", icon: ICO.readMarker, onClick: () => this._setReadMarker(item) });
+    }
+    items.push(
       { label: "Info", icon: ICO.info, onClick: () => this._showInfo(item) },
       "-",
       { label: "Delete", icon: ICO.trash, danger: true, onClick: () => this._delete([m.id]) },
@@ -2441,16 +2551,31 @@ export class ChatView {
     this.scrollEl.addEventListener("scroll", () => {
       if (!this._isCurrent() || !this.chat) return;
       if (this.scrollEl.scrollTop < 220) this._loadOlder();
-      if (this._nearBottom()) this._hideGoDown();
-      else this._showGoDown(); // away from the bottom — offer the way back
+      if (this._nearBottom()) {
+        if (this.hasNewer) this._loadNewer();
+        else this._hideGoDown();
+      } else if (this.goDownBtn.hidden) {
+        this._renderGoDown(true); // away from the bottom — offer the way back
+      }
+      this._scheduleSeenCheck();
     }, { passive: true });
-    this.goDownBtn.addEventListener("click", () => {
-      if (!this._isCurrent() || !this.chat) return;
-      // Jump, then keep re-asserting while the scroller mounts rows: a
-      // single scrollTop write loses to its async layout (the "uncertain"
-      // button behavior). markRead covers the unread messages at the tail.
-      this._scrollBottomSettling();
-      this.core.markRead(this.chat.id);
+    // Go-down = catch up: jump to the newest message and mark the whole chat
+    // read (a manual read marker stays where it is).
+    this.goDownBtn.addEventListener("click", async () => {
+      const session = this._session;
+      if (!this._isCurrent(session) || !this.chat) return;
+      this._hideGoDown();
+      for (const it of this.items) if (it.type === "msg") it.msg.unread = false;
+      this._unreadIds.clear();
+      this._seenPending = [];
+      await this.core.markRead(session.chatId);
+      if (!this._isCurrent(session)) return;
+      this._jumpToLatest();
+    });
+    // Messages that arrived while the app was hidden become seen only once
+    // the user is back and can actually see them.
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) this._scheduleSeenCheck();
     });
     // Resize covers interface-scale (CSS zoom) changes: the virtual scroller
     // then re-measures and shifts its paddings for a few frames — re-pin to
@@ -2469,19 +2594,45 @@ export class ChatView {
     this._hideGoDown();
   }
 
-  // Show the go-down button whenever the user is scrolled away from the
-  // bottom (not just when new messages arrive) — its click scrolls to the
-  // newest messages (unread included, since they sit at the tail).
-  _showGoDown() {
-    this.goDownBtn.hidden = false;
+  // After opening a chat the scroller keeps measuring rendered items and
+  // adjusting its virtual paddings for several frames, each of which can
+  // shift the content under a single "jump to bottom". Keep re-asserting the
+  // bottom position until the layout stops moving (or the user scrolls away).
+  _scrollBottomSettling() {
+    this._hideGoDown();
+    this._settleScroll(() => this.scrollEl.scrollHeight, () => this._scrollBottom(), { atBottom: true });
   }
 
-  // Generalized settling pin: keeps re-asserting `computeTop()` for a few
-  // frames while the virtual scroller finishes measuring, then re-asserts
-  // once more after its ~100ms layout timer (unless the user took over).
-  _pinSettling(computeTop) {
+  // Open at a message instead of the bottom: the unread line near the top
+  // of the viewport, or the read marker's line at a third of its height
+  // (a bit of the already-read text stays visible above it). Until the
+  // virtual scroller mounts the row, aim at its estimated position.
+  _scrollToMessageSettling(msgId, { marker = false } = {}) {
+    const target = () => {
+      const row = this.listEl.querySelector(`[data-msgid="${msgId}"]`);
+      if (!row) {
+        const idx = this.items.findIndex(it => it.msg?.id === msgId);
+        if (idx < 0) return null;
+        return Math.max(0, (idx / this.items.length) * this.scrollEl.scrollHeight - this.scrollEl.clientHeight / 2);
+      }
+      const el = row.querySelector(marker ? ".read-marker" : ".unread-sep") || row;
+      const top = el.getBoundingClientRect().top - this.scrollEl.getBoundingClientRect().top + this.scrollEl.scrollTop;
+      return Math.max(0, Math.round(top - (marker ? this.scrollEl.clientHeight / 3 : 8)));
+    };
+    this._settleScroll(target, () => { const top = target(); if (top != null) this.scrollEl.scrollTop = top; });
+  }
+
+  // After opening a chat the scroller keeps measuring rendered items and
+  // adjusting its virtual paddings for several frames, each of which can
+  // shift the content under a single jump. Keep re-asserting the target
+  // position until the layout stops moving (or the user scrolls away).
+  // Read tracking waits for the final position (_settling): rows that only
+  // flash by while the layout settles are not seen.
+  _settleScroll(computeTop, reassert, { atBottom = false } = {}) {
     this._stopSettling?.();
     const session = this._session;
+    const token = this._settleToken = (this._settleToken || 0) + 1;
+    this._settling = true;
     let lastTop = -1, stableFrames = 0, frames = 0, stopped = false, userScrolled = false;
     const onUserScroll = () => { userScrolled = true; stop(); };
     this.scrollEl.addEventListener("wheel", onUserScroll, { passive: true });
@@ -2492,22 +2643,27 @@ export class ChatView {
       if (this._stopSettling === stop) this._stopSettling = null;
       // The virtual scroller re-lays out on its own ~100ms "scrolling stopped"
       // timer and shifts the paddings after we stop pinning — re-assert the
-      // pinned position once more after that settles (unless the user took over).
+      // position once more after that settles (unless the user took over).
       setTimeout(() => {
         this.scrollEl.removeEventListener("wheel", onUserScroll);
         this.scrollEl.removeEventListener("touchstart", onUserScroll);
-        if (!userScrolled && this._isCurrent(session) && this.chat) this.scrollEl.scrollTop = computeTop();
-      }, 450);
+        // A newer settle (or another chat) owns the position now.
+        if (token !== this._settleToken || !this._isCurrent(session) || !this.chat) return;
+        if (!userScrolled) reassert();
+        this._settling = false;
+        if (this._nearBottom() && !this.hasNewer) this._hideGoDown();
+        this._scheduleSeenCheck();
+      }, userScrolled ? 0 : 450);
     };
     this._stopSettling = stop;
     const tick = () => {
       if (stopped || !this._isCurrent(session) || !this.chat) { stop(); return; }
-      // A null target (target row not rendered yet — the scroller renders
-      // asynchronously) holds the current position without counting stability.
+      // A null target (row not rendered yet — the scroller renders
+      // asynchronously) holds the position without counting stability.
       const top = computeTop();
       if (top != null) {
         this.scrollEl.scrollTop = top;
-        this._hideGoDown();
+        if (atBottom) this._hideGoDown();
         const cur = this.scrollEl.scrollTop;
         if (cur === lastTop) stableFrames++; else { stableFrames = 0; lastTop = cur; }
       }
@@ -2521,33 +2677,188 @@ export class ChatView {
     this._pinTimer?.unref?.();
   }
 
-  // Position of the unread separator, slightly below the container top so
-  // the separator and the unread tail are both in view. While the separator
-  // is not rendered yet (scroller renders async), hold the tail — once it
-  // mounts, the pin snaps the view to the unread boundary.
-  _unreadSepTop() {
-    const sep = this.listEl.querySelector(".unread-sep");
-    if (sep) return Math.max(0, sep.offsetTop - 72);
-    return this.scrollEl.scrollHeight;
-  }
-
-  _scrollBottomSettling() {
-    this._hideGoDown();
-    this._pinSettling(() => this.scrollEl.scrollHeight);
-  }
-
   _bumpGoDown(chatId, background = false) {
     if (background) return;
     this._newWhileAway++;
-    this.goDownBadge.textContent = this._newWhileAway;
-    this.goDownBadge.hidden = false;
-    this.goDownBtn.hidden = false;
+    this._renderGoDown(true);
+  }
+
+  // The go-down badge counts unread messages below the viewport: seeded
+  // with the chat's unread count when it opens mid-history, bumped by
+  // arrivals, drained as _checkSeen marks rows seen.
+  _renderGoDown(show = !this.goDownBtn.hidden) {
+    this.goDownBadge.textContent = this._newWhileAway > 999 ? "999+" : String(this._newWhileAway);
+    this.goDownBadge.hidden = this._newWhileAway <= 0;
+    this.goDownBtn.hidden = !show;
   }
 
   _hideGoDown() {
     this._newWhileAway = 0;
     this.goDownBadge.hidden = true;
     this.goDownBtn.hidden = true;
+  }
+
+  /* ================= read tracking ================= */
+
+  // Messages count as seen only once they were on screen. Seen is a
+  // watermark (like most messengers): the lowest row the user has seen
+  // marks every loaded unread message up to it, so skimming past a burst
+  // reads it while everything below the viewport stays unread — switching
+  // chats mid-way keeps the rest of the badge.
+  _scheduleSeenCheck() {
+    if (this._seenFrame || !this._unreadIds.size) return;
+    this._seenFrame = requestAnimationFrame(() => {
+      this._seenFrame = 0;
+      this._checkSeen();
+    });
+  }
+
+  _checkSeen() {
+    if (!this._isCurrent() || !this.chat || !this._tracked || this._settling || document.hidden) return;
+    if (!this._unreadIds.size) return;
+    const view = this.scrollEl.getBoundingClientRect();
+    if (!view.height) return;
+    // Bottom-up over the mounted rows: the first one that counts as seen
+    // is the watermark (fully on screen, or a tall row that already fills
+    // half the viewport).
+    let lastSeen = null;
+    const rows = this.listEl.children;
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const id = rows[i].dataset?.msgid;
+      if (!id) continue;
+      const r = rows[i].getBoundingClientRect();
+      if (!r.height || r.top >= view.bottom) continue;
+      if (r.bottom <= view.top) break;
+      if (r.bottom <= view.bottom + 2 || r.top <= view.top + view.height / 2) { lastSeen = Number(id); break; }
+    }
+    if (lastSeen == null) return;
+    const upTo = this.items.indexOf(this.msgIndex.get(lastSeen));
+    this._markSeenThrough(upTo);
+  }
+
+  _markSeenThrough(index) {
+    const ids = [];
+    for (let i = 0; i <= index && i < this.items.length; i++) {
+      const m = this.items[i].msg;
+      if (m?.unread) {
+        m.unread = false;
+        this._unreadIds.delete(m.id);
+        ids.push(m.id);
+      }
+    }
+    if (!ids.length) return;
+    this._newWhileAway = Math.max(0, this._newWhileAway - ids.length);
+    this._renderGoDown();
+    this._seenPending.push(...ids);
+    if (!this._seenTimer) this._seenTimer = setTimeout(() => this._flushSeen(), this.seenFlushMs);
+  }
+
+  _flushSeen() {
+    clearTimeout(this._seenTimer);
+    this._seenTimer = null;
+    const ids = this._seenPending;
+    this._seenPending = [];
+    const session = this._session;
+    if (!ids.length || !this._isCurrent(session)) return;
+    this.core.markSeen(session.chatId, ids).catch?.(() => {});
+  }
+
+  _setReadMarker(item) {
+    const session = this._session;
+    if (!this._isCurrent(session) || this.msgIndex.get(item.msg.id) !== item) return;
+    const prev = this.readMarkerId;
+    setReadMarker(session.accountId, session.chatId, item.msg.id);
+    this.readMarkerId = item.msg.id;
+    if (prev != null) this._refreshRowFlags(prev);
+    this._refreshRowFlags(item.msg.id);
+    // Everything up to the marker counts as read.
+    this._markSeenThrough(this.items.indexOf(item));
+    this._flushSeen();
+    toast("Read marker set");
+  }
+
+  _clearReadMarker() {
+    const session = this._session;
+    if (!this._isCurrent(session)) return;
+    const prev = this.readMarkerId;
+    clearReadMarker(session.accountId, session.chatId);
+    this.readMarkerId = null;
+    if (prev != null) this._refreshRowFlags(prev);
+  }
+
+  // Re-render one row after its in-row markers changed.
+  _refreshRowFlags(msgId) {
+    const item = this.msgIndex.get(msgId);
+    if (!item) return;
+    item.readMarker = msgId === this.readMarkerId;
+    const row = this.listEl.querySelector(`[data-msgid="${msgId}"]`);
+    if (!row) { this._rowCache.delete(item.key); return; }
+    const fresh = this._buildItem(item);
+    row.replaceWith(fresh);
+    this._rowCache.set(item.key, fresh);
+    this._rowSigCache.set(item.key, this._rowSignature(item.msg));
+    this.vs?.onItemHeightDidChange?.(item);
+  }
+
+  // Page downwards through a window that stops short of the tail.
+  async _loadNewer() {
+    const session = this._session;
+    if (!this._isCurrent(session) || !this.chat || this.loadingNewer || !this.hasNewer || !this.items.length) return;
+    this.loadingNewer = true;
+    const last = this.items[this.items.length - 1];
+    this._loadBar(true);
+    try {
+      const { messages, hasNewer = false } = await this.core.getMessages(session.chatId, { afterId: last.msg.id, limit: 40 });
+      if (!this._isCurrent(session)) return;
+      const newMsgs = messages.filter(m => !this.msgIndex.has(m.id));
+      if (!newMsgs.length) {
+        // The last loaded message vanished from the chat — resync from the tail.
+        if (!hasNewer) { this.hasNewer = false; this._jumpToLatest(); }
+        return;
+      }
+      this.hasNewer = !!hasNewer;
+      this._insertItems(this._annotateMessages(newMsgs, last.dayKey));
+      this.vs?.setItems(this.items);
+    } catch (err) {
+      if (this._isCurrent(session)) toast("Couldn't load newer messages: " + (err.message || err));
+    } finally {
+      this._loadBar(false);
+      if (this._isCurrent(session)) this.loadingNewer = false;
+    }
+  }
+
+  // Scroll to the newest message; when the loaded window stops short of
+  // it, replace the window with the tail page first.
+  async _jumpToLatest() {
+    const session = this._session;
+    if (!this._isCurrent(session) || !this.chat) return;
+    if (!this.hasNewer) { this._scrollBottomSettling(); return; }
+    this._loadBar(true);
+    try {
+      if (await this._reloadTail(session)) this._scrollBottomSettling();
+    } catch (err) {
+      if (this._isCurrent(session)) toast("Couldn't load the latest messages: " + (err.message || err));
+    } finally {
+      this._loadBar(false);
+    }
+  }
+
+  // Replace a window that stops short of the tail with the newest page.
+  // Resolves false when the session went stale meanwhile.
+  async _reloadTail(session) {
+    const { messages, hasMore } = await this.core.getMessages(session.chatId, { limit: 40 });
+    if (!this._isCurrent(session)) return false;
+    this.hasMore = hasMore;
+    this.hasNewer = false;
+    this._stopSettling?.();
+    this.vs?.stop();
+    this.vs = null;
+    this.listEl.replaceChildren();
+    this.listEl.style.paddingTop = "";
+    this.listEl.style.paddingBottom = "";
+    this._rebuildItems(messages);
+    this._createScroller();
+    return true;
   }
 
   _jumpToMessage(msgId) {
@@ -2571,6 +2882,9 @@ export class ChatView {
     this._jumpInFlight = true;
     this._loadBar(true);
     try {
+      // A window opened mid-history (read tracking) may end above the
+      // target: restart from the tail, then walk older pages as usual.
+      if (this.hasNewer && !this._hasItem(msgId) && !await this._reloadTail(session)) return;
       for (let page = 0; page < this.jumpMaxPages && !this._hasItem(msgId); page++) {
         if (!this.hasMore) {
           if (this._isCurrent(session)) toast("Message is no longer in this chat's history");

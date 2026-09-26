@@ -55,6 +55,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── markdown.js       # escape-first message markdown: bold/italic/underline, links, lists + bot command extraction
 │   │   ├── media.js          # media URL helpers: blobfile:// protocol (boot-probed) → loopback server → asset protocol + per-element fallback
 │   │   ├── p2p.js            # Local chat UI: drawer toggle, list card, pairing, legacy 1:1 modal (Tauri only)
+│   │   ├── read-markers.js   # manual "read up to here" markers per (account, chat), localStorage-only
 │   │   ├── qr-scan.js        # code acquisition: paste or camera scan (native BarcodeDetector probed with a 2s timeout, vendored jsQR fallback — many Android WebViews ship no Shape Detection API or one whose detect() hangs)
 │   │   ├── mock-core.js      # in-memory demo core implementing the JSON-RPC surface
 │   │   ├── rpc-core.js       # JsonRpcCore wrapper over transports + event mapping
@@ -498,6 +499,22 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `.chat-item` cards use full
   `contain: layout paint style`. The rendered-row LRU (`_rowCache`) survives
   `close()`; `open()` clears it when the account changed.
+- **Read tracking** (post-1.4.26): opening a chat no longer marks it read.
+  `open()` lands at the manual read marker (while unread remain), else the
+  core's `get_first_unread_message_of_chat`, else the bottom — loading a
+  window via `getMessages({aroundId})`; a window short of the tail sets
+  `hasNewer` and pages down (`_loadNewer`), while `onIncoming`/
+  `onMsgsChanged` skip appends and `appendOutgoing` jumps to the tail.
+  Messages become seen only once on screen: `_checkSeen` takes the lowest
+  visible row as a watermark and batches `markSeen` (core
+  `markseen_msgs` for exactly those ids). KEEP: no seen-marking while
+  `_settling` (open/jump positioning) or `document.hidden`; rows in the
+  pending batch are flushed on `close()` only while the session is still
+  current (never into another account); go-down = catch up (`markRead`
+  of the whole chat). The "Unread messages" line and the marker ride inside
+  their rows (`unreadFirst`/`readMarker` item flags, like `dayFirst`), and
+  `_renderItem` rejects cached rows whose `_veltaFlags` differ. Local
+  (P2P) chats keep open = read. Pinned by `tests/read-tracking.test.mjs`.
 - **Read-only chats hide every reply affordance** (1.4.26): device chats and
   channels the member cannot post in get no hover-reply pill, no
   context-menu/selection Reply, no selection-quote chip — `app.js` derives
@@ -695,8 +712,9 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `height: calc(var(--head-h) + env(safe-area-inset-top))`. Change the var,
   not the paddings.
 - **History loading strip** (`#chat-load-bar`): 6px blue gradient sweep
-  pinned under the chat header; turned on by BOTH `chat-view.open()` and
-  `_loadOlder()` (paging is history loading too); `_loadBar()` holds a
+  pinned under the chat header; turned on by `chat-view.open()`,
+  `_loadOlder()`, `_loadNewer()` and `_jumpToLatest()` (paging is history
+  loading too); `_loadBar()` holds a
   150 ms minimum on-time and a new on cancels a pending off; sits at
   `top: calc(var(--head-h) + env(safe-area-inset-top))`.
   ALSO driven by core connectivity: `refreshRelayStatusInner` (app.js)
@@ -833,8 +851,10 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   copy button in the open pane, close X in the summary. Bubbles cap at `min(480px, 90%)` (avatar rows −50px). Jump targets
   outside the loaded window (search hits, quotes, pinned bar) fetch older
   pages via `_jumpFetchAndScroll` (page cap `jumpMaxPages`) then
-  `_scrollToItemSeek` — the scroller has no scroll-to-item API. Arrivals
-  mark-read through `markReadSoon` (400ms coalescing, flushed on close).
+  `_scrollToItemSeek` — the scroller has no scroll-to-item API (a window
+  opened mid-history reloads the tail first). Arrivals in local (P2P)
+  chats mark-read through `markReadSoon` (400ms coalescing, flushed on
+  close); other chats mark seen on screen (§5.1 "Read tracking").
 - **Profile/chat info editing (post-1.4.35, merged editor per issue #16)** —
   the sheet's action row (`data-pa`) is context-shaped: ONE editor button
   opens `showEditProfile` (name + avatar + description in a single modal).
@@ -1026,7 +1046,8 @@ node --test tests/rpc-account-isolation.test.mjs \
              tests/chat-account-isolation.test.mjs \
              tests/app-account-isolation.test.mjs \
              tests/rpc-event-poll.test.mjs \
-             tests/chat-msg-update-hardening.test.mjs
+             tests/chat-msg-update-hardening.test.mjs \
+             tests/read-tracking.test.mjs
 ```
 
 These cover the account-isolation contract: stale account results (A→B→A),
@@ -1042,12 +1063,13 @@ signatures survive unmounted updates, and `msgs-changed` bursts collapse
 into one tail refetch per gap. Run them after touching `rpc-core.js`,
 `app.js`, `chat-view.js` or `ui.js`.
 
-Known-broken (pre-existing, noted 2026-09-19): `app-account-isolation`,
-`chat-account-isolation` and `chat-msg-update-hardening` all fail with
-`document/window.addEventListener is not a function` — their DOM stubs don't
-implement `addEventListener`. The `rpc-*`, `call-state-machine` and
-`local-chat-transfer-progress` suites are healthy; verify rpc-core/app.js
-changes against those until the stubs grow the method.
+Known-broken (pre-existing, re-checked 2026-09-26 on v1.4.38): the DOM
+stubs now implement `addEventListener`, so the chat/app suites run, but
+`app-account-isolation` fails cases 10–14 (late getChat completion/rejection,
+account-listener refresh) and `chat-account-isolation` fails 17 (attachment
+send retarget) and 23 (close cancels settling). Compare against master
+before blaming a change; every other suite, `read-tracking` included, is
+green.
 
 Beyond that, the primary verification path is manual:
 
@@ -1335,18 +1357,21 @@ do-not-regress rules; dates mark when the lesson was learned.
   switch) because rows re-mount on every scroll pass — a new per-call RPC
   per remount would multiply. Mock answers with Completed + the stored
   duration; a demo call message lives in the Ada chat.
-- **Chat open position + go-down (post-1.4.38, issue #14)** — open() lands
-  on the latest READ message: with unread, the pin target is the unread
-  separator (`_annotateMessages` places it before the first unread incoming
-  when `chat.unread > 0`); without, the tail. `_pinSettling(computeTop)`
-  re-asserts the target on a 40 ms TIMER — rAF is unusable here (occluded
-  windows never fire it, and that includes headless checks) and the target
-  row may render late (computeTop returns null → hold position). The
-  go-down button shows whenever the view is away from the bottom (it used
-  to appear only on new arrivals — effectively never for manual scrolls);
-  its click pins to the bottom + markRead. Never replace the settling with
-  a single scrollTop write: the virtual scroller's async layout wins and
-  the jump silently lands mid-history.
+- **Chat open position + go-down (post-1.4.38, issue #14; read tracking
+  since)** — open() lands on the manual read marker or the first unread
+  message (`get_first_unread_message_of_chat`; the "Unread messages" line
+  rides inside that row as `unreadFirst`), else the tail — see §5.1 "Read
+  tracking". `_settleScroll(computeTop, reassert)` re-asserts the target on
+  a 40 ms TIMER — rAF is unusable here (occluded windows never fire it, and
+  that includes headless checks) and the target row may render late
+  (computeTop returns null → hold position); `_settling` blocks seen-marking
+  until it ends. The go-down button shows whenever the view is away from
+  the bottom (it used to appear only on new arrivals — effectively never for
+  manual scrolls); its click marks the chat read and settles to the tail
+  (`_jumpToLatest`, which first reloads the tail page when the window was
+  opened mid-history). Never replace the settling with a single scrollTop
+  write: the virtual scroller's async layout wins and the jump silently
+  lands mid-history.
 - **Modal async flows (1.3.35)** — settle BEFORE close: `showModal`'s
   `onClose` resolves the flow's promise with null, so `close()`-first
   silently drops results (it swallowed every successful QR scan once).

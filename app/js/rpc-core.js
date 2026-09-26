@@ -17,6 +17,7 @@ let nextId = 1;
 const EVENT_POLL_TIMEOUT_MS = 240_000;
 
 import { debugLog } from "./diagnostics.js";
+import { pageBounds } from "./mock-core.js";
 
 function rustLog(msg) {
   try {
@@ -524,6 +525,12 @@ export class JsonRpcCore extends EventTarget {
     return "received";
   }
 
+  // InFresh (10) / InNoticed (13): not seen yet. Same pair the core's
+  // get_first_unread_message_of_chat treats as unread.
+  _isUnreadState(state) {
+    return state === 10 || state === 13;
+  }
+
   _mapViewtype(v) {
     switch (v) {
       case "Image": case "Gif": return "image";
@@ -588,6 +595,7 @@ export class JsonRpcCore extends EventTarget {
         id: m.id, chatId: m.chatId, kind: "service", viewtype: "text",
         from: 0, text: m.text || "", ts: (m.sortTimestamp || m.timestamp) * 1000,
         state: "read", fromContact: { name: "", color: "#888" },
+        unread: this._isUnreadState(m.state),
       };
     }
     const out = m.fromId === 1; // ContactId::SELF
@@ -604,6 +612,9 @@ export class JsonRpcCore extends EventTarget {
       state: this._mapState(m.state),
       // Core error text for failed sends (e.g. "5.3.4 message file too big")
       error: m.error || null,
+      // Incoming and not yet seen — the chat view marks these seen as they
+      // scroll into view (see ChatView._checkSeen).
+      unread: !out && this._isUnreadState(m.state),
       starred: !!m.savedMessageId,
       edited: !!m.isEdited,
       quote: this._mapQuote(m.quote),
@@ -988,15 +999,24 @@ export class JsonRpcCore extends EventTarget {
       const ids = await this._call("get_chat_contacts", accountId, chatId).catch(() => []);
       contactId = ids.find(id => id > 9) ?? null; // skip reserved ids (SELF=1, info, …)
     }
+    // The chat view opens at the first unread message when there is one.
+    const unread = await this._call("get_fresh_msg_cnt", accountId, chatId).catch(() => 0);
     return {
       id: chatId, name: info.name || "?", kind: this._chatKind(info),
-      contactId,
+      contactId, unread,
       encrypted: !!info.isEncrypted, verified: false, muted: !!info.isMuted, pinned: !!info.pinned,
       archived: !!info.archived, avatarColor: info.color || null, avatar: info.profileImage || null, contact: null, memberCount: 0,
     };
   }
 
-  async getMessages(chatId, { beforeId = null, limit = 40, fresh = false } = {}) {
+  // One page of a chat's history. Default: the newest `limit` messages;
+  // beforeId: the page before it (paging up); afterId: the page after it
+  // (paging down a window that does not reach the tail yet); aroundId: a
+  // window starting `before` messages above it (opening a chat at its first
+  // unread message or read marker). An anchor id that is not in the chat
+  // falls back to the newest page. hasMore = older messages exist,
+  // hasNewer = newer messages exist.
+  async getMessages(chatId, { beforeId = null, afterId = null, aroundId = null, before = 10, limit = 40, fresh = false } = {}) {
     const { accountId, accountEpoch } = this;
     if (fresh && this._isCurrentAccount(accountEpoch)) this.msgIdCache.delete(chatId);
     let ids = this.msgIdCache.get(chatId);
@@ -1004,14 +1024,9 @@ export class JsonRpcCore extends EventTarget {
       ids = await this._call("get_message_ids", accountId, chatId, false, false);
       if (this._isCurrentAccount(accountEpoch)) this.msgIdCache.set(chatId, ids);
     }
-    let end = ids.length;
-    if (beforeId != null) {
-      const idx = ids.indexOf(beforeId);
-      if (idx >= 0) end = idx;
-    }
-    const start = Math.max(0, end - limit);
+    const { start, end } = pageBounds(ids, { beforeId, afterId, aroundId, before, limit });
     const page = ids.slice(start, end);
-    if (!page.length) return { messages: [], hasMore: start > 0 };
+    if (!page.length) return { messages: [], hasMore: start > 0, hasNewer: end < ids.length };
     const loaded = await this._call("get_messages", accountId, page);
     const messages = [];
     for (const id of page) {
@@ -1022,7 +1037,7 @@ export class JsonRpcCore extends EventTarget {
         messages.push(this._mapMessage(entry));
       }
     }
-    return { messages, hasMore: start > 0 };
+    return { messages, hasMore: start > 0, hasNewer: end < ids.length };
   }
 
   // Core fulltext search (SQLite FTS) over message text — every chat type,
@@ -1147,6 +1162,24 @@ export class JsonRpcCore extends EventTarget {
       if (ids?.length) await this._call("markseen_msgs", accountId, ids);
     } catch { /* nothing to mark */ }
     this._emitAccount("chat-updated", { chatId }, accountEpoch);
+  }
+
+  // Mark just these messages seen (read receipts go out for them, the chat's
+  // fresh counter drops by as many) — the chat view calls this for rows that
+  // actually scrolled into view, so a half-read chat keeps its badge.
+  async markSeen(chatId, ids) {
+    const { accountId, accountEpoch } = this;
+    if (!ids?.length) return;
+    try {
+      await this._call("markseen_msgs", accountId, ids);
+    } catch { /* nothing to mark */ }
+    this._emitAccount("chat-updated", { chatId }, accountEpoch);
+  }
+
+  // Id of the first message after the last seen one (the "Unread messages"
+  // line), or null when the chat is fully read.
+  async getFirstUnreadMessageId(chatId) {
+    return (await this._call("get_first_unread_message_of_chat", this.accountId, chatId)) ?? null;
   }
 
   // options.forAll: also ask the other chat members' devices to delete the
