@@ -225,10 +225,17 @@ vCard is the canonical shareable form.
 </details>
 
 <details>
-<summary>Second-device setup (backup transfer)</summary>
+<summary>Profile management (add, transfer, export)</summary>
 
-The drawer's **Add a second device…** moves a profile between devices over the
-LAN using the core's backup transfer:
+The drawer's **Profile management…** modal has three tabs:
+
+- **Add profile** — paste a chatmail invite link, a relay domain, or scan a
+  QR; a new profile is created on the relay. No relay name? The splash's
+  **"I don't know a relay name"** option lets the core pick the
+  fastest-answering one automatically and keeps adding relays in the
+  background.
+- **Second device** — moves a profile between devices over the LAN using the
+  core's backup transfer:
 
 - **Old device** shows a QR (its `provide_backup` offer, rendered as the
   design card with the Velta logo) and waits.
@@ -238,6 +245,10 @@ LAN using the core's backup transfer:
   doesn't), and a fresh account is created and filled
   from the transfer — progress is reported live, and the other device stays
   signed in.
+- **Export backup** — writes the whole profile (messages, contacts, keys)
+  into a timestamped `.tar` in a folder you choose, with an optional
+  passphrase (min 6 chars). The profile stays signed in; import via the
+  restore option on the splash.
 
 The **Welcome to Velta** splash (full-screen, with the same choices: create a
 new profile on a relay — type the address or scan its QR — **add as second
