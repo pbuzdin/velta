@@ -446,8 +446,8 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   optional passphrase, progress on `imex-progress`), autorelay onboarding
   (`initTransports` -> core `init_transports`; the core probes its built-in
   relay pool and configures the fastest, then grows the profile to ~3
-  transports from IMAP idle hooks — wired into the splash "I don't know a
-  relay name" option),
+  transports from IMAP idle hooks — wired into the splash "Autopick the
+  fastest relay" button),
   vCard (`parseVcard`/`importVcard`/`makeVcard`), `getMessageHtml` (original
   body behind "Show Full Message…"), `createQrSvg`. Chat fulltext
   search (`searchMessages` -> core `search_messages`; wired into the Search-in-chat modal), pinned messages (`pinMessage`/`getPinnedMessages`, core 2.59+ API). Wire types are

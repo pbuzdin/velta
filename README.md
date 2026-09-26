@@ -254,7 +254,7 @@ The drawer's **Profile management…** modal has three tabs:
 
 - **Add profile** — paste a chatmail invite link, a relay domain, or scan a
   QR; a new profile is created on the relay. No relay name? The splash's
-  **"I don't know a relay name"** option lets the core pick the
+  **"Autopick the fastest relay"** option lets the core pick the
   fastest-answering one automatically and keeps adding relays in the
   background.
 - **Second device** — moves a profile between devices over the LAN using the

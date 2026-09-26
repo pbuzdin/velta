@@ -11,7 +11,7 @@ failed to answer after its retries (log surface). The three setup paths:
 
 1. Create a profile on a relay — input or camera scan of a relay QR
    (camera permission only on tapping Scan). Under the input sits
-   "I don't know a relay name — pick a fast one for me": it calls
+   "Autopick the fastest relay": it calls
    `initTransports` (core-side autorelay — the core probes its built-in
    relay pool, configures the fastest, then grows the profile to ~3
    transports from IMAP idle hooks). The button renders only when the

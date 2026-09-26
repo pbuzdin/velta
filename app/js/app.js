@@ -2656,7 +2656,7 @@ function showSplash() {
         <input class="text-field" data-relay placeholder="Relay address — e.g. nine.testrun.org" autocomplete="off" inputmode="url" autocapitalize="none">
         ${navigator.mediaDevices?.getUserMedia ? `<div style="margin-top:10px"><button class="btn-text" data-scan type="button">Scan a QR code</button></div>` : ""}
         <div style="margin-top:12px"><button class="btn-primary splash-btn" data-ok type="button">Create account</button></div>
-        ${core?.initTransports ? `<div style="margin-top:4px"><button class="btn-text" data-auto type="button">I don't know a relay name — pick a fast one for me</button></div>` : ""}
+        ${core?.initTransports ? `<div style="margin-top:4px"><button class="btn-text" data-auto type="button">Autopick the fastest relay</button></div>` : ""}
       </div>
       <ul class="ob-steps" data-steps></ul>
     </div>
