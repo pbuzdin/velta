@@ -665,8 +665,10 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   is "chats" (keep that gate — refresh storms clobber the other views).
   `archived` (issue #13, post-1.4.37) is the header box button next to the
   search button — hidden while `archivedCount` is 0 (piggybacked onto
-  refreshChatList via `getChatList({ archived: true })`, list flag 2 =
-  DC_GCL_ARCHIVED_ONLY), and writing from an archived chat unarchives it
+  refreshChatList via `getChatList({ archived: true })`, list flag 0x01 =
+  DC_GCL_ARCHIVED_ONLY — NOT 0x02, which is DC_GCL_NO_SPECIALS and
+  silently returns the unarchived list, hiding every archived chat), and
+  writing from an archived chat unarchives it
   (every chat-view send routes through `_sendArchivedAware`).
   Contacts come from `core.getContacts` through a virtual scroller
   (`sideScroller`, stopped by `stopSideScroller` on every view switch);

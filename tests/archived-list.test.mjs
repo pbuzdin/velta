@@ -4,6 +4,8 @@ import { JsonRpcCore } from "../app/js/rpc-core.js";
 import { MockCore } from "../app/js/mock-core.js";
 
 // Issue #13: the archived-chats folder button rides getChatList's list_flags.
+// Flag value matters: DC_GCL_ARCHIVED_ONLY is 0x01 — 0x02 is DC_GCL_NO_SPECIALS
+// and silently returns the UNARCHIVED list (archived chats became unfindable).
 test("rpc-core getChatList passes DC_GCL_ARCHIVED_ONLY only when asked", async () => {
   const calls = [];
   class Probe extends JsonRpcCore {
@@ -17,7 +19,7 @@ test("rpc-core getChatList passes DC_GCL_ARCHIVED_ONLY only when asked", async (
   core.accountId = 7;
   await core.getChatList({ archived: true });
   await core.getChatList();
-  assert.deepEqual(calls[0], ["get_chatlist_entries", 7, 2, null, null]);
+  assert.deepEqual(calls[0], ["get_chatlist_entries", 7, 1, null, null]);
   assert.deepEqual(calls[1], ["get_chatlist_entries", 7, null, null, null]);
 });
 
