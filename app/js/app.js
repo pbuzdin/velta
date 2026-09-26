@@ -1395,10 +1395,12 @@ async function showChatInfo(chat) {
 
   const body = document.createElement("div");
   body.innerHTML = `
-    <div style="display:flex;justify-content:center;align-items:center;gap:16px;padding:8px 0 14px">
+    <div style="display:flex;justify-content:center;align-items:center;gap:16px;padding:8px 0 0">
       <velta-avatar class="chat-info-avatar" name="${escapeHtml(chat.name)}" color="${chat.avatarColor || "#777"}" kind="${chat.kind}" size="168"${chat.contactId ? ` contact-id="${chat.contactId}"` : ""}${chat.contact && chat.contact.addr ? ` addr="${escapeAttr(chat.contact.addr)}"` : ""}${(chat.avatar || chat.contact?.avatar) ? ` avatar="${escapeAttr(fileUrl(chat.avatar || chat.contact.avatar))}"` : ""}></velta-avatar>
       ${chat.contactId ? `<span class="chat-info-tile" data-caption-tile></span>` : ""}
     </div>
+    <div class="profile-name">${escapeHtml(chat.name)}</div>
+    <div class="profile-description" data-desc hidden></div>
     ${!isGroup && chat.contactId && chat.contactId !== 1 ? `<div class="profile-actions">
       <button class="btn-text" data-pa="send">Send message</button>
       <button class="btn-text" data-pa="rename">Edit name</button>
@@ -1413,7 +1415,27 @@ async function showChatInfo(chat) {
       <summary class="info-row"><span class="k">Chats in common</span><span class="v" data-common-count></span></summary>
       <div class="modal-list" data-common-list style="max-height:180px;overflow:auto"></div>
     </details>` : ""}`;
-  const modal = showModal({ title: chat.name, body });
+  // Name sits below the avatar now, so the head bar carries only the close.
+  const modal = showModal({ title: "", body });
+
+  // Description block below the name: contact bio/status for profiles, chat
+  // description for groups/channels. Stays hidden when empty.
+  const descEl = body.querySelector("[data-desc]");
+  (async () => {
+    try {
+      let desc = "";
+      if (chat.contactId) {
+        const c = await core.getContact(chat.contactId);
+        desc = c?.status || "";
+      } else if (core.getChatDescription) {
+        desc = (await core.getChatDescription(chat.id)) || "";
+      }
+      if (desc && desc.trim() && accountIsCurrent(epoch)) {
+        descEl.textContent = desc;
+        descEl.hidden = false;
+      }
+    } catch {}
+  })();
 
   // Relay transports (multi-relay) — tapping a relay row opens the relays
   // manager for the current account.

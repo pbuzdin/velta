@@ -529,6 +529,8 @@ export class JsonRpcCore extends EventTarget {
       addr: c.address,
       color: c.color || "#888",
       avatar: c.profileImage || null,
+      // profile bio / status text (self contact 1 carries the selfstatus)
+      status: c.status || "",
       // core 2.61.0: was_seen_recently became the freshness enum
       // ("Normal" | "RecentlySeen" | "Old"); lastSeen stays.
       online: c.freshness === "RecentlySeen",
@@ -850,6 +852,11 @@ export class JsonRpcCore extends EventTarget {
   async getContact(contactId) {
     const c = await this._call("get_contact", this.accountId, contactId);
     return this._mapContact(c);
+  }
+
+  // Chat/group/channel description (core 2.62+ get_chat_description).
+  async getChatDescription(chatId) {
+    return this._call("get_chat_description", this.accountId, chatId);
   }
 
   // Multi-line encryption info: own + the contact's OpenPGP fingerprint.
