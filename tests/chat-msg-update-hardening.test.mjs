@@ -63,6 +63,7 @@ class Element {
   getBoundingClientRect() { return { top: 20, left: 20, right: 200, bottom: 100, width: 180, height: 80 }; }
   focus() {}
   setAttribute(name, value) { this.attributes.set(name, String(value)); }
+  removeAttribute(name) { this.attributes.delete(name); }
   getAttribute(name) { return this.attributes.get(name) ?? null; }
   after(child) { const p = this.parent; if (!p) return child; p.children.splice(p.children.indexOf(this) + 1, 0, child); child.parent = p; return child; }
   scrollTo({ top }) { this.scrollTop = top; }
@@ -199,4 +200,36 @@ test("msgs-changed bursts collapse into one refetch per gap with fresh carried t
   await wait(120); // trailing refetch
   assert.equal(calls.length, 2, "exactly one trailing refetch runs after the burst");
   assert.equal(calls[1].fresh, true, "the trailing refetch inherits the freshest request");
+});
+
+test("incoming bursts near the bottom collapse to one markRead after the debounce", async t => {
+  const { view, core } = setup(t);
+  await view.open(7);
+  view.markReadDebounceMs = 5;
+  let reads = 0;
+  core.markRead = async () => { reads++; };
+
+  // Sit "near the bottom" so onIncoming takes the read path.
+  view.scrollEl.scrollTop = 520; // 1000 - 520 - 500 < 220
+
+  await view.onIncoming(7, message(11, 7));
+  await view.onIncoming(7, message(12, 7));
+  assert.equal(reads, 0, "no markRead while the debounce window is open");
+
+  await wait(30);
+  assert.equal(reads, 1, "the burst collapses to exactly one markRead");
+});
+
+test("a pending debounced read is flushed on close", async t => {
+  const { view, core } = setup(t);
+  await view.open(7);
+  view.markReadDebounceMs = 10_000;
+  let reads = 0;
+  core.markRead = async () => { reads++; };
+  view.scrollEl.scrollTop = 520;
+
+  await view.onIncoming(7, message(11, 7));
+  assert.equal(reads, 0, "scheduled, not fired");
+  view.close();
+  assert.equal(reads, 1, "close must flush the pending markRead");
 });

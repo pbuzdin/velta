@@ -315,6 +315,11 @@ export class ChatView {
     this._tailRefetchAt = 0;
     this._tailRefetchTimer = null;
     this._pendingTailRefetch = null;
+    this._pendingMarkReadChatId = null;
+    // Mark-read coalescing window (tests shrink it): a burst of incoming
+    // messages while the chat is open collapses to one markseen RPC.
+    this.markReadDebounceMs = 400;
+    this._markReadTimer = null;
 
     this.scrollEl = document.getElementById("history-scroll");
     this.listEl = document.getElementById("history");
@@ -462,6 +467,7 @@ export class ChatView {
       if (input.value || this.replyTo) this._drafts.set(this._session.draftKey, { text: input.value, replyTo: this.replyTo, replyFragment: this.replyFragment });
       else this._drafts.delete(this._session.draftKey);
     }
+    this._flushMarkRead(); // messages were on screen — mark them before the session dies
     this._session = null;
     input.value = "";
     input.style.height = "auto";
@@ -504,6 +510,34 @@ export class ChatView {
     if (this._nearBottom()) requestAnimationFrame(() => { if (this._isCurrent(session)) this._scrollBottom(); });
   }
 
+  // Coalesced mark-read for message-arrival paths: the first message in a
+  // burst schedules one markseen; later arrivals within the window are free.
+  // All callers are same-chat (onIncoming/onMsgsChanged guard chatId), so the
+  // captured chatId is the chat the user was actually reading.
+  markReadSoon(chatId) {
+    if (this._markReadTimer) return;
+    const session = this._session;
+    const pendingChatId = chatId;
+    this._pendingMarkReadChatId = chatId;
+    this._markReadTimer = setTimeout(() => {
+      this._markReadTimer = null;
+      if (pendingChatId == null || !this._isCurrent(session) || this.chat?.id !== pendingChatId) return;
+      this.core.markRead(pendingChatId);
+    }, this.markReadDebounceMs);
+  }
+
+  _flushMarkRead() {
+    if (!this._markReadTimer) return;
+    clearTimeout(this._markReadTimer);
+    this._markReadTimer = null;
+    const chatId = this._pendingMarkReadChatId;
+    this._pendingMarkReadChatId = null;
+    // Timer never fired: the messages were on screen but unmarked — close()
+    // also runs before every chat switch, so flush only when still current
+    // (an account switch leaves the read state to the next open).
+    if (chatId != null && this._isCurrent()) this.core.markRead(chatId);
+  }
+
   async onIncoming(chatId, msg) {
     const session = this._session;
     if (!this._isCurrent(session)) return;
@@ -517,7 +551,7 @@ export class ChatView {
     this.vs?.setItems(this.items);
     if (this._nearBottom()) {
       requestAnimationFrame(() => { if (this._isCurrent(session)) this._scrollBottom(); });
-      this.core.markRead(chatId);
+      this.markReadSoon(chatId);
     } else {
       this._bumpGoDown(chatId);
     }
@@ -597,7 +631,7 @@ export class ChatView {
     this.vs?.setItems(this.items);
     if (this._nearBottom()) {
       requestAnimationFrame(() => { if (this._isCurrent(session)) this._scrollBottom(); });
-      this.core.markRead(this.chat.id);
+      this.markReadSoon(this.chat.id);
     } else {
       this._bumpGoDown(this.chat.id);
     }
