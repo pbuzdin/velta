@@ -225,6 +225,18 @@ vCard is the canonical shareable form.
 </details>
 
 <details>
+<summary>Profiles and chat info</summary>
+
+Tapping a chat's header (or your own avatar in the drawer) opens the info
+modal: the avatar, the chat/profile name below it, and a description block
+under the name — a contact's bio/status for people, the self-status for your
+own profile, or the group/channel description — followed by the details rows
+(address, key, notifications, relays). Links on registered invite domains
+render as invite cards and never trigger web previews (no duplicate card, no
+fingerprint leak).
+
+</details>
+<details>
 <summary>Profile management (add, transfer, export)</summary>
 
 The drawer's **Profile management…** modal has three tabs:
