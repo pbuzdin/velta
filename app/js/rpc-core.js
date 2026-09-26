@@ -875,7 +875,10 @@ export class JsonRpcCore extends EventTarget {
   // Retry delivery of a failed outgoing message: the core flips it back to
   // OutPending, re-queues it, and MsgDelivered/MsgFailed events follow.
   async resendMessage(msgId) {
-    return this._call("resend_messages", this.accountId, [msgId]);
+    const result = await this._call("resend_messages", this.accountId, [msgId]);
+    // Re-queued — the relay line spins again until the terminal event.
+    this._trackSending(msgId);
+    return result;
   }
 
   // Pin/unpin a message (core 2.59+ pinned-messages API; works in group and

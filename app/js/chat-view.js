@@ -1572,6 +1572,14 @@ export class ChatView {
     if (m.viewtype === "text" && m.text) items.push({ label: "Copy text", icon: ICO.copy, onClick: () => { navigator.clipboard?.writeText(m.text); toast("Copied"); } });
     items.push(
       { label: "Forward", icon: ICO.forward, onClick: () => this._forward([m.id]) },
+    );
+    // Resend: re-queues the own message through the pipeline (core
+    // resend_messages flips it back to OutPending and retransmits —
+    // recipients get a duplicate). The core rejects info/drafts/pending
+    // messages with an error, which _resendMessage toasts. P2P chats retry
+    // through their own engine paths, not the core.
+    if (!this.chat?.isP2p && m.from === 1) items.push({ label: "Resend", icon: ICO.resend, onClick: () => this._resendMessage(m) });
+    items.push(
       { label: "Save to Saved Messages", icon: ICO.star, onClick: async () => {
         try {
           await this.core.starMessages(session.chatId, [m.id]);

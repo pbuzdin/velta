@@ -276,6 +276,23 @@ export class MockCore extends EventTarget {
   // Demo core answers every send with instant delivery — nothing to reconcile.
   async reconcileSending() {}
 
+  // Resend: flip the own message back to pending and replay the delivery
+  // timeline (mirrors the core's resend_messages: same message, new attempt).
+  async resendMessage(msgId) {
+    for (const chat of this.chats) {
+      const m = chat.messages.find(x => x.id === msgId);
+      if (!m) continue;
+      if (m.from !== 1) throw new Error("only own messages can be resent");
+      m.state = "pending";
+      this._emit("msg-state", { chatId: chat.id, msgId, state: "pending" });
+      setTimeout(() => { m.state = "sent"; this._emit("msg-state", { chatId: chat.id, msgId, state: "sent" }); }, 350);
+      setTimeout(() => { m.state = "delivered"; this._emit("msg-state", { chatId: chat.id, msgId, state: "delivered" }); }, 1200);
+      setTimeout(() => { m.state = "read"; this._emit("msg-state", { chatId: chat.id, msgId, state: "read" }); }, 2600);
+      return;
+    }
+    throw new Error("no such message");
+  }
+
   // ---- onboarding surface (mirrors rpc-core; demo mode is configured, so
   // the splash never shows — set localStorage "velta-mock-fresh" + reload to
   // get an unconfigured demo account and exercise the create flows) ----
