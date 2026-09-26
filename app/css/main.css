@@ -1031,6 +1031,13 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .ctx-item.danger { color: var(--danger); }
 .ctx-item svg { width: 20px; height: 20px; color: var(--text-dim); }
 .ctx-item.danger svg { color: var(--danger); }
+/* Setting toggles rendered as checkbox rows: the box is the state indicator
+   and sits at the row's far edge; the label text stays on the left. */
+.ctx-item input[type="checkbox"] {
+  margin-left: auto; flex: none;
+  width: 16px; height: 16px;
+  accent-color: var(--accent);
+}
 
 /* Drawer spoiler with interface-scale radios */
 .drawer-details summary {
