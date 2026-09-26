@@ -576,6 +576,11 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
 .msg-row.out .msg-meta { color: var(--text-meta-out); }
 .msg-meta .edited { font-style: normal; }
 .msg-meta svg { width: 16px; height: 16px; }
+/* The ticks are a 3:2 glyph letterboxed in a 16px square (drawn height
+   ~10.7px), while the timestamp digits' optical center sits ~1.5px above
+   their line-box center (no descenders) — without the nudge the ticks read
+   visibly low vs the time. */
+.msg-meta .ticks-slot { display: inline-flex; transform: translateY(-1.5px); }
 .msg-meta .ticks.read { color: #6ec2ff; }
 html[data-theme="light"] .msg-meta .ticks.read { color: #1d8bf1; }
 .msg-meta .star-ico { width: 13px; height: 13px; }
