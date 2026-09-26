@@ -88,6 +88,7 @@ jobs:
               echo "What's changed in Velta $TAG"
               echo
               list_commits "$PREV..$TAG"
+              echo "Download the release: https://github.com/pbuzdin/velta/releases/tag/$TAG"
             } > announce.md
           else
             echo "No previous tag — listing everything up to $TAG"
@@ -100,6 +101,7 @@ jobs:
               echo "What's changed in Velta $TAG"
               echo
               list_commits "$TAG"
+              echo "Download the release: https://github.com/pbuzdin/velta/releases/tag/$TAG"
             } > announce.md
           fi
           cat changelog.md
