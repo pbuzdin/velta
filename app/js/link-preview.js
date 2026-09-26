@@ -3,6 +3,7 @@
 // remote reach), in-memory cache per URL, and a user setting
 // (localStorage["velta-link-preview"] !== "0") that gates rendering.
 import { escapeHtml, escapeAttr } from "./components.js";
+import { parseInviteLink } from "./invites.js";
 
 const CACHE = new Map(); // url -> {title, description, image} | null (failed)
 const SETTING_KEY = "velta-link-preview";
@@ -61,6 +62,10 @@ export async function linkPreview(text, chatId = null) {
   if (!linkPreviewEnabled(chatId)) return null;
   const url = firstLink(text);
   if (!url || !/^https:\/\//.test(url)) return null;
+  // Invite links on the registered domains render as invite cards in the
+  // bubble — an OG web preview of the same URL is duplication, and the
+  // fetch would leak the invite URL (fingerprint included) to the web.
+  if (parseInviteLink(url)) return null;
   if (CACHE.has(url)) return CACHE.get(url);
   if (inFlight.has(url)) return inFlight.get(url);
   const p = invoke("fetch_link_preview", { url })
