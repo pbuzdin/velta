@@ -243,6 +243,47 @@ svg { width: 24px; height: 24px; display: block; }
 .pinned-bar .pb-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pinned-bar .pb-text b { color: var(--text); font-weight: 600; }
 
+/* ---------- Pin tray (details element, issue: multi-pin + unpin) ---------- */
+.pin-tray {
+  width: 100%; background: var(--bg-elev, #14141c);
+  border-bottom: 1px solid rgba(128, 128, 128, .18);
+  color: var(--text-dim, #9a9aa8); font: inherit; font-size: 13px;
+}
+.pin-tray > summary {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 14px; cursor: pointer; list-style: none; text-align: left;
+}
+.pin-tray > summary::-webkit-details-marker { display: none; }
+.pin-tray > summary svg { width: 14px; height: 14px; color: var(--accent); flex: none; }
+.pin-tray > summary .pb-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pin-tray > summary .pb-text b { color: var(--text); font-weight: 600; }
+.pin-tray-count {
+  flex: none; min-width: 18px; height: 18px; border-radius: 9px;
+  display: grid; place-items: center; padding: 0 5px;
+  background: var(--accent); color: #f4f4f4; font-size: 11px; font-weight: 600;
+}
+.pin-tray-chevron { display: grid; place-items: center; color: var(--text-dim); }
+.pin-tray-chevron svg { width: 16px; height: 16px; }
+.pin-tray[open] .pin-tray-chevron svg { transform: rotate(180deg); }
+.pin-tray-list {
+  display: flex; flex-direction: column;
+  max-height: 40vh; overflow-y: auto;
+  border-top: 1px solid rgba(128, 128, 128, .14);
+}
+.pin-tray-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px; cursor: pointer;
+}
+.pin-tray-item:hover { background: var(--bg-hover, rgba(255, 255, 255, .05)); }
+.pin-tray-item .pb-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pin-tray-item .pb-text b { color: var(--text); font-weight: 600; }
+.pin-unpin {
+  flex: none; width: 24px; height: 24px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--text-dim); font: inherit; font-size: 13px;
+  cursor: pointer; display: grid; place-items: center;
+}
+.pin-unpin:hover { color: var(--danger); background: var(--bg-hover); }
+
 .chat-load-bar::before {
   content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 45%;
   background: linear-gradient(90deg, transparent, #4c8dff 30%, #8fbcff 50%, #4c8dff 70%, transparent);

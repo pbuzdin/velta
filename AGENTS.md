@@ -485,7 +485,7 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   docs/agents/relays.md (relay line/detail/manager), onboarding (splash,
   second device).
 - `app/js/chat-view.js` owns the conversation history (virtualized via
-  virtual-scroller), composer, selection mode and the delete dialog, plus the pinned-message strip under the chat head (`_refreshPinnedBar`, fed by `pinned-changed` events). KEEP:
+  virtual-scroller), composer, selection mode and the delete dialog, plus the pinned-message tray under the chat head (`_refreshPinnedBar`, fed by `pinned-changed` events). KEEP:
   rows must NOT get `content-visibility` (the scroller measures mounted rows
   itself; collapsing desyncs its height cache — scroll jumps on remount);
   day chips render inside the first message row of each day (`dayFirst`) —

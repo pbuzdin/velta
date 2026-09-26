@@ -157,10 +157,12 @@ over a WebRTC peer connection inside the app's WebView.
 <summary>Pinned messages</summary>
 
 Any message in a group or private chat can be pinned from the message context
-menu (**Pin** / **Unpin**). The newest pinned message shows in a strip between
-the chat header and the history — tapping it scrolls to the message. Pins sync
-through the core's pinned-messages API (core 2.59+), so they work across
-devices.
+menu (**Pin** / **Unpin**). Pinned messages show in a **tray between the chat
+header and the history**: collapsed it shows the newest pin (with a count when
+there are several); tapping the tray expands it and lists every pinned message
+with an **unpin button** on each row; tapping a row jumps to that message. Pins
+sync through the core's pinned-messages API (core 2.59+), so they work across
+devices and are visible to all chat members.
 
 </details>
 

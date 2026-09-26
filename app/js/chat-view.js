@@ -442,16 +442,16 @@ export class ChatView {
     }
   }
 
-  // Pinned-message strip between the chat head and the history (core 2.59+
-  // pinned-messages API; group and private chats). Shows the most recent
-  // pinned message. 🐴 The core returns the whole pinned list per chat but
-  // the strip shows only the newest one — a multi-pin carousel is the
-  // upgrade path if multiple pins per chat are wanted.
+  // Pinned-message tray between the chat head and the history (core 2.59+
+  // pinned-messages API). A <details> element: the collapsed summary shows
+  // the newest pin; expanding reveals ALL pinned messages, each with an
+  // unpin button (issue: multi-pin access + unpin without hunting the
+  // message down in history).
   _ensurePinnedBar() {
     if (this.pinnedBar?.isConnected) return this.pinnedBar;
-    const bar = this.pinnedBar = document.createElement("button");
+    const bar = this.pinnedBar = document.createElement("details");
     bar.id = "pinned-bar";
-    bar.className = "pinned-bar";
+    bar.className = "pin-tray";
     bar.hidden = true;
     document.querySelector("#chat-view header.chat-head")?.after(bar);
     return bar;
@@ -465,13 +465,48 @@ export class ChatView {
     try { ids = await this.core.getPinnedMessages(session.chatId); } catch { ids = []; }
     if (!this._isCurrent(session)) return;
     if (!ids.length) { bar.hidden = true; return; }
-    const id = ids[ids.length - 1];
-    const m = await this.core.getMessage(id).catch(() => null);
-    if (!this._isCurrent(session)) return;
-    const snippet = (m?.text || "").slice(0, 60) || (m?.viewtype && m.viewtype !== "text" ? m.viewtype : "message");
-    bar.innerHTML = `${ICO.pin}<span class="pb-text"><b>${escapeHtml(m?.fromContact?.name || "")}</b> ${escapeHtml(snippet)}</span>`;
+    const msgs = [];
+    for (const id of ids) {
+      const m = await this.core.getMessage(id).catch(() => null);
+      if (!this._isCurrent(session)) return;
+      if (m) msgs.push(m);
+    }
+    if (!msgs.length) { bar.hidden = true; return; }
+    // Newest pin drives the collapsed summary; the tray lists all of them,
+    // newest first. `open` (expanded state) survives refreshes.
+    const wasOpen = bar.open;
+    const snippet = (m) => (m.text || "").slice(0, 60) || (m.viewtype && m.viewtype !== "text" ? m.viewtype : "message");
+    const newest = msgs[msgs.length - 1];
+    const item = (m) => `
+      <div class="pin-tray-item" data-pin-id="${m.id}">
+        <span class="pb-text"><b>${escapeHtml(m.fromContact?.name || "")}</b> ${escapeHtml(snippet(m))}</span>
+        <button class="pin-unpin" data-unpin="${m.id}" title="Unpin" aria-label="Unpin">✕</button>
+      </div>`;
+    bar.innerHTML = `
+      <summary class="pin-tray-summary">
+        ${ICO.pin}<span class="pb-text"><b>${escapeHtml(newest?.fromContact?.name || "")}</b> ${escapeHtml(snippet(newest))}</span>
+        ${msgs.length > 1 ? `<span class="pin-tray-count">${msgs.length}</span>` : ""}
+        <span class="pin-tray-chevron"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      </summary>
+      <div class="pin-tray-list">${msgs.slice().reverse().map(item).join("")}</div>`;
     bar.hidden = false;
-    bar.onclick = () => { if (this._isCurrent(session)) this._jumpToMessage(id); };
+    bar.open = wasOpen;
+    bar.querySelectorAll(".pin-tray-item").forEach(itemEl => {
+      itemEl.addEventListener("click", e => {
+        if (e.target.closest("[data-unpin]")) return;
+        bar.open = false;
+        if (this._isCurrent(session)) this._jumpToMessage(Number(itemEl.dataset.pinId));
+      });
+    });
+    bar.querySelectorAll("[data-unpin]").forEach(btn => {
+      btn.addEventListener("click", async e => {
+        e.stopPropagation();
+        try { await this.core.pinMessage(Number(btn.dataset.unpin), false); } catch (err) {
+          errToast("Couldn't unpin: " + (err?.message || err));
+        }
+        this._refreshPinnedBar();
+      });
+    });
   }
 
   // Full teardown: stop polling, dispose the virtual scroller, drop cached
