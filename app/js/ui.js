@@ -154,25 +154,42 @@ export function showModal({ title, body, foot, onClose, compact = false }) {
 // expands the text AND pauses the auto-hide timer (second tap collapses and
 // resumes). Expanded toasts gain a copy button; every toast has a close ✕.
 // opts.danger: red timer bar (errToast).
+// Full-width bar pinned above the composer / bottom action bar (see
+// .toasts in main.css; z-index rides above modal overlays). One line with
+// ellipsis; when the text overflows, a chip appears and opening the toast
+// pauses the auto-hide timer (closing resumes). The open pane shows the
+// full text plus a copy button. Every toast has a close X.
+// opts.danger: red timer bar (errToast).
 export function toast(text, ms = 2200, opts = {}) {
   const box = document.getElementById("toasts");
   const duration = Math.max(800, ms || 2200);
-  const el = document.createElement("div");
+  // <details>/<summary>: the collapsed one-liner is the summary, the open
+  // pane carries the full text and the copy button. Native toggle gives the
+  // expand/collapse + disclosure semantics without JS state; JS adds the
+  // timer (pause while open), copy, close, and the overflow-gated chip.
+  const el = document.createElement("details");
   el.className = "toast" + (opts.danger ? " danger" : "");
-  // Built with createElement (not innerHTML templates): test-harness Element
-  // stubs don't parse HTML, and this keeps every child stub-safe.
+  const summary = document.createElement("summary");
+  summary.className = "toast-summary";
   const textEl = document.createElement("span");
   textEl.className = "toast-text";
   textEl.textContent = String(text);
   const timerBar = document.createElement("span");
   timerBar.className = "toast-timer";
-  const chip = document.createElement("button");
-  chip.type = "button"; chip.className = "toast-chip"; chip.hidden = true;
-  const copyBtn = document.createElement("button");
-  copyBtn.type = "button"; copyBtn.className = "toast-copy"; copyBtn.hidden = true; copyBtn.textContent = "Copy";
+  const chip = document.createElement("span");
+  chip.className = "toast-chip"; chip.hidden = true;
   const closeBtn = document.createElement("button");
-  closeBtn.type = "button"; closeBtn.className = "toast-close"; closeBtn.setAttribute("aria-label", "Close"); closeBtn.textContent = "✕";
-  el.append(timerBar, textEl, chip, copyBtn, closeBtn);
+  closeBtn.type = "button"; closeBtn.className = "toast-close"; closeBtn.setAttribute("aria-label", "Close"); closeBtn.textContent = "X";
+  summary.append(timerBar, textEl, chip, closeBtn);
+  const moreText = document.createElement("div");
+  moreText.className = "toast-more-text";
+  moreText.textContent = String(text);
+  const copyBtn = document.createElement("button");
+  copyBtn.type = "button"; copyBtn.className = "toast-copy"; copyBtn.textContent = "Copy";
+  const more = document.createElement("div");
+  more.className = "toast-more";
+  more.append(moreText, copyBtn);
+  el.append(summary, more);
   box.appendChild(el);
   while (box.children.length > 3 && box.firstElementChild) box.firstElementChild.remove();
 
@@ -183,43 +200,38 @@ export function toast(text, ms = 2200, opts = {}) {
   const dismiss = () => el.remove();
   timerBar.style.animationDuration = duration + "ms";
   timerBar.addEventListener("animationend", dismiss);
+  closeBtn.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); dismiss(); });
+  copyBtn.addEventListener("click", async e => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(text);
+      copyBtn.textContent = "Copied";
+      setTimeout(() => { copyBtn.textContent = "Copy"; }, 1200);
+    } catch {}
+  });
 
   // Expandable only when the text actually overflows one line (the
   // scrollWidth read forces layout synchronously). Re-checked once web
-  // fonts settle — the first measurement can use fallback metrics that
-  // fit, while the real font lands wider.
-  let expanded = false;
+  // fonts settle - the first measurement can use fallback metrics that
+  // fit, while the real font lands wider. One-line toasts block the native
+  // summary toggle: there is nothing more to show.
   let expandable = false;
   const measureChip = () => {
     try {
       if (textEl.scrollWidth > textEl.clientWidth + 1) expandable = true;
     } catch {}
-    if (expandable && !expanded) {
-      chip.hidden = false;
-      chip.textContent = `${clickLabel} to expand`;
-    }
-    return expandable;
+    if (expandable) chip.textContent = `${clickLabel} to ${el.open ? "collapse" : "expand"}`;
+    else chip.hidden = true;
   };
   measureChip();
-  document.fonts?.ready?.then(() => { if (!expanded) measureChip(); });
-  const setTimer = (running) => { timerBar.style.animationPlayState = running ? "running" : "paused"; };
-  el.addEventListener("click", async (e) => {
-    if (e.target.closest(".toast-close")) return dismiss();
-    if (e.target.closest(".toast-copy")) {
-      try {
-        await navigator.clipboard.writeText(text);
-        copyBtn.textContent = "Copied";
-        setTimeout(() => { copyBtn.textContent = "Copy"; }, 1200);
-      } catch {}
-      return;
-    }
-    if (!expandable) return;
-    expanded = !expanded;
-    el.classList.toggle("expanded", expanded);
-    chip.textContent = `${clickLabel} to ${expanded ? "collapse" : "expand"}`;
-    copyBtn.hidden = !expanded;
-    setTimer(!expanded); // expanded: timer paused; collapsed: resumes
+  document.fonts?.ready?.then(() => measureChip());
+  summary.addEventListener("click", e => { if (!expandable) e.preventDefault(); });
+  el.addEventListener("toggle", () => {
+    // open = paused; closed = timer resumes
+    setTimer(!el.open);
+    chip.textContent = `${clickLabel} to ${el.open ? "collapse" : "expand"}`;
   });
+  const setTimer = (running) => { timerBar.style.animationPlayState = running ? "running" : "paused"; };
 }
 
 export function confirmModal(title, text, okLabel = "Delete", danger = true) {
