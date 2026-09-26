@@ -159,37 +159,49 @@ export function toast(text, ms = 2200, opts = {}) {
   const duration = Math.max(800, ms || 2200);
   const el = document.createElement("div");
   el.className = "toast" + (opts.danger ? " danger" : "");
-  el.innerHTML = `
-    <span class="toast-timer"></span>
-    <span class="toast-text"></span>
-    <button type="button" class="toast-chip" hidden></button>
-    <button type="button" class="toast-copy" hidden>Copy</button>
-    <button type="button" class="toast-close" aria-label="Close">✕</button>`;
-  el.querySelector(".toast-text").textContent = String(text);
+  // Built with createElement (not innerHTML templates): test-harness Element
+  // stubs don't parse HTML, and this keeps every child stub-safe.
+  const textEl = document.createElement("span");
+  textEl.className = "toast-text";
+  textEl.textContent = String(text);
+  const timerBar = document.createElement("span");
+  timerBar.className = "toast-timer";
+  const chip = document.createElement("button");
+  chip.type = "button"; chip.className = "toast-chip"; chip.hidden = true;
+  const copyBtn = document.createElement("button");
+  copyBtn.type = "button"; copyBtn.className = "toast-copy"; copyBtn.hidden = true; copyBtn.textContent = "Copy";
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button"; closeBtn.className = "toast-close"; closeBtn.setAttribute("aria-label", "Close"); closeBtn.textContent = "✕";
+  el.append(timerBar, textEl, chip, copyBtn, closeBtn);
   box.appendChild(el);
-  while (box.children.length > 3) box.firstElementChild.remove();
+  while (box.children.length > 3 && box.firstElementChild) box.firstElementChild.remove();
 
-  const textEl = el.querySelector(".toast-text");
-  const timerBar = el.querySelector(".toast-timer");
-  const chip = el.querySelector(".toast-chip");
-  const copyBtn = el.querySelector(".toast-copy");
-  const clickLabel = matchMedia("(hover: hover) and (pointer: fine)").matches ? "Click" : "Tap";
+  const clickLabel = (() => {
+    try { return matchMedia("(hover: hover) and (pointer: fine)").matches ? "Click" : "Tap"; } catch { return "Tap"; }
+  })();
 
   const dismiss = () => el.remove();
   timerBar.style.animationDuration = duration + "ms";
   timerBar.addEventListener("animationend", dismiss);
 
-  // Expandable only when the text actually overflows one line (measured on
-  // the next frame, after layout). Expanded: text wraps, timer pauses.
+  // Expandable only when the text actually overflows one line (the
+  // scrollWidth read forces layout synchronously). Re-checked once web
+  // fonts settle — the first measurement can use fallback metrics that
+  // fit, while the real font lands wider.
   let expanded = false;
   let expandable = false;
-  requestAnimationFrame(() => {
-    expandable = textEl.scrollWidth > textEl.clientWidth + 1;
-    if (expandable) {
+  const measureChip = () => {
+    try {
+      if (textEl.scrollWidth > textEl.clientWidth + 1) expandable = true;
+    } catch {}
+    if (expandable && !expanded) {
       chip.hidden = false;
       chip.textContent = `${clickLabel} to expand`;
     }
-  });
+    return expandable;
+  };
+  measureChip();
+  document.fonts?.ready?.then(() => { if (!expanded) measureChip(); });
   const setTimer = (running) => { timerBar.style.animationPlayState = running ? "running" : "paused"; };
   el.addEventListener("click", async (e) => {
     if (e.target.closest(".toast-close")) return dismiss();
