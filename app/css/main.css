@@ -578,8 +578,13 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
 /* Tiny "bot" badge next to the timestamp: bordered uppercase tag so it reads
    as a label, not text. Inherits the meta color — visible on every theme's
    incoming bubble (contrast held by the meta color, ≥4.5:1 like the time). */
+/* Tiny "bot" badge next to the timestamp: bordered uppercase tag so it reads
+   as a label, not text. No letter-spacing — CSS tracking applies after the
+   LAST glyph too, which left the tag visibly lopsided at this size. Inherits
+   the meta color — visible on every theme's incoming bubble (contrast held
+   by the meta color, ≥4.5:1 like the time). */
 .msg-meta .bot-chip {
-  font-size: 8.5px; font-weight: 700; letter-spacing: .08em;
+  font-size: 8.5px; font-weight: 700;
   text-transform: uppercase; line-height: 1;
   padding: 1.5px 4px; border: 1px solid currentColor; border-radius: 4px;
   opacity: .85; cursor: default;
