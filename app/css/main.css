@@ -1109,6 +1109,22 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
   }
 }
 @keyframes sheetIn { from { opacity: 0; transform: translateY(28px); } }
+/* Desktop: task modals fill the chat-list pane instead of floating a small
+   card (Telegram/WhatsApp-style) — conversations stay visible and dimmed
+   under the scrim, and a click outside dismisses. Width mirrors .sidebar
+   (33%, clamped 300–420px); height stops above the list bottom bar, same
+   offset as the drawer overlay. Compact confirmations and media lightboxes
+   keep their own presentations. */
+@media (min-width: 601px) {
+  .modal:not(.modal-compact) {
+    position: fixed; left: 0; top: 0;
+    width: clamp(300px, 33vw, 420px);
+    height: calc(100dvh - var(--list-bar-h));
+    max-height: none;
+    border-radius: 0;
+    border-top: none; border-bottom: none; border-left: none;
+  }
+}
 .modal-head {
   display: flex; align-items: center; gap: 10px;
   padding: 16px 18px 10px;
