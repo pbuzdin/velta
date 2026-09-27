@@ -95,6 +95,7 @@ export class MockCore extends EventTarget {
     // stale-transport hint are demoable without a real multi-relay account).
     this.relayDomains = this.account.relay ? [this.account.relay, "chat.vim.wtf"] : [];
     this.contacts = CONTACTS;
+    this._extraMembers = {}; // chatId → contact ids added via addChatMembers
     this.msgSeq = 0;
     this._buildChats();
     this._simulateIncoming();
@@ -550,10 +551,23 @@ export class MockCore extends EventTarget {
     const chat = this.chats.find(c => c.id === chatId);
     if (!chat || (chat.kind !== "group" && chat.kind !== "channel")) return [];
     const self = { id: 1, name: this.account.displayName, color: this.account.color };
-    return [self, ...(GROUP_MEMBERS[chat.id] || []).map(id => {
+    return [self, ...(GROUP_MEMBERS[chat.id] || []).concat(this._extraMembers[chat.id] || []).map(id => {
       const c = this.contacts.find(x => x.id === id);
       return c && { id: c.id, name: c.name, addr: c.addr, color: c.color, avatar: c.avatar, online: c.online, lastSeen: c.lastSeen };
     }).filter(Boolean)];
+  }
+
+  // Demo twin of addChatMembers: extra members ride a side map so the
+  // GROUP_MEMBERS fixture above stays untouched.
+  async addChatMembers(chatId, contactIds) {
+    const chat = this.chats.find(c => c.id === chatId);
+    if (!chat) return;
+    const extra = (this._extraMembers[chatId] ||= []);
+    for (const id of contactIds) {
+      if (!extra.includes(Number(id))) extra.push(Number(id));
+    }
+    chat.memberCount = (chat.memberCount || 0) + contactIds.length;
+    this._emit("chat-updated", { chatId });
   }
 
   async renameContact(contactId, name) {

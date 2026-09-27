@@ -1284,6 +1284,16 @@ export class JsonRpcCore extends EventTarget {
     return chatId;
   }
 
+  // Add contacts to an existing group. Idempotent core-side for contacts
+  // already in; the core informs the group via its own system message.
+  async addChatMembers(chatId, contactIds) {
+    const { accountId, accountEpoch } = this;
+    for (const cid of contactIds) {
+      await this._call("add_contact_to_chat", accountId, chatId, cid);
+    }
+    this._emitAccount("chat-updated", { chatId }, accountEpoch);
+  }
+
   // --- onboarding: configure the account (not in MockCore) ---
   async configureWithCredentials(addr, password) {
     const { accountId, accountEpoch } = this;
