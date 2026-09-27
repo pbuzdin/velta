@@ -119,7 +119,7 @@ export class MockCore extends EventTarget {
       mk({ id: 12, name: "Ada Byron", contactId: 2, pinned: true, verified: true, unread: 2 }),
       mk({ id: 13, name: "Weekend Crew 🏕", kind: "group", memberCount: 6, pinned: true, unread: 14, avatar: GROUP_AVATARS[13] }),
       mk({ id: 14, name: "Kenji Sato", contactId: 3, muted: true, unread: 5 }),
-      mk({ id: 15, name: "Velta Devs", kind: "group", memberCount: 23, unread: 0, avatar: GROUP_AVATARS[15] }),
+      mk({ id: 15, name: "Velta Devs", kind: "group", memberCount: 23, unread: 180, avatar: GROUP_AVATARS[15] }),
       mk({ id: 16, name: "Mara Voss", contactId: 4 }),
       mk({ id: 17, name: "News · Delta Chat", kind: "channel", memberCount: 12800, muted: true, unread: 31 }),
       mk({ id: 18, name: "Tariq Aziz", contactId: 5, archived: true }),
@@ -142,6 +142,16 @@ export class MockCore extends EventTarget {
         chat.messages.push(this._randomMsg(chat, ts));
       }
       chat.messages.sort((a, b) => a.ts - b.ts);
+    }
+    // The demo unread counters become per-message flags on the newest
+    // incoming messages, so opening a chat lands on its first unread one.
+    for (const chat of this.chats) {
+      let left = chat.unread;
+      for (let i = chat.messages.length - 1; i >= 0 && left > 0; i--) {
+        const m = chat.messages[i];
+        if (m.from !== 1 && m.kind !== "service") { m.unread = true; left--; }
+      }
+      chat.unread -= left;
     }
 
     // A couple of concrete messages in the saved chat
@@ -257,7 +267,8 @@ export class MockCore extends EventTarget {
       const from = [2, 4, 6][Math.floor(Math.random() * 3)];
       const m = this._mkMsg(chat, { from, text: LOREM[Math.floor(Math.random() * LOREM.length)], ts: Date.now(), state: "received" });
       chat.messages.push(m);
-      if (!chat.muted) chat.unread++;
+      m.unread = true;
+      chat.unread++;
       this._emit("incoming-msg", { chatId: chat.id, msg: this._decorate(m) });
     }, 25000);
   }
@@ -588,17 +599,28 @@ export class MockCore extends EventTarget {
     return null;
   }
 
-  async getMessages(chatId, { beforeId = null, limit = 40 } = {}) {
+  async getMessages(chatId, opts = {}) {
     const c = this.chats.find(x => x.id === chatId);
-    if (!c) return { messages: [], hasMore: false };
-    let end = c.messages.length;
-    if (beforeId != null) {
-      const idx = c.messages.findIndex(m => m.id === beforeId);
-      if (idx >= 0) end = idx;
-    }
-    const start = Math.max(0, end - limit);
+    if (!c) return { messages: [], hasMore: false, hasNewer: false };
+    const { start, end } = pageBounds(c.messages.map(m => m.id), opts);
     const slice = c.messages.slice(start, end).map(m => this._decorate(m));
-    return { messages: slice, hasMore: start > 0 };
+    return { messages: slice, hasMore: start > 0, hasNewer: end < c.messages.length };
+  }
+
+  // Demo twins of rpc-core.markSeen / getFirstUnreadMessageId: per-message
+  // unread flags, the chat counter follows them.
+  async markSeen(chatId, ids) {
+    const c = this.chats.find(x => x.id === chatId);
+    if (!c || !ids?.length) return;
+    const set = new Set(ids);
+    for (const m of c.messages) if (set.has(m.id)) m.unread = false;
+    c.unread = c.messages.filter(m => m.unread).length;
+    this._emit("chat-updated", { chatId });
+  }
+
+  async getFirstUnreadMessageId(chatId) {
+    const c = this.chats.find(x => x.id === chatId);
+    return c?.messages.find(m => m.unread)?.id ?? null;
   }
 
   async getMessage(msgId) {
@@ -679,7 +701,8 @@ export class MockCore extends EventTarget {
       setTimeout(() => {
         const reply = this._mkMsg(c, { from: c.contactId, text: LOREM[Math.floor(Math.random() * LOREM.length)], ts: Date.now() });
         c.messages.push(reply);
-        if (!c.muted) c.unread++;
+        reply.unread = true;
+        c.unread++;
         this._emit("incoming-msg", { chatId, msg: this._decorate(reply) });
       }, 3200 + Math.random() * 3000);
     }
@@ -688,7 +711,10 @@ export class MockCore extends EventTarget {
 
   async markRead(chatId) {
     const c = this.chats.find(x => x.id === chatId);
-    if (c) { c.unread = 0; this._emit("chat-updated", { chatId }); }
+    if (!c) return;
+    for (const m of c.messages) m.unread = false;
+    c.unread = 0;
+    this._emit("chat-updated", { chatId });
   }
 
   async deleteMessages(chatId, ids) {
@@ -782,6 +808,32 @@ export class MockCore extends EventTarget {
     this._emit("chat-updated", { chatId: id });
     return id;
   }
+}
+
+// Page window over a chat's ordered message-id list, shared by the real and
+// the demo core's getMessages (see JsonRpcCore.getMessages for the options).
+// An unknown aroundId/beforeId falls back to the newest page; an unknown
+// afterId yields an empty page with hasNewer false, so a detached chat view
+// reloads the tail instead of appending it after a gap.
+export function pageBounds(ids, { beforeId = null, afterId = null, aroundId = null, before = 10, limit = 40 } = {}) {
+  const n = ids.length;
+  if (aroundId != null) {
+    const idx = ids.indexOf(aroundId);
+    if (idx >= 0) {
+      const end = Math.min(n, Math.max(0, idx - before) + limit);
+      return { start: Math.max(0, end - limit), end };
+    }
+  } else if (afterId != null) {
+    const idx = ids.indexOf(afterId);
+    if (idx < 0) return { start: n, end: n };
+    return { start: idx + 1, end: Math.min(n, idx + 1 + limit) };
+  }
+  let end = n;
+  if (beforeId != null) {
+    const idx = ids.indexOf(beforeId);
+    if (idx >= 0) end = idx;
+  }
+  return { start: Math.max(0, end - limit), end };
 }
 
 export function formatBytes(n) {

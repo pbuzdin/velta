@@ -357,13 +357,40 @@ html[data-theme="light"] .day-chip { background: rgba(244,244,244,.75); color: #
 /* service messages (diagnosticRow) can start a day too — block wrap */
 .msg-row.day-first { display: block; }
 
+/* "Unread messages" line and the manual read marker: both ride INSIDE
+   their message row (unreadFirst / readMarker flags, see chat-view.js
+   _annotateMessages) and take their own line via the row's flex-wrap.
+   Text colors measured against --bg-chat plus the history gradients:
+   dark accent 7.2, brutal accent 5.3, light #155a9e >= 5.2 : 1 (raw light
+   accent is 2.8 : 1). */
 .unread-sep {
-  align-self: stretch; text-align: center;
+  flex: none; width: calc(100% - 48px);
+  text-align: center;
   color: var(--accent); font-size: 13px;
   border-top: 1px solid var(--accent);
   margin: 10px 24px; padding-top: 4px;
-  opacity: .8;
 }
+.read-marker {
+  flex: none; width: calc(100% - 48px);
+  display: flex; align-items: center; gap: 8px;
+  margin: 8px 24px 6px;
+  color: var(--accent); font-size: 12.5px; font-weight: 600;
+}
+.read-marker::before, .read-marker::after {
+  content: ""; flex: 1; border-top: 2px dashed currentColor;
+}
+.read-marker-x {
+  display: grid; place-items: center;
+  width: 22px; height: 22px; margin-left: -4px; border-radius: 50%;
+  color: inherit;
+}
+.read-marker-x svg { width: 14px; height: 14px; }
+.read-marker-x:active { background: rgba(90,162,230,.2); }
+@media (hover: hover) and (pointer: fine) {
+  .read-marker-x:hover { background: rgba(90,162,230,.16); }
+}
+html[data-theme="light"] .unread-sep,
+html[data-theme="light"] .read-marker { color: #155a9e; border-color: #155a9e; }
 
 /* ---------- Message bubbles ---------- */
 /* flex-wrap lets the 100%-width day chip take its own line inside the row */
@@ -883,8 +910,12 @@ velta-video { display: block; height: 100%; }
 .msg-checkbox svg { width: 14px; height: 14px; }
 
 /* ---------- Go-down button ---------- */
+/* Sticky, not absolute: the button lives inside the scroll container, where
+   an absolute box scrolls away with the content. The -52px top margin keeps
+   it out of the content height (no scrollHeight change when it toggles). */
 .go-down {
-  position: absolute; right: 22px; bottom: calc(18px + env(safe-area-inset-bottom));
+  position: sticky; bottom: calc(18px + env(safe-area-inset-bottom));
+  margin: -52px 22px 0 auto;
   width: 52px; height: 52px; border-radius: 50%;
   background: var(--bg-sidebar); color: var(--text-dim);
   box-shadow: var(--shadow); display: grid; place-items: center;
@@ -897,6 +928,7 @@ velta-video { display: block; height: 100%; }
   min-width: 22px; height: 22px; border-radius: 11px;
   display: grid; place-items: center; padding: 0 5px;
 }
+.go-down[hidden], .go-down-badge[hidden] { display: none; }
 
 /* ---------- Reply preview ---------- */
 .reply-preview {
