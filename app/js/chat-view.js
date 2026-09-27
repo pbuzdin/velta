@@ -71,6 +71,14 @@ export function isMediaFilePath(path) {
 // target=_blank new-window requests, so this rides the opener plugin — the
 // same verified path as the update banner (plugin:opener|open_url,
 // opener:default capability). Bare window.open is the non-Tauri fallback.
+// Injected into every HTML-view overlay (mail body, HTML attachments): a
+// capture-phase interceptor that stops links from navigating the sandboxed
+// frame and posts them to the parent, which opens them outside (Android
+// in-app browser chain / desktop system browser). The CSP blocks inline
+// scripts, so these EXACT bytes are hash-whitelisted as script-src in
+// index.html AND both tauri confs — change here and there in one commit.
+const HTML_VIEW_LINK_JS = `document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!a)return;e.preventDefault();parent.postMessage({veltaHtmlLink:a.href},"*")},true)`;
+
 function openExternal(url) {
   try {
     const tauri = window.__TAURI__;
@@ -2516,19 +2524,38 @@ export class ChatView {
     // document's own scrollbar follows ITS color-scheme, so inject it.
     const injectTheme = html => {
       const dark = document.documentElement.dataset.theme !== "light";
-      const inject = `<style>html{color-scheme:${dark ? "dark" : "light"}}</style>`;
+      const inject = `<style>html{color-scheme:${dark ? "dark" : "light"}}</style>` + `<script>${HTML_VIEW_LINK_JS}</script>`;
       const head = /<head[^>]*>/i.exec(html) || /<html[^>]*>/i.exec(html);
       return head
         ? html.slice(0, head.index + head[0].length) + inject + html.slice(head.index + head[0].length)
         : inject + html;
     };
+    // Links inside the mail must leave, not navigate the sandboxed frame
+    // (a plain click replaces the mail with the linked page INSIDE the
+    // overlay; target=_blank is swallowed by the sandbox/wry). The frame
+    // can't be touched from here (opaque origin), so the injected snippet
+    // posts the URL back and the SAME routing as chat bubble links applies:
+    // Android in-app browser chain, desktop system browser. The snippet's
+    // exact bytes are hash-whitelisted in the CSP (script-src, all three
+    // policy copies — see index.html / both tauri confs).
+    const onFrameLink = (e) => {
+      const href = e.data?.veltaHtmlLink;
+      if (typeof href !== "string" || !/^https?:/i.test(href)) return;
+      if (/Android/.test(navigator.userAgent)) openInAppBrowser(href);
+      else openExternal(href);
+    };
     const closeViewer = () => {
+      window.removeEventListener("message", onFrameLink);
       if (history.state?.velta === "html-view") history.back();
       else wrap.remove();
     };
     // Reopening replaces the stale entry instead of stacking a second one.
     if (history.state?.velta !== "html-view") history.pushState({ velta: "html-view" }, "");
-    window.addEventListener("popstate", () => wrap.remove(), { once: true });
+    window.addEventListener("popstate", () => {
+      window.removeEventListener("message", onFrameLink);
+      wrap.remove();
+    }, { once: true });
+    window.addEventListener("message", onFrameLink);
     if (html != null) {
       frame.srcdoc = injectTheme(html);
     } else {
