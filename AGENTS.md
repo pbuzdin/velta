@@ -499,7 +499,7 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `.chat-item` cards use full
   `contain: layout paint style`. The rendered-row LRU (`_rowCache`) survives
   `close()`; `open()` clears it when the account changed.
-- **Read tracking** (post-1.4.26): opening a chat no longer marks it read.
+- **Read tracking** (1.4.40, PR #17): opening a chat no longer marks it read.
   `open()` lands at the manual read marker (while unread remain), else the
   core's `get_first_unread_message_of_chat`, else the bottom — loading a
   window via `getMessages({aroundId})`; a window short of the tail sets
@@ -829,6 +829,16 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   pass on null and crashed demo mode), with no-op demos for vCard and
   backup transfer.
 
+- **HTML mail/attachment viewer** (`_openHtmlOverlay`, chat-view.js;
+  1.4.40 link fix): a sandboxed (`allow-scripts`, no `allow-same-origin`)
+  srcdoc iframe — a plain link click would navigate the FRAME ITSELF and
+  `target=_blank` dies in the sandbox/wry, so the overlay injects a
+  capture-phase interceptor (`HTML_VIEW_LINK_JS`) that preventDefaults
+  anchor clicks and postMessages the href to the parent, which routes it
+  EXACTLY like chat bubble links (Android in-app browser chain / desktop
+  opener plugin). The snippet's bytes are hash-whitelisted in `script-src`
+  (§8) — the parent cannot reach into the opaque frame any other way.
+
 - **Post-1.4.34 UI surface** — settings are checkbox rows in the drawer
   (`data-toggle` labels + change handlers in ui.js; Demo mode is the renamed
   mock toggle; Send on Enter is `velta-send-enter`, "0" = off, read by the
@@ -848,7 +858,11 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   above the composer/bottom bar: 3px shrinking timer bar (danger red for
   errToast) whose animationend dismisses, one-line ellipsis,
   overflow-gated expand chip (re-measured after `document.fonts.ready`),
-  copy button in the open pane, close X in the summary. Bubbles cap at `min(480px, 90%)` (avatar rows −50px). Jump targets
+  copy button in the open pane, close X in the summary. On the desktop
+  two-pane layout the bar spans the ACTIVE context column only — the list
+  pane in list context, the chat area above the composer with a chat open
+  (`body:has(.app.chat-open)`: `#toasts` sits outside `#app`, a descendant
+  selector can never match); phones keep the full-width bar. Bubbles cap at `min(480px, 90%)` (avatar rows −50px). Jump targets
   outside the loaded window (search hits, quotes, pinned bar) fetch older
   pages via `_jumpFetchAndScroll` (page cap `jumpMaxPages`) then
   `_scrollToItemSeek` — the scroller has no scroll-to-item API (a window
@@ -1130,6 +1144,11 @@ test traffic accordingly.
   has its own looser dev policy (`unsafe-inline` for its single inline
   script). Keep it tight when adding new frontend capabilities, and update
   **all three** places together: both conf files and the meta tag.
+  - `script-src` (1.4.40 cycle) carries ONE inline-script hash: the HTML
+    viewer's link interceptor (`HTML_VIEW_LINK_JS` in chat-view.js) injected
+    into the sandboxed srcdoc frame. The hash whitelists those EXACT bytes —
+    change the snippet and the three CSP copies in one commit. Mail's own
+    inline/remote scripts stay blocked.
   - `connect-src` is loopback-only again (1.4.16): the github hosts that the
     update banner briefly added were removed — the version check runs
     shell-side (`get_latest_version` ureq command in lib.rs), and shell HTTP
@@ -1358,7 +1377,7 @@ do-not-regress rules; dates mark when the lesson was learned.
   per remount would multiply. Mock answers with Completed + the stored
   duration; a demo call message lives in the Ada chat.
 - **Chat open position + go-down (post-1.4.38, issue #14; read tracking
-  since)** — open() lands on the manual read marker or the first unread
+  1.4.40)** — open() lands on the manual read marker or the first unread
   message (`get_first_unread_message_of_chat`; the "Unread messages" line
   rides inside that row as `unreadFirst`), else the tail — see §5.1 "Read
   tracking". `_settleScroll(computeTop, reassert)` re-asserts the target on
