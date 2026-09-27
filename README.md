@@ -506,7 +506,9 @@ attachments: a sandboxed iframe in an opaque origin, so scripts run but can
 touch nothing of the app. Forwarded copies carry no stored original and get
 no button. Remote images inside the mail stay blocked by default (the page
 CSP applies inside the viewer) — nothing about you leaks to mail-embedded
-trackers.
+trackers. Links inside the original mail open **outside** the viewer — in
+your system browser on desktop, in the in-app browser on Android — instead
+of replacing the message view.
 
 Everything is HTML-escaped before any tag is produced and only `http(s)` targets become links, so message content can never inject markup. Emphasis markers are word-boundary guarded (`2*3*4` and `snake_case_name` stay literal). Invite links (`i.delta.chat` and registered mirror domains) render as invite cards instead of links — see [Deep links](#deep-links). Invites carrying a `b=` parameter are broadcast channels and render as *"Subscribe to ChannelName"* with a Subscribe confirmation instead of the group wording.
 
@@ -652,6 +654,32 @@ Related indicator: encrypted chats show no lock icon (e2e is the default).
 Unencrypted 1:1 chats — classic-email contacts that chatmail relays cannot
 encrypt to — are marked with a small open-shackle lock in the chat list and
 chat header instead.
+
+</details>
+
+<details>
+<summary>Reading chats: unread position, read marker, go-down</summary>
+
+Opening a chat no longer marks everything read. The chat opens at your
+manual **"Read up to here"** marker if you set one, otherwise at the first
+unread message (marked with an "Unread messages" line), otherwise at the
+newest message.
+
+- **Seen = on screen.** Messages count as read — and read receipts go out —
+  only once they actually scroll into view. Read partway and switch away,
+  and the rest of the chat keeps its unread badge. Nothing is marked read
+  while the app is in the background.
+- **"Read up to here"** — long-press/right-click any message and pick it:
+  everything up to that message is marked read and a dashed line anchors
+  the spot. While unread messages remain below, the chat reopens at the
+  line; remove it any time with the ✕ on it. The marker lives on this
+  device only.
+- **Go-down button** — shows when you are scrolled away from the newest
+  message and carries the count of unread messages below. Tapping it
+  catches up: everything is marked read and you land on the newest
+  message.
+
+Local (nearby) chats keep the old behavior: opening marks them read.
 
 </details>
 
