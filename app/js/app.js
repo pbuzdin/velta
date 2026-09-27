@@ -1592,8 +1592,10 @@ async function showChatInfo(chat) {
       <button class="btn-text" data-pa="rename">Edit name</button>
       <button class="btn-text" data-pa="block" style="color:var(--danger)">Block</button>
     </div>` : ""}
-    ${isGroup ? `<div class="info-row"><span class="k">Members</span><span class="v" data-member-count>…</span></div>
-      <div class="modal-list" data-member-list style="max-height:240px;overflow:auto"></div>` : ""}
+    ${isGroup ? `<details class="info-details" data-members-details>
+      <summary class="info-row"><span class="k">Members</span><span class="v" data-member-count>…</span></summary>
+      <div class="modal-list" data-member-list style="max-height:240px;overflow:auto"></div>
+    </details>` : ""}
     ${contactRows}
     ${!chat.isP2p && !isSelf && (chat.kind === "group" || chat.kind === "channel" || chat.kind === "single") ? `<div class="info-row" data-muted style="cursor:pointer"><span class="k">Notifications</span><span class="v" data-muted-val>${chat.muted ? "Muted" : "On"}</span></div>` : `<div class="info-row"><span class="k">Notifications</span><span class="v">${chat.muted ? "Muted" : "On"}</span></div>`}
     ${!chat.isP2p && !isSelf && (chat.kind === "group" || chat.kind === "single") ? `<div class="info-row" data-ephemeral style="cursor:pointer"><span class="k">Disappearing messages</span><span class="v" data-ephemeral-val>…</span></div>` : ""}
