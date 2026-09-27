@@ -1294,6 +1294,14 @@ export class JsonRpcCore extends EventTarget {
     this._emitAccount("chat-updated", { chatId }, accountEpoch);
   }
 
+  // Leave a group / unsubscribe from a channel: removes SELF and, for
+  // promoted groups, informs the members via the core's own status message.
+  async leaveGroup(chatId) {
+    const { accountId, accountEpoch } = this;
+    await this._call("leave_group", accountId, chatId);
+    this._emitAccount("chat-updated", { chatId }, accountEpoch);
+  }
+
   // --- onboarding: configure the account (not in MockCore) ---
   async configureWithCredentials(addr, password) {
     const { accountId, accountEpoch } = this;
