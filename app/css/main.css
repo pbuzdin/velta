@@ -1345,10 +1345,13 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 .info-row .v { font-weight: 500; display: flex; align-items: center; gap: 6px; }
 .info-row .v svg { width: 17px; height: 17px; }
 .info-row .v .avatar-profile-fpr { text-align: right; font-size: 12px; }
-/* disappearing-messages editor (chat info sheet): radio rows + the note */
+/* disappearing-messages + mute editors (chat info sheet): option rows */
 .eph-row { display: flex; align-items: center; gap: 12px; padding: 10px 2px; cursor: pointer; font-size: 15px; }
 .eph-row input { accent-color: var(--accent); width: 17px; height: 17px; margin: 0; flex: none; }
 .eph-note { color: var(--text-dim); font-size: 13px; line-height: 1.45; padding: 10px 2px 4px; }
+@media (hover: hover) and (pointer: fine) {
+  .eph-row:hover { background: var(--bg-active); }
+}
 /* Collapsible "Chats in common" section in the profile sheet (showChatInfo).
    .info-details[hidden] guard: author display rules would beat the UA rule. */
 .info-details[hidden] { display: none; }

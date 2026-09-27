@@ -310,6 +310,13 @@ export class MockCore extends EventTarget {
     chat.ephemeralTimer = Math.max(0, seconds | 0);
     this._emit("chat-updated", { chatId });
   }
+  // Demo twin of the timed mute (0 = unmute, -1 = forever, else seconds).
+  async setChatMuted(chatId, seconds) {
+    const chat = this.chats.find(c => c.id === chatId);
+    if (!chat) return;
+    chat.muted = seconds !== 0;
+    this._emit("chat-updated", { chatId });
+  }
   // Demo core answers every send with instant delivery — nothing to reconcile.
   async reconcileSending() {}
 
