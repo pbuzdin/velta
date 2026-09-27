@@ -667,9 +667,14 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   partial contact stub, or hydration is blocked and the sheet keeps matrix
   initials with stale rows. Relay rows: 1:1 contact profiles show the
   contact's relay from their address (no per-contact relay list upstream);
-  self/group profiles show the account transports — one row, or a collapsed
-  `Relays (n)` details list for several. "Chats in common" lives in the
-  same collapsed-details pattern with a (n) count.
+  the self profile shows the account transports — one row, or a collapsed
+  `Relays (n)` details list for several. GROUP/CHANNEL sheets show no relay
+  rows at all: the account transports are identical on every group and
+  relay management is account-scoped (the drawer's "Relays of this
+  profile…" is the single entry point) — do not resurrect them there.
+  "Chats in common" and the group member list live in the same
+  collapsed-details pattern with a (n) count (members collapsed by
+  default since 1.4.41).
 - **Theming contract**: `THEME_LABELS` (ui.js) drives the picker;
   `applyTheme` (app.js) sets `html[data-theme]` + the theme-color meta.
   Themes: auto (system), dark, light, brutal (1.4.6 — explicit only, never
@@ -839,6 +844,22 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   opener plugin). The snippet's bytes are hash-whitelisted in `script-src`
   (§8) — the parent cannot reach into the opaque frame any other way.
 
+- **Chat info actions** (1.4.41): the group/channel/1:1 sheet carries, in
+  eligibility order — Edit group/channel (channels: only when the core's
+  `can_send` grants it, the same rights source as the composer; groups
+  keep it for every member), Add members (groups; shared multi-select
+  `pickContactModal` → `addChatMembers` → `add_contact_to_chat`),
+  Invite via link/QR (groups + channels; `showInvite(inviteQrProvider(
+  chat.id))`), a Notifications row opening the timed mute dialog
+  (`setChatMuted`: `NotMuted`/`Forever`/`Until{seconds}`), and a
+  Disappearing messages row (`get/set_chat_ephemeral_timer`, seconds,
+  official option list). Editors opened FROM the sheet replace its modal
+  history entry, so every close path must `await modalHistorySettled()`
+  and reopen the sheet — skipping that tears the sheet down with the
+  dialog. The ⋮ chat menu carries Leave group/channel
+  (`leaveGroup` → core `leave_group`) behind a danger confirmation; the
+  left chat turns read-only in place (composer hidden, history stays).
+
 - **Post-1.4.34 UI surface** — settings are checkbox rows in the drawer
   (`data-toggle` labels + change handlers in ui.js; Demo mode is the renamed
   mock toggle; Send on Enter is `velta-send-enter`, "0" = off, read by the
@@ -858,7 +879,10 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   above the composer/bottom bar: 3px shrinking timer bar (danger red for
   errToast) whose animationend dismisses, one-line ellipsis,
   overflow-gated expand chip (re-measured after `document.fonts.ready`),
-  copy button in the open pane, close X in the summary. On the desktop
+  copy button in the open pane, close X in the summary. Clicking pauses
+  the dismissal timer — expandable toasts via the native open/close toggle,
+  one-liners by toggling pause/resume directly (they used to vanish
+  mid-read). On the desktop
   two-pane layout the bar spans the ACTIVE context column only — the list
   pane in list context, the chat area above the composer with a chat open
   (`body:has(.app.chat-open)`: `#toasts` sits outside `#app`, a descendant
