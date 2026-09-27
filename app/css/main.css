@@ -588,7 +588,9 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
   font-size: 13px; font-weight: 600;
   box-shadow: var(--shadow); cursor: pointer;
 }
-.msg-text li { margin: 1px 0; display: list-item; }
+.msg-text li { margin: 4px 0; display: list-item; }
+.msg-text li:first-child { margin-top: 0; }
+.msg-text li:last-child { margin-bottom: 0; }
 .msg-text u { text-underline-offset: 2px; }
 
 /* Invite card: "Pavel invited you to a Chat RU group" / "Chat with Pavel",
