@@ -1529,7 +1529,7 @@ function openMuteDialog(chat, valEl, epoch) {
   cancel.textContent = "Cancel";
   foot.append(cancel);
   const { close } = showModal({
-    title: "Mute notifications", body: list, foot, compact: true,
+    title: "Mute notifications", body: list, foot,
     onClose: async () => { await modalHistorySettled(); if (accountIsCurrent(epoch)) showChatInfo(chat); },
   });
   cancel.addEventListener("click", () => close());
