@@ -96,6 +96,7 @@ export class MockCore extends EventTarget {
     this.relayDomains = this.account.relay ? [this.account.relay, "chat.vim.wtf"] : [];
     this.contacts = CONTACTS;
     this._extraMembers = {}; // chatId → contact ids added via addChatMembers
+    this._leftChats = new Set(); // chat ids the demo user has left
     this.msgSeq = 0;
     this._buildChats();
     this._simulateIncoming();
@@ -541,7 +542,17 @@ export class MockCore extends EventTarget {
 
   // Demo channels carry no posting rights — exercises the read-only
   // composer path in preview mode.
+  // Demo twin of leave_group: the chat keeps its history, turns read-only
+  // (canSend false) and drops the demo user from the member list.
+  async leaveGroup(chatId) {
+    const chat = this.chats.find(c => c.id === chatId);
+    if (!chat) return;
+    this._leftChats.add(chatId);
+    this._emit("chat-updated", { chatId });
+  }
+
   async canSend(chatId) {
+    if (this._leftChats.has(chatId)) return false; // left groups read-only
     const chat = this.chats.find(c => c.id === chatId);
     return chat ? chat.kind !== "channel" : true;
   }

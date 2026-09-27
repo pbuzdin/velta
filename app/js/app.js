@@ -1917,6 +1917,30 @@ function bindChatHeadMenu() {
         showInvite(inviteQrProvider(chat.id), { title: chat.name, group: true }) }] : []),
       { label: chat.muted ? "Unmute" : "Mute", onClick: () => core.setChatFlags(chat.id, { muted: !chat.muted }) },
       { label: chat.pinned ? "Unpin" : "Pin", onClick: () => core.setChatFlags(chat.id, { pinned: !chat.pinned }) },
+      ...(chat.kind === "group" || chat.kind === "channel" ? [{
+        label: chat.kind === "channel" ? "Leave channel" : "Leave group",
+        onClick: async () => {
+          const ok = await confirmModal(
+            chat.kind === "channel" ? "Leave channel" : "Leave group",
+            chat.kind === "channel"
+              ? "You will no longer receive messages from this channel. Re-subscribe via its invite link/QR."
+              : "You will leave this chat and no longer receive its messages.",
+            "Leave", true);
+          if (!ok || !accountIsCurrent(epoch)) return;
+          try {
+            await core.leaveGroup(chat.id);
+            if (!accountIsCurrent(epoch)) return;
+            refreshChatList();
+            // The left chat turns read-only in place — no composer, same as
+            // channels; reopening shows the history until the user leaves it
+            // out of the list themselves.
+            $("main-composer").hidden = true;
+            chatView.readOnly = true;
+          } catch (err) {
+            errToast("Couldn't leave: " + (err.message || err));
+          }
+        },
+      }] : []),
       "-",
       { label: "Clear history", danger: true, onClick: async () => {
         if (await confirmModal("Clear history", "Delete all messages in this chat?")) {
