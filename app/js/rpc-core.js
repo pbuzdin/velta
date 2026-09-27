@@ -1258,6 +1258,17 @@ export class JsonRpcCore extends EventTarget {
     this._emitAccount("chat-updated", { chatId }, accountEpoch);
   }
 
+  // Timed mute (the info-sheet dialog): 0 = unmute, -1 = forever, else
+  // seconds from now — MuteDuration::Until counts seconds the core adds to
+  // "now" at apply time. The core emits ChatModified, so the chat list and
+  // the notifications state refresh through the usual event path.
+  async setChatMuted(chatId, seconds) {
+    const { accountId, accountEpoch } = this;
+    const duration = seconds === 0 ? "NotMuted" : seconds < 0 ? "Forever" : { Until: { duration: seconds } };
+    await this._call("set_chat_mute_duration", accountId, chatId, duration);
+    this._emitAccount("chat-updated", { chatId }, accountEpoch);
+  }
+
   async createChat(name, contactIds, kind = "group") {
     const { accountId, accountEpoch } = this;
     let chatId;

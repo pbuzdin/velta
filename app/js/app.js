@@ -1473,7 +1473,13 @@ async function openEphemeralDialog(chat, valEl, epoch) {
   ok.className = "btn-text";
   ok.textContent = "OK";
   foot.append(cancel, ok);
-  const { close } = showModal({ title: "Disappearing messages", body, foot });
+  // The dialog replaces the sheet's modal history entry, so every close
+  // path (OK, Cancel, X, BACK) tears the sheet down with it — reopen a
+  // fresh sheet, same contract as the profile editor.
+  const { close } = showModal({
+    title: "Disappearing messages", body, foot,
+    onClose: async () => { await modalHistorySettled(); if (accountIsCurrent(epoch)) showChatInfo(chat); },
+  });
   cancel.addEventListener("click", () => close());
   ok.addEventListener("click", async () => {
     const secs = Number(list.querySelector("input[name=eph-option]:checked")?.value || 0);
@@ -1485,6 +1491,48 @@ async function openEphemeralDialog(chat, valEl, epoch) {
       errToast("Couldn't set disappearing messages: " + (err.message || err));
     }
   });
+}
+
+// Timed mute: the official client's action-sheet options (seconds; -1 =
+// forever). 0 = unmute.
+const MUTE_OPTIONS = [
+  { label: "Mute for 1 hour", secs: 60 * 60 },
+  { label: "Mute for 8 hours", secs: 8 * 60 * 60 },
+  { label: "Mute for 1 day", secs: 24 * 60 * 60 },
+  { label: "Mute for 7 days", secs: 7 * 24 * 60 * 60 },
+  { label: "Mute forever", secs: -1 },
+];
+
+// The mute editor (chat info sheet → Notifications row). Applied per row
+// tap; Cancel dismisses. The sheet's muted flag is kept in sync so a second
+// open offers Unmute.
+function openMuteDialog(chat, valEl, epoch) {
+  const list = document.createElement("div");
+  const rows = (chat.muted ? [{ label: "Unmute", secs: 0 }] : []).concat(MUTE_OPTIONS);
+  for (const o of rows) {
+    const row = document.createElement("div");
+    row.className = "eph-row";
+    row.textContent = o.label;
+    row.addEventListener("click", () => {
+      const muted = o.secs !== 0;
+      chat.muted = muted;
+      core.setChatMuted(chat.id, o.secs)
+        .then(() => { if (accountIsCurrent(epoch)) valEl.textContent = muted ? "Muted" : "On"; })
+        .catch((err) => errToast("Couldn't update notifications: " + (err.message || err)));
+      close();
+    });
+    list.appendChild(row);
+  }
+  const foot = document.createDocumentFragment(); // direct child of .modal-foot -> one-row flex
+  const cancel = document.createElement("button");
+  cancel.className = "btn-text";
+  cancel.textContent = "Cancel";
+  foot.append(cancel);
+  const { close } = showModal({
+    title: "Mute notifications", body: list, foot, compact: true,
+    onClose: async () => { await modalHistorySettled(); if (accountIsCurrent(epoch)) showChatInfo(chat); },
+  });
+  cancel.addEventListener("click", () => close());
 }
 
 async function showChatInfo(chat) {
@@ -1547,7 +1595,7 @@ async function showChatInfo(chat) {
     ${isGroup ? `<div class="info-row"><span class="k">Members</span><span class="v" data-member-count>…</span></div>
       <div class="modal-list" data-member-list style="max-height:240px;overflow:auto"></div>` : ""}
     ${contactRows}
-    <div class="info-row"><span class="k">Notifications</span><span class="v">${chat.muted ? "Muted" : "On"}</span></div>
+    ${!chat.isP2p && !isSelf && (chat.kind === "group" || chat.kind === "channel" || chat.kind === "single") ? `<div class="info-row" data-muted style="cursor:pointer"><span class="k">Notifications</span><span class="v" data-muted-val>${chat.muted ? "Muted" : "On"}</span></div>` : `<div class="info-row"><span class="k">Notifications</span><span class="v">${chat.muted ? "Muted" : "On"}</span></div>`}
     ${!chat.isP2p && !isSelf && (chat.kind === "group" || chat.kind === "single") ? `<div class="info-row" data-ephemeral style="cursor:pointer"><span class="k">Disappearing messages</span><span class="v" data-ephemeral-val>…</span></div>` : ""}
     ${relayRows}
     ${!isGroup && chat.contactId ? `<details class="info-details" data-common hidden>
@@ -1569,6 +1617,11 @@ async function showChatInfo(chat) {
       } catch { ephVal.textContent = "Off"; }
     })();
     ephRow.addEventListener("click", () => openEphemeralDialog(chat, ephVal, epoch));
+  }
+  // Notifications row: the mute dialog (official client's action sheet).
+  const muteRow = body.querySelector("[data-muted]");
+  if (muteRow && core.setChatMuted) {
+    muteRow.addEventListener("click", () => openMuteDialog(chat, muteRow.querySelector("[data-muted-val]"), epoch));
   }
 
   // Description block below the name: contact bio/status for profiles, chat
