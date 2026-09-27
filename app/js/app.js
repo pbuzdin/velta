@@ -958,8 +958,16 @@ function syncHeaderButtons() {
   const arch = document.getElementById("btn-archived");
   if (arch) {
     // Issue #13: the folder affordance only exists while chats are archived.
-    arch.hidden = archivedCount === 0 && listView !== "archived";
-    arch.classList.toggle("active", listView === "archived");
+    // Doubles as the view toggle (same pattern as the search button):
+    // archive box opens the folder, the cross closes it.
+    const archOn = listView === "archived";
+    arch.hidden = archivedCount === 0 && !archOn;
+    arch.classList.toggle("active", archOn);
+    arch.innerHTML = archOn
+      ? `<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`
+      : `<svg viewBox="0 0 24 24"><path d="M3 7h18M5 7v12a1 1 0 001 1h12a1 1 0 001-1V7M8 7V5a1 1 0 011-1h6a1 1 0 011 1v2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    arch.title = archOn ? "Close archived chats" : "Archived chats";
+    arch.setAttribute("aria-label", arch.title);
   }
 }
 
