@@ -1462,7 +1462,7 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 /* attach pop reuses ctx-menu */
 .attach-pop { min-width: 190px; }
 
-/* toasts — full-width bar anchored above the composer / bottom action bar
+/* toasts — bar anchored above the composer / bottom action bar
    (same edge the modals respect); z-index 80 keeps it visible over
    full-screen modal overlays. Timer bar (top, accent/danger) shrinks with
    the remaining auto-hide time; animationend is the dismiss trigger. */
@@ -1471,6 +1471,15 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
   bottom: calc(var(--list-bar-h) + 8px);
   z-index: 80; display: flex; flex-direction: column; gap: 8px;
   padding: 0 10px; pointer-events: none;
+}
+/* Desktop two-pane: the bar spans the ACTIVE context column only, not the
+   whole window — list context keeps it inside the sidebar pane (the column
+   desktop modals fill), a chat keeps it over the chat area above the
+   composer. #toasts sits outside #app in the DOM, hence :has.
+   Phones (<=820px, one pane) keep the full-width bar. */
+@media (min-width: 821px) {
+  .toasts { right: calc(100% - clamp(300px, 33vw, 420px)); }
+  body:has(.app.chat-open) .toasts { left: clamp(300px, 33vw, 420px); right: 0; }
 }
 .toast {
   pointer-events: auto;
