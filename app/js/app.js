@@ -1426,6 +1426,67 @@ async function modalHistorySettled() {
   ]);
 }
 
+// Disappearing messages: the official client's option list (seconds).
+const EPHEMERAL_OPTIONS = [
+  { label: "Off", secs: 0 },
+  { label: "After 5 minutes", secs: 5 * 60 },
+  { label: "After 1 hour", secs: 60 * 60 },
+  { label: "After 1 day", secs: 24 * 60 * 60 },
+  { label: "After 1 week", secs: 7 * 24 * 60 * 60 },
+  { label: "After 5 weeks", secs: 5 * 7 * 24 * 60 * 60 },
+  { label: "After 1 year", secs: 365 * 24 * 60 * 60 },
+];
+
+function formatEphemeralTimer(secs) {
+  const s = secs | 0;
+  return EPHEMERAL_OPTIONS.find(o => o.secs === s)?.label ?? (s ? `On (${s} s)` : "Off");
+}
+
+// The disappearing-messages editor (chat info sheet → the row). Radios in
+// the official client's shape; OK applies via the core, which posts its own
+// system notice into the chat so members learn about the change.
+async function openEphemeralDialog(chat, valEl, epoch) {
+  let current = 0;
+  try { current = (await core.getChatEphemeralTimer(chat.id)) || 0; } catch { /* offline — default Off */ }
+  const list = document.createElement("div");
+  for (const o of EPHEMERAL_OPTIONS) {
+    const label = document.createElement("label");
+    label.className = "eph-row";
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = "eph-option";
+    input.value = o.secs;
+    input.checked = o.secs === (current | 0);
+    label.append(input, Object.assign(document.createElement("span"), { textContent: o.label }));
+    list.appendChild(label);
+  }
+  const note = document.createElement("div");
+  note.className = "eph-note";
+  note.textContent = "Applies to all members of this chat; they can still copy, save, and forward messages.";
+  const body = document.createElement("div");
+  body.append(list, note);
+  const foot = document.createDocumentFragment(); // direct child of .modal-foot -> one-row flex
+  const cancel = document.createElement("button");
+  cancel.className = "btn-text";
+  cancel.textContent = "Cancel";
+  const ok = document.createElement("button");
+  ok.className = "btn-text";
+  ok.textContent = "OK";
+  foot.append(cancel, ok);
+  const { close } = showModal({ title: "Disappearing messages", body, foot });
+  cancel.addEventListener("click", () => close());
+  ok.addEventListener("click", async () => {
+    const secs = Number(list.querySelector("input[name=eph-option]:checked")?.value || 0);
+    try {
+      await core.setChatEphemeralTimer(chat.id, secs);
+      if (accountIsCurrent(epoch)) valEl.textContent = formatEphemeralTimer(secs);
+      close();
+    } catch (err) {
+      errToast("Couldn't set disappearing messages: " + (err.message || err));
+    }
+  });
+}
+
 async function showChatInfo(chat) {
   if (state.accountChanging) return;
   const epoch = core.accountEpoch;
@@ -1487,6 +1548,7 @@ async function showChatInfo(chat) {
       <div class="modal-list" data-member-list style="max-height:240px;overflow:auto"></div>` : ""}
     ${contactRows}
     <div class="info-row"><span class="k">Notifications</span><span class="v">${chat.muted ? "Muted" : "On"}</span></div>
+    ${!chat.isP2p && !isSelf && (chat.kind === "group" || chat.kind === "single") ? `<div class="info-row" data-ephemeral style="cursor:pointer"><span class="k">Disappearing messages</span><span class="v" data-ephemeral-val>…</span></div>` : ""}
     ${relayRows}
     ${!isGroup && chat.contactId ? `<details class="info-details" data-common hidden>
       <summary class="info-row"><span class="k">Chats in common</span><span class="v" data-common-count></span></summary>
@@ -1494,6 +1556,20 @@ async function showChatInfo(chat) {
     </details>` : ""}`;
   // Name sits below the avatar now, so the head bar carries only the close.
   const modal = showModal({ title: "", body });
+
+  // Disappearing messages row: hydrate the current timer, open the editor.
+  const ephRow = body.querySelector("[data-ephemeral]");
+  if (ephRow && core.getChatEphemeralTimer) {
+    const ephVal = ephRow.querySelector("[data-ephemeral-val]");
+    (async () => {
+      try {
+        const t = await core.getChatEphemeralTimer(chat.id);
+        if (!accountIsCurrent(epoch)) return;
+        ephVal.textContent = formatEphemeralTimer(t);
+      } catch { ephVal.textContent = "Off"; }
+    })();
+    ephRow.addEventListener("click", () => openEphemeralDialog(chat, ephVal, epoch));
+  }
 
   // Description block below the name: contact bio/status for profiles, chat
   // description for groups/channels. Stays hidden when empty; the value also

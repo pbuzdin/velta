@@ -950,6 +950,20 @@ export class JsonRpcCore extends EventTarget {
     await this._call("set_chat_profile_image", this.accountId, chatId, path || null);
   }
 
+  // Disappearing-messages timer for a chat, in seconds (0 = off). Changing
+  // it makes the core post its own system notice into the chat, so members
+  // learn without extra UI work here.
+  async getChatEphemeralTimer(chatId) {
+    const t = await this._call("get_chat_ephemeral_timer", this.accountId, chatId);
+    return t || 0;
+  }
+
+  async setChatEphemeralTimer(chatId, seconds) {
+    const { accountId, accountEpoch } = this;
+    await this._call("set_chat_ephemeral_timer", accountId, chatId, Math.max(0, seconds | 0));
+    this._emitAccount("chat-updated", { chatId }, accountEpoch);
+  }
+
   // Multi-line encryption info: own + the contact's OpenPGP fingerprint.
   async getContactEncryptionInfo(contactId) {
     return this._call("get_contact_encryption_info", this.accountId, contactId);
