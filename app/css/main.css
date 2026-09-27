@@ -1357,8 +1357,11 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 .info-details[hidden] { display: none; }
 .info-details > summary { list-style: none; cursor: pointer; }
 .info-details > summary::-webkit-details-marker { display: none; }
-.info-details > summary::after { content: "›"; color: var(--text-dim); margin-left: 6px; }
-.info-details[open] > summary::after { content: "⌄"; }
+/* The chevron must ride INSIDE the value span: as a summary::after it is a
+   third flex item in .info-row's space-between layout, which centered the
+   (n) count instead of pinning it to the right edge. */
+.info-details > summary .v::after { content: "›"; color: var(--text-dim); margin-left: 6px; }
+.info-details[open] > summary .v::after { content: "⌄"; }
 /* Clickable chat rows (chats in common). */
 .modal-list .info-row.clickable { cursor: pointer; }
 @media (hover: hover) and (pointer: fine) {
