@@ -1555,14 +1555,17 @@ async function showChatInfo(chat) {
   // address (🐴 the core exposes no per-contact relay list — a multi-relay
   // contact's full address set lives in keyupdate internals; upgrade path is
   // an upstream contact-relay API, a details list like ours below would take
-  // it directly). For self and group profiles: one relay row, or a collapsed
+  // it directly). For the self profile: one relay row, or a collapsed
   // details list with a count when the account has more than one transport.
+  // GROUPS show no relay rows: the account transports are identical on every
+  // group sheet (relay management is account-scoped — the drawer's "Relays
+  // of this profile…" is the single entry point).
   let relayRows = "";
   if (!chat.isP2p) {
     const contactAddr = isContactProfile ? chat.contact?.addr : null;
     if (contactAddr) {
       relayRows = `<div class="info-row"><span class="k">Relay</span><span class="v">${escapeHtml(String(contactAddr).split("@")[1] || contactAddr)}</span></div>`;
-    } else {
+    } else if (!isGroup) {
       let transports = [];
       try { transports = await core.listTransports(); } catch { /* offline — fall back below */ }
       if (!transports.length && state.account.relay) transports = [{ addr: state.account.addr }];
