@@ -225,7 +225,17 @@ export function toast(text, ms = 2200, opts = {}) {
   };
   measureChip();
   document.fonts?.ready?.then(() => measureChip());
-  summary.addEventListener("click", e => { if (!expandable) e.preventDefault(); });
+  // Clicking a toast toggles its dismissal timer (pause/resume). Expandable
+  // toasts get this from the native expand/collapse toggle; one-liners have
+  // nothing to expand, so the click pauses directly - otherwise they vanish
+  // mid-read (the frozen timer bar shows the paused state).
+  let paused = false;
+  summary.addEventListener("click", e => {
+    if (expandable) return; // native toggle path: open pauses, collapse resumes
+    e.preventDefault();
+    paused = !paused;
+    setTimer(!paused);
+  });
   el.addEventListener("toggle", () => {
     // open = paused; closed = timer resumes
     setTimer(!el.open);
