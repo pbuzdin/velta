@@ -153,6 +153,9 @@ export class MockCore extends EventTarget {
       }
       chat.unread -= left;
     }
+    // Weekend Crew ships with disappearing messages on, so the info sheet
+    // shows the row populated in demo mode.
+    this.chats.find(c => c.id === 13).ephemeralTimer = 7 * 24 * 60 * 60;
 
     // A couple of concrete messages in the saved chat
     this.chats[0].messages = [
@@ -296,6 +299,16 @@ export class MockCore extends EventTarget {
   async setChatImage(chatId, path) {
     const chat = this.chats.find(c => c.id === chatId);
     if (chat) chat.avatar = path || null;
+  }
+  // Demo twins of the ephemeral-timer surface (seconds, 0 = off).
+  async getChatEphemeralTimer(chatId) {
+    return this.chats.find(c => c.id === chatId)?.ephemeralTimer || 0;
+  }
+  async setChatEphemeralTimer(chatId, seconds) {
+    const chat = this.chats.find(c => c.id === chatId);
+    if (!chat) return;
+    chat.ephemeralTimer = Math.max(0, seconds | 0);
+    this._emit("chat-updated", { chatId });
   }
   // Demo core answers every send with instant delivery — nothing to reconcile.
   async reconcileSending() {}
