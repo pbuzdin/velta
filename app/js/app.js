@@ -1590,6 +1590,8 @@ async function showChatInfo(chat) {
     <div class="profile-name">${escapeHtml(chat.name)}</div>
     <div class="profile-description" data-desc hidden></div>
     ${(isSelf || isGroup) ? `<div class="profile-actions"><button class="btn-text" data-pa="ep">${isSelf ? "Edit profile" : chat.kind === "channel" ? "Edit channel" : "Edit group"}</button></div>` : ""}
+    ${chat.kind === "group" ? `<div class="profile-actions"><button class="btn-text" data-pa="add-members">Add members</button><button class="btn-text" data-pa="invite">Invite via link/QR</button></div>` : ""}
+    ${chat.kind === "channel" ? `<div class="profile-actions"><button class="btn-text" data-pa="invite">Invite via link/QR</button></div>` : ""}
     ${!isGroup && chat.contactId && chat.contactId !== 1 ? `<div class="profile-actions">
       <button class="btn-text" data-pa="send">Send message</button>
       <button class="btn-text" data-pa="rename">Edit name</button>
@@ -1628,6 +1630,25 @@ async function showChatInfo(chat) {
   if (muteRow && core.setChatMuted) {
     muteRow.addEventListener("click", () => openMuteDialog(chat, muteRow.querySelector("[data-muted-val]"), epoch));
   }
+  // Groups: add members via the shared contact picker. Channels: link/QR
+  // only (subscribe flows run through the core's secure-join invite).
+  body.querySelector('[data-pa="add-members"]')?.addEventListener("click", async () => {
+    const picked = await pickContactModal("Add members", true);
+    if (!picked?.length || !accountIsCurrent(epoch)) return;
+    try {
+      await core.addChatMembers(chat.id, picked.map(c => c.id));
+      if (!accountIsCurrent(epoch)) return;
+      refreshChatList();
+      toast(picked.length === 1 ? "Member added" : `${picked.length} members added`);
+      await modalHistorySettled();
+      showChatInfo(chat); // fresh sheet: member count and list updated
+    } catch (err) {
+      errToast("Couldn't add members: " + (err.message || err));
+    }
+  });
+  body.querySelector('[data-pa="invite"]')?.addEventListener("click", () => {
+    showInvite(inviteQrProvider(chat.id), { title: chat.name, group: true });
+  });
 
   // Description block below the name: contact bio/status for profiles, chat
   // description for groups/channels. Stays hidden when empty; the value also
