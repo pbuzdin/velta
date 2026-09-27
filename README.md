@@ -605,6 +605,47 @@ this is currently an instant-fetch booster rather than a battery saver.
 </details>
 
 <details>
+<summary>Muting chats</summary>
+
+Open a chat's info sheet and tap **Notifications** to quiet a chat or
+channel: mute for 1 hour / 8 hours / 1 day / 7 days / forever — or
+unmute. Muted chats stay in the list and keep their unread badges; they
+just stop making noise.
+
+</details>
+
+<details>
+<summary>Disappearing messages</summary>
+
+Groups and 1:1 chats can be set to make messages disappear
+automatically: open the chat info and pick **Disappearing messages** —
+Off, or after 5 minutes / 1 hour / 1 day / 1 week / 5 weeks / 1 year.
+
+The setting applies to **all members** of the chat (they can still copy,
+save, and forward messages before expiry). Changing it posts a system
+notice into the chat, so everyone is informed. Timers for incoming
+messages start when the message is actually seen — an unread message
+does not count down.
+
+</details>
+
+<details>
+<summary>Groups and channels: members, invites, leave</summary>
+
+The chat info sheet carries the per-chat actions:
+
+- **Add members** (groups) — pick contacts from your address book; the
+  group is informed automatically.
+- **Invite via link/QR** (groups and channels) — share a secure-join
+  invite: scanning or tapping it joins the group / subscribes to the
+  channel, with end-to-end verification.
+- **Leave group / Leave channel** — in the chat's ⋮ menu. The chat turns
+  read-only and stops receiving messages; the history stays on this
+  device until you delete or archive the chat.
+
+</details>
+
+<details>
 <summary>Diagnostics &amp; debugging</summary>
 
 The pinned "Velta Diagnostics" chat collects startup, core and error
