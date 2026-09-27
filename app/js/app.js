@@ -1589,7 +1589,7 @@ async function showChatInfo(chat) {
     </div>
     <div class="profile-name">${escapeHtml(chat.name)}</div>
     <div class="profile-description" data-desc hidden></div>
-    ${(isSelf || isGroup) ? `<div class="profile-actions"><button class="btn-text" data-pa="ep">${isSelf ? "Edit profile" : chat.kind === "channel" ? "Edit channel" : "Edit group"}</button></div>` : ""}
+    ${(isSelf || isGroup) ? `<div class="profile-actions"><button class="btn-text" data-pa="ep"${chat.kind === "channel" ? " hidden" : ""}>${isSelf ? "Edit profile" : chat.kind === "channel" ? "Edit channel" : "Edit group"}</button></div>` : ""}
     ${chat.kind === "group" ? `<div class="profile-actions"><button class="btn-text" data-pa="add-members">Add members</button><button class="btn-text" data-pa="invite">Invite via link/QR</button></div>` : ""}
     ${chat.kind === "channel" ? `<div class="profile-actions"><button class="btn-text" data-pa="invite">Invite via link/QR</button></div>` : ""}
     ${!isGroup && chat.contactId && chat.contactId !== 1 ? `<div class="profile-actions">
@@ -1629,6 +1629,17 @@ async function showChatInfo(chat) {
   const muteRow = body.querySelector("[data-muted]");
   if (muteRow && core.setChatMuted) {
     muteRow.addEventListener("click", () => openMuteDialog(chat, muteRow.querySelector("[data-muted-val]"), epoch));
+  }
+  // Channel members without posting rights can't edit the channel info:
+  // the Edit button starts hidden and appears only when the core's can_send
+  // grants it — the same rights source that gates the composer (§5.1
+  // read-only rule). Groups keep the button for every member (DC semantics:
+  // any member may rename/re-icon).
+  if (chat.kind === "channel") {
+    core.canSend?.(chat.id).then(can => {
+      if (!accountIsCurrent(epoch) || !can) return;
+      body.querySelector('[data-pa="ep"]').hidden = false;
+    }).catch(() => {});
   }
   // Groups: add members via the shared contact picker. Channels: link/QR
   // only (subscribe flows run through the core's secure-join invite).
