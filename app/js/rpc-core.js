@@ -53,6 +53,9 @@ export class JsonRpcCore extends EventTarget {
     this._msgStateHints = new Map();
     this.eventPollTimeoutMs = EVENT_POLL_TIMEOUT_MS;
     this._eventPollMethod = "get_next_event_batch";
+    // Emits chatlist-changed / chatlist-item-changed (see _handleCoreEvent):
+    // app.js refreshes the chat list incrementally only for cores that do.
+    this.chatlistEvents = true;
     this._eventChain = Promise.resolve(); // serializes core event handlers (arrival order)
     this._eventsQueued = 0;               // handlers queued or running on _eventChain
     this.eventHandlerStallMs = 2000;      // max time one slow handler holds the queue
@@ -507,6 +510,13 @@ export class JsonRpcCore extends EventTarget {
         break;
       case "ChatlistChanged":
       case "ChatlistItemChanged":
+        // Fine-grained chat-list signals (issue #25), used by app.js to
+        // refetch only what changed: ChatlistChanged = order/membership
+        // (entries), ChatlistItemChanged = one item (chatId) or all (none).
+        if (ev.kind === "ChatlistChanged") this._emitAccount("chatlist-changed", {}, accountEpoch);
+        else this._emitAccount("chatlist-item-changed", { chatId: chatId || 0 }, accountEpoch);
+        this._invalidateChat(chatId || 0, accountEpoch);
+        break;
       case "ChatModified":
       case "MsgsNoticed":
         this._invalidateChat(chatId || 0, accountEpoch);
@@ -1023,26 +1033,40 @@ export class JsonRpcCore extends EventTarget {
     return this._call("get_contact_encryption_info", this.accountId, contactId);
   }
 
-  async getChatList({ query = "", archived = false } = {}, accountId = this.accountId) {
-    // (account_id, list_flags, query_string, query_contact_id) —
-    // list_flags 0x01 = DC_GCL_ARCHIVED_ONLY (issue #13 archived folder).
-    // NOT 0x02: that is DC_GCL_NO_SPECIALS and silently returned the
-    // unarchived list, hiding every archived chat.
-    const ids = await this._call("get_chatlist_entries", accountId, archived ? 1 : null, query || null, null);
-    if (!ids.length) return [];
+  // Chat ids in chatlist order — (account_id, list_flags, query_string,
+  // query_contact_id); list_flags 0x01 = DC_GCL_ARCHIVED_ONLY (issue #13
+  // archived folder). NOT 0x02: that is DC_GCL_NO_SPECIALS and silently
+  // returned the unarchived list, hiding every archived chat. Cheap (one
+  // query, ids only) — use it where only order or a count is needed.
+  async getChatListIds({ query = "", archived = false } = {}, accountId = this.accountId) {
+    return this._call("get_chatlist_entries", accountId, archived ? 1 : null, query || null, null);
+  }
+
+  // Mapped chatlist items for the given ids: Map id -> chat, or id -> null
+  // for entries that are not a plain chat (archive link) or failed to load.
+  // The core runs ~10 queries per item, so callers fetch only what changed.
+  async getChatListItems(ids, accountId = this.accountId) {
+    const out = new Map();
+    if (!ids.length) return out;
     const items = await this._call("get_chatlist_items_by_entries", accountId, ids);
-    const chats = [];
-    for (const item of Object.values(items)) {
+    for (const id of ids) {
+      const item = items?.[String(id)];
       if (item?.kind === "ChatListItem") {
-        chats.push(this._mapChatListItem(item));
-      } else if (item?.kind === "Error") {
-        rustLog(`getChatList item error: ${JSON.stringify(item)}`);
+        out.set(id, this._mapChatListItem(item));
+      } else {
+        if (item?.kind === "Error") rustLog(`getChatList item error: ${JSON.stringify(item)}`);
+        out.set(id, null);
       }
     }
+    return out;
+  }
+
+  async getChatList({ query = "", archived = false } = {}, accountId = this.accountId) {
+    const ids = await this.getChatListIds({ query, archived }, accountId);
+    if (!ids.length) return [];
     // keep the core's order (ids are already sorted by the chatlist)
-    const order = new Map(ids.map((id, i) => [id, i]));
-    chats.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
-    return chats;
+    const items = await this.getChatListItems(ids, accountId);
+    return ids.map(id => items.get(id)).filter(Boolean);
   }
 
   // Channels the member cannot post in (and other read-only chats) — the

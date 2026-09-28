@@ -1118,7 +1118,8 @@ node --test tests/rpc-account-isolation.test.mjs \
              tests/rpc-event-poll.test.mjs \
              tests/chat-msg-update-hardening.test.mjs \
              tests/read-tracking.test.mjs \
-             tests/scroll-restore.test.mjs
+             tests/scroll-restore.test.mjs \
+             tests/chatlist-incremental.test.mjs
 ```
 
 These cover the account-isolation contract: stale account results (A→B→A),
@@ -1133,7 +1134,13 @@ holds the queue for at most `eventHandlerStallMs`. The hardening suite pins the
 event-storm defenses: duplicate message updates take the changed path at
 most once (no repeated `onItemHeightDidChange` for unmounted rows), row
 signatures survive unmounted updates, and `msgs-changed` bursts collapse
-into one tail refetch per gap. Run them after touching `rpc-core.js`,
+into one tail refetch per gap. The chat list refreshes incrementally
+(#25): `chatlist-changed` refetches the entry ids (plus items only for new
+chats), `chatlist-item-changed{chatId}` refetches that one item, bursts
+coalesce into one trailing refresh, the archived count uses ids only,
+Diagnostics appends patch their row locally without chat-list RPCs, and
+local chat (`velta-p2p`) or cores without `chatlistEvents` keep the full
+refresh. Run them after touching `rpc-core.js`,
 `app.js`, `chat-view.js` or `ui.js`.
 
 Known-broken (pre-existing, re-checked 2026-09-26 on v1.4.38): the DOM

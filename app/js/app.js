@@ -41,6 +41,12 @@ let coreStartupPromise = null;
 // down — `let` declarations would still be in their temporal dead zone.
 let chatListRefreshTimer = null;
 let chatListInFlight = null;
+// Incremental chat list (issue #25): what changed since the last refresh,
+// fed by the core's ChatlistChanged / ChatlistItemChanged events, and the
+// mapped items of the last refresh (per account epoch).
+let chatListDirty = { all: true, order: false, ids: new Set() };
+let chatItemCache = null; // { epoch, ids: number[], byId: Map<id, chat|null> }
+let diagnosticsRowTimer = null;
 let chatNavigation = 0;
 let drawer = null;
 let accountRefreshPromise = Promise.resolve();
@@ -233,9 +239,10 @@ function openDiagnosticsChat() {
 diagnostics.addEventListener("changed", () => {
   if (diagnosticsPaused) return; // frozen snapshot; the resume click re-renders
   renderDiagnosticsMessages();
-  // Debounced: diagnostics appends fire per core event (several per second
-  // during sync) — a direct refresh here would multiply the churn.
-  if (core) scheduleChatListRefresh();
+  // Only the Diagnostics row's preview changed: patch it locally (coalesced)
+  // — diagnostics appends fire per core event during sync, and a chat-list
+  // refetch per append re-read every chat from the core (#25).
+  if (core) scheduleDiagnosticsRowUpdate();
   else renderInitialDiagnosticsChat();
 });
 
@@ -379,6 +386,8 @@ core.addEventListener("account-changing", () => {
   clearTimeout(chatListRefreshTimer);
   chatListRefreshTimer = null;
   chatListInFlight = null;
+  chatItemCache = null;
+  chatListDirty = { all: true, order: false, ids: new Set() };
   state.chats = [];
   state.query = "";
   closeChatUI();
@@ -672,12 +681,48 @@ function applyTheme() {
 // burst into one trailing refresh.
 
 function scheduleChatListRefresh(delay = 400) {
+  chatListDirty.all = true;
+  scheduleChatListWork(delay);
+}
+
+// Per-chat signals: only the named chat's item (chatId) or only the order
+// (order: true) is stale. Falls back to a full refresh on cores that don't
+// emit the fine-grained chat-list events, and while local chat is on (its
+// peers are merged in by the getChatList proxy only).
+function scheduleChatListUpdate({ chatId = 0, order = false } = {}, delay = 400) {
+  if (!incrementalChatList()) { scheduleChatListRefresh(delay); return; }
+  if (order) chatListDirty.order = true;
+  else if (chatId) chatListDirty.ids.add(chatId);
+  else chatListDirty.all = true; // ChatlistItemChanged without a chat: every item
+  scheduleChatListWork(delay);
+}
+
+function incrementalChatList() {
+  return !!core?.chatlistEvents && typeof core.getChatListIds === "function"
+    && typeof core.getChatListItems === "function" && !p2pEnabled();
+}
+
+// Collapses a burst of refresh requests into one trailing refresh.
+function scheduleChatListWork(delay = 400) {
   if (state.accountChanging) return;
   if (chatListRefreshTimer) return; // a trailing refresh is already pending
   chatListRefreshTimer = setTimeout(async () => {
     chatListRefreshTimer = null;
-    await refreshChatList();
+    await refreshChatList({ fromDirty: true });
   }, delay);
+}
+
+// Diagnostics appends only change the pinned Diagnostics row's preview:
+// patch that row locally (coalesced) instead of refetching every chat.
+function scheduleDiagnosticsRowUpdate() {
+  if (diagnosticsRowTimer) return;
+  diagnosticsRowTimer = setTimeout(() => {
+    diagnosticsRowTimer = null;
+    const i = state.chats.findIndex(c => c.id === DIAGNOSTICS_CHAT_ID);
+    if (i < 0) return;
+    state.chats[i] = diagnostics.getChat();
+    renderChatList();
+  }, 250);
 }
 
 // Report UI visibility to the Rust shell: the Android background event
@@ -759,29 +804,71 @@ function toggleLcQueuePop(chatId) {
   document.addEventListener("pointerdown", outside, true);
 }
 
-async function refreshChatList() {
+// Refetches the chat list. Direct calls (after user actions) are always
+// full; the debounced event path (fromDirty) refetches only what the core
+// reported as changed — the order (get_chatlist_entries, cheap) and/or the
+// dirty items — when the core emits fine-grained chat-list events (#25).
+async function refreshChatList({ fromDirty = false } = {}) {
   if (state.accountChanging) return;
   const epoch = core.accountEpoch, query = state.query;
   if (chatListInFlight?.epoch === epoch && chatListInFlight?.query === query) {
-    scheduleChatListRefresh();
+    // Event-driven: the dirty flags are still pending — retry after it.
+    if (fromDirty) scheduleChatListWork();
     return chatListInFlight.promise;
   }
+  const dirty = chatListDirty;
+  chatListDirty = { all: false, order: false, ids: new Set() };
+  const incremental = incrementalChatList() && !query;
+  const partial = incremental && fromDirty && !dirty.all && chatItemCache?.epoch === epoch;
   const request = { epoch, query };
   chatListInFlight = request;
   request.promise = (async () => {
   try {
-    const chats = await core.getChatList({ query });
-    if (!accountIsCurrent(epoch) || query !== state.query || chatListInFlight !== request) return;
+    let chats;
+    if (partial) {
+      const cache = chatItemCache;
+      const ids = dirty.order ? await core.getChatListIds({}) : cache.ids;
+      if (!accountIsCurrent(epoch) || chatListInFlight !== request) return;
+      const need = ids.filter(id => dirty.ids.has(id) || !cache.byId.has(id));
+      const fetched = need.length ? await core.getChatListItems(need) : new Map();
+      if (!accountIsCurrent(epoch) || query !== state.query || chatListInFlight !== request) return;
+      for (const [id, chat] of fetched) cache.byId.set(id, chat);
+      if (dirty.order) {
+        const listed = new Set(ids);
+        for (const id of cache.byId.keys()) if (!listed.has(id)) cache.byId.delete(id);
+      }
+      cache.ids = ids;
+      chats = ids.map(id => cache.byId.get(id)).filter(Boolean);
+    } else if (incremental) {
+      const ids = await core.getChatListIds({});
+      const byId = ids.length ? await core.getChatListItems(ids) : new Map();
+      if (!accountIsCurrent(epoch) || query !== state.query || chatListInFlight !== request) return;
+      chatItemCache = { epoch, ids, byId };
+      chats = ids.map(id => byId.get(id)).filter(Boolean);
+    } else {
+      chats = await core.getChatList({ query });
+      if (!accountIsCurrent(epoch) || query !== state.query || chatListInFlight !== request) return;
+      chatItemCache = null;
+    }
     state.chats = [diagnostics.getChat(), ...chats.filter(chat => chat.id !== DIAGNOSTICS_CHAT_ID)];
     renderChatList();
     renderLocalChatCard();
     // Archived-folder button visibility (issue #13) — fire-and-forget count.
-    core.getChatList({ archived: true }).then(archived => {
-      if (!accountIsCurrent(epoch)) return;
-      archivedCount = archived.length;
-      syncHeaderButtons();
-    }).catch(() => {});
+    // Only the number of entries is needed, not their items; and it can only
+    // change together with the list order.
+    if (!partial || dirty.order) {
+      const count = typeof core.getChatListIds === "function"
+        ? core.getChatListIds({ archived: true }).then(ids => ids.length)
+        : core.getChatList({ archived: true }).then(archived => archived.length);
+      count.then(n => {
+        if (!accountIsCurrent(epoch)) return;
+        archivedCount = n;
+        syncHeaderButtons();
+      }).catch(() => {});
+    }
   } catch (err) {
+    // A failed refresh leaves the cache unknown — the next one is full.
+    chatListDirty.all = true;
     // Never funnel refresh errors into the Diagnostics store: the store emits
     // "changed", a listener of which triggers another refresh — an error here
     // would spin an undebounced rerender loop (and leak renderer memory fast).
@@ -3654,8 +3741,14 @@ async function boot() {
       diagnostics.append("error", `boot: bind ui failed: ${err?.message || err}`);
     }
 
+    // Chat list: cores with fine-grained chat-list events (rpc-core) drive
+    // it through chatlist-changed / chatlist-item-changed below — the core
+    // emits them alongside every IncomingMsg/MsgsChanged/MsgsNoticed. Other
+    // cores (mock) keep the full refresh on the coarse events.
+    core.addEventListener("chatlist-changed", () => scheduleChatListUpdate({ order: true }));
+    core.addEventListener("chatlist-item-changed", ev => scheduleChatListUpdate({ chatId: ev?.detail?.chatId || 0 }));
     core.addEventListener("incoming-msg", ev => {
-      scheduleChatListRefresh();
+      if (!incrementalChatList()) scheduleChatListRefresh();
       const msg = ev?.detail?.msg;
       const chat = state.chats.find(c => c.id === msg?.chatId);
       notifyIncoming(
@@ -3674,14 +3767,14 @@ async function boot() {
       recordCallEnded(ev?.detail?.chatId);
     });
     core.addEventListener("msgs-changed", () => {
-      scheduleChatListRefresh();
+      if (!incrementalChatList()) scheduleChatListRefresh();
       // Local chat (and any transport without push-to-view) relies on this to
       // pull new messages into the open chat without waiting for the 20s tick.
       if (state.activeChatId) chatView?.onMsgsChanged(state.activeChatId);
       renderLcQueueTray();
     });
     core.addEventListener("chat-updated", ev => {
-      scheduleChatListRefresh();
+      if (!incrementalChatList()) scheduleChatListRefresh();
       refreshActiveChatHeader(ev?.detail?.chatId);
       const updId = ev?.detail?.chatId;
       if (updId && updId === state.activeChatId) refreshChatHeadPresence(updId);
@@ -3690,8 +3783,13 @@ async function boot() {
     // core events (handled above with a debounced refresh). With in-place
     // chat-list updates a refresh is cheap, but each one still costs two RPC
     // round trips, so don't run it more often than needed.
+    // Incremental cores (#25): each tick only re-reads the entry list (new
+    // chats / contact requests show up, ids only); every 10th tick (5 min)
+    // is a full item refresh in case a chat-list event was ever missed.
+    let safetyTick = 0;
     setInterval(() => {
-      scheduleChatListRefresh();
+      if (incrementalChatList() && ++safetyTick % 10) scheduleChatListUpdate({ order: true });
+      else scheduleChatListRefresh();
       const activeId = state.activeChatId;
       const activeChat = activeId != null ? state.chats.find(c => c.id === activeId) : null;
       if (activeChat?.kind === "single") refreshChatHeadPresence(activeId);
