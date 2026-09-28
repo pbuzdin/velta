@@ -305,6 +305,22 @@ function extOf(path) {  if (!path) return "";
   return i > 0 ? base.slice(i + 1).toLowerCase() : "";
 }
 
+// "Remember scroll position in chats" (issue #18): drawer setting, default
+// OFF — "1" = on, unset = off (ui.js owns the toggle, like Send on Enter).
+export const REMEMBER_SCROLL_KEY = "velta-remember-scroll";
+export function rememberScrollOn() {
+  try { return localStorage.getItem(REMEMBER_SCROLL_KEY) === "1"; } catch { return false; } // storage blocked = off
+}
+
+// CSS zoom on <html> (interface scale) scales getBoundingClientRect but not
+// scrollTop — rect distances are divided by it before they touch scrollTop.
+function cssZoom() {
+  try {
+    const z = parseFloat(getComputedStyle(document.documentElement).zoom);
+    return z > 0 ? z : 1;
+  } catch { return 1; }
+}
+
 export class ChatView {
   constructor(core, { onChatsChanged, onForward, onOpenChat }) {
     this.core = core;
@@ -356,6 +372,14 @@ export class ChatView {
     this.jumpSeekAttempts = 8;
     this.jumpSeekDelayMs = 60;
     this._jumpInFlight = false;
+    // Remembered scroll positions (issue #18, setting "Remember scroll
+    // position in chats", default off): {anchorId, dy} per (account, chat),
+    // keyed like drafts. In-memory like drafts — gone at app restart.
+    this._scrollAnchors = new Map();
+    this._userAway = false;      // user genuinely scrolled off the bottom (see _bindScroll)
+    this._userScrollAt = 0;      // last user scroll input (wheel/touch/keys/scrollbar)
+    this._restoring = false;     // the latest settle is a saved-anchor restore
+    this._openedWithUnread = false;
 
     this.scrollEl = document.getElementById("history-scroll");
     this.listEl = document.getElementById("history");
@@ -420,9 +444,24 @@ export class ChatView {
         if (!this._isCurrent(session)) return false;
       }
       let anchorId = firstUnread != null ? (marker ?? firstUnread) : null;
+      // Remembered position (setting, issue #18): only for a fully read
+      // chat — marker > first unread > saved anchor > bottom. New unread
+      // messages retire the saved anchor.
+      let restore = null;
+      if (tracked && rememberScrollOn()) {
+        if (chat.unread > 0) this._scrollAnchors.delete(session.draftKey);
+        else if (anchorId == null) restore = this._scrollAnchors.get(session.draftKey) || null;
+      }
       const load = (aroundId) => this.core.getMessages(chatId, aroundId != null ? { aroundId, before: 10, limit: 60 } : { limit: 40 });
-      let page = await load(anchorId);
+      let page = await load(anchorId ?? restore?.anchorId);
       if (!this._isCurrent(session)) return false;
+      if (restore && !page.messages.some(m => m.id === restore.anchorId)) {
+        // The anchor message is gone (deleted) — forget it, open at the bottom.
+        this._scrollAnchors.delete(session.draftKey);
+        restore = null;
+        page = await load(null);
+        if (!this._isCurrent(session)) return false;
+      }
       if (anchorId != null && anchorId === marker && !page.messages.some(m => m.id === marker)) {
         // The marked message is gone (deleted) — drop the stale marker.
         clearReadMarker(session.accountId, chatId);
@@ -438,6 +477,8 @@ export class ChatView {
       this.hasMore = hasMore;
       this.hasNewer = !!hasNewer;
       this.readMarkerId = marker;
+      this._userAway = !!restore; // a restored position is the user's own
+      this._openedWithUnread = (chat.unread || 0) > 0;
       this._firstUnreadId = firstUnread ?? (tracked ? messages.find(m => m.unread)?.id ?? null : null);
       const draft = this._drafts.get(session.draftKey);
       const input = document.getElementById("composer-input");
@@ -458,6 +499,9 @@ export class ChatView {
       if (anchorId != null) {
         this._scrollToMessageSettling(anchorId, { marker: anchorId === marker });
         this._newWhileAway = chat.unread || 0;
+        this._renderGoDown(true);
+      } else if (restore) {
+        this._restoreScrollSettling(restore);
         this._renderGoDown(true);
       } else {
         this._scrollBottomSettling();
@@ -580,6 +624,7 @@ export class ChatView {
     if (this.chat && this._session) {
       if (input.value || this.replyTo) this._drafts.set(this._session.draftKey, { text: input.value, replyTo: this.replyTo, replyFragment: this.replyFragment });
       else this._drafts.delete(this._session.draftKey);
+      this._saveScrollAnchor(this._session.draftKey); // measures the live DOM — before teardown
     }
     this._flushMarkRead(); // messages were on screen — mark them before the session dies
     this._session = null;
@@ -601,6 +646,9 @@ export class ChatView {
     this._unreadIds.clear();
     this._settling = false;
     this._tracked = false;
+    this._userAway = false;
+    this._restoring = false;
+    this._openedWithUnread = false;
     this._hideGoDown();
     this.vs?.stop();
     this.vs = null;
@@ -2580,7 +2628,17 @@ export class ChatView {
   _bindScroll() {
     this.scrollEl.addEventListener("scroll", () => {
       if (!this._isCurrent() || !this.chat) return;
-      if (this.scrollEl.scrollTop < 220) this._loadOlder();
+      // No paging while open/jump positioning settles: a prepend under the
+      // pin (e.g. the scrollTop 0 close() leaves behind) made the landing
+      // non-deterministic (issue #18). The settle's end pages instead.
+      if (this.scrollEl.scrollTop < 220 && !this._settling) this._loadOlder();
+      // Remembered position gate: only a genuine user scroll (input within
+      // the last 1.5 s, which covers touch momentum) moves off the bottom —
+      // programmatic settles and seeks never fabricate an anchor.
+      if (!this._settling) {
+        if (this._nearBottom()) this._userAway = false;
+        else if (Date.now() - this._userScrollAt < 1500) this._userAway = true;
+      }
       if (this._nearBottom()) {
         if (this.hasNewer) this._loadNewer();
         else this._hideGoDown();
@@ -2589,6 +2647,15 @@ export class ChatView {
       }
       this._scheduleSeenCheck();
     }, { passive: true });
+    // User scroll input for the remembered-position gate: wheel/touch over
+    // the message list (bubbles from the rows), keys and scrollbar drags on
+    // the scroller (pointerdown on the scroller itself, not a row tap).
+    const userInput = (e) => {
+      if (e.type === "pointerdown" && e.target !== this.scrollEl) return;
+      this._userScrollAt = Date.now();
+    };
+    for (const type of ["wheel", "touchstart", "touchmove"]) this.listEl.addEventListener(type, userInput, { passive: true });
+    for (const type of ["keydown", "pointerdown"]) this.scrollEl.addEventListener(type, userInput, { passive: true });
     // Go-down = catch up: jump to the newest message and mark the whole chat
     // read (a manual read marker stays where it is).
     this.goDownBtn.addEventListener("click", async () => {
@@ -2630,7 +2697,9 @@ export class ChatView {
   // bottom position until the layout stops moving (or the user scrolls away).
   _scrollBottomSettling() {
     this._hideGoDown();
-    this._settleScroll(() => this.scrollEl.scrollHeight, () => this._scrollBottom(), { atBottom: true });
+    // The final re-assert is instant: a smooth scroll outlives _settling
+    // and the scroller's own relayout could stop it mid-way (issue #18).
+    this._settleScroll(() => this.scrollEl.scrollHeight, () => this._scrollBottom(true), { atBottom: true });
   }
 
   // Open at a message instead of the bottom: the unread line near the top
@@ -2652,6 +2721,51 @@ export class ChatView {
     this._settleScroll(target, () => { const top = target(); if (top != null) this.scrollEl.scrollTop = top; });
   }
 
+  // Remembered position (issue #18): put the saved anchor row back at its
+  // saved viewport offset. Relative correction from the row's live offset,
+  // so it converges while the scroller still shifts its paddings.
+  _restoreScrollSettling({ anchorId, dy }) {
+    const target = () => {
+      const row = this.listEl.querySelector(`[data-msgid="${anchorId}"]`);
+      if (!row) {
+        const idx = this.items.findIndex(it => it.msg?.id === anchorId);
+        if (idx < 0) return null;
+        return Math.max(0, Math.round((idx / this.items.length) * this.scrollEl.scrollHeight - dy));
+      }
+      const off = row.getBoundingClientRect().top - this.scrollEl.getBoundingClientRect().top;
+      return Math.max(0, Math.round(this.scrollEl.scrollTop + (off - dy) / cssZoom()));
+    };
+    this._settleScroll(target, () => { const top = target(); if (top != null) this.scrollEl.scrollTop = top; });
+    this._restoring = true; // cleared by the next settle (go-down, jumps)
+  }
+
+  // close(): remember where the user left a fully read chat they scrolled
+  // up in; anything else forgets the chat's anchor. A restore that is still
+  // settling keeps the saved anchor (the user never moved).
+  _saveScrollAnchor(key) {
+    if (!rememberScrollOn() || !this._tracked) { this._scrollAnchors.delete(key); return; }
+    if (this._settling && this._restoring) return;
+    const fullyRead = !this._unreadIds.size && !this._newWhileAway && (!this.hasNewer || !this._openedWithUnread);
+    const anchor = this._userAway && fullyRead && !this._nearBottom() ? this._topVisibleAnchor() : null;
+    if (anchor) this._scrollAnchors.set(key, anchor);
+    else this._scrollAnchors.delete(key);
+  }
+
+  // Topmost message row still visible under the viewport top, with its
+  // offset from that top (≤ 0 when partly scrolled out), in rect px.
+  _topVisibleAnchor() {
+    const view = this.scrollEl.getBoundingClientRect();
+    if (!view.height) return null;
+    for (const row of this.listEl.children) {
+      const id = row.dataset?.msgid;
+      if (!id) continue;
+      const r = row.getBoundingClientRect();
+      if (!r.height || r.bottom <= view.top + 1) continue;
+      return r.top < view.bottom ? { anchorId: Number(id), dy: Math.round(r.top - view.top) } : null;
+    }
+    return null;
+  }
+
   // After opening a chat the scroller keeps measuring rendered items and
   // adjusting its virtual paddings for several frames, each of which can
   // shift the content under a single jump. Keep re-asserting the target
@@ -2660,6 +2774,7 @@ export class ChatView {
   // flash by while the layout settles are not seen.
   _settleScroll(computeTop, reassert, { atBottom = false } = {}) {
     this._stopSettling?.();
+    this._restoring = false;
     const session = this._session;
     const token = this._settleToken = (this._settleToken || 0) + 1;
     this._settling = true;
@@ -2681,6 +2796,7 @@ export class ChatView {
         if (token !== this._settleToken || !this._isCurrent(session) || !this.chat) return;
         if (!userScrolled) reassert();
         this._settling = false;
+        if (this.scrollEl.scrollTop < 220) this._loadOlder(); // paging held off while settling
         if (this._nearBottom() && !this.hasNewer) this._hideGoDown();
         this._scheduleSeenCheck();
       }, userScrolled ? 0 : 450);
