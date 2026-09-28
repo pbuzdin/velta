@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { setTimeout as sleep } from "node:timers/promises";
 
 // Only the DOM surface used by ChatView's lifecycle and the real modal helpers.
 class Element {
@@ -47,6 +48,7 @@ class Element {
   after(child) { const p = this.parent; if (!p) return child; p.children.splice(p.children.indexOf(this) + 1, 0, child); child.parent = p; return child; }
   setAttribute(name, value) { this.attributes.set(name, String(value)); }
   getAttribute(name) { return this.attributes.get(name) ?? null; }
+  removeAttribute(name) { this.attributes.delete(name); }
   scrollTo({ top }) { this.scrollTop = top; }
 }
 
@@ -350,14 +352,15 @@ for (const stage of ["picker", "copy", "send"]) {
       entered.resolve();
       return pending.promise;
     };
-    const sending = view._sendAttachment("image");
+    let sending = view._sendAttachment("image");
     if (stage === "send") {
-      // Images now open the caption/crop preview; settle it with Send.
-      await new Promise(r => setImmediate(r));
-      const sendBtn = document.getElementById("popups")
-        .querySelectorAll("button").find(b => b.textContent === "Send");
-      assert.ok(sendBtn, "preview Send button exists");
-      await sendBtn.fire("click");
+      // Since the inline attachment strip (e94d858) a picked image becomes
+      // pending media above the composer (caption = composer text) and the
+      // composer's Send dispatches it — no preview modal any more.
+      await sending;
+      assert.ok(view.pendingMedia, "picked image is pending in the composer strip");
+      assert.equal(view.pendingMedia.corePath, "/data/photo.png");
+      sending = view._send();
     }
     await entered.promise;
     switchTo("B");
@@ -455,7 +458,12 @@ test("close cancels settling and queued outgoing scrolling cannot move a new vie
   oldFrames.push(...frames.values());
   view.close();
   assert.equal(view._stopSettling, null);
+  // Since read tracking (f3b84e7) stop() detaches the user-scroll listeners
+  // in its deferred post-settle pass (450 ms without user scroll) — wait for
+  // it, then require them gone before the next view attaches its own.
+  await sleep(500); // ref'd: setup() unrefs the global setTimeout
   assert.equal(view.scrollEl.listeners.get("wheel").size, 0);
+  assert.equal(view.scrollEl.listeners.get("touchstart").size, 0);
   await view.open(8);
   node("history-scroll").scrollTop = 123;
   for (const frame of oldFrames) frame();
