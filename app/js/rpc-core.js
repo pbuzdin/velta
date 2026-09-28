@@ -207,6 +207,14 @@ export class JsonRpcCore extends EventTarget {
   _onLine(line) {
     let msg;
     try { msg = JSON.parse(line); } catch { return; }
+    // Android: an event batch the Rust background poller took off the core's
+    // queue after the UI came back (or whose Rust waiter was gone) is
+    // forwarded here as a notification instead of being dropped (#21/#22).
+    // It is dispatched exactly like this core's own poll results.
+    if (msg.id == null && msg.method === "velta_core_events") {
+      this._dispatchPollResult(msg.params?.[0]);
+      return;
+    }
     if (msg.id != null && this.pending.has(msg.id)) {
       const entry = this.pending.get(msg.id);
       const { resolve, reject, onLate } = entry;

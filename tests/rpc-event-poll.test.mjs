@@ -285,3 +285,28 @@ test("a backend without get_next_event_batch falls back to get_next_event", asyn
   await eventually(() => events.length >= 1);
   await park();
 });
+
+// Android (#21/#22): a batch the Rust background poller took off the core's
+// queue with no Rust waiter left arrives as a velta_core_events notification.
+test("forwarded core-event batch notifications are dispatched in order, with account attribution", async t => {
+  const { core, transport, events, park } = setup(t);
+  void core._pollEvents();
+  await eventually(() => transport.sent.length >= 1);
+  const foreign = { contextId: B, event: { kind: "MsgRead", chatId: CHAT, msgId: MSG } };
+  transport.receive(JSON.stringify({ jsonrpc: "2.0", method: "velta_core_events", params: [[delivered, foreign, read]] }));
+  await eventually(() => events.length >= 2);
+  await new Promise(r => setTimeout(r, 30));
+  assert.deepEqual(events, [
+    { chatId: CHAT, msgId: MSG, state: "delivered" },
+    { chatId: CHAT, msgId: MSG, state: "read" },
+  ], "same order as the batch; the other account's event is filtered");
+  // Malformed / empty notifications are ignored; unrelated methods too.
+  transport.receive(JSON.stringify({ jsonrpc: "2.0", method: "velta_core_events", params: [] }));
+  transport.receive(JSON.stringify({ jsonrpc: "2.0", method: "velta_core_events" }));
+  transport.receive(JSON.stringify({ jsonrpc: "2.0", method: "something_else", params: [[delivered]] }));
+  await new Promise(r => setTimeout(r, 30));
+  assert.equal(events.length, 2);
+  // The WebView's own parked poll is untouched and still answers normally.
+  assert.equal(core.pending.size, 1);
+  await park();
+});
