@@ -528,6 +528,23 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   their rows (`unreadFirst`/`readMarker` item flags, like `dayFirst`), and
   `_renderItem` rejects cached rows whose `_veltaFlags` differ. Local
   (P2P) chats keep open = read. Pinned by `tests/read-tracking.test.mjs`.
+- **Remembered scroll position** (issue #18, drawer setting "Remember
+  scroll position in chats", localStorage `velta-remember-scroll`, "1" = on,
+  default OFF): `close()` saves `{anchorId, dy}` (topmost visible row + its
+  viewport offset) in the in-memory `_scrollAnchors` map, keyed like drafts
+  by (account, chat), only when the chat is fully read AND the user
+  genuinely scrolled off the bottom (`_userAway`: a scroll outside
+  `_settling` within 1.5 s of wheel/touch/key/scrollbar input — settles and
+  programmatic seeks never count); anything else deletes the chat's anchor.
+  `open()` priority: marker > first unread > saved anchor > bottom; unread
+  messages retire the anchor, a deleted anchor falls back to the tail, and
+  the restore is a `getMessages({aroundId})` window + `_restoreScrollSettling`
+  (relative dy correction on the settle timer). Tracked chats only. Setting
+  off = old behaviour. Shared landing fix (both modes): the scroll handler
+  holds `_loadOlder` while `_settling` (close() leaves scrollTop 0, and the
+  prepend under the pin made reopen landings non-deterministic — the settle
+  end pages instead), and the bottom settle's final re-assert is instant,
+  not smooth. Pinned by `tests/scroll-restore.test.mjs`.
 - **Read-only chats hide every reply affordance** (1.4.26): device chats and
   channels the member cannot post in get no hover-reply pill, no
   context-menu/selection Reply, no selection-quote chip — `app.js` derives
@@ -876,7 +893,9 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
 - **Post-1.4.34 UI surface** — settings are checkbox rows in the drawer
   (`data-toggle` labels + change handlers in ui.js; Demo mode is the renamed
   mock toggle; Send on Enter is `velta-send-enter`, "0" = off, read by the
-  composer keydown, which also guards `isComposing`). Profile flows live in
+  composer keydown, which also guards `isComposing`; Remember scroll
+  position in chats is `velta-remember-scroll`, "1" = on, default off — see
+  "Remembered scroll position"). Profile flows live in
   one tabbed modal: `openProfileManagement()` (app.js) — Add profile (relay
   input + QR scan → `addAccountFromInvite`), Second device (provide-QR pane +
   receive hand-off), Export backup (`exportBackup` + `imex-progress`;
@@ -1098,7 +1117,8 @@ node --test tests/rpc-account-isolation.test.mjs \
              tests/app-account-isolation.test.mjs \
              tests/rpc-event-poll.test.mjs \
              tests/chat-msg-update-hardening.test.mjs \
-             tests/read-tracking.test.mjs
+             tests/read-tracking.test.mjs \
+             tests/scroll-restore.test.mjs
 ```
 
 These cover the account-isolation contract: stale account results (A→B→A),
