@@ -1125,9 +1125,11 @@ These cover the account-isolation contract: stale account results (A→B→A),
 entry-account-pinned RPCs, view lifetime across close/reopen, per-account
 drafts, popup settlement, attachment flows (the image preview modal is
 settled by clicking its Send button in the stub DOM), and the event
-long-poll contract: expired `get_next_event` requests stay registered so
+long-poll contract: expired `get_next_event_batch` requests stay registered so
 their late responses are dispatched (never dropped) and dispatched exactly
-once, with account attribution still enforced. The hardening suite pins the
+once, with account attribution still enforced; a batch re-polls immediately
+(no per-event pause, #25), handlers run in arrival order and a stuck handler
+holds the queue for at most `eventHandlerStallMs`. The hardening suite pins the
 event-storm defenses: duplicate message updates take the changed path at
 most once (no repeated `onItemHeightDidChange` for unmounted rows), row
 signatures survive unmounted updates, and `msgs-changed` bursts collapse

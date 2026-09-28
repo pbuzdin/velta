@@ -52,6 +52,10 @@ export class JsonRpcCore extends EventTarget {
     // MsgFailed) — lets a just-inserted sent row reconcile past events.
     this._msgStateHints = new Map();
     this.eventPollTimeoutMs = EVENT_POLL_TIMEOUT_MS;
+    this._eventPollMethod = "get_next_event_batch";
+    this._eventChain = Promise.resolve(); // serializes core event handlers (arrival order)
+    this._eventsQueued = 0;               // handlers queued or running on _eventChain
+    this.eventHandlerStallMs = 2000;      // max time one slow handler holds the queue
     this.msgIdCache = new Map();  // chatId -> [msgIds ascending]
     this._onLine = this._onLine.bind(this);
   }
@@ -249,19 +253,24 @@ export class JsonRpcCore extends EventTarget {
     });
   }
 
-  // Long-poll get_next_event. The backend parks the request until an event
-  // exists, so a client-side timeout that DELETED the pending entry would lose
-  // the event: the backend waiter stays parked, consumes the next event, and
-  // its response arrives for an id the frontend no longer expects. This call
-  // therefore uses the long backstop (not the 30 s default) and keeps the
-  // entry registered after the backstop fires — the late response is then
-  // dispatched via onLate instead of dropped. Entries are cleared on
-  // reconnect() (dead socket, no waiter will answer); a transport that wedges
-  // silently without dying can accumulate one parked entry per backstop
-  // period, but can no longer lose its event.
+  // Long-poll get_next_event_batch. The backend parks the request until at
+  // least one event exists and then returns everything already queued (up to
+  // ~100 events), so a burst (startup, sync, a busy group) drains in one
+  // round trip instead of one event per poll (issue #25: the old loop paid a
+  // 250 ms pause per event, capping the UI at 4 events/s). A client-side
+  // timeout that DELETED the pending entry would lose events: the backend
+  // waiter stays parked, consumes the next batch, and its response arrives
+  // for an id the frontend no longer expects. This call therefore uses the
+  // long backstop (not the 30 s default) and keeps the entry registered after
+  // the backstop fires — the late response is then dispatched via onLate
+  // instead of dropped. Entries are cleared on reconnect() (dead socket, no
+  // waiter will answer); a transport that wedges silently without dying can
+  // accumulate one parked entry per backstop period, but can no longer lose
+  // its events.
   _callEventPoll() {
     const id = nextId++;
-    const line = JSON.stringify({ jsonrpc: "2.0", id, method: "get_next_event", params: [] });
+    const method = this._eventPollMethod;
+    const line = JSON.stringify({ jsonrpc: "2.0", id, method, params: [] });
     return new Promise((resolve, reject) => {
       this.pending.set(id, {
         resolve,
@@ -283,23 +292,54 @@ export class JsonRpcCore extends EventTarget {
         reject(e);
         return;
       }
-      setTimeout(() => {
+      const backstop = setTimeout(() => {
         // Backstop only rejects the caller so the loop re-polls; the entry
         // stays registered to receive its late response. settled marks the
         // caller as gone so _onLine routes the late response through onLate
         // instead of the (already rejected) resolve.
         if (this.pending.has(id)) {
           this.pending.get(id).settled = true;
-          reject(new Error("rpc timeout: get_next_event"));
+          reject(new Error(`rpc timeout: ${method}`));
         }
       }, this.eventPollTimeoutMs);
+      backstop?.unref?.(); // Node test harnesses: a parked poll must not keep the process alive
     });
   }
 
-  _dispatchPollResult(ev) {
-    if (!ev) return;
-    debugLog(`event raw: ${JSON.stringify(ev).slice(0, 400)}`);
-    if (ev.event) this._handleCoreEvent(ev.event, ev.contextId ?? ev.context_id).catch(() => {});
+  // Accepts a get_next_event_batch result (array, oldest first) or a single
+  // get_next_event result (legacy fallback, test stubs). Returns the number of
+  // events queued for dispatch.
+  _dispatchPollResult(result) {
+    if (!result) return 0;
+    const list = Array.isArray(result) ? result : [result];
+    for (const ev of list) {
+      if (!ev?.event) continue;
+      if (debugLog.enabled) debugLog(`event raw: ${JSON.stringify(ev).slice(0, 400)}`);
+      this._queueCoreEvent(ev.event, ev.contextId ?? ev.context_id);
+    }
+    return list.length;
+  }
+
+  // Handlers run strictly in arrival order: each one starts after the
+  // previous one settled, so e.g. an IncomingMsg's decorated "incoming-msg"
+  // still lands before a later MsgDelivered for the same chat — the order the
+  // old one-event-per-poll loop produced. A handler stuck on a slow RPC
+  // (get_message decoration, 30 s timeout) only holds the queue for
+  // eventHandlerStallMs; it keeps running and emits when it finishes.
+  _queueCoreEvent(ev, contextId) {
+    const run = () => {
+      const handled = this._handleCoreEvent(ev, contextId).catch(() => {});
+      let timer;
+      const stall = new Promise(r => { timer = setTimeout(r, this.eventHandlerStallMs); timer?.unref?.(); });
+      return Promise.race([handled, stall]).finally(() => {
+        clearTimeout(timer);
+        this._eventsQueued--;
+      });
+    };
+    // Idle queue: start right away (synchronously, like the old direct
+    // dispatch) so the handler's synchronous part runs in this tick.
+    this._eventChain = this._eventsQueued++ ? this._eventChain.then(run, run) : run();
+    return this._eventChain;
   }
 
   async _pollEvents() {
@@ -309,10 +349,21 @@ export class JsonRpcCore extends EventTarget {
     // Event shape: { event: { kind: "IncomingMsg", chatId, msgId }, contextId }
     let failures = 0;
     for (;;) {
+      let delay = 0;
       try {
-        this._dispatchPollResult(await this._callEventPoll());
+        const count = this._dispatchPollResult(await this._callEventPoll());
         failures = 0;
+        // An empty batch means the backend returned without events (event
+        // channel closed) — don't spin on it.
+        if (!count) delay = 250;
       } catch (error) {
+        if (this._eventPollMethod === "get_next_event_batch" && /method not found|-32601|unknown method/i.test(String(error?.message || error))) {
+          // Very old backend without the batch method: fall back to single
+          // events (still without a per-event pause).
+          this._eventPollMethod = "get_next_event";
+          this._emit("diagnostic", { level: "warning", message: "Core has no get_next_event_batch; polling single events" });
+          continue;
+        }
         // While the transport is down (recovery is core.reconnect(), driven
         // from app.js) the poll fails fast on every iteration — log and
         // re-poll sparsely with a ramping delay, not 4x/second forever.
@@ -320,8 +371,11 @@ export class JsonRpcCore extends EventTarget {
         if (failures === 1 || failures % 20 === 0) {
           this._emit("diagnostic", { level: "warning", message: `Event polling failed: ${error?.message || error}` });
         }
+        delay = Math.min(250 * failures, 5000);
       }
-      await new Promise(r => setTimeout(r, failures ? Math.min(250 * failures, 5000) : 250));
+      // Success: re-poll immediately — the backend parks the next request
+      // until an event exists, so this does not busy-loop.
+      if (delay) await new Promise(r => setTimeout(r, delay));
     }
   }
 
@@ -331,7 +385,7 @@ export class JsonRpcCore extends EventTarget {
     // but hand-rolled transports may deliver snake_case — accept both.
     const chatId = ev.chatId ?? ev.chat_id;
     const msgId = ev.msgId ?? ev.msg_id;
-    debugLog(`event kind=${ev.kind} chatId=${chatId ?? "null"} msgId=${msgId ?? "null"}`);
+    if (debugLog.enabled) debugLog(`event kind=${ev.kind} chatId=${chatId ?? "null"} msgId=${msgId ?? "null"}`);
     switch (ev.kind) {
       case "Info":
       case "Warning":

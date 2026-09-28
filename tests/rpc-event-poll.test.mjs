@@ -66,7 +66,7 @@ test("a late response to an expired long poll is dispatched, not dropped", async
   // first waiter — the idle scenario that used to lose the event handed to
   // the forgotten request.
   await eventually(() => transport.sent.length >= 2);
-  assert.equal(transport.sent[0].method, "get_next_event");
+  assert.equal(transport.sent[0].method, "get_next_event_batch");
   assert.ok(diagnostics.some(m => m.includes("rpc timeout: get_next_event")));
 
   // The backend answers the OLD waiter; the entry was kept for salvage.
@@ -157,7 +157,7 @@ test("reconnect fails parked and salvaged polls and the loop recovers", async t 
   // noticed the dead connection.
   assert.ok(diagnostics.some(d => d.startsWith("Event polling failed")));
   await eventually(() => transport.sent.length >= 3);
-  assert.equal(transport.sent[2].method, "get_next_event");
+  assert.equal(transport.sent[2].method, "get_next_event_batch");
 
   await park();
 });
@@ -190,5 +190,98 @@ test("dead transport: poll failures log sparsely, then recover when it heals", a
   await eventually(() => events.length === 1);
   assert.equal(events[0].state, "delivered");
 
+  await park();
+});
+
+// ---- issue #25: batched event polling (get_next_event_batch) ----
+
+test("a batch is dispatched in order and the next poll goes out without a pause", async t => {
+  const { core, transport, events, park } = setup(t, { pollTimeoutMs: 60_000 });
+  void core._pollEvents();
+  await eventually(() => transport.sent.length >= 1);
+  assert.equal(transport.sent[0].method, "get_next_event_batch");
+  const answeredAt = performance.now();
+  transport.receive(JSON.stringify({ jsonrpc: "2.0", id: transport.sent[0].id, result: [delivered, read, delivered] }));
+  await eventually(() => transport.sent.length >= 2);
+  // The old loop slept 250 ms after every event (4 events/s ceiling).
+  assert.ok(performance.now() - answeredAt < 150, "success must re-poll immediately");
+  await eventually(() => events.length >= 3);
+  assert.deepEqual(events.map(e => e.state), ["delivered", "read", "delivered"]);
+  await park();
+});
+
+test("100 single-event batches drain far faster than 4 events/s", async t => {
+  const { core, transport, events, park } = setup(t, { pollTimeoutMs: 60_000 });
+  void core._pollEvents();
+  const started = performance.now();
+  for (let i = 0; i < 100; i++) {
+    await eventually(() => transport.sent.length >= i + 1);
+    transport.receive(JSON.stringify({ jsonrpc: "2.0", id: transport.sent[i].id, result: [delivered] }));
+  }
+  await eventually(() => events.length >= 100);
+  assert.ok(performance.now() - started < 2000, `100 events took ${performance.now() - started} ms (old loop: 25 s)`);
+  await park();
+});
+
+test("batched handlers keep arrival order across async decoration", async t => {
+  const { core, transport, park } = setup(t, { pollTimeoutMs: 60_000 });
+  const order = [];
+  core.addEventListener("incoming-msg", () => order.push("incoming-msg"));
+  core.addEventListener("msg-state", () => order.push("msg-state"));
+  const realCall = core._call.bind(core);
+  core._call = (method, ...params) => method === "get_message"
+    ? new Promise(r => setTimeout(() => r({ id: MSG, chatId: CHAT, fromId: 5, state: 10, text: "hi", timestamp: 1 }), 40))
+    : realCall(method, ...params);
+  void core._pollEvents();
+  await eventually(() => transport.sent.length >= 1);
+  transport.receive(JSON.stringify({
+    jsonrpc: "2.0", id: transport.sent[0].id,
+    result: [{ contextId: A, event: { kind: "IncomingMsg", chatId: CHAT, msgId: MSG } }, delivered],
+  }));
+  await eventually(() => order.length >= 2);
+  assert.deepEqual(order, ["incoming-msg", "msg-state"], "a later event must not overtake an earlier one's decoration");
+  await park();
+});
+
+test("a stuck handler holds the queue only for eventHandlerStallMs", async t => {
+  const { core, transport, events, park } = setup(t, { pollTimeoutMs: 60_000 });
+  core.eventHandlerStallMs = 50;
+  const realCall = core._call.bind(core);
+  core._call = (method, ...params) => method === "get_message" ? new Promise(() => {}) : realCall(method, ...params);
+  void core._pollEvents();
+  await eventually(() => transport.sent.length >= 1);
+  const t0 = performance.now();
+  transport.receive(JSON.stringify({
+    jsonrpc: "2.0", id: transport.sent[0].id,
+    result: [{ contextId: A, event: { kind: "MsgsChanged", chatId: CHAT, msgId: MSG } }, delivered],
+  }));
+  await eventually(() => events.length >= 1);
+  const waited = performance.now() - t0;
+  assert.ok(waited >= 40 && waited < 1000, `queue released after ${waited} ms`);
+  assert.equal(events[0].state, "delivered");
+  await park();
+});
+
+test("an empty batch backs off instead of spinning", async t => {
+  const { core, transport, park } = setup(t, { pollTimeoutMs: 60_000 });
+  void core._pollEvents();
+  await eventually(() => transport.sent.length >= 1);
+  const t0 = performance.now();
+  transport.receive(JSON.stringify({ jsonrpc: "2.0", id: transport.sent[0].id, result: [] }));
+  await eventually(() => transport.sent.length >= 2);
+  assert.ok(performance.now() - t0 >= 200, "empty result must not re-poll immediately");
+  await park();
+});
+
+test("a backend without get_next_event_batch falls back to get_next_event", async t => {
+  const { core, transport, events, diagnostics, park } = setup(t, { pollTimeoutMs: 60_000 });
+  void core._pollEvents();
+  await eventually(() => transport.sent.length >= 1);
+  transport.receive(JSON.stringify({ jsonrpc: "2.0", id: transport.sent[0].id, error: { code: -32601, message: "Method not found" } }));
+  await eventually(() => transport.sent.length >= 2);
+  assert.equal(transport.sent[1].method, "get_next_event");
+  assert.ok(diagnostics.some(d => d.includes("get_next_event_batch")));
+  transport.receive(JSON.stringify({ jsonrpc: "2.0", id: transport.sent[1].id, result: delivered }));
+  await eventually(() => events.length >= 1);
   await park();
 });
