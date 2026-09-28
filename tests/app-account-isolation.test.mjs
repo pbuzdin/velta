@@ -13,6 +13,7 @@ const scripts = [
   ["function scheduleChatListRefresh(", "// Group message sender avatars"],
   ["async function openChat(", "// Android BACK / gesture"],
   ["function accountIsCurrent(", "// Tell the frontend where blobs live"],
+  ['diagnostics.addEventListener("changed"', "/* ---------------- DOM budget watchdog"],
 ].map(([start, end]) => {
   const from = source.indexOf(start);
   assert.notEqual(from, -1, `Missing app.js marker: ${start}`);
@@ -115,7 +116,15 @@ function setup(t) {
       replaceState(value) { this.state = value; },
     },
     DIAGNOSTICS_CHAT_ID: -1,
-    diagnostics: { getChat: () => ({ id: -1, name: "Diagnostics" }) },
+    diagnostics: {
+      preview: "Diagnostics",
+      getChat() { return { id: -1, name: this.preview }; },
+      addEventListener(name, callback) { listeners.set(`diagnostics:${name}`, [callback]); },
+    },
+    diagnosticsPaused: false,
+    renderDiagnosticsMessages: () => {},
+    renderInitialDiagnosticsChat: () => {},
+    p2pEnabled: () => false,
     console: { warn: (...args) => effects.warnings.push(args) },
     setTimeout: callback => { timers.set(++timerId, callback); return timerId; },
     clearTimeout: id => timers.delete(id),
@@ -138,7 +147,8 @@ function setup(t) {
   for (const script of scripts) script.runInContext(context);
   const app = new Script(`
     chatView = testChatView;
-    ({ state, refreshChatList, scheduleChatListRefresh, renderChatList, openChat, closeChatUI,
+    ({ state, refreshChatList, scheduleChatListRefresh, scheduleChatListUpdate, renderChatList, openChat, closeChatUI,
+       get archivedCount() { return archivedCount; },
        get inFlight() { return chatListInFlight; },
        get navigation() { return chatNavigation; },
        get accountRefresh() { return accountRefreshPromise; },
@@ -448,4 +458,162 @@ test("account switch leaves a side view: old search results are neither shown no
   await app.accountRefresh;
   assert.deepEqual(shown(), ["Diagnostics", "B"], "the new profile's list must render");
   assert.equal(staleHit.parent, null);
+});
+
+/* ---- incremental chat list (issue #25) ---- */
+
+// Fires every pending timer (debounces), then lets the refresh settle.
+async function flushTimers(timers) {
+  while (timers.size) {
+    const pending = [...timers.values()];
+    timers.clear();
+    for (const callback of pending) await callback();
+  }
+  for (let i = 0; i < 5; i++) await nextTurn();
+}
+
+const item = (id, name = `chat ${id}`) => ({ id, kind: "group", name });
+
+// A core that emits the fine-grained chat-list events: records every entries
+// / items request, serves chats from a mutable backing list.
+function incrementalCore(core, ids) {
+  const calls = { entries: [], items: [], full: [] };
+  const names = new Map(ids.map(id => [id, `chat ${id}`]));
+  const listed = { ids: [...ids], archived: [101, 102, 103] };
+  core.chatlistEvents = true;
+  core.getChatListIds = async ({ archived = false } = {}) => {
+    calls.entries.push(archived ? "archived" : "main");
+    return archived ? [...listed.archived] : [...listed.ids];
+  };
+  core.getChatListItems = async want => {
+    calls.items.push([...want]);
+    return new Map(want.map(id => [id, names.has(id) ? item(id, names.get(id)) : null]));
+  };
+  core.getChatList = async opts => { calls.full.push(opts); return []; };
+  return { calls, names, listed };
+}
+
+test("incremental: first refresh is full, archived folder counted from entries only", async t => {
+  const { app, core, timers, shown } = setup(t);
+  const { calls } = incrementalCore(core, [1, 2, 3]);
+  await app.refreshChatList();
+  await flushTimers(timers);
+  assert.deepEqual(calls.entries, ["main", "archived"]);
+  assert.deepEqual(calls.items, [[1, 2, 3]], "archived items must not be loaded");
+  assert.deepEqual(calls.full, [], "getChatList is not used on an incremental core");
+  assert.equal(app.archivedCount, 3);
+  assert.deepEqual(shown(), ["Diagnostics", "chat 1", "chat 2", "chat 3"]);
+});
+
+test("incremental: chatlist-item-changed refetches only that chat's item", async t => {
+  const { app, core, timers, shown } = setup(t);
+  const { calls, names } = incrementalCore(core, [1, 2, 3]);
+  await app.refreshChatList();
+  await flushTimers(timers);
+  calls.entries.length = 0; calls.items.length = 0;
+  names.set(2, "renamed");
+  app.scheduleChatListUpdate({ chatId: 2 });
+  await flushTimers(timers);
+  assert.deepEqual(calls.entries, [], "order unchanged: no entries / archived refetch");
+  assert.deepEqual(calls.items, [[2]]);
+  assert.deepEqual(shown(), ["Diagnostics", "chat 1", "renamed", "chat 3"]);
+});
+
+test("incremental: chatlist-changed refetches entries and only new chats; drops removed ones", async t => {
+  const { app, core, timers, shown } = setup(t);
+  const { calls, names, listed } = incrementalCore(core, [1, 2, 3]);
+  await app.refreshChatList();
+  await flushTimers(timers);
+  calls.entries.length = 0; calls.items.length = 0;
+  names.set(4, "new chat");
+  listed.ids = [4, 3, 1]; // new chat on top, 3 moved up, 2 deleted
+  listed.archived = [101];
+  app.scheduleChatListUpdate({ order: true });
+  await flushTimers(timers);
+  assert.deepEqual(calls.entries, ["main", "archived"]);
+  assert.deepEqual(calls.items, [[4]]);
+  assert.equal(app.archivedCount, 1);
+  assert.deepEqual(shown(), ["Diagnostics", "new chat", "chat 3", "chat 1"]);
+});
+
+test("incremental: a burst of chat-list events coalesces into one small refresh", async t => {
+  const { app, core, timers } = setup(t);
+  const { calls } = incrementalCore(core, [1, 2, 3, 4]);
+  await app.refreshChatList();
+  await flushTimers(timers);
+  calls.entries.length = 0; calls.items.length = 0;
+  for (let i = 0; i < 50; i++) {
+    app.scheduleChatListUpdate({ order: true });
+    app.scheduleChatListUpdate({ chatId: 1 + (i % 2) });
+  }
+  assert.equal(timers.size, 1, "one trailing refresh for the whole burst");
+  await flushTimers(timers);
+  assert.deepEqual(calls.entries, ["main", "archived"]);
+  assert.deepEqual(calls.items, [[1, 2]]);
+});
+
+test("incremental: ChatlistItemChanged without a chat and account switches refetch everything", async t => {
+  const { app, core, timers, switchTo } = setup(t);
+  const { calls } = incrementalCore(core, [1, 2]);
+  await app.refreshChatList();
+  await flushTimers(timers);
+  calls.items.length = 0;
+  app.scheduleChatListUpdate({ chatId: 0 });
+  await flushTimers(timers);
+  assert.deepEqual(calls.items, [[1, 2]]);
+  calls.items.length = 0;
+  switchTo("B");
+  await flushTimers(timers);
+  app.scheduleChatListUpdate({ chatId: 1 });
+  await flushTimers(timers);
+  // First refresh of the new account is full (no stale cache from A), then
+  // the per-chat update touches one item only.
+  assert.deepEqual(calls.items, [[1, 2], [1]]);
+});
+
+test("incremental: a failed partial refresh makes the next one full", async t => {
+  const { app, core, timers, effects } = setup(t);
+  const { calls } = incrementalCore(core, [1, 2]);
+  await app.refreshChatList();
+  await flushTimers(timers);
+  const items = core.getChatListItems;
+  core.getChatListItems = async () => { throw new Error("offline"); };
+  app.scheduleChatListUpdate({ chatId: 1 });
+  await flushTimers(timers);
+  assert.equal(effects.warnings.length, 1);
+  core.getChatListItems = items;
+  calls.items.length = 0;
+  app.scheduleChatListUpdate({ chatId: 1 });
+  await flushTimers(timers);
+  assert.deepEqual(calls.items, [[1, 2]]);
+});
+
+test("local chat on or a core without chat-list events: per-chat updates fall back to a full refresh", async t => {
+  for (const variant of ["p2p", "mock"]) {
+    const { app, core, context, timers } = setup(t);
+    const { calls } = incrementalCore(core, [1, 2]);
+    if (variant === "p2p") context.p2pEnabled = () => true;
+    else { delete core.chatlistEvents; delete core.getChatListIds; delete core.getChatListItems; }
+    app.scheduleChatListUpdate({ chatId: 1 });
+    await flushTimers(timers);
+    assert.equal(calls.full[0]?.query, "", `${variant}: main list via getChatList (proxy merges local peers)`);
+    assert.equal(calls.full.length, variant === "mock" ? 2 : 1, `${variant}: archived via getChatList only without ids`);
+    assert.deepEqual(calls.items, [], `${variant}: no incremental item fetch`);
+  }
+});
+
+test("Diagnostics appends patch the Diagnostics row locally, coalesced, without chat-list RPCs", async t => {
+  const { app, core, context, timers, emit, shown } = setup(t);
+  const { calls } = incrementalCore(core, [1]);
+  await app.refreshChatList();
+  await flushTimers(timers);
+  calls.entries.length = 0; calls.items.length = 0;
+  for (let i = 0; i < 20; i++) {
+    context.diagnostics.preview = `line ${i}`;
+    emit("diagnostics:changed");
+  }
+  assert.equal(timers.size, 1);
+  await flushTimers(timers);
+  assert.deepEqual(calls, { entries: [], items: [], full: [] });
+  assert.deepEqual(shown(), ["line 19", "chat 1"]);
 });
