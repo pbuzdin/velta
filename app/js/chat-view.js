@@ -844,8 +844,11 @@ export class ChatView {
   // Issue #13: writing from an archived chat unarchives it (official-client
   // behavior). All sends route through here so none of them misses it.
   async _sendArchivedAware(chatId, data) {
+    const session = this._session;
     const msg = await this.core.sendMessage(chatId, data);
-    if (this.chat && this.chat.id === chatId && this.chat.archived) {
+    // Chat ids are per profile: after an account switch the same numeric id
+    // is another profile's chat — only unarchive in the session that sent.
+    if (this._isCurrent(session) && this.chat && this.chat.id === chatId && this.chat.archived) {
       try {
         await this.core.setChatFlags(chatId, { archived: false });
         this.chat.archived = false;
