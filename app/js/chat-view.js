@@ -411,7 +411,9 @@ export class ChatView {
     return !!session && session === this._session && session.accountEpoch === this.core.accountEpoch;
   }
 
-  async open(chatId) {
+  // chat: the caller's freshly fetched chat object (app.js openChat), which
+  // saves a second getChat per open (#25); fetched here when omitted.
+  async open(chatId, chat = null) {
     // Retire the old scroller, composer and pending work before yielding.
     this.close();
     // The row cache survives switches (keys are per-chat message ids), but
@@ -431,7 +433,7 @@ export class ChatView {
     };
     this._loadBar(true);
     try {
-      const chat = await this.core.getChat(chatId);
+      if (chat?.id !== chatId) chat = await this.core.getChat(chatId);
       if (!this._isCurrent(session)) return false;
       // Opening position: while the chat has unread messages it opens at
       // the manual read marker, else at the first unread message; a fully

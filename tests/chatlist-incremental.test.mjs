@@ -66,3 +66,29 @@ test("ChatlistChanged / ChatlistItemChanged surface as chat-list events (and sti
     ["chat-updated", { chatId: 0 }],
   ]);
 });
+
+test("getChat fetches just that chat's item, never the whole list (#25)", async () => {
+  const { core, calls } = probe({ 2: listItem(2, "two") });
+  const chat = await core.getChat(2);
+  assert.equal(chat.name, "two");
+  assert.deepEqual(calls, [["get_chatlist_items_by_entries", 7, [2]]]);
+});
+
+test("getChat falls back to get_basic_chat_info when there is no chatlist item", async () => {
+  const calls = [];
+  class Probe extends JsonRpcCore {
+    async _call(method, ...args) {
+      calls.push(method);
+      if (method === "get_chatlist_items_by_entries") return { 5: { kind: "Error", error: "gone" } };
+      if (method === "get_basic_chat_info") return { name: "basic", chatType: "Group" };
+      if (method === "get_fresh_msg_cnt") return 3;
+      return null;
+    }
+  }
+  const core = new Probe();
+  core.accountId = 7;
+  const chat = await core.getChat(5);
+  assert.equal(chat.name, "basic");
+  assert.equal(chat.unread, 3);
+  assert.ok(!calls.includes("get_chatlist_entries"), "no full list load");
+});

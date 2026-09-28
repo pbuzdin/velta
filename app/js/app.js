@@ -1440,7 +1440,8 @@ async function openChat(chatId) {
       state.activeChatHead = fresh;
     }).catch(() => {});
   }
-  if (!await chatView.open(chatId) || !current()) return;
+  // Hand over the chat fetched above: the view used to fetch it again.
+  if (!await chatView.open(chatId, chat) || !current()) return;
   // History entry per open chat: Android BACK pops it (chat -> chat list)
   // via WryActivity's WebView-history navigation instead of exiting.
   if (history.state?.velta !== "chat") history.pushState({ velta: "chat", chatId }, "");

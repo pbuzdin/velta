@@ -515,3 +515,20 @@ test("a send finishing after an account switch cannot unarchive the new account'
   assert.deepEqual(flags, [["B", 7, { archived: false }]]);
   assert.equal(view.chat.archived, false);
 });
+
+// Issue #25: openChat already fetched the chat — the view must not fetch it
+// again (getChat used to load the whole chat list, twice per open).
+test("open(chatId, chat) uses the handed-over chat; open(chatId) or a mismatched chat fetches it", async t => {
+  const { view, core } = setup(t);
+  const fetched = [];
+  core.getChat = async id => { fetched.push(id); return { id, kind: "single", unread: 0, encrypted: true }; };
+  const given = { id: 7, kind: "group", unread: 0, encrypted: true };
+  assert.equal(await view.open(7, given), true);
+  assert.deepEqual(fetched, []);
+  assert.equal(view.chat, given);
+  assert.equal(await view.open(8), true);
+  assert.deepEqual(fetched, [8]);
+  assert.equal(await view.open(9, given), true, "a chat object for another id is not trusted");
+  assert.deepEqual(fetched, [8, 9]);
+  assert.equal(view.chat.id, 9);
+});
