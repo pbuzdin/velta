@@ -68,6 +68,8 @@ test("polling forwards camelCase and legacy snake_case context IDs, never guessi
   core.msgIdCache.set(CHAT, [MSG]);
   void core._pollEvents();
   await exhausted.promise;
+  // Handlers run on an ordered queue (issue #25 batching); let it drain.
+  await new Promise(r => setImmediate(r));
   assert.deepEqual(events, [
     { name: "msg-state", detail: { chatId: CHAT, msgId: MSG, state: "delivered" } },
     { name: "msg-state", detail: { chatId: CHAT, msgId: MSG, state: "read" } },
