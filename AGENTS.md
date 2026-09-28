@@ -1129,7 +1129,9 @@ settled by clicking its Send button in the stub DOM), and the event
 long-poll contract: expired `get_next_event_batch` requests stay registered so
 their late responses are dispatched (never dropped) and dispatched exactly
 once, with account attribution still enforced; a batch re-polls immediately
-(no per-event pause, #25), handlers run in arrival order and a stuck handler
+(no per-event pause, #25), `velta_core_events` notifications (Android
+batches forwarded by the Rust poller) are dispatched the same way,
+handlers run in arrival order and a stuck handler
 holds the queue for at most `eventHandlerStallMs`. The hardening suite pins the
 event-storm defenses: duplicate message updates take the changed path at
 most once (no repeated `onItemHeightDidChange` for unmounted rows), row
@@ -1317,6 +1319,18 @@ test traffic accordingly.
   the JS `visibilitychange` handler refetches the chat list and open chat on
   resume. Keep the poller gated on `UI_VISIBLE` — ungated it would steal
   events from the frontend's own polling.
+  Event-batch requests (ids `bg-ev-`, `src/bg_events.rs`) are never timed
+  out: a parked request cannot be cancelled in the core, and the old 60 s
+  timeout left it parked, so its next batch went to a caller that was gone
+  and was dropped silently (#21/#22/#25). `PendingGuard` clears the
+  `bg_pending` entry however a `bg_rpc` ends; a batch that arrives while
+  the UI is visible, or with no waiter left, is emitted to the WebView as a
+  `velta_core_events` JSON-RPC notification, which rpc-core dispatches like
+  its own poll result. Unit tests: `cargo test --lib bg_events` in
+  `velta-app/src-tauri` (desktop build; needs webkit2gtk-4.1 dev headers and
+  a placeholder `binaries/deltachat-rpc-server-x86_64-pc-windows-msvc.exe`).
+  Planned next step: make Rust the single reader of core events on Android
+  (see #25) — until then both readers still compete while the app is hidden.
   Notification titles: `bg_notify_incoming` defaults the title to "Velta" and
   replaces it with the chat name via `get_basic_chat_info` — the RPC surface
   has NO `get_chat` method, and a wrong method name here fails silently

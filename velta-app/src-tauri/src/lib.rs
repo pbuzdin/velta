@@ -452,6 +452,7 @@ fn resolve_upload_path(app: tauri::AppHandle, filename: String) -> String {
 
 mod webxdc_serve;
 use webxdc_serve::{webxdc_resolve_line, webxdc_serve};
+mod bg_events;
 
 // ---------- blobfile:// -- Range-aware media serving ----------
 
@@ -1953,20 +1954,43 @@ async fn init_android_core(
                 }
                 continue;
             }
-            let is_bg = match &message {
-                yerpc::Message::Response(response) => matches!(
-                    &response.id,
-                    Some(yerpc::Id::String(id)) if id.starts_with("bg-")
-                ),
-                _ => false,
+            let bg_id = match &message {
+                yerpc::Message::Response(response) => match &response.id {
+                    Some(yerpc::Id::String(id)) if id.starts_with("bg-") => Some(id.clone()),
+                    _ => None,
+                },
+                _ => None,
             };
-            if is_bg {
+            if let Some(id) = bg_id {
                 if let Ok(line) = serde_json::to_string(&message) {
-                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
-                        if let Some(id) = value.get("id").and_then(|v| v.as_str()).map(str::to_string) {
-                            if let Some(sender) = app.state::<RpcState>().bg_pending.lock().unwrap().remove(&id) {
-                                let _ = sender.send(line);
+                    let pending = app.state::<RpcState>().bg_pending.clone();
+                    // A batch arriving while the UI is visible (the request
+                    // was parked before the app came back) is the WebView's.
+                    let line = if bg_events::is_event_batch_id(&id) {
+                        let visible = UI_VISIBLE.load(std::sync::atomic::Ordering::SeqCst);
+                        let (fwd, to_poller) = bg_events::route_event_batch(&id, line, visible);
+                        if let Some(fwd) = fwd {
+                            if let Err(e) = app.emit("velta-rpc", &fwd) {
+                                log(&format!("android emit error: {e}"));
                             }
+                        }
+                        to_poller
+                    } else {
+                        line
+                    };
+                    if let Some(orphan) = bg_events::deliver(&pending, &id, line) {
+                        // Nobody waits for it any more (#21/#22): an event
+                        // batch taken off the core's queue belongs to the
+                        // WebView then — dropping it lost those events.
+                        if bg_events::is_event_batch_id(&id) {
+                            if let Some(fwd) = bg_events::forwarded_events_line(&orphan) {
+                                log(&format!("bg event batch {id} had no waiter: forwarded to the WebView"));
+                                if let Err(e) = app.emit("velta-rpc", &fwd) {
+                                    log(&format!("android emit error: {e}"));
+                                }
+                            }
+                        } else {
+                            log(&format!("bg rpc response {id} arrived after its caller gave up"));
                         }
                     }
                 }
@@ -2005,7 +2029,8 @@ async fn init_android_core(
 // Round-trip a JSON-RPC call from Rust while the UI is hidden. Requests use
 // ids prefixed "bg-"; the response forwarder routes them back through
 // bg_pending (same pattern as the "wxdc-" webxdc round-trips).
-#[cfg(target_os = "android")]
+// Not android-gated (like bg_rpc_with), so desktop builds type-check it.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 static BG_RPC_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 #[cfg(target_os = "android")]
@@ -2015,15 +2040,33 @@ async fn bg_rpc(
     method: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let id = format!("bg-{}", BG_RPC_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+    bg_rpc_with(tx, state, "bg-", method, params, Some(std::time::Duration::from_secs(60))).await
+}
+
+// timeout None: wait as long as the core takes (the event long poll parks
+// by design — timing it out left the request parked in the core, which then
+// handed its next batch to a caller that was gone). The PendingGuard clears
+// the bg_pending entry however this future ends (#21/#22).
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+async fn bg_rpc_with(
+    tx: &tokio::sync::mpsc::UnboundedSender<String>,
+    state: &RpcState,
+    id_prefix: &str,
+    method: &str,
+    params: serde_json::Value,
+    timeout: Option<std::time::Duration>,
+) -> Result<serde_json::Value, String> {
+    let id = format!("{id_prefix}{}", BG_RPC_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
     let request = serde_json::json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
-    let (resp_tx, resp_rx) = tokio::sync::oneshot::channel::<String>();
-    state.bg_pending.lock().unwrap().insert(id, resp_tx);
+    let (_guard, resp_rx) = bg_events::PendingGuard::register(&state.bg_pending, id);
     tx.send(request.to_string()).map_err(|_| "core rpc channel closed".to_string())?;
-    let line = tokio::time::timeout(std::time::Duration::from_secs(60), resp_rx)
-        .await
-        .map_err(|_| "bg rpc timed out".to_string())?
-        .map_err(|_| "bg rpc dropped".to_string())?;
+    let line = match timeout {
+        Some(limit) => tokio::time::timeout(limit, resp_rx)
+            .await
+            .map_err(|_| "bg rpc timed out".to_string())?,
+        None => resp_rx.await,
+    }
+    .map_err(|_| "bg rpc dropped".to_string())?;
     let value: serde_json::Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
     if let Some(err) = value.get("error") {
         return Err(format!("bg rpc error: {err}"));
@@ -2212,8 +2255,31 @@ fn start_bg_event_poller(app: tauri::AppHandle, tx: tokio::sync::mpsc::Unbounded
                 continue;
             }
             let state = app.state::<RpcState>();
-            match bg_rpc(&tx, &state, "get_next_event_batch", serde_json::json!([])).await {
+            // One parked request at a time, never timed out (see bg_rpc_with).
+            match bg_rpc_with(
+                &tx,
+                &state,
+                bg_events::EVENT_BATCH_ID_PREFIX,
+                "get_next_event_batch",
+                serde_json::json!([]),
+                None,
+            )
+            .await
+            {
                 Ok(result) => {
+                    // Batches that arrived while the UI was visible were
+                    // already forwarded to the WebView by the response
+                    // forwarder; they reach here empty (used to be dropped).
+                    if UI_VISIBLE.load(std::sync::atomic::Ordering::SeqCst) {
+                        // UI came back between the forwarder and here: hand
+                        // the batch over instead of dropping it.
+                        if let Some(fwd) = bg_events::forwarded_events_from_result(&result) {
+                            if let Err(e) = app.emit("velta-rpc", &fwd) {
+                                log(&format!("android emit error: {e}"));
+                            }
+                        }
+                        continue;
+                    }
                     let events = result.as_array().cloned().unwrap_or_default();
                     let mut hits: Vec<(u32, u32, u32)> = Vec::new();
                     for ev in &events {
@@ -2226,7 +2292,7 @@ fn start_bg_event_poller(app: tauri::AppHandle, tx: tokio::sync::mpsc::Unbounded
                             ev.pointer("/event/msgId").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
                         ));
                     }
-                    if !hits.is_empty() && !UI_VISIBLE.load(std::sync::atomic::Ordering::SeqCst) {
+                    if !hits.is_empty() {
                         bg_notify_incoming(&app, &tx, &state, hits).await;
                     }
                 }
