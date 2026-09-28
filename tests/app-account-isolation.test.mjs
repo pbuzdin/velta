@@ -106,7 +106,7 @@ function setup(t) {
     core,
     localStorage: { getItem: () => null },
     $: node,
-    document: { createElement: tag => new Element(tag), querySelector: node, getElementById: id => nodes.get(id) ?? null, body: new Element("body"), addEventListener() {}, removeEventListener() {} },
+    document: { createElement: tag => new Element(tag), querySelector: node, getElementById: id => nodes.get(id) ?? null, querySelectorAll: () => [], body: new Element("body"), addEventListener() {}, removeEventListener() {} },
     window: {},
     history: {
       state: null,
@@ -143,7 +143,9 @@ function setup(t) {
        get navigation() { return chatNavigation; },
        get accountRefresh() { return accountRefreshPromise; },
        get drawer() { return drawer; },
-       set drawer(value) { drawer = value; } })
+       set drawer(value) { drawer = value; },
+       get listView() { return listView; },
+       set listView(value) { listView = value; } })
   `).runInContext(context);
   const emit = name => {
     assert.ok(listeners.has(name), `Missing ${name} listener`);
@@ -423,4 +425,27 @@ test("account listeners synchronously clear private UI and start an awaitable ne
   accounts.resolve();
   await refreshing;
   assert.equal(finished, true);
+});
+
+test("account switch leaves a side view: old search results are neither shown nor tappable", async t => {
+  const { app, core, node, emit, shown } = setup(t);
+  app.state.chats = [chat("private A")];
+  // An open search view (renderSearchView) rendered A's hits into the list
+  // container; each hit button carries A's chat id.
+  app.listView = "search";
+  app.state.query = "priv";
+  const staleHit = node("chat-list").appendChild(new Element("button"));
+  const lists = deferCalls(core, "getChatList");
+  core.accountEpoch++;
+  emit("account-changing");
+  assert.equal(app.listView, "chats", "side view must close on the account boundary");
+  assert.equal(staleHit.parent, null, "stale search hit must leave the DOM");
+  core.accountId = "B";
+  core.accountEpoch++;
+  emit("account-changed");
+  assert.equal(lists.length, 1);
+  lists[0].resolve([chat("B")]);
+  await app.accountRefresh;
+  assert.deepEqual(shown(), ["Diagnostics", "B"], "the new profile's list must render");
+  assert.equal(staleHit.parent, null);
 });

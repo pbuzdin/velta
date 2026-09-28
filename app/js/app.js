@@ -383,6 +383,10 @@ core.addEventListener("account-changing", () => {
   state.query = "";
   closeChatUI();
   closeAllPopups();
+  // Side views (search, contacts, archived, …) hold the old profile's rows
+  // and renderChatList skips them — return to the plain chat list so no stale
+  // row stays tappable; account-changed refills it for the new profile.
+  if (listView !== "chats") setListView("chats");
   if (history.state?.velta === "chat") history.replaceState(null, "");
   drawer?.el.remove();
   drawer?.overlayEl?.remove();

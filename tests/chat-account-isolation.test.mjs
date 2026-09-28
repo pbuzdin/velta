@@ -490,3 +490,28 @@ test("modal dismissal settles confirmations and invokes onClose only once", asyn
   assert.equal(closed, 1);
   assert.equal(node("popups").children.length, 0);
 });
+
+test("a send finishing after an account switch cannot unarchive the new account's same-id chat", async t => {
+  const { view, core, node, switchTo } = setup(t);
+  core.getChat = async id => ({ id, kind: "single", unread: 0, encrypted: true, archived: true });
+  await view.open(7);
+  const pending = deferred();
+  const flags = [];
+  core.sendMessage = () => pending.promise;
+  core.setChatFlags = async (id, f) => { flags.push([core.accountId, id, f]); };
+  node("composer-input").value = "hello from A";
+  const sending = view._send();
+  switchTo("B");
+  await view.open(7); // B's chat 7 is archived too
+  pending.resolve(message(99));
+  await sending;
+  assert.deepEqual(flags, [], "A's late send must not touch B's chat flags");
+  assert.equal(view.chat.archived, true);
+
+  // Same account: writing from an archived chat still unarchives it (#13).
+  core.sendMessage = async () => message(100);
+  node("composer-input").value = "hello from B";
+  await view._send();
+  assert.deepEqual(flags, [["B", 7, { archived: false }]]);
+  assert.equal(view.chat.archived, false);
+});
