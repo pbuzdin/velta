@@ -977,5 +977,8 @@ export function notifyIncoming(title, body, info = {}) {
     chatName: info.chatName || null,
     senderName: info.senderName || null,
     senderAvatar: info.senderAvatar || null,
+    // Windows toast activation opens this chat (issue #20).
+    accountId: info.accountId ?? null,
+    chatId: info.chatId ?? null,
   }).catch(() => {});
 }

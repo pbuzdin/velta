@@ -594,6 +594,11 @@ layout on both mobile platforms:
 
 1:1 chats show the sender as the title with just the message text.
 
+**Tapping a notification opens its chat** — on Android (whether Velta was
+running or not) and on Windows (while the app is running). If the message
+belongs to another profile, Velta switches to it first; if the chat was
+deleted meanwhile, the app just comes to the front.
+
 **UnifiedPush (Android, groundwork):** if a UnifiedPush distributor app
 (ntfy, NextPush, self-hosted — your choice, no Google) is installed with a
 default set, Velta registers with it automatically and uses the push channel

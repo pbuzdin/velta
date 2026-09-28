@@ -2414,6 +2414,7 @@ async function addAccountFromInvite(link) {
      • ?dcaccount=dcaccount:…  or  #dcaccount=dcaccount:…
      • #/addrelay/<urlencoded dcaccount link>
      • velta://invite?url=<url-encoded i.delta.chat link>  (Windows custom scheme)
+     • velta://chat?account=<id>&chat=<id>  (notification tap, issue #20)
    A dcaccount: invite asks whether to add the relay to the current profile
    or create a new profile on it. Relay-adding needs a real core; in demo
    mode it tells the user instead. */
@@ -2471,7 +2472,51 @@ function extractBackupLink(rawUrl = location.href) {
   return m ? m[0] : null;
 }
 
+// Notification tap (issue #20): velta://chat?account=<id>&chat=<id>, built
+// by the Android notification intent (Notifications.kt) and the Windows toast
+// activation (notify_incoming in lib.rs). account is optional; 0 means unknown.
+function extractChatLink(rawUrl) {
+  let url;
+  try { url = new URL(rawUrl); } catch { return null; }
+  if (url.protocol !== "velta:" || url.hostname !== "chat") return null;
+  const chatId = Number(url.searchParams.get("chat"));
+  if (!Number.isInteger(chatId) || chatId <= 0) return null;
+  const accountId = Number(url.searchParams.get("account"));
+  return { accountId: Number.isInteger(accountId) && accountId > 0 ? accountId : null, chatId };
+}
+
+// Select the notified profile first, then open the chat. A profile or chat
+// that no longer exists leaves the app focused where it was.
+async function openChatFromLink({ accountId, chatId }) {
+  if (state.accountChanging) return;
+  if (accountId != null && String(core.accountId) !== String(accountId)) {
+    if (!core.switchAccount || !core.getAllAccounts) return;
+    const accounts = await core.getAllAccounts().catch(() => null);
+    if (!accounts?.some(a => String(a.id) === String(accountId))) return;
+    try {
+      await core.switchAccount(accountId);
+    } catch (err) {
+      errToast("Switch failed: " + (err.message || err));
+      return;
+    }
+    await accountRefreshPromise;
+  }
+  const epoch = core.accountEpoch;
+  const chat = await core.getChat(chatId).catch(() => null);
+  if (!accountIsCurrent(epoch)) return;
+  if (!chat) {
+    toast("That chat is no longer available", 2500);
+    return;
+  }
+  await openChat(chatId);
+}
+
 async function handleDeeplinkFromUrl(rawUrl, { clearUrl = false } = {}) {
+  const chatLink = extractChatLink(rawUrl);
+  if (chatLink) {
+    await openChatFromLink(chatLink);
+    return;
+  }
   const velta = extractVeltaLink(rawUrl);
   if (velta) rawUrl = velta;
   const backupLink = extractBackupLink(rawUrl);
@@ -3616,6 +3661,8 @@ async function boot() {
           chatName: chat?.name || null,
           senderName: msg?.fromContact?.name || null,
           senderAvatar: msg?.fromContact?.avatar || null,
+          accountId: core.accountId ?? null,
+          chatId: msg?.chatId ?? null,
         },
       );
     });
@@ -3681,7 +3728,13 @@ async function boot() {
       }
       if (tauri?.event?.listen) {
         // Mobile custom event emitted by our Rust layer.
-        tauri.event.listen("deeplink", ev => { if (ev.payload) handleDeeplinkFromUrl(ev.payload); });
+        // The shell also parks the link for get_initial_deeplink (cold start);
+        // drain it once handled live, or a later WebView reload replays it.
+        tauri.event.listen("deeplink", ev => {
+          if (!ev.payload) return;
+          tauri.core?.invoke?.("get_initial_deeplink").catch(() => {});
+          handleDeeplinkFromUrl(ev.payload);
+        });
         // Desktop event emitted by tauri-plugin-deep-link (Windows / Linux / macOS).
         tauri.event.listen("deep-link://new-url", ev => {
           const urls = Array.isArray(ev.payload) ? ev.payload : [ev.payload];
