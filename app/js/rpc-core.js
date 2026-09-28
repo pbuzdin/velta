@@ -1085,10 +1085,14 @@ export class JsonRpcCore extends EventTarget {
 
   async getChat(chatId) {
     const { accountId } = this;
-    const list = await this.getChatList({}, accountId);
-    const found = list.find(c => c.id === chatId);
+    // Just this chat's chatlist item (same shape as the list rows, works for
+    // archived chats too) — this used to load and map the WHOLE chat list,
+    // three times per chat open (issue #25).
+    const items = await this.getChatListItems([chatId], accountId).catch(() => null);
+    const found = items?.get(chatId);
     if (found) return found;
-    // fallback: minimal info for chats not in the default list (archived etc.)
+    // fallback: minimal info when there is no chatlist item (special ids,
+    // item errors)
     const info = await this._call("get_basic_chat_info", accountId, chatId).catch(() => null);
     if (!info) return null;
     // core 2.61.0: BasicChat no longer carries dmChatContact — derive the

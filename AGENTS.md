@@ -1142,7 +1142,8 @@ chats), `chatlist-item-changed{chatId}` refetches that one item, bursts
 coalesce into one trailing refresh, the archived count uses ids only,
 Diagnostics appends patch their row locally without chat-list RPCs, and
 local chat (`velta-p2p`) or cores without `chatlistEvents` keep the full
-refresh. Run them after touching `rpc-core.js`,
+refresh. Opening a chat costs one `getChat` (a single chatlist item, never
+the whole list), handed to `chatView.open(chatId, chat)`. Run them after touching `rpc-core.js`,
 `app.js`, `chat-view.js` or `ui.js`.
 
 Known-broken (pre-existing, re-checked 2026-09-26 on v1.4.38): the DOM

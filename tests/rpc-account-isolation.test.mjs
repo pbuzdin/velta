@@ -265,8 +265,9 @@ const multiStepCases = [
   },
   {
     name: "chat fallback", run: core => core.getChat(CHAT),
-    steps: [["get_chatlist_entries", A, null, null, null], ["get_basic_chat_info", A, CHAT], ["get_fresh_msg_cnt", A, CHAT]],
-    results: [[], { name: "source chat" }, 3],
+    // #25: getChat reads just this chat's item; no item -> basic info.
+    steps: [["get_chatlist_items_by_entries", A, [CHAT]], ["get_basic_chat_info", A, CHAT], ["get_fresh_msg_cnt", A, CHAT]],
+    results: [{}, { name: "source chat" }, 3],
   },
 ];
 

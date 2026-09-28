@@ -130,7 +130,7 @@ function setup(t) {
     clearTimeout: id => timers.delete(id),
     testChatView: {
       close: () => { effects.closes++; },
-      open: async id => { effects.opens.push([core.accountId, id]); return true; },
+      open: async (id, chat) => { effects.opens.push([core.accountId, id]); effects.openedWith = chat; return true; },
     },
     closeAllPopups: () => { effects.popupsClosed++; node("popups").replaceChildren(); },
     refreshChatHeadPresence: () => {},
@@ -616,4 +616,15 @@ test("Diagnostics appends patch the Diagnostics row locally, coalesced, without 
   await flushTimers(timers);
   assert.deepEqual(calls, { entries: [], items: [], full: [] });
   assert.deepEqual(shown(), ["line 19", "chat 1"]);
+});
+
+test("openChat hands its fetched chat to the chat view (one getChat per open, #25)", async t => {
+  const { app, core, effects } = setup(t);
+  let calls = 0;
+  core.getChat = async id => { calls++; return { id, kind: "single", name: "current" }; };
+  await app.openChat(7);
+  assert.equal(calls, 1);
+  assert.deepEqual(effects.opens, [["A", 7]]);
+  assert.equal(effects.openedWith?.id, 7);
+  assert.equal(effects.openedWith?.name, "current");
 });
