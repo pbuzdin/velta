@@ -106,7 +106,7 @@ function setup(t) {
     core,
     localStorage: { getItem: () => null },
     $: node,
-    document: { createElement: tag => new Element(tag), querySelector: node, body: new Element("body"), addEventListener() {}, removeEventListener() {} },
+    document: { createElement: tag => new Element(tag), querySelector: node, getElementById: id => nodes.get(id) ?? null, body: new Element("body"), addEventListener() {}, removeEventListener() {} },
     window: {},
     history: {
       state: null,
@@ -130,6 +130,10 @@ function setup(t) {
     toast: (...args) => effects.toasts.push(args),
     errToast: (...args) => effects.toasts.push(args),
     openDiagnosticsChat: () => assert.fail("Unexpected diagnostics navigation"),
+    // Local chat (local-chat.js imports): off in these tests — no hub card,
+    // no offline queue.
+    hubModel: async () => null,
+    lcQueueItems: () => [],
   });
   for (const script of scripts) script.runInContext(context);
   const app = new Script(`
@@ -139,8 +143,7 @@ function setup(t) {
        get navigation() { return chatNavigation; },
        get accountRefresh() { return accountRefreshPromise; },
        get drawer() { return drawer; },
-       set drawer(value) { drawer = value; },
-       set searchTimer(value) { searchTimer = value; } })
+       set drawer(value) { drawer = value; } })
   `).runInContext(context);
   const emit = name => {
     assert.ok(listeners.has(name), `Missing ${name} listener`);
@@ -345,7 +348,10 @@ test("account listeners synchronously clear private UI and start an awaitable ne
   const { app, core, node, effects, context, timers, emit, shown } = setup(t);
   app.state.chats = [chat("private A")];
   await app.openChat(7);
-  app.state.query = node("search").value = "private query";
+  // Since 1.3.36 search is an in-list side view (renderSearchView) — the
+  // header #search input and its debounce searchTimer are gone; state.query
+  // is the only query state the account boundary must clear.
+  app.state.query = "private query";
   const oldRow = node("chat-list").children[0];
   const popup = node("popups").appendChild(new Element());
   const drawer = { el: new Element(), overlayEl: new Element() };
@@ -353,8 +359,7 @@ test("account listeners synchronously clear private UI and start an awaitable ne
   node("drawer-host").appendChild(drawer.overlayEl);
   app.drawer = drawer;
   app.scheduleChatListRefresh();
-  app.searchTimer = context.setTimeout(() => assert.fail("Cancelled search ran"));
-  assert.equal(timers.size, 2);
+  assert.equal(timers.size, 1);
   const lists = deferCalls(core, "getChatList");
   const oldRefresh = app.refreshChatList();
   const closes = effects.closes;
@@ -368,7 +373,6 @@ test("account listeners synchronously clear private UI and start an awaitable ne
   assert.equal(app.state.activeChatHead, null);
   assert.equal(app.state.chats.length, 0);
   assert.equal(app.state.query, "");
-  assert.equal(node("search").value, "");
   assert.equal(node("chat-head-info").children.length, 0);
   assert.equal(node("chat-view").hidden, true);
   assert.equal(node("no-chat").hidden, false);

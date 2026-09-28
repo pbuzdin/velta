@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { setTimeout as sleep } from "node:timers/promises";
 
 // Regression tests for the event-storm hardening in ChatView:
 //  - duplicate msg updates must not loop re-render work for unmounted rows
@@ -84,7 +85,16 @@ const message = (id, chatId = 7, overrides = {}) => ({
   viewtype: "text", state: "sent", fromContact: { name: "Me" }, ...overrides,
 });
 const page = (...messages) => ({ messages, hasMore: true });
-const wait = ms => new Promise(r => setTimeout(r, ms));
+// Ref'd on purpose: setup() swaps the global setTimeout for an unref'd one,
+// and ChatView's own interval timers (settle pin) are unref'd too, so a wait
+// built on the global would let the event loop drain mid-test.
+const wait = ms => sleep(ms);
+// Same reason for app code that sleeps on the global setTimeout (the jump
+// seek's jumpSeekDelayMs pause): hold the loop open until it settles.
+async function held(promise) {
+  const keepAlive = setInterval(() => {}, 1000);
+  try { return await promise; } finally { clearInterval(keepAlive); }
+}
 
 function setup(t) {
   const nodes = new Map();
@@ -271,7 +281,7 @@ test("fetch-then-jump walks older pages until the target message loads", async t
     return { messages: [message(8, 7), message(7, 7)], hasMore: false };
   };
 
-  await view._jumpToMessage(7);
+  await held(view._jumpToMessage(7));
 
   assert.deepEqual(beforeIds, [10, 9], "walks beforeId chain from the oldest loaded id");
   assert.equal(view._hasItem(7), true, "target message is loaded");
