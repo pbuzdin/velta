@@ -394,6 +394,19 @@ title/body notification. Receiver-type confusion against
 `android.app.Notification.Builder` means the compat inner class did not
 resolve — import `androidx.core.app.NotificationCompat.MessagingStyle`
 explicitly.
+**Notification taps open the chat (issue #20):** the contract is the link
+`velta://chat?account=<id>&chat=<id>` (account 0/absent = current profile).
+Android: `Notifications.kt` sets an explicit `ACTION_VIEW` content intent
+with that data on `MainActivity`; tao turns VIEW data into
+`RunEvent::Opened` on cold start (onCreate) and warm start (singleTask →
+onNewIntent), and `run()` parks it for `get_initial_deeplink` + emits
+`deeplink`. Windows: `notify_incoming` takes `accountId`/`chatId` and the
+toast's `on_activated` focuses the main window and emits `deeplink`
+(in-process only — a toast clicked after the app quit just launches it).
+Frontend: `handleDeeplinkFromUrl` → `extractChatLink` → `openChatFromLink`
+(switch account if needed, `getChat` check, `openChat`). Pinned by
+`tests/notification-deeplink.test.mjs`. macOS plugin notifications do not
+carry the link.
 
 The skeleton currently contains only Cargo/Gradle manifests. To rebuild when the
 source is added:

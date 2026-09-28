@@ -985,9 +985,13 @@ fn read_media_bytes(app: tauri::AppHandle, src: String) -> Result<tauri::ipc::Re
 //
 // The WebView decides WHEN to notify (it knows document.hidden and which
 // message is new); this command is only the bridge to the platform
-// notification API. ponytail ceiling: clicking the notification focuses the
-// app but does not deep-link to the chat (notification action events +
-// window.show wiring left as the upgrade path).
+// notification API. Tapping a notification opens its chat (issue #20): both
+// platforms hand the WebView a velta://chat?account=<id>&chat=<id> link
+// through the existing deep-link path (handleDeeplinkFromUrl in app.js
+// selects the account, then opens the chat). Android builds the link in
+// Notifications.kt as a VIEW intent (surfaced here as RunEvent::Opened);
+// Windows emits it from the toast's Activated handler below. macOS (plugin
+// notification) still only focuses the app.
 
 // Windows renders the conversation style directly through
 // tauri-winrt-notification: up to three text lines (chat name / sender /
@@ -1003,6 +1007,8 @@ fn notify_incoming(
     chat_name: Option<String>,
     sender_name: Option<String>,
     sender_avatar: Option<String>,
+    account_id: Option<u32>,
+    chat_id: Option<u32>,
 ) -> Result<(), String> {
     use tauri_winrt_notification::{IconCrop, Toast};
 
@@ -1024,7 +1030,30 @@ fn notify_incoming(
             toast = toast.icon(path, IconCrop::Circular, "sender avatar");
         }
     }
+    // Activation fires in-process while the app runs (toasts are only shown
+    // when the window is hidden, so it normally does): bring the window back
+    // and route the chat link into the WebView's deep-link listener.
+    if let Some(chat_id) = chat_id.filter(|&id| id > 0) {
+        let account = account_id.unwrap_or(0);
+        let link = format!("velta://chat?account={account}&chat={chat_id}");
+        toast = toast.on_activated(move |_action| {
+            focus_main_window(&app);
+            log(&format!("toast activated: {link}"));
+            app.emit("deeplink", link.clone()).ok();
+            Ok(())
+        });
+    }
     toast.show().map_err(|e| e.to_string())
+}
+
+// Restore and focus the main window on toast activation.
+#[cfg(target_os = "windows")]
+fn focus_main_window(app: &tauri::AppHandle) {
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.unminimize();
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
 }
 
 #[cfg(not(target_os = "windows"))]

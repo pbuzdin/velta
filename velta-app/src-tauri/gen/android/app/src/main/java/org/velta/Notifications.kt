@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
@@ -69,18 +70,23 @@ object Notifications {
             .setAutoCancel(true)
         val chatBitmap = decode(chatAvatarPath)
         if (chatBitmap != null) builder.setLargeIcon(chatBitmap)
-        val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
-        if (launch != null) {
-            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            builder.setContentIntent(
-                android.app.PendingIntent.getActivity(
-                    context,
-                    chatKey.hashCode(),
-                    launch,
-                    android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE,
-                )
+        // Tap opens the chat (issue #20): an explicit VIEW intent carrying
+        // velta://chat?account=<id>&chat=<id>. The runtime (tao) turns VIEW
+        // data into RunEvent::Opened on both cold start (onCreate) and warm
+        // start (singleTask -> onNewIntent); lib.rs forwards it to the
+        // WebView's existing deep-link path, which selects the account and
+        // opens the chat.
+        val open = Intent(Intent.ACTION_VIEW, Uri.parse(chatLink(chatKey)))
+            .setClass(context, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        builder.setContentIntent(
+            android.app.PendingIntent.getActivity(
+                context,
+                chatKey.hashCode(),
+                open,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE,
             )
-        }
+        )
 
         manager.notify(BASE_NOTIFICATION_ID + stableId(chatKey), builder.build())
         styles[chatKey] = style
@@ -91,6 +97,10 @@ object Notifications {
     fun clear(chatKey: String) {
         styles.remove(chatKey)
     }
+
+    // chatKey is "account:chatId" (kotlin_notify_incoming in lib.rs).
+    private fun chatLink(chatKey: String): String =
+        "velta://chat?account=${chatKey.substringBefore(':')}&chat=${chatKey.substringAfter(':')}"
 
     private fun stableId(key: String): Int = (key.hashCode() and 0x7fffffff) % 100000
 
