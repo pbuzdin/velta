@@ -395,16 +395,22 @@ title/body notification. Receiver-type confusion against
 resolve — import `androidx.core.app.NotificationCompat.MessagingStyle`
 explicitly.
 **Notification taps open the chat (issue #20):** the contract is the link
-`velta://chat?account=<id>&chat=<id>` (account 0/absent = current profile).
-Android: `Notifications.kt` sets an explicit `ACTION_VIEW` content intent
-with that data on `MainActivity`; tao turns VIEW data into
+`velta://chat?account=<id>&chat=<id>&t=<token>` (account 0/absent = current
+profile). The token is a persistent 128-bit hex value in app-local data
+(`chat-link-token`), returned by `chat_link_token`. Android:
+`Notifications.show` takes that token as its last String argument (the JNI
+signature must keep matching) and sets an explicit `ACTION_VIEW` content
+intent with the link on `MainActivity`; tao turns VIEW data into
 `RunEvent::Opened` on cold start (onCreate) and warm start (singleTask →
 onNewIntent), and `run()` parks it for `get_initial_deeplink` + emits
-`deeplink`. Windows: `notify_incoming` takes `accountId`/`chatId` and the
-toast's `on_activated` focuses the main window and emits `deeplink`
-(in-process only — a toast clicked after the app quit just launches it).
-Frontend: `handleDeeplinkFromUrl` → `extractChatLink` → `openChatFromLink`
-(switch account if needed, `getChat` check, `openChat`). Pinned by
+`deeplink`. Windows: `notify_incoming` takes `accountId`/`chatId`, appends
+the same token, and the toast's `on_activated` focuses the main window and
+emits `deeplink` (in-process only — a toast clicked after the app quit just
+launches it). Frontend: load `chat_link_token` before handling any link,
+then `handleDeeplinkFromUrl` → `extractChatLink` → `openChatFromLink`
+(switch account if needed, `getChat` check, `openChat`). A `velta://chat`
+whose `t` does not match is ignored (issue #23), so a web page that fires
+the scheme cannot switch account or open a chat. Pinned by
 `tests/notification-deeplink.test.mjs`. macOS plugin notifications do not
 carry the link.
 
@@ -611,8 +617,9 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   (chat-view `_showInfo`). The selection checkbox (`ICO.check`) is separate.
 - **Bot chip (post-1.4.36)** — incoming messages whose sender contact carries
   the core's `isBot` (`fromContact.bot`, mapped by rpc-core and the mock)
-  render a small bordered "bot" tag in the meta row beside the timestamp —
-  NOT the bubble's top-right corner: the desktop hover-reply pill owns it.
+  render a small bordered "bot" tag in the meta row beside the timestamp.
+  The desktop hover-reply pill sticks along the bubble's right edge for the
+  whole bubble (issue #26), so the chip stays in the meta row.
   Sticker bubbles carry no meta row and go unmarked.
 - **Context-menu Resend (post-1.4.36)** — own messages (non-P2P) offer
   Resend: core `resend_messages` flips the message back to OutPending and

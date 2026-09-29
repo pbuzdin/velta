@@ -982,17 +982,128 @@ fn read_media_bytes(app: tauri::AppHandle, src: String) -> Result<tauri::ipc::Re
     Ok(tauri::ipc::Response::new(bytes))
 }
 
+// ---------- notification chat-link token (issue #23) ----------
+//
+// velta://chat links switch account and open a chat with no confirm, so a
+// web page that fires the scheme must not be able to mint one. Notifications
+// append &t=<token>. The token is random, persistent (a toast or intent
+// outlives this process), and stored in app-local data, which page JS
+// cannot read. A per-process nonce would reject a tap after relaunch.
+
+const CHAT_LINK_TOKEN_NAME: &str = "chat-link-token";
+static CHAT_LINK_TOKEN: Mutex<Option<String>> = Mutex::new(None);
+
+fn valid_chat_link_token(token: &str) -> bool {
+    token.len() == 32 && token.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+fn mint_chat_link_token() -> String {
+    use rand::RngCore;
+    let mut bytes = [0u8; 16];
+    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    data_encoding::HEXLOWER.encode(&bytes)
+}
+
+/// Read a token file, or create one. A missing or corrupt file is replaced.
+/// The new file is renamed into place so two callers (the page fetching the
+/// token, and a notification built at the same moment) publish one value:
+/// the loser of the rename reads the winner's token. Other IO errors
+/// propagate and do not rotate a token already on screen.
+fn load_or_create_chat_link_token(path: &Path) -> Result<String, String> {
+    match std::fs::read_to_string(path) {
+        Ok(raw) if valid_chat_link_token(raw.trim()) => return Ok(raw.trim().to_string()),
+        Ok(_) => {
+            // Windows rename does not replace an existing file.
+            let _ = std::fs::remove_file(path);
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e.to_string()),
+    }
+    let token = mint_chat_link_token();
+    match publish_chat_link_token(path, &token) {
+        Ok(()) => Ok(token),
+        Err(_) => match std::fs::read_to_string(path) {
+            Ok(raw) if valid_chat_link_token(raw.trim()) => Ok(raw.trim().to_string()),
+            Ok(_) => Err("chat-link-token is not valid".into()),
+            Err(e) => Err(e.to_string()),
+        },
+    }
+}
+
+fn publish_chat_link_token(path: &Path, token: &str) -> Result<(), String> {
+    if let Some(dir) = path.parent() {
+        if !dir.as_os_str().is_empty() {
+            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+    }
+    let tmp = path.with_file_name(format!("{CHAT_LINK_TOKEN_NAME}.{token}.tmp"));
+    std::fs::write(&tmp, token.as_bytes()).map_err(|e| e.to_string())?;
+    match std::fs::rename(&tmp, path) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(e.to_string())
+        }
+    }
+}
+
+fn chat_link_token_path(app: &tauri::AppHandle) -> PathBuf {
+    use tauri::path::BaseDirectory;
+    app.path()
+        .resolve(CHAT_LINK_TOKEN_NAME, BaseDirectory::AppLocalData)
+        .unwrap_or_else(|_| log_dir().join("..").join(CHAT_LINK_TOKEN_NAME))
+}
+
+fn chat_link_token_for(app: &tauri::AppHandle) -> Result<String, String> {
+    if let Some(token) = CHAT_LINK_TOKEN.lock().unwrap().clone() {
+        return Ok(token);
+    }
+    let token = load_or_create_chat_link_token(&chat_link_token_path(app))?;
+    *CHAT_LINK_TOKEN.lock().unwrap() = Some(token.clone());
+    Ok(token)
+}
+
+fn chat_link_with_token(account: u32, chat_id: u32, token: &str) -> String {
+    format!("velta://chat?account={account}&chat={chat_id}&t={token}")
+}
+
+/// Drop `t=` values before they reach velta.log. The query delimiter has to
+/// precede `t=`, so an unrelated path that happens to contain those letters
+/// is left alone.
+fn redact_chat_link(url: &str) -> String {
+    let mut out = String::with_capacity(url.len());
+    let mut rest = url;
+    while let Some(rel) = rest.find(['?', '&']) {
+        let (head, tail) = rest.split_at(rel + 1);
+        out.push_str(head);
+        if let Some(value) = tail.strip_prefix("t=") {
+            out.push_str("t=…");
+            let end = value.find(['&', '#']).unwrap_or(value.len());
+            rest = &value[end..];
+        } else {
+            rest = tail;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+#[tauri::command]
+fn chat_link_token(app: tauri::AppHandle) -> Result<String, String> {
+    chat_link_token_for(&app)
+}
+
 // ---------- incoming-message notifications ----------
 //
 // The WebView decides WHEN to notify (it knows document.hidden and which
 // message is new); this command is only the bridge to the platform
 // notification API. Tapping a notification opens its chat (issue #20): both
-// platforms hand the WebView a velta://chat?account=<id>&chat=<id> link
-// through the existing deep-link path (handleDeeplinkFromUrl in app.js
-// selects the account, then opens the chat). Android builds the link in
-// Notifications.kt as a VIEW intent (surfaced here as RunEvent::Opened);
-// Windows emits it from the toast's Activated handler below. macOS (plugin
-// notification) still only focuses the app.
+// platforms hand the WebView a velta://chat?account=<id>&chat=<id>&t=<token>
+// link through the existing deep-link path (handleDeeplinkFromUrl in app.js
+// checks the token, selects the account, then opens the chat). Android
+// builds the link in Notifications.kt as a VIEW intent (surfaced here as
+// RunEvent::Opened); Windows emits it from the toast's Activated handler
+// below. macOS (plugin notification) still only focuses the app.
 
 // Windows renders the conversation style directly through
 // tauri-winrt-notification: up to three text lines (chat name / sender /
@@ -1034,15 +1145,22 @@ fn notify_incoming(
     // Activation fires in-process while the app runs (toasts are only shown
     // when the window is hidden, so it normally does): bring the window back
     // and route the chat link into the WebView's deep-link listener.
+    // Without a token the toast still shows; its tap only focuses the app,
+    // because the page would reject a bare velta://chat link.
     if let Some(chat_id) = chat_id.filter(|&id| id > 0) {
         let account = account_id.unwrap_or(0);
-        let link = format!("velta://chat?account={account}&chat={chat_id}");
-        toast = toast.on_activated(move |_action| {
-            focus_main_window(&app);
-            log(&format!("toast activated: {link}"));
-            app.emit("deeplink", link.clone()).ok();
-            Ok(())
-        });
+        match chat_link_token_for(&app) {
+            Ok(token) => {
+                let link = chat_link_with_token(account, chat_id, &token);
+                toast = toast.on_activated(move |_action| {
+                    focus_main_window(&app);
+                    log(&format!("toast activated: {}", redact_chat_link(&link)));
+                    app.emit("deeplink", link.clone()).ok();
+                    Ok(())
+                });
+            }
+            Err(e) => log(&format!("chat link token unavailable: {e}")),
+        }
     }
     toast.show().map_err(|e| e.to_string())
 }
@@ -2202,17 +2320,19 @@ fn kotlin_notify_incoming(
         .as_ref()
         .ok_or("Notifications class was not cached at startup")?;
 
+    let token = chat_link_token_for(app)?;
     let chat_key = env.new_string(format!("{account}:{chat_id}")).map_err(|e| e.to_string())?;
     let chat_name_j = env.new_string(chat_name).map_err(|e| e.to_string())?;
     let chat_avatar_j = opt_jstring(&mut env, chat_avatar)?;
     let sender_name_j = env.new_string(sender_name).map_err(|e| e.to_string())?;
     let sender_avatar_j = opt_jstring(&mut env, sender_avatar)?;
     let text_j = env.new_string(text).map_err(|e| e.to_string())?;
+    let token_j = env.new_string(token).map_err(|e| e.to_string())?;
 
     env.call_static_method(
         class_ref,
         "show",
-        "(Landroid/content/Context;Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)V",
+        "(Landroid/content/Context;Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;)V",
         &[
             (&context).into(),
             (&chat_key).into(),
@@ -2223,6 +2343,7 @@ fn kotlin_notify_incoming(
             (&sender_avatar_j).into(),
             (&text_j).into(),
             jni::objects::JValue::Long(timestamp_ms),
+            (&token_j).into(),
         ],
     )
     .map_err(|e| e.to_string())?;
@@ -2537,7 +2658,7 @@ pub fn run() {
             response.headers_mut().insert("Cache-Control", "max-age=31536000, immutable".parse().unwrap());
             response.map(|body| std::borrow::Cow::Owned(body))
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_latest_version, fetch_page_title, expand_invite_link, fetch_link_preview, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_latest_version, fetch_page_title, expand_invite_link, fetch_link_preview, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 
@@ -2545,7 +2666,8 @@ pub fn run() {
     {
         builder = builder
             .plugin(tauri_plugin_single_instance::init(|_app, argv, cwd| {
-                log(&format!("single-instance args: {argv:?} cwd={cwd}"));
+                let redacted: Vec<String> = argv.iter().map(|a| redact_chat_link(a)).collect();
+                log(&format!("single-instance args: {redacted:?} cwd={cwd}"));
                 // The deep-link plugin (with the single-instance feature) forwards
                 // the URL to the running instance as a `deep-link://new-url` event.
             }))
@@ -2564,7 +2686,7 @@ pub fn run() {
             if let tauri::RunEvent::Opened { urls } = _event {
                 if let Some(url) = urls.first() {
                     let s = url.to_string();
-                    log(&format!("deeplink opened: {s}"));
+                    log(&format!("deeplink opened: {}", redact_chat_link(&s)));
                     *INITIAL_DEEPLINK.lock().unwrap() = Some(s.clone());
                     _app.emit("deeplink", s).ok();
                 }
@@ -2785,5 +2907,75 @@ mod media_tests {
 
         let err = checked_media_read(&path).unwrap_err();
         assert!(err.contains("too large"), "{err}");
+    }
+}
+
+#[cfg(test)]
+mod chat_link_token_tests {
+    use super::*;
+
+    fn token_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("velta-chat-token-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn token_file_is_created_once_and_reused() {
+        let dir = token_dir("once");
+        let path = dir.join("chat-link-token");
+        let first = load_or_create_chat_link_token(&path).unwrap();
+        let second = load_or_create_chat_link_token(&path).unwrap();
+        assert_eq!(first, second);
+        assert!(valid_chat_link_token(&first));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), first);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn corrupt_token_file_is_replaced() {
+        let dir = token_dir("corrupt");
+        let path = dir.join("chat-link-token");
+        std::fs::write(&path, "not-a-token\n").unwrap();
+        let token = load_or_create_chat_link_token(&path).unwrap();
+        assert!(valid_chat_link_token(&token));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), token);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn trimmed_token_file_is_kept() {
+        let dir = token_dir("trim");
+        let path = dir.join("chat-link-token");
+        std::fs::write(&path, "0123456789abcdef0123456789abcdef\n").unwrap();
+        assert_eq!(
+            load_or_create_chat_link_token(&path).unwrap(),
+            "0123456789abcdef0123456789abcdef"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unreadable_token_path_is_not_replaced() {
+        let dir = token_dir("dir");
+        // A directory is not a token file and is not NotFound, so a failed
+        // read must not mint a new token over it.
+        let err = load_or_create_chat_link_token(&dir).unwrap_err();
+        assert!(!err.is_empty());
+        assert!(dir.is_dir());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn redact_chat_link_hides_only_the_query_token() {
+        assert_eq!(
+            redact_chat_link("velta://chat?account=1&chat=2&t=abcd"),
+            "velta://chat?account=1&chat=2&t=…"
+        );
+        assert_eq!(redact_chat_link("velta://chat?t=abcd&chat=2"), "velta://chat?t=…&chat=2");
+        assert_eq!(redact_chat_link("https://x?t=secret#frag"), "https://x?t=…#frag");
+        assert_eq!(redact_chat_link("no token"), "no token");
+        assert_eq!(redact_chat_link(r"C:\Users\t=foo"), r"C:\Users\t=foo");
     }
 }

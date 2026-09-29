@@ -40,6 +40,7 @@ object Notifications {
         senderAvatarPath: String?,
         text: String,
         timestampMs: Long,
+        chatLinkToken: String,
     ) {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= 26) {
@@ -71,12 +72,12 @@ object Notifications {
         val chatBitmap = decode(chatAvatarPath)
         if (chatBitmap != null) builder.setLargeIcon(chatBitmap)
         // Tap opens the chat (issue #20): an explicit VIEW intent carrying
-        // velta://chat?account=<id>&chat=<id>. The runtime (tao) turns VIEW
-        // data into RunEvent::Opened on both cold start (onCreate) and warm
-        // start (singleTask -> onNewIntent); lib.rs forwards it to the
-        // WebView's existing deep-link path, which selects the account and
-        // opens the chat.
-        val open = Intent(Intent.ACTION_VIEW, Uri.parse(chatLink(chatKey)))
+        // velta://chat?account=<id>&chat=<id>&t=<token>. The runtime (tao)
+        // turns VIEW data into RunEvent::Opened on both cold start (onCreate)
+        // and warm start (singleTask -> onNewIntent); lib.rs forwards it to
+        // the WebView's existing deep-link path, which checks the token,
+        // selects the account, and opens the chat.
+        val open = Intent(Intent.ACTION_VIEW, Uri.parse(chatLink(chatKey, chatLinkToken)))
             .setClass(context, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         builder.setContentIntent(
@@ -99,8 +100,10 @@ object Notifications {
     }
 
     // chatKey is "account:chatId" (kotlin_notify_incoming in lib.rs).
-    private fun chatLink(chatKey: String): String =
-        "velta://chat?account=${chatKey.substringBefore(':')}&chat=${chatKey.substringAfter(':')}"
+    // The token is the shell's chat-link-token; the page rejects a tap
+    // without it (issue #23).
+    private fun chatLink(chatKey: String, token: String): String =
+        "velta://chat?account=${chatKey.substringBefore(':')}&chat=${chatKey.substringAfter(':')}&t=${Uri.encode(token)}"
 
     private fun stableId(key: String): Int = (key.hashCode() and 0x7fffffff) % 100000
 
