@@ -410,9 +410,8 @@ html[data-theme="light"] .read-marker { color: #155a9e; border-color: #155a9e; }
   box-shadow: 0 1px 2px rgba(16,16,16,.25);
   word-wrap: break-word;
   animation: msgIn .12s ease-out;
-  /* No paint containment: the reply pill (msg-hover-reply) is a child that
-     overflows the bubble's top edge and would be clipped — so it must stay
-     inside its row's bounds. Rows must also never get content-visibility:
+  /* No paint containment: the reply track hangs 4px past the right edge
+     and would be clipped. Rows must also never get content-visibility:
      the virtual scroller measures mounted rows itself, and a row collapsing
      to its intrinsic placeholder when scrolled out of view desyncs the
      scroller's height cache (scroll jumps on remount). */
@@ -446,16 +445,22 @@ html[data-theme="light"] .read-marker { color: #155a9e; border-color: #155a9e; }
   .msg-row velta-avatar:hover .velta-avatar-photo { inset: 0; padding: 0; }
 }
 
-/* One-click "Reply" pill (desktop only): fades in at the bubble's top-right
-   corner while hovering the message. Overlaps the bubble edge slightly like
-   Discord's hover actions; hidden entirely on touch devices.
-   Anchored INSIDE the bubble's top edge: .msg-row's content-visibility:auto
-   clips descendants to the row's padding box at all times, and the row has
-   only 2px top padding — the old top:-11px overhang lost its top half. The
-   right:-4px overhang is safe (6px row padding). */
+/* One-click "Reply" pill (desktop only, issue #26). The track covers the
+   bubble without taking layout space, and the button sticks inside
+   .history-scroll for that whole height: it sits on the top-right until
+   that corner scrolls away, then rides the top of the history area and
+   leaves with the bubble. The track stays pointer-events: none so text
+   selection still hits the bubble; the button opts back in on row hover.
+   Hidden on touch, in selection mode, and in read-only chats. The 4px
+   right overhang matches the old pill and stays inside the row padding. */
+.msg-hover-reply-track {
+  position: absolute; top: 0; bottom: 0; right: -4px;
+  width: max-content; z-index: 3;
+  pointer-events: none;
+}
 .msg-hover-reply {
-  position: absolute; top: 0; right: -4px; z-index: 3;
-  display: inline-flex; align-items: center; gap: 5px;
+  position: sticky; top: 8px;
+  display: flex; width: max-content; align-items: center; gap: 5px;
   padding: 3px 10px 3px 8px; border-radius: 999px;
   background: #262b38; color: var(--text);
   border: 1px solid rgba(244, 244, 244, .18);

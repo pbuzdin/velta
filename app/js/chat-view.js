@@ -1402,8 +1402,8 @@ export class ChatView {
     const edited = m.edited ? `<span class="edited">edited</span>` : "";
     // Bot chip in the meta row's right corner (same slot as "edited"): the
     // sender contact carries the core's isBot flag (rpc-core + mock). The
-    // desktop hover-reply pill owns the bubble's TOP-right corner, so the
-    // chip lives where it never fights it. Sticker bubbles carry no meta.
+    // desktop hover-reply pill sticks along the bubble's right edge, so the
+    // chip stays in the meta row where it never fights it. Sticker bubbles carry no meta.
     const botChip = m.kind === "msg" && !out && m.viewtype !== "sticker" && m.fromContact?.bot
       ? `<span class="bot-chip" title="Sent by a bot">bot</span>` : "";
     const star = m.starred ? `<svg class="star-ico" viewBox="0 0 24 24"><path d="M12 3l2.7 5.8 6.3.7-4.7 4.3 1.3 6.2-5.6-3.2-5.6 3.2 1.3-6.2L3 9.5l6.3-.7z" fill="currentColor"/></svg>` : "";
@@ -1439,11 +1439,13 @@ export class ChatView {
       });
     }
 
-    // One-click reply (desktop hover): a small pill at the bubble's top-right
-    // corner — the same _setReply the context menu uses, plus composer focus
-    // so the reply really is a single click. Read-only chats (no composer)
+    // One-click reply (desktop hover): the pill sits on a full-height track
+    // so it sticks for the whole bubble (issue #26). Same _setReply the
+    // context menu uses, plus composer focus. Read-only chats (no composer)
     // get no pill; the body class also hides any already-mounted ones.
     if (!this.readOnly) {
+      const track = document.createElement("div");
+      track.className = "msg-hover-reply-track";
       const hoverReply = document.createElement("button");
       hoverReply.type = "button";
       hoverReply.className = "msg-hover-reply";
@@ -1456,7 +1458,8 @@ export class ChatView {
         this._setReply(it);
         document.getElementById("composer-input")?.focus();
       });
-      row.querySelector(".bubble")?.appendChild(hoverReply);
+      track.appendChild(hoverReply);
+      row.querySelector(".bubble")?.appendChild(track);
     }
 
     // Wire up real local file URLs for images / video / audio. When media
