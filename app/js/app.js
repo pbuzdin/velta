@@ -2506,7 +2506,7 @@ async function addAccountFromInvite(link) {
      • ?dcaccount=dcaccount:…  or  #dcaccount=dcaccount:…
      • #/addrelay/<urlencoded dcaccount link>
      • velta://invite?url=<url-encoded i.delta.chat link>  (Windows custom scheme)
-     • velta://chat?account=<id>&chat=<id>  (notification tap, issue #20)
+     • velta://chat?account=<id>&chat=<id>&t=<token>  (notification tap, issues #20/#23)
    A dcaccount: invite asks whether to add the relay to the current profile
    or create a new profile on it. Relay-adding needs a real core; in demo
    mode it tells the user instead. */
@@ -2546,6 +2546,12 @@ function extractJoinLink(rawUrl = location.href) {
   return parsed ? parsed.raw : null;
 }
 
+// Persistent token the shell mints for notification chat links (issue #23).
+// Loaded before any deeplink is handled. Empty in a plain browser, which
+// makes velta://chat fail closed. Keep this above extractVeltaLink: the
+// deeplink test slices from that function and supplies the token itself.
+let chatLinkToken = "";
+
 // Windows custom-scheme wrapper: velta://invite?url=<encoded https://i.delta.chat/…>
 // or velta://account?url=<encoded dcaccount:…>.
 function extractVeltaLink(rawUrl) {
@@ -2564,9 +2570,10 @@ function extractBackupLink(rawUrl = location.href) {
   return m ? m[0] : null;
 }
 
-// Notification tap (issue #20): velta://chat?account=<id>&chat=<id>, built
-// by the Android notification intent (Notifications.kt) and the Windows toast
-// activation (notify_incoming in lib.rs). account is optional; 0 means unknown.
+// Notification tap (issue #20): velta://chat?account=<id>&chat=<id>&t=<token>,
+// built by the Android notification intent (Notifications.kt) and the Windows
+// toast activation (notify_incoming in lib.rs). account is optional; 0 means
+// unknown. t is checked by handleDeeplinkFromUrl (issue #23).
 function extractChatLink(rawUrl) {
   let url;
   try { url = new URL(rawUrl); } catch { return null; }
@@ -2574,7 +2581,12 @@ function extractChatLink(rawUrl) {
   const chatId = Number(url.searchParams.get("chat"));
   if (!Number.isInteger(chatId) || chatId <= 0) return null;
   const accountId = Number(url.searchParams.get("account"));
-  return { accountId: Number.isInteger(accountId) && accountId > 0 ? accountId : null, chatId };
+  const token = url.searchParams.get("t");
+  return {
+    accountId: Number.isInteger(accountId) && accountId > 0 ? accountId : null,
+    chatId,
+    token: token || null,
+  };
 }
 
 // Select the notified profile first, then open the chat. A profile or chat
@@ -2606,7 +2618,9 @@ async function openChatFromLink({ accountId, chatId }) {
 async function handleDeeplinkFromUrl(rawUrl, { clearUrl = false } = {}) {
   const chatLink = extractChatLink(rawUrl);
   if (chatLink) {
-    await openChatFromLink(chatLink);
+    // A web page can fire velta://chat. Only notifications minted by this
+    // install carry the token, so a missing or wrong t is ignored.
+    if (chatLinkToken && chatLink.token === chatLinkToken) await openChatFromLink(chatLink);
     return;
   }
   const velta = extractVeltaLink(rawUrl);
@@ -3820,6 +3834,14 @@ async function boot() {
     });
 
     appLog("boot: handleDeeplink");
+    // Before any chat link is routed: a cold-start notification is parked in
+    // get_initial_deeplink and would otherwise be accepted with no token yet.
+    try {
+      const token = await window.__TAURI__?.core?.invoke?.("chat_link_token");
+      if (typeof token === "string" && token) chatLinkToken = token;
+    } catch (err) {
+      console.warn("chat link token unavailable:", err);
+    }
     await handleDeeplink();
 
     // Tauri runtime deep links (OS-level invite links and second-instance args)
