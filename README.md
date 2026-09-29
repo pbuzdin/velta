@@ -512,7 +512,7 @@ of replacing the message view.
 
 Everything is HTML-escaped before any tag is produced and only `http(s)` targets become links, so message content can never inject markup. Emphasis markers are word-boundary guarded (`2*3*4` and `snake_case_name` stay literal). Invite links (`i.delta.chat` and registered mirror domains) render as invite cards instead of links — see [Deep links](#deep-links). Invites carrying a `b=` parameter are broadcast channels and render as *"Subscribe to ChannelName"* with a Subscribe confirmation instead of the group wording.
 
-Hovering a message on desktop shows a small **Reply** pill at the bubble's top-right corner — one click sets the reply (same pipeline as the context menu's Reply) and focuses the composer. The pill is hidden on touch devices and during message selection.
+Hovering a message on desktop shows a small **Reply** pill along the bubble's right edge. On a tall bubble it stays visible while that bubble is on screen, then leaves with it. One click sets the reply (same pipeline as the context menu's Reply) and focuses the composer. The pill is hidden on touch devices, in read-only chats, and during message selection.
 
 On touch devices, **two-finger tap a bubble to select its text** — the native selection handles and Copy appear, and you can drag the handles to adjust. Long-press stays reserved for the context menu. On desktop, select text with the mouse as usual.
 
