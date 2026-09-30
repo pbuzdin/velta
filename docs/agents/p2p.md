@@ -67,6 +67,10 @@ the same drop killed "Delete for everyone" and setChatFlags
 archive/mute/pin. Pinned by tests/local-chat-transfer-progress.test.mjs.
 When adding a method to `P2P_HANDLED`, decide explicitly whether the
 fall-through needs the full signature.
+Chat-list delete of a local chat does not go through this proxy: `app.js`
+calls `removePeer` for `p2p:` ids (#34). `deleteChat` is the relay-core
+`delete_chat` method and is not in `P2P_HANDLED` — a string id must not
+reach it.
 
 - Media goes over FileBegin/FileChunk/FileEnd frames (base64, 96 KB raw per
   frame, 256 MB cap) in p2p.rs and lands in

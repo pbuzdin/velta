@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { JsonRpcCore } from "../app/js/rpc-core.js";
+import { MockCore } from "../app/js/mock-core.js";
 
 const A = 1;
 const B = 2;
@@ -310,6 +311,28 @@ test("getAccount returns an internally consistent entry snapshot, including unco
   }
 });
 
+test("deleteChat calls delete_chat and drops only that chat's message-id cache", async () => {
+  const { core, calls, events } = fixture({ delete_chat: () => {} });
+  core.msgIdCache.set(CHAT, [MSG]);
+  core.msgIdCache.set(11, [1]);
+  await core.deleteChat(CHAT);
+  assert.deepEqual(calls, [["delete_chat", A, CHAT]]);
+  assert.equal(core.msgIdCache.has(CHAT), false);
+  assert.deepEqual(core.msgIdCache.get(11), [1]);
+  assert.deepEqual(events, [{ name: "chat-updated", detail: { chatId: CHAT } }]);
+});
+
+test("mock deleteChat removes the chat instead of clearing its messages", async () => {
+  const mock = new MockCore();
+  mock._simTimer?.unref();
+  const chat = mock.chats.find(c => c.kind === "single");
+  assert.ok(chat);
+  const before = mock.chats.length;
+  await mock.deleteChat(chat.id);
+  assert.equal(mock.chats.length, before - 1);
+  assert.equal(mock.chats.some(c => c.id === chat.id), false);
+});
+
 test("getAllAccounts marks the selection captured before its first await", async () => {
   const gate = deferred();
   const { core } = fixture({ get_all_account_ids: () => gate.promise });
@@ -323,6 +346,7 @@ for (const [name, method, run] of [
   ["accept", "accept_chat", core => core.acceptChat(CHAT)],
   ["block", "block_chat", core => core.blockChat(CHAT)],
   ["delete", "delete_messages", core => core.deleteMessages(CHAT, [MSG])],
+  ["delete chat", "delete_chat", core => core.deleteChat(CHAT)],
   ["delete for all", "delete_messages_for_all", core => core.deleteMessages(CHAT, [MSG], { forAll: true })],
   ["star", "save_msgs", core => core.starMessages(CHAT, [MSG])],
   ["forward", "forward_messages", core => core.forwardMessages(CHAT, [MSG], 11)],

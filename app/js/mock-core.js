@@ -770,6 +770,13 @@ export class MockCore extends EventTarget {
     this._emit("chat-updated", { chatId });
   }
 
+  async deleteChat(chatId) {
+    const idx = this.chats.findIndex(x => x.id === chatId);
+    if (idx < 0) return;
+    this.chats.splice(idx, 1);
+    this._emit("chat-updated", { chatId });
+  }
+
   async starMessages(fromChatId, ids) {
     const src = this.chats.find(x => x.id === fromChatId);
     const saved = this.chats.find(x => x.kind === "saved");
