@@ -97,6 +97,23 @@ ceiling above), and the modal stays fully useful without it.
 - `refreshRelayStatus` keeps its coalescing: its own `get_connectivity`
   RPCs emit further ConnectivityChanged events, and the unguarded handler
   multiplied storms.
+
+## No built-in Yggdrasil (#29, wontfix)
+
+Closed 2026-09-30 as not planned. Do not embed a Yggdrasil node, and do not
+add the "Proxies" drawer that issue asked for.
+
+`core/src/net/proxy.rs` already sends all mail except local chat through
+one proxy. `ProxyConfig` accepts HTTP CONNECT, HTTPS, SOCKS5 (`socks5://`),
+and Shadowsocks (`ss://`). The keys are `proxy_url` and `proxy_enabled`.
+The settings drawer does not read or write them, and that is intentional
+after this close: a node on the device (yggstack, or the official Android
+VPN) is the mesh endpoint. One proxy is global. A mesh-only SOCKS listener
+breaks clearnet chatmail unless it also dials ordinary internet.
+
+There is no small Rust crate that joins Yggdrasil and returns a TCP socket.
+Every library that speaks the protocol is a node (key, `200::/7` address,
+peers). Research: https://github.com/pbuzdin/velta/issues/29#issuecomment-5886901455.
 - Sending dashes (`send-activity`, rpc-core `_trackSending`/`_untrackSending`):
   the terminal MsgDelivered/MsgFailed events can be LOST — the Android
   background poller consumes events while the app is hidden, a transport

@@ -72,6 +72,26 @@ calls `removePeer` for `p2p:` ids (#34). `deleteChat` is the relay-core
 `delete_chat` method and is not in `P2P_HANDLED` — a string id must not
 reach it.
 
+## Chatmail core stays (#31, wontfix)
+
+Closed 2026-09-30 as not planned. Do not turn the vendored chatmail core
+into an optional transport plugin.
+
+The core owns accounts, history, and the message model (`app/js/rpc-core.js`,
+the `deltachat-rpc-server` sidecar, the core SQLite). Identity is an email
+address plus an OpenPGP key. Inside the core the word "transport" is already
+taken: `core/src/transport.rs` is one IMAP/SMTP relay, not a protocol slot.
+A profile can hold several relays and the core refuses to delete the last
+one.
+
+Local chat is the side path. It wraps whatever core the app booted and adds
+`p2p:` chats. It does not replace the core, and the mail core keeps running.
+A profile with no relay is the welcome splash's "Enter local chat…" (#32),
+not an app that works with the core uninstalled. Reaching relays through a
+SOCKS proxy was #29 and does not start this work.
+
+Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
+
 - Media goes over FileBegin/FileChunk/FileEnd frames (base64, 96 KB raw per
   frame, 256 MB cap) in p2p.rs and lands in
   `<accounts>/p2p-blobs/<nodeId>/` — that directory MUST stay under the
