@@ -635,3 +635,20 @@ test("Select text is hidden on a fine pointer and shown on a coarse one", async 
   html = [...node("popups").querySelector(".ctx-menu").children].map(b => b.innerHTML);
   assert.ok(html.some(h => h.includes(">Select text<")), "a coarse pointer still gets Select text");
 });
+
+test("the message menu has no Read up to here item", async t => {
+  const { view, node } = setup(t);
+  await view.open(7);
+  const item = view.msgIndex.get(10);
+  view._tracked = true;
+  view._msgContextMenu(item, 4, 4);
+  let labels = [...node("popups").querySelector(".ctx-menu").children].map(b => b.innerHTML);
+  assert.equal(labels.some(h => h.includes("Read up to here")), false);
+  assert.equal(labels.some(h => h.includes("Remove read marker")), false);
+
+  view.readMarkerId = item.msg.id;
+  node("popups").replaceChildren();
+  view._msgContextMenu(item, 4, 4);
+  labels = [...node("popups").querySelector(".ctx-menu").children].map(b => b.innerHTML);
+  assert.equal(labels.some(h => h.includes("Read up to here") || h.includes("Remove read marker")), false);
+});
