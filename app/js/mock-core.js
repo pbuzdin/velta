@@ -785,7 +785,7 @@ export class MockCore extends EventTarget {
       const m = src.messages.find(x => x.id === id);
       if (m) {
         m.starred = true;
-        const copy = this._mkMsg(saved, { ...structuredClone(m), id: undefined, fwdFrom: m.from === 1 ? "You" : this._decorate(m).fromContact.name, ts: Date.now() });
+        const copy = this._mkMsg(saved, { ...structuredClone(m), id: undefined, originalMsgId: m.id, fwdFrom: m.from === 1 ? "You" : this._decorate(m).fromContact.name, ts: Date.now() });
         saved.messages.push(copy);
       }
     }

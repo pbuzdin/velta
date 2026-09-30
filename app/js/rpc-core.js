@@ -688,6 +688,8 @@ export class JsonRpcCore extends EventTarget {
       // scroll into view (see ChatView._checkSeen).
       unread: !out && this._isUnreadState(m.state),
       starred: !!m.savedMessageId,
+      // Set on the copy in Saved Messages. The original stays in its chat.
+      originalMsgId: m.originalMsgId > 0 ? m.originalMsgId : null,
       edited: !!m.isEdited,
       quote: this._mapQuote(m.quote),
       reactions: this._mapReactions(m.reactions),

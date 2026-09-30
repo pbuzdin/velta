@@ -445,6 +445,28 @@ html[data-theme="light"] .read-marker { color: #155a9e; border-color: #155a9e; }
   .msg-row velta-avatar:hover .velta-avatar-photo { inset: 0; padding: 0; }
 }
 
+/* Saved copy: round chevron back to the original message (#19), the same
+   arrow the desktop shortcut menu uses. Always visible — touch has no
+   hover. Sits just outside the bubble; .has-original shrinks the bubble
+   so the button stays inside the row. Hidden while selecting messages. */
+.msg-show-in-chat {
+  position: absolute; top: 0; z-index: 2;
+  width: 36px; height: 36px; padding: 0;
+  border: none; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: #262b38; color: var(--text); cursor: pointer;
+}
+.msg-row.out .msg-show-in-chat { left: -44px; }
+.msg-row:not(.out) .msg-show-in-chat { right: -44px; }
+.msg-show-in-chat svg { width: 20px; height: 20px; }
+.msg-row.has-original .bubble { max-width: min(480px, calc(90% - 44px)); }
+.msg-row.has-original.with-avatar .bubble { max-width: min(480px, calc(90% - 94px)); }
+.msg-row.selectable .msg-show-in-chat { display: none; }
+html[data-theme="light"] .msg-show-in-chat {
+  background: #fbfbfc;
+  box-shadow: 0 1px 4px rgba(16, 16, 16, .16);
+}
+
 /* One-click "Reply" pill (desktop only, issue #26). The track covers the
    bubble without taking layout space, and the button sticks inside
    .history-scroll for that whole height: it sits on the top-right until

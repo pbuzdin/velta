@@ -562,6 +562,13 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   prepend under the pin made reopen landings non-deterministic — the settle
   end pages instead), and the bottom settle's final re-assert is instant,
   not smooth. Pinned by `tests/scroll-restore.test.mjs`.
+- **Saved copies jump back to the original message** (issue #19): core
+  `originalMsgId` is mapped in `rpc-core.js`. A copy in Saved Messages gets
+  a round chevron (`data-act="show-original"`, title “Show in chat”) hanging
+  off the bubble. `_showOriginal` loads that message and either jumps inside
+  the open chat or `onOpenChat`s the source chat and then jumps. Notes typed
+  in Saved Messages have no `originalMsgId` and no button. Pinned by
+  `tests/chat-msg-update-hardening.test.mjs`.
 - **Read-only chats hide every reply affordance** (1.4.26): device chats and
   channels the member cannot post in get no hover-reply pill, no
   context-menu/selection Reply, no selection-quote chip — `app.js` derives
