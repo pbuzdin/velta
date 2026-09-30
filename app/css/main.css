@@ -1671,6 +1671,9 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
   .main { position: fixed; inset: 0; transform: translateX(100%); transition: transform .22s ease-out; z-index: 10; }
   .app.chat-open .main { transform: none; }
   .app.chat-open .sidebar { visibility: hidden; }
+  /* Swipe-back (#35) reveals the list under the sliding column. */
+  .app.chat-open.swipe-back .sidebar { visibility: visible; }
+  .history-scroll { overflow-x: hidden; }
   .only-mobile { display: grid; }
   .no-chat { display: none; }
   .history { padding-left: 6px; padding-right: 6px; }

@@ -544,7 +544,9 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   of the whole chat). The "Unread messages" line and the marker ride inside
   their rows (`unreadFirst`/`readMarker` item flags, like `dayFirst`), and
   `_renderItem` rejects cached rows whose `_veltaFlags` differ. Local
-  (P2P) chats keep open = read. Pinned by `tests/read-tracking.test.mjs`.
+  (P2P) chats keep open = read. The message menu does not set or clear
+  markers (#38). A stored marker still wins at open, and the line's X still
+  calls `clearReadMarker`. Pinned by `tests/read-tracking.test.mjs`.
 - **Remembered scroll position** (issue #18, drawer setting "Remember
   scroll position in chats", localStorage `velta-remember-scroll`, "1" = on,
   default OFF): `close()` saves `{anchorId, dy}` (topmost visible row + its
@@ -609,7 +611,23 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
 - **Long-press guard** (1.4.20): the row's 500 ms context-menu timer cancels
   on `touchcancel` AND on multi-touch (`touches.length > 1`) — the WebView
   claims two-finger gestures and answers with `touchcancel`, not `touchmove`,
-  which previously left the timer alive (menu opened mid-swipe).
+  which previously left the timer alive (menu opened mid-swipe). Any
+  `touchmove` still cancels the timer.
+- **Mobile swipes (#35)** — only when `(max-width: 820px)` and the pointer
+  is not `(hover: hover) and (pointer: fine)`. Swipe right on a `.bubble`
+  translates it up to 64px and, past 48px, calls `_setReply` (skipped when
+  read-only, selecting, or in text-selection). Swipe left on `#history-scroll`
+  translates `#main` with the finger; past 72px (or 28% of the width) it
+  calls `onBack` (`closeChat`). `.swipe-back` on `.app` shows the sidebar
+  while `.chat-open` would keep it `visibility: hidden`. A vertical move
+  wins and stays a scroll. Reply-right and back-left do not run together
+  (`_replySwipe` / `_backSwipe`). `close()` cancels a back drag so the
+  column is not left translated. A committed swipe parks `#main` at
+  `translateX(100%)` with no transition before `.chat-open` drops, then
+  clears that inline transform on the next frame — otherwise the .22s
+  close slide runs from `-100%` to `100%` across the list. Pinned by
+  `tests/chat-msg-update-hardening.test.mjs`. Detail:
+  docs/agents/android-shell.md.
 - **Select text (#36)** — bubble text stays unselectable on touch (long-press
   belongs to the context menu; a native word selection used to steal half
   the gesture). **Select text** is on the touch message menu only
@@ -1132,7 +1150,9 @@ replies; applies regardless of which tools or modes are active.)
   `colorForCell` in `avatar.js`). The fingerprint glyph sits on a soft-black
   badge (`#1c1c1c`) in soft white (`#f4f4f4`); a contact's photo replaces the
   glyph as a rounded square padded inside the matrix with a thin dark ring.
-  Group/channel avatars are exempt (solid color + photo/initials).
+  On a fine pointer with hover, a custom photo (`.velta-avatar-photo`) in the
+  chat header and the profile sheet grows to fill the tile, matching message
+  rows (#39). Group/channel avatars are exempt (solid color + photo/initials).
 
 
 ---

@@ -82,6 +82,35 @@ up above the screen. KEEP all three parts of the fix:
 - `interactive-widget=resizes-content` in the index.html viewport meta so
   the page's layout viewport resizes with the WebView.
 
+## Mobile chat gestures (#35)
+
+Phone only. The gestures run when the page is the overlay chat column
+(`max-width: 820px`) and the pointer is not `(hover: hover) and (pointer: fine)`.
+A wide window, and a narrow window with a mouse, keep the desktop layout
+and do not swipe.
+
+- Swipe right on a `.bubble` translates that bubble up to 64px. Releasing
+  past 48px calls `_setReply`. Skipped when the chat is read-only, while
+  messages are selected, and during Select text. Translate the bubble, not
+  the row: the day chip, unread line, and read marker ride in the row.
+- Swipe left on `#history-scroll` translates `#main` with the finger.
+  Releasing past 72px, or 28% of the column width, calls `onBack`
+  (`closeChat`, the same path as the header back button). `.swipe-back` on
+  `.app` shows the sidebar while `.chat-open` would keep it
+  `visibility: hidden`.
+- A vertical move wins and stays a scroll. Reply-right and back-left do not
+  run on the same finger (`_replySwipe` / `_backSwipe`). Any `touchmove`
+  still cancels the long-press timer.
+- `close()` cancels a back drag. A committed swipe parks `#main` at
+  `translateX(100%)` with no transition before `.chat-open` drops, then
+  clears that inline transform on the next frame. Clearing it in the same
+  turn makes the .22s close slide run from `-100%` across the list.
+- In that mobile layout `#history-scroll` is `overflow-x: hidden`, so the
+  bubble slide does not scroll the history sideways.
+
+Pinned by `tests/chat-msg-update-hardening.test.mjs`. The same contract is
+in AGENTS.md under "Mobile swipes (#35)".
+
 ## Text zoom
 
 `MainActivity` pins the WebView's `textZoom = 100` (bounded retry until the

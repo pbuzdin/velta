@@ -463,7 +463,9 @@ test("close cancels settling and queued outgoing scrolling cannot move a new vie
   // it, then require them gone before the next view attaches its own.
   await sleep(500); // ref'd: setup() unrefs the global setTimeout
   assert.equal(view.scrollEl.listeners.get("wheel").size, 0);
-  assert.equal(view.scrollEl.listeners.get("touchstart").size, 0);
+  // The settle listener is gone. The one that remains is the history swipe
+  // (#35), bound once for the life of the view, not once per open.
+  assert.equal(view.scrollEl.listeners.get("touchstart").size, 1);
   await view.open(8);
   node("history-scroll").scrollTop = 123;
   for (const frame of oldFrames) frame();

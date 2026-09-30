@@ -518,6 +518,8 @@ Everything is HTML-escaped before any tag is produced and only `http(s)` targets
 
 Hovering a message on desktop shows a small **Reply** pill along the bubble's right edge. On a tall bubble it stays visible while that bubble is on screen, then leaves with it. One click sets the reply (same pipeline as the context menu's Reply) and focuses the composer. The pill is hidden on touch devices, in read-only chats, and during message selection.
 
+On a phone, swipe a bubble to the right to reply. The bubble slides a short way with your finger, and letting go far enough sets the reply and focuses the composer, the same as Reply in the menu. A short swipe snaps the bubble back. Swipe left on the message history to go back to the chat list: the chat screen follows your finger, the list shows underneath, and letting go far enough leaves the chat, the same as the back button. A short swipe snaps back. Scrolling up and down stays a scroll. A read-only chat can swipe back, and it does not swipe to reply. Neither swipe runs on desktop.
+
 On a phone, long-press a bubble and choose **Select text**. The whole message starts selected, and the native handles shrink that span. **Reply**, **Copy**, and **Close** sit inside the bubble: Reply quotes just the selected text, Copy copies that span, and Close leaves the mode and dismisses the handles. While that bar is open, a long-press does not open the message menu. The desktop message menu has no Select text. Select with the mouse as usual; a small Reply chip quotes the selection.
 
 Note: other Delta Chat clients render only the core's markdown subset (bold, italic, strikethrough, code). Underline and lists are Velta-side rendering niceties — other clients show those markers literally.
@@ -710,20 +712,19 @@ chat header instead.
 <details>
 <summary>Reading chats: unread position, read marker, go-down</summary>
 
-Opening a chat no longer marks everything read. The chat opens at your
-manual **"Read up to here"** marker if you set one, otherwise at the first
-unread message (marked with an "Unread messages" line), otherwise at the
-newest message.
+Opening a chat no longer marks everything read. The chat opens at a stored
+**"Read up to here"** marker when unread messages remain below it, otherwise
+at the first unread message (marked with an "Unread messages" line),
+otherwise at the newest message.
 
 - **Seen = on screen.** Messages count as read — and read receipts go out —
   only once they actually scroll into view. Read partway and switch away,
   and the rest of the chat keeps its unread badge. Nothing is marked read
   while the app is in the background.
-- **"Read up to here"** — long-press/right-click any message and pick it:
-  everything up to that message is marked read and a dashed line anchors
-  the spot. While unread messages remain below, the chat reopens at the
-  line; remove it any time with the ✕ on it. The marker lives on this
-  device only.
+- **"Read up to here"** — a marker saved on this device still reopens the
+  chat at that dashed line, and the ✕ on the line still removes it. The
+  message menu does not set a new marker. The marker lives on this device
+  only.
 - **Go-down button** — shows when you are scrolled away from the newest
   message and carries the count of unread messages below. Tapping it
   catches up: everything is marked read and you land on the newest
@@ -780,6 +781,9 @@ Neighboring cells never share similar hues, all colors are soft (no pure
 black/white), and everything is drawn as pure SVG in `app/js/avatar.js` —
 painted as a CSS background image per tile (one cached image per fingerprint,
 no inline SVG subtrees), so it stays sharp at any size without costing DOM.
+On desktop, resting the pointer on a custom photo in the chat header or the
+profile sheet fills that tile, the same way a photo on a message does.
+Initials and fingerprint tiles stay as they are.
 
 Tapping any avatar in a chat opens the **contact profile** modal: the large
 photo avatar beside the captioned identity tile (color names included), the
