@@ -46,6 +46,12 @@ import { lcRetryTransfer } from "./local-chat.js";
 import { linkPreview, linkPreviewCardHtml, firstLink as firstLinkOf } from "./link-preview.js";
 import { getReadMarker, setReadMarker, clearReadMarker } from "./read-markers.js";
 
+function reactionChipsHtml(reactions) {
+  return (reactions || []).map(r =>
+    `<span class="reaction-chip${r.mine ? " mine" : ""}" data-react="${escapeAttr(r.emoji)}">${escapeHtml(r.emoji)} ${Number(r.count) || 0}</span>`
+  ).join("");
+}
+
 function rustLog(msg) {
   try {
     const tauri = window.__TAURI__;
@@ -950,6 +956,41 @@ export class ChatView {
     ]);
   }
 
+  // Reactions sit at index 6 of _rowSignature. A reaction must not rebuild
+  // the row: that reloads images and restarts video (#33).
+  _onlyReactionsChanged(prev, next) {
+    let reactionsDiffer = false;
+    const a = JSON.parse(this._rowSignature(prev));
+    const b = JSON.parse(this._rowSignature(next));
+    for (let i = 0; i < a.length; i++) {
+      const same = JSON.stringify(a[i]) === JSON.stringify(b[i]);
+      if (i === 6) reactionsDiffer = !same;
+      else if (!same) return false;
+    }
+    return reactionsDiffer;
+  }
+
+  // Swap the chip row in place. Returns false when the row has no bubble,
+  // so the caller falls back to a full rebuild.
+  _patchReactions(row, reactions) {
+    const bubble = row.querySelector?.(".bubble");
+    if (!bubble) return false;
+    let box = bubble.querySelector(".msg-reactions");
+    if (!reactions?.length) {
+      box?.remove();
+      return true;
+    }
+    if (!box) {
+      box = document.createElement("div");
+      box.className = "msg-reactions";
+      const track = bubble.querySelector(".msg-hover-reply-track");
+      if (track) bubble.insertBefore(box, track);
+      else bubble.appendChild(box);
+    }
+    box.innerHTML = reactionChipsHtml(reactions);
+    return true;
+  }
+
   // Report which render-relevant fields flip-flopped between polls — this is
   // how we catch data that alternates between fetches and loops re-renders.
   _logSignatureDiff(key, a, b) {
@@ -977,6 +1018,20 @@ export class ChatView {
     if (item.msg && prevSig === sig) {
       item.msg = msg; // data-only change — keep the rendered row untouched
       return;
+    }
+    // Reaction-only: patch the chips. A full replace reloads images and
+    // restarts video (#33). No bubble (or nothing rendered yet) falls through.
+    if (item.msg && prevSig !== undefined && this._onlyReactionsChanged(item.msg, msg)) {
+      const live = this.listEl.querySelector(`[data-msgid="${msg.id}"]`);
+      const cached = this._rowCache.get(item.key);
+      const targets = [...new Set([live, cached].filter(Boolean))];
+      if (targets.length && targets.every(el => this._patchReactions(el, msg.reactions))) {
+        item.msg = msg;
+        if (live) this._rowCache.set(item.key, live);
+        this._rowSigCache.set(item.key, sig);
+        if (live) this.vs?.onItemHeightDidChange?.(item);
+        return;
+      }
     }
     if (item.msg && prevSig !== undefined) {
       this._logSignatureDiff(item.key, prevSig, sig);
@@ -1422,8 +1477,7 @@ export class ChatView {
     }
     bubble += `<span class="msg-meta">${edited}${star}${botChip}${formatTime(m.ts)}${ticks}</span>${failBadge}</div>`;
     if (m.reactions?.length) {
-      bubble += `<div class="msg-reactions">${m.reactions.map(r =>
-        `<span class="reaction-chip${r.mine ? " mine" : ""}" data-react="${escapeAttr(r.emoji)}">${escapeHtml(r.emoji)} ${Number(r.count) || 0}</span>`).join("")}</div>`;
+      bubble += `<div class="msg-reactions">${reactionChipsHtml(m.reactions)}</div>`;
     }
     inner += `<div class="bubble${m.viewtype === "sticker" ? " sticker" : ""}">${bubble}</div>`;
     row.innerHTML = inner;
