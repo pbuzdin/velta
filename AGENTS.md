@@ -829,9 +829,15 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   model as `expand_invite_link`: https-only, 5 s timeout, 256 KB page /
   512 KB image cap) and inlines og:image as a `data:` URL (CSP img-src has
   `data:` everywhere; remote hosts stay out). In-memory cache per URL;
-  failed fetches cached as null. Setting: drawer → “Link previews”
-  (localStorage `velta-link-preview`, “0” = off, default on; the toggle is
-  self-contained in ui.js — no app.js wiring). KEEP: the card slot is
+  failed fetches cached as null. Never fetched: a registered invite URL
+  (already an invite card) and any `deltachat.id` URL (short username
+  links are invite cards; the rest of that host is the same service).
+  Setting: drawer → “Link previews”
+  (localStorage `velta-link-preview`, “1” = on, default off; the old “0”
+  stays off. Turning previews on, globally or for one chat, confirms
+  `LINK_PREVIEW_IP_WARNING` first — the fetch reveals this device’s IP,
+  and someone in a private or group chat may own the site or be able to
+  edit the page (issue #30). KEEP: the card slot is
   rendered empty (`data-lp`) and hydrates async — the hydration MUST call
   `notifyHeight()` after unhiding or the virtual scroller’s layout math
   goes stale (same contract as image decode). Cards never render in demo
@@ -844,7 +850,6 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   never sees it. Desktop opens links via `openExternal()` =
   `plugin:opener|open_url` (system browser); Android keeps the in-app
   browser chain (see §5.5).
-  Per-chat override: chat context menu → “Link previews: on/off” (localStorage `velta-link-preview-chats`).
 - **Native video frames replace posters (post-1.4.31)** — `poster.js` and
   the click-to-load `#active` state are GONE. `velta-video` renders a real
   `<video preload="metadata" src="...#t=0.1">` (no `controls` — Android WebView

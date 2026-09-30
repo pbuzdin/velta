@@ -14,7 +14,7 @@ import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModa
 import { withLocalChat, hubModel, renameDevice, removePeer, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
 import { timeAgo, formatBytes } from "./mock-core.js";
 import { acquireCode } from "./qr-scan.js";
-import { linkPreviewEnabled, setLinkPreviewEnabled } from "./link-preview.js";
+import { linkPreviewEnabled, setLinkPreviewEnabled, LINK_PREVIEW_IP_WARNING } from "./link-preview.js";
 
 const diagnostics = new DiagnosticsStore();
 window.__veltaDiagnostics = diagnostics;
@@ -1314,8 +1314,11 @@ function chatContextMenu(chat, x, y) {
   showContextMenu([
     { label: chat.pinned ? "Unpin" : "Pin to top", icon: icons.pin, onClick: () => core.setChatFlags(chat.id, { pinned: !chat.pinned }) },
     { label: chat.muted ? "Unmute" : "Mute notifications", icon: icons.mute, onClick: () => core.setChatFlags(chat.id, { muted: !chat.muted }) },
-    { label: `Link previews: ${linkPreviewEnabled(chat.id) ? "on" : "off"}`, icon: icons.link, onClick: () => {
-      setLinkPreviewEnabled(!linkPreviewEnabled(chat.id), chat.id);
+    { label: `Link previews: ${linkPreviewEnabled(chat.id) ? "on" : "off"}`, icon: icons.link, onClick: async () => {
+      const next = !linkPreviewEnabled(chat.id);
+      if (next && !(await confirmModal("Link previews", LINK_PREVIEW_IP_WARNING, "Turn on", true))) return;
+      if (!accountIsCurrent(epoch)) return;
+      setLinkPreviewEnabled(next, chat.id);
       toast(`Link previews ${linkPreviewEnabled(chat.id) ? "on" : "off"} for this chat`);
       // re-render open chat rows so the toggle takes effect immediately
       if (state.activeChatId === chat.id && chatView?.open) {

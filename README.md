@@ -182,19 +182,23 @@ Local (nearby) chats are searched within their loaded history only.
 The first link in a text message renders as a preview card: image, title,
 description and domain, fetched from the page's Open Graph tags when the
 message is on screen. Tapping the card opens the link - in your system
-browser on desktop, in the in-app browser on Android.
+browser on desktop, in the in-app browser on Android. Invite links are
+not previewed: they already render as invite cards. That includes every
+`deltachat.id` link.
 
 Previews can be turned off in two places:
 
-- **Drawer - Link previews**: the global switch (default on).
+- **Drawer - Link previews**: the global switch (default off).
 - **Chat context menu (long-press/right-click a chat) - Link previews:
   on/off**: per-chat override that wins over the global switch.
 
-Privacy: the preview is fetched by the app itself (not through relays or
-any third-party service), https only, capped at 256 KB of page and 512 KB
-of image per card, cached in memory for the session. Note the flip side of
-any link preview: fetching it tells the linked site your IP address. If
-that matters for a chat, turn previews off for it.
+Turning previews on asks you to confirm first. The preview is fetched by
+the app itself (not through relays or any third-party service), https
+only, capped at 256 KB of page and 512 KB of image per card, cached in
+memory for the session. Fetching it tells the linked site your IP address.
+Someone in a private or group chat may own that site, or be able to edit
+the page, and can send you the link so the preview reveals your address
+to them.
 
 
 <details>
