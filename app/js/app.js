@@ -1327,14 +1327,24 @@ function chatContextMenu(chat, x, y) {
     "-",
     { label: chat.archived ? "Unarchive" : "Archive", icon: icons.archive, onClick: () => core.setChatFlags(chat.id, { archived: !chat.archived }) },
     { label: "Delete chat", icon: icons.trash, danger: true, onClick: async () => {
-      if (await confirmModal("Delete chat", `Delete "${chat.name}" and all its messages?`)) {
-        if (!accountIsCurrent(epoch)) return;
-        const { messages } = await core.getMessages(chat.id, { limit: 100000 });
-        if (!accountIsCurrent(epoch)) return;
-        await core.deleteMessages(chat.id, messages.map(m => m.id));
+      // deleteMessages only clears history and leaves the chat in the list (#34).
+      const p2p = chat.isP2p || String(chat.id).startsWith("p2p:");
+      const ok = await confirmModal(
+        "Delete chat",
+        p2p
+          ? `Forget "${chat.name}"? Its chat history and received files will be deleted.`
+          : `Delete "${chat.name}" and all its messages?`,
+      );
+      if (!ok || !accountIsCurrent(epoch)) return;
+      try {
+        if (p2p) await removePeer(String(chat.id).slice("p2p:".length));
+        else await core.deleteChat(chat.id);
         if (!accountIsCurrent(epoch)) return;
         if (state.activeChatId === chat.id) closeChat();
+        if (p2p) renderLocalChatCard();
         refreshChatList();
+      } catch (err) {
+        errToast("Couldn't delete chat: " + (err.message || err));
       }
     } },
   ].filter(Boolean), x, y);

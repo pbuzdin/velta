@@ -1300,6 +1300,17 @@ export class JsonRpcCore extends EventTarget {
     this._emitAccount("chat-updated", { chatId }, accountEpoch);
   }
 
+  // Remove the chat itself. deleteMessages only drops rows and leaves the
+  // chat in the list (issue #34). The core emits ChatDeleted plus
+  // ChatlistChanged; this drops the cached id list for the chat we removed.
+  async deleteChat(chatId) {
+    const { accountId, accountEpoch } = this;
+    await this._call("delete_chat", accountId, chatId);
+    if (!this._isCurrentAccount(accountEpoch)) return;
+    this.msgIdCache.delete(chatId);
+    this._emitAccount("chat-updated", { chatId }, accountEpoch);
+  }
+
   async starMessages(chatId, ids) {
     const { accountId, accountEpoch } = this;
     await this._call("save_msgs", accountId, ids);
