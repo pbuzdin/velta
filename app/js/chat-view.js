@@ -44,7 +44,7 @@ import { openInAppBrowser } from "./inapp-browser.js";
 import { renderMarkdown, extractBotCommands } from "./markdown.js";
 import { lcRetryTransfer } from "./local-chat.js";
 import { linkPreview, linkPreviewCardHtml, firstLink as firstLinkOf } from "./link-preview.js";
-import { getReadMarker, setReadMarker, clearReadMarker } from "./read-markers.js";
+import { getReadMarker, clearReadMarker } from "./read-markers.js";
 
 function reactionChipsHtml(reactions) {
   return (reactions || []).map(r =>
@@ -119,7 +119,6 @@ const ICO = {
   edit: `<svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   resend: `<svg viewBox="0 0 24 24"><polyline points="2.5 5.5 2.5 11 8 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.2 14.5a8 8 0 1 0 1.5-8L2.5 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
   pin: `<svg viewBox="0 0 24 24"><path d="M9 4h6l1 7 3 3v2h-6v5l-1 1-1-1v-5H5v-2l3-3z" fill="currentColor"/></svg>`,
-  readMarker: `<svg viewBox="0 0 24 24"><path d="M4 16h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M6 11.5l3 3 6-6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
 };
 
 // Short human reason from the core's raw error text, e.g.
@@ -2127,12 +2126,6 @@ export class ChatView {
       { label: "React", icon: QUICK_REACTIONS[0], onClick: () => this._reactionMenu(item, x, y) },
       { label: "Select", icon: ICO.select, onClick: () => this._enterSelection(m.id) },
     );
-    // Local chats keep their own store — no read tracking there.
-    if (this._tracked) {
-      items.push(this.readMarkerId === m.id
-        ? { label: "Remove read marker", icon: ICO.readMarker, onClick: () => this._clearReadMarker() }
-        : { label: "Read up to here", icon: ICO.readMarker, onClick: () => this._setReadMarker(item) });
-    }
     items.push(
       { label: "Info", icon: ICO.info, onClick: () => this._showInfo(item) },
       "-",
@@ -3122,20 +3115,6 @@ export class ChatView {
     const session = this._session;
     if (!ids.length || !this._isCurrent(session)) return;
     this.core.markSeen(session.chatId, ids).catch?.(() => {});
-  }
-
-  _setReadMarker(item) {
-    const session = this._session;
-    if (!this._isCurrent(session) || this.msgIndex.get(item.msg.id) !== item) return;
-    const prev = this.readMarkerId;
-    setReadMarker(session.accountId, session.chatId, item.msg.id);
-    this.readMarkerId = item.msg.id;
-    if (prev != null) this._refreshRowFlags(prev);
-    this._refreshRowFlags(item.msg.id);
-    // Everything up to the marker counts as read.
-    this._markSeenThrough(this.items.indexOf(item));
-    this._flushSeen();
-    toast("Read marker set");
   }
 
   _clearReadMarker() {
