@@ -67,6 +67,13 @@ class Element {
   removeAttribute(name) { this.attributes.delete(name); }
   getAttribute(name) { return this.attributes.get(name) ?? null; }
   after(child) { const p = this.parent; if (!p) return child; p.children.splice(p.children.indexOf(this) + 1, 0, child); child.parent = p; return child; }
+  insertBefore(child, before) {
+    child.remove();
+    const i = before ? this.children.indexOf(before) : -1;
+    this.children.splice(i < 0 ? this.children.length : i, 0, child);
+    child.parent = this;
+    return child;
+  }
   scrollTo({ top }) { this.scrollTop = top; }
 }
 
@@ -192,6 +199,58 @@ test("a mounted row is rebuilt and height-notified exactly once per change", asy
 
   view.onMsgUpdated(7, message(10, 7, { text: "changed" }));
   assert.equal(view.vs.heightCalls.length, 1, "the identical duplicate must not rebuild");
+});
+
+function reactionRow() {
+  const row = document.createElement("div");
+  row.dataset.msgid = "10";
+  row.className = "msg-row";
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  const chips = document.createElement("div");
+  chips.className = "msg-reactions";
+  chips.innerHTML = "old";
+  const track = document.createElement("div");
+  track.className = "msg-hover-reply-track";
+  bubble.append(chips, track);
+  row.append(bubble);
+  return row;
+}
+
+test("a reaction updates the chips and keeps the same row", async t => {
+  const { view, node } = setup(t);
+  await view.open(7);
+  const row = reactionRow();
+  node("history").appendChild(row);
+  view._rowCache.set("m10", row);
+  view._rowSigCache.set("m10", view._rowSignature(message(10, 7)));
+  const bubble = row.querySelector(".bubble");
+
+  view.onMsgUpdated(7, message(10, 7, { reactions: [{ emoji: "👍", count: 2, mine: true }] }));
+  assert.equal(node("history").children[0], row, "the bubble element is kept");
+  assert.equal(bubble.querySelector(".msg-reactions").innerHTML.includes("👍"), true);
+  assert.equal(bubble.children.at(-1).className, "msg-hover-reply-track", "the reply track stays last");
+  assert.deepEqual(view.vs.heightCalls, ["m10"]);
+
+  view.onMsgUpdated(7, message(10, 7, { reactions: [{ emoji: "👍", count: 2, mine: true }] }));
+  assert.equal(view.vs.heightCalls.length, 1, "the same reaction does not patch again");
+
+  view.onMsgUpdated(7, message(10, 7, { reactions: [] }));
+  assert.equal(bubble.querySelector(".msg-reactions"), null);
+  assert.equal(view.vs.heightCalls.length, 2);
+});
+
+test("a reaction on an unmounted cached row patches the cache and does not notify height", async t => {
+  const { view } = setup(t);
+  await view.open(7);
+  const row = reactionRow();
+  view._rowCache.set("m10", row);
+  view._rowSigCache.set("m10", view._rowSignature(message(10, 7)));
+
+  view.onMsgUpdated(7, message(10, 7, { reactions: [{ emoji: "🎉", count: 1, mine: false }] }));
+  assert.equal(view._rowCache.get("m10"), row);
+  assert.equal(row.querySelector(".msg-reactions").innerHTML.includes("🎉"), true);
+  assert.equal(view.vs.heightCalls.length, 0);
 });
 
 test("msgs-changed bursts collapse into one refetch per gap with fresh carried through", async t => {
