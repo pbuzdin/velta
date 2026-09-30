@@ -1063,6 +1063,9 @@ fn chat_link_token_for(app: &tauri::AppHandle) -> Result<String, String> {
     Ok(token)
 }
 
+// Only the Windows toast builds this link. macOS release builds deny dead
+// code (`RUSTFLAGS: "-D warnings"`), so the helper has to stay on that cfg.
+#[cfg(target_os = "windows")]
 fn chat_link_with_token(account: u32, chat_id: u32, token: &str) -> String {
     format!("velta://chat?account={account}&chat={chat_id}&t={token}")
 }
