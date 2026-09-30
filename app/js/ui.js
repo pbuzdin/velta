@@ -1,6 +1,7 @@
 // ui.js — popup/menu/modal/drawer/toast helpers (plain DOM, no framework)
 import { escapeHtml, escapeAttr } from "./components.js";
 import { fileUrl } from "./media.js";
+import { linkPreviewEnabled, setLinkPreviewEnabled, LINK_PREVIEW_IP_WARNING } from "./link-preview.js";
 
 const popups = () => document.getElementById("popups");
 
@@ -513,7 +514,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
       <button class="ctx-item" data-act="profile-management"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 5v4M21 7h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Profile management…</span></button>
       <button class="ctx-item" data-act="relays"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Relays of this profile…</span></button>
       <button class="ctx-item" data-act="invite-domains"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Invite link domains</span></button>
-      <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Link previews: ${localStorage.getItem("velta-link-preview") === "0" ? "off" : "on"}</span><input type="checkbox" data-toggle="link-preview"${localStorage.getItem("velta-link-preview") === "0" ? "" : " checked"}></label>
+      <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Link previews: ${linkPreviewEnabled() ? "on" : "off"}</span><input type="checkbox" data-toggle="link-preview"${linkPreviewEnabled() ? " checked" : ""}></label>
       <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M20 5v6a2 2 0 01-2 2H5m0 0l4-4m-4 4l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Send on Enter: ${localStorage.getItem("velta-send-enter") === "0" ? "off" : "on"}</span><input type="checkbox" data-toggle="send-enter"${localStorage.getItem("velta-send-enter") === "0" ? "" : " checked"}></label>
       <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 20h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Remember scroll position in chats: ${localStorage.getItem("velta-remember-scroll") === "1" ? "on" : "off"}</span><input type="checkbox" data-toggle="remember-scroll"${localStorage.getItem("velta-remember-scroll") === "1" ? " checked" : ""}></label>
       <label class="ctx-item"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 9h6v6H9z" fill="currentColor"/></svg><span>Demo mode: ${localStorage.getItem("velta-mock") === "1" ? "on" : "off"}</span><input type="checkbox" data-toggle="demo"${localStorage.getItem("velta-mock") === "1" ? " checked" : ""}></label>
@@ -629,10 +630,12 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     setToggleUi("p2p", "Local chat", e.target.checked);
     onP2pToggle?.(); // flips the real state and rebuilds the drawer
   });
-  drawer.querySelector('[data-toggle="link-preview"]')?.addEventListener("change", e => {
+  drawer.querySelector('[data-toggle="link-preview"]')?.addEventListener("change", async e => {
     const on = e.target.checked;
-    if (on) localStorage.removeItem("velta-link-preview");
-    else localStorage.setItem("velta-link-preview", "0");
+    // confirmModal closes the drawer. Storage is written only after Turn on,
+    // so a cancel leaves the next open of the drawer off (#30).
+    if (on && !(await confirmModal("Link previews", LINK_PREVIEW_IP_WARNING, "Turn on", true))) return;
+    setLinkPreviewEnabled(on);
     setToggleUi("link-preview", "Link previews", on);
     toast(`Link previews ${on ? "on" : "off"}`);
   });
