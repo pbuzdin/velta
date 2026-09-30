@@ -34,6 +34,28 @@ strip BOMs of every touched file before committing.
 `tauri.conf.json` costs a full 10-minute CI run before failing — check for it
 whenever a scripted edit touches that file.
 
+## Incident 2 (v1.4.44): macOS release died on a Windows-only helper
+
+**Symptom.** Tag `v1.4.44` built Windows and Android, then
+`macos / build-macos` failed in "Build Tauri macOS app + DMG". The release
+and notify jobs were skipped, so nothing was published.
+
+```
+error: function `chat_link_with_token` is never used
+   --> src/lib.rs
+    = note: `-D dead-code` implied by `-D warnings`
+```
+
+**Root cause.** The function only builds the `velta://chat?…&t=` link, and
+its only caller is the `#[cfg(target_os = "windows")]` toast handler.
+`build-macos.yml` and `build-windows.yml` both export
+`RUSTFLAGS=-D warnings`. On macOS the helper is dead code. Android does
+not set that flag, so its job passed.
+
+**Fix.** Compile the helper on Windows only, the same `cfg` as its caller.
+Any new function used from a single platform's code needs that `cfg` too,
+or the next macOS (or Windows) release fails the same way.
+
 ## Windows sidecar rebuild (local, verified on 2026-09-22 for core 2.61.0)
 
 1. Toolchain, vendored locally (gitignored, ~150 MB total):
