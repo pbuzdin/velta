@@ -518,7 +518,7 @@ Everything is HTML-escaped before any tag is produced and only `http(s)` targets
 
 Hovering a message on desktop shows a small **Reply** pill along the bubble's right edge. On a tall bubble it stays visible while that bubble is on screen, then leaves with it. One click sets the reply (same pipeline as the context menu's Reply) and focuses the composer. The pill is hidden on touch devices, in read-only chats, and during message selection.
 
-On a phone, long-press a bubble and choose **Select text**. The whole message starts selected, and the native handles shrink that span. **Reply**, **Copy**, and **Close** sit inside the bubble: Reply quotes just the selected text, Copy copies that span, and Close leaves the mode. While that bar is open, a long-press does not open the message menu. On desktop, select text with the mouse as usual; a small Reply chip quotes the selection.
+On a phone, long-press a bubble and choose **Select text**. The whole message starts selected, and the native handles shrink that span. **Reply**, **Copy**, and **Close** sit inside the bubble: Reply quotes just the selected text, Copy copies that span, and Close leaves the mode and dismisses the handles. While that bar is open, a long-press does not open the message menu. The desktop message menu has no Select text. Select with the mouse as usual; a small Reply chip quotes the selection.
 
 Note: other Delta Chat clients render only the core's markdown subset (bold, italic, strikethrough, code). Underline and lists are Velta-side rendering niceties — other clients show those markers literally.
 

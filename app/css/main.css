@@ -431,6 +431,7 @@ html[data-theme="light"] .read-marker { color: #155a9e; border-color: #155a9e; }
 .msg-select-bar {
   display: flex; flex-wrap: wrap; gap: 6px;
   margin: 0 0 6px;
+  -webkit-user-select: none; user-select: none;
 }
 .msg-select-btn {
   border: none; border-radius: 14px;

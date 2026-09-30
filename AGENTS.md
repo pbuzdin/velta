@@ -612,7 +612,9 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   which previously left the timer alive (menu opened mid-swipe).
 - **Select text (#36)** — bubble text stays unselectable on touch (long-press
   belongs to the context menu; a native word selection used to steal half
-  the gesture). The message menu's **Select text** calls
+  the gesture). **Select text** is on the touch message menu only
+  (`_offerSelectText` hides it when `(hover: hover) and (pointer: fine)`
+  matches). It calls
   `_enterBubbleTextSelection`: `.text-selecting` on that bubble's `.msg-text`,
   select-all so the native handles can shrink the span, and a
   `.msg-select-bar` (Reply, Copy, Close) inserted at the top of `.bubble`.
@@ -620,10 +622,15 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   fragment, no core change; omitted when `readOnly`). Copy writes that span,
   not the whole message. Close, or a pointerdown outside the text and the
   bar, leaves the mode and notifies the virtual scroller — the bar changes
-  row height. While the mode is open, long-press and `contextmenu` do not
-  open the bubble menu (`_msgContextMenu` returns; the long-press timer is
-  not armed). The floating `#sel-quote-chip` stays hidden so there is one
-  Reply. Desktop mouse selection is unchanged and still uses the chip.
+  row height. `_leaveTextSelection` calls `removeAllRanges` WHILE
+  `.text-selecting` is still on, then sets `user-select: none` and clears
+  again. Removing the class first leaves Android's selection handles on
+  screen. Close does not `preventDefault` its pointerdown; Reply and Copy
+  do, and they snapshot the span first. While the mode is open, long-press
+  and `contextmenu` do not open the bubble menu (`_msgContextMenu` returns;
+  the long-press timer is not armed). The floating `#sel-quote-chip` stays
+  hidden so there is one Reply. Desktop mouse selection is unchanged and
+  still uses the chip. The desktop menu does not offer Select text.
   Multi-touch still cancels the long-press timer (the guard above); it does
   not enter selection.
 - **Send/receive ticks** (1.4.20, semantics updated post-1.4.36): the tick

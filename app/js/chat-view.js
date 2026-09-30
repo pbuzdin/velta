@@ -1875,31 +1875,76 @@ export class ChatView {
     return raw.replace(/\s+/g, " ").trim();
   }
 
+  _dropSelection() {
+    let sel;
+    try { sel = window.getSelection?.(); } catch { return; }
+    if (!sel) return;
+    try { sel.removeAllRanges(); } catch {}
+    try { sel.empty?.(); } catch {}
+  }
+
+  // Android WebView draws selection handles outside the page. removeAllRanges
+  // only dismisses them while the node is still user-select:text. Flipping
+  // to none first leaves the handles on screen after the bar is gone.
+  _clearNativeSelection(target) {
+    let sel;
+    try { sel = window.getSelection?.(); } catch { return; }
+    if (!sel) return;
+    this._dropSelection();
+    try {
+      if (target && typeof document.createRange === "function") {
+        const range = document.createRange();
+        const anchor = target.firstChild || target;
+        range.setStart(anchor, 0);
+        range.collapse(true);
+        sel.addRange(range);
+        this._dropSelection();
+      }
+    } catch { /* headless */ }
+  }
+
   _leaveTextSelection() {
     const state = this._textSelect;
     if (!state) return;
     this._textSelect = null;
+    this._selectSnap = null;
     document.removeEventListener("pointerdown", state.exit, true);
-    state.target?.classList.remove("text-selecting");
+    const target = state.target;
+    this._clearNativeSelection(target);
+    // none, then one more clear, then drop the inline override so the
+    // touch CSS (user-select:none without .text-selecting) owns it.
+    try {
+      if (target?.style) {
+        target.style.webkitUserSelect = "none";
+        target.style.userSelect = "none";
+      }
+    } catch {}
+    this._dropSelection();
+    target?.classList.remove("text-selecting");
     state.bar?.remove();
     try {
-      const sel = window.getSelection?.();
-      if (sel && this._selectionInside(state.target, sel)) sel.removeAllRanges();
-    } catch { /* headless */ }
+      if (target?.style) {
+        target.style.webkitUserSelect = "";
+        target.style.userSelect = "";
+      }
+    } catch {}
+    this._dropSelection();
+    try { requestAnimationFrame(() => this._dropSelection()); } catch {}
+    try { if (document.activeElement === target) target.blur?.(); } catch {}
     const item = this.msgIndex.get(Number(state.row?.dataset?.msgid));
     if (item) this.vs?.onItemHeightDidChange?.(item);
   }
 
   _replyToSelection() {
     const msgId = Number(this._textSelect?.row?.dataset?.msgid);
-    const fragment = this._selectionText().slice(0, 800);
+    const fragment = (this._selectSnap || this._selectionText()).slice(0, 800);
     if (!fragment) return;
     this._leaveTextSelection();
     this._setReplyFragment(msgId, fragment);
   }
 
   _copySelection() {
-    const text = this._selectionText();
+    const text = this._selectSnap || this._selectionText();
     if (!text) return;
     this._leaveTextSelection();
     navigator.clipboard?.writeText(text);
@@ -1909,6 +1954,17 @@ export class ChatView {
   _selectMessageText(msgId) {
     const row = this.listEl?.querySelector?.(`[data-msgid="${msgId}"]`);
     if (row) this._enterBubbleTextSelection(row);
+  }
+
+  // Desktop already selects with the mouse and the floating Reply chip.
+  // Same gate as the touch user-select:none rule. A missing matchMedia
+  // (the node tests) still offers the item.
+  _offerSelectText() {
+    try {
+      return !matchMedia("(hover: hover) and (pointer: fine)").matches;
+    } catch {
+      return true;
+    }
   }
 
   // Select text (context menu, #36): native selection for this one bubble,
@@ -1924,19 +1980,26 @@ export class ChatView {
     target.classList.add("text-selecting");
     const bar = document.createElement("div");
     bar.className = "msg-select-bar";
-    const addBtn = (label, onClick) => {
+    const addBtn = (label, onClick, keepSelection) => {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "msg-select-btn";
       b.textContent = label;
-      // preventDefault keeps the native selection alive through the click.
-      b.addEventListener("pointerdown", e => { e.preventDefault(); e.stopPropagation(); });
+      b.addEventListener("pointerdown", e => {
+        e.stopPropagation();
+        // Reply and Copy read the span on click, so the tap must not
+        // collapse it. Close must NOT preventDefault: that is what keeps
+        // Android's selection handles up after the bar is gone.
+        if (!keepSelection) return;
+        this._selectSnap = this._selectionText();
+        e.preventDefault();
+      });
       b.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); onClick(); });
       bar.appendChild(b);
     };
-    if (!this.readOnly) addBtn("Reply", () => this._replyToSelection());
-    addBtn("Copy", () => this._copySelection());
-    addBtn("Close", () => this._leaveTextSelection());
+    if (!this.readOnly) addBtn("Reply", () => this._replyToSelection(), true);
+    addBtn("Copy", () => this._copySelection(), true);
+    addBtn("Close", () => this._leaveTextSelection(), false);
     bubble.insertBefore(bar, bubble.children?.[0] || null);
     const exit = (e) => {
       if (this._pointerInTextSelect(e.target)) return;
@@ -2037,8 +2100,9 @@ export class ChatView {
       });
     }
     // Captions count: any bubble with text can enter selection mode. Copy
-    // text stays whole-message and plain-text only.
-    if (m.text) items.push({ label: "Select text", icon: ICO.copy, onClick: () => this._selectMessageText(m.id) });
+    // text stays whole-message and plain-text only. Touch only — desktop
+    // uses the mouse and the floating Reply chip.
+    if (m.text && this._offerSelectText()) items.push({ label: "Select text", icon: ICO.copy, onClick: () => this._selectMessageText(m.id) });
     if (m.viewtype === "text" && m.text) items.push({ label: "Copy text", icon: ICO.copy, onClick: () => { navigator.clipboard?.writeText(m.text); toast("Copied"); } });
     items.push(
       { label: "Forward", icon: ICO.forward, onClick: () => this._forward([m.id]) },
