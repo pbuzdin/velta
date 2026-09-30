@@ -586,3 +586,52 @@ test("a second finger cancels long-press and does not select text", async t => {
   assert.equal(text.className.includes("text-selecting"), false);
   assert.equal(row.querySelector(".msg-select-bar"), null);
 });
+
+test("Close clears the selection while the text is still selectable", async t => {
+  const { view, node } = setup(t);
+  await view.open(7);
+  const row = selectableRow("hello there");
+  node("history").appendChild(row);
+  const text = row.querySelector(".msg-text");
+  let clearedWhileSelectable = false;
+  window.getSelection = () => ({
+    rangeCount: 1,
+    isCollapsed: false,
+    toString: () => "hello",
+    getRangeAt: () => ({ commonAncestorContainer: text }),
+    removeAllRanges() {
+      if (text.className.split(/\s+/).includes("text-selecting")) clearedWhileSelectable = true;
+    },
+  });
+  t.after(() => { delete window.getSelection; });
+
+  view._enterBubbleTextSelection(row);
+  const closeBtn = [...row.querySelector(".msg-select-bar").children].find(b => b.textContent === "Close");
+  let prevented = false;
+  await closeBtn.fire("pointerdown", { preventDefault() { prevented = true; }, stopPropagation() {} });
+  assert.equal(prevented, false, "Close lets the WebView dismiss its handles");
+  await closeBtn.fire("click", { preventDefault() {}, stopPropagation() {} });
+  assert.equal(clearedWhileSelectable, true, "the range is cleared before user-select flips to none");
+  assert.equal(text.className.includes("text-selecting"), false);
+  assert.equal(text.style.userSelect, "", "the inline user-select override does not stick");
+  assert.equal(view._textSelect, null);
+});
+
+test("Select text is hidden on a fine pointer and shown on a coarse one", async t => {
+  const { view, node } = setup(t);
+  await view.open(7);
+  const item = view.msgIndex.get(10);
+  t.after(() => { delete globalThis.matchMedia; });
+
+  globalThis.matchMedia = (q) => ({ matches: q === "(hover: hover) and (pointer: fine)" });
+  view._msgContextMenu(item, 4, 4);
+  let html = [...node("popups").querySelector(".ctx-menu").children].map(b => b.innerHTML);
+  assert.equal(html.some(h => h.includes(">Select text<")), false, "desktop menu has no Select text");
+  assert.ok(html.some(h => h.includes(">Copy text<")));
+
+  node("popups").replaceChildren();
+  globalThis.matchMedia = () => ({ matches: false });
+  view._msgContextMenu(item, 4, 4);
+  html = [...node("popups").querySelector(".ctx-menu").children].map(b => b.innerHTML);
+  assert.ok(html.some(h => h.includes(">Select text<")), "a coarse pointer still gets Select text");
+});
