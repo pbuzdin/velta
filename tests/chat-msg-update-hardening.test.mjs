@@ -652,3 +652,109 @@ test("the message menu has no Read up to here item", async t => {
   labels = [...node("popups").querySelector(".ctx-menu").children].map(b => b.innerHTML);
   assert.equal(labels.some(h => h.includes("Read up to here") || h.includes("Remove read marker")), false);
 });
+
+function mobileGestures(t, on) {
+  globalThis.matchMedia = (q) => {
+    if (q === "(max-width: 820px)") return { matches: on };
+    if (q === "(hover: hover) and (pointer: fine)") return { matches: !on };
+    return { matches: false };
+  };
+  t.after(() => { delete globalThis.matchMedia; });
+}
+
+function touchOn(target) {
+  return {
+    target,
+    closest(sel) {
+      if (sel === ".bubble") return target;
+      return null;
+    },
+  };
+}
+
+test("swipe right on a bubble replies, and only on mobile", async t => {
+  const { view } = setup(t);
+  await view.open(7);
+  mobileGestures(t, true);
+  const row = view._buildItem(view.msgIndex.get(10));
+  const bubble = document.createElement("div");
+  const target = touchOn(bubble);
+  const move = (x, y) => row.fire("touchmove", {
+    touches: [{ clientX: x, clientY: y }], target, cancelable: true, preventDefault() {},
+  });
+
+  await row.fire("touchstart", { touches: [{ clientX: 10, clientY: 40 }], target });
+  await move(200, 42);
+  assert.equal(bubble.style.transform, "translateX(64px)");
+  await row.fire("touchend", { touches: [] });
+  assert.equal(view.replyTo.id, 10);
+  assert.equal(bubble.style.transform, "");
+
+  view.replyTo = null;
+  await row.fire("touchstart", { touches: [{ clientX: 10, clientY: 40 }], target });
+  await move(30, 40);
+  await row.fire("touchend", { touches: [] });
+  assert.equal(view.replyTo, null, "a short drag does not reply");
+
+  await row.fire("touchstart", { touches: [{ clientX: 10, clientY: 40 }], target });
+  await move(14, 80);
+  assert.equal(bubble.style.transform, "");
+  await row.fire("touchend", { touches: [] });
+  assert.equal(view.replyTo, null, "a vertical drag stays a scroll");
+
+  view.readOnly = true;
+  await row.fire("touchstart", { touches: [{ clientX: 10, clientY: 40 }], target });
+  await move(80, 40);
+  assert.equal(bubble.style.transform, "", "a read-only chat does not slide");
+  view.readOnly = false;
+
+  mobileGestures(t, false);
+  await row.fire("touchstart", { touches: [{ clientX: 10, clientY: 40 }], target });
+  await move(80, 40);
+  assert.equal(bubble.style.transform, "", "a fine pointer does not swipe-reply");
+});
+
+test("swipe left on the history slides the chat column away and goes back", async t => {
+  let backs = 0;
+  const { view, node } = setup(t);
+  view.onBack = () => { backs++; };
+  await view.open(7);
+  mobileGestures(t, true);
+  const scroller = node("history-scroll");
+  const main = node("main");
+  const app = document.querySelector(".app");
+  const slide = async (x) => {
+    await scroller.fire("touchstart", { touches: [{ clientX: 200, clientY: 80 }] });
+    await scroller.fire("touchmove", {
+      touches: [{ clientX: x, clientY: 84 }], cancelable: true, preventDefault() {},
+    });
+  };
+
+  await slide(120);
+  assert.equal(main.style.transform, "translateX(-80px)");
+  assert.ok(app.className.includes("swipe-back"));
+  await scroller.fire("touchend", { touches: [] });
+  assert.equal(main.style.transform, "translateX(-100%)");
+  await main.fire("transitionend");
+  assert.equal(backs, 1);
+  assert.equal(main.style.transform, "");
+  assert.equal(app.className.includes("swipe-back"), false);
+
+  await view.open(7);
+  await slide(180);
+  await scroller.fire("touchend", { touches: [] });
+  await main.fire("transitionend");
+  assert.equal(backs, 1, "a short drag snaps back");
+
+  view._replySwipe = true;
+  await slide(100);
+  assert.equal(main.style.transform, "", "a reply swipe owns the finger");
+  view._replySwipe = false;
+
+  await slide(120);
+  await scroller.fire("touchend", { touches: [] });
+  assert.equal(main.style.transform, "translateX(-100%)");
+  view.close();
+  assert.equal(main.style.transform, "translateX(100%)", "close parks the column on the closed side");
+  assert.equal(app.className.includes("swipe-back"), false);
+});

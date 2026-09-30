@@ -327,11 +327,12 @@ function cssZoom() {
 }
 
 export class ChatView {
-  constructor(core, { onChatsChanged, onForward, onOpenChat }) {
+  constructor(core, { onChatsChanged, onForward, onOpenChat, onBack }) {
     this.core = core;
     this.onChatsChanged = onChatsChanged;
     this.onForward = onForward;
     this.onOpenChat = onOpenChat;
+    this.onBack = onBack;
     this.chat = null;
     this._readOnly = false; // read-only chat: reply affordances hide (see readOnly)
     this.items = [];        // flattened items for the virtual scroller
@@ -395,6 +396,7 @@ export class ChatView {
     this._bindComposer();
     this._bindSelectionQuote();
     this._bindScroll();
+    this._bindHistorySwipe();
     this._bindSelectionBar();
     this._bindCoreEvents();
   }
@@ -658,6 +660,7 @@ export class ChatView {
     this._openedWithUnread = false;
     this._hideGoDown();
     this._leaveTextSelection();
+    this._cancelHistorySwipe?.();
     this.vs?.stop();
     this.vs = null;
     this.items = [];
@@ -1727,19 +1730,71 @@ export class ChatView {
       this._msgContextMenu(it, e.clientX, e.clientY);
     });
     let pressTimer;
+    let swipe = null;
+    const endReplySwipe = (commit) => {
+      clearTimeout(pressTimer);
+      const s = swipe;
+      swipe = null;
+      this._replySwipe = false;
+      if (!s?.on) return;
+      s.bubble.style.transition = "transform .16s ease-out";
+      s.bubble.style.transform = "";
+      const tidy = () => { s.bubble.style.transition = ""; };
+      s.bubble.addEventListener?.("transitionend", tidy, { once: true });
+      if (commit && s.dx >= 48) {
+        const it = liveItem();
+        if (it) this._setReply(it);
+      }
+    };
     row.addEventListener("touchstart", e => {
       // A second finger (pinch / two-finger swipe) never means long-press,
       // and the WebView can abort the whole gesture with touchcancel once
       // it claims it — without this listener the timer would survive.
       if (e.touches.length > 1 || this._textSelect) {
         clearTimeout(pressTimer);
+        if (swipe?.on) {
+          swipe.bubble.style.transform = "";
+          swipe.bubble.style.transition = "";
+        }
+        swipe = null;
+        this._replySwipe = false;
         return;
       }
       pressTimer = setTimeout(() => { const it = liveItem(); if (it) this._msgContextMenu(it, innerWidth / 2, innerHeight / 2); }, 500);
+      swipe = null;
+      if (!this._mobileGestures() || this.readOnly || this.selection.size || this._backSwipe) return;
+      const bubble = e.target.closest?.(".bubble");
+      if (!bubble || e.target.closest?.("button, a, input, textarea, audio, video")) return;
+      const t = e.touches[0];
+      swipe = { x: t.clientX, y: t.clientY, bubble, dx: 0, on: false };
     }, { passive: true });
-    row.addEventListener("touchend", () => clearTimeout(pressTimer));
-    row.addEventListener("touchmove", () => clearTimeout(pressTimer));
-    row.addEventListener("touchcancel", () => clearTimeout(pressTimer));
+    row.addEventListener("touchmove", e => {
+      clearTimeout(pressTimer);
+      if (!swipe || this._backSwipe || e.touches.length !== 1) {
+        if (swipe?.on) {
+          swipe.bubble.style.transform = "";
+          swipe.bubble.style.transition = "";
+        }
+        swipe = null;
+        this._replySwipe = false;
+        return;
+      }
+      const t = e.touches[0];
+      const dx = t.clientX - swipe.x;
+      const dy = t.clientY - swipe.y;
+      if (!swipe.on) {
+        if (Math.abs(dy) > 12 && Math.abs(dy) >= Math.abs(dx)) { swipe = null; return; }
+        if (dx < 12 || Math.abs(dx) < Math.abs(dy)) return;
+        swipe.on = true;
+        this._replySwipe = true;
+        swipe.bubble.style.transition = "none";
+      }
+      swipe.dx = Math.max(0, Math.min(dx, 64));
+      swipe.bubble.style.transform = swipe.dx ? `translateX(${swipe.dx}px)` : "";
+      if (e.cancelable) e.preventDefault();
+    }, { passive: false });
+    row.addEventListener("touchend", () => endReplySwipe(true));
+    row.addEventListener("touchcancel", () => endReplySwipe(false));
     row.addEventListener("click", async e => {
       if (!alive()) return;
       if (this.selection.size) { this._toggleSelect(m.id, row); return; }
@@ -1953,6 +2008,18 @@ export class ChatView {
   _selectMessageText(msgId) {
     const row = this.listEl?.querySelector?.(`[data-msgid="${msgId}"]`);
     if (row) this._enterBubbleTextSelection(row);
+  }
+
+  // Issue #35. Mobile is the overlay column (max-width 820px) without a
+  // fine pointer. A missing matchMedia (some node tests) does not invent
+  // a phone — those tests opt in by stubbing matchMedia.
+  _mobileGestures() {
+    try {
+      return matchMedia("(max-width: 820px)").matches
+        && !matchMedia("(hover: hover) and (pointer: fine)").matches;
+    } catch {
+      return false;
+    }
   }
 
   // Desktop already selects with the mouse and the floating Reply chip.
@@ -2888,6 +2955,117 @@ export class ChatView {
     window.addEventListener("resize", () => {
       if (this._isCurrent() && this.chat && this._nearBottom()) this._scrollBottomSettling();
     });
+  }
+
+  // Swipe left on the history (#35) follows the finger with the whole chat
+  // column, then leaves for the chat list. The list sits under .main and
+  // is visibility:hidden while a chat is open, so .swipe-back shows it
+  // for the drag. Reply-right on a bubble sets _replySwipe first and wins.
+  _bindHistorySwipe() {
+    const scroller = this.scrollEl;
+    if (!scroller) return;
+    let g = null;
+    const mainOf = () => document.getElementById("main");
+    const appOf = () => document.querySelector(".app");
+    this._cancelHistorySwipe = () => {
+      if (g) g.settled = true;
+      if (this._historyDrag) this._historyDrag.settled = true;
+      g = null;
+      this._historyDrag = null;
+      // A column already at -100% must not snap to 0 in the same turn
+      // .chat-open is removed: the stylesheet's .22s slide would carry it
+      // across the list. Park it on the closed side and drop the inline
+      // override after that frame.
+      const main = mainOf();
+      const at = main?.style.transform || "";
+      const park = at === "translateX(-100%)" || at === "translateX(100%)";
+      if (main) {
+        main.style.transition = "none";
+        main.style.transform = park ? "translateX(100%)" : "";
+      }
+      appOf()?.classList.remove("swipe-back");
+      this._backSwipe = false;
+      if (!main) return;
+      if (park) {
+        requestAnimationFrame(() => {
+          main.style.transform = "";
+          requestAnimationFrame(() => { main.style.transition = ""; });
+        });
+      } else {
+        main.style.transition = "";
+      }
+    };
+    scroller.addEventListener("touchstart", e => {
+      if (!this._mobileGestures() || this._textSelect || this._replySwipe || e.touches.length !== 1) return;
+      if (e.target.closest?.("button, a, input, textarea, audio, video")) return;
+      const t = e.touches[0];
+      g = { x: t.clientX, y: t.clientY, dx: 0, on: false, settled: false };
+    }, { passive: true });
+    scroller.addEventListener("touchmove", e => {
+      if (!g || g.settled || this._replySwipe || e.touches.length !== 1) {
+        if (g?.on) this._cancelHistorySwipe();
+        return;
+      }
+      const t = e.touches[0];
+      const dx = t.clientX - g.x;
+      const dy = t.clientY - g.y;
+      const main = mainOf();
+      if (!main) return;
+      if (!g.on) {
+        if (Math.abs(dy) > 12 && Math.abs(dy) >= Math.abs(dx)) { g = null; return; }
+        if (dx > -12 || Math.abs(dx) < Math.abs(dy)) return;
+        g.on = true;
+        this._backSwipe = true;
+        this._historyDrag = g;
+        main.style.transition = "none";
+        appOf()?.classList.add("swipe-back");
+      }
+      const width = main.clientWidth || main.getBoundingClientRect?.().width || 320;
+      g.dx = Math.min(0, Math.max(dx, -width));
+      main.style.transform = `translateX(${g.dx}px)`;
+      if (e.cancelable) e.preventDefault();
+    }, { passive: false });
+    const end = (commit) => {
+      const drag = g;
+      g = null;
+      this._backSwipe = false;
+      if (!drag?.on || drag.settled) return;
+      const main = mainOf();
+      if (!main) return;
+      const width = main.clientWidth || main.getBoundingClientRect?.().width || 320;
+      const go = commit && drag.dx <= -Math.min(72, width * 0.28);
+      main.style.transition = "transform .18s ease-out";
+      main.style.transform = go ? "translateX(-100%)" : "";
+      const finish = () => {
+        if (drag.settled) return;
+        drag.settled = true;
+        if (this._historyDrag === drag) this._historyDrag = null;
+        if (g?.on) return;
+        const committed = go && this._isCurrent();
+        if (committed) {
+          // Match the closed stylesheet position before closeChat drops
+          // .chat-open. close() keeps this park for one frame.
+          main.style.transition = "none";
+          main.style.transform = "translateX(100%)";
+        } else {
+          main.style.transition = "none";
+          main.style.transform = "";
+          main.style.transition = "";
+        }
+        appOf()?.classList.remove("swipe-back");
+        if (committed) this.onBack?.();
+        // onBack that leaves the chat open (the headless tests) still has
+        // .chat-open, whose transform:none would be stuck under the park.
+        if (committed && this._isCurrent()) {
+          main.style.transform = "";
+          main.style.transition = "";
+        }
+      };
+      main.addEventListener?.("transitionend", finish, { once: true });
+      setTimeout(finish, 240);
+    };
+    scroller.addEventListener("touchend", () => end(true));
+    scroller.addEventListener("touchcancel", () => end(false));
   }
 
   _nearBottom() {

@@ -3719,6 +3719,7 @@ async function boot() {
         onChatsChanged: refreshChatList,
         onForward: forwardFlow,
         onOpenChat: id => openChat(Number(id)),
+        onBack: () => closeChat(),
       });
     } catch (err) {
       diagnostics.append("error", `boot: ChatView failed: ${err?.message || err}`);
