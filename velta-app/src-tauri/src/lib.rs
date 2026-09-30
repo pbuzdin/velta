@@ -976,10 +976,14 @@ fn checked_media_read(canon: &std::path::Path) -> Result<Vec<u8>, String> {
 }
 
 #[tauri::command]
-fn read_media_bytes(app: tauri::AppHandle, src: String) -> Result<tauri::ipc::Response, String> {
-    let canon = scoped_accounts_path(&app, &src)?;
-    let bytes = checked_media_read(&canon)?;
-    Ok(tauri::ipc::Response::new(bytes))
+async fn read_media_bytes(app: tauri::AppHandle, src: String) -> Result<tauri::ipc::Response, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let canon = scoped_accounts_path(&app, &src)?;
+        let bytes = checked_media_read(&canon)?;
+        Ok(tauri::ipc::Response::new(bytes))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // ---------- notification chat-link token (issue #23) ----------
@@ -1204,14 +1208,18 @@ fn set_ui_visible(visible: bool) {
 }
 
 #[tauri::command]
-fn write_poster(app: tauri::AppHandle, src: String, bytes: Vec<u8>) -> Result<String, String> {
-    let canon = scoped_accounts_path(&app, &src)?;
-    let target = poster_target(&canon.to_string_lossy()).ok_or("cannot derive poster path")?;
-    if let Some(dir) = target.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    std::fs::write(&target, &bytes).map_err(|e| e.to_string())?;
-    Ok(target.to_string_lossy().to_string())
+async fn write_poster(app: tauri::AppHandle, src: String, bytes: Vec<u8>) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let canon = scoped_accounts_path(&app, &src)?;
+        let target = poster_target(&canon.to_string_lossy()).ok_or("cannot derive poster path")?;
+        if let Some(dir) = target.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(&target, &bytes).map_err(|e| e.to_string())?;
+        Ok(target.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 fn start_media_server(accounts: PathBuf) {
@@ -1602,7 +1610,7 @@ pub extern "system" fn Java_org_velta_UnifiedPushService_pushWakeup(
 // frontend can always call it -- on desktop it just reports unsupported.
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
-fn resolve_content_uri(_app: tauri::AppHandle, _uri: String, _filename: String) -> Result<String, String> {
+async fn resolve_content_uri(_app: tauri::AppHandle, _uri: String, _filename: String) -> Result<String, String> {
     Err("picking attachments is only supported on mobile".into())
 }
 
@@ -1693,7 +1701,14 @@ fn open_webview_browser(url: String) -> Result<(), String> {
 
 #[cfg(target_os = "android")]
 #[tauri::command]
-fn resolve_content_uri(app: tauri::AppHandle, uri: String, filename: String) -> Result<String, String> {
+async fn resolve_content_uri(app: tauri::AppHandle, uri: String, filename: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || resolve_content_uri_blocking(app, uri, filename))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[cfg(target_os = "android")]
+fn resolve_content_uri_blocking(app: tauri::AppHandle, uri: String, filename: String) -> Result<String, String> {
     use tauri::path::BaseDirectory;
 
     // The application context was handed over from MainActivity.onCreate
@@ -1948,35 +1963,65 @@ impl RpcState {
     fn send_rpc(&self, request: &str) -> Result<(), String> {
         #[cfg(target_os = "android")]
         {
-            let guard = self.tx.lock().map_err(|e| e.to_string())?;
-            if let Some(tx) = guard.as_ref() {
-                tx.send(request.to_string()).map_err(|e| e.to_string())
-            } else {
-                Err("Delta Chat core is not running".to_string())
-            }
+            write_rpc_tx(&self.tx, request)
         }
         #[cfg(not(target_os = "android"))]
         {
-            use std::io::Write;
-            let mut guard = self.stdin.lock().map_err(|e| e.to_string())?;
-            if let Some(stdin) = guard.as_mut() {
-                stdin.write_all(request.as_bytes()).map_err(|e| e.to_string())?;
-                stdin.write_all(b"\n").map_err(|e| e.to_string())?;
-                stdin.flush().map_err(|e| e.to_string())
-            } else {
-                Err("Delta Chat core sidecar is not running".to_string())
-            }
+            write_rpc_stdin(&self.stdin, request)
         }
     }
 }
 
+#[cfg(target_os = "android")]
+fn write_rpc_tx(
+    tx: &std::sync::Arc<std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<String>>>>,
+    request: &str,
+) -> Result<(), String> {
+    let guard = tx.lock().map_err(|e| e.to_string())?;
+    if let Some(tx) = guard.as_ref() {
+        tx.send(request.to_string()).map_err(|e| e.to_string())
+    } else {
+        Err("Delta Chat core is not running".to_string())
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+fn write_rpc_stdin(stdin: &Arc<Mutex<Option<ChildStdin>>>, request: &str) -> Result<(), String> {
+    use std::io::Write;
+    let mut guard = stdin.lock().map_err(|e| e.to_string())?;
+    if let Some(stdin) = guard.as_mut() {
+        stdin.write_all(request.as_bytes()).map_err(|e| e.to_string())?;
+        stdin.write_all(b"\n").map_err(|e| e.to_string())?;
+        stdin.flush().map_err(|e| e.to_string())
+    } else {
+        Err("Delta Chat core sidecar is not running".to_string())
+    }
+}
+
 #[tauri::command]
-fn rpc(request: String, state: State<'_, RpcState>) -> Result<(), String> {
+async fn rpc(request: String, state: State<'_, RpcState>) -> Result<(), String> {
     // NOTE: do not log every request here. This command is on the JSON-RPC
     // hot path -- even with the non-blocking logger, formatting a string per
     // RPC adds alloc pressure and grows velta.log unbounded. Use js_log from
     // the frontend for targeted diagnostics.
-    state.send_rpc(&request)
+    // The desktop write flushes the sidecar pipe and blocks when that pipe
+    // is full. Run it off the UI thread.
+    #[cfg(target_os = "android")]
+    let tx = state.tx.clone();
+    #[cfg(not(target_os = "android"))]
+    let stdin = state.stdin.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "android")]
+        {
+            write_rpc_tx(&tx, &request)
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            write_rpc_stdin(&stdin, &request)
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // Windows ships the sidecar as a bundle resource; macOS as a Tauri
@@ -2652,14 +2697,29 @@ pub fn run() {
         responder.respond(response);
     });
 })
-.register_uri_scheme_protocol("blobfile", |ctx, request| {
-            let mut response = serve_blob_file(ctx.app_handle(), request);
-            // Blob URLs are content-deduplicated by the core (same name =
-            // same bytes), so media is immutable: let the WebView cache it.
-            // Reopening a chat then decodes images from memory/disk cache
-            // instead of re-reading and re-decoding every blob.
-            response.headers_mut().insert("Cache-Control", "max-age=31536000, immutable".parse().unwrap());
-            response.map(|body| std::borrow::Cow::Owned(body))
+.register_asynchronous_uri_scheme_protocol("blobfile", |ctx, request, responder| {
+            let app = ctx.app_handle().clone();
+            // Decode and file IO stay off the UI thread. A 12 MP JPEG
+            // thumbnail is about 160 ms on desktop.
+            tauri::async_runtime::spawn(async move {
+                let response = tauri::async_runtime::spawn_blocking(move || {
+                    let mut response = serve_blob_file(&app, request);
+                    // Blob URLs are content-deduplicated by the core (same name =
+                    // same bytes), so media is immutable: let the WebView cache it.
+                    // Reopening a chat then decodes images from memory/disk cache
+                    // instead of re-reading and re-decoding every blob.
+                    response.headers_mut().insert("Cache-Control", "max-age=31536000, immutable".parse().unwrap());
+                    response
+                })
+                .await
+                .unwrap_or_else(|_| {
+                    tauri::http::Response::builder()
+                        .status(500)
+                        .body(b"blobfile task failed".to_vec())
+                        .unwrap()
+                });
+                responder.respond(response);
+            });
         })
         .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_latest_version, fetch_page_title, expand_invite_link, fetch_link_preview, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
 

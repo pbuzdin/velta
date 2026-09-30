@@ -51,6 +51,10 @@ are frontend-dead but still registered — candidates for removal.
 protocol and the loopback server answer with a cached 720px JPEG
 thumbnail — key `sha1(path+mtime+size+w)` under `<app-data>/thumbs`,
 generated in lib.rs via the `image` crate, EXIF orientation applied.
+The blobfile scheme is asynchronous (`register_asynchronous_uri_scheme_protocol`);
+the read, decode, and encode run in `spawn_blocking`, same as the
+`rpc`, `p2p_send_file`, `resolve_content_uri`, `read_media_bytes`, and
+`write_poster` commands. Do not put that work back on the UI thread.
 Animated gif/webp, non-static formats, Range requests and every failure
 fall through to the original bytes, so the UI can never regress on a
 failed thumbnail. Bubble images pass `thumb:true`; the lightbox never

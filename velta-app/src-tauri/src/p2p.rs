@@ -2024,17 +2024,22 @@ pub fn p2p_send(
 }
 
 #[tauri::command]
-pub fn p2p_send_file(
+pub async fn p2p_send_file(
     state: tauri::State<'_, P2pState>,
     peer_id: String,
     path: String,
     name: String,
     caption: String,
 ) -> Result<serde_json::Value, String> {
-    let (id, stored_path) = engine(&state)
-        .map_err(|e| e.to_string())?
-        .send_file(&peer_id, &path, &name, &caption)
-        .map_err(|e| e.to_string())?;
+    // Copies the file and reads it whole before framing. Off the UI thread.
+    let engine = engine(&state).map_err(|e| e.to_string())?;
+    let (id, stored_path) = tauri::async_runtime::spawn_blocking(move || {
+        engine
+            .send_file(&peer_id, &path, &name, &caption)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     Ok(serde_json::json!({ "id": id, "path": stored_path.to_string_lossy() }))
 }
 
