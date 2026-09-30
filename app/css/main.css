@@ -451,13 +451,18 @@ html[data-theme="light"] .msg-select-btn { background: rgba(16, 16, 16, .08); }
 /* reserve 42px avatar + 8px gap */
 .msg-row.with-avatar .bubble { max-width: min(480px, calc(90% - 50px)); }
 
-/* Desktop hover: the padded photo grows to fill the tile edge to edge.
-   hover:hover + pointer:fine keeps it off touch devices, where hover
-   states stick. Transition lives in the same media block so touch never
-   pays for it. */
+/* Desktop hover: a custom photo (the padded square on the color matrix)
+   grows to fill its tile. Same rule on a message row, the chat header,
+   and the profile sheet. hover:hover + pointer:fine keeps it off touch,
+   where hover states stick. Transition lives in this block so touch
+   never pays for it. Initials and fingerprint tiles have no photo. */
 @media (hover: hover) and (pointer: fine) {
-  .msg-row velta-avatar .velta-avatar-photo { transition: inset .12s ease, padding .12s ease; }
-  .msg-row velta-avatar:hover .velta-avatar-photo { inset: 0; padding: 0; }
+  .msg-row velta-avatar .velta-avatar-photo,
+  .chat-head-avatar .velta-avatar-photo,
+  velta-avatar.chat-info-avatar .velta-avatar-photo { transition: inset .12s ease, padding .12s ease; }
+  .msg-row velta-avatar:hover .velta-avatar-photo,
+  .chat-head-avatar:hover .velta-avatar-photo,
+  velta-avatar.chat-info-avatar:hover .velta-avatar-photo { inset: 0; padding: 0; }
 }
 
 /* Saved copy: round chevron back to the original message (#19), the same
