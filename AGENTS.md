@@ -1711,6 +1711,15 @@ do-not-regress rules; dates mark when the lesson was learned.
   get_message, and a 90 s backstop (`sendingBackstopMs` knob) force-clears a
   stuck set. Any new send-like path (e.g. resendMessage) must re-track.
   Contract + pins: docs/agents/relays.md, tests/send-activity.test.mjs.
+- **No built-in Yggdrasil, and the chatmail core stays mandatory** (#29 and
+  #31, closed wontfix 2026-09-30). Mail already goes through one proxy URL
+  (`proxy_url` in `core/src/net/proxy.rs`: HTTP CONNECT, SOCKS5, or
+  Shadowsocks). A Yggdrasil node stays a separate app; do not vendor one,
+  and do not add the Proxies drawer that issue asked for. The core is the
+  database and the message model. `core/src/transport.rs` is one IMAP/SMTP
+  relay, not a plugin slot. Local chat wraps the booted core and does not
+  replace it. A profile with no relay is the welcome splash's "Enter local
+  chat…". Detail: docs/agents/relays.md, docs/agents/p2p.md.
 - **Encoding (2026-09-23)** — every text file is UTF-8 without BOM; no
   exceptions. On this Windows checkout the ANSI codepage is CP1251
   (Cyrillic), and tools that read or write with the default encoding —
