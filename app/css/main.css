@@ -420,13 +420,27 @@ html[data-theme="light"] .read-marker { color: #155a9e; border-color: #155a9e; }
 @keyframes msgIn { from { opacity: 0; transform: translateY(4px); } }
 /* Touch: bubble text is NOT natively selectable — long-press belongs to the
    context menu, and a native word selection stole half the gesture (both
-   fired at once). Double-tap enters text-selection mode instead
-   (chat-view _enterBubbleTextSelection flips .text-selecting on the .msg-text).
-   Desktop keeps native mouse selection — hence the media gate. */
+   fired at once). Select text in the message menu enters text-selection
+   mode (chat-view _enterBubbleTextSelection flips .text-selecting on the
+   .msg-text and inserts .msg-select-bar). Desktop keeps native mouse
+   selection — hence the media gate. */
 @media (hover: none) and (pointer: coarse) {
   .bubble, .bubble .msg-text { -webkit-user-select: none; user-select: none; }
   .bubble .msg-text.text-selecting { -webkit-user-select: text; user-select: text; }
 }
+.msg-select-bar {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin: 0 0 6px;
+}
+.msg-select-btn {
+  border: none; border-radius: 14px;
+  min-height: 32px; padding: 4px 12px;
+  background: rgba(244, 244, 244, .14); color: inherit;
+  font: inherit; font-size: 13px; font-weight: 600;
+  cursor: pointer;
+}
+.msg-row.selectable .msg-select-bar { display: none; }
+html[data-theme="light"] .msg-select-btn { background: rgba(16, 16, 16, .08); }
 .msg-row.out .bubble {
   background: var(--bg-bubble-out);
   border-bottom-left-radius: var(--radius-bubble);

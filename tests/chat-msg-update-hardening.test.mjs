@@ -435,3 +435,154 @@ test("show in chat opens the source chat and jumps to the original", async t => 
   await view._showOriginal({ originalMsgId: 99 });
   assert.deepEqual(jumps, []);
 });
+
+function selectableRow(text = "hello there friend") {
+  const row = document.createElement("div");
+  row.className = "msg-row";
+  row.dataset.msgid = "10";
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  const body = document.createElement("div");
+  body.className = "msg-text";
+  body.textContent = text;
+  bubble.append(body);
+  row.append(bubble);
+  return row;
+}
+
+function installSelection(t, node, text) {
+  const desc = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  let copied = null;
+  Object.defineProperty(globalThis, "navigator", {
+    value: { clipboard: { writeText: (s) => { copied = s; return Promise.resolve(); } }, userAgent: "test" },
+    configurable: true,
+  });
+  const prevSel = window.getSelection;
+  window.getSelection = () => ({
+    isCollapsed: !text,
+    rangeCount: text ? 1 : 0,
+    toString: () => text,
+    getRangeAt: () => ({ commonAncestorContainer: node }),
+    removeAllRanges() {},
+  });
+  t.after(() => {
+    window.getSelection = prevSel;
+    if (desc) Object.defineProperty(globalThis, "navigator", desc);
+  });
+  return () => copied;
+}
+
+test("Select text opens an in-bubble bar and blocks the message menu", async t => {
+  const { view, node } = setup(t);
+  await view.open(7);
+  const row = selectableRow();
+  node("history").appendChild(row);
+  const text = row.querySelector(".msg-text");
+
+  view._msgContextMenu(view.msgIndex.get(10), 8, 8);
+  const menu = node("popups").querySelector(".ctx-menu");
+  const select = [...menu.children].find(b => b.innerHTML.includes(">Select text<"));
+  assert.ok(select, "the message menu offers Select text");
+  await select.fire("click");
+
+  assert.ok(text.className.split(/\s+/).includes("text-selecting"));
+  const bar = row.querySelector(".msg-select-bar");
+  assert.deepEqual(bar.children.map(b => b.textContent), ["Reply", "Copy", "Close"]);
+  assert.equal(bar, row.querySelector(".bubble").children[0], "the bar sits at the top of the bubble");
+  assert.deepEqual(view.vs.heightCalls, ["m10"]);
+  assert.equal(view._selChip.hidden, true);
+
+  view._selChip.hidden = false;
+  view._updateSelChip();
+  assert.equal(view._selChip.hidden, true, "the floating Reply chip stays hidden while the bar is up");
+
+  node("popups").replaceChildren();
+  view._msgContextMenu(view.msgIndex.get(10), 8, 8);
+  assert.equal(node("popups").querySelector(".ctx-menu"), null, "the menu cannot open while selecting");
+
+  const outside = document.createElement("div");
+  view._textSelect.exit({ target: outside });
+  assert.equal(view._textSelect, null);
+  assert.equal(text.className.includes("text-selecting"), false);
+  assert.equal(row.querySelector(".msg-select-bar"), null);
+  assert.deepEqual(view.vs.heightCalls, ["m10", "m10"]);
+});
+
+test("Reply quotes the selected span and Copy writes that span", async t => {
+  const { view, node } = setup(t);
+  await view.open(7);
+  const row = selectableRow("hello there friend");
+  node("history").appendChild(row);
+  const text = row.querySelector(".msg-text");
+  const copied = installSelection(t, text, "there");
+
+  view._enterBubbleTextSelection(row);
+  view._textSelect.exit({ target: text });
+  assert.ok(view._textSelect, "a tap on the selected text stays in the mode");
+  view._textSelect.exit({ target: row.querySelector(".msg-select-btn") });
+  assert.ok(view._textSelect, "a tap on the bar stays in the mode");
+
+  const click = { preventDefault() {}, stopPropagation() {} };
+  await row.querySelector(".msg-select-bar").children.find(b => b.textContent === "Reply").fire("click", click);
+  assert.equal(view.replyFragment, "there");
+  assert.equal(view.replyTo.id, 10);
+  assert.equal(view._textSelect, null);
+
+  view._enterBubbleTextSelection(row);
+  await row.querySelector(".msg-select-bar").children.find(b => b.textContent === "Copy").fire("click", click);
+  assert.equal(copied(), "there");
+  assert.equal(view._textSelect, null);
+});
+
+test("a read-only chat's select bar has no Reply", async t => {
+  const { view, node } = setup(t);
+  await view.open(7);
+  const row = selectableRow();
+  node("history").appendChild(row);
+  view.readOnly = true;
+  view._enterBubbleTextSelection(row);
+  assert.deepEqual(row.querySelector(".msg-select-bar").children.map(b => b.textContent), ["Copy", "Close"]);
+});
+
+test("Select text is offered for a caption, Copy text stays plain-text only", async t => {
+  const { view, node } = setup(t);
+  await view.open(7);
+  const item = view.msgIndex.get(10);
+  item.msg = { ...item.msg, viewtype: "image", text: "caption" };
+  view._msgContextMenu(item, 4, 4);
+  const html = [...node("popups").querySelector(".ctx-menu").children].map(b => b.innerHTML);
+  assert.ok(html.some(h => h.includes(">Select text<")));
+  assert.equal(html.some(h => h.includes(">Copy text<")), false);
+});
+
+test("a second finger cancels long-press and does not select text", async t => {
+  const { view, node } = setup(t);
+  await view.open(7);
+  const item = view.msgIndex.get(10);
+  const row = view._buildItem(item);
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  const text = document.createElement("div");
+  text.className = "msg-text";
+  text.textContent = "hello";
+  bubble.append(text);
+  row.append(bubble);
+
+  let opened = 0;
+  const orig = view._msgContextMenu.bind(view);
+  view._msgContextMenu = (...args) => { opened++; return orig(...args); };
+
+  await row.fire("touchstart", { touches: [{ clientX: 2, clientY: 2 }] });
+  await wait(600);
+  assert.equal(opened, 1, "a still long-press still opens the menu");
+
+  opened = 0;
+  node("popups").replaceChildren();
+  await row.fire("touchstart", { touches: [{ clientX: 2, clientY: 2 }] });
+  await row.fire("touchstart", { touches: [{ clientX: 2, clientY: 2 }, { clientX: 8, clientY: 9 }] });
+  await row.fire("touchend", { touches: [] });
+  await wait(600);
+  assert.equal(opened, 0, "a second finger cancels the long-press timer");
+  assert.equal(text.className.includes("text-selecting"), false);
+  assert.equal(row.querySelector(".msg-select-bar"), null);
+});
