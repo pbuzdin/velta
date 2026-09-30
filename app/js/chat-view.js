@@ -658,6 +658,7 @@ export class ChatView {
     this._restoring = false;
     this._openedWithUnread = false;
     this._hideGoDown();
+    this._leaveTextSelection();
     this.vs?.stop();
     this.vs = null;
     this.items = [];
@@ -1722,45 +1723,24 @@ export class ChatView {
       const it = liveItem();
       if (e.altKey || !it) return;
       e.preventDefault();
+      // Select-text mode owns the bubble: the menu stays closed until Close.
+      if (this._textSelect) return;
       this._msgContextMenu(it, e.clientX, e.clientY);
     });
     let pressTimer;
-    let twoFinger = null; // { t, x, y } — a quick, still two-finger tap
     row.addEventListener("touchstart", e => {
       // A second finger (pinch / two-finger swipe) never means long-press,
       // and the WebView can abort the whole gesture with touchcancel once
       // it claims it — without this listener the timer would survive.
-      if (e.touches.length > 1) {
+      if (e.touches.length > 1 || this._textSelect) {
         clearTimeout(pressTimer);
-        // Two-finger tap on a bubble = text-selection mode (issue: long-press
-        // both opened the context menu and natively selected a single word).
-        // It arms here (second finger down) and fires on touchend only when
-        // the gesture stayed quick and still — scroll/pinch clears it below.
-        twoFinger = e.touches.length === 2
-          ? { t: Date.now(), x: (e.touches[0].clientX + e.touches[1].clientX) / 2, y: (e.touches[0].clientY + e.touches[1].clientY) / 2 }
-          : null;
         return;
       }
       pressTimer = setTimeout(() => { const it = liveItem(); if (it) this._msgContextMenu(it, innerWidth / 2, innerHeight / 2); }, 500);
     }, { passive: true });
     row.addEventListener("touchend", () => clearTimeout(pressTimer));
-    row.addEventListener("touchmove", e => {
-      clearTimeout(pressTimer);
-      if (twoFinger && e.touches.length) {
-        const dx = e.touches[0].clientX - twoFinger.x, dy = e.touches[0].clientY - twoFinger.y;
-        if (dx * dx + dy * dy > 100) twoFinger = null; // moved — it's a scroll/pinch
-      }
-    });
-    row.addEventListener("touchcancel", () => { clearTimeout(pressTimer); twoFinger = null; });
-    row.addEventListener("touchend", e => {
-      if (!twoFinger) return;
-      // Both fingers up, quickly, without moving: text-selection mode.
-      if (e.touches.length === 0 && Date.now() - twoFinger.t < 500) {
-        twoFinger = null;
-        const it = liveItem();
-        if (it) this._enterBubbleTextSelection(row);
-      }
-    });
+    row.addEventListener("touchmove", () => clearTimeout(pressTimer));
+    row.addEventListener("touchcancel", () => clearTimeout(pressTimer));
     row.addEventListener("click", async e => {
       if (!alive()) return;
       if (this.selection.size) { this._toggleSelect(m.id, row); return; }
@@ -1854,15 +1834,116 @@ export class ChatView {
     }
   }
 
-  // Double-tap on a bubble: make the message text selectable and select all
-  // of it, so the native selection handles + Copy appear (touch devices —
-  // bubbles are unselectable there, see the touch CSS near .bubble). The
-  // next tap outside the selected text exits the mode.
+  // True when the event target is the selected text or the in-bubble bar.
+  // Walks parents so the headless test DOM (no Element.closest) agrees with
+  // the WebView. A tap there adjusts the native handles or presses Reply /
+  // Copy / Close; anything else leaves the mode.
+  _pointerInTextSelect(target) {
+    let el = target;
+    while (el && el !== document && el !== document.body) {
+      const name = el.className;
+      if (typeof name === "string") {
+        const cls = name.split(/\s+/);
+        if (cls.includes("msg-select-bar") || cls.includes("text-selecting")) return true;
+      }
+      el = el.parentElement || el.parent || null;
+    }
+    return false;
+  }
+
+  _selectionInside(target, sel) {
+    if (!target || !sel?.rangeCount) return false;
+    const node = sel.getRangeAt(0).commonAncestorContainer;
+    let el = node?.nodeType === 3 ? node.parentElement : node;
+    while (el) {
+      if (el === target) return true;
+      el = el.parentElement || el.parent || null;
+    }
+    return false;
+  }
+
+  // The span the user currently has selected, or the whole bubble when the
+  // WebView has no Selection (select-all on entry still covers that case).
+  _selectionText() {
+    const target = this._textSelect?.target;
+    let raw = "";
+    try {
+      const sel = window.getSelection?.();
+      if (sel && !sel.isCollapsed && this._selectionInside(target, sel)) raw = sel.toString();
+    } catch { /* headless */ }
+    if (!raw && target) raw = target.textContent || "";
+    return raw.replace(/\s+/g, " ").trim();
+  }
+
+  _leaveTextSelection() {
+    const state = this._textSelect;
+    if (!state) return;
+    this._textSelect = null;
+    document.removeEventListener("pointerdown", state.exit, true);
+    state.target?.classList.remove("text-selecting");
+    state.bar?.remove();
+    try {
+      const sel = window.getSelection?.();
+      if (sel && this._selectionInside(state.target, sel)) sel.removeAllRanges();
+    } catch { /* headless */ }
+    const item = this.msgIndex.get(Number(state.row?.dataset?.msgid));
+    if (item) this.vs?.onItemHeightDidChange?.(item);
+  }
+
+  _replyToSelection() {
+    const msgId = Number(this._textSelect?.row?.dataset?.msgid);
+    const fragment = this._selectionText().slice(0, 800);
+    if (!fragment) return;
+    this._leaveTextSelection();
+    this._setReplyFragment(msgId, fragment);
+  }
+
+  _copySelection() {
+    const text = this._selectionText();
+    if (!text) return;
+    this._leaveTextSelection();
+    navigator.clipboard?.writeText(text);
+    toast("Copied");
+  }
+
+  _selectMessageText(msgId) {
+    const row = this.listEl?.querySelector?.(`[data-msgid="${msgId}"]`);
+    if (row) this._enterBubbleTextSelection(row);
+  }
+
+  // Select text (context menu, #36): native selection for this one bubble,
+  // plus Reply / Copy / Close inside it. Touch keeps user-select:none until
+  // .text-selecting (see the touch CSS near .bubble). The next pointerdown
+  // outside the text and the bar exits. Re-entry tears the previous listener
+  // down first so two bubbles are never selecting at once.
   _enterBubbleTextSelection(row) {
-    document.querySelectorAll(".msg-text.text-selecting").forEach(el => el.classList.remove("text-selecting"));
+    this._leaveTextSelection();
     const target = row.querySelector(".msg-text");
-    if (!target) return; // media/file-only bubble — nothing to select
+    const bubble = row.querySelector(".bubble");
+    if (!target || !bubble) return;
     target.classList.add("text-selecting");
+    const bar = document.createElement("div");
+    bar.className = "msg-select-bar";
+    const addBtn = (label, onClick) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "msg-select-btn";
+      b.textContent = label;
+      // preventDefault keeps the native selection alive through the click.
+      b.addEventListener("pointerdown", e => { e.preventDefault(); e.stopPropagation(); });
+      b.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); onClick(); });
+      bar.appendChild(b);
+    };
+    if (!this.readOnly) addBtn("Reply", () => this._replyToSelection());
+    addBtn("Copy", () => this._copySelection());
+    addBtn("Close", () => this._leaveTextSelection());
+    bubble.insertBefore(bar, bubble.children?.[0] || null);
+    const exit = (e) => {
+      if (this._pointerInTextSelect(e.target)) return;
+      this._leaveTextSelection();
+    };
+    this._textSelect = { row, target, bar, exit };
+    if (this._selChip) this._selChip.hidden = true;
     try {
       const sel = window.getSelection();
       const range = document.createRange();
@@ -1870,14 +1951,9 @@ export class ChatView {
       sel.removeAllRanges();
       sel.addRange(range);
     } catch { /* headless/odd webview — the class still enables manual selection */ }
-    const exit = (e) => {
-      if (e.target.closest?.(".msg-text.text-selecting")) return; // adjusting handles
-      document.removeEventListener("pointerdown", exit, true);
-      target.classList.remove("text-selecting");
-      const sel = window.getSelection();
-      if (sel && sel.rangeCount && target.contains(sel.getRangeAt(0).commonAncestorContainer)) sel.removeAllRanges();
-    };
     document.addEventListener("pointerdown", exit, true);
+    const item = this.msgIndex.get(Number(row.dataset.msgid));
+    if (item) this.vs?.onItemHeightDidChange?.(item);
   }
 
   // Fill a shared-contact card's avatar, name and address from its vCard
@@ -1928,6 +2004,8 @@ export class ChatView {
   /* ================= message actions ================= */
 
   _msgContextMenu(item, x, y) {
+    // The in-bubble select bar is up: long-press and right-click stay shut.
+    if (this._textSelect) return;
     const session = this._session;
     if (!this._isCurrent(session) || this.msgIndex.get(item.msg.id) !== item) return;
     const m = item.msg;
@@ -1958,6 +2036,9 @@ export class ChatView {
         },
       });
     }
+    // Captions count: any bubble with text can enter selection mode. Copy
+    // text stays whole-message and plain-text only.
+    if (m.text) items.push({ label: "Select text", icon: ICO.copy, onClick: () => this._selectMessageText(m.id) });
     if (m.viewtype === "text" && m.text) items.push({ label: "Copy text", icon: ICO.copy, onClick: () => { navigator.clipboard?.writeText(m.text); toast("Copied"); } });
     items.push(
       { label: "Forward", icon: ICO.forward, onClick: () => this._forward([m.id]) },
@@ -2223,6 +2304,9 @@ export class ChatView {
 
   _updateSelChip() {
     const chip = this._selChip;
+    // The in-bubble bar already has Reply. A second floating chip would
+    // sit on top of the same selection.
+    if (this._textSelect) { chip.hidden = true; return; }
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || sel.rangeCount === 0) { chip.hidden = true; return; }
     const range = sel.getRangeAt(0);
@@ -3064,6 +3148,7 @@ export class ChatView {
     this.hasMore = hasMore;
     this.hasNewer = false;
     this._stopSettling?.();
+    this._leaveTextSelection();
     this.vs?.stop();
     this.vs = null;
     this.listEl.replaceChildren();

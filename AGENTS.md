@@ -610,16 +610,22 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   on `touchcancel` AND on multi-touch (`touches.length > 1`) — the WebView
   claims two-finger gestures and answers with `touchcancel`, not `touchmove`,
   which previously left the timer alive (menu opened mid-swipe).
-- **Two-finger tap = text selection on touch (post-1.4.38)** — bubble text is
-  unselectable on touch and a **two-finger tap** on a bubble enters
-  text-selection mode: `_enterBubbleTextSelection` flips `.text-selecting` on
-  the `.msg-text` and programmatically selects it (native handles + Copy).
-  Rationale: long-press belongs to the context menu — a native word selection
-  stole half the gesture and both fired at once (user report). The gesture
-  arms on the second finger down and fires on the last touchend within 500 ms
-  with <10px movement (scroll/pinch clears it); the next outside tap exits
-  the mode. Desktop is untouched (two-finger gestures and mouse selection
-  are native there).
+- **Select text (#36)** — bubble text stays unselectable on touch (long-press
+  belongs to the context menu; a native word selection used to steal half
+  the gesture). The message menu's **Select text** calls
+  `_enterBubbleTextSelection`: `.text-selecting` on that bubble's `.msg-text`,
+  select-all so the native handles can shrink the span, and a
+  `.msg-select-bar` (Reply, Copy, Close) inserted at the top of `.bubble`.
+  Reply quotes the current span via `_setReplyFragment` (the existing `"> "`
+  fragment, no core change; omitted when `readOnly`). Copy writes that span,
+  not the whole message. Close, or a pointerdown outside the text and the
+  bar, leaves the mode and notifies the virtual scroller — the bar changes
+  row height. While the mode is open, long-press and `contextmenu` do not
+  open the bubble menu (`_msgContextMenu` returns; the long-press timer is
+  not armed). The floating `#sel-quote-chip` stays hidden so there is one
+  Reply. Desktop mouse selection is unchanged and still uses the chip.
+  Multi-touch still cancels the long-press timer (the guard above); it does
+  not enter selection.
 - **Send/receive ticks** (1.4.20, semantics updated post-1.4.36): the tick
   icons follow the core's MessageState — `OutPending` renders the spinning
   ring, `OutDelivered` (the RELAY accepted the message) renders the SINGLE
