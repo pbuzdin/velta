@@ -953,6 +953,7 @@ export class ChatView {
     return JSON.stringify([
       m.viewtype, m.downloadState, m.text, m.state, m.edited, m.starred,
       m.reactions, m.filePath, m.fileName, m.duration, m.fwdFrom, m.quote, m.error,
+      m.originalMsgId,
     ]);
   }
 
@@ -996,7 +997,7 @@ export class ChatView {
   _logSignatureDiff(key, a, b) {
     try {
       const fa = JSON.parse(a), fb = JSON.parse(b);
-      const names = ["viewtype","downloadState","text","state","edited","starred","reactions","filePath","fileName","duration","fwdFrom","quote"];
+      const names = ["viewtype","downloadState","text","state","edited","starred","reactions","filePath","fileName","duration","fwdFrom","quote","error","originalMsgId"];
       const diffs = [];
       for (let i = 0; i < names.length; i++) {
         if (JSON.stringify(fa[i]) !== JSON.stringify(fb[i])) {
@@ -1307,7 +1308,7 @@ export class ChatView {
     // never let a missing fromContact kill the whole render pass.
     const fc = m.fromContact || { id: m.from, name: "Unknown", color: "#888" };
     const row = document.createElement("div");
-    row.className = "msg-row" + (out ? " out" : "") + (showAvatar ? " with-avatar" : "");
+    row.className = "msg-row" + (out ? " out" : "") + (showAvatar ? " with-avatar" : "") + (m.originalMsgId ? " has-original" : "");
     row.dataset.msgid = m.id;
     if (this.selection.size) row.classList.add("selectable");
     if (this.selection.has(m.id)) row.classList.add("selected");
@@ -1324,6 +1325,12 @@ export class ChatView {
     }
 
     let bubble = "";
+    // Saved copy: round chevron back to the message in its own chat (#19).
+    // Same control as the desktop shortcut menu, kept visible so a touch
+    // can hit it. Hangs off the bubble into the gap .has-original reserves.
+    if (m.originalMsgId) {
+      bubble += `<button type="button" class="msg-show-in-chat" data-act="show-original" title="Show in chat" aria-label="Show in chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
+    }
     if (showAvatar) bubble += `<div class="msg-sender" style="color:${fc.color}">${escapeHtml(fc.name)}</div>`;
     if (m.fwdFrom) bubble += `<div class="msg-fwd">Forwarded ${FWD_ARTICLE(m.viewtype)}${FWD_NOUN(m.viewtype)}</div>`;
     if (m.quote) {
@@ -1786,6 +1793,7 @@ export class ChatView {
         else if (mediaAction.dataset.act === "resend") this._resendMessage(m);
         else if (mediaAction.dataset.act === "fail-del") this._deleteFailed(m);
         else if (mediaAction.dataset.act === "lc-retry") this._lcRetryTransfer(m);
+        else if (mediaAction.dataset.act === "show-original") this._showOriginal(m);
         return;
       }
       const vcardBtn = e.target.closest("[data-vcard-open]");
@@ -3064,6 +3072,30 @@ export class ChatView {
     this._rebuildItems(messages);
     this._createScroller();
     return true;
+  }
+
+  // Saved-message copy → the message it was saved from (#19). Same chat
+  // jumps in place. Another chat opens first; open() replaces the session,
+  // so the epoch is what still proves this account.
+  async _showOriginal(m) {
+    const epoch = this._session?.accountEpoch;
+    const id = Number(m.originalMsgId);
+    if (!id) return;
+    let orig = null;
+    try { orig = await this.core.getMessage(id); } catch { orig = null; }
+    if (this.core.accountEpoch !== epoch || !this._isCurrent()) return;
+    if (!orig?.chatId) {
+      toast("The original message is no longer available");
+      return;
+    }
+    if (Number(orig.chatId) === Number(this.chat?.id)) {
+      this._jumpToMessage(orig.id);
+      return;
+    }
+    await this.onOpenChat?.(orig.chatId);
+    if (this.core.accountEpoch !== epoch) return;
+    if (Number(this.chat?.id) !== Number(orig.chatId)) return;
+    this._jumpToMessage(orig.id);
   }
 
   _jumpToMessage(msgId) {

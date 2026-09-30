@@ -390,3 +390,48 @@ test("composer Enter respects the send-on-enter setting", async t => {
   await input.fire("keydown", { key: "Enter", shiftKey: true, preventDefault() {} });
   assert.equal(sent, 1, "shift+enter never sends");
 });
+
+test("a saved copy renders the show-in-chat arrow", async t => {
+  const { view } = setup(t);
+  await view.open(7);
+  const item = view.msgIndex.get(10);
+  item.msg = { ...item.msg, originalMsgId: 42 };
+  const el = view._renderItem(item);
+  assert.match(el.className, /has-original/);
+  assert.match(el.innerHTML, /data-act="show-original"/);
+  assert.match(el.innerHTML, /Show in chat/);
+
+  item.msg = { ...item.msg, originalMsgId: null };
+  const plain = view._buildItem(item);
+  assert.equal(plain.innerHTML.includes("show-original"), false);
+});
+
+test("show in chat opens the source chat and jumps to the original", async t => {
+  const { view, core } = setup(t);
+  await view.open(7);
+  const opened = [];
+  const jumps = [];
+  view.onOpenChat = async (id) => {
+    opened.push(id);
+    view.chat = { id, kind: "single" };
+  };
+  view._jumpToMessage = (id) => { jumps.push(id); };
+  core.getMessage = async (id) => ({ id, chatId: 3 });
+
+  await view._showOriginal({ originalMsgId: 42 });
+  assert.deepEqual(opened, [3]);
+  assert.deepEqual(jumps, [42]);
+
+  opened.length = 0;
+  jumps.length = 0;
+  core.getMessage = async (id) => ({ id, chatId: 7 });
+  view.chat = { id: 7, kind: "saved" };
+  await view._showOriginal({ originalMsgId: 42 });
+  assert.deepEqual(opened, [], "same chat does not reopen");
+  assert.deepEqual(jumps, [42]);
+
+  jumps.length = 0;
+  core.getMessage = async () => null;
+  await view._showOriginal({ originalMsgId: 99 });
+  assert.deepEqual(jumps, []);
+});
