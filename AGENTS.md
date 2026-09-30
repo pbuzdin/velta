@@ -22,8 +22,9 @@ build/test commands, and conventions as they actually exist in this checkout.
 - **Background Android service** (`velta-core-service/`) — a headless APK that runs
   the core as a foreground service and exposes it to the PWA over a loopback
   WebSocket/HTTP bridge.
-- **Standalone browser** — the PWA can be served from a static host and falls back
-  to a mock core for demo/development.
+- **Standalone browser** (work in progress) — the PWA can be served from a
+  static host and falls back to a mock core for demo/development. This is
+  not a supported release target.
 
 The unifying frontend is in `app/` (vanilla JavaScript, custom web components,
 no bundler). It auto-detects the available backend via `app/js/transport.js` and
@@ -218,7 +219,9 @@ There is **no build step** for the PWA. Open `app/index.html` directly in a
 browser, or serve `app/` from any static web server. The app will use the mock
 core unless a real backend is reachable. That also makes it the fastest
 renderer smoke test: serve `app/` over plain http, and full UI flows are
-drivable in demo mode (no Tauri build needed). **KEEP:** every new
+drivable in demo mode (no Tauri build needed). The standalone PWA product
+(a static host talking to a remote core) is work in progress; demo mode
+here is only the UI smoke test. **KEEP:** every new
 `rpc-core.js` method needs a `mock-core.js` counterpart or demo mode throws
 "not a function" the moment the UI touches it.
 
@@ -412,7 +415,11 @@ then `handleDeeplinkFromUrl` → `extractChatLink` → `openChatFromLink`
 whose `t` does not match is ignored (issue #23), so a web page that fires
 the scheme cannot switch account or open a chat. Pinned by
 `tests/notification-deeplink.test.mjs`. macOS plugin notifications do not
-carry the link.
+carry the link. `chat_link_with_token` is `#[cfg(target_os = "windows")]`
+because that is its only caller. The macOS and Windows release builds set
+`RUSTFLAGS=-D warnings`, so an ungated helper is dead code on macOS and
+fails the job (v1.4.44 never published). Gate a new helper with the same
+`cfg` as the code that calls it. See docs/agents/release-ci.md.
 
 The skeleton currently contains only Cargo/Gradle manifests. To rebuild when the
 source is added:
@@ -503,7 +510,11 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   errors/unhandledrejection into the Diagnostics sink once app.js is alive,
   into the static `#boot-error` banner before that. Subsystem notes:
   docs/agents/relays.md (relay line/detail/manager), onboarding (splash,
-  second device).
+  second device). Chat-list **Delete chat** calls `deleteChat` → core
+  `delete_chat` and the chat leaves the list (#34). `deleteMessages` only
+  clears rows; the in-chat **Clear history** action still uses it. A
+  `p2p:` chat is forgotten with `removePeer` — do not send that string id
+  to `delete_chat`. Pinned by `tests/rpc-account-isolation.test.mjs`.
 - `app/js/chat-view.js` owns the conversation history (virtualized via
   virtual-scroller), composer, selection mode and the delete dialog, plus the pinned-message tray under the chat head (`_refreshPinnedBar`, fed by `pinned-changed` events). KEEP:
   rows must NOT get `content-visibility` (the scroller measures mounted rows
@@ -1290,7 +1301,10 @@ test traffic accordingly.
 
 ## 9. Deployment and runtime architecture
 
-### 9.1 PWA served statically
+### 9.1 PWA served statically (work in progress)
+
+The browser PWA is not a supported release. These notes describe the
+current dev path.
 
 - Serve the contents of `app/` over HTTPS.
 - The service worker is unregistered at boot (stale-JS-upgrade incidents —
