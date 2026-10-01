@@ -1220,6 +1220,43 @@ fn set_ui_visible(visible: bool) {
     UI_VISIBLE.store(visible, std::sync::atomic::Ordering::SeqCst);
 }
 
+// ---------- single event reader (Android, #40 / #52) ----------
+//
+// The Android shell owns get_next_event_batch: the page's rpc-core skips
+// its own poll once get_event_reader_mode() says "rust", and the Rust
+// poller routes every batch by visibility — forwarded to the page while
+// the UI is up, notified natively while hidden. The handshake below keeps
+// the poller from forwarding into a receiver the page has not installed
+// yet (the Tauri listen() subscription can lag boot by seconds), and it
+// aligns the visibility flag in the same round trip so the first polls
+// cannot notify while the app is foreground.
+#[cfg(target_os = "android")]
+static EVENTS_LISTENER_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[tauri::command]
+fn get_event_reader_mode() -> &'static str {
+    #[cfg(target_os = "android")]
+    {
+        "rust"
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        "webview"
+    }
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn events_listener_ready(visible: bool) {
+    EVENTS_LISTENER_READY.store(true, std::sync::atomic::Ordering::SeqCst);
+    UI_VISIBLE.store(visible, std::sync::atomic::Ordering::SeqCst);
+    log("events listener ready");
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn events_listener_ready(_visible: bool) {}
+
 #[cfg(target_os = "android")]
 #[tauri::command]
 fn battery_optimization_exempt() -> bool {
@@ -1682,12 +1719,11 @@ pub extern "system" fn Java_org_velta_CoreService_networkAvailable(
 // relay; incoming messages surface through the background poller's parked
 // get_next_event_batch and go out as notifications. No-op when the core is
 // not initialized (cold process start — see AGENTS.md §9.4 for the ceiling).
+// Shared with BackgroundFetchJob (the scheduled-fetch fallback, #52 L3):
+// the job wakes the exact same path when no push distributor is installed
+// or the process was frozen between pushes.
 #[cfg(target_os = "android")]
-#[no_mangle]
-pub extern "system" fn Java_org_velta_UnifiedPushService_pushWakeup(
-    _env: jni::JNIEnv,
-    _class: jni::objects::JClass,
-) {
+fn push_wakeup_impl() {
     let Some(app) = APP_HANDLE.lock().unwrap().clone() else {
         log("push wakeup: core not initialized");
         return;
@@ -1703,6 +1739,27 @@ pub extern "system" fn Java_org_velta_UnifiedPushService_pushWakeup(
             Err(e) => log(&format!("push wakeup: {e}")),
         }
     });
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_org_velta_UnifiedPushService_pushWakeup(
+    _env: jni::JNIEnv,
+    _class: jni::objects::JClass,
+) {
+    push_wakeup_impl();
+}
+
+// Scheduled-fetch fallback (#52 L3): BackgroundFetchJob.onStartJob calls
+// this so the core fetches even without a push distributor and after the
+// OS froze the process (a JobScheduler job unfreezes it for the duration).
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_org_velta_BackgroundFetchJob_pushWakeup(
+    _env: jni::JNIEnv,
+    _class: jni::objects::JClass,
+) {
+    push_wakeup_impl();
 }
 
 // Desktop has no ContentResolver; the command exists on every platform so the
@@ -2440,6 +2497,20 @@ async fn bg_notify_incoming(
     // cap a burst so a 50-message flood does not spin 50 RPC round trips.
     let recent: Vec<&(u32, u32, u32)> = hits.iter().rev().take(8).collect();
     for &&(account, chat_id, msg_id) in recent.iter().rev() {
+        // Muted chats must not notify while hidden (#52 L1): the same
+        // is_chat_muted() readback the UI path is documented to gate on
+        // (core api.rs); timed mutes resolve inside the core. A lookup
+        // failure notifies — better a redundant card than a lost one.
+        if let Ok(serde_json::Value::Bool(true)) = bg_rpc(
+            tx,
+            state,
+            "is_chat_muted",
+            serde_json::json!([account, chat_id]),
+        )
+        .await
+        {
+            continue;
+        }
         let Ok(msg) = bg_rpc(tx, state, "get_message", serde_json::json!([account, msg_id])).await
         else {
             continue;
@@ -2634,8 +2705,14 @@ fn start_bg_event_poller(app: tauri::AppHandle, tx: tokio::sync::mpsc::Unbounded
     tauri::async_runtime::spawn(async move {
         log("background event poller started");
         loop {
-            if android_ui_visible() {
-                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            // Single reader (#40): the page no longer polls on Android, so
+            // unlike the pre-#40 pause the poller does NOT sleep while the
+            // UI is up — it is the only reader and routes each batch by
+            // visibility (forward while visible, notify while hidden). It
+            // only waits for the page's listener handshake so no batch is
+            // forwarded into a receiver the page has not installed yet.
+            if !EVENTS_LISTENER_READY.load(std::sync::atomic::Ordering::SeqCst) {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                 continue;
             }
             let state = app.state::<RpcState>();
@@ -2937,7 +3014,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, battery_optimization_exempt, request_battery_exemption, get_latest_version, fetch_page_title, expand_invite_link, fetch_link_preview, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, fetch_page_title, expand_invite_link, fetch_link_preview, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 

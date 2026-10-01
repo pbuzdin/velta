@@ -1389,12 +1389,9 @@ current dev path.
   via `set_ui_visible`. `MainActivity.onStart`/`onStop` sets a second flag:
   Home often leaves `document.hidden` false and freezes the WebView, which
   kept the poller asleep while the page's parked poll held IncomingMsg until
-  the next open. The poller runs when the page is hidden or the activity is
-  stopped, and a page-poll response in that state is notified too (still
-  forwarded to the WebView). The page does not post its own Android
+  the next open. The page does not post its own Android
   notification — that second card doubled once the WebView kept running
-  after Home. Keep the poller paused while both flags say the
-  UI is up — ungated it steals events from the frontend. `onStart` calls
+  after Home. `onStart` calls
   `maybe_network` and emits `velta-foreground` so the page refetches.
   `CoreService` holds a partial wake lock and the default-network callback.
   A 90s kick while the activity is stopped interrupts a half-open IDLE.
@@ -1410,8 +1407,18 @@ current dev path.
   its own poll result. Unit tests: `cargo test --lib bg_events` in
   `velta-app/src-tauri` (desktop build; needs webkit2gtk-4.1 dev headers and
   a placeholder `binaries/deltachat-rpc-server-x86_64-pc-windows-msvc.exe`).
-  Planned next step: make Rust the single reader of core events on Android
-  (see #25) — until then both readers still compete while the app is hidden.
+  **Single reader (#40/#52):** the page's rpc-core asks
+  `get_event_reader_mode()` once at poll start; on Android it answers
+  `"rust"`, the page skips its own long-poll entirely and fires the
+  `events_listener_ready { visible }` handshake, and the Rust poller becomes
+  the ONLY reader — it no longer pauses while the UI is up, it routes every
+  batch by visibility (forwarded as `velta_core_events` while visible,
+  notified natively while hidden). The handshake exists so no batch is
+  forwarded before the page's `listen()` is installed and so the first
+  polls cannot notify while the app is foreground; the handshake is
+  idempotent and re-runs on reconnects. Any probe failure falls back to the
+  old dual-reader behavior. `bg_notify_incoming` skips muted chats via
+  `is_chat_muted` (#52 L1) — a lookup failure still notifies.
   Notification titles: `bg_notify_incoming` defaults the title to "Velta" and
   replaces it with the chat name via `get_basic_chat_info` — the RPC surface
   has NO `get_chat` method, and a wrong method name here fails silently
@@ -1459,6 +1466,23 @@ talks to Google.
   path) emits `Info`/`Warning` events per transport — "push notifications
   registered" (relay accepted the token) vs "relay did not accept the push
   token". The rpc-core `Info`/`Warning` → diagnostic mapping surfaces both.
+- **Scheduled-fetch fallback (#52 L3, `BackgroundFetchJob.kt`)** — a
+  periodic (15 min, persisted) JobScheduler job that calls the same wake
+  path as a push (`Java_org_velta_BackgroundFetchJob_pushWakeup` →
+  `push_wakeup_impl`), covering devices without a UnifiedPush distributor
+  and OEM freezers that cut a backgrounded process's sockets — a job
+  unfreezes the process for its duration (the official client delivers
+  through the same pattern). `onStartJob` keeps the slot for 28 s so the
+  OS does not refreeze the process during the async fetch (bounded to 30 s
+  shell-side), then calls `jobFinished(reschedule=false)`. Scheduled
+  idempotently from `MainActivity.onCreate`.
+- **Wake vs dead IDLE (#42/#25 P8, vendored core)** — `Context::
+  background_fetch` now bounds its `wait_for_work_done` at 10 s: if the
+  post-interrupt fetch has not finished (a half-open IDLE socket read can
+  block up to `net::TIMEOUT` = 60 s), it restarts IO so a push wake-up
+  reconnects on fresh sockets instead of waiting out the stale one. Device
+  evidence in #50: a backgrounded app sat 8.5 min silent because the OS
+  cut the socket and nothing noticed until resume.
 - ** ceilings:** (1) `CoreService` is NOT stopped when push registers —
   stopping it requires cold-start-by-push support, which needs the Rust core
   to initialize from a Service (there is no `Application` class; `run()`
