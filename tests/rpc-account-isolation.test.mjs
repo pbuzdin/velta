@@ -237,7 +237,7 @@ const multiStepCases = [
   },
   {
     name: "chat flags", run: core => core.setChatFlags(CHAT, { pinned: true, muted: true }),
-    steps: [["set_chat_visibility", A, CHAT, "Pinned"], ["set_chat_mute_duration", A, CHAT, "Forever"]],
+    steps: [["set_chat_visibility", A, CHAT, "Pinned"], ["set_chat_mute_duration", A, CHAT, { kind: "Forever" }]],
     results: [null, null],
   },
   {
