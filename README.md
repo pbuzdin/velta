@@ -640,8 +640,11 @@ this is currently an instant-fetch booster rather than a battery saver.
 
 Open a chat's info sheet and tap **Notifications** to quiet a chat or
 channel: mute for 1 hour / 8 hours / 1 day / 7 days / forever — or
-unmute. Muted chats stay in the list and keep their unread badges; they
-just stop making noise.
+unmute. The ⋮ menu in a chat carries a quick **Mute / Unmute** toggle for
+the same chat. Muted chats stay in the list and keep their unread badges;
+they just stop making noise — including in background notifications while
+the app is hidden (since 1.4.51 both mute paths also actually apply: a
+wire-format bug silently discarded them before).
 
 </details>
 

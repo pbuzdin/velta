@@ -952,7 +952,12 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `pickContactModal` → `addChatMembers` → `add_contact_to_chat`),
   Invite via link/QR (groups + channels; `showInvite(inviteQrProvider(
   chat.id))`), a Notifications row opening the timed mute dialog
-  (`setChatMuted`: `NotMuted`/`Forever`/`Until{seconds}`), and a
+  (`setChatMuted`: `{kind: "NotMuted"}` / `{kind: "Forever"}` /
+  `{kind: "Until", duration: seconds}` — MuteDuration is an internally
+  tagged enum on the wire (`#[serde(tag = "kind")]`); bare strings fail
+  deserialization SILENTLY, which is exactly what broke the ⋮ menu's Mute
+  (`setChatFlags({muted})`) until 1.4.51 — wire-shape regression tests in
+  `tests/mute-wire-shape.test.mjs`), and a
   Disappearing messages row (`get/set_chat_ephemeral_timer`, seconds,
   official option list). Editors opened FROM the sheet replace its modal
   history entry, so every close path must `await modalHistorySettled()`
@@ -1472,6 +1477,11 @@ talks to Google.
   path) emits `Info`/`Warning` events per transport — "push notifications
   registered" (relay accepted the token) vs "relay did not accept the push
   token". The rpc-core `Info`/`Warning` → diagnostic mapping surfaces both.
+  Since 1.4.51 `push_wakeup_impl` also mirrors its start/done lines to
+  logcat (`println!` → RustStdoutStderr): a wake can run while the process
+  is half-frozen by an OEM where the buffered velta.log may never flush —
+  `adb logcat -s RustStdoutStderr:*` is the reliable trace (verified: two
+  natural `BackgroundFetchJob` fires, fetch done in ~0.5 s each).
 - **Scheduled-fetch fallback (#52 L3, `BackgroundFetchJob.kt`)** — a
   periodic (15 min, persisted) JobScheduler job that calls the same wake
   path as a push (`Java_org_velta_BackgroundFetchJob_pushWakeup` →
