@@ -18,7 +18,10 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-8g+JKwDwKdYL2n4VrSU5f2pYq799ckvbz9HvJpfpNF8='; connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:20808 http://127.0.0.1:20809 http://127.0.0.1:20810 http://blobfile.localhost blobfile:; frame-src 'self' https: http://webxdc.localhost webxdc: http://127.0.0.1:20810 http://blobfile.localhost blobfile:; img-src 'self' data: blob: file: asset: blobfile: http://blobfile.localhost http://asset.localhost http://127.0.0.1:20810 http://webxdc.localhost; media-src 'self' blob: asset: blobfile: http://blobfile.localhost http://asset.localhost http://127.0.0.1:20810; style-src 'self' 'unsafe-inline'">
 <script src="js/ui-scale.js"></script>
 <script src="js/boot-net.js"></script>
-<script src="vendor/virtual-scroller.js"></script>
+<!-- defer (#48): an 80 KB parser-blocking script holds first paint; app.js
+     is a module and runs after deferred scripts, so the global VirtualScroller
+     class still exists before any `new VirtualScroller`. -->
+<script defer src="vendor/virtual-scroller.js"></script>
 </head>
 <body>
 <div id="boot-error" hidden>

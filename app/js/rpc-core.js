@@ -17,7 +17,7 @@ let nextId = 1;
 const EVENT_POLL_TIMEOUT_MS = 240_000;
 
 import { debugLog } from "./diagnostics.js";
-import { pageBounds } from "./mock-core.js";
+import { pageBounds } from "./format.js";
 
 function rustLog(msg) {
   try {
