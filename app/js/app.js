@@ -2057,9 +2057,9 @@ function bindChatHeadMenu() {
       { label: "Clear history", danger: true, onClick: async () => {
         if (await confirmModal("Clear history", "Delete all messages in this chat?")) {
           if (!accountIsCurrent(epoch)) return;
-          const { messages } = await core.getMessages(chat.id, { limit: 100000 });
-          if (!accountIsCurrent(epoch)) return;
-          await core.deleteMessages(chat.id, messages.map(m => m.id));
+          // Ids only (#47): loading every full message just to map ids
+          // made clearing a large chat pay for all of them.
+          await core.deleteMessages(chat.id, await core.getMessageIds(chat.id));
         }
       } },
     ], r.right - 220, r.bottom + 6);

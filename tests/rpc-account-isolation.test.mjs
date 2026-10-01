@@ -230,9 +230,10 @@ test("send fallback decoration uses the original account", async t => {
 
 const multiStepCases = [
   {
+    // #47: one call, no id list — core marks fresh messages noticed itself.
     name: "markRead", run: core => core.markRead(CHAT),
-    steps: [["get_message_ids", A, CHAT, false, false], ["markseen_msgs", A, [MSG]]],
-    results: [[MSG], null],
+    steps: [["marknoticed_chat", A, CHAT]],
+    results: [null],
   },
   {
     name: "chat flags", run: core => core.setChatFlags(CHAT, { pinned: true, muted: true }),
@@ -309,6 +310,13 @@ test("getAccount returns an internally consistent entry snapshot, including unco
       assert.deepEqual(calls.at(-1), ["get_contact", A, 1]);
     }
   }
+});
+
+test("getMessageIds is cache-backed and never loads full messages (#47)", async () => {
+  const { core, calls } = fixture({ get_message_ids: () => [MSG] });
+  assert.deepEqual(await core.getMessageIds(CHAT), [MSG]);
+  assert.deepEqual(await core.getMessageIds(CHAT), [MSG]);
+  assert.deepEqual(calls, [["get_message_ids", A, CHAT, false, false]], "fetched once, then cache");
 });
 
 test("deleteChat calls delete_chat and drops only that chat's message-id cache", async () => {
