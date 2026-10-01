@@ -1365,8 +1365,15 @@ export class ChatView {
         const cap = m.viewtype === "sticker" ? "175px" : "45vh, 450px";
         // Core dimensions win; else the remembered decode shape (below).
         const dims = (dw && dh) ? [dw, dh] : mediaDims(this.core.accountId, m.id);
+        // Width-first box (#27): a px-only width — never a % term, Safari
+        // collapses percentages inside the shrink-to-fit bubble during
+        // intrinsic sizing (the macOS sliver bug) — with the height derived
+        // from aspect-ratio. The formula reproduces the intended
+        // min(natural, bubble, maxHeight × ratio) box: portrait shots get
+        // cappedHeight × their ratio, landscape ones the 480px bubble cap.
+        // The reserve IS the final box, so the decode causes no jump.
         const box = dims && dims[0] && dims[1]
-          ? ` style="height:min(${dims[1]}px, ${cap}); aspect-ratio:${dims[0]} / ${dims[1]}; max-width:100%"`
+          ? ` style="width:min(${dims[0]}px, 480px, calc(min(${cap}) * ${(dims[0] / dims[1]).toFixed(4)})); aspect-ratio:${dims[0]} / ${dims[1]}; max-width:100%"`
           : "";
         const wrapCls = `${m.viewtype === "sticker" ? " sticker" : ""}${box ? "" : " no-dims"}`;
         bubble += `<div class="msg-image"><div class="img-wrap${wrapCls}"${box}><div class="img-ph"><div class="img-ph-ico">${ICO.photo}</div></div><img data-src="image" decoding="async" alt=""></div></div>`;
@@ -1383,12 +1390,13 @@ export class ChatView {
         // <video> (decoder + media requests) is only created on tap. `file`
         // carries the raw path for poster extraction; `src` is served.
         const size = m.fileSize ? formatBytes(m.fileSize) : "";
-        // Known dimensions (same source as images): aspect-ratio box, height
-        // capped like photos - the card preserves the true shape. No
-        // dimensions: CSS falls back to the fixed 350px band.
+        // Known dimensions (same source as images): width-first aspect box
+        // (#27, see the image reserve — px-only width, no % term), height
+        // capped like photos. No dimensions: CSS falls back to the fixed
+        // 260px band.
         const dw = m.dimensionsWidth > 0 ? m.dimensionsWidth : 0;
         const dh = m.dimensionsHeight > 0 ? m.dimensionsHeight : 0;
-        const vBox = dw && dh ? ` style="height:min(${dh}px, 45vh, 260px); aspect-ratio:${dw} / ${dh}; max-width:100%"` : "";
+        const vBox = dw && dh ? ` style="width:min(${dw}px, 480px, calc(min(45vh, 260px) * ${(dw / dh).toFixed(4)})); aspect-ratio:${dw} / ${dh}; max-width:100%"` : "";
         bubble += `<div class="msg-video"${vBox}><velta-video src="${escapeAttr(fileUrl(m.filePath))}" file="${escapeAttr(m.filePath)}" size="${escapeAttr(size)}" duration="${m.duration || ""}" name="${escapeHtml(m.fileName || "Video")}"></velta-video></div>`;
       } else {
         const size = m.fileSize ? formatBytes(m.fileSize) : "";
@@ -1622,7 +1630,10 @@ export class ChatView {
           // above) — the photo cap made stickers render up to 450px AND
           // jump from the reserve.
           const cap = m.viewtype === "sticker" ? 175 : 450;
-          wrap.style.width = `min(${mediaImg.naturalWidth}px, 100%, calc(min(${cap}px, 45vh) * ${r.toFixed(4)}))`;
+          // px terms only (#27): no % inside min() — a percentage here
+          // collapses the box in Safari's shrink-to-fit bubble. max-width
+          // on the wrap handles the narrow-bubble clamp instead.
+          wrap.style.width = `min(${mediaImg.naturalWidth}px, 480px, calc(min(${cap}px, 45vh) * ${r.toFixed(4)}))`;
           // The core had no dimensions for this message (the reserved box was
           // a 4/3 guess) — remember the true shape so the NEXT render
           // reserves the exact box and the decode causes no jump.
