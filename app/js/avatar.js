@@ -226,27 +226,33 @@ export function avatarBackgroundUrl({ groups, badge = true }) {
 }
 
 /* ---------- fingerprint lookup (wired by app.js to the active core) ---------- */
-const fprCache = new Map(); // contactId -> Promise<fingerprint|null>
+// Keyed by (accountId, contactId): contact ids are per-account, so switching
+// accounts must not reuse — or wipe — another account's entries. Entries are
+// kept forever; a contact bound to its key never changes, and the map holds
+// one short string per contact ever rendered.
+const fprCache = new Map(); // `${accountId}:${contactId}` -> Promise<fingerprint|null>
 let fingerprintSource = null;
+let fingerprintAccountId = null;
 
-export function setFingerprintSource(fn) {
+export function setFingerprintSource(fn, accountId = null) {
   fingerprintSource = fn;
-  fprCache.clear();
+  fingerprintAccountId = accountId;
 }
 
 export function cachedFingerprint(contactId) {
-  const p = fprCache.get(contactId);
+  const p = fprCache.get(`${fingerprintAccountId}:${contactId}`);
   return p ? p.value ?? null : null; // .value set once resolved (see below)
 }
 
 export function fingerprintFor(contactId, addr) {
-  if (fprCache.has(contactId)) return fprCache.get(contactId);
+  const key = `${fingerprintAccountId}:${contactId}`;
+  if (fprCache.has(key)) return fprCache.get(key);
   if (!fingerprintSource || !contactId || contactId < 1) return Promise.resolve(null);
   const p = Promise.resolve()
     .then(() => fingerprintSource(contactId))
     .then((encrInfo) => parseFingerprint(encrInfo, addr) || deriveFingerprint(addr || "id:" + contactId))
     .catch(() => deriveFingerprint(addr || "id:" + contactId));
-  fprCache.set(contactId, p);
+  fprCache.set(key, p);
   p.then((fpr) => { p.value = fpr; }).catch(() => {});
   return p;
 }
