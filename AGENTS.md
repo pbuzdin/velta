@@ -519,7 +519,11 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   the outer catch shows the splash when `!uiLive`; `js/boot-net.js` loads
   before every other script (CSP forbids inline scripts) routing
   errors/unhandledrejection into the Diagnostics sink once app.js is alive,
-  into the static `#boot-error` banner before that. Subsystem notes:
+  into the static `#boot-error` banner before that. Startup RPC chain
+  (#46): boot's retrying `getAccount` is THE account fetch — `refreshAccounts`
+  takes it as `knownAccount` instead of issuing a second one; chat-list
+  paint never awaits fingerprints (avatars render initials/plain color and
+  re-render when `fingerprintFor` resolves). Subsystem notes:
   docs/agents/relays.md (relay line/detail/manager), onboarding (splash,
   second device). Chat-list **Delete chat** calls `deleteChat` → core
   `delete_chat` and the chat leaves the list (#34). `deleteMessages` only

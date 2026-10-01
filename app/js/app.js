@@ -2759,12 +2759,15 @@ async function forwardFlow(msgIds) {
 /* ---------------- drawer ---------------- */
 
 // Pulls the profile list for the account switcher. Feature-detected: demo
-// mode and very old cores have no getAllAccounts.
-async function refreshAccounts() {
+// mode and very old cores have no getAllAccounts. knownAccount: an account
+// object already fetched this boot (#46) — boot resolves getAccount with a
+// retry loop before calling this, and the duplicate RPC only doubled the
+// startup chain.
+async function refreshAccounts(knownAccount = null) {
   if (!core.getAllAccounts || state.accountChanging) return;
   const epoch = core.accountEpoch;
   try {
-    const [account, accounts] = await Promise.all([core.getAccount(), core.getAllAccounts()]);
+    const [account, accounts] = await Promise.all([knownAccount || core.getAccount(), core.getAllAccounts()]);
     if (!accountIsCurrent(epoch)) return;
     state.account = account;
     state.accounts = accounts;
@@ -3743,7 +3746,7 @@ async function boot() {
     appLog("boot: rebuildDrawer");
     try {
       rebuildDrawer();
-      refreshAccounts();
+      refreshAccounts(state.account); // no second getAccount on the startup chain (#46)
       uiLive = true;
     } catch (err) {
       diagnostics.append("error", `boot: drawer failed: ${err?.message || err}`);
