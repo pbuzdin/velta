@@ -63,7 +63,8 @@ false and freezes the WebView, so the poller used to sleep while the
 page's parked poll held IncomingMsg until the next open. The poller runs
 when the page is hidden or the activity is stopped, and a page-poll
 response that arrives in that state is notified as well (still forwarded
-to the WebView). KEEP: the poller paused while both flags say the UI is
+to the WebView). The page does not post its own notification. KEEP: the
+poller paused while both flags say the UI is
 up — ungated it steals events from the frontend's own polling. `onStart`
 calls `maybe_network` and emits `velta-foreground` so the page refetches.
 `CoreService` holds a partial wake lock and a default-network callback

@@ -976,9 +976,9 @@ export function openVideoLightbox(src, caption = "") {
 /* ---------- incoming-message notifications ---------- */
 // Callers own which message is new; this decides whether the user is looking
 // and bridges to the platform notification. Android notifications are posted
-// by the Rust poller — the page only toasts there while document.hidden.
-// Desktop WebView2 leaves document.hidden false when the window is minimized
-// or unfocused, so those states toast too.
+// by Rust — the page does not toast there (a second plain card on the
+// plugin default channel). Desktop WebView2 leaves document.hidden false
+// when the window is minimized or unfocused, so those states toast too.
 let lastNotifyAt = 0;
 function logNotify(msg) {
   try {
@@ -990,6 +990,7 @@ export function notifyIncoming(title, body, info = {}) {
   const tauri = window.__TAURI__;
   if (!tauri) return;
   const android = /Android/i.test(navigator.userAgent || "");
+  if (android) return;
   const send = () => {
     const now = Date.now();
     if (now - lastNotifyAt < 4000) return;
@@ -1009,15 +1010,15 @@ export function notifyIncoming(title, body, info = {}) {
   const consider = (minimized, focused) => {
     if (shouldNotifyIncoming({
       tauri: true,
-      android,
+      android: false,
       hidden: !!document.hidden,
       minimized: !!minimized,
       focused,
     })) send();
   };
-  // Hidden already decides it. Android has no reliable minimize/focus signal
-  // and would otherwise double-post next to the Rust poller.
-  if (android || document.hidden) {
+  // Hidden already decides it. The window check below is the desktop case
+  // where the page stays marked visible.
+  if (document.hidden) {
     consider(false, true);
     return;
   }

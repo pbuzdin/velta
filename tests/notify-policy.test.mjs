@@ -10,10 +10,10 @@ test("desktop toasts when minimized or unfocused even if the page stays visible"
   assert.equal(shouldNotifyIncoming({ ...base, focused: false }), true);
 });
 
-test("android page toasts only while the document is hidden", () => {
+test("android page never toasts", () => {
   const base = { tauri: true, android: true, hidden: false, minimized: true, focused: false };
   assert.equal(shouldNotifyIncoming(base), false);
-  assert.equal(shouldNotifyIncoming({ ...base, hidden: true }), true);
+  assert.equal(shouldNotifyIncoming({ ...base, hidden: true }), false);
 });
 
 test("a plain browser never toasts", () => {

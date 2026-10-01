@@ -389,7 +389,7 @@ toast when the window is minimized or unfocused, not only when
 `document.hidden` is set — WebView2 leaves the page visible while the
 window is minimized (`shouldNotifyIncoming` in `app/js/notify-policy.js`).
 Android: see below.
-**Incoming-message notifications (Android)** are posted by
+**Incoming-message notifications (Android)** are posted only by
 `bg_notify_incoming` (lib.rs) over JNI into
 `gen/android/.../org/velta/Notifications.kt`: MessagingStyle conversation per
 chat (group name title / sender line / plain text — never a "Group:" prefix),
@@ -1391,7 +1391,9 @@ current dev path.
   kept the poller asleep while the page's parked poll held IncomingMsg until
   the next open. The poller runs when the page is hidden or the activity is
   stopped, and a page-poll response in that state is notified too (still
-  forwarded to the WebView). Keep the poller paused while both flags say the
+  forwarded to the WebView). The page does not post its own Android
+  notification — that second card doubled once the WebView kept running
+  after Home. Keep the poller paused while both flags say the
   UI is up — ungated it steals events from the frontend. `onStart` calls
   `maybe_network` and emits `velta-foreground` so the page refetches.
   `CoreService` holds a partial wake lock and the default-network callback.
