@@ -1144,6 +1144,10 @@ velta-chat-item { display: block; }
 }
 .chat-item.active { background: var(--bg-active); }
 .chat-item.active .ci-time, .chat-item.active .ci-last, .chat-item.active .ci-mute { color: rgba(244,244,244,.75); }
+/* Off-screen stand-in for a not-yet-mounted chat row (#44): one real row's
+   height (48px avatar + 2×9px padding); the IntersectionObserver swaps in
+   the real element before it scrolls into view. */
+.chat-item-ghost { height: 66px; margin: 0 6px; }
 .ci-main { flex: 1; min-width: 0; }
 .ci-top { display: flex; align-items: baseline; gap: 6px; }
 .ci-name { flex: 1; min-width: 0; font-size: 15.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 5px; }

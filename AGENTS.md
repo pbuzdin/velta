@@ -1236,7 +1236,14 @@ coalesce into one trailing refresh, the archived count uses ids only,
 Diagnostics appends patch their row locally without chat-list RPCs, and
 local chat (`velta-p2p`) or cores without `chatlistEvents` keep the full
 refresh. Opening a chat costs one `getChat` (a single chatlist item, never
-the whole list), handed to `chatView.open(chatId, chat)`. Run them after touching `rpc-core.js`,
+the whole list), handed to `chatView.open(chatId, chat)`. Row mounting is
+windowed (#44): the first `CHAT_ITEM_FULL_ROWS` (40) rows are full
+`<velta-chat-item>`s, the rest are fixed-height `.chat-item-ghost` divs
+(66px — one real row) that an IntersectionObserver (600px rootMargin)
+upgrades as they approach the viewport; ghosts are never downgraded, and
+environments without IntersectionObserver (the headless harness) mount
+everything as before. Item data for every row is always in `state.chats`
+(one bulk RPC), so an upgrade is pure DOM work. Run them after touching `rpc-core.js`,
 `app.js`, `chat-view.js` or `ui.js`.
 
 Known-broken (pre-existing, re-checked 2026-09-26 on v1.4.38): the DOM
