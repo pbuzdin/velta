@@ -3507,7 +3507,10 @@ export class ChatView {
     this.core.addEventListener("msg-updated", e => this.onMsgUpdated(e.detail.chatId, e.detail.msg));
     this.core.addEventListener("msgs-deleted", e => this.onMsgsDeleted(e.detail.chatId, e.detail.ids));
     this.core.addEventListener("incoming-msg", e => this.onIncoming(e.detail.chatId, e.detail.msg));
-    this.core.addEventListener("msgs-changed", e => this.onMsgsChanged(e.detail.chatId, { fresh: true }));
+    // fresh only for an unknown scope (chatId 0): a known chat's event hits
+    // an id cache the core layer already invalidated, so forcing fresh would
+    // just re-download every id of the chat (#43).
+    this.core.addEventListener("msgs-changed", e => this.onMsgsChanged(e.detail.chatId, { fresh: !e.detail.chatId }));
     this.core.addEventListener("msg-sent", e => { /* handled via sendMessage return */ });
     this.core.addEventListener("pinned-changed", e => {
       if (e.detail.chatId === this._session?.chatId) this._refreshPinnedBar();

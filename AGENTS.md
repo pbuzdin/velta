@@ -547,6 +547,10 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   window via `getMessages({aroundId})`; a window short of the tail sets
   `hasNewer` and pages down (`_loadNewer`), while `onIncoming`/
   `onMsgsChanged` skip appends and `appendOutgoing` jumps to the tail.
+  KEEP (#43): the `msgs-changed` listener passes `fresh` only for an
+  unknown scope (`chatId === 0` — live ticks, scope-less local-chat
+  events); a known chat's event refetches the tail from the id cache the
+  core layer already invalidated, never forcing a full id-list reload.
   Messages become seen only once on screen: `_checkSeen` takes the lowest
   visible row as a watermark and batches `markSeen` (core
   `markseen_msgs` for exactly those ids). KEEP: no seen-marking while
