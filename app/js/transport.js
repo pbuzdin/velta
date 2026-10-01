@@ -8,7 +8,6 @@
 //      (Chrome blocks plain ws:// to loopback from secure pages, but
 //      allows fetch() with Private-Network-Access headers)
 //   5. anything else (dev/demo)       → mock core
-import { MockCore } from "./mock-core.js";
 import { JsonRpcCore } from "./rpc-core.js";
 
 const WS_URL = "ws://127.0.0.1:20808";
@@ -184,6 +183,7 @@ export async function createCore({ onDiagnostic = () => {} } = {}) {
   // Mock mode (set from the drawer menu): skip every real backend.
   if (localStorage.getItem("velta-mock") === "1") {
     diagnostic("info", "Mock mode enabled; using the demo core");
+    const { MockCore } = await import("./mock-core.js");
     const mock = new MockCore();
     mock.backend = { kind: "mock", label: "demo mode (mock core)", connected: true };
     statusEvent(true, "mock");
@@ -244,6 +244,7 @@ export async function createCore({ onDiagnostic = () => {} } = {}) {
   }
   diagnostic("warning", "No real core responded; entering demo mode");
   console.info("[velta] falling back to mock core");
+  const { MockCore } = await import("./mock-core.js");
   const mock = new MockCore();
   mock.backend = { kind: "mock", label: "demo mode (no local core)", connected: false };
   return mock;

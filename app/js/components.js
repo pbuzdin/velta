@@ -1,6 +1,6 @@
 // components.js — Progressive Web Components built on Elena (@elenajs/core)
 import { Elena, html, unsafeHTML } from "../vendor/elena.js";
-import { formatListTime, timeAgo } from "./mock-core.js";
+import { formatListTime, timeAgo } from "./format.js";
 import { fileUrl, mediaFallbackUrl } from "./media.js";
 import { diagnosticsSink } from "./diagnostics.js";
 import { avatarBackgroundUrl, fingerprintFor, cachedFingerprint, fingerprintGroups } from "./avatar.js";

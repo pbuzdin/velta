@@ -3,6 +3,8 @@
 // method names (get_all_accounts, get_chatlist_entries, get_message_ids, ...)
 // to run against the real core.
 
+import { pageBounds } from "./format.js";
+
 const CONTACTS = [
   { id: 2, name: "Ada Byron", addr: "ada@nine.testrun.org", color: "#c6853f", online: true, verified: true, avatar: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23c6853f'/%3E%3Cstop offset='1' stop-color='%23c65a8e'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23g)'/%3E%3Ccircle cx='32' cy='24' r='11' fill='%23fff' opacity='.92'/%3E%3Cpath d='M12 56c2-12 10-17 20-17s18 5 20 17z' fill='%23fff' opacity='.92'/%3E%3C/svg%3E" },
   { id: 3, name: "Kenji Sato", addr: "kenji@nine.testrun.org", color: "#3f8fc6", online: false, lastSeen: Date.now() - 32 * 60000, verified: false, avatar: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2311998e'/%3E%3Cstop offset='1' stop-color='%2338ef7d'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23g)'/%3E%3Ccircle cx='32' cy='24' r='11' fill='%23fff' opacity='.92'/%3E%3Cpath d='M12 56c2-12 10-17 20-17s18 5 20 17z' fill='%23fff' opacity='.92'/%3E%3C/svg%3E" },
@@ -867,76 +869,6 @@ export class MockCore extends EventTarget {
   }
 }
 
-// Page window over a chat's ordered message-id list, shared by the real and
-// the demo core's getMessages (see JsonRpcCore.getMessages for the options).
-// An unknown aroundId/beforeId falls back to the newest page; an unknown
-// afterId yields an empty page with hasNewer false, so a detached chat view
-// reloads the tail instead of appending it after a gap.
-export function pageBounds(ids, { beforeId = null, afterId = null, aroundId = null, before = 10, limit = 40 } = {}) {
-  const n = ids.length;
-  if (aroundId != null) {
-    const idx = ids.indexOf(aroundId);
-    if (idx >= 0) {
-      const end = Math.min(n, Math.max(0, idx - before) + limit);
-      return { start: Math.max(0, end - limit), end };
-    }
-  } else if (afterId != null) {
-    const idx = ids.indexOf(afterId);
-    if (idx < 0) return { start: n, end: n };
-    return { start: idx + 1, end: Math.min(n, idx + 1 + limit) };
-  }
-  let end = n;
-  if (beforeId != null) {
-    const idx = ids.indexOf(beforeId);
-    if (idx >= 0) end = idx;
-  }
-  return { start: Math.max(0, end - limit), end };
-}
-
-export function formatBytes(n) {
-  if (n < 1024) return n + " B";
-  if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
-  return (n / 1048576).toFixed(1) + " MB";
-}
-
-export function formatTime(ts) {
-  const d = new Date(ts);
-  // 24-hour everywhere, regardless of device locale
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-}
-
-export function formatListTime(ts) {
-  const d = new Date(ts), now = new Date();
-  const sameDay = d.toDateString() === now.toDateString();
-  if (sameDay) return formatTime(ts);
-  const diff = (now - d) / 86400e3;
-  if (diff < 7) return d.toLocaleDateString([], { weekday: "short" });
-  return d.toLocaleDateString([], { day: "2-digit", month: "2-digit", year: "2-digit" });
-}
-
-export function formatDay(ts) {
-  const d = new Date(ts), now = new Date();
-  if (d.toDateString() === now.toDateString()) return "Today";
-  const y = new Date(now - 86400e3);
-  if (d.toDateString() === y.toDateString()) return "Yesterday";
-  return d.toLocaleDateString([], { day: "numeric", month: "long", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
-}
-
-// "just now" / "5 minutes ago" / "3 hours ago" / "2 days ago" — relative time
-// for last-seen info.
-export function timeAgo(ts) {
-  const sec = Math.max(0, (Date.now() - ts) / 1000);
-  if (sec < 60) return "just now";
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min} minute${min === 1 ? "" : "s"} ago`;
-  const hrs = Math.floor(min / 60);
-  if (hrs < 24) return `${hrs} hour${hrs === 1 ? "" : "s"} ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 7) return `${days} day${days === 1 ? "" : "s"} ago`;
-  const weeks = Math.floor(days / 7);
-  if (weeks < 5) return `${weeks} week${weeks === 1 ? "" : "s"} ago`;
-  const months = Math.floor(days / 30);
-  if (months < 12) return `${months} month${months === 1 ? "" : "s"} ago`;
-  const years = Math.floor(days / 365);
-  return `${years} year${years === 1 ? "" : "s"} ago`;
-}
+// Pure helpers moved to format.js (#48): re-exported here so demo-mode
+// consumers and tests keep their import paths.
+export { pageBounds, formatBytes, formatTime, formatListTime, formatDay, timeAgo } from "./format.js";

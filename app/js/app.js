@@ -12,7 +12,7 @@ import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomains
 import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate } from "./ui.js";
 import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact } from "./p2p.js";
 import { withLocalChat, hubModel, renameDevice, removePeer, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
-import { timeAgo, formatBytes } from "./mock-core.js";
+import { timeAgo, formatBytes } from "./format.js";
 import { acquireCode } from "./qr-scan.js";
 import { linkPreviewEnabled, setLinkPreviewEnabled, LINK_PREVIEW_IP_WARNING } from "./link-preview.js";
 

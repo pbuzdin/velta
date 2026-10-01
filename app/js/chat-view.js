@@ -1,5 +1,5 @@
 // chat-view.js — virtualized message history (virtual-scroller) + composer
-import { formatTime, formatDay, formatBytes } from "./mock-core.js";
+import { formatTime, formatDay, formatBytes } from "./format.js";
 import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener } from "./components.js";
 import { showContextMenu, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG } from "./ui.js";
 import { diagnosticRow } from "./diagnostics.js";

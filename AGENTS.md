@@ -58,7 +58,8 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── p2p.js            # Local chat UI: drawer toggle, list card, pairing, legacy 1:1 modal (Tauri only)
 │   │   ├── read-markers.js   # manual "read up to here" markers per (account, chat), localStorage-only
 │   │   ├── qr-scan.js        # code acquisition: paste or camera scan (native BarcodeDetector probed with a 2s timeout, vendored jsQR fallback — many Android WebViews ship no Shape Detection API or one whose detect() hangs)
-│   │   ├── mock-core.js      # in-memory demo core implementing the JSON-RPC surface
+│   │   ├── format.js         # pure time/size/pageBounds helpers shared by prod modules (mock-core re-exports them)
+│   │   ├── mock-core.js      # in-memory demo core implementing the JSON-RPC surface (NOT in the prod import graph: transport imports it dynamically)
 │   │   ├── rpc-core.js       # JsonRpcCore wrapper over transports + event mapping
 │   │   ├── transport.js      # backend auto-detection (Tauri, WebSocket, HTTP, mock)
 │   │   ├── webxdc-manager.js # webxdc host: opaque-origin sandboxed app overlay, shim postMessage relay, per-instance serials
@@ -68,8 +69,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   └── virtual-scroller.js
 │   ├── diag.html             # connection diagnostics page for the service bridge
 │   ├── index.html            # main app shell
-│   ├── manifest.webmanifest  # PWA manifest (name: "Velta")
-│   └── sw.js                 # vestigial: boot unregisters all service workers (see §9.1)
+│   └── manifest.webmanifest  # PWA manifest (name: "Velta")
 │
 ├── core/                     # Delta Chat core Rust library (upstream copy)
 │   ├── src/                  # main library (~64 Rust modules, see core/src/lib.rs)
@@ -227,7 +227,14 @@ here is only the UI smoke test. **KEEP:** every new
 
 The service worker is dead by design: boot unregisters every registration
 (app.js, near the PWA comment — cache-first SWs kept serving stale JS across
-upgrades). `app/sw.js` is vestigial; don't rely on it or re-register one.
+upgrades). `app/sw.js` shipped dead weight for years and was deleted (#48);
+don't re-register one. Startup script loads (#48): `ui-scale.js` and
+`boot-net.js` stay parser-blocking on purpose (pre-paint scale, early error
+banner); `vendor/virtual-scroller.js` is `defer` — module scripts run after
+deferred scripts, so the global class exists before `new VirtualScroller`.
+`mock-core.js` must stay out of the prod import graph: transport dynamic-
+imports the demo core, and prod modules take the shared helpers from
+`format.js` (mock-core re-exports them for demo mode and tests).
 
 ### 4.3 Tauri desktop/Android app (`velta-app/`)
 
@@ -836,7 +843,7 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   does NOT guarantee non-delivery (an oversized send can still reach the
   recipient), a local-only delete left the message alive on the other
   client. rpc-core `_mapMessage` carries `error: m.error || null`.
-- **Times are 24-hour**: `formatTime` (mock-core.js) forces `hour12: false`
+- **Times are 24-hour**: `formatTime` (format.js) forces `hour12: false`
   and is the single timestamp source for chat rows, list rows and call
   lists — don't reintroduce locale defaults (rendered `03:21 AM` on en-US).
 - All `:hover` styling lives inside
