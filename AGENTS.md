@@ -1405,8 +1405,17 @@ current dev path.
 ### 9.2 Tauri desktop/Android app
 
 - The Tauri Rust layer embeds `deltachat-jsonrpc` as a library and exposes two
-  commands: `invoke("rpc", { request })` to call the core, and `emit("velta-rpc")`
-  to push core events to the WebView.
+  paths: `invoke("rpc", { request })` and `emit("velta-rpc")`. Since #49 the
+  desktop `rpc` command RETURNS the response line: it parks the request's
+  JSON-RPC id in `RpcState.web_pending`, the sidecar reader thread resolves
+  the parked waiter instead of emitting (`resolve_web_line`), and
+  `tauriTransport.send` feeds the invoke resolution into the same receiver —
+  rpc-core keeps its single-stream design. The broadcast now carries only
+  what the core PUSHES (id-less event notifications); a response for an id
+  no one waits on anymore (frontend timeout) still falls through to the
+  emit path. Android keeps the write-only arm (its WebView speaks through
+  the VeltaBridge; responses stay on the forwarder emit). The 180s Rust
+  wait is only a leak guard — rpc-core's per-call timeouts fire first.
 - Account data lives in the platform app-data directory:
   - Windows: `%LOCALAPPDATA%/org.velta/accounts` (identifier `org.velta`;
     pre-rebrand desktop builds left `%LOCALAPPDATA%/chat.delta.desktop.tauri`

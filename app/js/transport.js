@@ -47,10 +47,18 @@ function tauriTransport() {
   const event = tauri.event || tauri;
   const invoke = core.invoke ? core.invoke.bind(core) : tauri.invoke.bind(tauri);
   const listen = event.listen ? event.listen.bind(event) : tauri.listen.bind(tauri);
+  // The command's return value is the response path (#49): the desktop rpc
+  // command parks the request id and resolves with the response line. It is
+  // fed to the same receiver so rpc-core keeps its single-stream design;
+  // the velta-rpc broadcast then carries only core-pushed events. Captured
+  // synchronously — the listener install below can take seconds (see the
+  // comment there), and the handshake must not ride on it anymore.
+  let receiver = null;
   return {
     name: "tauri",
     label: "embedded core (Tauri)",
     async setReceiver(fn) {
+      receiver = fn;
       // Do NOT race event.listen() against a timeout. On Android the Tauri
       // event bridge subscription can legitimately take a few seconds to
       // install while the WebView finishes coming up, and treating that delay
@@ -63,8 +71,17 @@ function tauriTransport() {
       await listen("velta-rpc", ev => fn(ev.payload));
     },
     send(line) {
-      // Return the promise so rpc-core can catch invoke errors
-      return invoke("rpc", { request: line });
+      // Return the promise so rpc-core can catch invoke errors; a resolved
+      // string is the response line (desktop correlation, #49) and feeds the
+      // receiver. Android's write-only arm resolves empty — its responses
+      // still arrive via the broadcast.
+      const result = invoke("rpc", { request: line });
+      if (result && typeof result.then === "function") {
+        result.then((resp) => {
+          if (receiver && typeof resp === "string" && resp) receiver(resp);
+        }).catch(() => {}); // rpc-core handles invoke errors itself
+      }
+      return result;
     },
     async reconnect() { return true; },
   };
