@@ -362,7 +362,7 @@ let wrappedCore = null;
 const core = () => wrappedCore;
 
 const P2P_HANDLED = new Set([
-  "getChatList", "getChat", "getMessages", "getMessage", "sendMessage",
+  "getChatList", "getChat", "getMessages", "getMessageIds", "getMessage", "sendMessage",
   "markRead", "deleteMessages", "setChatFlags", "resendMessage", "downloadFullMessage",
 ]);
 
@@ -420,6 +420,13 @@ function handler(prop) {
         const p = store.peers.get(String(id).slice(P2P_PREFIX.length));
         const msgs = p ? p.msgs.map(m => mapMsg(p, m)) : [];
         return { messages: msgs, hasMore: false };
+      };
+
+    case "getMessageIds":
+      return async (t, id) => {
+        if (!String(id).startsWith(P2P_PREFIX)) return t.getMessageIds(id);
+        const p = store.peers.get(String(id).slice(P2P_PREFIX.length));
+        return p ? p.msgs.map(m => m.id) : [];
       };
 
     case "getMessage":

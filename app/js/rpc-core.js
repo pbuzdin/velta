@@ -1160,6 +1160,18 @@ export class JsonRpcCore extends EventTarget {
     };
   }
 
+  // The chat's message ids, ascending. Cache-backed; used for page math and
+  // by clear history, which needs ids only (never the full messages).
+  async getMessageIds(chatId) {
+    const { accountId, accountEpoch } = this;
+    let ids = this.msgIdCache.get(chatId);
+    if (!ids) {
+      ids = await this._call("get_message_ids", accountId, chatId, false, false);
+      if (this._isCurrentAccount(accountEpoch)) this.msgIdCache.set(chatId, ids);
+    }
+    return ids;
+  }
+
   // One page of a chat's history. Default: the newest `limit` messages;
   // beforeId: the page before it (paging up); afterId: the page after it
   // (paging down a window that does not reach the tail yet); aroundId: a
@@ -1170,11 +1182,7 @@ export class JsonRpcCore extends EventTarget {
   async getMessages(chatId, { beforeId = null, afterId = null, aroundId = null, before = 10, limit = 40, fresh = false } = {}) {
     const { accountId, accountEpoch } = this;
     if (fresh && this._isCurrentAccount(accountEpoch)) this.msgIdCache.delete(chatId);
-    let ids = this.msgIdCache.get(chatId);
-    if (!ids) {
-      ids = await this._call("get_message_ids", accountId, chatId, false, false);
-      if (this._isCurrentAccount(accountEpoch)) this.msgIdCache.set(chatId, ids);
-    }
+    const ids = await this.getMessageIds(chatId);
     const { start, end } = pageBounds(ids, { beforeId, afterId, aroundId, before, limit });
     const page = ids.slice(start, end);
     if (!page.length) return { messages: [], hasMore: start > 0, hasNewer: end < ids.length };
@@ -1305,12 +1313,11 @@ export class JsonRpcCore extends EventTarget {
   async markRead(chatId) {
     const { accountId, accountEpoch } = this;
     try {
-      const ids = this.msgIdCache.get(chatId)
-        || await this._call("get_message_ids", accountId, chatId, false, false);
-      // All of them, not a capped slice: a capped markseen leaves residual
-      // unread after opening a chat with many fresh messages, so the badge
-      // never clears (open = read is the upstream Delta Chat behavior).
-      if (ids?.length) await this._call("markseen_msgs", accountId, ids);
+      // One call, no id list (#47): core marks every fresh message noticed,
+      // which clears the badge, without shipping up to 100k ids. Rows
+      // actually shown are marked seen (read receipts) by the chat view's
+      // per-visible-row markSeen.
+      await this._call("marknoticed_chat", accountId, chatId);
     } catch { /* nothing to mark */ }
     this._emitAccount("chat-updated", { chatId }, accountEpoch);
   }

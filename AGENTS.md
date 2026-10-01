@@ -516,7 +516,8 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   docs/agents/relays.md (relay line/detail/manager), onboarding (splash,
   second device). Chat-list **Delete chat** calls `deleteChat` → core
   `delete_chat` and the chat leaves the list (#34). `deleteMessages` only
-  clears rows; the in-chat **Clear history** action still uses it. A
+  clears rows; the in-chat **Clear history** action feeds it `getMessageIds`
+  (ids only, #47 — it never loads the full messages). A
   `p2p:` chat is forgotten with `removePeer` — do not send that string id
   to `delete_chat`. Pinned by `tests/rpc-account-isolation.test.mjs`.
 - `app/js/chat-view.js` owns the conversation history (virtualized via
@@ -544,8 +545,10 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `markseen_msgs` for exactly those ids). KEEP: no seen-marking while
   `_settling` (open/jump positioning) or `document.hidden`; rows in the
   pending batch are flushed on `close()` only while the session is still
-  current (never into another account); go-down = catch up (`markRead`
-  of the whole chat). The "Unread messages" line and the marker ride inside
+  current (never into another account); go-down = catch up (`markRead`).
+  `markRead` is one `marknoticed_chat` call (#47) — core marks every fresh
+  message noticed, clearing the badge without shipping the chat's id list
+  (receipts for rows shown still go out via the per-visible-row `markSeen`). The "Unread messages" line and the marker ride inside
   their rows (`unreadFirst`/`readMarker` item flags, like `dayFirst`), and
   `_renderItem` rejects cached rows whose `_veltaFlags` differ. Local
   (P2P) chats keep open = read. The message menu does not set or clear
