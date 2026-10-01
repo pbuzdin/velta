@@ -725,25 +725,32 @@ function scheduleDiagnosticsRowUpdate() {
   }, 250);
 }
 
-// Report UI visibility to the Rust shell: the Android background event
-// poller only drains core events while this WebView is paused (the
-// foreground CoreService keeps the process alive). Events it consumed never
-// reached the frontend, so on becoming visible we refetch what's on screen.
+// Report UI visibility to the Rust shell. The Android background poller
+// drains core events while the page is hidden or the activity is stopped
+// (Home often leaves document.hidden false and freezes the WebView). Events
+// it consumed never reached the frontend, so becoming visible refetches.
+function refreshAfterBackground() {
+  if (!core) return;
+  scheduleChatListRefresh();
+  // Delivery events the background poller consumed while hidden never
+  // reached the JS side — reconcile the sending-dash bookkeeping too.
+  core.reconcileSending?.();
+  if (state.activeChatId) chatView?.onMsgsChanged(state.activeChatId);
+}
 function reportUiVisible() {
   try {
     const tauri = window.__TAURI__;
     const invoke = tauri?.core?.invoke || tauri?.invoke;
     invoke?.("set_ui_visible", { visible: !document.hidden })?.catch?.(() => {});
   } catch {}
-  if (!document.hidden && core) {
-    scheduleChatListRefresh();
-    // Delivery events the background poller consumed while hidden never
-    // reached the JS side — reconcile the sending-dash bookkeeping too.
-    core.reconcileSending?.();
-    if (state.activeChatId) chatView?.onMsgsChanged(state.activeChatId);
-  }
+  if (!document.hidden) refreshAfterBackground();
 }
 document.addEventListener("visibilitychange", reportUiVisible);
+// MainActivity.onStart. visibilitychange does not fire on every resume.
+try {
+  const listen = window.__TAURI__?.event?.listen;
+  listen?.("velta-foreground", () => refreshAfterBackground());
+} catch {}
 
 // Offline media queue tray: a chip inside the composer input wrap listing
 // media that will send as soon as the peer is reachable. Rendered only for
@@ -2492,6 +2499,38 @@ async function askNotificationPermission() {
       new Promise(r => setTimeout(r, 2500)),
     ]);
   } catch {}
+  await askBatteryExemption();
+}
+
+// Doze and OEM battery managers freeze the in-process core while the
+// activity is stopped, so mail waits until the next open. Asked again each
+// cold start until the exemption is granted; sessionStorage blocks a second
+// dialog in the same process (account create and boot can both reach here).
+async function askBatteryExemption() {
+  if (!/Android/i.test(navigator.userAgent || "")) return;
+  if (sessionStorage.getItem("velta-battery-opt-asked")) return;
+  const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+  if (!invoke) return;
+  let exempt = true;
+  try {
+    exempt = await invoke("battery_optimization_exempt");
+  } catch {
+    return;
+  }
+  if (exempt) return;
+  sessionStorage.setItem("velta-battery-opt-asked", "1");
+  const ok = await confirmModal(
+    "Keep messages arriving",
+    "Android stops Velta from syncing after you leave the app, so new messages wait until you open it. Allow unrestricted battery use so mail keeps arriving in the background.",
+    "Allow",
+    false,
+  );
+  if (!ok) return;
+  try {
+    await invoke("request_battery_exemption");
+  } catch (err) {
+    diagnostics.append("warning", `battery exemption: ${err?.message || err}`);
+  }
 }
 
 // Configure a profile from a dcaccount: relay invite link (deeplink or manual).
@@ -3683,6 +3722,8 @@ async function boot() {
       if (localStorage.getItem("velta-ask-notifications") === "1") {
         localStorage.removeItem("velta-ask-notifications");
         await askNotificationPermission();
+      } else if (state.account?.configured) {
+        await askBatteryExemption();
       }
     } catch {}
 

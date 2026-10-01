@@ -90,6 +90,54 @@ pub fn forwarded_events_line(response_line: &str) -> Option<String> {
     forwarded_events_from_result(value.get("result")?)
 }
 
+/// The background poller must sleep only while the page can drain events
+/// itself. Android Home often leaves the page flag true and freezes JS;
+/// the activity flag covers that.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub fn background_poller_paused(js_visible: bool, activity_foreground: bool) -> bool {
+    js_visible && activity_foreground
+}
+
+/// IncomingMsg hits in a JSON-RPC response line (a get_next_event_batch
+/// result, or a single event). Empty when the line is not an event batch.
+/// The page's poll and the Rust poller share one core queue; a response
+/// that belongs to the frozen WebView still has to be notified.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub fn incoming_hits(response_line: &str) -> Vec<(u32, u32, u32)> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(response_line) else {
+        return Vec::new();
+    };
+    if value.get("error").is_some() {
+        return Vec::new();
+    }
+    let Some(result) = value.get("result") else {
+        return Vec::new();
+    };
+    let mut hits = Vec::new();
+    let mut push = |ev: &serde_json::Value| {
+        if ev.pointer("/event/kind").and_then(|k| k.as_str()) != Some("IncomingMsg") {
+            return;
+        }
+        let msg_id = ev.pointer("/event/msgId").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        if msg_id == 0 {
+            return;
+        }
+        hits.push((
+            ev.get("contextId").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+            ev.pointer("/event/chatId").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+            msg_id,
+        ));
+    };
+    if let Some(arr) = result.as_array() {
+        for ev in arr {
+            push(ev);
+        }
+    } else {
+        push(result);
+    }
+    hits
+}
+
 /// Routing of one background event-batch response while the UI is
 /// visible: the WebView gets the events (as a notification, emitted by the
 /// response forwarder itself so it stays ordered before any later response
@@ -188,6 +236,24 @@ mod tests {
         assert_eq!(route_event_batch("bg-ev-3", BATCH.into(), false), (None, BATCH.to_string()));
         let err = r#"{"jsonrpc":"2.0","id":"bg-ev-1","error":{"code":-1,"message":"x"}}"#;
         assert_eq!(route_event_batch("bg-ev-1", err.into(), true), (None, err.to_string()));
+    }
+
+    #[test]
+    fn the_poller_pauses_only_while_the_page_and_the_activity_are_up() {
+        assert!(background_poller_paused(true, true));
+        assert!(!background_poller_paused(true, false));
+        assert!(!background_poller_paused(false, true));
+        assert!(!background_poller_paused(false, false));
+    }
+
+    #[test]
+    fn incoming_hits_reads_a_batch_and_ignores_everything_else() {
+        assert_eq!(incoming_hits(BATCH), vec![(1, 10, 20)]);
+        let numeric = BATCH.replacen("\"bg-ev-3\"", "7", 1);
+        assert_eq!(incoming_hits(&numeric), vec![(1, 10, 20)]);
+        assert!(incoming_hits(r#"{"jsonrpc":"2.0","id":1,"result":{"id":5}}"#).is_empty());
+        assert!(incoming_hits(r#"{"jsonrpc":"2.0","id":1,"error":{"message":"x"}}"#).is_empty());
+        assert!(incoming_hits("not json").is_empty());
     }
 
     #[test]

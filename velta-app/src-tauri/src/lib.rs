@@ -1197,14 +1197,57 @@ fn notify_incoming(app: tauri::AppHandle, title: String, body: String) -> Result
 // ---------- background event draining (Android) ----------
 
 // Whether the frontend UI can currently process core events itself. The JS
-// side reports visibility via set_ui_visible; when the app is hidden the
-// WebView's JS stalls (and the process would freeze without the foreground
-// service), so the Rust-side background poller takes over event draining.
+// side reports visibility via set_ui_visible. On Android that flag alone is
+// not enough: pressing Home often leaves document.hidden false while the
+// WebView's JS is frozen, so the poller would stay asleep.
 static UI_VISIBLE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+// MainActivity onStart/onStop. Default true so a poller that starts during
+// launch does not treat the app as backgrounded before the activity exists.
+#[cfg(target_os = "android")]
+static ACTIVITY_FOREGROUND: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+#[cfg(target_os = "android")]
+fn android_ui_visible() -> bool {
+    bg_events::background_poller_paused(
+        UI_VISIBLE.load(std::sync::atomic::Ordering::SeqCst),
+        ACTIVITY_FOREGROUND.load(std::sync::atomic::Ordering::SeqCst),
+    )
+}
 
 #[tauri::command]
 fn set_ui_visible(visible: bool) {
     UI_VISIBLE.store(visible, std::sync::atomic::Ordering::SeqCst);
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn battery_optimization_exempt() -> bool {
+    match battery_is_exempt() {
+        Ok(exempt) => exempt,
+        Err(e) => {
+            log(&format!("battery exemption check failed: {e}"));
+            false
+        }
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn battery_optimization_exempt() -> bool {
+    true
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn request_battery_exemption() -> Result<(), String> {
+    battery_request_exemption()
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn request_battery_exemption() -> Result<(), String> {
+    Err("battery settings are only on Android".into())
 }
 
 #[tauri::command]
@@ -1476,6 +1519,11 @@ static APP_INAPP_BROWSER_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::
 #[cfg(target_os = "android")]
 static APP_NOTIFICATIONS_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
 
+// org.velta.Battery — isExempt / request. Cached here for the same
+// classloader reason: the commands run on a Rust worker thread.
+#[cfg(target_os = "android")]
+static APP_BATTERY_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
+
 // --- UnifiedPush (Android) ---
 // Handles for the JNI callbacks from UnifiedPushService.kt. The accounts
 // manager and the request channel are set once init_android_core finishes;
@@ -1536,6 +1584,15 @@ pub extern "system" fn Java_org_velta_MainActivity_setApplicationContext(
         },
         Err(e) => log(&format!("setApplicationContext: Notifications find_class failed: {e}")),
     }
+    match env.find_class("org/velta/Battery") {
+        Ok(class) => match env.new_global_ref(&class) {
+            Ok(g) => {
+                *APP_BATTERY_CLASS.lock().unwrap() = Some(g);
+            }
+            Err(e) => log(&format!("setApplicationContext: Battery global ref failed: {e}")),
+        },
+        Err(e) => log(&format!("setApplicationContext: Battery find_class failed: {e}")),
+    }
     log("application context stored for Rust commands");
 }
 
@@ -1576,6 +1633,48 @@ pub extern "system" fn Java_org_velta_UnifiedPushService_pushEndpointReceived(
             *PENDING_PUSH_TOKEN.lock().unwrap() = Some(token);
             log("push endpoint parked until the core is ready");
         }
+    }
+}
+
+// Activity lifecycle. Home freezes the WebView without clearing
+// document.hidden, so the poller must key off this flag too. Coming back
+// interrupts a dead IDLE (opening the app is otherwise the only thing that
+// unsticks a socket Android stopped delivering) and tells the page to
+// refetch what the poller consumed.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_org_velta_MainActivity_setActivityForeground(
+    _env: jni::JNIEnv,
+    _class: jni::objects::JClass,
+    foreground: jni::sys::jboolean,
+) {
+    let foreground = foreground != 0;
+    ACTIVITY_FOREGROUND.store(foreground, std::sync::atomic::Ordering::SeqCst);
+    log(&format!("activity foreground: {foreground}"));
+    if foreground {
+        if let Some(app) = APP_HANDLE.lock().unwrap().clone() {
+            let _ = app.emit("velta-foreground", ());
+        }
+        // Always interrupt on resume, even if a network callback just did.
+        kick_maybe_network(true);
+    } else {
+        kick_maybe_network(false);
+    }
+}
+
+// Default-network changes from CoreService. A backgrounded IDLE socket can
+// sit half-open until the activity returns; this is the reconnect.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_org_velta_CoreService_networkAvailable(
+    _env: jni::JNIEnv,
+    _this: jni::objects::JClass,
+    available: jni::sys::jboolean,
+) {
+    if available != 0 {
+        kick_maybe_network(false);
+    } else {
+        spawn_core_rpc("maybe_network_lost", false);
     }
 }
 
@@ -2133,7 +2232,7 @@ async fn init_android_core(
                     // A batch arriving while the UI is visible (the request
                     // was parked before the app came back) is the WebView's.
                     let line = if bg_events::is_event_batch_id(&id) {
-                        let visible = UI_VISIBLE.load(std::sync::atomic::Ordering::SeqCst);
+                        let visible = android_ui_visible();
                         let (fwd, to_poller) = bg_events::route_event_batch(&id, line, visible);
                         if let Some(fwd) = fwd {
                             if let Err(e) = app.emit("velta-rpc", &fwd) {
@@ -2169,6 +2268,25 @@ async fn init_android_core(
                     continue;
                 }
             };
+            // The page's own poll may be the waiter. Once the activity is
+            // stopped that poll is frozen inside the WebView, so the batch
+            // would sit there until the next open and no notification would
+            // be posted. Notify from here and still hand the batch to the
+            // WebView for when it thaws. Key off the activity only: a hidden
+            // page in a live activity toasts from JS, and notifying here too
+            // would post twice. bg- responses never reach this arm.
+            if !ACTIVITY_FOREGROUND.load(std::sync::atomic::Ordering::SeqCst) {
+                let hits = bg_events::incoming_hits(&line);
+                if !hits.is_empty() {
+                    if let Some(tx) = ANDROID_RPC_TX.lock().unwrap().clone() {
+                        let app2 = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let state = app2.state::<RpcState>();
+                            bg_notify_incoming(&app2, &tx, &state, hits).await;
+                        });
+                    }
+                }
+            }
             // NOTE: do not log every response -- it's the hot path and would
             // grow velta.log unbounded. Errors are still logged below.
             if let Err(e) = app.emit("velta-rpc", &line) {
@@ -2190,6 +2308,69 @@ async fn init_android_core(
 
     log("android core RPC session and response forwarder ready");
     Ok(req_tx)
+}
+
+// Interrupt IDLE so a socket Android stopped delivering actually fetches.
+// force skips the short debounce (resume, and the background safety net).
+#[cfg(target_os = "android")]
+static LAST_MAYBE_NETWORK_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(target_os = "android")]
+fn kick_maybe_network(force: bool) {
+    if !force {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let prev = LAST_MAYBE_NETWORK_MS.load(std::sync::atomic::Ordering::SeqCst);
+        if now.saturating_sub(prev) < 3_000 {
+            return;
+        }
+        LAST_MAYBE_NETWORK_MS.store(now, std::sync::atomic::Ordering::SeqCst);
+    }
+    spawn_core_rpc("maybe_network", force);
+}
+
+#[cfg(target_os = "android")]
+fn spawn_core_rpc(method: &'static str, log_ok: bool) {
+    let Some(app) = APP_HANDLE.lock().unwrap().clone() else {
+        log(&format!("{method}: core not initialized"));
+        return;
+    };
+    let Some(tx) = ANDROID_RPC_TX.lock().unwrap().clone() else {
+        log(&format!("{method}: rpc channel not ready"));
+        return;
+    };
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<RpcState>();
+        match bg_rpc(&tx, &state, method, serde_json::json!([])).await {
+            Ok(_) => {
+                if log_ok {
+                    log(&format!("{method}: done"));
+                }
+            }
+            Err(e) => log(&format!("{method}: {e}")),
+        }
+    });
+}
+
+// While the activity is stopped, break a half-open IDLE every 90s. A healthy
+// connection is interrupted and goes straight back to IDLE; a dead one
+// fetches. The poller does not do this — it only reads events.
+#[cfg(target_os = "android")]
+fn start_bg_fetch_kicker(app: tauri::AppHandle, tx: tokio::sync::mpsc::UnboundedSender<String>) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(90)).await;
+            if android_ui_visible() {
+                continue;
+            }
+            let state = app.state::<RpcState>();
+            if let Err(e) = bg_rpc(&tx, &state, "maybe_network", serde_json::json!([])).await {
+                log(&format!("background maybe_network: {e}"));
+            }
+        }
+    });
 }
 
 // Round-trip a JSON-RPC call from Rust while the UI is hidden. Requests use
@@ -2399,6 +2580,41 @@ fn kotlin_notify_incoming(
 }
 
 #[cfg(target_os = "android")]
+fn battery_is_exempt() -> Result<bool, String> {
+    let ctx_guard = APP_CONTEXT.lock().unwrap();
+    let context = ctx_guard
+        .as_ref()
+        .map(|r| r.as_obj().clone())
+        .ok_or("application context was not handed over yet")?;
+    let vm_guard = APP_JAVA_VM.lock().unwrap();
+    let vm_ref = vm_guard.as_ref().ok_or("jvm was not handed over yet")?;
+    let mut env = vm_ref.attach_current_thread().map_err(|e| format!("jvm attach: {e}"))?;
+    let class_guard = APP_BATTERY_CLASS.lock().unwrap();
+    let class_ref = class_guard.as_ref().ok_or("Battery class was not cached at startup")?;
+    env.call_static_method(class_ref, "isExempt", "(Landroid/content/Context;)Z", &[(&context).into()])
+        .map_err(|e| e.to_string())?
+        .z()
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "android")]
+fn battery_request_exemption() -> Result<(), String> {
+    let ctx_guard = APP_CONTEXT.lock().unwrap();
+    let context = ctx_guard
+        .as_ref()
+        .map(|r| r.as_obj().clone())
+        .ok_or("application context was not handed over yet")?;
+    let vm_guard = APP_JAVA_VM.lock().unwrap();
+    let vm_ref = vm_guard.as_ref().ok_or("jvm was not handed over yet")?;
+    let mut env = vm_ref.attach_current_thread().map_err(|e| format!("jvm attach: {e}"))?;
+    let class_guard = APP_BATTERY_CLASS.lock().unwrap();
+    let class_ref = class_guard.as_ref().ok_or("Battery class was not cached at startup")?;
+    env.call_static_method(class_ref, "request", "(Landroid/content/Context;)V", &[(&context).into()])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[cfg(target_os = "android")]
 fn opt_jstring<'local>(
     env: &mut jni::JNIEnv<'local>,
     value: Option<&str>,
@@ -2411,15 +2627,15 @@ fn opt_jstring<'local>(
 
 // Drain the core's event queue while the UI cannot: with the foreground
 // service keeping the process alive, this is what turns background mail
-// into notifications. Events consumed here never reach the frontend; the
-// JS visibilitychange handler refetches the chat list and the open chat
-// when the app becomes visible again.
+// into notifications. The poller runs when the page is hidden or the
+// activity is stopped. Events it consumes never reach the frontend; resume
+// refetches via visibilitychange and the velta-foreground event.
 #[cfg(target_os = "android")]
 fn start_bg_event_poller(app: tauri::AppHandle, tx: tokio::sync::mpsc::UnboundedSender<String>) {
     tauri::async_runtime::spawn(async move {
         log("background event poller started");
         loop {
-            if UI_VISIBLE.load(std::sync::atomic::Ordering::SeqCst) {
+            if android_ui_visible() {
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 continue;
             }
@@ -2439,7 +2655,7 @@ fn start_bg_event_poller(app: tauri::AppHandle, tx: tokio::sync::mpsc::Unbounded
                     // Batches that arrived while the UI was visible were
                     // already forwarded to the WebView by the response
                     // forwarder; they reach here empty (used to be dropped).
-                    if UI_VISIBLE.load(std::sync::atomic::Ordering::SeqCst) {
+                    if android_ui_visible() {
                         // UI came back between the forwarder and here: hand
                         // the batch over instead of dropping it.
                         if let Some(fwd) = bg_events::forwarded_events_from_result(&result) {
@@ -2596,7 +2812,8 @@ pub fn run() {
                     match init_android_core(handle, accounts).await {
                         Ok(tx) => {
                             log("android core RPC session ready");
-                            start_bg_event_poller(bg_handle, tx.clone());
+                            start_bg_event_poller(bg_handle.clone(), tx.clone());
+                            start_bg_fetch_kicker(bg_handle, tx.clone());
                             *tx_holder.lock().unwrap() = Some(tx);
                             set_sidecar_status(&status_handle, serde_json::json!({"running": true, "stage": "ready"}));
                         }
@@ -2721,7 +2938,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_latest_version, fetch_page_title, expand_invite_link, fetch_link_preview, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, battery_optimization_exempt, request_battery_exemption, get_latest_version, fetch_page_title, expand_invite_link, fetch_link_preview, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 

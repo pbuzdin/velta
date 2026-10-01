@@ -591,10 +591,20 @@ layout on both mobile platforms:
   "GroupName: text" prefix); the sender's avatar on the left, the chat
   avatar on the right; follow-up messages of one chat group into a single
   conversation instead of stacking cards. Built by the background event
-  poller through a small Kotlin helper while the app is hidden.
+  poller through a small Kotlin helper while the app is hidden. Pressing
+  Home often leaves the page marked visible and freezes it, so leaving the
+  activity also wakes that poller, and a message already waiting in the
+  frozen page is still notified. The sync service holds a partial wake
+  lock, reconnects when the network changes, and fetches again when you
+  return and every 90 seconds in the background. With the screen off,
+  Android Doze still suspends that network until you allow unrestricted
+  battery use; Velta asks on each cold start until you allow it.
 - **Windows** — a toast with three text lines (chat name / sender / text)
   and the sender's avatar cropped circular, rendered via the same
-  notification identity the installer registers. For the identity to
+  notification identity the installer registers. The toast is shown when
+  the window is minimized or another window is in front, not only when the
+  page reports itself hidden — a minimized window often still looks visible,
+  which used to draw the message and skip the toast. For the identity to
   resolve, the app must have been installed through the installer at least
   once (PWA-in-browser and pre-install dev runs show no toasts).
 
@@ -873,7 +883,7 @@ Reply quotes use a dedicated palette per bubble and theme (the generic accent/di
 - Group creation, contact discovery, QR invites, and real-time message rendering all work in basic flows but have not been stress-tested.
 - Logging to `velta.log` is disabled in the stable branch; use the status pill and browser/Tauri dev tools to diagnose issues.
 - On Windows, the app needs the sidecar binary to talk to the real core. If the sidecar fails to start the frontend falls back to the mock core.
-- On Android, the in-process core rides a built-in foreground service (`CoreService`): messages keep syncing and arrive as conversation notifications while the app is backgrounded — see [Notifications](#notifications). A background event poller (not the WebView) builds them while the app is hidden. A separate headless service APK (`velta-core-service/`) still exists for the PWA-in-browser mode.
+- On Android, the in-process core rides a built-in foreground service (`CoreService`): messages keep syncing and arrive as conversation notifications while the app is backgrounded, including after Home — see [Notifications](#notifications). Screen-off delivery still needs the unrestricted-battery prompt. A separate headless service APK (`velta-core-service/`) still exists for the PWA-in-browser mode.
 
 </details>
 

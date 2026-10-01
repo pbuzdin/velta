@@ -33,6 +33,12 @@ class MainActivity : TauriActivity() {
   // commands can use the Android ContentResolver (attachment picking).
   external fun setApplicationContext(context: Context)
 
+  // Home often leaves the WebView's document.hidden false while freezing
+  // its JavaScript, so the Rust poller (gated on this flag AND the page
+  // flag) would otherwise stay asleep and never post a notification.
+  // onStart also asks the core to fetch and tells the page to refetch.
+  external fun setActivityForeground(foreground: Boolean)
+
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     // Edge-to-edge + API 30+ ignore adjustResize: without this the system
@@ -78,6 +84,22 @@ class MainActivity : TauriActivity() {
     } catch (_: Exception) {
     }
     applyTextZoomFix()
+  }
+
+  override fun onStart() {
+    super.onStart()
+    try {
+      setActivityForeground(true)
+    } catch (_: UnsatisfiedLinkError) {
+    }
+  }
+
+  override fun onStop() {
+    try {
+      setActivityForeground(false)
+    } catch (_: UnsatisfiedLinkError) {
+    }
+    super.onStop()
   }
 
   override fun onDestroy() {
