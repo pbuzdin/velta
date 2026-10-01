@@ -820,10 +820,12 @@ html[data-theme="brutal"] .msg-fail-badge { color: #3d3405; background: rgba(229
    the message's dimensions, else a 4/3 guess until decode) so the row height
    is stable while the file loads; the image then fades in over the shimmer.
    The reserved geometry reproduces the old natural-size-capped img box:
-   min(natural px, bubble width, max-height * ratio). */
+   min(natural px, bubble width, max-height * ratio). Width stays px-only
+   (#27): a % term inside min() collapses in Safari's shrink-to-fit bubble —
+   max-width clamps the narrow-bubble case instead. */
 .msg-image .img-wrap {
   position: relative; overflow: hidden; border-radius: 10px;
-  width: min(320px, 100%); aspect-ratio: 4 / 3;
+  width: 320px; max-width: 100%; aspect-ratio: 4 / 3;
   background: var(--bg-hover);
 }
 .msg-image .img-wrap img {
@@ -868,10 +870,10 @@ body.native-scanning #app {
 .msg-video video {
   width: 100%; min-width: 200px; height: 260px; display: block;
   /* JS overrides .msg-video to a true aspect box when the message carries
-     dimensions (style="height:min(Hpx,45vh,260px); aspect-ratio:W/H;
-     max-width:100%") - then height:100% fills the box. Without it: the
-     fixed 260px band. Either way the row height is deterministic
-     (virtual-scroller safe). */
+     dimensions (style="width:min(Wpx,480px,calc(min(45vh,260px)*W/H));
+     aspect-ratio:W/H; max-width:100%") - then height:100% fills the box.
+     Without it: the fixed 260px band. Either way the row height is
+     deterministic (virtual-scroller safe). */
   object-fit: contain; background: #101010;
 }
 .msg-video[style] video { height: 100%; }

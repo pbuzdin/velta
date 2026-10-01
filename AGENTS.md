@@ -542,6 +542,13 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   .msg-audio) deliberately bleed −5px left/right past the bubble padding (edge-to-edge
   official-client look); it works only because the bubble has no paint
   containment — keep bubble padding (7px 10px 6px) and the −5px bleed in sync.
+  Media box geometry is WIDTH-first (#27): `width:min(naturalpx, 480px,
+  calc(min(cap, 45vh) × W/H))` + `aspect-ratio` — px terms ONLY, never a %
+  inside min(): percentages inside the shrink-to-fit bubble participate in
+  intrinsic sizing and collapse the box in Safari/WebKit (the macOS sliver
+  bug; the probe showed Chromium collapsing too when the meta line doesn't
+  rescue the bubble width). `max-width:100%` handles the narrow-bubble
+  clamp; the reserve box equals the decoded box, so the decode never jumps.
   `.chat-item` cards use full
   `contain: layout paint style`. The rendered-row LRU (`_rowCache`) survives
   `close()`; `open()` clears it when the account changed.

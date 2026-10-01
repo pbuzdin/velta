@@ -424,6 +424,23 @@ test("a saved copy renders the show-in-chat arrow", async t => {
   assert.equal(plain.innerHTML.includes("show-original"), false);
 });
 
+test("image and video boxes are width-first with a px-only width (#27)", async t => {
+  const { view } = setup(t);
+  await view.open(7);
+  const dims = { dimensionsWidth: 1080, dimensionsHeight: 2400, filePath: "x.jpg", downloadState: "Done" };
+
+  // The harness Element stub does not parse innerHTML — assert on the
+  // built HTML string directly.
+  const imgHtml = view._buildItem({ type: "msg", msg: message(10, 7, { viewtype: "image", ...dims }) }).innerHTML;
+  assert.match(imgHtml, /width:min\(1080px, 480px, calc\(min\(45vh, 450px\) \* 0\.4500\)/, "px-only width formula");
+  assert.match(imgHtml, /aspect-ratio:1080 \/ 2400/);
+  assert.doesNotMatch(imgHtml, /height:min\(/, "no height-first box");
+
+  const vidHtml = view._buildItem({ type: "msg", msg: message(10, 7, { viewtype: "video", ...dims }) }).innerHTML;
+  assert.match(vidHtml, /width:min\(1080px, 480px, calc\(min\(45vh, 260px\) \* 0\.4500\)/);
+  assert.doesNotMatch(vidHtml, /height:min\(/);
+});
+
 test("show in chat opens the source chat and jumps to the original", async t => {
   const { view, core } = setup(t);
   await view.open(7);
