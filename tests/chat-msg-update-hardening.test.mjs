@@ -272,6 +272,24 @@ test("msgs-changed bursts collapse into one refetch per gap with fresh carried t
   assert.equal(calls[1].fresh, true, "the trailing refetch inherits the freshest request");
 });
 
+test("a known chat's msgs-changed refetches without forcing fresh (#43)", async t => {
+  const { view, core } = setup(t);
+  await view.open(7);
+  const calls = [];
+  core.getMessages = async (id, opts) => { calls.push(opts); return page(message(10, id)); };
+  view.tailRefetchGapMs = 40;
+
+  core.dispatchEvent(new CustomEvent("msgs-changed", { detail: { chatId: 7 } }));
+  await wait(80);
+  assert.equal(calls.length, 1, "the known-chat event refetched the tail");
+  assert.equal(calls[0].fresh, false, "known chat: no forced id-list rebuild");
+
+  core.dispatchEvent(new CustomEvent("msgs-changed", { detail: { chatId: 0 } }));
+  await wait(80);
+  assert.equal(calls.length, 2, "the unknown-scope event refetched");
+  assert.equal(calls[1].fresh, true, "unknown scope still rebuilds the ids");
+});
+
 test("incoming bursts near the bottom collapse to one markRead after the debounce", async t => {
   const { view, core } = setup(t);
   await view.open(7);
