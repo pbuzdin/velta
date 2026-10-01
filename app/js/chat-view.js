@@ -1822,7 +1822,7 @@ export class ChatView {
       const mediaAction = e.target.closest("[data-act]");
       if (mediaAction) {
         e.stopPropagation();
-        if (mediaAction.dataset.act === "download") this._downloadMedia(m.id);
+        if (mediaAction.dataset.act === "download" && m.downloadState !== "InProgress") this._downloadMedia(m.id);
         else if (mediaAction.dataset.act === "open") this._openFile(m.filePath, m.fileName);
         else if (mediaAction.dataset.act === "resend") this._resendMessage(m);
         else if (mediaAction.dataset.act === "fail-del") this._deleteFailed(m);

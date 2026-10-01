@@ -661,6 +661,32 @@ export class JsonRpcCore extends EventTarget {
     };
   }
 
+  // A pre-message is viewtype Text plus a core suffix " [Image – 1.34 MiB]"
+  // (en dash) until the file mail arrives. Promote it to the download card
+  // the media branches already draw. Webxdc and vcards stay a file card
+  // until the bytes exist — their own cards need the downloaded file.
+  _presentPendingDownload(msg) {
+    const state = msg.downloadState;
+    if (!state || state === "Done" || state === "Undecipherable") return;
+    if (msg.viewtype !== "text") return;
+    const suffix = / \[([^\[\]\n]+?) – ([^\]\n]+)\]$/.exec(msg.text || "");
+    const label = suffix ? suffix[1] : "";
+    if (!suffix && !(msg.fileSize > 0) && !msg.fileName) return;
+    if (suffix) msg.text = (msg.text || "").slice(0, suffix.index);
+    const ext = String(msg.fileName || "").split(".").pop().toLowerCase();
+    const byExt = {
+      png: "image", jpg: "image", jpeg: "image", gif: "image", webp: "image", bmp: "image", heic: "image", heif: "image",
+      mp4: "video", mov: "video", mkv: "video", avi: "video", webm: "video",
+      mp3: "audio", m4a: "audio", wav: "audio", flac: "audio", aac: "audio",
+    }[ext];
+    const byLabel = {
+      image: "image", gif: "image", sticker: "sticker", video: "video",
+      "voice message": "voice", audio: "audio",
+    }[(label || "").toLowerCase()];
+    msg.viewtype = byExt || byLabel || "file";
+    if (!msg.fileName && label) msg.fileName = label;
+  }
+
   _mapMessage(m) {
     if (m.isInfo) {
       return {
@@ -717,6 +743,7 @@ export class JsonRpcCore extends EventTarget {
     if (vt === "voice" && msg.duration) {
       msg.wave = Array.from({ length: 32 }, () => 4 + Math.floor(Math.random() * 22));
     }
+    this._presentPendingDownload(msg);
     return msg;
   }
 
