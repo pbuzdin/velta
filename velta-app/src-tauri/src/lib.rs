@@ -1724,19 +1724,31 @@ pub extern "system" fn Java_org_velta_CoreService_networkAvailable(
 // or the process was frozen between pushes.
 #[cfg(target_os = "android")]
 fn push_wakeup_impl() {
+    // Mirrored to logcat (println → RustStdoutStderr): a wake can happen
+    // while the process is half-frozen by an OEM, where the buffered file
+    // log may never flush — logcat is the reliable trace (#52).
     let Some(app) = APP_HANDLE.lock().unwrap().clone() else {
+        println!("push wakeup: core not initialized");
         log("push wakeup: core not initialized");
         return;
     };
     let Some(tx) = ANDROID_RPC_TX.lock().unwrap().clone() else {
+        println!("push wakeup: rpc channel not ready");
         log("push wakeup: rpc channel not ready");
         return;
     };
+    println!("push wakeup: running background fetch");
     tauri::async_runtime::spawn(async move {
         let state = app.state::<RpcState>();
         match bg_rpc(&tx, &state, "background_fetch", serde_json::json!([30.0])).await {
-            Ok(_) => log("push wakeup: background fetch done"),
-            Err(e) => log(&format!("push wakeup: {e}")),
+            Ok(_) => {
+                println!("push wakeup: background fetch done");
+                log("push wakeup: background fetch done");
+            }
+            Err(e) => {
+                println!("push wakeup: {e}");
+                log(&format!("push wakeup: {e}"));
+            }
         }
     });
 }

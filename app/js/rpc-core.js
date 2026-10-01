@@ -1408,7 +1408,10 @@ export class JsonRpcCore extends EventTarget {
       await this._call("set_chat_visibility", accountId, chatId, visibility);
     }
     if (muted !== undefined) {
-      await this._call("set_chat_mute_duration", accountId, chatId, muted ? "Forever" : "NotMuted");
+      // MuteDuration is an internally tagged enum on the wire (#[serde(tag =
+      // "kind")]): a bare "Forever" string fails deserialization, so the
+      // corner-menu Mute died silently (#52 mute-gate device run).
+      await this._call("set_chat_mute_duration", accountId, chatId, muted ? { kind: "Forever" } : { kind: "NotMuted" });
     }
     this._emitAccount("chat-updated", { chatId }, accountEpoch);
   }
@@ -1419,7 +1422,7 @@ export class JsonRpcCore extends EventTarget {
   // the notifications state refresh through the usual event path.
   async setChatMuted(chatId, seconds) {
     const { accountId, accountEpoch } = this;
-    const duration = seconds === 0 ? "NotMuted" : seconds < 0 ? "Forever" : { Until: { duration: seconds } };
+    const duration = seconds === 0 ? { kind: "NotMuted" } : seconds < 0 ? { kind: "Forever" } : { kind: "Until", duration: seconds };
     await this._call("set_chat_mute_duration", accountId, chatId, duration);
     this._emitAccount("chat-updated", { chatId }, accountEpoch);
   }
