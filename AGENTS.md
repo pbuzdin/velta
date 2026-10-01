@@ -384,7 +384,11 @@ Failure catalog (both hit on 2026-09-26; the fixes live in the script):
 `notify_incoming` renders a three-line toast (chat name / sender / text +
 circular sender avatar) via `tauri-winrt-notification` directly — AUMID is
 the config identifier, so toasts only resolve after one installer install
-(`examples/win-toast.rs` is the manual visual check). Android: see below.
+(`examples/win-toast.rs` is the manual visual check). The page requests a
+toast when the window is minimized or unfocused, not only when
+`document.hidden` is set — WebView2 leaves the page visible while the
+window is minimized (`shouldNotifyIncoming` in `app/js/notify-policy.js`).
+Android: see below.
 **Incoming-message notifications (Android)** are posted by
 `bg_notify_incoming` (lib.rs) over JNI into
 `gen/android/.../org/velta/Notifications.kt`: MessagingStyle conversation per
@@ -1381,11 +1385,19 @@ current dev path.
   backgrounded. While the UI is hidden, Rust's `start_bg_event_poller`
   (lib.rs) drains `get_next_event_batch` itself (ids prefixed `bg-`, routed
   via `RpcState.bg_pending` like the `wxdc-` round-trips) and posts native
-  notifications for IncomingMsg events. The frontend reports visibility via
-  `set_ui_visible`; events the poller consumed never reached the WebView, so
-  the JS `visibilitychange` handler refetches the chat list and open chat on
-  resume. Keep the poller gated on `UI_VISIBLE` — ungated it would steal
-  events from the frontend's own polling.
+  notifications for IncomingMsg events. The frontend reports page visibility
+  via `set_ui_visible`. `MainActivity.onStart`/`onStop` sets a second flag:
+  Home often leaves `document.hidden` false and freezes the WebView, which
+  kept the poller asleep while the page's parked poll held IncomingMsg until
+  the next open. The poller runs when the page is hidden or the activity is
+  stopped, and a page-poll response in that state is notified too (still
+  forwarded to the WebView). Keep the poller paused while both flags say the
+  UI is up — ungated it steals events from the frontend. `onStart` calls
+  `maybe_network` and emits `velta-foreground` so the page refetches.
+  `CoreService` holds a partial wake lock and the default-network callback.
+  A 90s kick while the activity is stopped interrupts a half-open IDLE.
+  Doze ignores the wake lock; the page asks for the battery-optimization
+  exemption once per cold start until it is granted.
   Event-batch requests (ids `bg-ev-`, `src/bg_events.rs`) are never timed
   out: a parked request cannot be cancelled in the core, and the old 60 s
   timeout left it parked, so its next batch went to a caller that was gone

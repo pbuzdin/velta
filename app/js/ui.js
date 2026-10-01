@@ -1,5 +1,6 @@
 // ui.js — popup/menu/modal/drawer/toast helpers (plain DOM, no framework)
 import { escapeHtml, escapeAttr } from "./components.js";
+import { shouldNotifyIncoming } from "./notify-policy.js";
 import { fileUrl } from "./media.js";
 import { linkPreviewEnabled, setLinkPreviewEnabled, LINK_PREVIEW_IP_WARNING } from "./link-preview.js";
 
@@ -973,25 +974,62 @@ export function openVideoLightbox(src, caption = "") {
 }
 
 /* ---------- incoming-message notifications ---------- */
-// Callers own the policy (who/when — they know which message is new); this is
-// the platform bridge plus a burst throttle. No-op outside the Tauri shell or
-// while the window is visible (the user is looking at the app).
+// Callers own which message is new; this decides whether the user is looking
+// and bridges to the platform notification. Android notifications are posted
+// by the Rust poller — the page only toasts there while document.hidden.
+// Desktop WebView2 leaves document.hidden false when the window is minimized
+// or unfocused, so those states toast too.
 let lastNotifyAt = 0;
+function logNotify(msg) {
+  try {
+    const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+    if (invoke) invoke("js_log", { msg }).catch(() => {});
+  } catch {}
+}
 export function notifyIncoming(title, body, info = {}) {
-  if (!window.__TAURI__ || !document.hidden) return;
-  const now = Date.now();
-  if (now - lastNotifyAt < 4000) return;
-  lastNotifyAt = now;
-  const t = window.__TAURI__;
-  const invoke = t.core?.invoke || t.invoke;
-  invoke("notify_incoming", {
-    title,
-    body,
-    chatName: info.chatName || null,
-    senderName: info.senderName || null,
-    senderAvatar: info.senderAvatar || null,
-    // Windows toast activation opens this chat (issue #20).
-    accountId: info.accountId ?? null,
-    chatId: info.chatId ?? null,
-  }).catch(() => {});
+  const tauri = window.__TAURI__;
+  if (!tauri) return;
+  const android = /Android/i.test(navigator.userAgent || "");
+  const send = () => {
+    const now = Date.now();
+    if (now - lastNotifyAt < 4000) return;
+    lastNotifyAt = now;
+    const invoke = tauri.core?.invoke || tauri.invoke;
+    invoke("notify_incoming", {
+      title,
+      body,
+      chatName: info.chatName || null,
+      senderName: info.senderName || null,
+      senderAvatar: info.senderAvatar || null,
+      // Windows toast activation opens this chat (issue #20).
+      accountId: info.accountId ?? null,
+      chatId: info.chatId ?? null,
+    }).catch((err) => logNotify(`notify_incoming failed: ${err}`));
+  };
+  const consider = (minimized, focused) => {
+    if (shouldNotifyIncoming({
+      tauri: true,
+      android,
+      hidden: !!document.hidden,
+      minimized: !!minimized,
+      focused,
+    })) send();
+  };
+  // Hidden already decides it. Android has no reliable minimize/focus signal
+  // and would otherwise double-post next to the Rust poller.
+  if (android || document.hidden) {
+    consider(false, true);
+    return;
+  }
+  let win;
+  try {
+    win = tauri.window?.getCurrentWindow?.();
+  } catch (err) {
+    logNotify(`notifyIncoming window: ${err}`);
+    return;
+  }
+  if (!win?.isMinimized || !win?.isFocused) return;
+  Promise.all([win.isMinimized(), win.isFocused()]).then(([minimized, focused]) => {
+    consider(minimized, focused);
+  }).catch((err) => logNotify(`notifyIncoming window state: ${err}`));
 }

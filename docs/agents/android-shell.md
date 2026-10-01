@@ -57,10 +57,21 @@ alive after the app is backgrounded. While the UI is hidden, Rust's
 `start_bg_event_poller` (lib.rs) drains `get_next_event_batch` itself (ids
 prefixed `bg-`, routed via `RpcState.bg_pending` like the `wxdc-`
 round-trips) and posts native notifications for IncomingMsg events. The
-frontend reports visibility via `set_ui_visible`; events the poller
-consumed never reached the WebView, so the JS `visibilitychange` handler
-refetches the chat list and open chat on resume. KEEP: the poller gated on
-`UI_VISIBLE` — ungated it steals events from the frontend's own polling.
+frontend reports page visibility via `set_ui_visible`. `MainActivity`
+onStart/onStop sets a second flag: Home often leaves `document.hidden`
+false and freezes the WebView, so the poller used to sleep while the
+page's parked poll held IncomingMsg until the next open. The poller runs
+when the page is hidden or the activity is stopped, and a page-poll
+response that arrives in that state is notified as well (still forwarded
+to the WebView). KEEP: the poller paused while both flags say the UI is
+up — ungated it steals events from the frontend's own polling. `onStart`
+calls `maybe_network` and emits `velta-foreground` so the page refetches.
+`CoreService` holds a partial wake lock and a default-network callback
+(`maybe_network` / `maybe_network_lost`). A 90s kick while the activity
+is stopped interrupts a half-open IDLE. Doze ignores the wake lock; the
+page asks for the battery-optimization exemption once per cold start
+until it is granted.
+
 Notification titles: `bg_notify_incoming` defaults the title to "Velta" and
 replaces it with the chat name via `get_basic_chat_info` — the RPC surface
 has NO `get_chat` method, and a wrong method name fails silently
