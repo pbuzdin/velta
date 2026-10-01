@@ -591,7 +591,8 @@ layout on both mobile platforms:
   "GroupName: text" prefix); the sender's avatar on the left, the chat
   avatar on the right; follow-up messages of one chat group into a single
   conversation instead of stacking cards. Built by the background event
-  poller through a small Kotlin helper while the app is hidden. Pressing
+  poller through a small Kotlin helper while the app is hidden. The page
+  does not post a second card. Pressing
   Home often leaves the page marked visible and freezes it, so leaving the
   activity also wakes that poller, and a message already waiting in the
   frozen page is still notified. The sync service holds a partial wake

@@ -2268,14 +2268,13 @@ async fn init_android_core(
                     continue;
                 }
             };
-            // The page's own poll may be the waiter. Once the activity is
-            // stopped that poll is frozen inside the WebView, so the batch
-            // would sit there until the next open and no notification would
-            // be posted. Notify from here and still hand the batch to the
-            // WebView for when it thaws. Key off the activity only: a hidden
-            // page in a live activity toasts from JS, and notifying here too
-            // would post twice. bg- responses never reach this arm.
-            if !ACTIVITY_FOREGROUND.load(std::sync::atomic::Ordering::SeqCst) {
+            // The page's own poll may be the waiter. Notify when the user
+            // is not looking (page hidden or activity stopped) and still
+            // hand the batch to the WebView. The page does not post on
+            // Android, so this is the only card for a page-poll batch,
+            // including the moment after the page hides and before onStop.
+            // bg- responses never reach this arm; the poller notifies those.
+            if !android_ui_visible() {
                 let hits = bg_events::incoming_hits(&line);
                 if !hits.is_empty() {
                     if let Some(tx) = ANDROID_RPC_TX.lock().unwrap().clone() {
