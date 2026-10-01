@@ -595,7 +595,16 @@ layout on both mobile platforms:
   does not post a second card. Pressing
   Home often leaves the page marked visible and freezes it, so leaving the
   activity also wakes that poller, and a message already waiting in the
-  frozen page is still notified. The sync service holds a partial wake
+  frozen page is still notified. Since 1.4.50 the shell is the single
+  reader of core events: the page stops its own long-poll and the Rust
+  poller routes every batch itself — to the page while you are looking,
+  to the notification system while you are not — and muted chats are
+  skipped. A message sent while the app sits backgrounded therefore
+  notifies within seconds of the OS unfreezing the process; a persisted
+  15-minute scheduled fetch (`BackgroundFetchJob`) covers the frozen
+  stretches even without a push distributor, and a push wake-up no longer
+  waits out a half-open IDLE connection before fetching. The sync service
+  holds a partial wake
   lock, reconnects when the network changes, and fetches again when you
   return and every 90 seconds in the background. With the screen off,
   Android Doze still suspends that network until you allow unrestricted
@@ -884,7 +893,7 @@ Reply quotes use a dedicated palette per bubble and theme (the generic accent/di
 - Group creation, contact discovery, QR invites, and real-time message rendering all work in basic flows but have not been stress-tested.
 - Logging to `velta.log` is disabled in the stable branch; use the status pill and browser/Tauri dev tools to diagnose issues.
 - On Windows, the app needs the sidecar binary to talk to the real core. If the sidecar fails to start the frontend falls back to the mock core.
-- On Android, the in-process core rides a built-in foreground service (`CoreService`): messages keep syncing and arrive as conversation notifications while the app is backgrounded, including after Home — see [Notifications](#notifications). Screen-off delivery still needs the unrestricted-battery prompt. A separate headless service APK (`velta-core-service/`) still exists for the PWA-in-browser mode.
+- On Android, the in-process core rides a built-in foreground service (`CoreService`): messages keep syncing and arrive as conversation notifications while the app is backgrounded, including after Home — see [Notifications](#notifications). Screen-off delivery still needs the unrestricted-battery prompt. Since 1.4.50 a persisted 15-minute scheduled fetch also wakes the core when the OS freezes the backgrounded process (up to that cadence, deliveries wait for the next app open or a push wake-up; installing a UnifiedPush distributor restores instant delivery). A separate headless service APK (`velta-core-service/`) still exists for the PWA-in-browser mode.
 
 </details>
 
