@@ -59,6 +59,10 @@ class MainActivity : TauriActivity() {
     // endpoints and push wake-ups flow back into the Rust core via JNI
     // (UnifiedPushService.kt -> lib.rs). See AGENTS.md §9.4.
     UnifiedPushService.maybeRegister(this)
+    // Scheduled-fetch fallback (#52 L3): periodic JobScheduler job that
+    // wakes the core for a bounded fetch even without a push distributor
+    // or after the OS froze the backgrounded process.
+    BackgroundFetchJob.schedule(this)
     super.onCreate(savedInstanceState)
     // The second-WebView browser overlay (InAppBrowser.openWebView) needs the
     // Activity to add views and to own BACK priority over wry's history

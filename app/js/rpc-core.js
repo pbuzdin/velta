@@ -355,6 +355,24 @@ export class JsonRpcCore extends EventTarget {
 
   async _pollEvents() {
     if (this._polling) return; // don't start a second loop on reconnect
+    // Android single reader (#40/#52): the shell owns get_next_event_batch.
+    // It forwards every batch here as a velta_core_events notification while
+    // the UI is visible and notifies natively while hidden, so the page must
+    // not long-poll alongside it (the core's event queue has one reader per
+    // parked request). The handshake fires after setReceiver() — init()
+    // awaits it — so the shell cannot forward into an uninstalled listener,
+    // and it learns the initial visibility in the same round trip so the
+    // shell's first polls cannot notify while the app is foreground.
+    try {
+      const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+      if (invoke && (await invoke("get_event_reader_mode")) === "rust") {
+        await invoke("events_listener_ready", { visible: !document.hidden });
+        return;
+      }
+    } catch {
+      // Probe failed (desktop shell without the command, tests): keep the
+      // JS poll — dual reader as before.
+    }
     this._polling = true;
     // The core queues events; poll like deltachat-desktop does.
     // Event shape: { event: { kind: "IncomingMsg", chatId, msgId }, contextId }
