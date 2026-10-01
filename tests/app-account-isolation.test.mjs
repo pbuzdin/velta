@@ -79,6 +79,10 @@ class Element {
   getAttribute(name) { return this.attributes.get(name) ?? null; }
   setData(chat) { this.chat = chat; this.setAttribute("chat-id", chat.id); }
   addEventListener() {}
+  querySelectorAll(sel) {
+    const cls = sel.startsWith(".") ? sel.slice(1) : null;
+    return cls ? this.children.filter(c => c.classList?.contains(cls)) : [];
+  }
 }
 
 const chat = name => ({ id: 7, kind: "single", name });
@@ -100,7 +104,7 @@ function setup(t) {
     getChat: async () => chat("current"),
     getContactEncryptionInfo: async id => `fingerprint-${id}`,
   };
-  const effects = { opens: [], closes: 0, popupsClosed: 0, accounts: [], fingerprints: [], toasts: [], warnings: [] };
+  const effects = { opens: [], closes: 0, popupsClosed: 0, accounts: [], fingerprints: [], toasts: [], warnings: [], ioCallbacks: [], ioObserved: [] };
   const timers = new Map();
   let timerId = 0;
   const context = createContext({
@@ -109,6 +113,13 @@ function setup(t) {
     $: node,
     document: { createElement: tag => new Element(tag), querySelector: node, getElementById: id => nodes.get(id) ?? null, querySelectorAll: () => [], body: new Element("body"), addEventListener() {}, removeEventListener() {} },
     window: {},
+    // #44: captures the chat-list ghost observer; instances land in
+    // effects.ioCallbacks, observed targets in effects.ioObserved.
+    IntersectionObserver: class {
+      constructor(callback) { effects.ioCallbacks.push(callback); }
+      observe(target) { effects.ioObserved.push(target); }
+      unobserve() {} disconnect() {}
+    },
     history: {
       state: null,
       pushes: [],
@@ -627,4 +638,36 @@ test("openChat hands its fetched chat to the chat view (one getChat per open, #2
   assert.deepEqual(effects.opens, [["A", 7]]);
   assert.equal(effects.openedWith?.id, 7);
   assert.equal(effects.openedWith?.name, "current");
+});
+
+test("chat list mounts the first rows and ghosts the rest, upgrading on approach (#44)", async t => {
+  const { app, node, effects } = setup(t);
+  const mk = id => ({ id, kind: "single", name: `chat ${id}`, avatarColor: "#123456", lastMsg: "x", lastTs: 1, unread: 0, pinned: false, muted: false, archived: false, encrypted: true, draft: null, lastFrom: 0, lastState: 0 });
+  app.state.chats = Array.from({ length: 60 }, (_, i) => mk(i + 1));
+  app.listView = "chats";
+  app.renderChatList();
+
+  const list = node("chat-list");
+  const rows = list.children.filter(el => el.tagName === "VELTA-CHAT-ITEM");
+  const ghosts = list.children.filter(el => el.classList?.contains("chat-item-ghost"));
+  assert.equal(rows.length, 40, "the first screen-and-a-half mounts fully");
+  assert.deepEqual(rows.map(r => r.chat.id), Array.from({ length: 40 }, (_, i) => i + 1));
+  assert.equal(ghosts.length, 20, "off-screen rows are placeholders, not custom elements");
+  assert.deepEqual(ghosts.map(g => Number(g.getAttribute("chat-id"))), Array.from({ length: 20 }, (_, i) => i + 41));
+  assert.equal(effects.ioCallbacks.length, 1, "one IntersectionObserver watches the ghosts");
+  assert.equal(effects.ioObserved.length, 20);
+
+  // A re-render (no data change) reuses the same elements and ghosts.
+  const topBefore = rows[0];
+  const ghostBefore = ghosts[0];
+  app.renderChatList();
+  assert.equal(node("chat-list").children[0], topBefore, "unchanged rows are not rebuilt");
+  assert.ok(node("chat-list").children.includes(ghostBefore), "ghosts survive a re-render");
+
+  // Scrolling a ghost near the viewport upgrades it to a full row.
+  const [onIntersect] = effects.ioCallbacks;
+  onIntersect([{ target: ghostBefore, isIntersecting: true }]);
+  const upgraded = node("chat-list").children.find(el => el.tagName === "VELTA-CHAT-ITEM" && el.chat?.id === 41);
+  assert.ok(upgraded, "the ghost became a real row with its chat data");
+  assert.equal(node("chat-list").children.filter(el => el.classList?.contains("chat-item-ghost")).length, 19);
 });

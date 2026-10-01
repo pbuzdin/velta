@@ -1196,23 +1196,42 @@ function renderChatList() {
   // change-gated recreation, an idle list does zero DOM work and a burst
   // touches only the chats whose data actually changed.
   const existing = new Map();
+  const ghosts = new Map();
   for (const child of [...list.children]) {
     if (child.tagName === "VELTA-CHAT-ITEM") {
       const id = Number(child.getAttribute("chat-id"));
       if (state.chats.some(c => c.id === id)) existing.set(id, child);
+      else child.remove();
+    } else if (child.classList?.contains?.("chat-item-ghost")) {
+      const id = Number(child.getAttribute("chat-id"));
+      if (state.chats.some(c => c.id === id)) ghosts.set(id, child);
       else child.remove();
     } else {
       child.remove(); // stale empty-state placeholder
     }
   }
   const items = [];
-  for (const chat of state.chats) {
+  // #44: a full row is a custom element with an avatar subtree — the review
+  // measured ~85 ms / 210 KiB for 301 chats against ~8 ms for one screen.
+  // The first CHAT_ITEM_FULL_ROWS mount fully (the list opens at the top);
+  // the rest stay as fixed-height placeholder divs that the Intersection-
+  // Observer upgrades as they approach the viewport. Item DATA for every
+  // row is already in state.chats (one bulk RPC), so an upgrade is pure
+  // DOM work. Environments without IntersectionObserver (headless harness)
+  // keep mounting everything, as before.
+  for (const [index, chat] of state.chats.entries()) {
     const active = chat.id === state.activeChatId;
     let item = existing.get(chat.id);
-    if (!item || !chatItemUpToDate(item, chat, active)) {
-      const fresh = createChatItem(chat, active);
-      item?.replaceWith(fresh);
-      item = fresh;
+    if (item) {
+      if (!chatItemUpToDate(item, chat, active)) {
+        const fresh = createChatItem(chat, active);
+        item?.replaceWith(fresh);
+        item = fresh;
+      }
+    } else if (index < CHAT_ITEM_FULL_ROWS || typeof IntersectionObserver !== "function") {
+      item = createChatItem(chat, active);
+    } else {
+      item = ghosts.get(chat.id) || createChatItemGhost(chat);
     }
     items.push(item);
   }
@@ -1227,7 +1246,42 @@ function renderChatList() {
     empty.textContent = state.query ? "No chats found" : "No chats yet — start a new one";
     list.appendChild(empty);
   }
+  watchChatItemGhosts(list);
 }
+
+// Fixed-height stand-in for an off-screen chat row: matches one real row
+// (48px avatar + 2×9px padding). Ceiling: a future two-line row layout
+// would need this height (or an IO-driven resize) to keep up.
+function createChatItemGhost(chat) {
+  const el = document.createElement("div");
+  el.classList.add("chat-item-ghost");
+  el.setAttribute("chat-id", chat.id);
+  el.setAttribute("aria-hidden", "true");
+  return el;
+}
+
+// Upgrades ghost rows to full <velta-chat-item>s once they come within
+// 600px of the viewport. Never downgrades again — scrolling back shows the
+// already-mounted row (cheap enough at chat-list sizes).
+let chatItemGhostIO = null;
+function watchChatItemGhosts(list) {
+  if (typeof IntersectionObserver !== "function") return;
+  chatItemGhostIO?.disconnect();
+  const ghosts = list.querySelectorAll?.(".chat-item-ghost");
+  if (!ghosts?.length) return;
+  chatItemGhostIO = new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      const ghost = entry.target;
+      chatItemGhostIO.unobserve(ghost);
+      const chat = state.chats.find(c => c.id === Number(ghost.getAttribute("chat-id")));
+      if (!chat) { ghost.remove(); continue; }
+      ghost.replaceWith(createChatItem(chat, chat.id === state.activeChatId));
+    }
+  }, { rootMargin: "600px 0px" });
+  for (const ghost of ghosts) chatItemGhostIO.observe(ghost);
+}
+const CHAT_ITEM_FULL_ROWS = 40;
 
 function createChatItem(chat, active) {
   const chatId = chat.id;
