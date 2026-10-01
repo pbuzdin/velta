@@ -345,7 +345,7 @@ coreStartupPromise = createCore({
 
 try {
   core = withLocalChat(await coreStartupPromise);
-  setFingerprintSource((contactId) => core.getContactEncryptionInfo(contactId));
+  setFingerprintSource((contactId) => core.getContactEncryptionInfo(contactId), core.accountId);
 } catch (error) {
   diagnostics.append("error", `Core startup crashed: ${error?.message || error}`);
   diagnostics.append("warning", "Continuing in demo mode so diagnostics and recovery controls remain available");
@@ -403,7 +403,7 @@ core.addEventListener("account-changing", () => {
 });
 core.addEventListener("account-changed", () => {
   state.accountChanging = false;
-  setFingerprintSource(contactId => core.getContactEncryptionInfo(contactId));
+  setFingerprintSource(contactId => core.getContactEncryptionInfo(contactId), core.accountId);
   accountRefreshPromise = Promise.all([refreshAccounts(), refreshChatList()]);
 });
 

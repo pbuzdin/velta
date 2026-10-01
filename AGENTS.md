@@ -750,7 +750,10 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   color; a contact's photo rides inside the matrix tile; photo avatars
   shimmer via the img's own background until `load` (`.loaded` removes it —
   Elena does not reliably call `updated()` on first render, so bind from
-  `updated()` AND once via rAF from `connectedCallback`).
+  `updated()` AND once via rAF from `connectedCallback`). The fingerprint
+  itself is fetched once per `(accountId, contactId)` via `setFingerprintSource`
+  (wired by app.js with `core.accountId`) and kept across account switches —
+  contact ids are per-account, hence the composite key; entries never expire.
 - **Profile sheet (`showChatInfo`) hydration contract**: the full contact
   (real avatar, bot flag, presence) is fetched whenever `chat.contact` is
   absent — group-opened profiles (`openContactProfile`) therefore pass NO
