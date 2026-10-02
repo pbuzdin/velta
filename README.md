@@ -176,7 +176,9 @@ under **Bots** when its contact is a bot, otherwise under **People**. The
 active chip is remembered across restarts, and the bar hides itself in side
 views (Contacts, Calls, QR, Search). On phones you can also **swipe left or
 right on the list** to step through the categories — vertical scrolling is
-unaffected.
+unaffected. Not every category has to be there: the drawer's
+**Chat categories** section turns the non-All chips on or off (All always
+stays), and swiping skips the hidden ones.
 
 </details>
 
