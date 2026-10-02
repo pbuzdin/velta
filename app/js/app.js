@@ -550,6 +550,15 @@ async function refreshRelayStatusInner() {
   } catch { /* per-relay view unavailable */ }
 }
 
+// "cha*.uk" from "chat.example.uk": first 3 chars, one asterisk for the
+// rest, TLD visible — enough to recognize the relay without printing it.
+function maskRelayDomain(domain) {
+  const d = String(domain || "");
+  const i = d.lastIndexOf(".");
+  if (i <= 0) return d ? `${d.slice(0, 3)}*` : "relay";
+  return `${d.slice(0, 3)}*.${d.slice(i + 1)}`;
+}
+
 function renderRelayLine() {
   const el = $("relay-line");
   if (!el) return;
@@ -600,20 +609,20 @@ function renderRelayLine() {
   el.title = title;
   el.setAttribute("aria-label", title);
 
-  // Detail bar (hover / pull-down reveal): one row per relay — status, quota.
+  // Detail chips (hover / pull-down reveal): one chip per relay-line segment,
+  // equal widths so each chip sits above its own segment — masked domain plus
+  // the quota percent ("cha*.uk · 55% used"). The unmasked domain, status and
+  // full quota line ride the title tooltip.
   const detail = document.getElementById("relay-detail");
   if (detail) {
     detail.replaceChildren(...segs.map(s => {
-      const row = document.createElement("div");
-      row.className = "relay-detail-row";
-      row.dataset.state = s.state;
-      const dot = document.createElement("span"); dot.className = "relay-detail-dot";
-      const dom = document.createElement("span"); dom.className = "relay-detail-domain";
-      dom.textContent = s.domain || "Relay";
-      const txt = document.createElement("span"); txt.className = "relay-detail-text";
-      txt.textContent = s.quota ? `${s.text || title} · ${s.quota}` : (s.text || title);
-      row.append(dot, dom, txt);
-      return row;
+      const chip = document.createElement("span");
+      chip.className = "relay-detail-chip";
+      chip.dataset.state = s.state;
+      const pct = (String(s.quota || "").match(/(\d+)\s*%/) || [])[1];
+      chip.textContent = maskRelayDomain(s.domain) + (pct ? ` · ${pct}% used` : s.text ? ` · ${s.text}` : "");
+      chip.title = `${s.domain || "relay"}: ${s.text || title}${s.quota ? ` · ${s.quota}` : ""}`;
+      return chip;
     }));
   }
 }
