@@ -9,6 +9,18 @@
 
 let nextId = 1;
 
+// Which category chip a chat belongs to in the chat-list bar (#57). "all" is
+// the bar's unfiltered state and is never returned here. Special and request
+// chats are "system"; a 1:1 chat is "bots" when its contact is a bot,
+// "people" otherwise (unknown contact counts as people — the safe default).
+export function chatCategoryOf(chat, isBot = () => false) {
+  if (chat.kind === "saved" || chat.kind === "device" || chat.kind === "deaddrop") return "system";
+  if (chat.kind === "group") return "groups";
+  if (chat.kind === "channel") return "channels";
+  if (chat.kind === "single") return isBot(chat.contactId) ? "bots" : "people";
+  return "system";
+}
+
 // Backstop for the event long-poll. The backend parks get_next_event until an
 // event exists (no server-side timeout), so the ordinary 30 s RPC timeout must
 // not apply — see _callEventPoll. Long enough that healthy polls rarely hit it
@@ -571,7 +583,6 @@ export class JsonRpcCore extends EventTarget {
       default: return "single";
     }
   }
-
   // ChatListItemFetchResult { kind: "ChatListItem", ...flat fields }
   _mapChatListItem(c) {
     const kind = this._chatKind(c);

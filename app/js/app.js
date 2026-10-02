@@ -2,6 +2,7 @@
 import { createCore } from "./transport.js";
 import "./components.js";
 import { escapeHtml, escapeAttr } from "./components.js";
+import { chatCategoryOf } from "./rpc-core.js";
 import { fileUrl } from "./media.js";
 import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintGroups } from "./avatar.js";
 import { ChatView, setAvatarProfileOpener } from "./chat-view.js";
@@ -68,6 +69,9 @@ const state = {
   activeChatId: null,
   query: "",
   theme: localStorage.getItem("dw-theme") || "auto",
+  // #57 category bar: active chip + lazy contact bot flags (P/B split).
+  chatCategory: localStorage.getItem("velta-chat-category") || "all",
+  contactBots: null, // null = not loaded; Map contactId -> bool once fetched
 };
 
 function appLog(msg) {
@@ -1031,6 +1035,7 @@ function setListView(view) {
     b.classList.toggle("active", b.dataset.view === listView);
   }
   syncHeaderButtons();
+  syncChatCategoryBar();
   if (listView === "chats") { renderChatList(); return; }
   if (listView === "contacts") { renderContactsView(); return; }
   if (listView === "calls") { renderCallsView(); return; }
@@ -1183,9 +1188,45 @@ function renderQrView() {
     });
 }
 
+// #57 category bar. Bot flags come from one get_contacts call, fetched the
+// first time a People/Bots filter actually needs them — no boot RPC cost.
+const chatCatsEl = document.getElementById("chat-categories");
+async function ensureContactBots() {
+  if (state.contactBots || !core?.getContacts) return;
+  try {
+    const contacts = await core.getContacts();
+    state.contactBots = new Map(contacts.map(c => [c.id, !!c.bot]));
+    if (state.chatCategory === "people" || state.chatCategory === "bots") renderChatList();
+  } catch { state.contactBots = new Map(); }
+}
+const chatIsBot = (contactId) => state.contactBots?.get(contactId) === true;
+function visibleChats() {
+  const cat = state.chatCategory;
+  if (cat === "all") return state.chats;
+  return state.chats.filter(c => chatCategoryOf(c, chatIsBot) === cat);
+}
+if (chatCatsEl) {
+  chatCatsEl.addEventListener("click", e => {
+    const btn = e.target.closest("button[data-cat]");
+    if (!btn) return;
+    state.chatCategory = btn.dataset.cat;
+    localStorage.setItem("velta-chat-category", state.chatCategory);
+    for (const b of chatCatsEl.children) b.classList.toggle("active", b === btn);
+    if (state.chatCategory === "people" || state.chatCategory === "bots") ensureContactBots();
+    renderChatList();
+  });
+}
+function syncChatCategoryBar() {
+  if (!chatCatsEl) return;
+  chatCatsEl.hidden = listView !== "chats";
+  for (const b of chatCatsEl.children) b.classList.toggle("active", b.dataset.cat === state.chatCategory);
+}
+
 function renderChatList() {
   if (listView !== "chats") return; // another side view owns the container
+  syncChatCategoryBar();
   const list = $("chat-list");
+  const chats = visibleChats(); // #57: category-filtered, source stays state.chats
   // Reuse row elements only while their display data is unchanged; recreate
   // an element when its data or active state changes. Recreating runs the
   // Elena first-render path (safe); updating data on a hydrated element is
@@ -1200,11 +1241,11 @@ function renderChatList() {
   for (const child of [...list.children]) {
     if (child.tagName === "VELTA-CHAT-ITEM") {
       const id = Number(child.getAttribute("chat-id"));
-      if (state.chats.some(c => c.id === id)) existing.set(id, child);
+      if (chats.some(c => c.id === id)) existing.set(id, child);
       else child.remove();
     } else if (child.classList?.contains?.("chat-item-ghost")) {
       const id = Number(child.getAttribute("chat-id"));
-      if (state.chats.some(c => c.id === id)) ghosts.set(id, child);
+      if (chats.some(c => c.id === id)) ghosts.set(id, child);
       else child.remove();
     } else {
       child.remove(); // stale empty-state placeholder
@@ -1219,7 +1260,7 @@ function renderChatList() {
   // row is already in state.chats (one bulk RPC), so an upgrade is pure
   // DOM work. Environments without IntersectionObserver (headless harness)
   // keep mounting everything, as before.
-  for (const [index, chat] of state.chats.entries()) {
+  for (const [index, chat] of chats.entries()) {
     const active = chat.id === state.activeChatId;
     let item = existing.get(chat.id);
     if (item) {
@@ -1240,10 +1281,12 @@ function renderChatList() {
   const sameOrder = items.length === list.children.length &&
     items.every((el, i) => list.children[i] === el);
   if (!sameOrder) list.replaceChildren(...items);
-  if (!state.chats.length) {
+  if (!chats.length) {
     const empty = document.createElement("div");
     empty.style.cssText = "text-align:center;color:var(--text-dim);padding:30px 16px;font-size:14.5px";
-    empty.textContent = state.query ? "No chats found" : "No chats yet — start a new one";
+    empty.textContent = state.query ? "No chats found"
+      : state.chatCategory !== "all" ? "No chats in this category"
+      : "No chats yet — start a new one";
     list.appendChild(empty);
   }
   watchChatItemGhosts(list);
