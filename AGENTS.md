@@ -1390,6 +1390,13 @@ test traffic accordingly.
     into the sandboxed srcdoc frame. The hash whitelists those EXACT bytes —
     change the snippet and the three CSP copies in one commit. Mail's own
     inline/remote scripts stay blocked.
+  - `frame-src https:` is LOAD-BEARING: the in-app browser overlay
+    (`open_webview_browser` fallback in inapp-browser.js) loads remote URLs
+    in a sandboxed iframe. V-06's fix (#64) is elsewhere: the HTML viewer's
+    `onFrameLink` now verifies `e.source === frame.contentWindow`, so only
+    the srcdoc mail frame can hand links to the open chain — do not replace
+    that check with origin string matching (the srcdoc frame's origin is
+    opaque/null).
   - `connect-src` is loopback-only again (1.4.16): the github hosts that the
     update banner briefly added were removed — the version check runs
     shell-side (`get_latest_version` ureq command in lib.rs), and shell HTTP
