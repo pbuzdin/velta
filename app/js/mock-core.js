@@ -227,7 +227,6 @@ export class MockCore extends EventTarget {
       m.reactions = [];
       for (let i = 0; i < n; i++) m.reactions.push({ emoji: REACTION_SET[Math.floor(rnd() * REACTION_SET.length)], count: 1 + Math.floor(rnd() * 4), mine: rnd() < 0.3 });
     }
-    if (rnd() < 0.05 && isOut) m.state = rnd() < 0.5 ? "delivered" : "read";
     return m;
   }
 
@@ -247,6 +246,9 @@ export class MockCore extends EventTarget {
       reactions: null,
       fwdFrom: null,
     }, over);
+    // Own demo messages rest at "delivered" (single check) like the real
+    // core before any MDN; incoming default to seen. Explicit state wins (#53).
+    if (over.state === undefined && m.from === 1) m.state = "delivered";
     if (m.viewtype === "voice") {
       const r = mulberry32(m.id);
       m.wave = Array.from({ length: 32 }, () => 4 + Math.floor(r() * 22));
@@ -382,7 +384,6 @@ export class MockCore extends EventTarget {
       this._emit("msg-state", { chatId: chat.id, msgId, state: "pending" });
       setTimeout(() => { m.state = "sent"; this._emit("msg-state", { chatId: chat.id, msgId, state: "sent" }); }, 350);
       setTimeout(() => { m.state = "delivered"; this._emit("msg-state", { chatId: chat.id, msgId, state: "delivered" }); }, 1200);
-      setTimeout(() => { m.state = "read"; this._emit("msg-state", { chatId: chat.id, msgId, state: "read" }); }, 2600);
       return;
     }
     throw new Error("no such message");
@@ -739,10 +740,11 @@ export class MockCore extends EventTarget {
     const m = this._mkMsg(c, over);
     c.messages.push(m);
     this._emit("msg-sent", { chatId, msg: this._decorate(m) });
-    // simulate network -> delivered -> read
+    // simulate network -> delivered. No fake "read": like the real core, a
+    // message only reaches the double tick when a recipient's MDN arrives,
+    // which the demo never produces (#53).
     setTimeout(() => { m.state = "sent"; this._emit("msg-state", { chatId, msgId: m.id, state: "sent" }); }, 350);
     setTimeout(() => { m.state = "delivered"; this._emit("msg-state", { chatId, msgId: m.id, state: "delivered" }); }, 1200);
-    setTimeout(() => { m.state = "read"; this._emit("msg-state", { chatId, msgId: m.id, state: "read" }); }, 2600);
     // occasional auto-reply in single chats
     if (c.kind === "single" && Math.random() < 0.6) {
       setTimeout(() => {
