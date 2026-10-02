@@ -260,6 +260,15 @@ cargo tauri android dev
 cargo tauri android build
 ```
 
+KEEP (asset staleness trap): the debug exe embeds `app/` at compile time via
+`generate_context!`, and neither `touch tauri.conf.json` nor
+`touch src/lib.rs` reliably re-embeds changed renderer assets — after
+editing `app/`, force the rebuild with `cargo clean -p velta-app` before
+`cargo tauri build --debug --no-bundle`, then relaunch. Verify from the
+running app with `fetch('js/mock-core.js', {cache:'reload'})` (paths are
+relative to the `tauri.localhost` root — `fetch('mock-core.js')` 404s and
+fakes a "stale build" verdict).
+
 Desktop `cargo check`/`build` of this crate runs **natively on Windows only** —
 the WSL sandbox lacks the GTK/gobject dev libraries (pkg-config `gobject-2.0`
 failure); see §11 "Build environment".
@@ -719,6 +728,19 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   from the recipient's MDN. Never promise per-recipient-relay delivery; the
   message-info sheet phrases the pipeline in those terms
   (chat-view `_showInfo`). The selection checkbox (`ICO.check`) is separate.
+  KEEP (read-receipt lifecycle, verified live 2026-10-02 against real
+  accounts — full narrative in `docs/agents/read-receipts.md`): the ONLY
+  MDN trigger is the peer's client running `markseen_msgs`, and Velta fires
+  that only from the open-chat watermark — notification direct-replies and
+  replies typed without an on-screen chat NEVER produce an MDN, so the
+  sender's tick legitimately stays single. Both sides must open each other's
+  chat; the flip then lands in ~20 s (relay round-trip). Self-talk/Saved
+  messages never reach `OutMdnRcvd` (markseen ignores own messages). The
+  CHAT-LIST row tick is `summaryStatus` of the LAST message only — older
+  read messages in the chat never light the row up, and a single tick on the
+  newest message is correct until the peer reads exactly that one. When a
+  user reports "stuck ticks", check the raw core state first
+  (`get_message`), then the PEER side (`state 10`/InFresh = never viewed).
 - **Bot chip (post-1.4.36)** — incoming messages whose sender contact carries
   the core's `isBot` (`fromContact.bot`, mapped by rpc-core and the mock)
   render a small bordered "bot" tag in the meta row beside the timestamp.
@@ -1599,9 +1621,18 @@ talks to Google.
 ## 11. Notes for agents (operational rules)
 
 Per-subsystem narratives live in `docs/agents/*.md` (webxdc, relays,
-onboarding, p2p/local chat, android-shell, media) — read the relevant one
-before touching that subsystem. The entries below are cross-cutting
+onboarding, p2p/local chat, android-shell, media, read-receipts) — read the
+relevant one before touching that subsystem. The entries below are cross-cutting
 do-not-regress rules; dates mark when the lesson was learned.
+
+- **Read-receipt lifecycle (2026-10-02, #59 follow-up)** — a "stuck single
+  tick" is almost always the peer never opening the chat on-screen: the only
+  MDN trigger is the watermark `markseen_msgs` in the open chat, and
+  notification replies do not fire it. Diagnose from the raw core state
+  (`get_message`), never from the UI; the recipe + raw-RPC probe live in
+  `docs/agents/read-receipts.md`. Related trap: after editing `app/` the
+  debug exe can still serve OLD renderer assets until
+  `cargo clean -p velta-app` (§4.3).
 
 - **Event-storm hardening (1.3.23)** — the failure was a core event storm
   re-rendering chat history endlessly. KEEP: rpc-core `_onLine` runs the
