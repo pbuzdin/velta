@@ -441,6 +441,48 @@ let relayDownSince = 0;        // first NotConnected observation — red after a
 let relaySending = false;      // any message queued/sending through the relay
 let relayUpgradeTimer = null;
 let relaySegments = [];        // per-relay [{ domain, text, state }] — [] falls back to the combined view
+let relaySmtpState = null;     // "ok"/"connecting"/"down" from the HTML's Outgoing-messages dot (account-global)
+// New-connection reachability per relay domain. The core's dot only reflects
+// the LAST session state: while an established IMAP session survives, the
+// dot stays green even when the relay refuses new connections (seen live:
+// d13.buro.dev dead for new TLS but the core reported "Connected" for hours).
+// probe_relay does a real TLS request shell-side — what fails exactly when a
+// NEW connection can't be established, which is what the core's dot can't
+// tell us. #76
+const relayProbeCache = new Map(); // domain(lowercase) -> { ts, ok, pending? }
+const RELAY_PROBE_MIN_GAP_MS = 60000;
+
+async function probeRelayReachable(domain) {
+  // Shell-side probe (probe_relay): renderer fetch is CSP-bound and a bare
+  // TCP connect lies behind a fake-IP VPN. Without the shell (dev rigs) there
+  // is no signal — assume reachable rather than paint false alarms.
+  const tauri = window.__TAURI__;
+  const invoke = tauri?.core?.invoke || tauri?.invoke;
+  if (!invoke) return true;
+  try {
+    return !!(await invoke("probe_relay", { domain }));
+  } catch {
+    return false;
+  }
+}
+
+function scheduleRelayProbes(segs) {
+  if (core.backend?.kind === "mock") return;
+  for (const s of segs) {
+    const d = String(s.domain || "").toLowerCase();
+    if (!d) continue;
+    const c = relayProbeCache.get(d);
+    if (c?.pending || (c && Date.now() - c.ts < RELAY_PROBE_MIN_GAP_MS)) continue;
+    const entry = { pending: true };
+    relayProbeCache.set(d, entry);
+    probeRelayReachable(d).catch(() => false).then(ok => {
+      entry.ok = ok;
+      entry.ts = Date.now();
+      entry.pending = false;
+      if (core.backend?.kind !== "mock") renderRelayLine();
+    });
+  }
+}
 const RELAY_DOWN_AFTER_MS = 45000;
 
 // The core exposes per-transport status only inside its connectivity HTML
@@ -457,7 +499,7 @@ function parseConnectivityHtml(html) {
   // its opening tag to the next one (or the end of the transports section,
   // i.e. the next <h3> / </body>) instead of the first </li>.
   const start = html.indexOf('<li class="transport');
-  if (start < 0) return out;
+  if (start < 0) return { segs: out, smtpState: null };
   let end = html.indexOf("<h3>", start + 1);
   if (end < 0) end = html.indexOf("</body>", start);
   const block = html.slice(start, end < 0 ? undefined : end);
@@ -475,7 +517,12 @@ function parseConnectivityHtml(html) {
     colors.sort((a, b) => weight[b] - weight[a]);
     out.push({ domain, text, state: stateFor[colors[0]] || "connecting", quota });
   }
-  return out;
+  // The core renders SMTP ("Outgoing messages") OUTSIDE the transport <li>s,
+  // so its dot is invisible to the per-transport loop above — a dead SMTP
+  // leg would leave every seg green. It is the last span-dot in the document.
+  const dots = [...html.matchAll(/<span class="(red|green|yellow|grey) dot"/g)];
+  const smtpState = dots.length ? (stateFor[dots[dots.length - 1][1]] || null) : null;
+  return { segs: out, smtpState };
 }
 
 // Relay-status refresh coalescing. refreshRelayStatus is driven by
@@ -544,7 +591,10 @@ async function refreshRelayStatusInner() {
     if (core.getConnectivityHtml) {
       const html = await core.getConnectivityHtml();
       if (!accountIsCurrent(epoch)) return;
-      relaySegments = parseConnectivityHtml(html);
+      const parsed = parseConnectivityHtml(html);
+      relaySegments = parsed.segs;
+      relaySmtpState = parsed.smtpState;
+      scheduleRelayProbes(relaySegments);
       renderRelayLine();
     }
   } catch { /* per-relay view unavailable */ }
@@ -590,23 +640,42 @@ function renderRelayLine() {
   // only to the sending (primary) relay's segment — messages always go out
   // through the transport matching `configured_addr` (= state.account.addr).
   const sendDomain = (state.account?.addr || "").split("@")[1]?.toLowerCase();
-  const segs = relaySegments.length ? relaySegments : [{ state: relayState, text: title }];
+  const rawSegs = relaySegments.length ? relaySegments : [{ state: relayState, text: title }];
+  // Display state per segment: the core's per-session state, downgraded when
+  // the reachability probe says the relay refuses NEW connections (an
+  // established session can keep the core's dot green for hours), and the
+  // sending relay also inherits the account-global SMTP dot (the core renders
+  // SMTP outside the per-transport sections it parses).
+  const SEVERITY = { ok: 0, connecting: 1, unreachable: 2, down: 3 };
+  const isSendRelay = s => relayState !== "local" && (
+    (s.domain && s.domain.toLowerCase() === sendDomain) ||
+    // A single relay is always the sending relay, even if its domain
+    // couldn't be matched against the account address.
+    (rawSegs.length === 1 && !sendDomain));
+  const segs = rawSegs.map(s => {
+    const probe = s.domain ? relayProbeCache.get(String(s.domain).toLowerCase()) : null;
+    let segState = s.state;
+    if (segState === "ok" && probe?.ok === false) segState = "unreachable";
+    if (isSendRelay(s) && relaySmtpState && (SEVERITY[relaySmtpState] ?? 0) > (SEVERITY[segState] ?? 0)) {
+      segState = relaySmtpState;
+    }
+    return { ...s, state: segState };
+  });
   if (relaySending && relayState !== "local") {
     const segDomains = segs.map(s => s.domain || "—");
     const matched = segs.some(s => s.domain && s.domain.toLowerCase() === sendDomain);
     diagnosticsSink.append("info", `relay: sending via ${sendDomain || "?"}; segments [${segDomains.join(", ")}]${matched ? "" : " — NO domain match"}`);
   }
+  const segTitle = s => {
+    const base = s.domain ? `${s.domain}: ${s.text}` : (s.text || title);
+    return s.state === "unreachable" ? `${base} — not accepting new connections (web check failed)` : base;
+  };
   el.replaceChildren(...segs.map((s, i) => {
     const seg = document.createElement("span");
     seg.className = "relay-seg";
     seg.dataset.state = s.state;
-    const isSendSeg = relaySending && relayState !== "local" && (
-      (s.domain && s.domain.toLowerCase() === sendDomain) ||
-      // A single relay is always the sending relay, even if its domain
-      // couldn't be matched against the account address.
-      (segs.length === 1 && !sendDomain));
-    if (isSendSeg) seg.setAttribute("data-sending", "");
-    seg.title = s.domain ? `${s.domain}: ${s.text}` : (s.text || title);
+    if (relaySending && isSendRelay(s)) seg.setAttribute("data-sending", "");
+    seg.title = segTitle(s);
     return seg;
   }));
   el.dataset.state = relayState;
@@ -643,7 +712,7 @@ function renderRelayLine() {
       const pct = (String(s.quota || "").match(/(\d+)\s*%/) || [])[1];
       label.textContent = maskRelayDomain(s.domain) + (pct ? ` · ${pct}% used` : s.text ? ` · ${s.text}` : "");
       chip.append(label);
-      chip.title = `${s.domain || "relay"}: ${s.text || title}${s.quota ? ` · ${s.quota}` : ""}`;
+      chip.title = `${segTitle(s)}${s.quota ? ` · ${s.quota}` : ""}`;
       return chip;
     }));
   }
@@ -705,6 +774,10 @@ if (chatListEl && relayDetailEl) {
 }
 
 core.addEventListener?.("connectivity-changed", refreshRelayStatus);
+// The core only emits connectivity-changed when ITS state flips; while an
+// established session silently outlives a dead relay nothing fires. The slow
+// poll drives the reachability probes and re-renders on their results.
+setInterval(refreshRelayStatus, 60000);
 core.addEventListener?.("transports-modified", () => {
   // Relay set changed — locally (2.60.0+ emits on the modifying device too)
   // or synced from another device. refreshRelayStatus is coalesced.
