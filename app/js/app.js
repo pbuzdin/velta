@@ -195,7 +195,8 @@ function openDiagnosticsChat() {
   const loggingSw = $("sw-logging");
   const devtoolsSw = $("sw-devtools");
   if (loggingSw) {
-    loggingSw.checked = localStorage.getItem("velta-logging") !== "0";
+    // Default OFF (V-09/#66) on both sides of the gate.
+    loggingSw.checked = localStorage.getItem("velta-logging") === "1";
     if (!loggingSw.dataset.bound) {
       loggingSw.dataset.bound = "1";
       loggingSw.addEventListener("change", () => {
@@ -301,12 +302,12 @@ setInterval(() => {
 renderInitialDiagnosticsChat();
 bindEarlyRecoveryActions();
 
-// Apply the persisted Diagnostics logging switch at boot (default on).
-// js_log gates itself, so this fires before the core connects and there is
-// no window where an early log line escapes the gate.
-if (window.__TAURI__ && localStorage.getItem("velta-logging") === "0") {
+// Apply the persisted Diagnostics logging switch at boot (default OFF,
+// V-09/#66). js_log gates itself, so this fires before the core connects
+// and there is no window where an early log line escapes the gate.
+if (window.__TAURI__) {
   const invoke = window.__TAURI__.core?.invoke || window.__TAURI__.invoke;
-  invoke?.("set_logging_enabled", { enabled: false })?.catch?.(() => {});
+  invoke?.("set_logging_enabled", { enabled: localStorage.getItem("velta-logging") === "1" })?.catch?.(() => {});
 }
 
 // In the Tauri shell, record sidecar startup progress in diagnostics while the core is being located.
