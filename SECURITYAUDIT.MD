@@ -106,8 +106,11 @@ Local development tools only; not part of the shipped app.
 
 1. ~~Triage `handleDeeplinkFromUrl` → command-injection~~ **Done 2026-10-02 — false positive** (see triage section).
 2. ~~Triage the `query` SQL-injection entry flag~~ **Done 2026-10-02 — false positive** (see triage section).
-3. ~~Shrink scan noise~~ **Done 2026-10-02** — `test-rig/edge-profile` moved out of the scan root to
-   `fixtures-out-of-scan/edge-profile`.
+3. ~~Shrink scan noise~~ **Done 2026-10-02** — `test-rig/edge-profile` moved to
+   `C:\Users\pave\fixtures-out-of-scan\edge-profile`, fully outside the scan root
+   `C:\Users\pave\Velta`. (A first move to `Velta\fixtures-out-of-scan\` left it inside the scanned
+   folder — the 2026-10-02 rescan `scan-2026-10-02T02-30-52.229Z-729c29af5a56` still showed 2,506
+   fixture findings until the second move.)
 4. ~~Identify the matched dependency~~ **Done 2026-10-02** — `cargo audit` run against both shipped
    lockfiles; `h2` and `rustls` upgraded in the core-service lockfile, remainder recorded as accepted risk.
 5. Optional: re-run the scan after the fixture move and compare via Mimosa's seal/compare semantics.
