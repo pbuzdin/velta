@@ -124,6 +124,7 @@ svg { width: 24px; height: 24px; display: block; }
 .relay-line .relay-seg { flex: 1 1 0; min-width: 0; background: currentColor; color: #e6a23c; transition: color .25s; }
 .relay-line .relay-seg[data-state="ok"]         { color: #2ecc71; }
 .relay-line .relay-seg[data-state="connecting"] { color: #e6a23c; }
+.relay-line .relay-seg[data-state="unreachable"] { color: #e6a23c; }
 .relay-line .relay-seg[data-state="down"]       { color: #e05252; }
 .relay-line .relay-seg[data-state="local"]      { color: #4c8dff; }
 /* Sending dashes on the sending relay's segment only (marked per-segment
@@ -168,6 +169,7 @@ svg { width: 24px; height: 24px; display: block; }
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .relay-detail-chip[data-state="down"] { border-color: #e05252; }
+.relay-detail-chip[data-state="unreachable"] { border-color: #e6a23c; }
 /* The relay selected for sending: static envelope, always visible. */
 .relay-detail-chip .relay-detail-send {
   display: inline-grid; place-items: center; flex: none;

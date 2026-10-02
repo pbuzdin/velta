@@ -301,6 +301,36 @@ async fn expand_invite_link(url: String) -> Result<Vec<String>, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// New-connection reachability probe for a relay domain: does a TLS+HTTP
+/// request succeed right now? The core's connectivity dot only reflects the
+/// last session state — an established IMAP session can keep it green while
+/// the relay refuses new connections (seen live with a dead relay reported
+/// "Connected" for hours). Shell-side like fetch_link_preview (renderer
+/// fetch is CSP-bound); a bare TCP connect is not enough behind a fake-IP
+/// VPN — the local proxy accepts the handshake immediately — so this does a
+/// real TLS request. Any response, even 4xx/5xx, means the host accepts new
+/// connections; a transport error means it doesn't.
+#[tauri::command]
+async fn probe_relay(domain: String) -> Result<bool, String> {
+    let host = domain.trim().to_lowercase();
+    let ok_char =
+        |c: char| c.is_ascii_alphanumeric() || c == '.' || c == '-';
+    if host.is_empty() || !host.chars().all(ok_char) || !host.contains('.') {
+        return Err("invalid domain".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let agent = ureq::AgentBuilder::new()
+            .timeout(std::time::Duration::from_secs(6))
+            .build();
+        let resp = agent
+            .get(&format!("https://{host}/"))
+            .call();
+        Ok(resp.is_ok())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Open Graph preview for the first link in a message. Same trust model as
 /// expand_invite_link: shell-side fetch of a message-derived https URL
 /// (renderer fetch is CORS-blocked and CSP-bound), bounded reads + hard
@@ -3107,7 +3137,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, fetch_page_title, expand_invite_link, fetch_link_preview, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 
