@@ -223,7 +223,12 @@ drivable in demo mode (no Tauri build needed). The standalone PWA product
 (a static host talking to a remote core) is work in progress; demo mode
 here is only the UI smoke test. **KEEP:** every new
 `rpc-core.js` method needs a `mock-core.js` counterpart or demo mode throws
-"not a function" the moment the UI touches it.
+"not a function" the moment the UI touches it. Demo honesty (1.4.52, #53):
+MockCore never fakes read receipts — own messages rest at `delivered` and
+the double tick needs a real MDN — and `sendMessage`/`resendMessage` emit
+`send-activity` like the real core so the relay line dashes and detail-chip
+envelope work in the demo (demo *mode* itself still suppresses both marks:
+no relay configured, nothing sends through one).
 
 The service worker is dead by design: boot unregisters every registration
 (app.js, near the PWA comment — cache-first SWs kept serving stale JS across
@@ -531,8 +536,27 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   (ids only, #47 — it never loads the full messages). A
   `p2p:` chat is forgotten with `removePeer` — do not send that string id
   to `delete_chat`. Pinned by `tests/rpc-account-isolation.test.mjs`.
+- **Chat-list categories bar** (1.4.52, #57): `#chat-categories` chip row in
+  `index.html` between the relay zone and `#chat-list` — All / People /
+  Groups / Channels / Bots / System. `chatCategoryOf` and the swipe axis
+  lock `swipeCategoryStep` are exported from `rpc-core.js` (NOT
+  `components.js` — it extends `HTMLElement` and is not node-importable for
+  tests); filtering runs via `visibleChats()` inside `renderChatList`
+  (`state.chats` stays the unfiltered source). The People/Bots split reads
+  contact bot flags from a LAZY `state.contactBots` map — one `getContacts`
+  call fetched the first time a People/Bots chip is used, never at boot
+  (#46 budget); unknown contacts count as people. Active chip persists in
+  `localStorage["velta-chat-category"]`; `syncChatCategoryBar` hides the bar
+  for every side view. Mobile-only swipe (left/right = next/previous chip)
+  attaches only under `matchMedia("(pointer: coarse)")`, is axis-locked
+  (48px + 1.4× horizontal dominance), swallows the gesture's follow-up click
+  and no-ops past either end. KEEP: the bar code must live INSIDE the
+  app.js slice that contains `renderChatList` — `tests/app-account-isolation`
+  runs app.js as slices between marker comments, and module-level code in
+  the relay-pull region (~line 620) is invisible to the harness. Pinned by
+  `tests/categories-bar.test.mjs`.
 - `app/js/chat-view.js` owns the conversation history (virtualized via
-  virtual-scroller), composer, selection mode and the delete dialog, plus the pinned-message tray under the chat head (`_refreshPinnedBar`, fed by `pinned-changed` events). KEEP:
+  virtual-scroller), composer, selection mode and the delete dialog, plus the pinned-message tray under the chat head (`_refreshPinnedBar`, fed by `pinned-changed` events). Composer send keys (1.4.52, #56): Enter sends while the `velta-send-enter` drawer setting is on (default); with it OFF, Ctrl/Cmd+Enter sends instead and plain Enter inserts a newline; Shift+Enter is always a newline and IME composition never sends. KEEP:
   rows must NOT get `content-visibility` (the scroller measures mounted rows
   itself; collapsing desyncs its height cache — scroll jumps on remount);
   day chips render inside the first message row of each day (`dayFirst`) —
@@ -1219,7 +1243,8 @@ node --test tests/rpc-account-isolation.test.mjs \
              tests/chat-msg-update-hardening.test.mjs \
              tests/read-tracking.test.mjs \
              tests/scroll-restore.test.mjs \
-             tests/chatlist-incremental.test.mjs
+             tests/chatlist-incremental.test.mjs \
+             tests/categories-bar.test.mjs
 ```
 
 These cover the account-isolation contract: stale account results (A→B→A),

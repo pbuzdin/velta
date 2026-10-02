@@ -15,18 +15,32 @@ the 45 s NotConnected grace and the line's overall semantics. Animated
 dashes while a message is in flight to the relay (driven by rpc-core's
 `send-activity`).
 
-## Relay detail bar (`#relay-detail`)
+## Relay detail chips (`#relay-detail`)
 
-Absolutely positioned inside `.relay-zone` so it OVERLAYS the chat list
-instead of pushing it down. Revealed by hovering the line (desktop) or
-pulling down at the top of the chat list on mobile (touch listeners on
-`#chat-list`); hides itself after a few seconds. One row per relay: state
-dot, domain, status text, quota (usage/limit + percent) parsed from the
-connectivity page's `quota-list` (same HTML-parsing ceiling as the
-segments). The transport `<li>`s nest the quota `<ul>`, so
-`parseConnectivityHtml` slices the transports section and matches each
-transport to the next `<li class="transport">` / end of section — a
-first-`</li>` match silently truncates the quota.
+Reworked in 1.4.52 from a stacked detail bar into one chip per relay-line
+segment. Absolutely positioned ABOVE the line (`bottom: 100%` inside
+`.relay-zone`, z-index over `.sidebar-head`) so it covers the sidebar
+header — never the chat list or the category chips below the line (the old
+below-the-line bar covered them on desktop hover and mobile pull-down).
+The chip row reuses the line's flex template (equal widths, same gap), so
+each chip sits directly above its own segment.
+
+Chip content is info-only: the masked domain plus the quota percent —
+`chat.example.uk` renders as `cha*.uk · 55% used` (`maskRelayDomain`: first
+3 chars, one asterisk, TLD visible). Unmasked domain, status text and the
+full quota line ride the `title` tooltip; a red border marks a down relay.
+The relay SELECTED for sending (the account's configured transport —
+`state.account.addr`'s domain, or the only relay when the domain is
+unmatched) carries a static envelope glyph (`data-sending`); demo/local
+mode is never marked. The envelope marks identity, not activity — the
+line's animated dashes stay the messages-in-flight signal. Revealed by
+hovering the line (desktop) or pulling down at the top of the chat list on
+mobile (touch listeners on `#chat-list`); hides itself after a few
+seconds. Quota comes from the connectivity page's `quota-list` (same
+HTML-parsing ceiling as the segments — the transport `<li>`s nest the quota
+`<ul>`, so `parseConnectivityHtml` slices the transports section and
+matches each transport to the next `<li class="transport">` / end of
+section; a first-`</li>` match silently truncates the quota).
 
 ## Multi-relay manager (`openRelaysModal`)
 

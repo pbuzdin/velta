@@ -167,6 +167,20 @@ devices and are visible to all chat members.
 </details>
 
 <details>
+<summary>Chat list categories</summary>
+
+A chip bar at the top of the chat list filters it in one tap:
+**All · People · Groups · Channels · Bots · System**. "System" collects
+device messages, saved messages and contact requests; a 1:1 chat lands
+under **Bots** when its contact is a bot, otherwise under **People**. The
+active chip is remembered across restarts, and the bar hides itself in side
+views (Contacts, Calls, QR, Search). On phones you can also **swipe left or
+right on the list** to step through the categories — vertical scrolling is
+unaffected.
+
+</details>
+
+<details>
 <summary>Search in chat</summary>
 
 The chat header's magnifier opens a search over the **full history** — not
@@ -320,9 +334,10 @@ The thin status line above the chat list reflects the relay connection:
 green connected, yellow connecting/retrying, red unreachable (after a 45 s
 grace), blue for demo or local-chat-only mode; animated dashes while a
 message is on its way to the relay. Hovering the line (or pulling down at
-the top of the chat list on mobile) reveals a detail bar overlaying the
-list with one row per relay — status and quota usage — fed by the core's
-connectivity page.
+the top of the chat list on mobile) reveals one **chip per relay** above the
+line — `cha*.uk · 55% used` style: the relay's domain privacy-masked, plus
+its storage quota. A **✉ envelope** on a chip marks the relay selected for
+sending. Full domain, status and quota sit in each chip's tooltip.
 
 </details>
 
@@ -500,6 +515,10 @@ Message text renders a simple, escape-first markdown subset (`app/js/markdown.js
 | `[label](https://…)` | clickable link (bare URLs linkify too) |
 | `- item` / `* item` / `+ item` | bulleted list |
 | `1. item` / `1) item` | numbered list (a start value like `3.` is honored) |
+
+**Enter sends** by default (Shift+Enter makes a newline; IME composition is
+never swallowed). Turn the drawer's **Send on Enter** setting off and Enter
+always inserts a newline instead — press **Ctrl/Cmd+Enter** to send (#56).
 
 Messages whose original differs from the simplified bubble — the core's mail
 simplifier cut a footer/quote (the text ends in `[...]`), or an HTML mail was
