@@ -119,3 +119,24 @@ test("mock-core resendMessage replays delivery on own messages only", async () =
   chat.messages.push(theirs);
   await assert.rejects(() => mock.resendMessage(theirs.id));
 });
+
+test("1:1 peer returns an MDN — own send settles at read; group rests at delivered (#59)", async () => {
+  const mock = new MockCore();
+  mock._simTimer?.unref();
+  mock.mdnDelay = () => 1600; // after the 1200 ms delivery, before the real default
+  const single = mock.chats.find(c => c.kind === "single");
+  const sent = await mock.sendMessage(single.id, { text: "mdn me" });
+  const mine = single.messages.find(m => m.id === sent.id);
+  await new Promise(r => setTimeout(r, 2200));
+  assert.equal(mine.state, "read");
+  // Fixture-style own messages in a 1:1 history are read; group ones are not.
+  const past = mock._mkMsg(single, { from: 1, text: "yesterday", ts: Date.now() - 86400e3 });
+  assert.equal(past.state, "read");
+  const group = mock.chats.find(c => c.kind === "group");
+  const gsent = await mock.sendMessage(group.id, { text: "group stays" });
+  const gmine = group.messages.find(m => m.id === gsent.id);
+  const gpast = mock._mkMsg(group, { from: 1, text: "group past", ts: Date.now() - 86400e3 });
+  await new Promise(r => setTimeout(r, 2200));
+  assert.equal(gmine.state, "delivered");
+  assert.equal(gpast.state, "delivered");
+});
