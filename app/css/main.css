@@ -168,16 +168,12 @@ svg { width: 24px; height: 24px; display: block; }
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .relay-detail-chip[data-state="down"] { border-color: #e05252; }
-/* Sending relay: pulsing envelope, echoing the dashes on its line segment. */
+/* The relay selected for sending: static envelope, always visible. */
 .relay-detail-chip .relay-detail-send {
   display: inline-grid; place-items: center; flex: none;
   width: 13px; height: 13px; color: var(--accent);
 }
 .relay-detail-chip .relay-detail-send svg { width: 13px; height: 13px; }
-@media (prefers-reduced-motion: no-preference) {
-  .relay-detail-chip .relay-detail-send { animation: relay-send-pulse 1.1s ease-in-out infinite; }
-}
-@keyframes relay-send-pulse { 50% { opacity: .3; } }
 .list-bar {
   display: flex; align-items: stretch; gap: 6px;
   padding: 8px 10px calc(10px + env(safe-area-inset-bottom));

@@ -550,9 +550,10 @@ async function refreshRelayStatusInner() {
   } catch { /* per-relay view unavailable */ }
 }
 
-// Envelope marking the SENDING relay's chip — mirrors the dashed segment on
-// the relay line (same data-sending logic), but as a glyph: a dashed border
-// reads "disabled" and can't carry the in-flight motion cue.
+// Envelope marking which relay is SELECTED for sending (the account's
+// configured transport, = state.account.addr's domain) — persistent, not an
+// activity marker: the relay line's animated dashes stay the "messages in
+// flight" signal. Static glyph on purpose; a pulse would read as activity.
 const RELAY_SEND_SVG = '<svg viewBox="0 0 24 24"><rect x="3" y="5.5" width="18" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 7.5l8 5.5 8-5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 // "cha*.uk" from "chat.example.uk": first 3 chars, one asterisk for the
@@ -616,8 +617,8 @@ function renderRelayLine() {
 
   // Detail chips (hover / pull-down reveal): one chip per relay-line segment,
   // equal widths so each chip sits above its own segment — masked domain plus
-  // the quota percent ("cha*.uk · 55% used"). The sending relay's chip carries
-  // a pulsing envelope, mirroring the dashes on its line segment. The
+  // the quota percent ("cha*.uk · 55% used"). The relay selected for sending
+  // (the account's configured transport) carries a static envelope. The
   // unmasked domain, status and full quota line ride the title tooltip.
   const detail = document.getElementById("relay-detail");
   if (detail) {
@@ -625,7 +626,7 @@ function renderRelayLine() {
       const chip = document.createElement("span");
       chip.className = "relay-detail-chip";
       chip.dataset.state = s.state;
-      const isSendChip = relaySending && relayState !== "local" && (
+      const isSendChip = relayState !== "local" && (
         (s.domain && s.domain.toLowerCase() === sendDomain) ||
         // A single relay is always the sending relay, even if its domain
         // couldn't be matched against the account address.
