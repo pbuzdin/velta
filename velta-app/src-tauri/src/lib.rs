@@ -33,7 +33,10 @@ static SIDECAR_STATUS: Mutex<Option<serde_json::Value>> = Mutex::new(None);
 // fall back to demo mode.
 static LOG_TX: Mutex<Option<std::sync::mpsc::Sender<String>>> = Mutex::new(None);
 // Runtime logging gate, flipped by set_logging_enabled (Diagnostics chat).
-static LOG_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+// Default OFF (V-09/#66): the log mirrors message content to disk outside
+// the account db; the renderer pushes the persisted choice at boot
+// (localStorage `velta-logging`).
+static LOG_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 // Optional second log location on the shared external storage, where adb can
 // read it on non-rooted devices (/storage/emulated/0/Android/data/<id>/files).
