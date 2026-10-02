@@ -9,22 +9,25 @@ env:
   CARGO_NET_RETRY: 10
   RUSTFLAGS: "-D warnings"
 
+permissions:
+  contents: read
+
 jobs:
   build-windows:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           submodules: false
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable (moving branch, Dependabot updates)
         with:
           toolchain: 1.98
 
       - name: Install Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
 
@@ -49,7 +52,7 @@ jobs:
       # One cache for BOTH Rust workspaces: two rust-cache steps in one job
       # overwrite each other's restored ~/.cargo state and defeat the cache.
       - name: Cache Rust builds
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: |
             ./core
@@ -61,7 +64,7 @@ jobs:
       # target/ into the tree, so only real source changes move the key.
       - name: Restore built sidecar
         id: sidecar
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: core/target/release/deltachat-rpc-server.exe
           key: sidecar-exe-${{ hashFiles('core/**') }}
@@ -88,7 +91,7 @@ jobs:
         run: tauri build
 
       - name: Upload Windows artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: velta-windows
           path: |
