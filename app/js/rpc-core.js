@@ -504,6 +504,17 @@ export class JsonRpcCore extends EventTarget {
         if (msgId) this._msgStateHints.set(msgId, "failed");
         this._emitAccount("msg-state", { chatId, msgId, state: "failed" }, accountEpoch);
         break;
+      case "MsgDeleted": {
+        // Explicitly deleted, expired (ephemeral) or hidden message. Was
+        // unmapped before #69: remote/timer deletions never reached the UI,
+        // and the core sends no MessageUnpinned when its tombstone REPLACE
+        // silently clears a pin, so the pin tray kept the ghost.
+        const cid = chatId || 0;
+        this._invalidateChat(cid, accountEpoch);
+        this._emitAccount("msgs-deleted", { chatId: cid, ids: msgId ? [msgId] : [] }, accountEpoch);
+        this._emitAccount("msgs-changed", { chatId: cid }, accountEpoch);
+        break;
+      }
       case "TransportsModified":
         // Relay added/removed/sending changed; 2.60.0+ emits this on the
         // device that made the change too, not only on synced devices.
