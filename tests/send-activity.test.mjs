@@ -113,7 +113,8 @@ test("mock-core resendMessage replays delivery on own messages only", async () =
   await mock.resendMessage(mine.id);
   assert.equal(mine.state, "pending");
   await new Promise(r => setTimeout(r, 2800));
-  assert.equal(mine.state, "read");
+  // Rests at delivered: like the real core, the mock never fakes a read receipt (#53).
+  assert.equal(mine.state, "delivered");
   const theirs = mock._mkMsg(chat, { from: 2, text: "not mine", ts: Date.now() });
   chat.messages.push(theirs);
   await assert.rejects(() => mock.resendMessage(theirs.id));
