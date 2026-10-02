@@ -72,6 +72,8 @@ export class MockCore extends EventTarget {
     super();
     const rnd = mulberry32(20260808);
     this.rnd = rnd;
+    // Delay before a 1:1 peer's MDN arrives (#59); tests shorten it.
+    this.mdnDelay = () => 2600 + Math.random() * 4000;
     // The account-isolation contract (rpc-core.js) is keyed on these; the
     // mock must expose the same surface or guards like
     // `chatListInFlight?.epoch === epoch` misbehave (undefined === undefined).
@@ -249,8 +251,12 @@ export class MockCore extends EventTarget {
       fwdFrom: null,
     }, over);
     // Own demo messages rest at "delivered" (single check) like the real
-    // core before any MDN; incoming default to seen. Explicit state wins (#53).
-    if (over.state === undefined && m.from === 1) m.state = "delivered";
+    // core before any MDN; incoming default to seen. A 1:1 peer demonstrably
+    // read the fixture history, so those own messages default to "read"
+    // (#59). Explicit state always wins (#53).
+    if (over.state === undefined && m.from === 1) {
+      m.state = chat.kind === "single" ? "read" : "delivered";
+    }
     if (m.viewtype === "voice") {
       const r = mulberry32(m.id);
       m.wave = Array.from({ length: 32 }, () => 4 + Math.floor(r() * 22));
@@ -743,22 +749,37 @@ export class MockCore extends EventTarget {
     const m = this._mkMsg(c, over);
     c.messages.push(m);
     this._emit("msg-sent", { chatId, msg: this._decorate(m) });
-    // simulate network -> delivered. No fake "read": like the real core, a
-    // message only reaches the double tick when a recipient's MDN arrives,
-    // which the demo never produces (#53). The line/chip sending marks ride
-    // the same send-activity event the real core emits (rpc-core _trackSending).
+    // simulate network -> delivered. The double tick needs a recipient's
+    // MDN (#53): in single chats the peer's client fetches mail a few
+    // seconds later and returns one (#59) — anything already out advances
+    // to "read" through the normal msg-state event. Groups never get an
+    // invented receipt and rest at delivered (#53). The line/chip sending
+    // marks ride the same send-activity event the real core emits
+    // (rpc-core _trackSending).
     this._emit("send-activity", { sending: true });
     setTimeout(() => { m.state = "sent"; this._emit("msg-state", { chatId, msgId: m.id, state: "sent" }); }, 350);
     setTimeout(() => { m.state = "delivered"; this._emit("msg-state", { chatId, msgId: m.id, state: "delivered" }); this._emit("send-activity", { sending: false }); }, 1200);
+    if (c.kind === "single") {
+      const mdn = setTimeout(() => {
+        for (const om of c.messages) {
+          if (om.from === 1 && (om.state === "delivered" || om.state === "sent")) {
+            om.state = "read";
+            this._emit("msg-state", { chatId, msgId: om.id, state: "read" });
+          }
+        }
+      }, this.mdnDelay());
+      mdn.unref?.();
+    }
     // occasional auto-reply in single chats
     if (c.kind === "single" && Math.random() < 0.6) {
-      setTimeout(() => {
+      const replyTimer = setTimeout(() => {
         const reply = this._mkMsg(c, { from: c.contactId, text: LOREM[Math.floor(Math.random() * LOREM.length)], ts: Date.now() });
         c.messages.push(reply);
         reply.unread = true;
         c.unread++;
         this._emit("incoming-msg", { chatId, msg: this._decorate(reply) });
       }, 3200 + Math.random() * 3000);
+      replyTimer.unref?.();
     }
     return this._decorate(m);
   }

@@ -223,9 +223,11 @@ drivable in demo mode (no Tauri build needed). The standalone PWA product
 (a static host talking to a remote core) is work in progress; demo mode
 here is only the UI smoke test. **KEEP:** every new
 `rpc-core.js` method needs a `mock-core.js` counterpart or demo mode throws
-"not a function" the moment the UI touches it. Demo honesty (1.4.52, #53):
-MockCore never fakes read receipts — own messages rest at `delivered` and
-the double tick needs a real MDN — and `sendMessage`/`resendMessage` emit
+"not a function" the moment the UI touches it. Demo honesty (1.4.52, #53;
+MDN arrival added 1.4.53, #59): MockCore never *invents* read receipts —
+own messages rest at `delivered` (1:1 fixture history reads as `read`), the
+double tick needs an MDN, and a 1:1 peer returns one a few seconds after a
+send (groups never do) — and `sendMessage`/`resendMessage` emit
 `send-activity` like the real core so the relay line dashes and detail-chip
 envelope work in the demo (demo *mode* itself still suppresses both marks:
 no relay configured, nothing sends through one).
