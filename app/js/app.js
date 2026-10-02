@@ -58,6 +58,12 @@ let barHidden = (() => {
   try { return JSON.parse(localStorage.getItem(BAR_HIDDEN_KEY)) || []; }
   catch { return []; }
 })();
+// #75 category bar visibility — "all" is always on, these are the rest.
+const CATS_HIDDEN_KEY = "velta-cats-hidden";
+let catsHidden = (() => {
+  try { return JSON.parse(localStorage.getItem(CATS_HIDDEN_KEY)) || []; }
+  catch { return []; }
+})();
 let listView = "chats";
 let archivedCount = 0; // archived-folder button visibility (issue #13)
 const CALL_LOG_KEY = "velta-call-log";
@@ -748,7 +754,7 @@ if (chatListEl && typeof matchMedia === "function" && matchMedia("(pointer: coar
     const step = swipeCategoryStep(t.clientX - swipeX0, t.clientY - swipeY0);
     if (swipeMoved || !step) return;
     swipeMoved = true;
-    const cats = [...(chatCatsEl?.children || [])].map(b => b.dataset.cat).filter(Boolean);
+    const cats = [...(chatCatsEl?.children || [])].filter(b => !b.hidden).map(b => b.dataset.cat).filter(Boolean);
     const next = cats[cats.indexOf(state.chatCategory) + step];
     if (next) setChatCategory(next);
   }, { passive: true });
@@ -1360,7 +1366,13 @@ if (chatCatsEl) {
 function syncChatCategoryBar() {
   if (!chatCatsEl) return;
   chatCatsEl.hidden = listView !== "chats";
-  for (const b of chatCatsEl.children) b.classList.toggle("active", b.dataset.cat === state.chatCategory);
+  // #75: hidden categories drop their chips; "all" always stays. A persisted
+  // active category that has since been disabled falls back to "all".
+  if (catsHidden.includes(state.chatCategory)) state.chatCategory = "all";
+  for (const b of chatCatsEl.children) {
+    b.hidden = b.dataset.cat !== "all" && catsHidden.includes(b.dataset.cat);
+    b.classList.toggle("active", b.dataset.cat === state.chatCategory);
+  }
 }
 
 function renderChatList() {
@@ -3048,6 +3060,13 @@ function rebuildDrawer() {
       localStorage.setItem(BAR_HIDDEN_KEY, JSON.stringify(barHidden));
       applyBarVisibility();
     },
+    catsHidden,
+    onCatToggle: (key, visible) => {
+      catsHidden = visible ? catsHidden.filter(k => k !== key) : [...new Set([...catsHidden, key])];
+      localStorage.setItem(CATS_HIDDEN_KEY, JSON.stringify(catsHidden));
+      syncChatCategoryBar();
+      renderChatList();
+    },
     p2pAvailable: p2pAvailable(),
     p2pOn: p2pEnabled(),
     onP2pToggle: async () => {
@@ -4038,6 +4057,11 @@ async function boot() {
       });
       for (const view of ["chats", "contacts", "calls", "qr"]) {
         $(`bar-${view}`).addEventListener("click", () => setListView(view));
+      }
+      // Boot lands on the chats view without going through setListView —
+      // paint the initial active state so the default is marked.
+      for (const b of document.querySelectorAll(".list-bar .bar-btn[data-view]")) {
+        b.classList.toggle("active", b.dataset.view === listView);
       }
       applyBarVisibility();
       bindChatHeadMenu();
