@@ -384,8 +384,9 @@ export class MockCore extends EventTarget {
       if (m.from !== 1) throw new Error("only own messages can be resent");
       m.state = "pending";
       this._emit("msg-state", { chatId: chat.id, msgId, state: "pending" });
+      this._emit("send-activity", { sending: true });
       setTimeout(() => { m.state = "sent"; this._emit("msg-state", { chatId: chat.id, msgId, state: "sent" }); }, 350);
-      setTimeout(() => { m.state = "delivered"; this._emit("msg-state", { chatId: chat.id, msgId, state: "delivered" }); }, 1200);
+      setTimeout(() => { m.state = "delivered"; this._emit("msg-state", { chatId: chat.id, msgId, state: "delivered" }); this._emit("send-activity", { sending: false }); }, 1200);
       return;
     }
     throw new Error("no such message");
@@ -744,9 +745,11 @@ export class MockCore extends EventTarget {
     this._emit("msg-sent", { chatId, msg: this._decorate(m) });
     // simulate network -> delivered. No fake "read": like the real core, a
     // message only reaches the double tick when a recipient's MDN arrives,
-    // which the demo never produces (#53).
+    // which the demo never produces (#53). The line/chip sending marks ride
+    // the same send-activity event the real core emits (rpc-core _trackSending).
+    this._emit("send-activity", { sending: true });
     setTimeout(() => { m.state = "sent"; this._emit("msg-state", { chatId, msgId: m.id, state: "sent" }); }, 350);
-    setTimeout(() => { m.state = "delivered"; this._emit("msg-state", { chatId, msgId: m.id, state: "delivered" }); }, 1200);
+    setTimeout(() => { m.state = "delivered"; this._emit("msg-state", { chatId, msgId: m.id, state: "delivered" }); this._emit("send-activity", { sending: false }); }, 1200);
     // occasional auto-reply in single chats
     if (c.kind === "single" && Math.random() < 0.6) {
       setTimeout(() => {

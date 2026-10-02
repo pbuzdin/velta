@@ -550,6 +550,11 @@ async function refreshRelayStatusInner() {
   } catch { /* per-relay view unavailable */ }
 }
 
+// Envelope marking the SENDING relay's chip — mirrors the dashed segment on
+// the relay line (same data-sending logic), but as a glyph: a dashed border
+// reads "disabled" and can't carry the in-flight motion cue.
+const RELAY_SEND_SVG = '<svg viewBox="0 0 24 24"><rect x="3" y="5.5" width="18" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 7.5l8 5.5 8-5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
 // "cha*.uk" from "chat.example.uk": first 3 chars, one asterisk for the
 // rest, TLD visible — enough to recognize the relay without printing it.
 function maskRelayDomain(domain) {
@@ -611,16 +616,32 @@ function renderRelayLine() {
 
   // Detail chips (hover / pull-down reveal): one chip per relay-line segment,
   // equal widths so each chip sits above its own segment — masked domain plus
-  // the quota percent ("cha*.uk · 55% used"). The unmasked domain, status and
-  // full quota line ride the title tooltip.
+  // the quota percent ("cha*.uk · 55% used"). The sending relay's chip carries
+  // a pulsing envelope, mirroring the dashes on its line segment. The
+  // unmasked domain, status and full quota line ride the title tooltip.
   const detail = document.getElementById("relay-detail");
   if (detail) {
     detail.replaceChildren(...segs.map(s => {
       const chip = document.createElement("span");
       chip.className = "relay-detail-chip";
       chip.dataset.state = s.state;
+      const isSendChip = relaySending && relayState !== "local" && (
+        (s.domain && s.domain.toLowerCase() === sendDomain) ||
+        // A single relay is always the sending relay, even if its domain
+        // couldn't be matched against the account address.
+        (segs.length === 1 && !sendDomain));
+      if (isSendChip) {
+        chip.setAttribute("data-sending", "");
+        const ico = document.createElement("span");
+        ico.className = "relay-detail-send";
+        ico.innerHTML = RELAY_SEND_SVG; // static constant, no data
+        chip.append(ico);
+      }
+      const label = document.createElement("span");
+      label.className = "relay-detail-label";
       const pct = (String(s.quota || "").match(/(\d+)\s*%/) || [])[1];
-      chip.textContent = maskRelayDomain(s.domain) + (pct ? ` · ${pct}% used` : s.text ? ` · ${s.text}` : "");
+      label.textContent = maskRelayDomain(s.domain) + (pct ? ` · ${pct}% used` : s.text ? ` · ${s.text}` : "");
+      chip.append(label);
       chip.title = `${s.domain || "relay"}: ${s.text || title}${s.quota ? ` · ${s.quota}` : ""}`;
       return chip;
     }));
