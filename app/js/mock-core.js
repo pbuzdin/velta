@@ -41,12 +41,18 @@ const LOREM = [
   "Multi-device just works — same account everywhere via relays",
 ];
 
+// Demo images as inline SVG data URIs (#74): the chat view puts filePath
+// straight into an <img src>, so the old bare CSS `linear-gradient(...)`
+// strings rendered as broken images. Same color pairs, encoded like
+// GROUP_AVATARS (data:image/svg+xml, %23 for #, single quotes inside).
+const demoImg = (a, b) =>
+  `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 480'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23${a}'/%3E%3Cstop offset='1' stop-color='%23${b}'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='640' height='480' fill='url(%23g)'/%3E%3C/svg%3E`;
 const IMG_GRADIENTS = [
-  "linear-gradient(135deg,#e96443,#904e95)",
-  "linear-gradient(135deg,#396afc,#2948ff)",
-  "linear-gradient(135deg,#11998e,#38ef7d)",
-  "linear-gradient(135deg,#fc4a1a,#f7b733)",
-  "linear-gradient(135deg,#8e2de2,#4a00e0)",
+  demoImg("e96443", "904e95"),
+  demoImg("396afc", "2948ff"),
+  demoImg("11998e", "38ef7d"),
+  demoImg("fc4a1a", "f7b733"),
+  demoImg("8e2de2", "4a00e0"),
 ];
 
 const REACTION_SET = ["👍", "❤️", "😂", "🎉", "😮", "👏"];
