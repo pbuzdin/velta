@@ -130,6 +130,8 @@ export class MockCore extends EventTarget {
       mk({ id: 19, name: "Lena Fischer", contactId: 6, encrypted: false }),
       mk({ id: 20, name: "Family", kind: "group", memberCount: 4, archived: true }),
       mk({ id: 21, kind: "deaddrop", name: "Contact Requests", unread: 1 }),
+      // A 1:1 bot chat so the #57 "Bots" category has a demo entry.
+      mk({ id: 22, name: "Delta Bot", contactId: 7, muted: true }),
     ];
 
     // Per-chat message history. Chat 15 gets a huge history to showcase

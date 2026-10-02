@@ -103,6 +103,17 @@ svg { width: 24px; height: 24px; display: block; }
 }
 
 .chat-list { flex: 1; overflow-y: auto; padding-bottom: 10px; scrollbar-gutter: stable both-edges; }
+/* Category chips above the chat list (#57): equal-width buttons, one row. */
+.chat-cats { display: flex; gap: 4px; padding: 2px 8px 6px; flex: none; }
+.chat-cats button {
+  flex: 1 1 0; min-width: 0; padding: 5px 2px; font-size: 11.5px; line-height: 1;
+  color: var(--text-dim); background: var(--bg-hover); border: none; border-radius: 999px;
+  cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.chat-cats button.active { background: var(--accent); color: #f4f4f4; }
+@media (hover: hover) and (pointer: fine) {
+  .chat-cats button:hover:not(.active) { color: var(--text); }
+}
 /* Relay status line — thin strip just below the sidebar header. The color
    lives on `color` so the sending-dash gradient can reuse it as currentColor. */
 /* Relay status strip: one equal-width segment per configured relay
