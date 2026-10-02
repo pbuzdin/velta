@@ -64,7 +64,11 @@ section; a first-`</li>` match silently truncates the quota).
 Reached from the drawer's "Relays of this profile…" — the single entry
 point (group/channel info sheets deliberately show no relay rows; the
 account transports are identical on every group and relay management is
-account-scoped). Previously the profile modal also carried relay row(s)
+account-scoped). The GROUP INFO MEMBERS list shows each member's relay
+domain as the row subtitle with the full address in the tooltip (#72 —
+the "which relay is everyone on" read; core 2.62 exposes one address per
+contact via `get_full_chat_by_id` + `get_contacts_by_ids`). Previously
+the profile modal also carried relay row(s)
 — a single `Relay:` row for one transport, a collapsed `Relays (n)`
 details list for several (`showChatInfo` renders them; 1:1
 contact profiles instead show the contact's own relay from their address,

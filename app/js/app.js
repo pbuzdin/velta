@@ -2253,9 +2253,13 @@ async function showChatInfo(chat) {
       if (count) count.textContent = members.length.toLocaleString();
       if (list) {
         for (const m of members) {
+          // #72: the subtitle is the member's RELAY (address domain) — the
+          // "which relay is everyone on" read; the full address rides the
+          // title tooltip.
+          const domain = (m.addr || "").split("@")[1] || "";
           const row = document.createElement("div");
           row.className = "info-row";
-          row.innerHTML = `<span class="k" style="color:${escapeAttr(m.color || "#888")}">${escapeHtml(m.name)}</span><span class="v">${escapeHtml(m.addr || "")}</span>`;
+          row.innerHTML = `<span class="k" style="color:${escapeAttr(m.color || "#888")}">${escapeHtml(m.name)}</span><span class="v"${domain ? ` title="${escapeAttr(m.addr)}"` : ""}>${escapeHtml(domain)}</span>`;
           list.appendChild(row);
         }
       }
