@@ -267,7 +267,10 @@ editing `app/`, force the rebuild with `cargo clean -p velta-app` before
 `cargo tauri build --debug --no-bundle`, then relaunch. Verify from the
 running app with `fetch('js/mock-core.js', {cache:'reload'})` (paths are
 relative to the `tauri.localhost` root — `fetch('mock-core.js')` 404s and
-fakes a "stale build" verdict).
+fakes a "stale build" verdict). The running exe serves `http://tauri.localhost`
+embedded assets only — a leftover static dev server on the devUrl port
+(1430) is NEVER consulted by current binaries; a stale module + fresh bytes
+confusion means the page is loading embedded assets, not your server.
 
 Desktop `cargo check`/`build` of this crate runs **natively on Windows only** —
 the WSL sandbox lacks the GTK/gobject dev libraries (pkg-config `gobject-2.0`
@@ -558,7 +561,13 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   call fetched the first time a People/Bots chip is used, never at boot
   (#46 budget); unknown contacts count as people. Active chip persists in
   `localStorage["velta-chat-category"]`; `syncChatCategoryBar` hides the bar
-  for every side view. Mobile-only swipe (left/right = next/previous chip)
+  for every side view. Category VISIBILITY is user-configurable (#75):
+  drawer → "Chat categories" (same details-checkboxes pattern as Bottom bar
+  buttons) stores disabled cats in `localStorage["velta-cats-hidden"]`;
+  "all" is always on, hidden cats drop their chips (`b.hidden`),
+  a persisted active cat that gets disabled falls back to "all"
+  (self-healing guard inside `syncChatCategoryBar`), and the swipe walks
+  visible chips only (`!b.hidden` filter). Mobile-only swipe (left/right = next/previous chip)
   attaches only under `matchMedia("(pointer: coarse)")`, is axis-locked
   (48px + 1.4× horizontal dominance), swallows the gesture's follow-up click
   and no-ops past either end. KEEP: the bar code must live INSIDE the
@@ -867,8 +876,11 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   (`syncHeaderButtons()` from `setListView` — keep that call). Button
   visibility is user-configurable (drawer → Bottom bar buttons, localStorage
   `velta-bar-hidden`); `applyBarVisibility` adds `.bar-bare` when all four
-  view buttons are hidden; Menu and `#btn-new-chat` are always visible. The
-  old `.fab`/`.sidebar-foot` and the sidebar-head Menu button are gone —
+  view buttons are hidden; Menu and `#btn-new-chat` are always visible. KEEP:
+  boot lands on the chats view WITHOUT going through `setListView`, so the
+  initial `.bar-btn.active` is painted directly in the bind-ui slice — don't
+  rely on `setListView` to mark it.
+  The old `.fab`/`.sidebar-foot` and the sidebar-head Menu button are gone —
   do not resurrect them.
 - **Drawer contract** (ui.js `buildDrawer`): no close button, no offset
   shadow (slides over the sidebar's own edge; a right border separates).
@@ -877,7 +889,11 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   button listens to flip hamburger↔cross and to close instead of re-open).
   Width `clamp(300px, 33vw, 420px)`, full width on mobile. While open, a
   capture-phase document `pointerdown` listener closes it on outside taps;
-  the transparent overlay swallows the click.
+  the transparent overlay swallows the click. Toggle-spoiler pattern
+  (`<details class="drawer-details">` + `.scale-opts` checkboxes): Bottom bar
+  buttons (`data-bar-key`) and Chat categories (#75, `data-cat-key`) follow
+  it — add new toggles as args to `buildDrawer` + a change handler, never
+  as one-off DOM queries outside ui.js.
 - **Header heights** are pinned by `--head-h` (56px): `.sidebar-head` and
   `.chat-head` are border-box
   `height: calc(var(--head-h) + env(safe-area-inset-top))`. Change the var,

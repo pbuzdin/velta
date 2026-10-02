@@ -7,13 +7,29 @@ Extracted from AGENTS.md. Everything about the multi-relay UI in app.js.
 Thin strip below the sidebar header; one equal-width segment per configured
 relay (up to `MAX_RELAYS = 5` in the core, `configure.rs`), each colored by
 that relay's own status — green connected / yellow connecting or retrying /
-red unreachable / blue demo or local-chat mode. Per-relay status comes from
-parsing the core's `get_connectivity_html` (the only per-transport status
-the core exposes; ceiling noted in `parseConnectivityHtml`). With one relay
-the line is the old single bar; the combined `get_connectivity` view drives
-the 45 s NotConnected grace and the line's overall semantics. Animated
-dashes while a message is in flight to the relay (driven by rpc-core's
-`send-activity`).
+amber unreachable-for-new-connections (#76) / red down / blue demo or
+local-chat mode. Per-relay status comes from parsing the core's
+`get_connectivity_html` (the only per-transport status the core exposes;
+ceiling noted in `parseConnectivityHtml`). With one relay the line is the
+old single bar; the combined `get_connectivity` view drives the 45 s
+NotConnected grace and the line's overall semantics. Animated dashes while a
+message is in flight to the relay (driven by rpc-core's `send-activity`).
+
+**The core's dot is a LAST-SESSION-STATE, not live reachability** (#76): an
+established IMAP session keeps a relay green while the relay refuses new
+connections — seen live with a relay dead for new TLS reported "Connected"
+for hours. `refreshRelayStatusInner` therefore schedules a shell-side probe
+per relay domain (`probe_relay`, lib.rs — a real TLS request via ureq, 6 s
+timeout; a bare TCP connect is useless behind a fake-IP VPN, the local proxy
+accepts instantly). Any HTTP response counts as reachable; a transport error
+downgrades a core-green segment to `data-state="unreachable"` (amber, seg +
+chip) with the tooltip suffix "not accepting new connections (web check
+failed)". Probes run at most once per domain per 60 s (`relayProbeCache`);
+a 60 s `setInterval(refreshRelayStatus)` drives them while the core is
+silent. `parseConnectivityHtml` now also captures the SMTP dot the core
+renders OUTSIDE the transport `<li>`s ("Outgoing messages" section — the
+per-transport loop can't see it) and the sending relay's segment inherits
+it worst-of; a failed probe is cleared the next time the relay answers.
 
 ## Relay detail chips (`#relay-detail`)
 
@@ -28,7 +44,8 @@ each chip sits directly above its own segment.
 Chip content is info-only: the masked domain plus the quota percent —
 `chat.example.uk` renders as `cha*.uk · 55% used` (`maskRelayDomain`: first
 3 chars, one asterisk, TLD visible). Unmasked domain, status text and the
-full quota line ride the `title` tooltip; a red border marks a down relay.
+full quota line ride the `title` tooltip; a red border marks a down relay,
+an amber border the #76 unreachable state.
 The relay SELECTED for sending (the account's configured transport —
 `state.account.addr`'s domain, or the only relay when the domain is
 unmatched) carries a static envelope glyph (`data-sending`); demo/local
