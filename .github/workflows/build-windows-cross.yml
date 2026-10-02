@@ -15,15 +15,18 @@ env:
   # Statically link the MinGW C runtime so the sidecar has no extra DLLs.
   RUSTFLAGS: "-C target-feature=+crt-static"
 
+permissions:
+  contents: read
+
 jobs:
   build-sidecar:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install Rust toolchain with Windows target
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable (moving branch, Dependabot updates)
         with:
           toolchain: 1.98
           targets: x86_64-pc-windows-gnu
@@ -42,7 +45,7 @@ jobs:
         run: cargo build -p deltachat-rpc-server --release --target x86_64-pc-windows-gnu
 
       - name: Upload sidecar artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: deltachat-rpc-server-windows-gnu
           path: core/target/x86_64-pc-windows-gnu/release/deltachat-rpc-server.exe
@@ -52,15 +55,15 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable (moving branch, Dependabot updates)
         with:
           toolchain: 1.98
 
       - name: Install Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
 
@@ -68,7 +71,7 @@ jobs:
         run: cargo install tauri-cli --version "^2.0" --locked
 
       - name: Download sidecar from Ubuntu build
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: deltachat-rpc-server-windows-gnu
           path: velta-app/src-tauri/binaries
@@ -86,7 +89,7 @@ jobs:
         run: cargo tauri build
 
       - name: Upload Windows artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: velta-windows
           path: |
@@ -95,7 +98,7 @@ jobs:
 
       - name: Upload release assets (on tag)
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
             velta-app/src-tauri/target/release/bundle/msi/*.msi
