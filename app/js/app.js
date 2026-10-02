@@ -2,7 +2,7 @@
 import { createCore } from "./transport.js";
 import "./components.js";
 import { escapeHtml, escapeAttr } from "./components.js";
-import { chatCategoryOf } from "./rpc-core.js";
+import { chatCategoryOf, swipeCategoryStep } from "./rpc-core.js";
 import { fileUrl } from "./media.js";
 import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintGroups } from "./avatar.js";
 import { ChatView, setAvatarProfileOpener } from "./chat-view.js";
@@ -622,6 +622,40 @@ function renderRelayLine() {
 // (pull-to-refresh gesture); it hides itself again after a few seconds.
 const chatListEl = document.getElementById("chat-list");
 const relayDetailEl = document.getElementById("relay-detail");
+
+// #57 (mobile only): swipe left/right on the list steps through the category
+// chips. Axis-locked — a gesture only counts when it is clearly horizontal,
+// so vertical scrolling and the pull-to-refresh zone are untouched. On a
+// recognized swipe the follow-up click is swallowed: switching re-renders the
+// list, and at either end of the chip row a swipe must not open a chat.
+if (chatListEl && typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches) {
+  let swipeX0 = null, swipeY0 = null, swipeId = null;
+  let swipeMoved = false;
+  chatListEl.addEventListener("click", e => {
+    if (swipeMoved) { e.stopPropagation(); e.preventDefault(); swipeMoved = false; }
+  }, true);
+  chatListEl.addEventListener("touchstart", e => {
+    swipeMoved = false;
+    if (e.touches.length !== 1) { swipeX0 = null; return; }
+    swipeX0 = e.touches[0].clientX;
+    swipeY0 = e.touches[0].clientY;
+    swipeId = e.touches[0].identifier;
+  }, { passive: true });
+  chatListEl.addEventListener("touchmove", e => {
+    if (swipeX0 == null || e.touches.length !== 1 || listView !== "chats") return;
+    const t = [...e.touches].find(t => t.identifier === swipeId);
+    if (!t) return;
+    const step = swipeCategoryStep(t.clientX - swipeX0, t.clientY - swipeY0);
+    if (swipeMoved || !step) return;
+    swipeMoved = true;
+    const cats = [...(chatCatsEl?.children || [])].map(b => b.dataset.cat).filter(Boolean);
+    const next = cats[cats.indexOf(state.chatCategory) + step];
+    if (next) setChatCategory(next);
+  }, { passive: true });
+  chatListEl.addEventListener("touchend", () => { swipeX0 = null; }, { passive: true });
+  chatListEl.addEventListener("touchcancel", () => { swipeX0 = null; }, { passive: true });
+}
+
 let relayPullY = null;
 let relayPullTimer = null;
 if (chatListEl && relayDetailEl) {
@@ -1205,15 +1239,18 @@ function visibleChats() {
   if (cat === "all") return state.chats;
   return state.chats.filter(c => chatCategoryOf(c, chatIsBot) === cat);
 }
+// One entry point for every category change (chip click, swipe): renderChatList
+// re-syncs the chip active states via syncChatCategoryBar.
+function setChatCategory(cat) {
+  state.chatCategory = cat;
+  localStorage.setItem("velta-chat-category", cat);
+  if (cat === "people" || cat === "bots") ensureContactBots();
+  renderChatList();
+}
 if (chatCatsEl) {
   chatCatsEl.addEventListener("click", e => {
     const btn = e.target.closest("button[data-cat]");
-    if (!btn) return;
-    state.chatCategory = btn.dataset.cat;
-    localStorage.setItem("velta-chat-category", state.chatCategory);
-    for (const b of chatCatsEl.children) b.classList.toggle("active", b === btn);
-    if (state.chatCategory === "people" || state.chatCategory === "bots") ensureContactBots();
-    renderChatList();
+    if (btn) setChatCategory(btn.dataset.cat);
   });
 }
 function syncChatCategoryBar() {

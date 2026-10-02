@@ -21,6 +21,15 @@ export function chatCategoryOf(chat, isBot = () => false) {
   return "system";
 }
 
+// Category swipe step for a touch drag (#57): +1 next chip, -1 previous,
+// 0 not a swipe. Axis-locked — the drag must travel the threshold
+// horizontally AND stay clearly horizontal, so vertical list scrolling and
+// the pull-to-refresh zone never trigger it.
+export function swipeCategoryStep(dx, dy, threshold = 48) {
+  if (Math.abs(dx) < threshold || Math.abs(dx) < Math.abs(dy) * 1.4) return 0;
+  return dx < 0 ? 1 : -1;
+}
+
 // Backstop for the event long-poll. The backend parks get_next_event until an
 // event exists (no server-side timeout), so the ordinary 30 s RPC timeout must
 // not apply — see _callEventPoll. Long enough that healthy polls rarely hit it
