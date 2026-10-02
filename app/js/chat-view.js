@@ -2878,6 +2878,10 @@ export class ChatView {
     // exact bytes are hash-whitelisted in the CSP (script-src, all three
     // policy copies — see index.html / both tauri confs).
     const onFrameLink = (e) => {
+      // V-06/#64: only THIS viewer's frame may hand us links. Without the
+      // e.source check any window (webxdc app, in-app-browser iframe) could
+      // post a forged veltaHtmlLink and ride the open chain.
+      if (e.source !== frame.contentWindow) return;
       const href = e.data?.veltaHtmlLink;
       if (typeof href !== "string" || !/^https?:/i.test(href)) return;
       if (/Android/.test(navigator.userAgent)) openInAppBrowser(href);
