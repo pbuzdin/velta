@@ -576,7 +576,7 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   the relay-pull region (~line 620) is invisible to the harness. Pinned by
   `tests/categories-bar.test.mjs`.
 - `app/js/chat-view.js` owns the conversation history (virtualized via
-  virtual-scroller), composer, selection mode and the delete dialog, plus the pinned-message tray under the chat head (`_refreshPinnedBar`, fed by `pinned-changed` events). Composer send keys (1.4.52, #56): Enter sends while the `velta-send-enter` drawer setting is on (default); with it OFF, Ctrl/Cmd+Enter sends instead and plain Enter inserts a newline; Shift+Enter is always a newline and IME composition never sends. KEEP:
+  virtual-scroller), composer, selection mode and the delete dialog, plus the pinned-message tray under the chat head (`_refreshPinnedBar`, fed by `pinned-changed` events AND — #69 — debounced re-checks on `msgs-changed`/`msgs-deleted`: the core's tombstone REPLACE clears a pin WITHOUT a `MessageUnpinned` event, and core `MsgDeleted` (explicit/remote/ephemeral deletions) maps to `msgs-deleted`+`msgs-changed` in rpc-core — unmapped, remote deletions never reached the UI at all). Composer send keys (1.4.52, #56): Enter sends while the `velta-send-enter` drawer setting is on (default); with it OFF, Ctrl/Cmd+Enter sends instead and plain Enter inserts a newline; Shift+Enter is always a newline and IME composition never sends. KEEP:
   rows must NOT get `content-visibility` (the scroller measures mounted rows
   itself; collapsing desyncs its height cache — scroll jumps on remount);
   day chips render inside the first message row of each day (`dayFirst`) —
