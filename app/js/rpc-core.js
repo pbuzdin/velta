@@ -1407,7 +1407,9 @@ export class JsonRpcCore extends EventTarget {
         if ((m.ts || 0) < cutoffMs) ids.push(m.id);
       }
       hasMore = !!page.hasMore && msgs.length > 0;
-      beforeId = msgs.length ? msgs[msgs.length - 1].id : null;
+      // Pages are oldest→newest: chain from the SMALLEST id (the last/newest
+      // id would re-return the same window forever).
+      beforeId = msgs.length ? Math.min(...msgs.map(m => m.id)) : null;
       if (beforeId == null) break;
     }
     const CHUNK = 800;
