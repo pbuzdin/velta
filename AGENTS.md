@@ -112,7 +112,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── signing/                  # local signing keystore (untracked)
 ├── docs/agents/              # per-subsystem agent notes (webxdc, relays,
 │                              p2p/local chat, android-shell, media,
-│                              onboarding) — referenced from §5/§11
+│                              onboarding, security-triage) — referenced from §5/§11
 └── tools/                    # icon generation, WSL APK build/sign helpers,
                               serve-dev.py (no-cache static server for app/)
 ```
