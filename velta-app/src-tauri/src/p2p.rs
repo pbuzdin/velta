@@ -160,6 +160,11 @@ struct FileRx {
 
 /// Cap for one local-chat media transfer.
 const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
+// V-10/#67: a peer must not pin memory/fds with many parallel inbound
+// transfers on top of the per-file 256 MB cap. Global bound across peers
+// keeps the whole engine bounded too.
+const MAX_INBOUND_FILES_PER_PEER: usize = 3;
+const MAX_INBOUND_FILES_TOTAL: usize = 8;
 
 /// Strip any path components and odd characters from a peer-supplied name —
 /// the name is untrusted and must never escape the blob directory.
@@ -1213,6 +1218,20 @@ impl P2p {
                         "message": format!("rejected file: {} bytes over the cap", size),
                     }));
                     return;
+                }
+                // V-10/#67: concurrency limits on top of the size cap.
+                {
+                    let rx = self.rx_files.lock().unwrap();
+                    let peer_dir = self.blobs_dir.join(node_id.to_string());
+                    let for_peer = rx.values().filter(|f| f.dir == peer_dir).count();
+                    if for_peer >= MAX_INBOUND_FILES_PER_PEER || rx.len() >= MAX_INBOUND_FILES_TOTAL {
+                        drop(rx);
+                        self.sink.emit(json!({
+                            "kind": "error", "peerId": node_id.to_string(),
+                            "message": "rejected file: too many concurrent transfers",
+                        }));
+                        return;
+                    }
                 }
                 let dir = self.blobs_dir.join(node_id.to_string());
                 let _ = std::fs::create_dir_all(&dir);
