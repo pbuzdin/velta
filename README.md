@@ -897,11 +897,10 @@ list shows: **Chats** (default), **Contacts** (tap to open the chat),
 in place of the list, with a scan button), **+** (new chat / group /
 join-via-link menu) and **Menu** (settings drawer). The header search button
 works the same way — it opens a live chat-name search in place of the list
-and flips to a cross to close. When chats are archived, the search view
-gains a pinned **Archived chats** entry (with the count) that opens the
-archived folder in place of the list; the folder's own **‹ Back to chats**
-row returns to the list. Writing a message from an archived chat moves it
-back to the main list. The core keeps no call log — calls exist only
+and flips to a cross to close. The search screen has two tabs — **Search**
+and **Archived (n)** — and the button always lands on Search. The Archived
+tab lists the folder in place of the list; writing a message from an
+archived chat moves it back to the main list. The core keeps no call log — calls exist only
 as call messages — so the Calls view lists calls ended on this device,
 recorded locally and capped at 30. Every view button can be hidden in
 Settings → Bottom bar buttons; the Menu and + buttons are always visible,

@@ -65,6 +65,9 @@ let catsHidden = (() => {
   catch { return []; }
 })();
 let listView = "chats";
+// Search screen internal tab: "search" (default, what the head button opens)
+// or "archived" (the folder folded into the search screen as a second tab).
+let searchScreenTab = "search";
 let archivedCount = 0; // archived-folder button visibility (issue #13)
 const CALL_LOG_KEY = "velta-call-log";
 const state = {
@@ -1191,7 +1194,6 @@ function setListView(view) {
   if (listView === "calls") { renderCallsView(); return; }
   if (listView === "qr") { renderQrView(); return; }
   if (listView === "search") { renderSearchView(); return; }
-  if (listView === "archived") { renderArchivedView(); return; }
   if (listView === "new") { renderNewChatView(); return; }
 }
 
@@ -1256,18 +1258,12 @@ async function renderContactsView() {
 
 // Archived chats folder (issue #13): a header button instead of the
 // official client's pinned row. Plain side view — archived lists are small.
-async function renderArchivedView() {
-  const rows = sideViewShell("Archived chats", "Chats you archived — writing in one brings it back to the list");
-  // The head button is gone (merged into the search view): this row is the
-  // way back to the regular list.
-  const exit = document.createElement("button");
-  exit.className = "chat-item archived-entry";
-  exit.innerHTML = `<div class="file-name">‹ Back to chats</div>`;
-  exit.addEventListener("click", () => setListView("chats"));
-  rows.append(exit);
+// The Archived tab body of the search screen (replaces the standalone
+// archived side view — the folder folded into search, #77 follow-up).
+async function renderArchivedTab(rows) {
   let chats = [];
   try { chats = await core.getChatList({ archived: true }); } catch { /* backend offline */ }
-  if (listView !== "archived") return; // user switched away mid-fetch
+  if (listView !== "search" || searchScreenTab !== "archived") return; // switched away mid-fetch
   if (!chats.length) {
     rows.innerHTML = `<div class="side-view-empty">No archived chats</div>`;
     return;
@@ -1281,7 +1277,7 @@ async function renderArchivedView() {
         <div class="ci-name">${escapeHtml(c.name)}</div>
         ${c.lastMsg ? `<div class="archived-sub">${escapeHtml(c.lastMsg)}</div>` : ""}
       </div>`;
-    b.addEventListener("click", () => { setListView("chats"); openChat(c.id); });
+    b.addEventListener("click", () => openChat(c.id)); // writing unarchives (_sendArchivedAware)
     rows.appendChild(b);
   }
 }
@@ -2577,18 +2573,35 @@ function renderNewChatView() {
   }
 }
 
-// Search view: live chat-name filter rendered in place of the chats list.
-// The header search button toggles this view and flips to a cross.
+// Search screen: two tabs — Search (live chat-name filter, the default the
+// head button opens) and Archived (the folder folded in here; the standalone
+// archived side view and its head button are gone). The head X closes the
+// whole screen from either tab.
 function renderSearchView() {
-  const rows = sideViewShell("Search chats", "Type at least two characters");
-  // Archived chats live here now (#77 follow-up): the head button is gone,
-  // and search is the natural home — archived = "not in my list".
-  if (archivedCount > 0) {
-    const arch = document.createElement("button");
-    arch.className = "chat-item archived-entry";
-    arch.innerHTML = `<div class="file-name">Archived chats</div><div class="file-size">${archivedCount} chat${archivedCount === 1 ? "" : "s"}</div>`;
-    arch.addEventListener("click", () => setListView("archived"));
-    rows.append(arch);
+  const shell = document.getElementById("chat-list");
+  shell.innerHTML = `
+    <div class="side-view">
+      <div class="chat-cats side-tabs" role="tablist">
+        <button role="tab" data-tab="search">Search</button>
+        <button role="tab" data-tab="archived">Archived${archivedCount ? ` (${archivedCount})` : ""}</button>
+      </div>
+      <div class="side-view-rows" data-tab-body></div>`;
+  const body = shell.querySelector("[data-tab-body]");
+  const syncTabs = () => {
+    for (const b of shell.querySelectorAll("[data-tab]")) b.classList.toggle("active", b.dataset.tab === searchScreenTab);
+  };
+  for (const b of shell.querySelectorAll("[data-tab]")) {
+    b.addEventListener("click", () => {
+      if (searchScreenTab === b.dataset.tab) return;
+      searchScreenTab = b.dataset.tab;
+      renderSearchView();
+    });
+  }
+  syncTabs();
+  const rows = body;
+  if (searchScreenTab === "archived") {
+    renderArchivedTab(rows);
+    return;
   }
   const input = document.createElement("input");
   input.className = "text-field side-search-input";
@@ -4228,7 +4241,10 @@ async function boot() {
       // Invite cards in messages + any invite-host link tap → join flow
       bindInviteInterception(link => joinFromInvite(link));
 
-      $("btn-search").addEventListener("click", () => setListView(listView === "search" ? "chats" : "search"));
+      $("btn-search").addEventListener("click", () => {
+        if (listView === "search") setListView("chats");
+        else { searchScreenTab = "search"; setListView("search"); }
+      });
       $("btn-new-chat").addEventListener("click", () => setListView(listView === "new" ? "chats" : "new"));
       syncHeaderButtons();
     } catch (err) {
