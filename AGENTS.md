@@ -930,7 +930,7 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   the full set to the shell via `set_notify_prefs` (persisted to
   `notify-prefs.json` in app local data + a filesDir copy the Kotlin
   BackgroundFetchJob/Notifications channel layer read):
-  `bg_notify_incoming` gates on enabled/mentions_only (heuristic:
+  `bg_notify_incoming` gates on enabled/mentions_only (drawer label "Replies only"; heuristic:
   text contains @ or the displayname)/show_content/system_new_msgs;
   `push_wakeup_impl` skips when `use_bg_connection` is off;
   `force_bg_connection` ON requests battery exemption. Desktop gates
