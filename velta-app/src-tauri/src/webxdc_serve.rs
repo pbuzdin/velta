@@ -48,6 +48,12 @@ static WXDC_RPC_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::Atomi
 // entry — harmless (still 404 unless names collide).
 static OPEN_APP: std::sync::Mutex<Option<(u32, u32)>> = std::sync::Mutex::new(None);
 
+/// Called by the manager (webxdc_begin command) right before the app frame
+/// loads — the only way OPEN_APP gets set (V-05/#63 gate).
+pub fn set_open_app(account: u32, msg: u32) {
+    *OPEN_APP.lock().unwrap() = Some((account, msg));
+}
+
 pub fn webxdc_resolve_line(app: &tauri::AppHandle, line: &str) {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else { return; };
     let Some(id) = value.get("id").and_then(|v| v.as_str()).map(str::to_string) else { return; };
@@ -135,6 +141,24 @@ pub async fn webxdc_serve(
     let path = percent_decode(&path);
     let path = if path.is_empty() { "index.html".to_string() } else { path };
 
+    // V-05/#63: a frame may only read the instance that is CURRENTLY open.
+    // Without this gate any webxdc app (opaque origin, but the server sent
+    // Access-Control-Allow-Origin: *) could fetch another instance's blobs
+    // by naming its <account>/<msg> prefix directly. The manager registers
+    // the app via the webxdc_begin command right before the frame loads, so
+    // the opening index request matches; anything else with a mismatched
+    // prefix is refused. Unprefixed (absolute-path) subresources fall back
+    // to the open app below, unchanged. Icon files are exempt: the chat
+    // list card loads them for apps that are NOT open (public by design —
+    // the icon is visible to every chat member anyway).
+    let is_icon = path == "icon.png" || path.starts_with("icon.");
+    if !is_icon {
+        match *OPEN_APP.lock().unwrap() {
+            Some(open) if open == (account, msg) => {}
+            _ => return not_found(),
+        }
+    }
+
     // Some apps load `<script src="webxdc.js">` (the webxdc dev-server
     // convention). The shim is injected into index.html anyway, but alias
     // the path to it so those requests stop 404ing.
@@ -147,11 +171,9 @@ pub async fn webxdc_serve(
     }
 
     let is_index = path == "index.html";
-    if is_index {
-        // Remember the app being opened — its absolute-path subresource
-        // requests resolve against this (see OPEN_APP above).
-        *OPEN_APP.lock().unwrap() = Some((account, msg));
-    }
+    // (OPEN_APP is set by the webxdc_begin command from the manager, NOT by
+    // an index request — a mismatched-prefix index fetch must not re-point
+    // the gate at the attacker's chosen instance, V-05/#63.)
     let base64_blob = match webxdc_rpc(&app, "get_webxdc_blob", serde_json::json!([account, msg, path])).await {
         Ok(serde_json::Value::String(b64)) => b64,
         _ => return not_found(),

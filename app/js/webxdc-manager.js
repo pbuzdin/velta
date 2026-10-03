@@ -204,7 +204,7 @@ export function isWebxdcOpen(msgId) {
   return active?.msgId === Number(msgId);
 }
 
-export function openWebxdc(msgId, fallbackName = "Webxdc app") {
+export async function openWebxdc(msgId, fallbackName = "Webxdc app") {
   if (typeof document === "undefined") return;
   // The webxdc.localhost handler only exists inside the Tauri shell. In a
   // plain browser (demo/dev) the frame would 404 every asset and spam the
@@ -228,6 +228,12 @@ export function openWebxdc(msgId, fallbackName = "Webxdc app") {
   // Theme rides the query string; webxdc-shim.js applies it as the
   // document's color-scheme so the frame's scrollbars match the shell.
   const theme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+  // V-05/#63: register this instance with webxdc_serve BEFORE the frame
+  // loads — the server refuses non-icon blobs for any other prefix, so an
+  // open app cannot read another instance's files.
+  const tauri = window.__TAURI__;
+  const invoke = tauri?.core?.invoke || tauri?.invoke;
+  await invoke?.("webxdc_begin", { account, msg: Number(msgId) }).catch(() => {});
   iframe.src = `${base}/${msgId}/index.html?velta-theme=${theme}`;
   iframe.className = "webxdc-frame";
 

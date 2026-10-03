@@ -1429,6 +1429,15 @@ test traffic accordingly.
   real storage throws in opaque origins. Do not re-add `allow-same-origin`
   — all webxdc apps share the `webxdc.localhost` origin, so same-origin
   would let a malicious app read every other app's blobs.
+- **webxdc blob serving is instance-gated** (V-05/#63): `webxdc_serve`
+  refuses any non-icon blob whose `<account>/<msg>` prefix differs from the
+  instance registered via the `webxdc_begin` command — the manager calls it
+  right before setting the iframe `src` (never rely on an index request to
+  set the open instance; that is the request an attacker could forge).
+  ACAO `*` stays because opaque-origin frames need it for fetch(); the gate
+  is what keeps cross-instance reads dead. Only `icon.*` files are exempt
+  (chat-list cards load them for apps that are NOT open; icons are public
+  to every chat member anyway).
 - **Webxdc responses carry their own CSP** (`WEBXDC_CSP`, webxdc_serve.rs):
   the app CSP does not apply to custom-protocol responses, so without it
   mini-apps had unrestricted network access. KEEP it on every webxdc
