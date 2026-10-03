@@ -859,7 +859,8 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   profile…" is the single entry point) — do not resurrect them there.
   "Chats in common" and the group member list live in the same
   collapsed-details pattern with a (n) count (members collapsed by
-  default since 1.4.41).
+  default since 1.4.41). Member rows carry the member's RELAY DOMAIN as
+  the subtitle with the full address in the tooltip (#72).
 - **Theming contract**: `THEME_LABELS` (ui.js) drives the picker;
   `applyTheme` (app.js) sets `html[data-theme]` + the theme-color meta.
   Themes: auto (system), dark, light, brutal (1.4.6 — explicit only, never
