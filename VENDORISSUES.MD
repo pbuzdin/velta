@@ -99,6 +99,52 @@ case"object":case"array":if(!s)return s;try{return JSON.parse(s)}catch{…}
 `value !== null && typeof value === "object"` (and ideally treat
 unparseable strings as the raw string rather than warning).
 
+### 8. Re-render diff deletes the hydrated children of nested custom elements
+
+**Status: worked around locally (the "self-heal" block in
+`VeltaAvatar.connectedCallback`, `app/js/components.js:33` — re-check on
+any elena re-vendor).**
+
+Elena's re-render path re-parses the template string via `innerHTML` and
+diffs the parsed children against the live tree. A custom element inside a
+parsed template is bare (unhydrated — its connectedCallback has not run), so
+the diff pass sees the live component's rendered children as extra nodes and
+deletes them, leaving the element connected but empty. Triggered by
+Velta's chat-list pattern: `<velta-chat-item>` / `<velta-chat-head>`
+templates contain nested `<velta-avatar>` elements, so every re-render of a
+row can strip its avatar. The self-heal block detects
+`childElementCount === 0` and deletes Elena's render caches (`this.D`,
+`this.F`) to force a full first-render on the next pass.
+
+**Evidence:** `elena.js` re-render —
+
+```js
+…i=e.L.reduce(…).replace(/>\s+</g,"><").trim(),r=S();r.innerHTML=i,w(t,r.content.childNodes)…
+```
+
+— `w()` walks the freshly parsed (bare) clone against the live tree. Any
+future Elena component nested inside another Elena component's `html`
+template hits the same deletion. Upstream fix: make the diff hydrate-aware —
+skip custom-element subtrees the template did not render itself, or
+re-create and wait for hydration instead of pruning their children.
+
+### 9. A prop with no declared default warns once per instance on every render
+
+**Status: worked around by convention (declare a default for every prop —
+extends the AGENTS.md §11 rules). Trivial upstream fix.**
+
+A prop absent from the declared defaults (or without a literal default)
+makes Elena log a warning on every render of every instance. In list
+components that are re-created per render (`velta-avatar` in chat-list rows)
+this is warning spam, not a signal. Observed with `VeltaAvatar`'s `addr`
+(comment at `app/js/components.js:22`).
+
+**Evidence:** `elena.js` render path warns when a prop value is `undefined`
+against the expected-defaults table, once per instance per pass. Upstream
+fix: warn once per class (module-level `Set` of warned tags/props), and skip
+the warning when the caller supplied the attribute — an undeclared default
+is then a non-event, not an error.
+
 ---
 
 ## wry / Tauri (framework, not vendored)
