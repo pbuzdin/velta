@@ -188,6 +188,8 @@ No issues found; vendored as a fallback for Android WebViews that ship no
 
 ## Delta Chat core (vendored `core/`, upstream chatmail/core)
 
+Re-vendor note: both core patches re-apply mechanically — `python tools/apply-core-patches.py apply` (see COREUPDATE.md §0).
+
 ### 7. Recoding an animated WebP strips its animation (static JPEG out)
 
 **Status: patched locally (`core/src/blob.rs` — `is_animated_webp()` early

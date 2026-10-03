@@ -11,6 +11,28 @@ Last updated for core `2.62.0` (see `core/Cargo.toml` `version` and the
 statement in `README.md`; feature-by-feature notes per release live in
 `CORE-CAPABILITIES.MD`).
 
+## 0. Re-apply the Velta patches FIRST
+
+Velta carries local patches inside the vendored `core/` tree — currently
+**animated WebP byte-exact sending** (VENDORISSUES #7) and the **SMTP loop's
+bound transport exposure** (#79/#10, feeds the relay line's sending marker).
+Re-vendoring upstream replaces the whole tree and wipes them.
+
+After swapping in the new upstream sources, run:
+
+```
+python tools/apply-core-patches.py apply     # inserts what's missing
+python tools/apply-core-patches.py verify    # must report 13/13
+```
+
+The script is idempotent and anchor-based (not line-diffs), so it tolerates
+unrelated upstream churn. `CONFLICT` output means upstream reshaped an
+anchor — port that patch by hand using its VENDORISSUES entry, then update
+the script's copy of the block. Each re-applied block carries a
+`Velta patch (re-apply on core upgrades)` marker comment; grep for it to
+audit. Remember the consumers table below: patching `core/` alone changes
+nothing until the sidecar / APK / prebuilts are rebuilt.
+
 ## 1. Where the core is consumed
 
 Every consumer must be rebuilt or swapped when the core changes:
