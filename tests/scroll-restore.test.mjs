@@ -132,9 +132,10 @@ const msg = (id, chatId, unread = false) => ({
   viewtype: "text", state: unread ? "fresh" : "sent", unread, fromContact: { name: "X" },
 });
 
-function setup(t, { remember = false } = {}) {
-  if (remember) localStorage.setItem(REMEMBER_SCROLL_KEY, "1");
-  else localStorage.removeItem(REMEMBER_SCROLL_KEY);
+function setup(t, { remember = true } = {}) {
+  // #70: the setting defaults ON — unset or "1" = on, "0" = off.
+  if (remember) localStorage.removeItem(REMEMBER_SCROLL_KEY);
+  else localStorage.setItem(REMEMBER_SCROLL_KEY, "0");
   const list = new Element();
   const scroll = new ScrollEl(list);
   const nodes = new Map([["history", list], ["history-scroll", scroll]]);
@@ -221,9 +222,9 @@ async function scrolledUp(h, top = 600) {
   return anchor;
 }
 
-test("setting off (default): reopening a scrolled fully-read chat lands at the bottom, nothing is remembered", async t => {
-  const h = setup(t);
-  assert.equal(localStorage.getItem(REMEMBER_SCROLL_KEY), null, "default is off");
+test("setting off: reopening a scrolled fully-read chat lands at the bottom, nothing is remembered", async t => {
+  const h = setup(t, { remember: false });
+  assert.equal(localStorage.getItem(REMEMBER_SCROLL_KEY), "0", "explicit off");
   await scrolledUp(h);
   await h.open(8);
   assert.equal(h.view._scrollAnchors.size, 0, "no anchor saved while the setting is off");
@@ -353,7 +354,7 @@ test("setting off: turning the setting off forgets anchors on the next close", a
   await scrolledUp(h);
   await h.open(8);
   assert.equal(h.view._scrollAnchors.size, 1);
-  localStorage.removeItem(REMEMBER_SCROLL_KEY);
+  localStorage.setItem(REMEMBER_SCROLL_KEY, "0");
   h.calls.length = 0;
   await h.open(7);
   assert.deepEqual(h.calls[0], { chatId: 7, limit: 40 }, "ignored while off");
@@ -363,7 +364,7 @@ test("setting off: turning the setting off forgets anchors on the next close", a
 });
 
 test("deterministic landing: reopening lands at the exact bottom with no paging during the open settle", async t => {
-  const h = setup(t);
+  const h = setup(t, { remember: false });
   for (let round = 0; round < 3; round++) {
     await h.open(7);
     await h.userScroll(0); // user paged up into older history

@@ -692,9 +692,15 @@ export class ChatView {
     if (this.hasNewer) { this._jumpToLatest(); return; }
     this._insertItems(this._annotateMessages([msg], this.items[this.items.length - 1]?.dayKey ?? null));
     this.vs?.setItems(this.items);
-    // Always follow an own message down — the chat may have opened
-    // mid-history at the first unread message.
-    requestAnimationFrame(() => { if (this._isCurrent(session)) { this._scrollBottom(); this._scheduleSeenCheck(); } });
+    // Follow an own message down only when the user is already near the tail
+    // (#71): reading older history must survive sending a reply from the
+    // composer. Far from the tail the row still lands in the loaded window;
+    // the go-down badge offers the way back.
+    if (this._nearBottom()) {
+      requestAnimationFrame(() => { if (this._isCurrent(session)) { this._scrollBottom(); this._scheduleSeenCheck(); } });
+    } else {
+      this._renderGoDown(true);
+    }
   }
 
   // Coalesced mark-read for message-arrival paths: the first message in a
