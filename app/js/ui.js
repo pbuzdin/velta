@@ -469,7 +469,7 @@ async function getTauriVersion() {
 }
 
 /* ---------- Settings drawer ---------- */
-export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle }) {
+export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality }) {
   const isTauri = !!window.__TAURI__;
   const drawer = document.createElement("div");
   drawer.className = "drawer";
@@ -518,6 +518,21 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
           ${[["people", "People"], ["groups", "Groups"], ["channels", "Channels"], ["bots", "Bots"], ["system", "System"]].map(([key, label]) => `<label class="scale-opt"><input type="checkbox" data-cat-key="${key}"${catsHidden.includes(key) ? "" : " checked"}><span>${label}</span></label>`).join("")}
         </div>
         <div class="bar-opts-hint">"All" is always visible.</div>
+      </details>
+      <details class="drawer-details">
+        <summary><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.7 21a2 2 0 01-3.4 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Notifications</span></summary>
+        <div class="scale-opts" data-notify-opts>
+          <label class="scale-opt"><input type="checkbox" data-notify-key="master"${localStorage.getItem("velta-notify") === "0" ? "" : " checked"}><span>Notify when a message arrives while Velta is in the background</span></label>
+          <label class="scale-opt"><input type="checkbox" data-notify-key="text"${localStorage.getItem("velta-notify-text") === "0" ? "" : " checked"}><span>Show message text in the notification</span></label>
+        </div>
+        <div class="bar-opts-hint">Per-chat muting lives in each chat's info sheet.</div>
+      </details>
+      <details class="drawer-details">
+        <summary><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Image quality</span></summary>
+        <div class="scale-opts" data-mq-opts>
+          ${[["0", "Standard"], ["1", "Compact (smaller uploads)"]].map(([value, label]) => `<label class="scale-opt"><input type="radio" name="media-quality" data-mq-value="${value}"${value === mediaQuality ? " checked" : ""}><span>${label}</span></label>`).join("")}
+        </div>
+        <div class="bar-opts-hint">Applies to images you send. Compact keeps chats light on relay storage.</div>
       </details>
       <button class="ctx-item" data-act="profile-management"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 5v4M21 7h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Profile management…</span></button>
       <button class="ctx-item" data-act="relays"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Relays of this profile…</span></button>
@@ -590,6 +605,19 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     const key = e.target?.dataset?.catKey;
     if (!key || !onCatToggle) return;
     onCatToggle(key, e.target.checked);
+  });
+  drawer.querySelector("[data-notify-opts]")?.addEventListener("change", e => {
+    const key = e.target?.dataset?.notifyKey;
+    if (!key) return;
+    const storageKey = key === "master" ? "velta-notify" : "velta-notify-text";
+    if (e.target.checked) localStorage.removeItem(storageKey);
+    else localStorage.setItem(storageKey, "0");
+    toast(key === "master" ? `Notifications ${e.target.checked ? "on" : "off"}` : `Message text in notifications ${e.target.checked ? "on" : "off"}`);
+  });
+  drawer.querySelector("[data-mq-opts]")?.addEventListener("change", e => {
+    const value = e.target?.dataset?.mqValue;
+    if (!value || !onMediaQuality) return;
+    onMediaQuality(value);
   });
   drawer.querySelector("[data-theme-opts]")?.addEventListener("change", e => {
     const v = e.target?.value;
@@ -1003,6 +1031,15 @@ export function notifyIncoming(title, body, info = {}) {
   if (!tauri) return;
   const android = /Android/i.test(navigator.userAgent || "");
   if (android) return;
+  // Drawer master switch (default on). Desktop path only — on Android the
+  // Rust background poller posts notifications while this page is frozen
+  // and can't run this gate.
+  if (localStorage.getItem("velta-notify") === "0") return;
+  // Privacy toggle: drop the message text from the preview (the chat and
+  // sender names stay).
+  if (localStorage.getItem("velta-notify-text") === "0") {
+    body = "New message";
+  }
   const send = () => {
     const now = Date.now();
     if (now - lastNotifyAt < 4000) return;

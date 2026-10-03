@@ -902,9 +902,17 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   capture-phase document `pointerdown` listener closes it on outside taps;
   the transparent overlay swallows the click. Toggle-spoiler pattern
   (`<details class="drawer-details">` + `.scale-opts` checkboxes): Bottom bar
-  buttons (`data-bar-key`) and Chat categories (#75, `data-cat-key`) follow
-  it — add new toggles as args to `buildDrawer` + a change handler, never
-  as one-off DOM queries outside ui.js.
+  buttons (`data-bar-key`), Chat categories (#75, `data-cat-key`),
+  Notifications (`data-notify-key`: master `velta-notify` + message-text
+  `velta-notify-text`, both default on, "0" = off) and Image quality
+  (`data-mq-value` radios, `velta-media-quality` "0"=Standard/"1"=Compact,
+  mirrored to the core's per-account `media_quality` config — pushed from
+  `rebuildDrawer` on boot/account switch; core `set_config` takes FLAT args
+  `[accountId, key, value]`, NOT a nested [key,value] pair) follow it —
+  add new toggles as args to `buildDrawer` + a change handler, never
+  as one-off DOM queries outside ui.js. Notification gates are DESKTOP-ONLY:
+  on Android the Rust background poller posts notifications while the page
+  is frozen and cannot run the localStorage gate (known gap).
 - **Header heights** are pinned by `--head-h` (56px): `.sidebar-head` and
   `.chat-head` are border-box
   `height: calc(var(--head-h) + env(safe-area-inset-top))`. Change the var,

@@ -575,6 +575,18 @@ export class MockCore extends EventTarget {
     return chat ? chat.kind !== "channel" : true;
   }
 
+  // Demo twins of rpc-core.getConfig/setConfig: the real core persists
+  // account config; demo keeps an in-memory map so drawer settings work.
+  async getConfig(key) {
+    return this._config?.[key] ?? null;
+  }
+
+  async setConfig(key, value) {
+    this._config = this._config || {};
+    if (value === null) delete this._config[key];
+    else this._config[key] = String(value);
+  }
+
   async getChatMembers(chatId) {
     const GROUP_MEMBERS = { 13: [2, 3, 4, 5, 6], 15: [2, 4, 6, 7], 17: [2], 20: [3, 6] };
     const chat = this.chats.find(c => c.id === chatId);
