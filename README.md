@@ -757,7 +757,9 @@ Deleting a message (long-press / right-click → Delete) opens the same dialog a
 official Delta Chat desktop. **Right-click a chat in the chat list → Delete
 old messages…** bulk-deletes a whole chat's history older than a chosen age
 (1 hour / 1 day / 1 week / 5 weeks / 6 months / 1 year); pinned messages are
-kept:
+kept. The same cleanup lives in the chat info sheet under **Old
+messages**, next to the **Storage** row (which shows the chat's total
+attachment size and recounts after a cleanup):
 
 | Action | What happens |
 |---|---|

@@ -872,6 +872,11 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   (all non-P2P sheets) sums attachment `fileBytes` over the whole chat —
   paged newest→oldest, 500/page, computed lazily on sheet open; the core
   has NO per-chat size API (only account-wide get_account_file_size).
+  The sheet also carries the "Old messages" cleanup details (same
+  OLD_MESSAGE_SPANS + deleteMessagesOlderThan as the chat-list menu);
+  its confirm REPLACES the sheet (showModal is one-at-a-time), so the
+  handler reopens the sheet via modalHistorySettled + showChatInfo —
+  the mute/ephemeral dialog pattern — which recomputes Storage.
 - **Theming contract**: `THEME_LABELS` (ui.js) drives the picker;
   `applyTheme` (app.js) sets `html[data-theme]` + the theme-color meta.
   Themes: auto (system), dark, light, brutal (1.4.6 — explicit only, never
