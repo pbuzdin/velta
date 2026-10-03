@@ -469,6 +469,16 @@ async function getTauriVersion() {
 }
 
 /* ---------- Settings drawer ---------- */
+// Notification-switch storage semantics: most keys are default-on ("0" =
+// off, absent = on); "mentions" and "bgforce" are default-off ("1" = on).
+function notifyChecked(storageKey) {
+  const v = localStorage.getItem(storageKey);
+  if (storageKey === "velta-notify-mentions" || storageKey === "velta-notify-bgforce") return v === "1";
+  return v !== "0";
+}
+
+const isAndroid = /Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
+
 export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality }) {
   const isTauri = !!window.__TAURI__;
   const drawer = document.createElement("div");
@@ -522,8 +532,18 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
       <details class="drawer-details">
         <summary><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.7 21a2 2 0 01-3.4 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Notifications</span></summary>
         <div class="scale-opts" data-notify-opts>
-          <label class="scale-opt"><input type="checkbox" data-notify-key="master"${localStorage.getItem("velta-notify") === "0" ? "" : " checked"}><span>Notify when a message arrives while Velta is in the background</span></label>
-          <label class="scale-opt"><input type="checkbox" data-notify-key="text"${localStorage.getItem("velta-notify-text") === "0" ? "" : " checked"}><span>Show message text in the notification</span></label>
+          <label class="scale-opt"><input type="checkbox" data-notify-key="notifications"${notifyChecked("velta-notify") ? " checked" : ""}><span>Notifications</span></label>
+          <label class="scale-opt"><input type="checkbox" data-notify-key="mentions"${notifyChecked("velta-notify-mentions") ? " checked" : ""}><span>Mentions only (skip messages that don't @mention you)</span></label>
+          <label class="scale-opt"><input type="checkbox" data-notify-key="text"${notifyChecked("velta-notify-text") ? " checked" : ""}><span>Show message content</span></label>
+          <label class="scale-opt"><input type="checkbox" data-notify-key="system"${notifyChecked("velta-notify-system") ? " checked" : ""}><span>System notification for new messages</span></label>
+          ${isAndroid ? `
+          <label class="scale-opt"><input type="checkbox" data-notify-key="vibration"${notifyChecked("velta-notify-vibration") ? " checked" : ""}><span>Vibration</span></label>
+          <label class="scale-opt"><input type="checkbox" data-notify-key="sounds"${notifyChecked("velta-notify-sounds") ? " checked" : ""}><span>In-chat sounds</span></label>` : ""}
+          <label class="scale-opt"><input type="checkbox" data-notify-key="calls"${notifyChecked("velta-notify-calls") ? " checked" : ""}><span>Calls</span></label>
+          ${isAndroid ? `
+          <label class="scale-opt"><input type="checkbox" data-notify-key="bg"${notifyChecked("velta-notify-bg") ? " checked" : ""}><span>Use background connection</span></label>
+          <label class="scale-opt"><input type="checkbox" data-notify-key="bgforce"${notifyChecked("velta-notify-bgforce") ? " checked" : ""}><span>Force background connection</span></label>
+          <div class="bar-opts-hint">Force keeps background fetching alive under battery restrictions (asks Android for exemption).</div>` : ""}
         </div>
         <div class="bar-opts-hint">Per-chat muting lives in each chat's info sheet.</div>
       </details>
@@ -609,10 +629,54 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
   drawer.querySelector("[data-notify-opts]")?.addEventListener("change", e => {
     const key = e.target?.dataset?.notifyKey;
     if (!key) return;
-    const storageKey = key === "master" ? "velta-notify" : "velta-notify-text";
-    if (e.target.checked) localStorage.removeItem(storageKey);
-    else localStorage.setItem(storageKey, "0");
-    toast(key === "master" ? `Notifications ${e.target.checked ? "on" : "off"}` : `Message text in notifications ${e.target.checked ? "on" : "off"}`);
+    // localStorage mirrors each switch for the page's own gates; the full
+    // set is also pushed to the shell (set_notify_prefs) where the Android
+    // background poller and the Kotlin channel/fetch layers read it.
+    const storageKeys = {
+      notifications: "velta-notify",
+      mentions: "velta-notify-mentions",
+      text: "velta-notify-text",
+      system: "velta-notify-system",
+      vibration: "velta-notify-vibration",
+      sounds: "velta-notify-sounds",
+      calls: "velta-notify-calls",
+      bg: "velta-notify-bg",
+      bgforce: "velta-notify-bgforce",
+    };
+    const storageKey = storageKeys[key];
+    if (storageKey) {
+      // Default-off keys ("mentions", "bgforce") store "1" when checked;
+      // default-on keys store "0" when unchecked; absent = default.
+      const defaultOff = key === "mentions" || key === "bgforce";
+      if (defaultOff) {
+        if (e.target.checked) localStorage.setItem(storageKey, "1");
+        else localStorage.removeItem(storageKey);
+      } else if (e.target.checked) {
+        localStorage.removeItem(storageKey);
+      } else {
+        localStorage.setItem(storageKey, "0");
+      }
+    }
+    if (key === "bgforce" && e.target.checked) {
+      const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+      invoke?.("request_battery_exemption")?.catch?.(() => {});
+    }
+    if (key === "bg" && !e.target.checked) {
+      toast("Background connection off — messages arrive when you open Velta");
+    }
+    const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+    const prefs = {
+      enabled: localStorage.getItem("velta-notify") !== "0",
+      mentions_only: localStorage.getItem("velta-notify-mentions") === "1",
+      show_content: localStorage.getItem("velta-notify-text") !== "0",
+      system_new_msgs: localStorage.getItem("velta-notify-system") !== "0",
+      vibration: localStorage.getItem("velta-notify-vibration") !== "0",
+      in_chat_sounds: localStorage.getItem("velta-notify-sounds") !== "0",
+      calls: localStorage.getItem("velta-notify-calls") !== "0",
+      use_bg_connection: localStorage.getItem("velta-notify-bg") !== "0",
+      force_bg_connection: localStorage.getItem("velta-notify-bgforce") === "1",
+    };
+    invoke?.("set_notify_prefs", { prefs })?.catch?.(() => {});
   });
   drawer.querySelector("[data-mq-opts]")?.addEventListener("change", e => {
     const value = e.target?.dataset?.mqValue;
@@ -1033,8 +1097,16 @@ export function notifyIncoming(title, body, info = {}) {
   if (android) return;
   // Drawer master switch (default on). Desktop path only — on Android the
   // Rust background poller posts notifications while this page is frozen
-  // and can't run this gate.
+  // and cannot run this gate.
   if (localStorage.getItem("velta-notify") === "0") return;
+  // "System notification for new messages" OFF: no OS toast.
+  if (localStorage.getItem("velta-notify-system") === "0") return;
+  // "Mentions only": skip messages that neither @mention anyone nor name
+  // the user.
+  if (localStorage.getItem("velta-notify-mentions") === "1") {
+    const lower = (body || "").toLowerCase();
+    if (!lower.includes("@")) return;
+  }
   // Privacy toggle: drop the message text from the preview (the chat and
   // sender names stay).
   if (localStorage.getItem("velta-notify-text") === "0") {
