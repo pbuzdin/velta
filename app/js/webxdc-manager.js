@@ -148,6 +148,12 @@ async function importFiles(filters = {}) {
   } catch { return []; }
   if (!picked) return [];
   const list = Array.isArray(picked) ? picked : [picked];
+  // V-07/#65: fs reads are scope-gated; the user's pick is the consent.
+  for (const p of list) {
+    if (!/^content:\/\//.test(p)) {
+      await invoke("allow_picked_path", { path: p }).catch(() => {});
+    }
+  }
   const files = [];
   for (let p of list) {
     try {

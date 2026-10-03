@@ -2733,6 +2733,11 @@ export class ChatView {
       if (!this._isCurrent(session)) return;
       if (Array.isArray(picked)) picked = picked[0];
       if (!picked) return;
+      // V-07/#65: fs reads are scope-gated — the user's pick itself is the
+      // consent; add exactly that path to the fs runtime scope.
+      if (!/^content:\/\//.test(picked)) {
+        await invoke("allow_picked_path", { path: picked }).catch(e => rustLog(`allow_picked_path: ${e}`));
+      }
       // The Android picker returns content:// URIs that neither tauri-plugin-fs
       // nor the core can read — copy the bytes into app storage via
       // ContentResolver first (resolve_content_uri in lib.rs). The resolved

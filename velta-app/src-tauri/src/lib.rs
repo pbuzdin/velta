@@ -470,8 +470,18 @@ fn get_accounts_dir(app: tauri::AppHandle) -> String {
 #[tauri::command]
 fn resolve_upload_path(app: tauri::AppHandle, filename: String) -> String {
     use tauri::path::BaseDirectory;
+    // V-07/#65: the name is renderer-supplied (it may embed peer file names)
+    // — reduce it to its final component so the target can never leave
+    // uploads/ via ../ or a drive-absolute path.
+    let safe = std::path::Path::new(&filename)
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_default();
+    if safe.is_empty() {
+        return String::new();
+    }
     app.path()
-        .resolve(&format!("uploads/{}", filename), BaseDirectory::AppLocalData)
+        .resolve(format!("uploads/{}", safe.to_string_lossy()), BaseDirectory::AppLocalData)
         .map(|p| {
             // The fs plugin's write_file does not create parent directories;
             // this command hands out paths it must guarantee are writable.
@@ -481,6 +491,24 @@ fn resolve_upload_path(app: tauri::AppHandle, filename: String) -> String {
             p.to_string_lossy().to_string()
         })
         .unwrap_or_default()
+}
+
+/// V-07/#65: fs plugin file access is scoped — there is no fs:read-all
+/// capability any more. The only legitimate arbitrary-path reads are files
+/// the user JUST picked in a native dialog; this command adds exactly those
+/// to the plugin's runtime scope right after the pick (the renderer cannot
+/// reach this command with a path the user didn't pick — the pick itself is
+/// the user gesture).
+#[tauri::command]
+fn allow_picked_path(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    use tauri_plugin_fs::FsExt;
+    let p = std::path::PathBuf::from(&path);
+    if p.as_os_str().is_empty() {
+        return Err("empty path".into());
+    }
+    app.fs_scope()
+        .allow_file(&p)
+        .map_err(|e| e.to_string())
 }
 
 mod webxdc_serve;
@@ -3140,7 +3168,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, allow_picked_path, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 

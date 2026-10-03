@@ -290,6 +290,15 @@ validates each capability's permissions against the plugin manifests of the
 target being built — `updater:default`/`process:allow-restart` live in
 desktop-only dependency crates, so the Android build died with
 "Permission updater:default not found" (cost the first v1.4.20 release run).
+**fs plugin access is scope-gated (V-07/#65):** the capability files carry
+`fs:default` + `fs:allow-read-file`/`fs:allow-write-file` +
+`fs:scope-applocaldata-recursive` — NO `fs:read-all`/`fs:write-all`. The
+only arbitrary-path reads are user dialog picks; the renderer must call
+`allow_picked_path` (lib.rs) right after a pick to add that path to the
+plugin's runtime scope (`tauri_plugin_fs::FsExt`). Writes go exclusively to
+`resolve_upload_path` targets under `AppLocalData/uploads/`, whose filename
+argument is reduced to its final component (traversal guard). New file
+flows must follow this pattern — do not re-add `*-all` permissions.
 Rule: desktop-only permissions stay in a file pinned to
 `"platforms": ["linux", "macOS", "windows"]` (`capabilities/default.json`),
 mobile-only ones in `mobile.json` (`android`/`iOS`); shared ones may repeat
