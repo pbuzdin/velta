@@ -1521,6 +1521,14 @@ export class JsonRpcCore extends EventTarget {
     return ids.map(id => byId[String(id)]).filter(Boolean).map(c => this._mapContact(c));
   }
 
+  async getConfig(key) {
+    return (await this._call("get_config", this.accountId, key)) ?? null;
+  }
+
+  async setConfig(key, value) {
+    await this._call("set_config", this.accountId, key, value === null ? null : String(value));
+  }
+
   async renameContact(contactId, name) {
     await this._call("change_contact_name", this.accountId, contactId, name);
   }

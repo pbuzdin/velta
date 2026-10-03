@@ -3061,6 +3061,12 @@ function rebuildDrawer() {
   if (state.accountChanging) return;
   drawer?.el.remove();
   drawer?.overlayEl?.remove();
+  // Boot/account-change sync: mirror the persisted image-quality preference
+  // into the core's per-account config (the drawer's change handler pushes
+  // on every change too). localStorage is the source of truth for the UI;
+  // the core copy keeps the account config honest for other consumers.
+  core.setConfig?.("media_quality", localStorage.getItem("velta-media-quality") || "0")
+    .catch(err => diagnostics.append("warning", `media_quality sync failed: ${err?.message || err}`));
   drawer = buildDrawer({
     account: state.account,
     theme: state.theme,
@@ -3076,6 +3082,16 @@ function rebuildDrawer() {
       localStorage.setItem(CATS_HIDDEN_KEY, JSON.stringify(catsHidden));
       syncChatCategoryBar();
       renderChatList();
+    },
+    mediaQuality: localStorage.getItem("velta-media-quality") || "0",
+    onMediaQuality: (value) => {
+      // Mirror in localStorage for the sync drawer render; the authoritative
+      // copy is the core's per-account `media_quality` config. Also pushed
+      // to the core at boot (see the boot sync below).
+      localStorage.setItem("velta-media-quality", value);
+      core.setConfig?.("media_quality", value).catch(err =>
+        errToast("Couldn't save image quality: " + (err?.message || err)));
+      toast(value === "1" ? "Image quality: Compact" : "Image quality: Standard");
     },
     p2pAvailable: p2pAvailable(),
     p2pOn: p2pEnabled(),

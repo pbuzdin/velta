@@ -445,7 +445,10 @@ The composer has a paper-clip attachment button, and images can also be
 **pasted from the clipboard** (paste a screenshot straight into the composer).
 Both paths run through the same send-image flow: a preview with an optional
 **caption** and a free-form **Crop** step (drag to move the selection, corner
-handle to resize) before sending. From the attachment menu you can send:
+handle to resize) before sending. The drawer's **Image quality** setting
+controls what happens to the images you send: **Standard** keeps more
+resolution, **Compact** scales harder so uploads stay small and relay
+storage lasts longer. From the attachment menu you can send:
 
 | Type | How it is sent | How it is shown |
 |---|---|---|
@@ -609,7 +612,10 @@ ships a few emoji placeholders.
 <details>
 <summary>Notifications</summary>
 
-Incoming-message notifications mirror the official client's conversation
+A drawer switch turns incoming-message notifications on or off, and a second
+one keeps message text out of the previews (chat and sender names still
+show). Per-chat muting lives in each chat's info sheet. Incoming-message
+notifications mirror the official client's conversation
 layout on both mobile platforms:
 
 - **Android** — real MessagingStyle conversations: group name as the title,
