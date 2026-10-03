@@ -823,6 +823,16 @@ export class MockCore extends EventTarget {
     this._emit("chat-updated", { chatId });
   }
 
+  // Demo twin of rpc-core.deleteMessagesOlderThan: same paging + chunking
+  // over the mock store (pinned messages skipped).
+  async deleteMessagesOlderThan(chatId, cutoffMs) {
+    const chat = this.chats.find(c => c.id === chatId);
+    if (!chat) return 0;
+    const doomed = chat.messages.filter(m => !m.isPinned && (m.ts || 0) < cutoffMs).map(m => m.id);
+    if (doomed.length) await this.deleteMessages(chatId, doomed);
+    return doomed.length;
+  }
+
   async deleteChat(chatId) {
     const idx = this.chats.findIndex(x => x.id === chatId);
     if (idx < 0) return;

@@ -1590,6 +1590,40 @@ function chatContextMenu(chat, x, y) {
       }
     } },
     chat.unread > 0 ? { label: "Mark as read", icon: icons.read, onClick: () => core.markRead(chat.id) } : null,
+    {
+      label: "Delete old messages…",
+      icon: icons.trash,
+      onClick: () => {
+        const spans = [
+          ["1 hour", 3600e3],
+          ["1 day", 86400e3],
+          ["1 week", 7 * 86400e3],
+          ["5 weeks", 35 * 86400e3],
+          ["6 months", 182 * 86400e3],
+          ["1 year", 365 * 86400e3],
+        ];
+        showContextMenu(spans.map(([label, ms]) => ({
+          label: `Older than ${label}`,
+          onClick: async () => {
+            const ok = await confirmModal(
+              "Delete old messages",
+              `Delete every message in "${chat.name}" older than ${label}? Pinned messages are kept. This cannot be undone.`,
+              "Delete",
+              true,
+            );
+            if (!ok || !accountIsCurrent(epoch)) return;
+            try {
+              const deleted = await core.deleteMessagesOlderThan(chat.id, Date.now() - ms);
+              if (!accountIsCurrent(epoch)) return;
+              toast(deleted ? `Deleted ${deleted} message${deleted === 1 ? "" : "s"}` : "Nothing older than that");
+              refreshChatList();
+            } catch (err) {
+              errToast("Couldn't delete: " + (err?.message || err));
+            }
+          },
+        })), x, y);
+      },
+    },
     "-",
     { label: chat.archived ? "Unarchive" : "Archive", icon: icons.archive, onClick: () => core.setChatFlags(chat.id, { archived: !chat.archived }) },
     { label: "Delete chat", icon: icons.trash, danger: true, onClick: async () => {
