@@ -1208,20 +1208,6 @@ function syncHeaderButtons() {
   }
   const plus = document.getElementById("btn-new-chat");
   plus?.classList.toggle("active", listView === "new");
-  const arch = document.getElementById("btn-archived");
-  if (arch) {
-    // Issue #13: the folder affordance only exists while chats are archived.
-    // Doubles as the view toggle (same pattern as the search button):
-    // archive box opens the folder, the cross closes it.
-    const archOn = listView === "archived";
-    arch.hidden = archivedCount === 0 && !archOn;
-    arch.classList.toggle("active", archOn);
-    arch.innerHTML = archOn
-      ? `<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`
-      : `<svg viewBox="0 0 24 24"><path d="M3 7h18M5 7v12a1 1 0 001 1h12a1 1 0 001-1V7M8 7V5a1 1 0 011-1h6a1 1 0 011 1v2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-    arch.title = archOn ? "Close archived chats" : "Archived chats";
-    arch.setAttribute("aria-label", arch.title);
-  }
 }
 
 function sideViewShell(title, subtitle) {
@@ -1272,6 +1258,13 @@ async function renderContactsView() {
 // official client's pinned row. Plain side view — archived lists are small.
 async function renderArchivedView() {
   const rows = sideViewShell("Archived chats", "Chats you archived — writing in one brings it back to the list");
+  // The head button is gone (merged into the search view): this row is the
+  // way back to the regular list.
+  const exit = document.createElement("button");
+  exit.className = "chat-item archived-entry";
+  exit.innerHTML = `<div class="file-name">‹ Back to chats</div>`;
+  exit.addEventListener("click", () => setListView("chats"));
+  rows.append(exit);
   let chats = [];
   try { chats = await core.getChatList({ archived: true }); } catch { /* backend offline */ }
   if (listView !== "archived") return; // user switched away mid-fetch
@@ -2588,6 +2581,15 @@ function renderNewChatView() {
 // The header search button toggles this view and flips to a cross.
 function renderSearchView() {
   const rows = sideViewShell("Search chats", "Type at least two characters");
+  // Archived chats live here now (#77 follow-up): the head button is gone,
+  // and search is the natural home — archived = "not in my list".
+  if (archivedCount > 0) {
+    const arch = document.createElement("button");
+    arch.className = "chat-item archived-entry";
+    arch.innerHTML = `<div class="file-name">Archived chats</div><div class="file-size">${archivedCount} chat${archivedCount === 1 ? "" : "s"}</div>`;
+    arch.addEventListener("click", () => setListView("archived"));
+    rows.append(arch);
+  }
   const input = document.createElement("input");
   input.className = "text-field side-search-input";
   input.placeholder = "Search chats…";
@@ -4227,7 +4229,6 @@ async function boot() {
       bindInviteInterception(link => joinFromInvite(link));
 
       $("btn-search").addEventListener("click", () => setListView(listView === "search" ? "chats" : "search"));
-      $("btn-archived").addEventListener("click", () => setListView(listView === "archived" ? "chats" : "archived"));
       $("btn-new-chat").addEventListener("click", () => setListView(listView === "new" ? "chats" : "new"));
       syncHeaderButtons();
     } catch (err) {
