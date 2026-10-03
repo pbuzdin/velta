@@ -282,8 +282,7 @@ The drawer's **Profile management…** modal has three tabs:
   fastest-answering one automatically and keeps adding relays in the
   background.
 - **Second device** — moves a profile between devices over the LAN using the
-  core's backup transfer:
-
+  core's backup transfer.
 - **Old device** shows a QR (its `provide_backup` offer, rendered as the
   design card with the Velta logo) and waits.
 - **New device** taps **Receive a profile on this device…**, scans or pastes
@@ -291,7 +290,9 @@ The drawer's **Profile management…** modal has three tabs:
   where the platform provides it, a built-in decoder fallback where it
   doesn't), and a fresh account is created and filled
   from the transfer — progress is reported live, and the other device stays
-  signed in.
+  signed in. The **Auto-download limit** drawer setting caps how much of
+  that chat history is pulled in automatically (No limit / 640 KB / 5 MB /
+  25 MB).
 - **Export backup** — writes the whole profile (messages, contacts, keys)
   into a timestamped `.tar` in a folder you choose, with an optional
   passphrase (min 6 chars). The profile stays signed in; import via the
@@ -784,7 +785,9 @@ position you left it, and otherwise at the newest message.
 - **Seen = on screen.** Messages count as read — and read receipts go out —
   only once they actually scroll into view. Read partway and switch away,
   and the rest of the chat keeps its unread badge. Nothing is marked read
-  while the app is in the background.
+  while the app is in the background. The drawer's **Show and send read
+  receipts** switch turns receipts off entirely (off also stops
+  seen-status sync between your own devices).
 - **"Read up to here"** — a marker saved on this device still reopens the
   chat at that dashed line, and the ✕ on the line still removes it. The
   message menu does not set a new marker. The marker lives on this device
