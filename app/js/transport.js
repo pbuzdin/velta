@@ -87,6 +87,13 @@ function tauriTransport() {
   };
 }
 
+// V-01/#61: loopback bridges authenticate with a per-service-start token.
+// PWA pairing: run the service APK once, copy the token from its dialog,
+// paste into this key (once per service restart).
+function bridgeToken() {
+  try { return localStorage.getItem("velta-bridge-token") || ""; } catch { return ""; }
+}
+
 function probeWebSocket() {
   return new Promise(resolve => {
     let done = false;
@@ -99,7 +106,13 @@ function probeWebSocket() {
     let ws;
     try { ws = new WebSocket(WS_URL); } catch { return resolve(null); }
     const timer = setTimeout(() => { try { ws.close(); } catch {} finish(null); }, WS_PROBE_MS);
-    ws.onopen = () => finish(ws);
+    // The service gates the bridge on the client's FIRST message — send the
+    // token the moment the socket opens, before any RPC rides the wire.
+    ws.onopen = () => {
+      const token = bridgeToken();
+      if (token) { try { ws.send(token); } catch {} }
+      finish(ws);
+    };
     ws.onerror = () => finish(null);
     ws.onclose = () => finish(null);
   });
@@ -165,7 +178,12 @@ function httpTransport() {
     send(line) {
       if (!alive) throw new Error("http transport closed");
       // fire-and-forget for the caller; the response arrives via receiver
-      fetch(HTTP_URL + "/rpc", { method: "POST", body: line })
+      const token = bridgeToken();
+      fetch(HTTP_URL + "/rpc", {
+        method: "POST",
+        body: line,
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      })
         .then(r => r.text())
         .then(text => receiver?.(text))
         .catch(() => {

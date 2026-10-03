@@ -1575,6 +1575,16 @@ current dev path.
   and optionally serves the PWA from `assets/pwa/` on `http://127.0.0.1:20809`.
 - The WebSocket bridge is on `ws://127.0.0.1:20808` and supports multiple
   concurrent clients.
+- **Loopback bridges are token-gated** (V-01/#61): the service generates a
+  128-bit token per start (`BRIDGE_TOKEN` in the service's lib.rs). The WS
+  bridge requires the client's FIRST message to be the token (10 s timeout,
+  before the broadcast subscription — unauthenticated peers see nothing);
+  `POST /rpc` requires `Authorization: Bearer <token>`; `GET /health` stays
+  open for the transport probe. Delivery: `RpcService.nativeGetBridgeToken`
+  JNI (same process) + a pairing dialog in the service's launcher activity
+  (copy → paste into the client's localStorage `velta-bridge-token`).
+  transport.js sends the token when configured — without it the bridge
+  fails closed by design.
 - Boot receiver restarts the service after reboot.
 
 ### 9.4 UnifiedPush (Android, 1.4.27+ groundwork)

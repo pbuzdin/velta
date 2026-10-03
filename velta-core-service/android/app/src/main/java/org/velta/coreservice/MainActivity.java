@@ -40,6 +40,34 @@ public class MainActivity extends Activity {
         } else {
             startService(intent);
         }
-        finish();
+        // V-01/#61: the bridges now require a per-start token. Surface it so
+        // a loopback client (PWA) can be paired — paste it into the client's
+        // localStorage key `velta-bridge-token`. Same process, so the static
+        // JNI token is already valid.
+        showBridgeToken();
+    }
+
+    private void showBridgeToken() {
+        try {
+            String token = RpcService.nativeGetBridgeToken();
+            if (token == null || token.isEmpty()) return;
+            new android.app.AlertDialog.Builder(this)
+                    .setTitle("Bridge token")
+                    .setMessage("Pair a loopback client (Velta PWA) by pasting this token:\n\n"
+                            + token
+                            + "\n\nIt changes every time the service restarts.")
+                    .setPositiveButton("Copy", (d, w) -> {
+                        android.content.ClipboardManager cm =
+                                (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                        cm.setPrimaryClip(android.content.ClipData.newPlainText("Velta bridge token", token));
+                        android.widget.Toast.makeText(this, "Token copied", android.widget.Toast.LENGTH_SHORT).show();
+                    })
+                    .setNegativeButton("Close", (d, w) -> finish())
+                    .show();
+        } catch (RuntimeException | UnsatisfiedLinkError e) {
+            // Library load failed — the service itself surfaces that; don't
+            // crash the launcher. Still finish so the launcher is reusable.
+            finish();
+        }
     }
 }
