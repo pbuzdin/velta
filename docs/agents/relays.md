@@ -29,7 +29,10 @@ a 60 s `setInterval(refreshRelayStatus)` drives them while the core is
 silent. `parseConnectivityHtml` now also captures the SMTP dot the core
 renders OUTSIDE the transport `<li>`s ("Outgoing messages" section — the
 per-transport loop can't see it) and the sending relay's segment inherits
-it worst-of; a failed probe is cleared the next time the relay answers.
+it worst-of; a failed probe is cleared the next time the relay answers. The HTML
+parsing (segments + SMTP dot + smtp-via) is pinned by
+`tests/relay-connectivity-parse.test.mjs`, which runs the production
+`parseConnectivityHtml` via the slice harness.
 
 ## Relay detail chips (`#relay-detail`)
 
