@@ -20,8 +20,8 @@
     "dialog:allow-open",
     "notification:default",
     "fs:default",
-    "fs:read-all",
-    "fs:write-all",
+    "fs:allow-read-file",
+    "fs:allow-write-file",
     "fs:scope-applocaldata-recursive",
     "updater:default",
     "process:allow-restart"
