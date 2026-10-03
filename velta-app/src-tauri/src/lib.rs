@@ -493,6 +493,15 @@ fn resolve_upload_path(app: tauri::AppHandle, filename: String) -> String {
         .unwrap_or_default()
 }
 
+/// V-05/#63: register the webxdc instance the manager is about to open.
+/// webxdc_serve refuses every non-icon blob request whose <account>/<msg>
+/// prefix differs from the instance registered here, so an open app cannot
+/// read another instance's blobs even though the server sends ACAO: *.
+#[tauri::command]
+fn webxdc_begin(account: u32, msg: u32) {
+    webxdc_serve::set_open_app(account, msg);
+}
+
 /// V-07/#65: fs plugin file access is scoped — there is no fs:read-all
 /// capability any more. The only legitimate arbitrary-path reads are files
 /// the user JUST picked in a native dialog; this command adds exactly those
@@ -3168,7 +3177,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, allow_picked_path, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, allow_picked_path, webxdc_begin, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 
