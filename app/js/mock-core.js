@@ -745,9 +745,6 @@ export class MockCore extends EventTarget {
 
   _decorate(m) {
     const d = structuredClone(m);
-    // The real core's MessageObject carries fileBytes; the mock store uses
-    // fileSize — normalize so consumers (info-sheet storage row) work.
-    d.fileBytes = m.fileSize || 0;
     d.fromContact = m.from === 1
       ? { id: 1, name: this.account.displayName, color: this.account.color }
       : (this.contacts.find(c => c.id === m.from) || { id: m.from, name: "Unknown", color: "#888" });

@@ -2039,11 +2039,18 @@ async function showChatInfo(chat) {
         let beforeId = null;
         let hasMore = true;
         while (hasMore) {
-          if (!accountIsCurrent(epoch)) return;
+          // Sheet closed (or chat switched) → stop burning RPCs on a row
+          // nobody is watching.
+          if (!storageVal.isConnected || !accountIsCurrent(epoch)) return;
           const page = await core.getMessages(chat.id, { beforeId, limit: 500 });
-          if (!accountIsCurrent(epoch)) return;
+          if (!storageVal.isConnected || !accountIsCurrent(epoch)) return;
           const msgs = page.messages || [];
-          for (const m of msgs) total += m.fileBytes || 0;
+          // fileSize (not the core's raw fileBytes): rpc-core._mapMessage
+          // renames it, and the row consumes mapped messages.
+          for (const m of msgs) total += m.fileSize || 0;
+          // Huge groups walk for a while — show the count-up instead of a
+          // frozen "…".
+          storageVal.textContent = formatBytes(total) + "…";
           hasMore = !!page.hasMore && msgs.length > 0;
           beforeId = msgs.length ? msgs[msgs.length - 1].id : null;
           if (beforeId == null) break;
