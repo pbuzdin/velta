@@ -1,0 +1,161 @@
+From e48f260dbfec45addb0e483c91ef77697d175303 Mon Sep 17 00:00:00 2001
+From: Pavel <pbuzdin@gmail.com>
+Date: Sat, 3 Oct 2026 07:06:10 +0300
+Subject: [PATCH] fix: don't recode animated WebPs, send them byte-exact
+ instead of losing animation
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+check_or_recode_to_size() runs every image through the image crate when
+it exceeds the media-quality byte limit or carries EXIF. The image crate
+decodes only the first frame of a WebP, so an animated WebP in that path
+came out the other side as a static JPEG: animation and transparency
+silently destroyed.
+
+Detect animated WebPs from the container header (RIFF/WEBP magic plus an
+ANMF chunk in the first 4 KiB — a chunk only animated files carry) and
+return them byte-exact before any decode is attempted. No new
+dependencies; the sniff takes impl Read + Seek so it is unit-testable
+without fixtures.
+
+Known limitation, deliberately left for the full fix the existing TODO
+describes: EXIF is not stripped from the byte-exact animated WebPs (the
+RIFF EXIF chunk survives), and the media-quality byte limit is not
+enforced for them.
+
+Also adds src/blob/blob_tests.rs, which 'mod blob_tests;' already
+declared but was missing — the test build of HEAD was broken without it.
+---
+ src/blob.rs            | 28 +++++++++++++++++++-
+ src/blob/blob_tests.rs | 60 ++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 87 insertions(+), 1 deletion(-)
+
+diff --git a/src/blob.rs b/src/blob.rs
+index 91ae54c..a552021 100644
+--- a/src/blob.rs
++++ b/src/blob.rs
+@@ -1,7 +1,7 @@
+ //! # Blob directory management.
+ 
+ use std::cmp::{max, min};
+-use std::io::{Cursor, Seek};
++use std::io::{Cursor, Read, Seek};
+ use std::iter::FusedIterator;
+ use std::mem;
+ use std::path::{Path, PathBuf};
+@@ -342,6 +342,16 @@ fn check_or_recode_to_size(
+             // It's strange that BufReader modifies a file position while it takes a non-mut
+             // reference. Ok, just rewind it.
+             file.rewind()?;
++            // Animated WebPs must not be recoded: the `image` crate decodes
++            // only the first frame, so the recode below would silently turn
++            // an animated, possibly transparent image into a static JPEG.
++            // Send them byte-exact instead. TODO: handle animations properly
++            // (see the TODO below); stripping the EXIF chunk from the RIFF
++            // container byte-exactly is left for that proper fix.
++            if is_animated_webp(&mut file).unwrap_or(false) {
++                return Ok(name);
++            }
++            file.rewind()?;
+             let imgreader = ImageReader::new(std::io::BufReader::new(&file))
+                 .with_guessed_format()
+                 .context("Failed to guess image format due to I/O error")?;
+@@ -534,6 +544,22 @@ fn file_hash(src: &Path) -> Result<blake3::Hash> {
+ }
+ 
+ /// Returns image file size and Exif.
++/// Detects an animated WebP from its container header. WebP is a RIFF
++/// container; each animation frame lives in an "ANMF" chunk, which only
++/// animated files carry (always near the start, right after the VP8X/ANIM
++/// chunks). Returns false for everything that is not a WebP or does not
++/// look animated.
++fn is_animated_webp<T: Read + Seek>(file: &mut T) -> std::io::Result<bool> {
++    file.rewind()?;
++    let mut head = Vec::new();
++    file.take(4096).read_to_end(&mut head)?;
++    file.rewind()?;
++    Ok(head.len() > 12
++        && head.get(0..4) == Some(b"RIFF".as_slice())
++        && head.get(8..12) == Some(b"WEBP".as_slice())
++        && head.windows(4).any(|w| w == b"ANMF"))
++}
++
+ fn image_metadata(file: &std::fs::File) -> Result<(u64, Option<exif::Exif>)> {
+     let len = file.metadata()?.len();
+     let mut bufreader = std::io::BufReader::new(file);
+diff --git a/src/blob/blob_tests.rs b/src/blob/blob_tests.rs
+index 511c051..9e5c09b 100644
+--- a/src/blob/blob_tests.rs
++++ b/src/blob/blob_tests.rs
+@@ -1,3 +1,4 @@
++use std::io::Cursor;
+ use std::time::Duration;
+ 
+ use super::*;
+@@ -871,3 +872,62 @@ async fn test_recode_without_downscaling() -> Result<()> {
+ 
+     Ok(())
+ }
++
++// ---- animated WebP detection (see `is_animated_webp` in blob.rs) ----
++
++/// Builds a RIFF/WEBP container from raw chunks (`fourcc + payload` pairs).
++fn webp_container(chunks: &[(&[u8], &[u8])]) -> Vec<u8> {
++    let payload_size: usize = chunks.iter().map(|(_, p)| 8 + p.len()).sum();
++    let mut v = b"RIFF".to_vec();
++    v.extend_from_slice(&((4 + payload_size) as u32).to_le_bytes());
++    v.extend_from_slice(b"WEBP");
++    for (fourcc, payload) in chunks {
++        v.extend_from_slice(fourcc);
++        v.extend_from_slice(&(payload.len() as u32).to_le_bytes());
++        v.extend_from_slice(payload);
++    }
++    v
++}
++
++fn is_animated(bytes: &[u8]) -> bool {
++    crate::blob::is_animated_webp(&mut Cursor::new(bytes.to_vec())).unwrap()
++}
++
++#[test]
++fn animated_webp_is_detected() {
++    // VP8X (with animation flag) + ANIM + an ANMF frame: the shape every
++    // animated WebP has, regardless of the frame codec.
++    let bytes = webp_container(&[
++        (b"VP8X", &[0x10, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
++        (b"ANIM", &[0, 0, 0, 0, 0, 0]),
++        (b"ANMF", &[0u8; 24]),
++    ]);
++    assert!(is_animated(&bytes));
++}
++
++#[test]
++fn static_webp_is_not_detected() {
++    let bytes = webp_container(&[(b"VP8 ", &[0u8; 16])]);
++    assert!(!is_animated(&bytes));
++}
++
++#[test]
++fn static_webp_with_vp8x_only_is_not_detected() {
++    // VP8X without an ANMF chunk is a still image (the animation flag may
++    // even be set for a single frame, but without frames it is not animated).
++    let bytes = webp_container(&[(b"VP8X", &[0x10, 0, 0, 0, 0, 0, 0, 0, 0, 0])]);
++    assert!(!is_animated(&bytes));
++}
++
++#[test]
++fn jpeg_is_not_detected() {
++    let bytes = [0xff, 0xd8, 0xff, 0xe0, 0, 0x10, b'J', b'F', b'I', b'F', 0];
++    assert!(!is_animated(&bytes));
++}
++
++#[test]
++fn truncated_webp_is_not_detected() {
++    assert!(!is_animated(b"RIFF\x12\x00\x00\x00WEBP"));
++    assert!(!is_animated(b"RIFF"));
++    assert!(!is_animated(b""));
++}
+-- 
+2.52.0.windows.1
+
