@@ -23,6 +23,7 @@ import java.util.concurrent.ConcurrentHashMap
 // Called from Rust (bg_notify_incoming) over JNI, like InAppBrowser.open.
 object Notifications {
     private const val CHANNEL_ID = "velta-messages"
+    private const val CHANNEL_ID_QUIET = "velta-messages-quiet"
     private const val BASE_NOTIFICATION_ID = 20000
 
     // Live conversation state per chat ("account:chatId") so follow-up
