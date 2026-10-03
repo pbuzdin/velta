@@ -619,7 +619,7 @@ async function refreshRelayStatusInner() {
 // configured transport, = state.account.addr's domain) — persistent, not an
 // activity marker: the relay line's animated dashes stay the "messages in
 // flight" signal. Static glyph on purpose; a pulse would read as activity.
-const RELAY_SEND_SVG = '<svg viewBox="0 0 24 24"><rect x="3" y="5.5" width="18" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 7.5l8 5.5 8-5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const RELAY_SEND_SVG = '<svg viewBox="0 0 24 24"><rect x="2.5" y="9.5" width="19" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 11.5l8 5.5 8-5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12V2.6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M8.7 5.6L12 2.2l3.3 3.4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 // "cha*.uk" from "chat.example.uk": first 3 chars, one asterisk for the
 // rest, TLD visible — enough to recognize the relay without printing it.
