@@ -1563,6 +1563,17 @@ function formatFingerprint(fpr) {
   return lines.join("\n");
 }
 
+// Age spans shared by the chat-list menu and the info-sheet "Old messages"
+// cleanup (label + cutoff offset in ms).
+const OLD_MESSAGE_SPANS = [
+  ["1 hour", 3600e3],
+  ["1 day", 86400e3],
+  ["1 week", 7 * 86400e3],
+  ["5 weeks", 35 * 86400e3],
+  ["6 months", 182 * 86400e3],
+  ["1 year", 365 * 86400e3],
+];
+
 function chatContextMenu(chat, x, y) {
   const epoch = core.accountEpoch;
   if (chat.id === DIAGNOSTICS_CHAT_ID) return;
@@ -1594,15 +1605,7 @@ function chatContextMenu(chat, x, y) {
       label: "Delete old messages…",
       icon: icons.trash,
       onClick: () => {
-        const spans = [
-          ["1 hour", 3600e3],
-          ["1 day", 86400e3],
-          ["1 week", 7 * 86400e3],
-          ["5 weeks", 35 * 86400e3],
-          ["6 months", 182 * 86400e3],
-          ["1 year", 365 * 86400e3],
-        ];
-        showContextMenu(spans.map(([label, ms]) => ({
+        showContextMenu(OLD_MESSAGE_SPANS.map(([label, ms]) => ({
           label: `Older than ${label}`,
           onClick: async () => {
             const ok = await confirmModal(
@@ -2006,7 +2009,11 @@ async function showChatInfo(chat) {
     ${contactRows}
     ${!chat.isP2p && !isSelf && (chat.kind === "group" || chat.kind === "channel" || chat.kind === "single") ? `<div class="info-row" data-muted style="cursor:pointer"><span class="k">Notifications</span><span class="v" data-muted-val>${chat.muted ? "Muted" : "On"}</span></div>` : `<div class="info-row"><span class="k">Notifications</span><span class="v">${chat.muted ? "Muted" : "On"}</span></div>`}
     ${!chat.isP2p && !isSelf && (chat.kind === "group" || chat.kind === "single") ? `<div class="info-row" data-ephemeral style="cursor:pointer"><span class="k">Disappearing messages</span><span class="v" data-ephemeral-val>…</span></div>` : ""}
-    ${!chat.isP2p ? `<div class="info-row"><span class="k">Storage</span><span class="v" data-storage-val>…</span></div>` : ""}
+    ${!chat.isP2p ? `<div class="info-row"><span class="k">Storage</span><span class="v" data-storage-val>…</span></div>
+    <details class="info-details" data-old-messages>
+      <summary class="info-row"><span class="k">Old messages</span><span class="v">Clean up ›</span></summary>
+      ${OLD_MESSAGE_SPANS.map(([label, ms]) => `<div class="info-row" data-old-age="${ms}" style="cursor:pointer"><span class="k">Delete older than ${label}</span><span class="v">›</span></div>`).join("")}
+    </details>` : ""}
     ${relayRows}
     ${!isGroup && chat.contactId ? `<details class="info-details" data-common hidden>
       <summary class="info-row"><span class="k">Chats in common</span><span class="v" data-common-count></span></summary>
@@ -2032,34 +2039,72 @@ async function showChatInfo(chat) {
   // oldest; text is negligible). Computed on sheet open — lazy by design,
   // the core has no per-chat size API (see VENDORISSUES #10 sibling idea).
   const storageVal = body.querySelector("[data-storage-val]");
-  if (storageVal) {
-    (async () => {
-      try {
-        let total = 0;
-        let beforeId = null;
-        let hasMore = true;
-        while (hasMore) {
-          // Sheet closed (or chat switched) → stop burning RPCs on a row
-          // nobody is watching.
-          if (!storageVal.isConnected || !accountIsCurrent(epoch)) return;
-          const page = await core.getMessages(chat.id, { beforeId, limit: 500 });
-          if (!storageVal.isConnected || !accountIsCurrent(epoch)) return;
-          const msgs = page.messages || [];
-          // fileSize (not the core's raw fileBytes): rpc-core._mapMessage
-          // renames it, and the row consumes mapped messages.
-          for (const m of msgs) total += m.fileSize || 0;
-          // Huge groups walk for a while — show the count-up instead of a
-          // frozen "…".
-          storageVal.textContent = formatBytes(total) + "…";
-          hasMore = !!page.hasMore && msgs.length > 0;
-          beforeId = msgs.length ? msgs[msgs.length - 1].id : null;
-          if (beforeId == null) break;
-        }
-        storageVal.textContent = formatBytes(total);
-      } catch {
-        storageVal.textContent = "—";
+  const runStorageSum = async () => {
+    if (!storageVal) return;
+    try {
+      let total = 0;
+      let beforeId = null;
+      let hasMore = true;
+      while (hasMore) {
+        // Sheet closed (or chat switched) → stop burning RPCs on a row
+        // nobody is watching.
+        if (!storageVal.isConnected || !accountIsCurrent(epoch)) return;
+        const page = await core.getMessages(chat.id, { beforeId, limit: 500 });
+        if (!storageVal.isConnected || !accountIsCurrent(epoch)) return;
+        const msgs = page.messages || [];
+        // fileSize (not the core's raw fileBytes): rpc-core._mapMessage
+        // renames it, and the row consumes mapped messages.
+        for (const m of msgs) total += m.fileSize || 0;
+        // Huge groups walk for a while — show the count-up instead of a
+        // frozen "…".
+        storageVal.textContent = formatBytes(total) + "…";
+        hasMore = !!page.hasMore && msgs.length > 0;
+        // Pages are oldest→newest: chain from the SMALLEST id. Chaining
+        // the last (newest) id re-returns the same window forever —
+        // that was the 73 GB double-count.
+        beforeId = msgs.length ? Math.min(...msgs.map(m => m.id)) : null;
+        if (beforeId == null) break;
       }
-    })();
+      storageVal.textContent = formatBytes(total);
+    } catch {
+      storageVal.textContent = "—";
+    }
+  };
+  if (storageVal) runStorageSum();
+  // "Old messages" cleanup (same helper as the chat-list menu): after a
+  // delete the Storage row recomputes so the number reflects reality.
+  for (const row of body.querySelectorAll("[data-old-age]")) {
+    row.addEventListener("click", async () => {
+      const ms = Number(row.dataset.oldAge);
+      const span = OLD_MESSAGE_SPANS.find(([, v]) => v === ms);
+      const ok = await confirmModal(
+        "Delete old messages",
+        `Delete every message in "${chat.name}" older than ${span ? span[0] : ""}? Pinned messages are kept. This cannot be undone.`,
+        "Delete",
+        true,
+      );
+      // The confirm modal replaced this sheet (showModal is one-at-a-time);
+      // restore the sheet the same way the mute/ephemeral dialogs do.
+      const reopen = async () => {
+        await modalHistorySettled();
+        if (accountIsCurrent(epoch)) showChatInfo(chat);
+      };
+      if (!ok) { await reopen(); return; }
+      if (!accountIsCurrent(epoch)) return;
+      try {
+        const deleted = await core.deleteMessagesOlderThan(chat.id, Date.now() - ms);
+        if (!accountIsCurrent(epoch)) return;
+        toast(deleted ? `Deleted ${deleted} message${deleted === 1 ? "" : "s"}` : "Nothing older than that");
+        if (deleted) {
+          // The open chat view refreshes itself via msgs-changed; the sheet
+          // reopens below and the Storage row recomputes.
+          refreshChatList();
+        }
+      } catch (err) {
+        errToast("Couldn't delete: " + (err?.message || err));
+      }
+      await reopen();
+    });
   }
   // Notifications row: the mute dialog (official client's action sheet).
   const muteRow = body.querySelector("[data-muted]");
