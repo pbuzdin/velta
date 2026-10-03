@@ -288,7 +288,8 @@ impl<'a> BlobObject<'a> {
         context: &Context,
         name: Option<String>,
         viewtype: &mut Viewtype,
-    ) -> Result<String> {        let (max_wh, max_bytes) =
+    ) -> Result<String> {
+        let (max_wh, max_bytes) =
             match MediaQuality::from_i32(context.get_config_int(Config::MediaQuality).await?)
                 .unwrap_or_default()
             {
