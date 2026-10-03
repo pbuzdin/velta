@@ -953,7 +953,10 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   add new toggles as args to `buildDrawer` + a change handler, never
   as one-off DOM queries outside ui.js. Notification gates are DESKTOP-ONLY:
   on Android the Rust background poller posts notifications while the page
-  is frozen and cannot run the localStorage gate (known gap).
+  is frozen and cannot run the localStorage gate (known gap). CI LESSON
+  (v1.4.54): gen/android Kotlin changes have NO local compile check —
+  only the CI gradle build catches them (a missing const killed the
+  first v1.4.54 android job).
 - **Header heights** are pinned by `--head-h` (56px): `.sidebar-head` and
   `.chat-head` are border-box
   `height: calc(var(--head-h) + env(safe-area-inset-top))`. Change the var,
