@@ -120,7 +120,7 @@ svg { width: 24px; height: 24px; display: block; }
    (up to MAX_RELAYS=5 in the core), each colored by that relay's own
    state; a single relay fills the line. Lives on per-segment `color` so
    the sending-dash gradient can reuse it as currentColor. */
-.relay-line { display: flex; gap: 4px; height: 6px; flex: none; }
+.relay-line { display: flex; gap: 4px; height: 6px; flex: 1 1 auto; }
 .relay-line .relay-seg { flex: 1 1 0; min-width: 0; background: currentColor; color: #e6a23c; transition: color .25s; }
 .relay-line .relay-seg[data-state="ok"]         { color: #2ecc71; }
 .relay-line .relay-seg[data-state="connecting"] { color: #e6a23c; }
@@ -137,18 +137,25 @@ svg { width: 24px; height: 24px; display: block; }
 @media (prefers-reduced-motion: reduce) { .relay-line .relay-seg[data-sending] { animation: none; } }
 
 /* Relay detail chips — per-relay info, fed by renderRelayLine. One chip per
-   relay-line segment (same flex template, so each chip sits directly above
-   its own segment), showing only the masked domain + quota percent, e.g.
-   "cha*.uk · 55% used". Overlays the sidebar HEADER (absolute ABOVE the
-   relay line) — never the chat list or the category chips below it.
+   relay-line segment (same flex template, so each chip sits on its own
+   segment), showing only the masked domain + quota percent, e.g.
+   "cha*.uk · 55% used". Rendered INSIDE the relay zone (inset:0, covering
+   only the 6px line — the zone owns the chips' height) so the sidebar
+   header / search button above is never covered or click-blocked.
    Desktop: revealed by hovering the relay line. Mobile: pull down at the
    top of the chat list (pull-open class set by the touch handler in
    app.js); it hides itself again after a few seconds. */
-.relay-zone { position: relative; flex: none; z-index: 6; }
+.relay-zone {
+  position: relative; flex: none; z-index: 6;
+  height: 26px; display: flex;
+  /* 6px line sits 6px under the header (search-icon gap) and 14px above
+     the category row — equal 14px visual gaps on both sides. */
+  padding: 6px 0 14px;
+}
 .relay-detail {
-  position: absolute; bottom: 100%; left: 0; right: 0; z-index: 7;
+  position: absolute; inset: 0; z-index: 7;
   display: none; gap: 4px;
-  margin-bottom: 3px;
+  cursor: default;
   animation: relay-detail-in .18s ease-out;
 }
 @keyframes relay-detail-in { from { opacity: 0; transform: translateY(5px); } }
@@ -170,6 +177,16 @@ svg { width: 24px; height: 24px; display: block; }
 }
 .relay-detail-chip[data-state="down"] { border-color: #e05252; }
 .relay-detail-chip[data-state="unreachable"] { border-color: #e6a23c; }
+/* Frosted variant where supported: the relay line's state colors ghost
+   through each chip (62% bg keeps the 11px labels readable). Without
+   backdrop-filter the solid var(--bg-sidebar) rule above stands. */
+@supports (backdrop-filter: blur(7px)) or (-webkit-backdrop-filter: blur(7px)) {
+  .relay-detail-chip {
+    background: color-mix(in srgb, var(--bg-sidebar) 62%, transparent);
+    backdrop-filter: blur(7px) saturate(1.6);
+    -webkit-backdrop-filter: blur(7px) saturate(1.6);
+  }
+}
 /* The relay selected for sending: static envelope, always visible. */
 .relay-detail-chip .relay-detail-send {
   display: inline-grid; place-items: center; flex: none;
