@@ -1989,9 +1989,15 @@ html[data-theme="brutal"] .msg-row.out .link-preview .lp-desc { color: #3d3405; 
   background: var(--bg);
 }
 .html-view-bar {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
   /* App runs edge-to-edge: keep the title below the status bar. */
   padding: max(env(safe-area-inset-top), 8px) 12px 8px; color: var(--text); font-size: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.html-view-bar > span {
+  /* Long subjects must truncate, not shove the close button out. */
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: 500;
 }
 .html-view-frame {
   flex: 1; width: 100%; border: 0;
