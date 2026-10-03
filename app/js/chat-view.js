@@ -2876,9 +2876,15 @@ export class ChatView {
     frame.setAttribute("sandbox", "allow-scripts"); // no allow-same-origin
     // The iframe element's color-scheme only sets the canvas — the
     // document's own scrollbar follows ITS color-scheme, so inject it.
+    // Same style block carries the font fallback: mail without its own
+    // CSS otherwise renders in Times New Roman (the UA default serif).
+    // font-family only — never touch layout/spacing, the mail's own CSS
+    // (inline styles win over the injected sheet) must keep absolute rule.
     const injectTheme = html => {
       const dark = document.documentElement.dataset.theme !== "light";
-      const inject = `<style>html{color-scheme:${dark ? "dark" : "light"}}</style>` + `<script>${HTML_VIEW_LINK_JS}</script>`;
+      const inject = `<style>html{color-scheme:${dark ? "dark" : "light"}}`
+        + `body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}</style>`
+        + `<script>${HTML_VIEW_LINK_JS}</script>`;
       const head = /<head[^>]*>/i.exec(html) || /<html[^>]*>/i.exec(html);
       return head
         ? html.slice(0, head.index + head[0].length) + inject + html.slice(head.index + head[0].length)
