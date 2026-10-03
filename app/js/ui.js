@@ -524,7 +524,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
       <button class="ctx-item" data-act="invite-domains"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Invite link domains</span></button>
       <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Link previews: ${linkPreviewEnabled() ? "on" : "off"}</span><input type="checkbox" data-toggle="link-preview"${linkPreviewEnabled() ? " checked" : ""}></label>
       <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M20 5v6a2 2 0 01-2 2H5m0 0l4-4m-4 4l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Send on Enter: ${localStorage.getItem("velta-send-enter") === "0" ? "off" : "on"}</span><input type="checkbox" data-toggle="send-enter"${localStorage.getItem("velta-send-enter") === "0" ? "" : " checked"}></label>
-      <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 20h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Remember scroll position in chats: ${localStorage.getItem("velta-remember-scroll") === "1" ? "on" : "off"}</span><input type="checkbox" data-toggle="remember-scroll"${localStorage.getItem("velta-remember-scroll") === "1" ? " checked" : ""}></label>
+      <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 20h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Remember scroll position in chats: ${localStorage.getItem("velta-remember-scroll") === "0" ? "off" : "on"}</span><input type="checkbox" data-toggle="remember-scroll"${localStorage.getItem("velta-remember-scroll") === "0" ? "" : " checked"}></label>
       <label class="ctx-item"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 9h6v6H9z" fill="currentColor"/></svg><span>Demo mode: ${localStorage.getItem("velta-mock") === "1" ? "on" : "off"}</span><input type="checkbox" data-toggle="demo"${localStorage.getItem("velta-mock") === "1" ? " checked" : ""}></label>
       <button class="ctx-item" data-act="about"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 10v6M12 7v.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><span>About Velta</span></button>
     </div>
@@ -659,12 +659,12 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     setToggleUi("send-enter", "Send on Enter", on);
     toast(`Send on Enter ${on ? "on" : "off"}`);
   });
-  // Remember scroll position in chats (issue #18): default OFF — "1" = on,
-  // unset = off; ChatView reads it on every open/close.
+  // Remember scroll position in chats (issue #18, default ON per #70):
+  // unset or "1" = on, "0" = off; ChatView reads it on every open/close.
   drawer.querySelector('[data-toggle="remember-scroll"]')?.addEventListener("change", e => {
     const on = e.target.checked;
-    if (on) localStorage.setItem("velta-remember-scroll", "1");
-    else localStorage.removeItem("velta-remember-scroll");
+    if (on) localStorage.removeItem("velta-remember-scroll");
+    else localStorage.setItem("velta-remember-scroll", "0");
     setToggleUi("remember-scroll", "Remember scroll position in chats", on);
     toast(`Remember scroll position in chats ${on ? "on" : "off"}`);
   });

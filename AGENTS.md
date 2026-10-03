@@ -621,8 +621,9 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   markers (#38). A stored marker still wins at open, and the line's X still
   calls `clearReadMarker`. Pinned by `tests/read-tracking.test.mjs`.
 - **Remembered scroll position** (issue #18, drawer setting "Remember
-  scroll position in chats", localStorage `velta-remember-scroll`, "1" = on,
-  default OFF): `close()` saves `{anchorId, dy}` (topmost visible row + its
+  scroll position in chats", localStorage `velta-remember-scroll`,
+  default ON since #70 — unset or "1" = on, "0" = off): `close()` saves
+  `{anchorId, dy}` (topmost visible row + its
   viewport offset) in the in-memory `_scrollAnchors` map, keyed like drafts
   by (account, chat), only when the chat is fully read AND the user
   genuinely scrolled off the bottom (`_userAway`: a scroll outside
@@ -1059,7 +1060,8 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   (`data-toggle` labels + change handlers in ui.js; Demo mode is the renamed
   mock toggle; Send on Enter is `velta-send-enter`, "0" = off, read by the
   composer keydown, which also guards `isComposing`; Remember scroll
-  position in chats is `velta-remember-scroll`, "1" = on, default off — see
+  position in chats is `velta-remember-scroll`, "0" = off, default on
+  (#70) — see
   "Remembered scroll position"). Profile flows live in
   one tabbed modal: `openProfileManagement()` (app.js) — Add profile (relay
   input + QR scan → `addAccountFromInvite`), Second device (provide-QR pane +

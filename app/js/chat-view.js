@@ -311,10 +311,11 @@ function extOf(path) {  if (!path) return "";
 }
 
 // "Remember scroll position in chats" (issue #18): drawer setting, default
-// OFF — "1" = on, unset = off (ui.js owns the toggle, like Send on Enter).
+// ON since #70 — unset or "1" = on, "0" = off (ui.js owns the toggle, like
+// Send on Enter).
 export const REMEMBER_SCROLL_KEY = "velta-remember-scroll";
 export function rememberScrollOn() {
-  try { return localStorage.getItem(REMEMBER_SCROLL_KEY) === "1"; } catch { return false; } // storage blocked = off
+  try { return localStorage.getItem(REMEMBER_SCROLL_KEY) !== "0"; } catch { return true; }
 }
 
 // CSS zoom on <html> (interface scale) scales getBoundingClientRect but not
@@ -333,6 +334,9 @@ export class ChatView {
     this.onForward = onForward;
     this.onOpenChat = onOpenChat;
     this.onBack = onBack;
+    // Rig/debug handle (like window.__veltaDiagnostics): lets cdp-eval probe
+    // scroll-restore state without a module-global export.
+    try { window.__veltaChatView = this; } catch {}
     this.chat = null;
     this._readOnly = false; // read-only chat: reply affordances hide (see readOnly)
     this.items = [];        // flattened items for the virtual scroller
