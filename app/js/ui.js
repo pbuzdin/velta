@@ -479,7 +479,7 @@ function notifyChecked(storageKey) {
 
 const isAndroid = /Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
 
-export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality }) {
+export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality, downloadLimit = "0", onDownloadLimit, onReadReceipts }) {
   const isTauri = !!window.__TAURI__;
   const drawer = document.createElement("div");
   drawer.className = "drawer";
@@ -533,7 +533,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
         <summary><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.7 21a2 2 0 01-3.4 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Notifications</span></summary>
         <div class="scale-opts" data-notify-opts>
           <label class="scale-opt"><input type="checkbox" data-notify-key="notifications"${notifyChecked("velta-notify") ? " checked" : ""}><span>Notifications</span></label>
-          <label class="scale-opt"><input type="checkbox" data-notify-key="mentions"${notifyChecked("velta-notify-mentions") ? " checked" : ""}><span>Mentions only (skip messages that don't @mention you)</span></label>
+          <label class="scale-opt"><input type="checkbox" data-notify-key="mentions"${notifyChecked("velta-notify-mentions") ? " checked" : ""}><span>Replies only (skip the rest)</span></label>
           <label class="scale-opt"><input type="checkbox" data-notify-key="text"${notifyChecked("velta-notify-text") ? " checked" : ""}><span>Show message content</span></label>
           <label class="scale-opt"><input type="checkbox" data-notify-key="system"${notifyChecked("velta-notify-system") ? " checked" : ""}><span>System notification for new messages</span></label>
           ${isAndroid ? `
@@ -554,11 +554,19 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
         </div>
         <div class="bar-opts-hint">Smaller photos and already-small images are sent unchanged. Compact keeps chats light on relay storage.</div>
       </details>
+      <details class="drawer-details">
+        <summary><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="4" y="17" width="16" height="4" rx="1" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Auto-download limit</span></summary>
+        <div class="scale-opts" data-dl-opts>
+          ${[["0", "No limit (default)"], ["655360", "640 KB"], ["5242880", "5 MB"], ["26214400", "25 MB"]].map(([value, label]) => `<label class="scale-opt"><input type="radio" name="download-limit" data-dl-value="${value}"${value === downloadLimit ? " checked" : ""}><span>${label}</span></label>`).join("")}
+        </div>
+        <div class="bar-opts-hint">Caps the chat history auto-downloaded from another device when you join as a second device. Regular messages are always downloaded.</div>
+      </details>
       <button class="ctx-item" data-act="profile-management"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 5v4M21 7h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Profile management…</span></button>
       <button class="ctx-item" data-act="relays"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Relays of this profile…</span></button>
       <button class="ctx-item" data-act="invite-domains"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Invite link domains</span></button>
       <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Link previews: ${linkPreviewEnabled() ? "on" : "off"}</span><input type="checkbox" data-toggle="link-preview"${linkPreviewEnabled() ? " checked" : ""}></label>
       <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M20 5v6a2 2 0 01-2 2H5m0 0l4-4m-4 4l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Send on Enter: ${localStorage.getItem("velta-send-enter") === "0" ? "off" : "on"}</span><input type="checkbox" data-toggle="send-enter"${localStorage.getItem("velta-send-enter") === "0" ? "" : " checked"}></label>
+      <label class="ctx-item" title="Off also stops seen-status sync between your own devices"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 12a8 8 0 0114-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M20 12a8 8 0 01-14 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Show and send read receipts: ${localStorage.getItem("velta-mdns") === "0" ? "off" : "on"}</span><input type="checkbox" data-toggle="read-receipts"${localStorage.getItem("velta-mdns") === "0" ? "" : " checked"}></label>
       <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 20h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Remember scroll position in chats: ${localStorage.getItem("velta-remember-scroll") === "0" ? "off" : "on"}</span><input type="checkbox" data-toggle="remember-scroll"${localStorage.getItem("velta-remember-scroll") === "0" ? "" : " checked"}></label>
       <label class="ctx-item"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 9h6v6H9z" fill="currentColor"/></svg><span>Demo mode: ${localStorage.getItem("velta-mock") === "1" ? "on" : "off"}</span><input type="checkbox" data-toggle="demo"${localStorage.getItem("velta-mock") === "1" ? " checked" : ""}></label>
       <button class="ctx-item" data-act="about"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 10v6M12 7v.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><span>About Velta</span></button>
@@ -682,6 +690,19 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     const value = e.target?.dataset?.mqValue;
     if (!value || !onMediaQuality) return;
     onMediaQuality(value);
+  });
+  drawer.querySelector('[data-toggle="read-receipts"]')?.addEventListener("change", e => {
+    const on = e.target.checked;
+    if (on) localStorage.removeItem("velta-mdns");
+    else localStorage.setItem("velta-mdns", "0");
+    setToggleUi("read-receipts", "Show and send read receipts", on);
+    onReadReceipts?.(on);
+    toast(`Read receipts ${on ? "on" : "off"}`);
+  });
+  drawer.querySelector("[data-dl-opts]")?.addEventListener("change", e => {
+    const value = e.target?.dataset?.dlValue;
+    if (!value || !onDownloadLimit) return;
+    onDownloadLimit(value);
   });
   drawer.querySelector("[data-theme-opts]")?.addEventListener("change", e => {
     const v = e.target?.value;
