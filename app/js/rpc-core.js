@@ -1388,6 +1388,40 @@ export class JsonRpcCore extends EventTarget {
   // Remove the chat itself. deleteMessages only drops rows and leaves the
   // chat in the list (issue #34). The core emits ChatDeleted plus
   // ChatlistChanged; this drops the cached id list for the chat we removed.
+  // Deletes every message in the chat older than `cutoffMs` (epoch ms),
+  // skipping pinned messages. Pages newest→oldest collecting ids (once a
+  // page is entirely older than the cutoff everything beyond is too, but
+  // the ids are still needed), then deletes in chunks. Returns the count.
+  async deleteMessagesOlderThan(chatId, cutoffMs, { onProgress = () => {} } = {}) {
+    const { accountId, accountEpoch } = this;
+    const ids = [];
+    let beforeId = null;
+    let hasMore = true;
+    while (hasMore) {
+      if (!this._isCurrentAccount(accountEpoch)) return 0;
+      const page = await this.getMessages(chatId, { beforeId, limit: 500 });
+      if (!this._isCurrentAccount(accountEpoch)) return 0;
+      const msgs = page.messages || [];
+      for (const m of msgs) {
+        if (m.pinned) continue;
+        if ((m.ts || 0) < cutoffMs) ids.push(m.id);
+      }
+      hasMore = !!page.hasMore && msgs.length > 0;
+      beforeId = msgs.length ? msgs[msgs.length - 1].id : null;
+      if (beforeId == null) break;
+    }
+    const CHUNK = 800;
+    let deleted = 0;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      if (!this._isCurrentAccount(accountEpoch)) return deleted;
+      const chunk = ids.slice(i, i + CHUNK);
+      await this.deleteMessages(chatId, chunk);
+      deleted += chunk.length;
+      onProgress(deleted, ids.length);
+    }
+    return deleted;
+  }
+
   async deleteChat(chatId) {
     const { accountId, accountEpoch } = this;
     await this._call("delete_chat", accountId, chatId);

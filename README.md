@@ -754,7 +754,10 @@ keeps the banner's Download APK flow (system installer takes over) — see
 <summary>Deleting messages</summary>
 
 Deleting a message (long-press / right-click → Delete) opens the same dialog as
-official Delta Chat desktop:
+official Delta Chat desktop. **Right-click a chat in the chat list → Delete
+old messages…** bulk-deletes a whole chat's history older than a chosen age
+(1 hour / 1 day / 1 week / 5 weeks / 6 months / 1 year); pinned messages are
+kept:
 
 | Action | What happens |
 |---|---|
