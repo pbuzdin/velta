@@ -1,5 +1,10 @@
 # Read receipts and message-state ticks (debugging narrative)
 
+
+User-facing switch: drawer **Show and send read receipts**
+(`velta-mdns`, default on) → per-account `mdns_enabled`; off stops
+receipts AND seen-status sync between own devices (set via
+`core.setConfig` from rebuildDrawer's boot sync + on change).
 Written 2026-10-02 after issue #59 ("v1.4.52 broke a read indicator") and a
 follow-up live-session investigation on a real account where ticks appeared
 to be "stuck on single". Neither was a rendering bug — the facts below were

@@ -183,7 +183,15 @@ README's requirements section).
 
 ```bash
 cd core   # run from WSL — native Windows cargo fails in openssl-sys (SQLCipher)
+```
 
+KEEP (local patches): the vendored tree carries Velta patches (animated
+WebP byte-exact, SMTP sending-transport exposure — VENDORISSUES #7/#10,
+every block marked `Velta patch`). Any core re-vendor wipes them;
+re-apply mechanically with `python tools/apply-core-patches.py apply`
+(verify: `… verify` must report 13/13) — see COREUPDATE.md §0.
+
+```bash
 # Run all Rust tests; use nextest — plain `cargo test` flakes a varying
 # set of ~4 time-shift tests per run (see COREUPDATE.md §4)
 cargo nextest run --workspace --locked
