@@ -868,7 +868,10 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   "Chats in common" and the group member list live in the same
   collapsed-details pattern with a (n) count (members collapsed by
   default since 1.4.41). Member rows carry the member's RELAY DOMAIN as
-  the subtitle with the full address in the tooltip (#72).
+  the subtitle with the full address in the tooltip (#72). A Storage row
+  (all non-P2P sheets) sums attachment `fileBytes` over the whole chat —
+  paged newest→oldest, 500/page, computed lazily on sheet open; the core
+  has NO per-chat size API (only account-wide get_account_file_size).
 - **Theming contract**: `THEME_LABELS` (ui.js) drives the picker;
   `applyTheme` (app.js) sets `html[data-theme]` + the theme-color meta.
   Themes: auto (system), dark, light, brutal (1.4.6 — explicit only, never

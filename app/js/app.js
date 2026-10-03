@@ -2006,6 +2006,7 @@ async function showChatInfo(chat) {
     ${contactRows}
     ${!chat.isP2p && !isSelf && (chat.kind === "group" || chat.kind === "channel" || chat.kind === "single") ? `<div class="info-row" data-muted style="cursor:pointer"><span class="k">Notifications</span><span class="v" data-muted-val>${chat.muted ? "Muted" : "On"}</span></div>` : `<div class="info-row"><span class="k">Notifications</span><span class="v">${chat.muted ? "Muted" : "On"}</span></div>`}
     ${!chat.isP2p && !isSelf && (chat.kind === "group" || chat.kind === "single") ? `<div class="info-row" data-ephemeral style="cursor:pointer"><span class="k">Disappearing messages</span><span class="v" data-ephemeral-val>…</span></div>` : ""}
+    ${!chat.isP2p ? `<div class="info-row"><span class="k">Storage</span><span class="v" data-storage-val>…</span></div>` : ""}
     ${relayRows}
     ${!isGroup && chat.contactId ? `<details class="info-details" data-common hidden>
       <summary class="info-row"><span class="k">Chats in common</span><span class="v" data-common-count></span></summary>
@@ -2026,6 +2027,32 @@ async function showChatInfo(chat) {
       } catch { ephVal.textContent = "Off"; }
     })();
     ephRow.addEventListener("click", () => openEphemeralDialog(chat, ephVal, epoch));
+  }
+  // Storage row: sum attachment bytes across the whole chat (paged newest→
+  // oldest; text is negligible). Computed on sheet open — lazy by design,
+  // the core has no per-chat size API (see VENDORISSUES #10 sibling idea).
+  const storageVal = body.querySelector("[data-storage-val]");
+  if (storageVal) {
+    (async () => {
+      try {
+        let total = 0;
+        let beforeId = null;
+        let hasMore = true;
+        while (hasMore) {
+          if (!accountIsCurrent(epoch)) return;
+          const page = await core.getMessages(chat.id, { beforeId, limit: 500 });
+          if (!accountIsCurrent(epoch)) return;
+          const msgs = page.messages || [];
+          for (const m of msgs) total += m.fileBytes || 0;
+          hasMore = !!page.hasMore && msgs.length > 0;
+          beforeId = msgs.length ? msgs[msgs.length - 1].id : null;
+          if (beforeId == null) break;
+        }
+        storageVal.textContent = formatBytes(total);
+      } catch {
+        storageVal.textContent = "—";
+      }
+    })();
   }
   // Notifications row: the mute dialog (official client's action sheet).
   const muteRow = body.querySelector("[data-muted]");
