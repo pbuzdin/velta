@@ -51,6 +51,13 @@ pub(crate) struct Smtp {
 
     pub(crate) connectivity: ConnectivityStore,
 
+    /// Velta patch (#79, re-apply on core upgrades): the transport the SMTP
+    /// loop is currently bound to, shared so the connectivity HTML (which
+    /// only sees `SmtpConnectionState`) can report failover. 0 = not
+    /// connected. Written on connect/disconnect, read by
+    /// `get_connectivity_html`.
+    pub(crate) sending_transport: std::sync::Arc<std::sync::atomic::AtomicU32>,
+
     /// If sending the last message failed, contains the error message.
     pub(crate) last_send_error: Option<String>,
 }
@@ -69,6 +76,8 @@ impl Smtp {
             // separate task to avoid waiting for reply or timeout.
             task::spawn(async move { transport.quit().await });
         }
+        self.transport_id = None;
+        self.sending_transport.store(0, std::sync::atomic::Ordering::SeqCst);
         self.last_success = None;
     }
 
@@ -121,6 +130,7 @@ impl Smtp {
             {
                 Ok(()) => {
                     self.transport_id = Some(transport_id);
+                    self.sending_transport.store(transport_id, std::sync::atomic::Ordering::SeqCst);
                     return Ok(());
                 }
                 Err(err) => {

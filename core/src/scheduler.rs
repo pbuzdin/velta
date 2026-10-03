@@ -891,6 +891,8 @@ struct ConnectionState {
     idle_interrupt_sender: Sender<()>,
     /// Mutex to pass connectivity info between IMAP/SMTP threads and the API
     connectivity: ConnectivityStore,
+    /// Velta patch (#79): transport the SMTP loop is bound to (0 = none).
+    sending_transport: std::sync::Arc<std::sync::atomic::AtomicU32>,
 }
 
 impl ConnectionState {
@@ -922,15 +924,25 @@ impl SmtpConnectionState {
             idle_interrupt_receiver,
         };
 
+        // Velta patch (#79): shared handle to the SMTP loop's bound
+        // transport, so the connectivity HTML can report actual failover.
+        let sending_transport = handlers.connection.sending_transport.clone();
+
         let state = ConnectionState {
             stop_token,
             idle_interrupt_sender,
             connectivity: handlers.connection.connectivity.clone(),
+            sending_transport,
         };
 
         let conn = SmtpConnectionState { state };
 
         (conn, handlers)
+    }
+
+    /// Transport the SMTP loop is currently bound to (0 = none). Velta #79.
+    pub(crate) fn sending_transport(&self) -> u32 {
+        self.state.sending_transport.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// Interrupt any form of idle.
@@ -975,6 +987,7 @@ impl ImapConnectionState {
             stop_token,
             idle_interrupt_sender,
             connectivity: handlers.connection.connectivity.clone(),
+            sending_transport: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0)),
         };
 
         let conn = ImapConnectionState { state };

@@ -449,6 +449,7 @@ let relaySending = false;      // any message queued/sending through the relay
 let relayUpgradeTimer = null;
 let relaySegments = [];        // per-relay [{ domain, text, state }] — [] falls back to the combined view
 let relaySmtpState = null;     // "ok"/"connecting"/"down" from the HTML's Outgoing-messages dot (account-global)
+let relaySmtpVia = null;       // #79: addr the SMTP loop is bound to (core patch) — the real sending relay
 // New-connection reachability per relay domain. The core's dot only reflects
 // the LAST session state: while an established IMAP session survives, the
 // dot stays green even when the relay refuses new connections (seen live:
@@ -529,7 +530,10 @@ function parseConnectivityHtml(html) {
   // leg would leave every seg green. It is the last span-dot in the document.
   const dots = [...html.matchAll(/<span class="(red|green|yellow|grey) dot"/g)];
   const smtpState = dots.length ? (stateFor[dots[dots.length - 1][1]] || null) : null;
-  return { segs: out, smtpState };
+  // #79: the core (Velta patch) reports the transport the SMTP loop is
+  // actually bound to — failover may differ from configured_addr.
+  const smtpVia = (html.match(/<span class="smtp-via">([^<]+)<\/span>/) || [])[1] || null;
+  return { segs: out, smtpState, smtpVia };
 }
 
 // Relay-status refresh coalescing. refreshRelayStatus is driven by
@@ -601,6 +605,7 @@ async function refreshRelayStatusInner() {
       const parsed = parseConnectivityHtml(html);
       relaySegments = parsed.segs;
       relaySmtpState = parsed.smtpState;
+      relaySmtpVia = parsed.smtpVia;
       scheduleRelayProbes(relaySegments);
       renderRelayLine();
     }
@@ -644,9 +649,7 @@ function renderRelayLine() {
   // One segment per relay (equal widths); a single relay fills the whole
   // line. Without a parsed per-relay view, one segment carries the combined
   // state — visually identical to the old bar. The sending animation applies
-  // only to the sending (primary) relay's segment — messages always go out
-  // through the transport matching `configured_addr` (= state.account.addr).
-  const sendDomain = (state.account?.addr || "").split("@")[1]?.toLowerCase();
+  // only to the sending relay's segment (see effectiveSendDomain below).
   const rawSegs = relaySegments.length ? relaySegments : [{ state: relayState, text: title }];
   // Display state per segment: the core's per-session state, downgraded when
   // the reachability probe says the relay refuses NEW connections (an
@@ -654,11 +657,18 @@ function renderRelayLine() {
   // sending relay also inherits the account-global SMTP dot (the core renders
   // SMTP outside the per-transport sections it parses).
   const SEVERITY = { ok: 0, connecting: 1, unreachable: 2, down: 3 };
+  // #79: the SMTP loop's ACTUALLY bound transport (core patch reports it in
+  // the connectivity HTML) outranks configured_addr for the envelope/dashes —
+  // on failover the marker follows the messages. Old cores report nothing
+  // and the configured fallback stays.
+  const smtpViaDomain = (relaySmtpVia || "").split("@")[1]?.toLowerCase() || null;
+  const sendDomain = (state.account?.addr || "").split("@")[1]?.toLowerCase();
+  const effectiveSendDomain = smtpViaDomain || sendDomain;
   const isSendRelay = s => relayState !== "local" && (
-    (s.domain && s.domain.toLowerCase() === sendDomain) ||
+    (s.domain && s.domain.toLowerCase() === effectiveSendDomain) ||
     // A single relay is always the sending relay, even if its domain
     // couldn't be matched against the account address.
-    (rawSegs.length === 1 && !sendDomain));
+    (rawSegs.length === 1 && !effectiveSendDomain));
   const segs = rawSegs.map(s => {
     const probe = s.domain ? relayProbeCache.get(String(s.domain).toLowerCase()) : null;
     let segState = s.state;
@@ -670,8 +680,8 @@ function renderRelayLine() {
   });
   if (relaySending && relayState !== "local") {
     const segDomains = segs.map(s => s.domain || "—");
-    const matched = segs.some(s => s.domain && s.domain.toLowerCase() === sendDomain);
-    diagnosticsSink.append("info", `relay: sending via ${sendDomain || "?"}; segments [${segDomains.join(", ")}]${matched ? "" : " — NO domain match"}`);
+    const matched = segs.some(s => s.domain && s.domain.toLowerCase() === effectiveSendDomain);
+    diagnosticsSink.append("info", `relay: sending via ${effectiveSendDomain || "?"}${smtpViaDomain && smtpViaDomain !== sendDomain ? " (failover)" : ""}; segments [${segDomains.join(", ")}]${matched ? "" : " — NO domain match"}`);
   }
   const segTitle = s => {
     const base = s.domain ? `${s.domain}: ${s.text}` : (s.text || title);
@@ -693,21 +703,16 @@ function renderRelayLine() {
 
   // Detail chips (hover / pull-down reveal): one chip per relay-line segment,
   // equal widths so each chip sits above its own segment — masked domain plus
-  // the quota percent ("cha*.uk · 55% used"). The relay selected for sending
-  // (the account's configured transport) carries a static envelope. The
-  // unmasked domain, status and full quota line ride the title tooltip.
+  // the quota percent ("cha*.uk · 55% used"). The relay the SMTP loop is
+  // actually bound to (#79) carries a static envelope. The unmasked domain,
+  // status and full quota line ride the title tooltip.
   const detail = document.getElementById("relay-detail");
   if (detail) {
     detail.replaceChildren(...segs.map(s => {
       const chip = document.createElement("span");
       chip.className = "relay-detail-chip";
       chip.dataset.state = s.state;
-      const isSendChip = relayState !== "local" && (
-        (s.domain && s.domain.toLowerCase() === sendDomain) ||
-        // A single relay is always the sending relay, even if its domain
-        // couldn't be matched against the account address.
-        (segs.length === 1 && !sendDomain));
-      if (isSendChip) {
+      if (isSendRelay(s)) {
         chip.setAttribute("data-sending", "");
         const ico = document.createElement("span");
         ico.className = "relay-detail-send";

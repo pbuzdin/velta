@@ -356,7 +356,7 @@ impl Context {
         // =============================================================================================
 
         let lock = self.scheduler.inner.read().await;
-        let (folders_states, smtp) = match *lock {
+        let (folders_states, smtp, sending_transport_id) = match *lock {
             InnerSchedulerState::Started(ref sched) => (
                 sched
                     .boxes()
@@ -369,6 +369,9 @@ impl Context {
                     })
                     .collect::<Vec<_>>(),
                 sched.smtp.state.connectivity.clone(),
+                // Velta patch (#79): transport the SMTP loop is bound to,
+                // read while the scheduler lock is held.
+                sched.smtp.sending_transport(),
             ),
             _ => {
                 ret += &format!(
@@ -523,6 +526,26 @@ impl Context {
         ret += &*detailed.to_icon();
         ret += " ";
         ret += &*escaper::encode_minimal(&detailed.to_string_smtp(self));
+        // Velta patch (#79, re-apply on core upgrades): report which
+        // transport the SMTP loop is actually bound to, so clients can mark
+        // the real sending relay (failover may differ from configured_addr).
+        if sending_transport_id > 0 {
+            let sending_addr: Option<String> = self
+                .sql
+                .query_row(
+                    "SELECT addr FROM transports WHERE id=?",
+                    (sending_transport_id,),
+                    |row| row.get(0),
+                )
+                .await
+                .ok();
+            if let Some(addr) = sending_addr {
+                ret += &format!(
+                    "<span class=\"smtp-via\">{}</span>",
+                    escaper::encode_minimal(&addr)
+                );
+            }
+        }
         ret += "</li></ul>";
 
         // =============================================================================================

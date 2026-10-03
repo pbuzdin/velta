@@ -46,10 +46,15 @@ Chip content is info-only: the masked domain plus the quota percent —
 3 chars, one asterisk, TLD visible). Unmasked domain, status text and the
 full quota line ride the `title` tooltip; a red border marks a down relay,
 an amber border the #76 unreachable state.
-The relay SELECTED for sending (the account's configured transport —
-`state.account.addr`'s domain, or the only relay when the domain is
-unmatched) carries a static envelope glyph (`data-sending`); demo/local
-mode is never marked. The envelope marks identity, not activity — the
+The relay SELECTED for sending is the transport the SMTP loop is actually
+bound to (#79): the vendored core exposes it as `<span class="smtp-via">`
+in the connectivity HTML's Outgoing section (VENDORISSUES entry 10 —
+re-apply on core upgrades); `parseConnectivityHtml` surfaces it as
+`smtpVia` and the envelope + dashes key to its domain. On failover the
+marker follows the messages and moves back on reconnect. Old cores report
+nothing and the envelope falls back to `configured_addr`
+(`state.account.addr`'s domain, or the only relay when unmatched). Demo/
+local mode is never marked. The envelope marks identity, not activity — the
 line's animated dashes stay the messages-in-flight signal. Revealed by
 hovering the line (desktop) or pulling down at the top of the chat list on
 mobile (touch listeners on `#chat-list`); hides itself after a few
