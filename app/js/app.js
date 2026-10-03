@@ -1342,6 +1342,10 @@ const chatIsBot = (contactId) => state.contactBots?.get(contactId) === true;
 function visibleChats() {
   const cat = state.chatCategory;
   if (cat === "all") return state.chats;
+  // #77: a boot-restored People/Bots view renders before any chip click,
+  // so it must kick the bot-flag fetch itself — otherwise contact bots
+  // classify as "people" until the next chip interaction.
+  if (!state.contactBots && (cat === "people" || cat === "bots")) ensureContactBots();
   return state.chats.filter(c => chatCategoryOf(c, chatIsBot) === cat);
 }
 // One entry point for every category change (chip click, swipe): renderChatList
@@ -1360,7 +1364,10 @@ if (chatCatsEl) {
 }
 function syncChatCategoryBar() {
   if (!chatCatsEl) return;
-  chatCatsEl.hidden = listView !== "chats";
+  chatCatsEl.hidden = listView !== "chats" ||
+    // #80: every special category disabled -> a lone "All" chip is noise;
+    // hide the whole bar.
+    ![...chatCatsEl.children].some(b => b.dataset.cat !== "all" && !catsHidden.includes(b.dataset.cat));
   // #75: hidden categories drop their chips; "all" always stays. A persisted
   // active category that has since been disabled falls back to "all".
   if (catsHidden.includes(state.chatCategory)) state.chatCategory = "all";
