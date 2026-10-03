@@ -1419,7 +1419,12 @@ test traffic accordingly.
     CSP path pinning can never scope them (CSP paths are not a security
     boundary), and the cross-origin page fetch fails on CORS regardless
     (GitHub's CDN sends no ACAO headers — that is what silently killed the
-    banner in 1.4.14/1.4.15).
+    banner in 1.4.14/1.4.15). The `ws://127.0.0.1:20808` / `http://127.0.0.1:20809`
+    entries stay (V-02 verdict, #62): they are the service-APK transports —
+    20809 exists because Chrome blocks `ws://` to loopback from a
+    secure-context page, so it cannot be dropped. Both endpoints are
+    token-gated since #61; never re-widen connect-src beyond loopback
+    without that same gating.
 - **Webxdc sandbox is opaque-origin.** `webxdc-manager.js` deliberately omits
   `allow-same-origin` from the iframe sandbox: every mini-app document gets a
   unique opaque origin and can reach neither the host page nor other apps'
