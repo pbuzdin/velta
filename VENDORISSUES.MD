@@ -239,3 +239,9 @@ a transport is bound. Velta's `parseConnectivityHtml` reads it and keys the
 envelope/dashes to it (`relaySmtpVia`), falling back to `configured_addr`
 for unpatched cores. Upstream fix: expose the bound transport properly
 (e.g. an RPC or event per chatmail/core#8619) — then drop this patch.
+
+> **Upstream status (2026-10-04):** feature request filed as chatmail/core
+> **#8798** ("Client-facing signal for which SMTP transport actually sent a
+> message") — references the removal series (#8619/#8705/#8703/#8709/#8797
+> merged, #8711/#8771 open, umbrella #8572). When a core carrying that API
+> ships, port Velta's consumer (`relaySmtpVia`) to it and drop this patch.
