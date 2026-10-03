@@ -9,6 +9,39 @@ use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
 use jni::{JNIEnv, JavaVM};
 use once_cell::sync::OnceCell;
 use tokio::net::TcpListener;
+
+// V-01/#61: the loopback bridges authenticate clients with a per-start
+// random token. /health stays open (the transport probe), /rpc and the
+// WebSocket upgrade require it. The token reaches the legitimate client
+// out-of-band: JNI (same-process MainActivity shows it for pairing) and
+// the `velta-bridge-token` localStorage key on the PWA side.
+static BRIDGE_TOKEN: once_cell::sync::Lazy<String> = once_cell::sync::Lazy::new(|| {
+    // 16 bytes of OS entropy, hex — no extra dependency.
+    let mut buf = [0u8; 16];
+    match std::fs::File::open("/dev/urandom").and_then(|mut f| std::io::Read::read_exact(&mut f, &mut buf)) {
+        Ok(()) => {}
+        Err(e) => loge(&format!("bridge token: urandom unavailable ({e}) — falling back to time-seeded")),
+    }
+    if buf == [0u8; 16] {
+        // urandom failed: degrade to a time-derived value rather than a
+        // constant (weakest acceptable, still not hardcoded).
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0x9E3779B97F4A7C15);
+        for (i, chunk) in buf.chunks_mut(8).enumerate() {
+            let v = (t >> (i * 32)) as u64 ^ (t.wrapping_mul(0x2545F4914F6CDD1D));
+            for (j, b) in chunk.iter_mut().enumerate() {
+                *b = (v >> (j * 8)) as u8;
+            }
+        }
+    }
+    buf.iter().map(|b| format!("{b:02x}")).collect()
+});
+
+fn bridge_token() -> String {
+    BRIDGE_TOKEN.clone()
+}
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_tungstenite::tungstenite::Message;
 use yerpc::{RpcClient, RpcSession};
@@ -233,6 +266,20 @@ async fn handle_ws_client(stream: tokio::net::TcpStream) -> anyhow::Result<()> {
     let ws = tokio_tungstenite::accept_async(stream).await.context("ws handshake")?;
     let (mut write, mut read) = ws.split();
 
+    // V-01/#61: the client's FIRST message must be the bridge token. The
+    // broadcast subscription below only happens after the check, so an
+    // unauthenticated peer never sees a single core event. The read is
+    // time-boxed so a silent socket can't hold resources.
+    let first = tokio::time::timeout(std::time::Duration::from_secs(10), WsStreamExt::next(&mut read)).await;
+    match first {
+        Ok(Some(Ok(Message::Text(line)))) if line.trim_matches('"') == bridge_token() => {}
+        _ => {
+            loge("ws auth: missing/invalid token — closing");
+            return Ok(());
+        }
+    }
+    logi("ws client authenticated");
+
     let mut rx = BROADCAST
         .get()
         .context("broadcast not initialised")?
@@ -286,6 +333,23 @@ async fn run_http_bridge() -> anyhow::Result<()> {
                 let _ = request.respond(response);
             }
             ("POST", "/rpc") => {
+                // V-01/#61: authenticated endpoint — the bearer token must
+                // match the per-start bridge token; /health stays open for
+                // the transport probe.
+                let auth_ok = request
+                    .headers()
+                    .iter()
+                    .any(|(k, v)| {
+                        k.as_str().as_bytes().eq_ignore_ascii_case(b"authorization")
+                            && v.as_ref() == format!("Bearer {}", bridge_token()).as_bytes()
+                    });
+                if !auth_ok {
+                    loge("http rpc: unauthorized (missing/invalid token)");
+                    let response = tiny_http::Response::from_string("unauthorized")
+                        .with_status_code(401);
+                    let _ = request.respond(response);
+                    continue;
+                }
                 let mut body = String::new();
                 if let Err(e) = request.as_reader().read_to_string(&mut body) {
                     loge(&format!("http rpc read body: {e}"));
@@ -355,4 +419,23 @@ async fn run_http_bridge() -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+/// V-01/#61: the bridge token, readable by the service APK's own UI (same
+/// process) for pairing a loopback client. Never exposed over the network.
+#[no_mangle]
+pub extern "system" fn Java_org_velta_coreservice_RpcService_nativeGetBridgeToken(
+    mut env: JNIEnv,
+    _class: JClass,
+) -> JString {
+    match env.new_string(bridge_token()) {
+        Ok(s) => s,
+        Err(e) => {
+            loge(&format!("nativeGetBridgeToken: {e}"));
+            match env.new_string("") {
+                Ok(s) => s,
+                Err(_) => JString::from(JObject::null().into_raw()),
+            }
+        }
+    }
 }

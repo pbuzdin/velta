@@ -108,6 +108,9 @@ public class RpcService extends Service {
     private native void nativeStop();
     private native void nativeRpc(String jsonLine);
     private native void nativeSetRpcListener(RpcListener listener);
+    // V-01/#61: per-start loopback bridge token for client pairing. Same
+    // process, so the launcher activity can read it directly.
+    public static native String nativeGetBridgeToken();
 
     public interface RpcListener {
         void onRpcMessage(String line);
