@@ -24,7 +24,24 @@ import android.util.Log
 class BackgroundFetchJob : JobService() {
     private external fun pushWakeup()
 
+    // Drawer "Use background connection" (Rust writes notify-prefs.json into
+    // filesDir; missing file or key = on). OFF: this scheduled job is the
+    // background connection — finish immediately without waking the core.
+    private fun backgroundConnectionEnabled(): Boolean =
+        try {
+            val file = java.io.File(filesDir, "notify-prefs.json")
+            if (file.exists()) {
+                val obj = org.json.JSONObject(file.readText())
+                if (obj.has("use_bg_connection")) obj.getBoolean("use_bg_connection") else true
+            } else true
+        } catch (_: Exception) { true }
+
     override fun onStartJob(params: JobParameters?): Boolean {
+        if (!backgroundConnectionEnabled()) {
+            Log.d(TAG, "scheduled fetch: skipped (background connection off)")
+            jobFinished(params, false)
+            return false
+        }
         Log.d(TAG, "scheduled fetch: waking the core")
         try {
             pushWakeup()

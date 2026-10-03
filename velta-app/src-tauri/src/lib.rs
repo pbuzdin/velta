@@ -1339,6 +1339,104 @@ fn battery_optimization_exempt() -> bool {
     }
 }
 
+// ---------------- notification preferences (drawer → shell → poller) ----------------
+//
+// The drawer owns nine switches; the page persists them in localStorage for
+// its own gates AND pushes the full set here. The shell keeps the
+// authoritative copy in `notify-prefs.json` (app local data — on Android the
+// same filesDir the Kotlin BackgroundFetchJob reads directly) because the
+// background poller posts notifications while the page is frozen and cannot
+// run a JS gate.
+
+#[derive(serde::Deserialize, serde::Serialize, Clone, Copy)]
+#[serde(default)]
+struct NotifyPrefs {
+    enabled: bool,          // master: any message notification at all
+    mentions_only: bool,    // only messages that mention the user
+    show_content: bool,     // message text in the preview
+    system_new_msgs: bool,  // OS notification layer for new messages
+    vibration: bool,        // Android channel
+    in_chat_sounds: bool,   // Android channel
+    calls: bool,            // call-related notifications
+    use_bg_connection: bool, // Android: periodic background fetch stays on
+    force_bg_connection: bool, // Android: battery exemption requested
+}
+
+impl Default for NotifyPrefs {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            mentions_only: false,
+            show_content: true,
+            system_new_msgs: true,
+            vibration: true,
+            in_chat_sounds: true,
+            calls: true,
+            use_bg_connection: true,
+            force_bg_connection: false,
+        }
+    }
+}
+
+static NOTIFY_PREFS: std::sync::Mutex<Option<NotifyPrefs>> = std::sync::Mutex::new(None);
+
+fn notify_prefs_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    let dir = app.path().app_local_data_dir().ok()?;
+    Some(dir.join("notify-prefs.json"))
+}
+
+// Also written to the filesDir root under a stable name: the Kotlin
+// BackgroundFetchJob reads THIS copy (context.filesDir), the Rust poller
+// reads the static loaded from the local-data copy.
+fn notify_prefs_files_dir_copy(app: &tauri::AppHandle, json: &str) {
+    #[cfg(target_os = "android")]
+    if let Some(dir) = app.path().resolve("notify-prefs.json", tauri::path::BaseDirectory::AppData).ok() {
+        let _ = std::fs::write(dir, json);
+    }
+    #[cfg(not(target_os = "android"))]
+    let _ = (app, json);
+}
+
+fn notify_prefs_load(app: &tauri::AppHandle) {
+    let Some(path) = notify_prefs_path(app) else { return };
+    match std::fs::read_to_string(&path) {
+        Ok(json) => match serde_json::from_str::<NotifyPrefs>(&json) {
+            Ok(prefs) => {
+                *NOTIFY_PREFS.lock().unwrap() = Some(prefs);
+                notify_prefs_files_dir_copy(app, &json);
+            }
+            Err(e) => log(&format!("notify prefs parse failed ({e}); using defaults")),
+        },
+        Err(_) => { /* first run — defaults until the page pushes */ }
+    }
+}
+
+fn notify_prefs_snapshot() -> NotifyPrefs {
+    NOTIFY_PREFS
+        .lock()
+        .unwrap()
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn set_notify_prefs(app: tauri::AppHandle, prefs: NotifyPrefs) -> Result<(), String> {
+    *NOTIFY_PREFS.lock().unwrap() = Some(prefs);
+    let json = serde_json::to_string(&prefs).map_err(|e| e.to_string())?;
+    if let Some(path) = notify_prefs_path(&app) {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        std::fs::write(&path, &json).map_err(|e| e.to_string())?;
+    }
+    notify_prefs_files_dir_copy(&app, &json);
+    Ok(())
+}
+
+#[tauri::command]
+fn get_notify_prefs() -> NotifyPrefs {
+    notify_prefs_snapshot()
+}
+
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
 fn battery_optimization_exempt() -> bool {
@@ -1794,6 +1892,14 @@ pub extern "system" fn Java_org_velta_CoreService_networkAvailable(
 // or the process was frozen between pushes.
 #[cfg(target_os = "android")]
 fn push_wakeup_impl() {
+    // Drawer "Use background connection" OFF: the scheduled fetch and any
+    // non-push wake are skipped entirely (push distributor wakes still
+    // arrive but the gates below decide what they may post).
+    if !notify_prefs_snapshot().use_bg_connection {
+        println!("push wakeup: skipped (background connection off)");
+        log("push wakeup: skipped (background connection off)");
+        return;
+    }
     // Mirrored to logcat (println → RustStdoutStderr): a wake can happen
     // while the process is half-frozen by an OEM, where the buffered file
     // log may never flush — logcat is the reliable trace (#52).
@@ -2648,9 +2754,28 @@ async fn bg_notify_incoming(
 ) {
     use tauri_plugin_notification::NotificationExt;
 
+    // Drawer notification prefs (page pushes them; defaults until it does).
+    let prefs = notify_prefs_snapshot();
+    if !prefs.enabled || !prefs.system_new_msgs {
+        return;
+    }
+
     // Oldest first so the newest message lands last in each conversation;
     // cap a burst so a 50-message flood does not spin 50 RPC round trips.
     let recent: Vec<&(u32, u32, u32)> = hits.iter().rev().take(8).collect();
+    // "Mentions only" heuristic: the message mentions the user when the
+    // text contains their display name or any @-name. Core has no mention
+    // flag on the wire yet; cheap and conservative in the notify-more
+    // direction only when the name collides.
+    let own_name = if prefs.mentions_only {
+        let account = recent.first().map(|h| h.0).unwrap_or(1);
+        bg_rpc(tx, state, "get_config", serde_json::json!([account, "displayname"]))
+            .await
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_string))
+    } else {
+        None
+    };
     for &&(account, chat_id, msg_id) in recent.iter().rev() {
         // Muted chats must not notify while hidden (#52 L1): the same
         // is_chat_muted() readback the UI path is documented to gate on
@@ -2679,6 +2804,20 @@ async fn bg_notify_incoming(
         if text.is_empty() {
             continue;
         }
+        // "Mentions only": skip messages that neither name the user nor
+        // carry any @-mention.
+        if let Some(own) = &own_name {
+            let lower = text.to_lowercase();
+            if !lower.contains('@') && !lower.contains(&own.to_lowercase()) {
+                continue;
+            }
+        }
+        // "Show message content" OFF: the card stays, the text goes.
+        let text = if prefs.show_content {
+            text
+        } else {
+            "New message".to_string()
+        };
         let from_id = msg.get("fromId").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
         let ts_ms = (msg.get("sortTimestamp").and_then(|v| v.as_i64()).unwrap_or(0) * 1000).max(0);
 
@@ -2954,7 +3093,7 @@ pub fn run() {
             // (temp dir on Android) and the writer thread is bound to the
             // wrong directory for the whole session.
             set_log_dir(log_dir_path);
-            #[cfg(target_os = "android")]
+            notify_prefs_load(app.handle());            #[cfg(target_os = "android")]
             {
                 let ext_logs = PathBuf::from("/storage/emulated/0/Android/data")
                     .join(app.config().identifier.clone())
@@ -3177,7 +3316,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, allow_picked_path, webxdc_begin, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, allow_picked_path, webxdc_begin, set_notify_prefs, get_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 

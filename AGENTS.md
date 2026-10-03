@@ -903,8 +903,19 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   the transparent overlay swallows the click. Toggle-spoiler pattern
   (`<details class="drawer-details">` + `.scale-opts` checkboxes): Bottom bar
   buttons (`data-bar-key`), Chat categories (#75, `data-cat-key`),
-  Notifications (`data-notify-key`: master `velta-notify` + message-text
-  `velta-notify-text`, both default on, "0" = off) and Image quality
+  Notifications (NINE `data-notify-key` switches — notifications/
+  mentions/text/system always; vibration/sounds/bg/bgforce Android-only
+  (hidden off-Android at drawer build); calls everywhere. Storage:
+  default-on keys store "0" when off, default-off keys (mentions,
+  bgforce) store "1" when on; absent = default. The page ALSO pushes
+  the full set to the shell via `set_notify_prefs` (persisted to
+  `notify-prefs.json` in app local data + a filesDir copy the Kotlin
+  BackgroundFetchJob/Notifications channel layer read):
+  `bg_notify_incoming` gates on enabled/mentions_only (heuristic:
+  text contains @ or the displayname)/show_content/system_new_msgs;
+  `push_wakeup_impl` skips when `use_bg_connection` is off;
+  `force_bg_connection` ON requests battery exemption. Desktop gates
+  in notifyIncoming: master/system/mentions (heuristic)/content) and Image quality
   (`data-mq-value` radios, `velta-media-quality` "0"=Standard/"1"=Compact
   (940 KB / 130 KB compression targets),,
   mirrored to the core's per-account `media_quality` config — pushed from

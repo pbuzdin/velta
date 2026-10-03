@@ -29,6 +29,34 @@ object Notifications {
     // messages append to the existing notification instead of resetting it.
     private val styles = ConcurrentHashMap<String, MessagingStyle>()
 
+    // Drawer notification prefs, written by Rust (set_notify_prefs) into the
+    // app files dir as JSON; missing file or keys = defaults (all on).
+    private fun pref(context: Context, key: String, default: Boolean): Boolean =
+        try {
+            val file = java.io.File(context.filesDir, "notify-prefs.json")
+            if (file.exists()) {
+                val obj = org.json.JSONObject(file.readText())
+                if (obj.has(key)) obj.getBoolean(key) else default
+            } else default
+        } catch (_: Exception) { default }
+
+    // Vibration/sound live on the CHANNEL: Android freezes most channel
+    // settings after creation, so prefs pick the channel id — flipping a
+    // switch lands in a fresh channel whose settings apply immediately.
+    private fun channelFor(context: Context): String {
+        val vibration = pref(context, "vibration", true)
+        val sound = pref(context, "in_chat_sounds", true)
+        val id = if (vibration && sound) CHANNEL_ID else CHANNEL_ID_QUIET
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= 26) {
+            val channel = NotificationChannel(id, "Messages", NotificationManager.IMPORTANCE_HIGH)
+            if (!sound) channel.setSound(null, null)
+            if (!vibration) channel.enableVibration(false)
+            manager.createNotificationChannel(channel)
+        }
+        return id
+    }
+
     @JvmStatic
     fun show(
         context: Context,
@@ -42,12 +70,8 @@ object Notifications {
         timestampMs: Long,
         chatLinkToken: String,
     ) {
+        val channelId = channelFor(context)
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (Build.VERSION.SDK_INT >= 26) {
-            manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Messages", NotificationManager.IMPORTANCE_HIGH)
-            )
-        }
 
         val senderBitmap = decode(senderAvatarPath)
         val senderBuilder = Person.Builder().setName(senderName)
@@ -65,7 +89,7 @@ object Notifications {
         }
         style.addMessage(text, timestampMs, sender)
 
-        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(context.applicationInfo.icon)
             .setStyle(style)
             .setAutoCancel(true)

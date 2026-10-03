@@ -613,9 +613,14 @@ ships a few emoji placeholders.
 <details>
 <summary>Notifications</summary>
 
-A drawer switch turns incoming-message notifications on or off, and a second
-one keeps message text out of the previews (chat and sender names still
-show). Per-chat muting lives in each chat's info sheet. Incoming-message
+A drawer section carries the full set of notification switches:
+**Notifications** (master), **Mentions only** (skip messages that don't
+@mention you), **Show message content**, **System notification for new
+messages**, **Calls**, and — on Android — **Vibration**, **In-chat sounds**,
+**Use background connection** (the periodic background fetch; off means
+messages arrive when you open Velta) and **Force background connection**
+(asks Android for battery exemption so background fetching survives Doze).
+Per-chat muting lives in each chat's info sheet. Incoming-message
 notifications mirror the official client's conversation
 layout on both mobile platforms:
 
