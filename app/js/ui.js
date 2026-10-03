@@ -550,9 +550,9 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
       <details class="drawer-details">
         <summary><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Image quality</span></summary>
         <div class="scale-opts" data-mq-opts>
-          ${[["0", "Standard (compresses large photos to 940 KB)"], ["1", "Compact (compresses large photos to 130 KB)"]].map(([value, label]) => `<label class="scale-opt"><input type="radio" name="media-quality" data-mq-value="${value}"${value === mediaQuality ? " checked" : ""}><span>${label}</span></label>`).join("")}
+          ${[["0", "Standard (compress to 940 KB)"], ["1", "Compact (compress to 130 KB)"]].map(([value, label]) => `<label class="scale-opt"><input type="radio" name="media-quality" data-mq-value="${value}"${value === mediaQuality ? " checked" : ""}><span>${label}</span></label>`).join("")}
         </div>
-        <div class="bar-opts-hint">Smaller photos and already-small images are sent unchanged. Compact keeps chats light on relay storage.</div>
+        <div class="bar-opts-hint">Large photos only — smaller images are sent unchanged.</div>
       </details>
       <details class="drawer-details">
         <summary><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="4" y="17" width="16" height="4" rx="1" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Auto-download limit</span></summary>
