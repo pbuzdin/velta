@@ -160,3 +160,22 @@ Helper scripts in the parent workspace `tools/`:
 `shot-velta-window.ps1` (PrintWindow capture, DPI-aware),
 `focus-velta.ps1` (raise + topmost), `click-at.ps1`, `who-is-at.ps1`
 (which window owns a screen point).
+
+
+## Notification preferences bridge (v1.4.54)
+
+The drawer's nine notification switches push the full set to the shell via
+`set_notify_prefs` (see AGENTS drawer contract). Shell side: `NotifyPrefs`
+struct persisted to `notify-prefs.json` in app local data, plus a copy in
+`filesDir` that the Kotlin layer reads directly:
+
+- `bg_notify_incoming` gates on enabled / mentions_only ("Replies only")
+  / show_content / system_new_msgs.
+- `push_wakeup_impl` skips the scheduled fetch when `use_bg_connection`
+  is off; `BackgroundFetchJob` checks the same file.
+- `Notifications.kt` picks the channel id from vibration/sound prefs
+  (Android freezes channel settings; id-switch = fresh channel).
+
+WARNING: Kotlin changes here have no local compile check — the CI gradle
+build is the only gate (a missing `CHANNEL_ID_QUIET` const broke the first
+v1.4.54 android job while the local Rust build stayed green).
