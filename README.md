@@ -614,8 +614,7 @@ ships a few emoji placeholders.
 <summary>Notifications</summary>
 
 A drawer section carries the full set of notification switches:
-**Notifications** (master), **Mentions only** (skip messages that don't
-@mention you), **Show message content**, **System notification for new
+**Notifications** (master), **Replies only** (skip the rest), **Show message content**, **System notification for new
 messages**, **Calls**, and — on Android — **Vibration**, **In-chat sounds**,
 **Use background connection** (the periodic background fetch; off means
 messages arrive when you open Velta) and **Force background connection**

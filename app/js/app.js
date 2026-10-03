@@ -3061,12 +3061,17 @@ function rebuildDrawer() {
   if (state.accountChanging) return;
   drawer?.el.remove();
   drawer?.overlayEl?.remove();
-  // Boot/account-change sync: mirror the persisted image-quality preference
-  // into the core's per-account config (the drawer's change handler pushes
-  // on every change too). localStorage is the source of truth for the UI;
-  // the core copy keeps the account config honest for other consumers.
-  core.setConfig?.("media_quality", localStorage.getItem("velta-media-quality") || "0")
-    .catch(err => diagnostics.append("warning", `media_quality sync failed: ${err?.message || err}`));
+  // Boot/account-change sync: mirror persisted preferences into the core's
+  // per-account config (the drawer's change handlers push on every change
+  // too). localStorage is the source of truth for the UI; the core copies
+  // keep the account config honest for other consumers.
+  const savedMq = localStorage.getItem("velta-media-quality") || "0";
+  const savedDl = localStorage.getItem("velta-download-limit") || "0";
+  const savedMdns = localStorage.getItem("velta-mdns") ?? "1";
+  core.setConfig?.("media_quality", savedMq)
+    .then(() => core.setConfig?.("download_limit", savedDl))
+    .then(() => core.setConfig?.("mdns_enabled", savedMdns))
+    .catch(err => diagnostics.append("warning", `settings boot sync failed: ${err?.message || err}`));
   drawer = buildDrawer({
     account: state.account,
     theme: state.theme,
@@ -3092,6 +3097,20 @@ function rebuildDrawer() {
       core.setConfig?.("media_quality", value).catch(err =>
         errToast("Couldn't save image quality: " + (err?.message || err)));
       toast(value === "1" ? "Image quality: Compact" : "Image quality: Standard");
+    },
+    downloadLimit: localStorage.getItem("velta-download-limit") || "0",
+    onDownloadLimit: (value) => {
+      localStorage.setItem("velta-download-limit", value);
+      core.setConfig?.("download_limit", value).catch(err =>
+        errToast("Couldn't save download limit: " + (err?.message || err)));
+      toast(value === "0" ? "Auto-download limit: none" : "Auto-download limit set");
+    },
+    onReadReceipts: (on) => {
+      // localStorage mirror + per-account core config (same pattern as
+      // media quality); pushed from rebuildDrawer on boot/account switch.
+      localStorage.setItem("velta-mdns", on ? "1" : "0");
+      core.setConfig?.("mdns_enabled", on ? "1" : "0").catch(err =>
+        errToast("Couldn't save read receipts: " + (err?.message || err)));
     },
     p2pAvailable: p2pAvailable(),
     p2pOn: p2pEnabled(),

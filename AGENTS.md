@@ -915,9 +915,14 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   text contains @ or the displayname)/show_content/system_new_msgs;
   `push_wakeup_impl` skips when `use_bg_connection` is off;
   `force_bg_connection` ON requests battery exemption. Desktop gates
-  in notifyIncoming: master/system/mentions (heuristic)/content) and Image quality
+  in notifyIncoming: master/system/replies (heuristic)/content) and Image quality
   (`data-mq-value` radios, `velta-media-quality` "0"=Standard/"1"=Compact
-  (940 KB / 130 KB compression targets),,
+  (940 KB / 130 KB compression targets), Auto-download limit
+  (`data-dl-value` radios, `velta-download-limit` "0"/bytes mirrored to the
+  core's per-account `download_limit` — caps the SECOND-DEVICE history
+  sync only; regular messages always auto-download), and a read-receipts
+  ctx-item (`velta-mdns` "0"=off mirrored to core `mdns_enabled` — off
+  also stops seen-status sync between own devices),
   mirrored to the core's per-account `media_quality` config — pushed from
   `rebuildDrawer` on boot/account switch; core `set_config` takes FLAT args
   `[accountId, key, value]`, NOT a nested [key,value] pair) follow it —
