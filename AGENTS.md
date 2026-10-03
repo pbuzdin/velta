@@ -231,7 +231,7 @@ drivable in demo mode (no Tauri build needed). The standalone PWA product
 (a static host talking to a remote core) is work in progress; demo mode
 here is only the UI smoke test. **KEEP:** every new
 `rpc-core.js` method needs a `mock-core.js` counterpart or demo mode throws
-"not a function" the moment the UI touches it. Demo honesty (1.4.52, #53;
+"not a function" the moment the UI touches it. Demo honesty (1.4.52, #53; demo image attachments are SVG data URIs pinned by `tests/mock-images.test.mjs` — #74;
 MDN arrival added 1.4.53, #59): MockCore never *invents* read receipts —
 own messages rest at `delivered` (1:1 fixture history reads as `read`), the
 double tick needs an MDN, and a 1:1 peer returns one a few seconds after a
@@ -654,7 +654,9 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   holds `_loadOlder` while `_settling` (close() leaves scrollTop 0, and the
   prepend under the pin made reopen landings non-deterministic — the settle
   end pages instead), and the bottom settle's final re-assert is instant,
-  not smooth. Pinned by `tests/scroll-restore.test.mjs`.
+  not smooth. Pinned by `tests/scroll-restore.test.mjs` (default-ON since
+  #70; also covers the appendOutgoing follow-only-when-near-bottom rule
+  from #71).
 - **Saved copies jump back to the original message** (issue #19): core
   `originalMsgId` is mapped in `rpc-core.js`. A copy in Saved Messages gets
   a round chevron (`data-act="show-original"`, title “Show in chat”) hanging

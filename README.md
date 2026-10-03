@@ -496,7 +496,7 @@ Delta Chat splits very large messages into a small placeholder plus a downloadab
 
 `Config::DownloadLimit` defaults to `0` (no automatic size limit), so the core normally downloads the whole message automatically. For outgoing attachments the Delta Chat core recommends staying below roughly **18 MB** of raw file data (around 24 MB after base64 encoding), defined by `RECOMMENDED_FILE_SIZE` in `deltachat-core-rust`. Velta does not enforce this itself; it just passes the file to the core.
 
-`Config::MediaQuality` (`0` = Balanced, `1` = Worse) controls image compression on send, so the UI does not need to resize images before sending.
+`Config::MediaQuality` (`0` = Balanced, `1` = Worse) controls image compression on send, so the UI does not need to resize images before sending. The drawer's **Image quality** switch writes this config (Standard = Balanced, Compact = Worse).
 
 ### Media caching and chat switching
 
