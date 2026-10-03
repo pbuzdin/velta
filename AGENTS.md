@@ -888,16 +888,19 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   what `#chat-list` shows via `setListView` over {chats, contacts, calls,
   qr, search, new, archived}; `renderChatList` early-returns unless the view
   is "chats" (keep that gate — refresh storms clobber the other views).
-  `archived` (issue #13, post-1.4.37; reworked 2026-10-03) — the dedicated
-  head button is GONE (it sat in the prime head slot); the folder is now
-  reached from the SEARCH view's pinned "Archived chats (n)" entry row
-  (shown while `archivedCount` is 0-hidden — count piggybacked onto
+  `archived` (issue #13, post-1.4.37; reworked 2026-10-03 twice) — the
+  dedicated head button is GONE (it sat in the prime head slot); the folder
+  is now the SECOND TAB of the search screen ("Search | Archived (n)",
+  `searchScreenTab` module var, button always lands on Search; the
+  standalone `renderArchivedView`/`listView === "archived"` state is
+  deleted). Count shown on the tab label (shown while `archivedCount` is
+  0-hidden — piggybacked onto
   refreshChatList via `getChatList({ archived: true })`, list flag 0x01 =
   DC_GCL_ARCHIVED_ONLY — NOT 0x02, which is DC_GCL_NO_SPECIALS and
   silently returns the unarchived list, hiding every archived chat), and
   writing from an archived chat unarchives it
-  (every chat-view send routes through `_sendArchivedAware`). The archived
-  side view carries its own "‹ Back to chats" exit row (the head X is gone).
+  (every chat-view send routes through `_sendArchivedAware`). The head X
+  closes the whole search screen from either tab.
   Contacts come from `core.getContacts` through a virtual scroller
   (`sideScroller`, stopped by `stopSideScroller` on every view switch);
   Calls read the LOCAL call log (localStorage `velta-call-log`, capped 30 —
