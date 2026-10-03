@@ -192,6 +192,8 @@ Re-vendor note: both core patches re-apply mechanically — `python tools/apply-
 
 ### 7. Recoding an animated WebP strips its animation (static JPEG out)
 
+> **Upstream status (2026-10-03):** chatmail/core PR **8777** (open) implements the same fix — drop this patch on the next core re-vendor once a release carries it. See also docs/upstream/README.md.
+
 **Status: patched locally (`core/src/blob.rs` — `is_animated_webp()` early
 exit in `check_or_recode_to_size`; re-apply on every core upgrade, the call
 site is the `Velta patch` block right before the `ImageReader`

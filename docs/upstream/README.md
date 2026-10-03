@@ -1,14 +1,35 @@
 # Upstream drafts — chatmail/core
 
-Ready-to-file texts for the two upstream contributions that would let Velta
-drop its vendored-core patches (VENDORISSUES #7 and #10). Nothing here is
-filed yet — the user reviews, then submits.
+Texts for the two upstream contributions that would let Velta drop its
+vendored-core patches (VENDORISSUES #7 and #10).
+
+## Status (2026-10-03 overlap check)
+
+- **#7 animated WebP: SUPERSEDED — do not file.** Upstream PR **8777**
+  ("fix: do not reencode animated WebPs into JPEG", open, closes #8740)
+  is the same fix against the same files (their version uses the
+  `image` crate's `WebPDecoder::has_animation()` instead of our raw
+  RIFF/ANMF sniff, and adds a real `animated.webp` fixture). Our branch
+  `fix/animated-webp-byte-exact` and `0001-*.patch` stay here for
+  reference only. Action for us: none — **drop quilt entry #7 on the
+  next core re-vendor** once a release carries 8777.
+- **#10 sending transport: still open and MORE relevant.** Upstream is
+  actively removing `configured_addr`: #8705 → #8711 ("remove
+  maybe_update_sending_transport and remaining usage of ConfiguredAddr")
+  with #8703/#8709 as siblings, plus #8771 (try the most recently
+  successful transport first) and #8797 (reset transport_id on
+  disconnect). After that series lands, clients have NO way to learn
+  which transport actually sends — the exposure API our draft proposes
+  becomes the only signal. File the issue soon, referencing that series;
+  the implementers are active in this exact area right now.
+
+## Contents
 
 - `0001-*.patch` — the #7 PR branch (`fix/animated-webp-byte-exact` in the
   local clone at /tmp/chatmail-core, based on upstream 2.63.0-dev
-  @ 7073049). PR text below.
+  @ 7073049). Superseded by 8777; kept for reference.
 - `issue-sending-transport.md` — the #10 feature issue (file first, PR the
-  implementation after the API shape is agreed).
+  implementation after the API shape is agreed). PR text below.
 
 ## PR text — fix: don't recode animated WebPs, send them byte-exact
 

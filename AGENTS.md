@@ -905,7 +905,8 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   buttons (`data-bar-key`), Chat categories (#75, `data-cat-key`),
   Notifications (`data-notify-key`: master `velta-notify` + message-text
   `velta-notify-text`, both default on, "0" = off) and Image quality
-  (`data-mq-value` radios, `velta-media-quality` "0"=Standard/"1"=Compact,
+  (`data-mq-value` radios, `velta-media-quality` "0"=Standard/"1"=Compact
+  (940 KB / 130 KB compression targets),,
   mirrored to the core's per-account `media_quality` config — pushed from
   `rebuildDrawer` on boot/account switch; core `set_config` takes FLAT args
   `[accountId, key, value]`, NOT a nested [key,value] pair) follow it —
