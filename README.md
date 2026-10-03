@@ -312,7 +312,9 @@ the app.
 
 One profile can be reachable on **several chatmail relays** at once — what
 Delta Chat desktop 2.47+ calls "Relays". Messages are received on all of them;
-sending always goes through the **primary** relay. Pick which one sends under
+sending goes through the **primary** relay — and if that relay stops working,
+the core automatically sends through another configured one. Pick which one
+is primary under
 **Relays of this profile…** → **"Use for sending"** on any relay (messages
 currently waiting to be sent are dropped, since they carry the old sender
 address; the change syncs to your other devices). The status bar shows one
@@ -333,13 +335,16 @@ animation on the sending relay's segment only.
   that's down is marked *unreachable — messages queue until it's back*.
 
 The thin status line above the chat list reflects the relay connection:
-green connected, yellow connecting/retrying, red unreachable (after a 45 s
+green connected, yellow connecting/retrying, amber when a relay is not
+accepting new connections (Velta checks them out-of-band — the core alone
+can keep a dead relay green for hours), red unreachable (after a 45 s
 grace), blue for demo or local-chat-only mode; animated dashes while a
 message is on its way to the relay. Hovering the line (or pulling down at
 the top of the chat list on mobile) reveals one **chip per relay** above the
 line — `cha*.uk · 55% used` style: the relay's domain privacy-masked, plus
-its storage quota. A **✉ envelope** on a chip marks the relay selected for
-sending. Full domain, status and quota sit in each chip's tooltip.
+its storage quota. A **✉ envelope** on a chip marks the relay your messages
+actually go through — it follows automatic failover. Full domain, status and
+quota sit in each chip's tooltip.
 
 </details>
 
@@ -691,6 +696,9 @@ The chat info sheet carries the per-chat actions:
 
 - **Add members** (groups) — pick contacts from your address book; the
   group is informed automatically.
+- **Members list** (groups) — collapsed behind a "Members (n)" summary;
+  each row shows which **relay** the member is on (hover/long-press for
+  the full address).
 - **Invite via link/QR** (groups and channels) — share a secure-join
   invite: scanning or tapping it joins the group / subscribes to the
   channel, with end-to-end verification.
@@ -759,7 +767,8 @@ chat header instead.
 Opening a chat no longer marks everything read. The chat opens at a stored
 **"Read up to here"** marker when unread messages remain below it, otherwise
 at the first unread message (marked with an "Unread messages" line),
-otherwise at the newest message.
+otherwise — for a fully read chat you had scrolled through — at the exact
+position you left it, and otherwise at the newest message.
 
 - **Seen = on screen.** Messages count as read — and read receipts go out —
   only once they actually scroll into view. Read partway and switch away,
