@@ -597,6 +597,10 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
           ${[["0", "Standard (compress to 940 KB)"], ["1", "Compact (compress to 130 KB)"]].map(([value, label]) => `<label class="scale-opt"><input type="radio" name="media-quality" data-mq-value="${value}"${value === mediaQuality ? " checked" : ""}><span>${label}</span></label>`).join("")}
         </div>
         <div class="bar-opts-hint">Large photos only — smaller images are sent unchanged.</div>
+        <div class="scale-opts">
+          <label class="scale-opt"><input type="checkbox" data-compress-photos${localStorage.getItem("velta-compress-photos") === "0" ? "" : " checked"}><span>Compress photos to save relay space</span></label>
+        </div>
+        <div class="bar-opts-hint">Big JPEG/WebP photos are re-encoded as smaller WebP before sending, when that saves at least 10%. This also removes location and camera info from those photos. Animated images, transparent images, small photos and files are never changed.</div>
       </details>
       <details class="drawer-details">
         <summary><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="4" y="17" width="16" height="4" rx="1" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Auto-download limit</span></summary>
@@ -730,6 +734,12 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
       force_bg_connection: localStorage.getItem("velta-notify-bgforce") === "1",
     };
     invoke?.("set_notify_prefs", { prefs })?.catch?.(() => {});
+  });
+  drawer.querySelector("[data-compress-photos]")?.addEventListener("change", e => {
+    const on = e.target.checked;
+    if (on) localStorage.removeItem("velta-compress-photos");
+    else localStorage.setItem("velta-compress-photos", "0");
+    toast(`Photo compression ${on ? "on" : "off"}`);
   });
   drawer.querySelector("[data-mq-opts]")?.addEventListener("change", e => {
     const value = e.target?.dataset?.mqValue;
