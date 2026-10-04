@@ -442,6 +442,7 @@ impl P2p {
                 .filter_map(|a| a.parse::<SocketAddr>().ok())
                 .collect();
             let msgs = load_messages(&dir, &node_id);
+            let queued = queued_from(&msgs);
             peers.insert(
                 node_id,
                 Peer {
@@ -450,7 +451,7 @@ impl P2p {
                     proto: persisted.proto,
                     live: Vec::new(),
                     connecting: false,
-                    queued: Vec::new(),
+                    queued,
                     msgs,
                 },
             );
@@ -486,6 +487,16 @@ impl P2p {
             let p2p = p2p.clone();
             async move { p2p.beacon_loop().await }
         });
+
+        // Texts left queued by the previous run: dial now instead of waiting
+        // for the first maintenance tick.
+        let pending: Vec<NodeId> = {
+            let inner = p2p.inner.lock().unwrap();
+            inner.peers.iter().filter(|(_, p)| !p.queued.is_empty()).map(|(id, _)| *id).collect()
+        };
+        for id in pending {
+            p2p.trigger_connect(id);
+        }
 
         Ok(p2p)
     }
@@ -903,14 +914,17 @@ impl P2p {
 
     async fn add_peer(&self, node_id: NodeId, name: String, addrs: Vec<SocketAddr>) -> Result<()> {
         let mut inner = self.inner.lock().unwrap();
-        let peer = inner.peers.entry(node_id).or_insert_with(|| Peer {
-            name: String::new(),
-            addrs: Vec::new(),
-            proto: 0,
-            live: Vec::new(),
-            connecting: false,
-            queued: Vec::new(),
-            msgs: load_messages(&self.dir, &node_id),
+        let peer = inner.peers.entry(node_id).or_insert_with(|| {
+            let msgs = load_messages(&self.dir, &node_id);
+            Peer {
+                name: String::new(),
+                addrs: Vec::new(),
+                proto: 0,
+                live: Vec::new(),
+                connecting: false,
+                queued: queued_from(&msgs),
+                msgs,
+            }
         });
         if !name.is_empty() {
             peer.name = name;
@@ -989,14 +1003,22 @@ impl P2p {
                 reply_text: msg.reply_text.clone(),
             })
             .ok();
-            let mut sent = msg;
-            sent.state = "sent".into();
             // Tell the UI its pending text is on the wire now.
             self.sink.emit(json!({
                 "kind": "msg-state", "peerId": node_id.to_string(),
-                "id": sent.id.clone(), "state": "sent",
+                "id": msg.id.clone(), "state": "sent",
             }));
-            peer.msgs.push(sent);
+            // `send()` already stored this message (state "queued"): flip that
+            // entry. Pushing a second "sent" copy used to leave a stale
+            // "queued" twin with the same id in the log.
+            match peer.msgs.iter_mut().rev().find(|m| m.dir == "out" && m.id == msg.id) {
+                Some(stored) => stored.state = "sent".into(),
+                None => {
+                    let mut sent = msg;
+                    sent.state = "sent".into();
+                    peer.msgs.push(sent);
+                }
+            }
         }
         let msgs = peer.msgs.clone();
         self.persist_messages(&node_id, &msgs);
@@ -1953,8 +1975,41 @@ fn load_messages(dir: &std::path::Path, node_id: &NodeId) -> Vec<StoredMsg> {
     let Ok(data) = std::fs::read_to_string(path) else {
         return Vec::new();
     };
-    data.lines()
-        .filter_map(|line| serde_json::from_str::<StoredMsg>(line).ok())
+    collapse_history(
+        data.lines()
+            .filter_map(|line| serde_json::from_str::<StoredMsg>(line).ok())
+            .collect(),
+    )
+}
+
+/// Older builds appended a second "sent" copy when a queued text was flushed,
+/// so a log can hold two outbound rows with one id (a stale "queued" one and
+/// the real one). Keep one row per outbound id, at its first position, with
+/// the state of the LAST row (states only move forward).
+fn collapse_history(raw: Vec<StoredMsg>) -> Vec<StoredMsg> {
+    let mut out: Vec<StoredMsg> = Vec::with_capacity(raw.len());
+    let mut index: HashMap<String, usize> = HashMap::new();
+    for m in raw {
+        if m.dir == "out" {
+            if let Some(&i) = index.get(&m.id) {
+                out[i].state = m.state;
+                continue;
+            }
+            index.insert(m.id.clone(), out.len());
+        }
+        out.push(m);
+    }
+    out
+}
+
+/// The send queue is not stored separately: it is exactly the outbound texts
+/// still marked "queued" in the log (media is never queued). Rebuilding it on
+/// load is what lets a text written while the peer was offline survive a
+/// restart instead of staying "queued" forever.
+fn queued_from(msgs: &[StoredMsg]) -> Vec<StoredMsg> {
+    msgs.iter()
+        .filter(|m| m.dir == "out" && m.state == "queued" && m.file.is_none())
+        .cloned()
         .collect()
 }
 
@@ -2206,6 +2261,11 @@ pub fn p2p_approve_pair(
 mod tests {
     use super::*;
     use std::sync::mpsc as std_mpsc;
+
+    /// Where `temp_dir(tag)` put (or will put) its directory, without wiping it.
+    fn temp_dir_path(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("velta-p2p-test-{tag}-{}", std::process::id()))
+    }
 
     fn temp_dir(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("velta-p2p-test-{tag}-{}", std::process::id()));
@@ -2529,6 +2589,80 @@ mod tests {
         assert_eq!(old_reader.peers[0].node_id, "aa");
         assert_eq!(old_reader.peers[0].name, "n");
         assert!(old_reader.peers[0].addrs.is_empty());
+    }
+
+    fn stored_out(id: &str, text: &str, state: &str) -> StoredMsg {
+        StoredMsg {
+            id: id.into(), ts: 1, dir: "out".into(), state: state.into(), text: text.into(),
+            reply_to: None, reply_text: None, file: None,
+        }
+    }
+
+    /// Logs written by older builds hold a stale "queued" twin next to the
+    /// flushed row; loading keeps one row per id with the latest state and
+    /// rebuilds the send queue only from texts that are really still queued.
+    #[test]
+    fn load_collapses_duplicate_rows_and_rebuilds_the_queue() {
+        let raw = vec![
+            stored_out("a", "first", "queued"),
+            stored_out("b", "second", "queued"),
+            stored_out("a", "first", "sent"), // old flush appended a copy
+            StoredMsg { dir: "in".into(), state: "acked".into(), ..stored_out("c", "theirs", "") },
+        ];
+        let msgs = collapse_history(raw);
+        assert_eq!(msgs.iter().map(|m| (m.id.as_str(), m.state.as_str())).collect::<Vec<_>>(),
+            vec![("a", "sent"), ("b", "queued"), ("c", "acked")]);
+        let q = queued_from(&msgs);
+        assert_eq!(q.len(), 1);
+        assert_eq!(q[0].id, "b");
+    }
+
+    /// A text queued while the peer was away survives a restart of the sender
+    /// (it used to stay "queued" forever): the queue is rebuilt from the log,
+    /// the peer is dialled, and the text arrives exactly once. The log keeps
+    /// one row for it, acked, and the next restart has nothing left to send.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn queued_text_survives_restart_and_is_delivered_once() {
+        let (alice, alice_rx) = start("alice-q").await;
+        let (bob, _bob_rx) = start("bob-q").await;
+        let alice_id = alice.node_id();
+        let ticket = alice.create_invite().await.unwrap();
+        bob.accept_invite(&ticket).await.unwrap();
+        wait_for(&alice_rx, 15, |e| e["kind"] == "pairing");
+        let dir_b = temp_dir_path("bob-q");
+        let blobs_b = temp_dir_path("bob-q-blobs");
+        bob.close().await;
+        drop(bob);
+
+        // Bob's log as an interrupted run leaves it: one text still queued.
+        let path = dir_b.join(format!("messages-{}.jsonl", HEXLOWER.encode(alice_id.as_ref())));
+        let line = serde_json::to_string(&stored_out("q1", "written while you were away", "queued")).unwrap();
+        std::fs::write(&path, format!("{line}\n")).unwrap();
+
+        let restart = |dir: PathBuf, blobs: PathBuf| async move {
+            let (tx, rx) = std_mpsc::channel();
+            (P2p::start(dir, blobs, Sink::Test(tx)).await.unwrap(), rx)
+        };
+        let (bob2, bob2_rx) = restart(dir_b.clone(), blobs_b.clone()).await;
+        assert_eq!(bob2.inner.lock().unwrap().peers[&alice_id].queued.len(), 1, "queue rebuilt from the log");
+
+        let got = wait_for(&alice_rx, 60, |e| e["kind"] == "message");
+        assert_eq!(got["text"], "written while you were away");
+        assert_eq!(got["id"], "q1");
+        wait_for(&bob2_rx, 60, |e| e["kind"] == "ack" && e["id"] == "q1");
+
+        let view = bob2.messages(&alice_id.to_string(), 10).unwrap();
+        assert_eq!(view.len(), 1, "flush updates the stored row, no duplicate");
+        assert_eq!(view[0]["state"], "acked");
+        assert_eq!(alice.messages(&bob2.node_id().to_string(), 10).unwrap().len(), 1, "delivered once");
+        assert!(bob2.inner.lock().unwrap().peers[&alice_id].queued.is_empty());
+
+        // Next restart: nothing is re-sent.
+        bob2.close().await;
+        drop(bob2);
+        let (bob3, _rx3) = restart(dir_b, blobs_b).await;
+        assert!(bob3.inner.lock().unwrap().peers[&alice_id].queued.is_empty());
+        assert_eq!(bob3.messages(&alice_id.to_string(), 10).unwrap()[0]["state"], "acked");
     }
 
     #[test]
