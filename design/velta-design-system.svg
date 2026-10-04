@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="3480" viewBox="0 0 1440 3480" font-family="Segoe UI, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="4000" viewBox="0 0 1440 4000" font-family="Segoe UI, Arial, sans-serif">
   <defs>
     <style>
       .title { font-size: 32px; font-weight: 700; fill: #f2f2f5; }
@@ -15,7 +15,7 @@
   </defs>
 
   <!-- ======================== canvas ======================== -->
-  <rect width="1440" height="3480" fill="#0f0f14"/>
+  <rect width="1440" height="4000" fill="#0f0f14"/>
 
   <!-- ======================== header ======================== -->
   <g transform="translate(64,56)">
@@ -25,7 +25,7 @@
       <rect y="20" width="52" height="4" fill="#2b5278"/>
     </g>
     <text x="64" y="26" class="title">Velta Design System</text>
-    <text x="64" y="52" class="sub">Tokens from app/css/main.css · components from app/js · v1.4.3 · 2026-09-16 · dark is the primary theme</text>
+    <text x="64" y="52" class="sub">Tokens from app/css/main.css · components from app/js · v1.4.57 · 2026-10-05 · dark is the primary theme · full token reference: design/velta-design-system.html</text>
   </g>
 
   <!-- ======================== colors dark ======================== -->
@@ -542,5 +542,55 @@
     <text x="24" y="88" class="small">Delivery — pending ring spins (CSS .ticks-spin), flips to ticks; failed swaps the meta line for a Resend button.</text>
     <text x="24" y="114" class="small">Overlays — every fullscreen viewer pushes one history entry; BACK pops it. Safe areas: env(safe-area-inset-*) on the top bars.</text>
   </g>
-  <text x="64" y="3456" class="mono">Velta · Delta Chat client · regenerate alongside app/css/main.css</text>
+  <!-- ======================== brutal theme ======================== -->
+  <text x="64" y="3520" class="h2">Colors — Brutal (neobrutalist, dark only)</text>
+  <g transform="translate(64,3534)">
+    <rect width="1312" height="150" rx="12" fill="#181820" stroke="rgba(244,244,244,0.07)"/>
+    <g transform="translate(24,24)">
+      <rect width="150" height="60" fill="#e0b52f"/><text x="0" y="82" class="mono" fill="#e0b52f">--nb-main / bg-active / bubble-out</text>
+    </g>
+    <g transform="translate(204,24)">
+      <rect width="150" height="60" fill="#121017" stroke="#45434f"/><text x="0" y="82" class="mono">--nb-ink borders + shadow</text>
+    </g>
+    <g transform="translate(384,24)">
+      <rect width="150" height="60" fill="#211d05" stroke="#45434f"/><text x="0" y="82" class="mono">--nb-main-ink text on yellow</text>
+    </g>
+    <g transform="translate(564,24)">
+      <rect width="150" height="60" fill="#22222b" stroke="#45434f"/><text x="0" y="82" class="mono">--bg</text>
+    </g>
+    <g transform="translate(744,24)">
+      <rect width="150" height="60" fill="#2d2d38" stroke="#45434f"/><text x="0" y="82" class="mono">--bg-bubble-in</text>
+    </g>
+    <g transform="translate(924,24)">
+      <rect width="150" height="60" fill="#8f7ff0"/><text x="0" y="82" class="mono">--accent (accent-2 #4fd1c5)</text>
+    </g>
+    <g transform="translate(1104,24)">
+      <rect width="150" height="60" fill="#45434f"/><text x="0" y="82" class="mono">--border (2px rules)</text>
+    </g>
+  </g>
+  <text x="64" y="3716" class="small">Flat panels, 2px ink borders, hard 4px 4px 0 shadow, radius 6–10, hover press-down. Shadow token doubles as the offset print shadow; no pure #000/#fff anywhere.</text>
+
+  <!-- ======================== spacing & rhythm ======================== -->
+  <text x="64" y="3764" class="h2">Spacing &amp; rhythm — 2px grid (audit 2026-10-05)</text>
+  <g transform="translate(64,3778)">
+    <rect width="1312" height="180" rx="12" fill="#181820" stroke="rgba(244,244,244,0.07)"/>
+    <g transform="translate(24,20)">
+      <rect x="0"   width="36" height="12" fill="#2b5278"/><text x="0"   y="106" class="mono">2</text>
+      <rect x="46"  width="36" height="24" fill="#2b5278"/><text x="46"  y="106" class="mono">4</text>
+      <rect x="92"  width="36" height="36" fill="#2b5278"/><text x="92"  y="106" class="mono">6</text>
+      <rect x="138" width="36" height="48" fill="#2b5278"/><text x="138" y="106" class="mono">8</text>
+      <rect x="184" width="36" height="60" fill="#2b5278"/><text x="184" y="106" class="mono">10</text>
+      <rect x="230" width="36" height="72" fill="#2b5278"/><text x="230" y="106" class="mono">12</text>
+      <rect x="276" width="36" height="84" fill="#2b5278"/><text x="276" y="106" class="mono">14</text>
+      <rect x="322" width="36" height="96" fill="#2b5278"/><text x="322" y="106" class="mono">16</text>
+      <rect x="368" width="36" height="108" fill="#2b5278"/><text x="368" y="106" class="mono">18</text>
+      <rect x="424" width="36" height="120" fill="#2b5278"/><text x="424" y="106" class="mono">22</text>
+    </g>
+    <text x="500" y="42" class="small">Gaps: 2/4 tight · 6/8 default · 10/12/14 loose. Padding tiers: 12 rows·bubbles · 14 composer·toasts · 18 modals·drawer.</text>
+    <text x="500" y="68" class="small">Structural: --head-h 56 · --list-bar-h 64+safe · bar-btn 46 · composer 48 · avatar 56/44/42/36/34 · icon-btn 40.</text>
+    <text x="500" y="94" class="small">Icon svg ladder: 14 inline · 16 meta · 20 buttons · 22 bar · 26 composer (7 ad-hoc sizes today — consolidate).</text>
+    <text x="500" y="120" class="small">Deliberate off-grid: bubble 7/10/6 optical, composer 13 → 48px. Snap candidates: gaps 5·7·11, pads 9·13, radii 9·11·18, day-chip 5×13.</text>
+  </g>
+
+  <text x="64" y="3976" class="mono">Velta · Delta Chat client · regenerate alongside app/css/main.css</text>
 </svg>

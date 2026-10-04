@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Velta Design System — token reference</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --page-bg: #0f0f14; --panel: #181820; --panel-2: #1c1c26;
+    --ink: #f2f2f5; --dim: #8b8b96; --line: rgba(244,244,244,.09);
+    --accent: #5aa2e6; --good: #4fae4f; --warn: #e0a03a; --bad: #e05a5a;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--page-bg); color: var(--ink); padding: 40px 5vw 80px;
+  }
+  h1 { font-size: 26px; margin-bottom: 4px; }
+  .sub { color: var(--dim); font-size: 13.5px; margin-bottom: 28px; }
+  h2 { font-size: 20px; margin: 40px 0 6px; }
+  .note { color: var(--dim); font-size: 13px; margin-bottom: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .swatch { height: 44px; border-radius: 8px; border: 1px solid var(--line); margin-bottom: 8px; }
+  .tok { font: 12.5px/1.4 ui-monospace, "Cascadia Mono", Consolas, monospace; }
+  .tok .name { color: var(--accent); font-weight: 600; }
+  .tok .val { color: var(--dim); word-break: break-all; }
+  .inh { color: var(--warn); font-size: 11.5px; margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--dim); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  td.mono, .mono { font: 12.5px ui-monospace, Consolas, monospace; }
+  .ok { color: var(--good); } .off { color: var(--bad); }
+  .bar-ladder { display: flex; align-items: flex-end; gap: 6px; flex-wrap: wrap; margin: 12px 0 4px; }
+  .bar-ladder i { display: block; background: var(--accent); border-radius: 3px 3px 0 0; }
+  .bar-ladder span { font: 11px ui-monospace, monospace; color: var(--dim); text-align: center; }
+  #fetch-warn { display: none; background: #3a2b12; border: 1px solid #6b531d; color: #f0c96a;
+    padding: 12px 16px; border-radius: 10px; margin-bottom: 24px; font-size: 13.5px; }
+  section { margin-top: 34px; }
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; }
+  .legend { font-size: 12.5px; color: var(--dim); margin: 6px 0 12px; }
+</style>
+</head>
+<body>
+<h1>Velta Design System</h1>
+<p class="sub">Token reference · colors parsed live from <span class="mono">app/css/main.css</span> · rhythm audit 2026-10-05 · v1.4.57 · companion to <span class="mono">velta-design-system.svg</span></p>
+<div id="fetch-warn">Could not load <span class="mono">../app/css/main.css</span> — open over HTTP (e.g. <span class="mono">node ../serve-no-cache.js</span> from <span class="mono">design/</span>), <span class="mono">file://</span> fetch is blocked by the browser.</div>
+
+<section>
+  <h2>Colors — every token, all three themes</h2>
+  <p class="note">Parsed live from the CSS source of truth. <span style="color:var(--warn)">Inherited</span> = theme does not override; it uses the dark (root) value.</p>
+  <div class="cols" id="theme-cols"></div>
+</section>
+
+<section>
+  <h2>Typography ladder</h2>
+  <div class="bar-ladder" id="type-ladder"></div>
+  <p class="note">Single stack: <span class="mono">-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif</span>. Half-pixel steps are deliberate (compact ladder).</p>
+  <table>
+    <tr><th>Role</th><th>Size</th><th>Where</th></tr>
+    <tr><td>Page/brand title</td><td class="mono">22–32</td><td>drawer name 17, modal title 18, splash 22+</td></tr>
+    <tr><td>Body / message text</td><td class="mono">15.5</td><td>msg-text, composer-input</td></tr>
+    <tr><td>Buttons / rows</td><td class="mono">14–15</td><td>btn-primary 15, toast 14, info-row 14.5, file-name 14.5</td></tr>
+    <tr><td>Secondary</td><td class="mono">13–13.5</td><td>reply 13.5, msg-sender 13.5, day-chip 13, tabs 13.5</td></tr>
+    <tr><td>Meta</td><td class="mono">11–12.5</td><td>msg-meta 11.5, chips 11–12.5, service 12.5</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>Spacing — 2px grid</h2>
+  <div class="bar-ladder" id="space-ladder"></div>
+  <p class="legend">Bar height = observed count in main.css. Bold = off-grid (odd on the 2px grid).</p>
+  <table>
+    <tr><th>Tier</th><th>Values</th><th>Used for</th></tr>
+    <tr><td>Gap — tight</td><td class="mono">2 · 4</td><td>icon↔label, head-actions, meta</td></tr>
+    <tr><td>Gap — default</td><td class="mono">6 · 8</td><td>rows, bubbles, most flex stacks</td></tr>
+    <tr><td>Gap — loose</td><td class="mono">10 · 12 · 14</td><td>chat-item↔avatar (11†), modals, drawer-head</td></tr>
+    <tr><td>Padding — tight</td><td class="mono">4–6</td><td>chips, service-msg, tabs</td></tr>
+    <tr><td>Padding — standard</td><td class="mono">8 · 10 · 12</td><td>rows 9†/12, bubbles 7† 10 6†, inputs 10 12</td></tr>
+    <tr><td>Padding — wide</td><td class="mono">14 · 18</td><td>composer 14, toasts 14, modal/drawer 18</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>Radii</h2>
+  <p class="legend">Ladder: 6 (small controls) · 8 (rows/buttons) · 10 (cards) · 12 (chips/badges) · 14 (bubbles, --radius-bubble) · 16 (modals/composer) · 999 (pills) · 50% (avatars/round btns). Off-grid one-offs: <span class="mono">9, 11, 18, 22%, 24.3%</span>.</p>
+</section>
+
+<section>
+  <h2>Structural metrics</h2>
+  <table>
+    <tr><th>Token / element</th><th>Value</th><th>Notes</th></tr>
+    <tr><td class="mono">--head-h</td><td class="mono">56px</td><td>sidebar + chat header, + env(safe-area-inset-top)</td></tr>
+    <tr><td class="mono">--list-bar-h</td><td class="mono">calc(64px + safe)</td><td>46px bar-btn + 18px padding</td></tr>
+    <tr><td class="mono">--radius-bubble</td><td class="mono">14px (dark/light) · 6px (brutal)</td><td>only per-theme radius token</td></tr>
+    <tr><td>Bar buttons</td><td class="mono">46px, svg 22</td><td>sidebar bottom bar</td></tr>
+    <tr><td>Composer</td><td class="mono">min 48px, svg 26</td><td>input pad 13/16 tuned to hit 48 with 15.5px text</td></tr>
+    <tr><td>Icon buttons</td><td class="mono">40px, svg 20–22</td><td>50% radius</td></tr>
+    <tr><td>Avatars</td><td class="mono">56 (drawer) · 44 · 42 · 36 · 34</td><td>22% tile radius, photo pad 2.5%</td></tr>
+    <tr><td>Shadow</td><td class="mono">0 4px 18px rgba(16,16,16,.45/.18)</td><td>brutal: 4px 4px 0 ink</td></tr>
+    <tr><td>Motion</td><td class="mono">.15s hover · .2s panels</td><td>see SVG “Motion &amp; states”</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>Rhythm audit — 2026-10-05</h2>
+  <p class="note">Every padding/margin/gap/size in main.css (351 styled blocks) checked against the 2px grid. Verdict: the system is a consistent 2px grid with four padding tiers and three gap tiers; ~15 off-grid one-offs. Snapping suggestions below — none are bugs.</p>
+  <table>
+    <tr><th>Finding</th><th>Where</th><th>Suggestion</th></tr>
+    <tr><td class="off">gap 5px ×4, 7px ×1, 11px ×1</td><td>relay-detail-chip, msg-hover-reply, drawer-links, diag-switch, chat-item</td><td>snap to 4/6/8; chat-item → 10 or 12</td></tr>
+    <tr><td class="off">row padding 9px</td><td>chat-item, drawer summary, info-row, no-chat-badge</td><td>snap to 8 or 10 (elsewhere rows are 8/10)</td></tr>
+    <tr><td class="ok">bubble 7px 10px 6px, composer-input 13px</td><td>bubble, composer</td><td>intentional — optical centering / 48px target; keep, document</td></tr>
+    <tr><td class="off">day-chip 5px 13px</td><td>date separators</td><td>snap to 4px 12px or 6px 14px</td></tr>
+    <tr><td class="off">svg icon heights 13/14/16/17/20/22/26</td><td>7 sizes, no ladder</td><td>consolidate: 14 (inline) · 16 (meta) · 20 (buttons) · 22 (bar) · 26 (composer)</td></tr>
+    <tr><td class="off">radii 9, 11, 18</td><td>edit-profile btn, go-down badge, no-chat badge</td><td>fold into 8/12/16</td></tr>
+    <tr><td class="warn" style="color:var(--warn)">light theme inherits --accent-2, --green, --danger</td><td>html[data-theme="light"]</td><td>verify contrast on light bg; add overrides or mark as deliberate</td></tr>
+  </table>
+</section>
+
+<script>
+const THEMES = [
+  { key: ':root', label: 'Dark (primary)' },
+  { key: 'html[data-theme="light"]', label: 'Light' },
+  { key: 'html[data-theme="brutal"]', label: 'Brutal (neobrutalist)' },
+];
+async function main() {
+  let css;
+  try {
+    css = await (await fetch('../app/css/main.css')).text();
+  } catch (e) {
+    document.getElementById('fetch-warn').style.display = 'block';
+    return;
+  }
+  function extractBlock(css, selector) {
+    const i = css.indexOf(selector + ' {');
+    if (i < 0) return '';
+    let depth = 0;
+    for (let j = i + selector.length; j < css.length; j++) {
+      if (css[j] === '{') depth++;
+      else if (css[j] === '}') { if (--depth === 0) return css.slice(i + selector.length + 2, j); }
+    }
+    return '';
+  }
+  const cols = document.getElementById('theme-cols');
+  for (const t of THEMES) {
+    const rootTok = parseVars(extractBlock(css, ':root'));
+    const toks = parseVars(extractBlock(css, t.key));
+    const col = document.createElement('div');
+    col.className = 'panel';
+    col.innerHTML = '<h3 style="margin-bottom:10px">' + t.label + '</h3>';
+    const names = t.key === ':root' ? rootTok.keys() : new Set([...rootTok.keys(), ...toks.keys()]);
+    for (const name of names) {
+      const val = toks.get(name) || rootTok.get(name);
+      const inherited = !toks.has(name);
+      const card = document.createElement('div');
+      card.style.marginBottom = '10px';
+      const sw = name === 'shadow'
+        ? '<div class="swatch" style="background:var(--panel-2);box-shadow:' + cssEscape(val) + '"></div>'
+        : '<div class="swatch" style="background:' + cssEscape(val) + '"></div>';
+      card.innerHTML = sw + '<div class="tok"><span class="name">' + name + '</span> <span class="val">' + escapeHtml(val) + '</span></div>'
+        + (inherited ? '<div class="inh">inherited from dark</div>' : '');
+      col.appendChild(card);
+    }
+    cols.appendChild(col);
+  }
+}
+function parseVars(body) {
+  const m = new Map();
+  for (const decl of body.split(';')) {
+    const i = decl.indexOf(':');
+    if (i < 0) continue;
+    const p = decl.slice(0, i).trim();
+    if (p.startsWith('--')) m.set(p, decl.slice(i + 1).trim());
+  }
+  return m;
+}
+function escapeHtml(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+function cssEscape(s) { return s.replace(/"/g, "'").replace(/\\/g, '\\\\'); }
+
+// ladders
+const TYPE = [[8.5, '8.5'], [11, '11'], [11.5, '11.5'], [12, '12'], [12.5, '12.5'], [13, '13'], [13.5, '13.5'], [14, '14'], [14.5, '14.5'], [15, '15'], [15.5, '15.5'], [17, '17'], [18, '18'], [20, '20'], [22, '22']];
+const tl = document.getElementById('type-ladder');
+for (const [v, l] of TYPE) tl.insertAdjacentHTML('beforeend', '<span><i style="width:22px;height:' + (v * 4) + 'px"></i>' + l + '</span>');
+const SPACE = [[2, '2'], [4, '4'], [5, '5†'], [6, '6'], [7, '7†'], [8, '8'], [9, '9†'], [10, '10'], [11, '11†'], [12, '12'], [13, '13†'], [14, '14'], [16, '16'], [18, '18'], [22, '22']];
+const sl = document.getElementById('space-ladder');
+for (const [v, l] of SPACE) {
+  const off = l.includes('†');
+  sl.insertAdjacentHTML('beforeend', '<span><i style="width:26px;height:' + (v * 6 + 8) + 'px;background:' + (off ? 'var(--bad)' : 'var(--accent)') + '"></i>' + l + '</span>');
+}
+main();
+</script>
+</body>
+</html>
