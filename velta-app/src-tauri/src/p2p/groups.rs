@@ -349,6 +349,21 @@ pub struct GroupLogRec {
     pub reply_to: Option<String>,
     #[serde(default)]
     pub reply_text: Option<String>,
+    /// A media message (`text` is its caption). File messages are not part of
+    /// the author's seq stream: `seq` is 0, `id` is the transfer id and the
+    /// identity is `(from, id)`. They are delivered live to online members
+    /// only, never replayed, and counted by nothing (like system lines).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<GroupFileRec>,
+}
+
+/// Where a group media file lives on this device.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroupFileRec {
+    pub name: String,
+    pub size: u64,
+    pub mime: String,
+    pub path: String,
 }
 
 /// `dir` of a system line ("X added Y", "Z left", ...). These are written by
@@ -402,6 +417,7 @@ pub fn sys_rec(kind: &str, epoch: u64, index: usize, text: String, ts_eff: u64) 
         text,
         reply_to: None,
         reply_text: None,
+        file: None,
     }
 }
 
@@ -772,7 +788,7 @@ mod tests {
 
         let rec = |from: &str, seq: u64, dir_: &str, ts_eff: u64| GroupLogRec {
             seq, from: from.into(), id: format!("id{seq}{dir_}"), ts: ts_eff, ts_eff,
-            dir: dir_.into(), text: format!("t{seq}"), reply_to: None, reply_text: None,
+            dir: dir_.into(), text: format!("t{seq}"), reply_to: None, reply_text: None, file: None,
         };
         append_log(&dir, &gid, &rec(&me, 1, "out", 10)).unwrap();
         append_log(&dir, &gid, &rec(&other, 1, "in", 11)).unwrap();

@@ -46,7 +46,7 @@ use tokio::sync::mpsc;
 mod groups;
 use groups::{
     append_log, check_group_name, delete_log, eff_ts, evaluate_incoming, load_group_log, load_groups, new_gid,
-    read_log, roster_events, save_groups, scan_log, sys_kind, sys_rec, Evaluation, GroupLogRec, GroupMember,
+    read_log, roster_events, save_groups, scan_log, sys_kind, sys_rec, Evaluation, GroupFileRec, GroupLogRec, GroupMember,
     GroupRec, GroupState, RosterEvent, MAX_GROUPS, MAX_GROUP_MEMBERS, MAX_GROUP_TEXT, MAX_MEMBER_ADDRS, SYS_DIR,
 };
 use std::collections::{BTreeMap, HashSet};
@@ -146,6 +146,13 @@ enum Frame {
     /// live on protocol-2 sessions only (a 1.4.x peer would drop the session on
     /// a frame it doesn't know), never stored, queued or replayed.
     Typing { #[serde(default)] gid: Option<String>, on: bool },
+    /// Media in a group, to one member at a time over its own session (the
+    /// sender streams a separate copy to each online member). Header, base64
+    /// chunks, completion; protocol-2 sessions only, never queued or replayed.
+    /// `from` is the session's authenticated node, never claimed in the frame.
+    GroupFileBegin { gid: String, id: String, ts: u64, name: String, size: u64, mime: String, #[serde(default)] caption: String },
+    GroupFileChunk { gid: String, id: String, data: String },
+    GroupFileEnd { gid: String, id: String },
     /// Any frame type this build does not know (a newer peer's extension).
     /// It is skipped instead of failing the parse, which used to end the
     /// whole session. Never sent on purpose.
@@ -165,6 +172,18 @@ impl Frame {
                 | Frame::GroupLeave { .. }
                 | Frame::GroupGone { .. }
                 | Frame::Typing { gid: Some(_), .. }
+                | Frame::GroupFileBegin { .. }
+                | Frame::GroupFileChunk { .. }
+                | Frame::GroupFileEnd { .. }
+        )
+    }
+
+    /// Group media frames: bulk data, handled apart from the small group
+    /// frames (own receive path, exempt from the per-second frame limit).
+    fn is_group_file(&self) -> bool {
+        matches!(
+            self,
+            Frame::GroupFileBegin { .. } | Frame::GroupFileChunk { .. } | Frame::GroupFileEnd { .. }
         )
     }
 }
@@ -222,7 +241,7 @@ struct StoredMsg {
 }
 
 /// Where a media file lives on THIS device once the transfer completed.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct StoredFile {
     name: String,
     size: u64,
@@ -240,6 +259,10 @@ struct FileRx {
     caption: String,
     ts: u64,
     got: u64,
+    /// `Some(gid)` for a group transfer (its own frames, 32 MiB cap, files
+    /// under `g-<gid>`); `None` for a 1:1 transfer. A frame of one kind never
+    /// touches a transfer of the other.
+    gid: Option<String>,
 }
 
 /// Cap for one local-chat media transfer.
@@ -249,6 +272,16 @@ const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
 // keeps the whole engine bounded too.
 const MAX_INBOUND_FILES_PER_PEER: usize = 3;
 const MAX_INBOUND_FILES_TOTAL: usize = 8;
+/// Cap for one media file in a local group (it is sent once per member).
+const MAX_GROUP_FILE_BYTES: u64 = 32 * 1024 * 1024;
+/// Raw bytes per group file chunk (base64 ~128 KB < MAX_FRAME).
+const GROUP_FILE_CHUNK: usize = 96 * 1024;
+/// Chunks one sender may have queued on a session at a time: the session
+/// writer hands a credit back after each chunk hit the wire, so a slow
+/// receiver holds the sender back and memory stays O(chunk) per recipient.
+const GROUP_FILE_CREDITS: usize = 4;
+/// Finished/failed group transfers whose per-member state is kept in memory.
+const MAX_GROUP_XFERS: usize = 32;
 
 /// Strip any path components and odd characters from a peer-supplied name —
 /// the name is untrusted and must never escape the blob directory.
@@ -356,6 +389,8 @@ struct LiveHandle {
     tx: mpsc::UnboundedSender<Frame>,
     /// Negotiated protocol of this session (1 or 2).
     proto: u8,
+    /// Backpressure for bulk group media: see [`GROUP_FILE_CREDITS`].
+    credits: Arc<tokio::sync::Semaphore>,
 }
 
 /// How this device knows a peer.
@@ -448,6 +483,44 @@ fn v2_tx(peers: &HashMap<NodeId, Peer>, node: &NodeId) -> Option<FrameTx> {
         .map(|h| h.tx.clone())
 }
 
+/// A live protocol-2 session to a member, with its media backpressure.
+struct FileLink {
+    tx: FrameTx,
+    credits: Arc<tokio::sync::Semaphore>,
+    handle: u64,
+}
+
+fn v2_link(peers: &HashMap<NodeId, Peer>, node: &NodeId) -> Option<FileLink> {
+    peers
+        .get(node)?
+        .live
+        .iter()
+        .find(|h| h.proto >= 2 && !h.tx.is_closed())
+        .map(|h| FileLink { tx: h.tx.clone(), credits: h.credits.clone(), handle: h.id })
+}
+
+/// Outgoing group media: what is sent and how it went for each member. In
+/// memory only (an interrupted send is retried from the stored copy).
+struct GroupXfer {
+    gid: String,
+    path: PathBuf,
+    name: String,
+    size: u64,
+    mime: String,
+    caption: String,
+    ts: u64,
+    members: BTreeMap<String, MemberXfer>,
+}
+
+#[derive(Clone)]
+struct MemberXfer {
+    /// "sending" | "done" | "failed" | "offline" (not online at send time).
+    state: &'static str,
+    sent: u64,
+    /// The session carrying it, so a dying session fails only its own sends.
+    handle: u64,
+}
+
 /// A beacon-advertised device seen recently on the LAN.
 struct Nearby {
     name: String,
@@ -502,6 +575,8 @@ pub struct P2p {
     /// keying by id alone let one paired peer clobber (or finish) another
     /// peer's transfer that happened to use the same id.
     rx_files: Mutex<HashMap<(NodeId, String), FileRx>>,
+    /// Outgoing group media by transfer id.
+    group_xfers: Mutex<HashMap<String, GroupXfer>>,
     endpoint: Endpoint,
     /// The identity key: signs group states (iroh also holds it for TLS).
     secret: SecretKey,
@@ -597,6 +672,7 @@ impl P2p {
             dir,
             blobs_dir,
             rx_files: Mutex::new(HashMap::new()),
+            group_xfers: Mutex::new(HashMap::new()),
             endpoint,
             secret,
             alpns,
@@ -1124,7 +1200,7 @@ impl P2p {
         let mut inner = self.inner.lock().unwrap();
         let mut changed = false;
         if let Some(peer) = inner.peers.get_mut(&node_id) {
-            peer.live.push(LiveHandle { id, tx, proto });
+            peer.live.push(LiveHandle { id, tx, proto, credits: Arc::new(tokio::sync::Semaphore::new(GROUP_FILE_CREDITS)) });
             if peer.proto != proto {
                 peer.proto = proto;
                 changed = true;
@@ -1203,6 +1279,10 @@ impl P2p {
             offline
         };
         if now_offline {
+            // Group media in flight from it can't continue (no resume): drop
+            // the partials so they don't hold inbound slots forever. A 1:1
+            // transfer is left alone.
+            self.drop_group_inbound(|n, _| *n == node_id);
             self.emit_presence(node_id, false);
         }
     }
@@ -1312,14 +1392,14 @@ impl P2p {
         mut rx: mpsc::UnboundedReceiver<Frame>,
         mut framer: Framer,
     ) {
-        let handle_id = {
+        let (handle_id, credits) = {
             let inner = self.inner.lock().unwrap();
             inner
                 .peers
                 .get(&node_id)
                 .and_then(|p| p.live.iter().find(|h| h.tx.same_channel(&tx)))
-                .map(|h| h.id)
-                .unwrap_or(0)
+                .map(|h| (h.id, h.credits.clone()))
+                .unwrap_or_else(|| (0, Arc::new(tokio::sync::Semaphore::new(0))))
         };
         let mut send_progress: HashMap<String, (u64, u64)> = HashMap::new();
         if std::env::var("VELTA_P2P_DEBUG").is_ok() {
@@ -1375,6 +1455,16 @@ impl P2p {
                                 }
                                 break;
                             }
+                            // Group media: a chunk on the wire hands its credit
+                            // back to the streaming task and moves the progress.
+                            match &frame {
+                                Frame::GroupFileChunk { id, data, .. } => {
+                                    credits.add_permits(1);
+                                    self.group_file_wrote(node_id, id, (data.len() * 3 / 4) as u64);
+                                }
+                                Frame::GroupFileEnd { id, .. } => self.group_file_done(node_id, id),
+                                _ => {}
+                            }
                         }
                         None => break, // all senders dropped
                     }
@@ -1386,7 +1476,7 @@ impl P2p {
                                 eprintln!("[p2p-dbg] session got frame from {}", node_id);
                             }
                             let frame: Frame = frame;
-                            if frame.is_group() || matches!(frame, Frame::Typing { .. }) {
+                            if (frame.is_group() && !frame.is_group_file()) || matches!(frame, Frame::Typing { .. }) {
                                 if group_window.0.elapsed() >= Duration::from_secs(1) {
                                     group_window = (std::time::Instant::now(), 0);
                                 }
@@ -1421,6 +1511,9 @@ impl P2p {
                 "id": id, "dir": "send", "failed": true,
             }));
         }
+        // Group media over this session is lost too (per member: Retry).
+        credits.close();
+        self.group_files_failed(node_id, handle_id);
         self.remove_live(node_id, handle_id);
     }
 
@@ -1438,6 +1531,10 @@ impl P2p {
         if introduced && !frame.is_group() {
             return;
         }
+        if frame.is_group_file() {
+            self.on_group_file(node_id, frame, tx);
+            return;
+        }
         if frame.is_group() {
             self.handle_group_frame(node_id, frame, tx);
             return;
@@ -1450,7 +1547,10 @@ impl P2p {
             | Frame::GroupMsg { .. }
             | Frame::GroupAck { .. }
             | Frame::GroupLeave { .. }
-            | Frame::GroupGone { .. } => {}
+            | Frame::GroupGone { .. }
+            | Frame::GroupFileBegin { .. }
+            | Frame::GroupFileChunk { .. }
+            | Frame::GroupFileEnd { .. } => {}
             // A newer peer's frame type: ignore it, keep the session.
             Frame::Unknown => {}
             // 1:1 typing hint (group typing is dispatched with the group frames).
@@ -1536,6 +1636,9 @@ impl P2p {
                 // V-10/#67: concurrency limits on top of the size cap.
                 {
                     let rx = self.rx_files.lock().unwrap();
+                    if rx.get(&(node_id, id.clone())).map_or(false, |t| t.gid.is_some()) {
+                        return;
+                    }
                     let for_peer = rx.keys().filter(|(n, _)| *n == node_id).count();
                     if for_peer >= MAX_INBOUND_FILES_PER_PEER || rx.len() >= MAX_INBOUND_FILES_TOTAL {
                         drop(rx);
@@ -1553,7 +1656,7 @@ impl P2p {
                     Ok(_) => {
                         self.rx_files.lock().unwrap().insert(
                             (node_id, id.clone()),
-                            FileRx { partial, dir, name: sanitize_name(&name), size, mime, caption, ts, got: 0 },
+                            FileRx { partial, dir, name: sanitize_name(&name), size, mime, caption, ts, got: 0, gid: None },
                         );
                     }
                     Err(e) => self.sink.emit(json!({
@@ -1565,7 +1668,7 @@ impl P2p {
             Frame::FileChunk { id, data } => {
                 let mut rx = self.rx_files.lock().unwrap();
                 let key = (node_id, id.clone());
-                if let Some(t) = rx.get_mut(&key) {
+                if let Some(t) = rx.get_mut(&key).filter(|t| t.gid.is_none()) {
                     let bytes = match BASE64.decode(data.as_bytes()) {
                         Ok(b) => b,
                         Err(_) => { rx.remove(&key); return; }
@@ -1588,7 +1691,15 @@ impl P2p {
                 }
             }
             Frame::FileEnd { id } => {
-                let done = self.rx_files.lock().unwrap().remove(&(node_id, id.clone()));
+                let done = {
+                    let mut rx = self.rx_files.lock().unwrap();
+                    let key = (node_id, id.clone());
+                    // A group transfer is finished by its own frame only.
+                    if rx.get(&key).map_or(false, |t| t.gid.is_some()) {
+                        return;
+                    }
+                    rx.remove(&key)
+                };
                 let Some(t) = done else { return };
                 let _ = std::fs::File::open(&t.partial).and_then(|f| f.sync_all());
                 if t.got != t.size {
@@ -2454,6 +2565,7 @@ impl P2p {
     fn purge_group(&self, inner: &mut Inner, gid: &str) {
         inner.groups.remove(gid);
         delete_log(&self.dir, gid);
+        self.delete_group_blobs(gid);
         inner.grt.links.retain(|(g, _), _| g != gid);
         inner.grt.gone.retain(|(g, _)| g != gid);
         inner.grt.gap_sent.retain(|(g, _), _| g != gid);
@@ -2477,6 +2589,7 @@ impl P2p {
         if rec.pending_leave {
             rec.hidden = true;
             delete_log(&self.dir, gid);
+            self.delete_group_blobs(gid);
             inner.grt.ts_eff.remove(gid);
             self.persist_groups(&inner)?;
             self.sink.emit(json!({ "kind": "group-deleted", "gid": gid }));
@@ -2905,6 +3018,7 @@ impl P2p {
             text: m.text.clone(),
             reply_to: m.reply_to.clone(),
             reply_text: m.reply_text.clone(),
+            file: None,
         };
         if let Err(e) = append_log(&self.dir, &m.gid, &line) {
             self.group_warn(&from, format!("could not store a group message: {e:#}"));
@@ -3134,6 +3248,7 @@ impl P2p {
             text: text.to_string(),
             reply_to: reply_to.map(|s| s.to_string()),
             reply_text: reply_text.map(|s| s.to_string()),
+            file: None,
         };
         append_log(&self.dir, gid, &line)?;
         inner.grt.ts_eff.insert(gid.to_string(), ts_eff);
@@ -3163,6 +3278,16 @@ impl P2p {
     /// acknowledged each of my own messages.
     pub fn group_messages(&self, gid: &str, limit: usize) -> Result<Vec<Value>> {
         let me = self.node_id().to_string();
+        // Per-member state of my own media sends (taken before the engine
+        // lock: the two are never held together).
+        let xfers: HashMap<String, Vec<Value>> = self
+            .group_xfers
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, t)| t.gid == gid)
+            .map(|(id, t)| (id.clone(), Self::xfer_members_json(t)))
+            .collect();
         let inner = self.inner.lock().unwrap();
         let rec = inner.groups.get(gid).ok_or_else(|| anyhow!("unknown group"))?;
         let others: Vec<&str> = rec.state.members.iter().map(|m| m.node_id.as_str()).filter(|id| *id != me).collect();
@@ -3183,9 +3308,569 @@ impl P2p {
                     "dir": r.dir, "text": r.text, "replyTo": r.reply_to, "replyText": r.reply_text,
                     "delivered": delivered,
                     "sysKind": if r.dir == SYS_DIR { sys_kind(&r.id) } else { None },
+                    "file": r.file.as_ref().map(|f| json!({ "name": f.name, "size": f.size, "mime": f.mime, "path": f.path })),
+                    "fileMembers": if r.file.is_some() { xfers.get(&r.id).cloned() } else { None },
                 })
             })
             .collect())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Group media (protocol 2): streamed per member, online members only
+// ---------------------------------------------------------------------------
+
+impl P2p {
+    /// Online (protocol-2, in-step) members of `gid` other than me, and the
+    /// rest of the roster. Caller holds the engine lock.
+    fn group_file_targets(&self, inner: &Inner, gid: &str) -> Result<(Vec<(NodeId, FileLink)>, Vec<NodeId>)> {
+        let me = self.node_id();
+        let rec = inner.groups.get(gid).ok_or_else(|| anyhow!("unknown group"))?;
+        if rec.removed {
+            bail!("this group is read-only");
+        }
+        let mut online = Vec::new();
+        let mut offline = Vec::new();
+        for m in &rec.state.members {
+            let Ok(id) = NodeId::from_str(&m.node_id) else { continue };
+            if id == me {
+                continue;
+            }
+            match v2_link(&inner.peers, &id) {
+                Some(link) if !inner.grt.gone.contains(&(gid.to_string(), id)) => online.push((id, link)),
+                _ => offline.push(id),
+            }
+        }
+        Ok((online, offline))
+    }
+
+    /// Sends a media file to a group: a copy goes under the group's blob dir,
+    /// then every member that is online right now gets its own stream of
+    /// GroupFileBegin/Chunk/End (96 KB chunks read from the copy, paced by the
+    /// session writer). Members that are offline are skipped — files are not
+    /// queued — and can be sent the file later with [`P2p::group_file_retry`].
+    /// Returns `{id, ts, tsEff, file, members: [{id, state}]}`.
+    pub fn group_send_file(self: &Arc<Self>, gid: &str, src: &str, name: &str, caption: &str) -> Result<Value> {
+        if caption.len() > MAX_GROUP_TEXT {
+            bail!("caption is too long");
+        }
+        {
+            let inner = self.inner.lock().unwrap();
+            let (online, _) = self.group_file_targets(&inner, gid)?;
+            if online.is_empty() {
+                bail!("nobody in this group is online — files are only sent to members who are online");
+            }
+        }
+        let meta = std::fs::metadata(src).context("source file missing")?;
+        if !meta.is_file() {
+            bail!("not a file");
+        }
+        if meta.len() > MAX_GROUP_FILE_BYTES {
+            bail!("file too large for a local group (cap 32 MB)");
+        }
+        let safe = sanitize_name(name);
+        let mime = mime_for(&safe);
+        let id = random_id();
+        let dest_dir = self.blobs_dir.join(format!("g-{gid}"));
+        std::fs::create_dir_all(&dest_dir)?;
+        let dest = dest_dir.join(format!("out-{id}_{safe}"));
+        std::fs::copy(src, &dest).context("copy into blobs dir")?;
+        let size = std::fs::metadata(&dest)?.len();
+        if size > MAX_GROUP_FILE_BYTES {
+            let _ = std::fs::remove_file(&dest);
+            bail!("file too large for a local group (cap 32 MB)");
+        }
+
+        let (links, offline, line) = {
+            let mut guard = self.inner.lock().unwrap();
+            let inner = &mut *guard;
+            let (links, offline) = match self.group_file_targets(inner, gid) {
+                Ok((l, _)) if l.is_empty() => {
+                    let _ = std::fs::remove_file(&dest);
+                    bail!("nobody in this group is online — files are only sent to members who are online");
+                }
+                Ok(t) => t,
+                Err(e) => {
+                    let _ = std::fs::remove_file(&dest);
+                    return Err(e);
+                }
+            };
+            let now = now_ms();
+            let prev = self.group_last_ts(inner, gid);
+            let ts_eff = eff_ts(prev, now, now);
+            let line = GroupLogRec {
+                seq: 0,
+                from: self.node_id().to_string(),
+                id: id.clone(),
+                ts: now,
+                ts_eff,
+                dir: "out".into(),
+                text: caption.to_string(),
+                reply_to: None,
+                reply_text: None,
+                file: Some(GroupFileRec {
+                    name: safe.clone(),
+                    size,
+                    mime: mime.clone(),
+                    path: dest.to_string_lossy().to_string(),
+                }),
+            };
+            if let Err(e) = append_log(&self.dir, gid, &line) {
+                let _ = std::fs::remove_file(&dest);
+                return Err(e);
+            }
+            inner.grt.ts_eff.insert(gid.to_string(), ts_eff);
+            (links, offline, line)
+        };
+
+        let mut members = BTreeMap::new();
+        for (node, link) in &links {
+            members.insert(node.to_string(), MemberXfer { state: "sending", sent: 0, handle: link.handle });
+        }
+        for node in &offline {
+            members.insert(node.to_string(), MemberXfer { state: "offline", sent: 0, handle: 0 });
+        }
+        let xfer = GroupXfer {
+            gid: gid.to_string(),
+            path: dest.clone(),
+            name: safe.clone(),
+            size,
+            mime: mime.clone(),
+            caption: caption.to_string(),
+            ts: line.ts,
+            members,
+        };
+        let members_json = Self::xfer_members_json(&xfer);
+        {
+            let mut x = self.group_xfers.lock().unwrap();
+            if x.len() >= MAX_GROUP_XFERS {
+                // Forget the oldest transfer that is not running.
+                let oldest = x
+                    .iter()
+                    .filter(|(_, t)| t.members.values().all(|m| m.state != "sending"))
+                    .min_by_key(|(_, t)| t.ts)
+                    .map(|(k, _)| k.clone());
+                if let Some(k) = oldest {
+                    x.remove(&k);
+                }
+            }
+            x.insert(id.clone(), xfer);
+        }
+        for (node, link) in links {
+            self.spawn_group_file_stream(gid.to_string(), id.clone(), node, link);
+        }
+        Ok(json!({
+            "id": id, "ts": line.ts, "tsEff": line.ts_eff,
+            "file": { "name": safe, "size": size, "mime": mime, "path": dest.to_string_lossy() },
+            "members": members_json,
+        }))
+    }
+
+    /// Sends the file of a group transfer again to one member that missed it
+    /// (offline at send time) or whose stream failed. From byte zero.
+    pub fn group_file_retry(self: &Arc<Self>, gid: &str, id: &str, member: &str) -> Result<()> {
+        let node = NodeId::from_str(member)?;
+        let key = node.to_string();
+        let link = {
+            let inner = self.inner.lock().unwrap();
+            let rec = inner.groups.get(gid).ok_or_else(|| anyhow!("unknown group"))?;
+            if rec.removed {
+                bail!("this group is read-only");
+            }
+            if !rec.state.contains(&node) {
+                bail!("not a member of this group");
+            }
+            v2_link(&inner.peers, &node).ok_or_else(|| anyhow!("that member is offline"))?
+        };
+        {
+            let mut x = self.group_xfers.lock().unwrap();
+            if !x.contains_key(id) {
+                // After a restart the transfer is only in the log.
+                let row = read_log(&self.dir, gid).into_iter().find(|r| r.dir == "out" && r.id == id && r.file.is_some());
+                let Some(r) = row else { bail!("unknown transfer") };
+                let f = r.file.expect("filtered above");
+                x.insert(
+                    id.to_string(),
+                    GroupXfer {
+                        gid: gid.to_string(),
+                        path: PathBuf::from(&f.path),
+                        name: f.name,
+                        size: f.size,
+                        mime: f.mime,
+                        caption: r.text,
+                        ts: r.ts,
+                        members: BTreeMap::new(),
+                    },
+                );
+            }
+            let t = x.get_mut(id).expect("inserted above");
+            if t.gid != gid {
+                bail!("unknown transfer");
+            }
+            if !t.path.is_file() {
+                bail!("the original file is gone");
+            }
+            if t.members.get(&key).map_or(false, |m| m.state == "sending" || m.state == "done") {
+                bail!("already sending or delivered");
+            }
+            t.members.insert(key, MemberXfer { state: "sending", sent: 0, handle: link.handle });
+        }
+        self.emit_group_file(gid, id, &node.to_string(), "sending", 0, None);
+        self.spawn_group_file_stream(gid.to_string(), id.to_string(), node, link);
+        Ok(())
+    }
+
+    fn xfer_members_json(x: &GroupXfer) -> Vec<Value> {
+        x.members
+            .iter()
+            .map(|(id, m)| json!({ "id": id, "state": m.state, "got": m.sent }))
+            .collect()
+    }
+
+    fn emit_group_file(&self, gid: &str, id: &str, member: &str, state: &str, got: u64, size: Option<u64>) {
+        let mut v = json!({
+            "kind": "group-file-progress", "gid": gid, "id": id, "member": member,
+            "dir": "send", "state": state, "got": got,
+        });
+        if let Some(s) = size {
+            v["size"] = json!(s);
+        }
+        self.sink.emit(v);
+    }
+
+    fn spawn_group_file_stream(self: &Arc<Self>, gid: String, id: String, member: NodeId, link: FileLink) {
+        let this = self.clone();
+        tauri::async_runtime::spawn(async move { this.stream_group_file(gid, id, member, link).await });
+    }
+
+    /// One recipient's stream: read a chunk from disk, wait for a session
+    /// credit, queue it. At most [`GROUP_FILE_CREDITS`] chunks sit in the
+    /// session queue, so memory stays O(chunk) however big the file or slow
+    /// the receiver is.
+    async fn stream_group_file(self: Arc<Self>, gid: String, id: String, member: NodeId, link: FileLink) {
+        use std::io::Read;
+        let key = member.to_string();
+        let (path, name, size, mime, caption, ts) = {
+            let x = self.group_xfers.lock().unwrap();
+            let Some(t) = x.get(&id) else { return };
+            (t.path.clone(), t.name.clone(), t.size, t.mime.clone(), t.caption.clone(), t.ts)
+        };
+        let res: Result<()> = async {
+            let closed = || anyhow!("session closed");
+            let mut f = std::fs::File::open(&path).context("open the stored copy")?;
+            link.tx
+                .send(Frame::GroupFileBegin { gid: gid.clone(), id: id.clone(), ts, name, size, mime, caption })
+                .map_err(|_| closed())?;
+            let mut buf = vec![0u8; GROUP_FILE_CHUNK];
+            let mut total = 0u64;
+            loop {
+                let mut n = 0;
+                while n < buf.len() {
+                    let r = f.read(&mut buf[n..])?;
+                    if r == 0 {
+                        break;
+                    }
+                    n += r;
+                }
+                if n == 0 {
+                    break;
+                }
+                total += n as u64;
+                if total > size {
+                    bail!("the file changed while sending");
+                }
+                let permit = link.credits.acquire().await.map_err(|_| closed())?;
+                permit.forget();
+                link.tx
+                    .send(Frame::GroupFileChunk { gid: gid.clone(), id: id.clone(), data: BASE64.encode(&buf[..n]) })
+                    .map_err(|_| closed())?;
+            }
+            if total != size {
+                bail!("the file changed while sending");
+            }
+            link.tx.send(Frame::GroupFileEnd { gid: gid.clone(), id: id.clone() }).map_err(|_| closed())?;
+            Ok(())
+        }
+        .await;
+        if res.is_err() {
+            self.group_file_set(&id, &key, "failed", None);
+            // Tell the receiver to drop what it has (its size check fails).
+            let _ = link.tx.send(Frame::GroupFileEnd { gid, id });
+        }
+    }
+
+    /// Sets a member's state (only out of "sending"/"offline"/"failed" into
+    /// the given one, never overwriting "done") and tells the UI.
+    fn group_file_set(&self, id: &str, member: &str, state: &'static str, sent: Option<u64>) {
+        let ev = {
+            let mut x = self.group_xfers.lock().unwrap();
+            let Some(t) = x.get_mut(id) else { return };
+            let size = t.size;
+            let gid = t.gid.clone();
+            let Some(m) = t.members.get_mut(member) else { return };
+            if m.state == "done" {
+                return;
+            }
+            m.state = state;
+            if let Some(s) = sent {
+                m.sent = s.min(size);
+            }
+            (gid, m.sent, size)
+        };
+        self.emit_group_file(&ev.0, id, member, state, ev.1, Some(ev.2));
+    }
+
+    /// The session writer put `n` bytes of a chunk on the wire.
+    fn group_file_wrote(&self, node: NodeId, id: &str, n: u64) {
+        let key = node.to_string();
+        let ev = {
+            let mut x = self.group_xfers.lock().unwrap();
+            let Some(t) = x.get_mut(id) else { return };
+            let size = t.size;
+            let gid = t.gid.clone();
+            let Some(m) = t.members.get_mut(&key).filter(|m| m.state == "sending") else { return };
+            m.sent = (m.sent + n).min(size);
+            (gid, m.sent, size)
+        };
+        self.emit_group_file(&ev.0, id, &key, "sending", ev.1, Some(ev.2));
+    }
+
+    /// GroupFileEnd is on the wire: the member has the whole file.
+    fn group_file_done(&self, node: NodeId, id: &str) {
+        let key = node.to_string();
+        let size = {
+            let x = self.group_xfers.lock().unwrap();
+            match x.get(id).and_then(|t| t.members.get(&key).map(|m| (m.state, t.size))) {
+                Some(("sending", size)) => size,
+                _ => return, // failed (the End was only the receiver's cancel) or unknown
+            }
+        };
+        self.group_file_set(id, &key, "done", Some(size));
+    }
+
+    /// A session died: every send over it that was not finished failed.
+    fn group_files_failed(&self, node: NodeId, handle: u64) {
+        let key = node.to_string();
+        let hit: Vec<String> = {
+            let x = self.group_xfers.lock().unwrap();
+            x.iter()
+                .filter(|(_, t)| t.members.get(&key).map_or(false, |m| m.state == "sending" && m.handle == handle))
+                .map(|(id, _)| id.clone())
+                .collect()
+        };
+        for id in hit {
+            self.group_file_set(&id, &key, "failed", None);
+        }
+    }
+
+    /// Drops inbound group transfers matching `pred(sender, id)` and their
+    /// partial files.
+    fn drop_group_inbound(&self, pred: impl Fn(&NodeId, &str) -> bool) {
+        let dropped: Vec<FileRx> = {
+            let mut rx = self.rx_files.lock().unwrap();
+            let keys: Vec<(NodeId, String)> = rx
+                .iter()
+                .filter(|((n, id), t)| t.gid.is_some() && pred(n, id))
+                .map(|(k, _)| k.clone())
+                .collect();
+            keys.into_iter().filter_map(|k| rx.remove(&k)).collect()
+        };
+        for t in dropped {
+            let _ = std::fs::remove_file(&t.partial);
+        }
+    }
+
+    /// Receive path of a group media frame. Same hygiene as 1:1 (safe ids,
+    /// per-peer and global limits, sanitized names, size check on completion)
+    /// with the smaller cap, and only from a live protocol-2 session of a
+    /// current member of a group we are still in.
+    fn on_group_file(&self, from: NodeId, frame: Frame, tx: &FrameTx) {
+        let gid = match &frame {
+            Frame::GroupFileBegin { gid, .. } | Frame::GroupFileChunk { gid, .. } | Frame::GroupFileEnd { gid, .. } => {
+                gid.clone()
+            }
+            _ => return,
+        };
+        let allowed = {
+            let inner = self.inner.lock().unwrap();
+            let proto = inner
+                .peers
+                .get(&from)
+                .and_then(|p| p.live.iter().find(|h| h.tx.same_channel(tx)))
+                .map_or(0, |h| h.proto);
+            proto >= 2 && inner.groups.get(&gid).map_or(false, |r| !r.removed && r.state.contains(&from))
+        };
+        let fid = match &frame {
+            Frame::GroupFileBegin { id, .. } | Frame::GroupFileChunk { id, .. } | Frame::GroupFileEnd { id, .. } => id.clone(),
+            _ => return,
+        };
+        if !allowed {
+            self.drop_group_inbound(|n, id| *n == from && id == fid);
+            return;
+        }
+        let key = (from, fid.clone());
+        let node = from.to_string();
+        let err = |msg: &str| {
+            self.sink.emit(json!({ "kind": "error", "message": msg, "gid": gid, "from": node }));
+        };
+        match frame {
+            Frame::GroupFileBegin { id, ts, name, size, mime, caption, .. } => {
+                if !is_safe_transfer_id(&id) {
+                    return err("rejected file: malformed transfer id");
+                }
+                if size > MAX_GROUP_FILE_BYTES {
+                    return err(&format!("rejected file: {size} bytes over the group cap"));
+                }
+                {
+                    let rx = self.rx_files.lock().unwrap();
+                    // A restarted (retried) transfer replaces its own old try.
+                    if rx.get(&key).map_or(false, |t| t.gid.is_none()) {
+                        return;
+                    }
+                    let replacing = rx.contains_key(&key);
+                    let for_peer = rx.keys().filter(|(n, _)| *n == from).count() - usize::from(replacing);
+                    let total = rx.len() - usize::from(replacing);
+                    if for_peer >= MAX_INBOUND_FILES_PER_PEER || total >= MAX_INBOUND_FILES_TOTAL {
+                        drop(rx);
+                        return err("rejected file: too many concurrent transfers");
+                    }
+                }
+                // Already have it (a retry after the End got through).
+                if read_log(&self.dir, &gid).iter().any(|r| r.from == node && r.id == id && r.file.is_some()) {
+                    return;
+                }
+                let dir = self.blobs_dir.join(format!("g-{gid}"));
+                let _ = std::fs::create_dir_all(&dir);
+                let partial = dir.join(format!("partial-{node}-{id}"));
+                match std::fs::File::create(&partial) {
+                    Ok(_) => {
+                        self.rx_files.lock().unwrap().insert(
+                            (from, id),
+                            FileRx { partial, dir, name: sanitize_name(&name), size, mime, caption, ts, got: 0, gid: Some(gid.clone()) },
+                        );
+                    }
+                    Err(e) => err(&format!("cannot receive file: {e}")),
+                }
+            }
+            Frame::GroupFileChunk { id, data, .. } => {
+                let mut rx = self.rx_files.lock().unwrap();
+                let Some(t) = rx.get_mut(&key).filter(|t| t.gid.as_deref() == Some(gid.as_str())) else { return };
+                let bytes = match BASE64.decode(data.as_bytes()) {
+                    Ok(b) => b,
+                    Err(_) => {
+                        let t = rx.remove(&key).expect("present");
+                        let _ = std::fs::remove_file(&t.partial);
+                        return;
+                    }
+                };
+                if t.got + bytes.len() as u64 > t.size {
+                    let t = rx.remove(&key).expect("present");
+                    let _ = std::fs::remove_file(&t.partial);
+                    return;
+                }
+                use std::io::Write;
+                let wrote = std::fs::OpenOptions::new()
+                    .append(true)
+                    .open(&t.partial)
+                    .and_then(|mut f| f.write_all(&bytes))
+                    .is_ok();
+                if !wrote {
+                    let t = rx.remove(&key).expect("present");
+                    let _ = std::fs::remove_file(&t.partial);
+                    return;
+                }
+                t.got += bytes.len() as u64;
+                self.sink.emit(json!({
+                    "kind": "group-file-progress", "gid": gid, "from": node, "id": id,
+                    "dir": "recv", "got": t.got, "size": t.size,
+                }));
+            }
+            Frame::GroupFileEnd { id, .. } => {
+                let t = {
+                    let mut rx = self.rx_files.lock().unwrap();
+                    if !rx.get(&key).map_or(false, |t| t.gid.as_deref() == Some(gid.as_str())) {
+                        return;
+                    }
+                    rx.remove(&key).expect("checked above")
+                };
+                let _ = std::fs::File::open(&t.partial).and_then(|f| f.sync_all());
+                if t.got != t.size {
+                    let _ = std::fs::remove_file(&t.partial);
+                    self.sink.emit(json!({
+                        "kind": "group-file-progress", "gid": gid, "from": node, "id": id,
+                        "dir": "recv", "failed": true,
+                    }));
+                    return;
+                }
+                let final_path = unique_path(&t.dir, &t.name);
+                if std::fs::rename(&t.partial, &final_path).is_err() {
+                    let _ = std::fs::remove_file(&t.partial);
+                    return;
+                }
+                let display = final_path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| t.name.clone());
+                let (ts_eff, name) = {
+                    let mut guard = self.inner.lock().unwrap();
+                    let inner = &mut *guard;
+                    // Left or removed while the last chunk was in flight.
+                    if !inner.groups.get(&gid).map_or(false, |r| !r.removed && r.state.contains(&from)) {
+                        let _ = std::fs::remove_file(&final_path);
+                        return;
+                    }
+                    let now = now_ms();
+                    let prev = self.group_last_ts(inner, &gid);
+                    let ts_eff = eff_ts(prev, t.ts, now);
+                    let line = GroupLogRec {
+                        seq: 0,
+                        from: node.clone(),
+                        id: id.clone(),
+                        ts: t.ts,
+                        ts_eff,
+                        dir: "in".into(),
+                        text: t.caption.clone(),
+                        reply_to: None,
+                        reply_text: None,
+                        file: Some(GroupFileRec {
+                            name: display.clone(),
+                            size: t.got,
+                            mime: t.mime.clone(),
+                            path: final_path.to_string_lossy().to_string(),
+                        }),
+                    };
+                    if let Err(e) = append_log(&self.dir, &gid, &line) {
+                        let _ = std::fs::remove_file(&final_path);
+                        self.group_warn(&from, format!("could not store a group file: {e:#}"));
+                        return;
+                    }
+                    inner.grt.ts_eff.insert(gid.clone(), ts_eff);
+                    let name = inner.peers.get(&from).map(|p| p.name.clone()).filter(|n| !n.is_empty());
+                    (ts_eff, name.unwrap_or_else(|| fallback_name(&from)))
+                };
+                self.sink.emit(json!({
+                    "kind": "group-message", "gid": gid, "from": node, "name": name,
+                    "id": id, "seq": 0, "ts": t.ts, "tsEff": ts_eff, "text": t.caption,
+                    "replyTo": Value::Null, "replyText": Value::Null,
+                    "file": { "name": display, "size": t.got, "mime": t.mime,
+                              "path": final_path.to_string_lossy() },
+                }));
+            }
+            _ => {}
+        }
+    }
+
+    /// Forgets everything file-related about a group that is being deleted:
+    /// running transfers, partials and the stored copies.
+    fn delete_group_blobs(&self, gid: &str) {
+        self.drop_group_inbound({
+            let rx = self.rx_files.lock().unwrap();
+            let ids: Vec<(NodeId, String)> =
+                rx.iter().filter(|(_, t)| t.gid.as_deref() == Some(gid)).map(|(k, _)| k.clone()).collect();
+            move |n, id| ids.iter().any(|(a, b)| a == n && b == id)
+        });
+        self.group_xfers.lock().unwrap().retain(|_, t| t.gid != gid);
+        let _ = std::fs::remove_dir_all(self.blobs_dir.join(format!("g-{gid}")));
     }
 }
 
@@ -3813,6 +4498,42 @@ pub fn p2p_group_send(
     engine(&state)
         .map_err(|e| e.to_string())?
         .group_send(&gid, &text, reply_to.as_deref(), reply_text.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+/// Sends a media file to the group's online members (32 MiB cap). Returns
+/// `{id, ts, tsEff, file, members: [{id, state}]}`; progress follows as
+/// `group-file-progress` events.
+#[tauri::command]
+pub async fn p2p_group_send_file(
+    state: tauri::State<'_, P2pState>,
+    gid: String,
+    path: String,
+    name: String,
+    caption: Option<String>,
+) -> Result<serde_json::Value, String> {
+    // Copies the file: off the UI thread.
+    let engine = engine(&state).map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        engine
+            .group_send_file(&gid, &path, &name, caption.as_deref().unwrap_or(""))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Sends a group file again to one member that missed it or whose stream failed.
+#[tauri::command]
+pub fn p2p_group_file_retry(
+    state: tauri::State<'_, P2pState>,
+    gid: String,
+    id: String,
+    member: String,
+) -> Result<(), String> {
+    engine(&state)
+        .map_err(|e| e.to_string())?
+        .group_file_retry(&gid, &id, &member)
         .map_err(|e| e.to_string())
 }
 
@@ -5157,7 +5878,7 @@ mod tests {
         let me = cr.node_id().to_string();
         let line = |from: &str, seq: u64, dir: &str| GroupLogRec {
             seq, from: from.into(), id: format!("c{seq}{dir}"), ts: now_ms(), ts_eff: now_ms(), dir: dir.into(),
-            text: "late".into(), reply_to: None, reply_text: None,
+            text: "late".into(), reply_to: None, reply_text: None, file: None,
         };
         append_log(&cr.dir, &gid, &line(&me, 3, "out")).unwrap();
         append_log(&cr.dir, &gid, &line(&b.to_string(), 7, "in")).unwrap();
@@ -5775,5 +6496,360 @@ mod tests {
         let got = wait_for(&alice_rx, 60, |e| e["kind"] == "message");
         assert_eq!(got["text"], "while you were away");
         wait_for(&bob2_rx, 60, |e| e["kind"] == "ack" && e["id"] == id["id"]);
+    }
+
+    // -- group media ------------------------------------------------------------
+
+    fn write_blob(engine: &Arc<P2p>, name: &str, len: usize) -> (String, Vec<u8>) {
+        let data: Vec<u8> = (0..len).map(|i| (i * 31 % 251) as u8).collect();
+        let path = engine.dir.join(name);
+        std::fs::write(&path, &data).unwrap();
+        (path.to_string_lossy().to_string(), data)
+    }
+
+    fn gfile_begin(gid: &str, id: &str, size: u64, name: &str) -> Frame {
+        Frame::GroupFileBegin {
+            gid: gid.into(), id: id.into(), ts: now_ms(), name: name.into(), size,
+            mime: String::new(), caption: "cap".into(),
+        }
+    }
+    fn gfile_chunk(gid: &str, id: &str, bytes: &[u8]) -> Frame {
+        Frame::GroupFileChunk { gid: gid.into(), id: id.into(), data: BASE64.encode(bytes) }
+    }
+    fn gfile_end(gid: &str, id: &str) -> Frame {
+        Frame::GroupFileEnd { gid: gid.into(), id: id.into() }
+    }
+
+    fn live_credits(engine: &Arc<P2p>, node: &NodeId) -> Arc<tokio::sync::Semaphore> {
+        engine.inner.lock().unwrap().peers[node].live.iter().find(|h| !h.tx.is_closed()).unwrap().credits.clone()
+    }
+
+    fn group_file_frames(frames: &[Frame]) -> (usize, usize, usize) {
+        let mut c = (0, 0, 0);
+        for f in frames {
+            match f {
+                Frame::GroupFileBegin { .. } => c.0 += 1,
+                Frame::GroupFileChunk { .. } => c.1 += 1,
+                Frame::GroupFileEnd { .. } => c.2 += 1,
+                _ => {}
+            }
+        }
+        c
+    }
+
+    #[test]
+    fn group_file_frames_wire_names_and_gating() {
+        let f = gfile_begin("g", "i", 1, "a.txt");
+        let j = serde_json::to_value(&f).unwrap();
+        assert_eq!(j["type"], "groupfilebegin");
+        assert!(f.is_group() && f.is_group_file());
+        assert!(gfile_chunk("g", "i", b"x").is_group_file());
+        assert!(gfile_end("g", "i").is_group_file());
+        assert!(!Frame::Ping.is_group_file());
+        assert!(!Frame::FileEnd { id: "x".into() }.is_group_file(), "1:1 media stays separate");
+        // An old peer's parse of it is "unknown", never a hard failure.
+        let back: Frame = serde_json::from_str(r#"{"type":"groupfilesomething","x":1}"#).unwrap();
+        assert!(matches!(back, Frame::Unknown));
+    }
+
+    /// The sender is bounded: with a session that does not drain, only
+    /// GROUP_FILE_CREDITS chunks are ever queued, however big the file is.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_file_stream_is_paced_by_session_credits() {
+        let (a, _rx, gid, [(b, _tb, mut rb), (d, _td, mut rd)]) = unit_author("gfile-pace").await;
+        let (path, data) = write_blob(&a, "big.bin", 1_000_000); // 11 chunks
+        let r = a.group_send_file(&gid, &path, "big.bin", "hi").unwrap();
+        let id = r["id"].as_str().unwrap().to_string();
+        assert_eq!(r["members"].as_array().unwrap().len(), 2);
+        assert!(r["members"].as_array().unwrap().iter().all(|m| m["state"] == "sending"));
+        until(10, "the first credits are used", || rb.len() >= 1 + GROUP_FILE_CREDITS).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let first = drain(&mut rb);
+        assert_eq!(
+            group_file_frames(&first),
+            (1, GROUP_FILE_CREDITS, 0),
+            "Begin + exactly the credits worth of chunks, nothing more while the writer is idle"
+        );
+        // The writer drains: each chunk written hands its credit back.
+        let credits = live_credits(&a, &b);
+        let mut all = first;
+        let mut wrote = GROUP_FILE_CREDITS;
+        let mut guard = 0;
+        while !all.iter().any(|f| matches!(f, Frame::GroupFileEnd { .. })) {
+            guard += 1;
+            assert!(guard < 400, "stream stalled");
+            for _ in 0..wrote {
+                a.group_file_wrote(b, &id, (GROUP_FILE_CHUNK) as u64);
+                credits.add_permits(1);
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let more = drain(&mut rb);
+            wrote = group_file_frames(&more).1;
+            all.extend(more);
+        }
+        let (begins, chunks, ends) = group_file_frames(&all);
+        assert_eq!((begins, chunks, ends), (1, 11, 1));
+        let mut got = Vec::new();
+        for f in &all {
+            if let Frame::GroupFileChunk { data, .. } = f {
+                assert!(data.len() <= 4 * GROUP_FILE_CHUNK / 3 + 4);
+                got.extend(BASE64.decode(data.as_bytes()).unwrap());
+            }
+        }
+        assert_eq!(got, data);
+        a.group_file_done(b, &id);
+        let st = a.group_xfers.lock().unwrap();
+        assert_eq!(st[&id].members[&b.to_string()].state, "done");
+        assert_eq!(st[&id].members[&d.to_string()].state, "sending", "the other member's stream is independent");
+        drop(st);
+        let _ = drain(&mut rd);
+        // Own file rows never use the message sequence.
+        assert_eq!(a.group_send(&gid, "text after", None, None).unwrap()["seq"], 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_file_skips_offline_and_v1_members_and_needs_somebody_online() {
+        let (a, _rx) = start("gfile-offline").await;
+        let b = add_fake_peer(&a, PeerKind::Paired, 2);
+        let v = add_fake_peer(&a, PeerKind::Paired, 2); // downgraded to a v1 session below
+        let o = add_fake_peer(&a, PeerKind::Paired, 2);
+        let gid = a.group_create("Mix", &ids(&[b, v, o])).unwrap()["gid"].as_str().unwrap().to_string();
+        let (path, _) = write_blob(&a, "x.txt", 1000);
+        let err = a.group_send_file(&gid, &path, "x.txt", "").unwrap_err().to_string();
+        assert!(err.contains("online"), "nobody online: {err}");
+        assert!(read_log(&a.dir, &gid).iter().all(|r| r.file.is_none()), "nothing logged on failure");
+        assert!(!a.blobs_dir.join(format!("g-{gid}")).read_dir().map_or(false, |mut d| d.next().is_some()), "copy cleaned up");
+
+        let (_tb, mut rb) = attach_live(&a, b, 2);
+        let (_tv, mut rv) = attach_live(&a, v, 1);
+        let r = a.group_send_file(&gid, &path, "x.txt", "").unwrap();
+        let state = |id: &NodeId| r["members"].as_array().unwrap().iter().find(|m| m["id"] == id.to_string().as_str()).unwrap()["state"].clone();
+        assert_eq!(state(&b), "sending");
+        assert_eq!(state(&v), "offline", "a v1 session is never sent a group frame");
+        assert_eq!(state(&o), "offline");
+        until(5, "frames for b", || rb.len() >= 3).await;
+        assert_eq!(group_file_frames(&drain(&mut rb)), (1, 1, 1));
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(drain(&mut rv).is_empty(), "nothing at all reached the v1 peer");
+        // Too big: refused before anything is copied.
+        let big = a.dir.join("huge.bin");
+        let f = std::fs::File::create(&big).unwrap();
+        f.set_len(MAX_GROUP_FILE_BYTES + 1).unwrap();
+        let err = a.group_send_file(&gid, &big.to_string_lossy(), "huge.bin", "").unwrap_err().to_string();
+        assert!(err.contains("32 MB"), "{err}");
+        // Exactly the cap is fine.
+        f.set_len(MAX_GROUP_FILE_BYTES).unwrap();
+        assert!(a.group_send_file(&gid, &big.to_string_lossy(), "huge.bin", "").is_ok());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_file_failure_is_per_member_and_retry_resends_to_that_member_only() {
+        let (a, ev, gid, [(b, _tb, rb), (d, _td, rd)]) = unit_author("gfile-retry").await;
+        let (path, data) = write_blob(&a, "r.bin", 500_000);
+        let id = a.group_send_file(&gid, &path, "r.bin", "").unwrap()["id"].as_str().unwrap().to_string();
+        until(10, "streams started", || rb.len() >= 3 && rd.len() >= 3).await;
+        // B's session dies: its credits close and the sweep fails its send.
+        let (handle, credits) = {
+            let inner = a.inner.lock().unwrap();
+            let h = inner.peers[&b].live.first().unwrap();
+            (h.id, h.credits.clone())
+        };
+        credits.close();
+        a.group_files_failed(b, handle);
+        let st = |n: &NodeId| a.group_xfers.lock().unwrap()[&id].members[&n.to_string()].state;
+        until(5, "b failed", || st(&b) == "failed").await;
+        assert_eq!(st(&d), "sending", "D's stream is not affected");
+        let failed = wait_for(&ev, 5, |e| e["kind"] == "group-file-progress" && e["member"] == b.to_string().as_str() && e["state"] == "failed");
+        assert_eq!(failed["id"], id.as_str());
+        // Retry needs a live session: the old one is dead, so first it fails...
+        drop(rb);
+        assert!(a.group_file_retry(&gid, &id, &b.to_string()).unwrap_err().to_string().contains("offline"));
+        // ...a fresh session works, and only B gets frames.
+        let (_tb2, mut rb2) = attach_live(&a, b, 2);
+        let before_d = rd.len();
+        a.group_file_retry(&gid, &id, &b.to_string()).unwrap();
+        assert_eq!(st(&b), "sending");
+        until(10, "retry frames", || rb2.len() >= 1 + GROUP_FILE_CREDITS).await;
+        let frames = drain(&mut rb2);
+        assert!(matches!(frames[0], Frame::GroupFileBegin { size, .. } if size == data.len() as u64), "restarts from byte zero");
+        assert_eq!(rd.len(), before_d, "D was not sent anything new");
+        // Retrying one that is already sending/done is refused; so is a stranger.
+        assert!(a.group_file_retry(&gid, &id, &b.to_string()).is_err());
+        assert!(a.group_file_retry(&gid, &id, &add_fake_peer(&a, PeerKind::Paired, 2).to_string()).is_err());
+        assert!(a.group_file_retry(&gid, "nope", &d.to_string()).is_err());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_file_retry_after_restart_uses_the_log() {
+        let (a, _ev, gid, [(b, _tb, mut rb), _]) = unit_author("gfile-restart").await;
+        let (path, _) = write_blob(&a, "z.bin", 2000);
+        let id = a.group_send_file(&gid, &path, "z.bin", "cap").unwrap()["id"].as_str().unwrap().to_string();
+        until(5, "sent", || rb.len() >= 3).await;
+        let _ = drain(&mut rb);
+        a.group_xfers.lock().unwrap().clear(); // as after a restart
+        // Not in memory, so the row has no member state, but it is in the log with its file.
+        let rows = a.group_messages(&gid, 50).unwrap();
+        let row = rows.iter().find(|r| r["id"] == id.as_str()).unwrap();
+        assert_eq!((row["seq"].as_u64(), row["dir"].as_str()), (Some(0), Some("out")));
+        assert_eq!(row["file"]["name"], "z.bin");
+        assert_eq!(row["text"], "cap");
+        assert!(row["fileMembers"].is_null());
+        a.group_file_retry(&gid, &id, &b.to_string()).unwrap();
+        until(5, "resent", || rb.len() >= 3).await;
+        assert_eq!(group_file_frames(&drain(&mut rb)), (1, 1, 1));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_file_receive_applies_the_1to1_hygiene_with_the_group_cap() {
+        let (me, ev, cr, _d, gid) = unit_member("gfile-rx").await;
+        let sender = cr.node_id();
+        let (tx, mut rx) = attach_live(&me, sender, 2);
+        let rx_len = || me.rx_files.lock().unwrap().len();
+        let blobs = me.blobs_dir.join(format!("g-{gid}"));
+
+        // Over the 32 MiB cap, unsafe ids, wrong group: nothing starts.
+        me.handle_frame(sender, gfile_begin(&gid, "big", MAX_GROUP_FILE_BYTES + 1, "a.bin"), &tx);
+        me.handle_frame(sender, gfile_begin(&gid, "../evil", 4, "a.bin"), &tx);
+        me.handle_frame(sender, gfile_begin(&gid, "a/b", 4, "a.bin"), &tx);
+        me.handle_frame(sender, gfile_begin(&"00".repeat(16), "ok1", 4, "a.bin"), &tx);
+        assert_eq!(rx_len(), 0);
+        assert!(events(&ev).iter().any(|e| e["kind"] == "error"));
+
+        // A normal one, with a hostile name: lands under g-<gid>, sanitized.
+        me.handle_frame(sender, gfile_begin(&gid, "f1", 10, "../../etc/pass wd.txt"), &tx);
+        assert_eq!(rx_len(), 1);
+        // A 1:1 chunk/end with the same id can neither feed nor finish it.
+        me.handle_frame(sender, Frame::FileChunk { id: "f1".into(), data: BASE64.encode(b"0123456789") }, &tx);
+        me.handle_frame(sender, Frame::FileEnd { id: "f1".into() }, &tx);
+        assert_eq!(rx_len(), 1);
+        assert_eq!(me.rx_files.lock().unwrap().values().next().unwrap().got, 0);
+        me.handle_frame(sender, gfile_chunk(&gid, "f1", b"01234"), &tx);
+        me.handle_frame(sender, gfile_chunk(&gid, "f1", b"56789"), &tx);
+        me.handle_frame(sender, gfile_end(&gid, "f1"), &tx);
+        assert_eq!(rx_len(), 0);
+        let ev1 = wait_for(&ev, 5, |e| e["kind"] == "group-message" && e["id"] == "f1");
+        assert_eq!((ev1["seq"].as_u64(), ev1["text"].as_str()), (Some(0), Some("cap")));
+        let path = std::path::PathBuf::from(ev1["file"]["path"].as_str().unwrap());
+        assert!(path.starts_with(&blobs), "under the group's blob dir: {path:?}");
+        assert_eq!(std::fs::read(&path).unwrap(), b"0123456789");
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        assert!(!name.contains('/') && !name.contains(".."), "{name}");
+        assert_eq!(ev1["from"], sender.to_string().as_str());
+        // It is in the log (seq 0, dir in, with the file) and does not move the seq counters.
+        let row = read_log(&me.dir, &gid).into_iter().find(|r| r.id == "f1").unwrap();
+        assert_eq!((row.seq, row.dir.as_str(), row.from.as_str()), (0, "in", sender.to_string().as_str()));
+        assert_eq!(row.file.unwrap().size, 10);
+        assert_eq!(me.inner.lock().unwrap().groups[&gid].have.get(&sender.to_string()).copied().unwrap_or(0), 0);
+        assert!(drain(&mut rx).is_empty(), "files are not acked or answered");
+        // A retry of a finished transfer is ignored (no duplicate row).
+        me.handle_frame(sender, gfile_begin(&gid, "f1", 10, "a.txt"), &tx);
+        assert_eq!(rx_len(), 0);
+
+        // Per-peer limit (3) and a short or oversized transfer.
+        for i in 0..(MAX_INBOUND_FILES_PER_PEER + 2) {
+            me.handle_frame(sender, gfile_begin(&gid, &format!("c{i}"), 4, "c.bin"), &tx);
+        }
+        assert_eq!(rx_len(), MAX_INBOUND_FILES_PER_PEER);
+        me.handle_frame(sender, gfile_chunk(&gid, "c0", b"toolong"), &tx); // > declared size
+        me.handle_frame(sender, gfile_chunk(&gid, "c1", b"ab"), &tx);
+        me.handle_frame(sender, gfile_end(&gid, "c1"), &tx); // 2 of 4 bytes
+        assert_eq!(rx_len(), 1, "c0 dropped for overflow, c1 discarded for a short end");
+        assert!(std::fs::read_dir(&blobs).unwrap().all(|e| {
+            let n = e.unwrap().file_name().to_string_lossy().to_string();
+            !n.contains("-c0") && !n.contains("-c1")
+        }), "partials of the dropped transfers are deleted");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_file_receive_refuses_strangers_v1_sessions_and_finished_groups() {
+        let (me, _ev, cr, _d, gid) = unit_member("gfile-rx-gate").await;
+        let sender = cr.node_id();
+        let (tx1, _r1) = attach_live(&me, sender, 1);
+        me.handle_frame(sender, gfile_begin(&gid, "v1", 4, "a"), &tx1);
+        assert!(me.rx_files.lock().unwrap().is_empty(), "v1 session: ignored");
+        let (tx, _r) = attach_live(&me, sender, 2);
+        // A device that is no member of the group.
+        let stranger = add_fake_peer(&me, PeerKind::Paired, 2);
+        let (ts, _rs) = attach_live(&me, stranger, 2);
+        me.handle_frame(stranger, gfile_begin(&gid, "s1", 4, "a"), &ts);
+        assert!(me.rx_files.lock().unwrap().is_empty(), "not a member: ignored");
+        // The global limit across senders.
+        me.handle_frame(sender, gfile_begin(&gid, "m1", 4, "a"), &tx);
+        assert_eq!(me.rx_files.lock().unwrap().len(), 1);
+        // The group ends: a running transfer is dropped by the next frame.
+        cr.group_disband(&gid).unwrap();
+        me.apply_group_state(cr.group_state(&gid).unwrap(), sender).unwrap();
+        me.handle_frame(sender, gfile_chunk(&gid, "m1", b"ab"), &tx);
+        assert!(me.rx_files.lock().unwrap().is_empty(), "removed group: transfer dropped");
+        me.handle_frame(sender, gfile_begin(&gid, "m2", 4, "a"), &tx);
+        assert!(me.rx_files.lock().unwrap().is_empty(), "removed group: new transfer refused");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_file_inbound_is_dropped_when_the_sender_goes_offline_and_with_the_group() {
+        let (me, _ev, cr, _d, gid) = unit_member("gfile-rx-drop").await;
+        let sender = cr.node_id();
+        let (tx, rx) = attach_live(&me, sender, 2);
+        me.handle_frame(sender, gfile_begin(&gid, "p1", 100, "a.bin"), &tx);
+        me.handle_frame(sender, gfile_chunk(&gid, "p1", b"abc"), &tx);
+        let partial = me.rx_files.lock().unwrap().values().next().unwrap().partial.clone();
+        assert!(partial.exists());
+        let hid = me.inner.lock().unwrap().peers[&sender].live[0].id;
+        drop(rx);
+        me.remove_live(sender, hid);
+        assert!(me.rx_files.lock().unwrap().is_empty());
+        assert!(!partial.exists(), "partial removed with the session");
+        // A 1:1 transfer is not touched by the sweep.
+        me.rx_files.lock().unwrap().insert(
+            (sender, "one".into()),
+            FileRx { partial: me.dir.join("p"), dir: me.dir.clone(), name: "x".into(), size: 1, mime: String::new(), caption: String::new(), ts: 0, got: 0, gid: None },
+        );
+        me.drop_group_inbound(|n, _| *n == sender);
+        assert_eq!(me.rx_files.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_delete_removes_the_group_blobs() {
+        let (a, _ev, gid, [(_b, _tb, _rb), _]) = unit_author("gfile-del").await;
+        let (path, _) = write_blob(&a, "d.bin", 1000);
+        a.group_send_file(&gid, &path, "d.bin", "").unwrap();
+        let dir = a.blobs_dir.join(format!("g-{gid}"));
+        assert!(dir.read_dir().unwrap().next().is_some());
+        a.group_disband(&gid).unwrap();
+        a.group_delete(&gid).unwrap();
+        assert!(!dir.exists(), "stored copies go with the chat");
+        assert!(a.group_xfers.lock().unwrap().is_empty());
+    }
+
+    /// Two real engines + a third: a 300 KB file reaches both online members
+    /// intact, each gets its own row, the sender sees both as delivered.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_file_travels_between_real_engines() {
+        let t = trio("gfile-wire").await;
+        let aid = t.a.node_id().to_string();
+        let (path, data) = write_blob(&t.a, "wire.bin", 300_000);
+        let r = t.a.group_send_file(&t.gid, &path, "wire.bin", "look").unwrap();
+        let id = r["id"].as_str().unwrap().to_string();
+        for rx in [&t.b_rx, &t.c_rx] {
+            let ev = wait_for(rx, 30, |e| e["kind"] == "group-message" && e["id"] == id.as_str());
+            assert_eq!((ev["from"].as_str(), ev["text"].as_str(), ev["seq"].as_u64()), (Some(aid.as_str()), Some("look"), Some(0)));
+            assert_eq!(std::fs::read(ev["file"]["path"].as_str().unwrap()).unwrap(), data);
+        }
+        until(20, "both members delivered", || {
+            let x = t.a.group_xfers.lock().unwrap();
+            x[&id].members.values().all(|m| m.state == "done")
+        })
+        .await;
+        let rows = t.a.group_messages(&t.gid, 50).unwrap();
+        let row = rows.iter().find(|r| r["id"] == id.as_str()).unwrap();
+        assert_eq!(row["fileMembers"].as_array().unwrap().len(), 2);
+        assert!(row["fileMembers"].as_array().unwrap().iter().all(|m| m["state"] == "done" && m["got"] == 300_000));
+        // The receivers keep it across their log.
+        let brow = t.b.group_messages(&t.gid, 50).unwrap();
+        assert!(brow.iter().any(|r| r["id"] == id.as_str() && r["file"]["size"] == 300_000 && r["dir"] == "in"));
+        // Text still flows with its own sequence next to files.
+        t.a.group_send(&t.gid, "after", None, None).unwrap();
+        let ev = wait_for(&t.b_rx, 20, |e| e["kind"] == "group-message" && e["text"] == "after");
+        assert_eq!(ev["seq"], 1);
     }
 }
