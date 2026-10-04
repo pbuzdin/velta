@@ -45,9 +45,9 @@ use tokio::sync::mpsc;
 
 mod groups;
 use groups::{
-    append_log, check_group_name, eff_ts, evaluate_incoming, load_group_log, load_groups, new_gid, read_log,
-    save_groups, scan_log, Evaluation, GroupLogRec, GroupMember, GroupRec, GroupState, MAX_GROUPS,
-    MAX_GROUP_MEMBERS, MAX_GROUP_TEXT, MAX_MEMBER_ADDRS,
+    append_log, check_group_name, delete_log, eff_ts, evaluate_incoming, load_group_log, load_groups, new_gid,
+    read_log, roster_events, save_groups, scan_log, sys_kind, sys_rec, Evaluation, GroupLogRec, GroupMember,
+    GroupRec, GroupState, RosterEvent, MAX_GROUPS, MAX_GROUP_MEMBERS, MAX_GROUP_TEXT, MAX_MEMBER_ADDRS, SYS_DIR,
 };
 use std::collections::{BTreeMap, HashSet};
 
@@ -991,6 +991,19 @@ impl P2p {
             drop(peer);
             inner.pair_requests.remove(&node_id);
             self.persist_peers(&inner)?;
+            // Groups this device created are gone with it: we can't keep
+            // talking to a creator we just forgot (and it can't be asked to
+            // re-sign anything for us). Delete them here.
+            let me = self.node_id().to_string();
+            let theirs: Vec<String> = inner
+                .groups
+                .values()
+                .filter(|g| g.state.creator == node_id.to_string() && g.state.creator != me)
+                .map(|g| g.state.gid.clone())
+                .collect();
+            for gid in theirs {
+                self.purge_group(&mut inner, &gid);
+            }
             // Still a member of one of our groups? Then they stay reachable
             // for group traffic, downgraded to an introduced member.
             self.sync_introduced(&mut inner);
@@ -2114,6 +2127,73 @@ impl P2p {
         v2_tx(&self.inner.lock().unwrap().peers, node_id)
     }
 
+    /// How a device is called in a system line: our own name for a paired
+    /// device, else the roster's.
+    fn sys_name(&self, inner: &Inner, state: &GroupState, node_hex: &str) -> String {
+        if let Ok(id) = NodeId::from_str(node_hex) {
+            if let Some(p) = inner.peers.get(&id).filter(|p| !p.name.is_empty()) {
+                return p.name.clone();
+            }
+            if let Some(m) = state.members.iter().find(|m| m.node_id == node_hex).filter(|m| !m.name.is_empty()) {
+                return m.name.clone();
+            }
+            return fallback_name(&id);
+        }
+        "someone".to_string()
+    }
+
+    /// Writes system lines (`kind`, text) to the log of `gid`, oldest first,
+    /// and tells the UI. Never fails the caller: a line that can't be stored
+    /// is a diagnostic, not a reason to refuse a roster change.
+    fn log_sys(&self, inner: &mut Inner, gid: &str, epoch: u64, lines: Vec<(&'static str, String)>) {
+        for (i, (kind, text)) in lines.into_iter().enumerate() {
+            let now = now_ms();
+            let ts_eff = eff_ts(self.group_last_ts(inner, gid), now, now);
+            let rec = sys_rec(kind, epoch, i, text, ts_eff);
+            if let Err(e) = append_log(&self.dir, gid, &rec) {
+                self.sink.emit(json!({ "kind": "error", "message": format!("could not store a group note: {e:#}") }));
+                continue;
+            }
+            inner.grt.ts_eff.insert(gid.to_string(), ts_eff);
+            self.sink.emit(json!({
+                "kind": "group-system", "gid": gid, "id": rec.id, "sysKind": kind,
+                "ts": ts_eff, "tsEff": ts_eff, "text": rec.text,
+            }));
+        }
+    }
+
+    /// System lines for a state change as the creator sees it ("You ...").
+    fn creator_lines(&self, inner: &Inner, old: &GroupState, new: &GroupState, left: bool) -> Vec<(&'static str, String)> {
+        roster_events(old, new)
+            .into_iter()
+            .map(|ev| match ev {
+                RosterEvent::Added(id) => ("added", format!("You added {}", self.sys_name(inner, new, &id))),
+                RosterEvent::Removed(id) if left => ("left", format!("{} left the group", self.sys_name(inner, old, &id))),
+                RosterEvent::Removed(id) => ("removed", format!("You removed {}", self.sys_name(inner, old, &id))),
+                RosterEvent::Renamed(n) => ("renamed", format!("You renamed the group to \u{201c}{n}\u{201d}")),
+                RosterEvent::Disbanded => ("disbanded", "You disbanded the group".to_string()),
+            })
+            .collect()
+    }
+
+    /// System lines for a state change received from the creator.
+    fn member_lines(&self, inner: &Inner, old: &GroupState, new: &GroupState) -> Vec<(&'static str, String)> {
+        let me = self.node_id().to_string();
+        let actor = self.sys_name(inner, new, &new.creator);
+        roster_events(old, new)
+            .into_iter()
+            .map(|ev| match ev {
+                RosterEvent::Added(id) if id == me => ("joined", format!("{actor} added you")),
+                RosterEvent::Added(id) => ("added", format!("{actor} added {}", self.sys_name(inner, new, &id))),
+                RosterEvent::Removed(id) if id == me => ("removed-me", "You were removed from the group".to_string()),
+                // The signed roster doesn't say whether they left or were removed.
+                RosterEvent::Removed(id) => ("gone", format!("{} is no longer in the group", self.sys_name(inner, old, &id))),
+                RosterEvent::Renamed(n) => ("renamed", format!("{actor} renamed the group to \u{201c}{n}\u{201d}")),
+                RosterEvent::Disbanded => ("disbanded", format!("{actor} disbanded the group")),
+            })
+            .collect()
+    }
+
     fn group_json(&self, inner: &Inner, rec: &GroupRec) -> Value {
         let me = self.node_id();
         let members: Vec<Value> = rec
@@ -2161,7 +2241,7 @@ impl P2p {
     /// All groups, for the UI.
     pub fn groups(&self) -> Vec<Value> {
         let inner = self.inner.lock().unwrap();
-        inner.groups.values().map(|g| self.group_json(&inner, g)).collect()
+        inner.groups.values().filter(|g| !g.hidden).map(|g| self.group_json(&inner, g)).collect()
     }
 
     /// Roster entry for a paired device that may be invited.
@@ -2196,7 +2276,7 @@ impl P2p {
         }
         let me = self.node_id();
         let mut inner = self.inner.lock().unwrap();
-        if inner.groups.len() >= MAX_GROUPS {
+        if inner.groups.values().filter(|g| !g.hidden).count() >= MAX_GROUPS {
             bail!("too many local groups (max {MAX_GROUPS}) — delete one first");
         }
         let my_name = if inner.name.is_empty() { fallback_name(&me) } else { inner.name.clone() };
@@ -2222,6 +2302,7 @@ impl P2p {
         let gid = state.gid.clone();
         inner.groups.insert(gid.clone(), GroupRec::new(state));
         self.groups_changed(&mut inner)?;
+        self.log_sys(&mut inner, &gid, 1, vec![("created", "You created the group".to_string())]);
         self.announce_state(&inner, &gid, &[]);
         Ok(self.group_json(&inner, &inner.groups[&gid]))
     }
@@ -2234,13 +2315,16 @@ impl P2p {
         edit: impl FnOnce(&Inner, &mut GroupState) -> Result<()>,
     ) -> Result<Value> {
         let mut inner = self.inner.lock().unwrap();
-        self.edit_group_locked(&mut inner, gid, edit)
+        self.edit_group_locked(&mut inner, gid, false, edit)
     }
 
+    /// `left`: the removal is a member's own leave request (system line
+    /// "X left" instead of "You removed X").
     fn edit_group_locked(
         &self,
         inner: &mut Inner,
         gid: &str,
+        left: bool,
         edit: impl FnOnce(&Inner, &mut GroupState) -> Result<()>,
     ) -> Result<Value> {
         let me = self.node_id();
@@ -2255,14 +2339,18 @@ impl P2p {
         // Everyone in the old roster hears about the change, including a
         // member it just removed (that is how it learns).
         let before: Vec<String> = state.members.iter().map(|m| m.node_id.clone()).collect();
+        let old_state = state.clone();
         edit(inner, &mut state)?;
         state.epoch += 1;
         state.sign(&self.secret)?;
         state.check()?;
+        let lines = self.creator_lines(inner, &old_state, &state, left);
+        let epoch = state.epoch;
         let rec = inner.groups.get_mut(gid).expect("checked above");
         rec.removed = state.closed;
         rec.state = state;
         self.groups_changed(inner)?;
+        self.log_sys(inner, gid, epoch, lines);
         // Nobody replays under the old roster any more.
         inner.grt.gone.retain(|(g, _)| g != gid);
         if inner.groups[gid].removed {
@@ -2335,7 +2423,9 @@ impl P2p {
         rec.removed = true;
         rec.pending_leave = true;
         let creator = rec.state.creator.clone();
+        let epoch = rec.state.epoch;
         self.groups_changed(&mut inner)?;
+        self.log_sys(&mut inner, gid, epoch, vec![("left-me", "You left the group".to_string())]);
         inner.grt.links.retain(|(g, _), _| g != gid);
         // Reachable creator: tell it now; otherwise the session-open hook
         // retries until its new roster (without us) arrives.
@@ -2343,6 +2433,62 @@ impl P2p {
             let _ = tx.send(Frame::GroupLeave { gid: gid.to_string() });
         }
         Ok(self.group_json(&inner, &inner.groups[gid]))
+    }
+
+    /// Forgets a group completely: record, log, runtime links.
+    fn purge_group(&self, inner: &mut Inner, gid: &str) {
+        inner.groups.remove(gid);
+        delete_log(&self.dir, gid);
+        inner.grt.links.retain(|(g, _), _| g != gid);
+        inner.grt.gone.retain(|(g, _)| g != gid);
+        inner.grt.gap_sent.retain(|(g, _), _| g != gid);
+        inner.grt.ts_eff.remove(gid);
+        self.sync_introduced(inner);
+        if let Err(e) = self.persist_groups(inner) {
+            self.sink.emit(json!({ "kind": "error", "message": format!("could not save groups: {e:#}") }));
+        }
+        self.sink.emit(json!({ "kind": "group-deleted", "gid": gid }));
+    }
+
+    /// "Delete chat" for a group that is over (left, removed or disbanded):
+    /// the local log goes. A leave the creator has not heard of yet keeps a
+    /// hidden stub until it did.
+    pub fn group_delete(&self, gid: &str) -> Result<()> {
+        let mut inner = self.inner.lock().unwrap();
+        let rec = inner.groups.get_mut(gid).ok_or_else(|| anyhow!("unknown group"))?;
+        if !rec.removed {
+            bail!("leave or disband the group first");
+        }
+        if rec.pending_leave {
+            rec.hidden = true;
+            delete_log(&self.dir, gid);
+            inner.grt.ts_eff.remove(gid);
+            self.persist_groups(&inner)?;
+            self.sink.emit(json!({ "kind": "group-deleted", "gid": gid }));
+        } else {
+            self.purge_group(&mut inner, gid);
+        }
+        Ok(())
+    }
+
+    /// Which groups an unpairing of `peer_str` touches: groups it created
+    /// (they will be deleted here) and groups it is merely a member of (it
+    /// stays reachable for them as an introduced member).
+    pub fn peer_group_impact(&self, peer_str: &str) -> Result<Value> {
+        let id = NodeId::from_str(peer_str)?.to_string();
+        let me = self.node_id().to_string();
+        let inner = self.inner.lock().unwrap();
+        let mut created = Vec::new();
+        let mut member = Vec::new();
+        for g in inner.groups.values().filter(|g| !g.hidden) {
+            let entry = json!({ "gid": g.state.gid, "name": g.state.name, "removed": g.removed });
+            if g.state.creator == id && g.state.creator != me {
+                created.push(entry);
+            } else if !g.removed && g.state.contains(&NodeId::from_str(&id)?) {
+                member.push(entry);
+            }
+        }
+        Ok(json!({ "created": created, "member": member }))
     }
 
     /// Applies a signed state received from `from` over a session.
@@ -2366,6 +2512,9 @@ impl P2p {
         let verdict = evaluate_incoming(inner.groups.get(&state.gid), &state, &me)?;
         let gid = state.gid.clone();
         let mut newly_removed = None;
+        let mut sys: Vec<(&'static str, String)> = Vec::new();
+        let mut changed: Option<(GroupState, GroupState)> = None;
+        let sys_epoch = state.epoch;
         let result = match verdict {
             Evaluation::Stale => return Ok(json!({ "result": "stale" })),
             Evaluation::Create => {
@@ -2374,9 +2523,11 @@ impl P2p {
                 if !creator_paired {
                     bail!("a new group is accepted only from its creator, a paired device");
                 }
-                if inner.groups.len() >= MAX_GROUPS {
+                if inner.groups.values().filter(|g| !g.hidden).count() >= MAX_GROUPS {
                     bail!("too many local groups (max {MAX_GROUPS})");
                 }
+                let actor = self.sys_name(inner, &state, &state.creator);
+                sys.push(("joined", format!("{actor} added you")));
                 inner.groups.insert(gid.clone(), GroupRec::new(state));
                 "created"
             }
@@ -2387,6 +2538,11 @@ impl P2p {
                 }
                 let was_removed = rec.removed;
                 let closed = state.closed;
+                // Notes only while the chat is live: after a leave/removal
+                // the history is frozen, and a deleted chat has no log.
+                if !was_removed {
+                    changed = Some((rec.state.clone(), state.clone()));
+                }
                 rec.state = state;
                 // A member who asked to leave stays out even if the creator
                 // has not processed the request yet.
@@ -2401,7 +2557,17 @@ impl P2p {
                 "updated"
             }
         };
+        if let Some((old, new)) = changed {
+            sys = self.member_lines(inner, &old, &new);
+        }
         self.groups_changed(inner)?;
+        self.log_sys(inner, &gid, sys_epoch, sys);
+        // A chat the user already deleted was only kept to tell the creator
+        // about a leave; now that the creator answered, nothing is left.
+        if inner.groups.get(&gid).map_or(false, |r| r.hidden && !r.pending_leave) {
+            self.purge_group(inner, &gid);
+            return Ok(json!({ "result": result }));
+        }
         if let Some(reason) = newly_removed {
             self.sink.emit(json!({ "kind": "group-removed", "gid": gid, "reason": reason }));
         }
@@ -2766,7 +2932,7 @@ impl P2p {
             return; // only the creator edits the roster
         }
         let id = from.to_string();
-        let res = self.edit_group_locked(inner, gid, |_, st| {
+        let res = self.edit_group_locked(inner, gid, true, |_, st| {
             st.members.retain(|m| m.node_id != id);
             Ok(())
         });
@@ -2931,6 +3097,7 @@ impl P2p {
                     "seq": r.seq, "from": r.from, "id": r.id, "ts": r.ts, "tsEff": r.ts_eff,
                     "dir": r.dir, "text": r.text, "replyTo": r.reply_to, "replyText": r.reply_text,
                     "delivered": delivered,
+                    "sysKind": if r.dir == SYS_DIR { sys_kind(&r.id) } else { None },
                 })
             })
             .collect())
@@ -3511,6 +3678,24 @@ pub fn p2p_group_leave(state: tauri::State<'_, P2pState>, gid: String) -> Result
     engine(&state)
         .map_err(|e| e.to_string())?
         .group_leave(&gid)
+        .map_err(|e| e.to_string())
+}
+
+/// Deletes the local data of a group that is over (left / removed / disbanded).
+#[tauri::command]
+pub fn p2p_group_delete(state: tauri::State<'_, P2pState>, gid: String) -> Result<(), String> {
+    engine(&state)
+        .map_err(|e| e.to_string())?
+        .group_delete(&gid)
+        .map_err(|e| e.to_string())
+}
+
+/// `{created: [...], member: [...]}`: what unpairing this device does to groups.
+#[tauri::command]
+pub fn p2p_peer_groups(state: tauri::State<'_, P2pState>, peer_id: String) -> Result<Value, String> {
+    engine(&state)
+        .map_err(|e| e.to_string())?
+        .peer_group_impact(&peer_id)
         .map_err(|e| e.to_string())
 }
 
@@ -4527,7 +4712,7 @@ mod tests {
             me.handle_frame(author, gmsg(&gid, &author, seq, text), &tx);
         }
         assert_eq!(acks_in(&drain(&mut out)), vec![2, 3, 4]);
-        let log = me.group_messages(&gid, 50).unwrap();
+        let log = chat_rows(&me, &gid, 50);
         let texts: Vec<&str> = log.iter().map(|r| r["text"].as_str().unwrap()).collect();
         assert_eq!(texts, ["one", "two", "three", "four"]);
         assert_eq!(me.inner.lock().unwrap().groups[&gid].have[&author.to_string()], 4);
@@ -4545,7 +4730,7 @@ mod tests {
         let (me, rx, cr, d, gid) = unit_member("grp-rej").await;
         let author = cr.node_id();
         let (tx, mut out) = attach_live(&me, author, 2);
-        let stored = |me: &Arc<P2p>| me.group_messages(&gid, 50).unwrap().len();
+        let stored = |me: &Arc<P2p>| chat_rows(&me, &gid, 50).len();
 
         // `from` must be the authenticated session node.
         me.handle_frame(author, gmsg(&gid, &d, 1, "pretending to be d"), &tx);
@@ -4702,11 +4887,11 @@ mod tests {
         assert_eq!(msg_seqs_in(&drain(&mut rd)), vec![1, 2, 3, 4, 5, 6]);
 
         // Delivery state per message comes from the cursors.
-        let log = cr.group_messages(&gid, 10).unwrap();
+        let log = chat_rows(&cr, &gid, 10);
         let delivered = |i: usize| log[i]["delivered"].as_array().unwrap().len();
         assert_eq!((delivered(0), delivered(5)), (1, 1), "only b has acked so far");
         cr.handle_frame(d, Frame::GroupAck { gid: gid.clone(), have: 6 }, &td);
-        assert_eq!(cr.group_messages(&gid, 10).unwrap()[0]["delivered"].as_array().unwrap().len(), 2);
+        assert_eq!(chat_rows(&cr, &gid, 10)[0]["delivered"].as_array().unwrap().len(), 2);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -4749,7 +4934,7 @@ mod tests {
         assert!(frames.iter().any(|f| matches!(f, Frame::GroupState { .. })));
         // …and a message it sends is dropped.
         cr.handle_frame(d, gmsg(&gid, &d, 1, "still here?"), &td);
-        assert_eq!(cr.group_messages(&gid, 10).unwrap().len(), 2);
+        assert_eq!(chat_rows(&cr, &gid, 10).len(), 2);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -4847,10 +5032,24 @@ mod tests {
         Trio { a, b, c, a_rx, b_rx, c_rx, gid }
     }
 
-    fn texts(engine: &Arc<P2p>, gid: &str) -> Vec<(String, u64, String)> {
+    /// The chat rows of a group (system lines are asserted separately).
+    fn chat_rows(engine: &Arc<P2p>, gid: &str, limit: usize) -> Vec<Value> {
+        engine.group_messages(gid, limit).unwrap().into_iter().filter(|r| r["dir"] != "sys").collect()
+    }
+
+    /// The system lines of a group as (kind, text), oldest first.
+    fn sys_lines(engine: &Arc<P2p>, gid: &str) -> Vec<(String, String)> {
         engine
             .group_messages(gid, 500)
             .unwrap()
+            .into_iter()
+            .filter(|r| r["dir"] == "sys")
+            .map(|r| (r["sysKind"].as_str().unwrap().to_string(), r["text"].as_str().unwrap().to_string()))
+            .collect()
+    }
+
+    fn texts(engine: &Arc<P2p>, gid: &str) -> Vec<(String, u64, String)> {
+        chat_rows(engine, gid, 500)
             .into_iter()
             .map(|r| (r["from"].as_str().unwrap().to_string(), r["seq"].as_u64().unwrap(), r["text"].as_str().unwrap().to_string()))
             .collect()
@@ -4878,7 +5077,7 @@ mod tests {
             let ev = wait_for(&t.a_rx, 20, |e| e["kind"] == "group-ack" && e["have"] == 1);
             pending.retain(|m| ev["by"] != m.as_str());
         }
-        let log = t.a.group_messages(&t.gid, 10).unwrap();
+        let log = chat_rows(&t.a, &t.gid, 10);
         assert_eq!(log[0]["delivered"].as_array().unwrap().len(), 2);
 
         // B talks to everyone, including C over the introduced session.
@@ -4930,7 +5129,7 @@ mod tests {
         etx.send(gmsg(&t.gid, &bid, 1, "i am b")).unwrap();
         etx.send(sync_from(&t.gid, 1, 0)).unwrap();
         wait_for(&t.a_rx, 10, |ev| ev["kind"] == "error" && ev["message"].as_str().unwrap().contains("forged"));
-        assert!(t.a.group_messages(&t.gid, 10).unwrap().is_empty());
+        assert!(chat_rows(&t.a, &t.gid, 10).is_empty());
         assert!(events(&t.a_rx).iter().all(|ev| ev["kind"] != "group-message"));
 
         // E can't open a session to B either: B knows E neither as a contact
@@ -4945,7 +5144,7 @@ mod tests {
         assert!(t.b.inner.lock().unwrap().peers.get(&eid).is_none());
         assert!(events(&t.b_rx).iter().all(|ev| ev["kind"] != "group-message" && ev["kind"] != "pairing"));
         // …and E's group frames never reached B's log.
-        assert!(t.b.group_messages(&t.gid, 10).unwrap().is_empty());
+        assert!(chat_rows(&t.b, &t.gid, 10).is_empty());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -5066,8 +5265,161 @@ mod tests {
             assert!(e.group_send(&t.gid, "nope", None, None).is_err());
             assert_eq!(e.groups()[0]["removed"], true);
             // History stays readable.
-            assert_eq!(e.group_messages(&t.gid, 10).unwrap().len(), 1);
+            assert_eq!(chat_rows(&e, &t.gid, 10).len(), 1);
         }
+    }
+
+    fn kinds(lines: &[(String, String)]) -> Vec<&str> {
+        lines.iter().map(|(k, _)| k.as_str()).collect()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_system_lines_follow_every_roster_change() {
+        let t = trio("grp-sys").await;
+        let cid = t.c.node_id().to_string();
+        // Creation: the creator says so, invitees see who added them.
+        assert_eq!(kinds(&sys_lines(&t.a, &t.gid)), ["created"]);
+        assert_eq!(sys_lines(&t.a, &t.gid)[0].1, "You created the group");
+        for e in [&t.b, &t.c] {
+            until(20, "the invitee logged the invitation", || !sys_lines(e, &t.gid).is_empty()).await;
+            let l = sys_lines(e, &t.gid);
+            assert_eq!(kinds(&l), ["joined"]);
+            assert!(l[0].1.ends_with(" added you"), "{}", l[0].1);
+        }
+
+        // Rename: "You renamed" for the creator, "<A> renamed" for the others.
+        t.a.group_rename(&t.gid, "Renamed").unwrap();
+        assert_eq!(sys_lines(&t.a, &t.gid).last().unwrap().1, "You renamed the group to \u{201c}Renamed\u{201d}");
+        for e in [&t.b, &t.c] {
+            until(20, "rename noted", || kinds(&sys_lines(e, &t.gid)).contains(&"renamed")).await;
+            let l = sys_lines(e, &t.gid);
+            let line = &l.iter().find(|(k, _)| k == "renamed").unwrap().1;
+            assert!(line.ends_with(" renamed the group to \u{201c}Renamed\u{201d}"), "{line}");
+        }
+
+        // Removal: three different views of the same epoch.
+        t.a.group_remove(&t.gid, &cid).unwrap();
+        assert!(sys_lines(&t.a, &t.gid).last().unwrap().1.starts_with("You removed "));
+        until(20, "C learns it was removed", || kinds(&sys_lines(&t.c, &t.gid)).contains(&"removed-me")).await;
+        assert_eq!(sys_lines(&t.c, &t.gid).last().unwrap().1, "You were removed from the group");
+        until(20, "B notes C is gone", || kinds(&sys_lines(&t.b, &t.gid)).contains(&"gone")).await;
+        assert!(sys_lines(&t.b, &t.gid).last().unwrap().1.ends_with(" is no longer in the group"));
+
+        // Re-adding is a roster change like any other.
+        // (C is removed on its side, so only the creator's and B's view are checked.)
+        t.b.group_leave(&t.gid).unwrap();
+        until(20, "creator notes the leave", || kinds(&sys_lines(&t.a, &t.gid)).contains(&"left")).await;
+        assert!(sys_lines(&t.a, &t.gid).last().unwrap().1.ends_with(" left the group"));
+        until(20, "B's leave request is settled", || !t.b.inner.lock().unwrap().groups[&t.gid].pending_leave).await;
+        // B said "You left" and the creator's confirming state added nothing.
+        let b_lines = sys_lines(&t.b, &t.gid);
+        assert_eq!(b_lines.last().unwrap(), &("left-me".to_string(), "You left the group".to_string()));
+        assert!(!kinds(&b_lines).contains(&"removed-me"), "{b_lines:?}");
+
+        // Lines never reach the counters: next_seq/have are untouched.
+        let a_rec_seq = t.a.inner.lock().unwrap().groups[&t.gid].next_seq;
+        assert_eq!(a_rec_seq, 1);
+        assert!(chat_rows(&t.a, &t.gid, 50).is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_system_lines_survive_a_restart_and_say_disbanded() {
+        let t = trio("grp-sysre").await;
+        t.a.group_disband(&t.gid).unwrap();
+        for e in [&t.b, &t.c] {
+            until(20, "disband noted", || kinds(&sys_lines(e, &t.gid)).contains(&"disbanded")).await;
+            assert!(sys_lines(e, &t.gid).last().unwrap().1.ends_with(" disbanded the group"));
+        }
+        assert_eq!(sys_lines(&t.a, &t.gid).last().unwrap().1, "You disbanded the group");
+        let before = sys_lines(&t.b, &t.gid);
+        let (dir, blobs) = (t.b.dir.clone(), t.b.blobs_dir.clone());
+        let Trio { b, .. } = t;
+        b.close().await;
+        drop(b);
+        let (tx, _rx) = std_mpsc::channel();
+        let b2 = P2p::start(dir, blobs, Sink::Test(tx)).await.unwrap();
+        let gid = b2.groups()[0]["gid"].as_str().unwrap().to_string();
+        assert_eq!(sys_lines(&b2, &gid), before, "the notes are part of the persisted history");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_delete_forgets_a_finished_group_only() {
+        let t = trio("grp-del").await;
+        t.a.group_send(&t.gid, "hello", None, None).unwrap();
+        wait_for(&t.b_rx, 20, |e| e["kind"] == "group-message");
+        let log_file = |e: &Arc<P2p>| e.dir.join(format!("messages-g-{}.jsonl", t.gid));
+        assert!(log_file(&t.b).exists());
+        // An active group can't be deleted: leave/disband comes first.
+        assert!(t.b.group_delete(&t.gid).is_err());
+        assert!(t.a.group_delete(&t.gid).is_err());
+        assert!(t.b.group_delete("00000000000000000000000000000000").is_err());
+
+        t.a.group_disband(&t.gid).unwrap();
+        wait_for(&t.b_rx, 20, |e| e["kind"] == "group-removed");
+        t.b.group_delete(&t.gid).unwrap();
+        wait_for(&t.b_rx, 20, |e| e["kind"] == "group-deleted" && e["gid"] == t.gid.as_str());
+        assert!(t.b.groups().is_empty());
+        assert!(!log_file(&t.b).exists());
+        assert!(t.b.inner.lock().unwrap().groups.is_empty());
+        assert!(load_groups(&t.b.dir).is_empty(), "gone from groups.json too");
+        // The others keep theirs until they delete.
+        assert_eq!(t.c.groups().len(), 1);
+        assert!(log_file(&t.c).exists());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_delete_after_a_leave_waits_until_the_creator_knows() {
+        let t = trio("grp-delwait").await;
+        let bid = t.b.node_id().to_string();
+        // B left but the creator hasn't heard yet (simulated): delete keeps
+        // an invisible stub so the leave can still be delivered.
+        {
+            let mut inner = t.b.inner.lock().unwrap();
+            let rec = inner.groups.get_mut(&t.gid).unwrap();
+            rec.removed = true;
+            rec.pending_leave = true;
+        }
+        t.b.group_delete(&t.gid).unwrap();
+        assert!(t.b.groups().is_empty(), "invisible");
+        {
+            let inner = t.b.inner.lock().unwrap();
+            let rec = &inner.groups[&t.gid];
+            assert!(rec.hidden && rec.pending_leave);
+        }
+        assert!(!t.b.dir.join(format!("messages-g-{}.jsonl", t.gid)).exists());
+        assert!(load_groups(&t.b.dir)[&t.gid].hidden, "the stub is persisted");
+        // The creator's confirming state arrives: the stub disappears.
+        t.a.group_remove(&t.gid, &bid).unwrap();
+        until(20, "stub purged once the creator answered", || t.b.inner.lock().unwrap().groups.is_empty()).await;
+        assert!(!t.b.dir.join(format!("messages-g-{}.jsonl", t.gid)).exists(), "no note resurrected the log");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn remove_peer_of_creator_deletes_their_groups() {
+        let t = trio("grp-unpair").await;
+        let (aid, bid) = (t.a.node_id().to_string(), t.b.node_id().to_string());
+        t.a.group_send(&t.gid, "hi", None, None).unwrap();
+        wait_for(&t.b_rx, 20, |e| e["kind"] == "group-message");
+        // B's view: A created one group and B can't talk to A without pairing.
+        let imp = t.b.peer_group_impact(&aid).unwrap();
+        assert_eq!(imp["created"].as_array().unwrap().len(), 1);
+        assert_eq!(imp["created"][0]["gid"], t.gid.as_str());
+        assert!(imp["member"].as_array().unwrap().is_empty());
+        t.b.remove_peer(&aid).unwrap();
+        assert!(t.b.groups().is_empty(), "the creator's group is deleted with the contact");
+        assert!(!t.b.dir.join(format!("messages-g-{}.jsonl", t.gid)).exists());
+        assert!(t.b.inner.lock().unwrap().groups.is_empty());
+        // C, still paired with A, is untouched.
+        assert_eq!(t.c.groups().len(), 1);
+
+        // A's view of B: merely a member of A's group -> stays, introduced.
+        let imp = t.a.peer_group_impact(&bid).unwrap();
+        assert!(imp["created"].as_array().unwrap().is_empty());
+        assert_eq!(imp["member"][0]["gid"], t.gid.as_str());
+        t.a.remove_peer(&bid).unwrap();
+        assert_eq!(t.a.groups().len(), 1);
+        assert_eq!(kind_of(&t.a, &t.b.node_id()), Some(PeerKind::Introduced));
+        assert!(!peers_json_ids(&t.a).contains(&bid), "no longer a saved contact");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

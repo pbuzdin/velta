@@ -214,6 +214,10 @@ pub struct GroupRec {
     /// I left; tell the creator when reachable.
     #[serde(default)]
     pub pending_leave: bool,
+    /// The user deleted the chat. Kept only while `pending_leave` is still
+    /// undelivered (so the creator still hears about it); never listed.
+    #[serde(default)]
+    pub hidden: bool,
 }
 
 fn one() -> u64 {
@@ -230,6 +234,7 @@ impl GroupRec {
             have: HashMap::new(),
             state_cursor: HashMap::new(),
             pending_leave: false,
+            hidden: false,
         }
     }
 }
@@ -344,6 +349,70 @@ pub struct GroupLogRec {
     pub reply_to: Option<String>,
     #[serde(default)]
     pub reply_text: Option<String>,
+}
+
+/// `dir` of a system line ("X added Y", "Z left", ...). These are written by
+/// the device that observes the change; they carry no author and no seq, are
+/// never replicated, replayed or counted (`scan_log` ignores them).
+pub const SYS_DIR: &str = "sys";
+
+/// What changed between two states of one group, as seen by a device.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RosterEvent {
+    Added(String),
+    Removed(String),
+    Renamed(String),
+    Disbanded,
+}
+
+/// Differences `old -> new`. A disband reports only `Disbanded` (the roster
+/// shrinking to the creator is part of it, not a bunch of removals).
+pub fn roster_events(old: &GroupState, new: &GroupState) -> Vec<RosterEvent> {
+    let mut out = Vec::new();
+    if new.closed && !old.closed {
+        return vec![RosterEvent::Disbanded];
+    }
+    if new.name != old.name {
+        out.push(RosterEvent::Renamed(new.name.clone()));
+    }
+    for m in &new.members {
+        if !old.members.iter().any(|o| o.node_id == m.node_id) {
+            out.push(RosterEvent::Added(m.node_id.clone()));
+        }
+    }
+    for m in &old.members {
+        if !new.members.iter().any(|n| n.node_id == m.node_id) {
+            out.push(RosterEvent::Removed(m.node_id.clone()));
+        }
+    }
+    out
+}
+
+/// A system line for the log. `id` is `sys:<kind>:<epoch>:<index>` (unique per
+/// line, and the UI's key); `kind` is one of created / joined / added /
+/// removed / left / gone / renamed / disbanded / removed-me / left-me.
+pub fn sys_rec(kind: &str, epoch: u64, index: usize, text: String, ts_eff: u64) -> GroupLogRec {
+    GroupLogRec {
+        seq: 0,
+        from: String::new(),
+        id: format!("sys:{kind}:{epoch}:{index}"),
+        ts: ts_eff,
+        ts_eff,
+        dir: SYS_DIR.into(),
+        text,
+        reply_to: None,
+        reply_text: None,
+    }
+}
+
+/// The `kind` part of a system line's id.
+pub fn sys_kind(id: &str) -> Option<&str> {
+    id.strip_prefix("sys:")?.split(':').next()
+}
+
+/// Deletes a group's message log (missing file is fine).
+pub fn delete_log(dir: &Path, gid: &str) {
+    let _ = std::fs::remove_file(log_path(dir, gid));
 }
 
 /// `max(previous display ts, min(author ts, now))`: non-decreasing, so clock
@@ -653,6 +722,41 @@ mod tests {
         std::fs::write(dir.join("groups.json"), b"{ not json").unwrap();
         assert!(load_groups(&dir).is_empty());
         assert!(dir.join("groups.json.corrupt").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn roster_events_and_system_lines() {
+        let (_, _, st) = signed(3);
+        let id = |i: usize| st.members[i].node_id.clone();
+        let mut renamed = st.clone();
+        renamed.name = "New".into();
+        assert_eq!(roster_events(&st, &renamed), vec![RosterEvent::Renamed("New".into())]);
+        let mut fewer = st.clone();
+        fewer.members.retain(|m| m.node_id != id(2));
+        assert_eq!(roster_events(&st, &fewer), vec![RosterEvent::Removed(id(2))]);
+        assert_eq!(roster_events(&fewer, &st), vec![RosterEvent::Added(id(2))]);
+        let mut closed = st.clone();
+        closed.closed = true;
+        closed.members.truncate(1);
+        assert_eq!(roster_events(&st, &closed), vec![RosterEvent::Disbanded], "a disband is one line, not N removals");
+        assert!(roster_events(&st, &st).is_empty());
+
+        // A system line has no author/seq and is invisible to the counters.
+        let dir = std::env::temp_dir().join(format!("velta-groupsys-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let r = sys_rec("added", 4, 1, "A added B".into(), 77);
+        assert_eq!((r.seq, r.dir.as_str(), r.from.as_str()), (0, "sys", ""));
+        assert_eq!(sys_kind(&r.id), Some("added"));
+        assert_eq!(sys_kind("abc"), None);
+        append_log(&dir, &st.gid, &r).unwrap();
+        let scan = scan_log(&dir, &st.gid, &id(0));
+        assert_eq!((scan.own_max, scan.in_max.len(), scan.last_ts_eff), (0, 0, 77));
+        assert_eq!(read_log(&dir, &st.gid)[0], r);
+        delete_log(&dir, &st.gid);
+        assert!(read_log(&dir, &st.gid).is_empty());
+        delete_log(&dir, &st.gid); // idempotent
         let _ = std::fs::remove_dir_all(&dir);
     }
 

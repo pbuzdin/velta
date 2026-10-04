@@ -19,6 +19,7 @@
 //!   `grename <gid> <name>`           rename (creator)
 //!   `gdisband <gid>`                 close the group (creator)
 //!   `gleave <gid>`                   leave the group
+//!   `gdelete <gid>`                  forget a finished group (local data)
 //!
 //! The command file path and the ticket are printed at startup.
 
@@ -174,6 +175,14 @@ async fn main() -> Result<()> {
                 match resolve_group(&p2p, prefix.trim()) {
                     Some(gid) => match p2p.group_disband(&gid) {
                         Ok(g) => println!("[GROUP-UPDATED] {g}"),
+                        Err(e) => println!("[GROUP-ERR] {e:#}"),
+                    },
+                    None => println!("[GROUP-ERR] no group matching '{}'", prefix.trim()),
+                }
+            } else if let Some(prefix) = line.strip_prefix("gdelete ") {
+                match resolve_group(&p2p, prefix.trim()) {
+                    Some(gid) => match p2p.group_delete(&gid) {
+                        Ok(()) => println!("[GROUP-DELETED] {gid}"),
                         Err(e) => println!("[GROUP-ERR] {e:#}"),
                     },
                     None => println!("[GROUP-ERR] no group matching '{}'", prefix.trim()),
