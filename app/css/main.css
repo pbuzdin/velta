@@ -647,7 +647,13 @@ html[data-theme="light"] .msg-row.out .msg-quote .q-name { color: #14507e; }
 html[data-theme="light"] .msg-row.out .msg-quote .q-text { color: #4d5a68; }
 
 .msg-text { font-size: 15.5px; line-height: 1.36; white-space: pre-wrap; }
-.msg-text a { color: var(--accent); }
+.msg-text a {
+  color: var(--accent);
+  /* A swipe may start on an inline link (#35): no native link drag. Text
+     selection / long-press are untouched (user-select is not changed). */
+  -webkit-user-drag: none;
+  -webkit-touch-callout: none;
+}
 /* Markdown lists (markdown.js emits <ul>/<ol> as block units; the surrounding
    msg-text keeps pre-wrap for plain paragraphs) */
 .msg-text ul, .msg-text ol { margin: 2px 0; padding-left: 20px; }
