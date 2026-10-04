@@ -485,7 +485,12 @@ Both paths run through the same send-image flow: a preview with an optional
 handle to resize) before sending. The drawer's **Image quality** setting controls what happens to the images
 you send: **Standard** compresses large photos down to 940 KB, **Compact**
 down to 130 KB (smaller photos are sent unchanged either way). Compact keeps
-uploads small and relay storage lasting longer. From the attachment menu you
+uploads small and relay storage lasting longer. With **Compress photos to save relay
+space** on (the default, same drawer section), big JPEG/WebP photos - and
+opaque PNGs the core would recompress anyway - are re-encoded to lossy WebP
+before sending when that makes them at least 10% smaller (or fit the limit
+above); this also drops location/camera info from those photos. Small
+photos, GIFs, animated or transparent images and files are never touched. From the attachment menu you
 can send:
 
 | Type | How it is sent | How it is shown |

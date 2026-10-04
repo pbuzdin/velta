@@ -42,6 +42,7 @@ import { diagnosticsSink, debugLog } from "./diagnostics.js";
 import { fileUrl, mediaFallbackUrl } from "./media.js";
 import { openInAppBrowser } from "./inapp-browser.js";
 import { renderMarkdown, extractBotCommands } from "./markdown.js";
+import { compressImage, compressEnabled } from "./image-compress.js";
 import { lcRetryTransfer } from "./local-chat.js";
 import { TypingSender } from "./typing.js";
 import { linkPreview, linkPreviewCardHtml, firstLink as firstLinkOf } from "./link-preview.js";
@@ -303,6 +304,10 @@ function openImageCropper(imageUrl) {
     });
     body.querySelector("[data-cancelcrop]").addEventListener("click", () => { finish(null); close(); });
   });
+}
+
+function mediaQualitySetting() {
+  try { return localStorage.getItem("velta-media-quality") || "0"; } catch { return "0"; }
 }
 
 function extOf(path) {  if (!path) return "";
@@ -2677,16 +2682,29 @@ export class ChatView {
       const { quoteId, quoteText, prefix } = this._takeQuote();
       let filePath = pm.corePath;
       let filename;
+      // #81: size-gated lossy WebP (renderer-side). Falls back to the original
+      // bytes/path on any skip or failure; a transcoded blob has no core path,
+      // so it takes the write-to-uploads branch below.
+      let sendBlob = pm.blob;
+      if (pm.kind === "image" && pm.blob && invoke && compressEnabled()) {
+        const r = await compressImage(pm.blob, {
+          name: pm.name, quality: mediaQualitySetting(),
+        });
+        diagnosticsSink.append("info", r.transcoded
+          ? `media: photo → webp ${r.from} → ${r.to} bytes`
+          : `media: photo sent as is (${r.reason})`);
+        if (r.transcoded) { sendBlob = r.blob; filePath = null; }
+      }
       if (filePath) {
         filename = filePath.replace(/\\/g, "/").split("/").pop();
       } else {
-        const t = pm.blob.type;
+        const t = sendBlob.type;
         const ext = t === "image/jpeg" ? "jpg" : t === "image/webp" ? "webp" : t === "image/gif" ? "gif" : t?.startsWith("video/") ? "mp4" : "png";
-        filename = `${pm.kind}-${Date.now()}.${ext}`;
+        filename = sendBlob !== pm.blob ? `${pm.kind}-${Date.now()}.webp` : `${pm.kind}-${Date.now()}.${ext}`;
         filePath = await invoke("resolve_upload_path", { filename });
         diagnosticsSink.append("info", `media: upload path = ${filePath}`);
         if (!filePath) throw new Error("resolve_upload_path returned empty");
-        const bytes = new Uint8Array(await pm.blob.arrayBuffer());
+        const bytes = new Uint8Array(await sendBlob.arrayBuffer());
         await invoke("plugin:fs|write_file", bytes, {
           headers: { path: encodeURIComponent(filePath) },
         });
