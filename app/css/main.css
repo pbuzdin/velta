@@ -166,7 +166,7 @@ svg { width: 24px; height: 24px; display: block; }
 }
 .relay-detail-chip {
   flex: 1 1 0; min-width: 0;
-  display: flex; align-items: center; justify-content: center; gap: 5px;
+  display: flex; align-items: center; justify-content: center; gap: 4px;
   padding: 4px 8px; font-size: 11px; line-height: 1.25;
   color: var(--text); background: var(--bg-sidebar);
   border: 1px solid var(--border); border-radius: 999px;
@@ -251,7 +251,7 @@ svg { width: 24px; height: 24px; display: block; }
 }
 .no-chat-badge {
   background: var(--bg-hover);
-  padding: 9px 18px; border-radius: 18px;
+  padding: 10px 18px; border-radius: 16px;
   font-size: 14.5px; color: var(--text-dim);
   display: inline-block;
 }
@@ -388,7 +388,7 @@ html[data-theme="light"] .history-scroll {
   width: 100%; display: flex; justify-content: center;
   background: rgba(16,16,16,.28);
   color: #d7d7de;
-  font-size: 13px; padding: 5px 13px; border-radius: 14px;
+  font-size: 13px; padding: 4px 12px; border-radius: 14px;
   margin: 12px 0 6px;
   position: sticky; top: 8px; z-index: 2;
   backdrop-filter: blur(6px);
@@ -542,7 +542,7 @@ html[data-theme="light"] .msg-show-in-chat {
 }
 .msg-hover-reply {
   position: sticky; top: 8px;
-  display: flex; width: max-content; align-items: center; gap: 5px;
+  display: flex; width: max-content; align-items: center; gap: 4px;
   padding: 3px 10px 3px 8px; border-radius: 999px;
   background: #262b38; color: var(--text);
   border: 1px solid rgba(244, 244, 244, .18);
@@ -773,7 +773,7 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
    missed/declined/canceled via .missed. */
 .call-card {
   display: flex; align-items: center; gap: 10px;
-  min-width: 190px; padding: 9px 12px;
+  min-width: 190px; padding: 10px 12px;
 }
 .call-card-ico {
   width: 34px; height: 34px; border-radius: 50%; flex: none;
@@ -1022,7 +1022,7 @@ velta-video { display: block; height: 100%; }
   position: absolute; top: -5px; right: -5px;
   background: var(--accent); color: #f4f4f4;
   font-size: 12px; font-weight: 600;
-  min-width: 22px; height: 22px; border-radius: 11px;
+  min-width: 22px; height: 22px; border-radius: 12px;
   display: grid; place-items: center; padding: 0 5px;
 }
 .go-down[hidden], .go-down-badge[hidden] { display: none; }
@@ -1179,8 +1179,8 @@ velta-avatar { display: block; flex: none; }
 
 velta-chat-item { display: block; }
 .chat-item {
-  display: flex; align-items: center; gap: 11px;
-  padding: 9px 12px; cursor: pointer;
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; cursor: pointer;
   border-radius: 10px; margin: 0 6px;
   position: relative; user-select: none;
   /* Cards have no overflow children — contain keeps a badge/draft/hover
@@ -1193,12 +1193,12 @@ velta-chat-item { display: block; }
 .chat-item.active { background: var(--bg-active); }
 .chat-item.active .ci-time, .chat-item.active .ci-last, .chat-item.active .ci-mute { color: rgba(244,244,244,.75); }
 /* Off-screen stand-in for a not-yet-mounted chat row (#44): one real row's
-   height (48px avatar + 2×9px padding); the IntersectionObserver swaps in
+   height (48px avatar + 2×10px padding); the IntersectionObserver swaps in
    the real element before it scrolls into view. */
-.chat-item-ghost { height: 66px; margin: 0 6px; }
+.chat-item-ghost { height: 68px; margin: 0 6px; }
 .ci-main { flex: 1; min-width: 0; }
 .ci-top { display: flex; align-items: baseline; gap: 6px; }
-.ci-name { flex: 1; min-width: 0; font-size: 15.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 5px; }
+.ci-name { flex: 1; min-width: 0; font-size: 15.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 4px; }
 .ci-lock { width: 13px; height: 13px; color: var(--green); flex: none; }
 .ci-lock.open { color: var(--text-dim); }
 .ci-wifi { width: 13px; height: 13px; color: var(--green); flex: none; }
@@ -1259,7 +1259,7 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 @keyframes menuIn { from { opacity: 0; transform: scale(.94); } }
 .ctx-item {
   display: flex; align-items: center; gap: 12px;
-  width: 100%; padding: 9px 12px; border-radius: 8px;
+  width: 100%; padding: 10px 12px; border-radius: 8px;
   font-size: 14.5px; text-align: left;
 }
 @media (hover: hover) and (pointer: fine) {
@@ -1279,7 +1279,7 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 /* Drawer spoiler with interface-scale radios */
 .drawer-details summary {
   display: flex; align-items: center; gap: 12px;
-  width: 100%; padding: 9px 12px; border-radius: 8px;
+  width: 100%; padding: 10px 12px; border-radius: 8px;
   font-size: 14.5px; text-align: left; cursor: pointer; user-select: none;
   list-style: none; color: var(--text);
 }
@@ -1408,7 +1408,7 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .btn-text { color: var(--accent); font-weight: 600; padding: 10px 14px; border-radius: 8px; }
 /* Diagnostics chat switches (Logging / DevTools): same size and tone as the
    .btn-text actions they share the #diagnostic-actions bar with. */
-.diag-switch { display: inline-flex; align-items: center; gap: 7px; color: var(--accent); font-weight: 600; padding: 10px 14px; border-radius: 8px; cursor: pointer; user-select: none; -webkit-user-select: none; }
+.diag-switch { display: inline-flex; align-items: center; gap: 8px; color: var(--accent); font-weight: 600; padding: 10px 14px; border-radius: 8px; cursor: pointer; user-select: none; -webkit-user-select: none; }
 .diag-switch input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; cursor: pointer; }
 @media (hover: hover) and (pointer: fine) {
   .diag-switch:hover { background: var(--bg-hover); }
@@ -1441,7 +1441,7 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 }
 .text-field:focus { border-color: var(--accent); }
 
-.info-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 14.5px; }
+.info-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14.5px; }
 .info-row:last-child { border-bottom: 0; }
 .info-row .k { color: var(--text-dim); }
 .info-row .v { font-weight: 500; display: flex; align-items: center; gap: 6px; }
@@ -1510,7 +1510,7 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 .drawer-name { font-size: 17px; font-weight: 600; }
 .drawer-links { display: flex; gap: 8px; margin-top: 8px; position: relative; }
 .drawer-links button {
-  display: inline-flex; align-items: center; gap: 5px;
+  display: inline-flex; align-items: center; gap: 4px;
   background: rgba(244, 244, 244, .14);
   border: 1px solid rgba(244, 244, 244, .28);
   color: #f4f4f4; font-size: 13px;
@@ -1536,9 +1536,9 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
   display: flex; justify-content: flex-end; align-items: center;
   gap: 10px; padding: 4px 0 2px;
 }
-.edit-profile-foot .btn-text { padding: 9px 12px; font-size: 14.5px; }
+.edit-profile-foot .btn-text { padding: 10px 12px; font-size: 14.5px; }
 .edit-profile-foot .btn-primary {
-  width: auto; padding: 9px 22px; border-radius: 9px;
+  width: auto; padding: 10px 22px; border-radius: 8px;
   font-size: 14.5px; font-weight: 600;
 }
 .drawer-items { padding: 8px; overflow-y: auto; flex: 1; min-height: 0; }
