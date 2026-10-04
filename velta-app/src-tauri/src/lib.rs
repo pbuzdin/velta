@@ -224,10 +224,9 @@ async fn download_update(app: tauri::AppHandle, version: String) -> Result<Strin
             .timeout_connect(std::time::Duration::from_secs(15))
             .build();
         let resp = agent.get(&url).call().map_err(|e| e.to_string())?;
+        // ureq 2.x: header lookup is .header(name) — .headers() is private.
         let total: u64 = resp
-            .headers()
-            .get("content-length")
-            .and_then(|v| v.to_str().ok())
+            .header("content-length")
             .and_then(|v| v.parse().ok())
             .unwrap_or(0);
         let dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
@@ -1561,11 +1560,14 @@ fn get_battery_status() -> Result<String, String> {
         )
         .map_err(|e| e.to_string())?;
     let jstr = jni::objects::JString::from(out.l().map_err(|e| e.to_string())?);
-    Ok(env
+    // Bind to a local: a tail-expression temporary would outlive the JVM
+    // guard's borrow (E0597).
+    let s = env
         .get_string(&jstr)
         .map_err(|e| e.to_string())?
         .to_string_lossy()
-        .into_owned())
+        .into_owned();
+    Ok(s)
 }
 
 #[cfg(not(target_os = "android"))]
