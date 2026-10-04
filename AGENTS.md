@@ -1241,7 +1241,7 @@ discovery). Pairing tickets, offline queues, media chunking, the
 `local-chat.js` Proxy adapter and its test pins are documented in
 docs/agents/p2p.md. KEEP: local chat is disabled by default — a fresh
 install must not open QUIC sockets or broadcast LAN beacons unasked.
-Local groups (≤ 4 members, creator-signed roster, per-sender seq replay),
+Local groups (≤ 5 members, creator-signed roster, per-sender seq replay),
 the typing indicator and group media (32 MiB, streamed per online member)
 are protocol-2 features, documented in docs/agents/p2p.md. KEEP: every new
 frame goes out only through `v2_tx`/`v2_link` (a 1.4.x peer drops the session

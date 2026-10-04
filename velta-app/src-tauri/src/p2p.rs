@@ -47,7 +47,7 @@ mod groups;
 use groups::{
     append_log, check_group_name, delete_log, eff_ts, evaluate_incoming, load_group_log, load_groups, new_gid,
     read_log, roster_events, save_groups, scan_log, sys_kind, sys_rec, Evaluation, GroupFileRec, GroupLogRec, GroupMember,
-    GroupRec, GroupState, RosterEvent, MAX_GROUPS, MAX_GROUP_MEMBERS, MAX_GROUP_TEXT, MAX_MEMBER_ADDRS, SYS_DIR,
+    GroupRec, GroupState, RosterEvent, MAX_GROUPS, LEGACY_MAX_GROUP_MEMBERS, MAX_GROUP_MEMBERS, MAX_GROUP_TEXT, MAX_MEMBER_ADDRS, SYS_DIR,
 };
 use std::collections::{BTreeMap, HashSet};
 
@@ -153,6 +153,10 @@ enum Frame {
     GroupFileBegin { gid: String, id: String, ts: u64, name: String, size: u64, mime: String, #[serde(default)] caption: String },
     GroupFileChunk { gid: String, id: String, data: String },
     GroupFileEnd { gid: String, id: String },
+    /// "The largest group I understand" (sent once per v2 session, right after
+    /// the opening Ping). A 1.4.56/57 peer skips it as an unknown frame and
+    /// never sends one, so a missing value means "at most 4".
+    GroupCaps { max: u8 },
     /// Any frame type this build does not know (a newer peer's extension).
     /// It is skipped instead of failing the parse, which used to end the
     /// whole session. Never sent on purpose.
@@ -171,6 +175,7 @@ impl Frame {
                 | Frame::GroupAck { .. }
                 | Frame::GroupLeave { .. }
                 | Frame::GroupGone { .. }
+                | Frame::GroupCaps { .. }
                 | Frame::Typing { gid: Some(_), .. }
                 | Frame::GroupFileBegin { .. }
                 | Frame::GroupFileChunk { .. }
@@ -470,6 +475,9 @@ struct GroupRt {
     /// Last typing hint per (chat key, sender): repeats within
     /// [`TYPING_MIN_GAP`] are dropped before they reach the UI.
     typing_seen: HashMap<(String, NodeId), (bool, std::time::Instant)>,
+    /// Largest group each peer announced (`GroupCaps`), this run only. A peer
+    /// that never announced one is a build with the old cap of 4.
+    caps: HashMap<NodeId, u8>,
 }
 
 /// The tx of a live protocol-2 session to `node`; v1 sessions yield `None`
@@ -1548,6 +1556,7 @@ impl P2p {
             | Frame::GroupAck { .. }
             | Frame::GroupLeave { .. }
             | Frame::GroupGone { .. }
+            | Frame::GroupCaps { .. }
             | Frame::GroupFileBegin { .. }
             | Frame::GroupFileChunk { .. }
             | Frame::GroupFileEnd { .. } => {}
@@ -2370,6 +2379,29 @@ impl P2p {
         inner.groups.values().filter(|g| !g.hidden).map(|g| self.group_json(&inner, g)).collect()
     }
 
+    /// A roster above [`LEGACY_MAX_GROUP_MEMBERS`] is rejected (silently) by
+    /// v1.4.56/57, which report the same protocol as this build. So it is only
+    /// offered when every other member announced a cap that fits it in this
+    /// run (`GroupCaps`, sent on every v2 session open). A member that is
+    /// offline or never announced one counts as an old build: the error says
+    /// who, and that they must be online and updated.
+    fn require_group_cap(&self, inner: &Inner, members: &[GroupMember]) -> Result<()> {
+        if members.len() <= LEGACY_MAX_GROUP_MEMBERS {
+            return Ok(());
+        }
+        let me = self.node_id().to_string();
+        for m in members.iter().filter(|m| m.node_id != me) {
+            let Ok(id) = NodeId::from_str(&m.node_id) else { continue };
+            if (inner.grt.caps.get(&id).copied().unwrap_or(0) as usize) < members.len() {
+                bail!(
+                    "{} may not support groups of more than {LEGACY_MAX_GROUP_MEMBERS} (older Velta, or not online since the update) — update it and keep it online, or use a smaller group",
+                    m.name
+                );
+            }
+        }
+        Ok(())
+    }
+
     /// Roster entry for a paired device that may be invited.
     fn invitee_member(&self, inner: &Inner, id: NodeId) -> Result<GroupMember> {
         let peer = inner
@@ -2388,8 +2420,9 @@ impl P2p {
         })
     }
 
-    /// Creates a group of this device plus 1..=3 paired devices (each must
-    /// speak protocol 2). Epoch 1, signed with the identity key. Delivering
+    /// Creates a group of this device plus 1..=4 paired devices (each must
+    /// speak protocol 2; above 3 invitees each must also be a build that
+    /// announced it handles groups of that size). Epoch 1, signed with the identity key. Delivering
     /// the state to the invitees is the wire phase's job.
     pub fn group_create(self: &Arc<Self>, name: &str, member_ids: &[String]) -> Result<Value> {
         let name = name.trim().to_string();
@@ -2414,6 +2447,7 @@ impl P2p {
             }
             members.push(self.invitee_member(&inner, id)?);
         }
+        self.require_group_cap(&inner, &members)?;
         let mut state = GroupState {
             gid: new_gid(),
             creator: me.to_string(),
@@ -2488,7 +2522,7 @@ impl P2p {
         Ok(group)
     }
 
-    /// Adds a paired device (≤ 4 members in total).
+    /// Adds a paired device (≤ 5 members in total).
     pub fn group_add(&self, gid: &str, node_id: &str) -> Result<Value> {
         let id = NodeId::from_str(node_id).map_err(|_| anyhow!("bad member id"))?;
         self.edit_group(gid, |inner, st| {
@@ -2499,6 +2533,7 @@ impl P2p {
                 bail!("already a member");
             }
             st.members.push(self.invitee_member(inner, id)?);
+            self.require_group_cap(inner, &st.members)?;
             Ok(())
         })
     }
@@ -2628,7 +2663,7 @@ impl P2p {
     ///   creator's signature is what authenticates them.
     /// * A state with an epoch that is not newer is ignored (replays and
     ///   rollbacks are harmless).
-    /// * At most [`MAX_GROUPS`] groups, at most 4 members per state.
+    /// * At most [`MAX_GROUPS`] groups, at most 5 members per state.
     #[allow(dead_code)] // the wire path uses apply_state_locked; tests call this
     pub(crate) fn apply_group_state(&self, state: GroupState, from: NodeId) -> Result<Value> {
         let mut inner = self.inner.lock().unwrap();
@@ -2814,6 +2849,7 @@ impl P2p {
         if proto < 2 {
             return;
         }
+        let _ = tx.send(Frame::GroupCaps { max: MAX_GROUP_MEMBERS as u8 });
         for rec in inner.groups.values() {
             if rec.removed {
                 if rec.pending_leave && rec.state.creator == key {
@@ -2859,6 +2895,9 @@ impl P2p {
                 GroupIn { gid, claimed, seq, id, ts, text, reply_to, reply_text },
             ),
             Frame::GroupAck { gid, have } => self.on_group_ack(inner, from, &gid, have),
+            Frame::GroupCaps { max } => {
+                inner.grt.caps.insert(from, max);
+            }
             Frame::GroupLeave { gid } => self.on_group_leave(inner, from, &gid),
             Frame::Typing { gid: Some(gid), on } => {
                 let member = inner.groups.get(&gid).map_or(false, |r| !r.removed && r.state.contains(&from));
@@ -3593,7 +3632,19 @@ impl P2p {
         }
         .await;
         if res.is_err() {
-            self.group_file_set(&id, &key, "failed", None);
+            // Only if this attempt is still the member's current one: a late
+            // failure of an old attempt (its session died) must not overwrite
+            // a retry that already started on a fresh session.
+            let current = self
+                .group_xfers
+                .lock()
+                .unwrap()
+                .get(&id)
+                .and_then(|t| t.members.get(&key))
+                .map_or(false, |m| m.handle == link.handle);
+            if current {
+                self.group_file_set(&id, &key, "failed", None);
+            }
             // Tell the receiver to drop what it has (its size check fails).
             let _ = link.tx.send(Frame::GroupFileEnd { gid, id });
         }
@@ -5005,10 +5056,12 @@ mod tests {
         let unknown_proto = add_fake_peer(&a, PeerKind::Paired, 0);
         let stranger = fake_node_id();
         let e = add_fake_peer(&a, PeerKind::Paired, 2);
+        let f = add_fake_peer(&a, PeerKind::Paired, 2);
+        let set_cap = |n: &NodeId, max: u8| { a.inner.lock().unwrap().grt.caps.insert(*n, max); };
 
-        // Fifth member: the creator API refuses (creator + 4 invitees).
-        let five = ids(&[b, c, d, e]);
-        assert!(a.group_create("Too big", &five).is_err());
+        // Sixth member: the creator API refuses (creator + 5 invitees).
+        let six = ids(&[b, c, d, e, f]);
+        assert!(a.group_create("Too big", &six).unwrap_err().to_string().contains("at most 5"));
         // Needs a name, at least one member, unique paired v2 members.
         assert!(a.group_create("", &ids(&[b])).is_err());
         assert!(a.group_create(&"n".repeat(65), &ids(&[b])).is_err());
@@ -5032,23 +5085,34 @@ mod tests {
         assert!(is_safe_transfer_id(&gid));
         a.group_state(&gid).unwrap().check().unwrap();
 
-        // Add the 4th, then the cap bites; epoch moves by one per change.
+        // Add the 4th; the 5th needs every member to have announced support for
+        // groups of 5 (1.4.56/57 would drop that roster silently); a 6th never.
         let g = a.group_add(&gid, &d.to_string()).unwrap();
         assert_eq!(g["epoch"], 2);
-        assert!(a.group_add(&gid, &e.to_string()).is_err(), "a fifth member is refused");
+        let err = a.group_add(&gid, &e.to_string()).unwrap_err().to_string();
+        assert!(err.contains("more than 4"), "unannounced members count as old builds: {err}");
+        assert_eq!(a.group_state(&gid).unwrap().members.len(), 4);
+        for n in [&b, &c, &d] { set_cap(n, 4); }
+        set_cap(&e, 5);
+        assert!(a.group_add(&gid, &e.to_string()).is_err(), "members announcing 4 are old builds");
+        for n in [&b, &c, &d, &e] { set_cap(n, MAX_GROUP_MEMBERS as u8); }
+        let g = a.group_add(&gid, &e.to_string()).unwrap();
+        assert_eq!((g["epoch"].as_u64(), g["members"].as_array().unwrap().len()), (Some(3), 5));
+        a.group_state(&gid).unwrap().check().unwrap();
+        assert!(a.group_add(&gid, &f.to_string()).is_err(), "a sixth member is refused");
         assert!(a.group_add(&gid, &d.to_string()).is_err(), "already a member");
         let g = a.group_remove(&gid, &c.to_string()).unwrap();
-        assert_eq!(g["epoch"], 3);
+        assert_eq!(g["epoch"], 4);
         assert!(a.group_remove(&gid, &c.to_string()).is_err(), "no longer a member");
         assert!(a.group_remove(&gid, &a.node_id().to_string()).is_err(), "creator can't be removed");
         assert!(a.group_add(&gid, &old.to_string()).is_err(), "v1 device can't be added later either");
-        let g = a.group_add(&gid, &e.to_string()).unwrap();
-        assert_eq!(g["epoch"], 4);
+        let g = a.group_add(&gid, &c.to_string()).unwrap();
+        assert_eq!(g["epoch"], 5);
         let g = a.group_rename(&gid, "Renamed").unwrap();
-        assert_eq!((g["name"].as_str().unwrap(), g["epoch"].as_u64().unwrap()), ("Renamed", 5));
+        assert_eq!((g["name"].as_str().unwrap(), g["epoch"].as_u64().unwrap()), ("Renamed", 6));
         assert!(a.group_rename(&gid, "").is_err());
         a.group_state(&gid).unwrap().check().unwrap();
-        assert_eq!(a.group_state(&gid).unwrap().members.len(), 4);
+        assert_eq!(a.group_state(&gid).unwrap().members.len(), 5);
 
         // The creator can't "leave", only disband; afterwards the group is read-only.
         assert!(a.group_leave(&gid).is_err());
@@ -5272,12 +5336,13 @@ mod tests {
         let mut forged = alice.group_state(&gid).unwrap();
         forged.name = "Mine now".into();
         assert!(bob.apply_group_state(forged, c).is_err());
-        // A hand-signed 5-member state is refused by the receiver even though
+        // A hand-signed 6-member state is refused by the receiver even though
         // the real creator signed it (the cap is enforced on receipt).
         let mut five = alice.group_state(&gid).unwrap();
         five.epoch = 50;
         five.members.push(GroupMember { node_id: fake_node_id().to_string(), name: "D".into(), addrs: vec![] });
         five.members.push(GroupMember { node_id: fake_node_id().to_string(), name: "E".into(), addrs: vec![] });
+        five.members.push(GroupMember { node_id: fake_node_id().to_string(), name: "F".into(), addrs: vec![] });
         five.sign(&alice.secret).unwrap();
         assert!(bob.apply_group_state(five, a_id).is_err());
         assert_eq!(bob.groups()[0]["epoch"], 2);
@@ -5893,6 +5958,88 @@ mod tests {
             assert_eq!(inner.groups[&gid].have[&b.to_string()], 7);
         }
         assert_eq!(cr2.group_send(&gid, "four", None, None).unwrap()["seq"], 4);
+    }
+
+    // -- groups of up to 5 -------------------------------------------------------
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn five_member_group_is_offered_only_to_members_that_announced_support() {
+        let (a, _rx) = start("grp-five").await;
+        let peers: Vec<NodeId> = (0..4).map(|_| add_fake_peer(&a, PeerKind::Paired, 2)).collect();
+        let five = ids(&peers);
+        let err = a.group_create("Five", &five).unwrap_err().to_string();
+        assert!(err.contains("more than 4") && err.contains("Fake"), "names the member that may be old: {err}");
+        assert!(a.groups().is_empty());
+        // Four of four announced, except one that announced the old cap.
+        for (i, p) in peers.iter().enumerate() {
+            let (tx, _rx) = attach_live(&a, *p, 2);
+            a.handle_frame(*p, Frame::GroupCaps { max: if i == 3 { 4 } else { 5 } }, &tx);
+        }
+        assert!(a.group_create("Five", &five).is_err());
+        let (tx, _rx) = attach_live(&a, peers[3], 2);
+        a.handle_frame(peers[3], Frame::GroupCaps { max: 5 }, &tx);
+        let g = a.group_create("Five", &five).unwrap();
+        assert_eq!(g["members"].as_array().unwrap().len(), 5);
+        // Up to 4 members never needs the announcement.
+        assert!(a.group_create("Four", &ids(&peers[..3])).is_ok());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn session_open_announces_the_group_cap_on_v2_only() {
+        let (a, _rx) = start("grp-caps-open").await;
+        let (b, v1) = (add_fake_peer(&a, PeerKind::Paired, 2), add_fake_peer(&a, PeerKind::Paired, 1));
+        let (tb, mut rb) = attach_live(&a, b, 2);
+        let (tv, mut rv) = attach_live(&a, v1, 1);
+        a.group_session_open(b, &tb);
+        a.group_session_open(v1, &tv);
+        assert!(drain(&mut rb).iter().any(|f| matches!(f, Frame::GroupCaps { max } if *max as usize == MAX_GROUP_MEMBERS)));
+        assert!(drain(&mut rv).is_empty(), "a v1 session never sees a group frame");
+        // Old builds skip it instead of failing the parse.
+        let wire = serde_json::to_string(&Frame::GroupCaps { max: 5 }).unwrap();
+        assert_eq!(wire, r#"{"type":"groupcaps","max":5}"#);
+    }
+
+    /// 5 real engines: the creator's 5-member roster reaches everyone and a
+    /// message fans out to all four others.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn five_real_engines_form_a_group_and_chat() {
+        let (a, a_rx) = start("five-a").await;
+        let mut others = Vec::new();
+        for n in ["b", "c", "d", "e"] {
+            let (x, rx) = start(&format!("five-{n}")).await;
+            pair(&a, &a_rx, &x).await;
+            others.push((x, rx));
+        }
+        // Sessions announce their cap right after pairing.
+        until(30, "every member announced its cap", || {
+            let inner = a.inner.lock().unwrap();
+            others.iter().all(|(x, _)| inner.grt.caps.get(&x.node_id()).copied() == Some(MAX_GROUP_MEMBERS as u8))
+        })
+        .await;
+        let members: Vec<NodeId> = others.iter().map(|(x, _)| x.node_id()).collect();
+        let gid = a.group_create("Five", &ids(&members)).unwrap()["gid"].as_str().unwrap().to_string();
+        for (x, _) in &others {
+            until(30, "roster delivered", || x.groups().len() == 1 && x.groups()[0]["members"].as_array().unwrap().len() == 5).await;
+        }
+        until(60, "full mesh", || {
+            others.iter().all(|(x, _)| {
+                let inner = x.inner.lock().unwrap();
+                members.iter().filter(|m| **m != x.node_id()).all(|m| inner.peers.get(m).map_or(false, |p| p.online()))
+            })
+        })
+        .await;
+        a.group_send(&gid, "hello five", None, None).unwrap();
+        for (_, rx) in &others {
+            let ev = wait_for(rx, 30, |e| e["kind"] == "group-message");
+            assert_eq!(ev["text"], "hello five");
+        }
+        // A member's message reaches the other four too (4 connections each).
+        let (e, _) = &others[3];
+        e.group_send(&gid, "from e", None, None).unwrap();
+        wait_for(&a_rx, 30, |ev| ev["kind"] == "group-message" && ev["text"] == "from e");
+        for (_, rx) in &others[..3] {
+            wait_for(rx, 30, |ev| ev["kind"] == "group-message" && ev["text"] == "from e");
+        }
     }
 
     // -- real engines over QUIC -------------------------------------------------

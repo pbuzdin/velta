@@ -155,7 +155,7 @@ Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
 - Local groups, engine side (Phase 1, no wire messaging and no UI yet; plan:
   local-group-plan.md). `p2p/groups.rs`: `GroupState` = creator-signed
   (ed25519, identity key) roster {gid, creator, epoch, name, closed, members
-  ≤ 4, sig}; `validate()` is enforced on EVERY state we accept (cap 4, no
+  ≤ 5 (4 until v1.4.57), sig}; `validate()` is enforced on EVERY state we accept (cap 5, no
   duplicate/alias node ids, creator first, names ≤ 64 chars, ≤ 3 addrs); addrs
   are not signed, names are; a state is applied only if its epoch is higher.
   `groups.json` (atomic tmp+rename, invalid records dropped on load) holds one
@@ -235,7 +235,7 @@ Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
 - Only the creator renames, adds and removes (single signer); every member can
   leave, the creator disbands. Info sheet buttons come from the pure
   `groupActionsModel()`; `showAddMembersModal` (p2p.js) offers online v2 paired
-  peers within the 4-member cap.
+  peers within the 5-member cap.
 - System lines: the device that observes a change writes `dir:"sys"` records
   into `messages-g-<gid>.jsonl` (`seq 0`, `from ""`, `id sys:<kind>:<epoch>:<i>`;
   kinds created, joined, added, removed, left, gone, renamed, disbanded,
@@ -343,3 +343,32 @@ Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
 - Tests: Rust `group_file_*` (pacing/credits, offline+v1 skipped, per-member
   failure and retry, retry after restart, receive limits/sanitization, gating,
   cleanup, real engines); tests/local-group-media.test.mjs.
+
+### Groups of up to 5 (after 1.4.57)
+
+- `MAX_GROUP_MEMBERS` = 5 (creator included, so up to 4 invitees; UI
+  `GROUP_MAX_OTHERS` = 4); `LEGACY_MAX_GROUP_MEMBERS` = 4 is the cap of
+  v1.4.56/57. Mesh sizing at 5: 4 sessions per member (full mesh), the frame
+  limit (500/s) and ack window (200) are per session / per member so they do not
+  change, `MAX_GROUPS` is unchanged, `MAX_MEMBER_ADDRS` is per roster entry, and
+  the worst legal `GroupState` (5 members, 64-char multi-byte names, 3 IPv6
+  addrs each) is < 8 KB against `MAX_FRAME` 256 KB (unit-tested).
+- KNOWN LIMITATION / capability signal: v1.4.56/57 reject any roster above 4
+  (silently: "group state ignored") and report protocol 2 like current builds,
+  so the engine cannot tell them apart by protocol. Each v2 session therefore
+  opens with `GroupCaps{max}` (is_group, lowercase tag `groupcaps`; old builds
+  skip it as an unknown frame). `require_group_cap` refuses a roster of 5 (create
+  with 4 invitees, or add a 5th) unless EVERY other member announced `max >= 5`
+  in this run (`GroupRt.caps`, in memory, not persisted); an offline member or
+  one that never announced counts as an old build and the error names it
+  ("… may not support groups of more than 4 … update it and keep it online").
+  Groups of up to 4 never need it. Consequence: to make or grow a group to 5,
+  all members must be online (connected at least once since app start) and on
+  the new build. There is no UI-side pre-filter yet; the engine error is shown as
+  a toast.
+- Late failure of an old transfer attempt no longer overwrites a retry that
+  already started (the stream checks that its session handle is still the
+  member's current one).
+- Tests: `five_member_group_*`, `session_open_announces_the_group_cap_*`,
+  `five_real_engines_form_a_group_and_chat`, the worst-case size check in
+  groups.rs.

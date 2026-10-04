@@ -486,7 +486,7 @@ export async function showCreateGroupModal(invoke) {
 }
 
 // Add paired devices to a group the user created: same rules as the create
-// modal (online, protocol 2), limited to the free slots of the 4-member cap.
+// modal (online, protocol 2), limited to the free slots of the 5-member cap.
 // Resolves to the number of members added, or null when cancelled.
 export async function showAddMembersModal(invoke, gid) {
   const status = await invoke("p2p_status");

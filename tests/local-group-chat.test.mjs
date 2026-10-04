@@ -387,7 +387,7 @@ test("create-group picker: v1 and offline peers are disabled with a reason, limi
   assert.equal(by(DAN).disabled, true);
   assert.match(by(DAN).reason, /latest Velta/);
   assert.equal(m.atLimit, false);
-  assert.equal(lc.GROUP_MAX_OTHERS, 3);
+  assert.equal(lc.GROUP_MAX_OTHERS, 4);
   assert.equal(lc.findDuplicateGroup(st, [BOB])?.gid, GID, "same member set is flagged");
   assert.equal(lc.findDuplicateGroup(st, [BOB, CAL]), null);
   const many = { peers: [], groups: Array.from({ length: 16 }, (_, i) => groupJson(String(i), "g", ME, [member(ME, "Me")])) };
@@ -547,17 +547,17 @@ test("info-sheet model: creator gets rename/add/disband, members only leave, fin
   const labels = c => lc.groupActionsModel(c).map(a => a.label);
   assert.equal(labels({ canManage: true, memberCount: 2 }).at(-1), "Disband group");
   assert.equal(labels({ canManage: false, memberCount: 2 }).at(-1), "Leave group");
-  // Cap of 4 including the creator: Add is shown but disabled, with the reason.
-  const full = lc.groupActionsModel({ canManage: true, readOnly: false, memberCount: 4 }).find(a => a.key === "add");
+  // Cap of 5 including the creator: Add is shown but disabled, with the reason.
+  const full = lc.groupActionsModel({ canManage: true, readOnly: false, memberCount: 5 }).find(a => a.key === "add");
   assert.equal(full.disabled, true);
   assert.match(full.label, /full/);
-  assert.equal(lc.groupActionsModel({ canManage: true, readOnly: false, memberCount: 3 }).find(a => a.key === "add").disabled, false);
+  assert.equal(lc.groupActionsModel({ canManage: true, readOnly: false, memberCount: 4 }).find(a => a.key === "add").disabled, false);
   assert.ok(lc.groupActionsModel({ canManage: true, readOnly: false, memberCount: 2 }).filter(a => a.danger).length === 1);
 });
 
 test("member hint explains who can manage and what 'not paired' means", () => {
   const ms = [{ self: true }, { introduced: false }, { introduced: true }];
-  assert.match(lc.groupMemberHint({ canManage: true, readOnly: false }, ms), /only you can rename it and add or remove members \(3\/4\)/);
+  assert.match(lc.groupMemberHint({ canManage: true, readOnly: false }, ms), /only you can rename it and add or remove members \(3\/5\)/);
   assert.match(lc.groupMemberHint({ canManage: false, readOnly: false }, ms), /Only the group's creator/);
   const t = lc.groupMemberHint({ canManage: false, readOnly: false }, ms);
   assert.match(t, /Not paired/);
@@ -612,5 +612,5 @@ test("UI wiring for member management exists and stays creator-only", async () =
   assert.match(app, /confirmRemovePeer\(String\(chat\.id\)\.slice\("p2p:"\.length\)/, "chat-list unpair confirm");
   assert.match(view, /Delivered<\/span>[\s\S]{0,200}m\.delivery\.filter/, "per-member delivery rows in message info");
   assert.match(p2p, /export async function showAddMembersModal/);
-  assert.match(p2p, /GROUP_MAX_OTHERS \+ 1 - inGroup\.size/, "free slots of the 4-member cap");
+  assert.match(p2p, /GROUP_MAX_OTHERS \+ 1 - inGroup\.size/, "free slots of the 5-member cap");
 });

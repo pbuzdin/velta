@@ -1197,7 +1197,7 @@ async function renderLocalChatCard() {
     openChat(row.dataset.open)));
 }
 
-// "New group" for local (P2P) chat: name + up to 3 paired devices, then open
+// "New group" for local (P2P) chat: name + up to 4 paired devices, then open
 // the new group chat. Only reachable with local chat on (the hub card and the
 // new-chat menu entry are both gated on it).
 async function newLocalGroupFlow() {
