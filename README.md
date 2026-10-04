@@ -120,7 +120,7 @@ offline members get no file and show "not yet" with a Retry button per member;
 voice messages and stickers are not offered in groups. A group needs Velta 1.4.56
 or newer on every member's device (a fifth member needs the version after 1.4.57 on
 every device, and all members online when it is added) (group photos/files and the typing indicator
-need the next release; 1.4.56 simply ignores them); older devices keep working
+need 1.4.57; 1.4.56 simply ignores them); older devices keep working
 for 1:1 chat.
 
 **Typing indicator.** Both 1:1 and group local chats show "Anna is typing…" (or
