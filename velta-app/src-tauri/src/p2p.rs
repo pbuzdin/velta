@@ -43,6 +43,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
+mod groups;
+
 /// ALPN of the original Velta local chat protocol (1:1 chat, files).
 const ALPN_V1: &[u8] = b"/velta/p2p/1";
 /// ALPN of protocol 2. Today it carries exactly the v1 frames; the version is
