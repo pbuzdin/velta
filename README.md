@@ -106,6 +106,29 @@ offline). Voice messages are not offered in local chats (the attach menu hides
 the item) and the audio-call button is hidden there — the P2P engine carries
 no call signaling.
 
+**Local groups.** Up to 4 paired devices can chat in a group (no server, no
+relay): the creator signs the member list, every message goes straight between
+the members' devices and is replayed to whoever was offline. Groups appear in
+the chat list like any chat (create one from the Local chat card or the new-chat
+menu; only online devices that run a group-capable version can be added). The
+creator renames the group and adds or removes members from the info sheet;
+anyone can leave and the creator can disband. A tick turns double only when
+every current member has the message, and "Message info" lists who has it.
+Members need not have paired with each other, only with the creator. Photos and
+files (up to **32 MB**) are sent to the members who are online at that moment —
+offline members get no file and show "not yet" with a Retry button per member;
+voice messages and stickers are not offered in groups. A group needs Velta 1.4.56
+or newer on every member's device (group photos/files and the typing indicator
+need the next release; 1.4.56 simply ignores them); older devices keep working
+for 1:1 chat.
+
+**Typing indicator.** Both 1:1 and group local chats show "Anna is typing…" (or
+"Anna and Ben are typing…") in the chat header and the chat list while someone
+types; it disappears a few seconds after they stop. The hints are live only
+(never stored, never sent to offline or older devices). The drawer row "Typing
+indicator" under the Local chat switch turns it off in both directions
+(default on).
+
 **Transfer and queue states are surfaced in the UI.** An outbound file shows a
 progress bar fed by `file-progress` events (2% steps); a completed transfer
 swaps the bar for the file card, and a session death mid-transfer marks the

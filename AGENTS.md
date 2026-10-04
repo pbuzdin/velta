@@ -1241,6 +1241,13 @@ discovery). Pairing tickets, offline queues, media chunking, the
 `local-chat.js` Proxy adapter and its test pins are documented in
 docs/agents/p2p.md. KEEP: local chat is disabled by default — a fresh
 install must not open QUIC sockets or broadcast LAN beacons unasked.
+Local groups (≤ 4 members, creator-signed roster, per-sender seq replay),
+the typing indicator and group media (32 MiB, streamed per online member)
+are protocol-2 features, documented in docs/agents/p2p.md. KEEP: every new
+frame goes out only through `v2_tx`/`v2_link` (a 1.4.x peer drops the session
+on a frame it does not know); group transfer ids and file names get the same
+`is_safe_transfer_id`/`sanitize_name` treatment as 1:1; a `p2pg:<gid>` chat is
+answered by the adapter and never reaches the real core.
 KEEP also: the Proxy's relay-chat fall-throughs forward the FULL argument
 list (`(t, id, ...rest)`) — an early version dropped `ids`/`{forAll}`, so
 with local chat on every message deletion in normal chats failed with
@@ -1376,8 +1383,19 @@ node --test tests/rpc-account-isolation.test.mjs \
              tests/read-tracking.test.mjs \
              tests/scroll-restore.test.mjs \
              tests/chatlist-incremental.test.mjs \
-             tests/categories-bar.test.mjs
+             tests/categories-bar.test.mjs \
+             tests/local-group-chat.test.mjs \
+             tests/local-group-media.test.mjs \
+             tests/local-typing.test.mjs
 ```
+
+The local-chat suites (`local-*.test.mjs`) pin the adapter contract of local
+groups (ids, ticks derived from per-member acks, system lines, member
+management), group media (per-member transfer state, aggregated bar, Retry,
+de-duplication) and the typing indicator (3 s repeat / 5 s idle sender, 6 s
+expiry, the off switch, multi-name text). The engine side is covered by the
+`p2p::tests` Rust unit/integration tests (`cargo test --lib p2p::` in
+`velta-app/src-tauri`).
 
 These cover the account-isolation contract: stale account results (A→B→A),
 entry-account-pinned RPCs, view lifetime across close/reopen, per-account
