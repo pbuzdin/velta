@@ -99,8 +99,14 @@ function mergeHistory(p, rows) {
   for (const r of rows) {
     if (!r || typeof r.id !== "string" || known.has(r.id)) continue;
     known.add(r.id);
-    hist.push(histFromEngine(r));
+    const m = histFromEngine(r);
+    // ack / msg-state events that arrived while the request was in flight
+    // found no row to update; the snapshot may predate them.
+    if (p.early?.sent.has(r.id)) delete m.queued;
+    if (p.early?.acked.has(r.id)) { m.acked = true; delete m.queued; }
+    hist.push(m);
   }
+  p.early = null;
   // History is older than anything that arrived live in the meantime.
   if (hist.length) { p.msgs.splice(0, 0, ...hist); emitChanged(); }
 }
@@ -108,6 +114,7 @@ function mergeHistory(p, rows) {
 async function hydratePeer(p) {
   if (!p || p.hydrated || !isTauri()) return;
   if (!p.hydrating) {
+    p.early = { sent: new Set(), acked: new Set() };
     p.hydrating = invoke()("p2p_messages", { peerId: p.id, limit: HYDRATE_LIMIT })
       .then(rows => {
         if (!Array.isArray(rows)) return;
@@ -115,7 +122,7 @@ async function hydratePeer(p) {
         p.hydrated = true;
       })
       .catch(() => {}) // engine not ready / peer unknown: retry on the next call
-      .finally(() => { p.hydrating = null; });
+      .finally(() => { p.hydrating = null; p.early = null; });
   }
   await p.hydrating;
 }
@@ -254,7 +261,7 @@ export async function retryQueuedItem(chatId, itemId) {
       .catch(err => { throw new Error(String(err?.message || err)); });
     p.queue = p.queue.filter(x => x.id !== itemId);
     const msg = {
-      id: res.id, engineId: res.id, ts: item.ts, text: item.caption, out: true, acked: false,
+      id: nowId(), engineId: res.id, ts: item.ts, text: item.caption, out: true, acked: false,
       file: { name: item.name, size: item.size || 0, mime: item.mime || "", path: res.path },
     };
     p.msgs.push(msg);
@@ -291,7 +298,7 @@ export async function lcRetryTransfer(chatId, msgId) {
   try {
     const res = await invoke()("p2p_send_file", { peerId, path: file.path, name: file.name || "file", caption: msg.text || "" });
     p.msgs.push({
-      id: res.id, engineId: res.id, ts: Date.now(), text: msg.text || "", out: true, acked: false,
+      id: nowId(), engineId: res.id, ts: Date.now(), text: msg.text || "", out: true, acked: false,
       file: { name: file.name || "file", size: file.size || 0, mime: file.mime || "", path: res.path },
     });
   } catch (err) {
@@ -385,11 +392,13 @@ function engineInit() {
       const p = store.peers.get(d.peerId);
       const m = p?.msgs.slice().reverse().find(x => x.out && x.engineId === d.id);
       if (m && !m.acked) { m.acked = true; emitChanged(); }
+      p?.early?.acked.add(d.id);
     } else if (d.kind === "msg-state") {
       // A text queued while the peer was offline went out on reconnect.
       const p = store.peers.get(d.peerId);
       const m = p?.msgs.find(x => x.engineId === d.id);
       if (m && m.queued) { delete m.queued; emitChanged(); }
+      p?.early?.sent.add(d.id);
     } else if (d.kind === "presence") {
       const p = peer(d.peerId);
       const wentOnline = !!d.online && !p.online;
@@ -522,7 +531,7 @@ function handler(prop) {
             const res = await invoke()("p2p_send_file", { peerId, path: file, name, caption: text })
               .catch(err => { throw new Error(String(err?.message || err)); });
             const msg = {
-              id: res.id, engineId: res.id, ts: Date.now(), text, out: true, acked: false,
+              id: nowId(), engineId: res.id, ts: Date.now(), text, out: true, acked: false,
               file: { name, size: 0, mime: "", path: res.path },
             };
             p.msgs.push(msg);

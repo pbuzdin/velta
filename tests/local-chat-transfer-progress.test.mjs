@@ -41,7 +41,8 @@ test("file-progress: bar pct, size backfill, done clears, failed marks", async (
   fire({ kind: "presence", peerId: "x", online: true }); // engine peers arrive offline until presence
 
   const sent = await core.sendMessage("p2p:x", { text: "", file: "/src/a.bin", filename: "a.bin" });
-  assert.equal(sent.id, "E1");
+  assert.equal(typeof sent.id, "number"); // numeric view id, engine id kept aside
+  assert.equal(sent.engineId, "E1");
 
   fire({ kind: "file-progress", peerId: "x", id: "E1", dir: "send", got: 1000, size: 4000 });
   let [m] = await p2pMsgs();
@@ -67,7 +68,7 @@ test("lcRetryTransfer swaps the failed message; restores it if the engine says o
   await lcRetryTransfer("p2p:x", failed.id);
   let msgs = await p2pMsgs();
   assert.equal(msgs.length, 2); // swap, not append
-  assert.equal(msgs[1].id, "E3");
+  assert.equal(msgs[1].engineId, "E3");
   assert.equal(msgs[1].transfer, undefined);
   assert.equal(msgs[1].filePath, "/stored/copy.bin"); // same stored copy, fresh id
 
@@ -78,7 +79,7 @@ test("lcRetryTransfer swaps the failed message; restores it if the engine says o
   await assert.rejects(() => lcRetryTransfer("p2p:x", msgs[1].id), /offline/);
   msgs = await p2pMsgs();
   assert.equal(msgs.length, 2); // message came back instead of vanishing
-  assert.equal(msgs[1].id, "E3");
+  assert.equal(msgs[1].engineId, "E3");
 });
 
 test("media queued while offline auto-flushes when presence goes online", async () => {
@@ -97,7 +98,7 @@ test("media queued while offline auto-flushes when presence goes online", async 
   await new Promise(r => setTimeout(r, 0)); // flush runs async
   msgs = await p2pMsgs();
   assert.equal(msgs[msgs.length - 1].queued, undefined);
-  assert.equal(msgs[msgs.length - 1].id, `E${sendN}`); // engine re-send replaced it
+  assert.equal(msgs[msgs.length - 1].engineId, `E${sendN}`); // engine re-send replaced it
 
   // Peer drops again, another file is queued, and the flush stops on the
   // engine rejecting the send — the item stays queued for the next presence.
@@ -219,4 +220,22 @@ test("p2p deleteMessages stays a no-op", async () => {
   const wrapped = withLocalChat(inner);
   await wrapped.deleteMessages("p2p:abc", [1]);
   assert.equal(calls.length, 0);
+});
+
+test("file sends get NUMERIC view ids (append-only filter), engine id kept in engineId", async () => {
+  globalThis.__TAURI__.core.invoke = baseInvoke;
+  fire({ kind: "presence", peerId: "x", online: true });
+  const before = await p2pMsgs();
+  const maxId = Math.max(...before.map(m => m.id));
+  const text = await core.sendMessage("p2p:x", { text: "hello" });
+  const file = await core.sendMessage("p2p:x", { text: "", file: "/src/n.bin", filename: "n.bin" });
+  assert.equal(typeof file.id, "number");
+  assert.ok(file.id > text.id, "ids increase in send order across text and file");
+  assert.match(file.engineId, /^E\d+$/);
+  // chat-view's tail refetch keeps only ids above what it already holds
+  const fresh = (await p2pMsgs()).filter(m => m.id > maxId);
+  assert.deepEqual(fresh.map(m => m.id), [text.id, file.id]);
+  // progress events address the message by engine id and still find it
+  fire({ kind: "file-progress", peerId: "x", id: file.engineId, dir: "send", got: 10, size: 100 });
+  assert.equal((await p2pMsgs()).find(m => m.id === file.id).transfer.pct, 10);
 });
