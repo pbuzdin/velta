@@ -37,14 +37,31 @@ use std::{
 use anyhow::{anyhow, bail, Context as _, Result};
 use data_encoding::BASE64;
 use data_encoding::{BASE64URL_NOPAD, HEXLOWER};
-use iroh::{endpoint::{Connection, RecvStream, SendStream, TransportConfig}, Endpoint, NodeAddr, NodeId, RelayMode, SecretKey};
+use iroh::{endpoint::{Connection, ConnectOptions, RecvStream, SendStream, TransportConfig}, Endpoint, NodeAddr, NodeId, RelayMode, SecretKey};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
-/// ALPN protocol identifier for the Velta local chat protocol.
-const ALPN: &[u8] = b"/velta/p2p/1";
+/// ALPN of the original Velta local chat protocol (1:1 chat, files).
+const ALPN_V1: &[u8] = b"/velta/p2p/1";
+/// ALPN of protocol 2. Today it carries exactly the v1 frames; the version is
+/// negotiated by TLS before any frame so later versions can add frame types
+/// that a v1 peer will never see (it only offers/accepts v1).
+const ALPN_V2: &[u8] = b"/velta/p2p/2";
+/// ALPNs this build accepts and offers, preferred first. The first entry is
+/// the primary ALPN of an outgoing dial, the rest are fallbacks.
+fn default_alpns() -> Vec<Vec<u8>> {
+    vec![ALPN_V2.to_vec(), ALPN_V1.to_vec()]
+}
+/// Protocol number of an established connection (negotiated ALPN); anything
+/// that is not v2 is v1.
+fn proto_of(conn: &Connection) -> u8 {
+    match conn.alpn() {
+        Some(a) if a == ALPN_V2 => 2,
+        _ => 1,
+    }
+}
 /// Ticket prefix, mirrors the DCBACKUP style of out-of-band tickets.
 const TICKET_PREFIX: &str = "VELTAP2P1:";
 /// Compact binary ticket format tag (first payload byte).
@@ -259,6 +276,10 @@ struct PersistedPeer {
     node_id: String,
     name: String,
     addrs: Vec<String>,
+    /// Protocol of the last session with this peer (1, 2, or 0 = never
+    /// connected / written by an older build). Old builds ignore the field.
+    #[serde(default)]
+    proto: u8,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -275,11 +296,15 @@ struct PeersFile {
 struct LiveHandle {
     id: u64,
     tx: mpsc::UnboundedSender<Frame>,
+    /// Negotiated protocol of this session (1 or 2).
+    proto: u8,
 }
 
 struct Peer {
     name: String,
     addrs: Vec<SocketAddr>,
+    /// Protocol of the last session (persisted), 0 = unknown yet.
+    proto: u8,
     live: Vec<LiveHandle>,
     connecting: bool,
     queued: Vec<StoredMsg>,
@@ -359,6 +384,8 @@ pub struct P2p {
     /// peer's transfer that happened to use the same id.
     rx_files: Mutex<HashMap<(NodeId, String), FileRx>>,
     endpoint: Endpoint,
+    /// ALPNs accepted and offered when dialing (see [`default_alpns`]).
+    alpns: Vec<Vec<u8>>,
     sink: Sink,
     inner: Mutex<Inner>,
     handle_ids: AtomicU64,
@@ -373,6 +400,18 @@ impl P2p {
     /// Loads (or creates) the identity and store in `dir`, binds the endpoint
     /// and starts the accept + maintenance loops.
     pub async fn start(dir: PathBuf, blobs_dir: PathBuf, sink: Sink) -> Result<Arc<P2p>> {
+        Self::start_with_alpns(dir, blobs_dir, sink, default_alpns()).await
+    }
+
+    /// [`P2p::start`] with an explicit ALPN list. Production always passes
+    /// [`default_alpns`]; tests start a v1-only engine to stand in for a
+    /// released 1.4.x build.
+    async fn start_with_alpns(
+        dir: PathBuf,
+        blobs_dir: PathBuf,
+        sink: Sink,
+        alpns: Vec<Vec<u8>>,
+    ) -> Result<Arc<P2p>> {
         std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
         std::fs::create_dir_all(&blobs_dir).with_context(|| format!("create {}", blobs_dir.display()))?;
 
@@ -383,7 +422,7 @@ impl P2p {
         transport_config.max_idle_timeout(Some(IDLE_TIMEOUT.try_into()?));
         let endpoint = Endpoint::builder()
             .secret_key(secret)
-            .alpns(vec![ALPN.to_vec()])
+            .alpns(alpns.clone())
             .relay_mode(RelayMode::Disabled)
             .discovery_local_network()
             .transport_config(transport_config)
@@ -408,6 +447,7 @@ impl P2p {
                 Peer {
                     name: persisted.name,
                     addrs,
+                    proto: persisted.proto,
                     live: Vec::new(),
                     connecting: false,
                     queued: Vec::new(),
@@ -421,6 +461,7 @@ impl P2p {
             blobs_dir,
             rx_files: Mutex::new(HashMap::new()),
             endpoint,
+            alpns,
             sink,
             inner: Mutex::new(Inner {
                 name,
@@ -477,6 +518,8 @@ impl P2p {
                     "online": peer.online(),
                     "queued": peer.queued.len(),
                     "lastTs": last_ts,
+                    // Best live session's protocol, else the last known one.
+                    "proto": peer.live.iter().map(|h| h.proto).max().unwrap_or(peer.proto),
                 })
             })
             .collect();
@@ -577,10 +620,11 @@ impl P2p {
         }
         let node_addr = NodeAddr::new(node_id).with_direct_addresses(addrs.clone());
 
-        let conn = tokio::time::timeout(CONNECT_TIMEOUT, self.endpoint.connect(node_addr, ALPN))
+        let conn = tokio::time::timeout(CONNECT_TIMEOUT, self.dial(node_addr))
             .await
             .map_err(|_| anyhow!("connect timed out — are both devices on the same network?"))?
             .context("connect failed")?;
+        let proto = proto_of(&conn);
         let (mut send, mut recv) = conn.open_bi().await?;
 
         let my_name = self.inner.lock().unwrap().name.clone();
@@ -615,7 +659,7 @@ impl P2p {
         let peer_name = if name_hint.is_empty() { inviter_name } else { name_hint };
         self.add_peer(node_id, peer_name, addrs).await?;
         let (tx, rx) = mpsc::unbounded_channel();
-        self.register_live(node_id, tx.clone());
+        self.register_live(node_id, tx.clone(), proto);
         self.flush_queue(node_id, &tx);
         tauri::async_runtime::spawn(
             self.clone()
@@ -805,6 +849,7 @@ impl P2p {
                     node_id: id.to_string(),
                     name: p.name.clone(),
                     addrs: p.addrs.iter().map(|a| a.to_string()).collect(),
+                    proto: p.proto,
                 })
                 .collect();
             std::fs::write(
@@ -861,6 +906,7 @@ impl P2p {
         let peer = inner.peers.entry(node_id).or_insert_with(|| Peer {
             name: String::new(),
             addrs: Vec::new(),
+            proto: 0,
             live: Vec::new(),
             connecting: false,
             queued: Vec::new(),
@@ -886,6 +932,7 @@ impl P2p {
                 node_id: id.to_string(),
                 name: p.name.clone(),
                 addrs: p.addrs.iter().map(|a| a.to_string()).collect(),
+                proto: p.proto,
             })
             .collect();
         std::fs::write(
@@ -895,13 +942,31 @@ impl P2p {
         Ok(())
     }
 
-    fn register_live(&self, node_id: NodeId, tx: mpsc::UnboundedSender<Frame>) -> u64 {
+    fn register_live(&self, node_id: NodeId, tx: mpsc::UnboundedSender<Frame>, proto: u8) -> u64 {
         let id = self.handle_ids.fetch_add(1, Ordering::Relaxed);
         let mut inner = self.inner.lock().unwrap();
+        let mut changed = false;
         if let Some(peer) = inner.peers.get_mut(&node_id) {
-            peer.live.push(LiveHandle { id, tx });
+            peer.live.push(LiveHandle { id, tx, proto });
+            if peer.proto != proto {
+                peer.proto = proto;
+                changed = true;
+            }
+        }
+        if changed {
+            let _ = self.persist_peers(&inner);
         }
         id
+    }
+
+    /// Opens a connection to `addr`, offering our ALPNs in preference order
+    /// (v2 first, v1 as fallback). A released 1.4.x peer only knows v1, so
+    /// TLS settles on v1 and the session behaves exactly as before.
+    async fn dial(&self, addr: NodeAddr) -> Result<Connection> {
+        let (primary, rest) = self.alpns.split_first().context("no ALPN configured")?;
+        let opts = ConnectOptions::new().with_additional_alpns(rest.to_vec());
+        let connecting = self.endpoint.connect_with_opts(addr, primary, opts).await?;
+        Ok(connecting.await?)
     }
 
     /// Queues all pending messages of `node_id` into `tx` (the session's write
@@ -999,11 +1064,12 @@ impl P2p {
             eprintln!("[p2p-dbg] dialing {} addrs={:?}", node_id, addr.direct_addresses);
         }
         let attempt = async {
-            let conn = self.endpoint.connect(addr, ALPN).await?;
+            let conn = self.dial(addr).await?;
+            let proto = proto_of(&conn);
             let (mut send, recv) = conn.open_bi().await?;
             // Opening frame so the accepting side has a stream to write on.
             write_json(&mut send, &Frame::Ping).await?;
-            Ok::<_, anyhow::Error>((conn, send, recv))
+            Ok::<_, anyhow::Error>((conn, send, recv, proto))
         };
         let connected = match tokio::time::timeout(CONNECT_TIMEOUT, attempt).await {
             Ok(Ok(v)) => v,
@@ -1032,10 +1098,10 @@ impl P2p {
                 return;
             }
         };
-        let (conn, send, recv) = connected;
+        let (conn, send, recv, proto) = connected;
 
         let (tx, rx) = mpsc::unbounded_channel();
-        self.register_live(node_id, tx.clone());
+        self.register_live(node_id, tx.clone(), proto);
         self.set_connecting(node_id, false).await;
         self.flush_queue(node_id, &tx);
         self.sink
@@ -1372,6 +1438,7 @@ impl P2p {
     /// known peers.
     async fn handle_incoming(self: Arc<Self>, conn: Connection) -> Result<()> {
         let node_id = conn.remote_node_id().context("no remote node id")?;
+        let proto = proto_of(&conn);
         let paired = {
             let inner = self.inner.lock().unwrap();
             inner.peers.contains_key(&node_id)
@@ -1403,7 +1470,7 @@ impl P2p {
                 }
             }
             let (tx, rx) = mpsc::unbounded_channel();
-            self.register_live(node_id, tx.clone());
+            self.register_live(node_id, tx.clone(), proto);
             self.flush_queue(node_id, &tx);
             self.sink
                 .emit(json!({ "kind": "presence", "peerId": node_id.to_string(), "online": true }));
@@ -1464,7 +1531,7 @@ impl P2p {
         write_json(&mut send, &Hello::Welcome { name: my_name }).await?;
 
         let (tx, rx) = mpsc::unbounded_channel();
-        self.register_live(node_id, tx.clone());
+        self.register_live(node_id, tx.clone(), proto);
         self.flush_queue(node_id, &tx);
         self.sink.emit(json!({
             "kind": "pairing",
@@ -2341,6 +2408,127 @@ mod tests {
         let (alice_handle_after, _) = handle(&alice, &bob_id).expect("session still live");
         assert_eq!(alice_handle, alice_handle_after);
         assert!(alice.status()["peers"][0]["online"].as_bool().unwrap());
+    }
+
+    /// Starts an engine that only speaks ALPN v1: stands in for a released
+    /// 1.4.x build (it neither accepts nor offers v2).
+    async fn start_v1_only(tag: &str) -> (Arc<P2p>, std_mpsc::Receiver<Value>) {
+        let (tx, rx) = std_mpsc::channel();
+        let p2p = P2p::start_with_alpns(
+            temp_dir(tag),
+            temp_dir(&format!("{tag}-blobs")),
+            Sink::Test(tx),
+            vec![ALPN_V1.to_vec()],
+        )
+        .await
+        .unwrap();
+        p2p.set_name(tag.to_string()).unwrap();
+        (p2p, rx)
+    }
+
+    /// `proto` reported for the peer `other` by `engine.status()`, and the
+    /// value persisted in its peers.json.
+    fn proto_seen(engine: &Arc<P2p>, other: &NodeId) -> (u64, u8) {
+        let status = engine.status();
+        let live = status["peers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["id"] == other.to_string().as_str())
+            .expect("peer in status")["proto"]
+            .as_u64()
+            .unwrap();
+        let stored = load_peers(&engine.dir)
+            .into_iter()
+            .find(|p| p.node_id == other.to_string())
+            .expect("peer persisted")
+            .proto;
+        (live, stored)
+    }
+
+    /// Chat both ways + a file, to prove the session is fully functional.
+    async fn chat_roundtrip(
+        a: &Arc<P2p>, a_rx: &std_mpsc::Receiver<Value>,
+        b: &Arc<P2p>, b_rx: &std_mpsc::Receiver<Value>,
+    ) {
+        let (a_id, b_id) = (a.node_id().to_string(), b.node_id().to_string());
+        let m1 = a.send(&b_id, "ping from a", None, None).unwrap();
+        wait_for(b_rx, 20, |e| e["kind"] == "message" && e["text"] == "ping from a");
+        wait_for(a_rx, 20, |e| e["kind"] == "ack" && e["id"] == m1["id"]);
+        let m2 = b.send(&a_id, "pong from b", None, None).unwrap();
+        wait_for(a_rx, 20, |e| e["kind"] == "message" && e["text"] == "pong from b");
+        wait_for(b_rx, 20, |e| e["kind"] == "ack" && e["id"] == m2["id"]);
+    }
+
+    /// Two current builds negotiate ALPN v2, remember it per session and per
+    /// persisted peer, and 1:1 chat works exactly as before.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn existing_pair_and_chat_still_passes_on_alpn_v2() {
+        let (alice, alice_rx) = start("alice-v2").await;
+        let (bob, bob_rx) = start("bob-v2").await;
+        let (alice_id, bob_id) = (alice.node_id(), bob.node_id());
+
+        let ticket = alice.create_invite().await.unwrap();
+        bob.accept_invite(&ticket).await.unwrap();
+        wait_for(&alice_rx, 15, |e| e["kind"] == "pairing");
+        chat_roundtrip(&alice, &alice_rx, &bob, &bob_rx).await;
+
+        assert_eq!(proto_seen(&bob, &alice_id), (2, 2), "dialer side");
+        assert_eq!(proto_seen(&alice, &bob_id), (2, 2), "accepting side");
+        let live_protos = |p: &Arc<P2p>, o: &NodeId| -> Vec<u8> {
+            p.inner.lock().unwrap().peers[o].live.iter().map(|h| h.proto).collect()
+        };
+        assert!(live_protos(&alice, &bob_id).iter().all(|p| *p == 2));
+        assert!(live_protos(&bob, &alice_id).iter().all(|p| *p == 2));
+    }
+
+    /// A released 1.4.x build only knows ALPN v1. Pairing and chat must keep
+    /// working in BOTH dial directions, and both sides must record proto 1
+    /// (so later group code never sends it a v2-only frame).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn v1_only_peer_negotiates_alpn_v1_and_chat_still_works() {
+        // New build dials an old build (old shows the invite, new accepts).
+        let (old, old_rx) = start_v1_only("old-v1").await;
+        let (new, new_rx) = start("new-dials").await;
+        let ticket = old.create_invite().await.unwrap();
+        new.accept_invite(&ticket).await.unwrap();
+        wait_for(&old_rx, 15, |e| e["kind"] == "pairing");
+        chat_roundtrip(&new, &new_rx, &old, &old_rx).await;
+        assert_eq!(proto_seen(&new, &old.node_id()), (1, 1));
+        assert_eq!(proto_seen(&old, &new.node_id()).0, 1);
+
+        // Old build dials a new build (new shows the invite, old accepts).
+        let (new2, new2_rx) = start("new-accepts").await;
+        let (old2, old2_rx) = start_v1_only("old-dials").await;
+        let ticket = new2.create_invite().await.unwrap();
+        old2.accept_invite(&ticket).await.unwrap();
+        wait_for(&new2_rx, 15, |e| e["kind"] == "pairing");
+        chat_roundtrip(&old2, &old2_rx, &new2, &new2_rx).await;
+        assert_eq!(proto_seen(&new2, &old2.node_id()), (1, 1));
+        assert_eq!(proto_seen(&old2, &new2.node_id()).0, 1);
+    }
+
+    /// peers.json written by an older build has no `proto`; a newer file must
+    /// stay readable by a build that does not know the field.
+    #[test]
+    fn persisted_peer_proto_is_optional_and_ignored_by_old_readers() {
+        let old_row = r#"{"peers":[{"node_id":"aa","name":"n","addrs":["1.2.3.4:5"]}]}"#;
+        let parsed: PeersFile = serde_json::from_str(old_row).unwrap();
+        assert_eq!(parsed.peers[0].proto, 0);
+
+        let new_row = serde_json::to_string(&PeersFile {
+            peers: vec![PersistedPeer { node_id: "aa".into(), name: "n".into(), addrs: vec![], proto: 2 }],
+        })
+        .unwrap();
+        assert!(new_row.contains(r#""proto":2"#));
+        #[derive(Deserialize)]
+        struct OldPeer { node_id: String, name: String, addrs: Vec<String> }
+        #[derive(Deserialize)]
+        struct OldFile { peers: Vec<OldPeer> }
+        let old_reader: OldFile = serde_json::from_str(&new_row).unwrap();
+        assert_eq!(old_reader.peers[0].node_id, "aa");
+        assert_eq!(old_reader.peers[0].name, "n");
+        assert!(old_reader.peers[0].addrs.is_empty());
     }
 
     #[test]
