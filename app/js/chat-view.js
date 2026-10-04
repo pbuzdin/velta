@@ -333,6 +333,15 @@ function cssZoom() {
   } catch { return 1; }
 }
 
+// Touches that start on these never begin a bubble / history swipe: they have
+// their own drag or tap behaviour. The link-preview card is an <a> too, but
+// it is a plain tap target that fills much of the bubble, so it must swipe
+// like the rest of the bubble (#35). Inline text links keep opting out.
+export const GESTURE_SKIP_SELECTOR = "button, a:not(.link-preview), input, textarea, audio, video";
+export function gestureSkipTarget(target) {
+  return !!target?.closest?.(GESTURE_SKIP_SELECTOR);
+}
+
 export class ChatView {
   constructor(core, { onChatsChanged, onForward, onOpenChat, onBack }) {
     this.core = core;
@@ -1783,12 +1792,14 @@ export class ChatView {
     });
     let pressTimer;
     let swipe = null;
+    let swipedAt = 0;
     const endReplySwipe = (commit) => {
       clearTimeout(pressTimer);
       const s = swipe;
       swipe = null;
       this._replySwipe = false;
       if (!s?.on) return;
+      swipedAt = Date.now();
       s.bubble.style.transition = "transform .16s ease-out";
       s.bubble.style.transform = "";
       const tidy = () => { s.bubble.style.transition = ""; };
@@ -1816,7 +1827,7 @@ export class ChatView {
       swipe = null;
       if (!this._mobileGestures() || this.readOnly || this.selection.size || this._backSwipe) return;
       const bubble = e.target.closest?.(".bubble");
-      if (!bubble || e.target.closest?.("button, a, input, textarea, audio, video")) return;
+      if (!bubble || gestureSkipTarget(e.target)) return;
       const t = e.touches[0];
       swipe = { x: t.clientX, y: t.clientY, bubble, dx: 0, on: false };
     }, { passive: true });
@@ -1858,6 +1869,9 @@ export class ChatView {
       // wry's new-window handling — it is NOT a working fallback path).
       const link = e.target.closest("a[href]");
       if (link) {
+        // A swipe that began on a link-preview card must not also open it
+        // if the WebView still synthesises a click when the finger lifts.
+        if (Date.now() - swipedAt < 400) { e.preventDefault(); e.stopPropagation(); return; }
         const href = link.getAttribute("href") || "";
         if (/^https?:/i.test(href)) {
           e.preventDefault();
@@ -3115,7 +3129,7 @@ export class ChatView {
     };
     scroller.addEventListener("touchstart", e => {
       if (!this._mobileGestures() || this._textSelect || this._replySwipe || e.touches.length !== 1) return;
-      if (e.target.closest?.("button, a, input, textarea, audio, video")) return;
+      if (gestureSkipTarget(e.target)) return;
       const t = e.touches[0];
       g = { x: t.clientX, y: t.clientY, dx: 0, on: false, settled: false };
     }, { passive: true });
