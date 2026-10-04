@@ -59,6 +59,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── media.js          # media URL helpers: blobfile:// protocol (boot-probed) → loopback server → asset protocol + per-element fallback
 │   │   ├── p2p.js            # Local chat UI: drawer toggle, list card, pairing, legacy 1:1 modal (Tauri only)
 │   │   ├── read-markers.js   # manual "read up to here" markers per (account, chat), localStorage-only
+│   │   ├── qr-actions.js     # QR screen logic: scan-tab/share availability, copy/share link, scanned-code classification (#37)
 │   │   ├── qr-scan.js        # code acquisition: paste or camera scan (native BarcodeDetector probed with a 2s timeout, vendored jsQR fallback — many Android WebViews ship no Shape Detection API or one whose detect() hangs)
 │   │   ├── format.js         # pure time/size/pageBounds helpers shared by prod modules (mock-core re-exports them)
 │   │   ├── mock-core.js      # in-memory demo core implementing the JSON-RPC surface (NOT in the prod import graph: transport imports it dynamically)
@@ -921,7 +922,7 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   Contacts come from `core.getContacts` through a virtual scroller
   (`sideScroller`, stopped by `stopSideScroller` on every view switch);
   Calls read the LOCAL call log (localStorage `velta-call-log`, capped 30 —
-  the core has no call-log API); QR renders `inviteQrProvider(null)`. The
+  the core has no call-log API); QR renders `inviteQrProvider(null)` (#37: tabs My code / Scan a QR code — scan tab phones-only, in-page `mountScanner` in qr-scan.js, camera stopped by `stopQrScanner` from `setListView`; Copy a link; Share a link = `share_text` JNI → Share.kt on Android, Web Share elsewhere; logic in qr-actions.js, test tests/qr-screen.test.mjs). The
   header search button and `#btn-new-chat` are view toggles
   (`syncHeaderButtons()` from `setListView` — keep that call). Button
   visibility is user-configurable (drawer → Bottom bar buttons, localStorage
