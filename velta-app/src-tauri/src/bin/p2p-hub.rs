@@ -8,6 +8,18 @@
 //!   `invite`                         print a fresh invite ticket
 //!   `status`                         print the status snapshot
 //!
+//! Local groups (ids/gids may be abbreviated to a unique prefix; use `_` for
+//! a space in a group name):
+//!   `groups`                         list groups
+//!   `gcreate <name> <peer>...`       create a group with 1-3 paired peers
+//!   `gsend <gid> <text>`             message a group
+//!   `gmsgs <gid>`                    print the group log
+//!   `gadd <gid> <peer>`              add a paired peer (creator)
+//!   `gremove <gid> <member>`         remove a member (creator)
+//!   `grename <gid> <name>`           rename (creator)
+//!   `gdisband <gid>`                 close the group (creator)
+//!   `gleave <gid>`                   leave the group
+//!
 //! The command file path and the ticket are printed at startup.
 
 use anyhow::Result;
@@ -97,6 +109,83 @@ async fn main() -> Result<()> {
                     },
                     None => println!("[SEND-ERR] no peer matching prefix '{prefix}'"),
                 }
+            } else if line == "groups" {
+                for g in p2p.groups() {
+                    println!("[GROUP] {g}");
+                }
+            } else if let Some(rest) = line.strip_prefix("gcreate ") {
+                let mut parts = rest.split_whitespace();
+                let name = parts.next().unwrap_or("").replace('_', " ");
+                let members: Vec<String> = parts.filter_map(|p| resolve_peer(&p2p, p)).collect();
+                match p2p.group_create(&name, &members) {
+                    Ok(g) => println!("[GROUP-CREATED] {g}"),
+                    Err(e) => println!("[GROUP-ERR] {e:#}"),
+                }
+            } else if let Some(rest) = line.strip_prefix("gsend ") {
+                let mut parts = rest.splitn(2, ' ');
+                let prefix = parts.next().unwrap_or("");
+                let text = parts.next().unwrap_or("");
+                match resolve_group(&p2p, prefix) {
+                    Some(gid) => match p2p.group_send(&gid, text, None, None) {
+                        Ok(sent) => println!("[GROUP-SENT] {sent} -> {gid}: {text}"),
+                        Err(e) => println!("[GROUP-ERR] {e:#}"),
+                    },
+                    None => println!("[GROUP-ERR] no group matching '{prefix}'"),
+                }
+            } else if let Some(prefix) = line.strip_prefix("gmsgs ") {
+                match resolve_group(&p2p, prefix.trim()) {
+                    Some(gid) => match p2p.group_messages(&gid, 50) {
+                        Ok(rows) => rows.iter().for_each(|r| println!("[GROUP-MSG] {r}")),
+                        Err(e) => println!("[GROUP-ERR] {e:#}"),
+                    },
+                    None => println!("[GROUP-ERR] no group matching '{}'", prefix.trim()),
+                }
+            } else if let Some(rest) = line.strip_prefix("gadd ") {
+                let mut parts = rest.split_whitespace();
+                let (gp, pp) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+                match (resolve_group(&p2p, gp), resolve_peer(&p2p, pp)) {
+                    (Some(gid), Some(peer)) => match p2p.group_add(&gid, &peer) {
+                        Ok(g) => println!("[GROUP-UPDATED] {g}"),
+                        Err(e) => println!("[GROUP-ERR] {e:#}"),
+                    },
+                    _ => println!("[GROUP-ERR] usage: gadd <gid> <peer>"),
+                }
+            } else if let Some(rest) = line.strip_prefix("gremove ") {
+                let mut parts = rest.split_whitespace();
+                let (gp, mp) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+                match resolve_group(&p2p, gp).and_then(|gid| resolve_member(&p2p, &gid, mp).map(|m| (gid, m))) {
+                    Some((gid, member)) => match p2p.group_remove(&gid, &member) {
+                        Ok(g) => println!("[GROUP-UPDATED] {g}"),
+                        Err(e) => println!("[GROUP-ERR] {e:#}"),
+                    },
+                    None => println!("[GROUP-ERR] usage: gremove <gid> <member>"),
+                }
+            } else if let Some(rest) = line.strip_prefix("grename ") {
+                let mut parts = rest.splitn(2, ' ');
+                let (gp, name) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+                match resolve_group(&p2p, gp) {
+                    Some(gid) => match p2p.group_rename(&gid, name) {
+                        Ok(g) => println!("[GROUP-UPDATED] {g}"),
+                        Err(e) => println!("[GROUP-ERR] {e:#}"),
+                    },
+                    None => println!("[GROUP-ERR] no group matching '{gp}'"),
+                }
+            } else if let Some(prefix) = line.strip_prefix("gdisband ") {
+                match resolve_group(&p2p, prefix.trim()) {
+                    Some(gid) => match p2p.group_disband(&gid) {
+                        Ok(g) => println!("[GROUP-UPDATED] {g}"),
+                        Err(e) => println!("[GROUP-ERR] {e:#}"),
+                    },
+                    None => println!("[GROUP-ERR] no group matching '{}'", prefix.trim()),
+                }
+            } else if let Some(prefix) = line.strip_prefix("gleave ") {
+                match resolve_group(&p2p, prefix.trim()) {
+                    Some(gid) => match p2p.group_leave(&gid) {
+                        Ok(g) => println!("[GROUP-UPDATED] {g}"),
+                        Err(e) => println!("[GROUP-ERR] {e:#}"),
+                    },
+                    None => println!("[GROUP-ERR] no group matching '{}'", prefix.trim()),
+                }
             } else {
                 println!("[CMD?] {line}");
             }
@@ -161,3 +250,22 @@ fn resolve_peer(p2p: &P2p, prefix: &str) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+fn resolve_group(p2p: &P2p, prefix: &str) -> Option<String> {
+    p2p.groups()
+        .iter()
+        .filter_map(|g| g["gid"].as_str())
+        .find(|gid| !prefix.is_empty() && gid.starts_with(prefix))
+        .map(|s| s.to_string())
+}
+
+/// A member of `gid` (paired or introduced) by node-id prefix.
+fn resolve_member(p2p: &P2p, gid: &str, prefix: &str) -> Option<String> {
+    let groups = p2p.groups();
+    let group = groups.iter().find(|g| g["gid"] == gid)?;
+    group["members"]
+        .as_array()?
+        .iter()
+        .filter_map(|m| m["id"].as_str())
+        .find(|id| !prefix.is_empty() && id.starts_with(prefix))
+        .map(|s| s.to_string())
+}

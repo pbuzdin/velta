@@ -197,3 +197,9 @@ Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
   presence an Introduced member ever produces). Introduced members claim
   their own name in GroupSync; it wins over the roster name for display.
   Do not route group traffic through `peer.msgs`/`persist_messages`.
+  Commands (`p2p_groups`, `p2p_group_create{name,memberIds}`, `_add|_remove{gid,
+  nodeId}`, `_rename{gid,name}`, `_disband|_leave{gid}`, `_send{gid,text,
+  replyTo,replyText}` -> `{id,seq,ts,tsEff,queued}`, `_messages{gid,limit}` ->
+  rows with `delivered:[node ids that acked]`) are registered in lib.rs next
+  to the 1:1 ones. p2p-hub understands `groups|gcreate|gsend|gmsgs|gadd|
+  gremove|grename|gdisband|gleave`.

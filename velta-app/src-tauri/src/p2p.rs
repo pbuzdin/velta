@@ -3442,6 +3442,105 @@ pub fn p2p_approve_pair(
         .map_err(|e| e.to_string())
 }
 
+// -- Local group chats (Phase 2). Same shape as the 1:1 commands above. -----
+
+#[tauri::command]
+pub fn p2p_groups(state: tauri::State<'_, P2pState>) -> Result<Vec<Value>, String> {
+    engine(&state).map_err(|e| e.to_string()).map(|e| e.groups())
+}
+
+/// Creates a group of this device plus 1..=3 paired devices.
+#[tauri::command]
+pub fn p2p_group_create(
+    state: tauri::State<'_, P2pState>,
+    name: String,
+    member_ids: Vec<String>,
+) -> Result<Value, String> {
+    engine(&state)
+        .map_err(|e| e.to_string())?
+        .group_create(&name, &member_ids)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn p2p_group_add(
+    state: tauri::State<'_, P2pState>,
+    gid: String,
+    node_id: String,
+) -> Result<Value, String> {
+    engine(&state)
+        .map_err(|e| e.to_string())?
+        .group_add(&gid, &node_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn p2p_group_remove(
+    state: tauri::State<'_, P2pState>,
+    gid: String,
+    node_id: String,
+) -> Result<Value, String> {
+    engine(&state)
+        .map_err(|e| e.to_string())?
+        .group_remove(&gid, &node_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn p2p_group_rename(
+    state: tauri::State<'_, P2pState>,
+    gid: String,
+    name: String,
+) -> Result<Value, String> {
+    engine(&state)
+        .map_err(|e| e.to_string())?
+        .group_rename(&gid, &name)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn p2p_group_disband(state: tauri::State<'_, P2pState>, gid: String) -> Result<Value, String> {
+    engine(&state)
+        .map_err(|e| e.to_string())?
+        .group_disband(&gid)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn p2p_group_leave(state: tauri::State<'_, P2pState>, gid: String) -> Result<Value, String> {
+    engine(&state)
+        .map_err(|e| e.to_string())?
+        .group_leave(&gid)
+        .map_err(|e| e.to_string())
+}
+
+/// Returns `{id, seq, ts, tsEff, queued}`.
+#[tauri::command]
+pub fn p2p_group_send(
+    state: tauri::State<'_, P2pState>,
+    gid: String,
+    text: String,
+    reply_to: Option<String>,
+    reply_text: Option<String>,
+) -> Result<serde_json::Value, String> {
+    engine(&state)
+        .map_err(|e| e.to_string())?
+        .group_send(&gid, &text, reply_to.as_deref(), reply_text.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn p2p_group_messages(
+    state: tauri::State<'_, P2pState>,
+    gid: String,
+    limit: Option<usize>,
+) -> Result<Vec<Value>, String> {
+    engine(&state)
+        .map_err(|e| e.to_string())?
+        .group_messages(&gid, limit.unwrap_or(200))
+        .map_err(|e| e.to_string())
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
