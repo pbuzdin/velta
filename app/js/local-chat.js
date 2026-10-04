@@ -7,6 +7,8 @@
 // Tauri shell (dev preview). Media over P2P is phase 2 — sendMessage rejects
 // it cleanly for now.
 
+import { typingText, SHOW_TTL_MS } from "./typing.js";
+
 const P2P_PREFIX = "p2p:";
 // Local groups (serverless group chats of up to 4 devices) live in their own
 // id space: `p2pg:<gid>`. "p2pg:" does NOT start with "p2p:" (the `g` comes
@@ -19,6 +21,10 @@ const isLocalId = id => String(id).startsWith(P2P_PREFIX) || isGroupId(id);
 
 const isEnabled = () => {
   try { return localStorage.getItem("velta-p2p") === "1"; } catch { return false; }
+};
+// "Show and send typing hints" — default on; off means neither direction.
+export const typingEnabled = () => {
+  try { return localStorage.getItem("velta-p2p-typing") !== "0"; } catch { return true; }
 };
 const isTauri = () => {
   const t = window.__TAURI__;
@@ -363,6 +369,7 @@ function mapGroupChat(g) {
   const onlineCount = g.members.filter(m => m.self || m.online).length;
   const sender = last ? (last.out ? "You" : memberLabel(g, last.from, last.fromName)) : "";
   return {
+    ...typingFields(P2PG_PREFIX + g.id),
     id: P2PG_PREFIX + g.id, name: g.name, kind: "group", isP2p: true, isP2pGroup: true,
     memberCount: g.members.length, onlineCount, canManage: g.canManage,
     readOnly: g.removed, closed: g.closed,
@@ -595,9 +602,50 @@ function mapMsg(p, m) {
   return base;
 }
 
+// ---- typing indicator (receiver side) ----
+// chatId -> Map(senderId -> { name, until, timer }). A hint lives SHOW_TTL_MS
+// after the last one; a message from the sender or an explicit stop clears it.
+const typers = new Map();
+
+function typingNames(chatId) {
+  const m = typers.get(chatId);
+  if (!m) return [];
+  const now = Date.now();
+  return [...m.values()].filter(t => t.until > now).map(t => t.name);
+}
+
+function setTyping(chatId, sender, name, on) {
+  let m = typers.get(chatId);
+  if (!on) {
+    const t = m?.get(sender);
+    if (!t) return;
+    clearTimeout(t.timer);
+    m.delete(sender);
+  } else {
+    if (!typingEnabled()) return;
+    if (!m) { m = new Map(); typers.set(chatId, m); }
+    const old = m.get(sender);
+    if (old) clearTimeout(old.timer);
+    const timer = setTimeout(() => { setTyping(chatId, sender, name, false); touchChat(chatId); }, SHOW_TTL_MS);
+    timer.unref?.();
+    m.set(sender, { name, until: Date.now() + SHOW_TTL_MS, timer });
+  }
+  touchChat(chatId);
+}
+
+function typingFields(chatId) {
+  const t = typingText(typingNames(chatId));
+  return t ? { typingText: t } : {};
+}
+
+function touchChat(chatId) {
+  core()?.dispatchEvent?.(new CustomEvent("chat-updated", { detail: { chatId } }));
+}
+
 function mapChat(p) {
   const last = p.msgs[p.msgs.length - 1];
   return {
+    ...typingFields(P2P_PREFIX + p.id),
     id: P2P_PREFIX + p.id, name: p.name, kind: "single", isP2p: true,
     lastMsg: last ? (last.file ? "📎 " + last.file.name : last.text) : "",
     lastTs: last ? last.ts : 0,
@@ -807,7 +855,15 @@ function engineInit() {
         msg.transfer = { pct, dir: d.dir };
         emitChanged();
       }
+    } else if (d.kind === "typing") {
+      // 1:1 hint from a paired peer.
+      const p = store.peers.get(d.peerId);
+      if (p) setTyping(P2P_PREFIX + p.id, p.id, p.name, !!d.on);
+    } else if (d.kind === "group-typing") {
+      const g = store.groups.get(d.gid);
+      if (g) setTyping(P2PG_PREFIX + g.id, d.from, memberLabel(g, d.from, d.name), !!d.on);
     } else if (d.kind === "message") {
+      setTyping(P2P_PREFIX + d.peerId, d.peerId, "", false); // a message ends "typing"
       const p = peer(d.peerId);
       // Skip echoes of our own sends (the engine emits outgoing messages too).
       if (p.msgs.some(m => m.engineId === d.id)) return;
@@ -883,6 +939,7 @@ function engineInit() {
 }
 
 function onGroupMessage(d) {
+  setTyping(P2PG_PREFIX + d.gid, d.from, "", false);
   const g = ensureGroup(d.gid);
   if (!g.members.length) {
     // The message beat the roster to the page (cold start): learn it now.
@@ -910,8 +967,18 @@ const core = () => wrappedCore;
 const P2P_HANDLED = new Set([
   "getChatList", "getChat", "getMessages", "getMessageIds", "getMessage", "sendMessage",
   "markRead", "deleteMessages", "setChatFlags", "resendMessage", "downloadFullMessage",
-  "getChatMembers", "leaveGroup",
+  "getChatMembers", "leaveGroup", "sendTyping",
 ]);
+
+// Composer typing hint → engine. Live-only and best effort: any failure, an
+// off setting, a non-engine chat or a missing shell is a silent no-op.
+async function sendTypingHint(t, id, on) {
+  if (!isEnabled() || !typingEnabled() || !isTauri()) return;
+  try {
+    if (isGroupId(id)) await invoke()("p2p_typing", { gid: gidOf(id), on: !!on });
+    else if (String(id).startsWith(P2P_PREFIX)) await invoke()("p2p_typing", { peerId: String(id).slice(P2P_PREFIX.length), on: !!on });
+  } catch { /* ignore */ }
+}
 
 export function withLocalChat(inner) {
   wrappedCore = inner;
@@ -934,6 +1001,7 @@ export function withLocalChat(inner) {
 }
 
 function handler(prop) {
+  if (prop === "sendTyping") return sendTypingHint;
   const pass = (t, ...a) => t[prop](...a);
   if (!isEnabled()) return pass; // toggle off → everything falls through
 

@@ -335,8 +335,10 @@ class VeltaChatItem extends Elena(HTMLElement) {
     else if (c.pinned) right = PIN_SVG;
     else if (c.muted) right = MUTE_SVG;
     else right = "";
-    const ticks = c.lastFrom === 1 && c.lastState ? ticksSvg(c.lastState) : "";
-    const last = c.draft
+    const ticks = !c.typingText && c.lastFrom === 1 && c.lastState ? ticksSvg(c.lastState) : "";
+    const last = c.typingText
+      ? `<span class="typing">${escapeHtml(c.typingText)}</span>`
+      : c.draft
       ? `<span class="draft">Draft:</span> ${escapeHtml(c.draft)}`
       : c.kind === "deaddrop"
         ? `<span class="draft">Contact request:</span> ${escapeHtml(c.lastMsg || "tap to accept")}`
@@ -371,6 +373,7 @@ class VeltaChatHead extends Elena(HTMLElement) {
   statusLine() {
     const c = this.chat;
     if (!c) return "";
+    if (c.typingText) return { online: true, text: c.typingText };
     if (c.isP2pGroup) {
       if (c.readOnly) return "no longer active";
       const n = c.memberCount || 0, on = c.onlineCount || 0;

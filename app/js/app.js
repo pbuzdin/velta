@@ -1586,7 +1586,8 @@ function chatItemUpToDate(item, chat, active) {
     && prev.encrypted === chat.encrypted
     && prev.draft === chat.draft
     && prev.lastFrom === chat.lastFrom
-    && prev.lastState === chat.lastState;
+    && prev.lastState === chat.lastState
+    && prev.typingText === chat.typingText;
 }
 
 
@@ -1952,9 +1953,9 @@ async function refreshActiveChatHeader(chatId) {
   const head = state.activeChatHead;
   const chat = head?.chat;
   if (!head || !chat || chat.id !== state.activeChatId) return;
-  if (chat.kind !== "group" && chat.kind !== "channel") return;
+  if (chat.kind !== "group" && chat.kind !== "channel" && !chat.isP2p) return;
   if (chatId && chatId !== chat.id) return;
-  if (chat.isP2pGroup) return refreshLocalGroupHeader(chat, navigation, epoch);
+  if (chat.isP2p) return refreshLocalGroupHeader(chat, navigation, epoch);
   if (!core.getChatMembers) return;
   try {
     const members = await core.getChatMembers(chat.id);
@@ -1975,9 +1976,9 @@ async function refreshLocalGroupHeader(chat, navigation, epoch) {
   try {
     const fresh = await core.getChat(chat.id);
     if (!fresh || !accountIsCurrent(epoch) || navigation !== chatNavigation || state.activeChatId !== chat.id) return;
-    const changed = ["name", "memberCount", "onlineCount", "readOnly"].some(k => chat[k] !== fresh[k]);
+    const changed = ["name", "memberCount", "onlineCount", "readOnly", "typingText"].some(k => chat[k] !== fresh[k]);
     if (!changed) return;
-    Object.assign(chat, { name: fresh.name, memberCount: fresh.memberCount, onlineCount: fresh.onlineCount, readOnly: fresh.readOnly, canManage: fresh.canManage });
+    Object.assign(chat, { name: fresh.name, memberCount: fresh.memberCount, onlineCount: fresh.onlineCount, readOnly: fresh.readOnly, canManage: fresh.canManage, typingText: fresh.typingText });
     $("main-composer").hidden = !!chat.readOnly;
     chatView.readOnly = !!chat.readOnly;
     const head = renderChatHead(chat);
