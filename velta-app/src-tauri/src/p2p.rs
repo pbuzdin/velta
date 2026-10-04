@@ -141,6 +141,11 @@ enum Frame {
     /// "I don't know this gid / am no longer in it", believed only about the
     /// sender itself.
     GroupGone { gid: String },
+    /// "I am typing" (`on`) / "I stopped": a transient hint for the chat with
+    /// `gid` (a group) or the 1:1 chat with the sender (`gid` absent). Sent
+    /// live on protocol-2 sessions only (a 1.4.x peer would drop the session on
+    /// a frame it doesn't know), never stored, queued or replayed.
+    Typing { #[serde(default)] gid: Option<String>, on: bool },
     /// Any frame type this build does not know (a newer peer's extension).
     /// It is skipped instead of failing the parse, which used to end the
     /// whole session. Never sent on purpose.
@@ -159,6 +164,7 @@ impl Frame {
                 | Frame::GroupAck { .. }
                 | Frame::GroupLeave { .. }
                 | Frame::GroupGone { .. }
+                | Frame::Typing { gid: Some(_), .. }
         )
     }
 }
@@ -405,6 +411,9 @@ const GROUP_WINDOW: u64 = 200;
 /// Group frames accepted per second on one session; the rest are dropped
 /// (a flood cannot starve the engine; the sender's gap sync recovers).
 const GROUP_FRAMES_PER_SEC: u32 = 500;
+/// Typing hints from one sender for one chat that repeat the same state
+/// faster than this are not forwarded to the UI (the sender repeats every 3 s).
+const TYPING_MIN_GAP: Duration = Duration::from_millis(500);
 
 /// What the peer told us in its latest `GroupSync` on a live session.
 struct GroupLink {
@@ -423,6 +432,9 @@ struct GroupRt {
     gap_sent: HashMap<(String, NodeId), u64>,
     /// Last display timestamp per group, loaded lazily from the log.
     ts_eff: HashMap<String, u64>,
+    /// Last typing hint per (chat key, sender): repeats within
+    /// [`TYPING_MIN_GAP`] are dropped before they reach the UI.
+    typing_seen: HashMap<(String, NodeId), (bool, std::time::Instant)>,
 }
 
 /// The tx of a live protocol-2 session to `node`; v1 sessions yield `None`
@@ -1374,7 +1386,7 @@ impl P2p {
                                 eprintln!("[p2p-dbg] session got frame from {}", node_id);
                             }
                             let frame: Frame = frame;
-                            if frame.is_group() {
+                            if frame.is_group() || matches!(frame, Frame::Typing { .. }) {
                                 if group_window.0.elapsed() >= Duration::from_secs(1) {
                                     group_window = (std::time::Instant::now(), 0);
                                 }
@@ -1441,6 +1453,9 @@ impl P2p {
             | Frame::GroupGone { .. } => {}
             // A newer peer's frame type: ignore it, keep the session.
             Frame::Unknown => {}
+            // 1:1 typing hint (group typing is dispatched with the group frames).
+            Frame::Typing { gid: None, on } => self.on_typing(node_id, on, tx),
+            Frame::Typing { gid: Some(_), .. } => {}
             Frame::Ack { id } => {
                 {
                     let mut inner = self.inner.lock().unwrap();
@@ -2732,6 +2747,16 @@ impl P2p {
             ),
             Frame::GroupAck { gid, have } => self.on_group_ack(inner, from, &gid, have),
             Frame::GroupLeave { gid } => self.on_group_leave(inner, from, &gid),
+            Frame::Typing { gid: Some(gid), on } => {
+                let member = inner.groups.get(&gid).map_or(false, |r| !r.removed && r.state.contains(&from));
+                if member && self.typing_gate(inner, &gid, from, on) {
+                    let name = inner.peers.get(&from).map(|p| p.name.clone()).filter(|n| !n.is_empty());
+                    self.sink.emit(json!({
+                        "kind": "group-typing", "gid": gid, "from": from.to_string(),
+                        "name": name.unwrap_or_else(|| fallback_name(&from)), "on": on,
+                    }));
+                }
+            }
             Frame::GroupGone { gid } => {
                 // Believed only about the sender itself.
                 if inner.groups.get(&gid).map_or(false, |r| !r.removed && r.state.contains(&from)) {
@@ -2939,6 +2964,66 @@ impl P2p {
         if let Err(e) = res {
             self.group_warn(&from, format!("could not process a leave request: {e:#}"));
         }
+    }
+
+    /// Whether a typing hint is worth forwarding (state change, or the same
+    /// state after [`TYPING_MIN_GAP`]).
+    fn typing_gate(&self, inner: &mut Inner, key: &str, from: NodeId, on: bool) -> bool {
+        let now = std::time::Instant::now();
+        let slot = inner.grt.typing_seen.entry((key.to_string(), from)).or_insert((!on, now));
+        let fresh = slot.0 != on || now.duration_since(slot.1) >= TYPING_MIN_GAP;
+        if fresh {
+            *slot = (on, now);
+        }
+        fresh
+    }
+
+    /// A 1:1 typing hint from a paired peer on a protocol-2 session.
+    fn on_typing(&self, from: NodeId, on: bool, tx: &FrameTx) {
+        let mut guard = self.inner.lock().unwrap();
+        let inner = &mut *guard;
+        let ok = inner.peers.get(&from).map_or(false, |p| {
+            p.kind == PeerKind::Paired && p.live.iter().any(|h| h.proto >= 2 && h.tx.same_channel(tx))
+        });
+        if ok && self.typing_gate(inner, "", from, on) {
+            self.sink.emit(json!({ "kind": "typing", "peerId": from.to_string(), "on": on }));
+        }
+    }
+
+    /// Tells a paired peer we start/stop typing. Live only: nothing is queued,
+    /// an offline peer or a protocol-1 session gets nothing. Returns whether
+    /// the hint went out.
+    pub fn typing_peer(&self, peer_str: &str, on: bool) -> Result<bool> {
+        let id = NodeId::from_str(peer_str)?;
+        let inner = self.inner.lock().unwrap();
+        if inner.peers.get(&id).map(|p| p.kind) != Some(PeerKind::Paired) {
+            bail!("unknown peer");
+        }
+        Ok(v2_tx(&inner.peers, &id).map_or(false, |tx| tx.send(Frame::Typing { gid: None, on }).is_ok()))
+    }
+
+    /// Same for a group: every other member with a live protocol-2 session.
+    /// Returns how many members it reached.
+    pub fn typing_group(&self, gid: &str, on: bool) -> Result<usize> {
+        let me = self.node_id();
+        let inner = self.inner.lock().unwrap();
+        let rec = inner.groups.get(gid).ok_or_else(|| anyhow!("unknown group"))?;
+        if rec.removed {
+            return Ok(0);
+        }
+        let mut reached = 0;
+        for m in &rec.state.members {
+            let Ok(id) = NodeId::from_str(&m.node_id) else { continue };
+            if id == me {
+                continue;
+            }
+            if let Some(tx) = v2_tx(&inner.peers, &id) {
+                if tx.send(Frame::Typing { gid: Some(gid.to_string()), on }).is_ok() {
+                    reached += 1;
+                }
+            }
+        }
+        Ok(reached)
     }
 
     /// Display timestamp of the last record of `gid` (cached after the first
@@ -3679,6 +3764,23 @@ pub fn p2p_group_leave(state: tauri::State<'_, P2pState>, gid: String) -> Result
         .map_err(|e| e.to_string())?
         .group_leave(&gid)
         .map_err(|e| e.to_string())
+}
+
+/// Typing hint for a 1:1 chat (`peer_id`) or a group (`gid`). Best effort:
+/// returns how many peers it reached (0 for offline / protocol-1 peers).
+#[tauri::command]
+pub fn p2p_typing(
+    state: tauri::State<'_, P2pState>,
+    peer_id: Option<String>,
+    gid: Option<String>,
+    on: bool,
+) -> Result<usize, String> {
+    let e = engine(&state).map_err(|e| e.to_string())?;
+    match (peer_id, gid) {
+        (Some(p), None) => e.typing_peer(&p, on).map(|r| r as usize).map_err(|e| e.to_string()),
+        (None, Some(g)) => e.typing_group(&g, on).map_err(|e| e.to_string()),
+        _ => Err("give either peerId or gid".to_string()),
+    }
 }
 
 /// Deletes the local data of a group that is over (left / removed / disbanded).
@@ -4965,6 +5067,85 @@ mod tests {
         cr.handle_frame(b, Frame::GroupGone { gid: gid.clone() }, &v1tx);
         assert!(drain(&mut v1rx).is_empty(), "a 1.4.x peer would choke on any of these");
         let _ = (&tb, &mut rb, d);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn typing_hints_are_live_v2_only_scoped_and_never_stored() {
+        let (cr, rx, gid, [(b, tb, mut rb), (d, td, mut rd)]) = unit_author("typing-unit").await;
+        // Wire shape; an old sender's frame without `gid` still parses.
+        let w = serde_json::to_value(Frame::Typing { gid: None, on: true }).unwrap();
+        assert_eq!((w["type"].as_str(), w["on"].as_bool()), (Some("typing"), Some(true)));
+        assert!(matches!(serde_json::from_str::<Frame>(r#"{"type":"typing","on":false}"#).unwrap(), Frame::Typing { gid: None, on: false }));
+
+        // Sending: 1:1 reaches a live v2 peer; group reaches every live v2 member.
+        assert!(cr.typing_peer(&b.to_string(), true).unwrap());
+        assert!(matches!(drain(&mut rb).as_slice(), [Frame::Typing { gid: None, on: true }]));
+        assert_eq!(cr.typing_group(&gid, true).unwrap(), 2);
+        for rxm in [&mut rb, &mut rd] {
+            assert!(matches!(drain(rxm).as_slice(), [Frame::Typing { gid: Some(g), on: true }] if *g == gid));
+        }
+        // Offline peers and protocol-1 sessions get nothing (and nothing is queued).
+        let off = add_fake_peer(&cr, PeerKind::Paired, 2);
+        assert!(!cr.typing_peer(&off.to_string(), true).unwrap());
+        assert!(cr.inner.lock().unwrap().peers[&off].queued.is_empty());
+        let v1 = add_fake_peer(&cr, PeerKind::Paired, 1);
+        let (_v1tx, mut v1rx) = attach_live(&cr, v1, 1);
+        assert!(!cr.typing_peer(&v1.to_string(), true).unwrap());
+        assert!(drain(&mut v1rx).is_empty(), "a 1.4.x peer would drop the session on this frame");
+        assert!(cr.typing_peer(&fake_node_id().to_string(), true).is_err(), "unknown peer");
+        assert!(cr.typing_group("00000000000000000000000000000000", true).is_err());
+
+        // Receiving: a 1:1 hint becomes one event, an immediate repeat is
+        // swallowed, a state change is not.
+        events(&rx);
+        cr.handle_frame(b, Frame::Typing { gid: None, on: true }, &tb);
+        cr.handle_frame(b, Frame::Typing { gid: None, on: true }, &tb);
+        cr.handle_frame(b, Frame::Typing { gid: None, on: false }, &tb);
+        let ev: Vec<Value> = events(&rx).into_iter().filter(|e| e["kind"] == "typing").collect();
+        assert_eq!(ev.len(), 2, "{ev:?}");
+        assert_eq!((ev[0]["peerId"].as_str(), ev[0]["on"].as_bool()), (Some(b.to_string().as_str()), Some(true)));
+        assert_eq!(ev[1]["on"], false);
+        // A group hint names the sender; a non-member or unknown gid is ignored.
+        cr.handle_frame(d, Frame::Typing { gid: Some(gid.clone()), on: true }, &td);
+        let ev: Vec<Value> = events(&rx).into_iter().filter(|e| e["kind"] == "group-typing").collect();
+        assert_eq!(ev.len(), 1);
+        assert_eq!((ev[0]["gid"].as_str(), ev[0]["from"].as_str(), ev[0]["on"].as_bool()), (Some(gid.as_str()), Some(d.to_string().as_str()), Some(true)));
+        assert!(ev[0]["name"].as_str().map_or(false, |n| !n.is_empty()));
+        cr.handle_frame(d, Frame::Typing { gid: Some("00000000000000000000000000000000".into()), on: true }, &td);
+        let outsider = add_fake_peer(&cr, PeerKind::Paired, 2);
+        let (otx, _orx) = attach_live(&cr, outsider, 2);
+        cr.handle_frame(outsider, Frame::Typing { gid: Some(gid.clone()), on: true }, &otx);
+        // An introduced member may not send 1:1 typing; a v1 session's hint is dropped.
+        let intro = add_fake_peer(&cr, PeerKind::Introduced, 2);
+        let (itx, _irx) = attach_live(&cr, intro, 2);
+        cr.handle_frame(intro, Frame::Typing { gid: None, on: true }, &itx);
+        cr.handle_frame(v1, Frame::Typing { gid: None, on: true }, &_v1tx);
+        assert!(events(&rx).iter().all(|e| e["kind"] != "typing" && e["kind"] != "group-typing"));
+        // Nothing was stored anywhere.
+        assert!(cr.inner.lock().unwrap().peers[&b].msgs.is_empty());
+        assert!(chat_rows(&cr, &gid, 50).is_empty());
+        // A removed group no longer carries hints.
+        cr.group_disband(&gid).unwrap();
+        assert_eq!(cr.typing_group(&gid, true).unwrap(), 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn typing_hints_travel_between_real_engines() {
+        let t = trio("typing-wire").await;
+        let (aid, bid) = (t.a.node_id().to_string(), t.b.node_id().to_string());
+        assert!(t.a.typing_peer(&bid, true).unwrap());
+        let ev = wait_for(&t.b_rx, 20, |e| e["kind"] == "typing");
+        assert_eq!((ev["peerId"].as_str(), ev["on"].as_bool()), (Some(aid.as_str()), Some(true)));
+        assert_eq!(t.a.typing_group(&t.gid, true).unwrap(), 2);
+        for rx in [&t.b_rx, &t.c_rx] {
+            let ev = wait_for(rx, 20, |e| e["kind"] == "group-typing");
+            assert_eq!((ev["gid"].as_str(), ev["from"].as_str()), (Some(t.gid.as_str()), Some(aid.as_str())));
+        }
+        // B -> C over the introduced session (they never paired).
+        assert_eq!(t.b.typing_group(&t.gid, true).unwrap(), 2);
+        let ev = wait_for(&t.c_rx, 20, |e| e["kind"] == "group-typing" && e["from"] == bid.as_str());
+        assert_eq!(ev["on"], true);
+        assert!(t.b.typing_peer(&t.c.node_id().to_string(), true).is_err(), "an introduced member is no 1:1 contact");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
