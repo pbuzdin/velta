@@ -213,6 +213,11 @@ export class JsonRpcCore extends EventTarget {
     if (!this._isCurrentAccount(accountEpoch)) return false;
     await this._call("select_account", accountId);
     await this._call("start_io_for_all_accounts");
+    // #28: reconnect after a service restart re-arms IO unconditionally —
+    // pause it again if the device still has no network.
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      await this._call("stop_io_for_all_accounts").catch(() => {});
+    }
     this._invalidateChat(0, accountEpoch);
     return true;
   }
@@ -223,6 +228,29 @@ export class JsonRpcCore extends EventTarget {
     await this._call("maybe_network");
     this._emit("diagnostic", { level: "info", message: "Core network I/O restarted" });
     return true;
+  }
+
+  // #28: airplane/offline — the core's IMAP/SMTP retry loops keep hammering a
+  // dead network (retry storms in the log, battery drain). The webview's
+  // connectivity signal reports false exactly in the cases that matter
+  // (airplane mode, no interface), so the app pauses IO when it fires and
+  // resumes — with a maybe_network nudge — when the network returns.
+  // Optimistic link failures (interface up, router dead) still read online;
+  // the core's own retry handling covers those.
+  async setNetworkIo(on) {
+    try {
+      if (on) {
+        await this._call("start_io_for_all_accounts");
+        await this._call("maybe_network");
+      } else {
+        await this._call("stop_io_for_all_accounts");
+      }
+      this._emit("diagnostic", {
+        level: "info",
+        message: on ? "Network is back — core I/O resumed" : "No network — core I/O paused",
+      });
+      return true;
+    } catch { return false; } // mock core / transient transport loss
   }
 
   _onLine(line) {
