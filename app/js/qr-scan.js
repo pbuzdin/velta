@@ -213,3 +213,94 @@ export function acquireCode({ title, hint, validate, autoScan = false }) {
     if (autoScan) setTimeout(() => { if (!settled) toggleScan(); }, 60);
   });
 }
+
+// Embedded scanner for the "Scan a QR code" tab of the QR screen (#37): the
+// same camera + decoder chain as acquireCode, but inside the page instead of a
+// modal. The camera starts only when start() is called (the user opened the
+// tab) and stops on stop(), when the page is hidden, or when onCode accepts a
+// code. onCode(raw) → true = accepted (scanner stops); false = keep looking
+// (the same unrecognized code is not reported again for 2.5 s). onState gets
+// "starting" | "scanning" | "stopped" | "error" (+ a message for errors).
+export function mountScanner({ video, onCode, onState = () => {} }) {
+  let stream = null;
+  let running = false;
+  let session = 0;
+  let last = { raw: null, at: 0 };
+
+  const release = () => {
+    stream?.getTracks().forEach(t => t.stop());
+    stream = null;
+    try { video.srcObject = null; } catch { /* element gone */ }
+  };
+  const stop = () => {
+    const was = running;
+    running = false;
+    session++;
+    release();
+    if (was) onState("stopped");
+  };
+  const onVisibility = () => { if (document.hidden && running) stop(); };
+  document.addEventListener("visibilitychange", onVisibility);
+
+  const start = async () => {
+    if (running) return;
+    if (!canUseCamera()) { onState("error", "Camera API is not available in this WebView"); return; }
+    const mine = ++session;
+    running = true;
+    onState("starting");
+    diagnosticsSink.append("info", "scan: requesting camera (QR screen)");
+    try {
+      const s = await Promise.race([
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("camera did not start — answer the permission prompt or grant camera access in system settings")), 10000)),
+      ]);
+      if (mine !== session) { s.getTracks().forEach(t => t.stop()); return; } // stopped while waiting
+      stream = s;
+    } catch (err) {
+      if (mine !== session) return;
+      running = false;
+      diagnosticsSink.append("error", `scan: camera request failed: ${err?.message || err}`);
+      onState("error", "Camera unavailable: " + (err?.message || err));
+      return;
+    }
+    video.srcObject = stream;
+    try { await video.play(); } catch (err) {
+      diagnosticsSink.append("warning", `scan: video.play failed: ${err?.message || err}`);
+    }
+    if (mine !== session) return;
+    let decoder;
+    try { decoder = await makeDecoder(video); } catch (err) {
+      if (mine === session) { stop(); onState("error", "QR reader failed: " + (err?.message || err)); }
+      return;
+    }
+    if (mine !== session) return;
+    onState("scanning");
+    let errors = 0;
+    const tick = async () => {
+      if (mine !== session || !running) return;
+      // The screen was replaced or hidden behind an opened chat: release the camera.
+      if (!video.isConnected || video.offsetParent === null) { stop(); return; }
+      try {
+        const raw = await decoder(video);
+        errors = 0;
+        if (mine !== session) return;
+        const now = Date.now();
+        if (raw && !(raw === last.raw && now - last.at < 2500)) {
+          last = { raw, at: now };
+          if (onCode(raw)) { stop(); return; }
+        }
+      } catch (err) {
+        if (++errors === 1) diagnosticsSink.append("warning", `scan: decoder error: ${err?.message || err}`);
+        if (errors === 10) { stop(); onState("error", "QR reader is failing: " + (err?.message || err)); return; }
+      }
+      setTimeout(tick, 120);
+    };
+    tick();
+  };
+
+  const destroy = () => {
+    document.removeEventListener("visibilitychange", onVisibility);
+    stop();
+  };
+  return { start, stop, destroy, get running() { return running; } };
+}

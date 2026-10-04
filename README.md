@@ -932,7 +932,8 @@ never participates in the Auto (system) switch.
 **Chat-list action bar.** The bottom bar in the chat list switches what the
 list shows: **Chats** (default), **Contacts** (tap to open the chat),
 **Calls** (recent calls on this device), **QR** (your invite code rendered
-in place of the list, with a scan button), **+** (new chat / group /
+in place of the list, with **Copy a link** and **Share a link**; on phones a second
+**Scan a QR code** tab scans other people's codes), **+** (new chat / group /
 join-via-link menu) and **Menu** (settings drawer). The header search button
 works the same way — it opens a live chat-name search in place of the list
 and flips to a cross to close. The search screen has two tabs — **Search**

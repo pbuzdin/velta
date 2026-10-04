@@ -2286,3 +2286,10 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 @media (hover: hover) and (pointer: fine) {
   html[data-theme="brutal"] .bar-btn.bar-accent:hover { background: var(--accent); }
 }
+
+/* "Your QR code" screen (#37): copy/share row and the in-page scanner tab. */
+.side-view .qr-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.side-view .qr-scan { width: 100%; max-width: 360px; aspect-ratio: 1; margin: 4px auto; border-radius: 12px; overflow: hidden; background: #0b0b10; }
+.side-view .qr-scan video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.side-view .qr-scan-status { text-align: center; font-size: 13.5px; color: var(--text-dim, #777); }
+.side-view .qr-view > .side-tabs { margin-bottom: 4px; }

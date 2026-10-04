@@ -14,7 +14,8 @@ import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirm
 import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact, showCreateGroupModal, showAddMembersModal } from "./p2p.js";
 import { withLocalChat, hubModel, renameDevice, removePeer, dismissLocalGroup, groupRename, groupRemoveMember, peerGroupImpact, groupActionsModel, groupMemberHint, removePeerImpactText, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
 import { timeAgo, formatBytes } from "./format.js";
-import { acquireCode } from "./qr-scan.js";
+import { acquireCode, mountScanner } from "./qr-scan.js";
+import { scanTabAvailable, canShareLink, copyLink, shareLink, classifyScannedCode } from "./qr-actions.js";
 import { linkPreviewEnabled, setLinkPreviewEnabled, LINK_PREVIEW_IP_WARNING } from "./link-preview.js";
 
 const diagnostics = new DiagnosticsStore();
@@ -67,6 +68,9 @@ let catsHidden = (() => {
 let listView = "chats";
 // Search screen internal tab: "search" (default, what the head button opens)
 // or "archived" (the folder folded into the search screen as a second tab).
+// QR screen state (#37): active tab and the live camera scanner, if any.
+let qrTab = "mine";
+let qrScanner = null;
 let searchScreenTab = "search";
 let archivedCount = 0; // archived-folder button visibility (issue #13)
 const CALL_LOG_KEY = "velta-call-log";
@@ -1256,7 +1260,10 @@ function stopSideScroller() {
 
 function setListView(view) {
   stopSideScroller();
+  stopQrScanner();
+  const wasQr = listView === "qr";
   listView = listView === view ? "chats" : view;
+  if (listView === "qr" && !wasQr) qrTab = "mine"; // a fresh visit starts on the code
   for (const b of document.querySelectorAll(".list-bar .bar-btn[data-view]")) {
     b.classList.toggle("active", b.dataset.view === listView);
   }
@@ -1376,22 +1383,116 @@ function renderCallsView() {
   }
 }
 
+// "Your QR code" (#37). Tab 1 "My code": the invite QR, the link under it, and
+// Copy a link / Share a link. Tab 2 "Scan a QR code" (phones with a camera
+// only): an in-page scanner for other people's codes. The camera runs only
+// while that tab is open; leaving the view, switching tabs or accepting a code
+// stops it (stopQrScanner, also called from setListView).
+function stopQrScanner() {
+  qrScanner?.destroy();
+  qrScanner = null;
+}
+
 function renderQrView() {
-  const rows = sideViewShell("Your QR code", "Others scan this to reach you with verified encryption");
+  stopQrScanner();
+  const hasCamera = !!navigator.mediaDevices?.getUserMedia;
+  const scanTab = scanTabAvailable({ ua: navigator.userAgent, hasCamera });
+  if (!scanTab) qrTab = "mine";
+  const rows = sideViewShell("Your QR code", qrTab === "scan"
+    ? "Point the camera at someone's QR code to start a chat or join a group"
+    : "Others scan this to reach you with verified encryption");
   const wrap = document.createElement("div");
   wrap.className = "qr-view";
-  wrap.innerHTML = `
-    <div class="qr-box"><div class="qr-loading">Generating QR code…</div></div>
-    <div class="invite-link" style="word-break:break-all"></div>
-    <button class="btn-text" data-scan>Scan a code instead</button>`;
+  const tabs = scanTab ? `
+    <div class="chat-cats side-tabs" role="tablist">
+      <button role="tab" data-qr-tab="mine" class="${qrTab === "mine" ? "active" : ""}">My code</button>
+      <button role="tab" data-qr-tab="scan" class="${qrTab === "scan" ? "active" : ""}">Scan a QR code</button>
+    </div>` : "";
+  if (qrTab === "scan") {
+    wrap.innerHTML = `${tabs}
+      <div class="qr-scan"><video muted playsinline></video></div>
+      <div class="qr-scan-status" data-scan-status>Starting camera…</div>
+      <button class="btn-text" data-scan-retry hidden>Try again</button>`;
+  } else {
+    const canShare = canShareLink({
+      ua: navigator.userAgent,
+      hasInvoke: !!(window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke),
+      hasWebShare: typeof navigator.share === "function",
+    });
+    wrap.innerHTML = `${tabs}
+      <div class="qr-box"><div class="qr-loading">Generating QR code…</div></div>
+      <div class="invite-link" style="word-break:break-all"></div>
+      <div class="qr-actions">
+        <button class="btn-text" data-copy-link disabled>Copy a link</button>
+        ${canShare ? `<button class="btn-text" data-share-link disabled>Share a link</button>` : ""}
+      </div>`;
+  }
   rows.append(wrap);
-  wrap.querySelector("[data-scan]").addEventListener("click", () => { setListView("chats"); joinFlow(); });
+  for (const b of wrap.querySelectorAll("[data-qr-tab]")) {
+    b.addEventListener("click", () => {
+      if (qrTab === b.dataset.qrTab) return;
+      qrTab = b.dataset.qrTab;
+      renderQrView();
+    });
+  }
+
+  if (qrTab === "scan") {
+    const video = wrap.querySelector("video");
+    const status = wrap.querySelector("[data-scan-status]");
+    const retry = wrap.querySelector("[data-scan-retry]");
+    const epoch = core.accountEpoch;
+    qrScanner = mountScanner({
+      video,
+      onState: (st, msg) => {
+        if (listView !== "qr" || qrTab !== "scan") return;
+        retry.hidden = st !== "error" && st !== "stopped";
+        status.textContent = st === "starting" ? "Starting camera…"
+          : st === "scanning" ? "Hold the QR code inside the frame"
+          : st === "error" ? (msg || "The camera could not be started")
+          : "Camera stopped";
+      },
+      onCode: raw => {
+        if (!accountIsCurrent(epoch)) return false;
+        const kind = classifyScannedCode(raw, { parseInviteLink, isShortInviteLink });
+        if (!kind) { toast("That QR code isn't a Velta or Delta Chat invite"); return false; }
+        setListView("chats"); // stops the camera and leaves the screen; the confirmation modal takes over
+        if (kind === "invite" || kind === "short") joinFromInvite(raw.trim());
+        else handleDeeplinkFromUrl(raw.trim());
+        return true;
+      },
+    });
+    retry.addEventListener("click", () => qrScanner?.start());
+    qrScanner.start(); // the user opened this tab on purpose: that is the camera consent moment
+    return;
+  }
+
+  const copyBtn = wrap.querySelector("[data-copy-link]");
+  const shareBtn = wrap.querySelector("[data-share-link]");
+  let inviteText = "";
+  copyBtn.addEventListener("click", async () => {
+    try {
+      await copyLink(inviteText, { clipboard: navigator.clipboard });
+      toast("Link copied");
+    } catch (err) { errToast("Couldn't copy the link: " + (err?.message || err)); }
+  });
+  shareBtn?.addEventListener("click", async () => {
+    try {
+      const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+      await shareLink(inviteText, {
+        ua: navigator.userAgent, invoke,
+        webShare: typeof navigator.share === "function" ? o => navigator.share(o) : null,
+      });
+    } catch (err) { errToast("Couldn't share the link: " + (err?.message || err)); }
+  });
   inviteQrProvider(null)()
     .then(({ svg, link }) => {
       const box = wrap.querySelector(".qr-box");
-      if (listView !== "qr") return;
+      if (listView !== "qr" || qrTab !== "mine") return;
       box.innerHTML = svg || "<div class='qr-loading'>QR unavailable</div>";
       wrap.querySelector(".invite-link").textContent = link;
+      inviteText = link || "";
+      copyBtn.disabled = !inviteText;
+      if (shareBtn) shareBtn.disabled = !inviteText;
     })
     .catch(err => {
       if (listView !== "qr") return;

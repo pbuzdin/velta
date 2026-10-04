@@ -1576,6 +1576,44 @@ fn get_battery_status() -> Result<String, String> {
     Err("battery status is only on Android".into())
 }
 
+/// #37: system share sheet for a plain-text payload (the QR screen's "Share a
+/// link"), via Share.kt. Desktop/Windows use the page's Web Share API instead.
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn share_text(text: String, title: String) -> Result<(), String> {
+    let ctx_guard = APP_CONTEXT.lock().unwrap();
+    let context = ctx_guard
+        .as_ref()
+        .map(|r| r.as_obj().clone())
+        .ok_or("application context was not handed over yet")?;
+    let vm_guard = APP_JAVA_VM.lock().unwrap();
+    let vm_ref = vm_guard.as_ref().ok_or("jvm was not handed over yet")?;
+    let mut env = vm_ref.attach_current_thread().map_err(|e| format!("jvm attach: {e}"))?;
+    let class_guard = APP_SHARE_CLASS.lock().unwrap();
+    let class_ref = class_guard
+        .as_ref()
+        .ok_or("Share class was not cached at startup")?;
+    let text_j = env.new_string(text).map_err(|e| e.to_string())?;
+    let title_j = env.new_string(title).map_err(|e| e.to_string())?;
+    let shown = env
+        .call_static_method(
+            class_ref,
+            "text",
+            "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)Z",
+            &[(&context).into(), (&text_j).into(), (&title_j).into()],
+        )
+        .map_err(|e| e.to_string())?
+        .z()
+        .map_err(|e| e.to_string())?;
+    if shown { Ok(()) } else { Err("no app can handle the share request".into()) }
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn share_text(_text: String, _title: String) -> Result<(), String> {
+    Err("native sharing is only on Android".into())
+}
+
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
 fn install_update(_path: String) -> Result<(), String> {
@@ -1861,6 +1899,10 @@ static APP_BATTERY_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(No
 #[cfg(target_os = "android")]
 static APP_UPDATE_INSTALL_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
 
+// org.velta.Share — #37: system share sheet for the QR screen's invite link.
+#[cfg(target_os = "android")]
+static APP_SHARE_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
+
 // --- UnifiedPush (Android) ---
 // Handles for the JNI callbacks from UnifiedPushService.kt. The accounts
 // manager and the request channel are set once init_android_core finishes;
@@ -1938,6 +1980,15 @@ pub extern "system" fn Java_org_velta_MainActivity_setApplicationContext(
             Err(e) => log(&format!("setApplicationContext: UpdateInstall global ref failed: {e}")),
         },
         Err(e) => log(&format!("setApplicationContext: UpdateInstall find_class failed: {e}")),
+    }
+    match env.find_class("org/velta/Share") {
+        Ok(class) => match env.new_global_ref(&class) {
+            Ok(g) => {
+                *APP_SHARE_CLASS.lock().unwrap() = Some(g);
+            }
+            Err(e) => log(&format!("setApplicationContext: Share global ref failed: {e}")),
+        },
+        Err(e) => log(&format!("setApplicationContext: Share find_class failed: {e}")),
     }
     log("application context stored for Rust commands");
 }
@@ -3490,7 +3541,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, allow_picked_path, webxdc_begin, set_notify_prefs, get_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, install_update, get_battery_status, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_groups, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, allow_picked_path, webxdc_begin, set_notify_prefs, get_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, install_update, get_battery_status, share_text, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_groups, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 
