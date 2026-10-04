@@ -8,8 +8,6 @@
 //! creator's node id that they already hold, so relayed rosters are as
 //! trustworthy as ones received from the creator.
 
-#![allow(dead_code)] // wired into the engine by the next commit
-
 use std::{collections::{BTreeMap, HashMap}, net::SocketAddr, path::Path, str::FromStr};
 
 use anyhow::{anyhow, bail, Context as _, Result};

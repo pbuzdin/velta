@@ -147,3 +147,25 @@ Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
   `1e9+seq` ids and keep the engine id in `engineId`, which de-duplicates a live
   event that raced the hydration. KEEP: never use engine string ids as message
   ids. Pinned by tests/local-chat-hydration.test.mjs.
+- Offline text queue (post-1.4.55): `Peer.queued` is rebuilt on load from the
+  log (outbound texts still marked `queued`, media is never queued) and the
+  peer is dialled at start; `flush_queue` flips the stored row in place (it
+  used to append a second "sent" copy, loading collapses such twins). Sent
+  media gets a numeric adapter id like texts (`engineId` holds the engine id).
+- Local groups, engine side (Phase 1, no wire messaging and no UI yet; plan:
+  local-group-plan.md). `p2p/groups.rs`: `GroupState` = creator-signed
+  (ed25519, identity key) roster {gid, creator, epoch, name, closed, members
+  ≤ 4, sig}; `validate()` is enforced on EVERY state we accept (cap 4, no
+  duplicate/alias node ids, creator first, names ≤ 64 chars, ≤ 3 addrs); addrs
+  are not signed, names are; a state is applied only if its epoch is higher.
+  `groups.json` (atomic tmp+rename, invalid records dropped on load) holds one
+  `GroupRec` per group, `MAX_GROUPS = 16`. Members we have not paired with are
+  `PeerKind::Introduced` entries in `inner.peers` so dial/session machinery
+  works, but: never in `peers.json`, never in `status().peers`, no `presence`
+  events (the adapter would create a `p2p:` chat), `send`/`send_file`/
+  `messages`/`remove_peer` refuse them, and `handle_frame` drops every
+  non-group frame from them. `rebuild_introduced`/`gc_introduced` keep them
+  in step with the rosters. KEEP: group frames go only through
+  `group_session()` (ALPN v2 sessions); invitees must be Paired and have
+  `proto >= 2`. First contact for a group is accepted only from its creator
+  if paired; later states from any member (relay).

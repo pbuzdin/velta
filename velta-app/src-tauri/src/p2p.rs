@@ -44,6 +44,11 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
 mod groups;
+use groups::{
+    check_group_name, evaluate_incoming, load_groups, new_gid, save_groups, Evaluation, GroupMember,
+    GroupRec, GroupState, MAX_GROUPS, MAX_GROUP_MEMBERS, MAX_MEMBER_ADDRS,
+};
+use std::collections::BTreeMap;
 
 /// ALPN of the original Velta local chat protocol (1:1 chat, files).
 const ALPN_V1: &[u8] = b"/velta/p2p/1";
@@ -111,6 +116,14 @@ enum Frame {
     /// whole session. Never sent on purpose.
     #[serde(other)]
     Unknown,
+}
+
+impl Frame {
+    /// Group frames (Phase 2) are the only frames an *introduced* member may
+    /// send. There are none yet, so everything from them is dropped.
+    fn is_group(&self) -> bool {
+        false
+    }
 }
 
 /// Pairing handshake opener frame (only accepted from a not-yet-paired NodeId).
@@ -302,7 +315,20 @@ struct LiveHandle {
     proto: u8,
 }
 
+/// How this device knows a peer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PeerKind {
+    /// Explicitly paired (QR token or approved Nearby tap): a 1:1 contact.
+    Paired,
+    /// Listed in the signed roster of a group we are in, never paired. May
+    /// only exchange group frames; never persisted to `peers.json` (a
+    /// downgrade to a build without groups would otherwise treat it as a
+    /// paired contact), never listed, never messaged 1:1.
+    Introduced,
+}
+
 struct Peer {
+    kind: PeerKind,
     name: String,
     addrs: Vec<SocketAddr>,
     /// Protocol of the last session (persisted), 0 = unknown yet.
@@ -329,6 +355,8 @@ struct Inner {
     nearby: HashMap<NodeId, Nearby>,
     /// Inbound pairing requests awaiting user approval.
     pair_requests: HashMap<NodeId, PairRequest>,
+    /// Local group chats, by gid (mirror of `groups.json`).
+    groups: BTreeMap<String, GroupRec>,
 }
 
 /// A beacon-advertised device seen recently on the LAN.
@@ -386,6 +414,8 @@ pub struct P2p {
     /// peer's transfer that happened to use the same id.
     rx_files: Mutex<HashMap<(NodeId, String), FileRx>>,
     endpoint: Endpoint,
+    /// The identity key: signs group states (iroh also holds it for TLS).
+    secret: SecretKey,
     /// ALPNs accepted and offered when dialing (see [`default_alpns`]).
     alpns: Vec<Vec<u8>>,
     sink: Sink,
@@ -423,7 +453,7 @@ impl P2p {
         let mut transport_config = TransportConfig::default();
         transport_config.max_idle_timeout(Some(IDLE_TIMEOUT.try_into()?));
         let endpoint = Endpoint::builder()
-            .secret_key(secret)
+            .secret_key(secret.clone())
             .alpns(alpns.clone())
             .relay_mode(RelayMode::Disabled)
             .discovery_local_network()
@@ -448,6 +478,7 @@ impl P2p {
             peers.insert(
                 node_id,
                 Peer {
+                    kind: PeerKind::Paired,
                     name: persisted.name,
                     addrs,
                     proto: persisted.proto,
@@ -459,11 +490,15 @@ impl P2p {
             );
         }
 
+        let groups = load_groups(&dir);
+        rebuild_introduced(&mut peers, &groups, &secret.public());
+
         let p2p = Arc::new(P2p {
             dir,
             blobs_dir,
             rx_files: Mutex::new(HashMap::new()),
             endpoint,
+            secret,
             alpns,
             sink,
             inner: Mutex::new(Inner {
@@ -472,6 +507,7 @@ impl P2p {
                 peers,
                 nearby: HashMap::new(),
                 pair_requests: HashMap::new(),
+                groups,
             }),
             handle_ids: AtomicU64::new(1),
             cancel: tokio_util::sync::CancellationToken::new(),
@@ -523,6 +559,7 @@ impl P2p {
         let peers: Vec<Value> = inner
             .peers
             .iter()
+            .filter(|(_, peer)| peer.kind == PeerKind::Paired)
             .map(|(id, peer)| {
                 let last_ts = peer.msgs.last().map(|m| m.ts).unwrap_or(0);
                 json!({
@@ -539,7 +576,9 @@ impl P2p {
         let nearby: Vec<Value> = inner
             .nearby
             .iter()
-            .filter(|(id, n)| n.fresh() && !inner.peers.contains_key(*id))
+            .filter(|(id, n)| {
+                n.fresh() && inner.peers.get(*id).map_or(true, |p| p.kind != PeerKind::Paired)
+            })
             .map(|(id, n)| json!({ "id": id.to_string(), "name": n.name }))
             .collect();
         json!({
@@ -547,6 +586,7 @@ impl P2p {
             "name": inner.name,
             "peers": peers,
             "nearby": nearby,
+            "groups": inner.groups.values().map(|g| self.group_json(&inner, g)).collect::<Vec<_>>(),
         })
     }
 
@@ -699,6 +739,7 @@ impl P2p {
             let peer = inner
                 .peers
                 .get_mut(&node_id)
+                .filter(|p| p.kind == PeerKind::Paired)
                 .ok_or_else(|| anyhow!("unknown peer"))?;
             // Drop handles whose session already died but wasn't reaped yet.
             peer.live.retain(|h| !h.tx.is_closed());
@@ -756,6 +797,8 @@ impl P2p {
         const CHUNK_RAW: usize = 96 * 1024; // base64 ~128KB < MAX_FRAME
         const MAX_FILE: u64 = 256 * 1024 * 1024;
         let node_id = NodeId::from_str(peer_str)?;
+        // Before the file is copied anywhere: only paired devices get 1:1 media.
+        self.require_paired(&node_id)?;
         let meta = std::fs::metadata(src).context("source file missing")?;
         if !meta.is_file() {
             bail!("not a file");
@@ -801,6 +844,7 @@ impl P2p {
             let peer = inner
                 .peers
                 .get_mut(&node_id)
+                .filter(|p| p.kind == PeerKind::Paired)
                 .ok_or_else(|| anyhow!("unknown peer"))?;
             peer.live.retain(|h| !h.tx.is_closed());
             let mut sent_now = false;
@@ -848,27 +892,17 @@ impl P2p {
         let node_id = NodeId::from_str(peer_str)?;
         {
             let mut inner = self.inner.lock().unwrap();
-            let peer = inner
-                .peers
-                .remove(&node_id)
-                .ok_or_else(|| anyhow!("unknown peer"))?;
+            if inner.peers.get(&node_id).map(|p| p.kind) != Some(PeerKind::Paired) {
+                bail!("unknown peer");
+            }
+            let peer = inner.peers.remove(&node_id).expect("checked above");
             // Dropping the senders breaks the sessions (rx.recv() -> None).
             drop(peer);
             inner.pair_requests.remove(&node_id);
-            let peers: Vec<PersistedPeer> = inner
-                .peers
-                .iter()
-                .map(|(id, p)| PersistedPeer {
-                    node_id: id.to_string(),
-                    name: p.name.clone(),
-                    addrs: p.addrs.iter().map(|a| a.to_string()).collect(),
-                    proto: p.proto,
-                })
-                .collect();
-            std::fs::write(
-                self.dir.join("peers.json"),
-                serde_json::to_vec(&PeersFile { peers })?,
-            )?;
+            self.persist_peers(&inner)?;
+            // Still a member of one of our groups? Then they stay reachable
+            // for group traffic, downgraded to an introduced member.
+            self.sync_introduced(&mut inner);
         }
         let _ = std::fs::remove_file(self.messages_path(&node_id));
         let _ = std::fs::remove_dir_all(self.blobs_dir.join(node_id.to_string()));
@@ -884,6 +918,7 @@ impl P2p {
         let peer = inner
             .peers
             .get(&node_id)
+            .filter(|p| p.kind == PeerKind::Paired)
             .ok_or_else(|| anyhow!("unknown peer"))?;
         let start = peer.msgs.len().saturating_sub(limit);
         Ok(peer.msgs[start..]
@@ -919,6 +954,7 @@ impl P2p {
         let peer = inner.peers.entry(node_id).or_insert_with(|| {
             let msgs = load_messages(&self.dir, &node_id);
             Peer {
+                kind: PeerKind::Paired,
                 name: String::new(),
                 addrs: Vec::new(),
                 proto: 0,
@@ -928,6 +964,13 @@ impl P2p {
                 msgs,
             }
         });
+        if peer.kind == PeerKind::Introduced {
+            // Paired directly after being introduced: now a real contact; the
+            // sessions already open stay, 1:1 history starts from the log.
+            peer.kind = PeerKind::Paired;
+            peer.msgs = load_messages(&self.dir, &node_id);
+            peer.queued = queued_from(&peer.msgs);
+        }
         if !name.is_empty() {
             peer.name = name;
         }
@@ -941,9 +984,11 @@ impl P2p {
     /// Rewrites peers.json (addresses + names) from the live map. Callers hold
     /// the inner lock; the small file keeps a blocking write acceptable.
     fn persist_peers(&self, inner: &Inner) -> Result<()> {
+        // Introduced members never reach peers.json (see PeerKind).
         let peers: Vec<PersistedPeer> = inner
             .peers
             .iter()
+            .filter(|(_, p)| p.kind == PeerKind::Paired)
             .map(|(id, p)| PersistedPeer {
                 node_id: id.to_string(),
                 name: p.name.clone(),
@@ -1037,8 +1082,7 @@ impl P2p {
             offline
         };
         if now_offline {
-            self.sink
-                .emit(json!({ "kind": "presence", "peerId": node_id.to_string(), "online": false }));
+            self.emit_presence(node_id, false);
         }
     }
 
@@ -1128,8 +1172,7 @@ impl P2p {
         self.register_live(node_id, tx.clone(), proto);
         self.set_connecting(node_id, false).await;
         self.flush_queue(node_id, &tx);
-        self.sink
-            .emit(json!({ "kind": "presence", "peerId": node_id.to_string(), "online": true }));
+        self.emit_presence(node_id, true);
         self.session_task(node_id, send, recv, tx, rx, Framer::default())
             .await;
         drop(conn);
@@ -1242,6 +1285,19 @@ impl P2p {
     }
 
     fn handle_frame(&self, node_id: NodeId, frame: Frame, tx: &mpsc::UnboundedSender<Frame>) {
+        // An introduced member may only speak group frames: a 1:1 msg/file
+        // from one would otherwise land in a peer record and surface as a
+        // `p2p:` chat the user never paired.
+        let introduced = self
+            .inner
+            .lock()
+            .unwrap()
+            .peers
+            .get(&node_id)
+            .map_or(false, |p| p.kind == PeerKind::Introduced);
+        if introduced && !frame.is_group() {
+            return;
+        }
         match frame {
             Frame::Ping => {}
             // A newer peer's frame type: ignore it, keep the session.
@@ -1463,16 +1519,46 @@ impl P2p {
     async fn handle_incoming(self: Arc<Self>, conn: Connection) -> Result<()> {
         let node_id = conn.remote_node_id().context("no remote node id")?;
         let proto = proto_of(&conn);
-        let paired = {
+        // Paired contacts and members of a group roster we are in are both
+        // allowed a session; everyone else goes through pairing below.
+        let kind = {
             let inner = self.inner.lock().unwrap();
-            inner.peers.contains_key(&node_id)
+            inner.peers.get(&node_id).map(|p| p.kind)
         };
+        let paired = kind.is_some();
 
         let (mut send, mut recv) = conn.accept_bi().await?;
         if std::env::var("VELTA_P2P_DEBUG").is_ok() {
             eprintln!("[p2p-dbg] handle_incoming {} paired={}", node_id, paired);
         }
-        if paired {
+        // An introduced member may still pair for real with a QR token / an
+        // approved tap: its first frame is a hello instead of the usual ping.
+        let mut pre_hello: Option<Hello> = None;
+        let mut pre_framer = Framer::default();
+        let mut session = paired;
+        if kind == Some(PeerKind::Introduced) {
+            let first = tokio::time::timeout(HANDSHAKE_TIMEOUT, pre_framer.read_json_frame::<Value>(&mut recv))
+                .await;
+            match first {
+                Ok(Ok(v)) if v["type"] == "ping" => {}
+                Ok(Ok(v)) if v["type"] == "hello" => {
+                    pre_hello = serde_json::from_value::<Hello>(v).ok();
+                    if pre_hello.is_none() {
+                        bail!("bad pairing handshake");
+                    }
+                    session = false;
+                }
+                _ => bail!("bad session from introduced member"),
+            }
+        }
+        if session && kind == Some(PeerKind::Introduced) {
+            // Opening ping already consumed above; serve (group frames only).
+            let (tx, rx) = mpsc::unbounded_channel();
+            self.register_live(node_id, tx.clone(), proto);
+            self.session_task(node_id, send, recv, tx, rx, pre_framer).await;
+            return Ok(());
+        }
+        if session {
             // The opener's first frame is a Ping; consume it, then serve.
             let mut framer = Framer::default();
             match tokio::time::timeout(HANDSHAKE_TIMEOUT, framer.read_frame::<Frame>(&mut recv))
@@ -1496,8 +1582,7 @@ impl P2p {
             let (tx, rx) = mpsc::unbounded_channel();
             self.register_live(node_id, tx.clone(), proto);
             self.flush_queue(node_id, &tx);
-            self.sink
-                .emit(json!({ "kind": "presence", "peerId": node_id.to_string(), "online": true }));
+            self.emit_presence(node_id, true);
             self.session_task(node_id, send, recv, tx, rx, framer).await;
             return Ok(());
         }
@@ -1507,13 +1592,12 @@ impl P2p {
         // discovery-based request and needs explicit user approval. Anything
         // else is a stale/forged credential and is rejected without a prompt.
         let expected_token = self.inner.lock().unwrap().token.clone();
-        let mut framer = Framer::default();
-        let (token, peer_name, addr_strs) = match tokio::time::timeout(
-            HANDSHAKE_TIMEOUT,
-            framer.read_json_frame::<Hello>(&mut recv),
-        )
-        .await
-        {
+        let mut framer = pre_framer;
+        let hello = match pre_hello {
+            Some(h) => Ok(Ok(h)),
+            None => tokio::time::timeout(HANDSHAKE_TIMEOUT, framer.read_json_frame::<Hello>(&mut recv)).await,
+        };
+        let (token, peer_name, addr_strs) = match hello {
             Ok(Ok(Hello::Hello { token, name, addrs })) => (token, name, addrs),
             _ => bail!("bad pairing handshake"),
         };
@@ -1726,7 +1810,9 @@ impl P2p {
             if let Some(peer) = inner.peers.get_mut(&node_id) {
                 if peer.addrs != addrs_copy {
                     peer.addrs = addrs_copy;
-                    let _ = self.persist_peers(&inner); // best-effort, same as add_peer
+                    if peer.kind == PeerKind::Paired {
+                        let _ = self.persist_peers(&inner); // best-effort, same as add_peer
+                    }
                 }
             }
         }
@@ -1759,6 +1845,381 @@ impl P2p {
     fn messages_path(&self, node_id: &NodeId) -> PathBuf {
         self.dir
             .join(format!("messages-{}.jsonl", HEXLOWER.encode(node_id.as_ref())))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Local groups: engine state + API (no wire messaging yet, see groups.rs)
+// ---------------------------------------------------------------------------
+
+/// Label for a device that never told us its name (matches the UI's).
+fn fallback_name(id: &NodeId) -> String {
+    let s = id.to_string();
+    format!("Device {}", &s[s.len() - 4..])
+}
+
+/// Whether a peer can take part in groups: its last/current session
+/// negotiated protocol 2 (a released 1.4.x build speaks v1 only and would
+/// drop the connection on a group frame).
+fn group_capable(peer: &Peer) -> bool {
+    peer.live.iter().map(|h| h.proto).max().unwrap_or(peer.proto) >= 2
+}
+
+/// Roster members of non-removed groups that we have not paired with become
+/// `Introduced` entries, so the existing dial / session / presence machinery
+/// reaches them. Paired entries are never touched (the local pairing name
+/// wins). Roster addresses are only a hint for a member we know no address
+/// of; beacons keep them fresh afterwards.
+fn rebuild_introduced(peers: &mut HashMap<NodeId, Peer>, groups: &BTreeMap<String, GroupRec>, me: &NodeId) {
+    for rec in groups.values().filter(|g| !g.removed) {
+        for m in &rec.state.members {
+            let Ok(id) = NodeId::from_str(&m.node_id) else { continue };
+            if id == *me {
+                continue;
+            }
+            let addrs: Vec<SocketAddr> = m.addrs.iter().filter_map(|a| a.parse().ok()).collect();
+            let name = if m.name.is_empty() { fallback_name(&id) } else { m.name.clone() };
+            match peers.get_mut(&id) {
+                Some(p) if p.kind == PeerKind::Paired => {}
+                Some(p) => {
+                    p.name = name;
+                    if p.addrs.is_empty() {
+                        p.addrs = addrs;
+                    }
+                }
+                None => {
+                    peers.insert(
+                        id,
+                        Peer {
+                            kind: PeerKind::Introduced,
+                            name,
+                            addrs,
+                            proto: 0,
+                            live: Vec::new(),
+                            connecting: false,
+                            queued: Vec::new(),
+                            msgs: Vec::new(),
+                        },
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Drops `Introduced` entries no non-removed group lists anymore; dropping a
+/// `Peer` drops its senders, which ends its sessions.
+fn gc_introduced(peers: &mut HashMap<NodeId, Peer>, groups: &BTreeMap<String, GroupRec>) {
+    let referenced: std::collections::HashSet<String> = groups
+        .values()
+        .filter(|g| !g.removed)
+        .flat_map(|g| g.state.members.iter().map(|m| m.node_id.clone()))
+        .collect();
+    peers.retain(|id, p| p.kind == PeerKind::Paired || referenced.contains(&id.to_string()));
+}
+
+impl P2p {
+    /// Presence goes to the UI only for paired contacts: the adapter would
+    /// create a `p2p:` chat for any peer id it hears about.
+    fn emit_presence(&self, node_id: NodeId, online: bool) {
+        let introduced = self
+            .inner
+            .lock()
+            .unwrap()
+            .peers
+            .get(&node_id)
+            .map_or(false, |p| p.kind == PeerKind::Introduced);
+        if !introduced {
+            self.sink
+                .emit(json!({ "kind": "presence", "peerId": node_id.to_string(), "online": online }));
+        }
+    }
+
+    fn require_paired(&self, node_id: &NodeId) -> Result<()> {
+        match self.inner.lock().unwrap().peers.get(node_id) {
+            Some(p) if p.kind == PeerKind::Paired => Ok(()),
+            _ => bail!("unknown peer"),
+        }
+    }
+
+    /// Re-derives the introduced entries from the group rosters (add new,
+    /// drop unreferenced). Call after every roster change and unpairing.
+    fn sync_introduced(&self, inner: &mut Inner) {
+        let me = self.node_id();
+        let Inner { peers, groups, .. } = inner;
+        rebuild_introduced(peers, groups, &me);
+        gc_introduced(peers, groups);
+    }
+
+    fn persist_groups(&self, inner: &Inner) -> Result<()> {
+        save_groups(&self.dir, &inner.groups)
+    }
+
+    /// Common tail of every roster change.
+    fn groups_changed(&self, inner: &mut Inner) -> Result<()> {
+        self.sync_introduced(inner);
+        self.persist_groups(inner)
+    }
+
+    /// Sender of a live session that may carry group frames. Group frames are
+    /// only ever sent through this: sessions negotiated on ALPN v1 yield
+    /// `None`, so a 1.4.x peer never sees a frame it would choke on.
+    #[allow(dead_code)] // first caller arrives with the group wire frames (Phase 2)
+    fn group_session(&self, node_id: &NodeId) -> Option<mpsc::UnboundedSender<Frame>> {
+        let inner = self.inner.lock().unwrap();
+        let peer = inner.peers.get(node_id)?;
+        peer.live
+            .iter()
+            .find(|h| h.proto >= 2 && !h.tx.is_closed())
+            .map(|h| h.tx.clone())
+    }
+
+    fn group_json(&self, inner: &Inner, rec: &GroupRec) -> Value {
+        let me = self.node_id();
+        let members: Vec<Value> = rec
+            .state
+            .members
+            .iter()
+            .map(|m| {
+                let id = NodeId::from_str(&m.node_id).ok();
+                let peer = id.as_ref().and_then(|i| inner.peers.get(i));
+                let is_me = id == Some(me);
+                // The local pairing name wins over the roster's.
+                let name = match peer {
+                    Some(p) if p.kind == PeerKind::Paired && !p.name.is_empty() => p.name.clone(),
+                    _ => m.name.clone(),
+                };
+                json!({
+                    "id": m.node_id,
+                    "name": name,
+                    "self": is_me,
+                    "online": is_me || peer.map_or(false, |p| p.online()),
+                    "introduced": peer.map_or(false, |p| p.kind == PeerKind::Introduced),
+                })
+            })
+            .collect();
+        json!({
+            "gid": rec.state.gid,
+            "name": rec.state.name,
+            "creator": rec.state.creator,
+            "epoch": rec.state.epoch,
+            "closed": rec.state.closed,
+            "removed": rec.removed,
+            "canManage": rec.state.creator == me.to_string() && !rec.removed,
+            "members": members,
+        })
+    }
+
+    /// The signed state of a group (what a wire frame will carry).
+    #[allow(dead_code)] // wire phase (Phase 2); tests use it now
+    pub(crate) fn group_state(&self, gid: &str) -> Result<GroupState> {
+        let inner = self.inner.lock().unwrap();
+        inner.groups.get(gid).map(|g| g.state.clone()).ok_or_else(|| anyhow!("unknown group"))
+    }
+
+    /// All groups, for the UI.
+    pub fn groups(&self) -> Vec<Value> {
+        let inner = self.inner.lock().unwrap();
+        inner.groups.values().map(|g| self.group_json(&inner, g)).collect()
+    }
+
+    /// Roster entry for a paired device that may be invited.
+    fn invitee_member(&self, inner: &Inner, id: NodeId) -> Result<GroupMember> {
+        let peer = inner
+            .peers
+            .get(&id)
+            .filter(|p| p.kind == PeerKind::Paired)
+            .ok_or_else(|| anyhow!("only paired devices can be invited"))?;
+        let name = if peer.name.is_empty() { fallback_name(&id) } else { peer.name.clone() };
+        if !group_capable(peer) {
+            bail!("{name} can't join local groups yet (older Velta, or not connected since the update)");
+        }
+        Ok(GroupMember {
+            node_id: id.to_string(),
+            name,
+            addrs: peer.addrs.iter().take(MAX_MEMBER_ADDRS).map(|a| a.to_string()).collect(),
+        })
+    }
+
+    /// Creates a group of this device plus 1..=3 paired devices (each must
+    /// speak protocol 2). Epoch 1, signed with the identity key. Delivering
+    /// the state to the invitees is the wire phase's job.
+    pub fn group_create(self: &Arc<Self>, name: &str, member_ids: &[String]) -> Result<Value> {
+        let name = name.trim().to_string();
+        check_group_name(&name)?;
+        if member_ids.is_empty() {
+            bail!("pick at least one member");
+        }
+        if member_ids.len() > MAX_GROUP_MEMBERS - 1 {
+            bail!("a local group holds at most {MAX_GROUP_MEMBERS} members");
+        }
+        let me = self.node_id();
+        let mut inner = self.inner.lock().unwrap();
+        if inner.groups.len() >= MAX_GROUPS {
+            bail!("too many local groups (max {MAX_GROUPS}) — delete one first");
+        }
+        let my_name = if inner.name.is_empty() { fallback_name(&me) } else { inner.name.clone() };
+        let mut members = vec![GroupMember { node_id: me.to_string(), name: my_name, addrs: Vec::new() }];
+        for id in member_ids {
+            let id = NodeId::from_str(id).map_err(|_| anyhow!("bad member id"))?;
+            if id == me || members.iter().any(|m| m.node_id == id.to_string()) {
+                bail!("duplicate member");
+            }
+            members.push(self.invitee_member(&inner, id)?);
+        }
+        let mut state = GroupState {
+            gid: new_gid(),
+            creator: me.to_string(),
+            epoch: 1,
+            name,
+            closed: false,
+            members,
+            sig: String::new(),
+        };
+        state.sign(&self.secret)?;
+        state.check()?;
+        let gid = state.gid.clone();
+        inner.groups.insert(gid.clone(), GroupRec::new(state));
+        self.groups_changed(&mut inner)?;
+        Ok(self.group_json(&inner, &inner.groups[&gid]))
+    }
+
+    /// Creator-only edit: runs `edit` on a copy of the state, bumps the
+    /// epoch, re-signs, validates and stores it.
+    fn edit_group(
+        &self,
+        gid: &str,
+        edit: impl FnOnce(&Inner, &mut GroupState) -> Result<()>,
+    ) -> Result<Value> {
+        let me = self.node_id();
+        let mut inner = self.inner.lock().unwrap();
+        let rec = inner.groups.get(gid).ok_or_else(|| anyhow!("unknown group"))?;
+        if rec.state.creator != me.to_string() {
+            bail!("only the group's creator can change it");
+        }
+        if rec.removed {
+            bail!("this group is closed");
+        }
+        let mut state = rec.state.clone();
+        edit(&inner, &mut state)?;
+        state.epoch += 1;
+        state.sign(&self.secret)?;
+        state.check()?;
+        let rec = inner.groups.get_mut(gid).expect("checked above");
+        rec.removed = state.closed;
+        rec.state = state;
+        self.groups_changed(&mut inner)?;
+        Ok(self.group_json(&inner, &inner.groups[gid]))
+    }
+
+    /// Adds a paired device (≤ 4 members in total).
+    pub fn group_add(&self, gid: &str, node_id: &str) -> Result<Value> {
+        let id = NodeId::from_str(node_id).map_err(|_| anyhow!("bad member id"))?;
+        self.edit_group(gid, |inner, st| {
+            if st.members.len() >= MAX_GROUP_MEMBERS {
+                bail!("a local group holds at most {MAX_GROUP_MEMBERS} members");
+            }
+            if st.contains(&id) {
+                bail!("already a member");
+            }
+            st.members.push(self.invitee_member(inner, id)?);
+            Ok(())
+        })
+    }
+
+    /// Removes a member (not the creator). A member's own leave request is
+    /// handled the same way by the creator.
+    pub fn group_remove(&self, gid: &str, node_id: &str) -> Result<Value> {
+        let id = NodeId::from_str(node_id).map_err(|_| anyhow!("bad member id"))?;
+        self.edit_group(gid, |_, st| {
+            if id.to_string() == st.creator {
+                bail!("the creator can't be removed — disband the group instead");
+            }
+            if !st.contains(&id) {
+                bail!("not a member");
+            }
+            st.members.retain(|m| m.node_id != id.to_string());
+            Ok(())
+        })
+    }
+
+    pub fn group_rename(&self, gid: &str, name: &str) -> Result<Value> {
+        let name = name.trim().to_string();
+        check_group_name(&name)?;
+        self.edit_group(gid, |_, st| {
+            st.name = name;
+            Ok(())
+        })
+    }
+
+    /// Creator closes the group: members mark it read-only.
+    pub fn group_disband(&self, gid: &str) -> Result<Value> {
+        self.edit_group(gid, |_, st| {
+            st.closed = true;
+            st.members.truncate(1); // the creator is always first
+            Ok(())
+        })
+    }
+
+    /// A member leaves: the group becomes read-only here (history kept) and
+    /// `pending_leave` remembers to tell the creator once reachable.
+    pub fn group_leave(&self, gid: &str) -> Result<Value> {
+        let me = self.node_id();
+        let mut inner = self.inner.lock().unwrap();
+        let rec = inner.groups.get_mut(gid).ok_or_else(|| anyhow!("unknown group"))?;
+        if rec.state.creator == me.to_string() {
+            bail!("the creator can't leave — disband the group instead");
+        }
+        rec.removed = true;
+        rec.pending_leave = true;
+        self.groups_changed(&mut inner)?;
+        Ok(self.group_json(&inner, &inner.groups[gid]))
+    }
+
+    /// Applies a signed state received from `from` over a session.
+    ///
+    /// * First contact for a group is accepted only from its creator, who
+    ///   must be one of our *paired* devices (no consent dialog: the group
+    ///   appears and can be left).
+    /// * Later states are accepted from any current member (relay): the
+    ///   creator's signature is what authenticates them.
+    /// * A state with an epoch that is not newer is ignored (replays and
+    ///   rollbacks are harmless).
+    /// * At most [`MAX_GROUPS`] groups, at most 4 members per state.
+    #[allow(dead_code)] // called by the group wire frames (Phase 2); tests exercise it now
+    pub(crate) fn apply_group_state(&self, state: GroupState, from: NodeId) -> Result<Value> {
+        let me = self.node_id();
+        let mut inner = self.inner.lock().unwrap();
+        let verdict = evaluate_incoming(inner.groups.get(&state.gid), &state, &me)?;
+        let gid = state.gid.clone();
+        let result = match verdict {
+            Evaluation::Stale => return Ok(json!({ "result": "stale" })),
+            Evaluation::Create => {
+                let creator_paired = from.to_string() == state.creator
+                    && inner.peers.get(&from).map(|p| p.kind) == Some(PeerKind::Paired);
+                if !creator_paired {
+                    bail!("a new group is accepted only from its creator, a paired device");
+                }
+                if inner.groups.len() >= MAX_GROUPS {
+                    bail!("too many local groups (max {MAX_GROUPS})");
+                }
+                inner.groups.insert(gid.clone(), GroupRec::new(state));
+                "created"
+            }
+            Evaluation::Update { removed_me } => {
+                let rec = inner.groups.get_mut(&gid).expect("evaluated against it");
+                if !rec.state.contains(&from) {
+                    bail!("sender is not a member of that group");
+                }
+                rec.state = state;
+                // A member who asked to leave stays out even if the creator
+                // has not processed the request yet.
+                rec.removed = rec.pending_leave || removed_me;
+                "updated"
+            }
+        };
+        self.groups_changed(&mut inner)?;
+        Ok(json!({ "result": result, "group": self.group_json(&inner, &inner.groups[&gid]) }))
     }
 }
 
@@ -2665,6 +3126,452 @@ mod tests {
         let (bob3, _rx3) = restart(dir_b, blobs_b).await;
         assert!(bob3.inner.lock().unwrap().peers[&alice_id].queued.is_empty());
         assert_eq!(bob3.messages(&alice_id.to_string(), 10).unwrap()[0]["state"], "acked");
+    }
+
+    // -- local groups (Phase 1: state model, gates; no wire messaging) -------
+
+    /// A paired device that needs no network: inserted straight into the map.
+    fn add_fake_peer(engine: &Arc<P2p>, kind: PeerKind, proto: u8) -> NodeId {
+        let id = fake_node_id();
+        let mut inner = engine.inner.lock().unwrap();
+        let n = inner.peers.len() + 1;
+        inner.peers.insert(id, Peer {
+            kind,
+            name: format!("Fake {n}"),
+            addrs: vec![format!("10.0.0.{n}:4000").parse().unwrap()],
+            proto,
+            live: Vec::new(),
+            connecting: false,
+            queued: Vec::new(),
+            msgs: Vec::new(),
+        });
+        id
+    }
+
+    fn ids(v: &[NodeId]) -> Vec<String> {
+        v.iter().map(|i| i.to_string()).collect()
+    }
+
+    fn peers_json_ids(engine: &Arc<P2p>) -> Vec<String> {
+        load_peers(&engine.dir).into_iter().map(|p| p.node_id).collect()
+    }
+
+    fn kind_of(engine: &Arc<P2p>, id: &NodeId) -> Option<PeerKind> {
+        engine.inner.lock().unwrap().peers.get(id).map(|p| p.kind)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn group_create_enforces_member_cap_capability_and_ownership() {
+        let (a, _rx) = start("grp-create").await;
+        let (b, c, d) = (
+            add_fake_peer(&a, PeerKind::Paired, 2),
+            add_fake_peer(&a, PeerKind::Paired, 2),
+            add_fake_peer(&a, PeerKind::Paired, 2),
+        );
+        let old = add_fake_peer(&a, PeerKind::Paired, 1);
+        let unknown_proto = add_fake_peer(&a, PeerKind::Paired, 0);
+        let stranger = fake_node_id();
+        let e = add_fake_peer(&a, PeerKind::Paired, 2);
+
+        // Fifth member: the creator API refuses (creator + 4 invitees).
+        let five = ids(&[b, c, d, e]);
+        assert!(a.group_create("Too big", &five).is_err());
+        // Needs a name, at least one member, unique paired v2 members.
+        assert!(a.group_create("", &ids(&[b])).is_err());
+        assert!(a.group_create(&"n".repeat(65), &ids(&[b])).is_err());
+        assert!(a.group_create("Solo", &[]).is_err());
+        assert!(a.group_create("Dupes", &ids(&[b, b])).is_err());
+        assert!(a.group_create("Self", &ids(&[a.node_id()])).is_err());
+        assert!(a.group_create("Stranger", &ids(&[stranger])).is_err());
+        let err = a.group_create("Old", &ids(&[b, old])).unwrap_err().to_string();
+        assert!(err.contains("can't join local groups"), "{err}");
+        assert!(a.group_create("Unknown proto", &ids(&[unknown_proto])).is_err());
+        assert!(a.groups().is_empty(), "failed creates leave nothing behind");
+
+        // A valid group: creator first, epoch 1, signed, stored.
+        let g = a.group_create("  Weekend  ", &ids(&[b, c])).unwrap();
+        assert_eq!(g["name"], "Weekend");
+        assert_eq!(g["epoch"], 1);
+        assert_eq!(g["canManage"], true);
+        assert_eq!(g["members"].as_array().unwrap().len(), 3);
+        assert_eq!(g["members"][0]["self"], true);
+        let gid = g["gid"].as_str().unwrap().to_string();
+        assert!(is_safe_transfer_id(&gid));
+        a.group_state(&gid).unwrap().check().unwrap();
+
+        // Add the 4th, then the cap bites; epoch moves by one per change.
+        let g = a.group_add(&gid, &d.to_string()).unwrap();
+        assert_eq!(g["epoch"], 2);
+        assert!(a.group_add(&gid, &e.to_string()).is_err(), "a fifth member is refused");
+        assert!(a.group_add(&gid, &d.to_string()).is_err(), "already a member");
+        let g = a.group_remove(&gid, &c.to_string()).unwrap();
+        assert_eq!(g["epoch"], 3);
+        assert!(a.group_remove(&gid, &c.to_string()).is_err(), "no longer a member");
+        assert!(a.group_remove(&gid, &a.node_id().to_string()).is_err(), "creator can't be removed");
+        assert!(a.group_add(&gid, &old.to_string()).is_err(), "v1 device can't be added later either");
+        let g = a.group_add(&gid, &e.to_string()).unwrap();
+        assert_eq!(g["epoch"], 4);
+        let g = a.group_rename(&gid, "Renamed").unwrap();
+        assert_eq!((g["name"].as_str().unwrap(), g["epoch"].as_u64().unwrap()), ("Renamed", 5));
+        assert!(a.group_rename(&gid, "").is_err());
+        a.group_state(&gid).unwrap().check().unwrap();
+        assert_eq!(a.group_state(&gid).unwrap().members.len(), 4);
+
+        // The creator can't "leave", only disband; afterwards the group is read-only.
+        assert!(a.group_leave(&gid).is_err());
+        let g = a.group_disband(&gid).unwrap();
+        assert_eq!((g["closed"].as_bool(), g["removed"].as_bool(), g["canManage"].as_bool()),
+            (Some(true), Some(true), Some(false)));
+        assert_eq!(a.group_state(&gid).unwrap().members.len(), 1);
+        assert!(a.group_rename(&gid, "again").is_err());
+        assert!(a.group_add(&gid, &b.to_string()).is_err());
+        assert!(a.group_state("0123456789abcdef0123456789abcdef").is_err());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn group_count_is_capped() {
+        let (a, _rx) = start("grp-cap").await;
+        let b = add_fake_peer(&a, PeerKind::Paired, 2);
+        for i in 0..MAX_GROUPS {
+            a.group_create(&format!("g{i}"), &ids(&[b])).unwrap();
+        }
+        assert_eq!(a.groups().len(), MAX_GROUPS);
+        assert!(a.group_create("one too many", &ids(&[b])).is_err());
+    }
+
+    /// Introduced members exist so sessions/dials work, but they are not
+    /// contacts: not in status().peers, not in peers.json (a 1.4.x downgrade
+    /// would read them as paired), not messageable, and they disappear when
+    /// no group lists them.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn introduced_peer_never_written_to_peers_json() {
+        let (a, a_rx) = start("grp-intro").await;
+        let b = add_fake_peer(&a, PeerKind::Paired, 2);
+        // Persist the paired one the normal way.
+        a.persist_peers(&a.inner.lock().unwrap()).unwrap();
+
+        // Learn about C through a roster signed by a creator we trust.
+        let (creator, _crx) = start("grp-intro-creator").await;
+        let c = fake_node_id();
+        creator.inner.lock().unwrap().peers.insert(a.node_id(), Peer {
+            kind: PeerKind::Paired, name: "A".into(), addrs: vec![], proto: 2,
+            live: vec![], connecting: false, queued: vec![], msgs: vec![],
+        });
+        for id in [c] {
+            creator.inner.lock().unwrap().peers.insert(id, Peer {
+                kind: PeerKind::Paired, name: "C".into(), addrs: vec!["10.9.9.9:1".parse().unwrap()], proto: 2,
+                live: vec![], connecting: false, queued: vec![], msgs: vec![],
+            });
+        }
+        a.inner.lock().unwrap().peers.insert(creator.node_id(), Peer {
+            kind: PeerKind::Paired, name: "Creator".into(), addrs: vec![], proto: 2,
+            live: vec![], connecting: false, queued: vec![], msgs: vec![],
+        });
+        let g = creator.group_create("Trio", &ids(&[a.node_id(), c])).unwrap();
+        let gid = g["gid"].as_str().unwrap().to_string();
+        let applied = a.apply_group_state(creator.group_state(&gid).unwrap(), creator.node_id()).unwrap();
+        assert_eq!(applied["result"], "created");
+
+        assert_eq!(kind_of(&a, &c), Some(PeerKind::Introduced));
+        assert_eq!(a.inner.lock().unwrap().peers[&c].name, "C");
+        a.persist_peers(&a.inner.lock().unwrap()).unwrap();
+        assert!(!peers_json_ids(&a).contains(&c.to_string()), "introduced member leaked into peers.json");
+        let raw = std::fs::read_to_string(a.dir.join("peers.json")).unwrap();
+        assert!(!raw.contains(&c.to_string()));
+        assert!(peers_json_ids(&a).contains(&b.to_string()));
+
+        // Gates: not listed, not messageable, not removable as a contact.
+        let listed: Vec<String> = a.status()["peers"].as_array().unwrap().iter()
+            .map(|p| p["id"].as_str().unwrap().to_string()).collect();
+        assert!(!listed.contains(&c.to_string()));
+        assert!(listed.contains(&b.to_string()));
+        assert!(a.send(&c.to_string(), "hi", None, None).is_err());
+        assert!(a.send_file(&c.to_string(), "/nonexistent", "f", "").is_err());
+        assert!(a.messages(&c.to_string(), 10).is_err());
+        assert!(a.remove_peer(&c.to_string()).is_err());
+        // The group shows it, flagged.
+        let group = &a.groups()[0];
+        let cm = group["members"].as_array().unwrap().iter().find(|m| m["id"] == c.to_string().as_str()).unwrap();
+        assert_eq!(cm["introduced"], true);
+
+        // A 1:1 message / file frame from it is dropped: no record, no event.
+        let (tx, _frames) = mpsc::unbounded_channel();
+        while a_rx.try_recv().is_ok() {}
+        a.handle_frame(c, Frame::Msg { id: "x1".into(), ts: 1, text: "sneaky".into(), reply_to: None, reply_text: None }, &tx);
+        a.handle_frame(c, Frame::FileBegin { id: "f1".into(), ts: 1, name: "a".into(), size: 1, mime: String::new(), caption: String::new() }, &tx);
+        a.handle_frame(c, Frame::Ack { id: "x1".into() }, &tx);
+        assert!(a.inner.lock().unwrap().peers[&c].msgs.is_empty());
+        assert!(a.rx_files.lock().unwrap().is_empty());
+        assert!(a_rx.try_recv().is_err(), "nothing reaches the UI");
+        // …while a paired contact's identical frame is processed as before.
+        a.handle_frame(b, Frame::Msg { id: "x2".into(), ts: 1, text: "legit".into(), reply_to: None, reply_text: None }, &tx);
+        assert_eq!(a.inner.lock().unwrap().peers[&b].msgs.len(), 1);
+        assert_eq!(a_rx.try_recv().unwrap()["kind"], "message");
+
+        // Presence of an introduced member is never published (the adapter
+        // would create a p2p: chat for it); a paired one is.
+        a.emit_presence(c, true);
+        assert!(a_rx.try_recv().is_err());
+        a.emit_presence(b, true);
+        assert_eq!(a_rx.try_recv().unwrap()["kind"], "presence");
+
+        // Restart: groups.json brings the introduced entry back, peers.json
+        // still never lists it.
+        let dir = a.dir.clone();
+        let blobs = a.blobs_dir.clone();
+        a.close().await;
+        drop(a);
+        let (tx2, _rx2) = std_mpsc::channel();
+        let a2 = P2p::start(dir, blobs, Sink::Test(tx2)).await.unwrap();
+        assert_eq!(kind_of(&a2, &c), Some(PeerKind::Introduced));
+        assert_eq!(kind_of(&a2, &b), Some(PeerKind::Paired));
+        assert!(!peers_json_ids(&a2).contains(&c.to_string()));
+        assert_eq!(a2.groups().len(), 1);
+
+        // Nobody lists C anymore (creator removes C → relayed state): entry is
+        // garbage-collected; the paired contacts stay.
+        creator.group_remove(&gid, &c.to_string()).unwrap();
+        a2.apply_group_state(creator.group_state(&gid).unwrap(), creator.node_id()).unwrap();
+        assert_eq!(kind_of(&a2, &c), None);
+        assert_eq!(kind_of(&a2, &creator.node_id()), Some(PeerKind::Paired));
+        assert_eq!(kind_of(&a2, &b), Some(PeerKind::Paired));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn introduced_member_pairing_directly_becomes_paired_and_unpairing_downgrades() {
+        let (a, _rx) = start("grp-flip").await;
+        let (creator, _crx) = start("grp-flip-creator").await;
+        let c = fake_node_id();
+        for (e, id, n) in [(&creator, a.node_id(), "A"), (&creator, c, "C")] {
+            e.inner.lock().unwrap().peers.insert(id, Peer {
+                kind: PeerKind::Paired, name: n.into(), addrs: vec![], proto: 2,
+                live: vec![], connecting: false, queued: vec![], msgs: vec![],
+            });
+        }
+        a.inner.lock().unwrap().peers.insert(creator.node_id(), Peer {
+            kind: PeerKind::Paired, name: "Creator".into(), addrs: vec![], proto: 2,
+            live: vec![], connecting: false, queued: vec![], msgs: vec![],
+        });
+        let gid = creator.group_create("Trio", &ids(&[a.node_id(), c])).unwrap()["gid"].as_str().unwrap().to_string();
+        a.apply_group_state(creator.group_state(&gid).unwrap(), creator.node_id()).unwrap();
+        assert_eq!(kind_of(&a, &c), Some(PeerKind::Introduced));
+
+        // Paired directly with C afterwards: a real contact now, persisted.
+        a.add_peer(c, "C direct".into(), vec![]).await.unwrap();
+        assert_eq!(kind_of(&a, &c), Some(PeerKind::Paired));
+        assert!(peers_json_ids(&a).contains(&c.to_string()));
+        assert_eq!(a.inner.lock().unwrap().peers[&c].name, "C direct");
+        // …and the group still shows the local pairing name.
+        let m = a.groups()[0]["members"].as_array().unwrap().iter().find(|m| m["id"] == c.to_string().as_str()).unwrap().clone();
+        assert_eq!((m["name"].as_str().unwrap(), m["introduced"].as_bool().unwrap()), ("C direct", false));
+
+        // Unpairing a contact who is still in a group keeps them reachable as
+        // an introduced member instead of dropping the entry.
+        a.remove_peer(&c.to_string()).unwrap();
+        assert_eq!(kind_of(&a, &c), Some(PeerKind::Introduced));
+        assert!(!peers_json_ids(&a).contains(&c.to_string()));
+        // A contact in no group is simply gone.
+        let lone = add_fake_peer(&a, PeerKind::Paired, 2);
+        a.remove_peer(&lone.to_string()).unwrap();
+        assert_eq!(kind_of(&a, &lone), None);
+    }
+
+    /// First contact, relays, replays, rollbacks and the caps on the receiving
+    /// side, with a real signing creator and a real receiving engine.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_state_acceptance_rules() {
+        let (alice, alice_rx) = start("grp-acc-alice").await;
+        let (bob, _bob_rx) = start("grp-acc-bob").await;
+        let ticket = alice.create_invite().await.unwrap();
+        bob.accept_invite(&ticket).await.unwrap();
+        wait_for(&alice_rx, 15, |e| e["kind"] == "pairing");
+        let (a_id, b_id) = (alice.node_id(), bob.node_id());
+        let c = add_fake_peer(&alice, PeerKind::Paired, 2);
+
+        // Real pairing negotiated v2, so Bob is invitable. Alice creates {A,B,C}.
+        let g = alice.group_create("Trio", &ids(&[b_id, c])).unwrap();
+        let gid = g["gid"].as_str().unwrap().to_string();
+        let st1 = alice.group_state(&gid).unwrap();
+        let wire = |st: &GroupState| -> GroupState { serde_json::from_str(&serde_json::to_string(st).unwrap()).unwrap() };
+
+        // Bob rejects first contact from anyone but the (paired) creator.
+        let stranger = fake_node_id();
+        assert!(bob.apply_group_state(wire(&st1), stranger).is_err());
+        assert!(bob.apply_group_state(wire(&st1), c).is_err(), "a member is not the creator");
+        assert!(bob.groups().is_empty());
+        // A creator Bob has not paired with is refused too.
+        let (eve, _erx) = start("grp-acc-eve").await;
+        eve.inner.lock().unwrap().peers.insert(b_id, Peer {
+            kind: PeerKind::Paired, name: "B".into(), addrs: vec![], proto: 2,
+            live: vec![], connecting: false, queued: vec![], msgs: vec![],
+        });
+        let eg = eve.group_create("Eve's", &ids(&[b_id])).unwrap();
+        let est = eve.group_state(eg["gid"].as_str().unwrap()).unwrap();
+        assert!(bob.apply_group_state(wire(&est), eve.node_id()).is_err(), "unpaired creator");
+        assert!(bob.groups().is_empty());
+
+        // From Alice: accepted, C appears as an introduced member only.
+        assert_eq!(bob.apply_group_state(wire(&st1), a_id).unwrap()["result"], "created");
+        assert_eq!(bob.groups().len(), 1);
+        assert_eq!(kind_of(&bob, &c), Some(PeerKind::Introduced));
+        assert!(!peers_json_ids(&bob).contains(&c.to_string()));
+        assert!(bob.status()["peers"].as_array().unwrap().iter().all(|p| p["id"] != c.to_string().as_str()));
+
+        // Replay and rollback are ignored.
+        assert_eq!(bob.apply_group_state(wire(&st1), a_id).unwrap()["result"], "stale");
+        alice.group_rename(&gid, "Trio v2").unwrap();
+        let st2 = alice.group_state(&gid).unwrap();
+        // A non-creator member may relay the newer state.
+        assert_eq!(bob.apply_group_state(wire(&st2), c).unwrap()["result"], "updated");
+        assert_eq!(bob.groups()[0]["name"], "Trio v2");
+        assert_eq!(bob.apply_group_state(wire(&st1), c).unwrap()["result"], "stale");
+        assert_eq!(bob.groups()[0]["epoch"], 2);
+        // A stranger can't relay.
+        alice.group_rename(&gid, "Trio v3").unwrap();
+        assert!(bob.apply_group_state(alice.group_state(&gid).unwrap(), stranger).is_err());
+        // A member editing the roster breaks the signature.
+        let mut forged = alice.group_state(&gid).unwrap();
+        forged.name = "Mine now".into();
+        assert!(bob.apply_group_state(forged, c).is_err());
+        // A hand-signed 5-member state is refused by the receiver even though
+        // the real creator signed it (the cap is enforced on receipt).
+        let mut five = alice.group_state(&gid).unwrap();
+        five.epoch = 50;
+        five.members.push(GroupMember { node_id: fake_node_id().to_string(), name: "D".into(), addrs: vec![] });
+        five.members.push(GroupMember { node_id: fake_node_id().to_string(), name: "E".into(), addrs: vec![] });
+        five.sign(&alice.secret).unwrap();
+        assert!(bob.apply_group_state(five, a_id).is_err());
+        assert_eq!(bob.groups()[0]["epoch"], 2);
+
+        // Removal: the creator drops Bob; Bob keeps the history, goes read-only
+        // and forgets the introduced entry nobody lists any more.
+        alice.group_remove(&gid, &b_id.to_string()).unwrap();
+        assert_eq!(bob.apply_group_state(alice.group_state(&gid).unwrap(), a_id).unwrap()["result"], "updated");
+        let g = &bob.groups()[0];
+        assert_eq!((g["removed"].as_bool(), g["canManage"].as_bool()), (Some(true), Some(false)));
+        assert_eq!(kind_of(&bob, &c), None);
+        // Bob's leave on the other side stays sticky across later states.
+        assert!(bob.group_leave(&gid).is_ok());
+
+        // A disband for a group the receiver is in marks it read-only.
+        let d = add_fake_peer(&alice, PeerKind::Paired, 2);
+        let g2 = alice.group_create("Duo", &ids(&[b_id, d])).unwrap();
+        let gid2 = g2["gid"].as_str().unwrap().to_string();
+        bob.apply_group_state(alice.group_state(&gid2).unwrap(), a_id).unwrap();
+        alice.group_disband(&gid2).unwrap();
+        bob.apply_group_state(alice.group_state(&gid2).unwrap(), a_id).unwrap();
+        let g = bob.groups().into_iter().find(|g| g["gid"] == gid2.as_str()).unwrap();
+        assert_eq!((g["closed"].as_bool(), g["removed"].as_bool()), (Some(true), Some(true)));
+        assert_eq!(kind_of(&bob, &d), None);
+
+        // Receiving cap: at MAX_GROUPS the next first contact is refused.
+        let (carol, carol_rx) = start("grp-acc-carol").await;
+        let (dan, _drx) = start("grp-acc-dan").await;
+        let ticket = carol.create_invite().await.unwrap();
+        dan.accept_invite(&ticket).await.unwrap();
+        wait_for(&carol_rx, 15, |e| e["kind"] == "pairing");
+        let ticket = carol.create_invite().await.unwrap();
+        alice.accept_invite(&ticket).await.unwrap();
+        wait_for(&carol_rx, 15, |e| e["kind"] == "pairing");
+        for i in 0..MAX_GROUPS {
+            let g = dan.group_create(&format!("n{i}"), &ids(&[carol.node_id()])).unwrap();
+            carol.apply_group_state(dan.group_state(g["gid"].as_str().unwrap()).unwrap(), dan.node_id()).unwrap();
+        }
+        assert_eq!(carol.groups().len(), MAX_GROUPS);
+        let og = alice.group_create("overflow", &ids(&[carol.node_id()])).unwrap();
+        let overflow = alice.group_state(og["gid"].as_str().unwrap()).unwrap();
+        assert!(carol.apply_group_state(overflow, a_id).is_err());
+        assert_eq!(carol.groups().len(), MAX_GROUPS);
+    }
+
+    /// The inbound path for an introduced member: it gets a session (group
+    /// frames only: 1:1 traffic and presence stay invisible), and it can still
+    /// pair for real with a QR token, which turns it into a normal contact.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn introduced_member_session_is_group_only_and_can_still_pair() {
+        let (alice, alice_rx) = start("grp-in-alice").await;
+        let (carol, carol_rx) = start("grp-in-carol").await;
+        let (creator, _crx) = start("grp-in-creator").await;
+        let alice_addrs: Vec<SocketAddr> = alice.endpoint.node_addr().await.unwrap().direct_addresses.into_iter().collect();
+        let carol_addrs: Vec<SocketAddr> = carol.endpoint.node_addr().await.unwrap().direct_addresses.into_iter().collect();
+        let fake = |name: &str, addrs: Vec<SocketAddr>| Peer {
+            kind: PeerKind::Paired, name: name.into(), addrs, proto: 2,
+            live: vec![], connecting: false, queued: vec![], msgs: vec![],
+        };
+        creator.inner.lock().unwrap().peers.insert(alice.node_id(), fake("Alice", alice_addrs.clone()));
+        creator.inner.lock().unwrap().peers.insert(carol.node_id(), fake("Carol", carol_addrs));
+        alice.inner.lock().unwrap().peers.insert(creator.node_id(), fake("Creator", vec![]));
+        // Carol knows Alice (so she dials her) but Alice only knows Carol from the roster.
+        carol.inner.lock().unwrap().peers.insert(alice.node_id(), fake("Alice", alice_addrs));
+        let g = creator.group_create("Trio", &ids(&[alice.node_id(), carol.node_id()])).unwrap();
+        let st = creator.group_state(g["gid"].as_str().unwrap()).unwrap();
+        alice.apply_group_state(st, creator.node_id()).unwrap();
+        assert_eq!(kind_of(&alice, &carol.node_id()), Some(PeerKind::Introduced));
+
+        carol.retry(&alice.node_id().to_string()).unwrap();
+        wait_for(&carol_rx, 30, |e| e["kind"] == "presence" && e["online"] == true);
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        while alice.inner.lock().unwrap().peers[&carol.node_id()].live.is_empty() {
+            assert!(std::time::Instant::now() < deadline, "alice never accepted the introduced member's session");
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        // Group-only: a 1:1 text from the introduced member goes nowhere.
+        carol.send(&alice.node_id().to_string(), "hello?", None, None).unwrap();
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert!(alice.inner.lock().unwrap().peers[&carol.node_id()].msgs.is_empty());
+        while let Ok(e) = alice_rx.try_recv() {
+            assert!(e["kind"] != "message" && e["kind"] != "presence", "leaked to the UI: {e}");
+        }
+        assert_eq!(alice.status()["peers"].as_array().unwrap().iter().filter(|p| p["id"] == carol.node_id().to_string().as_str()).count(), 0);
+
+        // The same device now pairs with a real invite: becomes a contact.
+        let ticket = alice.create_invite().await.unwrap();
+        carol.accept_invite(&ticket).await.unwrap();
+        wait_for(&alice_rx, 20, |e| e["kind"] == "pairing");
+        assert_eq!(kind_of(&alice, &carol.node_id()), Some(PeerKind::Paired));
+        assert!(peers_json_ids(&alice).contains(&carol.node_id().to_string()));
+        let id = carol.send(&alice.node_id().to_string(), "now we are paired", None, None).unwrap();
+        wait_for(&alice_rx, 30, |e| e["kind"] == "message" && e["text"] == "now we are paired");
+        wait_for(&carol_rx, 30, |e| e["kind"] == "ack" && e["id"] == id["id"]);
+    }
+
+    /// Group frames may only be put on sessions that negotiated protocol 2.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn group_frames_only_go_to_proto2_sessions() {
+        let (a, _rx) = start("grp-proto").await;
+        let v1 = add_fake_peer(&a, PeerKind::Paired, 1);
+        let v2 = add_fake_peer(&a, PeerKind::Paired, 2);
+        for (id, proto) in [(v1, 1u8), (v2, 2u8)] {
+            let (tx, _rx) = mpsc::unbounded_channel();
+            std::mem::forget(_rx); // keep the channel open for the duration of the test
+            a.register_live(id, tx, proto);
+        }
+        assert!(a.group_session(&v1).is_none(), "a v1 session never carries group frames");
+        assert!(a.group_session(&v2).is_some());
+        assert!(a.group_session(&fake_node_id()).is_none());
+    }
+
+    /// Groups survive a restart exactly (and are signed state, so a changed
+    /// file is not trusted).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn groups_survive_restart() {
+        let (a, _rx) = start("grp-restart").await;
+        let b = add_fake_peer(&a, PeerKind::Paired, 2);
+        a.persist_peers(&a.inner.lock().unwrap()).unwrap();
+        let g = a.group_create("Keep", &ids(&[b])).unwrap();
+        let gid = g["gid"].as_str().unwrap().to_string();
+        a.group_rename(&gid, "Kept").unwrap();
+        let before = a.group_state(&gid).unwrap();
+        let (dir, blobs) = (a.dir.clone(), a.blobs_dir.clone());
+        a.close().await;
+        drop(a);
+        let (tx, _rx2) = std_mpsc::channel();
+        let a2 = P2p::start(dir, blobs, Sink::Test(tx)).await.unwrap();
+        assert_eq!(a2.group_state(&gid).unwrap(), before);
+        assert_eq!(a2.status()["groups"].as_array().unwrap().len(), 1);
+        a2.group_state(&gid).unwrap().check().unwrap();
+        assert!(a2.group_add(&gid, &b.to_string()).is_err()); // still the creator, b already in
+        assert_eq!(a2.group_rename(&gid, "Kept 2").unwrap()["epoch"], 3);
     }
 
     #[test]
