@@ -538,3 +538,80 @@ test("group-deleted drops the chat; removing a creator's contact prunes their gr
   fire({ kind: "group-deleted", gid: mine });
   assert.equal(await core.getChat(gc(mine)), null);
 });
+
+test("info-sheet model: creator gets rename/add/disband, members only leave, finished groups only delete", () => {
+  const keys = c => lc.groupActionsModel(c).map(a => a.key);
+  assert.deepEqual(keys({ canManage: true, readOnly: false, memberCount: 3 }), ["rename", "add", "leave"]);
+  assert.deepEqual(keys({ canManage: false, readOnly: false, memberCount: 3 }), ["leave"]);
+  assert.deepEqual(keys({ canManage: true, readOnly: true, memberCount: 1 }), ["delete"]);
+  assert.deepEqual(keys({ canManage: false, readOnly: true, memberCount: 2 }), ["delete"]);
+  const labels = c => lc.groupActionsModel(c).map(a => a.label);
+  assert.equal(labels({ canManage: true, memberCount: 2 }).at(-1), "Disband group");
+  assert.equal(labels({ canManage: false, memberCount: 2 }).at(-1), "Leave group");
+  // Cap of 4 including the creator: Add is shown but disabled, with the reason.
+  const full = lc.groupActionsModel({ canManage: true, readOnly: false, memberCount: 4 }).find(a => a.key === "add");
+  assert.equal(full.disabled, true);
+  assert.match(full.label, /full/);
+  assert.equal(lc.groupActionsModel({ canManage: true, readOnly: false, memberCount: 3 }).find(a => a.key === "add").disabled, false);
+  assert.ok(lc.groupActionsModel({ canManage: true, readOnly: false, memberCount: 2 }).filter(a => a.danger).length === 1);
+});
+
+test("member hint explains who can manage and what 'not paired' means", () => {
+  const ms = [{ self: true }, { introduced: false }, { introduced: true }];
+  assert.match(lc.groupMemberHint({ canManage: true, readOnly: false }, ms), /only you can rename it and add or remove members \(3\/4\)/);
+  assert.match(lc.groupMemberHint({ canManage: false, readOnly: false }, ms), /Only the group's creator/);
+  const t = lc.groupMemberHint({ canManage: false, readOnly: false }, ms);
+  assert.match(t, /Not paired/);
+  assert.match(t, /only here/);
+  assert.doesNotMatch(lc.groupMemberHint({ canManage: true, readOnly: false }, [{ self: true }, { introduced: false }]), /Not paired/);
+  assert.match(lc.groupMemberHint({ canManage: false, readOnly: true }, ms), /nobody can write/);
+});
+
+test("unpair confirm text lists deleted groups and groups where the device stays a member", () => {
+  const none = lc.removePeerImpactText("Bob", { created: [], member: [] });
+  assert.match(none, /^Forget "Bob"\?/);
+  assert.doesNotMatch(none, /group/);
+  const both = lc.removePeerImpactText("Bob", { created: [{ name: "Trip" }, { name: "Gym" }], member: [{ name: "Mine" }] });
+  assert.match(both, /Bob created "Trip", "Gym": those groups will be deleted from this device too/);
+  assert.match(both, /Bob is also in "Mine": it stays there as a member you can't message directly any more/);
+  assert.match(lc.removePeerImpactText("Bob", { created: [{ name: "Trip" }] }), /that group will be deleted/);
+  assert.match(lc.removePeerImpactText("Bob", null), /^Forget/);
+});
+
+test("member management goes through the engine commands and updates the roster", async () => {
+  const gid = "5e".repeat(16);
+  engine.groups.push(groupJson(gid, "Mgmt", ME, [member(ME, "Me"), member(BOB, "Bob", { online: true })]));
+  await core.getChatList({});
+  engine.log.length = 0;
+  const upd = (name, members) => groupJson(gid, name, ME, members, { epoch: 2 });
+  const origInvoke = globalThis.__TAURI__.core.invoke;
+  globalThis.__TAURI__.core.invoke = async (cmd, args) => {
+    if (cmd === "p2p_group_add") { engine.log.push({ cmd, args }); return upd("Mgmt", [member(ME, "Me"), member(BOB, "Bob"), member(CAL, "Cal")]); }
+    if (cmd === "p2p_group_remove") { engine.log.push({ cmd, args }); return upd("Mgmt", [member(ME, "Me"), member(BOB, "Bob")]); }
+    if (cmd === "p2p_group_rename") { engine.log.push({ cmd, args }); return upd(args.name, [member(ME, "Me"), member(BOB, "Bob")]); }
+    return origInvoke(cmd, args);
+  };
+  try {
+    await lc.groupAddMember(gid, CAL);
+    assert.equal((await core.getChat(gc(gid))).memberCount, 3);
+    await lc.groupRemoveMember(gid, CAL);
+    assert.equal((await core.getChat(gc(gid))).memberCount, 2);
+    await lc.groupRename(gid, "Better");
+    assert.equal((await core.getChat(gc(gid))).name, "Better");
+    assert.deepEqual(engine.log.map(c => c.cmd), ["p2p_group_add", "p2p_group_remove", "p2p_group_rename"]);
+    assert.deepEqual(engine.log[0].args, { gid, nodeId: CAL });
+  } finally { globalThis.__TAURI__.core.invoke = origInvoke; }
+});
+
+test("UI wiring for member management exists and stays creator-only", async () => {
+  const { readFileSync } = await import("node:fs");
+  const read = f => readFileSync(new URL("../app/js/" + f, import.meta.url), "utf8");
+  const app = read("app.js"), view = read("chat-view.js"), p2p = read("p2p.js");
+  assert.match(app, /canRemove = chat\.isP2pGroup && chat\.canManage && !chat\.readOnly && !m\.self && !m\.isCreator/);
+  for (const k of ["rename", "add", "leave", "delete"]) assert.ok(app.includes(`act("${k}"`), k);
+  assert.match(app, /await confirmRemovePeer\(peerId, name\)/, "hub card unpair confirm");
+  assert.match(app, /confirmRemovePeer\(String\(chat\.id\)\.slice\("p2p:"\.length\)/, "chat-list unpair confirm");
+  assert.match(view, /Delivered<\/span>[\s\S]{0,200}m\.delivery\.filter/, "per-member delivery rows in message info");
+  assert.match(p2p, /export async function showAddMembersModal/);
+  assert.match(p2p, /GROUP_MAX_OTHERS \+ 1 - inGroup\.size/, "free slots of the 4-member cap");
+});

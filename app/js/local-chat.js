@@ -461,6 +461,51 @@ export async function peerGroupImpact(peerId) {
   } catch { return { created: [], member: [] }; }
 }
 
+// ---- info-sheet model (pure; app.js renders it) ----
+
+// Buttons of a local group's info sheet. Only the creator can rename, add and
+// remove (the signed roster has a single writer); every member can leave, the
+// creator disbands; a finished group can only be deleted.
+export function groupActionsModel(chat) {
+  if (chat.readOnly) return [{ key: "delete", label: "Delete chat", danger: true, disabled: false }];
+  const full = (chat.memberCount || 0) >= GROUP_MAX_OTHERS + 1;
+  const out = [];
+  if (chat.canManage) {
+    out.push({ key: "rename", label: "Rename", danger: false, disabled: false });
+    out.push({ key: "add", label: full ? "Add member (group is full)" : "Add member", danger: false, disabled: full });
+  }
+  out.push({ key: "leave", label: chat.canManage ? "Disband group" : "Leave group", danger: true, disabled: false });
+  return out;
+}
+
+// The member list's footnote, in plain words.
+export function groupMemberHint(chat, members) {
+  const parts = [];
+  if (chat.readOnly) parts.push("This group is over: nobody can write in it any more. The history stays on this device.");
+  else if (chat.canManage) parts.push(`You created this group, so only you can rename it and add or remove members (${members.length}/${GROUP_MAX_OTHERS + 1}).`);
+  else parts.push("Only the group's creator can rename it and add or remove members. You can leave at any time.");
+  if (members.some(m => m.introduced && !m.self)) {
+    parts.push("\u201cNot paired\u201d members joined through the group: you can talk to them only here. Pair with them (Local chat \u2192 Add contact) to message them directly.");
+  }
+  return parts.join(" ");
+}
+
+// Confirm text for unpairing a device, spelling out what happens to groups:
+// ones it created are deleted here, ones it is merely in keep it as a member
+// you can't message directly.
+export function removePeerImpactText(name, impact) {
+  const list = gs => gs.map(g => `"${g.name}"`).join(", ");
+  const created = impact?.created || [], member = impact?.member || [];
+  let text = `Forget "${name}"? Its chat history and received files will be deleted. The device can re-pair with a new invite.`;
+  if (created.length) {
+    text += ` ${name} created ${list(created)}: ${created.length === 1 ? "that group" : "those groups"} will be deleted from this device too.`;
+  }
+  if (member.length) {
+    text += ` ${name} is also in ${list(member)}: it stays there as a member you can't message directly any more. To take it out of a group you created, remove it from the group first.`;
+  }
+  return text;
+}
+
 // Drops store groups the engine no longer has (deleted, or cascaded away by
 // unpairing their creator).
 function pruneGroups(engineList) {

@@ -5,7 +5,7 @@
 import { showModal, toast, notifyIncoming } from "./ui.js";
 import { acquireCode } from "./qr-scan.js";
 import { diagnosticsSink } from "./diagnostics.js";
-import { createLocalGroup, groupPickerModel, findDuplicateGroup, lcGroupName, GROUP_MAX_OTHERS, GROUP_NAME_MAX } from "./local-chat.js";
+import { createLocalGroup, groupAddMember, groupPickerModel, findDuplicateGroup, lcGroupName, GROUP_MAX_OTHERS, GROUP_NAME_MAX } from "./local-chat.js";
 
 const TICKET_PREFIX = "VELTAP2P1:";
 
@@ -482,6 +482,75 @@ export async function showCreateGroupModal(invoke) {
     });
     sync();
     setTimeout(() => nameEl.focus(), 0);
+  });
+}
+
+// Add paired devices to a group the user created: same rules as the create
+// modal (online, protocol 2), limited to the free slots of the 4-member cap.
+// Resolves to the number of members added, or null when cancelled.
+export async function showAddMembersModal(invoke, gid) {
+  const status = await invoke("p2p_status");
+  const group = (status.groups || []).find(g => g.gid === gid);
+  if (!group) throw new Error("This group no longer exists");
+  const inGroup = new Set((group.members || []).map(m => m.id));
+  const slots = Math.max(0, GROUP_MAX_OTHERS + 1 - inGroup.size);
+  const model = groupPickerModel(status);
+  const peers = model.peers.filter(p => !inGroup.has(p.id));
+  return new Promise(resolve => {
+    const picked = new Set();
+    const body = document.createElement("div");
+    const rows = peers.map(p => `
+      <label class="p2p-row" style="${p.disabled ? "opacity:.55;cursor:default" : ""}">
+        <input type="checkbox" data-pick="${escapeHtml_(p.id)}"${p.disabled ? " disabled" : ""}>
+        <span class="p2p-row-name">${escapeHtml_(p.name)}</span>
+        ${p.disabled ? `<span class="p2p-row-queued">${escapeHtml_(p.reason)}</span>` : ""}
+      </label>`).join("");
+    body.innerHTML = `
+      <p class="p2p-hint">A local group holds up to ${GROUP_MAX_OTHERS + 1} devices, you included.
+        ${slots ? `You can add <b data-count>0/${slots}</b> more.` : "It is full."}
+        New members see messages sent from now on.</p>
+      ${peers.length ? `<div class="p2p-rows">${rows}</div>`
+        : `<div class="p2p-empty">No other paired devices. Pair with a device first (Local chat → Add contact).</div>`}`;
+    const foot = document.createDocumentFragment();
+    const cancel = document.createElement("button");
+    cancel.className = "btn-text"; cancel.textContent = "Cancel";
+    const ok = document.createElement("button");
+    ok.className = "btn-text"; ok.textContent = "Add";
+    foot.append(cancel, ok);
+    const countEl = body.querySelector("[data-count]");
+    let busy = false, done = false;
+    const sync = () => {
+      const full = picked.size >= slots;
+      for (const cb of body.querySelectorAll("[data-pick]")) {
+        const p = peers.find(x => x.id === cb.dataset.pick);
+        cb.disabled = !!p?.disabled || (full && !picked.has(cb.dataset.pick));
+      }
+      if (countEl) countEl.textContent = `${picked.size}/${slots}`;
+      ok.disabled = busy || !picked.size;
+    };
+    for (const cb of body.querySelectorAll("[data-pick]")) {
+      cb.addEventListener("change", () => {
+        if (cb.checked) picked.add(cb.dataset.pick); else picked.delete(cb.dataset.pick);
+        sync();
+      });
+    }
+    const { close } = showModal({
+      title: "Add to group", body, foot,
+      onClose: () => { if (!done) { done = true; resolve(null); } },
+    });
+    cancel.addEventListener("click", () => close());
+    ok.addEventListener("click", async () => {
+      if (ok.disabled) return;
+      busy = true; sync();
+      let added = 0;
+      try {
+        for (const id of picked) { await groupAddMember(gid, id); added++; }
+      } catch (err) {
+        toast("Couldn't add: " + String(err?.message || err));
+      }
+      done = true; close(); resolve(added);
+    });
+    sync();
   });
 }
 

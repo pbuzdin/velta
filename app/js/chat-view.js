@@ -2267,6 +2267,11 @@ export class ChatView {
     const encNote = grp
       ? "This message travels directly between the members' devices, with no relay. A tick turns double only when every current member has received it."
       : "This message is end-to-end encrypted with OpenPGP. Only you and the recipient can read it — the chatmail relay cannot.";
+    // Local groups: who has it, per member ("Bob ✓  Cal ✗").
+    const deliveryRows = Array.isArray(m.delivery) && m.delivery.length
+      ? `<div class="info-row"><span class="k">Delivered</span><span class="v">${m.delivery.filter(d => d.delivered).length} of ${m.delivery.length}</span></div>`
+        + m.delivery.map(d => `<div class="info-row"><span class="k" style="padding-left:12px">${escapeHtml(d.name)}</span><span class="v">${d.delivered ? "✓ received" : "✗ not yet"}</span></div>`).join("")
+      : "";
     showModal({
       title: "Message info",
       body: `
@@ -2275,6 +2280,7 @@ export class ChatView {
       <div class="info-row"><span class="k">From</span><span class="v">${escapeHtml(m.fromContact.name)}</span></div>
       <div class="info-row"><span class="k">Sent</span><span class="v">${new Date(m.ts).toLocaleString()}</span></div>
       <div class="info-row"><span class="k">State</span><span class="v">${stateLines[m.state] || m.state}</span></div>
+      ${deliveryRows}
       <div class="info-row"><span class="k">Message ID</span><span class="v">#${m.id}</span></div>`,
     });
   }

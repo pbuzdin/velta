@@ -219,8 +219,9 @@ Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
   stops counting. "X added you" / "You created the group" is a derived system
   line (not persisted); `group-removed` appends "no longer in this group".
 - "Delete chat" on a group = leave (member) or disband (creator) if still
-  active, then hide: hidden gids live in localStorage `velta-p2pg-hidden`
-  (the engine has no delete-group command before Phase 4; the log stays).
+  active, then `p2p_group_delete` (Phase 4). The localStorage list
+  `velta-p2pg-hidden` is only a fallback if the engine refuses; it is migrated
+  to real deletes on the next chat-list load.
 - UI guards hide relay-only features for `isP2pGroup`: invite QR, edit,
   add members, mute/pin/archive, forward (in and out), save, react, delete
   message, voice, attach/stickers/paste (files come in Phase 5). The create
@@ -228,3 +229,29 @@ Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
 - Everything is behind the local-chat switch: `hubModel()` is null when it is
   off, and both "new group" entries are gated on `p2pEnabled()`.
 - Tests: tests/local-group-chat.test.mjs.
+
+### Group member management (Phase 4)
+
+- Only the creator renames, adds and removes (single signer); every member can
+  leave, the creator disbands. Info sheet buttons come from the pure
+  `groupActionsModel()`; `showAddMembersModal` (p2p.js) offers online v2 paired
+  peers within the 4-member cap.
+- System lines: the device that observes a change writes `dir:"sys"` records
+  into `messages-g-<gid>.jsonl` (`seq 0`, `from ""`, `id sys:<kind>:<epoch>:<i>`;
+  kinds created, joined, added, removed, left, gone, renamed, disbanded,
+  removed-me, left-me). They are never sent, replayed or counted (`scan_log`
+  ignores them) and come back from `p2p_group_messages` with `sysKind`; live
+  ones arrive as `group-system`. The creator knows "X left" vs "You removed X";
+  members only see the signed roster shrink, so they get "X is no longer in the
+  group". The adapter's derived "X added you"/"no longer in this group" lines
+  remain only for groups whose log predates this (no `created`/`joined` row).
+- `p2p_group_delete{gid}`: only for a finished group (`removed`). It deletes the
+  log and the record. If a leave is still undelivered (`pending_leave`) an
+  invisible stub (`hidden`) stays until the creator's confirming state arrives,
+  then it is purged. Event `group-deleted{gid}`.
+- Unpairing: `p2p_peer_groups{peerId}` -> `{created,member}`; `remove_peer`
+  deletes every group the peer created (a forgotten creator can't re-sign
+  anything for us). Groups it is merely in keep it as an `Introduced` member;
+  the confirm dialog (`removePeerImpactText`) says so.
+- Message info shows per-member delivery from `delivery:[{id,name,delivered}]`
+  (cumulative acks vs the message's seq).
