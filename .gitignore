@@ -105,3 +105,6 @@ Velta.zip
 
 # Mimosa scanner runtime state (never commit)
 .mimosa/
+
+# WSL cargo check cache (CARGO_TARGET_DIR=target-check)
+**/target-check/
