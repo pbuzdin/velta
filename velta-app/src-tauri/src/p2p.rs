@@ -344,8 +344,11 @@ pub struct P2p {
     /// Media blobs land here (must sit under the accounts dir so the existing
     /// blobfile/media pipeline can serve them).
     blobs_dir: PathBuf,
-    /// In-progress inbound file transfers keyed by transfer id.
-    rx_files: Mutex<HashMap<String, FileRx>>,
+    /// In-progress inbound file transfers keyed by (sending node, transfer
+    /// id). The id is chosen by the sender, so it is only unique per sender:
+    /// keying by id alone let one paired peer clobber (or finish) another
+    /// peer's transfer that happened to use the same id.
+    rx_files: Mutex<HashMap<(NodeId, String), FileRx>>,
     endpoint: Endpoint,
     sink: Sink,
     inner: Mutex<Inner>,
@@ -1222,8 +1225,7 @@ impl P2p {
                 // V-10/#67: concurrency limits on top of the size cap.
                 {
                     let rx = self.rx_files.lock().unwrap();
-                    let peer_dir = self.blobs_dir.join(node_id.to_string());
-                    let for_peer = rx.values().filter(|f| f.dir == peer_dir).count();
+                    let for_peer = rx.keys().filter(|(n, _)| *n == node_id).count();
                     if for_peer >= MAX_INBOUND_FILES_PER_PEER || rx.len() >= MAX_INBOUND_FILES_TOTAL {
                         drop(rx);
                         self.sink.emit(json!({
@@ -1239,7 +1241,7 @@ impl P2p {
                 match std::fs::File::create(&partial) {
                     Ok(_) => {
                         self.rx_files.lock().unwrap().insert(
-                            id.clone(),
+                            (node_id, id.clone()),
                             FileRx { partial, dir, name: sanitize_name(&name), size, mime, caption, ts, got: 0 },
                         );
                     }
@@ -1251,14 +1253,15 @@ impl P2p {
             }
             Frame::FileChunk { id, data } => {
                 let mut rx = self.rx_files.lock().unwrap();
-                if let Some(t) = rx.get_mut(&id) {
+                let key = (node_id, id.clone());
+                if let Some(t) = rx.get_mut(&key) {
                     let bytes = match BASE64.decode(data.as_bytes()) {
                         Ok(b) => b,
-                        Err(_) => { rx.remove(&id); return; }
+                        Err(_) => { rx.remove(&key); return; }
                     };
                     if t.got + bytes.len() as u64 > t.size {
                         // Oversized or corrupt transfer — drop the partial.
-                        rx.remove(&id);
+                        rx.remove(&key);
                         return;
                     }
                     self.sink.emit(json!({
@@ -1274,7 +1277,7 @@ impl P2p {
                 }
             }
             Frame::FileEnd { id } => {
-                let done = self.rx_files.lock().unwrap().remove(&id);
+                let done = self.rx_files.lock().unwrap().remove(&(node_id, id.clone()));
                 let Some(t) = done else { return };
                 let _ = std::fs::File::open(&t.partial).and_then(|f| f.sync_all());
                 if t.got != t.size {
@@ -2205,6 +2208,61 @@ mod tests {
         assert_eq!(status["name"], "alice");
         assert_eq!(status["peers"].as_array().unwrap().len(), 1);
         assert_eq!(status["peers"][0]["id"], bob_id.as_str());
+    }
+
+    fn fake_node_id() -> NodeId {
+        let mut bytes = [0u8; 32];
+        rand::rngs::OsRng.fill_bytes(&mut bytes);
+        SecretKey::from_bytes(&bytes).public()
+    }
+
+    /// The transfer id is chosen by the sender, so two peers may use the same
+    /// one. Inbound transfers are keyed by (node, id): neither may overwrite,
+    /// feed or finish the other's, and the per-peer limit counts per node.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn inbound_transfers_are_keyed_by_node_and_id() {
+        let (engine, _rx) = start("rxkey").await;
+        let (tx, _frames) = mpsc::unbounded_channel();
+        let (a, b) = (fake_node_id(), fake_node_id());
+        let begin = |size: u64| Frame::FileBegin {
+            id: "same".into(), ts: 1, name: "f.txt".into(), size,
+            mime: "text/plain".into(), caption: String::new(),
+        };
+        let chunk = |bytes: &[u8]| Frame::FileChunk { id: "same".into(), data: BASE64.encode(bytes) };
+        let end = || Frame::FileEnd { id: "same".into() };
+
+        engine.handle_frame(a, begin(5), &tx);
+        engine.handle_frame(b, begin(3), &tx);
+        assert_eq!(engine.rx_files.lock().unwrap().len(), 2, "same id from two nodes = two transfers");
+
+        engine.handle_frame(a, chunk(b"AAAAA"), &tx);
+        engine.handle_frame(b, chunk(b"BBB"), &tx);
+        // Finishing A's transfer must leave B's untouched.
+        engine.handle_frame(a, end(), &tx);
+        assert_eq!(engine.rx_files.lock().unwrap().len(), 1);
+        assert!(engine.rx_files.lock().unwrap().contains_key(&(b, "same".to_string())));
+        engine.handle_frame(b, end(), &tx);
+        assert!(engine.rx_files.lock().unwrap().is_empty());
+
+        let read = |n: NodeId| std::fs::read(engine.blobs_dir.join(n.to_string()).join("f.txt")).unwrap();
+        assert_eq!(read(a), b"AAAAA");
+        assert_eq!(read(b), b"BBB");
+
+        // A node cannot finish a transfer that only another node started.
+        engine.handle_frame(a, begin(1), &tx);
+        engine.handle_frame(b, end(), &tx);
+        assert!(engine.rx_files.lock().unwrap().contains_key(&(a, "same".to_string())));
+
+        // Per-peer cap counts per node, not engine-wide (the total cap still applies).
+        let c = fake_node_id();
+        for i in 0..(MAX_INBOUND_FILES_PER_PEER + 2) {
+            engine.handle_frame(c, Frame::FileBegin {
+                id: format!("t{i}"), ts: 1, name: "g.bin".into(), size: 1,
+                mime: String::new(), caption: String::new(),
+            }, &tx);
+        }
+        let for_c = engine.rx_files.lock().unwrap().keys().filter(|(n, _)| *n == c).count();
+        assert_eq!(for_c, MAX_INBOUND_FILES_PER_PEER);
     }
 
     #[test]
