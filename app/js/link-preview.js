@@ -104,13 +104,13 @@ export async function linkPreview(text, chatId = null) {
 export function linkPreviewCardHtml(preview, url) {
   if (!preview) return "";
   const img = preview.image
-    ? `<img class="lp-img" src="${escapeAttr(preview.image)}" alt="" loading="lazy">`
+    ? `<img class="lp-img" src="${escapeAttr(preview.image)}" alt="" loading="lazy" draggable="false">`
     : "";
   const desc = preview.description
     ? `<span class="lp-desc">${escapeHtml(preview.description)}</span>`
     : "";
   const title = preview.title || url;
-  return `<a class="link-preview" href="${escapeAttr(url)}" target="_blank" rel="noopener">` +
+  return `<a class="link-preview" href="${escapeAttr(url)}" target="_blank" rel="noopener" draggable="false">` +
     img +
     `<span class="lp-body"><span class="lp-host">${escapeHtml(hostOf(url))}</span>` +
     `<span class="lp-title">${escapeHtml(title)}</span>${desc}</span></a>`;

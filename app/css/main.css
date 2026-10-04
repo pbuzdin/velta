@@ -1917,8 +1917,13 @@ li.failed .step-ico::after { content: "✕"; }
   background: var(--bg-hover);
   color: inherit;
   text-decoration: none;
+  /* A finger that starts on the card must reach the bubble's swipe handlers,
+     not start a native link/image drag (#35). */
+  -webkit-user-drag: none;
+  -webkit-touch-callout: none;
 }
 .link-preview .lp-img {
+  -webkit-user-drag: none;
   display: block;
   width: 100%;
   /* Fixed band (like the official clients): og:image is often a small logo,

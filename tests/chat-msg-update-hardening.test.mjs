@@ -793,3 +793,134 @@ test("swipe left on the history slides the chat column away and goes back", asyn
   assert.equal(main.style.transform, "translateX(100%)", "close parks the column on the closed side");
   assert.equal(app.className.includes("swipe-back"), false);
 });
+
+// ---- Swipes that start on a link preview card (#35) ----
+
+// Tiny DOM chain: just enough of closest() for the selectors the gesture code
+// uses ("a:not(.link-preview)", "button", ".bubble", "a[href]").
+function node(tag, cls = "", parent = null) {
+  const n = {
+    tag, cls: cls.split(/\s+/).filter(Boolean), parent, style: {},
+    getAttribute: name => (name === "href" ? "https://example.com/x" : null),
+    closest(sel) {
+      for (let cur = n; cur; cur = cur.parent) {
+        for (const part of sel.split(",").map(p => p.trim())) {
+          if (part === ".bubble" && cur.cls.includes("bubble")) return cur;
+          if (part === "a[href]" && cur.tag === "a") return cur;
+          if (part === "a:not(.link-preview)" && cur.tag === "a" && !cur.cls.includes("link-preview")) return cur;
+          if (part === cur.tag && part !== "a") return cur;
+        }
+      }
+      return null;
+    },
+  };
+  return n;
+}
+function cardTree() {
+  const bubble = node("div", "bubble");
+  const card = node("a", "link-preview", bubble);
+  const title = node("span", "lp-title", card);
+  const inline = node("a", "", bubble);
+  return { bubble, card, title, inline };
+}
+
+test("gestureSkipTarget lets link-preview cards swipe but not inline links or buttons", async () => {
+  const { gestureSkipTarget, GESTURE_SKIP_SELECTOR } = await import("../app/js/chat-view.js");
+  const { bubble, card, title, inline } = cardTree();
+  assert.equal(gestureSkipTarget(card), false);
+  assert.equal(gestureSkipTarget(title), false, "text inside the card swipes too");
+  assert.equal(gestureSkipTarget(bubble), false);
+  assert.equal(gestureSkipTarget(inline), true, "inline text links keep opting out");
+  assert.equal(gestureSkipTarget(node("button", "", bubble)), true);
+  assert.equal(gestureSkipTarget(null), false);
+  assert.ok(GESTURE_SKIP_SELECTOR.includes("a:not(.link-preview)"));
+});
+
+test("swipe right starting on a link preview card replies, and does not open the link", async t => {
+  const { view } = setup(t);
+  await view.open(7);
+  mobileGestures(t, true);
+  const row = view._buildItem(view.msgIndex.get(10));
+  const { bubble, title } = cardTree();
+  const touches = (x, y) => [{ clientX: x, clientY: y }];
+
+  await row.fire("touchstart", { touches: touches(10, 40), target: title });
+  await row.fire("touchmove", { touches: touches(200, 42), target: title, cancelable: true, preventDefault() {} });
+  assert.equal(bubble.style.transform, "translateX(64px)", "the bubble follows the finger from the card");
+  await row.fire("touchend", { touches: [] });
+  assert.equal(view.replyTo.id, 10);
+  assert.equal(bubble.style.transform, "");
+
+  // A click the WebView still synthesises right after the swipe is swallowed.
+  const opened = [];
+  const prevUA = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", { value: { userAgent: "Android" }, configurable: true });
+  window.__TAURI__ = { core: { invoke: (cmd, args) => { opened.push([cmd, args.url]); return Promise.resolve(); } } };
+  t.after(() => {
+    if (prevUA) Object.defineProperty(globalThis, "navigator", prevUA); else delete globalThis.navigator;
+    window.__TAURI__ = null;
+  });
+  const click = { target: title, preventDefault() {}, stopPropagation() {} };
+  await row.fire("click", click);
+  assert.deepEqual(opened, [], "the swipe's follow-up click does not open the link");
+});
+
+test("a plain tap on a link preview card still opens the link", async t => {
+  const { view } = setup(t);
+  await view.open(7);
+  mobileGestures(t, true);
+  const row = view._buildItem(view.msgIndex.get(10));
+  const { title } = cardTree();
+  const opened = [];
+  const prevUA = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", { value: { userAgent: "Android" }, configurable: true });
+  window.__TAURI__ = { core: { invoke: (cmd, args) => { opened.push([cmd, args.url]); return Promise.resolve(); } } };
+  t.after(() => {
+    if (prevUA) Object.defineProperty(globalThis, "navigator", prevUA); else delete globalThis.navigator;
+    window.__TAURI__ = null;
+  });
+
+  // tap: touchstart + tiny move + touchend, then click
+  await row.fire("touchstart", { touches: [{ clientX: 10, clientY: 40 }], target: title });
+  await row.fire("touchmove", { touches: [{ clientX: 13, clientY: 41 }], target: title, cancelable: true, preventDefault() {} });
+  await row.fire("touchend", { touches: [] });
+  await row.fire("click", { target: title, preventDefault() {}, stopPropagation() {} });
+  assert.deepEqual(opened, [["open_in_app_browser", "https://example.com/x"]]);
+  assert.equal(view.replyTo, null, "a tap never replies");
+});
+
+test("swipe left starting on a link preview card goes back like elsewhere", async t => {
+  let backs = 0;
+  const { view, node: byId } = setup(t);
+  view.onBack = () => { backs++; };
+  await view.open(7);
+  mobileGestures(t, true);
+  const scroller = byId("history-scroll");
+  const main = byId("main");
+  const { card, title, inline } = cardTree();
+
+  await scroller.fire("touchstart", { touches: [{ clientX: 200, clientY: 80 }], target: inline });
+  await scroller.fire("touchmove", { touches: [{ clientX: 100, clientY: 82 }], cancelable: true, preventDefault() {} });
+  assert.equal(main.style.transform, "", "inline text links still do not start the drag");
+  await scroller.fire("touchend", { touches: [] });
+
+  for (const target of [card, title]) {
+    await scroller.fire("touchstart", { touches: [{ clientX: 200, clientY: 80 }], target });
+    await scroller.fire("touchmove", { touches: [{ clientX: 120, clientY: 84 }], cancelable: true, preventDefault() {} });
+    assert.equal(main.style.transform, "translateX(-80px)", "the column follows from the card");
+    await scroller.fire("touchend", { touches: [] });
+    assert.equal(main.style.transform, "translateX(-100%)");
+    await main.fire("transitionend");
+  }
+  assert.equal(backs, 2);
+});
+
+test("link preview card markup and CSS do not invite a native drag", async () => {
+  const { readFileSync } = await import("node:fs");
+  const css = readFileSync(new URL("../app/css/main.css", import.meta.url), "utf8");
+  const card = css.slice(css.indexOf(".link-preview {"), css.indexOf(".link-preview .lp-body"));
+  assert.match(card, /-webkit-user-drag:\s*none/);
+  const js = readFileSync(new URL("../app/js/link-preview.js", import.meta.url), "utf8");
+  assert.match(js, /class="link-preview"[^`]*draggable="false"/);
+  assert.match(js, /class="lp-img"[^`]*draggable="false"/);
+});
