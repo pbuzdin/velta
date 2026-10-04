@@ -184,6 +184,10 @@ probe/fallback ladder in `media.js` documents the behavior.
 No issues found; vendored as a fallback for Android WebViews that ship no
 `BarcodeDetector` (or one whose `detect()` hangs — see `qr-scan.js`).
 
+The file is the upstream webpack dist build minified with
+`esbuild --minify --target=es2015` (257 KB -> 131 KB, ~46 KB gzipped). Re-minify
+the same way when updating; verified by decoding generated QR codes.
+
 ---
 
 ## Delta Chat core (vendored `core/`, upstream chatmail/core)
