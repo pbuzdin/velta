@@ -154,7 +154,7 @@ jobs:
 
       - name: Rename signed APK with version
         run: |
-          VERSION=$(jq -r .version velta-app/src-tauri/tauri.conf.json)
+          VERSION=$(grep -m1 '^version' velta-app/src-tauri/Cargo.toml | cut -d'"' -f2)
           mkdir -p dist
           for f in velta-app/src-tauri/gen/android/app/build/outputs/apk/*/release/*-signed.apk; do
             abi=$(basename "$(dirname "$(dirname "$f")")")

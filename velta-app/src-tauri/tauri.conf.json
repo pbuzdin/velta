@@ -1,7 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Velta",
-  "version": "1.4.57",
   "identifier": "org.velta",
   "build": {
     "frontendDist": "../../app"

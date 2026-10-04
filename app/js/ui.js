@@ -3,6 +3,7 @@ import { escapeHtml, escapeAttr } from "./components.js";
 import { shouldNotifyIncoming } from "./notify-policy.js";
 import { fileUrl } from "./media.js";
 import { linkPreviewEnabled, setLinkPreviewEnabled, LINK_PREVIEW_IP_WARNING } from "./link-preview.js";
+import { APP_VERSION } from "./version.gen.js";
 
 const popups = () => document.getElementById("popups");
 
@@ -297,8 +298,6 @@ export function setCoreVersionDisplay(v) {
   CORE_VERSION = String(v).replace(/^v/, "");
   document.querySelectorAll('[data-v="core"]').forEach((el) => { el.textContent = CORE_VERSION; });
 }
-const FALLBACK_APP_VERSION = "1.4.57";
-
 /* ---------- Update check (drawer banner + menu-button nudge) ---------- */
 // The latest release version lives in a version.txt asset attached to every
 // GitHub release (written by release.yml from tauri.conf.json). On Tauri the
@@ -489,7 +488,7 @@ async function getAppVersion() {
     if (tauri?.app?.getVersion) return await tauri.app.getVersion();
     if (tauri?.core?.invoke) return await tauri.core.invoke("plugin:app|version");
   } catch {}
-  return FALLBACK_APP_VERSION;
+  return APP_VERSION;
 }
 
 // The app-shell cache name (velta-vNN) doubles as the service worker version.

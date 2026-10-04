@@ -105,7 +105,7 @@ jobs:
       # release assets never collide across releases.
       - name: Collect artifacts
         run: |
-          VERSION=$(jq -r .version velta-app/src-tauri/tauri.conf.json)
+          VERSION=$(grep -m1 '^version' velta-app/src-tauri/Cargo.toml | cut -d'"' -f2)
           OUT=velta-app/src-tauri/target/universal-apple-darwin/release/bundle
           mkdir -p dist
           cp "$OUT"/dmg/*.dmg dist/

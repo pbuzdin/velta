@@ -1218,7 +1218,9 @@ The `Release` workflow (`.github/workflows/release.yml`) builds both artifacts
 and publishes them as a GitHub release. It runs on every `v*` tag push and can
 also be triggered manually from the Actions tab (it then creates the matching
 tag itself). The release assets are named after the version in
-`velta-app/src-tauri/tauri.conf.json` — the single source of truth:
+`velta-app/src-tauri/Cargo.toml` — the single source of truth (bump with
+`node tools/bump.mjs <version>`; `tauri.conf.json` carries no version and
+falls back to it natively):
 
 - `Velta-<version>-<abi>.apk` — signed Android APK (`build-android.yml`)
 - `Velta_<version>_x64-setup.exe` — NSIS Windows installer (`build-windows.yml`),

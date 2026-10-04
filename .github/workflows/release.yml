@@ -1,7 +1,7 @@
 name: Release
 
 # Builds the Android APK and the Windows NSIS installer and publishes them
-# as a GitHub release named after the version in tauri.conf.json. Triggered
+# as a GitHub release named after the version in Cargo.toml. Triggered
 # by a v* tag push or manually from the Actions tab.
 on:
   push:
@@ -43,7 +43,7 @@ jobs:
       - name: Read version
         id: ver
         run: |
-          VERSION=$(jq -r .version velta-app/src-tauri/tauri.conf.json)
+          VERSION=$(grep -m1 '^version' velta-app/src-tauri/Cargo.toml | cut -d'"' -f2)
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
           echo "Version: $VERSION"
