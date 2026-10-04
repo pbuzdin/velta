@@ -68,6 +68,58 @@ function peer(id, name) {
 let msgSeq = 0;
 const nowId = () => 1_000_000_000 + ++msgSeq;
 
+// ---- history hydration (engine -> adapter store) ----
+//
+// The adapter store is memory-only; the engine keeps the real history in
+// messages-<id>.jsonl. Without this a `p2p:` chat opened EMPTY after every app
+// restart. Each peer is hydrated once per page lifetime (p2p_messages); a
+// failed attempt (engine still starting, unknown peer) is not remembered, so
+// the next call retries. Engine rows get fresh NUMERIC ids (1e9+seq, never the
+// engine's string ids: the chat view's "append only new" filter compares ids
+// with >) and keep the engine id in `engineId`, which is also how a live event
+// that raced the hydration is de-duplicated.
+const HYDRATE_LIMIT = 500;
+
+function histFromEngine(r) {
+  const out = r.dir === "out";
+  const m = {
+    id: nowId(), engineId: r.id, ts: r.ts || Date.now(), text: r.text || "",
+    out, acked: out ? r.state === "acked" : true,
+  };
+  if (out && r.state === "queued") m.queued = true;
+  if (r.reply_to) { m.reply_to = r.reply_to; m.reply_text = r.reply_text ?? null; }
+  if (r.file) m.file = { name: r.file.name, size: r.file.size || 0, mime: r.file.mime || "", path: r.file.path };
+  return m;
+}
+
+function mergeHistory(p, rows) {
+  const known = new Set();
+  for (const m of p.msgs) if (m.engineId != null) known.add(m.engineId);
+  const hist = [];
+  for (const r of rows) {
+    if (!r || typeof r.id !== "string" || known.has(r.id)) continue;
+    known.add(r.id);
+    hist.push(histFromEngine(r));
+  }
+  // History is older than anything that arrived live in the meantime.
+  if (hist.length) { p.msgs.splice(0, 0, ...hist); emitChanged(); }
+}
+
+async function hydratePeer(p) {
+  if (!p || p.hydrated || !isTauri()) return;
+  if (!p.hydrating) {
+    p.hydrating = invoke()("p2p_messages", { peerId: p.id, limit: HYDRATE_LIMIT })
+      .then(rows => {
+        if (!Array.isArray(rows)) return;
+        mergeHistory(p, rows);
+        p.hydrated = true;
+      })
+      .catch(() => {}) // engine not ready / peer unknown: retry on the next call
+      .finally(() => { p.hydrating = null; });
+  }
+  await p.hydrating;
+}
+
 function viewtypeFor(name, mime = "") {
   const ext = (name || "").split(".").pop().toLowerCase();
   if (["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"].includes(ext)) return "image";
@@ -395,6 +447,7 @@ function handler(prop) {
             try {
               for (const p of await enginePeers()) { peer(p.id, p.name); }
               peers = [...store.peers.values()];
+              await Promise.all(peers.map(hydratePeer)); // previews survive a restart
             } catch {}
           }
           const q = (opts.query || "").trim().toLowerCase();
@@ -411,6 +464,7 @@ function handler(prop) {
         if (!String(id).startsWith(P2P_PREFIX)) return t.getChat(id);
         const p = store.peers.get(String(id).slice(P2P_PREFIX.length));
         if (!p) return null;
+        await hydratePeer(p);
         return { ...mapChat(p), isP2p: true };
       };
 
@@ -418,6 +472,7 @@ function handler(prop) {
       return async (t, id, opts = {}) => {
         if (!String(id).startsWith(P2P_PREFIX)) return t.getMessages(id, opts);
         const p = store.peers.get(String(id).slice(P2P_PREFIX.length));
+        await hydratePeer(p);
         const msgs = p ? p.msgs.map(m => mapMsg(p, m)) : [];
         return { messages: msgs, hasMore: false };
       };
@@ -426,6 +481,7 @@ function handler(prop) {
       return async (t, id) => {
         if (!String(id).startsWith(P2P_PREFIX)) return t.getMessageIds(id);
         const p = store.peers.get(String(id).slice(P2P_PREFIX.length));
+        await hydratePeer(p);
         return p ? p.msgs.map(m => m.id) : [];
       };
 

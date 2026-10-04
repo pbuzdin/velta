@@ -128,3 +128,11 @@ Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
   `>` — string ids silently drop every message from the "append only new"
   filter (local-chat.js learned this the hard way; its ids are
   `1e9 + seq`).
+- History hydration (local group chat Phase 0a): the adapter store is
+  memory-only, the engine's `messages-<id>.jsonl` is the source of truth.
+  `hydratePeer` in local-chat.js loads it through `p2p_messages` ONCE per peer
+  (from `getChatList`, `getChat`, `getMessages`, `getMessageIds`); failures are
+  not remembered (retried on the next call). Engine rows get fresh numeric
+  `1e9+seq` ids and keep the engine id in `engineId`, which de-duplicates a live
+  event that raced the hydration. KEEP: never use engine string ids as message
+  ids. Pinned by tests/local-chat-hydration.test.mjs.
