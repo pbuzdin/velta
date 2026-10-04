@@ -5,6 +5,7 @@
 import { showModal, toast, notifyIncoming } from "./ui.js";
 import { acquireCode } from "./qr-scan.js";
 import { diagnosticsSink } from "./diagnostics.js";
+import { createLocalGroup, groupPickerModel, findDuplicateGroup, lcGroupName, GROUP_MAX_OTHERS, GROUP_NAME_MAX } from "./local-chat.js";
 
 const TICKET_PREFIX = "VELTAP2P1:";
 
@@ -77,7 +78,11 @@ async function handleEvent(ev) {
     diagnosticsSink.append("warning", `Local chat${peer}: ${ev.message || "error"}`);
   }
   if (ev.kind === "message") notifyIncoming(ev.name || "Local chat", (ev.text || "").slice(0, 120));
-  if (hub && ["pairing", "presence", "nearby"].includes(ev.kind)) hub.refresh().catch(() => {});
+  // Group text: "<group> · <sender>" as the title, like a relay group.
+  if (ev.kind === "group-message") {
+    notifyIncoming(`${lcGroupName(ev.gid)} · ${ev.name || "member"}`, (ev.text || "").slice(0, 120));
+  }
+  if (hub && ["pairing", "presence", "nearby", "group-state", "group-removed", "group-presence"].includes(ev.kind)) hub.refresh().catch(() => {});
   if (activeChat && ev.peerId === activeChat.peerId &&
       ["message", "ack", "presence"].includes(ev.kind)) {
     renderActiveChat().catch(() => {});
@@ -401,6 +406,83 @@ function openPairingModal() {
       body.appendChild(hints);
     },
   };
+}
+
+/* ---------------- create-group modal ---------------- */
+
+// Name + up to 3 paired peers. Offline peers and peers on the old protocol
+// are listed but disabled, with the reason. Resolves to the new chat id
+// ("p2pg:<gid>") or null when cancelled.
+export async function showCreateGroupModal(invoke) {
+  const status = await invoke("p2p_status");
+  const model = groupPickerModel(status);
+  return new Promise(resolve => {
+    const picked = new Set();
+    const body = document.createElement("div");
+    const rows = model.peers.map(p => `
+      <label class="p2p-row" style="${p.disabled ? "opacity:.55;cursor:default" : ""}">
+        <input type="checkbox" data-pick="${escapeHtml_(p.id)}"${p.disabled ? " disabled" : ""}>
+        <span class="p2p-row-name">${escapeHtml_(p.name)}</span>
+        ${p.disabled ? `<span class="p2p-row-queued">${escapeHtml_(p.reason)}</span>` : ""}
+      </label>`).join("");
+    body.innerHTML = `
+      <input class="text-field" data-gname maxlength="${GROUP_NAME_MAX}" placeholder="Group name" autocomplete="off">
+      <p class="p2p-hint" style="margin-top:10px">Pick up to ${GROUP_MAX_OTHERS} paired devices —
+        <b data-count>0/${GROUP_MAX_OTHERS}</b>. Everyone must be online to be added now;
+        you can't add people later in this version.</p>
+      ${model.peers.length ? `<div class="p2p-rows">${rows}</div>`
+        : `<div class="p2p-empty">No paired devices yet. Pair with another Velta device first.</div>`}
+      ${model.atLimit ? `<p class="p2p-hint" style="color:var(--danger)">You already have ${model.active} active groups (the maximum). Leave one first.</p>` : ""}
+      <p class="p2p-hint" data-warn style="opacity:.8" hidden></p>`;
+    const foot = document.createDocumentFragment();
+    const cancel = document.createElement("button");
+    cancel.className = "btn-text"; cancel.textContent = "Cancel";
+    const ok = document.createElement("button");
+    ok.className = "btn-text"; ok.textContent = "Create";
+    foot.append(cancel, ok);
+    let busy = false;
+    const nameEl = body.querySelector("[data-gname]");
+    const countEl = body.querySelector("[data-count]");
+    const warnEl = body.querySelector("[data-warn]");
+    const sync = () => {
+      const full = picked.size >= GROUP_MAX_OTHERS;
+      for (const cb of body.querySelectorAll("[data-pick]")) {
+        const p = model.peers.find(x => x.id === cb.dataset.pick);
+        cb.disabled = !!p?.disabled || (full && !picked.has(cb.dataset.pick));
+      }
+      countEl.textContent = `${picked.size}/${GROUP_MAX_OTHERS}`;
+      const dup = picked.size ? findDuplicateGroup(status, [...picked]) : null;
+      warnEl.hidden = !dup;
+      if (dup) warnEl.textContent = `You already have a group "${dup.name}" with exactly these people. You can still create another.`;
+      ok.disabled = busy || model.atLimit || !picked.size || !nameEl.value.trim();
+    };
+    for (const cb of body.querySelectorAll("[data-pick]")) {
+      cb.addEventListener("change", () => {
+        if (cb.checked) picked.add(cb.dataset.pick); else picked.delete(cb.dataset.pick);
+        sync();
+      });
+    }
+    nameEl.addEventListener("input", sync);
+    let done = false;
+    const { close } = showModal({
+      title: "New local group", body, foot,
+      onClose: () => { if (!done) { done = true; resolve(null); } },
+    });
+    cancel.addEventListener("click", () => close());
+    ok.addEventListener("click", async () => {
+      if (ok.disabled) return;
+      busy = true; sync();
+      try {
+        const id = await createLocalGroup(nameEl.value.trim(), [...picked]);
+        done = true; close(); resolve(id);
+      } catch (err) {
+        busy = false; sync();
+        toast("Couldn't create the group: " + String(err?.message || err));
+      }
+    });
+    sync();
+    setTimeout(() => nameEl.focus(), 0);
+  });
 }
 
 /* ---------------- chat modal ---------------- */

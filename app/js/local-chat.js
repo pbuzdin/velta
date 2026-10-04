@@ -383,6 +383,37 @@ export async function dismissLocalGroup(gid) {
   emitChanged();
 }
 
+// Limits mirrored from the engine (groups.rs) for the create-group modal.
+export const GROUP_MAX_OTHERS = 3;   // MAX_GROUP_MEMBERS (4) minus the creator
+export const GROUP_MAX_GROUPS = 16;
+export const GROUP_NAME_MAX = 64;
+
+// Who can be picked for a new group, from a p2p_status snapshot: only paired
+// peers that speak protocol v2 AND are online right now (the engine would
+// accept offline ones, but the first sync is far more reliable with everyone
+// reachable). Disabled rows carry the reason shown to the user.
+export function groupPickerModel(status) {
+  const peers = (status?.peers || []).map(p => {
+    let reason = "";
+    if ((p.proto || 0) < 2) reason = "needs the latest Velta (no group support)";
+    else if (!p.online) reason = "offline";
+    return { id: p.id, name: p.name || String(p.id).slice(0, 12), disabled: !!reason, reason };
+  });
+  const active = (status?.groups || []).filter(g => !g.removed).length;
+  return { peers, atLimit: active >= GROUP_MAX_GROUPS, active };
+}
+
+// An existing active group with exactly this member set (plus me), if any.
+export function findDuplicateGroup(status, memberIds) {
+  const want = [...new Set(memberIds)].sort().join(",");
+  for (const g of status?.groups || []) {
+    if (g.removed) continue;
+    const others = (g.members || []).filter(m => !m.self).map(m => m.id).sort().join(",");
+    if (others === want) return g;
+  }
+  return null;
+}
+
 export function lcGroupInfo(gid) {
   const g = store.groups.get(gid);
   return g ? mapGroupChat(g) : null;

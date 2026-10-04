@@ -203,3 +203,28 @@ Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
   rows with `delivered:[node ids that acked]`) are registered in lib.rs next
   to the 1:1 ones. p2p-hub understands `groups|gcreate|gsend|gmsgs|gadd|
   gremove|grename|gdisband|gleave`.
+
+### Local groups in the UI (Phase 3)
+
+- Adapter (`local-chat.js`): a group is the chat `p2pg:<gid>` (`kind:"group"`,
+  `isP2p`, `isP2pGroup`, `memberCount`, `onlineCount`, `canManage`,
+  `readOnly`). Everything with a `p2pg:` id is answered by the adapter and
+  never reaches the real core or 1:1 commands; relay ids fall through with ALL
+  arguments (`getChatMembers`, `leaveGroup` too). `getChatList` takes peers
+  and groups from ONE `p2p_status` and re-applies the engine roster each time.
+- History hydrates once per group from `p2p_group_messages`; message ids are
+  numeric `1e9 + seq` style (increasing, never colliding with relay ids).
+  Ticks: pending -> sent -> read; read only when EVERY current roster member
+  has acked (`delivered`/`group-ack` cumulative `have`), so a removed member
+  stops counting. "X added you" / "You created the group" is a derived system
+  line (not persisted); `group-removed` appends "no longer in this group".
+- "Delete chat" on a group = leave (member) or disband (creator) if still
+  active, then hide: hidden gids live in localStorage `velta-p2pg-hidden`
+  (the engine has no delete-group command before Phase 4; the log stays).
+- UI guards hide relay-only features for `isP2pGroup`: invite QR, edit,
+  add members, mute/pin/archive, forward (in and out), save, react, delete
+  message, voice, attach/stickers/paste (files come in Phase 5). The create
+  modal (`showCreateGroupModal`, p2p.js) offers only online v2 peers, max 3.
+- Everything is behind the local-chat switch: `hubModel()` is null when it is
+  off, and both "new group" entries are gated on `p2pEnabled()`.
+- Tests: tests/local-group-chat.test.mjs.

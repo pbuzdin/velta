@@ -359,3 +359,47 @@ test("hub model lists groups for the Local chat card", async () => {
   assert.equal(model.groups.some(g => g.id === gc(GID2)), false, "dismissed group stays hidden");
   assert.equal(model.peers[0].proto, 2);
 });
+
+test("create-group picker: v1 and offline peers are disabled with a reason, limits and duplicates are reported", () => {
+  const st = {
+    peers: [
+      { id: BOB, name: "Bob", online: true, proto: 2 },
+      { id: CAL, name: "Cal", online: false, proto: 2 },
+      { id: DAN, name: "Dan", online: true, proto: 1 },
+    ],
+    groups: [groupJson(GID, "Trio", ME, [member(ME, "Me"), member(BOB, "Bob")])],
+  };
+  const m = lc.groupPickerModel(st);
+  const by = id => m.peers.find(p => p.id === id);
+  assert.equal(by(BOB).disabled, false);
+  assert.equal(by(CAL).disabled, true);
+  assert.match(by(CAL).reason, /offline/);
+  assert.equal(by(DAN).disabled, true);
+  assert.match(by(DAN).reason, /latest Velta/);
+  assert.equal(m.atLimit, false);
+  assert.equal(lc.GROUP_MAX_OTHERS, 3);
+  assert.equal(lc.findDuplicateGroup(st, [BOB])?.gid, GID, "same member set is flagged");
+  assert.equal(lc.findDuplicateGroup(st, [BOB, CAL]), null);
+  const many = { peers: [], groups: Array.from({ length: 16 }, (_, i) => groupJson(String(i), "g", ME, [member(ME, "Me")])) };
+  assert.equal(lc.groupPickerModel(many).atLimit, true);
+  many.groups[0].removed = true;
+  assert.equal(lc.groupPickerModel(many).atLimit, false, "closed groups do not count toward the limit");
+});
+
+test("UI guards exist for p2pg: header line, hidden relay-only actions, gated entry points", async () => {
+  const { readFileSync } = await import("node:fs");
+  const read = f => readFileSync(new URL("../app/js/" + f, import.meta.url), "utf8");
+  const comp = read("components.js"), view = read("chat-view.js"), app = read("app.js");
+  assert.match(comp, /isP2pGroup[\s\S]{0,200}members[\s\S]{0,40}online/, "header shows N members · M online");
+  for (const label of ["Forward", "Save to Saved Messages", "Delete"]) {
+    assert.ok(view.includes(label), label);
+  }
+  assert.match(view, /const p2pg = !!this\.chat\?\.isP2pGroup/);
+  assert.match(view, /_applyGroupComposer/);
+  assert.match(app, /chat\.kind === "group" && !chat\.isP2pGroup \? \[\{ label: "Group invite QR"/);
+  assert.match(app, /!c\.isP2pGroup\);\s*for \(const chat of targets\)/, "forward targets exclude local groups");
+  // both "new group" entries only exist behind the local-chat switch
+  assert.match(app, /p2pEnabled\(\) && p2pAvailable\(\) \? \[\{ label: "New local group/);
+  assert.match(app, /async function newLocalGroupFlow\(\)[\s\S]{0,300}!p2pEnabled\(\)/);
+  assert.match(app, /if \(!model\) \{ el\.hidden = true/, "hub card stays hidden when local chat is off");
+});
