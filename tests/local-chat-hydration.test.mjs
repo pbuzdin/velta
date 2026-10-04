@@ -155,3 +155,17 @@ test("a failed hydration does not throw, shows nothing and is retried on the nex
   await msgsOf("g");                        // done: no further requests
   assert.equal(calls.filter(c => c.peerId === "g").length, 3);
 });
+
+test("msg-state / ack that arrive while the history request is in flight are applied to the snapshot", async () => {
+  history.h = [row("h1", "out", "queued then flushed", { state: "queued" }), row("h2", "out", "sent then acked", { state: "sent" })];
+  let release; gate = new Promise(r => { release = r; });
+  const listP = core.getChatList({});
+  await new Promise(r => setTimeout(r, 0));
+  // The engine flushed h1 and the peer acked h2 right after it took the snapshot.
+  fire({ kind: "msg-state", peerId: "h", id: "h1", state: "sent" });
+  fire({ kind: "ack", peerId: "h", id: "h2" });
+  release(); gate = null;
+  await listP;
+  const msgs = await msgsOf("h");
+  assert.deepEqual(msgs.map(m => m.state), ["sent", "read"]); // no pending clock forever
+});
