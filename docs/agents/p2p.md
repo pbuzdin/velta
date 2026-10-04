@@ -45,8 +45,19 @@ iroh (QUIC, `RelayMode::Disabled`, optional mDNS re-discovery via the
   (background connect retries) go to the Diagnostics chat, never toasts —
   several queued connects can fail at once and the store collapses
   identical consecutive entries into one counted row.
-- Rust tests: `cargo test --lib p2p::` (loopback pairing + offline queue
-  flush).
+- Protocol versions (local group chat Phase 0b): the endpoint accepts and
+  dials ALPN `/velta/p2p/2` first and falls back to `/velta/p2p/1`
+  (`connect_with_opts` + `additional_alpns`); the negotiated ALPN is read from
+  the connection (`proto_of`) and stored per live session (`LiveHandle.proto`)
+  and per peer in `peers.json` (`proto`, `#[serde(default)]`, 0 = unknown;
+  also reported as `proto` by `p2p_status`). v2 carries the same frames as
+  v1 today. KEEP: a frame that only v2 understands must never be sent on a
+  v1 session — the ALPN decides, not a flag inside a frame. `Frame` and
+  `Hello` have `#[serde(other)] Unknown`, so a future frame type is skipped
+  instead of ending the session (a known type with a broken body still ends
+  it). Inbound file transfers are keyed by `(node id, transfer id)`.
+- Rust tests: `cargo test --lib p2p::` (loopback pairing, offline queue
+  flush, ALPN v2 + v1-only peer, unknown frames, transfer keying).
 
 ## Rendering in the chat UI (1.3.38)
 
