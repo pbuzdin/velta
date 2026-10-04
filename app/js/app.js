@@ -2,7 +2,7 @@
 import { createCore } from "./transport.js";
 import "./components.js";
 import { escapeHtml, escapeAttr } from "./components.js";
-import { chatCategoryOf, swipeCategoryStep } from "./rpc-core.js";
+import { chatCategoryOf, swipeCategoryStep, batteryReactionPlan } from "./rpc-core.js";
 import { fileUrl } from "./media.js";
 import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintGroups } from "./avatar.js";
 import { ChatView, setAvatarProfileOpener } from "./chat-view.js";
@@ -399,6 +399,40 @@ core.addEventListener?.("diagnostic", e => {
 addEventListener("online", () => core?.setNetworkIo?.(true));
 addEventListener("offline", () => core?.setNetworkIo?.(false));
 if (!navigator.onLine) core?.setNetworkIo?.(false);
+
+// #83: low-battery marker. When the drawer switch is on and the phone is
+// under 10% and off the charger, every outgoing message moves the 🪫
+// reaction to itself; when the state ends the marker is removed. Best
+// effort — a failure here never surfaces as a send error. Battery comes
+// from the shell (JNI, Battery.kt); the JS Battery API is dead in modern
+// Chromium, so there is no renderer fallback.
+const BATTERY_LOW_PCT = 10;
+let batteryCache = { at: 0, value: null };
+async function queryBattery() {
+  const now = Date.now();
+  if (now - batteryCache.at < 30000) return batteryCache.value;
+  let value = null;
+  try {
+    const raw = await window.__TAURI__?.core?.invoke?.("get_battery_status");
+    if (typeof raw === "string" && raw.includes("|")) {
+      const [level, charging] = raw.split("|");
+      value = { level: Number(level), charging: charging === "true" };
+    }
+  } catch { value = null; }
+  batteryCache = { at: now, value };
+  return value;
+}
+async function batteryGate(chatId, sentMsgId) {
+  const enabled = localStorage.getItem("velta-low-battery-react") === "1";
+  const bat = enabled ? await queryBattery() : null;
+  const low = !!(bat && !bat.charging && bat.level >= 0 && bat.level <= BATTERY_LOW_PCT);
+  const plan = batteryReactionPlan(sentMsgId, core.lowBatteryReactedId || null, low);
+  if (plan.clear) await core.clearReaction?.(plan.clear);
+  if (plan.add) await core.addReaction?.(chatId, plan.add, "🪫");
+  if (plan.add) core.lowBatteryReactedId = plan.add;
+  else if (plan.clear) core.lowBatteryReactedId = null;
+}
+core._batteryGate = (chatId, msgId) => { batteryGate(chatId, msgId).catch(() => {}); };
 
 function accountIsCurrent(epoch) {
   return !state.accountChanging && epoch === core.accountEpoch;
@@ -3255,6 +3289,15 @@ function rebuildDrawer() {
       localStorage.setItem("velta-mdns", on ? "1" : "0");
       core.setConfig?.("mdns_enabled", on ? "1" : "0").catch(err =>
         errToast("Couldn't save read receipts: " + (err?.message || err)));
+    },
+    onLowBatteryToggle: (on) => {
+      // Turning the marker off removes the current 🪫 immediately instead of
+      // waiting for the next send to clean it up.
+      if (!on && core?.lowBatteryReactedId) {
+        const id = core.lowBatteryReactedId;
+        core.lowBatteryReactedId = null;
+        core.clearReaction?.(id).catch(() => {});
+      }
     },
     p2pAvailable: p2pAvailable(),
     p2pOn: p2pEnabled(),

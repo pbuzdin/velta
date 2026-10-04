@@ -1,4 +1,4 @@
-# AUTOUPDATEPLAN.MD — auto-update roadmap (remaining: Android)
+# AUTOUPDATEPLAN.MD — auto-update roadmap
 
 ## Shipped (records live elsewhere)
 
@@ -7,8 +7,21 @@
   updates") and AGENTS.md §4.3/§9.2 (ACL platforms, `.sig` glob,
   `latest.json` asset ordering, keypair backup). Nothing unique remains
   here; the old implementation record was removed 2026-10-02.
+- **Android in-app download + system installer — SHIPPED 2026-10-04 (#60).**
+  Implemented close to the Phase 2 sketch below: `download_update` (lib.rs,
+  ureq streaming into the app cache dir, `update-download` progress events,
+  no resume) → `install_update` (JNI → `UpdateInstall.kt`, FileProvider URI
+  + `ACTION_VIEW` package-archive instead of `ACTION_INSTALL_PACKAGE` — the
+  system's own installer sheet, with `REQUEST_INSTALL_PACKAGES` declared;
+  the unknown-sources authorization flow comes with it, so the explicit
+  `canRequestPackageInstalls` pre-check was not needed). Banner button shows
+  the percentage and falls back to the browser path if the shell lacks the
+  commands. Device pass pending (#50).
 
-## Phase 2 — Android: in-app download + system installer (1–2 days, NOT STARTED)
+## Phase 2 — Android: in-app download + system installer (SHIPPED, see above)
+
+Historical sketch kept for reference; the shipped version differs where
+noted in the Shipped section.
 
 No official Tauri updater on Android, and sideloaded apps can't silently
 self-update — the practical ceiling is: download the APK in the app, hand

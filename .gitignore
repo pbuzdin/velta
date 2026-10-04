@@ -102,3 +102,6 @@ tools/*.exe
 Velta.zip
 *.7z
 *.rar
+
+# Mimosa scanner runtime state (never commit)
+.mimosa/

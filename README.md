@@ -178,7 +178,8 @@ views (Contacts, Calls, QR, Search). On phones you can also **swipe left or
 right on the list** to step through the categories — vertical scrolling is
 unaffected. Not every category has to be there: the drawer's
 **Chat categories** section turns the non-All chips on or off (All always
-stays), and swiping skips the hidden ones.
+stays, and with every chip off the bar hides entirely), and swiping skips
+the hidden ones.
 
 </details>
 
@@ -748,8 +749,9 @@ no manual download. Progress shows on the button; the check gate is unchanged
 installs made through the NSIS installer can self-update; a bare
 `velta-app.exe` copied somewhere still needs a manual installer run. macOS
 updates the same way from the signed `Velta_<version>_universal.app.tar.gz`
-(both architectures, one `latest.json` entry each). Android
-keeps the banner's Download APK flow (system installer takes over) — see
+(both architectures, one `latest.json` entry each). Android downloads the
+APK inside the app — the banner button shows the download progress and then
+hands the file to the system installer over Velta, no browser detour — see
 [AUTOUPDATEPLAN.MD](AUTOUPDATEPLAN.MD) for the roadmap.
 
 </details>

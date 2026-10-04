@@ -21,6 +21,20 @@ export function chatCategoryOf(chat, isBot = () => false) {
   return "system";
 }
 
+// #83: low-battery marker — pure decision for the auto 🪫 reaction. While
+// the phone reports low + unplugged, the marker lives on the latest outgoing
+// message (cleared from the previous one); when the state ends (charger,
+// healthy battery, feature off) the marker is removed. add/clear are null
+// when nothing needs to happen.
+export function batteryReactionPlan(sentMsgId, prevReactedId, lowActive) {
+  if (lowActive) {
+    if (sentMsgId === prevReactedId) return { add: null, clear: null };
+    return { add: sentMsgId, clear: prevReactedId || null };
+  }
+  if (prevReactedId) return { add: null, clear: prevReactedId };
+  return { add: null, clear: null };
+}
+
 // Category swipe step for a touch drag (#57): +1 next chip, -1 previous,
 // 0 not a swipe. Axis-locked — the drag must travel the threshold
 // horizontally AND stay clearly horizontal, so vertical list scrolling and
@@ -1302,6 +1316,11 @@ export class JsonRpcCore extends EventTarget {
     }
     const msgId = await this._call("send_msg", accountId, chatId, data);
     this._trackSending(msgId);
+    // #83: low-battery marker — best-effort hook installed by app.js; a
+    // failure here must never surface as a send error.
+    if (this._batteryGate) {
+      try { this._batteryGate(chatId, msgId); } catch { /* ignore */ }
+    }
     if (this._isCurrentAccount(accountEpoch)) this.msgIdCache.get(chatId)?.push(msgId);
 
     // Outgoing media messages start in OutPreparing (18). Wait briefly until the
@@ -1477,6 +1496,11 @@ export class JsonRpcCore extends EventTarget {
     await this._call("send_reaction", accountId, msgId, [emoji]);
     const m = await this._getDecoratedMessage(msgId, accountId);
     if (m) this._emitAccount("msg-updated", { chatId, msg: m }, accountEpoch);
+  }
+
+  async clearReaction(msgId) {
+    const { accountId } = this;
+    await this._call("send_reaction", accountId, msgId, []);
   }
 
   async editMessage(chatId, msgId, text) {

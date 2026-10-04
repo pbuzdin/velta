@@ -3,25 +3,25 @@
 Texts for the two upstream contributions that would let Velta drop its
 vendored-core patches (VENDORISSUES #7 and #10).
 
-## Status (2026-10-03 overlap check)
+## Status (2026-10-04 update)
 
 - **#7 animated WebP: SUPERSEDED — do not file.** Upstream PR **8777**
-  ("fix: do not reencode animated WebPs into JPEG", open, closes #8740)
-  is the same fix against the same files (their version uses the
+  ("fix: do not reencode animated WebPs into JPEG", still open, closes
+  #8740) is the same fix against the same files (their version uses the
   `image` crate's `WebPDecoder::has_animation()` instead of our raw
   RIFF/ANMF sniff, and adds a real `animated.webp` fixture). Our branch
   `fix/animated-webp-byte-exact` and `0001-*.patch` stay here for
   reference only. Action for us: none — **drop quilt entry #7 on the
   next core re-vendor** once a release carries 8777.
-- **#10 sending transport: still open and MORE relevant.** Upstream is
-  actively removing `configured_addr`: #8705 → #8711 ("remove
-  maybe_update_sending_transport and remaining usage of ConfiguredAddr")
-  with #8703/#8709 as siblings, plus #8771 (try the most recently
-  successful transport first) and #8797 (reset transport_id on
-  disconnect). After that series lands, clients have NO way to learn
-  which transport actually sends — the exposure API our draft proposes
-  becomes the only signal. File the issue soon, referencing that series;
-  the implementers are active in this exact area right now.
+- **#10 sending transport: FILED — chatmail/core#8798** (2026-10-04,
+  "Client-facing signal for which SMTP transport actually sent a
+  message"; text below is what was posted, minus formatting). The
+  removal series is mostly landed: #8619, #8705, #8703, #8709, #8797
+  merged; #8711 (remove `maybe_update_sending_transport` and the last
+  `ConfiguredAddr` uses) and #8771 (most-recently-successful transport
+  first) still open under the #8572 umbrella. When a core carries the
+  API that comes out of #8798, port Velta's `relaySmtpVia` consumer to
+  it and drop quilt patch #10.
 
 ## Contents
 

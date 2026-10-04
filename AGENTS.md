@@ -951,7 +951,14 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `rebuildDrawer` on boot/account switch; core `set_config` takes FLAT args
   `[accountId, key, value]`, NOT a nested [key,value] pair) follow it —
   add new toggles as args to `buildDrawer` + a change handler, never
-  as one-off DOM queries outside ui.js. Notification gates are DESKTOP-ONLY:
+  as one-off DOM queries outside ui.js. The low-battery marker (#83,
+  ANDROID-ONLY row) is localStorage-gated (`velta-low-battery-react`),
+  not core config: when on, every send through
+  `rpc-core.sendMessage` fires the `core._batteryGate` hook — battery
+  from `get_battery_status` (JNI → Battery.kt, cached 30 s in app.js);
+  under 10% and unplugged the 🪫 reaction moves to the latest outgoing
+  message via `batteryReactionPlan` (tests/battery-reaction.test.mjs),
+  otherwise it is cleared. Notification gates are DESKTOP-ONLY:
   on Android the Rust background poller posts notifications while the page
   is frozen and cannot run the localStorage gate (known gap). CI LESSON
   (v1.4.54): gen/android Kotlin changes have NO local compile check —

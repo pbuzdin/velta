@@ -1535,6 +1535,45 @@ fn install_update(path: String) -> Result<(), String> {
     install_update_android(path)
 }
 
+/// #83: battery level + charging state ("level|charging") for the frontend's
+/// low-battery marker (🪫 reaction on the latest outgoing message).
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn get_battery_status() -> Result<String, String> {
+    let ctx_guard = APP_CONTEXT.lock().unwrap();
+    let context = ctx_guard
+        .as_ref()
+        .map(|r| r.as_obj().clone())
+        .ok_or("application context was not handed over yet")?;
+    let vm_guard = APP_JAVA_VM.lock().unwrap();
+    let vm_ref = vm_guard.as_ref().ok_or("jvm was not handed over yet")?;
+    let mut env = vm_ref.attach_current_thread().map_err(|e| format!("jvm attach: {e}"))?;
+    let class_guard = APP_BATTERY_CLASS.lock().unwrap();
+    let class_ref = class_guard
+        .as_ref()
+        .ok_or("Battery class was not cached at startup")?;
+    let out = env
+        .call_static_method(
+            class_ref,
+            "status",
+            "(Landroid/content/Context;)Ljava/lang/String;",
+            &[(&context).into()],
+        )
+        .map_err(|e| e.to_string())?;
+    let jstr = jni::objects::JString::from(out.l().map_err(|e| e.to_string())?);
+    Ok(env
+        .get_string(&jstr)
+        .map_err(|e| e.to_string())?
+        .to_string_lossy()
+        .into_owned())
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn get_battery_status() -> Result<String, String> {
+    Err("battery status is only on Android".into())
+}
+
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
 fn install_update(_path: String) -> Result<(), String> {
@@ -3449,7 +3488,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, allow_picked_path, webxdc_begin, set_notify_prefs, get_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, install_update, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, allow_picked_path, webxdc_begin, set_notify_prefs, get_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, install_update, get_battery_status, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 
