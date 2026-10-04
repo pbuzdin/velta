@@ -87,6 +87,11 @@ enum Frame {
     FileEnd { id: String },
     /// Session keepalive / opening frame.
     Ping,
+    /// Any frame type this build does not know (a newer peer's extension).
+    /// It is skipped instead of failing the parse, which used to end the
+    /// whole session. Never sent on purpose.
+    #[serde(other)]
+    Unknown,
 }
 
 /// Pairing handshake opener frame (only accepted from a not-yet-paired NodeId).
@@ -99,6 +104,10 @@ enum Hello {
         addrs: Vec<String>,
     },
     Welcome { name: String },
+    /// Unknown handshake type from a newer peer; the handshake is refused
+    /// cleanly with a normal "unexpected" error instead of a parse error.
+    #[serde(other)]
+    Unknown,
 }
 
 /// Out-of-band invite ticket (the QR payload after [`TICKET_PREFIX`]).
@@ -596,7 +605,7 @@ impl P2p {
         let mut framer = Framer::default();
         let inviter_name = match tokio::time::timeout(PAIR_APPROVAL_TIMEOUT, framer.read_json_frame(&mut recv)).await {
             Ok(Ok(Hello::Welcome { name })) => name,
-            Ok(Ok(Hello::Hello { .. })) => bail!("unexpected hello from the inviter"),
+            Ok(Ok(Hello::Hello { .. } | Hello::Unknown)) => bail!("unexpected hello from the inviter"),
             Ok(Err(e)) => bail!("handshake failed: {e}"),
             Err(_) => bail!("handshake timed out — the other device may not have approved"),
         };
@@ -1145,6 +1154,8 @@ impl P2p {
     fn handle_frame(&self, node_id: NodeId, frame: Frame, tx: &mpsc::UnboundedSender<Frame>) {
         match frame {
             Frame::Ping => {}
+            // A newer peer's frame type: ignore it, keep the session.
+            Frame::Unknown => {}
             Frame::Ack { id } => {
                 {
                     let mut inner = self.inner.lock().unwrap();
@@ -1376,7 +1387,10 @@ impl P2p {
             match tokio::time::timeout(HANDSHAKE_TIMEOUT, framer.read_frame::<Frame>(&mut recv))
                 .await
             {
-                Ok(Ok(Some(_))) => {
+                // `Unknown` is rejected here on purpose: a `hello` from a
+                // device we still list as paired (it forgot us) used to fail
+                // the parse and must keep being refused, not become a session.
+                Ok(Ok(Some(f))) if !matches!(f, Frame::Unknown) => {
                     if std::env::var("VELTA_P2P_DEBUG").is_ok() {
                         eprintln!("[p2p-dbg] paired conn from {} handshake frame ok", node_id);
                     }
@@ -2263,6 +2277,70 @@ mod tests {
         }
         let for_c = engine.rx_files.lock().unwrap().keys().filter(|(n, _)| *n == c).count();
         assert_eq!(for_c, MAX_INBOUND_FILES_PER_PEER);
+    }
+
+    /// serde must route an unrecognised `type` to `Unknown` (internally tagged
+    /// enum + `#[serde(other)]`), keep known frames intact and still reject
+    /// malformed known frames and frames without a type.
+    #[test]
+    fn unknown_frame_and_hello_types_parse_as_unknown() {
+        let f: Frame = serde_json::from_str(r#"{"type":"grpmsg","gid":"g","seq":7,"extra":[1,{"a":2}]}"#).unwrap();
+        assert!(matches!(f, Frame::Unknown));
+        let f: Frame = serde_json::from_str(r#"{"type":"ping"}"#).unwrap();
+        assert!(matches!(f, Frame::Ping));
+        let f: Frame = serde_json::from_str(r#"{"type":"ping","future_field":true}"#).unwrap();
+        assert!(matches!(f, Frame::Ping));
+        let f: Frame = serde_json::from_str(r#"{"type":"ack","id":"x"}"#).unwrap();
+        assert!(matches!(f, Frame::Ack { id } if id == "x"));
+        // Old peers' msg frames (no reply fields) still parse.
+        let f: Frame = serde_json::from_str(r#"{"type":"msg","id":"1","ts":2,"text":"t"}"#).unwrap();
+        assert!(matches!(f, Frame::Msg { reply_to: None, .. }));
+        // A known type with a broken body is still an error (unchanged).
+        assert!(serde_json::from_str::<Frame>(r#"{"type":"msg","id":"1"}"#).is_err());
+        assert!(serde_json::from_str::<Frame>(r#"{"no_type":1}"#).is_err());
+
+        let h: Hello = serde_json::from_str(r#"{"type":"groupinvite","x":1}"#).unwrap();
+        assert!(matches!(h, Hello::Unknown));
+        let h: Hello = serde_json::from_str(r#"{"type":"welcome","name":"n"}"#).unwrap();
+        assert!(matches!(h, Hello::Welcome { name } if name == "n"));
+        let h: Hello = serde_json::from_str(r#"{"type":"hello","token":"t","name":"n","addrs":[]}"#).unwrap();
+        assert!(matches!(h, Hello::Hello { .. }));
+        // A Frame sent where a Hello is expected is Unknown, never a Hello.
+        let h: Hello = serde_json::from_str(r#"{"type":"ping"}"#).unwrap();
+        assert!(matches!(h, Hello::Unknown));
+    }
+
+    /// An unrecognised frame in the middle of a live session is skipped: the
+    /// session (same handle) survives and later messages flow on it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn unknown_frame_does_not_kill_a_session() {
+        let (alice, alice_rx) = start("alice-unk").await;
+        let (bob, bob_rx) = start("bob-unk").await;
+        let alice_id = alice.node_id();
+        let bob_id = bob.node_id();
+        let ticket = alice.create_invite().await.unwrap();
+        bob.accept_invite(&ticket).await.unwrap();
+        wait_for(&alice_rx, 15, |e| e["kind"] == "pairing");
+
+        let handle = |p: &Arc<P2p>, other: &NodeId| {
+            let inner = p.inner.lock().unwrap();
+            inner.peers[other].live.first().map(|h| (h.id, h.tx.clone()))
+        };
+        let (alice_handle, _) = handle(&alice, &bob_id).expect("alice has a live session");
+        let (_, bob_tx) = handle(&bob, &alice_id).expect("bob has a live session");
+
+        // `Unknown` is serialised as {"type":"unknown"}: a type alice's parser
+        // has no variant for, so it takes the same path as a future frame.
+        bob_tx.send(Frame::Unknown).unwrap();
+        let id = bob.send(&alice_id.to_string(), "after the unknown frame", None, None).unwrap();
+        let got = wait_for(&alice_rx, 8, |e| e["kind"] == "message");
+        assert_eq!(got["text"], "after the unknown frame");
+        wait_for(&bob_rx, 8, |e| e["kind"] == "ack" && e["id"] == id["id"]);
+
+        // Still the very same session on alice's side (no drop + redial).
+        let (alice_handle_after, _) = handle(&alice, &bob_id).expect("session still live");
+        assert_eq!(alice_handle, alice_handle_after);
+        assert!(alice.status()["peers"][0]["online"].as_bool().unwrap());
     }
 
     #[test]
