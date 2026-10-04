@@ -976,7 +976,12 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   is frozen and cannot run the localStorage gate (known gap). CI LESSON
   (v1.4.54): gen/android Kotlin changes have NO local compile check —
   only the CI gradle build catches them (a missing const killed the
-  first v1.4.54 android job).
+  first v1.4.54 android job). Same for `#[cfg(target_os = "android")]`
+  RUST in lib.rs (v1.4.55: ureq `.header()` vs `.headers()`, JNI guard
+  lifetimes killed the first android job) — BEFORE tagging a release
+  that touched any Android-only code, run
+  `wsl -e bash -lc "cd /mnt/c/Users/pave/Velta/velta/velta-app/src-tauri && cargo check --target aarch64-linux-android"`
+  (~1.5 min; desktop `cargo check` compiles the Windows cfg only).
 - **Header heights** are pinned by `--head-h` (56px): `.sidebar-head` and
   `.chat-head` are border-box
   `height: calc(var(--head-h) + env(safe-area-inset-top))`. Change the var,
