@@ -227,6 +227,13 @@ browser on desktop, in the in-app browser on Android. Invite links are
 not previewed: they already render as invite cards. That includes every
 `deltachat.id` link.
 
+Addresses typed without `https://` are highlighted as links too
+(`t.me/smysl_doc/10234`, `github.com/user/repo`, `www.example.com`,
+`example.com:8080/a?b=c`) and open as `https://`. Only well-known domain
+endings are recognised, so `main.js`, `notes.md`, `v1.2.3`, `e.g.` and
+e-mail addresses stay plain text. Link previews still look only at
+links written with `https://`.
+
 Previews can be turned off in two places:
 
 - **Drawer - Link previews**: the global switch (default off).

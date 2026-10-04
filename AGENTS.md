@@ -54,6 +54,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── invites.js        # invite-link registry (mirror domains), parsing, short-link expansion, invite cards, settings modal
 │   │   ├── local-chat.js     # local chat core adapter: Proxy interceptor for p2p:<peerId> chats, media transfers/progress, offline queue + auto-flush (see 5.4 / conventions)
 │   │   ├── markdown.js       # escape-first message markdown: bold/italic/underline, links, lists + bot command extraction
+│   │   ├── bare-links.js     # scheme-less link detection (t.me/x, example.com) for markdown.js: TLD tiers, boundaries (#85)
 │   │   ├── media.js          # media URL helpers: blobfile:// protocol (boot-probed) → loopback server → asset protocol + per-element fallback
 │   │   ├── p2p.js            # Local chat UI: drawer toggle, list card, pairing, legacy 1:1 modal (Tauri only)
 │   │   ├── read-markers.js   # manual "read up to here" markers per (account, chat), localStorage-only
