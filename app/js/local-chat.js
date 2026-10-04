@@ -8,6 +8,14 @@
 // it cleanly for now.
 
 const P2P_PREFIX = "p2p:";
+// Local groups (serverless group chats of up to 4 devices) live in their own
+// id space: `p2pg:<gid>`. "p2pg:" does NOT start with "p2p:" (the `g` comes
+// before the colon), so every `startsWith(P2P_PREFIX)` branch stays 1:1-only.
+const P2PG_PREFIX = "p2pg:";
+const isGroupId = id => String(id).startsWith(P2PG_PREFIX);
+const gidOf = id => String(id).slice(P2PG_PREFIX.length);
+// Any id that belongs to the local-chat adapter (never goes to the real core).
+const isLocalId = id => String(id).startsWith(P2P_PREFIX) || isGroupId(id);
 
 const isEnabled = () => {
   try { return localStorage.getItem("velta-p2p") === "1"; } catch { return false; }
@@ -31,6 +39,10 @@ function colorFor(name) {
 
 const store = {
   peers: new Map(), // peerId -> { id, name, msgs: [], unread, online }
+  // gid -> { id, name, creator, epoch, closed, removed, canManage, members:
+  //   [{id,name,self,online,introduced}], msgs: [], unread, acks: Map(nodeId ->
+  //   highest own seq that member acknowledged), createdTs }
+  groups: new Map(),
   listeners: [],
   seeded: false,
   simName: "This browser",
@@ -125,6 +137,255 @@ async function hydratePeer(p) {
       .finally(() => { p.hydrating = null; p.early = null; });
   }
   await p.hydrating;
+}
+
+
+// ---------------- local groups (store, mapping, hydration) ----------------
+//
+// Same rules as 1:1: numeric ids from nowId() in ARRIVAL order (the chat
+// view's "append only new" filter compares ids with >), engine ids only in
+// `engineId`, the identity of a group message is (author node id, seq). A
+// system line ("X added you…") is a `sys` row; it is always first and has no
+// seq. Delivery state is never stored per message: it is derived from
+// `acks` (cumulative per member) and the CURRENT roster, so a member who
+// left or was removed stops counting immediately.
+
+const HIDDEN_KEY = "velta-p2pg-hidden";
+function hiddenGroups() {
+  try { return new Set(JSON.parse(localStorage.getItem(HIDDEN_KEY) || "[]")); } catch { return new Set(); }
+}
+function hideGroup(gid) {
+  const h = hiddenGroups(); h.add(gid);
+  try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...h])); } catch {}
+}
+
+const selfIdOf = g => g.members.find(m => m.self)?.id || "self";
+
+// A name for a member; two members that share a display name get a node-id
+// suffix so bubbles stay distinguishable.
+function memberLabel(g, id, fallback) {
+  const m = g.members.find(x => x.id === id);
+  let name = (m?.name || fallback || "").trim() || `Device ${String(id).slice(-4)}`;
+  if (m && g.members.filter(x => x.name === m.name).length > 1) name += ` (${String(id).slice(-4)})`;
+  return name;
+}
+
+function ensureGroup(gid) {
+  let g = store.groups.get(gid);
+  if (!g) {
+    g = {
+      id: gid, name: "Local group", creator: "", epoch: 0, closed: false, removed: false, canManage: false,
+      members: [], msgs: [], unread: 0, acks: new Map(), createdTs: Date.now(), sysAdded: false,
+    };
+    store.groups.set(gid, g);
+  }
+  return g;
+}
+
+// Merges the engine's group description (status().groups / p2p_group_* result
+// / group-state event). Returns the store entry.
+function applyGroup(info) {
+  if (!info || typeof info.gid !== "string") return null;
+  const g = ensureGroup(info.gid);
+  g.name = info.name || g.name;
+  g.creator = info.creator || g.creator;
+  g.epoch = info.epoch ?? g.epoch;
+  g.closed = !!info.closed;
+  g.removed = !!info.removed;
+  g.canManage = !!info.canManage;
+  g.members = (info.members || []).map(m => ({
+    id: m.id, name: m.name || "", self: !!m.self, online: !!m.online, introduced: !!m.introduced,
+  }));
+  if (!g.sysAdded) {
+    g.sysAdded = true;
+    const creatorName = memberLabel(g, g.creator);
+    g.msgs.unshift({
+      id: nowId(), sys: true, ts: g.createdTs,
+      text: g.canManage ? "You created the group" : `${creatorName} added you to the group`,
+    });
+  }
+  return g;
+}
+
+function seedAcks(g, rows) {
+  for (const r of rows) {
+    if (r.dir !== "out" || !Array.isArray(r.delivered)) continue;
+    for (const by of r.delivered) {
+      if ((g.acks.get(by) || 0) < r.seq) g.acks.set(by, r.seq);
+    }
+  }
+}
+
+function histFromGroupRow(g, r) {
+  const out = r.dir === "out";
+  const m = {
+    id: nowId(), engineId: r.id, seq: r.seq, from: r.from,
+    ts: r.tsEff || r.ts || Date.now(), text: r.text || "", out,
+    reply_to: r.replyTo || null, reply_text: r.replyText ?? null,
+  };
+  return m;
+}
+
+function mergeGroupHistory(g, rows) {
+  seedAcks(g, rows);
+  const known = new Set(g.msgs.filter(m => m.seq != null).map(m => `${m.from}:${m.seq}`));
+  const hist = [];
+  for (const r of rows) {
+    if (!r || typeof r.id !== "string" || typeof r.seq !== "number") continue;
+    const key = `${r.from}:${r.seq}`;
+    if (known.has(key)) continue;
+    known.add(key);
+    hist.push(histFromGroupRow(g, r));
+  }
+  if (hist.length) {
+    // History is older than anything that arrived live meanwhile, and the
+    // leading system line stays the first row.
+    let at = 0;
+    while (at < g.msgs.length && g.msgs[at].sys) at++;
+    g.msgs.splice(at, 0, ...hist);
+    emitChanged();
+  }
+}
+
+async function hydrateGroup(g) {
+  if (!g || g.hydrated || !isTauri()) return;
+  if (!g.hydrating) {
+    g.hydrating = invoke()("p2p_group_messages", { gid: g.id, limit: HYDRATE_LIMIT })
+      .then(rows => {
+        if (!Array.isArray(rows)) return;
+        mergeGroupHistory(g, rows);
+        g.hydrated = true;
+      })
+      .catch(() => {}) // engine not ready / unknown group: retry on the next call
+      .finally(() => { g.hydrating = null; });
+  }
+  await g.hydrating;
+}
+
+// out message state: "failed" | "pending" (nobody has it and nobody is
+// online) | "sent" | "read" (every CURRENT other member acknowledged).
+function groupMsgState(g, m) {
+  if (!m.out) return "read";
+  if (m.failed) return "failed";
+  if (m.seq == null) return "pending";
+  const others = g.members.filter(x => !x.self);
+  const acked = o => (g.acks.get(o.id) || 0) >= m.seq;
+  if (others.length && others.every(acked)) return "read";
+  if (others.some(acked) || others.some(o => o.online)) return "sent";
+  return "pending";
+}
+
+function mapGroupMsg(g, m) {
+  const chatId = P2PG_PREFIX + g.id;
+  if (m.sys) {
+    const first = g.msgs.find(x => !x.sys);
+    return {
+      id: m.id, chatId, kind: "service", viewtype: "text", from: 0, text: m.text,
+      ts: m.atEnd ? m.ts : first ? Math.min(m.ts, first.ts - 1) : m.ts, state: "read",
+      fromContact: { name: "", color: "#888" },
+    };
+  }
+  const name = m.out ? "" : memberLabel(g, m.from, m.fromName);
+  const base = {
+    id: m.id, engineId: m.engineId ?? null, chatId, kind: "msg", viewtype: "text",
+    from: m.out ? 1 : 0, text: m.text, ts: m.ts,
+    state: groupMsgState(g, m),
+    // id stays null so <velta-avatar contact-id> never looks a core contact up.
+    fromContact: { id: null, name, color: colorFor(m.from || name) },
+    starred: false, edited: false, quote: null, reactions: null, fwdFrom: null,
+    filePath: null, fileName: null, fileSize: null, fileMime: null, downloadState: "Done",
+  };
+  if (m.reply_to != null) {
+    const orig = g.msgs.find(x => !x.sys && (x.engineId === m.reply_to || x.id === m.reply_to));
+    const author = orig ? (orig.out ? "You" : memberLabel(g, orig.from, orig.fromName)) : "";
+    base.quote = {
+      id: orig ? orig.id : m.reply_to,
+      text: m.reply_text ?? (orig ? orig.text : ""),
+      fromContact: { name: author, color: colorFor(orig?.from || author) },
+    };
+  }
+  if (m.queued) base.queued = true;
+  return base;
+}
+
+function mapGroupChat(g) {
+  const last = [...g.msgs].reverse().find(m => !m.sys);
+  const onlineCount = g.members.filter(m => m.self || m.online).length;
+  const sender = last ? (last.out ? "You" : memberLabel(g, last.from, last.fromName)) : "";
+  return {
+    id: P2PG_PREFIX + g.id, name: g.name, kind: "group", isP2p: true, isP2pGroup: true,
+    memberCount: g.members.length, onlineCount, canManage: g.canManage,
+    readOnly: g.removed, closed: g.closed,
+    lastMsg: last ? `${sender}: ${last.text}` : "",
+    lastTs: last ? last.ts : g.createdTs,
+    lastFrom: last ? (last.out ? 1 : 0) : 0,
+    lastState: last && last.out ? groupMsgState(g, last) : null,
+    unread: g.unread, encrypted: false, verified: false, pinned: true,
+    avatarColor: colorFor(g.id),
+  };
+}
+
+function groupMembers(g) {
+  return g.members.map(m => ({
+    id: m.id, name: memberLabel(g, m.id), addr: "", color: colorFor(m.id),
+    self: m.self, online: m.self || m.online, introduced: m.introduced, isCreator: m.id === g.creator,
+  }));
+}
+
+function chatUpdated(gid) {
+  core()?.dispatchEvent?.(new CustomEvent("chat-updated", { detail: { chatId: P2PG_PREFIX + gid } }));
+}
+
+// Local group chats the UI can show (hidden = the user deleted the chat).
+export function lcGroupName(gid) {
+  return store.groups.get(gid)?.name || "Local group";
+}
+
+async function engineGroups() {
+  const st = await invoke()("p2p_status").catch(() => null);
+  return st?.groups || [];
+}
+
+// ---- group management (engine commands; store follows the result) ----
+
+async function groupCmd(cmd, args) {
+  if (!isTauri()) throw new Error("Local groups need the Velta app shell");
+  const info = await invoke()(cmd, args).catch(err => { throw new Error(String(err?.message || err)); });
+  const g = applyGroup(info);
+  if (g) { emitChanged(); chatUpdated(g.id); }
+  return info;
+}
+
+export async function createLocalGroup(name, memberIds) {
+  const info = await groupCmd("p2p_group_create", { name, memberIds });
+  return P2PG_PREFIX + info.gid;
+}
+export const groupAddMember = (gid, nodeId) => groupCmd("p2p_group_add", { gid, nodeId });
+export const groupRemoveMember = (gid, nodeId) => groupCmd("p2p_group_remove", { gid, nodeId });
+export const groupRename = (gid, name) => groupCmd("p2p_group_rename", { gid, name });
+
+// Leave (member) or disband (creator). The chat stays in the list, read-only,
+// with its history; `dismissLocalGroup` removes it from the list.
+export async function leaveLocalGroup(gid) {
+  const g = store.groups.get(gid);
+  const cmd = g?.canManage ? "p2p_group_disband" : "p2p_group_leave";
+  return groupCmd(cmd, { gid });
+}
+
+// "Delete chat" on a group: leave/disband it if it is still active, then hide
+// it from the list. (The history stays on disk until the engine grows a
+// delete command.)
+export async function dismissLocalGroup(gid) {
+  const g = store.groups.get(gid);
+  if (g && !g.removed) await leaveLocalGroup(gid);
+  hideGroup(gid);
+  store.groups.delete(gid);
+  emitChanged();
+}
+
+export function lcGroupInfo(gid) {
+  const g = store.groups.get(gid);
+  return g ? mapGroupChat(g) : null;
 }
 
 function viewtypeFor(name, mime = "") {
@@ -328,6 +589,7 @@ export async function hubModel() {
       device: { name: store.simName || SIM_DEVICE.name, nodeId: SIM_DEVICE.nodeId },
       peers: [...store.peers.values()].map(p => ({ ...mapChat(p), rawId: p.id })),  // sim store keys are raw
       nearby: SIM_NEARBY,
+      groups: [], // local groups need the real engine
     };
   }
   const st = await invoke()("p2p_status").catch(() => null);
@@ -336,9 +598,14 @@ export async function hubModel() {
     device: { name: st.name || "device", nodeId: st.nodeId || "" },
     peers: (st.peers || []).map(p => ({
       id: P2P_PREFIX + p.id, rawId: p.id, name: p.name || p.id.slice(0, 12),
-      online: !!p.online, queued: p.queued || 0,
+      online: !!p.online, queued: p.queued || 0, proto: p.proto || 0,
     })),
     nearby: st.nearby || [],
+    groups: (st.groups || []).filter(g => !hiddenGroups().has(g.gid)).map(g => ({
+      id: P2PG_PREFIX + g.gid, name: g.name, removed: !!g.removed,
+      members: (g.members || []).length,
+      online: (g.members || []).filter(m => m.self || m.online).length,
+    })),
   };
 }
 
@@ -399,6 +666,35 @@ function engineInit() {
       const m = p?.msgs.find(x => x.engineId === d.id);
       if (m && m.queued) { delete m.queued; emitChanged(); }
       p?.early?.sent.add(d.id);
+    } else if (d.kind === "group-state") {
+      const g = applyGroup(d.group);
+      if (g) { emitChanged(); chatUpdated(g.id); }
+    } else if (d.kind === "group-message") {
+      onGroupMessage(d);
+    } else if (d.kind === "group-ack") {
+      const g = store.groups.get(d.gid);
+      if (g && Number.isFinite(d.have) && (g.acks.get(d.by) || 0) < d.have) {
+        g.acks.set(d.by, d.have);
+        emitChanged(); chatUpdated(g.id);
+      }
+    } else if (d.kind === "group-removed") {
+      const g = store.groups.get(d.gid);
+      if (g && !g.removed) {
+        g.removed = true;
+        g.msgs.push({
+          id: nowId(), sys: true, atEnd: true, ts: Date.now(),
+          text: d.reason === "closed" ? "The group was disbanded" : "You are no longer in this group",
+        });
+        emitChanged(); chatUpdated(g.id);
+      } else if (g) { chatUpdated(g.id); }
+    } else if (d.kind === "group-presence") {
+      // The only presence an introduced member ever produces: it updates the
+      // roster dots and must never create a `p2p:` chat.
+      for (const gid of d.gids || []) {
+        const g = store.groups.get(gid);
+        const m = g?.members.find(x => x.id === d.peerId);
+        if (m && m.online !== !!d.online) { m.online = !!d.online; chatUpdated(gid); emitChanged(); }
+      }
     } else if (d.kind === "presence") {
       const p = peer(d.peerId);
       const wentOnline = !!d.online && !p.online;
@@ -411,10 +707,24 @@ function engineInit() {
   }).catch?.(() => {});
 }
 
-async function enginePeers() {
-  const st = await invoke()("p2p_status").catch(() => null);
-  if (!st) return [];
-  return (st.peers || []).map(p => ({ id: p.id, name: p.name }));
+function onGroupMessage(d) {
+  const g = ensureGroup(d.gid);
+  if (!g.members.length) {
+    // The message beat the roster to the page (cold start): learn it now.
+    engineGroups().then(list => { for (const info of list) applyGroup(info); emitChanged(); chatUpdated(d.gid); }).catch(() => {});
+  }
+  // A message that raced the hydration is already in the store.
+  if (g.msgs.some(m => m.seq === d.seq && m.from === d.from)) return;
+  g.msgs.push({
+    id: nowId(), engineId: d.id, seq: d.seq, from: d.from, fromName: d.name,
+    ts: d.tsEff || d.ts || Date.now(), text: d.text, out: false,
+    reply_to: d.replyTo || null, reply_text: d.replyText ?? null,
+  });
+  g.unread++;
+  const m = g.members.find(x => x.id === d.from);
+  if (m) m.online = true;
+  emitChanged();
+  chatUpdated(g.id);
 }
 
 // ---------------- core wrapper ----------------
@@ -425,6 +735,7 @@ const core = () => wrappedCore;
 const P2P_HANDLED = new Set([
   "getChatList", "getChat", "getMessages", "getMessageIds", "getMessage", "sendMessage",
   "markRead", "deleteMessages", "setChatFlags", "resendMessage", "downloadFullMessage",
+  "getChatMembers", "leaveGroup",
 ]);
 
 export function withLocalChat(inner) {
@@ -432,6 +743,11 @@ export function withLocalChat(inner) {
   engineInit();
   return new Proxy(inner, {
     get(target, prop) {
+      // Members/leave only exist on cores that implement them (app.js feature-
+      // detects `core.getChatMembers`): never invent them for a core without.
+      if ((prop === "getChatMembers" || prop === "leaveGroup") && typeof Reflect.get(target, prop) !== "function") {
+        return undefined;
+      }
       if (P2P_HANDLED.has(prop)) {
         const fn = handler(prop);
         return (...args) => fn(target, ...args);
@@ -454,14 +770,23 @@ function handler(prop) {
           let peers = [...store.peers.values()];
           if (isTauri()) {
             try {
-              for (const p of await enginePeers()) { peer(p.id, p.name); }
+              const st = await invoke()("p2p_status").catch(() => null);
+              for (const p of st?.peers || []) { peer(p.id, p.name); }
+              const hidden = hiddenGroups();
+              for (const info of st?.groups || []) { if (!hidden.has(info.gid)) applyGroup(info); }
               peers = [...store.peers.values()];
-              await Promise.all(peers.map(hydratePeer)); // previews survive a restart
+              await Promise.all([
+                ...peers.map(hydratePeer), // previews survive a restart
+                ...[...store.groups.values()].map(hydrateGroup),
+              ]);
             } catch {}
           }
           const q = (opts.query || "").trim().toLowerCase();
-          const chats = peers
-            .map(mapChat)
+          const hiddenNow = hiddenGroups();
+          const groupChats = isTauri()
+            ? [...store.groups.values()].filter(g => !hiddenNow.has(g.id)).map(mapGroupChat)
+            : [];
+          const chats = [...peers.map(mapChat), ...groupChats]
             .filter(c => !q || c.name.toLowerCase().includes(q));
         // pinned local chats float above everything; the stable sort keeps
         // the core's own ordering (incl. core-pinned chats) below them.
@@ -470,6 +795,12 @@ function handler(prop) {
 
     case "getChat":
       return async (t, id) => {
+        if (isGroupId(id)) {
+          const g = store.groups.get(gidOf(id));
+          if (!g) return null;
+          await hydrateGroup(g);
+          return { ...mapGroupChat(g), isP2p: true };
+        }
         if (!String(id).startsWith(P2P_PREFIX)) return t.getChat(id);
         const p = store.peers.get(String(id).slice(P2P_PREFIX.length));
         if (!p) return null;
@@ -479,6 +810,11 @@ function handler(prop) {
 
     case "getMessages":
       return async (t, id, opts = {}) => {
+        if (isGroupId(id)) {
+          const g = store.groups.get(gidOf(id));
+          await hydrateGroup(g);
+          return { messages: g ? g.msgs.map(m => mapGroupMsg(g, m)) : [], hasMore: false };
+        }
         if (!String(id).startsWith(P2P_PREFIX)) return t.getMessages(id, opts);
         const p = store.peers.get(String(id).slice(P2P_PREFIX.length));
         await hydratePeer(p);
@@ -488,6 +824,11 @@ function handler(prop) {
 
     case "getMessageIds":
       return async (t, id) => {
+        if (isGroupId(id)) {
+          const g = store.groups.get(gidOf(id));
+          await hydrateGroup(g);
+          return g ? g.msgs.map(m => m.id) : [];
+        }
         if (!String(id).startsWith(P2P_PREFIX)) return t.getMessageIds(id);
         const p = store.peers.get(String(id).slice(P2P_PREFIX.length));
         await hydratePeer(p);
@@ -500,11 +841,16 @@ function handler(prop) {
           const m = p.msgs.find(x => x.id === id);
           if (m) return mapMsg(p, m);
         }
+        for (const g of store.groups.values()) {
+          const m = g.msgs.find(x => x.id === id);
+          if (m) return mapGroupMsg(g, m);
+        }
         return t.getMessage(id);
       };
 
     case "sendMessage":
       return async (t, id, { text = "", viewtype = "text", file = null, filename = null, quoteId = null, quoteText = null } = {}) => {
+        if (isGroupId(id)) return sendGroupMessage(gidOf(id), { text, viewtype, file, quoteId, quoteText });
         if (!String(id).startsWith(P2P_PREFIX)) return t.sendMessage(id, { text, viewtype, file, filename, quoteId, quoteText });
         const peerId = String(id).slice(P2P_PREFIX.length);
         const p = peer(peerId);
@@ -584,6 +930,11 @@ function handler(prop) {
 
     case "markRead":
       return async (t, id) => {
+        if (isGroupId(id)) {
+          const g = store.groups.get(gidOf(id));
+          if (g) g.unread = 0;
+          return;
+        }
         if (!String(id).startsWith(P2P_PREFIX)) return t.markRead(id);
         const p = store.peers.get(String(id).slice(P2P_PREFIX.length));
         if (p) p.unread = 0;
@@ -599,7 +950,7 @@ function handler(prop) {
     case "setChatFlags":
     case "downloadFullMessage":
       return async (t, id, ...rest) => {
-        if (String(id).startsWith(P2P_PREFIX)) return;
+        if (isLocalId(id)) return;
         return t[prop](id, ...rest);
       };
 
@@ -608,6 +959,11 @@ function handler(prop) {
     // same contract as lcRetryTransfer. Relay chats fall through.
     case "resendMessage":
       return async (t, id) => {
+        for (const g of store.groups.values()) {
+          const m = g.msgs.find(x => x.id === id && x.out && x.failed);
+          if (!m) continue;
+          return resendGroupMessage(g, m);
+        }
         for (const p of store.peers.values()) {
           const m = p.msgs.find(x => x.id === id && x.out && x.failed);
           if (!m) continue;
@@ -634,9 +990,72 @@ function handler(prop) {
         return t.resendMessage(id);
       };
 
+    // Members of a local group (the relay-group member list shape). Every
+    // other chat falls through with ALL arguments.
+    case "getChatMembers":
+      return async (t, id, ...rest) => {
+        if (!isGroupId(id)) return t.getChatMembers(id, ...rest);
+        const g = store.groups.get(gidOf(id));
+        return g ? groupMembers(g) : [];
+      };
+
+    // "Leave group" from the chat menu: a member leaves, the creator
+    // disbands. The chat turns read-only in place.
+    case "leaveGroup":
+      return async (t, id, ...rest) => {
+        if (!isGroupId(id)) return t.leaveGroup(id, ...rest);
+        await leaveLocalGroup(gidOf(id));
+      };
+
     default:
       return pass;
   }
+}
+
+async function sendGroupMessage(gid, { text = "", viewtype = "text", file = null, quoteId = null, quoteText = null } = {}) {
+  const g = store.groups.get(gid);
+  if (!g) throw new Error("Unknown local group");
+  if (viewtype === "voice") throw new Error("Voice messages aren't available in local groups");
+  if (file) throw new Error("Files in local groups are coming in a later update");
+  if (g.removed) throw new Error(g.closed ? "This group was disbanded" : "You are not in this group any more");
+  if (!isTauri()) throw new Error("Local groups need the Velta app shell");
+  // The composer quotes by the adapter's numeric id; the wire carries the
+  // engine id of the quoted message.
+  const target = quoteId != null ? g.msgs.find(x => !x.sys && x.id === quoteId) : null;
+  const replyTo = target?.engineId ?? null;
+  const replyText = replyTo != null ? (quoteText ?? target?.text ?? null) : null;
+  const msg = {
+    id: nowId(), engineId: null, seq: null, from: selfIdOf(g), ts: Date.now(), text, out: true,
+    reply_to: replyTo, reply_text: replyText,
+  };
+  g.msgs.push(msg);
+  invoke()("p2p_group_send", { gid, text, replyTo, replyText }).then(res => {
+    msg.engineId = res.id;
+    msg.seq = res.seq;
+    msg.ts = res.tsEff || res.ts || msg.ts;
+    msg.queued = !!res.queued;
+    emitChanged(); chatUpdated(gid);
+  }).catch(err => { msg.failed = true; emitChanged(); toast(String(err?.message || err)); });
+  return mapGroupMsg(g, msg);
+}
+
+// Same swap-on-failure contract as the 1:1 resend: the failed bubble leaves
+// only once the engine accepted the fresh send; on failure it comes back.
+async function resendGroupMessage(g, m) {
+  if (!isTauri()) return;
+  g.msgs = g.msgs.filter(x => x.id !== m.id);
+  try {
+    const res = await invoke()("p2p_group_send", { gid: g.id, text: m.text || "", replyTo: m.reply_to ?? null, replyText: m.reply_text ?? null });
+    g.msgs.push({
+      id: nowId(), engineId: res.id, seq: res.seq, from: selfIdOf(g), ts: res.tsEff || res.ts || Date.now(),
+      text: m.text || "", out: true, queued: !!res.queued, reply_to: m.reply_to ?? null, reply_text: m.reply_text ?? null,
+    });
+  } catch (err) {
+    g.msgs.push(m);
+    emitChanged();
+    throw err;
+  }
+  emitChanged();
 }
 
 function toast(text) {
