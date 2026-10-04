@@ -548,6 +548,15 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   does NOT set the status pill — and refresh the chat list. While down, the
   rpc-core poll loop ramps delay 250 ms per consecutive failure (cap 5 s)
   and logs the failure on the first and every 20th attempt only.
+- **Connectivity gate on core IO** (#28): the webview's `online`/`offline`
+  events (plus `navigator.onLine` at boot) drive `RpcCore.setNetworkIo` —
+  offline pauses the core's IMAP/SMTP loops (`stop_io_for_all_accounts`)
+  instead of letting them hammer a dead network, online resumes with a
+  `maybe_network` nudge; `reconnect()` re-pauses when the device is still
+  offline. Both transitions announce in the Diagnostics chat. No-op on
+  mock cores. An interface-up-router-dead state still reads online — the
+  core's own retry handling covers that. (Pinned by
+  `tests/network-io-gate.test.mjs`.)
 - `app.js` owns the chat list, navigation, modals, the diagnostics chat and
   the PWA shell, plus a DOM-budget watchdog. KEEP: boot is stage-isolated —
   drawer + menu bind first and set `uiLive`; later-stage failures log and
@@ -575,10 +584,14 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   tests); filtering runs via `visibleChats()` inside `renderChatList`
   (`state.chats` stays the unfiltered source). The People/Bots split reads
   contact bot flags from a LAZY `state.contactBots` map — one `getContacts`
-  call fetched the first time a People/Bots chip is used, never at boot
-  (#46 budget); unknown contacts count as people. Active chip persists in
+  call fetched the first time a People/Bots view needs them (#46 budget;
+  since #77 that includes a boot-RESTORED People/Bots category, which
+  `visibleChats()` kicks itself — otherwise restored views classify bots
+  as people); unknown contacts count as people. Active chip persists in
   `localStorage["velta-chat-category"]`; `syncChatCategoryBar` hides the bar
-  for every side view. Category VISIBILITY is user-configurable (#75):
+  for every side view — and entirely (#80) when every special category is
+  disabled (a lone "all" chip is noise). Category VISIBILITY is
+  user-configurable (#75):
   drawer → "Chat categories" (same details-checkboxes pattern as Bottom bar
   buttons) stores disabled cats in `localStorage["velta-cats-hidden"]`;
   "all" is always on, hidden cats drop their chips (`b.hidden`),
