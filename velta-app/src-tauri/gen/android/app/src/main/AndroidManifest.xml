@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- #60 in-app updates: launching the package installer on a downloaded
+         APK requires declaring the install-packages permission; without it
+         the ACTION_VIEW package-archive intent cannot resolve. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Background sync: the CoreService foreground service keeps the
          process (with the in-process Delta Chat core) alive after the user
          leaves the app. remoteMessaging has no Android 15 time cap. -->

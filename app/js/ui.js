@@ -361,9 +361,14 @@ function renderUpdateBanner() {
   // Android sideloads and the PWA still go through the system browser.
   const desktop = !/android/i.test(navigator.userAgent) && window.__TAURI__?.core?.invoke;
   btn.textContent = desktop ? "Update" : "Download APK";
-  btn.addEventListener("click", () => {
+  btn.addEventListener("click", async () => {
     if (desktop) return selfUpdate(btn);
     const tauri = window.__TAURI__;
+    // #60: Android — download in-app with progress, hand the APK straight
+    // to the system installer (FileProvider, no browser detour).
+    if (tauri?.core?.invoke && /android/i.test(navigator.userAgent)) {
+      return inAppApkUpdate(btn, tauri);
+    }
     if (tauri?.core?.invoke) {
       tauri.core.invoke("plugin:opener|open_url", { url: updateInfo.url })
         .catch(() => window.open(updateInfo.url, "_blank", "noopener"));
@@ -373,6 +378,44 @@ function renderUpdateBanner() {
   });
   banner.append(text, btn);
   foot.before(banner);
+}
+
+// #60: stream the APK through the shell (download_update emits
+// update-download progress events) and launch the installer. If a previous
+// download already completed this session, "Install" jumps straight to the
+// installer. Falls back to the browser path when the shell lacks the
+// commands (older install) or the download fails.
+async function inAppApkUpdate(btn, tauri) {
+  btn.disabled = true;
+  const setPct = (received, total) => {
+    btn.textContent = total
+      ? `Downloading… ${Math.min(100, Math.round((received / total) * 100))}%`
+      : `Downloading… ${(received / 1048576).toFixed(1)} MB`;
+  };
+  const listen = tauri.event?.listen?.bind(tauri.event);
+  let unlisten = null;
+  const fallbackToBrowser = () => {
+    tauri.core.invoke("plugin:opener|open_url", { url: updateInfo.url })
+      .catch(() => window.open(updateInfo.url, "_blank", "noopener"));
+  };
+  try {
+    if (listen) unlisten = await listen("update-download", (e) => {
+      const { received = 0, total = 0 } = e.payload || {};
+      setPct(received, total);
+    });
+    if (!updateInfo.apkPath) {
+      setPct(0, 0);
+      updateInfo.apkPath = await tauri.core.invoke("download_update", { version: updateInfo.version });
+    }
+    btn.textContent = "Opening installer…";
+    await tauri.core.invoke("install_update", { path: updateInfo.apkPath });
+    btn.textContent = "Install";
+  } catch {
+    updateInfo.apkPath = null;
+    fallbackToBrowser();
+  }
+  btn.disabled = false;
+  if (unlisten) unlisten();
 }
 
 // One-click Windows self-update: the updater plugin verifies the minisign

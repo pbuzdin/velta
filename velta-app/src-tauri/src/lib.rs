@@ -204,6 +204,80 @@ async fn get_latest_version() -> Result<String, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// #60: stream the release APK into the app cache dir while emitting
+/// `update-download` progress events `{received, total}`. GitHub-only by
+/// construction (AGENTS.md §8): the URL is built HERE from the version the
+/// frontend got from get_latest_version, keeping the app's single hardcoded
+/// release-host reach. A failed download removes the partial file.
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn download_update(app: tauri::AppHandle, version: String) -> Result<String, String> {
+    let v = version.trim().trim_start_matches('v').to_string();
+    if v.is_empty() || !v.chars().all(|c| c.is_ascii_digit() || c == '.') {
+        return Err("bad version".into());
+    }
+    let url = format!(
+        "https://github.com/pbuzdin/velta/releases/download/v{v}/Velta-{v}-arm64.apk"
+    );
+    tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
+        let agent = ureq::AgentBuilder::new()
+            .timeout_connect(std::time::Duration::from_secs(15))
+            .build();
+        let resp = agent.get(&url).call().map_err(|e| e.to_string())?;
+        let total: u64 = resp
+            .headers()
+            .get("content-length")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+        let dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let path = dir.join(format!("Velta-{v}-arm64.apk"));
+        let wipe = |e: String| -> String {
+            let _ = std::fs::remove_file(&path);
+            e
+        };
+        let mut out = std::fs::File::create(&path).map_err(|e| wipe(e.to_string()))?;
+        let mut reader = resp.into_reader();
+        let mut buf = [0u8; 64 * 1024];
+        let mut received: u64 = 0;
+        let mut next_emit: u64 = 0;
+        use std::io::{Read, Write};
+        loop {
+            let n = reader
+                .read(&mut buf)
+                .map_err(|e| wipe(e.to_string()))?;
+            if n == 0 {
+                break;
+            }
+            out.write_all(&buf[..n]).map_err(|e| wipe(e.to_string()))?;
+            received += n as u64;
+            if received >= next_emit {
+                next_emit = received + 512 * 1024;
+                let _ = app.emit(
+                    "update-download",
+                    serde_json::json!({ "received": received, "total": total }),
+                );
+            }
+        }
+        let _ = app.emit(
+            "update-download",
+            serde_json::json!({ "received": received, "total": total }),
+        );
+        Ok(path.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Desktop stub: in-app APK install is Android-only; desktop updates run
+/// through the updater plugin (selfUpdate in ui.js).
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+async fn download_update(_app: tauri::AppHandle, _version: String) -> Result<String, String> {
+    Err("in-app APK updates are Android-only".into())
+}
+
 /// Best-effort page <title> for the in-app browser bar. Bounded read (256 KB)
 /// and a hard timeout — a slow or hostile page must not hang the bar. Any
 /// failure is reported as an empty string; the bar falls back to the domain.
@@ -1455,6 +1529,18 @@ fn request_battery_exemption() -> Result<(), String> {
     Err("battery settings are only on Android".into())
 }
 
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn install_update(path: String) -> Result<(), String> {
+    install_update_android(path)
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn install_update(_path: String) -> Result<(), String> {
+    Err("in-app APK updates are Android-only".into())
+}
+
 #[tauri::command]
 async fn write_poster(app: tauri::AppHandle, src: String, bytes: Vec<u8>) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -1729,6 +1815,11 @@ static APP_NOTIFICATIONS_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::
 #[cfg(target_os = "android")]
 static APP_BATTERY_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
 
+// org.velta.UpdateInstall — #60: hands a downloaded APK to the system
+// package installer. Cached for the same classloader reason as above.
+#[cfg(target_os = "android")]
+static APP_UPDATE_INSTALL_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
+
 // --- UnifiedPush (Android) ---
 // Handles for the JNI callbacks from UnifiedPushService.kt. The accounts
 // manager and the request channel are set once init_android_core finishes;
@@ -1797,6 +1888,15 @@ pub extern "system" fn Java_org_velta_MainActivity_setApplicationContext(
             Err(e) => log(&format!("setApplicationContext: Battery global ref failed: {e}")),
         },
         Err(e) => log(&format!("setApplicationContext: Battery find_class failed: {e}")),
+    }
+    match env.find_class("org/velta/UpdateInstall") {
+        Ok(class) => match env.new_global_ref(&class) {
+            Ok(g) => {
+                *APP_UPDATE_INSTALL_CLASS.lock().unwrap() = Some(g);
+            }
+            Err(e) => log(&format!("setApplicationContext: UpdateInstall global ref failed: {e}")),
+        },
+        Err(e) => log(&format!("setApplicationContext: UpdateInstall find_class failed: {e}")),
     }
     log("application context stored for Rust commands");
 }
@@ -2978,6 +3078,39 @@ fn battery_request_exemption() -> Result<(), String> {
     Ok(())
 }
 
+// #60: hand the downloaded APK to the system installer via UpdateInstall.kt
+// (FileProvider URI + ACTION_VIEW package-archive). Ok only when the
+// installer activity actually launched.
+#[cfg(target_os = "android")]
+fn install_update_android(path: String) -> Result<(), String> {
+    let ctx_guard = APP_CONTEXT.lock().unwrap();
+    let context = ctx_guard
+        .as_ref()
+        .map(|r| r.as_obj().clone())
+        .ok_or("application context was not handed over yet")?;
+    let vm_guard = APP_JAVA_VM.lock().unwrap();
+    let vm_ref = vm_guard.as_ref().ok_or("jvm was not handed over yet")?;
+    let mut env = vm_ref.attach_current_thread().map_err(|e| format!("jvm attach: {e}"))?;
+    let class_guard = APP_UPDATE_INSTALL_CLASS.lock().unwrap();
+    let class_ref = class_guard
+        .as_ref()
+        .ok_or("UpdateInstall class was not cached at startup")?;
+    let jpath = env.new_string(&path).map_err(|e| e.to_string())?;
+    let ok = env
+        .call_static_method(
+            class_ref,
+            "install",
+            "(Landroid/content/Context;Ljava/lang/String;)Z",
+            &[(&context).into(), (&jpath).into()],
+        )
+        .map_err(|e| e.to_string())?;
+    if ok.z().map_err(|e| e.to_string())? {
+        Ok(())
+    } else {
+        Err("installer did not open — APK missing?".into())
+    }
+}
+
 #[cfg(target_os = "android")]
 fn opt_jstring<'local>(
     env: &mut jni::JNIEnv<'local>,
@@ -3316,7 +3449,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, allow_picked_path, webxdc_begin, set_notify_prefs, get_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, allow_picked_path, webxdc_begin, set_notify_prefs, get_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, install_update, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 
