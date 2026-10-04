@@ -53,7 +53,11 @@ its system-browser convention — `open_in_app_browser` is
 
 `CoreService` is a `remoteMessaging` foreground service started from
 `MainActivity.onCreate`; it keeps the process — and the in-process core —
-alive after the app is backgrounded. While the UI is hidden, Rust's
+alive after the app is backgrounded. Its persistent notification is tappable (#82):
+a MAIN/LAUNCHER `PendingIntent` (immutable) aimed at the `singleTask`
+`MainActivity`, with no data or extras so the `velta://chat` deep-link path of
+message notifications (#20) is never entered (pinned by
+tests/android-core-service-notification.test.mjs). While the UI is hidden, Rust's
 `start_bg_event_poller` (lib.rs) drains `get_next_event_batch` itself (ids
 prefixed `bg-`, routed via `RpcState.bg_pending` like the `wxdc-`
 round-trips) and posts native notifications for IncomingMsg events. The
