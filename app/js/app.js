@@ -391,6 +391,15 @@ core.addEventListener?.("diagnostic", e => {
   diagnostics.append(level, message);
 });
 
+// #28: pause the core's IMAP/SMTP loops while the device has no network
+// (airplane mode / no interface) instead of hammering relays into retry
+// storms; resume with a maybe_network nudge when connectivity returns.
+// Boot-synced too, so starting Velta offline never arms the loops. Mock
+// cores have no setNetworkIo — optional call is a no-op there.
+addEventListener("online", () => core?.setNetworkIo?.(true));
+addEventListener("offline", () => core?.setNetworkIo?.(false));
+if (!navigator.onLine) core?.setNetworkIo?.(false);
+
 function accountIsCurrent(epoch) {
   return !state.accountChanging && epoch === core.accountEpoch;
 }
