@@ -371,6 +371,11 @@ class VeltaChatHead extends Elena(HTMLElement) {
   statusLine() {
     const c = this.chat;
     if (!c) return "";
+    if (c.isP2pGroup) {
+      if (c.readOnly) return "no longer active";
+      const n = c.memberCount || 0, on = c.onlineCount || 0;
+      return `${n} ${n === 1 ? "member" : "members"} · ${on} online`;
+    }
     if (c.kind === "group") return c.memberCount ? `${c.memberCount} members` : "…";
     if (c.kind === "channel") return `${(c.memberCount || 0).toLocaleString()} subscribers`;
     if (c.kind === "saved") return "your personal space";

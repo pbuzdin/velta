@@ -11,8 +11,8 @@ import { initWebxdc } from "./webxdc-manager.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal, isShortInviteLink, expandShortInvite } from "./invites.js";
 import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate } from "./ui.js";
-import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact } from "./p2p.js";
-import { withLocalChat, hubModel, renameDevice, removePeer, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
+import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact, showCreateGroupModal } from "./p2p.js";
+import { withLocalChat, hubModel, renameDevice, removePeer, dismissLocalGroup, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
 import { timeAgo, formatBytes } from "./format.js";
 import { acquireCode } from "./qr-scan.js";
 import { linkPreviewEnabled, setLinkPreviewEnabled, LINK_PREVIEW_IP_WARNING } from "./link-preview.js";
@@ -1126,6 +1126,13 @@ async function renderLocalChatCard() {
       <span class="lc-row-name">${escapeHtml(n.name || n.id.slice(0, 12))}</span>
       <button class="btn-text" data-pair="${escapeAttr(n.id)}">Pair</button>
     </div>`).join("");
+  const groupRows = (model.groups || []).map(g => `
+    <div class="lc-row" data-open="${escapeAttr(g.id)}">
+      <span class="lc-dot ${g.removed ? "" : g.online > 1 ? "on" : ""}"></span>
+      <span class="lc-row-name">${escapeHtml(g.name)}</span>
+      <span class="lc-row-queued">${g.removed ? "closed" : `${g.members} members · ${g.online} online`}</span>
+      <button class="btn-text lc-chat" data-chat="${escapeAttr(g.id)}" title="Open group" aria-label="Open group ${escapeAttr(g.name)}">Chat</button>
+    </div>`).join("");
   el.innerHTML = `
     <div class="lc-card-head${lcCardOpen ? " open" : ""}" data-toggle>
       ${wifiSvg}
@@ -1137,9 +1144,11 @@ async function renderLocalChatCard() {
       <div class="lc-actions">
         <button class="btn-text" data-invite>Show invite</button>
         <button class="btn-text" data-add>Add contact</button>
+        <button class="btn-text" data-new-group>New group</button>
       </div>
       ${nearbyRows ? `<div class="lc-sec">Nearby — discovered on this network</div>${nearbyRows}` : ""}
       ${peerRows ? `<div class="lc-sec">Paired devices</div>${peerRows}` : ""}
+      ${groupRows ? `<div class="lc-sec">Groups</div>${groupRows}` : ""}
     </div>`;
   if (lcCardOpen) el.classList.add("open");
   el.querySelector("[data-toggle]").addEventListener("click", () => { lcCardOpen = !lcCardOpen; el.classList.toggle("open"); });
@@ -1153,6 +1162,7 @@ async function renderLocalChatCard() {
     if (!invoke) return toast("Pairing needs the Velta app shell");
     addContact(invoke).catch(err => toast(String(err?.message || err)));
   });
+  el.querySelector("[data-new-group]").addEventListener("click", () => newLocalGroupFlow());
   el.querySelector("[data-rename]").addEventListener("click", async () => {
     const name = await askText("Device name", model.device.name, "Save");
     if (!name || !name.trim()) return;
@@ -1184,6 +1194,25 @@ async function renderLocalChatCard() {
   }));
   el.querySelectorAll("[data-open]").forEach(row => row.addEventListener("click", () =>
     openChat(row.dataset.open)));
+}
+
+// "New group" for local (P2P) chat: name + up to 3 paired devices, then open
+// the new group chat. Only reachable with local chat on (the hub card and the
+// new-chat menu entry are both gated on it).
+async function newLocalGroupFlow() {
+  const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+  if (!invoke || !p2pEnabled()) return toast("Local groups need the Velta app with local chat on");
+  const epoch = core.accountEpoch;
+  try {
+    const id = await showCreateGroupModal(invoke);
+    if (!id || !accountIsCurrent(epoch)) return;
+    await refreshChatList();
+    renderLocalChatCard();
+    if (!accountIsCurrent(epoch)) return;
+    openChat(id);
+  } catch (err) {
+    errToast("Couldn't create the group: " + (err?.message || err));
+  }
 }
 
 // Side views rendered into #chat-list instead of the chats list. Contacts
@@ -1624,9 +1653,12 @@ function chatContextMenu(chat, x, y) {
     link: `<svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
     trash: `<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2m-8 0l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   };
+  // Local P2P groups: only read state, link previews and delete (leave /
+  // disband) apply — pin, mute, archive and old-message cleanup are relay-core.
+  const grp = !!chat.isP2pGroup;
   showContextMenu([
-    { label: chat.pinned ? "Unpin" : "Pin to top", icon: icons.pin, onClick: () => core.setChatFlags(chat.id, { pinned: !chat.pinned }) },
-    { label: chat.muted ? "Unmute" : "Mute notifications", icon: icons.mute, onClick: () => core.setChatFlags(chat.id, { muted: !chat.muted }) },
+    grp ? null : { label: chat.pinned ? "Unpin" : "Pin to top", icon: icons.pin, onClick: () => core.setChatFlags(chat.id, { pinned: !chat.pinned }) },
+    grp ? null : { label: chat.muted ? "Unmute" : "Mute notifications", icon: icons.mute, onClick: () => core.setChatFlags(chat.id, { muted: !chat.muted }) },
     { label: `Link previews: ${linkPreviewEnabled(chat.id) ? "on" : "off"}`, icon: icons.link, onClick: async () => {
       const next = !linkPreviewEnabled(chat.id);
       if (next && !(await confirmModal("Link previews", LINK_PREVIEW_IP_WARNING, "Turn on", true))) return;
@@ -1640,7 +1672,7 @@ function chatContextMenu(chat, x, y) {
       }
     } },
     chat.unread > 0 ? { label: "Mark as read", icon: icons.read, onClick: () => core.markRead(chat.id) } : null,
-    {
+    grp ? null : {
       label: "Delete old messages…",
       icon: icons.trash,
       onClick: () => {
@@ -1666,9 +1698,10 @@ function chatContextMenu(chat, x, y) {
         })), x, y);
       },
     },
-    "-",
-    { label: chat.archived ? "Unarchive" : "Archive", icon: icons.archive, onClick: () => core.setChatFlags(chat.id, { archived: !chat.archived }) },
-    { label: "Delete chat", icon: icons.trash, danger: true, onClick: async () => {
+    grp ? null : "-",
+    grp ? null : { label: chat.archived ? "Unarchive" : "Archive", icon: icons.archive, onClick: () => core.setChatFlags(chat.id, { archived: !chat.archived }) },
+    grp ? { label: chat.readOnly ? "Delete chat" : chat.canManage ? "Disband and delete" : "Leave and delete", icon: icons.trash, danger: true, onClick: () => deleteLocalGroupChat(chat, epoch) }
+    : { label: "Delete chat", icon: icons.trash, danger: true, onClick: async () => {
       // deleteMessages only clears history and leaves the chat in the list (#34).
       const p2p = chat.isP2p || String(chat.id).startsWith("p2p:");
       const ok = await confirmModal(
@@ -1690,6 +1723,32 @@ function chatContextMenu(chat, x, y) {
       }
     } },
   ].filter(Boolean), x, y);
+}
+
+// Local P2P group chat "delete": leave (or, for the creator, disband) the group
+// if it is still active, then hide it from the list. The log stays on disk —
+// the engine has no delete-group command before member management lands.
+async function deleteLocalGroupChat(chat, epoch) {
+  const active = !chat.readOnly;
+  const disband = active && chat.canManage;
+  const ok = await confirmModal(
+    "Delete chat",
+    !active
+      ? `Remove "${chat.name}" from your chat list?`
+      : disband
+        ? `Disband "${chat.name}" and remove it from your list? You created this group: disbanding closes it for everyone.`
+        : `Leave "${chat.name}" and remove it from your list? You will no longer receive its messages.`,
+    disband ? "Disband" : active ? "Leave" : "Delete", true);
+  if (!ok || !accountIsCurrent(epoch)) return;
+  try {
+    await dismissLocalGroup(String(chat.id).slice("p2pg:".length));
+    if (!accountIsCurrent(epoch)) return;
+    if (state.activeChatId === chat.id) closeChat();
+    renderLocalChatCard();
+    refreshChatList();
+  } catch (err) {
+    errToast("Couldn't delete chat: " + (err.message || err));
+  }
 }
 
 // Fresh <velta-chat-head> for the open chat. Always build a new element instead
@@ -1769,11 +1828,11 @@ async function openChat(chatId) {
   // Device messages are read-only system posts — no composer. Every open
   // sets it explicitly (closeChatUI restores it to visible). Channels need a
   // rights check: members without posting rights get no composer either.
-  $("main-composer").hidden = chat.kind === "device";
+  $("main-composer").hidden = chat.kind === "device" || !!chat.readOnly;
   // Read-only chats hide every reply affordance too. Channels start assumed
   // read-only until the rights check resolves; the pill is re-added by row
   // re-renders / CSS on flip.
-  chatView.readOnly = chat.kind === "device" || chat.kind === "channel";
+  chatView.readOnly = chat.kind === "device" || chat.kind === "channel" || !!chat.readOnly;
   if (chat.kind === "channel" && core.canSend) {
     core.canSend(chatId).then(can => {
       if (!current() || state.activeChatId !== chatId) return;
@@ -1783,7 +1842,8 @@ async function openChat(chatId) {
   }
   refreshChatHeadPresence(chatId);
   // Real member count for groups (the chatlist item doesn't carry it)
-  if ((chat.kind === "group" || chat.kind === "channel") && core.getChatMembers) {
+  // (local P2P groups carry memberCount/onlineCount on the chat itself)
+  if ((chat.kind === "group" || chat.kind === "channel") && !chat.isP2pGroup && core.getChatMembers) {
     core.getChatMembers(chatId).then(members => {
       if (!current() || state.activeChatId !== chatId) return;
       chat.memberCount = members.length;
@@ -1846,6 +1906,7 @@ async function refreshActiveChatHeader(chatId) {
   if (!head || !chat || chat.id !== state.activeChatId) return;
   if (chat.kind !== "group" && chat.kind !== "channel") return;
   if (chatId && chatId !== chat.id) return;
+  if (chat.isP2pGroup) return refreshLocalGroupHeader(chat, navigation, epoch);
   if (!core.getChatMembers) return;
   try {
     const members = await core.getChatMembers(chat.id);
@@ -1856,6 +1917,25 @@ async function refreshActiveChatHeader(chatId) {
     state.activeChatHead?.replaceWith(fresh);
     state.activeChatHead = fresh;
   } catch { /* keep the last known count */ }
+}
+
+// Local P2P group: counts, online count and the read-only flag all live on the
+// chat object the adapter builds, so re-read it and apply what changed
+// (composer and reply affordances flip live when the group is disbanded or the
+// user is removed).
+async function refreshLocalGroupHeader(chat, navigation, epoch) {
+  try {
+    const fresh = await core.getChat(chat.id);
+    if (!fresh || !accountIsCurrent(epoch) || navigation !== chatNavigation || state.activeChatId !== chat.id) return;
+    const changed = ["name", "memberCount", "onlineCount", "readOnly"].some(k => chat[k] !== fresh[k]);
+    if (!changed) return;
+    Object.assign(chat, { name: fresh.name, memberCount: fresh.memberCount, onlineCount: fresh.onlineCount, readOnly: fresh.readOnly, canManage: fresh.canManage });
+    $("main-composer").hidden = !!chat.readOnly;
+    chatView.readOnly = !!chat.readOnly;
+    const head = renderChatHead(chat);
+    state.activeChatHead?.replaceWith(head);
+    state.activeChatHead = head;
+  } catch { /* keep the last known state */ }
 }
 
 // A modal's close() schedules history.back() to consume its entry; the
@@ -2033,8 +2113,8 @@ async function showChatInfo(chat) {
     </div>
     <div class="profile-name">${escapeHtml(chat.name)}</div>
     <div class="profile-description" data-desc hidden></div>
-    ${(isSelf || isGroup) ? `<div class="profile-actions"><button class="btn-text" data-pa="ep"${chat.kind === "channel" ? " hidden" : ""}>${isSelf ? "Edit profile" : chat.kind === "channel" ? "Edit channel" : "Edit group"}</button></div>` : ""}
-    ${chat.kind === "group" ? `<div class="profile-actions"><button class="btn-text" data-pa="add-members">Add members</button><button class="btn-text" data-pa="invite">Invite via link/QR</button></div>` : ""}
+    ${(isSelf || (isGroup && !chat.isP2pGroup)) ? `<div class="profile-actions"><button class="btn-text" data-pa="ep"${chat.kind === "channel" ? " hidden" : ""}>${isSelf ? "Edit profile" : chat.kind === "channel" ? "Edit channel" : "Edit group"}</button></div>` : ""}
+    ${chat.kind === "group" && !chat.isP2pGroup ? `<div class="profile-actions"><button class="btn-text" data-pa="add-members">Add members</button><button class="btn-text" data-pa="invite">Invite via link/QR</button></div>` : ""}
     ${chat.kind === "channel" ? `<div class="profile-actions"><button class="btn-text" data-pa="invite">Invite via link/QR</button></div>` : ""}
     ${!isGroup && chat.contactId && chat.contactId !== 1 ? `<div class="profile-actions">
       <button class="btn-text" data-pa="send">Send message</button>
@@ -2414,10 +2494,15 @@ async function showChatInfo(chat) {
           // #72: the subtitle is the member's RELAY (address domain) — the
           // "which relay is everyone on" read; the full address rides the
           // title tooltip.
-          const domain = (m.addr || "").split("@")[1] || "";
+          // Local P2P group: the subtitle is the member's reachability
+          // (members the user has not paired with are only known through
+          // the group — they're reached via the mesh).
+          const domain = chat.isP2pGroup
+            ? (m.self ? "you" : (m.online ? "online" : "offline") + (m.introduced ? " · not paired" : "")) + (m.isCreator ? " · admin" : "")
+            : (m.addr || "").split("@")[1] || "";
           const row = document.createElement("div");
           row.className = "info-row";
-          row.innerHTML = `<span class="k" style="color:${escapeAttr(m.color || "#888")}">${escapeHtml(m.name)}</span><span class="v"${domain ? ` title="${escapeAttr(m.addr)}"` : ""}>${escapeHtml(domain)}</span>`;
+          row.innerHTML = `<span class="k" style="color:${escapeAttr(m.color || "#888")}">${escapeHtml(m.name)}</span><span class="v"${domain && !chat.isP2pGroup ? ` title="${escapeAttr(m.addr)}"` : ""}>${escapeHtml(domain)}</span>`;
           list.appendChild(row);
         }
       }
@@ -2437,19 +2522,31 @@ function bindChatHeadMenu() {
     const r = e.currentTarget.getBoundingClientRect();
     showContextMenu([
       { label: "Chat info", onClick: () => showChatInfo(chat) },
-      ...(chat.kind === "group" ? [{ label: "Group invite QR", onClick: () =>
+      ...(chat.kind === "group" && !chat.isP2pGroup ? [{ label: "Group invite QR", onClick: () =>
         showInvite(inviteQrProvider(chat.id), { title: chat.name, group: true }) }] : []),
-      { label: chat.muted ? "Unmute" : "Mute", onClick: () => core.setChatFlags(chat.id, { muted: !chat.muted }) },
-      { label: chat.pinned ? "Unpin" : "Pin", onClick: () => core.setChatFlags(chat.id, { pinned: !chat.pinned }) },
-      ...(chat.kind === "group" || chat.kind === "channel" ? [{
-        label: chat.kind === "channel" ? "Leave channel" : "Leave group",
+      // Local P2P chats have no per-chat mute / pin (flags are relay-core state).
+      ...(chat.isP2p ? [] : [
+        { label: chat.muted ? "Unmute" : "Mute", onClick: () => core.setChatFlags(chat.id, { muted: !chat.muted }) },
+        { label: chat.pinned ? "Unpin" : "Pin", onClick: () => core.setChatFlags(chat.id, { pinned: !chat.pinned }) },
+      ]),
+      ...(chat.isP2pGroup && chat.readOnly ? [{
+        label: "Delete chat", danger: true,
+        onClick: () => deleteLocalGroupChat(chat, epoch),
+      }] : []),
+      ...((chat.kind === "group" || chat.kind === "channel") && !(chat.isP2pGroup && chat.readOnly) ? [{
+        label: chat.kind === "channel" ? "Leave channel" : chat.isP2pGroup && chat.canManage ? "Disband group" : "Leave group",
         onClick: async () => {
+          const disband = chat.isP2pGroup && chat.canManage;
           const ok = await confirmModal(
-            chat.kind === "channel" ? "Leave channel" : "Leave group",
+            chat.kind === "channel" ? "Leave channel" : disband ? "Disband group" : "Leave group",
             chat.kind === "channel"
               ? "You will no longer receive messages from this channel. Re-subscribe via its invite link/QR."
-              : "You will leave this chat and no longer receive its messages.",
-            "Leave", true);
+              : disband
+                ? "You created this group. Disbanding closes it for everyone — nobody can write in it any more. The history stays on each device."
+                : chat.isP2pGroup
+                  ? "You will leave this group and no longer receive its messages. The history stays on this device."
+                  : "You will leave this chat and no longer receive its messages.",
+            disband ? "Disband" : "Leave", true);
           if (!ok || !accountIsCurrent(epoch)) return;
           try {
             await core.leaveGroup(chat.id);
@@ -2465,6 +2562,7 @@ function bindChatHeadMenu() {
           }
         },
       }] : []),
+      ...(chat.isP2pGroup ? [] : [
       "-",
       { label: "Clear history", danger: true, onClick: async () => {
         if (await confirmModal("Clear history", "Delete all messages in this chat?")) {
@@ -2474,6 +2572,7 @@ function bindChatHeadMenu() {
           await core.deleteMessages(chat.id, await core.getMessageIds(chat.id));
         }
       } },
+      ]),
     ], r.right - 220, r.bottom + 6);
   });
   $("btn-back").addEventListener("click", closeChat);
@@ -2592,7 +2691,7 @@ function newChatOptions() {
         openChat(id);
       }
     } },
-    { label: "New group", onClick: async () => {
+    { label: p2pEnabled() && p2pAvailable() ? "New group (via relay)" : "New group", onClick: async () => {
       const epoch = core.accountEpoch;
       const picked = await pickContactModal("Add group members", true);
       if (!picked || !accountIsCurrent(epoch)) return;
@@ -2606,6 +2705,7 @@ function newChatOptions() {
         openChat(id);
       }
     } },
+    ...(p2pEnabled() && p2pAvailable() ? [{ label: "New local group (no relay)", onClick: newLocalGroupFlow }] : []),
     { label: "Join chat via invite link", onClick: joinFlow },
     { label: "Add account via invite link", onClick: () => openProfileManagement() },
   ];
@@ -3176,7 +3276,7 @@ async function forwardFlow(msgIds) {
   const epoch = core.accountEpoch, fromChatId = state.activeChatId, navigation = chatNavigation;
   const list = document.createElement("div");
   list.className = "modal-list";
-  const targets = state.chats.filter(c => !["deaddrop", "device"].includes(c.kind));
+  const targets = state.chats.filter(c => !["deaddrop", "device"].includes(c.kind) && !c.isP2pGroup);
   for (const chat of targets) {
     const item = document.createElement("velta-chat-item");
     item.setData(chat);

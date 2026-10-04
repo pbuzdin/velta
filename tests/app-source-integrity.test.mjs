@@ -17,6 +17,9 @@ test("app.js definitions are not swallowed by a block comment", () => {
     "async function addAccountFromInvite(",
     "async function showChatInfo(",
     "function openProfileManagement(",
+    "async function deleteLocalGroupChat(",
+    "async function newLocalGroupFlow()",
+    "async function refreshLocalGroupHeader(",
     "async function editProfileFlow()", // sentinel: edit this list when moving top-level functions
   ]) {
     assert.ok(stripped.includes(fn), `missing outside comments: ${fn}`);

@@ -486,6 +486,7 @@ export class ChatView {
       const { messages, hasMore, hasNewer = false } = page;
       if (anchorId != null && !messages.some(m => m.id === anchorId)) anchorId = null;
       this.chat = chat;
+      this._applyGroupComposer(chat);
       this._tracked = tracked;
       this.hasMore = hasMore;
       this.hasNewer = !!hasNewer;
@@ -622,6 +623,16 @@ export class ChatView {
   // Full teardown: stop polling, dispose the virtual scroller, drop cached
   // rows and leave #history empty. Used when another surface takes over the
   // history area (Diagnostics chat) and when the chat is closed.
+  // Local P2P groups carry text only until file transfer lands (Phase 5):
+  // hide the attach and sticker buttons there, restore them everywhere else.
+  _applyGroupComposer(chat) {
+    const off = !!chat?.isP2pGroup;
+    for (const id of ["btn-attach", "btn-sticker"]) {
+      const b = document.getElementById(id);
+      if (b) b.hidden = off;
+    }
+  }
+
   close() {
     const input = document.getElementById("composer-input");
     // Rows the user already saw still count — unless the account changed
@@ -650,6 +661,7 @@ export class ChatView {
     this._stopSettling?.();
     if (this.pinnedBar) this.pinnedBar.hidden = true;
     this.chat = null;
+    this._applyGroupComposer(null);
     this.hasMore = false;
     this.loadingMore = false;
     this.hasNewer = false;
@@ -2175,7 +2187,10 @@ export class ChatView {
         },
       });
     }
-    if (this.core.pinMessage) {
+    // Local P2P groups: no pin / forward / save / react / delete (relay-core
+    // features the mesh engine has no equivalent for).
+    const p2pg = !!this.chat?.isP2pGroup;
+    if (this.core.pinMessage && !p2pg) {
       items.push({
         label: m.pinned ? "Unpin" : "Pin",
         icon: ICO.pin,
@@ -2191,7 +2206,7 @@ export class ChatView {
     // uses the mouse and the floating Reply chip.
     if (m.text && this._offerSelectText()) items.push({ label: "Select text", icon: ICO.copy, onClick: () => this._selectMessageText(m.id) });
     if (m.viewtype === "text" && m.text) items.push({ label: "Copy text", icon: ICO.copy, onClick: () => { navigator.clipboard?.writeText(m.text); toast("Copied"); } });
-    items.push(
+    if (!p2pg) items.push(
       { label: "Forward", icon: ICO.forward, onClick: () => this._forward([m.id]) },
     );
     // Resend: re-queues the own message through the pipeline (core
@@ -2200,7 +2215,7 @@ export class ChatView {
     // messages with an error, which _resendMessage toasts. P2P chats retry
     // through their own engine paths, not the core.
     if (!this.chat?.isP2p && m.from === 1) items.push({ label: "Resend", icon: ICO.resend, onClick: () => this._resendMessage(m) });
-    items.push(
+    if (!p2pg) items.push(
       { label: "Save to Saved Messages", icon: ICO.star, onClick: async () => {
         try {
           await this.core.starMessages(session.chatId, [m.id]);
@@ -2212,13 +2227,10 @@ export class ChatView {
         }
       } },
       { label: "React", icon: QUICK_REACTIONS[0], onClick: () => this._reactionMenu(item, x, y) },
-      { label: "Select", icon: ICO.select, onClick: () => this._enterSelection(m.id) },
     );
-    items.push(
-      { label: "Info", icon: ICO.info, onClick: () => this._showInfo(item) },
-      "-",
-      { label: "Delete", icon: ICO.trash, danger: true, onClick: () => this._delete([m.id]) },
-    );
+    items.push({ label: "Select", icon: ICO.select, onClick: () => this._enterSelection(m.id) });
+    items.push({ label: "Info", icon: ICO.info, onClick: () => this._showInfo(item) });
+    if (!p2pg) items.push("-", { label: "Delete", icon: ICO.trash, danger: true, onClick: () => this._delete([m.id]) });
     showContextMenu(items.map(action => action === "-" ? action : {
       ...action, onClick: () => { if (this._isCurrent(session)) return action.onClick(); },
     }), x, y);
@@ -2245,10 +2257,20 @@ export class ChatView {
       received: "Received",
       failed: "Failed to send" + (m.error ? `: ${failReason(m.error)}` : ""),
     };
+    const grp = !!this.chat?.isP2pGroup;
+    if (grp) Object.assign(stateLines, {
+      pending: "Waiting — not delivered to any member yet (it retries when they come online)",
+      sent: "Sent — not yet received by every member",
+      delivered: "Sent — not yet received by every member",
+      read: "Received by every member",
+    });
+    const encNote = grp
+      ? "This message travels directly between the members' devices, with no relay. A tick turns double only when every current member has received it."
+      : "This message is end-to-end encrypted with OpenPGP. Only you and the recipient can read it — the chatmail relay cannot.";
     showModal({
       title: "Message info",
       body: `
-      <div class="enc-note">${ICO.lock}<span>This message is end-to-end encrypted with OpenPGP. Only you and the recipient can read it — the chatmail relay cannot.</span></div>
+      <div class="enc-note">${ICO.lock}<span>${encNote}</span></div>
       <div class="info-row"><span class="k">Type</span><span class="v">${m.viewtype}</span></div>
       <div class="info-row"><span class="k">From</span><span class="v">${escapeHtml(m.fromContact.name)}</span></div>
       <div class="info-row"><span class="k">Sent</span><span class="v">${new Date(m.ts).toLocaleString()}</span></div>
@@ -2303,6 +2325,12 @@ export class ChatView {
 
   _applySelectionUI() {
     document.getElementById("selection-bar").hidden = this.selection.size === 0;
+    // Local P2P groups: no forward / save / delete (see the context menu).
+    const noGroupActs = !!this.chat?.isP2pGroup;
+    for (const act of ["forward", "star", "delete"]) {
+      const b = document.querySelector(`.sel-actions [data-sel="${act}"]`);
+      if (b) b.hidden = noGroupActs;
+    }
     document.getElementById("chat-head-actions").style.visibility = this.selection.size ? "hidden" : "";
     document.getElementById("sel-count").textContent = this.selection.size;
     for (const row of this.listEl.querySelectorAll(".msg-row[data-msgid]")) {
@@ -2491,6 +2519,7 @@ export class ChatView {
       let file = items.find(i => i.kind === "file" && i.type.startsWith("image/"))?.getAsFile();
       if (!file) file = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith("image/"));
       if (!file) return; // fall through to normal text paste
+      if (this.chat.isP2pGroup) return; // files in local groups come later
       e.preventDefault();
       this._setPendingMedia("image", file);
     });
