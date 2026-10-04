@@ -1835,10 +1835,20 @@ do-not-regress rules; dates mark when the lesson was learned.
   version.txt URL, 5 s timeout) because the renderer's cross-origin fetch
   is CORS-blocked by GitHub's CDN — do not move it back into the page and
   do not re-add github CSP hosts (§8). Newer remote → drawer-bottom banner
-  with Download APK (`plugin:opener|open_url`) + `.update` pulse on
+  with Download APK + `.update` pulse on
   `#bar-menu` (box-shadow animation, no layout shift; disabled under
   `prefers-reduced-motion`). No banner when versions match, offline, or
   empty response (pre-1.4.14 releases carry no version.txt).
+  Android (#60): the banner button downloads in-app —
+  `download_update` (lib.rs, ureq streaming into the app cache dir,
+  `update-download` progress events, URL built shell-side from the
+  version so GitHub stays the only hardcoded reach) — then
+  `install_update` JNI → `UpdateInstall.kt` (FileProvider URI over the
+  cache dir + ACTION_VIEW package-archive; needs the
+  REQUEST_INSTALL_PACKAGES manifest permission). No browser detour;
+  falls back to `plugin:opener|open_url` when the shell lacks the
+  commands or the download fails. Desktop keeps the updater-plugin
+  one-click path (`selfUpdate`).
 - **Interface scale + theme (1.4.2+)** — `MainActivity` pins the WebView's
   `textZoom = 100` (system font scale otherwise applies text-only zoom
   that inflates text out of the px-sized boxes); scaling is app-owned via
