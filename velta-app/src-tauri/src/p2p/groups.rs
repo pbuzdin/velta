@@ -316,9 +316,102 @@ pub fn save_groups(dir: &Path, groups: &BTreeMap<String, GroupRec>) -> Result<()
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Message log: messages-g-<gid>.jsonl (append-only)
+// ---------------------------------------------------------------------------
+
+/// Longest group message text (same bound as 1:1).
+pub const MAX_GROUP_TEXT: usize = 64 * 1024;
+
+/// One line of a group's message log. Delivery state is NOT stored here: it
+/// is derived from `GroupRec::sent_cursor`, so the log never needs rewriting.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroupLogRec {
+    pub seq: u64,
+    /// Author node id.
+    pub from: String,
+    /// Random id (quote target); `(from, seq)` is the real identity.
+    pub id: String,
+    /// The author's timestamp, as sent.
+    pub ts: u64,
+    /// Display timestamp: never earlier than the previous record's, never in
+    /// the future ([`eff_ts`]).
+    pub ts_eff: u64,
+    /// "in" or "out".
+    pub dir: String,
+    pub text: String,
+    #[serde(default)]
+    pub reply_to: Option<String>,
+    #[serde(default)]
+    pub reply_text: Option<String>,
+}
+
+/// `max(previous display ts, min(author ts, now))`: non-decreasing, so clock
+/// skew cannot create backwards times or duplicate day chips.
+pub fn eff_ts(prev: u64, author_ts: u64, now: u64) -> u64 {
+    prev.max(author_ts.min(now))
+}
+
+fn log_path(dir: &Path, gid: &str) -> std::path::PathBuf {
+    // gid is a validated 32-char hex string wherever a GroupRec exists.
+    dir.join(format!("messages-g-{gid}.jsonl"))
+}
+
+/// Appends one record (a single `write_all` of one line).
+pub fn append_log(dir: &Path, gid: &str, rec: &GroupLogRec) -> Result<()> {
+    use std::io::Write;
+    let mut line = serde_json::to_vec(rec)?;
+    line.push(b'\n');
+    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(log_path(dir, gid))?;
+    f.write_all(&line)?;
+    Ok(())
+}
+
+/// Every parsable record, oldest first (a torn last line is skipped).
+pub fn read_log(dir: &Path, gid: &str) -> Vec<GroupLogRec> {
+    let Ok(data) = std::fs::read_to_string(log_path(dir, gid)) else {
+        return Vec::new();
+    };
+    data.lines().filter_map(|l| serde_json::from_str(l).ok()).collect()
+}
+
+/// The last `limit` records, oldest first.
+pub fn load_group_log(dir: &Path, gid: &str, limit: usize) -> Vec<GroupLogRec> {
+    let mut all = read_log(dir, gid);
+    let start = all.len().saturating_sub(limit);
+    all.drain(..start);
+    all
+}
+
+/// What the log says about counters, used to repair `groups.json` after a
+/// crash between "log line written" and "counter persisted".
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct LogScan {
+    /// Highest seq I authored (`next_seq` is at least this + 1).
+    pub own_max: u64,
+    /// Highest seq stored per author (`have` is at least this).
+    pub in_max: HashMap<String, u64>,
+    pub last_ts_eff: u64,
+}
+
+pub fn scan_log(dir: &Path, gid: &str, me: &str) -> LogScan {
+    let mut scan = LogScan::default();
+    for r in read_log(dir, gid) {
+        if r.from == me && r.dir == "out" {
+            scan.own_max = scan.own_max.max(r.seq);
+        } else if r.dir == "in" {
+            let e = scan.in_max.entry(r.from).or_insert(0);
+            *e = (*e).max(r.seq);
+        }
+        scan.last_ts_eff = scan.last_ts_eff.max(r.ts_eff);
+    }
+    scan
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
 
     fn key() -> SecretKey {
         let mut b = [0u8; 32];
@@ -560,6 +653,43 @@ mod tests {
         std::fs::write(dir.join("groups.json"), b"{ not json").unwrap();
         assert!(load_groups(&dir).is_empty());
         assert!(dir.join("groups.json.corrupt").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn group_log_append_tail_scan_and_ts_eff() {
+        let dir = std::env::temp_dir().join(format!("velta-grouplog-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let gid = new_gid();
+        let (me, other) = (key().public().to_string(), key().public().to_string());
+        assert!(read_log(&dir, &gid).is_empty());
+        assert_eq!(scan_log(&dir, &gid, &me), LogScan::default());
+
+        let rec = |from: &str, seq: u64, dir_: &str, ts_eff: u64| GroupLogRec {
+            seq, from: from.into(), id: format!("id{seq}{dir_}"), ts: ts_eff, ts_eff,
+            dir: dir_.into(), text: format!("t{seq}"), reply_to: None, reply_text: None,
+        };
+        append_log(&dir, &gid, &rec(&me, 1, "out", 10)).unwrap();
+        append_log(&dir, &gid, &rec(&other, 1, "in", 11)).unwrap();
+        append_log(&dir, &gid, &rec(&me, 2, "out", 12)).unwrap();
+        append_log(&dir, &gid, &rec(&other, 2, "in", 13)).unwrap();
+        // A torn trailing line (crash mid-write) is skipped, not fatal.
+        std::fs::OpenOptions::new().append(true).open(dir.join(format!("messages-g-{gid}.jsonl")))
+            .unwrap().write_all(b"{\"seq\":3,\"fr").unwrap();
+        assert_eq!(read_log(&dir, &gid).len(), 4);
+        let tail = load_group_log(&dir, &gid, 3);
+        assert_eq!(tail.iter().map(|r| (r.seq, r.dir.as_str())).collect::<Vec<_>>(), vec![(1, "in"), (2, "out"), (2, "in")]);
+        let scan = scan_log(&dir, &gid, &me);
+        assert_eq!(scan.own_max, 2);
+        assert_eq!(scan.in_max[&other], 2);
+        assert_eq!(scan.last_ts_eff, 13);
+
+        // Display timestamps: monotonic, never in the future.
+        assert_eq!(eff_ts(100, 90, 500), 100, "author clock behind: not before the previous message");
+        assert_eq!(eff_ts(100, 700, 500), 500, "author clock ahead: capped at receive time");
+        assert_eq!(eff_ts(100, 300, 500), 300);
+        assert_eq!(eff_ts(600, 300, 500), 600, "an earlier clamp is never undone");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

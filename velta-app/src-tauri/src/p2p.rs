@@ -45,10 +45,11 @@ use tokio::sync::mpsc;
 
 mod groups;
 use groups::{
-    check_group_name, evaluate_incoming, load_groups, new_gid, save_groups, Evaluation, GroupMember,
-    GroupRec, GroupState, MAX_GROUPS, MAX_GROUP_MEMBERS, MAX_MEMBER_ADDRS,
+    append_log, check_group_name, eff_ts, evaluate_incoming, load_group_log, load_groups, new_gid, read_log,
+    save_groups, scan_log, Evaluation, GroupLogRec, GroupMember, GroupRec, GroupState, MAX_GROUPS,
+    MAX_GROUP_MEMBERS, MAX_GROUP_TEXT, MAX_MEMBER_ADDRS,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 /// ALPN of the original Velta local chat protocol (1:1 chat, files).
 const ALPN_V1: &[u8] = b"/velta/p2p/1";
@@ -111,6 +112,35 @@ enum Frame {
     FileEnd { id: String },
     /// Session keepalive / opening frame.
     Ping,
+    // -- Group frames: protocol 2 sessions only, never sent on a v1 session --
+    /// A group's signed roster (create/add/remove/rename/disband, or relayed
+    /// by any member that holds a newer one).
+    GroupState { state: GroupState },
+    /// Sent by both sides when a session opens (per shared group) and by a
+    /// receiver that sees a gap. `have` = highest contiguous seq the sender
+    /// stored from the *receiver*; `name` = the sender's own device name.
+    GroupSync { gid: String, epoch: u64, have: u64, #[serde(default)] name: String },
+    /// One message of the author's per-group sequence. `from` must equal the
+    /// session's authenticated node id.
+    GroupMsg {
+        gid: String,
+        from: String,
+        seq: u64,
+        id: String,
+        ts: u64,
+        text: String,
+        #[serde(default)]
+        reply_to: Option<String>,
+        #[serde(default)]
+        reply_text: Option<String>,
+    },
+    /// Cumulative: "I hold your seqs 1..=have".
+    GroupAck { gid: String, have: u64 },
+    /// Member -> creator: take me out of the roster.
+    GroupLeave { gid: String },
+    /// "I don't know this gid / am no longer in it", believed only about the
+    /// sender itself.
+    GroupGone { gid: String },
     /// Any frame type this build does not know (a newer peer's extension).
     /// It is skipped instead of failing the parse, which used to end the
     /// whole session. Never sent on purpose.
@@ -119,10 +149,17 @@ enum Frame {
 }
 
 impl Frame {
-    /// Group frames (Phase 2) are the only frames an *introduced* member may
-    /// send. There are none yet, so everything from them is dropped.
+    /// Group frames are the only frames an *introduced* member may send.
     fn is_group(&self) -> bool {
-        false
+        matches!(
+            self,
+            Frame::GroupState { .. }
+                | Frame::GroupSync { .. }
+                | Frame::GroupMsg { .. }
+                | Frame::GroupAck { .. }
+                | Frame::GroupLeave { .. }
+                | Frame::GroupGone { .. }
+        )
     }
 }
 
@@ -357,6 +394,46 @@ struct Inner {
     pair_requests: HashMap<NodeId, PairRequest>,
     /// Local group chats, by gid (mirror of `groups.json`).
     groups: BTreeMap<String, GroupRec>,
+    /// Per-session group delivery state (never persisted).
+    grt: GroupRt,
+}
+
+type FrameTx = mpsc::UnboundedSender<Frame>;
+
+/// Unacked group messages kept in flight per member (replays are paged).
+const GROUP_WINDOW: u64 = 200;
+/// Group frames accepted per second on one session; the rest are dropped
+/// (a flood cannot starve the engine; the sender's gap sync recovers).
+const GROUP_FRAMES_PER_SEC: u32 = 500;
+
+/// What the peer told us in its latest `GroupSync` on a live session.
+struct GroupLink {
+    /// The peer's epoch of the group.
+    epoch: u64,
+    /// Highest own seq already put on a session towards this peer.
+    pushed: u64,
+}
+
+#[derive(Default)]
+struct GroupRt {
+    links: HashMap<(String, NodeId), GroupLink>,
+    /// Members that said `GroupGone` for a gid: skipped until a newer state.
+    gone: HashSet<(String, NodeId)>,
+    /// `have` value for which a gap sync was already sent (no sync storms).
+    gap_sent: HashMap<(String, NodeId), u64>,
+    /// Last display timestamp per group, loaded lazily from the log.
+    ts_eff: HashMap<String, u64>,
+}
+
+/// The tx of a live protocol-2 session to `node`; v1 sessions yield `None`
+/// so a 1.4.x peer never sees a frame it would choke on.
+fn v2_tx(peers: &HashMap<NodeId, Peer>, node: &NodeId) -> Option<FrameTx> {
+    peers
+        .get(node)?
+        .live
+        .iter()
+        .find(|h| h.proto >= 2 && !h.tx.is_closed())
+        .map(|h| h.tx.clone())
 }
 
 /// A beacon-advertised device seen recently on the LAN.
@@ -490,7 +567,18 @@ impl P2p {
             );
         }
 
-        let groups = load_groups(&dir);
+        let mut groups = load_groups(&dir);
+        // The log is the truth for counters: a crash between "line written"
+        // and "groups.json saved" must neither reuse a seq nor lose `have`.
+        let me_hex = secret.public().to_string();
+        for (gid, rec) in groups.iter_mut() {
+            let scan = scan_log(&dir, gid, &me_hex);
+            rec.next_seq = rec.next_seq.max(scan.own_max + 1);
+            for (author, seq) in scan.in_max {
+                let have = rec.have.entry(author).or_insert(0);
+                *have = (*have).max(seq);
+            }
+        }
         rebuild_introduced(&mut peers, &groups, &secret.public());
 
         let p2p = Arc::new(P2p {
@@ -508,6 +596,7 @@ impl P2p {
                 nearby: HashMap::new(),
                 pair_requests: HashMap::new(),
                 groups,
+                grt: GroupRt::default(),
             }),
             handle_ids: AtomicU64::new(1),
             cancel: tokio_util::sync::CancellationToken::new(),
@@ -535,6 +624,8 @@ impl P2p {
         for id in pending {
             p2p.trigger_connect(id);
         }
+        // Group members too: reconnect (and replay) right away.
+        p2p.trigger_group_dials();
 
         Ok(p2p)
     }
@@ -1079,6 +1170,11 @@ impl P2p {
                 peer.live.retain(|h| h.id != handle_id);
                 offline = !peer.online();
             }
+            if offline {
+                // A new session starts from a fresh GroupSync.
+                inner.grt.links.retain(|(_, n), _| *n != node_id);
+                inner.grt.gap_sent.retain(|(_, n), _| *n != node_id);
+            }
             offline
         };
         if now_offline {
@@ -1204,6 +1300,10 @@ impl P2p {
         if std::env::var("VELTA_P2P_DEBUG").is_ok() {
             eprintln!("[p2p-dbg] session task started for {}", node_id);
         }
+        // Right after the opening Ping: tell the peer where each shared group
+        // stands (protocol 2 sessions only).
+        self.group_session_open(node_id, &tx);
+        let mut group_window = (std::time::Instant::now(), 0u32);
         // Keepalive: without traffic QUIC idles out after IDLE_TIMEOUT and the
         // peer shows offline even though both engines are healthy.
         let mut next_ping = tokio::time::Instant::now() + Duration::from_secs(20);
@@ -1260,7 +1360,22 @@ impl P2p {
                             if std::env::var("VELTA_P2P_DEBUG").is_ok() {
                                 eprintln!("[p2p-dbg] session got frame from {}", node_id);
                             }
+                            let frame: Frame = frame;
+                            if frame.is_group() {
+                                if group_window.0.elapsed() >= Duration::from_secs(1) {
+                                    group_window = (std::time::Instant::now(), 0);
+                                }
+                                group_window.1 += 1;
+                                if group_window.1 > GROUP_FRAMES_PER_SEC {
+                                    continue;
+                                }
+                            }
+                            let new_roster = matches!(frame, Frame::GroupState { .. });
                             self.handle_frame(node_id, frame, &tx);
+                            if new_roster {
+                                // A roster can introduce members to dial.
+                                self.trigger_group_dials();
+                            }
                         }
                         _ => {
                             if std::env::var("VELTA_P2P_DEBUG").is_ok() {
@@ -1298,8 +1413,19 @@ impl P2p {
         if introduced && !frame.is_group() {
             return;
         }
+        if frame.is_group() {
+            self.handle_group_frame(node_id, frame, tx);
+            return;
+        }
         match frame {
             Frame::Ping => {}
+            // Dispatched above; kept for exhaustiveness.
+            Frame::GroupState { .. }
+            | Frame::GroupSync { .. }
+            | Frame::GroupMsg { .. }
+            | Frame::GroupAck { .. }
+            | Frame::GroupLeave { .. }
+            | Frame::GroupGone { .. } => {}
             // A newer peer's frame type: ignore it, keep the session.
             Frame::Unknown => {}
             Frame::Ack { id } => {
@@ -1882,7 +2008,10 @@ fn rebuild_introduced(peers: &mut HashMap<NodeId, Peer>, groups: &BTreeMap<Strin
             match peers.get_mut(&id) {
                 Some(p) if p.kind == PeerKind::Paired => {}
                 Some(p) => {
-                    p.name = name;
+                    // A name the member told us itself (GroupSync) wins.
+                    if p.name.is_empty() {
+                        p.name = name;
+                    }
                     if p.addrs.is_empty() {
                         p.addrs = addrs;
                     }
@@ -1933,6 +2062,22 @@ impl P2p {
             self.sink
                 .emit(json!({ "kind": "presence", "peerId": node_id.to_string(), "online": online }));
         }
+        // Members of our groups also get a group-scoped event, the only
+        // presence an introduced member ever produces.
+        let gids: Vec<String> = {
+            let inner = self.inner.lock().unwrap();
+            inner
+                .groups
+                .values()
+                .filter(|g| !g.removed && g.state.contains(&node_id))
+                .map(|g| g.state.gid.clone())
+                .collect()
+        };
+        if !gids.is_empty() {
+            self.sink.emit(json!({
+                "kind": "group-presence", "peerId": node_id.to_string(), "online": online, "gids": gids,
+            }));
+        }
     }
 
     fn require_paired(&self, node_id: &NodeId) -> Result<()> {
@@ -1964,14 +2109,9 @@ impl P2p {
     /// Sender of a live session that may carry group frames. Group frames are
     /// only ever sent through this: sessions negotiated on ALPN v1 yield
     /// `None`, so a 1.4.x peer never sees a frame it would choke on.
-    #[allow(dead_code)] // first caller arrives with the group wire frames (Phase 2)
-    fn group_session(&self, node_id: &NodeId) -> Option<mpsc::UnboundedSender<Frame>> {
-        let inner = self.inner.lock().unwrap();
-        let peer = inner.peers.get(node_id)?;
-        peer.live
-            .iter()
-            .find(|h| h.proto >= 2 && !h.tx.is_closed())
-            .map(|h| h.tx.clone())
+    #[cfg(test)]
+    fn group_session(&self, node_id: &NodeId) -> Option<FrameTx> {
+        v2_tx(&self.inner.lock().unwrap().peers, node_id)
     }
 
     fn group_json(&self, inner: &Inner, rec: &GroupRec) -> Value {
@@ -1984,9 +2124,10 @@ impl P2p {
                 let id = NodeId::from_str(&m.node_id).ok();
                 let peer = id.as_ref().and_then(|i| inner.peers.get(i));
                 let is_me = id == Some(me);
-                // The local pairing name wins over the roster's.
+                // Our own name for a paired device wins, then the name an
+                // introduced member claimed for itself, then the roster's.
                 let name = match peer {
-                    Some(p) if p.kind == PeerKind::Paired && !p.name.is_empty() => p.name.clone(),
+                    Some(p) if !p.name.is_empty() => p.name.clone(),
                     _ => m.name.clone(),
                 };
                 json!({
@@ -2081,6 +2222,7 @@ impl P2p {
         let gid = state.gid.clone();
         inner.groups.insert(gid.clone(), GroupRec::new(state));
         self.groups_changed(&mut inner)?;
+        self.announce_state(&inner, &gid, &[]);
         Ok(self.group_json(&inner, &inner.groups[&gid]))
     }
 
@@ -2091,8 +2233,17 @@ impl P2p {
         gid: &str,
         edit: impl FnOnce(&Inner, &mut GroupState) -> Result<()>,
     ) -> Result<Value> {
-        let me = self.node_id();
         let mut inner = self.inner.lock().unwrap();
+        self.edit_group_locked(&mut inner, gid, edit)
+    }
+
+    fn edit_group_locked(
+        &self,
+        inner: &mut Inner,
+        gid: &str,
+        edit: impl FnOnce(&Inner, &mut GroupState) -> Result<()>,
+    ) -> Result<Value> {
+        let me = self.node_id();
         let rec = inner.groups.get(gid).ok_or_else(|| anyhow!("unknown group"))?;
         if rec.state.creator != me.to_string() {
             bail!("only the group's creator can change it");
@@ -2101,15 +2252,26 @@ impl P2p {
             bail!("this group is closed");
         }
         let mut state = rec.state.clone();
-        edit(&inner, &mut state)?;
+        // Everyone in the old roster hears about the change, including a
+        // member it just removed (that is how it learns).
+        let before: Vec<String> = state.members.iter().map(|m| m.node_id.clone()).collect();
+        edit(inner, &mut state)?;
         state.epoch += 1;
         state.sign(&self.secret)?;
         state.check()?;
         let rec = inner.groups.get_mut(gid).expect("checked above");
         rec.removed = state.closed;
         rec.state = state;
-        self.groups_changed(&mut inner)?;
-        Ok(self.group_json(&inner, &inner.groups[gid]))
+        self.groups_changed(inner)?;
+        // Nobody replays under the old roster any more.
+        inner.grt.gone.retain(|(g, _)| g != gid);
+        if inner.groups[gid].removed {
+            inner.grt.links.retain(|(g, _), _| g != gid);
+        }
+        self.announce_state(inner, gid, &before);
+        let group = self.group_json(inner, &inner.groups[gid]);
+        self.sink.emit(json!({ "kind": "group-state", "group": group.clone() }));
+        Ok(group)
     }
 
     /// Adds a paired device (≤ 4 members in total).
@@ -2172,7 +2334,14 @@ impl P2p {
         }
         rec.removed = true;
         rec.pending_leave = true;
+        let creator = rec.state.creator.clone();
         self.groups_changed(&mut inner)?;
+        inner.grt.links.retain(|(g, _), _| g != gid);
+        // Reachable creator: tell it now; otherwise the session-open hook
+        // retries until its new roster (without us) arrives.
+        if let Some(tx) = NodeId::from_str(&creator).ok().and_then(|c| v2_tx(&inner.peers, &c)) {
+            let _ = tx.send(Frame::GroupLeave { gid: gid.to_string() });
+        }
         Ok(self.group_json(&inner, &inner.groups[gid]))
     }
 
@@ -2186,12 +2355,17 @@ impl P2p {
     /// * A state with an epoch that is not newer is ignored (replays and
     ///   rollbacks are harmless).
     /// * At most [`MAX_GROUPS`] groups, at most 4 members per state.
-    #[allow(dead_code)] // called by the group wire frames (Phase 2); tests exercise it now
+    #[allow(dead_code)] // the wire path uses apply_state_locked; tests call this
     pub(crate) fn apply_group_state(&self, state: GroupState, from: NodeId) -> Result<Value> {
-        let me = self.node_id();
         let mut inner = self.inner.lock().unwrap();
+        self.apply_state_locked(&mut inner, state, from)
+    }
+
+    fn apply_state_locked(&self, inner: &mut Inner, state: GroupState, from: NodeId) -> Result<Value> {
+        let me = self.node_id();
         let verdict = evaluate_incoming(inner.groups.get(&state.gid), &state, &me)?;
         let gid = state.gid.clone();
+        let mut newly_removed = None;
         let result = match verdict {
             Evaluation::Stale => return Ok(json!({ "result": "stale" })),
             Evaluation::Create => {
@@ -2211,16 +2385,568 @@ impl P2p {
                 if !rec.state.contains(&from) {
                     bail!("sender is not a member of that group");
                 }
+                let was_removed = rec.removed;
+                let closed = state.closed;
                 rec.state = state;
                 // A member who asked to leave stays out even if the creator
                 // has not processed the request yet.
                 rec.removed = rec.pending_leave || removed_me;
+                if removed_me {
+                    // The creator processed our leave (or removed us).
+                    rec.pending_leave = false;
+                }
+                if rec.removed && !was_removed {
+                    newly_removed = Some(if closed { "closed" } else { "removed" });
+                }
                 "updated"
             }
         };
-        self.groups_changed(&mut inner)?;
-        Ok(json!({ "result": result, "group": self.group_json(&inner, &inner.groups[&gid]) }))
+        self.groups_changed(inner)?;
+        if let Some(reason) = newly_removed {
+            self.sink.emit(json!({ "kind": "group-removed", "gid": gid, "reason": reason }));
+        }
+        self.after_state_applied(inner, &gid);
+        Ok(json!({ "result": result, "group": self.group_json(inner, &inner.groups[&gid]) }))
     }
+
+    /// A new roster is in force: forget stale "gone" marks, tell the UI, and
+    /// restate where we stand (our epoch) to every member we are connected
+    /// to, which also lets the author side start replaying.
+    fn after_state_applied(&self, inner: &mut Inner, gid: &str) {
+        inner.grt.gone.retain(|(g, _)| g != gid);
+        let Some(rec) = inner.groups.get(gid) else { return };
+        let group = self.group_json(inner, rec);
+        self.sink.emit(json!({ "kind": "group-state", "group": group }));
+        if rec.removed {
+            inner.grt.links.retain(|(g, _), _| g != gid);
+            return;
+        }
+        let me = self.node_id();
+        let members: Vec<NodeId> = rec
+            .state
+            .members
+            .iter()
+            .filter_map(|m| NodeId::from_str(&m.node_id).ok())
+            .filter(|id| *id != me)
+            .collect();
+        for m in &members {
+            if let Some(tx) = v2_tx(&inner.peers, m) {
+                let _ = tx.send(self.sync_frame(inner, rec, m));
+            }
+        }
+        // Links of members that are gone from the roster are meaningless.
+        inner.grt.links.retain(|(g, n), _| g != gid || members.contains(n));
+        for m in &members {
+            self.pump(inner, gid, m, None);
+        }
+    }
+
+    // -- group wire protocol -------------------------------------------------
+
+    fn my_name(&self, inner: &Inner) -> String {
+        if inner.name.is_empty() { fallback_name(&self.node_id()) } else { inner.name.clone() }
+    }
+
+    /// Our `GroupSync` for `rec`, addressed to `to`.
+    fn sync_frame(&self, inner: &Inner, rec: &GroupRec, to: &NodeId) -> Frame {
+        Frame::GroupSync {
+            gid: rec.state.gid.clone(),
+            epoch: rec.state.epoch,
+            have: rec.have.get(&to.to_string()).copied().unwrap_or(0),
+            name: self.my_name(inner),
+        }
+    }
+
+    /// Diagnostics line for something a peer sent that we refuse.
+    fn group_warn(&self, node: &NodeId, message: String) {
+        self.sink.emit(json!({ "kind": "error", "peerId": node.to_string(), "message": message }));
+    }
+
+    /// Sends the current signed state (then our `GroupSync`) to every
+    /// roster member and to `extra` (members just removed) that is
+    /// connected on protocol 2. Offline ones get it when they next sync.
+    fn announce_state(&self, inner: &Inner, gid: &str, extra: &[String]) {
+        let Some(rec) = inner.groups.get(gid) else { return };
+        let me = self.node_id();
+        let mut targets: Vec<NodeId> = Vec::new();
+        for id in rec.state.members.iter().map(|m| &m.node_id).chain(extra.iter()) {
+            if let Ok(n) = NodeId::from_str(id) {
+                if n != me && !targets.contains(&n) {
+                    targets.push(n);
+                }
+            }
+        }
+        for n in targets {
+            let Some(tx) = v2_tx(&inner.peers, &n) else { continue };
+            let _ = tx.send(Frame::GroupState { state: rec.state.clone() });
+            if !rec.removed && rec.state.contains(&n) {
+                let _ = tx.send(self.sync_frame(inner, rec, &n));
+            }
+        }
+    }
+
+    /// Dials every group member we are not connected to (the maintenance
+    /// loop does the same every 10 s; this is the fast path).
+    fn trigger_group_dials(self: &Arc<Self>) {
+        let ids: Vec<NodeId> = {
+            let inner = self.inner.lock().unwrap();
+            let me = self.node_id();
+            inner
+                .groups
+                .values()
+                .filter(|g| !g.removed || g.pending_leave)
+                .flat_map(|g| g.state.members.iter())
+                .filter_map(|m| NodeId::from_str(&m.node_id).ok())
+                .filter(|id| *id != me && inner.peers.contains_key(id))
+                .collect()
+        };
+        for id in ids {
+            self.trigger_connect(id);
+        }
+    }
+
+    /// First frames of a new session: per shared group our state of the
+    /// world; a creator whose invitee has not confirmed the roster sends it
+    /// first, and a member that left retries its `GroupLeave`.
+    fn group_session_open(&self, node_id: NodeId, tx: &FrameTx) {
+        let me = self.node_id().to_string();
+        let key = node_id.to_string();
+        let inner = self.inner.lock().unwrap();
+        let proto = inner
+            .peers
+            .get(&node_id)
+            .and_then(|p| p.live.iter().find(|h| h.tx.same_channel(tx)))
+            .map_or(0, |h| h.proto);
+        if proto < 2 {
+            return;
+        }
+        for rec in inner.groups.values() {
+            if rec.removed {
+                if rec.pending_leave && rec.state.creator == key {
+                    let _ = tx.send(Frame::GroupLeave { gid: rec.state.gid.clone() });
+                }
+                continue;
+            }
+            if !rec.state.contains(&node_id) {
+                continue;
+            }
+            if rec.state.creator == me && rec.state_cursor.get(&key).copied().unwrap_or(0) < rec.state.epoch {
+                let _ = tx.send(Frame::GroupState { state: rec.state.clone() });
+            }
+            let _ = tx.send(self.sync_frame(&inner, rec, &node_id));
+        }
+    }
+
+    fn handle_group_frame(&self, from: NodeId, frame: Frame, tx: &FrameTx) {
+        let mut guard = self.inner.lock().unwrap();
+        let inner = &mut *guard;
+        let proto = inner
+            .peers
+            .get(&from)
+            .and_then(|p| p.live.iter().find(|h| h.tx.same_channel(tx)))
+            .map_or(0, |h| h.proto);
+        if proto < 2 {
+            // A group frame on a v1 session is a protocol violation: ignore.
+            return;
+        }
+        match frame {
+            Frame::GroupState { state } => {
+                if let Err(e) = self.apply_state_locked(inner, state, from) {
+                    self.group_warn(&from, format!("group state ignored: {e:#}"));
+                }
+            }
+            Frame::GroupSync { gid, epoch, have, name } => {
+                self.on_group_sync(inner, from, tx, &gid, epoch, have, &name)
+            }
+            Frame::GroupMsg { gid, from: claimed, seq, id, ts, text, reply_to, reply_text } => self.on_group_msg(
+                inner,
+                from,
+                tx,
+                GroupIn { gid, claimed, seq, id, ts, text, reply_to, reply_text },
+            ),
+            Frame::GroupAck { gid, have } => self.on_group_ack(inner, from, &gid, have),
+            Frame::GroupLeave { gid } => self.on_group_leave(inner, from, &gid),
+            Frame::GroupGone { gid } => {
+                // Believed only about the sender itself.
+                if inner.groups.get(&gid).map_or(false, |r| !r.removed && r.state.contains(&from)) {
+                    inner.grt.links.remove(&(gid.clone(), from));
+                    inner.grt.gone.insert((gid, from));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn on_group_sync(
+        &self,
+        inner: &mut Inner,
+        from: NodeId,
+        tx: &FrameTx,
+        gid: &str,
+        epoch: u64,
+        have: u64,
+        name: &str,
+    ) {
+        let me = self.node_id().to_string();
+        let key = from.to_string();
+        let Some(rec) = inner.groups.get(gid) else {
+            let _ = tx.send(Frame::GroupGone { gid: gid.to_string() });
+            return;
+        };
+        if rec.removed {
+            // Disbanded / left. A peer still on an older roster is told (a
+            // member that was offline during a disband learns it here);
+            // anyone else just hears that I am out.
+            let reply = if epoch < rec.state.epoch {
+                Frame::GroupState { state: rec.state.clone() }
+            } else {
+                Frame::GroupGone { gid: gid.to_string() }
+            };
+            let _ = tx.send(reply);
+            return;
+        }
+        if !rec.state.contains(&from) {
+            // Not (or no longer) in my roster: no messages, but a member who
+            // was removed learns it here. Knowing the gid is the capability.
+            if epoch < rec.state.epoch {
+                let _ = tx.send(Frame::GroupState { state: rec.state.clone() });
+            }
+            return;
+        }
+        let my_epoch = rec.state.epoch;
+        let is_creator = rec.state.creator == me;
+        // An introduced member's self-claimed name (display only).
+        if !name.is_empty() && name.chars().count() <= 64 {
+            if let Some(p) = inner.peers.get_mut(&from) {
+                if p.kind == PeerKind::Introduced {
+                    p.name = name.to_string();
+                }
+            }
+        }
+        inner.grt.gone.remove(&(gid.to_string(), from));
+        let rec = inner.groups.get_mut(gid).expect("checked above");
+        let mut dirty = false;
+        if is_creator {
+            let held = epoch.min(my_epoch);
+            if rec.state_cursor.get(&key).copied().unwrap_or(0) < held {
+                rec.state_cursor.insert(key.clone(), held);
+                dirty = true;
+            }
+        }
+        // `have` is a cumulative ack of my own messages.
+        let acked = have.min(rec.next_seq.saturating_sub(1));
+        let mut ack_event = None;
+        if acked > rec.sent_cursor.get(&key).copied().unwrap_or(0) {
+            rec.sent_cursor.insert(key.clone(), acked);
+            dirty = true;
+            ack_event = Some(acked);
+        }
+        let pushed = rec.sent_cursor.get(&key).copied().unwrap_or(0);
+        if dirty {
+            if let Err(e) = self.persist_groups(inner) {
+                self.group_warn(&from, format!("could not save group state: {e:#}"));
+            }
+        }
+        if let Some(h) = ack_event {
+            self.sink.emit(json!({ "kind": "group-ack", "gid": gid, "by": key, "have": h }));
+        }
+        inner.grt.links.insert((gid.to_string(), from), GroupLink { epoch, pushed });
+        let rec = &inner.groups[gid];
+        if epoch < my_epoch {
+            // Peer is behind: relay the roster; it re-syncs after applying.
+            let _ = tx.send(Frame::GroupState { state: rec.state.clone() });
+        } else if epoch > my_epoch {
+            // Peer is ahead: restate my epoch so it relays its roster to me.
+            let _ = tx.send(self.sync_frame(inner, rec, &from));
+        } else {
+            self.pump(inner, gid, &from, None);
+        }
+    }
+
+    fn on_group_msg(&self, inner: &mut Inner, from: NodeId, tx: &FrameTx, m: GroupIn) {
+        let key = from.to_string();
+        if m.claimed != key {
+            self.group_warn(&from, "group message with a forged sender dropped".into());
+            return;
+        }
+        let Some(rec) = inner.groups.get(&m.gid) else {
+            let _ = tx.send(Frame::GroupGone { gid: m.gid });
+            return;
+        };
+        if rec.removed {
+            let _ = tx.send(Frame::GroupGone { gid: m.gid });
+            return;
+        }
+        if !rec.state.contains(&from) {
+            return; // not a member (any more): dropped silently
+        }
+        if m.seq == 0 || m.text.is_empty() || m.text.len() > MAX_GROUP_TEXT || !is_safe_transfer_id(&m.id) {
+            return;
+        }
+        let have = rec.have.get(&key).copied().unwrap_or(0);
+        if m.seq <= have {
+            // Duplicate (a replay after a lost ack): re-ack so the author's
+            // cursor catches up.
+            let _ = tx.send(Frame::GroupAck { gid: m.gid, have });
+            return;
+        }
+        if m.seq > have + 1 {
+            // Gap: drop it and ask the author to replay from have+1 (once
+            // per `have`, so a burst of out-of-order frames is one request).
+            let marker = (m.gid.clone(), from);
+            if inner.grt.gap_sent.get(&marker) != Some(&have) {
+                inner.grt.gap_sent.insert(marker, have);
+                let _ = tx.send(self.sync_frame(inner, rec, &from));
+            }
+            return;
+        }
+        // Exactly the next one: log line first, then the counter.
+        let now = now_ms();
+        let prev = self.group_last_ts(inner, &m.gid);
+        let ts_eff = eff_ts(prev, m.ts, now);
+        let line = GroupLogRec {
+            seq: m.seq,
+            from: key.clone(),
+            id: m.id.clone(),
+            ts: m.ts,
+            ts_eff,
+            dir: "in".into(),
+            text: m.text.clone(),
+            reply_to: m.reply_to.clone(),
+            reply_text: m.reply_text.clone(),
+        };
+        if let Err(e) = append_log(&self.dir, &m.gid, &line) {
+            self.group_warn(&from, format!("could not store a group message: {e:#}"));
+            return;
+        }
+        inner.grt.ts_eff.insert(m.gid.clone(), ts_eff);
+        inner.grt.gap_sent.remove(&(m.gid.clone(), from));
+        let rec = inner.groups.get_mut(&m.gid).expect("checked above");
+        rec.have.insert(key.clone(), m.seq);
+        if let Err(e) = self.persist_groups(inner) {
+            // Not fatal: the counter is rebuilt from the log on restart.
+            self.group_warn(&from, format!("could not save group state: {e:#}"));
+        }
+        let name = inner.peers.get(&from).map(|p| p.name.clone()).filter(|n| !n.is_empty());
+        let name = name.unwrap_or_else(|| fallback_name(&from));
+        self.sink.emit(json!({
+            "kind": "group-message", "gid": m.gid, "from": key, "name": name,
+            "id": m.id, "seq": m.seq, "ts": m.ts, "tsEff": ts_eff, "text": m.text,
+            "replyTo": m.reply_to, "replyText": m.reply_text,
+        }));
+        let _ = tx.send(Frame::GroupAck { gid: m.gid, have: m.seq });
+    }
+
+    fn on_group_ack(&self, inner: &mut Inner, from: NodeId, gid: &str, have: u64) {
+        let key = from.to_string();
+        let Some(rec) = inner.groups.get_mut(gid) else { return };
+        if rec.removed || !rec.state.contains(&from) {
+            return;
+        }
+        let have = have.min(rec.next_seq.saturating_sub(1));
+        if have <= rec.sent_cursor.get(&key).copied().unwrap_or(0) {
+            return;
+        }
+        rec.sent_cursor.insert(key.clone(), have);
+        if let Err(e) = self.persist_groups(inner) {
+            self.group_warn(&from, format!("could not save group state: {e:#}"));
+        }
+        self.sink.emit(json!({ "kind": "group-ack", "gid": gid, "by": key, "have": have }));
+        // The window moved: send what was held back.
+        self.pump(inner, gid, &from, None);
+    }
+
+    fn on_group_leave(&self, inner: &mut Inner, from: NodeId, gid: &str) {
+        let me = self.node_id().to_string();
+        let ok = inner
+            .groups
+            .get(gid)
+            .map_or(false, |r| r.state.creator == me && !r.removed && r.state.contains(&from) && from.to_string() != me);
+        if !ok {
+            return; // only the creator edits the roster
+        }
+        let id = from.to_string();
+        let res = self.edit_group_locked(inner, gid, |_, st| {
+            st.members.retain(|m| m.node_id != id);
+            Ok(())
+        });
+        if let Err(e) = res {
+            self.group_warn(&from, format!("could not process a leave request: {e:#}"));
+        }
+    }
+
+    /// Display timestamp of the last record of `gid` (cached after the first
+    /// read of the log).
+    fn group_last_ts(&self, inner: &mut Inner, gid: &str) -> u64 {
+        if let Some(v) = inner.grt.ts_eff.get(gid) {
+            return *v;
+        }
+        let v = scan_log(&self.dir, gid, &self.node_id().to_string()).last_ts_eff;
+        inner.grt.ts_eff.insert(gid.to_string(), v);
+        v
+    }
+
+    /// Puts what `node` is missing of my own messages on its session: only
+    /// while it is a roster member, we agree on the epoch (so a removed
+    /// member gets nothing) and it did not say it is gone. At most
+    /// [`GROUP_WINDOW`] unacked messages are in flight; acks pull the rest.
+    /// Returns whether the member is ready (live and in step).
+    fn pump(&self, inner: &mut Inner, gid: &str, node: &NodeId, hint: Option<&GroupLogRec>) -> bool {
+        let me = self.node_id().to_string();
+        let key = node.to_string();
+        let Some(rec) = inner.groups.get(gid) else { return false };
+        if rec.removed || !rec.state.contains(node) {
+            return false;
+        }
+        let marker = (gid.to_string(), *node);
+        if inner.grt.gone.contains(&marker) {
+            return false;
+        }
+        let Some(tx) = v2_tx(&inner.peers, node) else { return false };
+        let epoch = rec.state.epoch;
+        let cursor = rec.sent_cursor.get(&key).copied().unwrap_or(0);
+        let last = rec.next_seq.saturating_sub(1);
+        let Some(link) = inner.grt.links.get_mut(&marker) else { return false };
+        if link.epoch != epoch {
+            return false;
+        }
+        let first = link.pushed.max(cursor) + 1;
+        let upto = last.min(cursor + GROUP_WINDOW);
+        if first > upto {
+            return true;
+        }
+        let recs: Vec<GroupLogRec> = match hint {
+            Some(h) if h.seq == first && first == upto => vec![h.clone()],
+            _ => read_log(&self.dir, gid)
+                .into_iter()
+                .filter(|r| r.dir == "out" && r.from == me && r.seq >= first && r.seq <= upto)
+                .collect(),
+        };
+        for r in recs {
+            let seq = r.seq;
+            let frame = Frame::GroupMsg {
+                gid: gid.to_string(),
+                from: me.clone(),
+                seq,
+                id: r.id,
+                ts: r.ts,
+                text: r.text,
+                reply_to: r.reply_to,
+                reply_text: r.reply_text,
+            };
+            if tx.send(frame).is_err() {
+                break;
+            }
+            link.pushed = link.pushed.max(seq);
+        }
+        true
+    }
+
+    /// Sends a message to a group: appended to my log first (that is the
+    /// queue), then streamed to every member that is connected and in step;
+    /// the others get it by replay when they sync.
+    pub fn group_send(
+        self: &Arc<Self>,
+        gid: &str,
+        text: &str,
+        reply_to: Option<&str>,
+        reply_text: Option<&str>,
+    ) -> Result<Value> {
+        if text.trim().is_empty() || text.len() > MAX_GROUP_TEXT {
+            bail!("message must be 1-64k characters");
+        }
+        let me = self.node_id();
+        let mut guard = self.inner.lock().unwrap();
+        let inner = &mut *guard;
+        let rec = inner.groups.get(gid).ok_or_else(|| anyhow!("unknown group"))?;
+        if rec.removed {
+            bail!("this group is read-only");
+        }
+        let seq = rec.next_seq;
+        let members: Vec<NodeId> = rec
+            .state
+            .members
+            .iter()
+            .filter_map(|m| NodeId::from_str(&m.node_id).ok())
+            .filter(|id| *id != me)
+            .collect();
+        let now = now_ms();
+        let prev = self.group_last_ts(inner, gid);
+        let ts_eff = eff_ts(prev, now, now);
+        let line = GroupLogRec {
+            seq,
+            from: me.to_string(),
+            id: random_id(),
+            ts: now,
+            ts_eff,
+            dir: "out".into(),
+            text: text.to_string(),
+            reply_to: reply_to.map(|s| s.to_string()),
+            reply_text: reply_text.map(|s| s.to_string()),
+        };
+        append_log(&self.dir, gid, &line)?;
+        inner.grt.ts_eff.insert(gid.to_string(), ts_eff);
+        inner.groups.get_mut(gid).expect("checked above").next_seq = seq + 1;
+        if let Err(e) = self.persist_groups(inner) {
+            // The log has the message; next_seq is rebuilt from it on restart.
+            self.sink.emit(json!({ "kind": "error", "message": format!("could not save group state: {e:#}") }));
+        }
+        let mut reached = 0;
+        for m in &members {
+            if self.pump(inner, gid, m, Some(&line)) {
+                reached += 1;
+            }
+        }
+        drop(guard);
+        // Members that are offline get a dial now; replay follows the sync.
+        for m in members {
+            self.trigger_connect(m);
+        }
+        Ok(json!({
+            "id": line.id, "seq": seq, "ts": line.ts, "tsEff": ts_eff,
+            "queued": reached == 0,
+        }))
+    }
+
+    /// Last `limit` records of a group's log, oldest first, with who has
+    /// acknowledged each of my own messages.
+    pub fn group_messages(&self, gid: &str, limit: usize) -> Result<Vec<Value>> {
+        let me = self.node_id().to_string();
+        let inner = self.inner.lock().unwrap();
+        let rec = inner.groups.get(gid).ok_or_else(|| anyhow!("unknown group"))?;
+        let others: Vec<&str> = rec.state.members.iter().map(|m| m.node_id.as_str()).filter(|id| *id != me).collect();
+        Ok(load_group_log(&self.dir, gid, limit)
+            .into_iter()
+            .map(|r| {
+                let delivered: Vec<&str> = if r.dir == "out" {
+                    others
+                        .iter()
+                        .copied()
+                        .filter(|id| rec.sent_cursor.get(*id).copied().unwrap_or(0) >= r.seq)
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                json!({
+                    "seq": r.seq, "from": r.from, "id": r.id, "ts": r.ts, "tsEff": r.ts_eff,
+                    "dir": r.dir, "text": r.text, "replyTo": r.reply_to, "replyText": r.reply_text,
+                    "delivered": delivered,
+                })
+            })
+            .collect())
+    }
+}
+
+/// A `GroupMsg` after the session-level checks.
+struct GroupIn {
+    gid: String,
+    claimed: String,
+    seq: u64,
+    id: String,
+    ts: u64,
+    text: String,
+    reply_to: Option<String>,
+    reply_text: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -3311,7 +4037,8 @@ mod tests {
         // Presence of an introduced member is never published (the adapter
         // would create a p2p: chat for it); a paired one is.
         a.emit_presence(c, true);
-        assert!(a_rx.try_recv().is_err());
+        let kinds: Vec<String> = std::iter::from_fn(|| a_rx.try_recv().ok()).map(|e| e["kind"].as_str().unwrap_or("").to_string()).collect();
+        assert!(!kinds.contains(&"presence".to_string()), "introduced member produced a presence event: {kinds:?}");
         a.emit_presence(b, true);
         assert_eq!(a_rx.try_recv().unwrap()["kind"], "presence");
 
@@ -3380,15 +4107,20 @@ mod tests {
     /// side, with a real signing creator and a real receiving engine.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn group_state_acceptance_rules() {
-        let (alice, alice_rx) = start("grp-acc-alice").await;
+        let (alice, _alice_rx) = start("grp-acc-alice").await;
         let (bob, _bob_rx) = start("grp-acc-bob").await;
-        let ticket = alice.create_invite().await.unwrap();
-        bob.accept_invite(&ticket).await.unwrap();
-        wait_for(&alice_rx, 15, |e| e["kind"] == "pairing");
         let (a_id, b_id) = (alice.node_id(), bob.node_id());
+        // Paired (v2) on paper only, with no session: this test feeds states by
+        // hand, so nothing may travel over the wire behind its back.
+        let paper = |name: &str| Peer {
+            kind: PeerKind::Paired, name: name.into(), addrs: vec![], proto: 2,
+            live: vec![], connecting: false, queued: vec![], msgs: vec![],
+        };
+        alice.inner.lock().unwrap().peers.insert(b_id, paper("Bob"));
+        bob.inner.lock().unwrap().peers.insert(a_id, paper("Alice"));
         let c = add_fake_peer(&alice, PeerKind::Paired, 2);
 
-        // Real pairing negotiated v2, so Bob is invitable. Alice creates {A,B,C}.
+        // Bob is invitable (v2). Alice creates {A,B,C}.
         let g = alice.group_create("Trio", &ids(&[b_id, c])).unwrap();
         let gid = g["gid"].as_str().unwrap().to_string();
         let st1 = alice.group_state(&gid).unwrap();
@@ -3572,6 +4304,692 @@ mod tests {
         a2.group_state(&gid).unwrap().check().unwrap();
         assert!(a2.group_add(&gid, &b.to_string()).is_err()); // still the creator, b already in
         assert_eq!(a2.group_rename(&gid, "Kept 2").unwrap()["epoch"], 3);
+    }
+
+    // -- local groups (Phase 2: messages over the mesh) -------------------------
+
+    /// Polls `f` (async-friendly: engines keep running meanwhile).
+    async fn until(secs: u64, what: &str, f: impl Fn() -> bool) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(secs);
+        while !f() {
+            assert!(std::time::Instant::now() < deadline, "timed out: {what}");
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
+    /// A fake live session of `node` on `engine`: frames the engine writes to
+    /// it land in the returned receiver, frames "from the peer" are fed with
+    /// `engine.handle_frame(node, frame, &tx)`.
+    fn attach_live(engine: &Arc<P2p>, node: NodeId, proto: u8) -> (FrameTx, mpsc::UnboundedReceiver<Frame>) {
+        let (tx, rx) = mpsc::unbounded_channel();
+        engine.register_live(node, tx.clone(), proto);
+        (tx, rx)
+    }
+
+    fn drain(rx: &mut mpsc::UnboundedReceiver<Frame>) -> Vec<Frame> {
+        std::iter::from_fn(|| rx.try_recv().ok()).collect()
+    }
+
+    fn events(rx: &std_mpsc::Receiver<Value>) -> Vec<Value> {
+        std::iter::from_fn(|| rx.try_recv().ok()).collect()
+    }
+
+    fn acks_in(frames: &[Frame]) -> Vec<u64> {
+        frames.iter().filter_map(|f| if let Frame::GroupAck { have, .. } = f { Some(*have) } else { None }).collect()
+    }
+
+    fn syncs_in(frames: &[Frame]) -> Vec<(u64, u64)> {
+        frames.iter().filter_map(|f| if let Frame::GroupSync { epoch, have, .. } = f { Some((*epoch, *have)) } else { None }).collect()
+    }
+
+    fn msg_seqs_in(frames: &[Frame]) -> Vec<u64> {
+        frames.iter().filter_map(|f| if let Frame::GroupMsg { seq, .. } = f { Some(*seq) } else { None }).collect()
+    }
+
+    fn gmsg(gid: &str, from: &NodeId, seq: u64, text: &str) -> Frame {
+        Frame::GroupMsg {
+            gid: gid.to_string(),
+            from: from.to_string(),
+            seq,
+            id: format!("id{seq}-{}", &from.to_string()[..6]),
+            ts: now_ms(),
+            text: text.to_string(),
+            reply_to: None,
+            reply_text: None,
+        }
+    }
+
+    fn paper(name: &str) -> Peer {
+        Peer {
+            kind: PeerKind::Paired, name: name.into(), addrs: vec![], proto: 2,
+            live: vec![], connecting: false, queued: vec![], msgs: vec![],
+        }
+    }
+
+    /// `me` is a non-creator member of {creator, me, d}; the creator and d are
+    /// on paper only. Frames are fed to `me` by hand.
+    async fn unit_member(tag: &str) -> (Arc<P2p>, std_mpsc::Receiver<Value>, Arc<P2p>, NodeId, String) {
+        let (cr, _crx) = start(&format!("{tag}-cr")).await;
+        let (me, me_rx) = start(tag).await;
+        cr.inner.lock().unwrap().peers.insert(me.node_id(), paper("Me"));
+        me.inner.lock().unwrap().peers.insert(cr.node_id(), paper("Creator"));
+        let d = add_fake_peer(&cr, PeerKind::Paired, 2);
+        let g = cr.group_create("Unit", &ids(&[me.node_id(), d])).unwrap();
+        let gid = g["gid"].as_str().unwrap().to_string();
+        me.apply_group_state(cr.group_state(&gid).unwrap(), cr.node_id()).unwrap();
+        events(&me_rx);
+        (me, me_rx, cr, d, gid)
+    }
+
+    /// `cr` created {cr, b, d} (paper peers); `b` and `d` have live fake sessions.
+    async fn unit_author(tag: &str) -> (Arc<P2p>, std_mpsc::Receiver<Value>, String, [(NodeId, FrameTx, mpsc::UnboundedReceiver<Frame>); 2]) {
+        let (cr, rx) = start(tag).await;
+        let b = add_fake_peer(&cr, PeerKind::Paired, 2);
+        let d = add_fake_peer(&cr, PeerKind::Paired, 2);
+        let g = cr.group_create("Author", &ids(&[b, d])).unwrap();
+        let gid = g["gid"].as_str().unwrap().to_string();
+        let (tb, rb) = attach_live(&cr, b, 2);
+        let (td, rd) = attach_live(&cr, d, 2);
+        (cr, rx, gid, [(b, tb, rb), (d, td, rd)])
+    }
+
+    fn sync_from(gid: &str, epoch: u64, have: u64) -> Frame {
+        Frame::GroupSync { gid: gid.to_string(), epoch, have, name: "peer".into() }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_msg_seq_dedup_and_gap_detection() {
+        let (me, rx, cr, _d, gid) = unit_member("grp-fifo").await;
+        let author = cr.node_id();
+        let (tx, mut out) = attach_live(&me, author, 2);
+
+        me.handle_frame(author, gmsg(&gid, &author, 1, "one"), &tx);
+        let evs = events(&rx);
+        let got = evs.iter().find(|e| e["kind"] == "group-message").expect("event for seq 1");
+        assert_eq!((got["text"].as_str(), got["seq"].as_u64(), got["gid"].as_str()), (Some("one"), Some(1), Some(gid.as_str())));
+        assert_eq!(got["from"], author.to_string().as_str());
+        assert_eq!(acks_in(&drain(&mut out)), vec![1]);
+
+        // Duplicate (a replay after a lost ack): no event, no second copy, re-ack.
+        me.handle_frame(author, gmsg(&gid, &author, 1, "one"), &tx);
+        assert!(events(&rx).iter().all(|e| e["kind"] != "group-message"));
+        assert_eq!(acks_in(&drain(&mut out)), vec![1]);
+
+        // Gap: 3 before 2 is dropped and answered with ONE GroupSync{have:1}.
+        me.handle_frame(author, gmsg(&gid, &author, 3, "three"), &tx);
+        me.handle_frame(author, gmsg(&gid, &author, 4, "four"), &tx);
+        assert!(events(&rx).iter().all(|e| e["kind"] != "group-message"));
+        let frames = drain(&mut out);
+        assert_eq!(syncs_in(&frames), vec![(1, 1)], "one replay request for the burst");
+        assert!(acks_in(&frames).is_empty());
+
+        // The replay arrives in order and everything lands once.
+        for (seq, text) in [(2, "two"), (3, "three"), (4, "four")] {
+            me.handle_frame(author, gmsg(&gid, &author, seq, text), &tx);
+        }
+        assert_eq!(acks_in(&drain(&mut out)), vec![2, 3, 4]);
+        let log = me.group_messages(&gid, 50).unwrap();
+        let texts: Vec<&str> = log.iter().map(|r| r["text"].as_str().unwrap()).collect();
+        assert_eq!(texts, ["one", "two", "three", "four"]);
+        assert_eq!(me.inner.lock().unwrap().groups[&gid].have[&author.to_string()], 4);
+        // A later gap with the same `have` is asked for again (new situation).
+        me.handle_frame(author, gmsg(&gid, &author, 9, "nine"), &tx);
+        assert_eq!(syncs_in(&drain(&mut out)), vec![(1, 4)]);
+        // ts_eff never goes backwards, never into the future.
+        let effs: Vec<u64> = log.iter().map(|r| r["tsEff"].as_u64().unwrap()).collect();
+        assert!(effs.windows(2).all(|w| w[0] <= w[1]));
+        assert!(effs.iter().all(|e| *e <= now_ms()));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_receive_rejects_forged_sender_non_member_bad_text_and_v1_sessions() {
+        let (me, rx, cr, d, gid) = unit_member("grp-rej").await;
+        let author = cr.node_id();
+        let (tx, mut out) = attach_live(&me, author, 2);
+        let stored = |me: &Arc<P2p>| me.group_messages(&gid, 50).unwrap().len();
+
+        // `from` must be the authenticated session node.
+        me.handle_frame(author, gmsg(&gid, &d, 1, "pretending to be d"), &tx);
+        assert_eq!(stored(&me), 0);
+        let evs = events(&rx);
+        assert!(evs.iter().any(|e| e["kind"] == "error" && e["message"].as_str().unwrap().contains("forged")));
+        assert!(evs.iter().all(|e| e["kind"] != "group-message"));
+        assert!(drain(&mut out).is_empty());
+
+        // A paired contact that is not in the roster is ignored without a word.
+        let outsider = add_fake_peer(&me, PeerKind::Paired, 2);
+        let (otx, mut oout) = attach_live(&me, outsider, 2);
+        me.handle_frame(outsider, gmsg(&gid, &outsider, 1, "let me in"), &otx);
+        me.handle_frame(outsider, sync_from(&gid, 1, 0), &otx);
+        assert_eq!(stored(&me), 0);
+        assert!(drain(&mut oout).is_empty(), "nothing leaks to a non-member at the current epoch");
+        assert!(events(&rx).iter().all(|e| e["kind"] != "group-message"));
+
+        // Empty / oversized text, seq 0, unsafe id.
+        me.handle_frame(author, gmsg(&gid, &author, 1, ""), &tx);
+        me.handle_frame(author, gmsg(&gid, &author, 1, &"x".repeat(MAX_GROUP_TEXT + 1)), &tx);
+        me.handle_frame(author, gmsg(&gid, &author, 0, "zero"), &tx);
+        let mut bad_id = gmsg(&gid, &author, 1, "bad id");
+        if let Frame::GroupMsg { id, .. } = &mut bad_id { *id = "../x".into(); }
+        me.handle_frame(author, bad_id, &tx);
+        assert_eq!(stored(&me), 0);
+        assert!(acks_in(&drain(&mut out)).is_empty());
+
+        // A group frame on a protocol-1 session is ignored.
+        let v1 = add_fake_peer(&me, PeerKind::Paired, 1);
+        let (vtx, mut vout) = attach_live(&me, v1, 1);
+        me.handle_frame(v1, gmsg(&gid, &v1, 1, "v1"), &vtx);
+        me.handle_frame(v1, sync_from("0".repeat(32).as_str(), 1, 0), &vtx);
+        assert!(drain(&mut vout).is_empty());
+        assert_eq!(stored(&me), 0);
+
+        // And the happy path still works after all that.
+        me.handle_frame(author, gmsg(&gid, &author, 1, "fine"), &tx);
+        assert_eq!(stored(&me), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_unknown_gid_gets_group_gone_and_gone_marks_only_the_sender() {
+        let (me, _rx, cr, d, gid) = unit_member("grp-gone").await;
+        let author = cr.node_id();
+        let (tx, mut out) = attach_live(&me, author, 2);
+        let unknown = "f".repeat(32);
+
+        me.handle_frame(author, sync_from(&unknown, 1, 0), &tx);
+        me.handle_frame(author, gmsg(&unknown, &author, 1, "x"), &tx);
+        let frames = drain(&mut out);
+        assert_eq!(frames.iter().filter(|f| matches!(f, Frame::GroupGone { gid } if *gid == unknown)).count(), 2);
+        // GroupGone itself is never answered (no ping-pong).
+        me.handle_frame(author, Frame::GroupGone { gid: unknown.clone() }, &tx);
+        assert!(drain(&mut out).is_empty());
+
+        // A group I left answers with GroupGone too.
+        me.group_leave(&gid).unwrap();
+        // (the creator is told about the leave right away)
+        assert!(matches!(drain(&mut out).as_slice(), [Frame::GroupLeave { .. }]));
+        me.handle_frame(author, sync_from(&gid, 1, 0), &tx);
+        assert!(matches!(drain(&mut out).as_slice(), [Frame::GroupGone { .. }]));
+
+        // Author side: X says it is gone -> X is skipped until a newer state;
+        // the mark is only ever about X itself.
+        let (cr2, _r2, gid2, [(b, tb, mut rb), (d2, td, mut rd)]) = unit_author("grp-gone-author").await;
+        cr2.handle_frame(b, sync_from(&gid2, 1, 0), &tb);
+        cr2.handle_frame(d2, sync_from(&gid2, 1, 0), &td);
+        drain(&mut rb);
+        drain(&mut rd);
+        cr2.handle_frame(b, Frame::GroupGone { gid: gid2.clone() }, &tb);
+        cr2.group_send(&gid2, "after gone", None, None).unwrap();
+        assert!(msg_seqs_in(&drain(&mut rb)).is_empty(), "b said it is gone");
+        assert_eq!(msg_seqs_in(&drain(&mut rd)), vec![1], "d is unaffected");
+        // b syncs again (it has the group after all): delivery resumes.
+        cr2.handle_frame(b, sync_from(&gid2, 1, 0), &tb);
+        assert_eq!(msg_seqs_in(&drain(&mut rb)), vec![1]);
+        let _ = d;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_state_relayed_by_non_creator_is_accepted_and_epoch_rollback_ignored() {
+        let (me, rx, cr, d, gid) = unit_member("grp-relay").await;
+        let author = cr.node_id();
+        let (_tx, _out) = attach_live(&me, author, 2);
+        let (dtx, mut dout) = attach_live(&me, d, 2);
+        let st1 = cr.group_state(&gid).unwrap();
+        cr.group_rename(&gid, "Renamed").unwrap();
+        let st2 = cr.group_state(&gid).unwrap();
+        assert_eq!(st2.epoch, 2);
+
+        // Member d (not the creator) relays the creator-signed epoch 2.
+        me.handle_frame(d, Frame::GroupState { state: st2.clone() }, &dtx);
+        assert_eq!(me.groups()[0]["name"], "Renamed");
+        assert!(events(&rx).iter().any(|e| e["kind"] == "group-state" && e["group"]["epoch"] == 2));
+        // Rolling back to epoch 1 (replayed by anyone) changes nothing.
+        me.handle_frame(d, Frame::GroupState { state: st1 }, &dtx);
+        assert_eq!(me.groups()[0]["epoch"], 2);
+        assert_eq!(me.groups()[0]["name"], "Renamed");
+        // A tampered state is refused and reported, not applied.
+        let mut forged = st2.clone();
+        forged.epoch = 3;
+        forged.name = "Hijacked".into();
+        me.handle_frame(d, Frame::GroupState { state: forged }, &dtx);
+        assert_eq!(me.groups()[0]["name"], "Renamed");
+        assert!(events(&rx).iter().any(|e| e["kind"] == "error"));
+        drain(&mut dout);
+
+        // Epoch exchange: a peer behind me is sent my state; a peer ahead of
+        // me is sent my epoch (so it relays its state).
+        me.handle_frame(d, sync_from(&gid, 1, 0), &dtx);
+        let frames = drain(&mut dout);
+        assert!(frames.iter().any(|f| matches!(f, Frame::GroupState { state } if state.epoch == 2)));
+        me.handle_frame(d, sync_from(&gid, 9, 0), &dtx);
+        assert_eq!(syncs_in(&drain(&mut dout)), vec![(2, 0)]);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_author_replays_from_the_receivers_cursor_without_duplicates() {
+        let (cr, rx, gid, [(b, tb, mut rb), (d, td, mut rd)]) = unit_author("grp-replay").await;
+        // Nothing is pushed before the member's GroupSync (and its epoch) is known.
+        for i in 1..=5 {
+            let r = cr.group_send(&gid, &format!("m{i}"), None, None).unwrap();
+            assert_eq!((r["seq"].as_u64(), r["queued"].as_bool()), (Some(i), Some(true)));
+        }
+        assert!(msg_seqs_in(&drain(&mut rb)).is_empty());
+
+        // b already holds 1..=2: replay is 3..=5, once.
+        cr.handle_frame(b, sync_from(&gid, 1, 2), &tb);
+        assert_eq!(msg_seqs_in(&drain(&mut rb)), vec![3, 4, 5]);
+        assert_eq!(cr.inner.lock().unwrap().groups[&gid].sent_cursor[&b.to_string()], 2);
+        let acks: Vec<Value> = events(&rx).into_iter().filter(|e| e["kind"] == "group-ack").collect();
+        assert_eq!((acks[0]["by"].as_str(), acks[0]["have"].as_u64()), (Some(b.to_string().as_str()), Some(2)));
+
+        // Live messages stream straight to a member that is in step.
+        let r = cr.group_send(&gid, "m6", None, None).unwrap();
+        assert_eq!(r["queued"], false);
+        assert_eq!(msg_seqs_in(&drain(&mut rb)), vec![6]);
+        // d never synced: nothing for it yet.
+        assert!(msg_seqs_in(&drain(&mut rd)).is_empty());
+
+        // b reports a gap (it lost 4 and 5): replay from its `have`, not from 1.
+        cr.handle_frame(b, sync_from(&gid, 1, 3), &tb);
+        assert_eq!(msg_seqs_in(&drain(&mut rb)), vec![4, 5, 6]);
+        cr.handle_frame(b, Frame::GroupAck { gid: gid.clone(), have: 6 }, &tb);
+        assert!(msg_seqs_in(&drain(&mut rb)).is_empty());
+        // Acks are clamped to what exists and never go backwards.
+        cr.handle_frame(b, Frame::GroupAck { gid: gid.clone(), have: 999 }, &tb);
+        cr.handle_frame(b, Frame::GroupAck { gid: gid.clone(), have: 1 }, &tb);
+        assert_eq!(cr.inner.lock().unwrap().groups[&gid].sent_cursor[&b.to_string()], 6);
+
+        // d joins the party late: the whole log, in order.
+        cr.handle_frame(d, sync_from(&gid, 1, 0), &td);
+        assert_eq!(msg_seqs_in(&drain(&mut rd)), vec![1, 2, 3, 4, 5, 6]);
+
+        // Delivery state per message comes from the cursors.
+        let log = cr.group_messages(&gid, 10).unwrap();
+        let delivered = |i: usize| log[i]["delivered"].as_array().unwrap().len();
+        assert_eq!((delivered(0), delivered(5)), (1, 1), "only b has acked so far");
+        cr.handle_frame(d, Frame::GroupAck { gid: gid.clone(), have: 6 }, &td);
+        assert_eq!(cr.group_messages(&gid, 10).unwrap()[0]["delivered"].as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_replay_is_paged_by_the_ack_window() {
+        let (cr, _rx, gid, [(b, tb, mut rb), _]) = unit_author("grp-window").await;
+        for i in 0..250 {
+            cr.group_send(&gid, &format!("m{i}"), None, None).unwrap();
+        }
+        cr.handle_frame(b, sync_from(&gid, 1, 0), &tb);
+        assert_eq!(msg_seqs_in(&drain(&mut rb)).len() as u64, GROUP_WINDOW);
+        cr.handle_frame(b, Frame::GroupAck { gid: gid.clone(), have: 200 }, &tb);
+        assert_eq!(msg_seqs_in(&drain(&mut rb)), (201..=250).collect::<Vec<u64>>());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_remove_member_stops_delivery_and_tells_it_why() {
+        let (cr, _rx, gid, [(b, tb, mut rb), (d, td, mut rd)]) = unit_author("grp-rm").await;
+        cr.handle_frame(b, sync_from(&gid, 1, 0), &tb);
+        cr.handle_frame(d, sync_from(&gid, 1, 0), &td);
+        cr.group_send(&gid, "before", None, None).unwrap();
+        assert_eq!(msg_seqs_in(&drain(&mut rb)), vec![1]);
+        drain(&mut rd);
+
+        cr.group_remove(&gid, &d.to_string()).unwrap();
+        // d is told (state) but does not get a sync back into the roster.
+        let to_d = drain(&mut rd);
+        assert!(to_d.iter().any(|f| matches!(f, Frame::GroupState { state } if state.epoch == 2 && !state.contains(&d))));
+        assert!(syncs_in(&to_d).is_empty());
+        // b is told too; once it re-syncs at epoch 2 delivery continues for b only.
+        drain(&mut rb);
+        cr.group_send(&gid, "after", None, None).unwrap();
+        assert!(msg_seqs_in(&drain(&mut rb)).is_empty(), "b is still at the old epoch: hold until it re-syncs");
+        cr.handle_frame(b, sync_from(&gid, 2, 1), &tb);
+        assert_eq!(msg_seqs_in(&drain(&mut rb)), vec![2]);
+        assert!(msg_seqs_in(&drain(&mut rd)).is_empty());
+        // d keeps syncing at epoch 1: it only learns the new roster, never the messages.
+        cr.handle_frame(d, sync_from(&gid, 1, 1), &td);
+        let frames = drain(&mut rd);
+        assert!(msg_seqs_in(&frames).is_empty());
+        assert!(frames.iter().any(|f| matches!(f, Frame::GroupState { .. })));
+        // …and a message it sends is dropped.
+        cr.handle_frame(d, gmsg(&gid, &d, 1, "still here?"), &td);
+        assert_eq!(cr.group_messages(&gid, 10).unwrap().len(), 2);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_disband_state_reaches_a_member_that_syncs_later() {
+        let (cr, _rx, gid, [(b, tb, mut rb), _]) = unit_author("grp-disband-late").await;
+        cr.group_disband(&gid).unwrap();
+        drain(&mut rb);
+        // b was offline for the disband and still thinks it is epoch 1.
+        cr.handle_frame(b, sync_from(&gid, 1, 0), &tb);
+        let frames = drain(&mut rb);
+        assert!(frames.iter().any(|f| matches!(f, Frame::GroupState { state } if state.closed && state.epoch == 2)));
+        // Once it is current, the disbanded group only says "gone".
+        cr.handle_frame(b, sync_from(&gid, 2, 0), &tb);
+        assert!(matches!(drain(&mut rb).as_slice(), [Frame::GroupGone { .. }]));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn v1_only_peer_never_receives_group_frames() {
+        let (cr, _rx, gid, [(b, tb, mut rb), (d, _td, _rd)]) = unit_author("grp-v1").await;
+        // b is downgraded: its (live) session negotiated protocol 1.
+        cr.inner.lock().unwrap().peers.get_mut(&b).unwrap().live.clear();
+        let (v1tx, mut v1rx) = attach_live(&cr, b, 1);
+        assert!(cr.group_session(&b).is_none());
+        cr.group_session_open(b, &v1tx);
+        cr.group_send(&gid, "hello", None, None).unwrap();
+        cr.group_rename(&gid, "renamed").unwrap();
+        cr.handle_frame(b, sync_from(&gid, 1, 0), &v1tx);
+        cr.handle_frame(b, Frame::GroupGone { gid: gid.clone() }, &v1tx);
+        assert!(drain(&mut v1rx).is_empty(), "a 1.4.x peer would choke on any of these");
+        let _ = (&tb, &mut rb, d);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_counters_are_rebuilt_from_the_log_after_a_crash() {
+        let (cr, _rx, gid, [(b, _tb, _rb), _]) = unit_author("grp-crash").await;
+        cr.group_send(&gid, "one", None, None).unwrap();
+        cr.group_send(&gid, "two", None, None).unwrap();
+        // A crash between "log line appended" and "groups.json saved":
+        let me = cr.node_id().to_string();
+        let line = |from: &str, seq: u64, dir: &str| GroupLogRec {
+            seq, from: from.into(), id: format!("c{seq}{dir}"), ts: now_ms(), ts_eff: now_ms(), dir: dir.into(),
+            text: "late".into(), reply_to: None, reply_text: None,
+        };
+        append_log(&cr.dir, &gid, &line(&me, 3, "out")).unwrap();
+        append_log(&cr.dir, &gid, &line(&b.to_string(), 7, "in")).unwrap();
+        let (dir, blobs) = (cr.dir.clone(), cr.blobs_dir.clone());
+        cr.close().await;
+        drop(cr);
+        let (tx, _rx2) = std_mpsc::channel();
+        let cr2 = P2p::start(dir, blobs, Sink::Test(tx)).await.unwrap();
+        {
+            let inner = cr2.inner.lock().unwrap();
+            assert_eq!(inner.groups[&gid].next_seq, 4, "the next message must not reuse seq 3");
+            assert_eq!(inner.groups[&gid].have[&b.to_string()], 7);
+        }
+        assert_eq!(cr2.group_send(&gid, "four", None, None).unwrap()["seq"], 4);
+    }
+
+    // -- real engines over QUIC -------------------------------------------------
+
+    struct Trio {
+        a: Arc<P2p>,
+        b: Arc<P2p>,
+        c: Arc<P2p>,
+        a_rx: std_mpsc::Receiver<Value>,
+        b_rx: std_mpsc::Receiver<Value>,
+        c_rx: std_mpsc::Receiver<Value>,
+        gid: String,
+    }
+
+    async fn pair(host: &Arc<P2p>, host_rx: &std_mpsc::Receiver<Value>, guest: &Arc<P2p>) {
+        let ticket = host.create_invite().await.unwrap();
+        guest.accept_invite(&ticket).await.unwrap();
+        wait_for(host_rx, 20, |e| e["kind"] == "pairing");
+    }
+
+    /// A creates {A, B, C}; A is paired with B and C, B and C only know each
+    /// other from the roster. Returns once B and C hold the group and have a
+    /// session to each other.
+    async fn trio(tag: &str) -> Trio {
+        let (a, a_rx) = start(&format!("{tag}-a")).await;
+        let (b, b_rx) = start(&format!("{tag}-b")).await;
+        let (c, c_rx) = start(&format!("{tag}-c")).await;
+        pair(&a, &a_rx, &b).await;
+        pair(&a, &a_rx, &c).await;
+        let g = a.group_create("Trio", &ids(&[b.node_id(), c.node_id()])).unwrap();
+        let gid = g["gid"].as_str().unwrap().to_string();
+        until(20, "B and C receive the roster", || !b.groups().is_empty() && !c.groups().is_empty()).await;
+        let (bid, cid) = (b.node_id(), c.node_id());
+        until(40, "B and C connect through the introduction", || {
+            let live = |e: &Arc<P2p>, o: &NodeId| e.inner.lock().unwrap().peers.get(o).map_or(false, |p| p.online());
+            live(&b, &cid) && live(&c, &bid)
+        })
+        .await;
+        Trio { a, b, c, a_rx, b_rx, c_rx, gid }
+    }
+
+    fn texts(engine: &Arc<P2p>, gid: &str) -> Vec<(String, u64, String)> {
+        engine
+            .group_messages(gid, 500)
+            .unwrap()
+            .into_iter()
+            .map(|r| (r["from"].as_str().unwrap().to_string(), r["seq"].as_u64().unwrap(), r["text"].as_str().unwrap().to_string()))
+            .collect()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_fans_out_with_acks_from_all_members_and_members_connect_via_introduction() {
+        let t = trio("grp-fan").await;
+        let (aid, bid, cid) = (t.a.node_id(), t.b.node_id(), t.c.node_id());
+        // State reached both invitees; B and C never paired.
+        assert_eq!(kind_of(&t.b, &cid), Some(PeerKind::Introduced));
+        assert_eq!(kind_of(&t.c, &bid), Some(PeerKind::Introduced));
+        assert!(!peers_json_ids(&t.b).contains(&cid.to_string()));
+        assert_eq!(t.b.groups()[0]["members"].as_array().unwrap().len(), 3);
+
+        let r = t.a.group_send(&t.gid, "hello all", None, None).unwrap();
+        assert_eq!(r["seq"], 1);
+        for (rx, who) in [(&t.b_rx, "b"), (&t.c_rx, "c")] {
+            let ev = wait_for(rx, 20, |e| e["kind"] == "group-message");
+            assert_eq!((ev["text"].as_str(), ev["seq"].as_u64(), ev["from"].as_str()), (Some("hello all"), Some(1), Some(aid.to_string().as_str())), "{who}");
+        }
+        // Acks from both members come back to the author.
+        let mut pending = vec![bid.to_string(), cid.to_string()];
+        while !pending.is_empty() {
+            let ev = wait_for(&t.a_rx, 20, |e| e["kind"] == "group-ack" && e["have"] == 1);
+            pending.retain(|m| ev["by"] != m.as_str());
+        }
+        let log = t.a.group_messages(&t.gid, 10).unwrap();
+        assert_eq!(log[0]["delivered"].as_array().unwrap().len(), 2);
+
+        // B talks to everyone, including C over the introduced session.
+        t.b.group_send(&t.gid, "from b", None, None).unwrap();
+        wait_for(&t.a_rx, 20, |e| e["kind"] == "group-message" && e["text"] == "from b");
+        wait_for(&t.c_rx, 20, |e| e["kind"] == "group-message" && e["text"] == "from b");
+        until(20, "both members acked B's message", || {
+            let g = &t.b.inner.lock().unwrap().groups[&t.gid];
+            g.sent_cursor.get(&aid.to_string()) == Some(&1) && g.sent_cursor.get(&cid.to_string()) == Some(&1)
+        })
+        .await;
+        let mut at_c = texts(&t.c, &t.gid);
+        at_c.sort();
+        let mut expect = vec![
+            (aid.to_string(), 1, "hello all".to_string()),
+            (bid.to_string(), 1, "from b".to_string()),
+        ];
+        expect.sort();
+        assert_eq!(at_c, expect);
+
+        // An introduced member cannot be used for 1:1 chat or become a contact.
+        assert!(t.c.send(&bid.to_string(), "psst", None, None).is_err());
+        assert!(t.c.messages(&bid.to_string(), 10).is_err());
+        assert_eq!(kind_of(&t.c, &bid), Some(PeerKind::Introduced));
+        // A raw 1:1 frame over the introduced session is dropped at the other end.
+        events(&t.b_rx);
+        let tx = t.c.inner.lock().unwrap().peers[&bid].live[0].tx.clone();
+        tx.send(Frame::Msg { id: "sneak".into(), ts: 1, text: "sneaky".into(), reply_to: None, reply_text: None }).unwrap();
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        assert!(t.b.inner.lock().unwrap().peers[&cid].msgs.is_empty());
+        assert!(events(&t.b_rx).iter().all(|e| e["kind"] != "message"));
+        // Group presence is published for it, plain presence is not.
+        assert!(t.b.groups()[0]["members"].as_array().unwrap().iter().any(|m| m["id"] == cid.to_string().as_str() && m["online"] == true));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_non_member_cannot_speak_or_connect() {
+        let t = trio("grp-nm").await;
+        let (aid, bid) = (t.a.node_id(), t.b.node_id());
+        let (e, _e_rx) = start("grp-nm-e").await;
+        // E is a paired contact of A only.
+        pair(&t.a, &t.a_rx, &e).await;
+        let eid = e.node_id();
+        until(15, "E has a session to A", || e.inner.lock().unwrap().peers.get(&aid).map_or(false, |p| p.online())).await;
+        events(&t.a_rx);
+        let etx = e.inner.lock().unwrap().peers[&aid].live[0].tx.clone();
+        // Even knowing the gid, E can neither post nor impersonate a member.
+        etx.send(gmsg(&t.gid, &eid, 1, "sneak in")).unwrap();
+        etx.send(gmsg(&t.gid, &bid, 1, "i am b")).unwrap();
+        etx.send(sync_from(&t.gid, 1, 0)).unwrap();
+        wait_for(&t.a_rx, 10, |ev| ev["kind"] == "error" && ev["message"].as_str().unwrap().contains("forged"));
+        assert!(t.a.group_messages(&t.gid, 10).unwrap().is_empty());
+        assert!(events(&t.a_rx).iter().all(|ev| ev["kind"] != "group-message"));
+
+        // E can't open a session to B either: B knows E neither as a contact
+        // nor as a member, so it takes the pairing path and refuses.
+        let b_addrs: Vec<SocketAddr> = t.b.endpoint.node_addr().await.unwrap().direct_addresses.into_iter().collect();
+        let mut p = paper("B");
+        p.addrs = b_addrs;
+        e.inner.lock().unwrap().peers.insert(bid, p);
+        events(&t.b_rx);
+        e.retry(&bid.to_string()).unwrap();
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        assert!(t.b.inner.lock().unwrap().peers.get(&eid).is_none());
+        assert!(events(&t.b_rx).iter().all(|ev| ev["kind"] != "group-message" && ev["kind"] != "pairing"));
+        // …and E's group frames never reached B's log.
+        assert!(t.b.group_messages(&t.gid, 10).unwrap().is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_offline_member_catches_up_in_order_from_each_author() {
+        let Trio { a, b, c, a_rx, b_rx, c_rx: _, gid } = trio("grp-off").await;
+        let (aid, bid) = (a.node_id(), b.node_id());
+        let (cdir, cblobs) = (c.dir.clone(), c.blobs_dir.clone());
+        c.close().await;
+        drop(c);
+        until(20, "A notices C is gone", || a.groups()[0]["members"].as_array().unwrap().iter().any(|m| m["online"] == false)).await;
+        for t in ["a1", "a2", "a3"] {
+            a.group_send(&gid, t, None, None).unwrap();
+        }
+        b.group_send(&gid, "b1", None, None).unwrap();
+        b.group_send(&gid, "b2", None, None).unwrap();
+        wait_for(&b_rx, 20, |e| e["kind"] == "group-message" && e["text"] == "a3");
+        wait_for(&a_rx, 20, |e| e["kind"] == "group-message" && e["text"] == "b2");
+
+        let (tx, c_rx2) = std_mpsc::channel();
+        let c2 = P2p::start(cdir, cblobs, Sink::Test(tx)).await.unwrap();
+        // B's roster address for C is stale after the restart; C dials out. Give
+        // it B's real address the way a beacon would.
+        let b_addrs: Vec<SocketAddr> = b.endpoint.node_addr().await.unwrap().direct_addresses.into_iter().collect();
+        c2.inner.lock().unwrap().peers.get_mut(&bid).unwrap().addrs = b_addrs;
+        c2.trigger_group_dials();
+        until(60, "C catches up", || texts(&c2, &gid).len() == 5).await;
+        let at_c = texts(&c2, &gid);
+        let by = |who: &NodeId| at_c.iter().filter(|(f, _, _)| *f == who.to_string()).map(|(_, s, t)| (*s, t.clone())).collect::<Vec<_>>();
+        assert_eq!(by(&aid), vec![(1, "a1".into()), (2, "a2".into()), (3, "a3".into())], "each author's messages in order, once");
+        assert_eq!(by(&bid), vec![(1, "b1".into()), (2, "b2".into())]);
+        // The authors' cursors for C advance once C has stored everything.
+        until(20, "acks reach the authors", || {
+            let cid = c2.node_id().to_string();
+            a.inner.lock().unwrap().groups[&gid].sent_cursor.get(&cid) == Some(&3)
+                && b.inner.lock().unwrap().groups[&gid].sent_cursor.get(&cid) == Some(&2)
+        })
+        .await;
+        drop(c_rx2);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_lost_session_replays_from_the_cursor_without_duplicates() {
+        let (a, a_rx) = start("grp-lost-a").await;
+        let (b, b_rx) = start("grp-lost-b").await;
+        pair(&a, &a_rx, &b).await;
+        let bid = b.node_id();
+        let g = a.group_create("Duo", &ids(&[bid])).unwrap();
+        let gid = g["gid"].as_str().unwrap().to_string();
+        until(20, "B has the group", || !b.groups().is_empty()).await;
+        a.group_send(&gid, "one", None, None).unwrap();
+        wait_for(&b_rx, 20, |e| e["kind"] == "group-message" && e["text"] == "one");
+        wait_for(&a_rx, 20, |e| e["kind"] == "group-ack" && e["have"] == 1);
+
+        // The session dies (both ends drop their handles).
+        a.inner.lock().unwrap().peers.get_mut(&bid).unwrap().live.clear();
+        b.inner.lock().unwrap().peers.get_mut(&a.node_id()).unwrap().live.clear();
+        until(20, "both ends offline", || {
+            !a.inner.lock().unwrap().peers[&bid].online() && !b.inner.lock().unwrap().peers[&a.node_id()].online()
+        })
+        .await;
+        for t in ["two", "three"] {
+            assert_eq!(a.group_send(&gid, t, None, None).unwrap()["queued"], true);
+        }
+        // Reconnect: B asks from its own `have`, gets 2 and 3 exactly once.
+        a.retry(&bid.to_string()).unwrap();
+        wait_for(&b_rx, 30, |e| e["kind"] == "group-message" && e["text"] == "three");
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let seqs: Vec<u64> = texts(&b, &gid).into_iter().map(|(_, s, _)| s).collect();
+        assert_eq!(seqs, vec![1, 2, 3]);
+        until(10, "A's cursor catches up", || a.inner.lock().unwrap().groups[&gid].sent_cursor.get(&bid.to_string()) == Some(&3)).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_remove_member_over_the_wire_cuts_it_off() {
+        let t = trio("grp-rmw").await;
+        let (bid, cid) = (t.b.node_id(), t.c.node_id());
+        t.a.group_remove(&t.gid, &cid.to_string()).unwrap();
+        let ev = wait_for(&t.c_rx, 20, |e| e["kind"] == "group-removed");
+        assert_eq!((ev["gid"].as_str(), ev["reason"].as_str()), (Some(t.gid.as_str()), Some("removed")));
+        assert_eq!(t.c.groups()[0]["removed"], true);
+        until(20, "B drops C from its roster", || t.b.groups()[0]["members"].as_array().unwrap().len() == 2).await;
+        until(20, "the B-C link is cut", || kind_of(&t.b, &cid).is_none() && kind_of(&t.c, &bid).is_none()).await;
+
+        t.a.group_send(&t.gid, "after removal", None, None).unwrap();
+        wait_for(&t.b_rx, 20, |e| e["kind"] == "group-message" && e["text"] == "after removal");
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert!(texts(&t.c, &t.gid).is_empty(), "the removed member gets nothing");
+        assert!(t.c.group_send(&t.gid, "can I?", None, None).is_err());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_member_leave_updates_the_roster_via_the_creator() {
+        let t = trio("grp-leave").await;
+        t.b.group_leave(&t.gid).unwrap();
+        until(20, "creator re-signs without B", || t.a.groups()[0]["members"].as_array().unwrap().len() == 2).await;
+        assert_eq!(t.a.groups()[0]["epoch"], 2);
+        until(20, "C sees the new roster", || t.c.groups()[0]["members"].as_array().unwrap().len() == 2).await;
+        until(20, "B's leave request is settled", || !t.b.inner.lock().unwrap().groups[&t.gid].pending_leave).await;
+        assert_eq!(t.b.groups()[0]["removed"], true);
+        assert!(t.b.group_send(&t.gid, "gone", None, None).is_err());
+        // The rest of the group still talks.
+        t.a.group_send(&t.gid, "still here", None, None).unwrap();
+        wait_for(&t.c_rx, 20, |e| e["kind"] == "group-message" && e["text"] == "still here");
+        assert!(texts(&t.b, &t.gid).is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_creator_disband_makes_the_group_read_only_everywhere() {
+        let t = trio("grp-disband").await;
+        t.a.group_send(&t.gid, "last words", None, None).unwrap();
+        wait_for(&t.c_rx, 20, |e| e["kind"] == "group-message");
+        t.a.group_disband(&t.gid).unwrap();
+        for rx in [&t.b_rx, &t.c_rx] {
+            let ev = wait_for(rx, 20, |e| e["kind"] == "group-removed");
+            assert_eq!(ev["reason"], "closed");
+        }
+        for e in [&t.a, &t.b, &t.c] {
+            assert!(e.group_send(&t.gid, "nope", None, None).is_err());
+            assert_eq!(e.groups()[0]["removed"], true);
+            // History stays readable.
+            assert_eq!(e.group_messages(&t.gid, 10).unwrap().len(), 1);
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn group_roster_reaches_a_returning_member_from_a_non_creator() {
+        let Trio { a, b, c, b_rx: _, c_rx: _, a_rx: _, gid } = trio("grp-relayw").await;
+        let bid = b.node_id();
+        let (cdir, cblobs) = (c.dir.clone(), c.blobs_dir.clone());
+        c.close().await;
+        drop(c);
+        a.group_rename(&gid, "Renamed").unwrap();
+        until(20, "B applies the rename", || b.groups()[0]["name"] == "Renamed").await;
+        // The creator disappears: C can only learn the roster from B.
+        a.close().await;
+        drop(a);
+        let (tx, _rx) = std_mpsc::channel();
+        let c2 = P2p::start(cdir, cblobs, Sink::Test(tx)).await.unwrap();
+        let b_addrs: Vec<SocketAddr> = b.endpoint.node_addr().await.unwrap().direct_addresses.into_iter().collect();
+        c2.inner.lock().unwrap().peers.get_mut(&bid).unwrap().addrs = b_addrs;
+        c2.trigger_group_dials();
+        until(60, "C gets epoch 2 from B", || c2.groups()[0]["name"] == "Renamed").await;
+        assert_eq!(c2.groups()[0]["epoch"], 2);
     }
 
     #[test]

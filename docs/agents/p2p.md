@@ -165,7 +165,35 @@ Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
   events (the adapter would create a `p2p:` chat), `send`/`send_file`/
   `messages`/`remove_peer` refuse them, and `handle_frame` drops every
   non-group frame from them. `rebuild_introduced`/`gc_introduced` keep them
-  in step with the rosters. KEEP: group frames go only through
-  `group_session()` (ALPN v2 sessions); invitees must be Paired and have
+  in step with the rosters. KEEP: group frames go only to ALPN v2
+  sessions (`v2_tx`); invitees must be Paired and have
   `proto >= 2`. First contact for a group is accepted only from its creator
   if paired; later states from any member (relay).
+- Local groups, messages over the mesh (Phase 2). Frames (v2 sessions only,
+  lowercase tags `groupstate|groupsync|groupmsg|groupack|groupleave|groupgone`):
+  every session sends `GroupSync{gid,epoch,have,name}` per shared group right
+  after its opening Ping (`group_session_open`); a creator whose invitee has
+  not confirmed the roster sends `GroupState` first. Epochs reconcile through
+  syncs (peer behind -> I send my `GroupState`; peer ahead -> I restate my
+  epoch so it relays), and an author replays (`pump`) only to a member that is
+  in my roster AND reported the same epoch, so a removed member gets a state,
+  never messages. Delivery = per-sender seq: receiver stores only
+  `seq == have+1` (log line first, then `have` in groups.json), re-acks
+  duplicates, answers a gap with ONE `GroupSync{have}` per `have`. The author's
+  own log is the queue: `sent_cursor[member]` (cumulative acks) is the
+  delivery state; at most `GROUP_WINDOW` (200) unacked messages are in flight,
+  acks pull the rest. Log: append-only `messages-g-<gid>.jsonl`
+  (`GroupLogRec`; never rewritten); on start `next_seq` and `have` are
+  recomputed from it (crash between log write and groups.json). `ts_eff =
+  max(prev, min(ts_author, now))`. `GroupMsg.from` must equal the session's
+  node id (else dropped + `error` event), the sender must be in the roster,
+  text 1..64k, unknown gid -> `GroupGone` (believed only about the sender;
+  clears on its next sync or a newer state), 500 group frames/s/session.
+  Creator: re-signs on `GroupLeave` (member retries until the new roster
+  arrives, `pending_leave`), announces every edit to the old and new rosters.
+  Events: `group-state{group}`, `group-message{gid,from,name,id,seq,ts,tsEff,
+  text,replyTo,replyText}`, `group-ack{gid,by,have}`, `group-removed{gid,
+  reason:removed|closed}`, `group-presence{peerId,online,gids}` (the only
+  presence an Introduced member ever produces). Introduced members claim
+  their own name in GroupSync; it wins over the roster name for display.
+  Do not route group traffic through `peer.msgs`/`persist_messages`.
