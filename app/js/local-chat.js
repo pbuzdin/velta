@@ -10,7 +10,7 @@
 import { typingText, SHOW_TTL_MS } from "./typing.js";
 
 const P2P_PREFIX = "p2p:";
-// Local groups (serverless group chats of up to 4 devices) live in their own
+// Local groups (serverless group chats of up to 5 devices) live in their own
 // id space: `p2pg:<gid>`. "p2pg:" does NOT start with "p2p:" (the `g` comes
 // before the colon), so every `startsWith(P2P_PREFIX)` branch stays 1:1-only.
 const P2PG_PREFIX = "p2pg:";
@@ -625,7 +625,7 @@ function pruneGroups(engineList) {
 }
 
 // Limits mirrored from the engine (groups.rs) for the create-group modal.
-export const GROUP_MAX_OTHERS = 3;   // MAX_GROUP_MEMBERS (4) minus the creator
+export const GROUP_MAX_OTHERS = 4;   // MAX_GROUP_MEMBERS (5) minus the creator
 export const GROUP_MAX_GROUPS = 16;
 export const GROUP_NAME_MAX = 64;
 

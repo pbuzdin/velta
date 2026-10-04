@@ -1,4 +1,4 @@
-//! Local group chats (≤ 4 members): creator-signed membership state, its
+//! Local group chats (≤ 5 members): creator-signed membership state, its
 //! validation, and the per-group records persisted in `groups.json`.
 //!
 //! Pure data + crypto, no networking: `p2p.rs` wires it into the engine. A
@@ -17,7 +17,12 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 
 /// A local group holds at most this many members, the creator included.
-pub const MAX_GROUP_MEMBERS: usize = 4;
+pub const MAX_GROUP_MEMBERS: usize = 5;
+/// The cap of v1.4.56/57: those builds reject a roster above this, silently
+/// (they cannot be told apart from a current build by protocol number, so
+/// bigger groups are offered only after every member announced
+/// [`MAX_GROUP_MEMBERS`] in a `GroupCaps` frame).
+pub const LEGACY_MAX_GROUP_MEMBERS: usize = 4;
 /// Groups per device (created or joined), so a paired peer cannot flood us.
 pub const MAX_GROUPS: usize = 16;
 /// Longest group / member display name, in characters.
@@ -584,10 +589,10 @@ mod tests {
 
     #[test]
     fn group_state_validation_rejects_5_members_dupes_missing_creator_long_name() {
-        let (_, _, ok) = signed(4);
-        ok.validate().unwrap(); // exactly 4 is fine
+        let (_, _, ok) = signed(MAX_GROUP_MEMBERS);
+        ok.validate().unwrap(); // exactly the cap is fine
         let bad: Vec<(&str, Box<dyn Fn(&mut GroupState)>)> = vec![
-            ("5 members", Box::new(|s| s.members.push(member(&key(), "Fifth")))),
+            ("6 members", Box::new(|s| s.members.push(member(&key(), "Sixth")))),
             ("no members", Box::new(|s| s.members.clear())),
             ("duplicate member", Box::new(|s| s.members[2] = s.members[1].clone())),
             ("upper-case alias of a member", Box::new(|s| {
@@ -617,13 +622,25 @@ mod tests {
         long_ok.validate().unwrap();
         assert!(check_group_name(&"ы".repeat(65)).is_err());
         assert!(check_group_name("").is_err());
-        // A hostile creator that signs a 5-member state is still refused by `check`.
-        let (creator, _, mut five) = signed(4);
-        five.members.push(member(&key(), "Fifth"));
-        five.epoch = 2;
-        five.sign(&creator).unwrap();
-        assert!(five.verify_signature().is_ok(), "signature is fine…");
-        assert!(five.check().is_err(), "…the member cap is what rejects it");
+        // A hostile creator that signs a 6-member state is still refused by `check`.
+        let (creator, _, mut six) = signed(MAX_GROUP_MEMBERS);
+        six.members.push(member(&key(), "Sixth"));
+        six.epoch = 2;
+        six.sign(&creator).unwrap();
+        assert!(six.verify_signature().is_ok(), "signature is fine…");
+        assert!(six.check().is_err(), "…the member cap is what rejects it");
+        // The biggest legal state (5 members, 64-char multi-byte names, 3 addrs
+        // each) is a few KB, far below one frame.
+        let (creator, _, mut worst) = signed(MAX_GROUP_MEMBERS);
+        for m in worst.members.iter_mut() {
+            m.name = "ы".repeat(MAX_NAME_CHARS);
+            m.addrs = vec!["[2001:0db8:85a3:0000:0000:8a2e:0370:7334]:65535".into(); MAX_MEMBER_ADDRS];
+        }
+        worst.name = "ы".repeat(MAX_NAME_CHARS);
+        worst.sign(&creator).unwrap();
+        worst.check().unwrap();
+        let wire = serde_json::to_vec(&serde_json::json!({ "type": "groupstate", "state": worst })).unwrap();
+        assert!(wire.len() < 8 * 1024, "{} bytes", wire.len());
         // A closed group lists just its creator.
         let (creator, _, mut closed) = signed(3);
         closed.closed = true;
