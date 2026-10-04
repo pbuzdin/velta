@@ -43,6 +43,7 @@ import { fileUrl, mediaFallbackUrl } from "./media.js";
 import { openInAppBrowser } from "./inapp-browser.js";
 import { renderMarkdown, extractBotCommands } from "./markdown.js";
 import { lcRetryTransfer } from "./local-chat.js";
+import { TypingSender } from "./typing.js";
 import { linkPreview, linkPreviewCardHtml, firstLink as firstLinkOf } from "./link-preview.js";
 import { getReadMarker, clearReadMarker } from "./read-markers.js";
 
@@ -633,7 +634,23 @@ export class ChatView {
     }
   }
 
+  // One TypingSender per open local chat; switching chats stops the old one.
+  _typingFor(chatId) {
+    if (this._typing && this._typing.chatId === chatId) return this._typing.sender;
+    this._typingStop();
+    const core = this.core;
+    const sender = new TypingSender({ send: on => core.sendTyping?.(chatId, on) });
+    this._typing = { chatId, sender };
+    return sender;
+  }
+
+  _typingStop() {
+    this._typing?.sender.stop();
+    this._typing = null;
+  }
+
   close() {
+    this._typingStop();
     const input = document.getElementById("composer-input");
     // Rows the user already saw still count — unless the account changed
     // underneath (the ids would land in the wrong account).
@@ -2508,6 +2525,13 @@ export class ChatView {
     const send = document.getElementById("btn-send");
     const grow = () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, innerHeight * 0.4) + "px"; };
     input.addEventListener("input", grow);
+    // Typing hint (local chats only; core.sendTyping is a no-op when the
+    // setting is off). Empty box = stopped.
+    input.addEventListener("input", () => {
+      if (!this.chat?.isP2p || this.chat.readOnly) return;
+      if (input.value.trim()) this._typingFor(this.chat.id).ping();
+      else this._typingStop();
+    });
     input.addEventListener("keydown", e => {
       // Send on Enter is a setting (drawer, default on). Off: Enter falls
       // through to the textarea's native newline insert, whose input event
@@ -2699,6 +2723,7 @@ export class ChatView {
     const input = document.getElementById("composer-input");
     const text = input.value.trim();
     if (!this._isCurrent(session) || !this.chat) return;
+    this._typingStop();
     if (this.pendingMedia) {
       // Attachment pending: caption = composer text (may be empty).
       await this._sendPendingMedia(session);

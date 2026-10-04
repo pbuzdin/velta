@@ -545,6 +545,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
       <button class="ctx-item" data-act="saved"><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4.5L6 21z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Saved Messages</span></button>
       <button class="ctx-item" data-act="invite"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="13" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="3" width="8" height="8" rx="1" fill="currentColor"/><rect x="3" y="13" width="8" height="8" rx="1" fill="currentColor"/></svg><span>Invite friends (QR)</span></button>
       ${p2pAvailable ? `<label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M2.5 9.5a14 14 0 0119 0M5.5 13a9.5 9.5 0 0113 0M8.5 16.5a5 5 0 017 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="19.5" r="1.4" fill="currentColor"/></svg><span>Local chat: ${p2pOn ? "on" : "off"}</span><input type="checkbox" data-toggle="p2p"${p2pOn ? " checked" : ""}></label>` : ""}
+      ${p2pAvailable && p2pOn ? `<label class="ctx-item" title="Show when someone in a local chat is typing, and let them see when you are. Hints are live only and never stored."><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="8" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="16" cy="12" r="1.2" fill="currentColor"/></svg><span>Typing indicator: ${localStorage.getItem("velta-p2p-typing") !== "0" ? "on" : "off"}</span><input type="checkbox" data-toggle="p2p-typing"${localStorage.getItem("velta-p2p-typing") !== "0" ? " checked" : ""}></label>` : ""}
       <div class="drawer-sec">Settings</div>
       <details class="drawer-details">
         <summary><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 109 9c0-1.5-1.2-2.6-2.6-2.6h-1.9a2.5 2.5 0 01-2.5-2.5V5.1C14 4 13.3 3 12 3z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="7.5" cy="10.5" r="1.2" fill="currentColor"/><circle cx="12" cy="7.5" r="1.2" fill="currentColor"/><circle cx="16.5" cy="10.5" r="1.2" fill="currentColor"/></svg><span data-theme-summary>Theme: ${THEME_LABELS[theme] || "Auto"}</span></summary>
@@ -806,6 +807,13 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
   drawer.querySelector('[data-toggle="p2p"]')?.addEventListener("change", e => {
     setToggleUi("p2p", "Local chat", e.target.checked);
     onP2pToggle?.(); // flips the real state and rebuilds the drawer
+  });
+  drawer.querySelector('[data-toggle="p2p-typing"]')?.addEventListener("change", e => {
+    const on = e.target.checked;
+    if (on) localStorage.removeItem("velta-p2p-typing");
+    else localStorage.setItem("velta-p2p-typing", "0");
+    setToggleUi("p2p-typing", "Typing indicator", on);
+    toast(`Typing indicator ${on ? "on" : "off"}`);
   });
   drawer.querySelector('[data-toggle="link-preview"]')?.addEventListener("change", async e => {
     const on = e.target.checked;
