@@ -224,7 +224,7 @@ Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
   to real deletes on the next chat-list load.
 - UI guards hide relay-only features for `isP2pGroup`: invite QR, edit,
   add members, mute/pin/archive, forward (in and out), save, react, delete
-  message, voice, attach/stickers/paste (files come in Phase 5). The create
+  message, voice, stickers (photos/files came in Phase 5, see below). The create
   modal (`showCreateGroupModal`, p2p.js) offers only online v2 peers, max 3.
 - Everything is behind the local-chat switch: `hubModel()` is null when it is
   off, and both "new group" entries are gated on `p2pEnabled()`.
@@ -255,3 +255,91 @@ Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
   the confirm dialog (`removePeerImpactText`) says so.
 - Message info shows per-member delivery from `delivery:[{id,name,delivered}]`
   (cumulative acks vs the message's seq).
+
+### Typing indicator (Phase 5b, after 1.4.56)
+
+- Wire: `Frame::Typing{gid?, on}` (lowercase tag `typing`). `gid` absent = the
+  1:1 chat with the sender, present = that group. Protocol 2 only and LIVE
+  only: `typing_peer` / `typing_group` go out through `v2_tx`, never through a
+  queue, the log or `peer.msgs`; an offline or v1 peer simply gets nothing
+  (a 1.4.x peer would drop the session on an unknown frame, so there is no
+  "try anyway"). Receiving: 1:1 needs a paired peer on a v2 session; a group
+  hint needs a non-removed group with the sender in the roster; an introduced
+  member's 1:1 hint is dropped by the existing non-group gate. Repeats of the
+  same state within 500 ms (`TYPING_MIN_GAP`) are collapsed engine-side and
+  `Typing` counts toward the 500 frames/s session limit.
+- Commands `p2p_typing{peerId? | gid?, on}`; events `typing{peerId,on}` and
+  `group-typing{gid,from,name,on}`.
+- Sender (`app/js/typing.js`, `TypingSender`, injected clock/timers so it is
+  unit-testable): first keystroke sends `on:true`, further keystrokes repeat at
+  most every 3 s (`REPEAT_MS`), 5 s without a keystroke or a send/empty box/
+  chat close sends `on:false` (`IDLE_MS`). chat-view.js wires it for `isP2p`
+  chats via `core.sendTyping(chatId, on)`.
+- Receiver (`local-chat.js`): per chat a map sender -> expiry; a hint lives
+  6 s after the last signal (`SHOW_TTL_MS`), an explicit stop or a message from
+  that sender clears it. It surfaces as `typingText` on the chat object
+  ("Anna is typing…", "Anna and Ben are typing…", "Anna, Ben and Cal are
+  typing…") which the chat header (`statusLine`) and the chat-list row show;
+  `chat-updated` refreshes both (`refreshLocalGroupHeader` also handles 1:1).
+- Setting: drawer row "Typing indicator: on/off" (only while local chat is on),
+  localStorage `velta-p2p-typing`, `"0"` = off, default on. Off means neither
+  send nor show (incoming hints are ignored too). Frontend-only; the engine has
+  no flag.
+- Tests: Rust `typing_hints_*`; tests/local-typing.test.mjs.
+
+### Media in groups (Phase 5)
+
+- Wire (v2 sessions only, lowercase tags `groupfilebegin|groupfilechunk|
+  groupfileend`, each with `gid` + transfer `id`; the sender is the session's
+  authenticated node, never a field). Cap `MAX_GROUP_FILE_BYTES` = 32 MiB, 96 KB
+  raw chunks (base64 < `MAX_FRAME`). Files are delivered LIVE to members that
+  are online (v2 session, in the roster, not `gone`) when the file is sent; they
+  are not queued, not replayed, not part of the seq stream (a replay window
+  must not wait for a file an offline member can never get).
+- Sender (`group_send_file`, command `p2p_group_send_file{gid,path,name,caption}`
+  -> `{id,ts,tsEff,file,members:[{id,state}]}`): validates, copies the file to
+  `p2p-blobs/g-<gid>/out-<id>_<name>`, appends a log row (`dir:"out"`, `seq 0`,
+  `id` = transfer id, `file{name,size,mime,path}`; counters and `scan_log`
+  ignore `seq 0`), then starts one `stream_group_file` task per online member.
+  It reads 96 KB from the copy, takes a credit from the session handle's
+  semaphore (`GROUP_FILE_CREDITS` = 4) and queues the chunk; the session writer
+  hands the credit back after the chunk hit the wire. So memory is O(chunk) per
+  recipient however big the file or slow the receiver (the session channel is
+  still unbounded for everything else; only bulk chunks are gated). The 1:1
+  `send_file` is unchanged (it still builds all its frames up front, 256 MB
+  cap). A dying session closes its semaphore and fails its own sends only.
+- Per-member state, in memory (`group_xfers`, by transfer id): `sending |
+  done | failed | offline` + bytes written. `done` = the End frame was written
+  to the wire (there is no receiver ack for files). Events `group-file-progress
+  {gid,id,member,dir:"send",state,got,size}`. `p2p_group_messages` rows carry
+  `file` and, for own files still in memory, `fileMembers`. After a restart only
+  the log row remains (no per-member state; the UI shows a plain sent file).
+- Retry: `p2p_group_file_retry{gid,id,member}` re-sends from byte zero to ONE
+  member that is `failed`/`offline` (or whose state is unknown after a restart);
+  refuses when the member is offline, already sending/done, or the stored copy
+  is gone. Receivers ignore a transfer id they already have (log check).
+- Receive (`on_group_file`, same hygiene as 1:1): only on a v2 session from a
+  current member of a non-removed group; `is_safe_transfer_id` for the id,
+  `sanitize_name`, size cap, `MAX_INBOUND_FILES_PER_PEER` (3) and
+  `MAX_INBOUND_FILES_TOTAL` (8) shared with 1:1, partial `partial-<node>-<id>`
+  under `p2p-blobs/g-<gid>/`, size must match on End (else the partial is
+  deleted), a 1:1 `FileChunk/End` never touches a group transfer and vice
+  versa (`FileRx.gid`). Partials of a peer that went fully offline are dropped
+  (group transfers only). Completion writes a log row (`dir:"in"`, `seq 0`)
+  and emits `group-message{... seq:0, file{name,size,mime,path}}`. Group frames
+  other than file chunks keep the 500/s limit; file frames are exempt.
+- Group delete / unpair cascade removes `p2p-blobs/g-<gid>/` and the transfers.
+- Adapter: a file message is identified by `(author, transfer id)`, not seq
+  (`rowKey`, `fileKey`); `sendMessage` with a file calls `p2p_group_send_file`
+  and REJECTS when the engine refuses (nobody online, over 32 MB) so no phantom
+  bubble appears; voice is still rejected; a reply quote does not travel with a
+  file. Tick: clock while anyone is receiving, double when every current member
+  has it, single when some do, failed card (Retry) when nobody does. The bubble
+  bar is the average over the members being sent to. Message info lists each
+  member with a Retry button for `failed`/`offline` ones (`lcRetryTransfer(
+  chatId, msgId, memberId?)`; without a member it retries all that miss it).
+  Progress events that beat the command reply are buffered (`earlyXfer`).
+  The attach button and image paste are enabled in groups; stickers stay hidden.
+- Tests: Rust `group_file_*` (pacing/credits, offline+v1 skipped, per-member
+  failure and retry, retry after restart, receive limits/sanitization, gating,
+  cleanup, real engines); tests/local-group-media.test.mjs.
