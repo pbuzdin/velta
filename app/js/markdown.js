@@ -1,13 +1,16 @@
 // markdown.js — simple, escape-first markdown for message text:
 //   **bold**   __underline__   *italic* / _italic_
-//   [label](https://…) links, bare URLs (and invite cards via invites.js)
+//   [label](https://…) links, bare URLs, scheme-less addresses like
+//   t.me/x/1 or example.com (bare-links.js, #85) — and invite cards via
+//   invites.js
 //   "- item" / "* item" bullets and "1." / "1)" numbered lists
 // All text is HTML-escaped before any tag is produced; only http(s) URLs
-// become links, so message content can never inject markup.
+// become links, so message content can never inject markup. There is no code
+// span/block syntax, so nothing is excluded from linking on that account.
 import { escapeHtml, escapeAttr } from "./components.js";
+import { findBareLinks, trimLinkEnd } from "./bare-links.js";
 import { parseInviteLink, inviteCardHtml, isShortInviteLink, shortInviteCardHtml } from "./invites.js";
 
-const TRAILING_PUNCT = /[.,;:!?)\]'}>]+$/;
 const PLACEHOLDER_RE = /\x00(\d+)\x00/g;
 
 export function renderMarkdown(rawText) {
@@ -72,31 +75,46 @@ export function renderMarkdown(rawText) {
 // matched before bare URLs (so the URL inside ](…) isn't grabbed as a bare
 // link), bare URLs become anchors or invite cards. Matches are replaced by
 // opaque placeholders BEFORE escaping/emphasis, so hrefs can't be mangled by
-// the emphasis rules and emphasis can't leak into attributes.
+// the emphasis rules and emphasis can't leak into attributes. The text between
+// those matches is then scanned for scheme-less addresses (#85, bare-links.js),
+// which are turned into the very same https anchors / invite cards.
 function inline(raw) {
+  raw = raw.replace(/\x00/g, ""); // NUL delimits placeholders below
   const re = /\[([^\]\n]+)\]\((https?:\/\/[^)\s]*)\)|\bhttps?:\/\/[^\s<]+/gi;
   const anchors = [];
+  const hold = token => { anchors.push(token); return `\x00${anchors.length - 1}\x00`; };
+  const linkToken = (url, label) => {
+    const invite = parseInviteLink(url);
+    return invite ? inviteCardHtml(invite)
+      : isShortInviteLink(url) ? shortInviteCardHtml(url)
+      : `<a href="${escapeAttr(url)}" target="_blank" rel="noopener">${escapeHtml(label)}</a>`;
+  };
+  // Plain text between explicit links: pick out scheme-less addresses.
+  const plain = seg => {
+    let out = "";
+    let at = 0;
+    for (const b of findBareLinks(seg)) {
+      out += seg.slice(at, b.start) + hold(linkToken(b.url, b.text));
+      at = b.end;
+    }
+    return out + seg.slice(at);
+  };
   let work = "";
   let last = 0;
   for (let m; (m = re.exec(raw)); ) {
     const isMdLink = m[1] !== undefined;
-    let token;
-    let trailing = "";
+    work += plain(raw.slice(last, m.index));
     if (isMdLink) {
-      token = `<a href="${escapeAttr(m[2])}" target="_blank" rel="noopener">${formatInline(escapeHtml(m[1]))}</a>`;
+      work += hold(`<a href="${escapeAttr(m[2])}" target="_blank" rel="noopener">${formatInline(escapeHtml(m[1]))}</a>`);
+      last = m.index + m[0].length;
     } else {
-      const url = m[0].replace(TRAILING_PUNCT, "");
-      trailing = m[0].slice(url.length); // don't let punctuation glue onto the link
-      const invite = parseInviteLink(url);
-      token = invite ? inviteCardHtml(invite)
-        : isShortInviteLink(url) ? shortInviteCardHtml(url)
-        : `<a href="${escapeAttr(url)}" target="_blank" rel="noopener">${escapeHtml(url)}</a>`;
+      const url = trimLinkEnd(m[0]); // don't let punctuation glue onto the link
+      work += hold(linkToken(url, url));
+      last = m.index + url.length;
+      re.lastIndex = last;
     }
-    anchors.push(token);
-    work += raw.slice(last, m.index) + `\x00${anchors.length - 1}\x00` + escapeHtml(trailing);
-    last = m.index + m[0].length;
   }
-  work += raw.slice(last);
+  work += plain(raw.slice(last));
   return formatInline(escapeHtml(work)).replace(PLACEHOLDER_RE, (_, n) => anchors[+n]);
 }
 
