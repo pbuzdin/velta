@@ -2,6 +2,7 @@ package org.velta
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -81,11 +82,32 @@ class CoreService : Service() {
         }
     }
 
+    // Tapping the persistent notification opens Velta (#82). Same intent the
+    // launcher fires: MAIN/LAUNCHER aimed at MainActivity, which is
+    // singleTask, so a running task is brought to the front (onNewIntent)
+    // instead of a second instance being created, and a dead activity is
+    // started fresh. No data URI and no extras on purpose: the velta://chat
+    // deep-link path of the message notifications (#20, Notifications.kt)
+    // only reacts to VIEW data, so this tap just opens the app where it was.
+    private fun openAppIntent(): PendingIntent {
+        val launch = Intent(Intent.ACTION_MAIN)
+            .addCategory(Intent.CATEGORY_LAUNCHER)
+            .setClass(this, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+        return PendingIntent.getActivity(
+            this,
+            0,
+            launch,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(applicationInfo.icon)
             .setContentTitle("Velta")
             .setContentText("Keeping your messages up to date")
+            .setContentIntent(openAppIntent())
             .setOngoing(true)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
