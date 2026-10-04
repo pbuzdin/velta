@@ -59,7 +59,11 @@ export async function renameDevice(name) {
 }
 
 export async function removePeer(peerId) {
-  if (isTauri()) await invoke()("p2p_remove_peer", { peerId });
+  if (isTauri()) {
+    await invoke()("p2p_remove_peer", { peerId });
+    // Groups the removed device created were deleted with it.
+    pruneGroups(await engineGroups());
+  }
   store.peers.delete(peerId);
   emitChanged();
 }
@@ -200,7 +204,7 @@ function applyGroup(info) {
     g.sysAdded = true;
     const creatorName = memberLabel(g, g.creator);
     g.msgs.unshift({
-      id: nowId(), sys: true, ts: g.createdTs,
+      id: nowId(), sys: true, lead: true, ts: g.createdTs,
       text: g.canManage ? "You created the group" : `${creatorName} added you to the group`,
     });
   }
@@ -216,7 +220,42 @@ function seedAcks(g, rows) {
   }
 }
 
+// System lines the engine wrote ("X added Y", "Z left", ...).
+const SYS_END_KINDS = new Set(["removed-me", "disbanded", "left-me"]);
+const SYS_INTRO_KINDS = new Set(["created", "joined"]);
+
+function sysLine(g, d) {
+  return {
+    id: nowId(), sys: true, engineId: d.id, sysKind: d.sysKind || null,
+    ts: d.tsEff || d.ts || Date.now(), text: d.text || "",
+  };
+}
+
+// The engine's own "created / X added you" line replaces the adapter-derived
+// one (kept only for groups that predate the persisted lines).
+function noteSysKind(g, kind) {
+  if (SYS_INTRO_KINDS.has(kind)) {
+    g.sysAdded = true;
+    g.msgs = g.msgs.filter(m => !m.lead);
+  }
+}
+
+function hasEndLine(g) {
+  return g.msgs.some(m => m.sys && SYS_END_KINDS.has(m.sysKind));
+}
+
+// A finished group whose history has no end line (it ended before the engine
+// wrote them) still says so, once.
+function ensureEndLine(g) {
+  if (!g.removed || hasEndLine(g) || g.msgs.some(m => m.sys && m.atEnd)) return;
+  g.msgs.push({
+    id: nowId(), sys: true, atEnd: true, ts: Date.now(),
+    text: g.closed ? "The group was disbanded" : "You are no longer in this group",
+  });
+}
+
 function histFromGroupRow(g, r) {
+  if (r.dir === "sys") return sysLine(g, r);
   const out = r.dir === "out";
   const m = {
     id: nowId(), engineId: r.id, seq: r.seq, from: r.from,
@@ -229,22 +268,25 @@ function histFromGroupRow(g, r) {
 function mergeGroupHistory(g, rows) {
   seedAcks(g, rows);
   const known = new Set(g.msgs.filter(m => m.seq != null).map(m => `${m.from}:${m.seq}`));
+  for (const m of g.msgs) if (m.sys && m.engineId) known.add(m.engineId);
   const hist = [];
   for (const r of rows) {
     if (!r || typeof r.id !== "string" || typeof r.seq !== "number") continue;
-    const key = `${r.from}:${r.seq}`;
+    const key = r.dir === "sys" ? r.id : `${r.from}:${r.seq}`;
     if (known.has(key)) continue;
     known.add(key);
+    if (r.dir === "sys") noteSysKind(g, r.sysKind);
     hist.push(histFromGroupRow(g, r));
   }
   if (hist.length) {
     // History is older than anything that arrived live meanwhile, and the
     // leading system line stays the first row.
     let at = 0;
-    while (at < g.msgs.length && g.msgs[at].sys) at++;
+    while (at < g.msgs.length && g.msgs[at].lead) at++;
     g.msgs.splice(at, 0, ...hist);
     emitChanged();
   }
+  ensureEndLine(g);
 }
 
 async function hydrateGroup(g) {
@@ -281,7 +323,7 @@ function mapGroupMsg(g, m) {
     const first = g.msgs.find(x => !x.sys);
     return {
       id: m.id, chatId, kind: "service", viewtype: "text", from: 0, text: m.text,
-      ts: m.atEnd ? m.ts : first ? Math.min(m.ts, first.ts - 1) : m.ts, state: "read",
+      ts: m.lead && first ? Math.min(m.ts, first.ts - 1) : m.ts, state: "read",
       fromContact: { name: "", color: "#888" },
     };
   }
@@ -305,6 +347,14 @@ function mapGroupMsg(g, m) {
     };
   }
   if (m.queued) base.queued = true;
+  if (m.out) {
+    // Per-member delivery for the message-info sheet: a member has it once its
+    // cumulative ack reached this message's seq.
+    base.delivery = g.members.filter(x => !x.self).map(o => ({
+      id: o.id, name: memberLabel(g, o.id),
+      delivered: m.seq != null && (g.acks.get(o.id) || 0) >= m.seq,
+    }));
+  }
   return base;
 }
 
@@ -372,15 +422,54 @@ export async function leaveLocalGroup(gid) {
   return groupCmd(cmd, { gid });
 }
 
-// "Delete chat" on a group: leave/disband it if it is still active, then hide
-// it from the list. (The history stays on disk until the engine grows a
-// delete command.)
+// "Delete chat" on a group: leave/disband it if it is still active, then have
+// the engine forget it (log and record). If the engine can't, fall back to
+// hiding it from the list.
 export async function dismissLocalGroup(gid) {
   const g = store.groups.get(gid);
   if (g && !g.removed) await leaveLocalGroup(gid);
-  hideGroup(gid);
+  try {
+    await invoke()("p2p_group_delete", { gid });
+  } catch {
+    hideGroup(gid);
+  }
   store.groups.delete(gid);
   emitChanged();
+}
+
+// Groups deleted before the engine could (they were only hidden in the list):
+// forget them for real now. Best effort, once per group.
+async function migrateHiddenGroups(engineList) {
+  const hidden = hiddenGroups();
+  if (!hidden.size) return;
+  for (const gid of [...hidden]) {
+    const info = engineList.find(x => x.gid === gid);
+    if (info && !info.removed) continue; // still active: leave it hidden
+    if (info) { try { await invoke()("p2p_group_delete", { gid }); } catch { continue; } }
+    hidden.delete(gid);
+  }
+  try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...hidden])); } catch {}
+}
+
+// What unpairing a device does to groups: `created` are deleted here,
+// `member` ones keep it as an introduced member.
+export async function peerGroupImpact(peerId) {
+  if (!isTauri()) return { created: [], member: [] };
+  try {
+    const r = await invoke()("p2p_peer_groups", { peerId });
+    return { created: r?.created || [], member: r?.member || [] };
+  } catch { return { created: [], member: [] }; }
+}
+
+// Drops store groups the engine no longer has (deleted, or cascaded away by
+// unpairing their creator).
+function pruneGroups(engineList) {
+  const live = new Set(engineList.map(x => x.gid));
+  let changed = false;
+  for (const gid of [...store.groups.keys()]) {
+    if (!live.has(gid)) { store.groups.delete(gid); changed = true; }
+  }
+  return changed;
 }
 
 // Limits mirrored from the engine (groups.rs) for the create-group modal.
@@ -708,14 +797,24 @@ function engineInit() {
         g.acks.set(d.by, d.have);
         emitChanged(); chatUpdated(g.id);
       }
+    } else if (d.kind === "group-system") {
+      // A persisted system line ("X added Y", "Z left", ...).
+      const g = ensureGroup(d.gid);
+      noteSysKind(g, d.sysKind); // before the roster arrives: no derived intro line
+      if (!g.msgs.some(m => m.sys && m.engineId === d.id)) {
+        g.msgs.push(sysLine(g, d));
+        emitChanged(); chatUpdated(g.id);
+      }
+    } else if (d.kind === "group-deleted") {
+      if (store.groups.delete(d.gid)) { emitChanged(); chatUpdated(d.gid); }
     } else if (d.kind === "group-removed") {
       const g = store.groups.get(d.gid);
       if (g && !g.removed) {
         g.removed = true;
-        g.msgs.push({
-          id: nowId(), sys: true, atEnd: true, ts: Date.now(),
-          text: d.reason === "closed" ? "The group was disbanded" : "You are no longer in this group",
-        });
+        g.closed = g.closed || d.reason === "closed";
+        // The engine's own end line ("You were removed", "X disbanded") came
+        // first; without one (an older log) say it here.
+        ensureEndLine(g);
         emitChanged(); chatUpdated(g.id);
       } else if (g) { chatUpdated(g.id); }
     } else if (d.kind === "group-presence") {
@@ -803,6 +902,10 @@ function handler(prop) {
             try {
               const st = await invoke()("p2p_status").catch(() => null);
               for (const p of st?.peers || []) { peer(p.id, p.name); }
+              if (st) {
+                await migrateHiddenGroups(st.groups || []);
+                pruneGroups(st.groups || []);
+              }
               const hidden = hiddenGroups();
               for (const info of st?.groups || []) { if (!hidden.has(info.gid)) applyGroup(info); }
               peers = [...store.peers.values()];

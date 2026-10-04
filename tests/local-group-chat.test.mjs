@@ -37,6 +37,9 @@ const engine = {
   log: [],          // every invoke
   seq: 0,
   failSend: false,
+  failDelete: false,
+  deleted: [],
+  impact: { created: [], member: [] },
 };
 const listener = { current: null };
 const invoke = async (cmd, args = {}) => {
@@ -51,6 +54,13 @@ const invoke = async (cmd, args = {}) => {
     case "p2p_send": return { id: "P1", queued: false };
     case "p2p_group_leave": return { ...engine.groups[1], removed: true };
     case "p2p_group_disband": return { ...engine.groups[0], removed: true, closed: true };
+    case "p2p_group_delete":
+      if (engine.failDelete) throw new Error("nope");
+      engine.deleted.push(args.gid);
+      engine.groups = engine.groups.filter(g => g.gid !== args.gid);
+      return null;
+    case "p2p_peer_groups": return engine.impact;
+    case "p2p_remove_peer": engine.peers = engine.peers.filter(p => p.id !== args.peerId); return null;
     case "p2p_group_create": return groupJson("33".repeat(16), args.name, ME, [member(ME, "Me"), ...args.memberIds.map(i => member(i, "x"))]);
     default: throw new Error("unexpected command " + cmd);
   }
@@ -280,7 +290,8 @@ test("dismissLocalGroup hides the chat from the list (and leaves it first if sti
   const ids = (await core.getChatList({})).map(c => c.id);
   assert.equal(ids.includes(gc(GID2)), false);
   assert.equal(await core.getChat(gc(GID2)), null);
-  assert.deepEqual(JSON.parse(ls.get("velta-p2pg-hidden")), [GID2]);
+  assert.deepEqual(engine.deleted, [GID2], "the engine forgets the group, no localStorage workaround");
+  assert.equal(ls.get("velta-p2pg-hidden"), undefined);
 });
 
 test("createLocalGroup calls p2p_group_create and the new chat shows up", async () => {
@@ -356,7 +367,7 @@ test("hub model lists groups for the Local chat card", async () => {
   const model = await lc.hubModel();
   const trio = model.groups.find(g => g.id === gc(GID));
   assert.equal(trio.name, "Trio");
-  assert.equal(model.groups.some(g => g.id === gc(GID2)), false, "dismissed group stays hidden");
+  assert.equal(model.groups.some(g => g.id === gc(GID2)), false, "deleted group is gone");
   assert.equal(model.peers[0].proto, 2);
 });
 
@@ -402,4 +413,128 @@ test("UI guards exist for p2pg: header line, hidden relay-only actions, gated en
   assert.match(app, /p2pEnabled\(\) && p2pAvailable\(\) \? \[\{ label: "New local group/);
   assert.match(app, /async function newLocalGroupFlow\(\)[\s\S]{0,300}!p2pEnabled\(\)/);
   assert.match(app, /if \(!model\) \{ el\.hidden = true/, "hub card stays hidden when local chat is off");
+});
+
+const sysRow = (id, kind, text, ts) => ({ seq: 0, from: "", id, ts, tsEff: ts, dir: "sys", text, replyTo: null, replyText: null, delivered: [], sysKind: kind });
+const sysEv = (gid, id, kind, text, ts = 1_700_000_300_000) => ({ kind: "group-system", gid, id, sysKind: kind, text, ts, tsEff: ts });
+
+test("engine system lines hydrate as service messages in time order and replace the derived intro line", async () => {
+  const gid = "55".repeat(16);
+  engine.groups.push(groupJson(gid, "Sys group", BOB, [member(ME, "Me"), member(BOB, "Bob", { online: true })], { canManage: false }));
+  engine.history[gid] = [
+    sysRow("sys:joined:1:0", "joined", "Bob added you", 1_700_000_000_000),
+    { seq: 1, from: BOB, id: "b1", ts: 1_700_000_000_010, tsEff: 1_700_000_000_010, dir: "in", text: "hi", replyTo: null, replyText: null, delivered: [] },
+    sysRow("sys:renamed:2:0", "renamed", "Bob renamed the group to \u201cSys group\u201d", 1_700_000_000_020),
+  ];
+  await core.getChatList({});
+  const rows = await msgs(gid);
+  assert.deepEqual(rows.map(m => m.text), ["Bob added you", "hi", "Bob renamed the group to \u201cSys group\u201d"]);
+  assert.deepEqual(rows.map(m => m.kind), ["service", "msg", "service"]);
+  assert.equal(rows[0].ts, 1_700_000_000_000, "real timestamps, not the derived ones");
+  assert.equal(rows.filter(m => /added you/.test(m.text)).length, 1, "no second, adapter-derived line");
+  const chat = await chatOf(gid);
+  assert.equal(chat.lastMsg, "Bob: hi", "system lines are never the chat preview");
+  assert.equal(chat.unread, 0);
+});
+
+test("a live group-system event adds one service line (deduped) and a joined line beats the derived intro", async () => {
+  const gid = "56".repeat(16);
+  // The system line arrives BEFORE the roster (engine order for a new invitation).
+  fire(sysEv(gid, "sys:joined:1:0", "joined", "Bob added you"));
+  fire(sysEv(gid, "sys:joined:1:0", "joined", "Bob added you"));
+  engine.groups.push(groupJson(gid, "Fresh", BOB, [member(ME, "Me"), member(BOB, "Bob")], { canManage: false }));
+  fire({ kind: "group-state", group: engine.groups.at(-1) });
+  const rows = await msgs(gid);
+  assert.deepEqual(rows.map(m => m.text), ["Bob added you"]);
+  fire(sysEv(gid, "sys:added:2:0", "added", "Bob added Cal"));
+  assert.deepEqual((await msgs(gid)).map(m => m.text), ["Bob added you", "Bob added Cal"]);
+  assert.ok(inner.events.some(e => e === "chat-updated:" + gc(gid)));
+});
+
+test("group-removed uses the engine's end line, and adds its own only for logs that have none", async () => {
+  const withEnd = "57".repeat(16), without = "58".repeat(16);
+  for (const gid of [withEnd, without]) {
+    engine.groups.push(groupJson(gid, "Ending", BOB, [member(ME, "Me"), member(BOB, "Bob")], { canManage: false }));
+  }
+  await core.getChatList({});
+  fire(sysEv(withEnd, "sys:removed-me:3:0", "removed-me", "You were removed from the group"));
+  fire({ kind: "group-removed", gid: withEnd, reason: "removed" });
+  fire({ kind: "group-removed", gid: without, reason: "closed" });
+  const a = (await msgs(withEnd)).map(m => m.text);
+  assert.equal(a.filter(t => /removed|no longer/.test(t)).length, 1, a.join("|"));
+  for (const g of engine.groups) if (g.gid === withEnd || g.gid === without) g.removed = true; // engine truth
+  assert.equal((await chatOf(withEnd)).readOnly, true);
+  assert.ok((await msgs(without)).some(m => m.text === "The group was disbanded"));
+  assert.equal((await msgs(without)).filter(m => m.text === "The group was disbanded").length, 1);
+});
+
+test("a finished group from before the persisted lines still gets one end line after hydration", async () => {
+  const gid = "59".repeat(16);
+  engine.groups.push(groupJson(gid, "Old ended", BOB, [member(ME, "Me")], { removed: true, closed: false, canManage: false }));
+  engine.history[gid] = [
+    { seq: 1, from: BOB, id: "b1", ts: 1_700_000_000_010, tsEff: 1_700_000_000_010, dir: "in", text: "old", replyTo: null, replyText: null, delivered: [] },
+  ];
+  await core.getChatList({});
+  await core.getChatList({});
+  const t = (await msgs(gid)).map(m => m.text);
+  assert.equal(t.filter(x => x === "You are no longer in this group").length, 1, t.join("|"));
+});
+
+test("outgoing group messages carry a per-member delivery list from the acks", async () => {
+  const gid = "5a".repeat(16);
+  engine.groups.push(groupJson(gid, "Deliv", ME, [member(ME, "Me"), member(BOB, "Bob", { online: true }), member(CAL, "Cal")]));
+  engine.history[gid] = [
+    { seq: 1, from: ME, id: "d1", ts: 1_700_000_000_001, tsEff: 1_700_000_000_001, dir: "out", text: "both", replyTo: null, replyText: null, delivered: [BOB, CAL] },
+    { seq: 2, from: ME, id: "d2", ts: 1_700_000_000_002, tsEff: 1_700_000_000_002, dir: "out", text: "bob only", replyTo: null, replyText: null, delivered: [BOB] },
+  ];
+  await core.getChatList({});
+  let rows = (await msgs(gid)).filter(m => m.kind === "msg");
+  assert.deepEqual(rows[1].delivery.map(d => [d.name, d.delivered]), [["Bob", true], ["Cal", false]]);
+  assert.deepEqual(rows[0].delivery.map(d => d.delivered), [true, true]);
+  fire({ kind: "group-ack", gid, by: CAL, have: 2 });
+  rows = (await msgs(gid)).filter(m => m.kind === "msg");
+  assert.deepEqual(rows[1].delivery.map(d => d.delivered), [true, true]);
+  assert.equal(rows[1].state, "read");
+  // Incoming messages have no delivery list.
+  fire(groupMsgEv(gid, BOB, 1, "from bob"));
+  assert.equal((await msgs(gid)).at(-1).delivery, undefined);
+});
+
+test("delete falls back to the hidden list when the engine can't, and old hidden groups are migrated", async () => {
+  const gid = "5b".repeat(16);
+  engine.groups.push(groupJson(gid, "Stubborn", BOB, [member(ME, "Me")], { removed: true, canManage: false }));
+  await core.getChatList({});
+  engine.failDelete = true;
+  await lc.dismissLocalGroup(gid);
+  assert.deepEqual(JSON.parse(ls.get("velta-p2pg-hidden")), [gid]);
+  assert.equal((await core.getChatList({})).some(c => c.id === gc(gid)), false);
+  // Next start the engine can: the hidden entry is migrated to a real delete.
+  engine.failDelete = false;
+  engine.deleted.length = 0;
+  await core.getChatList({});
+  assert.deepEqual(engine.deleted, [gid]);
+  assert.deepEqual(JSON.parse(ls.get("velta-p2pg-hidden")), []);
+  assert.equal(engine.groups.some(g => g.gid === gid), false);
+});
+
+test("group-deleted drops the chat; removing a creator's contact prunes their groups; impact is reported", async () => {
+  const gid = "5c".repeat(16), mine = "5d".repeat(16);
+  engine.groups.push(groupJson(gid, "Dan's", DAN, [member(ME, "Me"), member(DAN, "Dan")], { canManage: false }));
+  engine.groups.push(groupJson(mine, "Mine", ME, [member(ME, "Me"), member(DAN, "Dan")]));
+  engine.peers.push({ id: DAN, name: "Dan", online: true, queued: 0, proto: 2 });
+  await core.getChatList({});
+  assert.ok(await chatOf(gid));
+  engine.impact = { created: [{ gid, name: "Dan's" }], member: [{ gid: mine, name: "Mine" }] };
+  const imp = await lc.peerGroupImpact(DAN);
+  assert.deepEqual(imp.created.map(g => g.name), ["Dan's"]);
+  assert.deepEqual(imp.member.map(g => g.name), ["Mine"]);
+  // The engine deletes the creator's group when the peer is removed.
+  engine.groups = engine.groups.filter(g => g.gid !== gid);
+  await lc.removePeer(DAN);
+  assert.equal(await chatOf(gid), undefined, "gone with its creator");
+  assert.ok(await chatOf(mine), "a group I created stays");
+  assert.ok(engine.log.some(c => c.cmd === "p2p_remove_peer" && c.args.peerId === DAN));
+  // The engine can also tell us directly.
+  fire({ kind: "group-deleted", gid: mine });
+  assert.equal(await core.getChat(gc(mine)), null);
 });
