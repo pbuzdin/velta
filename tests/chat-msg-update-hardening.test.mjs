@@ -824,16 +824,18 @@ function cardTree() {
   return { bubble, card, title, inline };
 }
 
-test("gestureSkipTarget lets link-preview cards swipe but not inline links or buttons", async () => {
+test("gestureSkipTarget lets links and cards swipe but not buttons, inputs or media", async () => {
   const { gestureSkipTarget, GESTURE_SKIP_SELECTOR } = await import("../app/js/chat-view.js");
   const { bubble, card, title, inline } = cardTree();
   assert.equal(gestureSkipTarget(card), false);
   assert.equal(gestureSkipTarget(title), false, "text inside the card swipes too");
   assert.equal(gestureSkipTarget(bubble), false);
-  assert.equal(gestureSkipTarget(inline), true, "inline text links keep opting out");
-  assert.equal(gestureSkipTarget(node("button", "", bubble)), true);
+  assert.equal(gestureSkipTarget(inline), false, "inline text links swipe too");
+  for (const tag of ["button", "input", "textarea", "audio", "video"]) {
+    assert.equal(gestureSkipTarget(node(tag, "", bubble)), true, `${tag} still opts out`);
+  }
   assert.equal(gestureSkipTarget(null), false);
-  assert.ok(GESTURE_SKIP_SELECTOR.includes("a:not(.link-preview)"));
+  assert.equal(/\ba\b/.test(GESTURE_SKIP_SELECTOR.replace(/[^a-z,]/g, "").split(",").join(" ")), false);
 });
 
 test("swipe right starting on a link preview card replies, and does not open the link", async t => {
@@ -889,7 +891,7 @@ test("a plain tap on a link preview card still opens the link", async t => {
   assert.equal(view.replyTo, null, "a tap never replies");
 });
 
-test("swipe left starting on a link preview card goes back like elsewhere", async t => {
+test("swipe left starting on a link preview card or inline link goes back like elsewhere", async t => {
   let backs = 0;
   const { view, node: byId } = setup(t);
   view.onBack = () => { backs++; };
@@ -899,12 +901,7 @@ test("swipe left starting on a link preview card goes back like elsewhere", asyn
   const main = byId("main");
   const { card, title, inline } = cardTree();
 
-  await scroller.fire("touchstart", { touches: [{ clientX: 200, clientY: 80 }], target: inline });
-  await scroller.fire("touchmove", { touches: [{ clientX: 100, clientY: 82 }], cancelable: true, preventDefault() {} });
-  assert.equal(main.style.transform, "", "inline text links still do not start the drag");
-  await scroller.fire("touchend", { touches: [] });
-
-  for (const target of [card, title]) {
+  for (const target of [card, title, inline]) {
     await scroller.fire("touchstart", { touches: [{ clientX: 200, clientY: 80 }], target });
     await scroller.fire("touchmove", { touches: [{ clientX: 120, clientY: 84 }], cancelable: true, preventDefault() {} });
     assert.equal(main.style.transform, "translateX(-80px)", "the column follows from the card");
@@ -912,7 +909,13 @@ test("swipe left starting on a link preview card goes back like elsewhere", asyn
     assert.equal(main.style.transform, "translateX(-100%)");
     await main.fire("transitionend");
   }
-  assert.equal(backs, 2);
+  assert.equal(backs, 3);
+
+  const btn = node("button", "", card.parent);
+  await scroller.fire("touchstart", { touches: [{ clientX: 200, clientY: 80 }], target: btn });
+  await scroller.fire("touchmove", { touches: [{ clientX: 100, clientY: 82 }], cancelable: true, preventDefault() {} });
+  assert.equal(main.style.transform, "", "a button still does not start the drag");
+  await scroller.fire("touchend", { touches: [] });
 });
 
 test("link preview card markup and CSS do not invite a native drag", async () => {
@@ -923,4 +926,71 @@ test("link preview card markup and CSS do not invite a native drag", async () =>
   const js = readFileSync(new URL("../app/js/link-preview.js", import.meta.url), "utf8");
   assert.match(js, /class="link-preview"[^`]*draggable="false"/);
   assert.match(js, /class="lp-img"[^`]*draggable="false"/);
+});
+
+test("swipe right starting on an inline link replies and does not open it; a tap still opens it", async t => {
+  const { view } = setup(t);
+  await view.open(7);
+  mobileGestures(t, true);
+  const row = view._buildItem(view.msgIndex.get(10));
+  const { bubble, inline } = cardTree();
+  const opened = [];
+  const prevUA = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", { value: { userAgent: "Android" }, configurable: true });
+  window.__TAURI__ = { core: { invoke: (cmd, args) => { opened.push([cmd, args.url]); return Promise.resolve(); } } };
+  t.after(() => {
+    if (prevUA) Object.defineProperty(globalThis, "navigator", prevUA); else delete globalThis.navigator;
+    window.__TAURI__ = null;
+  });
+  const click = { target: inline, preventDefault() {}, stopPropagation() {} };
+
+  await row.fire("touchstart", { touches: [{ clientX: 10, clientY: 40 }], target: inline });
+  await row.fire("touchmove", { touches: [{ clientX: 200, clientY: 42 }], target: inline, cancelable: true, preventDefault() {} });
+  assert.equal(bubble.style.transform, "translateX(64px)", "the bubble follows a finger that started on the link");
+  await row.fire("touchend", { touches: [] });
+  assert.equal(view.replyTo.id, 10);
+  await row.fire("click", click);
+  assert.deepEqual(opened, [], "the click right after the swipe is swallowed");
+
+  // after the 400 ms window a tap opens the link as before
+  view._swipedAt = Date.now() - 1000;
+  view.replyTo = null;
+  await row.fire("touchstart", { touches: [{ clientX: 10, clientY: 40 }], target: inline });
+  await row.fire("touchmove", { touches: [{ clientX: 12, clientY: 41 }], target: inline, cancelable: true, preventDefault() {} });
+  await row.fire("touchend", { touches: [] });
+  await row.fire("click", click);
+  assert.deepEqual(opened, [["open_in_app_browser", "https://example.com/x"]]);
+  assert.equal(view.replyTo, null);
+});
+
+test("a click right after a swipe-back drag that began on a link does not open it", async t => {
+  const { view, node: byId } = setup(t);
+  view.onBack = () => {};
+  await view.open(7);
+  mobileGestures(t, true);
+  const scroller = byId("history-scroll");
+  const row = view._buildItem(view.msgIndex.get(10));
+  const { inline } = cardTree();
+  const opened = [];
+  const prevUA = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", { value: { userAgent: "Android" }, configurable: true });
+  window.__TAURI__ = { core: { invoke: (cmd, args) => { opened.push([cmd, args.url]); return Promise.resolve(); } } };
+  t.after(() => {
+    if (prevUA) Object.defineProperty(globalThis, "navigator", prevUA); else delete globalThis.navigator;
+    window.__TAURI__ = null;
+  });
+  await scroller.fire("touchstart", { touches: [{ clientX: 200, clientY: 80 }], target: inline });
+  await scroller.fire("touchmove", { touches: [{ clientX: 120, clientY: 82 }], cancelable: true, preventDefault() {} });
+  await scroller.fire("touchend", { touches: [] });
+  await row.fire("click", { target: inline, preventDefault() {}, stopPropagation() {} });
+  assert.deepEqual(opened, []);
+});
+
+test("inline message links are not natively draggable but text stays selectable", async () => {
+  const { readFileSync } = await import("node:fs");
+  const css = readFileSync(new URL("../app/css/main.css", import.meta.url), "utf8");
+  const rule = css.slice(css.indexOf(".msg-text a {"));
+  const body = rule.slice(0, rule.indexOf("}")).replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.match(body, /-webkit-user-drag:\s*none/);
+  assert.doesNotMatch(body, /user-select/, "link rule must not touch selection");
 });
