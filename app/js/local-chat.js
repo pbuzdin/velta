@@ -268,17 +268,99 @@ function histFromGroupRow(g, r) {
     ts: r.tsEff || r.ts || Date.now(), text: r.text || "", out,
     reply_to: r.replyTo || null, reply_text: r.replyText ?? null,
   };
+  if (r.file) {
+    // A media message is outside the author's seq stream (seq 0): identified
+    // by (author, transfer id), delivery tracked per member by the engine.
+    m.seq = null;
+    m.file = { name: r.file.name, size: r.file.size || 0, mime: r.file.mime || "", path: r.file.path };
+    if (out && Array.isArray(r.fileMembers)) m.xfer = xferFrom(r.fileMembers);
+  }
   return m;
+}
+
+// ---- group media: per-member transfer state (online-only delivery) ----
+// xfer = Map(memberId -> { state: "sending"|"done"|"failed"|"offline", got })
+const xferFrom = rows => new Map(rows.map(x => [x.id, { state: x.state, got: x.got || 0 }]));
+const isFileMsg = m => !m.sys && !!m.file;
+const fileKey = m => `f:${m.from}:${m.engineId}`;
+const rowKey = r => (r.dir === "sys" ? r.id : r.file ? `f:${r.from}:${r.id}` : `${r.from}:${r.seq}`);
+
+// Aggregated progress over the members the file is actually going to.
+function xferSummary(g, m) {
+  const x = m.xfer;
+  if (!x) return null;
+  const size = m.file?.size || 0;
+  const rows = [...x.entries()].filter(([id]) => g.members.some(o => o.id === id && !o.self));
+  const going = rows.filter(([, s]) => s.state !== "offline");
+  const done = rows.filter(([, s]) => s.state === "done").length;
+  const sending = rows.filter(([, s]) => s.state === "sending").length;
+  const miss = rows.length - done;
+  const frac = going.length && size
+    ? going.reduce((a, [, s]) => a + (s.state === "done" ? 1 : Math.min(1, (s.got || 0) / size)), 0) / going.length
+    : 0;
+  return { rows: rows.length, done, sending, miss, pct: Math.min(100, Math.floor(frac * 100)) };
+}
+
+// The bubble's transfer strip: a bar while any member is receiving, the
+// failed card only when nobody got the file; otherwise the finished card.
+function refreshTransfer(g, m) {
+  const s = xferSummary(g, m);
+  if (!s) { delete m.transfer; return; }
+  if (s.sending > 0) m.transfer = { pct: s.pct, dir: "send", members: s.rows };
+  else if (s.done === 0 && s.rows > 0) m.transfer = { failed: true, pct: m.transfer?.pct || 0, dir: "send" };
+  else delete m.transfer;
+}
+
+// Tick for an outgoing file: clock while it is on its way, double when every
+// current member has it, single when some do, failed when nobody got it.
+function groupFileState(g, m) {
+  if (m.failed) return "failed";
+  const s = xferSummary(g, m);
+  if (!s) return "sent";
+  if (s.sending > 0) return "pending";
+  if (s.rows && s.done === s.rows) return "read";
+  if (s.done > 0) return "sent";
+  return s.rows ? "failed" : "sent";
+}
+
+function applyFileProgress(d) {
+  const g = store.groups.get(d.gid);
+  if (!g || d.dir !== "send") return;
+  const m = g.msgs.find(x => isFileMsg(x) && x.out && x.engineId === d.id);
+  const upd = { state: d.state, got: d.got || 0 };
+  if (!m) {
+    // Raced the send command's reply: applied when the message is created.
+    if (!g.earlyXfer) g.earlyXfer = new Map();
+    const e = g.earlyXfer.get(d.id) || new Map();
+    e.set(d.member, upd);
+    g.earlyXfer.set(d.id, e);
+    return;
+  }
+  if (!m.xfer) m.xfer = new Map();
+  if (d.size && m.file && !m.file.size) m.file.size = d.size;
+  const prev = m.xfer.get(d.member);
+  const before = m.transfer?.pct ?? -1;
+  const tickBefore = groupFileState(g, m);
+  m.xfer.set(d.member, upd);
+  refreshTransfer(g, m);
+  const after = m.transfer?.pct ?? -1;
+  // Chunks arrive in bursts: re-render on 2% steps and on any state change.
+  if (prev?.state !== upd.state || Math.abs(after - before) >= 2 || after >= 100 || tickBefore !== groupFileState(g, m)) {
+    emitChanged(); chatUpdated(g.id);
+  }
 }
 
 function mergeGroupHistory(g, rows) {
   seedAcks(g, rows);
   const known = new Set(g.msgs.filter(m => m.seq != null).map(m => `${m.from}:${m.seq}`));
-  for (const m of g.msgs) if (m.sys && m.engineId) known.add(m.engineId);
+  for (const m of g.msgs) {
+    if (m.sys && m.engineId) known.add(m.engineId);
+    else if (isFileMsg(m)) known.add(fileKey(m));
+  }
   const hist = [];
   for (const r of rows) {
     if (!r || typeof r.id !== "string" || typeof r.seq !== "number") continue;
-    const key = r.dir === "sys" ? r.id : `${r.from}:${r.seq}`;
+    const key = rowKey(r);
     if (known.has(key)) continue;
     known.add(key);
     if (r.dir === "sys") noteSysKind(g, r.sysKind);
@@ -315,6 +397,7 @@ async function hydrateGroup(g) {
 function groupMsgState(g, m) {
   if (!m.out) return "read";
   if (m.failed) return "failed";
+  if (isFileMsg(m)) return groupFileState(g, m);
   if (m.seq == null) return "pending";
   const others = g.members.filter(x => !x.self);
   const acked = o => (g.acks.get(o.id) || 0) >= m.seq;
@@ -343,6 +426,14 @@ function mapGroupMsg(g, m) {
     starred: false, edited: false, quote: null, reactions: null, fwdFrom: null,
     filePath: null, fileName: null, fileSize: null, fileMime: null, downloadState: "Done",
   };
+  if (m.file) {
+    base.viewtype = viewtypeFor(m.file.name, m.file.mime);
+    base.filePath = m.file.path;
+    base.fileName = m.file.name;
+    base.fileSize = m.file.size || null;
+    base.fileMime = m.file.mime || null;
+    if (m.transfer) base.transfer = m.transfer;
+  }
   if (m.reply_to != null) {
     const orig = g.msgs.find(x => !x.sys && (x.engineId === m.reply_to || x.id === m.reply_to));
     const author = orig ? (orig.out ? "You" : memberLabel(g, orig.from, orig.fromName)) : "";
@@ -356,10 +447,19 @@ function mapGroupMsg(g, m) {
   if (m.out) {
     // Per-member delivery for the message-info sheet: a member has it once its
     // cumulative ack reached this message's seq.
-    base.delivery = g.members.filter(x => !x.self).map(o => ({
-      id: o.id, name: memberLabel(g, o.id),
-      delivered: m.seq != null && (g.acks.get(o.id) || 0) >= m.seq,
-    }));
+    base.delivery = g.members.filter(x => !x.self).map(o => {
+      if (isFileMsg(m)) {
+        const st = m.xfer?.get(o.id)?.state;
+        return {
+          id: o.id, name: memberLabel(g, o.id), delivered: st === "done",
+          sending: st === "sending", retryable: !!m.xfer && (st === "failed" || st === "offline" || st == null),
+        };
+      }
+      return {
+        id: o.id, name: memberLabel(g, o.id),
+        delivered: m.seq != null && (g.acks.get(o.id) || 0) >= m.seq,
+      };
+    });
   }
   return base;
 }
@@ -373,7 +473,7 @@ function mapGroupChat(g) {
     id: P2PG_PREFIX + g.id, name: g.name, kind: "group", isP2p: true, isP2pGroup: true,
     memberCount: g.members.length, onlineCount, canManage: g.canManage,
     readOnly: g.removed, closed: g.closed,
-    lastMsg: last ? `${sender}: ${last.text}` : "",
+    lastMsg: last ? `${sender}: ${last.file ? "📎 " + last.file.name : last.text}` : "",
     lastTs: last ? last.ts : g.createdTs,
     lastFrom: last ? (last.out ? 1 : 0) : 0,
     lastState: last && last.out ? groupMsgState(g, last) : null,
@@ -760,7 +860,8 @@ export function cancelQueuedItem(chatId, itemId) {
 // file from byte zero (no resume) and swaps the failed message for the new
 // one. The old message only leaves the store once the engine accepted the
 // re-send — on failure it comes back, still showing its Retry button.
-export async function lcRetryTransfer(chatId, msgId) {
+export async function lcRetryTransfer(chatId, msgId, memberId = null) {
+  if (isGroupId(chatId)) return lcRetryGroupFile(chatId, msgId, memberId);
   const peerId = String(chatId).slice(P2P_PREFIX.length);
   const p = store.peers.get(peerId);
   const msg = p?.msgs.find(x => x.id === msgId);
@@ -855,6 +956,8 @@ function engineInit() {
         msg.transfer = { pct, dir: d.dir };
         emitChanged();
       }
+    } else if (d.kind === "group-file-progress") {
+      applyFileProgress(d);
     } else if (d.kind === "typing") {
       // 1:1 hint from a paired peer.
       const p = store.peers.get(d.peerId);
@@ -946,11 +1049,14 @@ function onGroupMessage(d) {
     engineGroups().then(list => { for (const info of list) applyGroup(info); emitChanged(); chatUpdated(d.gid); }).catch(() => {});
   }
   // A message that raced the hydration is already in the store.
-  if (g.msgs.some(m => m.seq === d.seq && m.from === d.from)) return;
+  if (d.file) {
+    if (g.msgs.some(m => isFileMsg(m) && m.from === d.from && m.engineId === d.id)) return;
+  } else if (g.msgs.some(m => m.seq === d.seq && m.from === d.from)) return;
   g.msgs.push({
-    id: nowId(), engineId: d.id, seq: d.seq, from: d.from, fromName: d.name,
+    id: nowId(), engineId: d.id, seq: d.file ? null : d.seq, from: d.from, fromName: d.name,
     ts: d.tsEff || d.ts || Date.now(), text: d.text, out: false,
     reply_to: d.replyTo || null, reply_text: d.replyText ?? null,
+    ...(d.file ? { file: { name: d.file.name, size: d.file.size || 0, mime: d.file.mime || "", path: d.file.path } } : {}),
   });
   g.unread++;
   const m = g.members.find(x => x.id === d.from);
@@ -1097,7 +1203,7 @@ function handler(prop) {
 
     case "sendMessage":
       return async (t, id, { text = "", viewtype = "text", file = null, filename = null, quoteId = null, quoteText = null } = {}) => {
-        if (isGroupId(id)) return sendGroupMessage(gidOf(id), { text, viewtype, file, quoteId, quoteText });
+        if (isGroupId(id)) return sendGroupMessage(gidOf(id), { text, viewtype, file, filename, quoteId, quoteText });
         if (!String(id).startsWith(P2P_PREFIX)) return t.sendMessage(id, { text, viewtype, file, filename, quoteId, quoteText });
         const peerId = String(id).slice(P2P_PREFIX.length);
         const p = peer(peerId);
@@ -1259,13 +1365,56 @@ function handler(prop) {
   }
 }
 
-async function sendGroupMessage(gid, { text = "", viewtype = "text", file = null, quoteId = null, quoteText = null } = {}) {
+// Media goes to the members that are online right now (the engine streams a
+// copy to each; offline ones can be sent it later with Retry). A reply quote
+// does not travel with a file. Fails (no bubble) when nobody can be reached.
+async function sendGroupFile(g, { text, file, filename }) {
+  const name = filename || String(file).split(/[\\/]/).pop() || "file";
+  const res = await invoke()("p2p_group_send_file", { gid: g.id, path: file, name, caption: text || "" })
+    .catch(err => { throw new Error(String(err?.message || err)); });
+  const msg = {
+    id: nowId(), engineId: res.id, seq: null, from: selfIdOf(g), ts: res.tsEff || res.ts || Date.now(),
+    text: text || "", out: true,
+    file: { name: res.file?.name || name, size: res.file?.size || 0, mime: res.file?.mime || "", path: res.file?.path || null },
+    xfer: xferFrom(res.members || []),
+  };
+  // Progress events that beat this reply.
+  const early = g.earlyXfer?.get(res.id);
+  if (early) { for (const [k, v] of early) msg.xfer.set(k, v); g.earlyXfer.delete(res.id); }
+  refreshTransfer(g, msg);
+  g.msgs.push(msg);
+  emitChanged(); chatUpdated(g.id);
+  return mapGroupMsg(g, msg);
+}
+
+// Send a group file again to members that missed it (or to one member).
+// Online members only; an offline member still says "not yet".
+export async function lcRetryGroupFile(chatId, msgId, memberId = null) {
+  const g = store.groups.get(gidOf(chatId));
+  const m = g?.msgs.find(x => x.id === msgId);
+  if (!g || !m || !isFileMsg(m) || !m.out) return;
+  if (!isTauri()) return;
+  const targets = memberId
+    ? [memberId]
+    : g.members.filter(o => !o.self && m.xfer?.get(o.id)?.state !== "done" && m.xfer?.get(o.id)?.state !== "sending").map(o => o.id);
+  let firstErr = null, ok = 0;
+  for (const member of targets) {
+    try {
+      await invoke()("p2p_group_file_retry", { gid: g.id, id: m.engineId, member });
+      ok++;
+    } catch (err) { firstErr ??= new Error(String(err?.message || err)); }
+  }
+  if (!ok && firstErr) throw firstErr;
+  emitChanged(); chatUpdated(g.id);
+}
+
+async function sendGroupMessage(gid, { text = "", viewtype = "text", file = null, filename = null, quoteId = null, quoteText = null } = {}) {
   const g = store.groups.get(gid);
   if (!g) throw new Error("Unknown local group");
   if (viewtype === "voice") throw new Error("Voice messages aren't available in local groups");
-  if (file) throw new Error("Files in local groups are coming in a later update");
   if (g.removed) throw new Error(g.closed ? "This group was disbanded" : "You are not in this group any more");
   if (!isTauri()) throw new Error("Local groups need the Velta app shell");
+  if (file) return sendGroupFile(g, { text, file, filename });
   // The composer quotes by the adapter's numeric id; the wire carries the
   // engine id of the quoted message.
   const target = quoteId != null ? g.msgs.find(x => !x.sys && x.id === quoteId) : null;

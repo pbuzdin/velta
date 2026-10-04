@@ -624,14 +624,11 @@ export class ChatView {
   // Full teardown: stop polling, dispose the virtual scroller, drop cached
   // rows and leave #history empty. Used when another surface takes over the
   // history area (Diagnostics chat) and when the chat is closed.
-  // Local P2P groups carry text only until file transfer lands (Phase 5):
-  // hide the attach and sticker buttons there, restore them everywhere else.
+  // Local P2P groups carry text, photos and files (no stickers, no voice):
+  // hide the sticker button there, restore it everywhere else.
   _applyGroupComposer(chat) {
-    const off = !!chat?.isP2pGroup;
-    for (const id of ["btn-attach", "btn-sticker"]) {
-      const b = document.getElementById(id);
-      if (b) b.hidden = off;
-    }
+    const b = document.getElementById("btn-sticker");
+    if (b) b.hidden = !!chat?.isP2pGroup;
   }
 
   // One TypingSender per open local chat; switching chats stops the old one.
@@ -982,9 +979,9 @@ export class ChatView {
     }
   }
 
-  async _lcRetryTransfer(m) {
+  async _lcRetryTransfer(m, memberId = null) {
     try {
-      await lcRetryTransfer(m.chatId, m.id);
+      await lcRetryTransfer(m.chatId, m.id, memberId);
       toast("Retrying…");
     } catch (err) {
       errToast(`Retry failed: ${err?.message || err}`);
@@ -995,7 +992,7 @@ export class ChatView {
     return JSON.stringify([
       m.viewtype, m.downloadState, m.text, m.state, m.edited, m.starred,
       m.reactions, m.filePath, m.fileName, m.duration, m.fwdFrom, m.quote, m.error,
-      m.originalMsgId,
+      m.originalMsgId, m.transfer?.pct, m.transfer?.failed,
     ]);
   }
 
@@ -2287,9 +2284,10 @@ export class ChatView {
     // Local groups: who has it, per member ("Bob ✓  Cal ✗").
     const deliveryRows = Array.isArray(m.delivery) && m.delivery.length
       ? `<div class="info-row"><span class="k">Delivered</span><span class="v">${m.delivery.filter(d => d.delivered).length} of ${m.delivery.length}</span></div>`
-        + m.delivery.map(d => `<div class="info-row"><span class="k" style="padding-left:12px">${escapeHtml(d.name)}</span><span class="v">${d.delivered ? "✓ received" : "✗ not yet"}</span></div>`).join("")
+        + m.delivery.map(d => `<div class="info-row"><span class="k" style="padding-left:12px">${escapeHtml(d.name)}</span><span class="v">${d.delivered ? "✓ received" : d.sending ? "… sending" : "✗ not yet"}${d.retryable ? ` <button type="button" class="btn-text" data-retry-member="${escapeAttr(d.id)}">Retry</button>` : ""}</span></div>`).join("")
+        + (m.delivery.some(d => d.retryable) ? `<div class="info-row"><span class="k">Files</span><span class="v">go only to members who are online when you send. Retry sends it again to that member.</span></div>` : "")
       : "";
-    showModal({
+    const info = showModal({
       title: "Message info",
       body: `
       <div class="enc-note">${ICO.lock}<span>${encNote}</span></div>
@@ -2300,6 +2298,11 @@ export class ChatView {
       ${deliveryRows}
       <div class="info-row"><span class="k">Message ID</span><span class="v">#${m.id}</span></div>`,
     });
+    info.modal.querySelectorAll("[data-retry-member]").forEach(btn => btn.addEventListener("click", () => {
+      btn.disabled = true;
+      btn.textContent = "Retrying…";
+      this._lcRetryTransfer(m, btn.dataset.retryMember);
+    }));
   }
 
   async _delete(ids) {
@@ -2549,7 +2552,6 @@ export class ChatView {
       let file = items.find(i => i.kind === "file" && i.type.startsWith("image/"))?.getAsFile();
       if (!file) file = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith("image/"));
       if (!file) return; // fall through to normal text paste
-      if (this.chat.isP2pGroup) return; // files in local groups come later
       e.preventDefault();
       this._setPendingMedia("image", file);
     });

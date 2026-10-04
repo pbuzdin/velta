@@ -233,11 +233,10 @@ test("group-state updates the roster and header counts; group-removed makes the 
   assert.equal((await msgs(GID2)).filter(x => x.kind === "service").length, 2);
 });
 
-test("voice and file sends in a group are rejected until the media phase", async () => {
+test("voice sends in a group are rejected (files go through p2p_group_send_file: see local-group-media)", async () => {
   engine.log.length = 0;
   await assert.rejects(core.sendMessage(gc(GID), { text: "", viewtype: "voice", file: "/tmp/v.ogg" }), /Voice/);
-  await assert.rejects(core.sendMessage(gc(GID), { text: "cap", file: "/tmp/a.png", filename: "a.png" }), /Files/);
-  assert.equal(engine.log.some(c => c.cmd === "p2p_group_send" || c.cmd === "p2p_send_file"), false);
+  assert.equal(engine.log.some(c => c.cmd === "p2p_group_send" || c.cmd === "p2p_send_file" || c.cmd === "p2p_group_send_file"), false);
 });
 
 test("group-presence updates member dots and never creates a p2p: chat", async () => {
