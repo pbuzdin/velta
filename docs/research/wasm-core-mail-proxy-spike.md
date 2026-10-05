@@ -1,6 +1,6 @@
 # Spike log — wasm core + WebSocket mail proxy
 
-**Status:** day 2 green — alice→bob encrypted round-trip over `ws-tcp-proxy` + nine.testrun.org **PASS**. Day 1 build/smoke still stands.
+**Status:** day 3 — Velta **2.62.0** side-tree `cargo check` for `wasm32-unknown-unknown` **PASS** (lib, `--no-default-features`). Day 2 alice→bob still stands on prototype 2.54. Inventory: [`wasm-core-port-inventory.md`](wasm-core-port-inventory.md). **Master `core/` unchanged.**
 Started **2026-10-05** (Europe/Moscow). Research baseline:
 [`wasm-core-mail-proxy.md`](wasm-core-mail-proxy.md).
 
@@ -167,6 +167,32 @@ CHATMAIL_NEW=https://nine.testrun.org/new VERBOSE=1 \
 Needs: Playwright Chromium, `ws` npm dep, outbound HTTPS to `/new` and TCP
 143/465/587/993 via the local proxy to the relay.
 
+
+---
+
+## Day 3 (2026-10-05) — forward-port onto Velta 2.62.0 (side tree)
+
+**Approach:** inventory + side tree `/workspace/velta-wasm-port` (not merged).
+Follows COREUPDATE patch discipline: do not break Android/desktop; keep
+wasm work opt-in / documented until native checks are clean on a full toolchain.
+
+### Inventory
+See [`wasm-core-port-inventory.md`](wasm-core-port-inventory.md). Mechanical
+`git apply` of prototype patches: only **0002** clean; 0001/0003–0007/0010 need
+hand port (Cargo + tls/blob drift).
+
+### Side-tree result
+- Manual **0001-equivalent** Cargo.toml + shim/vendors + **0002** + partial **0003/0004**.
+- `cargo check -p deltachat --lib --target wasm32-unknown-unknown --no-default-features` → **PASS**.
+- Full `wasm-pack` / browser smoke on 2.62 **not** done (still need WS transport + clock ports + wrapper).
+- Velta `master`: `python3 tools/apply-core-patches.py verify` → **13/13**; no core patch commit.
+
+### Blockers for wasm-pack / smoke on 2.62
+1. Port remaining WASM-CORE: **0005** (ws_tcp), **0006** (clocks), **0007**, **0010** (fetch).
+2. mail-builder 0.5 vs prototype 0.4.4 fork (time panics may return at runtime).
+3. MPL `deltachat-wasm` bindgen crate + JS glue (do not import GPL UI).
+4. Native full-feature check needs pkg-config/OpenSSL on the spike host (env).
+
 ## Build outcome
 
 **Built and smoke-tested.** `wasm-pack` exit 0; headless Chromium
@@ -176,24 +202,18 @@ Needs: Playwright Chromium, `ws` npm dep, outbound HTTPS to `/new` and TCP
 
 ---
 
-## Next concrete steps (day 3+)
+## Next concrete steps (day 4)
 
-1. **Optional size/perf:** run `wasm-opt` on the 28 MB artifact; rough cold-boot
-   / memory numbers on a phone if available.
-2. **Port plan for Velta 2.62.0:** list MPL wasm patches to forward-port
-   (roughly 0001–0007, 0010, plus persistence if needed) vs Velta’s existing 13
-   core patches; estimate rebase cost. Still no GPL web-app copy into Velta.
-3. **Relay-native path (optional):** only if we want to drop the third-party
-   bridge — deploy `link2xt/websockify` + CORS on a test relay and re-run a
-   similar e2e against `/imap` + `/smtp`.
-4. **Architecture C / PLAN:** networking feasibility for wasm-core + proxy is
-   validated; wire the PLAN recommendation separately.
+1. Continue side-tree: port **0005–0007 + 0010**; keep `cargo check` wasm green.
+2. Add minimal MPL `deltachat-wasm` wrapper; `wasm-pack` + `get_system_info` smoke.
+3. Re-run networking e2e on 2.62 via local `ws-tcp-proxy` → nine.testrun.org.
+4. Draft how wasm patches will live long-term (separate apply script vs upstreamable cfgs) without touching production APK/desktop builds.
 
 ## Ask Pavel to approve next
 
-- Day-2 networking e2e is **green**. Approve starting the **forward-port plan /
-  ADR** onto Velta core 2.62.0 (docs + patch inventory only), and/or a small
-  `worker-wasm` transport spike behind the existing JS transport seam — still
-  **without** pulling GPL UI into Velta.
-- Optional: whether day 3 should also try relay-native websockify, or stay on
-  the generic bridge for Velta’s first wasm demo.
+- Day 3 achieved **wasm lib check on Velta 2.62 in a side tree** without
+  touching master core. Approve **Day 4** continuing in the side tree toward
+  `wasm-pack` + smoke (still docs-only / side-tree until native+wasm are both
+  proven).
+- Confirm still **no** merge of wasm patches into `master` `core/` until a
+  full native check on a machine with OpenSSL/pkg-config passes.
