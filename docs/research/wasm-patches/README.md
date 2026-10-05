@@ -52,7 +52,7 @@ See [`SERIES`](SERIES). Rough mapping to inventory WASM-CORE ids:
 | 0002–0004 | Cargo target gates, tokio shim, `[patch.crates-io]` |
 | 0005–0006 | http/proxy stubs, blob ReadDir, vendors |
 | 0007–0008 | ws_tcp, clocks, blob sync_fs, fetch, path_exists, connect_tcp |
-| 0009 | blob_tests ↔ `image_metadata` BufReadSeek + avatar golden |
+| 0009 | blob_tests ↔ `image_metadata` BufReadSeek call sites (test-only; avatar golden unchanged from master) |
 
 ## Long-term patch home
 
@@ -64,7 +64,8 @@ See [`SERIES`](SERIES). Rough mapping to inventory WASM-CORE ids:
 [`.github/workflows/wasm-core-opt-in.yml`](../../../.github/workflows/wasm-core-opt-in.yml)
 runs on `workflow_dispatch`, `wasm-core/**` branches, or PRs touching wasm
 patches / wrapper. Steps: **apply-on-copy** → wasm `cargo check` →
-`wasm-pack` (MPL wrapper) → Playwright `get_system_info` smoke.
+`wasm-pack` (MPL wrapper) → Playwright `get_system_info` smoke → `wasm-opt -Os`
+(binaryen 120) → smoke on optimized artifact. First green run: Day 8.
 `continue-on-error: true`; does **not** hook Release workflows.
 
 ## Artifact path
@@ -72,6 +73,7 @@ patches / wrapper. Steps: **apply-on-copy** → wasm `cargo check` →
 Spike host (Day 4):  
 `/workspace/velta-wasm-port/packages/core-wasm/wasm-dist/deltachat_wasm_bg.wasm`  
 (~29 MB `--no-opt`; ~18 MB after `wasm-opt -Os`).
+In CI the in-repo wrapper builds to `$RUNNER_TEMP/velta-wasm-copy/packages/deltachat-wasm/wasm-dist/`.
 
 ## See also
 

@@ -81,3 +81,30 @@ jobs:
           npm install --no-fund --no-audit playwright@1.56.0
           npx playwright install --with-deps chromium
           node smoke-deltachat-wasm.mjs
+
+      # Size step (Day 8): binaryen pinned to version_120 (matches local
+      # measurement 29.9 MB → 18.5 MB). Informational; smoke re-runs on the
+      # optimized artifact so a broken wasm-opt output is caught.
+      - name: wasm-opt -Os (binaryen 120)
+        continue-on-error: true
+        working-directory: ${{ runner.temp }}/velta-wasm-copy/packages/deltachat-wasm/wasm-dist
+        run: |
+          curl -sSfL https://github.com/WebAssembly/binaryen/releases/download/version_120/binaryen-version_120-x86_64-linux.tar.gz \
+            | tar -xz -C "$RUNNER_TEMP"
+          WASM_OPT="$RUNNER_TEMP/binaryen-version_120/bin/wasm-opt"
+          "$WASM_OPT" --version
+          before=$(stat -c %s deltachat_wasm_bg.wasm)
+          "$WASM_OPT" -Os \
+            --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext \
+            --enable-mutable-globals --enable-reference-types --enable-multivalue \
+            deltachat_wasm_bg.wasm -o deltachat_wasm_bg.opt.wasm
+          mv deltachat_wasm_bg.opt.wasm deltachat_wasm_bg.wasm
+          after=$(stat -c %s deltachat_wasm_bg.wasm)
+          echo "wasm-opt: $before -> $after bytes" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Browser smoke on wasm-opt artifact
+        continue-on-error: true
+        env:
+          PACKAGE_ROOT: ${{ runner.temp }}/velta-wasm-copy/packages/deltachat-wasm
+        working-directory: ${{ github.workspace }}/scripts
+        run: node smoke-deltachat-wasm.mjs

@@ -9,4 +9,4 @@
 0006-spike-blob-ReadDir-cfg-async-imap-0.11.3-vendor-with.patch
 0007-spike-port-0005-ws_tcp-0006-clocks-0007-blob-sync_fs.patch
 0008-spike-path_exists-is_dir-call-sites-wasm-connect_tcp.patch
-0009-spike-fix-blob_tests-image_metadata-and-avatar-golden.patch
+0009-spike-fix-blob_tests-for-image_metadata-BufReadSeek-API.patch
