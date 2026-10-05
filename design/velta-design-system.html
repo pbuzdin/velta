@@ -17,11 +17,17 @@
     background: var(--page-bg); color: var(--ink); padding: 40px 5vw 80px;
   }
   h1 { font-size: 26px; margin-bottom: 4px; }
-  .sub { color: var(--dim); font-size: 13.5px; margin-bottom: 28px; }
-  h2 { font-size: 20px; margin: 40px 0 6px; }
+  .sub { color: var(--dim); font-size: 13.5px; margin-bottom: 6px; }
+  .toc a { color: var(--accent); text-decoration: none; margin-right: 4px; }
+  .toc a:hover { text-decoration: underline; }
+  h2 {
+    font-size: 20px; margin: 0 0 6px; padding: 10px 0 8px;
+    position: sticky; top: 0; z-index: 5;
+    background: var(--page-bg); border-bottom: 1px solid var(--line);
+  }
   .note { color: var(--dim); font-size: 13px; margin-bottom: 14px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .panel h3 { margin-bottom: 10px; }
   .swatch { height: 44px; border-radius: 8px; border: 1px solid var(--line); margin-bottom: 8px; }
   .tok { font: 12.5px/1.4 ui-monospace, "Cascadia Mono", Consolas, monospace; }
   .tok .name { color: var(--accent); font-weight: 600; }
@@ -35,27 +41,121 @@
   .bar-ladder { display: flex; align-items: flex-end; gap: 6px; flex-wrap: wrap; margin: 12px 0 4px; }
   .bar-ladder i { display: block; background: var(--accent); border-radius: 3px 3px 0 0; }
   .bar-ladder span { font: 11px ui-monospace, monospace; color: var(--dim); text-align: center; }
-  #fetch-warn { display: none; background: #3a2b12; border: 1px solid #6b531d; color: #f0c96a;
-    padding: 12px 16px; border-radius: 10px; margin-bottom: 24px; font-size: 13.5px; }
-  section { margin-top: 34px; }
+  section { margin-top: 48px; }
   .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; }
   .legend { font-size: 12.5px; color: var(--dim); margin: 6px 0 12px; }
+  .card, section h2 { scroll-margin-top: 20px; }
+  .hl { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; animation: hlpulse 1s ease-out 2; }
+  @keyframes hlpulse { from { box-shadow: 0 0 0 8px rgba(90,162,230,.28); } to { box-shadow: 0 0 0 2px transparent; } }
+  .hl-soft { outline: 1px dashed rgba(90,162,230,.45); outline-offset: 6px; border-radius: 10px; }
+  .hlink { border: 0; background: none; color: var(--accent); opacity: .3; cursor: pointer;
+    padding: 3px 4px; margin-left: 6px; vertical-align: middle; border-radius: 4px; }
+  .hlink svg { display: block; }
+  h1:hover .hlink, h2:hover .hlink, h3:hover .hlink, .hlink:focus-visible { opacity: 1; }
+  .hlink.ok { color: var(--good); opacity: 1; }
+  @media (hover: none) { .hlink { opacity: .45; } }
+  .prin { margin: 10px 0 16px; padding-left: 18px; }
+  .prin li { margin: 8px 0; }
+  .prin b { color: var(--accent); font-weight: 600; }
 </style>
 </head>
 <body>
-<h1>Velta Design System</h1>
-<p class="sub">Token reference · colors parsed live from <span class="mono">app/css/main.css</span> · rhythm audit 2026-10-05 · v1.4.57 · companion to <span class="mono">velta-design-system.svg</span></p>
-<div id="fetch-warn">Could not load <span class="mono">../app/css/main.css</span> — open over HTTP (e.g. <span class="mono">node ../serve-no-cache.js</span> from <span class="mono">design/</span>), <span class="mono">file://</span> fetch is blocked by the browser.</div>
+<h1 id="top">Velta Design System</h1>
+<p class="sub">Static token reference · snapshot of <span class="mono">app/css/main.css</span> · v1.4.57 · 2026-10-05 · companion to <span class="mono">velta-design-system.svg</span> · regenerate card markup when tokens change</p>
+<p class="sub toc">Sections:
+  <a href="#colors-dark">colors-dark</a> · <a href="#colors-light">colors-light</a> · <a href="#colors-brutal">colors-brutal</a> ·
+  <a href="#typography">typography</a> · <a href="#spacing">spacing</a> · <a href="#radii">radii</a> ·
+  <a href="#structure">structure</a> · <a href="#principles">principles</a> · <a href="#rhythm-audit">rhythm-audit</a>
+  &nbsp;— every token has its own id: <span class="mono">#--bg</span>, <span class="mono">#--accent</span>, <span class="mono">#--nb-ink</span> …</p>
 
-<section>
-  <h2>Colors — every token, all three themes</h2>
-  <p class="note">Parsed live from the CSS source of truth. <span style="color:var(--warn)">Inherited</span> = theme does not override; it uses the dark (root) value.</p>
-  <div class="cols" id="theme-cols"></div>
+<section id="sec-colors">
+  <h2 id="colors-dark">Colors — Dark (primary)</h2>
+  <div class="cols">
+    <div class="panel">
+      <h3>Dark (primary)</h3>
+      <div class="card" id="--bg"><div class="swatch" style="background:#0f0f14"></div><div class="tok"><span class="name">--bg</span> <span class="val">#0f0f14</span></div></div>
+      <div class="card" id="--bg-sidebar"><div class="swatch" style="background:#181820"></div><div class="tok"><span class="name">--bg-sidebar</span> <span class="val">#181820</span></div></div>
+      <div class="card" id="--bg-chat"><div class="swatch" style="background:#0b0b10"></div><div class="tok"><span class="name">--bg-chat</span> <span class="val">#0b0b10</span></div></div>
+      <div class="card" id="--bg-hover"><div class="swatch" style="background:rgba(244,244,244,.055)"></div><div class="tok"><span class="name">--bg-hover</span> <span class="val">rgba(244,244,244,.055)</span></div></div>
+      <div class="card" id="--bg-active"><div class="swatch" style="background:#2b5278"></div><div class="tok"><span class="name">--bg-active</span> <span class="val">#2b5278</span></div></div>
+      <div class="card" id="--bg-bubble-in"><div class="swatch" style="background:#1c1c26"></div><div class="tok"><span class="name">--bg-bubble-in</span> <span class="val">#1c1c26</span></div></div>
+      <div class="card" id="--bg-bubble-out"><div class="swatch" style="background:#2b5278"></div><div class="tok"><span class="name">--bg-bubble-out</span> <span class="val">#2b5278 — doubles as selected-row color</span></div></div>
+      <div class="card" id="--bg-reply"><div class="swatch" style="background:rgba(244,244,244,.06)"></div><div class="tok"><span class="name">--bg-reply</span> <span class="val">rgba(244,244,244,.06)</span></div></div>
+      <div class="card" id="--accent"><div class="swatch" style="background:#5aa2e6"></div><div class="tok"><span class="name">--accent</span> <span class="val">#5aa2e6 — actions, links, unread</span></div></div>
+      <div class="card" id="--accent-2"><div class="swatch" style="background:#8774e1"></div><div class="tok"><span class="name">--accent-2</span> <span class="val">#8774e1 — p2p + local chat</span></div></div>
+      <div class="card" id="--text"><div class="swatch" style="background:#f2f2f5"></div><div class="tok"><span class="name">--text</span> <span class="val">#f2f2f5</span></div></div>
+      <div class="card" id="--text-dim"><div class="swatch" style="background:#8b8b96"></div><div class="tok"><span class="name">--text-dim</span> <span class="val">#8b8b96</span></div></div>
+      <div class="card" id="--text-meta-in"><div class="swatch" style="background:#8f8f9c"></div><div class="tok"><span class="name">--text-meta-in</span> <span class="val">#8f8f9c</span></div></div>
+      <div class="card" id="--text-meta-out"><div class="swatch" style="background:#a8c6e2"></div><div class="tok"><span class="name">--text-meta-out</span> <span class="val">#a8c6e2</span></div></div>
+      <div class="card" id="--green"><div class="swatch" style="background:#4fae4f"></div><div class="tok"><span class="name">--green</span> <span class="val">#4fae4f — online/verified presence</span></div></div>
+      <div class="card" id="--danger"><div class="swatch" style="background:#e05a5a"></div><div class="tok"><span class="name">--danger</span> <span class="val">#e05a5a — destructive</span></div></div>
+      <div class="card" id="--border"><div class="swatch" style="background:#181820;border-color:rgba(244,244,244,.4)"><div class="swatch" style="height:20px;background:rgba(244,244,244,.07)"></div></div><div class="tok"><span class="name">--border</span> <span class="val">rgba(244,244,244,.07)</span></div></div>
+      <div class="card" id="--shadow"><div class="swatch" style="background:var(--panel-2);box-shadow:0 4px 18px rgba(16,16,16,.45)"></div><div class="tok"><span class="name">--shadow</span> <span class="val">0 4px 18px rgba(16,16,16,.45)</span></div></div>
+      <div class="card" id="--radius-bubble"><div class="swatch" style="background:#2b5278;border-radius:14px"></div><div class="tok"><span class="name">--radius-bubble</span> <span class="val">14px</span></div></div>
+      <div class="card" id="--head-h"><div class="swatch" style="background:#2b5278;height:28px"></div><div class="tok"><span class="name">--head-h</span> <span class="val">56px — sidebar + chat header</span></div></div>
+      <div class="card" id="--list-bar-h"><div class="swatch" style="background:#2b5278;height:32px"></div><div class="tok"><span class="name">--list-bar-h</span> <span class="val">calc(64px + env(safe-area-inset-bottom))</span></div></div>
+    </div>
+
+    <div class="panel">
+      <h3 id="colors-light">Light</h3>
+      <div class="card" id="--bg-light"><div class="swatch" style="background:#f4f4f4"></div><div class="tok"><span class="name">--bg</span> <span class="val">#f4f4f4</span></div></div>
+      <div class="card" id="--bg-sidebar-light"><div class="swatch" style="background:#f4f4f4"></div><div class="tok"><span class="name">--bg-sidebar</span> <span class="val">#f4f4f4</span></div></div>
+      <div class="card" id="--bg-chat-light"><div class="swatch" style="background:#e7ebf0"></div><div class="tok"><span class="name">--bg-chat</span> <span class="val">#e7ebf0</span></div></div>
+      <div class="card" id="--bg-hover-light"><div class="swatch" style="background:rgba(16,16,16,.05)"></div><div class="tok"><span class="name">--bg-hover</span> <span class="val">rgba(16,16,16,.05)</span></div></div>
+      <div class="card" id="--bg-active-light"><div class="swatch" style="background:#5aa2e6"></div><div class="tok"><span class="name">--bg-active</span> <span class="val">#5aa2e6</span></div></div>
+      <div class="card" id="--bg-bubble-in-light"><div class="swatch" style="background:#f4f4f4"></div><div class="tok"><span class="name">--bg-bubble-in</span> <span class="val">#f4f4f4 — paper on grey-blue canvas, needs border</span></div></div>
+      <div class="card" id="--bg-bubble-out-light"><div class="swatch" style="background:#e1f0fb"></div><div class="tok"><span class="name">--bg-bubble-out</span> <span class="val">#e1f0fb</span></div></div>
+      <div class="card" id="--bg-reply-light"><div class="swatch" style="background:rgba(16,16,16,.05)"></div><div class="tok"><span class="name">--bg-reply</span> <span class="val">rgba(16,16,16,.05)</span></div></div>
+      <div class="card" id="--accent-light"><div class="swatch" style="background:#3390ec"></div><div class="tok"><span class="name">--accent</span> <span class="val">#3390ec</span></div></div>
+      <div class="card" id="--text-light"><div class="swatch" style="background:#16181d"></div><div class="tok"><span class="name">--text</span> <span class="val">#16181d</span></div></div>
+      <div class="card" id="--text-dim-light"><div class="swatch" style="background:#6f7480"></div><div class="tok"><span class="name">--text-dim</span> <span class="val">#6f7480</span></div></div>
+      <div class="card" id="--text-meta-in-light"><div class="swatch" style="background:#9aa0ab"></div><div class="tok"><span class="name">--text-meta-in</span> <span class="val">#9aa0ab</span></div></div>
+      <div class="card" id="--text-meta-out-light"><div class="swatch" style="background:#2a6ea6"></div><div class="tok"><span class="name">--text-meta-out</span> <span class="val">#2a6ea6</span></div></div>
+      <div class="card" id="--border-light"><div class="swatch" style="background:rgba(16,16,16,.08)"></div><div class="tok"><span class="name">--border</span> <span class="val">rgba(16,16,16,.08)</span></div></div>
+      <div class="card" id="--shadow-light"><div class="swatch" style="background:#e7ebf0;box-shadow:0 4px 18px rgba(16,16,16,.18)"></div><div class="tok"><span class="name">--shadow</span> <span class="val">0 4px 18px rgba(16,16,16,.18)</span></div></div>
+      <div class="card" id="--accent-2-light"><div class="swatch" style="background:#8774e1"></div><div class="tok"><span class="name">--accent-2</span> <span class="val">#8774e1</span></div><div class="inh">inherited from dark — contrast on light unverified</div></div>
+      <div class="card" id="--green-light"><div class="swatch" style="background:#4fae4f"></div><div class="tok"><span class="name">--green</span> <span class="val">#4fae4f</span></div><div class="inh">inherited from dark — contrast on light unverified</div></div>
+      <div class="card" id="--danger-light"><div class="swatch" style="background:#e05a5a"></div><div class="tok"><span class="name">--danger</span> <span class="val">#e05a5a</span></div><div class="inh">inherited from dark — contrast on light unverified</div></div>
+      <div class="card" id="--radius-bubble-light"><div class="swatch" style="background:#e1f0fb;border-radius:14px"></div><div class="tok"><span class="name">--radius-bubble</span> <span class="val">14px</span></div><div class="inh">inherited from dark</div></div>
+      <div class="card" id="--head-h-light"><div class="swatch" style="background:#5aa2e6;height:28px"></div><div class="tok"><span class="name">--head-h</span> <span class="val">56px</span></div><div class="inh">inherited from dark</div></div>
+      <div class="card" id="--list-bar-h-light"><div class="swatch" style="background:#5aa2e6;height:32px"></div><div class="tok"><span class="name">--list-bar-h</span> <span class="val">calc(64px + env(safe-area-inset-bottom))</span></div><div class="inh">inherited from dark</div></div>
+    </div>
+
+    <div class="panel">
+      <h3 id="colors-brutal">Brutal (neobrutalist, dark only)</h3>
+      <div class="card" id="--bg-brutal"><div class="swatch" style="background:#22222b"></div><div class="tok"><span class="name">--bg</span> <span class="val">#22222b</span></div></div>
+      <div class="card" id="--bg-sidebar-brutal"><div class="swatch" style="background:#2a2a35"></div><div class="tok"><span class="name">--bg-sidebar</span> <span class="val">#2a2a35</span></div></div>
+      <div class="card" id="--bg-chat-brutal"><div class="swatch" style="background:#1b1b22"></div><div class="tok"><span class="name">--bg-chat</span> <span class="val">#1b1b22</span></div></div>
+      <div class="card" id="--bg-hover-brutal"><div class="swatch" style="background:rgba(244,244,244,.07)"></div><div class="tok"><span class="name">--bg-hover</span> <span class="val">rgba(244,244,244,.07)</span></div></div>
+      <div class="card" id="--bg-active-brutal"><div class="swatch" style="background:#e0b52f"></div><div class="tok"><span class="name">--bg-active</span> <span class="val">#e0b52f — vivid main yellow</span></div></div>
+      <div class="card" id="--bg-bubble-in-brutal"><div class="swatch" style="background:#2d2d38"></div><div class="tok"><span class="name">--bg-bubble-in</span> <span class="val">#2d2d38</span></div></div>
+      <div class="card" id="--bg-bubble-out-brutal"><div class="swatch" style="background:#e0b52f"></div><div class="tok"><span class="name">--bg-bubble-out</span> <span class="val">#e0b52f</span></div></div>
+      <div class="card" id="--bg-reply-brutal"><div class="swatch" style="background:rgba(18,16,22,.08)"></div><div class="tok"><span class="name">--bg-reply</span> <span class="val">rgba(18,16,22,.08)</span></div></div>
+      <div class="card" id="--accent-brutal"><div class="swatch" style="background:#8f7ff0"></div><div class="tok"><span class="name">--accent</span> <span class="val">#8f7ff0</span></div></div>
+      <div class="card" id="--accent-2-brutal"><div class="swatch" style="background:#4fd1c5"></div><div class="tok"><span class="name">--accent-2</span> <span class="val">#4fd1c5</span></div></div>
+      <div class="card" id="--text-brutal"><div class="swatch" style="background:#f2f0e9"></div><div class="tok"><span class="name">--text</span> <span class="val">#f2f0e9</span></div></div>
+      <div class="card" id="--text-dim-brutal"><div class="swatch" style="background:#a3a0ad"></div><div class="tok"><span class="name">--text-dim</span> <span class="val">#a3a0ad</span></div></div>
+      <div class="card" id="--text-meta-in-brutal"><div class="swatch" style="background:#918e9c"></div><div class="tok"><span class="name">--text-meta-in</span> <span class="val">#918e9c</span></div></div>
+      <div class="card" id="--text-meta-out-brutal"><div class="swatch" style="background:#55480a"></div><div class="tok"><span class="name">--text-meta-out</span> <span class="val">#55480a — dark ink on yellow</span></div></div>
+      <div class="card" id="--green-brutal"><div class="swatch" style="background:#3ecf5a"></div><div class="tok"><span class="name">--green</span> <span class="val">#3ecf5a</span></div></div>
+      <div class="card" id="--danger-brutal"><div class="swatch" style="background:#ef6461"></div><div class="tok"><span class="name">--danger</span> <span class="val">#ef6461</span></div></div>
+      <div class="card" id="--border-brutal"><div class="swatch" style="background:#45434f"></div><div class="tok"><span class="name">--border</span> <span class="val">#45434f — 2px ink rules in brutal styles</span></div></div>
+      <div class="card" id="--shadow-brutal"><div class="swatch" style="background:#2d2d38;box-shadow:4px 4px 0 #121017"></div><div class="tok"><span class="name">--shadow</span> <span class="val">4px 4px 0 #121017 — hard offset print shadow</span></div></div>
+      <div class="card" id="--radius-bubble-brutal"><div class="swatch" style="background:#e0b52f;border-radius:6px"></div><div class="tok"><span class="name">--radius-bubble</span> <span class="val">6px</span></div></div>
+      <div class="card" id="--nb-ink"><div class="swatch" style="background:#121017"></div><div class="tok"><span class="name">--nb-ink</span> <span class="val">#121017 — strong borders + hard shadow ink</span></div></div>
+      <div class="card" id="--nb-main"><div class="swatch" style="background:#e0b52f"></div><div class="tok"><span class="name">--nb-main</span> <span class="val">#e0b52f — the vivid main yellow</span></div></div>
+      <div class="card" id="--nb-main-ink"><div class="swatch" style="background:#211d05"></div><div class="tok"><span class="name">--nb-main-ink</span> <span class="val">#211d05 — text on main yellow</span></div></div>
+      <div class="card" id="--head-h-brutal"><div class="swatch" style="background:#e0b52f;height:28px"></div><div class="tok"><span class="name">--head-h</span> <span class="val">56px</span></div><div class="inh">inherited from dark</div></div>
+      <div class="card" id="--list-bar-h-brutal"><div class="swatch" style="background:#e0b52f;height:32px"></div><div class="tok"><span class="name">--list-bar-h</span> <span class="val">calc(64px + env(safe-area-inset-bottom))</span></div><div class="inh">inherited from dark</div></div>
+    </div>
+  </div>
 </section>
 
 <section>
-  <h2>Typography ladder</h2>
-  <div class="bar-ladder" id="type-ladder"></div>
+  <h2 id="typography">Typography ladder</h2>
+  <div class="bar-ladder" id="type-ladder">
+    <span><i style="width:22px;height:34px"></i>8.5</span><span><i style="width:22px;height:44px"></i>11</span><span><i style="width:22px;height:46px"></i>11.5</span><span><i style="width:22px;height:48px"></i>12</span><span><i style="width:22px;height:50px"></i>12.5</span><span><i style="width:22px;height:52px"></i>13</span><span><i style="width:22px;height:54px"></i>13.5</span><span><i style="width:22px;height:56px"></i>14</span><span><i style="width:22px;height:58px"></i>14.5</span><span><i style="width:22px;height:60px"></i>15</span><span><i style="width:22px;height:62px"></i>15.5</span><span><i style="width:22px;height:68px"></i>17</span><span><i style="width:22px;height:72px"></i>18</span><span><i style="width:22px;height:80px"></i>20</span><span><i style="width:22px;height:88px"></i>22</span>
+  </div>
   <p class="note">Single stack: <span class="mono">-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif</span>. Half-pixel steps are deliberate (compact ladder).</p>
   <table>
     <tr><th>Role</th><th>Size</th><th>Where</th></tr>
@@ -68,9 +168,11 @@
 </section>
 
 <section>
-  <h2>Spacing — 2px grid</h2>
-  <div class="bar-ladder" id="space-ladder"></div>
-  <p class="legend">Bar height = observed count in main.css. Bold = off-grid (odd on the 2px grid).</p>
+  <h2 id="spacing">Spacing — 2px grid</h2>
+  <div class="bar-ladder" id="space-ladder">
+    <span><i style="width:26px;height:14px;background:var(--bad)"></i>1†</span><span><i style="width:26px;height:20px"></i>2</span><span><i style="width:26px;height:26px;background:var(--bad)"></i>3†</span><span><i style="width:26px;height:32px"></i>4</span><span><i style="width:26px;height:38px;background:var(--bad)"></i>5†</span><span><i style="width:26px;height:44px"></i>6</span><span><i style="width:26px;height:50px;background:var(--bad)"></i>7†</span><span><i style="width:26px;height:56px"></i>8</span><span><i style="width:26px;height:62px;background:var(--bad)"></i>9†</span><span><i style="width:26px;height:68px"></i>10</span><span><i style="width:26px;height:74px;background:var(--bad)"></i>11†</span><span><i style="width:26px;height:80px"></i>12</span><span><i style="width:26px;height:86px;background:var(--bad)"></i>13†</span><span><i style="width:26px;height:92px"></i>14</span><span><i style="width:26px;height:98px;background:var(--bad)"></i>15†</span><span><i style="width:26px;height:104px"></i>16</span><span><i style="width:26px;height:116px"></i>18</span><span><i style="width:26px;height:140px"></i>22</span>
+  </div>
+  <p class="legend">Bar height = occurrences among gap/padding/margin values in main.css, re-audit 2026-10-05 after snap commit <span class="mono">d3526f4</span> (integers, absolute; var/calc/env excluded). Red (†) = odd on the 2px grid. Above the ladder: 24×4, 26×1, 32×1 (one-off structural). On-grid values now cover ~89% of all uses.</p>
   <table>
     <tr><th>Tier</th><th>Values</th><th>Used for</th></tr>
     <tr><td>Gap — tight</td><td class="mono">2 · 4</td><td>icon↔label, head-actions, meta</td></tr>
@@ -83,12 +185,12 @@
 </section>
 
 <section>
-  <h2>Radii</h2>
-  <p class="legend">Ladder: 6 (small controls) · 8 (rows/buttons) · 10 (cards) · 12 (chips/badges) · 14 (bubbles, --radius-bubble) · 16 (modals/composer) · 999 (pills) · 50% (avatars/round btns). Off-grid one-offs: <span class="mono">9, 11, 18, 22%, 24.3%</span>.</p>
+  <h2 id="radii">Radii</h2>
+  <p class="legend">Ladder: 6 (small controls) · 8 (rows/buttons) · 10 (cards) · 12 (chips/badges) · 14 (bubbles, --radius-bubble) · 16 (modals/composer) · 999 (pills) · 50% (avatars/round btns). The 9/11/18 one-offs were snapped in <span class="mono">d3526f4</span>; the remaining 9px is the pin-tray count bubble — a deliberate half-height circle.</p>
 </section>
 
 <section>
-  <h2>Structural metrics</h2>
+  <h2 id="structure">Structural metrics</h2>
   <table>
     <tr><th>Token / element</th><th>Value</th><th>Notes</th></tr>
     <tr><td class="mono">--head-h</td><td class="mono">56px</td><td>sidebar + chat header, + env(safe-area-inset-top)</td></tr>
@@ -104,91 +206,97 @@
 </section>
 
 <section>
-  <h2>Rhythm audit — 2026-10-05</h2>
-  <p class="note">Every padding/margin/gap/size in main.css (351 styled blocks) checked against the 2px grid. Verdict: the system is a consistent 2px grid with four padding tiers and three gap tiers; ~15 off-grid one-offs. Snapping suggestions below — none are bugs.</p>
+  <h2 id="principles">Design principles</h2>
+  <ul class="prin">
+    <li><b>No pure black or white.</b> Every surface stops short of #000/#fff — dark canvas #0f0f14 with #f2f2f5 ink, light #f4f4f4 with #16181d. Softer on OLED, avoids halation, and keeps the brutal theme's hard offset shadows readable ink (#121017), not void.</li>
+    <li><b>Contrast carries the hierarchy.</b> Text/body pairs target WCAG AA, most hit AAA (table below). The known weak spots: light-theme text-dim 4.26 (AA only for large text) and light accent 3.01 (UI/large use only) — fix or accept deliberately.</li>
+    <li><b>Accent is a verb.</b> --accent marks actions, links, unread state — nothing else. Status never borrows it: --green for presence/verified, --danger for destructive, timestamps use dedicated meta greys (--text-meta-in/out), never accent, because accent-blue meta reads as clickable.</li>
+    <li><b>Hover changes surfaces, never text.</b> Interactive elements get --bg-hover / --bg-active overlays; text color stays put (and touch devices have no hover at all — every hover affordance has a press equivalent).</li>
+    <li><b>One stack, one grid.</b> System UI font everywhere (no webfont, no per-platform tuning); 2px spacing grid with three gap tiers and four padding tiers; half-pixel type steps are deliberate (compact ladder), documented not accidental.</li>
+    <li><b>Dark is the primary theme.</b> Light derives from it — any token a theme doesn't override is inherited from dark (flagged above), which is why --accent-2/--green/--danger on light are marked "contrast unverified". Brutal is dark-only by design.</li>
+    <li><b>The shell owns its scaling.</b> text-size-adjust 100%, Android WebView textZoom pinned to 100, UI scale applied by Velta (applyUiScale), env(safe-area-inset-*) on every bar — no browser/OS text inflation surprises.</li>
+  </ul>
   <table>
-    <tr><th>Finding</th><th>Where</th><th>Suggestion</th></tr>
-    <tr><td class="off">gap 5px ×4, 7px ×1, 11px ×1</td><td>relay-detail-chip, msg-hover-reply, drawer-links, diag-switch, chat-item</td><td>snap to 4/6/8; chat-item → 10 or 12</td></tr>
-    <tr><td class="off">row padding 9px</td><td>chat-item, drawer summary, info-row, no-chat-badge</td><td>snap to 8 or 10 (elsewhere rows are 8/10)</td></tr>
-    <tr><td class="ok">bubble 7px 10px 6px, composer-input 13px</td><td>bubble, composer</td><td>intentional — optical centering / 48px target; keep, document</td></tr>
-    <tr><td class="off">day-chip 5px 13px</td><td>date separators</td><td>snap to 4px 12px or 6px 14px</td></tr>
-    <tr><td class="off">svg icon heights 13/14/16/17/20/22/26</td><td>7 sizes, no ladder</td><td>consolidate: 14 (inline) · 16 (meta) · 20 (buttons) · 22 (bar) · 26 (composer)</td></tr>
-    <tr><td class="off">radii 9, 11, 18</td><td>edit-profile btn, go-down badge, no-chat badge</td><td>fold into 8/12/16</td></tr>
-    <tr><td class="warn" style="color:var(--warn)">light theme inherits --accent-2, --green, --danger</td><td>html[data-theme="light"]</td><td>verify contrast on light bg; add overrides or mark as deliberate</td></tr>
+    <tr><th>Pair (WCAG 2.x)</th><th>Ratio</th><th>Grade</th></tr>
+    <tr><td>Dark: --text on --bg</td><td class="mono">17.11</td><td class="ok">AAA</td></tr>
+    <tr><td>Dark: --accent on --bg</td><td class="mono">7.05</td><td class="ok">AAA</td></tr>
+    <tr><td>Dark: --text on outgoing bubble</td><td class="mono">7.28</td><td class="ok">AAA</td></tr>
+    <tr><td>Dark: --text-dim on --bg</td><td class="mono">5.67</td><td class="ok">AA</td></tr>
+    <tr><td>Dark: --text-meta-in on incoming bubble</td><td class="mono">5.29</td><td class="ok">AA</td></tr>
+    <tr><td>Dark: --text-meta-out on outgoing bubble</td><td class="mono">4.59</td><td class="ok">AA (borderline)</td></tr>
+    <tr><td>Light: --text on --bg</td><td class="mono">16.15</td><td class="ok">AAA</td></tr>
+    <tr><td>Light: --text on outgoing bubble</td><td class="mono">15.27</td><td class="ok">AAA</td></tr>
+    <tr><td>Light: --text-dim on --bg</td><td class="mono">4.26</td><td class="off">fails AA normal text</td></tr>
+    <tr><td>Light: --accent on --bg</td><td class="mono">3.01</td><td class="off">AA large/UI only</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2 id="rhythm-audit">Rhythm audit — re-audit 2026-10-05, post-snap</h2>
+  <p class="note">Original audit checked every padding/margin/gap/size in main.css (351 styled blocks) against the 2px grid; the first snap landed in commit <span class="mono">d3526f4</span> (gaps 5/7/11, row paddings 9px, day-chip 5×13, radii 9/11/18 → resolved). This re-audit counts what remains. On-grid values now cover ~89% of all gap/padding/margin uses; the leftovers are horizontal chip paddings and documented deliberate exceptions.</p>
+  <table>
+    <tr><th>Finding</th><th>Where</th><th>Status / suggestion</th></tr>
+    <tr><td class="off">5px ×12, 9px ×3 — horizontal chip/badge paddings</td><td>badge <span class="mono">0 5px</span> (go-down, pin-tray-count), chips <span class="mono">3px 9px</span> (toast-chip, lc-queue-chip), msg-image margins <span class="mono">±5px</span></td><td>snap to <span class="mono">0 4px</span> / <span class="mono">3px 8px</span>/10px; cosmetic, low priority</td></tr>
+    <tr><td class="ok">bubble 7px 10px 6px · composer-input 13px · btn-primary 11px vertical</td><td>bubble, composer, primary buttons</td><td>deliberate — optical centering / 48px target; keep, documented</td></tr>
+    <tr><td class="ok">1px ×2, 3px ×8, 13px ×2, 15px ×1 micro-values</td><td>bot-chip 1.5px 4px, toast-close, meta gaps 3px, service-msg 3px, composer 13, one 15px</td><td>micro-typography scale below the grid; accept</td></tr>
+    <tr><td class="off">svg icon heights 13/14/16/17/20/22/26</td><td>7 sizes, no ladder</td><td>open — consolidate: 14 (inline) · 16 (meta) · 20 (buttons) · 22 (bar) · 26 (composer)</td></tr>
+    <tr><td class="off">radii: pin-tray-count 9px</td><td>18px-tall count bubble</td><td>deliberate half-height circle (renders as 50%)</td></tr>
+    <tr><td style="color:var(--warn)">light theme inherits --accent-2, --green, --danger</td><td>html[data-theme="light"]</td><td>open — contrast table above shows light accent 3.01 (UI-only) and text-dim 4.26 (fails AA normal); add overrides or accept</td></tr>
   </table>
 </section>
 
 <script>
-const THEMES = [
-  { key: ':root', label: 'Dark (primary)' },
-  { key: 'html[data-theme="light"]', label: 'Light' },
-  { key: 'html[data-theme="brutal"]', label: 'Brutal (neobrutalist)' },
-];
-async function main() {
-  let css;
-  try {
-    css = await (await fetch('../app/css/main.css')).text();
-  } catch (e) {
-    document.getElementById('fetch-warn').style.display = 'block';
-    return;
+// Hash navigation: #colors-brutal highlights that heading + its section content;
+// a token hash like #--accent highlights just that card.
+function applyHash() {
+  document.querySelectorAll('.hl,.hl-soft').forEach(el => el.classList.remove('hl', 'hl-soft'));
+  if (location.hash.length < 2) return;
+  const el = document.getElementById(location.hash.slice(1));
+  if (!el) return;
+  const panel = el.closest('.panel');
+  if (el.classList.contains('card')) {
+    el.classList.add('hl');
+  } else if (panel && (el.tagName === 'H3' || panel.contains(el))) {
+    panel.classList.add('hl');
+  } else if (el.tagName === 'H2' || el.tagName === 'H1') {
+    el.classList.add('hl');
+    const scope = el.closest('section');
+    if (scope) [...scope.children].forEach(c => { if (c !== el && c.tagName !== 'H2') c.classList.add('hl-soft'); });
   }
-  function extractBlock(css, selector) {
-    const i = css.indexOf(selector + ' {');
-    if (i < 0) return '';
-    let depth = 0;
-    for (let j = i + selector.length; j < css.length; j++) {
-      if (css[j] === '{') depth++;
-      else if (css[j] === '}') { if (--depth === 0) return css.slice(i + selector.length + 2, j); }
-    }
-    return '';
-  }
-  const cols = document.getElementById('theme-cols');
-  for (const t of THEMES) {
-    const rootTok = parseVars(extractBlock(css, ':root'));
-    const toks = parseVars(extractBlock(css, t.key));
-    const col = document.createElement('div');
-    col.className = 'panel';
-    col.innerHTML = '<h3 style="margin-bottom:10px">' + t.label + '</h3>';
-    const names = t.key === ':root' ? rootTok.keys() : new Set([...rootTok.keys(), ...toks.keys()]);
-    for (const name of names) {
-      const val = toks.get(name) || rootTok.get(name);
-      const inherited = !toks.has(name);
-      const card = document.createElement('div');
-      card.style.marginBottom = '10px';
-      const sw = name === 'shadow'
-        ? '<div class="swatch" style="background:var(--panel-2);box-shadow:' + cssEscape(val) + '"></div>'
-        : '<div class="swatch" style="background:' + cssEscape(val) + '"></div>';
-      card.innerHTML = sw + '<div class="tok"><span class="name">' + name + '</span> <span class="val">' + escapeHtml(val) + '</span></div>'
-        + (inherited ? '<div class="inh">inherited from dark</div>' : '');
-      col.appendChild(card);
-    }
-    cols.appendChild(col);
-  }
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' });
 }
-function parseVars(body) {
-  const m = new Map();
-  for (const decl of body.split(';')) {
-    const i = decl.indexOf(':');
-    if (i < 0) continue;
-    const p = decl.slice(0, i).trim();
-    if (p.startsWith('--')) m.set(p, decl.slice(i + 1).trim());
-  }
-  return m;
-}
-function escapeHtml(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
-function cssEscape(s) { return s.replace(/"/g, "'").replace(/\\/g, '\\\\'); }
+addEventListener('hashchange', applyHash);
+applyHash();
 
-// ladders
-const TYPE = [[8.5, '8.5'], [11, '11'], [11.5, '11.5'], [12, '12'], [12.5, '12.5'], [13, '13'], [13.5, '13.5'], [14, '14'], [14.5, '14.5'], [15, '15'], [15.5, '15.5'], [17, '17'], [18, '18'], [20, '20'], [22, '22']];
-const tl = document.getElementById('type-ladder');
-for (const [v, l] of TYPE) tl.insertAdjacentHTML('beforeend', '<span><i style="width:22px;height:' + (v * 4) + 'px"></i>' + l + '</span>');
-const SPACE = [[2, '2'], [4, '4'], [5, '5†'], [6, '6'], [7, '7†'], [8, '8'], [9, '9†'], [10, '10'], [11, '11†'], [12, '12'], [13, '13†'], [14, '14'], [16, '16'], [18, '18'], [22, '22']];
-const sl = document.getElementById('space-ladder');
-for (const [v, l] of SPACE) {
-  const off = l.includes('†');
-  sl.insertAdjacentHTML('beforeend', '<span><i style="width:26px;height:' + (v * 6 + 8) + 'px;background:' + (off ? 'var(--bad)' : 'var(--accent)') + '"></i>' + l + '</span>');
-}
-main();
+// Copy-link buttons on every heading with an id: one click/tap puts the
+// section URL (#id) on the clipboard; icon flashes a green check.
+(function addHeadingLinks() {
+  const svgLink = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M10 14a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 10a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>';
+  const svgOk = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>';
+  document.querySelectorAll('h1[id], h2[id], h3[id]').forEach(h => {
+    const b = document.createElement('button');
+    b.className = 'hlink';
+    b.title = 'Copy link to #' + h.id;
+    b.setAttribute('aria-label', 'Copy link to #' + h.id);
+    b.innerHTML = svgLink;
+    b.addEventListener('click', async e => {
+      e.stopPropagation();
+      const url = location.href.split('#')[0] + '#' + h.id;
+      let ok = true;
+      try { await navigator.clipboard.writeText(url); }
+      catch (err) {
+        const t = document.createElement('textarea');
+        t.value = url; document.body.appendChild(t); t.select();
+        try { ok = document.execCommand('copy'); } catch (e2) { ok = false; }
+        t.remove();
+      }
+      b.innerHTML = ok ? svgOk : svgLink;
+      b.classList.toggle('ok', ok);
+      setTimeout(() => { b.innerHTML = svgLink; b.classList.remove('ok'); }, 1200);
+    });
+    h.appendChild(b);
+  });
+})();
 </script>
 </body>
 </html>
