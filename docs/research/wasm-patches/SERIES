@@ -1,6 +1,7 @@
 # Ordered patches under series/ (Day 6 extract from velta-wasm-port/core
 # commits after baseline 0a10087 == Velta master core/ at extract time).
-# Cargo.lock hunks stripped; run cargo to refresh the lock after apply-on-copy.
+# Cargo.lock hunks stripped; the resolved copy locks are pinned in support/locks/
+# (apply-on-copy installs them; refresh with `refresh-lock` after editing patches).
 0001-apply-0002-wasm-deltachat-time-reads-the-clock-via-j.patch
 0002-spike-Cargo.toml-target-gate-tokio-wasm-shim-rusqlit.patch
 0003-spike-unify-tokio-through-wasm-shim-fix-Cargo-source.patch

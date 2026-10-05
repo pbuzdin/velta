@@ -1,6 +1,6 @@
 # Spike log — wasm core + WebSocket mail proxy
 
-**Status:** day 8 — opt-in CI **green on GitHub** (first in-repo wasm-pack + browser smoke); full `deltachat` lib nextest on apply-on-copy **1135/1135**; Day-7 avatar golden change **reverted** (was `png` lock drift, not a regression); `wasm-opt` step added to CI. Master `core/` unchanged.
+**Status:** day 9 — copy `Cargo.lock`s **pinned** (`support/locks/`, CI `--locked`); alice→bob e2e **PASS on the in-repo wrapper** built from the pinned apply-on-copy (no-opt + wasm-opt); [landing checklist](wasm-core-landing-checklist.md) drafted (not green). Day-8 CI incl. wasm-opt **green**. Master `core/` unchanged — **stays stock until the checklist is green**.
 Started **2026-10-05** (Europe/Moscow). Research baseline:
 [`wasm-core-mail-proxy.md`](wasm-core-mail-proxy.md).
 
@@ -427,14 +427,106 @@ No production `core/` wasm merge. `apply-core-patches.py verify` **13/13**.
 
 ---
 
-## Next concrete steps (day 9)
+## Day 9 (2026-10-06) — CI confirmed, lock pinned, in-repo e2e, landing checklist
 
-1. Re-dispatch opt-in CI to confirm the wasm-opt + optimized smoke steps green.
-2. Pin the copy `Cargo.lock` (generated, under `support/`) so CI is reproducible.
-3. Run the 2.62 alice→bob e2e (ws-tcp-proxy) against the **in-repo** wrapper artifact.
-4. Draft the landing checklist for a future reviewed core merge (still no merge).
+### 1. CI confirmation
+`workflow_dispatch` run [`37380548362`](https://github.com/pbuzdin/velta/actions/runs/37380548362)
+on `204a986` (2026-10-06 01:08–01:25 MSK, ~17 min): **success**, every step green
+including the new ones —
+`wasm-opt -Os (binaryen 120)`: **29 941 651 → 18 544 335 bytes**, and
+`Browser smoke on wasm-opt artifact`: `OK: core v2.62.0 answered get_system_info`.
+No other wasm-related runs on master since (Release/Android runs untouched).
+No fix needed.
+
+### 2. Copy `Cargo.lock` pinned
+Added `docs/research/wasm-patches/support/locks/` (path already used for support
+crates; `tools/apply-wasm-core-patches.py` + CI read it):
+
+| File | Notes |
+|---|---|
+| `core.Cargo.lock` | master `core/Cargo.lock` + the series' minimal re-resolve ("Locking 37 packages": wasm-bindgen 0.2.100→**0.2.129**, rusqlite 0.37→**0.40.2**, libsqlite3-sys 0.35→**0.38.2**, hashlink 0.10→0.12.2, js-sys/web-sys 0.3.106, sqlite-wasm-rs 0.5.5, vendored async-imap / astral-tokio-tar 0.6.3 / mail-builder 0.5.0 / tokio-wasm-shim, …) |
+| `deltachat-wasm.Cargo.lock` | wrapper is its own workspace; **seeded from the core copy lock** then resolved (only `console_error_panic_hook` added) → png **0.18.0**, same as core (the side tree had drifted to 0.18.1) |
+| `PROVENANCE` | sha256 of master `core/Cargo.lock` (`03978ad9…7ea5`), series, support/wrapper manifests, both locks; `wasm_bindgen_version=0.2.129` |
+
+Script (`tools/apply-wasm-core-patches.py`):
+- `apply-on-copy` installs both locks by default (fail-fast exit 3 *before copying*
+  if PROVENANCE inputs no longer match → run `refresh-lock`); `--no-pinned-lock` for
+  exploratory copies.
+- `verify-copy` fails on drift between copy locks and `support/locks/`.
+- New `lock-status` and `refresh-lock --dest <scratch>` (refuses repo / master `core/`).
+- Master `core/Cargo.lock` never written (verified: `git status core/` clean).
+
+CI: `lock-status` → apply-on-copy → `git diff --exit-code -- core/` → `cargo check --locked`
+→ `wasm-bindgen-cli` version read from `PROVENANCE` → `wasm-pack … -- --locked` + diff of
+the wrapper lock against the pin.
+
+Local verification (pinned copy `/tmp/velta-wasm-day9`):
+
+| Step | Result |
+|---|---|
+| `cargo check --locked -p deltachat --lib --target wasm32-unknown-unknown --no-default-features` | **PASS** (1m35s; 4 pre-existing warnings) |
+| `wasm-pack build --target web --release --no-opt --out-dir ../wasm-dist -- --locked` | **PASS** (3m02s); both locks byte-identical afterwards |
+| `wasm-opt -Os` (binaryen 120, CI feature flags) | **29 917 803 → 18 524 339 bytes** (54 s) |
+| `smoke-deltachat-wasm.mjs` on optimized artifact | **PASS** (`core v2.62.0`, sqlite 3.53.0; memfs roundtrip) |
+| Stale-lock negative test (edit a patch) | `REFUSED … series_sha256 …`, exit 3, nothing copied |
+
+### 3. alice→bob e2e on the in-repo wrapper — **PASS**
+New in-repo harness `scripts/e2e-deltachat-wasm-network.mjs` (port of the Day-4
+side-tree script; `PACKAGE_ROOT` + `WS_TCP_PROXY` env; never prints account
+addresses/passwords). Proxy: Unlicense `ws-tcp-proxy` from a scratch
+slothfulchat-web clone (not vendored). Relay: `nine.testrun.org`, unchanged.
+
+```sh
+python3 tools/apply-wasm-core-patches.py apply-on-copy --dest /tmp/velta-wasm-day9
+python3 tools/apply-wasm-core-patches.py verify-copy  --dest /tmp/velta-wasm-day9
+(cd /tmp/velta-wasm-day9/packages/deltachat-wasm/rust && \
+  CC=clang wasm-pack build --target web --release --no-opt --out-dir ../wasm-dist -- --locked)
+(cd /tmp/velta-wasm-day9/packages/deltachat-wasm/wasm-dist && \
+  wasm-opt -Os --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext \
+    --enable-mutable-globals --enable-reference-types --enable-multivalue \
+    deltachat_wasm_bg.wasm -o o.wasm && mv o.wasm deltachat_wasm_bg.wasm)
+cd scripts && npm install
+PACKAGE_ROOT=/tmp/velta-wasm-day9/packages/deltachat-wasm \
+WS_TCP_PROXY=/path/to/slothfulchat-web/packages/ws-tcp-proxy/ws-tcp-proxy.mjs \
+CHROMIUM_BIN=/usr/bin/google-chrome node e2e-deltachat-wasm-network.mjs
+```
+
+| Artifact | Result | Marker | In-page time |
+|---|---|---|---|
+| wasm-opt `-Os` (18.5 MB, sha256 `1fa7b45f…`) — the CI ship path | **PASS** `E2E_EXIT=0` | `wasm-roundtrip-hp1av0pxwon` | 6.2 s (~10 s wall) |
+| `--no-opt` (29.9 MB, sha256 `a28f4dd9…`) | **PASS** `E2E_EXIT=0` | `wasm-roundtrip-lz7nrg38dk` | 5.7 s |
+
+Same non-fatal friction as Day 2/4: 4× `net::ERR_FAILED` (autoconfig fetch / CORS),
+IPv6 `ENETUNREACH`, 443 ALPN eof then 993/465. First e2e on an artifact built
+entirely from in-repo inputs (series + support + pinned locks + MPL wrapper).
+
+### 4. Landing checklist (draft)
+[`wasm-core-landing-checklist.md`](wasm-core-landing-checklist.md): preconditions
+(OQ-1 → C, C2 consumer), series hygiene, lock/reproducibility (incl. reviewing the
+native rusqlite/libsqlite3-sys bumps the wasm deps would drag into `core/Cargo.lock`),
+native parity (nextest, golden/stock hash parity, 13/13, APK/sidecar builds),
+wasm build/size budget, repeated + relay-native + interop e2e, human/security
+review, COREUPDATE + rollback + Pavel's go-ahead. **Production `core/` stays
+stock until it is green.**
+
+### CI re-run with pinned locks
+Dispatched on the Day-9 commit (pinned locks, `--locked`); result recorded below once finished.
+
+### Master
+No production `core/` wasm merge; `core/` and `core/Cargo.lock` untouched.
+`apply-core-patches.py verify` **13/13**.
+
+---
+
+## Next concrete steps (day 10)
+
+1. Make CI e2e-capable (optional `workflow_dispatch` input that clones the
+   Unlicense proxy + runs `e2e-deltachat-wasm-network.mjs`), or keep e2e manual.
+2. Start burning down the checklist: series hygiene (rename "spike" subjects,
+   fix warnings), native test pass with the wasm-dragged crate bumps.
+3. Size budget proposal (brotli size of the 18.5 MB artifact).
 
 ## Ask Pavel to approve next
 
-- Day 8: CI green, full lib suite green on the canonical copy, golden question settled.
-- Approve Day 9 (lock pin + e2e from in-repo wrapper + landing checklist) — still **no** forced production core merge.
+- Day 9: lock pinned + CI `--locked`, in-repo e2e PASS, checklist drafted.
+- Approve Day 10 scope (above) — still **no** production `core/` merge.

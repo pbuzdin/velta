@@ -45,11 +45,19 @@ jobs:
           toolchain: nightly-2026-08-01
           targets: wasm32-unknown-unknown
 
-      - name: Apply wasm patches onto a copy (never master core/)
+      # Day 9: apply-on-copy installs the pinned locks from
+      # docs/research/wasm-patches/support/locks/ (refuses if stale vs master
+      # core/Cargo.lock or the series). All cargo steps below use --locked.
+      - name: Apply wasm patches onto a copy (never master core/) + pinned locks
         run: |
+          python3 tools/apply-wasm-core-patches.py lock-status
           python3 tools/apply-wasm-core-patches.py apply-on-copy --dest "$RUNNER_TEMP/velta-wasm-copy"
           python3 tools/apply-wasm-core-patches.py verify-copy --dest "$RUNNER_TEMP/velta-wasm-copy"
           test -d "$RUNNER_TEMP/velta-wasm-copy/packages/deltachat-wasm"
+          git diff --exit-code -- core/
+          WBG=$(sed -n 's/^wasm_bindgen_version=//p' docs/research/wasm-patches/support/locks/PROVENANCE)
+          echo "WASM_BINDGEN_VERSION=$WBG" >> "$GITHUB_ENV"
+          echo "pinned wasm-bindgen: $WBG" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: cargo check wasm lib
         working-directory: ${{ runner.temp }}/velta-wasm-copy/core
@@ -57,12 +65,13 @@ jobs:
           CC: clang
           CARGO_BUILD_JOBS: "2"
         run: |
-          cargo check -p deltachat --lib --target wasm32-unknown-unknown --no-default-features
+          cargo check --locked -p deltachat --lib --target wasm32-unknown-unknown --no-default-features
 
       - name: Install wasm-pack + matched wasm-bindgen-cli
         run: |
           cargo install wasm-pack --locked
-          cargo install wasm-bindgen-cli --version 0.2.129 --locked
+          # bindgen CLI must equal the wasm-bindgen crate in the pinned lock
+          cargo install wasm-bindgen-cli --version "$WASM_BINDGEN_VERSION" --locked
 
       - name: wasm-pack build (MPL wrapper)
         working-directory: ${{ runner.temp }}/velta-wasm-copy/packages/deltachat-wasm/rust
@@ -70,7 +79,9 @@ jobs:
           CC: clang
           CARGO_BUILD_JOBS: "2"
         run: |
-          wasm-pack build --target web --release --no-opt --out-dir ../wasm-dist
+          wasm-pack build --target web --release --no-opt --out-dir ../wasm-dist -- --locked
+          git -C "$GITHUB_WORKSPACE" diff --no-index --exit-code \
+            docs/research/wasm-patches/support/locks/deltachat-wasm.Cargo.lock "$PWD/Cargo.lock"
           ls -lh ../wasm-dist/deltachat_wasm_bg.wasm
 
       - name: Browser smoke (get_system_info)
