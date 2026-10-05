@@ -93,7 +93,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── velta-app/            # Tauri v2 wrapper
 │   └── src-tauri/
 │       ├── Cargo.toml        # depends on deltachat-jsonrpc (path on Android)
-│       ├── tauri.conf.json   # frontendDist: ../../app (no version — falls back to Cargo.toml)
+│       ├── tauri.conf.json   # frontendDist: ../../app (version mirrors Cargo.toml — Android reads only it)
 │       ├── capabilities/     # Tauri v2 ACL (default.json, mobile.json)
 │       ├── gen/android/      # generated Android project (cargo tauri android)
 │       ├── src/
@@ -1945,10 +1945,13 @@ do-not-regress rules; dates mark when the lesson was learned.
   the rest. `velta-core-service/` is secondary — read its README first.
 - **Version bumps** are one command: `node tools/bump.mjs <version>` — it
   rewrites the `velta-app` package version in `velta-app/src-tauri/Cargo.toml`
-  (+`Cargo.lock`) and regenerates `app/js/version.gen.js` (the PWA/mock
-  fallback ui.js imports). `tauri.conf.json` carries no version — Tauri falls
-  back to the Cargo package version natively, and `release.yml` reads it from
-  Cargo.toml. Each release commit notes both.
+  (+`Cargo.lock`), regenerates `app/js/version.gen.js` (the PWA/mock
+  fallback ui.js imports), and mirrors the version into `tauri.conf.json`.
+  The conf field is load-bearing for Android: tauri-cli's Android build reads
+  only the conf field for `tauri.android.versionName/Code` (no Cargo
+  fallback) — a missing conf version ships the APK as versionCode 1 /
+  versionName "1.0" (the v1.4.58 regression). Desktop builds and
+  `release.yml` use Cargo.toml. Each release commit notes both.
 - **README convention** — every `##` section below "Screenshots" is wrapped
   in `<details><summary>…</summary>` with a blank line after `</summary>`,
   so the front page stays short.
