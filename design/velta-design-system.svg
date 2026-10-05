@@ -588,7 +588,7 @@
     </g>
     <text x="500" y="42" class="small">Gaps: 2/4 tight · 6/8 default · 10/12/14 loose. Padding tiers: 12 rows·bubbles · 14 composer·toasts · 18 modals·drawer.</text>
     <text x="500" y="68" class="small">Structural: --head-h 56 · --list-bar-h 64+safe · bar-btn 46 · composer 48 · avatar 56/44/42/36/34 · icon-btn 40.</text>
-    <text x="500" y="94" class="small">Icon svg ladder: 14 inline · 16 meta · 20 buttons · 22 bar · 26 composer (7 ad-hoc sizes today — consolidate).</text>
+    <text x="500" y="94" class="small">Icon ladder tokens --ico-1..5: 14 inline · 16 ui · 20 rows · 22 bar · 26 composer (global svg fallback 24px).</text>
     <text x="500" y="120" class="small">Snapped d3526f4 + snap II: gaps 5·7·11, pads 9, chips 0 5/3 9, day-chip, radii 9·11·18, light dim/green contrast. Deliberate: bubble 7/10/6, composer 13 → 48px, ±5px media bleed.</text>
   </g>
 

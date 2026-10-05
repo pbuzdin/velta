@@ -201,6 +201,7 @@
     <tr><td>Icon buttons</td><td class="mono">40px, svg 20–22</td><td>50% radius</td></tr>
     <tr><td>Avatars</td><td class="mono">56 (drawer) · 44 · 42 · 36 · 34</td><td>22% tile radius, photo pad 2.5%</td></tr>
     <tr><td>Shadow</td><td class="mono">0 4px 18px rgba(16,16,16,.45/.18)</td><td>brutal: 4px 4px 0 ink</td></tr>
+    <tr><td class="mono">--ico-1..5</td><td class="mono">14 / 16 / 20 / 22 / 26px</td><td>icon ladder: inline · small ui · rows/buttons · bars · composer</td></tr>
     <tr><td>Motion</td><td class="mono">.15s hover · .2s panels</td><td>see SVG “Motion &amp; states”</td></tr>
   </table>
 </section>
@@ -241,7 +242,7 @@
     <tr><td class="ok">msg media margins ±5px</td><td>msg-image, msg-video, msg-audio</td><td>deliberate — half of the bubble's 10px padding, geometric half-bleed</td></tr>
     <tr><td class="ok">bubble 7px 10px 6px · composer-input 13px · btn-primary 11px vertical</td><td>bubble, composer, primary buttons</td><td>deliberate — optical centering / 48px target; keep, documented</td></tr>
     <tr><td class="ok">1px ×2, 3px ×8, 13px ×2, 15px ×1 micro-values</td><td>bot-chip 1.5px 4px, toast-close, meta gaps 3px, service-msg 3px, composer 13, one 15px</td><td>micro-typography scale below the grid; accept</td></tr>
-    <tr><td class="off">svg icon heights 13/14/16/17/20/22/26</td><td>7 sizes, no ladder</td><td>open — consolidate: 14 (inline) · 16 (meta) · 20 (buttons) · 22 (bar) · 26 (composer)</td></tr>
+    <tr><td class="ok">svg icon heights 13/14/16/17/20/22/26</td><td>all icon rules</td><td>resolved — --ico-1..5 tokens (14/16/20/22/26): 13→14, 17→16, 18→20, 12→14. Global svg fallback stays 24; display graphics (30/56/168/280) and controls (checkboxes, count badge) deliberately not tokenized</td></tr>
     <tr><td class="off">radii: pin-tray-count 9px</td><td>18px-tall count bubble</td><td>deliberate half-height circle (renders as 50%)</td></tr>
     <tr><td class="ok">light theme contrast pass</td><td>html[data-theme="light"]</td><td>resolved — --text-dim #656a76 (4.93, AA), --green #3d9146 override (3.58, UI); inherited --danger 3.3 and --accent-2 3.4 verified UI-ok; --accent 3.01 accepted as UI-only</td></tr>
   </table>

@@ -19,6 +19,9 @@
   --border: rgba(244,244,244,.07);
   --shadow: 0 4px 18px rgba(16,16,16,.45);
   --radius-bubble: 14px;
+  /* icon ladder: --ico-1 inline/meta · --ico-2 small ui · --ico-3 rows/buttons · --ico-4 bars · --ico-5 composer.
+     The global svg fallback stays 24px; display graphics (30/56/168/280) are deliberately not tokens. */
+  --ico-1: 14px; --ico-2: 16px; --ico-3: 20px; --ico-4: 22px; --ico-5: 26px;
   --head-h: 56px; /* shared height of the sidebar and chat header bars */
   --list-bar-h: calc(64px + env(safe-area-inset-bottom)); /* 46px buttons + 18px padding + safe area */
   color-scheme: dark;
@@ -191,9 +194,9 @@ svg { width: 24px; height: 24px; display: block; }
 /* The relay selected for sending: static envelope, always visible. */
 .relay-detail-chip .relay-detail-send {
   display: inline-grid; place-items: center; flex: none;
-  width: 13px; height: 13px; color: var(--accent);
+  width: var(--ico-1); height: var(--ico-1); color: var(--accent);
 }
-.relay-detail-chip .relay-detail-send svg { width: 13px; height: 13px; }
+.relay-detail-chip .relay-detail-send svg { width: var(--ico-1); height: var(--ico-1); }
 .list-bar {
   display: flex; align-items: stretch; gap: 6px;
   padding: 8px 10px calc(10px + env(safe-area-inset-bottom));
@@ -207,7 +210,7 @@ svg { width: 24px; height: 24px; display: block; }
   color: var(--text); cursor: pointer;
   transition: transform .1s, background .15s, box-shadow .1s;
 }
-.bar-btn svg { width: 22px; height: 22px; }
+.bar-btn svg { width: var(--ico-4); height: var(--ico-4); }
 @media (hover: hover) and (pointer: fine) {
   .bar-btn:hover { background: var(--bg-hover); }
 }
@@ -236,12 +239,12 @@ svg { width: 24px; height: 24px; display: block; }
   display: grid; place-items: center;
   background: var(--bg-bubble-in); color: var(--accent);
 }
-.call-row-ico svg { width: 20px; height: 20px; }
+.call-row-ico svg { width: var(--ico-3); height: var(--ico-3); }
 .bar-opts-hint { font-size: 12px; color: var(--text-dim); padding: 2px 4px 4px; }
 .side-search-input { margin-bottom: 10px; }
 .side-option { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .side-option-label { font-size: 14.5px; font-weight: 500; color: var(--text); }
-.side-option-arrow { width: 18px; height: 18px; color: var(--text-dim); flex: none; }
+.side-option-arrow { width: var(--ico-3); height: var(--ico-3); color: var(--text-dim); flex: none; }
 .side-view .qr-view { display: flex; flex-direction: column; gap: 12px; padding: 4px 6px; }
 .side-view .qr-view .qr-box svg { width: 100%; height: auto; }
 
@@ -280,7 +283,7 @@ svg { width: 24px; height: 24px; display: block; }
   border-bottom: 1px solid rgba(128, 128, 128, .18);
   font: inherit; font-size: 13px;
 }
-.pinned-bar svg { width: 14px; height: 14px; color: var(--accent); flex: none; }
+.pinned-bar svg { width: var(--ico-1); height: var(--ico-1); color: var(--accent); flex: none; }
 .pinned-bar .pb-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pinned-bar .pb-text b { color: var(--text); font-weight: 600; }
 
@@ -295,7 +298,7 @@ svg { width: 24px; height: 24px; display: block; }
   padding: 7px 14px; cursor: pointer; list-style: none; text-align: left;
 }
 .pin-tray > summary::-webkit-details-marker { display: none; }
-.pin-tray > summary svg { width: 14px; height: 14px; color: var(--accent); flex: none; }
+.pin-tray > summary svg { width: var(--ico-1); height: var(--ico-1); color: var(--accent); flex: none; }
 .pin-tray > summary .pb-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pin-tray > summary .pb-text b { color: var(--text); font-weight: 600; }
 .pin-tray-count {
@@ -304,7 +307,7 @@ svg { width: 24px; height: 24px; display: block; }
   background: var(--accent); color: #f4f4f4; font-size: 11px; font-weight: 600;
 }
 .pin-tray-chevron { display: grid; place-items: center; color: var(--text-dim); }
-.pin-tray-chevron svg { width: 16px; height: 16px; }
+.pin-tray-chevron svg { width: var(--ico-2); height: var(--ico-2); }
 .pin-tray[open] .pin-tray-chevron svg { transform: rotate(180deg); }
 .pin-tray-list {
   display: flex; flex-direction: column;
@@ -422,10 +425,10 @@ html[data-theme="light"] .day-chip { background: rgba(244,244,244,.75); color: #
 }
 .read-marker-x {
   display: grid; place-items: center;
-  width: 22px; height: 22px; margin-left: -4px; border-radius: 50%;
+  width: var(--ico-4); height: var(--ico-4); margin-left: -4px; border-radius: 50%;
   color: inherit;
 }
-.read-marker-x svg { width: 14px; height: 14px; }
+.read-marker-x svg { width: var(--ico-1); height: var(--ico-1); }
 .read-marker-x:active { background: rgba(90,162,230,.2); }
 @media (hover: hover) and (pointer: fine) {
   .read-marker-x:hover { background: rgba(90,162,230,.16); }
@@ -519,7 +522,7 @@ html[data-theme="light"] .msg-select-btn { background: rgba(16, 16, 16, .08); }
 }
 .msg-row.out .msg-show-in-chat { left: -44px; }
 .msg-row:not(.out) .msg-show-in-chat { right: -44px; }
-.msg-show-in-chat svg { width: 20px; height: 20px; }
+.msg-show-in-chat svg { width: var(--ico-3); height: var(--ico-3); }
 .msg-row.has-original .bubble { max-width: min(480px, calc(90% - 44px)); }
 .msg-row.has-original.with-avatar .bubble { max-width: min(480px, calc(90% - 94px)); }
 .msg-row.selectable .msg-show-in-chat { display: none; }
@@ -553,7 +556,7 @@ html[data-theme="light"] .msg-show-in-chat {
   opacity: 0; pointer-events: none; transform: translateY(3px);
   transition: opacity .12s ease, transform .12s ease, background .12s ease;
 }
-.msg-hover-reply svg { width: 13px; height: 13px; flex: none; }
+.msg-hover-reply svg { width: var(--ico-1); height: var(--ico-1); flex: none; }
 @media (hover: hover) and (pointer: fine) {
   .msg-row:hover .msg-hover-reply {
     opacity: 1; pointer-events: auto; transform: translateY(0);
@@ -601,12 +604,12 @@ html[data-theme="light"] .msg-hover-reply {
 html[data-theme="light"] .service-msg { background: rgba(244,244,244,.8); color: #464b55; }
 .diag-copy {
   position: absolute; top: 5px; right: 7px;
-  width: 22px; height: 22px; padding: 0; border: none; border-radius: 6px;
+  width: var(--ico-4); height: var(--ico-4); padding: 0; border: none; border-radius: 6px;
   background: transparent; color: var(--text-dim, #8a8a93);
   display: none; align-items: center; justify-content: center;
   cursor: pointer; font-size: 12px;
 }
-.diag-copy svg { width: 13px; height: 13px; }
+.diag-copy svg { width: var(--ico-1); height: var(--ico-1); }
 @media (hover: hover) and (pointer: fine) {
   .msg-row.service:hover .diag-copy { display: flex; }
 }
@@ -724,7 +727,7 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
 @media (hover: hover) and (pointer: fine) {
   .invite-copy:hover { color: #f2f2f5; background: rgba(244, 244, 244, .10); }
 }
-.invite-copy svg { width: 16px; height: 16px; }
+.invite-copy svg { width: var(--ico-2); height: var(--ico-2); }
 /* Short-link placeholder while the full invite URL is being fetched. */
 .invite-card.invite-pending .invite-main { cursor: progress; }
 .invite-card.invite-pending .invite-line { opacity: .8; font-style: italic; }
@@ -781,7 +784,7 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
   display: flex; align-items: center; justify-content: center;
   background: var(--bg-hover); color: var(--accent);
 }
-.call-card-ico svg { width: 17px; height: 17px; }
+.call-card-ico svg { width: var(--ico-2); height: var(--ico-2); }
 .call-card-main { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .call-card-label { font-weight: 600; font-size: 13.5px; }
 .call-card-sub { font-size: 12px; color: var(--text-dim); }
@@ -793,7 +796,7 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
   padding: 1.5px 4px; border: 1px solid currentColor; border-radius: 4px;
   opacity: .85; cursor: default;
 }
-.msg-meta svg { width: 16px; height: 16px; }
+.msg-meta svg { width: var(--ico-2); height: var(--ico-2); }
 /* The ticks are a 3:2 glyph letterboxed in a 16px square (drawn height
    ~10.7px), while the timestamp digits' optical center sits ~1.5px above
    their line-box center (no descenders) — without the nudge the ticks read
@@ -804,7 +807,7 @@ html[data-theme="light"] .msg-meta .ticks.read { color: #1d8bf1; }
 /* Failed send: the red exclamation in the tick slot (the bubble additionally
    carries the reason badge + retry/remove). Also used in the chat list. */
 .ticks.failed, .ci-ticks.failed { color: var(--danger); }
-.msg-meta .star-ico { width: 13px; height: 13px; }
+.msg-meta .star-ico { width: var(--ico-1); height: var(--ico-1); }
 
 /* In-flight send: dotted ring from ticksSvg("pending") spins in place. */
 .msg-meta .ticks-spin { animation: ticks-spin .9s linear infinite; }
@@ -835,7 +838,7 @@ html[data-theme="brutal"] .msg-fail-badge { color: #3d3405; background: rgba(229
   border: none; background: none; cursor: pointer; border-radius: 50%;
   color: var(--danger, #e5484d); user-select: none;
 }
-.msg-fail-actions svg { width: 17px; height: 17px; display: block; }
+.msg-fail-actions svg { width: var(--ico-2); height: var(--ico-2); display: block; }
 @media (hover: hover) and (pointer: fine) {
   .msg-fail-actions button:hover { background: rgba(229, 72, 77, .14); }
 }
@@ -975,7 +978,7 @@ velta-video { display: block; height: 100%; }
   background: var(--accent); color: #f4f4f4;
   display: grid; place-items: center; flex: none;
 }
-.msg-file .file-ico svg { width: 22px; height: 22px; }
+.msg-file .file-ico svg { width: var(--ico-4); height: var(--ico-4); }
 .msg-file .file-name { font-size: 14.5px; font-weight: 500; }
 .msg-file .file-size { font-size: 12.5px; color: var(--text-dim); }
 .msg-row.out .msg-file .file-size { color: var(--text-meta-out); }
@@ -1005,7 +1008,7 @@ velta-video { display: block; height: 100%; }
   display: grid; place-items: center; color: #f4f4f4;
 }
 .msg-row.selected .msg-checkbox { background: var(--accent); border-color: var(--accent); }
-.msg-checkbox svg { width: 14px; height: 14px; }
+.msg-checkbox svg { width: var(--ico-1); height: var(--ico-1); }
 
 /* ---------- Go-down button ---------- */
 /* Sticky, not absolute: the button lives inside the scroll container, where
@@ -1093,7 +1096,7 @@ velta-video { display: block; height: 100%; }
   margin-right: 5px; padding: 0; border: 0; border-radius: 50%;
   background: none; color: var(--text-dim); cursor: pointer;
 }
-#btn-sticker svg { width: 22px; height: 22px; }
+#btn-sticker svg { width: var(--ico-4); height: var(--ico-4); }
 #btn-sticker:active { color: var(--accent); }
 @media (hover: hover) and (pointer: fine) {
   #btn-sticker:hover { color: var(--text); }
@@ -1128,7 +1131,7 @@ velta-video { display: block; height: 100%; }
    no extra offset — a 48px button centers its icon on the text line), with
    icons a notch larger than the generic 24px. */
 #main-composer .icon-btn { width: 48px; height: 48px; margin-bottom: 0; }
-#main-composer .icon-btn svg { width: 26px; height: 26px; }
+#main-composer .icon-btn svg { width: var(--ico-5); height: var(--ico-5); }
 
 /* ---------- Elena components ---------- */
 velta-avatar { display: block; flex: none; }
@@ -1200,9 +1203,9 @@ velta-chat-item { display: block; }
 .ci-main { flex: 1; min-width: 0; }
 .ci-top { display: flex; align-items: baseline; gap: 6px; }
 .ci-name { flex: 1; min-width: 0; font-size: 15.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 4px; }
-.ci-lock { width: 13px; height: 13px; color: var(--green); flex: none; }
+.ci-lock { width: var(--ico-1); height: var(--ico-1); color: var(--green); flex: none; }
 .ci-lock.open { color: var(--text-dim); }
-.ci-wifi { width: 13px; height: 13px; color: var(--green); flex: none; }
+.ci-wifi { width: var(--ico-1); height: var(--ico-1); color: var(--green); flex: none; }
 .ci-time { font-size: 12px; color: var(--text-dim); flex: none; }
 .ci-bottom { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
 .ci-last { flex: 1; min-width: 0; font-size: 14px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1215,9 +1218,9 @@ velta-chat-item { display: block; }
   display: grid; place-items: center; padding: 0 6px; flex: none;
 }
 .ci-badge.muted { background: var(--text-dim); }
-.ci-pin { width: 17px; height: 17px; color: var(--text-dim); flex: none; }
-.ci-mute { width: 16px; height: 16px; color: var(--text-dim); flex: none; }
-.ci-ticks { width: 17px; height: 17px; color: var(--text-dim); flex: none; }
+.ci-pin { width: var(--ico-2); height: var(--ico-2); color: var(--text-dim); flex: none; }
+.ci-mute { width: var(--ico-2); height: var(--ico-2); color: var(--text-dim); flex: none; }
+.ci-ticks { width: var(--ico-2); height: var(--ico-2); color: var(--text-dim); flex: none; }
 /* The global `svg { display: block }` rule turns the ticks into their own
    block line inside .ci-last, adding a whole text line of height to chat
    items that have one. Keep them inline with the preview text instead. */
@@ -1267,7 +1270,7 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .ctx-item:hover { background: var(--bg-hover); }
 }
 .ctx-item.danger { color: var(--danger); }
-.ctx-item svg { width: 20px; height: 20px; color: var(--text-dim); }
+.ctx-item svg { width: var(--ico-3); height: var(--ico-3); color: var(--text-dim); }
 .ctx-item.danger svg { color: var(--danger); }
 /* Setting toggles rendered as checkbox rows: the box is the state indicator
    and sits at the row's far edge; the label text stays on the left. */
@@ -1294,7 +1297,7 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 @media (hover: hover) and (pointer: fine) {
   .drawer-details summary:hover { background: var(--bg-hover); }
 }
-.drawer-details summary svg { width: 20px; height: 20px; color: var(--text-dim); flex: none; }
+.drawer-details summary svg { width: var(--ico-3); height: var(--ico-3); color: var(--text-dim); flex: none; }
 .scale-opts { display: flex; flex-direction: column; gap: 2px; padding: 2px 12px 8px 14px; }
 .scale-opt {
   display: flex; align-items: center; gap: 10px;
@@ -1446,7 +1449,7 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 .info-row:last-child { border-bottom: 0; }
 .info-row .k { color: var(--text-dim); }
 .info-row .v { font-weight: 500; display: flex; align-items: center; gap: 6px; }
-.info-row .v svg { width: 17px; height: 17px; }
+.info-row .v svg { width: var(--ico-2); height: var(--ico-2); }
 .info-row .v .avatar-profile-fpr { text-align: right; font-size: 12px; }
 /* disappearing-messages + mute editors (chat info sheet): option rows */
 .eph-row { display: flex; align-items: center; gap: 12px; padding: 10px 2px; cursor: pointer; font-size: 15px; }
@@ -1482,7 +1485,7 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
   border-radius: 10px; padding: 10px 12px; margin: 10px 0;
   font-size: 13.5px; color: var(--green);
 }
-.enc-note svg { width: 20px; height: 20px; flex: none; margin-top: 1px; }
+.enc-note svg { width: var(--ico-3); height: var(--ico-3); flex: none; margin-top: 1px; }
 
 /* settings drawer */
 .drawer {
@@ -1519,7 +1522,7 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
   transition: background .15s;
 }
 .drawer-links button:active { background: rgba(244, 244, 244, .24); }
-.drawer-links button svg { width: 12px; height: 12px; }
+.drawer-links button svg { width: var(--ico-1); height: var(--ico-1); }
 
 /* profile editor modal */
 .edit-profile .ep-avatar { display: flex; justify-content: center; padding: 6px 0 2px; }
@@ -1740,7 +1743,7 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 .ob-steps li.active { color: var(--text); }
 .ob-steps li.done { color: var(--text-dim); }
 .ob-steps li.failed { color: #e0685d; }
-.step-ico { width: 16px; height: 16px; flex: none; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; }
+.step-ico { width: var(--ico-2); height: var(--ico-2); flex: none; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; }
 li.active .step-ico { border: 2px solid var(--accent); border-top-color: transparent; animation: ob-spin .8s linear infinite; }
 li.done .step-ico { background: var(--accent); color: #f4f4f4; }
 li.done .step-ico::after { content: "✓"; }
@@ -1748,7 +1751,7 @@ li.failed .step-ico { background: #e0685d; color: #f4f4f4; }
 li.failed .step-ico::after { content: "✕"; }
 @keyframes ob-spin { to { transform: rotate(360deg); } }
 .btn-text:disabled { opacity: .55; pointer-events: none; }
-.btn-loading::before { content: ""; display: inline-block; width: 13px; height: 13px; margin-right: 7px; vertical-align: -2px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: ob-spin .8s linear infinite; }
+.btn-loading::before { content: ""; display: inline-block; width: var(--ico-1); height: var(--ico-1); margin-right: 7px; vertical-align: -2px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: ob-spin .8s linear infinite; }
 
 /* drawer close button */
 .drawer-head { position: relative; }
@@ -1773,7 +1776,7 @@ li.failed .step-ico::after { content: "✕"; }
 @media (hover: hover) and (pointer: fine) {
   .acct-pop .ctx-item:hover { background: rgba(244, 244, 244, .24); }
 }
-.acct-pop .ctx-item svg { width: 16px; height: 16px; }
+.acct-pop .ctx-item svg { width: var(--ico-2); height: var(--ico-2); }
 
 /* ---------- image lightbox ---------- */
 .lightbox {
