@@ -656,8 +656,11 @@ export class ChatView {
   }
 
   _typingStop() {
-    this._typing?.sender.stop();
+    const typing = this._typing;
     this._typing = null;
+    // A typing hint is never worth breaking close(): everything below it in
+    // close() (and in the app's closeChatUI) must still run (#86).
+    try { typing?.sender.stop(); } catch { /* ignore */ }
   }
 
   close() {
@@ -3185,10 +3188,20 @@ export class ChatView {
           main.style.transition = "";
         }
         appOf()?.classList.remove("swipe-back");
-        if (committed) this.onBack?.();
-        // onBack that leaves the chat open (the headless tests) still has
-        // .chat-open, whose transform:none would be stuck under the park.
-        if (committed && this._isCurrent()) {
+        // The back route runs the app's whole close path; if anything in it
+        // throws (#86: a local chat's teardown did), the column must not stay
+        // parked off-screen with .chat-open still on — that is a blank screen.
+        let failed = false;
+        if (committed) {
+          try { this.onBack?.(); } catch (err) {
+            failed = true;
+            console.error("swipe-back: closing the chat failed", err);
+          }
+        }
+        // onBack that leaves the chat open (the headless tests, or a failed
+        // close) still has .chat-open, whose transform:none would be stuck
+        // under the park.
+        if (committed && (failed || this._isCurrent())) {
           main.style.transform = "";
           main.style.transition = "";
         }
