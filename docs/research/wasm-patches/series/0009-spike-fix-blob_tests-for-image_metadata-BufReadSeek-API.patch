@@ -1,23 +1,16 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: spike <spike@local>
-Date: Tue, 6 Oct 2026 00:20:35 +0300
-Subject: [PATCH] spike: fix blob_tests for image_metadata BufReadSeek API +
- avatar golden
+Date: Tue, 06 Oct 2026 01:01:14 +0300
+Subject: [PATCH] spike: fix blob_tests for image_metadata BufReadSeek API
 
+Test-only call-site update for the wasm image_metadata signature.
+Avatar golden hash is unchanged from master (d57cb5ce...); the Day-7
+hash change was png 0.18.1 lock drift in the side tree, not code.
 
 diff --git a/src/blob/blob_tests.rs b/src/blob/blob_tests.rs
-index 34ebd92..bff053d 100644
+index 34ebd92..d138c8c 100644
 --- a/src/blob/blob_tests.rs
 +++ b/src/blob/blob_tests.rs
-@@ -228,7 +228,7 @@ async fn test_selfavatar_in_blobdir() {
-         .unwrap();
-     let avatar_cfg = t.get_config(Config::Selfavatar).await.unwrap().unwrap();
-     assert!(
--        avatar_cfg.ends_with("d57cb5ce5f371531b6e1fb17b6dd1af.png"),
-+        avatar_cfg.ends_with("b8c55604d4134d368ae128387a23720.png"),
-         "Avatar file name {avatar_cfg} should end with its hash"
-     );
- 
 @@ -587,7 +587,8 @@ pub(crate) async fn test(self) -> anyhow::Result<DynamicImage> {
              .context("failed to write file")?;
          check_image_size(&file, original_width, original_height);

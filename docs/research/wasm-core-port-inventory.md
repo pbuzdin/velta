@@ -120,7 +120,13 @@ into `apply-core-patches.py` (the 13 production patches).
 - Broad nextest filter **185/185 PASS**.
 - MPL `packages/deltachat-wasm` + smoke script; opt-in CI runs wasm-pack + Playwright.
 
-## Recommended Day 8
-1. Confirm opt-in workflow on GitHub Actions.
-2. Optional `wasm-opt` in CI; wider nextest on apply-copy.
+## Day 8 progress
+- Avatar golden: Day-7 change was `png` 0.18.1 lock drift; reverted — 0009 is test call sites only.
+- Opt-in CI **green on GitHub** (run 37375955983): in-repo wasm-pack + browser smoke.
+- Full `deltachat` lib nextest on apply-on-copy **1135/1135** (1 skipped).
+- `wasm-opt -Os` 29.9 → 18.5 MB, smoke PASS locally; CI step added.
+
+## Recommended Day 9
+1. Confirm wasm-opt CI steps; pin generated copy `Cargo.lock`.
+2. e2e from the in-repo wrapper artifact; landing checklist.
 3. Still **no** forced merge into Velta `master` `core/`.

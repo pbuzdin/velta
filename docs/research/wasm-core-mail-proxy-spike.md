@@ -1,6 +1,6 @@
 # Spike log — wasm core + WebSocket mail proxy
 
-**Status:** day 7 — blob_tests fixed; broadened nextest **185/185** (after avatar golden); MPL `packages/deltachat-wasm` landed; opt-in CI does wasm-pack+smoke. Master `core/` unchanged.
+**Status:** day 8 — opt-in CI **green on GitHub** (first in-repo wasm-pack + browser smoke); full `deltachat` lib nextest on apply-on-copy **1135/1135**; Day-7 avatar golden change **reverted** (was `png` lock drift, not a regression); `wasm-opt` step added to CI. Master `core/` unchanged.
 Started **2026-10-05** (Europe/Moscow). Research baseline:
 [`wasm-core-mail-proxy.md`](wasm-core-mail-proxy.md).
 
@@ -348,6 +348,10 @@ Day-4 port changed `image_metadata` to `fn(&mut R) -> Result<Option<Exif>>`
 `metadata().len()` where size was needed; update selfavatar golden hash to
 `b8c55604d4134d368ae128387a23720.png` (reencode output on this toolchain).
 
+> **Superseded Day 8:** the golden change was wrong — caused by side-tree
+> `Cargo.lock` drift to `png` 0.18.1, not by the port. 0009 now keeps the
+> master hash. See Day 8.
+
 ### nextest (side tree, `OPENSSL_NO_VENDOR=1`)
 | Suite | Result |
 |---|---|
@@ -371,14 +375,66 @@ No production `core/` wasm merge. `apply-core-patches.py verify` **13/13**.
 
 ---
 
-## Next concrete steps (day 8)
+## Day 8 (2026-10-06) — avatar golden settled, CI green, full nextest, wasm-opt
 
-1. Confirm opt-in CI green on GitHub (`workflow_dispatch`).
-2. Optionally widen nextest further / run on apply-copy tree (not only side tree).
-3. Decide landing checklist for a future carefully reviewed core merge (still not Day 8 by default).
-4. Size budget: enable `wasm-opt` in CI artifact step when ready.
+### `test_selfavatar_in_blobdir`: patch 0009 golden hid nothing — but was wrong
+| Tree | `png` in lock | Avatar file name | Result |
+|---|---|---|---|
+| Master `core/` (stock 2.62 + 13 Velta patches) | 0.18.0 | `d57cb5ce…af.png` | **PASS** (9/9 selfavatar tests) |
+| Side tree, wasm patches, lock as of Day 7 | **0.18.1** | `b8c55604…720.png` | PASS only with Day-7 golden |
+| Side tree, wasm patches, `png` pinned 0.18.0 | 0.18.0 | `d57cb5ce…af.png` | Day-7 golden **FAIL** → master hash returns |
+
+Same toolchain (nightly-2026-08-01) for all three runs. The port's `check_or_recode_to_size`
+reader refactor is byte-for-byte neutral; the difference was the `png` 0.18.1
+encoder (side-tree lock drift). apply-on-copy resolves `png` 0.18.0 (same as
+master), so the Day-7 golden would have **failed** on the canonical copy.
+
+**Fix:**
+- side tree: commit `9b696a7` — restore master golden, pin `png` 0.18.0
+- series: 0009 renamed to `0009-spike-fix-blob_tests-for-image_metadata-BufReadSeek-API.patch`;
+  now **test call-site changes only**, no golden change.
+
+Follow-up: `png` 0.18.1 changes recoded avatar bytes — harmless for behaviour
+(file name = content hash), but a core lock bump will need the same golden update
+in master too. Not a wasm issue.
+
+### Opt-in CI on GitHub — **green first try**
+`workflow_dispatch` run `37375955983` on `dadb5aa` (2026-10-06 00:27–00:40 MSK, ~13 min):
+apply-on-copy 9/9 → wasm `cargo check` (~3.5 min) → install wasm-pack + bindgen
+0.2.129 (~3 min) → **wasm-pack build of in-repo `packages/deltachat-wasm`** (~5.5 min)
+→ **Playwright smoke PASS**. No fixes needed. First in-repo (non-side-tree)
+wasm-pack + smoke.
+
+Notes: CI re-resolves the lock on the copy (series strips `Cargo.lock` hunks;
+"Locking 37 packages"). Fine today, but unpinned — consider committing a
+generated copy lock under `support/` before any landing.
+
+### Full nextest on apply-on-copy (native, `OPENSSL_NO_VENDOR=1`)
+`cargo nextest run -p deltachat --lib` on a fresh apply-on-copy of the 9-patch series:
+**1135 run: 1135 passed, 1 skipped** (38 s run after build). This is the
+canonical tree, not the side tree.
+
+### wasm-opt
+- Local: binaryen 120, `-Os` + explicit features (bulk-memory, nontrapping-fptoint,
+  sign-ext, mutable-globals, reference-types, multivalue): **29 918 680 → 18 516 912 bytes**
+  (~1m40s); browser smoke on optimized artifact **PASS**.
+- CI: added `wasm-opt -Os (binaryen 120)` step (pinned GitHub release tarball)
+  + second smoke on optimized artifact; both `continue-on-error`. Writes sizes to
+  the job summary. Not yet run on GitHub as of this commit.
+
+### Master
+No production `core/` wasm merge. `apply-core-patches.py verify` **13/13**.
+
+---
+
+## Next concrete steps (day 9)
+
+1. Re-dispatch opt-in CI to confirm the wasm-opt + optimized smoke steps green.
+2. Pin the copy `Cargo.lock` (generated, under `support/`) so CI is reproducible.
+3. Run the 2.62 alice→bob e2e (ws-tcp-proxy) against the **in-repo** wrapper artifact.
+4. Draft the landing checklist for a future reviewed core merge (still no merge).
 
 ## Ask Pavel to approve next
 
-- Day 7 unblocks lib tests + lands the MPL wrapper for opt-in CI smoke.
-- Approve Day 8 CI confirmation / wasm-opt — still **no** forced production core merge.
+- Day 8: CI green, full lib suite green on the canonical copy, golden question settled.
+- Approve Day 9 (lock pin + e2e from in-repo wrapper + landing checklist) — still **no** forced production core merge.
