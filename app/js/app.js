@@ -2025,7 +2025,10 @@ function closeChat() {
 function closeChatUI() {
   chatNavigation++;
   diagnosticsOpen = false;
-  chatView?.close();
+  // A throw inside the view's teardown must not skip the UI teardown below —
+  // the swipe-back parks the column off-screen and relies on .chat-open being
+  // dropped, otherwise the screen stays blank (#86).
+  try { chatView?.close(); } catch (err) { diagnostics.append("error", `closeChat: view teardown failed: ${err?.message || err}`); }
   state.activeChatId = null;
   state.activeChatHead = null;
   $("chat-head-info").replaceChildren();

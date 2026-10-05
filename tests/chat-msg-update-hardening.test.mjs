@@ -994,3 +994,100 @@ test("inline message links are not natively draggable but text stays selectable"
   assert.match(body, /-webkit-user-drag:\s*none/);
   assert.doesNotMatch(body, /user-select/, "link rule must not touch selection");
 });
+
+// ---- Local chats: swipe-back / swipe-to-reply (#86) ----
+
+const localChat = (id, extra = {}) => ({ id, kind: "single", unread: 0, encrypted: true, isP2p: true, ...extra });
+
+for (const [label, id, extra] of [
+  ["1:1 local chat", "p2p:peer1", {}],
+  ["local group", "p2pg:grp1", { kind: "group", isP2pGroup: true }],
+]) {
+  test(`swipe-back and swipe-to-reply work in a ${label}`, async t => {
+    const { view, core, node: byId } = setup(t);
+    core.getChat = async () => localChat(id, extra);
+    core.getMessages = async cid => page(message(10, cid));
+    let closes = 0;
+    view.onBack = () => { closes++; view.close(); };
+    assert.ok(await view.open(id));
+    mobileGestures(t, true);
+
+    // reply: the same row wiring as every other chat
+    const row = view._buildItem(view.msgIndex.get(10));
+    const bubble = document.createElement("div");
+    const target = touchOn(bubble);
+    await row.fire("touchstart", { touches: [{ clientX: 10, clientY: 40 }], target });
+    await row.fire("touchmove", { touches: [{ clientX: 200, clientY: 42 }], target, cancelable: true, preventDefault() {} });
+    assert.equal(bubble.style.transform, "translateX(64px)");
+    await row.fire("touchend", { touches: [] });
+    assert.equal(view.replyTo.id, 10, "a local chat replies by swipe");
+    assert.equal(bubble.style.transform, "");
+    view.replyTo = null;
+
+    // back: same route as the header button (onBack), column ends on the closed side
+    const scroller = byId("history-scroll");
+    const main = byId("main");
+    await scroller.fire("touchstart", { touches: [{ clientX: 200, clientY: 80 }] });
+    await scroller.fire("touchmove", { touches: [{ clientX: 100, clientY: 84 }], cancelable: true, preventDefault() {} });
+    await scroller.fire("touchend", { touches: [] });
+    await main.fire("transitionend");
+    assert.equal(closes, 1);
+    assert.equal(document.querySelector(".app").className.includes("swipe-back"), false);
+  });
+}
+
+test("a local group that is read-only does not slide on reply swipe", async t => {
+  const { view, core } = setup(t);
+  core.getChat = async () => localChat("p2pg:g", { kind: "group", isP2pGroup: true, readOnly: true });
+  await view.open("p2pg:g");
+  view.readOnly = true; // app.js openChat mirrors chat.readOnly onto the view
+  mobileGestures(t, true);
+  const row = view._buildItem(view.msgIndex.get(10));
+  const bubble = document.createElement("div");
+  const target = touchOn(bubble);
+  await row.fire("touchstart", { touches: [{ clientX: 10, clientY: 40 }], target });
+  await row.fire("touchmove", { touches: [{ clientX: 200, clientY: 42 }], target, cancelable: true, preventDefault() {} });
+  await row.fire("touchend", { touches: [] });
+  assert.ok(!bubble.style.transform, "no slide");
+  assert.equal(view.replyTo, null);
+});
+
+test("close() survives a typing sender that throws (local chat teardown, #86)", async t => {
+  const { view } = setup(t);
+  await view.open(7);
+  let stops = 0;
+  view._typing = { chatId: 7, sender: { stop() { stops++; throw new TypeError("Illegal invocation"); } } };
+  assert.doesNotThrow(() => view.close());
+  assert.equal(stops, 1);
+  assert.equal(view._typing, null);
+  assert.equal(view.chat, null, "the rest of close() ran");
+  assert.equal(view._session, null);
+});
+
+test("swipe-back whose close path throws does not leave the column parked off-screen", async t => {
+  const { view, node: byId } = setup(t);
+  view.onBack = () => { throw new Error("close failed"); };
+  t.mock.method(console, "error", () => {});
+  await view.open(7);
+  mobileGestures(t, true);
+  const scroller = byId("history-scroll");
+  const main = byId("main");
+  const app = document.querySelector(".app");
+  await scroller.fire("touchstart", { touches: [{ clientX: 200, clientY: 80 }] });
+  await scroller.fire("touchmove", { touches: [{ clientX: 100, clientY: 84 }], cancelable: true, preventDefault() {} });
+  await scroller.fire("touchend", { touches: [] });
+  assert.equal(main.style.transform, "translateX(-100%)");
+  await assert.doesNotReject(main.fire("transitionend"));
+  assert.equal(main.style.transform, "", "the chat comes back instead of a blank screen");
+  assert.equal(main.style.transition, "");
+  assert.equal(app.className.includes("swipe-back"), false);
+});
+
+test("closeChatUI keeps tearing the UI down when the view's close() throws", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8");
+  const body = src.slice(src.indexOf("function closeChatUI()"));
+  const fn = body.slice(0, body.indexOf("\n}\n"));
+  assert.match(fn, /try\s*\{\s*chatView\?\.close\(\);\s*\}\s*catch/);
+  assert.ok(fn.indexOf("catch") < fn.indexOf('classList.remove("chat-open")'), "chat-open is dropped after the guarded close");
+});
