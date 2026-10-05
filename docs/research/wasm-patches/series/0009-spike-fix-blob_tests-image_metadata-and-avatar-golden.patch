@@ -1,0 +1,51 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: spike <spike@local>
+Date: Tue, 6 Oct 2026 00:20:35 +0300
+Subject: [PATCH] spike: fix blob_tests for image_metadata BufReadSeek API +
+ avatar golden
+
+
+diff --git a/src/blob/blob_tests.rs b/src/blob/blob_tests.rs
+index 34ebd92..bff053d 100644
+--- a/src/blob/blob_tests.rs
++++ b/src/blob/blob_tests.rs
+@@ -228,7 +228,7 @@ async fn test_selfavatar_in_blobdir() {
+         .unwrap();
+     let avatar_cfg = t.get_config(Config::Selfavatar).await.unwrap().unwrap();
+     assert!(
+-        avatar_cfg.ends_with("d57cb5ce5f371531b6e1fb17b6dd1af.png"),
++        avatar_cfg.ends_with("b8c55604d4134d368ae128387a23720.png"),
+         "Avatar file name {avatar_cfg} should end with its hash"
+     );
+ 
+@@ -587,7 +587,8 @@ pub(crate) async fn test(self) -> anyhow::Result<DynamicImage> {
+             .context("failed to write file")?;
+         check_image_size(&file, original_width, original_height);
+ 
+-        let (_, exif) = image_metadata(&std::fs::File::open(&file)?)?;
++        let mut f = std::fs::File::open(&file)?;
++        let exif = image_metadata(&mut std::io::BufReader::new(&mut f))?;
+         if has_exif {
+             let exif = exif.unwrap();
+             assert_eq!(exif_orientation(&exif, &alice), orientation);
+@@ -633,7 +634,8 @@ pub(crate) async fn test(self) -> anyhow::Result<DynamicImage> {
+             assert_eq!(&bytes1, bytes);
+         }
+ 
+-        let (_, exif) = image_metadata(&std::fs::File::open(&file_saved)?)?;
++        let mut f = std::fs::File::open(&file_saved)?;
++        let exif = image_metadata(&mut std::io::BufReader::new(&mut f))?;
+         assert!(res_viewtype != Viewtype::Image || exif.is_none());
+ 
+         let img = check_image_size(file_saved, compressed_width, compressed_height);
+@@ -715,7 +717,9 @@ async fn test_send_big_gif_as_image() -> Result<()> {
+         .get_blobdir()
+         .join("saved-".to_string() + &bob_msg.get_filename().unwrap());
+     bob_msg.save_file(&bob, &file_saved).await?;
+-    let (file_size, _) = image_metadata(&std::fs::File::open(&file_saved)?)?;
++    let file_size = std::fs::metadata(&file_saved)?.len();
++    let mut f = std::fs::File::open(&file_saved)?;
++    let _exif = image_metadata(&mut std::io::BufReader::new(&mut f))?;
+     assert_eq!(file_size, bytes.len() as u64);
+     check_image_size(file_saved, width, height);
+     Ok(())

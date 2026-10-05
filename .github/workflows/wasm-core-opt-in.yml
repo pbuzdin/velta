@@ -1,6 +1,6 @@
 # Opt-in wasm core spike CI — does NOT run on Release and does not modify
-# production core/. Enable by pushing to a branch matching wasm-core/** or via
-# workflow_dispatch. See docs/research/wasm-patches/README.md.
+# production core/. Enable via workflow_dispatch, wasm-core/** branches, or
+# PRs touching wasm patches / wrapper. See docs/research/wasm-patches/README.md.
 name: wasm-core (opt-in)
 
 on:
@@ -11,11 +11,15 @@ on:
     paths:
       - 'docs/research/wasm-patches/**'
       - 'tools/apply-wasm-core-patches.py'
+      - 'packages/deltachat-wasm/**'
+      - 'scripts/smoke-deltachat-wasm.mjs'
       - '.github/workflows/wasm-core-opt-in.yml'
   pull_request:
     paths:
       - 'docs/research/wasm-patches/**'
       - 'tools/apply-wasm-core-patches.py'
+      - 'packages/deltachat-wasm/**'
+      - 'scripts/smoke-deltachat-wasm.mjs'
       - '.github/workflows/wasm-core-opt-in.yml'
 
 concurrency:
@@ -23,9 +27,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  apply-on-copy-and-check:
+  apply-on-copy-pack-smoke:
     runs-on: ubuntu-latest
-    # Keep this job from blocking release; it is informational for the spike.
+    # Informational for the spike — must not block Release.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -45,6 +49,7 @@ jobs:
         run: |
           python3 tools/apply-wasm-core-patches.py apply-on-copy --dest "$RUNNER_TEMP/velta-wasm-copy"
           python3 tools/apply-wasm-core-patches.py verify-copy --dest "$RUNNER_TEMP/velta-wasm-copy"
+          test -d "$RUNNER_TEMP/velta-wasm-copy/packages/deltachat-wasm"
 
       - name: cargo check wasm lib
         working-directory: ${{ runner.temp }}/velta-wasm-copy/core
@@ -52,16 +57,27 @@ jobs:
           CC: clang
           CARGO_BUILD_JOBS: "2"
         run: |
-          mkdir -p .cargo
-          # getrandom wasm_js cfg (also present after patches if .cargo/config.toml applied)
-          if [ ! -f .cargo/config.toml ]; then
-            printf '%s\n' '[target.wasm32-unknown-unknown]' 'rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]' > .cargo/config.toml
-          fi
           cargo check -p deltachat --lib --target wasm32-unknown-unknown --no-default-features
 
-      # Full wasm-pack + Playwright smoke needs the MPL wrapper package (still
-      # side-tree only). Documented for Day 7+; this job stops at cargo check.
-      - name: Smoke placeholder
+      - name: Install wasm-pack + matched wasm-bindgen-cli
         run: |
-          echo "wasm-pack + get_system_info smoke still lives in the side tree"
-          echo "(/workspace/velta-wasm-port/packages/core-wasm). Wire when wrapper is in-repo."
+          cargo install wasm-pack --locked
+          cargo install wasm-bindgen-cli --version 0.2.129 --locked
+
+      - name: wasm-pack build (MPL wrapper)
+        working-directory: ${{ runner.temp }}/velta-wasm-copy/packages/deltachat-wasm/rust
+        env:
+          CC: clang
+          CARGO_BUILD_JOBS: "2"
+        run: |
+          wasm-pack build --target web --release --no-opt --out-dir ../wasm-dist
+          ls -lh ../wasm-dist/deltachat_wasm_bg.wasm
+
+      - name: Browser smoke (get_system_info)
+        env:
+          PACKAGE_ROOT: ${{ runner.temp }}/velta-wasm-copy/packages/deltachat-wasm
+        working-directory: ${{ github.workspace }}/scripts
+        run: |
+          npm install --no-fund --no-audit playwright@1.56.0
+          npx playwright install --with-deps chromium
+          node smoke-deltachat-wasm.mjs
