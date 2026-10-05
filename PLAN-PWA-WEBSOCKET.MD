@@ -20,8 +20,8 @@ hits in `src/`, no wasm target). The only WebSocket paths that exist today:
 - chatmail relay HTTP endpoints (`/new`, `/mxdeliv`, `/ping`) — HTTP, not
   mail submission.
 
-Therefore "transport only via web socket" has two viable readings, and both
-are plannable — they differ in who runs the mail stack and who holds keys:
+Therefore "transport only via web socket" has three viable readings, and
+all are plannable — they differ in who runs the mail stack and who holds keys:
 
 ### Architecture A — Gateway PWA (recommended first)
 
@@ -53,12 +53,42 @@ no gateway custody — but also no email interop, and a real wasm port of the
 engine (tokio/iroh) is its own project. The same PWA shell can grow this as
 a second transport later; plan for it, don't build it first.
 
-## 2. Architecture comparison — A vs B
+### Architecture C — Wasm core + mail proxy (non-custodial with addresses)
+
+```
+PWA (static app/ + wasm core in a worker)
+  --wss-->  mail proxy (byte tunnel or relay websockify /imap|/smtp)
+              --TCP-->  chatmail IMAP/SMTP (TLS terminates *inside* wasm)
+```
+
+Core (account DB, OpenPGP keys, IMAP/SMTP client) runs in a browser worker
+compiled to `wasm32-unknown-unknown`. The proxy is a **byte tunnel** only:
+it never sees LOGIN passwords or mailbox plaintext (design G / relay-native
+websockify with STARTTLS inside the stream). Reuses the chatmail account
+model — addresses, E2EE, interop with normal Delta Chat clients — without
+putting keys or the DB on a gateway.
+
+**Trust model, stated plainly:** keys and SQLite live in the browser origin
+(OPFS); the proxy learns connection metadata (IP, target, timing, volumes);
+the relay sees what any native client already shows it. The residual trust
+is **PWA code supply-chain** — whoever serves the JS/wasm can ship an update
+that reads OPFS (same model as Proton web / any web E2EE app). Mitigations:
+self-host the PWA; SW that pins the installed version; reproducible builds;
+strict CSP (`script-src 'self' 'wasm-unsafe-eval'`). Browser storage has no
+DB encryption at rest yet and can be evicted — identity/key backup (V2.5
+pattern) is mandatory. Grounded in
+[`docs/research/wasm-core-mail-proxy.md`](docs/research/wasm-core-mail-proxy.md);
+spike log (build + browser smoke only — e2e networking still open):
+[`docs/research/wasm-core-mail-proxy-spike.md`](docs/research/wasm-core-mail-proxy-spike.md).
+
+## 2. Architecture comparison — A vs B vs C
 
 Estimates, not benchmarks — from the architectures themselves. One framing
 fact first: browsers cannot send UDP, so iroh in a browser always uses its
 WebSocket transport — **in B every message and media byte transits the
-iroh relay** (direct peer-to-peer never happens from a browser).
+iroh relay** (direct peer-to-peer never happens from a browser). In C the
+mail path is IMAP/SMTP over a WSS byte tunnel (TLS inside wasm); media and
+messages still go through the chatmail mailbox like a native client.
 
 **Performance / response times.** A: one WSS round-trip (~20–100 ms) plus
 5–30 ms server-side core work (SQLite, E2EE, all local on the relay box);
@@ -70,18 +100,24 @@ hop (~30–100 ms, the fastest possible path); media uploads through the
 relay and downloads through it again (bandwidth ×2); delivery is
 online-only — the engine queues and flushes on reconnect, an offline peer
 waits indefinitely (rebuilding a mailbox here means re-inventing A).
+C: same mailbox latency shape as a native client (SMTP → mailbox → IMAP
+IDLE), plus browser WASM cost — PGP on the worker thread (~1 s on phones
+without a crypto offload pool), ~17 MB+ wasm download, OPFS migration
+spikes on first account. Online recipient timing similar to A; offline
+delivery works via the mailbox. Heavy search/backup runs on the phone, not
+the server.
 
 **Features.**
 
-| | A: Gateway | B: wasm P2P |
-|---|---|---|
-| Addresses / Delta Chat interop | yes, full | none |
-| Groups, ephemeral, reply/pin, search | full core feature set | local-chat subset (groups ≤5, 32 MB media, typing) |
-| Offline delivery | yes (mailbox) | no |
-| Web push / bg notifications | yes (notifier plumbing + VAPID) | no (no server knows you exist) |
-| webxdc apps | yes (realtime channels need the iroh-wss path) | no core webxdc |
-| Multi-device / backup | yes | limited (no core backup) |
-| Key custody | relay operator holds keys (webmail model) | keys in the browser, zero-knowledge server |
+| | A: Gateway | B: wasm P2P | C: wasm core + mail proxy |
+|---|---|---|---|
+| Addresses / Delta Chat interop | yes, full | none | yes, full |
+| Groups, ephemeral, reply/pin, search | full core feature set | local-chat subset (groups ≤5, 32 MB media, typing) | full core feature set (webxdc realtime / iroh gated) |
+| Offline delivery | yes (mailbox) | no | yes (mailbox) |
+| Web push / bg notifications | yes (notifier plumbing + VAPID) | no (no server knows you exist) | no when tab closed (core not in SW; no server-side notifier) |
+| webxdc apps | yes (realtime channels need the iroh-wss path) | no core webxdc | yes for non-realtime; realtime needs iroh-wss |
+| Multi-device / backup | yes | limited (no core backup) | identity/key export mandatory; full backup limited on wasm |
+| Key custody | relay operator holds keys (webmail model) | keys in the browser, zero-knowledge server | keys + DB in the browser; proxy sees metadata only; code-origin trust |
 
 **Relay-owner load.** A standard chatmail relay is already cheap
 (store-and-forward mail stack, mostly IO; one VPS serves thousands of
@@ -97,13 +133,23 @@ service), CPU per connection is trivial and scaling is stateless, but
 bandwidth becomes the dominant cost because all media transits the relay
 twice. **B is far lighter — as long as no mailbox features (offline
 delivery, push, history) are added; each of those walks it back toward A.**
+C keeps the standard chatmail mail stack (no per-account rpc-server
+processes) and adds either relay-native websockify (`/imap`, `/smtp`) or a
+small generic WS→TCP bridge; load looks like native clients hitting
+postfix/dovecot (watch loopback per-IP limits). Client CPU/RAM is on the
+user's device (~wasm + OPFS). **C is lighter for the relay operator than A
+(no gateway tier), heavier for the client than A, and heavier to build/
+maintain than A (wasm patch stack per core bump).**
 
 **Practical read.** For "a private Velta web client for real chatmail
-users" pick A and accept custody (encrypted at rest, per-session unlock).
-For "a zero-knowledge P2P web messenger on your own infrastructure" pick B
-and accept the feature ceiling and online-only delivery. This plan
-sequences A for v1 and B as a later transport behind the same PWA shell
-(OQ-1 is exactly this choice).
+users" with server-side convenience (push, snappy phones) pick A and accept
+custody (encrypted at rest, per-session unlock). For "chatmail addresses +
+interop but no server key custody" pick C and accept code-origin trust,
+single-tab OPFS, no closed-tab push, and per-release wasm rebase cost. For
+"a zero-knowledge P2P web messenger on your own infrastructure" pick B and
+accept the feature ceiling and online-only delivery. This plan sequences
+A or C for v1 depending on OQ-1, with B as a later transport behind the
+same PWA shell.
 
 ## 3. Relay fork plan
 
@@ -227,25 +273,93 @@ three copies (tauri.conf, android conf, AGENTS §8).
   already; add a `pwa/` publish stage to CI (Pages or relay deploy).
 - **V5 — (later) Architecture B transport**: wasm p2p engine behind the same
   rpc-core seam as a third transport. Design note only in v1.
+- **V6 — (optional path) Architecture C transport**: `worker-wasm` behind the
+  same rpc-core seam; see §4b. Only if OQ-1 picks non-custodial-with-addresses.
+
+## 4b. Architecture C — phased steps (wasm core + mail proxy)
+
+Grounded in
+[`docs/research/wasm-core-mail-proxy.md`](docs/research/wasm-core-mail-proxy.md)
+and the spike log
+[`docs/research/wasm-core-mail-proxy-spike.md`](docs/research/wasm-core-mail-proxy-spike.md).
+Reuse MPL core patches / Unlicense proxy patterns from
+`experintellia/slothfulchat-web`; **do not** copy the GPL web app or desktop
+frontend into Velta. Coexist with Velta's existing 13 core patches
+(`tools/apply-core-patches.py`).
+
+- **C0 — Spike (in progress, 2026-10-05).** Validate prior art builds and
+  boots. **Done so far:** slothfulchat-web wasm release build (~28 MB
+  unoptimized / ~17 MB expected after wasm-opt); headless Chromium smoke
+  (`get_system_info`, typed client, memfs); local `ws-tcp-proxy` health;
+  websockify process starts (relay-native path still needs a real mail
+  stack or test deploy + CORS). **Not done — do not claim e2e:** encrypted
+  alice→bob round-trip, deploy/hit relay `/imap`+`/smtp`, forward-port to
+  Velta 2.62. Status: *built + browser smoke OK; networking e2e still open.*
+- **C1 — Port wasm patches onto Velta core 2.62.** Forward-port the
+  wasm-relevant subset (roughly facade wiring, rusqlite 0.40 /
+  sqlite-wasm-rs, clocks/`SystemTime`, memfs, ws tunnel, fetch HTTP — ~0001–
+  0007 + 0010 from prior art; persistence patches when needed) so they
+  apply beside Velta's 13 patches. Facade crate `tokio-wasm-shim` + tiny
+  vendored forks (async-imap, mail-builder, …) as MPL-compatible deps.
+  Release-profile wasm CI job; document rebase checklist for each core bump.
+- **C2 — WS worker transport in Velta.** `core-wasm` wasm-bindgen wrapper
+  over `deltachat_jsonrpc::CommandApi` in a dedicated worker; new
+  `worker-wasm` transport in `app/js` behind the existing line-oriented
+  `rpc-core.js` seam (`setReceiver` / `send(line)`). Feature-detect: no
+  Tauri + PWA + wasm flag → worker transport. Capability gates: no
+  sqlcipher, no closed-tab push, single-tab OPFS (Web Locks), optional
+  crypto offload worker later.
+- **C3 — Relay websockify / CORS or generic proxy.** Prefer relay-native
+  websockify (upstream PR #1030 / fork branch `link2xt/websockify`): nginx
+  `/imap`→localhost:143, `/smtp`→localhost:587, plus CORS/`Origin`
+  allowlist for the PWA origin, connection caps, document loopback
+  per-IP / HELO behaviour. Fallback: generic design-G `ws-tcp-proxy`
+  (allowlist ports 465/993/587/143, never 25; TLS stays in wasm) on the
+  PWA origin for interop tests against any chatmail. Avoid TLS-terminated-
+  at-proxy (design T).
+- **C4 — PWA shell for C.** Same V0 dist shape (SW, CSP with
+  `'wasm-unsafe-eval'`, `pwa-config.js` proxy/relay endpoints); onboarding
+  via invite/claim or `dcaccount:` bare-domain; identity/key backup UX
+  (mandatory — storage eviction); optional OPFS persistence hardening
+  (sahpool, `navigator.storage.persist()`, blob mirror).
+- **Maintenance note.** Expect **~0.5–1 person-week per upstream core
+  bump** to rebase the wasm patch stack. Track chatmail/core #8559 and
+  relay #1030 — their landing shrinks the custom networking patch. Prefer
+  upstreamable "wasm compiles in CI" gating where possible.
 
 ## 5. Suggested order and rough sizes
 
 | Phase | Deliverable | Size |
 |---|---|---|
 | R1 | invite links + interstitial + claim API | medium, upstream-PR-able |
-| V0+V1 | PWA dist + WS RPC against a dev gateway | medium — first demo |
-| R2 | gateway service + auth | medium-large |
+| V0+V1 | PWA dist + WS RPC against a dev gateway | medium — first demo (path A) |
+| R2 | gateway service + auth | medium-large (path A) |
 | V2+V3 | onboarding, capability sweep | medium |
-| V2.5 | identity-only backup export/import | small–medium |
+| V2.5 | identity-only backup export/import | small–medium (mandatory for C) |
 | R3 | WS-only exposure hardening | small (ops) |
-| R4 | Web Push | medium, deferrable |
+| R4 | Web Push | medium, deferrable (path A) |
+| C0 | spike: build + browser smoke (e2e networking open) | small — in progress 2026-10-05 |
+| C1 | port wasm patches to Velta core 2.62 | medium–large (4–7 days if reusing) |
+| C2 | worker-wasm transport in Velta | medium |
+| C3 | websockify+CORS or generic WS→TCP proxy | small–medium |
+| C4 | PWA shell + OPFS/backup for C | medium |
+| C maint. | rebase wasm stack per core bump | ~0.5–1 pw each release |
 
 ## 6. Open questions
 
-- **OQ-1 (acceptance):** Gateway custody (Architecture A) — acceptable for
-  this relay's users? If not, only Architecture B remains (P2P-only, no
-  addresses). Related research (wasm core in-browser + mail proxy, spike
-  started 2026-10-05): [`docs/research/wasm-core-mail-proxy.md`](docs/research/wasm-core-mail-proxy.md).
+- **OQ-1 (acceptance):** Who holds keys for the PWA?
+  - **A — Gateway custody:** server holds DB + keys (webmail model;
+    passphrase-at-rest mitigations). Cheapest path to full chatmail + push.
+  - **C — Non-custodial with addresses:** wasm core in the browser +
+    WebSocket mail proxy; keys/DB client-side; full chatmail interop; residual
+    trust is PWA code origin + browser storage. Spike (build + smoke) started
+    2026-10-05 — e2e networking still open. Research:
+    [`docs/research/wasm-core-mail-proxy.md`](docs/research/wasm-core-mail-proxy.md);
+    spike log:
+    [`docs/research/wasm-core-mail-proxy-spike.md`](docs/research/wasm-core-mail-proxy-spike.md).
+  - **B — P2P-only:** keys in the browser, no addresses / no mail interop.
+  If users refuse server custody but still need addresses, pick **C** (not
+  only B).
 - **OQ-2 (scope):** Is the fork PWA-only (native clients blocked, R3 as
   written) or PWA-preferred (native clients still welcome)?
 - **OQ-3 (accounts):** DECIDED 2026-10-05 — invite links (single- or
