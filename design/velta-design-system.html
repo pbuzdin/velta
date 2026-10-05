@@ -172,7 +172,7 @@
   <div class="bar-ladder" id="space-ladder">
     <span><i style="width:26px;height:14px;background:var(--bad)"></i>1†</span><span><i style="width:26px;height:20px"></i>2</span><span><i style="width:26px;height:26px;background:var(--bad)"></i>3†</span><span><i style="width:26px;height:32px"></i>4</span><span><i style="width:26px;height:38px;background:var(--bad)"></i>5†</span><span><i style="width:26px;height:44px"></i>6</span><span><i style="width:26px;height:50px;background:var(--bad)"></i>7†</span><span><i style="width:26px;height:56px"></i>8</span><span><i style="width:26px;height:62px;background:var(--bad)"></i>9†</span><span><i style="width:26px;height:68px"></i>10</span><span><i style="width:26px;height:74px;background:var(--bad)"></i>11†</span><span><i style="width:26px;height:80px"></i>12</span><span><i style="width:26px;height:86px;background:var(--bad)"></i>13†</span><span><i style="width:26px;height:92px"></i>14</span><span><i style="width:26px;height:98px;background:var(--bad)"></i>15†</span><span><i style="width:26px;height:104px"></i>16</span><span><i style="width:26px;height:116px"></i>18</span><span><i style="width:26px;height:140px"></i>22</span>
   </div>
-  <p class="legend">Bar height = occurrences among gap/padding/margin values in main.css, re-audit 2026-10-05 after snap commit <span class="mono">d3526f4</span> (integers, absolute; var/calc/env excluded). Red (†) = odd on the 2px grid. Above the ladder: 24×4, 26×1, 32×1 (one-off structural). On-grid values now cover ~89% of all uses.</p>
+  <p class="legend">Bar height scales with the value; occurrence counts live in the audit table below. Counts from re-audit 2026-10-05, after both 2px-grid snaps (<span class="mono">d3526f4</span> + the chip/contrast pass; integers, absolute; var/calc/env excluded). Red (†) = odd on the 2px grid — remaining: 1×2, 3×8, 5×10, 7×6, 9×1, 11×3, 13×2, 15×1. On-grid covers ~91% of uses. Above the ladder: 24×4, 26×1, 32×1 (one-off structural).</p>
   <table>
     <tr><th>Tier</th><th>Values</th><th>Used for</th></tr>
     <tr><td>Gap — tight</td><td class="mono">2 · 4</td><td>icon↔label, head-actions, meta</td></tr>
@@ -209,11 +209,11 @@
   <h2 id="principles">Design principles</h2>
   <ul class="prin">
     <li><b>No pure black or white.</b> Every surface stops short of #000/#fff — dark canvas #0f0f14 with #f2f2f5 ink, light #f4f4f4 with #16181d. Softer on OLED, avoids halation, and keeps the brutal theme's hard offset shadows readable ink (#121017), not void.</li>
-    <li><b>Contrast carries the hierarchy.</b> Text/body pairs target WCAG AA, most hit AAA (table below). The known weak spots: light-theme text-dim 4.26 (AA only for large text) and light accent 3.01 (UI/large use only) — fix or accept deliberately.</li>
+    <li><b>Contrast carries the hierarchy.</b> Text/body pairs target WCAG AA, most hit AAA (table below). The one accepted spot: light-theme accent 3.01 (UI/large use only); light text-dim (4.93) and green (3.58) were fixed in the contrast pass.</li>
     <li><b>Accent is a verb.</b> --accent marks actions, links, unread state — nothing else. Status never borrows it: --green for presence/verified, --danger for destructive, timestamps use dedicated meta greys (--text-meta-in/out), never accent, because accent-blue meta reads as clickable.</li>
     <li><b>Hover changes surfaces, never text.</b> Interactive elements get --bg-hover / --bg-active overlays; text color stays put (and touch devices have no hover at all — every hover affordance has a press equivalent).</li>
     <li><b>One stack, one grid.</b> System UI font everywhere (no webfont, no per-platform tuning); 2px spacing grid with three gap tiers and four padding tiers; half-pixel type steps are deliberate (compact ladder), documented not accidental.</li>
-    <li><b>Dark is the primary theme.</b> Light derives from it — any token a theme doesn't override is inherited from dark (flagged above), which is why --accent-2/--green/--danger on light are marked "contrast unverified". Brutal is dark-only by design.</li>
+    <li><b>Dark is the primary theme.</b> Light derives from it — any token a theme doesn't override is inherited from dark (flagged above); the inherited --danger (3.3) and --accent-2 (3.4) on light are contrast-verified UI-grade. Brutal is dark-only by design.</li>
     <li><b>The shell owns its scaling.</b> text-size-adjust 100%, Android WebView textZoom pinned to 100, UI scale applied by Velta (applyUiScale), env(safe-area-inset-*) on every bar — no browser/OS text inflation surprises.</li>
   </ul>
   <table>
@@ -226,22 +226,24 @@
     <tr><td>Dark: --text-meta-out on outgoing bubble</td><td class="mono">4.59</td><td class="ok">AA (borderline)</td></tr>
     <tr><td>Light: --text on --bg</td><td class="mono">16.15</td><td class="ok">AAA</td></tr>
     <tr><td>Light: --text on outgoing bubble</td><td class="mono">15.27</td><td class="ok">AAA</td></tr>
-    <tr><td>Light: --text-dim on --bg</td><td class="mono">4.26</td><td class="off">fails AA normal text</td></tr>
-    <tr><td>Light: --accent on --bg</td><td class="mono">3.01</td><td class="off">AA large/UI only</td></tr>
+    <tr><td>Light: --text-dim on --bg</td><td class="mono">4.93</td><td class="ok">AA (fixed #656a76)</td></tr>
+    <tr><td>Light: --accent on --bg</td><td class="mono">3.01</td><td class="off">AA large/UI only (accepted)</td></tr>
+    <tr><td>Light: --green on --bg</td><td class="mono">3.58</td><td class="ok">UI (fixed #3d9146)</td></tr>
   </table>
 </section>
 
 <section>
   <h2 id="rhythm-audit">Rhythm audit — re-audit 2026-10-05, post-snap</h2>
-  <p class="note">Original audit checked every padding/margin/gap/size in main.css (351 styled blocks) against the 2px grid; the first snap landed in commit <span class="mono">d3526f4</span> (gaps 5/7/11, row paddings 9px, day-chip 5×13, radii 9/11/18 → resolved). This re-audit counts what remains. On-grid values now cover ~89% of all gap/padding/margin uses; the leftovers are horizontal chip paddings and documented deliberate exceptions.</p>
+  <p class="note">Original audit checked every padding/margin/gap/size in main.css (351 styled blocks) against the 2px grid; snap I landed in <span class="mono">d3526f4</span> (gaps 5/7/11, row paddings 9px, day-chip 5×13, radii 9/11/18), snap II resolved the chip paddings and the light-theme contrast gaps. This re-audit counts what remains: on-grid values cover ~91% of all gap/padding/margin uses; the leftovers are micro-typography and documented deliberate exceptions.</p>
   <table>
     <tr><th>Finding</th><th>Where</th><th>Status / suggestion</th></tr>
-    <tr><td class="off">5px ×12, 9px ×3 — horizontal chip/badge paddings</td><td>badge <span class="mono">0 5px</span> (go-down, pin-tray-count), chips <span class="mono">3px 9px</span> (toast-chip, lc-queue-chip), msg-image margins <span class="mono">±5px</span></td><td>snap to <span class="mono">0 4px</span> / <span class="mono">3px 8px</span>/10px; cosmetic, low priority</td></tr>
+    <tr><td class="ok">chip/badge paddings 0 5px → 0 4px, 3px 9px → 3px 8px</td><td>go-down badge, pin-tray count, toast chips, lc-queue chip</td><td>resolved — snap II</td></tr>
+    <tr><td class="ok">msg media margins ±5px</td><td>msg-image, msg-video, msg-audio</td><td>deliberate — half of the bubble's 10px padding, geometric half-bleed</td></tr>
     <tr><td class="ok">bubble 7px 10px 6px · composer-input 13px · btn-primary 11px vertical</td><td>bubble, composer, primary buttons</td><td>deliberate — optical centering / 48px target; keep, documented</td></tr>
     <tr><td class="ok">1px ×2, 3px ×8, 13px ×2, 15px ×1 micro-values</td><td>bot-chip 1.5px 4px, toast-close, meta gaps 3px, service-msg 3px, composer 13, one 15px</td><td>micro-typography scale below the grid; accept</td></tr>
     <tr><td class="off">svg icon heights 13/14/16/17/20/22/26</td><td>7 sizes, no ladder</td><td>open — consolidate: 14 (inline) · 16 (meta) · 20 (buttons) · 22 (bar) · 26 (composer)</td></tr>
     <tr><td class="off">radii: pin-tray-count 9px</td><td>18px-tall count bubble</td><td>deliberate half-height circle (renders as 50%)</td></tr>
-    <tr><td style="color:var(--warn)">light theme inherits --accent-2, --green, --danger</td><td>html[data-theme="light"]</td><td>open — contrast table above shows light accent 3.01 (UI-only) and text-dim 4.26 (fails AA normal); add overrides or accept</td></tr>
+    <tr><td class="ok">light theme contrast pass</td><td>html[data-theme="light"]</td><td>resolved — --text-dim #656a76 (4.93, AA), --green #3d9146 override (3.58, UI); inherited --danger 3.3 and --accent-2 3.4 verified UI-ok; --accent 3.01 accepted as UI-only</td></tr>
   </table>
 </section>
 

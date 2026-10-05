@@ -34,9 +34,10 @@ html[data-theme="light"] {
   --bg-reply: rgba(16,16,16,.05);
   --accent: #3390ec;
   --text: #16181d;
-  --text-dim: #6f7480;
+  --text-dim: #656a76;
   --text-meta-in: #9aa0ab;
   --text-meta-out: #2a6ea6;
+  --green: #3d9146;
   --border: rgba(16,16,16,.08);
   --shadow: 0 4px 18px rgba(16,16,16,.18);
   color-scheme: light;
@@ -299,7 +300,7 @@ svg { width: 24px; height: 24px; display: block; }
 .pin-tray > summary .pb-text b { color: var(--text); font-weight: 600; }
 .pin-tray-count {
   flex: none; min-width: 18px; height: 18px; border-radius: 9px;
-  display: grid; place-items: center; padding: 0 5px;
+  display: grid; place-items: center; padding: 0 4px;
   background: var(--accent); color: #f4f4f4; font-size: 11px; font-weight: 600;
 }
 .pin-tray-chevron { display: grid; place-items: center; color: var(--text-dim); }
@@ -1023,7 +1024,7 @@ velta-video { display: block; height: 100%; }
   background: var(--accent); color: #f4f4f4;
   font-size: 12px; font-weight: 600;
   min-width: 22px; height: 22px; border-radius: 12px;
-  display: grid; place-items: center; padding: 0 5px;
+  display: grid; place-items: center; padding: 0 4px;
 }
 .go-down[hidden], .go-down-badge[hidden] { display: none; }
 
@@ -1626,7 +1627,7 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 .toast-more-text { flex: 1; }
 .toast-chip, .toast-copy {
   flex: none; cursor: pointer;
-  font-size: 11px; padding: 3px 9px; border-radius: 999px;
+  font-size: 11px; padding: 3px 8px; border-radius: 999px;
   border: 1px solid var(--border); background: none; color: var(--text-dim);
 }
 .toast-copy:hover { color: var(--text); }
@@ -2117,7 +2118,7 @@ html[data-theme="light"] .webxdc-frame { color-scheme: light; background: #fff; 
    shrinks a little instead of the chip overlapping the typed text. */
 #lc-queue-chip {
   flex: none; align-self: center; margin: 0 10px 0 4px;
-  border: 0; border-radius: 12px; padding: 3px 9px;
+  border: 0; border-radius: 12px; padding: 3px 8px;
   background: var(--accent); color: #f4f4f4;
   font-size: 12px; font-weight: 600; cursor: pointer;
   box-shadow: var(--shadow);
