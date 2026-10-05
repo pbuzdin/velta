@@ -115,15 +115,42 @@ possible (same discipline as PR #1061).
 - **R0 — Fork baseline.** Fork `chatmail/relay`, branch `velta-pwa`, decide
   tracking: mirror upstream main, keep our changes as few thematic commits
   (rebase-friendly). Record the fork in `docs/`.
-- **R1 — Limited account creation** (upstream-PR candidate on its own).
-  - `chatmail.ini`: `max_accounts` (hard cap) and optional `invite_tokens`
-    (file of single-use tokens; `/new` requires one when enabled).
-  - `newemail.py` (CGI): check live-account count in `passdb` and token
-    before creating; return a proper error page/state.
-  - nginx: rate-limit block for `/new` already exists for self-signed mode —
-    extend with the cap; add a JSON error shape the PWA can render.
-  - Tests: offline `test_newemail` cases (cap reached, token invalid/used);
-    no new daemons.
+- **R1 — Invite-link account creation** (upstream-PR candidate on its own;
+  resolves OQ-3: invites, not just a cap).
+  - Data model: `invites` store (token hash, kind single|multi, uses_left,
+    expires_at, revoked, note). `chatmail.ini`: `invite_required =
+    true/false` (fork default true), `invite_default_max_uses`, optional
+    `max_accounts` backstop.
+  - Endpoints (all HTTPS on the main origin):
+    - `POST /invite` (admin auth): mint single- or multi-use links
+      `https://<domain>/i/<token>`; revoke endpoint.
+    - `GET /i/<token>`: interstitial page — describes the relay, asks for
+      the client URL (Velta PWA origin; remembered in localStorage),
+      shows a confirmation step ("Continue to your app at
+      pwa.example.org").
+    - `GET /i/<token>/go?client=<url>`: validates the client URL (see
+      hardening below) and redirects the browser to
+      `<client-url>/#/join?t=<ticket>`; mints a short-lived (~10 min)
+      AEAD-encrypted claim ticket with the relay's server key
+      ({invite_id, exp}, one outstanding claim per invite).
+    - `POST /invite/claim {ticket}`: atomic single-use consumption (DB
+      transaction, unique claim row — two concurrent claims, one winner),
+      creates the account in passdb (same code path as `newemail.py`),
+      returns `{addr, password, relay origin}` exactly once. Multi-use
+      links decrement `uses_left`. Credentials are never embedded in URLs,
+      logs, or the interstitial — the URL carries only the opaque ticket.
+  - **Client-URL validation (SSRF / open-redirect hardening, mandatory):**
+    https scheme only; reject hosts that are, or resolve to, localhost,
+    loopback, private (RFC1918/CGNAT), link-local (169.254.0.0/16,
+    fe80::/10), and reserved ranges; **no server-side fetch of the client
+    URL ever** — the redirect happens in the user's browser; optional
+    `invite_client_allowlist` ini prefix list for locked-down installs;
+    the interstitial always displays the target host for confirmation.
+  - `newemail.py` / `/new` stays for native clients when
+    `invite_required = false`; when true it requires a valid invite too.
+  - Tests: offline — mint/claim/expire/revoke, concurrent-claim race,
+    invalid/forged ticket, private-host client URL rejected; online
+    harness — happy path end to end.
 - **R2 — WebSocket gateway** (the fork's centerpiece).
   - New small service (Rust, axum): `/ws/rpc` WebSocket ⇄
     `deltachat-rpc-server` child process (stdio JSON-RPC), one child per
@@ -173,9 +200,23 @@ three copies (tauri.conf, android conf, AGENTS §8).
   work, exponential backoff reconnect, event channel for core events
   (accounts/chatlists arrive the same way MockCore/Tauri deliver them).
   Feature-detect: no `window.__TAURI__` + PWA flag → WS transport.
-- **V2 — Onboarding + auth.** Token entry (paste / `dcaccount:`-style link
-  from the R1 flow) → WS handshake → `add_account`/`select_account` RPCs.
-  Reuse the existing onboarding modals (nickname #6, add-profile flow).
+- **V2 — Onboarding via invite link + auth.** The PWA handles
+  `#/join?t=<ticket>` deep links: parse ticket → `POST /invite/claim` on
+  the relay origin (pinned inside the ticket) → receive the one-time
+  `{addr, password}` → WS handshake → `add_account` (gateway opens the
+  account) → profile/nickname modals (reuse #6 / add-profile flow).
+  Manual fallback: paste an invite URL (relay origin parsed from it).
+  The client-URL step lives on the relay interstitial (R1), not in the PWA.
+- **V2.5 — Identity-only backup (separate from chats and media).** Gateway
+  RPC wrapping core's imex self-keys export (keys only): a bundle of
+  `{addr, password, private keys}`; the PWA encrypts it client-side with a
+  user passphrase (WebCrypto AES-GCM) and downloads it. Restore = create
+  the account with the same addr/password and import the keys — on this
+  relay or any other (lock-in breaker; softens OQ-1: the user holds the
+  identity, the operator only the conversations). Chats/media backup stays
+  the core full-backup path and remains a separate, explicit action; the
+  identity bundle never contains message data. Passphrase loss = identity
+  loss — document it in the export dialog.
 - **V3 — Capability gates.** Audit every shell-touching feature behind a
   capability flag (pattern already exists via the mock twins): DevTools
   bridge, in-app APK updates (#60), updater banner, Android notification
@@ -191,10 +232,11 @@ three copies (tauri.conf, android conf, AGENTS §8).
 
 | Phase | Deliverable | Size |
 |---|---|---|
-| R1 | capped/invite-gated `/new` | small, upstream-PR-able |
+| R1 | invite links + interstitial + claim API | medium, upstream-PR-able |
 | V0+V1 | PWA dist + WS RPC against a dev gateway | medium — first demo |
 | R2 | gateway service + auth | medium-large |
 | V2+V3 | onboarding, capability sweep | medium |
+| V2.5 | identity-only backup export/import | small–medium |
 | R3 | WS-only exposure hardening | small (ops) |
 | R4 | Web Push | medium, deferrable |
 
@@ -205,8 +247,8 @@ three copies (tauri.conf, android conf, AGENTS §8).
   addresses).
 - **OQ-2 (scope):** Is the fork PWA-only (native clients blocked, R3 as
   written) or PWA-preferred (native clients still welcome)?
-- **OQ-3 (accounts):** Hard cap, invite tokens, or both? Cap alone is
-  simpler; tokens are better for a private deployment.
+- **OQ-3 (accounts):** DECIDED 2026-10-05 — invite links (single- or
+  multi-use) per R1, with an optional `max_accounts` backstop.
 - **OQ-4 (push):** Is R4 in v1 scope?
 - **OQ-5 (upstream):** R1 and (as a proposal) a WS-transport RFC belong
   upstream eventually — do we upstream-first like #1061?
