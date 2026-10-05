@@ -1219,8 +1219,10 @@ and publishes them as a GitHub release. It runs on every `v*` tag push and can
 also be triggered manually from the Actions tab (it then creates the matching
 tag itself). The release assets are named after the version in
 `velta-app/src-tauri/Cargo.toml` — the single source of truth (bump with
-`node tools/bump.mjs <version>`; `tauri.conf.json` carries no version and
-falls back to it natively):
+`node tools/bump.mjs <version>`, which mirrors it into `tauri.conf.json` —
+the tauri-cli Android build reads only the conf field for
+`tauri.android.versionName/Code`, so a missing conf version ships the APK
+as versionCode 1 / versionName "1.0", the v1.4.58 regression):
 
 - `Velta-<version>-<abi>.apk` — signed Android APK (`build-android.yml`)
 - `Velta_<version>_x64-setup.exe` — NSIS Windows installer (`build-windows.yml`),
