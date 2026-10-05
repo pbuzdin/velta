@@ -14,8 +14,11 @@ export class TypingSender {
   constructor({ send, now = () => Date.now(), setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
     this._send = send;
     this._now = now;
-    this._setTimer = setTimer;
-    this._clearTimer = clearTimer;
+    // Chromium's timer natives throw "Illegal invocation" when called as an
+    // instance method (foreign `this`); bind so the this._setTimer calls below
+    // work in WebView2/Android.
+    this._setTimer = setTimer.bind(globalThis);
+    this._clearTimer = clearTimer.bind(globalThis);
     this._active = false;
     this._lastSent = 0;
     this._idle = null;
