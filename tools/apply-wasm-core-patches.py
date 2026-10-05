@@ -20,10 +20,26 @@ Usage (from repo root):
   python3 tools/apply-wasm-core-patches.py apply-on-copy
   python3 tools/apply-wasm-core-patches.py apply-on-copy --dest /tmp/velta-wasm-copy
   python3 tools/apply-wasm-core-patches.py verify-copy --dest /tmp/velta-wasm-copy
+  python3 tools/apply-wasm-core-patches.py lock-status
+  python3 tools/apply-wasm-core-patches.py refresh-lock --dest /tmp/velta-wasm-lock
+
+Pinned lockfiles (Day 9):
+  The series strips Cargo.lock hunks, so a bare copy would re-resolve ~37
+  crates to "latest compatible" on every run (wasm-bindgen drift would break
+  the pinned wasm-bindgen-cli; png drift changed a golden on Day 7).
+  apply-on-copy therefore installs the committed locks from
+  docs/research/wasm-patches/support/locks/ into the copy:
+    core.Cargo.lock            -> <dest>/core/Cargo.lock
+    deltachat-wasm.Cargo.lock  -> <dest>/packages/deltachat-wasm/rust/Cargo.lock
+  PROVENANCE records the inputs (master core/Cargo.lock + series + support
+  manifests). If they changed, apply-on-copy refuses until `refresh-lock` is
+  run (or --no-pinned-lock is passed for an exploratory, unpinned copy).
+  Master core/Cargo.lock is never written.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import shutil
 import subprocess
@@ -38,6 +54,11 @@ SUPPORT = PATCH_HOME / "support"
 README = PATCH_HOME / "README.md"
 DEFAULT_DEST = ROOT / ".wasm-core-apply"
 MASTER_CORE = ROOT / "core"
+LOCKS = SUPPORT / "locks"
+CORE_LOCK = LOCKS / "core.Cargo.lock"
+WRAPPER_LOCK = LOCKS / "deltachat-wasm.Cargo.lock"
+PROVENANCE = LOCKS / "PROVENANCE"
+WRAPPER_REL = Path("packages") / "deltachat-wasm" / "rust"
 
 
 def die(msg: str, code: int = 1) -> None:
@@ -152,7 +173,158 @@ def apply_patches_to_core(core_dir: Path) -> None:
     print(f"OK: {len(patches)} patches applied → {core_dir}")
 
 
-def cmd_apply_on_copy(dest: Path, force_master: bool) -> int:
+# ---------------------------------------------------------------------------
+# Pinned lockfiles (Day 9)
+# ---------------------------------------------------------------------------
+
+
+def _sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def lock_inputs() -> dict[str, str]:
+    """Hashes of everything that determines the copy's resolved lockfiles."""
+    h = hashlib.sha256()
+    for patch in series_patches():
+        h.update(patch.name.encode() + b"\0" + patch.read_bytes() + b"\0")
+    series_sha = h.hexdigest()
+    h = hashlib.sha256()
+    manifests = sorted(
+        list(SUPPORT.glob("crates/**/Cargo.toml"))
+        + list(SUPPORT.glob("vendor-crates/**/Cargo.toml"))
+        + [ROOT / "packages" / "deltachat-wasm" / "rust" / "Cargo.toml"]
+    )
+    for m in manifests:
+        h.update(str(m.relative_to(ROOT)).encode() + b"\0" + m.read_bytes() + b"\0")
+    return {
+        "master_core_cargo_lock_sha256": _sha256_file(MASTER_CORE / "Cargo.lock"),
+        "series_sha256": series_sha,
+        "support_manifests_sha256": h.hexdigest(),
+    }
+
+
+def read_provenance() -> dict[str, str]:
+    out: dict[str, str] = {}
+    if not PROVENANCE.is_file():
+        return out
+    for ln in PROVENANCE.read_text().splitlines():
+        ln = ln.strip()
+        if not ln or ln.startswith("#") or "=" not in ln:
+            continue
+        k, v = ln.split("=", 1)
+        out[k.strip()] = v.strip()
+    return out
+
+
+def lock_stale_reasons() -> list[str]:
+    if not (CORE_LOCK.is_file() and WRAPPER_LOCK.is_file() and PROVENANCE.is_file()):
+        return [f"pinned locks missing under {LOCKS}"]
+    prov = read_provenance()
+    reasons = []
+    for k, v in lock_inputs().items():
+        if prov.get(k) != v:
+            reasons.append(f"{k}: pinned {prov.get(k, '<none>')[:16]}… != current {v[:16]}…")
+    for k, f in (("core_lock_sha256", CORE_LOCK), ("wrapper_lock_sha256", WRAPPER_LOCK)):
+        if prov.get(k) != _sha256_file(f):
+            reasons.append(f"{k}: {f.name} edited by hand (sha mismatch with PROVENANCE)")
+    return reasons
+
+
+def require_fresh_locks() -> None:
+    reasons = lock_stale_reasons()
+    if reasons:
+        sys.stdout.flush()
+        die(
+            "REFUSED: pinned wasm-core lockfiles are stale:\n  "
+            + "\n  ".join(reasons)
+            + "\nRefresh (maintainer, needs cargo + network):\n"
+            "  python3 tools/apply-wasm-core-patches.py refresh-lock --dest /tmp/velta-wasm-lock\n"
+            "or pass --no-pinned-lock for an exploratory, unpinned copy.",
+            code=3,
+        )
+
+
+def install_pinned_locks(dest_root: Path) -> None:
+    require_fresh_locks()
+    shutil.copyfile(CORE_LOCK, dest_root / "core" / "Cargo.lock")
+    wrap = dest_root / WRAPPER_REL
+    if wrap.is_dir():
+        shutil.copyfile(WRAPPER_LOCK, wrap / "Cargo.lock")
+    (dest_root / "core" / ".velta-wasm-pinned-lock").write_text(PROVENANCE.read_text())
+    print(f"Installed pinned locks from {LOCKS} (build with cargo --locked)")
+
+
+def cmd_lock_status() -> int:
+    print(f"Pinned locks: {LOCKS}")
+    for k, v in read_provenance().items():
+        print(f"  {k} = {v}")
+    reasons = lock_stale_reasons()
+    if reasons:
+        print("STALE:\n  " + "\n  ".join(reasons))
+        return 3
+    print("lock-status OK: pinned locks match master core/Cargo.lock + series + support manifests")
+    return 0
+
+
+def _cargo_resolve(cwd: Path) -> None:
+    print(f"Resolving lock in {cwd}")
+    r = subprocess.run(
+        ["cargo", "metadata", "--format-version", "1"],
+        cwd=cwd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    sys.stderr.write(r.stderr)
+    if r.returncode != 0:
+        die(f"cargo metadata failed in {cwd}", code=4)
+
+
+def cmd_refresh_lock(dest: Path) -> int:
+    """Regenerate the pinned locks from a fresh apply-on-copy (never master core/)."""
+    if _is_master_core(dest) or _is_master_core(dest / "core") or dest.resolve() == ROOT.resolve():
+        die("REFUSED: refresh-lock needs a scratch --dest, not the repo / master core/", code=2)
+    if dest.exists():
+        shutil.rmtree(dest)
+    core_dir = prepare_copy(dest)
+    apply_patches_to_core(core_dir)
+    # 1) core copy: start from master core/Cargo.lock (already copied) and let
+    #    cargo add/upgrade only what the series needs (minimal re-resolve).
+    _cargo_resolve(core_dir)
+    # 2) wrapper is its own workspace: seed with the core copy lock so shared
+    #    crates (png, rusqlite, wasm-bindgen, ...) stay identical to core.
+    wrap = dest / WRAPPER_REL
+    shutil.copyfile(core_dir / "Cargo.lock", wrap / "Cargo.lock")
+    _cargo_resolve(wrap)
+    LOCKS.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(core_dir / "Cargo.lock", CORE_LOCK)
+    shutil.copyfile(wrap / "Cargo.lock", WRAPPER_LOCK)
+    inputs = lock_inputs()
+    wbg = _lock_version(WRAPPER_LOCK, "wasm-bindgen")
+    lines = [
+        "# Generated by tools/apply-wasm-core-patches.py refresh-lock — do not hand-edit.",
+        "# Inputs that produced core.Cargo.lock / deltachat-wasm.Cargo.lock:",
+        *(f"{k}={v}" for k, v in inputs.items()),
+        f"core_lock_sha256={_sha256_file(CORE_LOCK)}",
+        f"wrapper_lock_sha256={_sha256_file(WRAPPER_LOCK)}",
+        f"wasm_bindgen_version={wbg}",
+    ]
+    PROVENANCE.write_text("\n".join(lines) + "\n")
+    print(f"Pinned locks written to {LOCKS} (wasm-bindgen {wbg}). Commit them.")
+    return 0
+
+
+def _lock_version(lock: Path, name: str) -> str:
+    lines = lock.read_text().splitlines()
+    for i, ln in enumerate(lines):
+        if ln.strip() == f'name = "{name}"' and i + 1 < len(lines):
+            v = lines[i + 1].strip()
+            if v.startswith("version = "):
+                return v.split("=", 1)[1].strip().strip('"')
+    return "?"
+
+
+def cmd_apply_on_copy(dest: Path, force_master: bool, pinned: bool = True) -> int:
     if _is_master_core(dest) or _is_master_core(dest / "core"):
         if not force_master:
             die(
@@ -173,6 +345,10 @@ def cmd_apply_on_copy(dest: Path, force_master: bool) -> int:
             _copy_tree(SUPPORT / "vendor-crates", vendors)
         return 0
 
+    # Fail fast (before copying anything) if the pinned locks are stale.
+    if pinned:
+        require_fresh_locks()
+
     # dest is a workspace root containing core/
     if dest.name == "core" and dest.parent != ROOT:
         # user passed .../core
@@ -184,12 +360,18 @@ def cmd_apply_on_copy(dest: Path, force_master: bool) -> int:
         if not core_dir.exists():
             die(f"missing {core_dir}")
         apply_patches_to_core(core_dir)
+        if pinned:
+            install_pinned_locks(dest_root)
         return 0
 
     core_dir = prepare_copy(dest)
     apply_patches_to_core(core_dir)
+    if pinned:
+        install_pinned_locks(dest)
+    else:
+        print("WARNING: --no-pinned-lock — cargo will re-resolve; build is NOT reproducible")
     print(f"Workspace ready at {dest}")
-    print("Next: cd that core/ && cargo check -p deltachat --lib --target wasm32-unknown-unknown --no-default-features")
+    print("Next: cd that core/ && cargo check --locked -p deltachat --lib --target wasm32-unknown-unknown --no-default-features")
     return 0
 
 
@@ -213,6 +395,19 @@ def cmd_verify_copy(dest: Path) -> int:
     shim = root / "crates" / "tokio-wasm-shim" / "Cargo.toml"
     if not shim.is_file():
         die(f"verify-copy FAILED: missing {shim}", code=2)
+    pin = core / ".velta-wasm-pinned-lock"
+    if pin.is_file():
+        bad = []
+        if _sha256_file(core / "Cargo.lock") != _sha256_file(CORE_LOCK):
+            bad.append(f"{core / 'Cargo.lock'} differs from {CORE_LOCK}")
+        wl = root / WRAPPER_REL / "Cargo.lock"
+        if wl.is_file() and _sha256_file(wl) != _sha256_file(WRAPPER_LOCK):
+            bad.append(f"{wl} differs from {WRAPPER_LOCK}")
+        if bad:
+            die("verify-copy FAILED (pinned lock drift):\n  " + "\n  ".join(bad), code=2)
+        print("pinned locks: OK (copy locks == support/locks/)")
+    else:
+        print("warning: copy was made with --no-pinned-lock (unpinned resolve)")
     print(f"verify-copy OK: {core}")
     return 0
 
@@ -233,7 +428,16 @@ def main(argv: list[str]) -> int:
         "op",
         nargs="?",
         default="status",
-        choices=["status", "verify", "list", "apply", "apply-on-copy", "verify-copy"],
+        choices=[
+            "status",
+            "verify",
+            "list",
+            "apply",
+            "apply-on-copy",
+            "verify-copy",
+            "lock-status",
+            "refresh-lock",
+        ],
     )
     ap.add_argument(
         "--dest",
@@ -246,6 +450,11 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="dangerous: allow applying onto master core/ (not for CI)",
     )
+    ap.add_argument(
+        "--no-pinned-lock",
+        action="store_true",
+        help="apply-on-copy without installing support/locks/ (unpinned, exploratory)",
+    )
     args = ap.parse_args(argv[1:])
 
     if args.op in ("status", "verify"):
@@ -255,7 +464,15 @@ def main(argv: list[str]) -> int:
     if args.op == "apply":
         return cmd_apply_refuse_master()
     if args.op == "apply-on-copy":
-        return cmd_apply_on_copy(args.dest, args.i_know_this_writes_to_master_core)
+        return cmd_apply_on_copy(
+            args.dest, args.i_know_this_writes_to_master_core, pinned=not args.no_pinned_lock
+        )
+    if args.op == "lock-status":
+        return cmd_lock_status()
+    if args.op == "refresh-lock":
+        if args.dest == DEFAULT_DEST:
+            die("refresh-lock needs an explicit scratch --dest", code=2)
+        return cmd_refresh_lock(args.dest)
     if args.op == "verify-copy":
         return cmd_verify_copy(args.dest)
     die(f"unknown op {args.op}")
