@@ -1,12 +1,26 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: spike <spike@local>
 Date: Mon, 5 Oct 2026 21:55:53 +0300
-Subject: [PATCH 3/8] spike: unify tokio through wasm-shim (fix Cargo source
- conflict)
+Subject: [PATCH] wasm(cargo): route tokio through tokio-wasm-shim in every
+ workspace crate
 
+Cargo allows one source per dependency name across all targets, so every
+crate that names `tokio` must use the same facade. tokio-wasm-shim is a
+transparent `pub use tokio::*` (features = "full") on native; drop the
+now-redundant root dev-dependency.
+
+WASM-CORE: prototype 0001 (MPL idea). Native impact: tokio feature set
+becomes "full" for ffi / rpc-server / repl / jsonrpc tests (superset).
+---
+ Cargo.toml                      | 1 -
+ deltachat-ffi/Cargo.toml        | 2 +-
+ deltachat-jsonrpc/Cargo.toml    | 2 +-
+ deltachat-repl/Cargo.toml       | 2 +-
+ deltachat-rpc-server/Cargo.toml | 2 +-
+ 5 files changed, 4 insertions(+), 5 deletions(-)
 
 diff --git a/Cargo.toml b/Cargo.toml
-index 4e65e3f..0c8d0f7 100644
+index e7efaa3..de76ce3 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -146,7 +146,6 @@ pretty_assertions = "1.4.1"

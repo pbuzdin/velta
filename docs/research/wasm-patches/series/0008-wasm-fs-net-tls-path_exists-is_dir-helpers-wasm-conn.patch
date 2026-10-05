@@ -1,14 +1,30 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: spike <spike@local>
 Date: Mon, 5 Oct 2026 23:09:45 +0300
-Subject: [PATCH 8/8] spike: path_exists/is_dir call sites, wasm connect_tcp,
- tls JsClock, mail-builder 0.5 patch
+Subject: [PATCH] wasm(fs,net,tls): path_exists/is_dir helpers, wasm
+ connect_tcp, JsClock, mail-builder 0.5
+
+tools::path_exists/path_is_dir/path_is_file (std natively, memfs on wasm)
+replace Path::exists/is_dir/is_file call sites in accounts, context, imex
+and tools; wasm connect_tcp for autorelay; rustls time provider via JS
+clock; [patch.crates-io] mail-builder 0.5.0 (vendored, web-time).
 
 Unblocks Accounts::new / blobdir / add_account and SystemTime panics in
 mail-builder during configure+send on wasm32.
 
+WASM-CORE: prototype 0004/0006 leftovers (MPL ideas). Native impact:
+call-site refactors only; mail-builder version equals stock (0.5.0).
+---
+ Cargo.toml      |  2 ++
+ src/accounts.rs | 25 ++++++++++++++++++-------
+ src/context.rs  |  4 ++--
+ src/imex.rs     |  8 ++++----
+ src/net.rs      | 17 +++++++++++++++++
+ src/tools.rs    |  6 +++---
+ 6 files changed, 46 insertions(+), 16 deletions(-)
+
 diff --git a/Cargo.toml b/Cargo.toml
-index cfe1490..d28aa8b 100644
+index ba93277..129523c 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -245,3 +245,5 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
@@ -18,10 +34,10 @@ index cfe1490..d28aa8b 100644
 +# routes SystemTime::now through web-time on wasm32
 +mail-builder = { path = "../vendor-crates/mail-builder" }
 diff --git a/src/accounts.rs b/src/accounts.rs
-index 486ce03..4b37647 100644
+index 71e969e..8213554 100644
 --- a/src/accounts.rs
 +++ b/src/accounts.rs
-@@ -88,12 +88,12 @@ fn get_id(&self) -> u32 {
+@@ -90,12 +90,12 @@ fn get_id(&self) -> u32 {
      /// Creates them if the directory doesn't exist, or if it exists but is empty.
      /// Errors if the directory exists with files but no config.
      async fn ensure_accounts_dir(dir: &Path) -> Result<()> {
@@ -36,7 +52,7 @@ index 486ce03..4b37647 100644
              let mut rd = fs::read_dir(dir).await?;
              ensure!(rd.next_entry().await?.is_none(), "{dir:?} is not empty");
              Config::new(dir).await?;
-@@ -104,10 +104,10 @@ async fn ensure_accounts_dir(dir: &Path) -> Result<()> {
+@@ -106,10 +106,13 @@ async fn ensure_accounts_dir(dir: &Path) -> Result<()> {
      /// Opens an existing accounts structure. Will error if the folder doesn't exist,
      /// no account exists and no config exists.
      async fn open(events: Events, dir: PathBuf, writable: bool) -> Result<Self> {
@@ -45,22 +61,33 @@ index 486ce03..4b37647 100644
  
          let config_file = dir.join(CONFIG_NAME);
 -        ensure!(config_file.exists(), "{config_file:?} does not exist");
-+        ensure!(crate::tools::path_exists(&config_file), "{config_file:?} does not exist");
++        ensure!(
++            crate::tools::path_exists(&config_file),
++            "{config_file:?} does not exist"
++        );
  
          let config = Config::from_file(config_file, writable).await?;
  
-@@ -239,8 +239,8 @@ pub async fn migrate_account(&mut self, dbfile: PathBuf) -> Result<u32> {
+@@ -241,8 +244,16 @@ pub async fn migrate_account(&mut self, dbfile: PathBuf) -> Result<u32> {
          let blobdir = Context::derive_blobdir(&dbfile);
          let walfile = Context::derive_walfile(&dbfile);
  
 -        ensure!(dbfile.exists(), "no database found: {}", dbfile.display());
 -        ensure!(blobdir.exists(), "no blobdir found: {}", blobdir.display());
-+        ensure!(crate::tools::path_exists(&dbfile), "no database found: {}", dbfile.display());
-+        ensure!(crate::tools::path_exists(&blobdir), "no blobdir found: {}", blobdir.display());
++        ensure!(
++            crate::tools::path_exists(&dbfile),
++            "no database found: {}",
++            dbfile.display()
++        );
++        ensure!(
++            crate::tools::path_exists(&blobdir),
++            "no blobdir found: {}",
++            blobdir.display()
++        );
  
          let old_id = self.config.get_selected_account();
  
-@@ -265,7 +265,7 @@ pub async fn migrate_account(&mut self, dbfile: PathBuf) -> Result<u32> {
+@@ -267,7 +278,7 @@ pub async fn migrate_account(&mut self, dbfile: PathBuf) -> Result<u32> {
              try_many_times(|| fs::rename(&blobdir, &new_blobdir))
                  .await
                  .context("failed to rename blobdir")?;
@@ -92,20 +119,21 @@ index 5d7b36d..3c57398 100644
              blobdir.display()
          );
 diff --git a/src/imex.rs b/src/imex.rs
-index 47a9f9b..72df574 100644
+index 47a9f9b..9abcf31 100644
 --- a/src/imex.rs
 +++ b/src/imex.rs
-@@ -24,8 +24,7 @@
+@@ -23,8 +23,8 @@
+ use crate::qr::DCBACKUP_VERSION;
  use crate::sql;
  use crate::tools::{
-     TempPathGuard, create_folder, delete_file, get_filesuffix_lc, read_file, time, usize_to_u64,
+-    TempPathGuard, create_folder, delete_file, get_filesuffix_lc, read_file, time, usize_to_u64,
 -    write_file,
--};
-+    write_file, path_exists, path_is_file};
++    TempPathGuard, create_folder, delete_file, get_filesuffix_lc, path_exists, path_is_file,
++    read_file, time, usize_to_u64, write_file,
+ };
  
  mod transfer;
- 
-@@ -344,7 +343,7 @@ async fn import_backup_stream_inner<R: tokio::io::AsyncRead + Unpin>(
+@@ -344,7 +344,7 @@ async fn import_backup_stream_inner<R: tokio::io::AsyncRead + Unpin>(
          }
          // async_tar unpacked to $BLOBDIR/BLOBS_BACKUP_NAME/, so we move the file afterwards.
          let from_path = context.get_blobdir().join(&path);
@@ -114,7 +142,7 @@ index 47a9f9b..72df574 100644
              if let Some(name) = from_path.file_name() {
                  let to_path = context.get_blobdir().join(name);
                  if let Err(e) = fs::rename(&from_path, &to_path).await {
-@@ -434,7 +433,7 @@ fn get_next_backup_path(
+@@ -434,7 +434,7 @@ fn get_next_backup_path(
          let mut destfile = folder.clone();
          destfile.push(format!("{stem}-{i:02}-{fingerprint}.tar"));
  
@@ -124,7 +152,7 @@ index 47a9f9b..72df574 100644
          }
      }
 diff --git a/src/net.rs b/src/net.rs
-index 4f621c1..2d0cadb 100644
+index 156f5ac..0a3e5ef 100644
 --- a/src/net.rs
 +++ b/src/net.rs
 @@ -1,6 +1,7 @@
@@ -135,7 +163,7 @@ index 4f621c1..2d0cadb 100644
  use std::pin::Pin;
  use std::time::Duration;
  
-@@ -284,3 +285,19 @@ pub(crate) async fn connect_tcp(
+@@ -283,3 +284,19 @@ pub(crate) async fn connect_tcp(
          .map(connect_tcp_inner);
      run_connection_attempts(connection_futures).await
  }
@@ -156,7 +184,7 @@ index 4f621c1..2d0cadb 100644
 +    run_connection_attempts(connection_futures).await
 +}
 diff --git a/src/tools.rs b/src/tools.rs
-index c4ab5ea..e278353 100644
+index fb78206..a74fbcf 100644
 --- a/src/tools.rs
 +++ b/src/tools.rs
 @@ -354,10 +354,10 @@ pub(crate) async fn get_filebytes(context: &Context, path: &Path) -> Result<u64>

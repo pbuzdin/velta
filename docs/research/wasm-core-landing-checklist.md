@@ -1,6 +1,6 @@
 # Landing checklist — wasm patches into production `core/`
 
-**Status:** DRAFT (Day 9, 2026-10-06). **Not green.** Nothing on this list
+**Status:** DRAFT (Day 9, burn-down started Day 10, 2026-10-06). **Not green.** Nothing on this list
 authorises a merge by itself; Pavel signs off the final box.
 
 > **Production `core/` stays stock until this checklist is green.**
@@ -33,29 +33,63 @@ Legend: ✅ done on the opt-in copy (evidence linked) · ⬜ open · ⛔ blocker
 ## 1. Patch series hygiene
 
 - ✅ Series is discrete, ordered, applies cleanly onto current master `core/`
-  (9/9, `verify-copy` OK) — Day 6–9.
-- ⬜ Every patch is `cfg(target_arch = "wasm32")`-gated or provably
-  target-neutral; review lists each non-gated hunk with a reason
-  (current known non-gated: 0007 `image_metadata` BufReadSeek refactor,
-  0009 test call sites, Cargo target tables).
-- ⬜ No spike leftovers: "spike" subjects renamed, dead stubs removed,
-  `unused import` warning in `blob.rs` fixed.
-- ⬜ Each patch has a WASM-CORE id + VENDORISSUES-style entry so
-  `apply-core-patches.py`-style re-apply on core bumps is possible
-  (or the series is converted into anchor-based blocks in that script).
+  (9/9, `verify-copy` OK) — Day 6–10.
+- ✅ No spike leftovers in subjects/comments: Day 10 re-export with
+  `wasm(<area>):` subjects, WASM-CORE ids and a "Native impact" line per
+  patch; stale `/workspace/velta-wasm-port` path comment fixed.
+- ✅ Warnings: `deltachat` lib on wasm32 **0** (was 4: unused `bail`, 3
+  API-parity fns in `http_wasm.rs`); native lib+tests **0** (was 1: unused
+  `sync_fs::read` re-export in `blob.rs`). Remaining warnings are in the
+  vendored astral-tokio-tar only (2× `unused_braces`, upstream code).
+- ✅ rustfmt: series adds **no** new `cargo fmt --check` diffs (the 5
+  remaining diffs exist on stock master too — `blob_tests.rs`,
+  `scheduler.rs`, `smtp.rs` — and are not ours to fix here).
+- ✅ Gating audit (Day 10, table below): every non-`cfg`-gated hunk is a
+  target-neutral wrapper or call-site refactor.
+- ⬜ Each patch has a VENDORISSUES-style entry so re-apply on core bumps is
+  possible (or the series is converted into anchor-based blocks in
+  `apply-core-patches.py` style).
 - ⬜ Licensing: only MPL-2.0 patch ideas + Velta-written code; no GPL
   slothfulchat-web UI; vendored crates keep their licences/NOTICE files;
-  `ws-tcp-proxy` (Unlicense) still not vendored or attributed if it is.
+  `ws-tcp-proxy` (Unlicense) still not vendored (CI fetches it pinned).
+- ⬜ `tokio-wasm-shim` (support crate) has its own rustfmt diffs (9 hunks);
+  format or document as imported code before landing.
+
+### Gating audit — hunks that are *not* behind `cfg(target_arch = "wasm32")`
+
+| Patch | Non-gated change | Native effect |
+|---|---|---|
+| 0001 | `deltachat-time` gains `SystemTimeTools::now()` | none (std on native) |
+| 0002 | Cargo: native deps moved to `cfg(not(wasm32))` table; `rusqlite` **0.37→0.40** + `fallible_uint` | **dependency bump** — see §2 |
+| 0003 | `tokio` → `tokio-wasm-shim` in ffi / jsonrpc / repl / rpc-server | facade = `pub use tokio::*` with `full` (feature superset) |
+| 0004/0008 | `[patch.crates-io]` async-imap, astral-tokio-tar, mail-builder | **vendored sources used on native too** (Cargo `[patch]` cannot be per-target) — see §2 |
+| 0005/0008 | `accounts`/`context`/`imex`: `path_exists`/`path_is_dir`/`path_is_file` | wrappers call `Path::exists/is_dir/is_file` on native |
+| 0007 | `Time::now()` → `tools::time_now()` (context, imap, idle, key, quota, scheduler, smtp, migrations, wal_checkpoint), ratelimit `now()` | wrapper calls `Time::now()` on native |
+| 0007 | `blob`: `image_metadata` takes `BufRead + Seek`; `sync_fs` facade | target-neutral refactor; recode output byte-identical (avatar golden `d57cb5ce…`) |
+| 0009 | `blob_tests` call sites | test-only |
 
 ## 2. Lockfile / reproducibility
 
 - ✅ Copy locks pinned under `docs/research/wasm-patches/support/locks/`
   with `PROVENANCE`; CI builds with `--locked` — Day 9.
-- ⬜ Landing plan for `core/Cargo.lock`: the wasm deps (rusqlite 0.40,
-  libsqlite3-sys 0.38, wasm-bindgen 0.2.129, sqlite-wasm-rs, …) **will**
-  change the production lock. That diff must be reviewed as its own item:
-  native crate bumps (rusqlite 0.37→0.40, libsqlite3-sys 0.35→0.38,
-  hashlink) need their own native test pass and release-notes mention.
+- ⬜ Landing plan for `core/Cargo.lock`: the wasm series **changes native
+  builds**, so that lock diff is its own review item (Day 10 analysis via
+  `cargo tree -i` on the pinned copy for x86_64-linux, aarch64-android,
+  x86_64-windows):
+
+  | Crate (native graph) | Stock | With series | Implication |
+  |---|---|---|---|
+  | rusqlite | 0.37.0 | **0.40.2** | API bump (`fallible_uint` for u64 ToSql); full lib nextest green on copy |
+  | libsqlite3-sys (`bundled-sqlcipher-vendored-openssl`) | 0.35.0 | **0.38.2** | bundled **SQLCipher 4.6.1 → 4.14.0** (SQLite 3.46.1 → 3.51.3). Same SQLCipher 4 file format, but every existing user DB is opened by the new engine: needs an upgrade test on a real Android/desktop DB + downgrade (rollback) test before release |
+  | hashlink | 0.10.0 | 0.12.2 | rusqlite statement cache; internal |
+  | tokio | 1.53.1 | 1.53.1 (via `tokio-wasm-shim`) | facade only; shim's `registry`/`durability`/`limits` modules compile on native |
+  | async-imap | 0.11.3 crates.io | 0.11.3 **vendored** | 2 files / 10 lines, all `cfg`-gated (idle timeout import) |
+  | astral-tokio-tar | **0.6.4** | **0.6.3 vendored** | ⛔ **native downgrade** (loses 0.6.4's 32-bit Unix nanosecond fix + rustix 1.0). Vendor diff (~170 lines) is mostly gated, but `canonicalize` moves to `tokio::fs` on native too. Rebase vendor onto stock version before landing |
+  | mail-builder | 0.5.0 crates.io | 0.5.0 **vendored** | 3 files / 88 lines, `SystemTime` imports `cfg`-gated |
+  | wasm-bindgen / js-sys / web-sys / sqlite-wasm-rs / wasmtimer / indexed_db_futures | 0.2.100 … | 0.2.129 … | **not in native graphs** (wasm-only) |
+
+  Native crate bumps need release-notes mention and their own native test
+  pass (§3) independent of the wasm work.
 - ⬜ wasm-bindgen crate version == `wasm-bindgen-cli` in CI (derived from
   `PROVENANCE`, Day 9) and documented for local builds.
 - ⬜ Pinned nightly (`nightly-2026-08-01`, needed for rusqlite `cfg_select!`)
@@ -88,17 +122,36 @@ Native builds must not change behaviour because of the wasm patches.
   (in-repo MPL wrapper) → Playwright smoke → wasm-opt → smoke on optimized
   artifact — run 37380548362 (Day 8), re-run with pinned locks Day 9.
 - ✅ Size: ~29.9 MB `--no-opt` → ~18.5 MB `wasm-opt -Os` (binaryen 120).
-- ⬜ Size budget agreed (e.g. ≤ 20 MB optimized, ≤ 6 MB brotli) and CI
-  fails above it.
+- ⬜ Size budget agreed and enforced. **Proposal (Day 10)**, measured on the
+  Day-9 pinned wasm-opt artifact (`-Os`, binaryen 120):
+
+  | Encoding | Day-9 bytes | MiB | Proposed budget | Headroom |
+  |---|---|---|---|---|
+  | raw (wasm-opt `-Os`) | 18 524 339 | 17.67 | **20 000 000** | ~8 % |
+  | brotli `-q 11` | 4 636 997 | 4.42 | **5 000 000** | ~8 % |
+  | gzip `-9` | 7 201 173 | 6.87 | **7 800 000** | ~8 % |
+  | (ref) raw `--no-opt` | 29 917 803 | 28.53 | — | — |
+  | (ref) brotli-11 `--no-opt` | 4 940 377 | 4.71 | — | — |
+  | (ref) JS glue `deltachat_wasm.js` | 54 742 (9 525 gz) | — | — | — |
+
+  Transfer size is what matters for a PWA: serve the wasm **pre-compressed
+  with brotli** (≈4.4 MiB first load, then Service-Worker cached); gzip-only
+  hosts cost ≈6.9 MiB. CI step `Size budget (wasm-opt artifact)` checks all
+  three (informational until landing). ⬜ Pavel to accept/adjust numbers.
 - ⬜ wasm CI job is required (not `continue-on-error`) on the landing branch,
   still kept out of Release workflows until C2 ships.
+- ✅ Copy builds are reproducible (`--locked`, pinned locks) — Day 9 CI run
+  [`37384382279`](https://github.com/pbuzdin/velta/actions/runs/37384382279).
 
 ## 5. Networking e2e
 
 - ✅ alice→bob over local `ws-tcp-proxy` → nine.testrun.org on the
   **in-repo** wrapper built from the pinned copy — Day 9 (see spike log).
 - ⬜ Repeated e2e (≥ 3 consecutive passes on different days) incl.
-  wasm-opt artifact.
+  wasm-opt artifact. Day 9: 2/2 local; Day 10: 1 local with proxy
+  `CHATMAIL_ALLOWLIST=nine.testrun.org`, plus CI.
+- ✅ e2e runnable in CI: `workflow_dispatch` input `e2e=true` (manual only;
+  proxy fetched pinned at `452cd0d`, allowlisted to nine.testrun.org) — Day 10.
 - ⬜ e2e against relay-native websockify (`/imap`, `/smtp` + CORS, C3) on a
   test deploy of `pbuzdin/relay`.
 - ⬜ Interop: wasm client ↔ native Velta (Android/desktop) message both ways,
@@ -107,6 +160,8 @@ Native builds must not change behaviour because of the wasm patches.
 
 ## 6. Review
 
+- ⬜ Review vendored crates against upstream (they ship on native too):
+  async-imap (10 lines), astral-tokio-tar (~170), mail-builder (88).
 - ⬜ Line-by-line review of the series by someone other than the author
   (agent-written patches need human review), focusing on: TLS clock
   provider, `ws_tcp` DNS/connect path, `http_wasm` fetch, blob memfs.

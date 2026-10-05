@@ -92,11 +92,19 @@ See [`SERIES`](SERIES). Rough mapping to inventory WASM-CORE ids:
 
 | Series | Intent |
 |---|---|
-| 0001 | deltachat-time JS clock (prototype 0002) |
-| 0002–0004 | Cargo target gates, tokio shim, `[patch.crates-io]` |
-| 0005–0006 | http/proxy stubs, blob ReadDir, vendors |
-| 0007–0008 | ws_tcp, clocks, blob sync_fs, fetch, path_exists, connect_tcp |
-| 0009 | blob_tests ↔ `image_metadata` BufReadSeek call sites (test-only; avatar golden unchanged from master) |
+| 0001 `wasm(time)` | deltachat-time JS clock (prototype 0002) |
+| 0002–0004 `wasm(cargo)` | Cargo target gates + rusqlite 0.40, tokio shim, `[patch.crates-io]` |
+| 0005–0006 `wasm(net,accounts)`, `wasm(blob,cargo)` | http/proxy wasm modules + cfg stubs, blob ReadDir |
+| 0007–0008 `wasm(net,blob,time)`, `wasm(fs,net,tls)` | ws_tcp, clocks, blob sync_fs, fetch, path_exists, connect_tcp, JsClock |
+| 0009 `wasm(tests)` | blob_tests ↔ `image_metadata` BufReadSeek call sites (test-only; avatar golden unchanged from master) |
+
+Day 10 hygiene: subjects carry WASM-CORE ids + a "Native impact" line;
+0 warnings (wasm + native), no new rustfmt diffs. Gating audit and the
+native dependency implications are in the
+[landing checklist](../wasm-core-landing-checklist.md) §1–§2.
+To edit the series: `git am` it onto a scratch git copy of master `core/`,
+amend/fixup, `git format-patch --zero-commit -N`, replace `series/`, update
+`SERIES`, then `refresh-lock`.
 
 ## Long-term patch home
 
@@ -113,6 +121,10 @@ wasm `cargo check --locked` →
 (binaryen 120) → smoke on optimized artifact. First green run: Day 8;
 pinned-lock `--locked` run: Day 9.
 `continue-on-error: true`; does **not** hook Release workflows.
+Day 10: `Size budget` step (raw ≤ 20 000 000, brotli-11 ≤ 5 000 000,
+gzip-9 ≤ 7 800 000 bytes) and optional networking e2e via
+`gh workflow run wasm-core-opt-in.yml -f e2e=true` (manual only; pinned
+Unlicense proxy, `CHATMAIL_ALLOWLIST=nine.testrun.org`, 2 throwaway accounts).
 
 ## Artifact path
 

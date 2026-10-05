@@ -1,12 +1,23 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: spike <spike@local>
 Date: Mon, 5 Oct 2026 21:58:20 +0300
-Subject: [PATCH 4/8] spike: add [patch.crates-io] async-imap +
- astral-tokio-tar (fixes mio on wasm)
+Subject: [PATCH] wasm(cargo): [patch.crates-io] vendored async-imap and
+ astral-tokio-tar
 
+Both pull mio/net on wasm32 otherwise. The vendored copies live in
+docs/research/wasm-patches/support/vendor-crates/.
+
+NOTE: [patch.crates-io] applies to native too. Vendored astral-tokio-tar
+is 0.6.3 while stock core resolves 0.6.4 (native downgrade: loses the
+32-bit Unix nanosecond fix + rustix 1.0) - rebase the vendor before landing.
+
+WASM-CORE: prototype 0001/0003 (MPL idea).
+---
+ Cargo.toml | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
 
 diff --git a/Cargo.toml b/Cargo.toml
-index 0c8d0f7..8094f36 100644
+index de76ce3..2f5664d 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -97,7 +97,7 @@ tokio-io-timeout = "1.2.1"

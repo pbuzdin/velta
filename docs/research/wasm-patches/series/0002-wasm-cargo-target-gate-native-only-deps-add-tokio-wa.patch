@@ -1,9 +1,25 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: spike <spike@local>
 Date: Mon, 5 Oct 2026 21:55:26 +0300
-Subject: [PATCH 2/8] spike: Cargo.toml target-gate + tokio-wasm-shim +
- rusqlite 0.40 (0001-equivalent)
+Subject: [PATCH] wasm(cargo): target-gate native-only deps, add
+ tokio-wasm-shim, rusqlite 0.40
 
+Gate native-only dependencies behind cfg(not(target_arch = "wasm32")),
+add the wasm32 dependency table (chrono wasmbind, tokio-rustls on ring,
+getrandom js, pgp wasm, wasm-bindgen, web-sys, ws_stream_wasm) and the
+getrandom wasm_js backend in .cargo/config.toml.
+
+rusqlite 0.37 -> 0.40 (+ "fallible_uint") is required for the
+sqlite-wasm-rs backend. NOTE: this also bumps NATIVE builds:
+libsqlite3-sys 0.35 -> 0.38, bundled SQLCipher 4.6.1 (SQLite 3.46.1) ->
+4.14.0 (SQLite 3.51.3), hashlink 0.10 -> 0.12. See landing checklist.
+
+WASM-CORE: prototype 0001 (MPL idea).
+---
+ .cargo/config.toml           |  3 +++
+ Cargo.toml                   | 52 ++++++++++++++++++++++++++----------
+ deltachat-jsonrpc/Cargo.toml |  2 +-
+ 3 files changed, 42 insertions(+), 15 deletions(-)
 
 diff --git a/.cargo/config.toml b/.cargo/config.toml
 index e2e5fa9..e443b86 100644
@@ -17,7 +33,7 @@ index e2e5fa9..e443b86 100644
 +[target.wasm32-unknown-unknown]
 +rustflags = ["--cfg", 'getrandom_backend="wasm_js"']
 diff --git a/Cargo.toml b/Cargo.toml
-index f671899..4e65e3f 100644
+index f671899..e7efaa3 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -45,9 +45,7 @@ anyhow = { workspace = true }
@@ -69,8 +85,8 @@ index f671899..4e65e3f 100644
 -tokio-rustls = { version = "0.26.2", default-features = false, features = ["tls12", "brotli"] }
 -tokio-stream = { version = "0.1.17", features = ["fs"] }
 -astral-tokio-tar = { version = "0.6.3", default-features = false }
-+# Velta wasm spike: tokio facade (real tokio on native, browser shims on wasm32).
-+# Path relative to side-tree layout /workspace/velta-wasm-port/{core,crates}.
++# Velta wasm port: tokio facade (real tokio on native, browser shims on wasm32).
++# Path relative to the apply-on-copy layout <dest>/{core,crates,vendor-crates}.
 +tokio = { package = "tokio-wasm-shim", path = "../crates/tokio-wasm-shim" }
  tokio-util = { workspace = true }
 -tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros"] }

@@ -1,12 +1,22 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: spike <spike@local>
 Date: Mon, 5 Oct 2026 22:04:38 +0300
-Subject: [PATCH 6/8] spike: blob ReadDir cfg, async-imap 0.11.3 vendor without
- net, serde_urlencoded
+Subject: [PATCH] wasm(blob,cargo): blob ReadDir cfg for the in-memory fs,
+ serde_urlencoded
 
+The wasm fs shim's ReadDir is already a Stream, so skip ReadDirStream on
+wasm32. Add serde_urlencoded for fetch-based form posts. (The vendored
+async-imap 0.11.3 built without its net feature lives in
+support/vendor-crates/.)
+
+WASM-CORE: prototype 0004 (MPL idea). Native impact: none.
+---
+ Cargo.toml  | 1 +
+ src/blob.rs | 8 +++++++-
+ 2 files changed, 8 insertions(+), 1 deletion(-)
 
 diff --git a/Cargo.toml b/Cargo.toml
-index 8094f36..cfe1490 100644
+index 2f5664d..ba93277 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -135,6 +135,7 @@ wasm-bindgen = "0.2"

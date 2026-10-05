@@ -1,6 +1,6 @@
 # Spike log — wasm core + WebSocket mail proxy
 
-**Status:** day 9 — copy `Cargo.lock`s **pinned** (`support/locks/`, CI `--locked`); alice→bob e2e **PASS on the in-repo wrapper** built from the pinned apply-on-copy (no-opt + wasm-opt); [landing checklist](wasm-core-landing-checklist.md) drafted (not green). Day-8 CI incl. wasm-opt **green**. Master `core/` unchanged — **stays stock until the checklist is green**.
+**Status:** day 10 — series hygiene pass (0 warnings wasm+native, rustfmt-clean, `wasm(<area>)` subjects), native-impact analysis (SQLCipher 4.6.1→4.14.0, astral-tokio-tar downgrade ⛔), size budget proposed (20 MB raw / 5 MB brotli / 7.8 MB gzip), optional CI e2e (`workflow_dispatch e2e=true`). Day 9: locks pinned + CI `--locked` green, in-repo e2e PASS. [Landing checklist](wasm-core-landing-checklist.md) not green — master `core/` stays stock.
 Started **2026-10-05** (Europe/Moscow). Research baseline:
 [`wasm-core-mail-proxy.md`](wasm-core-mail-proxy.md).
 
@@ -510,7 +510,13 @@ review, COREUPDATE + rollback + Pavel's go-ahead. **Production `core/` stays
 stock until it is green.**
 
 ### CI re-run with pinned locks
-Dispatched on the Day-9 commit (pinned locks, `--locked`); result recorded below once finished.
+`workflow_dispatch` run [`37384382279`](https://github.com/pbuzdin/velta/actions/runs/37384382279)
+on `a983f20` (2026-10-06 01:44–01:59 MSK, ~15 min): **success**, all steps green.
+`lock-status OK` → `pinned locks: OK (copy locks == support/locks/)` →
+`pinned wasm-bindgen: 0.2.129` → `cargo check --locked` (3.5 min) → bindgen CLI
+from PROVENANCE → `wasm-pack … -- --locked` (5 min; wrapper lock unchanged) → smoke OK →
+`wasm-opt: 29 961 007 → 18 563 501 bytes` → smoke on optimized OK. (CI bytes differ
+from local by ~40 KB: embedded absolute paths, `$RUNNER_TEMP` vs `/tmp`.)
 
 ### Master
 No production `core/` wasm merge; `core/` and `core/Cargo.lock` untouched.
@@ -518,15 +524,91 @@ No production `core/` wasm merge; `core/` and `core/Cargo.lock` untouched.
 
 ---
 
-## Next concrete steps (day 10)
+## Day 10 (2026-10-06) — CI e2e option, checklist burn-down, size budget
 
-1. Make CI e2e-capable (optional `workflow_dispatch` input that clones the
-   Unlicense proxy + runs `e2e-deltachat-wasm-network.mjs`), or keep e2e manual.
-2. Start burning down the checklist: series hygiene (rename "spike" subjects,
-   fix warnings), native test pass with the wasm-dragged crate bumps.
-3. Size budget proposal (brotli size of the 18.5 MB artifact).
+Pavel approved Day 10. Still **no** production `core/` merge.
+
+### 1. Networking e2e in CI (optional, manual)
+`wasm-core-opt-in.yml` gains a `workflow_dispatch` boolean input **`e2e`**
+(default false; never runs on push/PR because it creates two throwaway
+accounts on the public test relay). When set:
+- fetches the Unlicense `ws-tcp-proxy` **pinned** to slothfulchat-web
+  `452cd0d` (`git fetch --depth 1 <sha>`, `npm ci`) — not vendored into Velta;
+- runs `scripts/e2e-deltachat-wasm-network.mjs` on the **wasm-opt** artifact
+  with `CHATMAIL_ALLOWLIST=nine.testrun.org` (proxy refuses other hosts),
+  `timeout-minutes: 10`, `continue-on-error`; marker + time go to the job summary.
+
+Local dry run of the allowlisted mode (Day-9 pinned artifact):
+`OK … wasm-roundtrip-7d1uxu332`, 6.1 s, `E2E_EXIT=0` (18 non-relay tunnels
+blocked by the allowlist, harmless). CI run: see "CI run (Day 10 commit)" below.
+
+### 2. Checklist burn-down
+**Series hygiene** — rewrote the series in a scratch git repo (`git am` → fixups
+→ `rebase --autosquash` → per-commit `rustfmt` → reword → `format-patch
+--zero-commit`). Tree diff vs Day-9 series = the fixes only (8 files, +29/−18):
+
+| Item | Before | After |
+|---|---|---|
+| Subjects | `spike: …`, 0001 = `apply` | `wasm(<area>): …` + WASM-CORE id + "Native impact" line |
+| `deltachat` wasm32 warnings | 4 (unused `bail`; `read_url_blob_with_tls`/`post_string`/`post_form` dead) | **0** (`bail` import gated native-only; parity fns `#[allow(dead_code)]`) |
+| `deltachat` native lib+tests warnings | 1 (unused `sync_fs::read` in `blob.rs`) | **0** (`read` re-export only on wasm, its only user) |
+| New rustfmt diffs from the series | 8 hunks (accounts, blob, imex, net, tls, ws_tcp, tools) | **0** (5 stock-master diffs untouched) |
+| Stale comments | side-tree path, "Velta wasm spike" | apply-on-copy layout, "Velta wasm port" |
+
+Pinned locks re-generated with `refresh-lock`: **byte-identical**; only
+`PROVENANCE.series_sha256` changed (stale check fired first, as designed).
+
+Verification on fresh pinned apply-on-copy `/tmp/velta-wasm-day10`:
+apply 9/9 + `verify-copy` OK, tree == scratch HEAD; wasm `cargo check --locked`
+**PASS, 0 deltachat warnings**; native `cargo check --locked --lib --tests`
+**PASS, 0 warnings**; full native `cargo nextest run --locked -p deltachat --lib`: **1135 run: 1135 passed, 1 skipped** (33.5 s run).
+
+**Gating audit + native bump implications** — written into the checklist
+(§1 table, §2 table). Headlines from `cargo tree -i` on the pinned copy for
+x86_64-linux / aarch64-android / x86_64-windows:
+- wasm-bindgen / js-sys / web-sys / sqlite-wasm-rs / wasmtimer: **not** in any
+  native graph.
+- Native **does** change: rusqlite 0.37→0.40.2, libsqlite3-sys 0.35→0.38.2 ⇒
+  bundled **SQLCipher 4.6.1 → 4.14.0** (SQLite 3.46.1 → 3.51.3) — needs a real
+  user-DB upgrade + rollback test; hashlink 0.10→0.12.
+- `[patch.crates-io]` vendors apply on native too: async-imap (10 gated lines),
+  mail-builder (88, gated), astral-tokio-tar **0.6.3 vs stock 0.6.4** ⇒ native
+  **downgrade** (⛔ rebase vendor before landing).
+
+### 3. Size budget
+Measured on the Day-9 pinned wasm-opt artifact:
+
+| | raw | brotli -q 11 | gzip -9 |
+|---|---|---|---|
+| wasm-opt `-Os` | 18 524 339 (17.67 MiB) | **4 636 997 (4.42 MiB)** | 7 201 173 (6.87 MiB) |
+| `--no-opt` | 29 917 803 | 4 940 377 | 8 330 127 |
+| **Proposed budget** | **20 000 000** | **5 000 000** | **7 800 000** |
+
+wasm-opt saves 38 % raw but only ~6 % after brotli — the real win is serving
+pre-compressed brotli (≈4.4 MiB first load, then SW-cached). New CI step
+`Size budget (wasm-opt artifact)` (adds `brotli` to apt deps) prints the table
+to the job summary and fails the step above budget (job stays informational).
+
+### CI run (Day 10 commit, `e2e=true`)
+Dispatched with `-f e2e=true` after pushing this commit; result recorded in the follow-up commit.
+
+### Master
+No production `core/` wasm merge; `core/` + `core/Cargo.lock` untouched;
+`apply-core-patches.py verify` **13/13**.
+
+---
+
+## Next concrete steps (day 11)
+
+1. Rebase vendored astral-tokio-tar onto stock 0.6.4 (removes the native downgrade);
+   refresh-lock; re-run nextest.
+2. SQLCipher 4.6.1 → 4.14.0 upgrade/rollback test on a real Velta DB (native, copy).
+3. VENDORISSUES-style entries per series patch; format or document `tokio-wasm-shim`.
+4. Repeat CI e2e on another day (checklist wants ≥ 3 passes).
 
 ## Ask Pavel to approve next
 
-- Day 9: lock pinned + CI `--locked`, in-repo e2e PASS, checklist drafted.
-- Approve Day 10 scope (above) — still **no** production `core/` merge.
+- Day 10: CI e2e option, hygiene pass (0 warnings, fmt-clean, clean subjects),
+  native-impact analysis, size budget proposal (20 MB raw / 5 MB brotli / 7.8 MB gzip).
+- Accept or adjust the size budget; approve Day 11 scope — still **no**
+  production `core/` merge.
