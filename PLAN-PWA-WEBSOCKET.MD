@@ -244,7 +244,8 @@ three copies (tauri.conf, android conf, AGENTS §8).
 
 - **OQ-1 (acceptance):** Gateway custody (Architecture A) — acceptable for
   this relay's users? If not, only Architecture B remains (P2P-only, no
-  addresses).
+  addresses). Related research (wasm core in-browser + mail proxy, spike
+  started 2026-10-05): [`docs/research/wasm-core-mail-proxy.md`](docs/research/wasm-core-mail-proxy.md).
 - **OQ-2 (scope):** Is the fork PWA-only (native clients blocked, R3 as
   written) or PWA-preferred (native clients still welcome)?
 - **OQ-3 (accounts):** DECIDED 2026-10-05 — invite links (single- or
