@@ -1,6 +1,6 @@
 # Spike log — wasm core + WebSocket mail proxy
 
-**Status:** day 10 — series hygiene pass (0 warnings wasm+native, rustfmt-clean, `wasm(<area>)` subjects), native-impact analysis (SQLCipher 4.6.1→4.14.0, astral-tokio-tar downgrade ⛔), size budget proposed (20 MB raw / 5 MB brotli / 7.8 MB gzip), optional CI e2e (`workflow_dispatch e2e=true`). Day 9: locks pinned + CI `--locked` green, in-repo e2e PASS. [Landing checklist](wasm-core-landing-checklist.md) not green — master `core/` stays stock.
+**Status:** day 10 **complete** — series hygiene pass (0 warnings wasm+native, rustfmt-clean, `wasm(<area>)` subjects), native-impact analysis (SQLCipher 4.6.1→4.14.0, astral-tokio-tar downgrade ⛔), size budget proposed + CI-enforced (20 MB raw / 5 MB brotli / 7.8 MB gzip), optional CI e2e (`workflow_dispatch e2e=true`) **PASS** on `d777ab0`. Day 9: locks pinned + CI `--locked` green, in-repo e2e PASS. [Landing checklist](wasm-core-landing-checklist.md) not green — master `core/` stays stock.
 Started **2026-10-05** (Europe/Moscow). Research baseline:
 [`wasm-core-mail-proxy.md`](wasm-core-mail-proxy.md).
 
@@ -600,7 +600,13 @@ Fix: install the single runtime dep pinned (`ws@8.22.0`, `--no-save
 --no-package-lock`) and mark the fetch step `continue-on-error`. Locally verified
 with a fresh pinned fetch: e2e `OK … wasm-roundtrip-n6dcdfty4fb`, 6.0 s.
 
-**Run 2**: CI_RUN2_PLACEHOLDER
+**Run 2** [`37388272660`](https://github.com/pbuzdin/velta/actions/runs/37388272660)
+on `d777ab0` (`e2e=true`, 2026-10-06 02:24–02:41 MSK): **success** (job 16m53s).
+`wasm-opt: 29 961 007 → 18 563 501`; **Size budget green**: raw 18 563 501 /
+brotli-11 4 640 859 / gzip-9 7 207 197 (all under budget). Fetch ws-tcp-proxy
+green (`ws@8.22.0` pin). **e2e PASS**: `OK … wasm-roundtrip-tyq874bsxoe`,
+8.1 s (boot+configure×2+send+receive); IPv6 `ENETUNREACH` + allowlist blocks
+harmless as on Day 9. Day 10 CI wrap-up closed — no further re-dispatch needed.
 
 ### Master
 No production `core/` wasm merge; `core/` + `core/Cargo.lock` untouched;
@@ -618,7 +624,11 @@ No production `core/` wasm merge; `core/` + `core/Cargo.lock` untouched;
 
 ## Ask Pavel to approve next
 
-- Day 10: CI e2e option, hygiene pass (0 warnings, fmt-clean, clean subjects),
-  native-impact analysis, size budget proposal (20 MB raw / 5 MB brotli / 7.8 MB gzip).
-- Accept or adjust the size budget; approve Day 11 scope — still **no**
-  production `core/` merge.
+- Day 10 is complete (CI e2e PASS on `d777ab0`, size budget green). Accept or
+  adjust the size budget (20 MB raw / 5 MB brotli / 7.8 MB gzip).
+- **Proposed Day 11** (still **no** production `core/` merge): (1) rebase
+  vendored astral-tokio-tar onto stock 0.6.4 and refresh-lock + nextest;
+  (2) SQLCipher 4.6.1→4.14.0 upgrade/rollback test on a real Velta DB (native
+  copy); (3) VENDORISSUES-style entries per series patch / document
+  `tokio-wasm-shim`; (4) one more CI e2e (`e2e=true`) toward the checklist’s
+  ≥3 passes.
