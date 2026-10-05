@@ -1437,6 +1437,9 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
   .btn-text:hover { background: var(--bg-hover); }
 }
 .modal-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; padding: 4px 18px 12px; } /* sides match .modal-body so buttons align with body content */
+/* Pairing request: Deny keeps its natural width, the primary Pair action
+   stretches over the rest of the row. */
+.modal.pair-request .modal-foot .btn-primary { flex: 1; }
 .text-field {
   width: 100%; background: var(--bg-hover);
   border: 1px solid var(--border); border-radius: 10px;
