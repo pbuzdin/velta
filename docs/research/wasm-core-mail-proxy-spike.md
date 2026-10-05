@@ -1,6 +1,6 @@
 # Spike log — wasm core + WebSocket mail proxy
 
-**Status:** day 4 — Velta **2.62.0** side-tree `wasm-pack` + `get_system_info` smoke **PASS**; alice→bob networking e2e on 2.62 **PASS**. Master `core/` unchanged.
+**Status:** day 5 — Velta-owned wasm core policy + opt-in patch home scaffolded; side-tree **native** `cargo check` **PASS** (system OpenSSL); `wasm-opt` ~29→~18 MB. Master `core/` unchanged.
 Started **2026-10-05** (Europe/Moscow). Research baseline:
 [`wasm-core-mail-proxy.md`](wasm-core-mail-proxy.md).
 
@@ -202,8 +202,6 @@ hand port (Cargo + tls/blob drift).
 
 ---
 
----
-
 ## Day 4 (2026-10-05) — finish WASM-CORE ports + wasm-pack smoke + 2.62 e2e
 
 **Side tree:** `/workspace/velta-wasm-port` (experimental). Master `core/` still
@@ -248,18 +246,71 @@ Docs-only update. **No** wasm patches in `master` `core/`.
 
 ---
 
-## Next concrete steps (day 5)
+## Day 5 (2026-10-05) — ownership, patch home, native gate
 
-1. Decide long-term home for wasm patches (opt-in `apply-wasm-core-patches.py`
-   vs upstreamable `cfg(target_arch = "wasm32")` gates).
-2. Full native `cargo check` / nextest on a host with OpenSSL + pkg-config
-   **before** any master `core/` merge.
-3. Optional: `wasm-opt` size check; OPFS persistence / crypto-offload (WASM-EXTRA)
-   only if PWA persistence is next.
-4. Still **no** production app / GPL UI into Velta.
+### Fresh Velta wasm core? **Yes**
+Pavel asked whether we will have our own fresh wasm core. **Yes:** a
+**Velta-owned forward-port of chatmail/core 2.62+** (side tree today), **not** a
+fork of `experintellia/slothfulchat-web`. Reuse **MPL-licensed patch ideas** only;
+no GPL web app / desktop UI into Velta. Policy + artifact path:
+[`wasm-patches/README.md`](wasm-patches/README.md).
+
+Fresh artifact (spike host):
+`/workspace/velta-wasm-port/packages/core-wasm/wasm-dist/deltachat_wasm_bg.wasm`
+(Day 4 build of the Velta 2.62 side tree + MPL wrapper).
+
+### Patch home — **decision**
+**Near-term: opt-in second apply layer** (chosen), separate from the 13
+production patches in `tools/apply-core-patches.py`.
+
+| Mechanism | Role |
+|---|---|
+| `tools/apply-wasm-core-patches.py` | Scaffolded; `status`/`list` OK; **`apply` REFUSED** until discrete patches are extracted |
+| `docs/research/wasm-patches/` | Landing pad + ownership README |
+| Side tree `/workspace/velta-wasm-port` | Source of truth until extraction |
+
+Longer-term: collapse into upstreamable `cfg(target_arch = "wasm32")` / upstream
+chatmail where possible. **Not** merging raw prototype patches into the
+production apply script.
+
+### Native check (side tree host target)
+Installed on spike host: `pkg-config`, `libssl-dev` (already present), `make`.
+
+| Command | Result |
+|---|---|
+| `OPENSSL_NO_VENDOR=1 cargo check -p deltachat --lib` (side tree, host) | **PASS** (~2m 12s; 1 unused-import warning in `blob.rs`) |
+| Default vendored OpenSSL build (first try) | Failed until `make` installed (`openssl-src` needs it) |
+| `cargo nextest` | **Not run** — `cargo-nextest` not installed on spike host |
+
+**Still no master `core/` merge** — native PASS on the *side tree* is a green
+gate for the experimental port; landing still needs extracted patches + review
++ wasm CI story. Master `apply-core-patches.py verify` remains **13/13**.
+
+### wasm-opt (optional)
+| Artifact | Size |
+|---|---|
+| `deltachat_wasm_bg.wasm` (`--no-opt`) | **~29 MB** (29 918 680 bytes) |
+| after `wasm-opt -Os` (binaryen 120) | **~18 MB** (18 516 912 bytes) |
+
+Ship/opt path should prefer `wasm-opt` when available (~38% smaller here).
+
+---
+
+## Next concrete steps (day 6)
+
+1. Extract discrete patch units from the side tree into
+   `docs/research/wasm-patches/` (or `patches/wasm-core/`) and teach
+   `apply-wasm-core-patches.py` a real, idempotent `apply` against a *copy*
+   first — still not master `core/` until reviewed.
+2. Install/run `cargo nextest` on the side tree (or CI image with OpenSSL +
+   pkg-config + make) for a stronger native gate.
+3. Wire wasm CI sketch: side-tree or opt-in apply → `wasm-pack` + smoke.
+4. Optional: commit optimized wasm size budget / `wasm-opt` in the wrapper
+   build script when that package enters the repo.
 
 ## Ask Pavel to approve next
 
-- Day 4 proves **2.62 wasm compile + browser smoke + alice→bob over WS tunnel**
-  in the side tree. Approve Day 5 planning for merge strategy / native gate —
-  still docs-only until native+wasm both clean on a full toolchain.
+- Day 5 locks **Velta-owned** wasm core + **opt-in** patch home (scaffold on
+  master docs/tools; experimental code still side-tree only).
+- Approve Day 6 **extraction** of patches into-repo (still no production merge
+  until nextest + reviewed apply path).

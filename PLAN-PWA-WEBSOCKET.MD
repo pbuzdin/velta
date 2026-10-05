@@ -79,7 +79,7 @@ DB encryption at rest yet and can be evicted — identity/key backup (V2.5
 pattern) is mandatory. Grounded in
 [`docs/research/wasm-core-mail-proxy.md`](docs/research/wasm-core-mail-proxy.md);
 spike log (build + browser smoke only — e2e networking still open):
-[`docs/research/wasm-core-mail-proxy-spike.md`](docs/research/wasm-core-mail-proxy-spike.md).
+[`docs/research/wasm-core-mail-proxy-spike.md`](docs/research/wasm-core-mail-proxy-spike.md). Ownership / opt-in patch home: [`docs/research/wasm-patches/README.md`](docs/research/wasm-patches/README.md).
 
 ## 2. Architecture comparison — A vs B vs C
 
