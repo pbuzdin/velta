@@ -590,7 +590,17 @@ pre-compressed brotli (≈4.4 MiB first load, then SW-cached). New CI step
 to the job summary and fails the step above budget (job stays informational).
 
 ### CI run (Day 10 commit, `e2e=true`)
-Dispatched with `-f e2e=true` after pushing this commit; result recorded in the follow-up commit.
+**Run 1** [`37386376169`](https://github.com/pbuzdin/velta/actions/runs/37386376169)
+on `6096dc3` (`e2e=true`, 2026-10-06 02:04–02:21 MSK): build/smoke steps green
+with the cleaned series (`wasm-opt: 29 961 007 → 18 563 501`); **Size budget
+step green**: raw 18 563 501 / brotli-11 4 640 859 / gzip-9 7 207 197 (all under
+20 000 000 / 5 000 000 / 7 800 000). `Fetch ws-tcp-proxy` **failed**: upstream has no
+`package-lock.json` for that package, so `npm ci` refused (`EUSAGE`); e2e skipped.
+Fix: install the single runtime dep pinned (`ws@8.22.0`, `--no-save
+--no-package-lock`) and mark the fetch step `continue-on-error`. Locally verified
+with a fresh pinned fetch: e2e `OK … wasm-roundtrip-n6dcdfty4fb`, 6.0 s.
+
+**Run 2**: CI_RUN2_PLACEHOLDER
 
 ### Master
 No production `core/` wasm merge; `core/` + `core/Cargo.lock` untouched;

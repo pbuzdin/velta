@@ -161,6 +161,7 @@ jobs:
       # artifact (ship path). No relay changes.
       - name: Fetch ws-tcp-proxy (pinned, Unlicense)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.e2e }}
+        continue-on-error: true
         env:
           PROXY_REPO: https://github.com/experintellia/slothfulchat-web.git
           PROXY_SHA: 452cd0d24a26d4927faf2b949f18af4cabffb87f
@@ -170,7 +171,10 @@ jobs:
           git -C "$d" fetch -q --depth 1 "$PROXY_REPO" "$PROXY_SHA"
           git -C "$d" checkout -q FETCH_HEAD -- packages/ws-tcp-proxy
           cd "$d/packages/ws-tcp-proxy"
-          npm ci --no-fund --no-audit --omit=dev
+          # upstream ships no package-lock.json for this package: pin its
+          # single runtime dep (ws) exactly instead of `npm ci`
+          npm install --no-fund --no-audit --no-save --no-package-lock ws@8.22.0
+          node -e "require.resolve('ws')"
           echo "WS_TCP_PROXY=$PWD/ws-tcp-proxy.mjs" >> "$GITHUB_ENV"
 
       - name: Networking e2e alice→bob (wasm-opt artifact)
