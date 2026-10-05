@@ -231,6 +231,17 @@ async fn download_update(app: tauri::AppHandle, version: String) -> Result<Strin
             .unwrap_or(0);
         let dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        // Earlier downloads are version-suffixed and ~50 MB each; sweep them
+        // best-effort so failed/old updates don't pile up in cache.
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name.starts_with("Velta-") && name.ends_with("-arm64.apk") {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
+        }
         let path = dir.join(format!("Velta-{v}-arm64.apk"));
         let wipe = |e: String| -> String {
             let _ = std::fs::remove_file(&path);
