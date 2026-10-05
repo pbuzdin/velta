@@ -53,7 +53,59 @@ no gateway custody — but also no email interop, and a real wasm port of the
 engine (tokio/iroh) is its own project. The same PWA shell can grow this as
 a second transport later; plan for it, don't build it first.
 
-## 2. Relay fork plan
+## 2. Architecture comparison — A vs B
+
+Estimates, not benchmarks — from the architectures themselves. One framing
+fact first: browsers cannot send UDP, so iroh in a browser always uses its
+WebSocket transport — **in B every message and media byte transits the
+iroh relay** (direct peer-to-peer never happens from a browser).
+
+**Performance / response times.** A: one WSS round-trip (~20–100 ms) plus
+5–30 ms server-side core work (SQLite, E2EE, all local on the relay box);
+an online recipient sees a message in ~0.3–2 s (localhost SMTP → mailbox →
+IMAP IDLE), offline recipients on next connect — there is a real mailbox.
+Heavy operations (search, backups) run on server hardware, so the PWA feels
+snappy on weak phones. B: texts between online peers cost a single relay
+hop (~30–100 ms, the fastest possible path); media uploads through the
+relay and downloads through it again (bandwidth ×2); delivery is
+online-only — the engine queues and flushes on reconnect, an offline peer
+waits indefinitely (rebuilding a mailbox here means re-inventing A).
+
+**Features.**
+
+| | A: Gateway | B: wasm P2P |
+|---|---|---|
+| Addresses / Delta Chat interop | yes, full | none |
+| Groups, ephemeral, reply/pin, search | full core feature set | local-chat subset (groups ≤5, 32 MB media, typing) |
+| Offline delivery | yes (mailbox) | no |
+| Web push / bg notifications | yes (notifier plumbing + VAPID) | no (no server knows you exist) |
+| webxdc apps | yes (realtime channels need the iroh-wss path) | no core webxdc |
+| Multi-device / backup | yes | limited (no core backup) |
+| Key custody | relay operator holds keys (webmail model) | keys in the browser, zero-knowledge server |
+
+**Relay-owner load.** A standard chatmail relay is already cheap
+(store-and-forward mail stack, mostly IO; one VPS serves thousands of
+accounts). A keeps that whole stack **and** adds a stateful gateway tier:
+the real cost is memory — ~50–150 MB per active core account session, or
+pool multi-account `deltachat-rpc-server` processes for roughly 1–2 GB per
+~100 open accounts, plus spiky CPU on sends/syncs; scaling needs
+account→process affinity and sticky WSS sessions. Bandwidth stays
+standard-chatmail-shaped (media uploaded once, fetched once). **A is not
+lighter than a standard relay — it is a standard relay plus an application
+tier.** B drops the mail stack entirely (nginx + iroh-relay + token
+service), CPU per connection is trivial and scaling is stateless, but
+bandwidth becomes the dominant cost because all media transits the relay
+twice. **B is far lighter — as long as no mailbox features (offline
+delivery, push, history) are added; each of those walks it back toward A.**
+
+**Practical read.** For "a private Velta web client for real chatmail
+users" pick A and accept custody (encrypted at rest, per-session unlock).
+For "a zero-knowledge P2P web messenger on your own infrastructure" pick B
+and accept the feature ceiling and online-only delivery. This plan
+sequences A for v1 and B as a later transport behind the same PWA shell
+(OQ-1 is exactly this choice).
+
+## 3. Relay fork plan
 
 Grounded in the chatmail/relay layout we already work in (cmdeploy
 deployers + `pins.py`, chatmaild config/ini, nginx templates,
@@ -102,7 +154,7 @@ possible (same discipline as PR #1061).
   Online (existing `cmdeploy/tests/online` harness): create-capped-account,
   WS round-trip RPC, mail send/receive through gateway.
 
-## 3. Velta update plan
+## 4. Velta update plan
 
 Grounded in the app/ tree: `index.html`, `manifest.webmanifest`, `js/`
 (`rpc-core.js` isolates JSON-RPC method handling; transports today are Tauri
@@ -135,7 +187,7 @@ three copies (tauri.conf, android conf, AGENTS §8).
 - **V5 — (later) Architecture B transport**: wasm p2p engine behind the same
   rpc-core seam as a third transport. Design note only in v1.
 
-## 4. Suggested order and rough sizes
+## 5. Suggested order and rough sizes
 
 | Phase | Deliverable | Size |
 |---|---|---|
@@ -146,7 +198,7 @@ three copies (tauri.conf, android conf, AGENTS §8).
 | R3 | WS-only exposure hardening | small (ops) |
 | R4 | Web Push | medium, deferrable |
 
-## 5. Open questions
+## 6. Open questions
 
 - **OQ-1 (acceptance):** Gateway custody (Architecture A) — acceptable for
   this relay's users? If not, only Architecture B remains (P2P-only, no
