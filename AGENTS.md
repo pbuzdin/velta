@@ -1363,6 +1363,24 @@ replies; applies regardless of which tools or modes are active.)
   rows (#39). Group/channel avatars are exempt (solid color + photo/initials).
 
 
+### 6.5 Profiling (JS + Rust)
+
+Linters don't find runtime bottlenecks. Use:
+
+- **JS (WebView):** Chrome/Edge DevTools → Performance while scrolling the chat
+  list or opening a busy chat. Optional: wrap hot paths with
+  `performance.mark` / `performance.measure` (event batch handling, chat-list
+  refresh, markdown render) and read them in the same flame chart.
+- **JS on phone:** Android Studio Profiler on the WebView process when DevTools
+  isn't enough (CPU + memory).
+- **Rust (desktop):** `cargo flamegraph` (or `samply` / `perf`) on a release
+  build for sync / p2p / Tauri command cost. Criterion benches for small pure
+  functions.
+- **Rust on phone:** Android Studio CPU profiler / `simpleperf` on the
+  in-process core.
+
+Skip Lighthouse for the installed app; it's only weakly useful for PWA mode.
+
 ---
 
 ## 7. Testing strategy
