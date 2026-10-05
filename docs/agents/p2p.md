@@ -40,8 +40,8 @@ iroh (QUIC, `RelayMode::Disabled`, optional mDNS re-discovery via the
   mode), hub with online dots, "Nearby devices" (UDP beacon on port 53717),
   invite QR display, pairing via beacon tap (requires approval on the other
   device) or pasted/scanned code (`acquireCode` offers camera scanning —
-  native `BarcodeDetector` where the WebView supports it, vendored jsQR
-  fallback otherwise — plus paste everywhere else). Engine-side errors
+  native `BarcodeDetector` where the WebView supports it, vendored jsQR (minified, ~131 KB,
+  `app/vendor/jsQR.js`, loaded on demand) fallback otherwise — plus paste everywhere else). Engine-side errors
   (background connect retries) go to the Diagnostics chat, never toasts —
   several queued connects can fail at once and the store collapses
   identical consecutive entries into one counted row.
@@ -274,7 +274,11 @@ Research: https://github.com/pbuzdin/velta/issues/31#issuecomment-5887003522.
   unit-testable): first keystroke sends `on:true`, further keystrokes repeat at
   most every 3 s (`REPEAT_MS`), 5 s without a keystroke or a send/empty box/
   chat close sends `on:false` (`IDLE_MS`). chat-view.js wires it for `isP2p`
-  chats via `core.sendTyping(chatId, on)`.
+  chats via `core.sendTyping(chatId, on)`. The injected timer functions are
+  bound to `globalThis` in the constructor: Chromium's `setTimeout` /
+  `clearTimeout` throw "Illegal invocation" when called as `this._setTimer(...)`
+  (WebView2 hit it), which used to break closing a local chat (#86). Keep the
+  `.bind` if the constructor changes.
 - Receiver (`local-chat.js`): per chat a map sender -> expiry; a hint lives
   6 s after the last signal (`SHOW_TTL_MS`), an explicit stop or a message from
   that sender clears it. It surfaces as `typingText` on the chat object

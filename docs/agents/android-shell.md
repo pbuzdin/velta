@@ -123,6 +123,11 @@ and do not swipe.
   turn makes the .22s close slide run from `-100%` across the list.
 - In that mobile layout `#history-scroll` is `overflow-x: hidden`, so the
   bubble slide does not scroll the history sideways.
+- The close path must not leave a parked column behind (#86: a local chat's
+  teardown threw, `.chat-open` stayed and the screen went blank). The swipe
+  handler wraps `onBack` in try/catch and clears the inline transform if it
+  failed; `closeChatUI` wraps `chatView.close()` in try/catch so the UI
+  teardown always runs; `_typingStop` ignores a `TypingSender.stop()` error.
 
 Pinned by `tests/chat-msg-update-hardening.test.mjs`. The same contract is
 in AGENTS.md under "Mobile swipes (#35)".
@@ -165,6 +170,19 @@ Helper scripts in the parent workspace `tools/`:
 `focus-velta.ps1` (raise + topmost), `click-at.ps1`, `who-is-at.ps1`
 (which window owns a screen point).
 
+
+## Share sheet for the QR screen (#37)
+
+The Android WebView has no Web Share API, so "Share a link" on the QR screen
+calls the shell command `share_text(text, title)` (lib.rs). It follows the
+`get_battery_status` pattern: `Share` is cached as a JNI global ref in
+`Java_org_velta_MainActivity_setApplicationContext`, then `Share.text(context,
+text, title)` (Share.kt) starts an `ACTION_SEND` `text/plain` chooser with
+`FLAG_ACTIVITY_NEW_TASK` (the stored context is the application context). It
+returns false when no app can handle it, which becomes an error toast. Elsewhere
+the page uses `navigator.share` when it exists and hides the button otherwise
+(`app/js/qr-actions.js`). Like the rest of the Kotlin here it has no local
+compile check - CI is the gate.
 
 ## Notification preferences bridge (v1.4.54)
 
