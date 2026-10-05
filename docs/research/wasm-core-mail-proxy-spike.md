@@ -1,6 +1,6 @@
 # Spike log — wasm core + WebSocket mail proxy
 
-**Status:** day 3 — Velta **2.62.0** side-tree `cargo check` for `wasm32-unknown-unknown` **PASS** (lib, `--no-default-features`). Day 2 alice→bob still stands on prototype 2.54. Inventory: [`wasm-core-port-inventory.md`](wasm-core-port-inventory.md). **Master `core/` unchanged.**
+**Status:** day 4 — Velta **2.62.0** side-tree `wasm-pack` + `get_system_info` smoke **PASS**; alice→bob networking e2e on 2.62 **PASS**. Master `core/` unchanged.
 Started **2026-10-05** (Europe/Moscow). Research baseline:
 [`wasm-core-mail-proxy.md`](wasm-core-mail-proxy.md).
 
@@ -202,18 +202,64 @@ hand port (Cargo + tls/blob drift).
 
 ---
 
-## Next concrete steps (day 4)
+---
 
-1. Continue side-tree: port **0005–0007 + 0010**; keep `cargo check` wasm green.
-2. Add minimal MPL `deltachat-wasm` wrapper; `wasm-pack` + `get_system_info` smoke.
-3. Re-run networking e2e on 2.62 via local `ws-tcp-proxy` → nine.testrun.org.
-4. Draft how wasm patches will live long-term (separate apply script vs upstreamable cfgs) without touching production APK/desktop builds.
+## Day 4 (2026-10-05) — finish WASM-CORE ports + wasm-pack smoke + 2.62 e2e
+
+**Side tree:** `/workspace/velta-wasm-port` (experimental). Master `core/` still
+untouched (`apply-core-patches.py verify` **13/13**).
+
+### Ports completed
+| Item | Notes |
+|---|---|
+| **0005** `ws_tcp` | `connect_tcp_inner` + DNS via proxy; **also** wasm `connect_tcp` for autorelay (2.62) |
+| **0006** clocks | `time_now` / `SystemTimeTools` re-export; tls `JsClockTimeProvider` + ring on wasm |
+| **0007** blob sync_fs | memfs BufReadSeek / `file_hash` / image helpers (Velta animated-WebP kept) |
+| **0010** fetch | `http_wasm.rs` via browser `fetch` |
+| **0004 leftovers** | `path_exists` / `path_is_dir` / `path_is_file` call sites (`accounts`, `context`, `imex`, `tools`) — without these `Accounts::new` / blobdir fail on memfs |
+| **mail-builder 0.5.0** | Vendored with `web-time` SystemTime (prototype fork was 0.4.4; crates.io 0.5 panicked mid-configure) |
+
+### Artifact
+- Minimal MPL `packages/core-wasm` (jsonrpc `init`/`receive` + memfs side channel; no OPFS/heal/crypto-offload).
+- `wasm-pack build --target web --release --no-opt` → **exit 0**
+- Artifact: `deltachat_wasm_bg.wasm` **~29 MB** (unoptimized; expect ~17 MB with `wasm-opt`)
+- Toolchain: nightly-2026-08-01, `wasm-bindgen-cli` **0.2.129** (match lock), clang, `getrandom_backend=wasm_js`
+
+### Browser smoke
+```
+OK: core v2.62.0 answered get_system_info (sqlite 3.53.0, arch 32)
+OK: memfs side channel roundtrip
+```
+Script: side-tree `scripts/smoke-core-wasm.mjs` (Playwright + `/usr/bin/google-chrome`).
+
+### Networking e2e (2.62)
+Path: local Unlicense `ws-tcp-proxy` → `nine.testrun.org` (same as Day 2).
+```
+OK: two accounts configured over the WS tunnel; alice→bob message delivered:
+  wasm-roundtrip-ewf5hft74cr
+```
+~10 s wall clock. Same non-fatal friction as Day 2 (CORS autoconfig, IPv6
+`ENETUNREACH`, 443 ALPN eof then 993/465).
+
+Script: side-tree `scripts/test-networking.mjs` (raw JSON-RPC; no GPL UI).
+
+### Master
+Docs-only update. **No** wasm patches in `master` `core/`.
+
+---
+
+## Next concrete steps (day 5)
+
+1. Decide long-term home for wasm patches (opt-in `apply-wasm-core-patches.py`
+   vs upstreamable `cfg(target_arch = "wasm32")` gates).
+2. Full native `cargo check` / nextest on a host with OpenSSL + pkg-config
+   **before** any master `core/` merge.
+3. Optional: `wasm-opt` size check; OPFS persistence / crypto-offload (WASM-EXTRA)
+   only if PWA persistence is next.
+4. Still **no** production app / GPL UI into Velta.
 
 ## Ask Pavel to approve next
 
-- Day 3 achieved **wasm lib check on Velta 2.62 in a side tree** without
-  touching master core. Approve **Day 4** continuing in the side tree toward
-  `wasm-pack` + smoke (still docs-only / side-tree until native+wasm are both
-  proven).
-- Confirm still **no** merge of wasm patches into `master` `core/` until a
-  full native check on a machine with OpenSSL/pkg-config passes.
+- Day 4 proves **2.62 wasm compile + browser smoke + alice→bob over WS tunnel**
+  in the side tree. Approve Day 5 planning for merge strategy / native gate —
+  still docs-only until native+wasm both clean on a full toolchain.
