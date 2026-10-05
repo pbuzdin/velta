@@ -1,6 +1,6 @@
 # Spike log — wasm core + WebSocket mail proxy
 
-**Status:** day 1 green on build + browser smoke; networking e2e still open.
+**Status:** day 2 green — alice→bob encrypted round-trip over `ws-tcp-proxy` + nine.testrun.org **PASS**. Day 1 build/smoke still stands.
 Started **2026-10-05** (Europe/Moscow). Research baseline:
 [`wasm-core-mail-proxy.md`](wasm-core-mail-proxy.md).
 
@@ -107,13 +107,65 @@ Verified: `websockify 127.0.0.1:18143 localhost:143` starts and listens here.
 | Browser-only e2e networking | day 2 | needs proxy + real IMAP/SMTP + Playwright script |
 | GPL web-app | do not import | only MPL core patches / Unlicense proxy |
 
-### Not done yet
-- Encrypted alice→bob round-trip (`scripts/test-networking.mjs`)
-- Deploy / hit relay-native `/imap` + `/smtp`
+### Not done yet (after day 1; day 2 closed the e2e)
+- ~~Encrypted alice→bob round-trip~~ → **done day 2**
+- Deploy / hit relay-native `/imap` + `/smtp` (deferred; generic bridge chosen)
 - Forward-port wasm patch subset onto Velta core 2.62.0
 - Any production Velta app code (intentionally untouched)
 
 ---
+
+
+---
+
+## Day 2 (2026-10-05) — networking e2e (Pavel: generic bridge + public chatmail)
+
+**Path chosen:** generic design-G `ws-tcp-proxy` + public chatmail
+`nine.testrun.org` (not relay-native websockify).
+
+### Harness
+- Script: slothfulchat-web `scripts/test-networking.mjs` (headless Playwright).
+- Creates two throwaway accounts via `POST https://nine.testrun.org/new`
+  (Node-side; not through wasm HTTP).
+- Forks `packages/ws-tcp-proxy` on `ws://127.0.0.1:8641`.
+- Serves `packages/core-wasm` example with `?persist=0&proxy=ws://localhost:8641`.
+- In one browser core (multiaccount): configure alice + bob over IMAP/SMTP
+  through the tunnel (TLS in wasm), exchange keys via vcard, alice sends a
+  marker text, bob waits on `IncomingMsg`.
+
+Artifacts reused from day 1: our ~28 MB wasm build + published
+`@slothfulchat/core-wasm@0.9.1` JS glue (`dist/`). No GPL web-app copied into
+Velta.
+
+### Result: **PASS** (`E2E_EXIT=0`)
+
+```
+OK: two accounts configured over the WS tunnel; alice→bob message delivered:
+"wasm-roundtrip-03kuxxfsjfj4"
+```
+
+- Wall clock for the whole script: **~10 s** (account create + boot + dual
+  configure + send + IMAP IDLE receive).
+- SMTP: message SMTP-sent (~2.9 KB wire size logged by core).
+- Receive: bob IDLE saw `Exists(1)`, Autocrypt fingerprint saved, message
+  assigned to a 1:1 chat — encrypted chatmail path as expected.
+
+### Notes / non-fatal friction
+| Observation | Impact |
+|---|---|
+| Autoconfig tries `nine.testrun.org:443` first; many `tls handshake eof` then fallback to **993/465** | Expected on this stack; configure still succeeded. Chatmail’s 443-ALPN mail path is not what the wasm WS tunnel negotiated here. |
+| IPv6 targets `ENETUNREACH` on this host | Harmless; IPv4 993/465 worked |
+| Missing `fresh_account.db.gz` template (HTTP 404 in example server) | New accounts replay migrations (~few ms logged); slowdown only |
+| No credentials or account addresses recorded in-repo | Throwaways from `/new`; discarded after the run |
+
+### Manual reproduction (if re-run needed)
+```sh
+# from slothfulchat-web checkout with wasm-dist + dist + example present
+CHATMAIL_NEW=https://nine.testrun.org/new VERBOSE=1 \
+  node scripts/test-networking.mjs
+```
+Needs: Playwright Chromium, `ws` npm dep, outbound HTTPS to `/new` and TCP
+143/465/587/993 via the local proxy to the relay.
 
 ## Build outcome
 
@@ -124,26 +176,24 @@ Verified: `websockify 127.0.0.1:18143 localhost:143` starts and listens here.
 
 ---
 
-## Next concrete steps (day 2–3)
+## Next concrete steps (day 3+)
 
-1. **Networking e2e:** run `ws-tcp-proxy` + `scripts/test-networking.mjs` (or
-   the example page with `?proxy=ws://localhost:8641`) against a chatmail
-   (nine.testrun.org or Pavel’s relay). Record success / TLS / allowlist issues.
-2. **Relay path:** if approved, deploy `link2xt/websockify` on a test relay and
-   add CORS/`Origin` for the PWA origin; compare against the generic bridge.
-   Verify Dovecot loopback / STARTTLS behaviour behind `/imap`.
-3. **Optional:** install `make` + finish native jsonrpc client generation, or
-   keep using published `@slothfulchat/core-wasm` glue; run `wasm-opt` for size.
-4. **Port plan:** list MPL wasm patches to forward-port (roughly 0001–0007,
-   0010, plus persistence ones if needed) vs Velta’s existing 13 core patches;
-   estimate rebase onto 2.62.0. Still no GPL web-app copy into Velta.
-5. **Stop criterion:** one encrypted round-trip through a bridge; numbers for
-   bundle size / cold boot / memory if easy.
+1. **Optional size/perf:** run `wasm-opt` on the 28 MB artifact; rough cold-boot
+   / memory numbers on a phone if available.
+2. **Port plan for Velta 2.62.0:** list MPL wasm patches to forward-port
+   (roughly 0001–0007, 0010, plus persistence if needed) vs Velta’s existing 13
+   core patches; estimate rebase cost. Still no GPL web-app copy into Velta.
+3. **Relay-native path (optional):** only if we want to drop the third-party
+   bridge — deploy `link2xt/websockify` + CORS on a test relay and re-run a
+   similar e2e against `/imap` + `/smtp`.
+4. **Architecture C / PLAN:** networking feasibility for wasm-core + proxy is
+   validated; wire the PLAN recommendation separately.
 
 ## Ask Pavel to approve next
 
-- Whether to **deploy `pbuzdin/relay` branch `link2xt/websockify` on a test
-  relay** (with CORS for a chosen PWA origin), vs continuing day 2 only against
-  the generic `ws-tcp-proxy` + a public chatmail (e.g. nine.testrun.org).
-- Confirmation that **no Velta app/code changes** land until the networking
-  slice is green (docs-only is already fine).
+- Day-2 networking e2e is **green**. Approve starting the **forward-port plan /
+  ADR** onto Velta core 2.62.0 (docs + patch inventory only), and/or a small
+  `worker-wasm` transport spike behind the existing JS transport seam — still
+  **without** pulling GPL UI into Velta.
+- Optional: whether day 3 should also try relay-native websockify, or stay on
+  the generic bridge for Velta’s first wasm demo.
