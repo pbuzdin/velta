@@ -1,15 +1,41 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: spike <spike@local>
 Date: Mon, 5 Oct 2026 22:03:15 +0300
-Subject: [PATCH 5/8] spike: port 0003-ish stubs (http/proxy wasm,
- session/tls/qr/accounts cfg)
+Subject: [PATCH] wasm(net,accounts): http/proxy wasm modules and cfg stubs for
+ session/tls/qr
 
+Add net/http_wasm.rs (browser fetch) and net/proxy_wasm.rs stubs, cfg-gate
+accounts lockfile, session, tls and qr paths that need sockets or flock.
+Unused-on-wasm items are gated or marked as API-parity dead code.
+
+WASM-CORE: prototype 0003 (+0010 fetch, MPL idea). Native impact: none
+(cfg-gated; native `bail` import gated so wasm builds without warnings).
+---
+ src/accounts.rs       |  16 +--
+ src/net.rs            |   8 ++
+ src/net/http_wasm.rs  | 265 ++++++++++++++++++++++++++++++++++++++++++
+ src/net/proxy_wasm.rs |  45 +++++++
+ src/net/session.rs    |   4 +
+ src/net/tls.rs        |  48 +++++---
+ src/qr.rs             |   6 +
+ 7 files changed, 371 insertions(+), 21 deletions(-)
 
 diff --git a/src/accounts.rs b/src/accounts.rs
-index 1310131..486ce03 100644
+index 1310131..71e969e 100644
 --- a/src/accounts.rs
 +++ b/src/accounts.rs
-@@ -16,9 +16,9 @@
+@@ -5,7 +5,9 @@
+ use std::path::{Path, PathBuf};
+ use std::sync::Arc;
+ 
+-use anyhow::{Context as _, Result, bail, ensure};
++#[cfg(not(target_arch = "wasm32"))]
++use anyhow::bail;
++use anyhow::{Context as _, Result, ensure};
+ use async_channel::{self, Receiver, Sender};
+ use futures::FutureExt as _;
+ use futures::future;
+@@ -16,9 +18,9 @@
  use tokio::task::{JoinHandle, JoinSet};
  use uuid::Uuid;
  
@@ -21,7 +47,7 @@ index 1310131..486ce03 100644
  use tokio::time::{Duration, sleep};
  
  use crate::context::{Context, ContextBuilder};
-@@ -602,7 +602,7 @@ pub async fn stop_sending_locations(&self) -> Result<()> {
+@@ -602,7 +604,7 @@ pub async fn stop_sending_locations(&self) -> Result<()> {
  const CONFIG_NAME: &str = "accounts.toml";
  
  /// Lockfile name.
@@ -30,7 +56,7 @@ index 1310131..486ce03 100644
  const LOCKFILE_NAME: &str = "accounts.lock";
  
  /// Database file name.
-@@ -642,7 +642,7 @@ fn drop(&mut self) {
+@@ -642,7 +644,7 @@ fn drop(&mut self) {
  }
  
  impl Config {
@@ -39,7 +65,7 @@ index 1310131..486ce03 100644
      async fn create_lock_task(_dir: PathBuf) -> Result<Option<JoinHandle<anyhow::Result<()>>>> {
          // Do not lock accounts.toml on iOS.
          // This results in 0xdead10cc crashes on suspend.
-@@ -650,7 +650,7 @@ async fn create_lock_task(_dir: PathBuf) -> Result<Option<JoinHandle<anyhow::Res
+@@ -650,7 +652,7 @@ async fn create_lock_task(_dir: PathBuf) -> Result<Option<JoinHandle<anyhow::Res
          Ok(None)
      }
  
@@ -48,7 +74,7 @@ index 1310131..486ce03 100644
      #[expect(clippy::arithmetic_side_effects)]
      async fn create_lock_task(dir: PathBuf) -> Result<Option<JoinHandle<anyhow::Result<()>>>> {
          let lockfile = dir.join(LOCKFILE_NAME);
-@@ -730,7 +730,7 @@ pub async fn new(dir: &Path) -> Result<Self> {
+@@ -730,7 +732,7 @@ pub async fn new(dir: &Path) -> Result<Self> {
      /// Takes a mutable reference because the saved file is a part of the `Config` state. This
      /// protects from parallel calls resulting to a wrong file contents.
      async fn sync(&mut self) -> Result<()> {
@@ -79,10 +105,10 @@ index 01cf1c0..254a1ac 100644
  pub(crate) mod tls;
 diff --git a/src/net/http_wasm.rs b/src/net/http_wasm.rs
 new file mode 100644
-index 0000000..0ceacc1
+index 0000000..9e1d853
 --- /dev/null
 +++ b/src/net/http_wasm.rs
-@@ -0,0 +1,262 @@
+@@ -0,0 +1,265 @@
 +//! wasm32 HTTP module backed by the browser `fetch()` API.
 +//!
 +//! The native implementation uses hyper over raw TCP. Here the browser owns
@@ -301,6 +327,7 @@ index 0000000..0ceacc1
 +}
 +
 +/// Retrieves the binary contents of URL using HTTP GET request.
++#[allow(dead_code)] // API parity with net/http.rs; callers are native-only today
 +pub(crate) async fn read_url_blob_with_tls(
 +    context: &Context,
 +    url: &str,
@@ -319,6 +346,7 @@ index 0000000..0ceacc1
 +}
 +
 +/// Sends a POST request with given string as body.
++#[allow(dead_code)] // API parity with net/http.rs; callers are native-only today
 +pub(crate) async fn post_string(_context: &Context, url: &str, body: String) -> Result<bool> {
 +    ensure_https(url)?;
 +    Ok(fetch("POST", url, &[], Some(body), DEFAULT_TIMEOUT, true)
@@ -327,6 +355,7 @@ index 0000000..0ceacc1
 +}
 +
 +/// Posts the given form to the URL.
++#[allow(dead_code)] // API parity with net/http.rs; callers are native-only today
 +pub(crate) async fn post_form<T: Serialize + ?Sized>(
 +    _context: &Context,
 +    url: &str,

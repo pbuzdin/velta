@@ -5,6 +5,11 @@ name: wasm-core (opt-in)
 
 on:
   workflow_dispatch:
+    inputs:
+      e2e:
+        description: 'Also run alice→bob networking e2e (ws-tcp-proxy → nine.testrun.org; creates 2 throwaway accounts)'
+        type: boolean
+        default: false
   push:
     branches:
       - 'wasm-core/**'
@@ -13,6 +18,7 @@ on:
       - 'tools/apply-wasm-core-patches.py'
       - 'packages/deltachat-wasm/**'
       - 'scripts/smoke-deltachat-wasm.mjs'
+      - 'scripts/e2e-deltachat-wasm-network.mjs'
       - '.github/workflows/wasm-core-opt-in.yml'
   pull_request:
     paths:
@@ -20,6 +26,7 @@ on:
       - 'tools/apply-wasm-core-patches.py'
       - 'packages/deltachat-wasm/**'
       - 'scripts/smoke-deltachat-wasm.mjs'
+      - 'scripts/e2e-deltachat-wasm-network.mjs'
       - '.github/workflows/wasm-core-opt-in.yml'
 
 concurrency:
@@ -37,7 +44,7 @@ jobs:
       - name: Install system deps
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq clang pkg-config libssl-dev make
+          sudo apt-get install -y -qq clang pkg-config libssl-dev make brotli
 
       - name: Install Rust (nightly pin for wasm cfg_select)
         uses: dtolnay/rust-toolchain@master
@@ -113,9 +120,68 @@ jobs:
           after=$(stat -c %s deltachat_wasm_bg.wasm)
           echo "wasm-opt: $before -> $after bytes" | tee -a "$GITHUB_STEP_SUMMARY"
 
+      # Day 10 size budget (proposal, see docs/research/wasm-core-landing-checklist.md §4):
+      # Day-9 baseline 18 524 339 raw / 4 636 997 brotli-11 / 7 201 173 gzip-9.
+      # Step fails above budget; job stays informational (continue-on-error).
+      - name: Size budget (wasm-opt artifact)
+        continue-on-error: true
+        working-directory: ${{ runner.temp }}/velta-wasm-copy/packages/deltachat-wasm/wasm-dist
+        env:
+          BUDGET_RAW: "20000000"
+          BUDGET_BROTLI: "5000000"
+          BUDGET_GZIP: "7800000"
+        run: |
+          raw=$(stat -c %s deltachat_wasm_bg.wasm)
+          br=$(brotli -q 11 -c deltachat_wasm_bg.wasm | wc -c)
+          gz=$(gzip -9 -c deltachat_wasm_bg.wasm | wc -c)
+          {
+            echo "| wasm-opt artifact | bytes | budget |"
+            echo "|---|---|---|"
+            echo "| raw | $raw | $BUDGET_RAW |"
+            echo "| brotli -q 11 | $br | $BUDGET_BROTLI |"
+            echo "| gzip -9 | $gz | $BUDGET_GZIP |"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          fail=0
+          [ "$raw" -le "$BUDGET_RAW" ] || { echo "::error::raw $raw > $BUDGET_RAW"; fail=1; }
+          [ "$br" -le "$BUDGET_BROTLI" ] || { echo "::error::brotli $br > $BUDGET_BROTLI"; fail=1; }
+          [ "$gz" -le "$BUDGET_GZIP" ] || { echo "::error::gzip $gz > $BUDGET_GZIP"; fail=1; }
+          exit $fail
+
       - name: Browser smoke on wasm-opt artifact
         continue-on-error: true
         env:
           PACKAGE_ROOT: ${{ runner.temp }}/velta-wasm-copy/packages/deltachat-wasm
         working-directory: ${{ github.workspace }}/scripts
         run: node smoke-deltachat-wasm.mjs
+
+      # Day 10: optional networking e2e — manual dispatch only (never on push /
+      # PR): it creates two throwaway accounts on the public test relay.
+      # Proxy = Unlicense ws-tcp-proxy pinned by commit, fetched at run time
+      # (not vendored), restricted with CHATMAIL_ALLOWLIST. Uses the wasm-opt
+      # artifact (ship path). No relay changes.
+      - name: Fetch ws-tcp-proxy (pinned, Unlicense)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.e2e }}
+        env:
+          PROXY_REPO: https://github.com/experintellia/slothfulchat-web.git
+          PROXY_SHA: 452cd0d24a26d4927faf2b949f18af4cabffb87f
+        run: |
+          d="$RUNNER_TEMP/ws-tcp-proxy-src"
+          git init -q "$d"
+          git -C "$d" fetch -q --depth 1 "$PROXY_REPO" "$PROXY_SHA"
+          git -C "$d" checkout -q FETCH_HEAD -- packages/ws-tcp-proxy
+          cd "$d/packages/ws-tcp-proxy"
+          npm ci --no-fund --no-audit --omit=dev
+          echo "WS_TCP_PROXY=$PWD/ws-tcp-proxy.mjs" >> "$GITHUB_ENV"
+
+      - name: Networking e2e alice→bob (wasm-opt artifact)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.e2e }}
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          PACKAGE_ROOT: ${{ runner.temp }}/velta-wasm-copy/packages/deltachat-wasm
+          CHATMAIL_NEW: https://nine.testrun.org/new
+          CHATMAIL_ALLOWLIST: nine.testrun.org
+        working-directory: ${{ github.workspace }}/scripts
+        run: |
+          node e2e-deltachat-wasm-network.mjs 2>&1 | tee "$RUNNER_TEMP/e2e.log"
+          grep -E '^OK: two accounts|^  wasm-roundtrip-|^elapsed' "$RUNNER_TEMP/e2e.log" >> "$GITHUB_STEP_SUMMARY" || true

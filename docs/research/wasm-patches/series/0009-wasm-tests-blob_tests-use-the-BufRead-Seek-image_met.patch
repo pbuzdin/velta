@@ -1,11 +1,15 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: spike <spike@local>
-Date: Tue, 06 Oct 2026 01:01:14 +0300
-Subject: [PATCH] spike: fix blob_tests for image_metadata BufReadSeek API
+Date: Tue, 6 Oct 2026 01:01:14 +0300
+Subject: [PATCH] wasm(tests): blob_tests use the BufRead + Seek image_metadata
+ API
 
 Test-only call-site update for the wasm image_metadata signature.
 Avatar golden hash is unchanged from master (d57cb5ce...); the Day-7
 hash change was png 0.18.1 lock drift in the side tree, not code.
+---
+ src/blob/blob_tests.rs | 10 +++++++---
+ 1 file changed, 7 insertions(+), 3 deletions(-)
 
 diff --git a/src/blob/blob_tests.rs b/src/blob/blob_tests.rs
 index 34ebd92..d138c8c 100644

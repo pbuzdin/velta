@@ -1,13 +1,16 @@
-# Ordered patches under series/ (Day 6 extract from velta-wasm-port/core
-# commits after baseline 0a10087 == Velta master core/ at extract time).
+# Ordered patches under series/. Originally extracted Day 6 from
+# velta-wasm-port/core commits after baseline 0a10087 (== Velta master core/);
+# Day 10 hygiene pass: clean `wasm(<area>):` subjects with WASM-CORE ids and
+# native-impact notes, wasm/native warnings fixed, rustfmt-clean hunks
+# (git format-patch --zero-commit from a scratch repo; tree diff = fixes only).
 # Cargo.lock hunks stripped; the resolved copy locks are pinned in support/locks/
 # (apply-on-copy installs them; refresh with `refresh-lock` after editing patches).
-0001-apply-0002-wasm-deltachat-time-reads-the-clock-via-j.patch
-0002-spike-Cargo.toml-target-gate-tokio-wasm-shim-rusqlit.patch
-0003-spike-unify-tokio-through-wasm-shim-fix-Cargo-source.patch
-0004-spike-add-patch.crates-io-async-imap-astral-tokio-ta.patch
-0005-spike-port-0003-ish-stubs-http-proxy-wasm-session-tl.patch
-0006-spike-blob-ReadDir-cfg-async-imap-0.11.3-vendor-with.patch
-0007-spike-port-0005-ws_tcp-0006-clocks-0007-blob-sync_fs.patch
-0008-spike-path_exists-is_dir-call-sites-wasm-connect_tcp.patch
-0009-spike-fix-blob_tests-for-image_metadata-BufReadSeek-API.patch
+0001-wasm-time-deltachat-time-reads-the-clock-via-js_sys-.patch
+0002-wasm-cargo-target-gate-native-only-deps-add-tokio-wa.patch
+0003-wasm-cargo-route-tokio-through-tokio-wasm-shim-in-ev.patch
+0004-wasm-cargo-patch.crates-io-vendored-async-imap-and-a.patch
+0005-wasm-net-accounts-http-proxy-wasm-modules-and-cfg-st.patch
+0006-wasm-blob-cargo-blob-ReadDir-cfg-for-the-in-memory-f.patch
+0007-wasm-net-blob-time-ws_tcp-transport-wasm-clocks-blob.patch
+0008-wasm-fs-net-tls-path_exists-is_dir-helpers-wasm-conn.patch
+0009-wasm-tests-blob_tests-use-the-BufRead-Seek-image_met.patch

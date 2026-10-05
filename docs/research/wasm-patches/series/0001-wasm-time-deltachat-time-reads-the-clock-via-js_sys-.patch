@@ -1,9 +1,18 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: spike <spike@local>
 Date: Mon, 5 Oct 2026 21:54:50 +0300
-Subject: [PATCH 1/8] apply
- 0002-wasm-deltachat-time-reads-the-clock-via-js-sys-Date..patch
+Subject: [PATCH] wasm(time): deltachat-time reads the clock via js_sys::Date
+ on wasm32
 
+std::time::SystemTime::now() panics on wasm32-unknown-unknown. Provide a
+SystemTimeTools::now() that uses js_sys::Date there; native is unchanged
+(std SystemTime).
+
+WASM-CORE: prototype 0002 (MPL idea). Native impact: none.
+---
+ deltachat-time/Cargo.toml |  3 +++
+ deltachat-time/src/lib.rs | 13 ++++++++++++-
+ 2 files changed, 15 insertions(+), 1 deletion(-)
 
 diff --git a/deltachat-time/Cargo.toml b/deltachat-time/Cargo.toml
 index 7a055f6..168e1dc 100644

@@ -1,9 +1,41 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: spike <spike@local>
 Date: Mon, 5 Oct 2026 22:43:00 +0300
-Subject: [PATCH 7/8] spike: port 0005 ws_tcp, 0006 clocks, 0007 blob sync_fs,
- 0010 fetch http_wasm
+Subject: [PATCH] wasm(net,blob,time): ws_tcp transport, wasm clocks, blob
+ sync_fs, fetch
 
+- net/ws_tcp.rs: TCP over the WebSocket bridge (/dns, /tcp endpoints),
+  TLS stays in wasm.
+- tools::time_now()/time_elapsed() and SystemTimeTools re-export replace
+  Time::now() call sites (native delegates to std unchanged).
+- blob: sync_fs facade (std::fs natively, memfs on wasm); image_metadata
+  reads through BufRead + Seek so memfs works (target-neutral refactor,
+  byte-for-byte identical recode output - avatar golden unchanged).
+- deltachat-ratelimit uses the wasm-safe clock.
+
+WASM-CORE: prototype 0005, 0006, 0007, 0010 (MPL ideas).
+Native impact: mechanical call-site refactors, no behaviour change
+(full lib nextest 1135/1135 on the copy).
+---
+ deltachat-ratelimit/Cargo.toml |   1 +
+ deltachat-ratelimit/src/lib.rs |  15 ++--
+ src/blob.rs                    |  97 +++++++++++++++-------
+ src/context.rs                 |   6 +-
+ src/imap.rs                    |   4 +-
+ src/imap/idle.rs               |   2 +-
+ src/key.rs                     |   2 +-
+ src/net.rs                     |  14 ++++
+ src/net/dns.rs                 |  10 +++
+ src/net/tls.rs                 |  28 +++++++
+ src/net/ws_tcp.rs              | 144 +++++++++++++++++++++++++++++++++
+ src/quota.rs                   |   6 +-
+ src/scheduler.rs               |   2 +-
+ src/smtp.rs                    |   2 +-
+ src/smtp/send.rs               |   2 +-
+ src/sql/migrations.rs          |   6 +-
+ src/sql/pool/wal_checkpoint.rs |   8 +-
+ src/tools.rs                   |  61 +++++++++++++-
+ 18 files changed, 354 insertions(+), 56 deletions(-)
 
 diff --git a/deltachat-ratelimit/Cargo.toml b/deltachat-ratelimit/Cargo.toml
 index 9556177..a406230 100644
@@ -76,7 +108,7 @@ index 497cc83..bef63c4 100644
          let mut ratelimit = Ratelimit::new_at(Duration::new(60, 0), 3.0, now);
          assert!(ratelimit.can_send_at(now));
 diff --git a/src/blob.rs b/src/blob.rs
-index c5d4ed6..2a8593f 100644
+index c5d4ed6..d15acb8 100644
 --- a/src/blob.rs
 +++ b/src/blob.rs
 @@ -25,6 +25,26 @@
@@ -88,7 +120,7 @@ index c5d4ed6..2a8593f 100644
 +/// so the in-memory `tokio::fs` shim is used there instead.
 +#[cfg(not(target_arch = "wasm32"))]
 +mod sync_fs {
-+    pub use std::fs::{copy, create_dir_all, read, rename, write};
++    pub use std::fs::{copy, create_dir_all, rename, write};
 +}
 +#[cfg(target_arch = "wasm32")]
 +mod sync_fs {
@@ -211,8 +243,8 @@ index c5d4ed6..2a8593f 100644
 +    }
 +    #[cfg(target_arch = "wasm32")]
 +    {
-+        let data = sync_fs::read(src)
-+            .with_context(|| format!("Failed to open file {}", src.display()))?;
++        let data =
++            sync_fs::read(src).with_context(|| format!("Failed to open file {}", src.display()))?;
 +        hasher.update(&data);
 +    }
      let hash = hasher.finalize();
@@ -329,7 +361,7 @@ index e7d69eb..7a4a083 100644
              let keypair = Handle::current()
                  .spawn_blocking(move || crate::pgp::create_keypair(addr))
 diff --git a/src/net.rs b/src/net.rs
-index 254a1ac..4f621c1 100644
+index 254a1ac..156f5ac 100644
 --- a/src/net.rs
 +++ b/src/net.rs
 @@ -5,9 +5,11 @@
@@ -374,15 +406,7 @@ index 254a1ac..4f621c1 100644
  pub(crate) async fn connect_tcp_inner(
      addr: SocketAddr,
  ) -> Result<Pin<Box<TimeoutStream<TcpStream>>>> {
-@@ -131,6 +144,7 @@ pub(crate) async fn connect_tcp_inner(
-     Ok(Box::pin(timeout_stream))
- }
- 
-+
- /// Attempts to establish TLS connection
- /// given the result of the hostname to address resolution.
- pub(crate) async fn connect_tls_inner(
-@@ -257,6 +271,7 @@ pub(crate) async fn run_connection_attempts<O, I, F>(mut futures: I) -> Result<O
+@@ -257,6 +270,7 @@ pub(crate) async fn run_connection_attempts<O, I, F>(mut futures: I) -> Result<O
  /// for example using TLS.
  /// If TLS is not used or invalid TLS certificates are allowed,
  /// this option should be disabled.
@@ -426,10 +450,10 @@ index f4e6bec..b6bf59c 100644
      context: &Context,
      hostname: &str,
 diff --git a/src/net/tls.rs b/src/net/tls.rs
-index b99ecbf..28dbad9 100644
+index b99ecbf..491e4d7 100644
 --- a/src/net/tls.rs
 +++ b/src/net/tls.rs
-@@ -16,6 +16,22 @@
+@@ -16,6 +16,21 @@
  mod danger;
  use danger::CustomCertificateVerifier;
  
@@ -448,11 +472,10 @@ index b99ecbf..28dbad9 100644
 +    }
 +}
 +
-+
  mod spki;
  pub use spki::SpkiHashStore;
  
-@@ -146,9 +162,22 @@ pub async fn wrap_rustls<'a>(
+@@ -146,9 +161,22 @@ pub async fn wrap_rustls<'a>(
      let root_cert_store =
          rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
  
@@ -477,10 +500,10 @@ index b99ecbf..28dbad9 100644
      } else {
 diff --git a/src/net/ws_tcp.rs b/src/net/ws_tcp.rs
 new file mode 100644
-index 0000000..eab5f2e
+index 0000000..395a071
 --- /dev/null
 +++ b/src/net/ws_tcp.rs
-@@ -0,0 +1,147 @@
+@@ -0,0 +1,144 @@
 +//! wasm32 TCP transport: tunnels byte streams through a WebSocket proxy.
 +//!
 +//! Browsers cannot open TCP sockets. A trivial proxy (see the prototype's
@@ -550,10 +573,7 @@ index 0000000..eab5f2e
 +        Pin::new(&mut self.inner).poll_write(cx, buf)
 +    }
 +
-+    fn poll_flush(
-+        mut self: Pin<&mut Self>,
-+        cx: &mut TaskContext<'_>,
-+    ) -> Poll<std::io::Result<()>> {
++    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<std::io::Result<()>> {
 +        Pin::new(&mut self.inner).poll_flush(cx)
 +    }
 +
@@ -770,7 +790,7 @@ index 0d95be9..5185a4f 100644
          let blocked = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
              let blocked: i64 = row.get(0)?;
 diff --git a/src/tools.rs b/src/tools.rs
-index 14f9641..c4ab5ea 100644
+index 14f9641..fb78206 100644
 --- a/src/tools.rs
 +++ b/src/tools.rs
 @@ -18,13 +18,15 @@
@@ -791,11 +811,10 @@ index 14f9641..c4ab5ea 100644
  pub use deltachat_time::SystemTimeTools as SystemTime;
  use mailparse::MailHeaderMap;
  use mailparse::dateparse;
-@@ -495,6 +497,46 @@ pub async fn read_file(context: &Context, path: &Path) -> Result<Vec<u8>> {
+@@ -495,6 +497,45 @@ pub async fn read_file(context: &Context, path: &Path) -> Result<Vec<u8>> {
      }
  }
  
-+
 +/// Returns whether the path exists.
 +///
 +/// `Path::exists()` uses sync std::fs, which always errors on
@@ -838,7 +857,7 @@ index 14f9641..c4ab5ea 100644
  pub(crate) fn time() -> i64 {
      SystemTime::now()
          .duration_since(SystemTime::UNIX_EPOCH)
-@@ -502,8 +544,22 @@ pub(crate) fn time() -> i64 {
+@@ -502,8 +543,22 @@ pub(crate) fn time() -> i64 {
          .as_secs() as i64
  }
  
