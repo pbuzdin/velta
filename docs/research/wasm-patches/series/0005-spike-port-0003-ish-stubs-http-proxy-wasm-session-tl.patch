@@ -1,0 +1,508 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: spike <spike@local>
+Date: Mon, 5 Oct 2026 22:03:15 +0300
+Subject: [PATCH 5/8] spike: port 0003-ish stubs (http/proxy wasm,
+ session/tls/qr/accounts cfg)
+
+
+diff --git a/src/accounts.rs b/src/accounts.rs
+index 1310131..486ce03 100644
+--- a/src/accounts.rs
++++ b/src/accounts.rs
+@@ -16,9 +16,9 @@
+ use tokio::task::{JoinHandle, JoinSet};
+ use uuid::Uuid;
+ 
+-#[cfg(not(target_os = "ios"))]
++#[cfg(not(any(target_os = "ios", target_arch = "wasm32")))]
+ use tokio::sync::oneshot;
+-#[cfg(not(target_os = "ios"))]
++#[cfg(not(any(target_os = "ios", target_arch = "wasm32")))]
+ use tokio::time::{Duration, sleep};
+ 
+ use crate::context::{Context, ContextBuilder};
+@@ -602,7 +602,7 @@ pub async fn stop_sending_locations(&self) -> Result<()> {
+ const CONFIG_NAME: &str = "accounts.toml";
+ 
+ /// Lockfile name.
+-#[cfg(not(target_os = "ios"))]
++#[cfg(not(any(target_os = "ios", target_arch = "wasm32")))]
+ const LOCKFILE_NAME: &str = "accounts.lock";
+ 
+ /// Database file name.
+@@ -642,7 +642,7 @@ fn drop(&mut self) {
+ }
+ 
+ impl Config {
+-    #[cfg(target_os = "ios")]
++    #[cfg(any(target_os = "ios", target_arch = "wasm32"))]
+     async fn create_lock_task(_dir: PathBuf) -> Result<Option<JoinHandle<anyhow::Result<()>>>> {
+         // Do not lock accounts.toml on iOS.
+         // This results in 0xdead10cc crashes on suspend.
+@@ -650,7 +650,7 @@ async fn create_lock_task(_dir: PathBuf) -> Result<Option<JoinHandle<anyhow::Res
+         Ok(None)
+     }
+ 
+-    #[cfg(not(target_os = "ios"))]
++    #[cfg(not(any(target_os = "ios", target_arch = "wasm32")))]
+     #[expect(clippy::arithmetic_side_effects)]
+     async fn create_lock_task(dir: PathBuf) -> Result<Option<JoinHandle<anyhow::Result<()>>>> {
+         let lockfile = dir.join(LOCKFILE_NAME);
+@@ -730,7 +730,7 @@ pub async fn new(dir: &Path) -> Result<Self> {
+     /// Takes a mutable reference because the saved file is a part of the `Config` state. This
+     /// protects from parallel calls resulting to a wrong file contents.
+     async fn sync(&mut self) -> Result<()> {
+-        #[cfg(not(target_os = "ios"))]
++        #[cfg(not(any(target_os = "ios", target_arch = "wasm32")))]
+         ensure!(
+             !self
+                 .lock_task
+diff --git a/src/net.rs b/src/net.rs
+index 01cf1c0..254a1ac 100644
+--- a/src/net.rs
++++ b/src/net.rs
+@@ -17,7 +17,15 @@
+ use crate::tools::time;
+ 
+ pub(crate) mod dns;
++#[cfg(not(target_arch = "wasm32"))]
+ pub(crate) mod http;
++#[cfg(target_arch = "wasm32")]
++#[path = "net/http_wasm.rs"]
++pub(crate) mod http;
++#[cfg(not(target_arch = "wasm32"))]
++pub(crate) mod proxy;
++#[cfg(target_arch = "wasm32")]
++#[path = "net/proxy_wasm.rs"]
+ pub(crate) mod proxy;
+ pub(crate) mod session;
+ pub(crate) mod tls;
+diff --git a/src/net/http_wasm.rs b/src/net/http_wasm.rs
+new file mode 100644
+index 0000000..0ceacc1
+--- /dev/null
++++ b/src/net/http_wasm.rs
+@@ -0,0 +1,262 @@
++//! wasm32 HTTP module backed by the browser `fetch()` API.
++//!
++//! The native implementation uses hyper over raw TCP. Here the browser owns
++//! the connection: TLS, redirects and caching are handled by `fetch()`, and
++//! requests are subject to CORS.
++
++use std::time::Duration;
++
++use anyhow::{Context as _, Result, anyhow, bail};
++use futures::channel::oneshot;
++use mime::Mime;
++use serde::Serialize;
++use wasm_bindgen::{JsCast, JsValue};
++use wasm_bindgen_futures::JsFuture;
++
++use crate::context::Context;
++
++/// Default timeout for the `read_url*`/`post_*` wrappers.
++const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
++
++/// HTTP(S) GET response.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct Response {
++    /// Response body.
++    pub blob: Vec<u8>,
++
++    /// MIME type extracted from the `Content-Type` header, if any.
++    pub mimetype: Option<String>,
++
++    /// Encoding extracted from the `Content-Type` header, if any.
++    pub encoding: Option<String>,
++}
++
++/// The parts of a `fetch()` response we use; unlike JS handles, all Send.
++struct FetchResponse {
++    status: u16,
++    ok: bool,
++    content_type: Option<String>,
++    body: Vec<u8>,
++}
++
++fn js_str(v: JsValue) -> String {
++    format!("{v:?}")
++}
++
++/// Runs `fetch()` on the worker's JS event loop.
++///
++/// JS handles are `!Send` but our futures must be Send (yerpc), so the JS
++/// side runs in a `spawn_local` task and the result comes back over a
++/// oneshot channel — same pattern as `ws_tcp`.
++///
++/// Fails if no response arrived within `timeout`; the fetch is aborted
++/// via an `AbortController` then (browser `fetch()` has no timeout of
++/// its own).
++///
++/// With `follow_redirects` the browser follows redirects transparently
++/// (its default); without it a redirect fails the request
++/// (`RequestRedirect::Error`), so request headers such as credentials
++/// are never re-sent to a redirect target.
++async fn fetch(
++    method: &str,
++    url: &str,
++    headers: &[(&str, &str)],
++    body: Option<String>,
++    timeout: Duration,
++    follow_redirects: bool,
++) -> Result<FetchResponse> {
++    let method = method.to_string();
++    let url = url.to_string();
++    let headers: Vec<(String, String)> = headers
++        .iter()
++        .map(|(name, value)| (name.to_string(), value.to_string()))
++        .collect();
++    let (tx, rx) = oneshot::channel();
++    wasm_bindgen_futures::spawn_local(async move {
++        let controller = web_sys::AbortController::new().ok();
++        let result = match tokio::time::timeout(
++            timeout,
++            fetch_inner(
++                &method,
++                &url,
++                &headers,
++                body,
++                follow_redirects,
++                controller.as_ref(),
++            ),
++        )
++        .await
++        {
++            Ok(result) => result,
++            Err(_elapsed) => {
++                if let Some(controller) = &controller {
++                    controller.abort();
++                }
++                Err("request timed out".to_string())
++            }
++        };
++        let _ = tx.send(result.map_err(|e| format!("{method} {e}")));
++    });
++    rx.await
++        .map_err(|_| anyhow!("fetch task dropped"))?
++        .map_err(|e| anyhow!("fetch {e}"))
++}
++
++async fn fetch_inner(
++    method: &str,
++    url: &str,
++    headers: &[(String, String)],
++    body: Option<String>,
++    follow_redirects: bool,
++    controller: Option<&web_sys::AbortController>,
++) -> std::result::Result<FetchResponse, String> {
++    let init = web_sys::RequestInit::new();
++    init.set_method(method);
++    if !follow_redirects {
++        init.set_redirect(web_sys::RequestRedirect::Error);
++    }
++    if let Some(controller) = controller {
++        init.set_signal(Some(&controller.signal()));
++    }
++    if let Some(body) = &body {
++        init.set_body(&JsValue::from_str(body));
++    }
++    if !headers.is_empty() {
++        let js_headers = web_sys::Headers::new().map_err(js_str)?;
++        for (name, value) in headers {
++            js_headers.append(name, value).map_err(js_str)?;
++        }
++        init.set_headers(&js_headers);
++    }
++    // The core always runs in a Web Worker; there is no `window` global.
++    let scope: web_sys::WorkerGlobalScope = js_sys::global().unchecked_into();
++    let resp: web_sys::Response = JsFuture::from(scope.fetch_with_str_and_init(url, &init))
++        .await
++        .map_err(js_str)?
++        .unchecked_into();
++    let buf = JsFuture::from(resp.array_buffer().map_err(js_str)?)
++        .await
++        .map_err(js_str)?;
++    Ok(FetchResponse {
++        status: resp.status(),
++        ok: resp.ok(),
++        content_type: resp.headers().get("content-type").ok().flatten(),
++        body: js_sys::Uint8Array::new(&buf).to_vec(),
++    })
++}
++
++/// POST endpoints carry tokens; https only, as on native.
++fn ensure_https(url: &str) -> Result<()> {
++    if !url.starts_with("https://") {
++        bail!("POST requests to non-HTTPS URLs are not allowed");
++    }
++    Ok(())
++}
++
++/// Performs a single HTTP request via `fetch()`.
++///
++/// Returns the status code and the response body instead of failing
++/// on non-2xx responses. See [`fetch`] for `timeout` and
++/// `follow_redirects` semantics.
++pub(crate) async fn request(
++    _context: &Context,
++    method: &str,
++    url: &str,
++    headers: &[(&str, &str)],
++    body: Option<String>,
++    timeout: Duration,
++    follow_redirects: bool,
++) -> Result<(u16, Response)> {
++    let resp = fetch(method, url, headers, body, timeout, follow_redirects).await?;
++    let content_type = resp.content_type.and_then(|v| v.parse::<Mime>().ok());
++    let mimetype = content_type.as_ref().map(|m| m.essence_str().to_string());
++    let encoding = content_type
++        .as_ref()
++        .and_then(|m| m.get_param(mime::CHARSET))
++        .map(|c| c.as_str().to_string());
++    Ok((
++        resp.status,
++        Response {
++            blob: resp.body,
++            mimetype,
++            encoding,
++        },
++    ))
++}
++
++/// Retrieves the text contents of URL using HTTP GET request.
++pub async fn read_url(context: &Context, url: &str) -> Result<String> {
++    let response = read_url_blob(context, url).await?;
++    Ok(String::from_utf8_lossy(&response.blob).to_string())
++}
++
++/// Retrieves the text contents of URL using HTTP GET request.
++pub(crate) async fn read_url_with_tls(
++    context: &Context,
++    url: &str,
++    _strict_tls: bool,
++) -> Result<String> {
++    // The browser owns TLS on the fetch path; `strict_tls` has no meaning here.
++    read_url(context, url).await
++}
++
++/// Removes expired cache entries.
++pub(crate) async fn http_cache_cleanup(_context: &Context) -> Result<()> {
++    // No core-side HTTP cache on wasm; the browser HTTP cache covers GETs.
++    Ok(())
++}
++
++/// Retrieves the binary contents of URL using HTTP GET request.
++pub async fn read_url_blob(context: &Context, url: &str) -> Result<Response> {
++    let (status, response) = request(context, "GET", url, &[], None, DEFAULT_TIMEOUT, true).await?;
++    if !(200..300).contains(&status) {
++        bail!("The server returned a non-successful response code: {status}");
++    }
++    Ok(response)
++}
++
++/// Retrieves the binary contents of URL using HTTP GET request.
++pub(crate) async fn read_url_blob_with_tls(
++    context: &Context,
++    url: &str,
++    _strict_tls: bool,
++) -> Result<Response> {
++    read_url_blob(context, url).await
++}
++
++/// Sends an empty POST request to the URL.
++///
++/// Returns response text and whether request was successful.
++pub(crate) async fn post_empty(_context: &Context, url: &str) -> Result<(String, bool)> {
++    ensure_https(url)?;
++    let resp = fetch("POST", url, &[], None, DEFAULT_TIMEOUT, true).await?;
++    Ok((String::from_utf8_lossy(&resp.body).to_string(), resp.ok))
++}
++
++/// Sends a POST request with given string as body.
++pub(crate) async fn post_string(_context: &Context, url: &str, body: String) -> Result<bool> {
++    ensure_https(url)?;
++    Ok(fetch("POST", url, &[], Some(body), DEFAULT_TIMEOUT, true)
++        .await?
++        .ok)
++}
++
++/// Posts the given form to the URL.
++pub(crate) async fn post_form<T: Serialize + ?Sized>(
++    _context: &Context,
++    url: &str,
++    form: &T,
++) -> Result<bytes::Bytes> {
++    ensure_https(url)?;
++    let body = serde_urlencoded::to_string(form).context("Failed to encode data")?;
++    let resp = fetch(
++        "POST",
++        url,
++        &[("content-type", "application/x-www-form-urlencoded")],
++        Some(body),
++        DEFAULT_TIMEOUT,
++        true,
++    )
++    .await?;
++    Ok(resp.body.into())
++}
+diff --git a/src/net/proxy_wasm.rs b/src/net/proxy_wasm.rs
+new file mode 100644
+index 0000000..1526134
+--- /dev/null
++++ b/src/net/proxy_wasm.rs
+@@ -0,0 +1,45 @@
++//! wasm32 stub for the proxy module.
++//!
++//! Proxies (SOCKS5/shadowsocks/HTTP) need raw TCP, which browsers don't have.
++//! `ProxyConfig` is an uninhabited enum: `load()` always yields `None`, so
++//! `&self` methods are unreachable.
++
++use anyhow::{Result, bail};
++
++use crate::context::Context;
++use crate::net::session::SessionStream;
++
++/// Default SOCKS5 port.
++pub const DEFAULT_SOCKS_PORT: u16 = 1080;
++
++/// Proxy configuration (never instantiable on wasm).
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub enum ProxyConfig {}
++
++impl ProxyConfig {
++    /// Creates a new proxy configuration by parsing given proxy URL.
++    pub fn from_url(_url: &str) -> Result<Self> {
++        bail!("proxies are not supported on wasm")
++    }
++
++    /// Serializes the proxy configuration into an URL.
++    pub fn to_url(&self) -> String {
++        match *self {}
++    }
++
++    /// Reads proxy configuration from the database.
++    pub async fn load(_context: &Context) -> Result<Option<Self>> {
++        Ok(None)
++    }
++
++    /// Connects to the target via the proxy.
++    pub(crate) async fn connect(
++        &self,
++        _context: &Context,
++        _target_host: &str,
++        _target_port: u16,
++        _load_dns_cache: bool,
++    ) -> Result<Box<dyn SessionStream>> {
++        match *self {}
++    }
++}
+diff --git a/src/net/session.rs b/src/net/session.rs
+index 981e01f..dd1a185 100644
+--- a/src/net/session.rs
++++ b/src/net/session.rs
+@@ -1,4 +1,5 @@
+ use anyhow::Result;
++#[cfg(not(target_arch = "wasm32"))]
+ use fast_socks5::client::Socks5Stream;
+ use std::net::SocketAddr;
+ use std::pin::Pin;
+@@ -26,6 +27,7 @@ fn peer_addr(&self) -> Result<SocketAddr> {
+         self.as_ref().peer_addr()
+     }
+ }
++#[cfg(not(target_arch = "wasm32"))]
+ impl<T: SessionStream> SessionStream for async_native_tls::TlsStream<T> {
+     fn set_read_timeout(&mut self, timeout: Option<Duration>) {
+         self.get_mut().set_read_timeout(timeout);
+@@ -70,6 +72,7 @@ fn peer_addr(&self) -> Result<SocketAddr> {
+         Ok(self.get_ref().peer_addr()?)
+     }
+ }
++#[cfg(not(target_arch = "wasm32"))]
+ impl<T: SessionStream> SessionStream for Socks5Stream<T> {
+     fn set_read_timeout(&mut self, timeout: Option<Duration>) {
+         self.get_socket_mut().set_read_timeout(timeout)
+@@ -79,6 +82,7 @@ fn peer_addr(&self) -> Result<SocketAddr> {
+         self.get_socket_ref().peer_addr()
+     }
+ }
++#[cfg(not(target_arch = "wasm32"))]
+ impl<T: SessionStream> SessionStream for shadowsocks::ProxyClientStream<T> {
+     fn set_read_timeout(&mut self, timeout: Option<Duration>) {
+         self.get_mut().set_read_timeout(timeout)
+diff --git a/src/net/tls.rs b/src/net/tls.rs
+index cd8629e..b99ecbf 100644
+--- a/src/net/tls.rs
++++ b/src/net/tls.rs
+@@ -49,20 +49,40 @@ pub async fn wrap_tls<'a>(
+         // We use native_tls because it accepts 1024-bit RSA keys.
+         // Rustls does not support them even if
+         // certificate checks are disabled: <https://github.com/rustls/rustls/issues/234>.
+-        let alpns = if alpn.is_empty() {
+-            Box::from([])
+-        } else {
+-            Box::from([alpn])
+-        };
+-        let tls = async_native_tls::TlsConnector::new()
+-            .min_protocol_version(Some(async_native_tls::Protocol::Tlsv12))
+-            .use_sni(use_sni)
+-            .request_alpns(&alpns)
+-            .danger_accept_invalid_hostnames(true)
+-            .danger_accept_invalid_certs(true);
+-        let tls_stream = tls.connect(hostname, stream).await?;
+-        let boxed_stream: Box<dyn SessionStream> = Box::new(tls_stream);
+-        Ok(boxed_stream)
++        #[cfg(not(target_arch = "wasm32"))]
++        {
++            let alpns = if alpn.is_empty() {
++                Box::from([])
++            } else {
++                Box::from([alpn])
++            };
++            let tls = async_native_tls::TlsConnector::new()
++                .min_protocol_version(Some(async_native_tls::Protocol::Tlsv12))
++                .use_sni(use_sni)
++                .request_alpns(&alpns)
++                .danger_accept_invalid_hostnames(true)
++                .danger_accept_invalid_certs(true);
++            let tls_stream = tls.connect(hostname, stream).await?;
++            let boxed_stream: Box<dyn SessionStream> = Box::new(tls_stream);
++            Ok(boxed_stream)
++        }
++        // No native-tls on wasm; accept the stricter rustls behavior.
++        #[cfg(target_arch = "wasm32")]
++        {
++            let tls_stream = wrap_rustls(
++                hostname,
++                port,
++                use_sni,
++                alpn,
++                stream,
++                tls_session_store,
++                spki_hash_store,
++                sql,
++            )
++            .await?;
++            let boxed_stream: Box<dyn SessionStream> = Box::new(tls_stream);
++            Ok(boxed_stream)
++        }
+     }
+ }
+ 
+diff --git a/src/qr.rs b/src/qr.rs
+index cc4aff6..7994353 100644
+--- a/src/qr.rs
++++ b/src/qr.rs
+@@ -761,6 +761,12 @@ fn decode_tg_socks_proxy(_context: &Context, qr: &str) -> Result<Qr> {
+ }
+ 
+ /// Decodes `ss://` URLs for Shadowsocks proxies.
++#[cfg(target_arch = "wasm32")]
++fn decode_shadowsocks_proxy(_qr: &str) -> Result<Qr> {
++    anyhow::bail!("Shadowsocks proxy QR is not supported in wasm builds");
++}
++
++#[cfg(not(target_arch = "wasm32"))]
+ fn decode_shadowsocks_proxy(qr: &str) -> Result<Qr> {
+     let server_config = shadowsocks::config::ServerConfig::from_url(qr)?;
+     let addr = server_config.addr();

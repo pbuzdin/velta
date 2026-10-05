@@ -1,0 +1,864 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: spike <spike@local>
+Date: Mon, 5 Oct 2026 22:43:00 +0300
+Subject: [PATCH 7/8] spike: port 0005 ws_tcp, 0006 clocks, 0007 blob sync_fs,
+ 0010 fetch http_wasm
+
+
+diff --git a/deltachat-ratelimit/Cargo.toml b/deltachat-ratelimit/Cargo.toml
+index 9556177..a406230 100644
+--- a/deltachat-ratelimit/Cargo.toml
++++ b/deltachat-ratelimit/Cargo.toml
+@@ -6,3 +6,4 @@ edition = "2024"
+ license = "MPL-2.0"
+ 
+ [dependencies]
++deltachat-time = { path = "../deltachat-time" }
+diff --git a/deltachat-ratelimit/src/lib.rs b/deltachat-ratelimit/src/lib.rs
+index 497cc83..bef63c4 100644
+--- a/deltachat-ratelimit/src/lib.rs
++++ b/deltachat-ratelimit/src/lib.rs
+@@ -6,6 +6,11 @@
+ 
+ use std::time::{Duration, SystemTime};
+ 
++/// Wasm-safe current time: `now()` panics on wasm32-unknown-unknown.
++fn now() -> SystemTime {
++    deltachat_time::SystemTimeTools::now()
++}
++
+ #[derive(Debug)]
+ pub struct Ratelimit {
+     /// Time of the last update.
+@@ -26,7 +31,7 @@ impl Ratelimit {
+     ///
+     /// Rate limiter will allow to send no more than `quota` messages within duration `window`.
+     pub fn new(window: Duration, quota: f64) -> Self {
+-        Self::new_at(window, quota, SystemTime::now())
++        Self::new_at(window, quota, now())
+     }
+ 
+     /// Returns a new rate limiter with given current time for testing purposes.
+@@ -58,7 +63,7 @@ fn can_send_at(&self, now: SystemTime) -> bool {
+     ///
+     /// This method takes mutable reference
+     pub fn can_send(&self) -> bool {
+-        self.can_send_at(SystemTime::now())
++        self.can_send_at(now())
+     }
+ 
+     fn send_at(&mut self, now: SystemTime) {
+@@ -72,7 +77,7 @@ fn send_at(&mut self, now: SystemTime) {
+     /// by the user and should not be rate limited. However, sending messages when over quota
+     /// further postpones the time when it will be allowed to send low priority messages.
+     pub fn send(&mut self) {
+-        self.send_at(SystemTime::now())
++        self.send_at(now())
+     }
+ 
+     fn until_can_send_at(&self, now: SystemTime) -> Duration {
+@@ -88,7 +93,7 @@ fn until_can_send_at(&self, now: SystemTime) -> Duration {
+ 
+     /// Calculates the time until `can_send` will return `true`.
+     pub fn until_can_send(&self) -> Duration {
+-        self.until_can_send_at(SystemTime::now())
++        self.until_can_send_at(now())
+     }
+ 
+     /// Returns minimum possible update interval in milliseconds.
+@@ -103,7 +108,7 @@ mod tests {
+ 
+     #[test]
+     fn test_ratelimit() {
+-        let now = SystemTime::now();
++        let now = now();
+ 
+         let mut ratelimit = Ratelimit::new_at(Duration::new(60, 0), 3.0, now);
+         assert!(ratelimit.can_send_at(now));
+diff --git a/src/blob.rs b/src/blob.rs
+index c5d4ed6..2a8593f 100644
+--- a/src/blob.rs
++++ b/src/blob.rs
+@@ -25,6 +25,26 @@
+ use crate::message::Viewtype;
+ use crate::tools::sanitize_filename;
+ 
++/// Synchronous filesystem ops used from `block_in_place` contexts.
++/// `std::fs` is unsupported on wasm32-unknown-unknown,
++/// so the in-memory `tokio::fs` shim is used there instead.
++#[cfg(not(target_arch = "wasm32"))]
++mod sync_fs {
++    pub use std::fs::{copy, create_dir_all, read, rename, write};
++}
++#[cfg(target_arch = "wasm32")]
++mod sync_fs {
++    pub use tokio::fs::{
++        sync_copy as copy, sync_create_dir_all as create_dir_all, sync_read as read,
++        sync_rename as rename, sync_write as write,
++    };
++}
++
++/// Object-safe reader used by [`BlobObject::check_or_recode_to_size`]
++/// so the same code can read from a file (native) or the in-memory fs (wasm).
++trait BufReadSeek: std::io::BufRead + std::io::Seek {}
++impl<T: std::io::BufRead + std::io::Seek> BufReadSeek for T {}
++
+ /// Represents a file in the blob directory.
+ ///
+ /// The object has a name, which will always be valid UTF-8.  Having a
+@@ -79,10 +99,10 @@ pub fn create_and_deduplicate(
+                     "Source file not in blobdir. Copying instead of moving in order to prevent moving a file that was still needed."
+                 );
+                 temp_path = blobdir.join(format!("tmp-{}", rand::random::<u64>()));
+-                if std::fs::copy(src, &temp_path).is_err() {
++                if sync_fs::copy(src, &temp_path).is_err() {
+                     // Maybe the blobdir didn't exist
+-                    std::fs::create_dir_all(blobdir).log_err(context).ok();
+-                    std::fs::copy(src, &temp_path).context("Copying new blobfile failed")?;
++                    sync_fs::create_dir_all(blobdir).log_err(context).ok();
++                    sync_fs::copy(src, &temp_path).context("Copying new blobfile failed")?;
+                 };
+                 &temp_path
+             };
+@@ -107,7 +127,7 @@ pub fn create_and_deduplicate(
+ 
+             // This will also replace an already-existing file.
+             // Renaming is atomic, so this will avoid race conditions.
+-            std::fs::rename(src_in_blobdir, &new_path)?;
++            sync_fs::rename(src_in_blobdir, &new_path)?;
+ 
+             context.emit_event(EventType::NewBlobFile(blob.as_name().to_string()));
+             Ok(blob)
+@@ -131,10 +151,10 @@ pub fn create_and_deduplicate_from_bytes(
+         task::block_in_place(|| {
+             let blobdir = context.get_blobdir();
+             let temp_path = blobdir.join(format!("tmp-{}", rand::random::<u64>()));
+-            if std::fs::write(&temp_path, data).is_err() {
++            if sync_fs::write(&temp_path, data).is_err() {
+                 // Maybe the blobdir didn't exist
+-                std::fs::create_dir_all(blobdir).log_err(context).ok();
+-                std::fs::write(&temp_path, data).context("writing new blobfile failed")?;
++                sync_fs::create_dir_all(blobdir).log_err(context).ok();
++                sync_fs::write(&temp_path, data).context("writing new blobfile failed")?;
+             };
+ 
+             BlobObject::create_and_deduplicate(context, &temp_path, Path::new(original_name))
+@@ -335,11 +355,25 @@ fn check_or_recode_to_size(
+         let original_name = name.clone();
+         let vt = &mut *viewtype;
+         let res: Result<String> = tokio::task::block_in_place(move || {
+-            let mut file = std::fs::File::open(self.to_abs_path())?;
+-            let (nr_bytes, exif) = image_metadata(&file)?;
++            let abs_path = self.to_abs_path();
++            #[cfg(target_arch = "wasm32")]
++            let file_bytes = sync_fs::read(&abs_path)?;
++            let open_reader = || -> Result<(u64, Box<dyn BufReadSeek>)> {
++                #[cfg(not(target_arch = "wasm32"))]
++                {
++                    let file = std::fs::File::open(&abs_path)?;
++                    let nr_bytes = file.metadata()?.len();
++                    Ok((nr_bytes, Box::new(std::io::BufReader::new(file))))
++                }
++                #[cfg(target_arch = "wasm32")]
++                {
++                    let nr_bytes = file_bytes.len() as u64;
++                    Ok((nr_bytes, Box::new(Cursor::new(file_bytes.clone()))))
++                }
++            };
++            let (nr_bytes, mut file) = open_reader()?;
++            let exif = image_metadata(&mut file)?;
+             *no_exif_ref = exif.is_none();
+-            // It's strange that BufReader modifies a file position while it takes a non-mut
+-            // reference. Ok, just rewind it.
+             file.rewind()?;
+             // Velta patch (re-apply on core upgrades, see VENDORISSUES.MD):
+             // animated WebP must not be recoded — the `image` crate decodes
+@@ -349,15 +383,12 @@ fn check_or_recode_to_size(
+                 return Ok(name);
+             }
+             file.rewind()?;
+-            let imgreader = ImageReader::new(std::io::BufReader::new(&file)).with_guessed_format();
++            let imgreader = ImageReader::new(file).with_guessed_format();
+             let imgreader = match imgreader {
+                 Ok(ir) => ir,
+                 _ => {
+-                    file.rewind()?;
+-                    ImageReader::with_format(
+-                        std::io::BufReader::new(&file),
+-                        ImageFormat::from_path(self.to_abs_path())?,
+-                    )
++                    let (_, file) = open_reader()?;
++                    ImageReader::with_format(file, ImageFormat::from_path(&abs_path)?)
+                 }
+             };
+             let fmt = imgreader.format().context("Unknown format")?;
+@@ -555,11 +586,20 @@ fn file_hash(src: &Path) -> Result<blake3::Hash> {
+         "Use `get_abs_path()` to get the absolute path of the blobfile"
+     );
+     let mut hasher = blake3::Hasher::new();
+-    let mut src_file = std::fs::File::open(src)
+-        .with_context(|| format!("Failed to open file {}", src.display()))?;
+-    hasher
+-        .update_reader(&mut src_file)
+-        .context("update_reader")?;
++    #[cfg(not(target_arch = "wasm32"))]
++    {
++        let mut src_file = std::fs::File::open(src)
++            .with_context(|| format!("Failed to open file {}", src.display()))?;
++        hasher
++            .update_reader(&mut src_file)
++            .context("update_reader")?;
++    }
++    #[cfg(target_arch = "wasm32")]
++    {
++        let data = sync_fs::read(src)
++            .with_context(|| format!("Failed to open file {}", src.display()))?;
++        hasher.update(&data);
++    }
+     let hash = hasher.finalize();
+     Ok(hash)
+ }
+@@ -571,7 +611,7 @@ fn file_hash(src: &Path) -> Result<blake3::Hash> {
+ /// crate decodes only the first frame, so recoding an animated webp would
+ /// silently strip the animation — upstream tracks this in the TODO inside
+ /// `check_or_recode_to_size`. Animated webps are sent byte-exact instead.
+-fn is_animated_webp(file: &mut std::fs::File) -> std::io::Result<bool> {
++fn is_animated_webp<R: std::io::Read + std::io::Seek>(file: &mut R) -> std::io::Result<bool> {
+     use std::io::Read;
+     file.rewind()?;
+     let mut head = Vec::new();
+@@ -584,15 +624,16 @@ fn is_animated_webp(file: &mut std::fs::File) -> std::io::Result<bool> {
+ }
+ 
+ /// Returns image file size and Exif.
+-fn image_metadata(file: &std::fs::File) -> Result<(u64, Option<exif::Exif>)> {
+-    let len = file.metadata()?.len();
+-    let mut bufreader = std::io::BufReader::new(file);
++/// Returns image Exif.
++fn image_metadata<R: std::io::BufRead + std::io::Seek>(
++    reader: &mut R,
++) -> Result<Option<exif::Exif>> {
+     let exif = exif::Reader::new()
+         .continue_on_error(true)
+-        .read_from_container(&mut bufreader)
++        .read_from_container(reader)
+         .or_else(|e| e.distill_partial_result(|_errors| {}))
+         .ok();
+-    Ok((len, exif))
++    Ok(exif)
+ }
+ 
+ fn exif_orientation(exif: &exif::Exif, context: &Context) -> Orientation {
+diff --git a/src/context.rs b/src/context.rs
+index a1020ec..5d7b36d 100644
+--- a/src/context.rs
++++ b/src/context.rs
+@@ -498,7 +498,7 @@ pub(crate) fn with_blobdir(
+             restart_io_after_fetch: AtomicBool::new(false),
+             server_id: RwLock::new(None),
+             metadata: RwLock::new(BTreeMap::new()),
+-            creation_time: tools::Time::now(),
++            creation_time: tools::time_now(),
+             last_error: parking_lot::RwLock::new("".to_string()),
+             migration_error: parking_lot::RwLock::new(None),
+             debug_logging: std::sync::RwLock::new(None),
+@@ -600,7 +600,7 @@ pub async fn background_fetch(&self) -> Result<()> {
+             return Ok(());
+         }
+ 
+-        let time_start = tools::Time::now();
++        let time_start = tools::time_now();
+         info!(self, "background_fetch started.");
+ 
+         if self.scheduler.is_running().await {
+@@ -800,7 +800,7 @@ pub async fn stop_ongoing(&self) {
+                 }
+                 info!(self, "Signaling the ongoing process to stop ASAP.",);
+                 *s = RunningState::ShallStop {
+-                    request: tools::Time::now(),
++                    request: tools::time_now(),
+                 };
+             }
+             RunningState::ShallStop { .. } | RunningState::Stopped => {
+diff --git a/src/imap.rs b/src/imap.rs
+index 3274a74..377eff4 100644
+--- a/src/imap.rs
++++ b/src/imap.rs
+@@ -259,7 +259,7 @@ pub fn transport_id(&self) -> u32 {
+     /// instead if you are going to actually use connection rather than trying connection
+     /// parameters.
+     pub(crate) async fn connect(&mut self, context: &Context) -> Result<Session> {
+-        let now = tools::Time::now();
++        let now = tools::time_now();
+         let until_can_send = max(
+             min(self.conn_last_try, now)
+                 .checked_add(Duration::from_millis(self.conn_backoff_ms))
+@@ -291,7 +291,7 @@ pub(crate) async fn connect(&mut self, context: &Context) -> Result<Session> {
+         info!(context, "Connecting to IMAP server.");
+         self.connectivity.set_connecting(context);
+ 
+-        self.conn_last_try = tools::Time::now();
++        self.conn_last_try = tools::time_now();
+         const BACKOFF_MIN_MS: u64 = 2000;
+         const BACKOFF_MAX_MS: u64 = 80_000;
+         self.conn_backoff_ms = min(self.conn_backoff_ms, BACKOFF_MAX_MS / 2);
+diff --git a/src/imap/idle.rs b/src/imap/idle.rs
+index 1744f2a..3a8995a 100644
+--- a/src/imap/idle.rs
++++ b/src/imap/idle.rs
+@@ -127,7 +127,7 @@ pub async fn idle(
+ impl Imap {
+     /// Idle using polling.
+     pub(crate) async fn fake_idle(&mut self, context: &Context, watch_folder: &str) -> Result<()> {
+-        let fake_idle_start_time = tools::Time::now();
++        let fake_idle_start_time = tools::time_now();
+ 
+         info!(context, "IMAP-fake-IDLEing folder={:?}", watch_folder);
+ 
+diff --git a/src/key.rs b/src/key.rs
+index e7d69eb..7a4a083 100644
+--- a/src/key.rs
++++ b/src/key.rs
+@@ -478,7 +478,7 @@ async fn generate_keypair(context: &Context) -> Result<SignedSecretKey> {
+     match load_keypair(context).await? {
+         Some(key_pair) => Ok(key_pair),
+         None => {
+-            let start = tools::Time::now();
++            let start = tools::time_now();
+             info!(context, "Generating keypair.");
+             let keypair = Handle::current()
+                 .spawn_blocking(move || crate::pgp::create_keypair(addr))
+diff --git a/src/net.rs b/src/net.rs
+index 254a1ac..4f621c1 100644
+--- a/src/net.rs
++++ b/src/net.rs
+@@ -5,9 +5,11 @@
+ use std::time::Duration;
+ 
+ use anyhow::{Context as _, Result, format_err};
++#[cfg(not(target_arch = "wasm32"))]
+ use tokio::net::TcpStream;
+ use tokio::task::JoinSet;
+ use tokio::time::timeout;
++#[cfg(not(target_arch = "wasm32"))]
+ use tokio_io_timeout::TimeoutStream;
+ 
+ use crate::context::Context;
+@@ -29,6 +31,8 @@
+ pub(crate) mod proxy;
+ pub(crate) mod session;
+ pub(crate) mod tls;
++#[cfg(target_arch = "wasm32")]
++pub mod ws_tcp;
+ 
+ use dns::lookup_host_with_cache;
+ pub(crate) use http::read_url_with_tls;
+@@ -108,11 +112,20 @@ pub(crate) async fn load_connection_timestamp(
+     Ok(timestamp)
+ }
+ 
++#[cfg(target_arch = "wasm32")]
++pub(crate) async fn connect_tcp_inner(addr: SocketAddr) -> Result<ws_tcp::WsTcpStream> {
++    let stream = timeout(TIMEOUT, ws_tcp::connect_ws_tcp(addr))
++        .await
++        .with_context(|| format!("Connection to {addr} timed out"))??;
++    Ok(stream)
++}
++
+ /// Returns a TCP connection stream with read/write timeouts set
+ /// and Nagle's algorithm disabled with `TCP_NODELAY`.
+ ///
+ /// `TCP_NODELAY` ensures writing to the stream always results in immediate sending of the packet
+ /// to the network, which is important to reduce the latency of interactive protocols such as IMAP.
++#[cfg(not(target_arch = "wasm32"))]
+ pub(crate) async fn connect_tcp_inner(
+     addr: SocketAddr,
+ ) -> Result<Pin<Box<TimeoutStream<TcpStream>>>> {
+@@ -131,6 +144,7 @@ pub(crate) async fn connect_tcp_inner(
+     Ok(Box::pin(timeout_stream))
+ }
+ 
++
+ /// Attempts to establish TLS connection
+ /// given the result of the hostname to address resolution.
+ pub(crate) async fn connect_tls_inner(
+@@ -257,6 +271,7 @@ pub(crate) async fn run_connection_attempts<O, I, F>(mut futures: I) -> Result<O
+ /// for example using TLS.
+ /// If TLS is not used or invalid TLS certificates are allowed,
+ /// this option should be disabled.
++#[cfg(not(target_arch = "wasm32"))]
+ pub(crate) async fn connect_tcp(
+     context: &Context,
+     host: &str,
+diff --git a/src/net/dns.rs b/src/net/dns.rs
+index f4e6bec..b6bf59c 100644
+--- a/src/net/dns.rs
++++ b/src/net/dns.rs
+@@ -45,6 +45,7 @@
+ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+ use std::str::FromStr;
+ use std::sync::LazyLock;
++#[cfg(not(target_arch = "wasm32"))]
+ use tokio::net::lookup_host;
+ use tokio::time::timeout;
+ 
+@@ -95,6 +96,7 @@ pub(crate) async fn prune_dns_cache(context: &Context) -> Result<()> {
+     LazyLock::new(Default::default);
+ 
+ /// Wrapper for `lookup_host` that returns IP addresses.
++#[cfg(not(target_arch = "wasm32"))]
+ async fn lookup_ips(host: impl tokio::net::ToSocketAddrs) -> Result<impl Iterator<Item = IpAddr>> {
+     Ok(lookup_host(host)
+         .await
+@@ -102,6 +104,14 @@ async fn lookup_ips(host: impl tokio::net::ToSocketAddrs) -> Result<impl Iterato
+         .map(|addr| addr.ip()))
+ }
+ 
++/// Resolves hostnames through the WebSocket proxy (no resolver in browsers).
++#[cfg(target_arch = "wasm32")]
++async fn lookup_ips<H: AsRef<str>>(host: (H, u16)) -> Result<impl Iterator<Item = IpAddr>> {
++    Ok(super::ws_tcp::ws_dns_lookup(host.0.as_ref())
++        .await?
++        .into_iter())
++}
++
+ async fn lookup_host_with_memory_cache(
+     context: &Context,
+     hostname: &str,
+diff --git a/src/net/tls.rs b/src/net/tls.rs
+index b99ecbf..28dbad9 100644
+--- a/src/net/tls.rs
++++ b/src/net/tls.rs
+@@ -16,6 +16,22 @@
+ mod danger;
+ use danger::CustomCertificateVerifier;
+ 
++/// Rustls time provider backed by the JS clock:
++/// `SystemTime::now()` panics on wasm32-unknown-unknown.
++#[cfg(target_arch = "wasm32")]
++#[derive(Debug)]
++struct JsClockTimeProvider;
++
++#[cfg(target_arch = "wasm32")]
++impl rustls::time_provider::TimeProvider for JsClockTimeProvider {
++    fn current_time(&self) -> Option<rustls::pki_types::UnixTime> {
++        Some(rustls::pki_types::UnixTime::since_unix_epoch(
++            std::time::Duration::from_millis(js_sys::Date::now() as u64),
++        ))
++    }
++}
++
++
+ mod spki;
+ pub use spki::SpkiHashStore;
+ 
+@@ -146,9 +162,22 @@ pub async fn wrap_rustls<'a>(
+     let root_cert_store =
+         rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+ 
++    #[cfg(not(target_arch = "wasm32"))]
+     let mut config = rustls::ClientConfig::builder()
+         .with_root_certificates(root_cert_store)
+         .with_no_client_auth();
++    #[cfg(target_arch = "wasm32")]
++    let mut config = {
++        // Install ring as process default once; wasm has no aws-lc-rs.
++        let _ = rustls::crypto::ring::default_provider().install_default();
++        rustls::ClientConfig::builder_with_details(
++            std::sync::Arc::new(rustls::crypto::ring::default_provider()),
++            std::sync::Arc::new(JsClockTimeProvider),
++        )
++        .with_safe_default_protocol_versions()?
++        .with_root_certificates(root_cert_store)
++        .with_no_client_auth()
++    };
+     config.alpn_protocols = if alpn.is_empty() {
+         vec![]
+     } else {
+diff --git a/src/net/ws_tcp.rs b/src/net/ws_tcp.rs
+new file mode 100644
+index 0000000..eab5f2e
+--- /dev/null
++++ b/src/net/ws_tcp.rs
+@@ -0,0 +1,147 @@
++//! wasm32 TCP transport: tunnels byte streams through a WebSocket proxy.
++//!
++//! Browsers cannot open TCP sockets. A trivial proxy (see the prototype's
++//! `scripts/ws-tcp-proxy.mjs`) exposes `/tcp/{ip}/{port}` as a raw byte
++//! tunnel and `/dns/{host}` for name resolution. TLS still terminates inside
++//! wasm against the real server — the proxy only ever relays ciphertext.
++//!
++//! JS WebSocket handles are `!Send`, but core requires `Send` streams and
++//! connection futures. The socket therefore lives in a `spawn_local` task
++//! bridged to a `tokio::io::duplex` pair, which is plain Rust and `Send`.
++
++use std::net::{IpAddr, SocketAddr};
++use std::pin::Pin;
++use std::sync::OnceLock;
++use std::task::{Context as TaskContext, Poll};
++use std::time::Duration;
++
++use anyhow::{Context as _, Result, format_err};
++use futures::StreamExt;
++use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
++use tokio_util::compat::FuturesAsyncReadCompatExt;
++
++use crate::net::session::SessionStream;
++
++static WS_PROXY_URL: OnceLock<String> = OnceLock::new();
++
++/// Configures the WebSocket proxy base URL (e.g. `ws://localhost:8641`).
++/// Must be called before any network operation; subsequent calls are ignored.
++pub fn set_ws_proxy_url(url: String) {
++    let _ = WS_PROXY_URL.set(url);
++}
++
++fn proxy_url(kind: &str, host: &str, port: Option<u16>) -> Result<String> {
++    let base = WS_PROXY_URL
++        .get()
++        .context("no WebSocket proxy configured — call set_ws_proxy_url() first")?;
++    let base = base.trim_end_matches('/');
++    Ok(match port {
++        Some(port) => format!("{base}/{kind}/{host}/{port}"),
++        None => format!("{base}/{kind}/{host}"),
++    })
++}
++
++/// A TCP connection tunneled through the WebSocket proxy.
++#[derive(Debug)]
++pub(crate) struct WsTcpStream {
++    inner: DuplexStream,
++    peer: SocketAddr,
++}
++
++impl AsyncRead for WsTcpStream {
++    fn poll_read(
++        mut self: Pin<&mut Self>,
++        cx: &mut TaskContext<'_>,
++        buf: &mut ReadBuf<'_>,
++    ) -> Poll<std::io::Result<()>> {
++        Pin::new(&mut self.inner).poll_read(cx, buf)
++    }
++}
++
++impl AsyncWrite for WsTcpStream {
++    fn poll_write(
++        mut self: Pin<&mut Self>,
++        cx: &mut TaskContext<'_>,
++        buf: &[u8],
++    ) -> Poll<std::io::Result<usize>> {
++        Pin::new(&mut self.inner).poll_write(cx, buf)
++    }
++
++    fn poll_flush(
++        mut self: Pin<&mut Self>,
++        cx: &mut TaskContext<'_>,
++    ) -> Poll<std::io::Result<()>> {
++        Pin::new(&mut self.inner).poll_flush(cx)
++    }
++
++    fn poll_shutdown(
++        mut self: Pin<&mut Self>,
++        cx: &mut TaskContext<'_>,
++    ) -> Poll<std::io::Result<()>> {
++        Pin::new(&mut self.inner).poll_shutdown(cx)
++    }
++}
++
++impl SessionStream for WsTcpStream {
++    fn set_read_timeout(&mut self, _timeout: Option<Duration>) {
++        // ponytail: no per-read timeouts on the tunneled stream; callers'
++        // tokio::time::timeout (wasmtimer on wasm) covers the hang case.
++    }
++
++    fn peer_addr(&self) -> Result<SocketAddr> {
++        Ok(self.peer)
++    }
++}
++
++/// Opens a tunneled TCP connection to `addr` via the proxy.
++///
++/// The returned future and stream are `Send`; the `!Send` JS socket lives in
++/// a local task.
++pub(crate) async fn connect_ws_tcp(addr: SocketAddr) -> Result<WsTcpStream> {
++    let url = proxy_url("tcp", &addr.ip().to_string(), Some(addr.port()))?;
++    let (tx, rx) = futures::channel::oneshot::channel();
++    wasm_bindgen_futures::spawn_local(async move {
++        let _ = tx.send(connect_inner(&url).await);
++    });
++    let inner = rx.await.context("ws connect task dropped")??;
++    Ok(WsTcpStream { inner, peer: addr })
++}
++
++async fn connect_inner(url: &str) -> Result<DuplexStream> {
++    let (_meta, ws) = ws_stream_wasm::WsMeta::connect(url, None)
++        .await
++        .map_err(|e| format_err!("WebSocket connect to {url} failed: {e}"))?;
++    let ws_io = ws.into_io();
++    let (client, server) = tokio::io::duplex(64 * 1024);
++    wasm_bindgen_futures::spawn_local(async move {
++        let mut ws_io = ws_io.compat();
++        let mut server = server;
++        // Runs until either side closes; dropping both ends tears down the
++        // WebSocket and signals EOF to core.
++        let _ = tokio::io::copy_bidirectional(&mut ws_io, &mut server).await;
++    });
++    Ok(client)
++}
++
++/// Resolves a hostname through the proxy's `/dns/{host}` endpoint.
++pub(crate) async fn ws_dns_lookup(host: &str) -> Result<Vec<IpAddr>> {
++    let url = proxy_url("dns", host, None)?;
++    let (tx, rx) = futures::channel::oneshot::channel();
++    wasm_bindgen_futures::spawn_local(async move {
++        let _ = tx.send(dns_inner(&url).await);
++    });
++    rx.await.context("ws dns task dropped")?
++}
++
++async fn dns_inner(url: &str) -> Result<Vec<IpAddr>> {
++    let (_meta, mut ws) = ws_stream_wasm::WsMeta::connect(url, None)
++        .await
++        .map_err(|e| format_err!("WebSocket connect to {url} failed: {e}"))?;
++    let message = ws.next().await.context("no DNS reply from proxy")?;
++    let text = match message {
++        ws_stream_wasm::WsMessage::Text(text) => text,
++        ws_stream_wasm::WsMessage::Binary(bytes) => String::from_utf8(bytes)?,
++    };
++    let ips: Vec<IpAddr> = serde_json::from_str(&text).context("bad DNS reply")?;
++    Ok(ips)
++}
+diff --git a/src/quota.rs b/src/quota.rs
+index 64fb971..6e3bbf7 100644
+--- a/src/quota.rs
++++ b/src/quota.rs
+@@ -99,7 +99,7 @@ pub(crate) async fn update_recent_quota(
+             transport_id,
+             QuotaInfo {
+                 recent: quota,
+-                modified: tools::Time::now(),
++                modified: tools::time_now(),
+             },
+         );
+ 
+@@ -136,7 +136,7 @@ async fn test_quota_needs_update() -> Result<()> {
+                 0,
+                 QuotaInfo {
+                     recent: Ok(Default::default()),
+-                    modified: tools::Time::now() - Duration::from_secs(TIMEOUT + 1),
++                    modified: tools::time_now() - Duration::from_secs(TIMEOUT + 1),
+                 },
+             );
+             map
+@@ -149,7 +149,7 @@ async fn test_quota_needs_update() -> Result<()> {
+                 0,
+                 QuotaInfo {
+                     recent: Ok(Default::default()),
+-                    modified: tools::Time::now(),
++                    modified: tools::time_now(),
+                 },
+             );
+             map
+diff --git a/src/scheduler.rs b/src/scheduler.rs
+index c059944..58f5b2a 100644
+--- a/src/scheduler.rs
++++ b/src/scheduler.rs
+@@ -672,7 +672,7 @@ async fn smtp_loop(
+             // again, we increase the timeout exponentially, in order not to do lots of
+             // unnecessary retries.
+             if let Some(t) = timeout {
+-                let now = tools::Time::now();
++                let now = tools::time_now();
+                 info!(
+                     ctx,
+                     "SMTP has messages to retry, planning to retry {t} seconds later."
+diff --git a/src/smtp.rs b/src/smtp.rs
+index 0dd5e3a..e0a9c28 100644
+--- a/src/smtp.rs
++++ b/src/smtp.rs
+@@ -187,7 +187,7 @@ pub async fn connect(
+             };
+ 
+             self.transport = Some(transport);
+-            self.last_success = Some(tools::Time::now());
++            self.last_success = Some(tools::time_now());
+ 
+             context.emit_event(EventType::SmtpConnected(format!(
+                 "SMTP-LOGIN as {} ok",
+diff --git a/src/smtp/send.rs b/src/smtp/send.rs
+index bcdd103..a983667 100644
+--- a/src/smtp/send.rs
++++ b/src/smtp/send.rs
+@@ -52,7 +52,7 @@ pub async fn send(
+ 
+         transport.send(mail).await.map_err(Error::SmtpSend)?;
+ 
+-        self.last_success = Some(tools::Time::now());
++        self.last_success = Some(tools::time_now());
+         Ok(())
+     }
+ }
+diff --git a/src/sql/migrations.rs b/src/sql/migrations.rs
+index 7836c4b..efea47b 100644
+--- a/src/sql/migrations.rs
++++ b/src/sql/migrations.rs
+@@ -16,7 +16,7 @@
+ use crate::log::warn;
+ 
+ use crate::sql::Sql;
+-use crate::tools::{self, Time, inc_and_check, time_elapsed};
++use crate::tools::{self, inc_and_check, time_elapsed, time_now};
+ use crate::transport::ConfiguredLoginParam;
+ 
+ const DBVERSION: i32 = 68;
+@@ -698,7 +698,7 @@ pub(crate) async fn msgs_to_key_contacts(context: &Context) -> Result<()> {
+         .context("Update first_key_contacts_msg_id")?;
+         Ok((msgs_migrated, first_key_contacts_msg_id))
+     };
+-    let start = Time::now();
++    let start = time_now();
+     let mut msgs_migrated = 0;
+     loop {
+         let (n, first_key_contacts_msg_id) = sql.transaction(trans_fn).await?;
+@@ -1936,7 +1936,7 @@ pub async fn run(context: &Context, sql: &Sql) -> Result<bool> {
+ 
+     inc_and_check(&mut migration_version, 132)?;
+     if dbversion < migration_version {
+-        let start = Time::now();
++        let start = time_now();
+         sql.execute_migration_transaction(|t| migrate_key_contacts(context, t), migration_version)
+             .await?;
+         info!(
+diff --git a/src/sql/pool/wal_checkpoint.rs b/src/sql/pool/wal_checkpoint.rs
+index 0d95be9..5185a4f 100644
+--- a/src/sql/pool/wal_checkpoint.rs
++++ b/src/sql/pool/wal_checkpoint.rs
+@@ -5,7 +5,7 @@
+ use std::time::Duration;
+ 
+ use crate::sql::Sql;
+-use crate::tools::{Time, time_elapsed};
++use crate::tools::{time_elapsed, time_now};
+ 
+ use super::Pool;
+ 
+@@ -34,7 +34,7 @@ pub(crate) struct WalCheckpointStats {
+ 
+ /// Runs a checkpoint operation in TRUNCATE mode, so the WAL file is truncated to 0 bytes.
+ pub(super) async fn wal_checkpoint(pool: &Pool) -> Result<WalCheckpointStats> {
+-    let t_start = Time::now();
++    let t_start = time_now();
+ 
+     // Do as much work as possible without blocking anybody.
+     let query_only = true;
+@@ -51,7 +51,7 @@ pub(super) async fn wal_checkpoint(pool: &Pool) -> Result<WalCheckpointStats> {
+     // permit to avoid ABBA deadlocks, so drop `conn` which holds a semaphore permit.
+     drop(conn);
+     let _write_lock = Arc::clone(&pool.inner.write_mutex).lock_owned().await;
+-    let t_writers_blocked = Time::now();
++    let t_writers_blocked = time_now();
+     let conn = pool.get(query_only).await?;
+     // Ensure that all readers use the most recent database snapshot (are at the end of WAL) so
+     // that `wal_checkpoint(FULL)` isn't blocked. We could use `PASSIVE` as well, but it's
+@@ -76,7 +76,7 @@ pub(super) async fn wal_checkpoint(pool: &Pool) -> Result<WalCheckpointStats> {
+     for _ in 0..(Sql::N_DB_CONNECTIONS - 1) {
+         read_conns.push(pool.get(query_only).await?);
+     }
+-    let t_readers_blocked = Time::now();
++    let t_readers_blocked = time_now();
+     tokio::task::block_in_place(|| {
+         let blocked = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+             let blocked: i64 = row.get(0)?;
+diff --git a/src/tools.rs b/src/tools.rs
+index 14f9641..c4ab5ea 100644
+--- a/src/tools.rs
++++ b/src/tools.rs
+@@ -18,13 +18,15 @@
+ // https://doc.rust-lang.org/1.87.0/std/time/struct.Instant.html#method.elapsed.
+ use std::time::Duration;
+ pub use std::time::SystemTime as Time;
+-#[cfg(not(test))]
++#[cfg(not(any(test, target_arch = "wasm32")))]
+ pub use std::time::SystemTime;
+ 
+ use anyhow::{Context as _, Result, bail, ensure};
+ use base64::Engine as _;
+ use chrono::{Local, NaiveDateTime, NaiveTime, TimeZone};
+-#[cfg(test)]
++// Also used on wasm32-unknown-unknown, where `std::time::SystemTime::now()` panics:
++// see deltachat_time / js-sys Date.now().
++#[cfg(any(test, target_arch = "wasm32"))]
+ pub use deltachat_time::SystemTimeTools as SystemTime;
+ use mailparse::MailHeaderMap;
+ use mailparse::dateparse;
+@@ -495,6 +497,46 @@ pub async fn read_file(context: &Context, path: &Path) -> Result<Vec<u8>> {
+     }
+ }
+ 
++
++/// Returns whether the path exists.
++///
++/// `Path::exists()` uses sync std::fs, which always errors on
++/// wasm32-unknown-unknown; the wasm fs shim tracks files in memory instead.
++pub(crate) fn path_exists(path: impl AsRef<Path>) -> bool {
++    #[cfg(not(target_arch = "wasm32"))]
++    {
++        path.as_ref().exists()
++    }
++    #[cfg(target_arch = "wasm32")]
++    {
++        fs::sync_exists(path.as_ref())
++    }
++}
++
++/// Returns whether the path is an existing directory (see [`path_exists`]).
++pub(crate) fn path_is_dir(path: impl AsRef<Path>) -> bool {
++    #[cfg(not(target_arch = "wasm32"))]
++    {
++        path.as_ref().is_dir()
++    }
++    #[cfg(target_arch = "wasm32")]
++    {
++        fs::sync_is_dir(path.as_ref())
++    }
++}
++
++/// Returns whether the path is an existing file (see [`path_exists`]).
++pub(crate) fn path_is_file(path: impl AsRef<Path>) -> bool {
++    #[cfg(not(target_arch = "wasm32"))]
++    {
++        path.as_ref().is_file()
++    }
++    #[cfg(target_arch = "wasm32")]
++    {
++        fs::sync_is_file(path.as_ref())
++    }
++}
++
+ pub(crate) fn time() -> i64 {
+     SystemTime::now()
+         .duration_since(SystemTime::UNIX_EPOCH)
+@@ -502,8 +544,22 @@ pub(crate) fn time() -> i64 {
+         .as_secs() as i64
+ }
+ 
++/// Wasm-safe replacement for `Time::now()`
++/// (`std::time::SystemTime::now()` panics on wasm32-unknown-unknown).
++pub(crate) fn time_now() -> Time {
++    #[cfg(not(target_arch = "wasm32"))]
++    {
++        Time::now()
++    }
++    #[cfg(target_arch = "wasm32")]
++    {
++        deltachat_time::SystemTimeTools::now()
++    }
++}
++
+ pub(crate) fn time_elapsed(time: &Time) -> Duration {
+-    time.elapsed().unwrap_or_default()
++    // Not `time.elapsed()`: that calls `SystemTime::now()` which panics on wasm.
++    time_now().duration_since(*time).unwrap_or_default()
+ }
+ 
+ pub(crate) trait IsNoneOrEmpty<T> {

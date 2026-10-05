@@ -108,3 +108,6 @@ Velta.zip
 
 # WSL cargo check cache (CARGO_TARGET_DIR=target-check)
 **/target-check/
+
+# Opt-in wasm core apply-on-copy output (tools/apply-wasm-core-patches.py)
+.wasm-core-apply/

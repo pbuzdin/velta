@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: spike <spike@local>
+Date: Mon, 5 Oct 2026 21:54:50 +0300
+Subject: [PATCH 1/8] apply
+ 0002-wasm-deltachat-time-reads-the-clock-via-js-sys-Date..patch
+
+
+diff --git a/deltachat-time/Cargo.toml b/deltachat-time/Cargo.toml
+index 7a055f6..168e1dc 100644
+--- a/deltachat-time/Cargo.toml
++++ b/deltachat-time/Cargo.toml
+@@ -6,3 +6,6 @@ edition = "2024"
+ license = "MPL-2.0"
+ 
+ [dependencies]
++
++[target.'cfg(target_arch = "wasm32")'.dependencies]
++js-sys = "0.3"
+diff --git a/deltachat-time/src/lib.rs b/deltachat-time/src/lib.rs
+index b3b8b2a..a40a75f 100644
+--- a/deltachat-time/src/lib.rs
++++ b/deltachat-time/src/lib.rs
+@@ -13,7 +13,18 @@ impl SystemTimeTools {
+     pub const UNIX_EPOCH: SystemTime = SystemTime::UNIX_EPOCH;
+ 
+     pub fn now() -> SystemTime {
+-        return SystemTime::now() + *SYSTEM_TIME_SHIFT.read().unwrap();
++        return Self::system_now() + *SYSTEM_TIME_SHIFT.read().unwrap();
++    }
++
++    #[cfg(not(target_arch = "wasm32"))]
++    fn system_now() -> SystemTime {
++        SystemTime::now()
++    }
++
++    /// `SystemTime::now()` panics on wasm32-unknown-unknown; epoch + JS clock doesn't.
++    #[cfg(target_arch = "wasm32")]
++    fn system_now() -> SystemTime {
++        SystemTime::UNIX_EPOCH + Duration::from_millis(js_sys::Date::now() as u64)
+     }
+ 
+     /// Simulates a system clock forward adjustment by `duration`.
