@@ -289,7 +289,7 @@ engineering and maintenance.
    addresses).
 
 ### Spike status
-A 3–5 day spike started **2026-10-05** to validate `experintellia/slothfulchat-web` + `pbuzdin/relay` branch `link2xt/websockify`. Progress notes: [`wasm-core-mail-proxy-spike.md`](wasm-core-mail-proxy-spike.md). Do not copy the GPL web app into Velta; MPL core patches may be referenced/listed.
+A 3–5 day spike started **2026-10-05** to validate `experintellia/slothfulchat-web` + `pbuzdin/relay` branch `link2xt/websockify`. Progress notes: [`wasm-core-mail-proxy-spike.md`](wasm-core-mail-proxy-spike.md). **Day 5:** Velta will own a fresh wasm port of chatmail core 2.62+ (not a slothfulchat-web fork); policy and opt-in patch home in [`wasm-patches/README.md`](wasm-patches/README.md). Do not copy the GPL web app into Velta; MPL core patches may be referenced/listed.
 
 ### Evidence index
 - dry-check logs from the research pass (not checked into this repo) (dry checks of Velta core 2.62.0)

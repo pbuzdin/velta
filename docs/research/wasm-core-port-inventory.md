@@ -78,6 +78,8 @@ Layout: `core/` (copy of Velta 2.62 + Velta’s 13 patches), `crates/tokio-wasm-
 | Same for host `--no-default-features` | FAIL env: missing `pkg-config`/OpenSSL (not a master regression; master `core/` untouched) |
 | `wasm-pack` / browser smoke on 2.62 | **PASS** Day 4 — `get_system_info` + memfs; artifact ~29 MB `--no-opt` |
 | Networking e2e (ws-tcp-proxy → nine.testrun.org) | **PASS** Day 4 — alice→bob `wasm-roundtrip-ewf5hft74cr` |
+| Side-tree host native `cargo check` (Day 5, system OpenSSL) | **PASS** |
+| `wasm-opt -Os` size (Day 5) | ~29 MB → ~18 MB |
 
 ### Coexistence with Velta’s 13 patches
 Side-tree baseline started from Velta `core/` with all 13 present
@@ -92,9 +94,24 @@ ReadDir edit is adjacent to Velta’s animated-WebP helpers — rebase carefully
 - tokio-rustls native features: **`brotli`** (not aws-lc-rs as in 2.54 patch text)
 - `[patch.crates-io]` is mandatory; without it, `mio` returns and wasm dies at dep compile
 
-## Recommended Day 5
-1. Long-term patch home: opt-in apply script vs upstreamable wasm `cfg`s.
-2. Full native check/nextest on OpenSSL/pkg-config host before any master merge.
-3. Optional `wasm-opt` size; WASM-EXTRA (OPFS / crypto offload) only if needed.
-4. Still **no** merge into Velta `master` `core/` until native **and** wasm are
-   both clean on a properly tooled host.
+## Ownership (Day 5)
+**Velta-owned** wasm port of chatmail core 2.62+ — not a slothfulchat-web fork.
+MPL patch ideas only. See [`wasm-patches/README.md`](wasm-patches/README.md).
+
+## Patch home (Day 5 decision)
+**Opt-in** `tools/apply-wasm-core-patches.py` + `docs/research/wasm-patches/`.
+Side tree remains source of truth until patches are extracted. Do **not** fold
+into `apply-core-patches.py` (the 13 production patches).
+
+## Native / size (Day 5)
+| Check | Result |
+|---|---|
+| Side-tree host `cargo check -p deltachat --lib` (`OPENSSL_NO_VENDOR=1`) | **PASS** |
+| `cargo nextest` | Not installed on spike host |
+| `wasm-opt -Os` | ~29 MB → ~18 MB |
+
+## Recommended Day 6
+1. Extract patch units into `docs/research/wasm-patches/`; implement real opt-in `apply` on a copy first.
+2. Run `cargo nextest` on side tree / CI image.
+3. Sketch wasm CI (`wasm-pack` + smoke) behind the opt-in path.
+4. Still **no** merge into Velta `master` `core/` until reviewed landing + native/wasm gates.
