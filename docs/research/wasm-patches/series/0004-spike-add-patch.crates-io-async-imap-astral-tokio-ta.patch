@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: spike <spike@local>
+Date: Mon, 5 Oct 2026 21:58:20 +0300
+Subject: [PATCH 4/8] spike: add [patch.crates-io] async-imap +
+ astral-tokio-tar (fixes mio on wasm)
+
+
+diff --git a/Cargo.toml b/Cargo.toml
+index 0c8d0f7..8094f36 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -97,7 +97,7 @@ tokio-io-timeout = "1.2.1"
+ tokio = { package = "tokio-wasm-shim", path = "../crates/tokio-wasm-shim" }
+ tokio-util = { workspace = true }
+ # tar via vendored fork that routes through the shim (see [patch.crates-io])
+-astral-tokio-tar = { version = "0.6.3", default-features = false }
++astral-tokio-tar = { version = "=0.6.3", default-features = false }
+ 
+ toml = "0.9"
+ tracing = "0.1.41"
+@@ -238,3 +238,9 @@ vendored = [
+ 
+ [lints.rust]
+ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
++
++[patch.crates-io]
++# drops unused tokio/net (breaks wasm32)
++async-imap = { path = "../vendor-crates/async-imap" }
++# routes tokio through tokio-wasm-shim so tar works on wasm32
++astral-tokio-tar = { path = "../vendor-crates/astral-tokio-tar" }

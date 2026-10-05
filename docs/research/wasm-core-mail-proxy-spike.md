@@ -1,6 +1,6 @@
 # Spike log — wasm core + WebSocket mail proxy
 
-**Status:** day 5 — Velta-owned wasm core policy + opt-in patch home scaffolded; side-tree **native** `cargo check` **PASS** (system OpenSSL); `wasm-opt` ~29→~18 MB. Master `core/` unchanged.
+**Status:** day 6 — wasm patches extracted + apply-on-copy **PASS** (wasm check on copy); opt-in CI workflow sketched; nextest small crates PASS; deltachat lib tests blocked by blob_tests/image_metadata drift. Master `core/` unchanged.
 Started **2026-10-05** (Europe/Moscow). Research baseline:
 [`wasm-core-mail-proxy.md`](wasm-core-mail-proxy.md).
 
@@ -296,21 +296,55 @@ Ship/opt path should prefer `wasm-opt` when available (~38% smaller here).
 
 ---
 
-## Next concrete steps (day 6)
+## Day 6 (2026-10-05) — extract patches, apply-on-copy, nextest, CI sketch
 
-1. Extract discrete patch units from the side tree into
-   `docs/research/wasm-patches/` (or `patches/wasm-core/`) and teach
-   `apply-wasm-core-patches.py` a real, idempotent `apply` against a *copy*
-   first — still not master `core/` until reviewed.
-2. Install/run `cargo nextest` on the side tree (or CI image with OpenSSL +
-   pkg-config + make) for a stronger native gate.
-3. Wire wasm CI sketch: side-tree or opt-in apply → `wasm-pack` + smoke.
-4. Optional: commit optimized wasm size budget / `wasm-opt` in the wrapper
-   build script when that package enters the repo.
+### Extracted into-repo
+| Path | Contents |
+|---|---|
+| `docs/research/wasm-patches/series/*.patch` | **8** discrete patches (`git format-patch` from side-tree baseline `0a10087` → HEAD; `Cargo.lock` hunks stripped) |
+| `docs/research/wasm-patches/SERIES` | Apply order |
+| `docs/research/wasm-patches/support/` | `tokio-wasm-shim` + async-imap / astral-tokio-tar / mail-builder (~1 MB) |
+
+Baseline `0a10087` matched Velta master `core/` at extract (diff empty).
+
+### apply-on-copy
+`tools/apply-wasm-core-patches.py`:
+- `apply-on-copy --dest …` copies master `core/` + support, applies 8/8 patches
+- bare `apply` **REFUSED**; writing master `core/` **REFUSED** without dangerous flag
+- `.wasm-core-apply/` gitignored
+
+**Verified:** apply-on-copy → `cargo check -p deltachat --lib --target wasm32-unknown-unknown --no-default-features` **PASS** (~3m 30s on copy).
+
+### nextest (side tree host)
+Installed `cargo-nextest` 0.9.146. `OPENSSL_NO_VENDOR=1`.
+
+| Run | Result |
+|---|---|
+| `-p deltachat-time -p format-flowed -p ratelimit --lib` | **PASS** 5/5 |
+| `-p deltachat --lib` (filtered tools/blob/contact) | **FAIL compile** — `blob_tests` still call old `image_metadata` signature after Day-4 0007 BufReadSeek change (6× E0308). Lib `--lib` check without tests remains green (Day 5). |
+
+Full deltachat nextest **not** green until blob_tests updated (Day 7).
+
+### CI sketch (does not touch Release)
+Added `.github/workflows/wasm-core-opt-in.yml`:
+- triggers: `workflow_dispatch`, branches `wasm-core/**`, PRs touching wasm-patches / apply script
+- job: apply-on-copy + wasm `cargo check` (`continue-on-error: true`)
+- **not** referenced from `release.yml` / platform build workflows
+- wasm-pack + Playwright smoke still side-tree until MPL wrapper is in-repo
+
+### Master
+Docs + tools + patches + support + opt-in workflow only. **No** wasm merge into production `core/`. `apply-core-patches.py verify` **13/13**.
+
+---
+
+## Next concrete steps (day 7)
+
+1. Fix side-tree `blob_tests` / any other test drift from wasm ports; re-run `cargo nextest -p deltachat --lib` (broader filter or full).
+2. Optionally land MPL `deltachat-wasm` wrapper under `packages/` (or docs path) so opt-in CI can `wasm-pack` + smoke.
+3. Keep master `core/` clean until apply-on-copy + native nextest + reviewed landing checklist are green.
+4. Consider renaming series patches to inventory ids (0001–0010) for readability.
 
 ## Ask Pavel to approve next
 
-- Day 5 locks **Velta-owned** wasm core + **opt-in** patch home (scaffold on
-  master docs/tools; experimental code still side-tree only).
-- Approve Day 6 **extraction** of patches into-repo (still no production merge
-  until nextest + reviewed apply path).
+- Day 6 proves **replay from master core via apply-on-copy** without touching production tree.
+- Approve Day 7 test-fix + optional in-repo wrapper for CI smoke — still no production core merge.

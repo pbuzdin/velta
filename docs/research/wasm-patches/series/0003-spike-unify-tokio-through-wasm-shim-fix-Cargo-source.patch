@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: spike <spike@local>
+Date: Mon, 5 Oct 2026 21:55:53 +0300
+Subject: [PATCH 3/8] spike: unify tokio through wasm-shim (fix Cargo source
+ conflict)
+
+
+diff --git a/Cargo.toml b/Cargo.toml
+index 4e65e3f..0c8d0f7 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -146,7 +146,6 @@ pretty_assertions = "1.4.1"
+ proptest = { version = "1", default-features = false, features = ["std"] }
+ tempfile = { workspace = true }
+ testdir = "0.9.3"
+-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+ 
+ [workspace]
+ members = [
+diff --git a/deltachat-ffi/Cargo.toml b/deltachat-ffi/Cargo.toml
+index 1c943eb..7492b25 100644
+--- a/deltachat-ffi/Cargo.toml
++++ b/deltachat-ffi/Cargo.toml
+@@ -19,7 +19,7 @@ libc = { workspace = true }
+ human-panic = { version = "2", default-features = false }
+ num-traits = { workspace = true }
+ serde_json = { workspace = true }
+-tokio = { workspace = true, features = ["rt-multi-thread"] }
++tokio = { package = "tokio-wasm-shim", path = "../../crates/tokio-wasm-shim" }
+ anyhow = { workspace = true }
+ thiserror = { workspace = true }
+ rand = { workspace = true }
+diff --git a/deltachat-jsonrpc/Cargo.toml b/deltachat-jsonrpc/Cargo.toml
+index 82a7c13..e578c29 100644
+--- a/deltachat-jsonrpc/Cargo.toml
++++ b/deltachat-jsonrpc/Cargo.toml
+@@ -22,7 +22,7 @@ sanitize-filename = { workspace = true }
+ base64 = { workspace = true }
+ 
+ [dev-dependencies]
+-tokio = { workspace = true, features = ["full", "rt-multi-thread"] }
++tokio = { package = "tokio-wasm-shim", path = "../../crates/tokio-wasm-shim" }
+ tempfile = { workspace = true }
+ futures = { workspace = true }
+ 
+diff --git a/deltachat-repl/Cargo.toml b/deltachat-repl/Cargo.toml
+index 704bace..32a35e5 100644
+--- a/deltachat-repl/Cargo.toml
++++ b/deltachat-repl/Cargo.toml
+@@ -14,7 +14,7 @@ nu-ansi-term = { workspace = true }
+ qr2term = "0.3.3"
+ rusqlite = { workspace = true }
+ rustyline = "16"
+-tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros"] }
++tokio = { package = "tokio-wasm-shim", path = "../../crates/tokio-wasm-shim" }
+ tracing-subscriber = { workspace = true, features = ["env-filter"] }
+ 
+ [features]
+diff --git a/deltachat-rpc-server/Cargo.toml b/deltachat-rpc-server/Cargo.toml
+index 99e7d92..23480d3 100644
+--- a/deltachat-rpc-server/Cargo.toml
++++ b/deltachat-rpc-server/Cargo.toml
+@@ -17,7 +17,7 @@ futures-lite = { workspace = true }
+ log = { workspace = true }
+ serde_json = { workspace = true }
+ serde = { workspace = true, features = ["derive"] }
+-tokio = { workspace = true, features = ["io-std"] }
++tokio = { package = "tokio-wasm-shim", path = "../../crates/tokio-wasm-shim" }
+ tokio-util = { workspace = true }
+ tracing-subscriber = { workspace = true, features = ["env-filter"] }
+ yerpc = { workspace = true, features = ["anyhow_expose", "openrpc"] }

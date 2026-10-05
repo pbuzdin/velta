@@ -110,8 +110,12 @@ into `apply-core-patches.py` (the 13 production patches).
 | `cargo nextest` | Not installed on spike host |
 | `wasm-opt -Os` | ~29 MB → ~18 MB |
 
-## Recommended Day 6
-1. Extract patch units into `docs/research/wasm-patches/`; implement real opt-in `apply` on a copy first.
-2. Run `cargo nextest` on side tree / CI image.
-3. Sketch wasm CI (`wasm-pack` + smoke) behind the opt-in path.
-4. Still **no** merge into Velta `master` `core/` until reviewed landing + native/wasm gates.
+## Day 6 progress
+- **8 patches** extracted + `support/` crates; `apply-on-copy` **PASS**; wasm check on copy **PASS**.
+- Opt-in workflow: `.github/workflows/wasm-core-opt-in.yml` (not on Release).
+- nextest: small crates **PASS**; deltachat lib tests **blocked** by `blob_tests`/`image_metadata` drift.
+
+## Recommended Day 7
+1. Fix `blob_tests` (and any similar) in the side tree; broaden nextest.
+2. Optional: in-repo MPL `deltachat-wasm` for CI `wasm-pack` + smoke.
+3. Still **no** merge into Velta `master` `core/` until landing checklist green.

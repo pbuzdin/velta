@@ -1,0 +1,11 @@
+# Ordered patches under series/ (Day 6 extract from velta-wasm-port/core
+# commits after baseline 0a10087 == Velta master core/ at extract time).
+# Cargo.lock hunks stripped; run cargo to refresh the lock after apply-on-copy.
+0001-apply-0002-wasm-deltachat-time-reads-the-clock-via-j.patch
+0002-spike-Cargo.toml-target-gate-tokio-wasm-shim-rusqlit.patch
+0003-spike-unify-tokio-through-wasm-shim-fix-Cargo-source.patch
+0004-spike-add-patch.crates-io-async-imap-astral-tokio-ta.patch
+0005-spike-port-0003-ish-stubs-http-proxy-wasm-session-tl.patch
+0006-spike-blob-ReadDir-cfg-async-imap-0.11.3-vendor-with.patch
+0007-spike-port-0005-ws_tcp-0006-clocks-0007-blob-sync_fs.patch
+0008-spike-path_exists-is_dir-call-sites-wasm-connect_tcp.patch

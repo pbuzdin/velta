@@ -11,58 +11,66 @@ meaning a **Velta-owned forward-port of chatmail/core 2.62+** targeting
 | Keep a Velta-built `deltachat-wasm` wrapper (MPL) + Unlicense-style WS→TCP bridge pattern | Depend on slothfulchat-web as the long-term source tree |
 | Gate Android/desktop so they stay on the native path | Apply wasm patches in production CI by default |
 
-## Where the code lives today
+## Where the code lives
 
 | Location | Role |
 |---|---|
-| Spike side tree `/workspace/velta-wasm-port` | **Source of truth** for the experimental 2.62 port (Day 3–5) |
-| `packages/core-wasm` inside that side tree | Fresh Velta MPL wasm artifact path (`wasm-dist/deltachat_wasm_bg.wasm`) |
-| This directory | Landing pad for **extracted** patch files + this policy doc |
-| `tools/apply-wasm-core-patches.py` | **Opt-in** applicator (refuses `apply` until patches are extracted) |
+| Spike side tree `/workspace/velta-wasm-port` | Proven Day 3–5 workspace (artifact + e2e) |
+| `series/*.patch` + `SERIES` (this dir) | **Extracted** discrete patches (Day 6) from side-tree commits after baseline `0a10087` (= Velta master `core/` at extract time). `Cargo.lock` hunks stripped — regenerate lock via cargo |
+| `support/{crates,vendor-crates}/` | `tokio-wasm-shim` + vendored async-imap / astral-tokio-tar / mail-builder |
+| `tools/apply-wasm-core-patches.py` | **Opt-in** applicator — **apply-on-copy only** by default |
 
-Master `core/` stays on Velta’s existing 13 patches only
-(`tools/apply-core-patches.py`). No wasm merge until native + wasm gates are
-both green on a reviewed landing.
+Master `core/` stays on Velta’s 13 patches (`tools/apply-core-patches.py`).
 
-## Long-term patch home — **decision (Day 5)**
+## Apply on a copy (Day 6)
 
-**Near-term (chosen): opt-in second apply layer**, separate from the 13
-production patches.
+```sh
+# from repo root — NEVER touches master core/ by default
+python3 tools/apply-wasm-core-patches.py apply-on-copy --dest /tmp/velta-wasm-copy
+python3 tools/apply-wasm-core-patches.py verify-copy --dest /tmp/velta-wasm-copy
 
-1. Extract discrete patch units (or a documented replay script) from the side
-   tree into `docs/research/wasm-patches/` (or `patches/wasm-core/` later).
-2. `tools/apply-wasm-core-patches.py` applies them only when explicitly invoked
-   (wasm CI / developer machines building the PWA core). Android/desktop and
-   default `cargo check` on master never run it.
-3. Prefer `cfg(target_arch = "wasm32")` inside those patches so a single tree
-   can serve native + wasm once merged.
-
-**Longer-term aspiration:** collapse as much as possible into upstreamable
-`cfg(target_arch = "wasm32")` gates and contribute upstream to chatmail/core
-where they will take it. That reduces the Velta-only apply surface over time —
-it does **not** replace the “Velta-owned port” ownership story.
-
-**Rejected for now:** dumping raw prototype patches into
-`apply-core-patches.py` (would risk Android/desktop), or treating
-slothfulchat-web as the canonical tree.
-
-## Artifact path (“fresh” Velta wasm core)
-
-On the spike host after Day 4:
-
-```text
-/workspace/velta-wasm-port/packages/core-wasm/wasm-dist/deltachat_wasm_bg.wasm
+cd /tmp/velta-wasm-copy/core
+CC=clang cargo check -p deltachat --lib \
+  --target wasm32-unknown-unknown --no-default-features
 ```
 
-Built with Velta’s 2.62 side-tree core + MPL `deltachat-wasm` wrapper. That is
-the fresh Velta artifact; the Day-1 ~28 MB file from slothfulchat was only the
-prototype proof.
+Bare `apply` is refused. Applying onto master `core/` requires an explicit
+dangerous flag (not for CI). Default dest `.wasm-core-apply/` is gitignored.
 
-Sizes (Day 5): **~29 MB** `--no-opt`; **~18 MB** after `wasm-opt -Os`
-(binaryen 120). Prefer shipping the optimized build when `wasm-opt` is on PATH.
+**Verified Day 6:** 8/8 patches apply cleanly onto a copy of master `core/`;
+`cargo check` wasm lib **PASS** on that copy.
+
+## Patch series (commit order)
+
+See [`SERIES`](SERIES). Rough mapping to inventory WASM-CORE ids:
+
+| Series | Intent |
+|---|---|
+| 0001 | deltachat-time JS clock (prototype 0002) |
+| 0002–0004 | Cargo target gates, tokio shim, `[patch.crates-io]` |
+| 0005–0006 | http/proxy stubs, blob ReadDir, vendors |
+| 0007–0008 | ws_tcp, clocks, blob sync_fs, fetch, path_exists, connect_tcp |
+
+## Long-term patch home
+
+**Near-term (chosen):** this opt-in layer. **Longer-term:** upstreamable
+`cfg(target_arch = "wasm32")` / chatmail upstream.
+
+## CI sketch (opt-in)
+
+[`.github/workflows/wasm-core-opt-in.yml`](../../../.github/workflows/wasm-core-opt-in.yml)
+runs on `workflow_dispatch`, `wasm-core/**` branches, or PRs touching this
+tree. It **apply-on-copies** then `cargo check` wasm. It does **not** hook
+Release workflows. Full `wasm-pack` + Playwright smoke stays side-tree until
+the MPL wrapper is in-repo.
+
+## Artifact path
+
+Spike host (Day 4):  
+`/workspace/velta-wasm-port/packages/core-wasm/wasm-dist/deltachat_wasm_bg.wasm`  
+(~29 MB `--no-opt`; ~18 MB after `wasm-opt -Os`).
 
 ## See also
 
 - Spike log: [`../wasm-core-mail-proxy-spike.md`](../wasm-core-mail-proxy-spike.md)
 - Inventory: [`../wasm-core-port-inventory.md`](../wasm-core-port-inventory.md)
-- Research: [`../wasm-core-mail-proxy.md`](../wasm-core-mail-proxy.md)
