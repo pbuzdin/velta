@@ -111,3 +111,6 @@ Velta.zip
 
 # Opt-in wasm core apply-on-copy output (tools/apply-wasm-core-patches.py)
 .wasm-core-apply/
+# deltachat-wasm build output
+packages/deltachat-wasm/wasm-dist/
+scripts/node_modules/

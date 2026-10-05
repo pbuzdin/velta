@@ -1,0 +1,33 @@
+[package]
+name = "deltachat-wasm"
+version = "0.1.0"
+edition = "2021"
+license = "MPL-2.0"
+description = "Minimal wasm-bindgen wrapper exposing Velta chatmail core JSON-RPC (opt-in wasm spike)"
+repository = "https://github.com/pbuzdin/velta"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Paths are relative to this crate when built inside an apply-on-copy workspace:
+#   <dest>/packages/deltachat-wasm/rust  →  <dest>/{core,crates,vendor-crates}
+deltachat = { path = "../../../core", default-features = false }
+deltachat-jsonrpc = { path = "../../../core/deltachat-jsonrpc", default-features = false }
+tokio = { package = "tokio-wasm-shim", path = "../../../crates/tokio-wasm-shim" }
+yerpc = "0.7"
+serde_json = "1"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+async-channel = "2"
+
+[patch.crates-io]
+async-imap = { path = "../../../vendor-crates/async-imap" }
+astral-tokio-tar = { path = "../../../vendor-crates/astral-tokio-tar" }
+mail-builder = { path = "../../../vendor-crates/mail-builder" }
+
+[profile.release]
+opt-level = "s"
+lto = true

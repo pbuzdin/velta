@@ -19,6 +19,8 @@ meaning a **Velta-owned forward-port of chatmail/core 2.62+** targeting
 | `series/*.patch` + `SERIES` (this dir) | **Extracted** discrete patches (Day 6) from side-tree commits after baseline `0a10087` (= Velta master `core/` at extract time). `Cargo.lock` hunks stripped — regenerate lock via cargo |
 | `support/{crates,vendor-crates}/` | `tokio-wasm-shim` + vendored async-imap / astral-tokio-tar / mail-builder |
 | `tools/apply-wasm-core-patches.py` | **Opt-in** applicator — **apply-on-copy only** by default |
+| `packages/deltachat-wasm/` (MPL) | Minimal JSON-RPC wasm wrapper; copied into apply-on-copy dest |
+| `scripts/smoke-deltachat-wasm.mjs` | Headless `get_system_info` smoke (`PACKAGE_ROOT` supported) |
 
 Master `core/` stays on Velta’s 13 patches (`tools/apply-core-patches.py`).
 
@@ -37,7 +39,7 @@ CC=clang cargo check -p deltachat --lib \
 Bare `apply` is refused. Applying onto master `core/` requires an explicit
 dangerous flag (not for CI). Default dest `.wasm-core-apply/` is gitignored.
 
-**Verified Day 6:** 8/8 patches apply cleanly onto a copy of master `core/`;
+**Verified Day 6:** 9/9 patches apply cleanly onto a copy of master `core/`;
 `cargo check` wasm lib **PASS** on that copy.
 
 ## Patch series (commit order)
@@ -50,6 +52,7 @@ See [`SERIES`](SERIES). Rough mapping to inventory WASM-CORE ids:
 | 0002–0004 | Cargo target gates, tokio shim, `[patch.crates-io]` |
 | 0005–0006 | http/proxy stubs, blob ReadDir, vendors |
 | 0007–0008 | ws_tcp, clocks, blob sync_fs, fetch, path_exists, connect_tcp |
+| 0009 | blob_tests ↔ `image_metadata` BufReadSeek + avatar golden |
 
 ## Long-term patch home
 
@@ -59,10 +62,10 @@ See [`SERIES`](SERIES). Rough mapping to inventory WASM-CORE ids:
 ## CI sketch (opt-in)
 
 [`.github/workflows/wasm-core-opt-in.yml`](../../../.github/workflows/wasm-core-opt-in.yml)
-runs on `workflow_dispatch`, `wasm-core/**` branches, or PRs touching this
-tree. It **apply-on-copies** then `cargo check` wasm. It does **not** hook
-Release workflows. Full `wasm-pack` + Playwright smoke stays side-tree until
-the MPL wrapper is in-repo.
+runs on `workflow_dispatch`, `wasm-core/**` branches, or PRs touching wasm
+patches / wrapper. Steps: **apply-on-copy** → wasm `cargo check` →
+`wasm-pack` (MPL wrapper) → Playwright `get_system_info` smoke.
+`continue-on-error: true`; does **not** hook Release workflows.
 
 ## Artifact path
 

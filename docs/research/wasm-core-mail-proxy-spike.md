@@ -1,6 +1,6 @@
 # Spike log — wasm core + WebSocket mail proxy
 
-**Status:** day 6 — wasm patches extracted + apply-on-copy **PASS** (wasm check on copy); opt-in CI workflow sketched; nextest small crates PASS; deltachat lib tests blocked by blob_tests/image_metadata drift. Master `core/` unchanged.
+**Status:** day 7 — blob_tests fixed; broadened nextest **185/185** (after avatar golden); MPL `packages/deltachat-wasm` landed; opt-in CI does wasm-pack+smoke. Master `core/` unchanged.
 Started **2026-10-05** (Europe/Moscow). Research baseline:
 [`wasm-core-mail-proxy.md`](wasm-core-mail-proxy.md).
 
@@ -337,14 +337,48 @@ Docs + tools + patches + support + opt-in workflow only. **No** wasm merge into 
 
 ---
 
-## Next concrete steps (day 7)
+## Day 7 (2026-10-05→06) — blob_tests fix, nextest, in-repo MPL wrapper
 
-1. Fix side-tree `blob_tests` / any other test drift from wasm ports; re-run `cargo nextest -p deltachat --lib` (broader filter or full).
-2. Optionally land MPL `deltachat-wasm` wrapper under `packages/` (or docs path) so opt-in CI can `wasm-pack` + smoke.
-3. Keep master `core/` clean until apply-on-copy + native nextest + reviewed landing checklist are green.
-4. Consider renaming series patches to inventory ids (0001–0010) for readability.
+### blob_tests / `image_metadata`
+Day-4 port changed `image_metadata` to `fn(&mut R) -> Result<Option<Exif>>`
+(`BufRead + Seek`) for wasm memfs. Tests still used the old
+`(u64, Option<Exif>)` + `&File` API → libtest compile fail.
+
+**Fix (side tree + series 0009):** call sites use `BufReader` + separate
+`metadata().len()` where size was needed; update selfavatar golden hash to
+`b8c55604d4134d368ae128387a23720.png` (reencode output on this toolchain).
+
+### nextest (side tree, `OPENSSL_NO_VENDOR=1`)
+| Suite | Result |
+|---|---|
+| Small crates (time/format-flowed/ratelimit) | PASS (Day 6) |
+| Broad filter: blob + tools + contact + message + mimefactory + chatlist + qr | **185 run: 185 passed** (after golden fix; was 184/185) |
+
+Full `deltachat` lib (~1100+ tests) not run end-to-end this day (time); compile of `--lib` tests **PASS**.
+
+### In-repo MPL wrapper
+- `packages/deltachat-wasm/` — MPL-2.0 minimal JSON-RPC wasm entry (from side-tree core-wasm)
+- Paths assume apply-on-copy workspace (`../../../core` etc.)
+- `apply-on-copy` now copies the package into dest
+- `scripts/smoke-deltachat-wasm.mjs` (`PACKAGE_ROOT` env)
+- Opt-in CI: apply-on-copy → check → **wasm-pack** → Playwright smoke
+
+### Series
+**9** patches (`0009` = blob_tests fix). apply-on-copy 9/9 verified.
+
+### Master
+No production `core/` wasm merge. `apply-core-patches.py verify` **13/13**.
+
+---
+
+## Next concrete steps (day 8)
+
+1. Confirm opt-in CI green on GitHub (`workflow_dispatch`).
+2. Optionally widen nextest further / run on apply-copy tree (not only side tree).
+3. Decide landing checklist for a future carefully reviewed core merge (still not Day 8 by default).
+4. Size budget: enable `wasm-opt` in CI artifact step when ready.
 
 ## Ask Pavel to approve next
 
-- Day 6 proves **replay from master core via apply-on-copy** without touching production tree.
-- Approve Day 7 test-fix + optional in-repo wrapper for CI smoke — still no production core merge.
+- Day 7 unblocks lib tests + lands the MPL wrapper for opt-in CI smoke.
+- Approve Day 8 CI confirmation / wasm-opt — still **no** forced production core merge.

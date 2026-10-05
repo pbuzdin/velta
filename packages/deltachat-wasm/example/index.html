@@ -1,0 +1,69 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Velta 2.62 wasm spike — get_system_info</title>
+</head>
+<body>
+  <h1>Velta core 2.62 wasm (side tree)</h1>
+  <p id="status">loading…</p>
+  <pre id="output"></pre>
+  <script type="module">
+    import initWasm, { init as initCore } from '../wasm-dist/deltachat_wasm.js'
+
+    const status = document.getElementById('status')
+    const output = document.getElementById('output')
+    const params = new URL(location.href).searchParams
+    const wsProxyUrl = params.get('proxy') ?? undefined
+
+    let nextId = 1
+    const pending = new Map()
+
+    try {
+      await initWasm()
+      const core = await initCore((msg) => {
+        let m
+        try { m = JSON.parse(msg) } catch { return }
+        if (m && m.id != null && pending.has(m.id)) {
+          const { resolve, reject } = pending.get(m.id)
+          pending.delete(m.id)
+          if (m.error) reject(m.error)
+          else resolve(m.result)
+        }
+      }, wsProxyUrl, false)
+
+      window.core = core
+      window.rpc = {
+        request(method, params = []) {
+          const id = nextId++
+          return new Promise((resolve, reject) => {
+            pending.set(id, { resolve, reject })
+            core.receive(JSON.stringify({ jsonrpc: '2.0', method, params, id }))
+          })
+        }
+      }
+
+      const info = await window.rpc.request('get_system_info')
+      status.textContent = 'OK — get_system_info answered'
+      output.textContent = JSON.stringify(info, null, 2)
+      window.__systemInfo = info
+
+      // memfs side channel
+      const path = '/t/x/hello.bin'
+      const bytes = new Uint8Array([104, 101, 108, 108, 111, 0, 255, 42])
+      core.fs_write(path, bytes)
+      if (!core.fs_exists(path)) throw new Error('fs_exists false after write')
+      const read = core.fs_read(path)
+      if (read.length !== bytes.length || [...bytes].some((b, i) => read[i] !== b))
+        throw new Error('fs_read mismatch')
+      core.fs_remove(path)
+      window.__fsOk = true
+    } catch (err) {
+      status.textContent = 'failed: ' + err
+      console.error(err)
+      window.__bootError = String(err)
+      throw err
+    }
+  </script>
+</body>
+</html>

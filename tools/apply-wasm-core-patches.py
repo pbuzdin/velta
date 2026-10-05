@@ -70,6 +70,8 @@ def cmd_status() -> int:
     print(f"Docs: {README}")
     print(f"Patches extracted: {len(patches)} in {SERIES_DIR}")
     print(f"Support crates: {SUPPORT}")
+    wrap = ROOT / "packages" / "deltachat-wasm"
+    print(f"MPL wrapper: {wrap} ({'yes' if wrap.is_dir() else 'missing'})")
     print(f"Default apply-on-copy dest: {DEFAULT_DEST} (gitignored)")
     print("Master core/: never modified by default commands.")
     return 0
@@ -117,6 +119,10 @@ def prepare_copy(dest_root: Path) -> Path:
     print(f"Copying support crates → {dest_root}")
     _copy_tree(SUPPORT / "crates", dest_root / "crates")
     _copy_tree(SUPPORT / "vendor-crates", dest_root / "vendor-crates")
+    wrapper_src = ROOT / "packages" / "deltachat-wasm"
+    if wrapper_src.is_dir():
+        print(f"Copying packages/deltachat-wasm → {dest_root / 'packages' / 'deltachat-wasm'}")
+        _copy_tree(wrapper_src, dest_root / "packages" / "deltachat-wasm")
     return core_dst
 
 

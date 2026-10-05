@@ -115,7 +115,12 @@ into `apply-core-patches.py` (the 13 production patches).
 - Opt-in workflow: `.github/workflows/wasm-core-opt-in.yml` (not on Release).
 - nextest: small crates **PASS**; deltachat lib tests **blocked** by `blob_tests`/`image_metadata` drift.
 
-## Recommended Day 7
-1. Fix `blob_tests` (and any similar) in the side tree; broaden nextest.
-2. Optional: in-repo MPL `deltachat-wasm` for CI `wasm-pack` + smoke.
-3. Still **no** merge into Velta `master` `core/` until landing checklist green.
+## Day 7 progress
+- blob_tests fixed (`image_metadata` + avatar golden); series **0009**.
+- Broad nextest filter **185/185 PASS**.
+- MPL `packages/deltachat-wasm` + smoke script; opt-in CI runs wasm-pack + Playwright.
+
+## Recommended Day 8
+1. Confirm opt-in workflow on GitHub Actions.
+2. Optional `wasm-opt` in CI; wider nextest on apply-copy.
+3. Still **no** forced merge into Velta `master` `core/`.
