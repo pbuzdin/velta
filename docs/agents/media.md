@@ -60,6 +60,32 @@ fall through to the original bytes, so the UI can never regress on a
 failed thumbnail. Bubble images pass `thumb:true`; the lightbox never
 does.
 
+## Outgoing photo compression (#81)
+
+`app/js/image-compress.js` re-encodes big outgoing photos to lossy WebP in the
+renderer (`createImageBitmap` -> canvas -> `image/webp`, quality 0.8) from
+`ChatView._sendPendingMedia`, before the bytes are written to `uploads/`
+(`resolve_upload_path`) and handed to the core. No dependency and no core
+change; the core's own JPEG recode (`blob.rs`) still applies to whatever is
+sent as is.
+
+- Drawer: Image quality -> "Compress photos to save relay space" (localStorage
+  `velta-compress-photos`, `"0"` = off, default on). Off is byte-exact as before.
+- Format is sniffed from the bytes. Candidates: static JPEG, opaque static
+  WebP, opaque PNG. Never touched: GIF, animated WebP/APNG, WebP/PNG with
+  transparency, unknown formats, inputs over 64 MB, videos, files, stickers.
+- Gate: size above min(256 KiB, core limit for the current Image quality;
+  940 KB Standard / 130 KB Compact). Opaque PNG only when it exceeds the core
+  limit (the core would turn it into a JPEG anyway).
+- Over the core limit the image is scaled to the core's pixel budget (1760^2 /
+  640^2) and the WebP is kept only if it fits the byte limit (quality ladder
+  0.8 / 0.65 / 0.5); otherwise the original goes out and the core recodes it.
+  Under the limit the WebP must be at least 10% smaller than the original.
+- Any failure, or an engine whose canvas cannot encode WebP (it returns PNG),
+  sends the original. EXIF is dropped only for photos that were transcoded.
+- Tests: `tests/image-compress.test.mjs` (sniffing, decision function,
+  keep-smaller, `compressImage` with fake decode/encode deps).
+
 ## Path scoping
 
 `scoped_accounts_path` (lib.rs) scopes every shell filesystem command to

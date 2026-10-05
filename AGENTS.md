@@ -60,7 +60,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── p2p.js            # Local chat UI: drawer toggle, list card, pairing, legacy 1:1 modal (Tauri only)
 │   │   ├── read-markers.js   # manual "read up to here" markers per (account, chat), localStorage-only
 │   │   ├── qr-actions.js     # QR screen logic: scan-tab/share availability, copy/share link, scanned-code classification (#37)
-│   │   ├── qr-scan.js        # code acquisition: paste or camera scan (native BarcodeDetector probed with a 2s timeout, vendored jsQR fallback — many Android WebViews ship no Shape Detection API or one whose detect() hangs)
+│   │   ├── qr-scan.js        # code acquisition: paste or camera scan (native BarcodeDetector probed with a 2s timeout, vendored jsQR fallback (`app/vendor/jsQR.js`, minified ~131 KB, loaded on demand) — many Android WebViews ship no Shape Detection API or one whose detect() hangs)
 │   │   ├── format.js         # pure time/size/pageBounds helpers shared by prod modules (mock-core re-exports them)
 │   │   ├── mock-core.js      # in-memory demo core implementing the JSON-RPC surface (NOT in the prod import graph: transport imports it dynamically)
 │   │   ├── rpc-core.js       # JsonRpcCore wrapper over transports + event mapping
@@ -734,8 +734,13 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   column is not left translated. A committed swipe parks `#main` at
   `translateX(100%)` with no transition before `.chat-open` drops, then
   clears that inline transform on the next frame — otherwise the .22s
-  close slide runs from `-100%` to `100%` across the list. Pinned by
-  `tests/chat-msg-update-hardening.test.mjs`. Detail:
+  close slide runs from `-100%` to `100%` across the list. The close path
+  must never leave that parked column behind (#86: a local chat's teardown
+  threw and the screen stayed blank): the swipe handler wraps `onBack` in
+  try/catch and clears the inline transform when it failed, `closeChatUI`
+  (app.js) wraps `chatView.close()` in try/catch so the `.chat-open` drop
+  always runs, and `_typingStop` swallows a `TypingSender.stop()` error.
+  Pinned by `tests/chat-msg-update-hardening.test.mjs`. Detail:
   docs/agents/android-shell.md.
 - **Select text (#36)** — bubble text stays unselectable on touch (long-press
   belongs to the context menu; a native word selection used to steal half
@@ -1888,7 +1893,9 @@ do-not-regress rules; dates mark when the lesson was learned.
   Android (#60): the banner button downloads in-app —
   `download_update` (lib.rs, ureq streaming into the app cache dir,
   `update-download` progress events, URL built shell-side from the
-  version so GitHub stays the only hardcoded reach) — then
+  version so GitHub stays the only hardcoded reach; it first deletes older
+  `Velta-*-arm64.apk` files from the cache dir so failed/old downloads do not
+  pile up) — then
   `install_update` JNI → `UpdateInstall.kt` (FileProvider URI over the
   cache dir + ACTION_VIEW package-archive; needs the
   REQUEST_INSTALL_PACKAGES manifest permission). No browser detour;
