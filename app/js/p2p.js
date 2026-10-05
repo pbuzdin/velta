@@ -108,7 +108,8 @@ async function showPairRequest(peerId, name) {
       const ok = document.createElement("button");
       ok.className = "btn-text btn-primary"; ok.textContent = "Pair";
       foot.append(deny, ok);
-      const { close } = showModal({ title: "Pairing request", body, foot, onClose: () => resolve(false) });
+      const { close, modal } = showModal({ title: "Pairing request", body, foot, onClose: () => resolve(false) });
+      modal.classList.add("pair-request");
       deny.addEventListener("click", () => { resolve(false); close(); });
       ok.addEventListener("click", () => { resolve(true); close(); });
     });
