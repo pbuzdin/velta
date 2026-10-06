@@ -8,8 +8,8 @@ Both pull mio/net on wasm32 otherwise. The vendored copies live in
 docs/research/wasm-patches/support/vendor-crates/.
 
 NOTE: [patch.crates-io] applies to native too. Vendored astral-tokio-tar
-is 0.6.3 while stock core resolves 0.6.4 (native downgrade: loses the
-32-bit Unix nanosecond fix + rustix 1.0) - rebase the vendor before landing.
+is rebased onto stock 0.6.4 (Day 11; same version core resolves, rustix 1.0,
+32-bit nanosecond fix kept) - no native downgrade; only the wasm32 hunks.
 
 WASM-CORE: prototype 0001/0003 (MPL idea).
 ---
@@ -25,7 +25,7 @@ index de76ce3..2f5664d 100644
  tokio-util = { workspace = true }
  # tar via vendored fork that routes through the shim (see [patch.crates-io])
 -astral-tokio-tar = { version = "0.6.3", default-features = false }
-+astral-tokio-tar = { version = "=0.6.3", default-features = false }
++astral-tokio-tar = { version = "=0.6.4", default-features = false }
  
  toml = "0.9"
  tracing = "0.1.41"
