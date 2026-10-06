@@ -67,3 +67,21 @@ test("bump is idempotent and rejects junk", () => {
     /version key/,
   );
 });
+
+test("bump moves README download links to the new version, sizes untouched", () => {
+  const r = rig();
+  const README =
+    "## Download\n\n" +
+    "**[Android](https://github.com/pbuzdin/velta/releases/download/v1.4.57/Velta-1.4.57-arm64.apk)** (~49 MB) · " +
+    "**[Windows](https://github.com/pbuzdin/velta/releases/download/v1.4.57/Velta_1.4.57_x64-setup.exe)** (~13 MB) · " +
+    "**[macOS](https://github.com/pbuzdin/velta/releases/download/v1.4.57/Velta_1.4.57_universal.dmg)** (~36 MB)\n" +
+    "See the [latest release](https://github.com/pbuzdin/velta/releases/latest).\n";
+  r.write("README.md", README);
+  bumpVersion("1.4.58", r.read, r.write);
+  const out = r.files.get("README.md");
+  assert.match(out, /releases\/download\/v1\.4\.58\/Velta-1\.4\.58-arm64\.apk\)\*\* \(~49 MB\)/);
+  assert.match(out, /releases\/download\/v1\.4\.58\/Velta_1\.4\.58_x64-setup\.exe\)\*\* \(~13 MB\)/);
+  assert.match(out, /releases\/download\/v1\.4\.58\/Velta_1\.4\.58_universal\.dmg\)\*\* \(~36 MB\)/);
+  assert.doesNotMatch(out, /1\.4\.57/);
+  assert.match(out, /releases\/latest\)/); // unrelated links untouched
+});
