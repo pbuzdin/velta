@@ -1,4 +1,4 @@
-# Vendored fork of astral-tokio-tar 0.6.3 for slothfulchat-web.
+# Vendored fork of astral-tokio-tar 0.6.4 (rebased Day 11 from 0.6.3) for slothfulchat-web.
 # Changes vs. upstream:
 # - `tokio` dependency routed through the tokio-wasm-shim facade so the crate
 #   compiles on wasm32-unknown-unknown (upstream requires tokio/fs, which is a
@@ -6,7 +6,7 @@
 # - small wasm32 fixups in src/ (see `// ponytail:` comments).
 [package]
 name = "astral-tokio-tar"
-version = "0.6.3"
+version = "0.6.4"
 edition = "2021"
 rust-version = "1.83.0"
 license = "MIT OR Apache-2.0"
@@ -31,5 +31,5 @@ tokio-stream = "0.1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-rustix = { version = "0.38", features = ["fs"] }
+rustix = { version = "1.0", features = ["fs"] }
 xattr = { version = "1.0", optional = true }

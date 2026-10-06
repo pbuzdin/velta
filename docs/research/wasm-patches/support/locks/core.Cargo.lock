@@ -206,13 +206,13 @@ dependencies = [
 
 [[package]]
 name = "astral-tokio-tar"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "futures-core",
  "libc",
  "portable-atomic",
  "rustc-hash",
- "rustix 0.38.44",
+ "rustix 1.1.4",
  "tokio-stream",
  "tokio-wasm-shim",
 ]
