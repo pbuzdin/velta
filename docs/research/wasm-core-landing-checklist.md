@@ -202,10 +202,13 @@ Native builds must not change behaviour because of the wasm patches.
 
 ## 7. Process
 
-- ⬜ COREUPDATE.md gains a "re-apply wasm series" step + per-bump rebase
-  checklist (`refresh-lock`, nextest, golden parity, e2e).
-- ⬜ Rollback plan: one revert commit restores stock `core/`; documented.
-- ⬜ Pavel's explicit go-ahead recorded in the spike log / issue.
+- ✅ COREUPDATE.md gains a "re-apply wasm series" step + per-bump rebase
+  checklist — new §0b (Day 12b: `apply-on-copy` → `verify-copy`, merge-gate
+  reference, `refresh-lock` pointer).
+- ✅ Rollback plan: one revert commit restores stock `core/` — documented in
+  COREUPDATE §0b (Day 12b); the series is discrete and `cfg`-gated.
+- ⬜ Pavel's explicit **landing** go-ahead recorded in the spike log / issue.
+  (Day 12 scope approval is recorded; this box is the final merge go-ahead.)
 
 ---
 
