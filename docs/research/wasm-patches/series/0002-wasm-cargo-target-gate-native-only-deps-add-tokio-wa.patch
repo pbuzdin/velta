@@ -2,7 +2,7 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: spike <spike@local>
 Date: Mon, 5 Oct 2026 21:55:26 +0300
 Subject: [PATCH] wasm(cargo): target-gate native-only deps, add
- tokio-wasm-shim, rusqlite 0.40
+ velta-tokio-wasm, rusqlite 0.40
 
 Gate native-only dependencies behind cfg(not(target_arch = "wasm32")),
 add the wasm32 dependency table (chrono wasmbind, tokio-rustls on ring,
@@ -87,7 +87,7 @@ index f671899..e7efaa3 100644
 -astral-tokio-tar = { version = "0.6.3", default-features = false }
 +# Velta wasm port: tokio facade (real tokio on native, browser shims on wasm32).
 +# Path relative to the apply-on-copy layout <dest>/{core,crates,vendor-crates}.
-+tokio = { package = "tokio-wasm-shim", path = "../crates/tokio-wasm-shim" }
++tokio = { package = "velta-tokio-wasm", path = "../crates/velta-tokio-wasm" }
  tokio-util = { workspace = true }
 -tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros"] }
 +# tar via vendored fork that routes through the shim (see [patch.crates-io])
@@ -151,7 +151,7 @@ index a3568ef..82a7c13 100644
  yerpc = { workspace = true, features = ["anyhow_expose", "openrpc"] }
  typescript-type-def = { version = "0.5.13", features = ["json_value"] }
 -tokio = { workspace = true }
-+tokio = { package = "tokio-wasm-shim", path = "../../crates/tokio-wasm-shim" }
++tokio = { package = "velta-tokio-wasm", path = "../../crates/velta-tokio-wasm" }
  sanitize-filename = { workspace = true }
  base64 = { workspace = true }
  

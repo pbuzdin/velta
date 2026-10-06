@@ -21,7 +21,7 @@ index de76ce3..2f5664d 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -97,7 +97,7 @@ tokio-io-timeout = "1.2.1"
- tokio = { package = "tokio-wasm-shim", path = "../crates/tokio-wasm-shim" }
+ tokio = { package = "velta-tokio-wasm", path = "../crates/velta-tokio-wasm" }
  tokio-util = { workspace = true }
  # tar via vendored fork that routes through the shim (see [patch.crates-io])
 -astral-tokio-tar = { version = "0.6.3", default-features = false }
@@ -37,5 +37,5 @@ index de76ce3..2f5664d 100644
 +[patch.crates-io]
 +# drops unused tokio/net (breaks wasm32)
 +async-imap = { path = "../vendor-crates/async-imap" }
-+# routes tokio through tokio-wasm-shim so tar works on wasm32
++# routes tokio through velta-tokio-wasm so tar works on wasm32
 +astral-tokio-tar = { path = "../vendor-crates/astral-tokio-tar" }

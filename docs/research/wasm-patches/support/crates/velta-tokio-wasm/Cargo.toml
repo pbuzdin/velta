@@ -1,0 +1,18 @@
+[package]
+name = "velta-tokio-wasm"
+version = "0.1.0"
+edition = "2021"
+license = "MPL-2.0"
+authors = ["Velta contributors"]
+publish = false
+description = "Velta's tokio facade for chatmail core: real tokio on native, browser-backed time/task/fs and net stubs on wasm32-unknown-unknown."
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1", features = ["full"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { version = "1", default-features = false, features = ["sync", "macros", "io-util", "rt"] }
+wasmtimer = "0.4"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+futures-core = "0.3"

@@ -7,7 +7,7 @@
 # (apply-on-copy installs them; refresh with `refresh-lock` after editing patches).
 0001-wasm-time-deltachat-time-reads-the-clock-via-js_sys-.patch
 0002-wasm-cargo-target-gate-native-only-deps-add-tokio-wa.patch
-0003-wasm-cargo-route-tokio-through-tokio-wasm-shim-in-ev.patch
+0003-wasm-cargo-route-tokio-through-velta-tokio-wasm-in-ev.patch
 0004-wasm-cargo-patch.crates-io-vendored-async-imap-and-a.patch
 0005-wasm-net-accounts-http-proxy-wasm-modules-and-cfg-st.patch
 0006-wasm-blob-cargo-blob-ReadDir-cfg-for-the-in-memory-f.patch
