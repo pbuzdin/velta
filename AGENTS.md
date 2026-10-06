@@ -116,6 +116,8 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── docs/agents/              # per-subsystem agent notes (webxdc, relays,
 │                              p2p/local chat, android-shell, media,
 │                              onboarding, security-triage) — referenced from §5/§11
+├── docs/web-components-audit.md  # UI semantics/a11y/progressive-rendering audit (2026-10-06)
+├── docs/web-components-plan.md   # phased fix plan for that audit (quick wins → tests)
 └── tools/                    # icon generation, WSL APK build/sign helpers,
                               serve-dev.py (no-cache static server for app/)
 ```
@@ -1294,6 +1296,10 @@ replies; applies regardless of which tools or modes are active.)
 
 - ES modules, no transpiler, no npm dependencies in the frontend.
 - Components are custom elements built with Elena.
+- Semantics/accessibility and progressive rendering of the UI: read
+  `docs/web-components-audit.md` (findings A1…D4 with file:line refs) and
+  `docs/web-components-plan.md` (phased plan) before touching components,
+  dialogs, the drawer, the chat list or message rows.
 - SVG icons are inline strings; no icon library.
 - CSS is a single hand-written file (`app/css/main.css`).
 - The service worker cache version is a hard-coded constant in `app/sw.js`.
