@@ -78,7 +78,7 @@ strict CSP (`script-src 'self' 'wasm-unsafe-eval'`). Browser storage has no
 DB encryption at rest yet and can be evicted — identity/key backup (V2.5
 pattern) is mandatory. Grounded in
 [`docs/research/wasm-core-mail-proxy.md`](docs/research/wasm-core-mail-proxy.md);
-spike log (build + browser smoke only — e2e networking still open):
+spike log (alice→bob e2e PASS locally + 3× CI; real-relay deploy still open):
 [`docs/research/wasm-core-mail-proxy-spike.md`](docs/research/wasm-core-mail-proxy-spike.md). Ownership / opt-in patch home: [`docs/research/wasm-patches/README.md`](docs/research/wasm-patches/README.md). Landing gate (production `core/` stays stock until green): [`docs/research/wasm-core-landing-checklist.md`](docs/research/wasm-core-landing-checklist.md).
 
 ## 2. Architecture comparison — A vs B vs C
@@ -287,21 +287,27 @@ Reuse MPL core patches / Unlicense proxy patterns from
 frontend into Velta. Coexist with Velta's existing 13 core patches
 (`tools/apply-core-patches.py`).
 
-- **C0 — Spike (in progress, 2026-10-05).** Validate prior art builds and
-  boots. **Done so far:** slothfulchat-web wasm release build (~28 MB
-  unoptimized / ~17 MB expected after wasm-opt); headless Chromium smoke
-  (`get_system_info`, typed client, memfs); local `ws-tcp-proxy` health;
-  websockify process starts (relay-native path still needs a real mail
-  stack or test deploy + CORS). **Not done — do not claim e2e:** encrypted
-  alice→bob round-trip, deploy/hit relay `/imap`+`/smtp`, forward-port to
-  Velta 2.62. Status: *built + browser smoke OK; networking e2e still open.*
-- **C1 — Port wasm patches onto Velta core 2.62.** Forward-port the
-  wasm-relevant subset (roughly facade wiring, rusqlite 0.40 /
-  sqlite-wasm-rs, clocks/`SystemTime`, memfs, ws tunnel, fetch HTTP — ~0001–
-  0007 + 0010 from prior art; persistence patches when needed) so they
-  apply beside Velta's 13 patches. Facade crate `tokio-wasm-shim` + tiny
-  vendored forks (async-imap, mail-builder, …) as MPL-compatible deps.
-  Release-profile wasm CI job; document rebase checklist for each core bump.
+- **C0 — Spike (done except real-relay e2e, 2026-10-06).** Prior art
+  validated, then superseded by the Velta-owned port. **Done:** headless
+  Chromium smoke (`get_system_info`, typed client, memfs); **encrypted
+  alice→bob round-trip PASSES** locally and in CI — 3 consecutive green CI
+  e2e runs (Days 10/11/12a, `wasm-roundtrip-*`); native parity evidence
+  (Windows sidecar +0.09 %, aarch64 `cargo check`, real-DB SQLCipher
+  upgrade↔rollback round-trip — spike log Day 12b). **Still open:**
+  deploy/hit a real relay's `/imap`+`/smtp` (all e2e used the local
+  allowlisted `ws-tcp-proxy`), and CI e2e passes on ≥3 *different days*
+  (all 3 so far are 2026-10-06). Details:
+  [`docs/research/wasm-core-mail-proxy-spike.md`](docs/research/wasm-core-mail-proxy-spike.md).
+- **C1 — Port wasm patches onto Velta core 2.62 (applies on copy; not
+  merged).** 13-patch Velta-owned series (`docs/research/wasm-patches/`)
+  applies beside Velta's 13 production patches (verify-copy 9/9), incl. the
+  clean-room facade `velta-tokio-wasm` (MPL-2.0; replaced the imported
+  `tokio-wasm-shim`, Day 12a) + vendored forks (async-imap, mail-builder,
+  astral-tokio-tar). Landing gate = checklist §7
+  ([`docs/research/wasm-core-landing-checklist.md`](docs/research/wasm-core-landing-checklist.md),
+  23 boxes open) — production `core/` stays stock until then.
+  Release-profile wasm CI job; rebase checklist per core bump (COREUPDATE
+  §0b).
 - **C2 — WS worker transport in Velta.** `core-wasm` wasm-bindgen wrapper
   over `deltachat_jsonrpc::CommandApi` in a dedicated worker; new
   `worker-wasm` transport in `app/js` behind the existing line-oriented
@@ -338,7 +344,7 @@ frontend into Velta. Coexist with Velta's existing 13 core patches
 | V2.5 | identity-only backup export/import | small–medium (mandatory for C) |
 | R3 | WS-only exposure hardening | small (ops) |
 | R4 | Web Push | medium, deferrable (path A) |
-| C0 | spike: build + browser smoke (e2e networking open) | small — in progress 2026-10-05 |
+| C0 | spike: build + smoke + in-repo/CI e2e (real-relay e2e open) | small — done except real-relay e2e (2026-10-06) |
 | C1 | port wasm patches to Velta core 2.62 | medium–large (4–7 days if reusing) |
 | C2 | worker-wasm transport in Velta | medium |
 | C3 | websockify+CORS or generic WS→TCP proxy | small–medium |
@@ -352,8 +358,9 @@ frontend into Velta. Coexist with Velta's existing 13 core patches
     passphrase-at-rest mitigations). Cheapest path to full chatmail + push.
   - **C — Non-custodial with addresses:** wasm core in the browser +
     WebSocket mail proxy; keys/DB client-side; full chatmail interop; residual
-    trust is PWA code origin + browser storage. Spike (build + smoke) started
-    2026-10-05 — e2e networking still open. Research:
+    trust is PWA code origin + browser storage. Spike effectively done
+    (e2e round-trip PASS locally + CI; real-relay deploy open) — landing
+    gated on the checklist. Research:
     [`docs/research/wasm-core-mail-proxy.md`](docs/research/wasm-core-mail-proxy.md);
     spike log:
     [`docs/research/wasm-core-mail-proxy-spike.md`](docs/research/wasm-core-mail-proxy-spike.md).
