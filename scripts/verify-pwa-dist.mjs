@@ -8,14 +8,15 @@
 //         CHANNEL=msedge  picks a system browser channel (default: bundled
 //         chromium, then msedge/chrome as fallbacks)
 import { createServer } from 'node:http'
-import { extname, join, relative } from 'node:path'
+import { extname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 
 const args = process.argv.slice(2)
 const flag = (name) => { const i = args.indexOf(`--${name}`); return i === -1 ? null : args[i + 1] }
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
-const root = join(repoRoot, flag('dist') || 'build/dist-pwa')
+// resolve (not join): an absolute --dist must win over the repo root.
+const root = resolve(repoRoot, flag('dist') || 'build/dist-pwa')
 const PORT = Number(flag('port') || 8799)
 const BASE = `http://127.0.0.1:${PORT}`
 
