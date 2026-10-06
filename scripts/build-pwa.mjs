@@ -18,7 +18,7 @@
 //              no-opt → ~18.5 MB -Os)
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
-import { join, relative } from 'node:path'
+import { join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
 
@@ -31,9 +31,11 @@ const flag = (name) => {
 }
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
-const appRoot = join(repoRoot, flag('app-root') || 'app')
-const wasmDist = join(repoRoot, flag('wasm-dist') || 'build/wasm-dist')
-const outDir = join(repoRoot, flag('out') || 'build/dist-pwa')
+// resolve (not join): absolute --out/--wasm-dist paths must win, relatives
+// are repo-root based.
+const appRoot = resolve(repoRoot, flag('app-root') || 'app')
+const wasmDist = resolve(repoRoot, flag('wasm-dist') || 'build/wasm-dist')
+const outDir = resolve(repoRoot, flag('out') || 'build/dist-pwa')
 const wsProxy = flag('ws-proxy') || ''
 const wasmOpt = flag('wasm-opt')
 

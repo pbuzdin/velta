@@ -18,6 +18,8 @@ on:
       - 'tools/apply-wasm-core-patches.py'
       - 'packages/deltachat-wasm/**'
       - 'scripts/smoke-deltachat-wasm.mjs'
+      - 'scripts/build-pwa.mjs'
+      - 'scripts/verify-pwa-dist.mjs'
       - 'scripts/e2e-deltachat-wasm-network.mjs'
       - 'scripts/e2e-deltachat-wasm-identity.mjs'
       - '.github/workflows/wasm-core-opt-in.yml'
@@ -27,6 +29,8 @@ on:
       - 'tools/apply-wasm-core-patches.py'
       - 'packages/deltachat-wasm/**'
       - 'scripts/smoke-deltachat-wasm.mjs'
+      - 'scripts/build-pwa.mjs'
+      - 'scripts/verify-pwa-dist.mjs'
       - 'scripts/e2e-deltachat-wasm-network.mjs'
       - 'scripts/e2e-deltachat-wasm-identity.mjs'
       - '.github/workflows/wasm-core-opt-in.yml'
@@ -164,6 +168,33 @@ jobs:
           PACKAGE_ROOT: ${{ runner.temp }}/velta-wasm-copy/packages/deltachat-wasm
         working-directory: ${{ github.workspace }}/scripts
         run: node smoke-deltachat-wasm.mjs
+
+      # Day 21: build the C4 PWA dist from the (wasm-opt'ed) wasm — the ship
+      # path: app shell + worker-wasm core + OPFS persistence + SW precache —
+      # and verify it in a real browser (same rig as spike days 19/20).
+      - name: Build PWA dist (C4)
+        run: |
+          node scripts/build-pwa.mjs \
+            --wasm-dist "$RUNNER_TEMP/velta-wasm-copy/packages/deltachat-wasm/wasm-dist" \
+            --out "$RUNNER_TEMP/dist-pwa"
+          du -sh "$RUNNER_TEMP/dist-pwa"
+
+      - name: Verify PWA dist (rig)
+        working-directory: ${{ github.workspace }}/scripts
+        run: |
+          node verify-pwa-dist.mjs --dist "$RUNNER_TEMP/dist-pwa" --port 8799 > "$RUNNER_TEMP/pwa-rig.log" 2>&1
+          status=$?
+          cat "$RUNNER_TEMP/pwa-rig.log"
+          passes=$(grep -c '^PASS' "$RUNNER_TEMP/pwa-rig.log" || true)
+          echo "PWA dist rig: $passes checks PASS" >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - name: Upload PWA dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-pwa
+          path: ${{ runner.temp }}/dist-pwa/
+          if-no-files-found: error
 
       # Day 10: optional networking e2e — manual dispatch only (never on push /
       # PR): it creates two throwaway accounts on the public test relay.
