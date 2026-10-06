@@ -878,3 +878,22 @@ the wasm-layer rollback (discrete stack, `cfg`-gated, one revert).
   `-32602 This method takes an array of N arguments` (N = the method's real
   arity, e.g. `create_contact(account_id, email, name)` is 3). The misleading
   part: the message names the EXPECTED arity, not what you sent.
+
+---
+
+## Day 15 — C2 consumer wired: the real app boots on the wasm core (2026-10-06)
+
+- `createCore()` in `app/js/transport.js` gained the **opt-in
+  worker-wasm attempt**: enabled by `?wasm=1` / `localStorage velta-wasm=1`
+  (`=0` forces off) and tried **only when no native shell exists**
+  (`!VeltaBridge && !__TAURI__`) — the Tauri/Android builds are untouched.
+  Glue bundle location: `?wasm-glue=` / `localStorage velta-wasm-glue`,
+  default `./wasm/deltachat_wasm.js` (the C4 dist layout).
+- **Rig PASS (app boot mode):** the real `app/index.html` UI booted over the
+  worker-wasm transport — full boot sequence (drawer, chat view, chat-list
+  refresh, UI bind) on a fresh memfs account, no demo-mode fallback. Landing
+  checklist §0 "C2 has a consumer" ticked.
+- CSP note for C4: in the PWA dist the `connect-src` allowlist must include
+  the update-check origin (`github.com/pbuzdin/velta`) and the mail-proxy
+  origin from `pwa-config.js` — the rig showed the update check blocked by
+  the shipped Tauri CSP (harmless there, by design).
