@@ -3,6 +3,11 @@
 Audit date: 2026-10-06. Velta baseline: `master` @ `55818b5`. This document only
 covers docs. No app code was changed.
 
+Update (2026-10-06, discoverability): §5.7 adds the Mod+/ tap/hold design, an
+on-screen **shortcut hints overlay** and related discoverability features
+(H1–H8). They're placed in P0, P1, P4 and P5, and the plan grows from 21 to
+25 days (plus 1 day of stretch).
+
 Related documents. This one doesn't repeat them; it cites their finding IDs:
 - [`web-components-audit.md`](web-components-audit.md) (findings **A1–A30**,
   B1–B6, C1–C4, D1–D4) and [`web-components-plan.md`](web-components-plan.md)
@@ -65,10 +70,13 @@ counted as new.
   - **N1:** every mounted message has an invisible "Reply" tab stop.
   - **N2:** Android text scaling stops at 115%. The WebView pins
     `textZoom=100`, and pinch zoom is off.
-- **Plan: 6 phases, 21 days** (§6). P0 adds a registry and a help dialog
-  (3 d). P1 brings DC parity (3 d). P2 adds roving tabindex and announcements
-  (5 d). P3 covers motion, contrast, scaling and touch targets (3.5 d). P4 goes
-  beyond DC and adds customizable bindings (4 d). P5 adds tests (2.5 d). The
+- **Plan: 6 phases, 25 days** (§6), plus 1 day of stretch. P0 adds a
+  registry and a help dialog that can run actions (3.5 d). P1 brings DC
+  parity and key hints in tooltips and menus (3.25 d). P2 adds roving tabindex
+  and announcements (5 d). P3 covers motion, contrast, scaling and touch
+  targets (3.5 d). P4 goes beyond DC: palette, customizable bindings, and the
+  **shortcut hints overlay** on hold Mod+/ (6.5 d, plus a 1 d letter-hint jump
+  mode as stretch). P5 adds tests and a generated cheat sheet (3.25 d). The
   phases fit between web-components-plan phases 0/2/3/4 and modal-plan
   M1/M3/M5 (§6.7).
 
@@ -205,7 +213,9 @@ same roving ↑/↓/Home/End. These aren't counted separately.
   composer.
 - **F5** runs `maybe_network` instead of the universal "reload".
 - **Ctrl+/ is also blocked while any dialog is open,** so you can't open help
-  from a dialog.
+  from a dialog. It fires on the first keydown only (`!ev.repeat`), with Ctrl
+  or ⌘ on every OS (`keybindings.ts`, `matchesNonLetterShortcut(ev, '/',
+  'Slash')`), so holding it does nothing more. §5.7 uses that free hold.
 
 ### 2.5 DC Desktop accessibility techniques
 
@@ -347,7 +357,7 @@ Status counts each DC action once:
 | D9 | Command palette (commands) | – | **conflict**: Ctrl+P = print in WebView2/browser | Don't bind Mod+P. Mod+K plus typing `>` gives commands (§5) | P4 |
 | D10 | Focus composer | – | missing | Ctrl+M (⌃M on macOS too, as in DC) | P1 |
 | D11 | Settings | Drawer `#bar-menu` | missing | Mod+, opens the drawer with focus on the Settings group | P1 |
-| D12 | Shortcut cheat sheet | – | missing | Mod+/ and `?` (outside text fields) | **P0** |
+| D12 | Shortcut cheat sheet | – | missing | Tap Mod+/ and `?` (outside text fields). Holding Mod+/ shows on-screen hints (§5.7, P4.8) | **P0** |
 | D13 | Help | – (no help page) | missing | F1 → cheat sheet, with a link to the docs | P0 |
 | D14 | Force network re-check | Diagnostics "Restart: Core" (`index.html:156-160`, `rpc-core.js:239-244`) | **conflict**: F5 reloads the app in WebView2/browser | F5 → `maybe_network` + toast. Block reload in Tauri (K3). Keep Mod+Shift+R for a deliberate reload in the PWA | P0 |
 | D15 | PageUp/Down from composer | – (measured) | missing | PageUp/PageDown scroll `#history-scroll` by ~90% of a page when the composer is focused | P1 |
@@ -446,7 +456,7 @@ headings) aren't repeated. The findings below are additional.
 | **K3** | Medium | **WebView and browser accelerators are live in the desktop app.** In WebView2: Ctrl+F opens a native find bar over the app, Ctrl+P prints, Ctrl+R/F5 reload (dropping RPC state mid-session), and Alt+←/→ runs history back/forward. Nothing turns them off or redirects them. | `velta-app/src-tauri/tauri.conf.json` (no settings), Tauri 2.11.5. WebView2 default `AreBrowserAcceleratorKeysEnabled=true` | Accelerator policy: the registry `preventDefault`s the keys it owns. In Tauri, turn off browser accelerators (wry `with_browser_accelerator_keys(false)` / `tauri-plugin-prevent-default` once Tauri ≥ 2.12), keeping DevTools behind the Diagnostics switch (P0.4) |
 | **K4** | Medium | **Enter submits in 8 places without an IME guard** (= modal-plan finding M15; not counted as new). Pressing Enter to commit a CJK or Vietnamese candidate submits the form half-typed. | `app.js:3023, 3047-3048, 4055`, `p2p.js:198-199, 590-591`, `ui.js:962-963`, `invites.js:367-368`, `qr-scan.js:122-123` (V7–V14). The composer has the guard (`chat-view.js:2565`) | Shared `isSubmitEnter(e)` that checks `isComposing` and `keyCode 229`. Or let `<form>` submission handle it, as in modal plan M2 (P0.5) |
 | **K5** | Medium | **"Send on Enter" is on by default on every platform, including touch.** On Android and iOS soft keyboards, the Enter key sends, so you can only type a multi-line message by turning off a setting in the drawer. DC Desktop and DC Android both default to *off* (`state.ts:10`, `Prefs.java:133-134`). | `app/js/chat-view.js:2559-2568` (`velta-send-enter` default on), `ui.js:615, 836-840` | Default on with a fine pointer and off with a coarse pointer, with `enterkeyhint` to match (native-elements §10). Show "Enter to send · Shift+Enter for a new line" as a hint (P1.6) |
-| **K6** | Medium | **Shortcuts can't be discovered.** There's no help dialog or `title` hints, and the drawer doesn't mention keys. | `index.html:173` (`title="Send"`), drawer `ui.js:537-660` | Help dialog plus `aria-keyshortcuts`, both generated from the registry (P0.3) |
+| **K6** | Medium | **Shortcuts can't be discovered.** There's no help dialog or `title` hints, and the drawer doesn't mention keys. | `index.html:173` (`title="Send"`), drawer `ui.js:537-660` | Help dialog plus `aria-keyshortcuts`, both generated from the registry (P0.3). Key hints in tooltips and menus (P1.7), the on-screen hints overlay and tips (P4.8–4.11, §5.7) |
 | **K7** | Low | **Ctrl+A outside a field selects the whole app UI** (chat list, header, bubbles). | No handler | Same scoping as DC D39 (P1.4) |
 | **K8** | Low | **The lightbox only handles Esc.** No ←/→ between media and no keyboard zoom. The image/video buttons inside aren't in a focus trap (that part is modal plan M5.1). | `app/js/ui.js:1073-1074, 1162-1163` | ←/→ and Mod + = / − / 0 (P1.5) |
 | **N1** | High | **Invisible tab stops on every message.** Each mounted row has a `button.msg-hover-reply` that's `opacity:0` and only becomes visible on `.msg-row:hover`. There's no `:focus-visible` or `:focus-within` rule, so keyboard users tab through 16+ invisible "Reply" buttons (measured 16 of 25 stops). Screen readers also hear "Reply" after every message. | `app/js/chat-view.js:1572-1587`, `app/css/main.css:547-563` | Quick win: `tabindex="-1"` plus `aria-hidden` on the hover pill. Expose Reply through roving row actions or the context menu instead (P0, real fix P2.2) |
@@ -526,7 +536,9 @@ actions, the repo docs are years old, and only 4 controls carry
 
 The help dialog should be **searchable** and should **open from inside
 dialogs too** (DC blocks Ctrl+/ there). It should show only bindings that
-work on the current platform and shell.
+work on the current platform and shell. A list is still one step removed
+from the screen, so Velta also shows the keys **on the controls themselves**
+(§5.7). DC has nothing like that.
 
 ### 5.2 Follow the conventions people already know
 
@@ -543,7 +555,7 @@ The other apps' columns come from their own shortcut help screens as I remember 
 | Mark chat read | Esc | Esc | – | – | **missing** | **Shift+Esc** (Esc is taken by the layered chain) |
 | Mark all read | Shift+Esc | Shift+Esc | – | – | **missing** | Palette command |
 | Jump to oldest unread | – | Shift+PgUp | – | – | **missing** | **Shift+PageUp** |
-| Shortcut help | Mod+/ | Mod+/ | – | Mod+/ | Mod+/ | **Mod+/** and `?` |
+| Shortcut help | Mod+/ | Mod+/ | – | Mod+/ | Mod+/ | **Mod+/** and `?` (hold Mod+/ = on-screen hints, §5.7) |
 
 ### 5.3 Modifier and platform conflicts DC gets wrong (or barely gets away with)
 
@@ -609,11 +621,134 @@ The other apps' columns come from their own shortcut help screens as I remember 
 | Shortcuts off in modals | **Improve**: dialog scope, help still works |
 | Repeat policy (only navigation repeats) | **Adopt** |
 | `aria-keyshortcuts` by hand | **Improve**: generated |
-| Cheat sheet | **Improve**: generated, searchable, per platform |
+| Cheat sheet | **Improve**: generated, searchable, per platform, runs the action. Add on-screen hints, which DC doesn't have (§5.7) |
 | Roving tabindex everywhere | **Adopt**, keyed by stable IDs for the virtual scroller |
 | `aria-live` restraint (announce once) | **Adopt** |
 | No high contrast / forced colors / reduced motion | **Do better** (P3) |
 | Enter-sends default off | **Adopt for touch.** Keep on for desktop, where Velta users expect it (K5) |
+
+### 5.7 Discoverability beyond the cheat sheet
+
+DC has a cheat sheet and `aria-keyshortcuts` on 4 controls, and nothing else.
+The request behind this section: one key that shows every binding on the visible
+controls. The IDs **H1–H8** below are feature IDs, not findings.
+
+#### Mod+/: tap = help (as in DC), hold = hints on screen
+
+DC opens the cheat sheet on the first keydown of Ctrl+/ or ⌘/ and ignores
+auto-repeat (§2.4). Velta keeps what a tap means and uses the hold that DC
+leaves free:
+
+| Gesture | Result | Why |
+|---|---|---|
+| **Tap** Mod+/ (also `?` outside fields, and F1) | Help dialog (P0.3) | DC parity (D12): a DC user's habit does the same thing |
+| **Hold** Mod+/ until the OS key repeat starts | Hints overlay in **peek** mode while Mod stays down. Releasing hides it. Pressing another key while Mod is held (Mod held, `/` released, then F) runs that shortcut and hides the overlay | Hold is unused in DC. The OS repeat delay is the user's own setting, which Slow Keys / Filter Keys users have already tuned |
+| **Mod+/ while help is open**, the "Show on screen" button in help, or the palette command "Show shortcut hints" | Help closes, and the overlay shows in **sticky** mode until Esc, a click, any other key, or Mod+/ again | A path that needs no holding or timing, for Sticky Keys, key repeat off, one-handed and switch users (WCAG 2.1.1, 2.2.1). The cycle is tap → help → tap → hints → tap → closed |
+
+How the resolver works (P4.8):
+- **Tap vs hold** comes from `KeyboardEvent.repeat`, not a timer. The first
+  repeated keydown of `/` with Mod still down means hold. A keyup of `/` or
+  of Mod before any repeat means tap, and help opens then. That's on release
+  instead of DC's on-press, about 100 ms later, which nobody will notice.
+- **macOS:** ⌘/. ⌃/ is accepted silently, as DC does. While ⌘ is held,
+  macOS doesn't deliver `keyup` for the other key, so the resolver also
+  watches the ⌘ keyup. Repeated keydowns do arrive under ⌘. With key repeat
+  turned off in System Settings, hold never triggers, and the sticky path
+  covers it. **⌘⇧/ (⌘?) is never used:** macOS reserves it for Help-menu
+  search.
+- **Rejected alternatives:**
+  - Mod+Shift+/: ⌘? is reserved on macOS. On layouts where `/` already needs
+    Shift (German Shift+7, French Shift+:), it can't be told apart from Mod+/.
+  - Holding Alt alone, like Office KeyTips: Alt+↑/↓ chat switching would flash
+    hints on every switch, TalkBack uses Alt, and AltGr is Ctrl+Alt on Windows.
+  - Holding Ctrl or ⌘ alone: hints would flash before every shortcut.
+  - `f` as in Vimium: unmodified letters break screen-reader quick-nav (§4.2).
+- **Browser tab / PWA:** Chrome and Edge leave Mod+/ to the page (Google
+  Docs, Slack and Discord on the web use it). Current Firefox does too; its
+  old Ctrl+/ Add-on Bar toggle went away with the bar. Safari binds ⌘/ to
+  View › Show Status Bar. The page gets the keydown first, so `preventDefault`
+  should win, but that's unverified (manual check in P5.5). `?` and F1 are the
+  fallbacks for help, and the help button for the overlay.
+- **Android hardware keyboards:** Ctrl+/. Meta+/ is Android's own shortcut
+  helper (§3.4), and H8 fills it with Velta's bindings. ChromeOS uses
+  Ctrl+Alt+/ for its helper, which Velta doesn't bind. Touch-only devices
+  never see the overlay, because there are no keys to show.
+- **IME and screen readers:** nothing fires during composition
+  (`isComposing` / 229). Holding Ctrl stops NVDA, JAWS and Narrator speech,
+  which is harmless. None of NVDA, JAWS, Narrator, VoiceOver or TalkBack uses
+  Ctrl+/ or ⌘/ by default (confirm in the real-AT pass, P4.7). The overlay
+  is visual only. Screen-reader users get the same information from
+  `aria-keyshortcuts` and the help dialog.
+
+#### Shortcut hints overlay (H1) spec
+
+- **What gets a badge.** Every control with `data-kb` (P0.1) whose binding
+  is active right now: its scope is the innermost active one (§5.5) and its
+  `when()` holds. The control must also be connected, enabled (no
+  `disabled` / `aria-disabled="true"`), not inside `[inert]`, rendered
+  (`checkVisibility({opacityProperty: true, visibilityProperty: true})`,
+  with a `getClientRects()` + computed-style fallback for older engines),
+  and at least partly inside the visual viewport. If a binding has several
+  controls, the badge goes on the one marked primary.
+- **Scope.** The same resolution the dispatcher uses. With a dialog open
+  you see only that dialog's bindings (plus Mod+/). With the drawer open
+  (and the main view inert) you see only the drawer's. A focused message
+  adds the message-scope keys (Mod+E/R/S, Delete) next to its row actions.
+- **Bindings with no single control** (Alt+↑/↓, PageUp/PageDown, Mod+↑ for
+  reply, ↑ to edit, F6, Esc) go into a small **region legend** pinned to
+  the inline-end top corner of their region: chat list, history, composer.
+  The legend always ends with "Mod+/ All shortcuts".
+- **Placement.** The badge goes at the control's inline-end top corner,
+  clamped to the viewport, and greedily nudged so badges don't overlap.
+  Badges live in one container. Where the Popover API exists, that's
+  `popover="manual"`, so it renders in the top layer above `<dialog>`s, and
+  it's re-shown after a dialog opens, the same pattern as the toast stack
+  (native-elements §1). JS placement (one batched `getBoundingClientRect`
+  pass, then writes) is the baseline, because anchor positioning needs
+  Chromium 125 / Safari 26 (✗ on Android 7 and older macOS). CSS anchor
+  positioning with `position-try-fallbacks: flip-block, flip-inline` is a
+  later enhancement behind `CSS.supports("anchor-name: --a")`. Without
+  popover (macOS 10.15/11), a fixed container goes inside the topmost open
+  dialog, or on `<body>` when none is open. Positions are recomputed on
+  scroll and resize (one rAF), so virtual-scroller recycling is safe.
+- **Dismissal.** Peek mode ends on Mod keyup, Esc, any `pointerdown`, any
+  other key (that key still runs), `blur` or `visibilitychange`. Sticky mode
+  ends on the same, minus the Mod keyup, plus Mod+/. Badges are
+  `pointer-events: none`, so the click that dismisses still reaches its
+  target. Esc in sticky mode closes only the overlay: it's the topmost layer
+  of the Esc chain (P0.2). There's no timeout (WCAG 2.2.1).
+- **Focus and AT.** The overlay never moves focus and never sets `inert`.
+  The container is `aria-hidden="true"`. On show, the announcer (P2.5) says
+  one polite line, for example "12 shortcut hints shown. Escape hides them."
+  `aria-keyshortcuts` stays the AT path.
+- **Look.** Badges are `<kbd>` pills with platform labels (⌘ ⌥ ⇧ ⌃ on macOS,
+  "Ctrl+Shift+F" elsewhere). They're sized in the UI scale, so N2 scaling
+  applies, and hit 4.5:1 contrast in every theme. In forced colors they use
+  `Canvas` / `CanvasText` with a 1 px `CanvasText` border, and under
+  `prefers-contrast: more` the border is 2 px. Key labels are
+  `dir="ltr"` with `unicode-bidi: isolate`, so they read correctly in an RTL
+  UI, where placement mirrors to the inline end. A 120 ms opacity fade, none
+  under reduced motion. Capped at 60 badges; beyond that, only the legend.
+
+#### Other discoverability features
+
+| # | Feature | Benefit | Effort | Phase |
+|---|---|---|---|---|
+| H1 | **Shortcut hints overlay** (above) | Shows the bindings for what's on screen right now, in context, without reading a list | 1.5 d | P4.8 |
+| H2 | **Letter-hint jump mode** (stretch). In sticky mode, every visible focusable control (bound or not) also gets a 1–2 letter label in reading order, home-row letters first, matched by `ev.code` so it works on a Russian layout. Typing a label activates a button or link and focuses a field. Shift+label only focuses. Backspace undoes a letter, Esc leaves. Also the palette command "Jump to control…" | Reaches any control in 2–3 keys, including unbound ones. Safe for screen-reader quick-nav, because the mode is entered on purpose and announced | 1 d | P4.9 |
+| H3 | **Keys in tooltips and menus.** `title` suffix ("Search (Ctrl+F)") and a right-aligned `<kbd>` in context-menu and attach-menu items | Users learn keys from things they already use. Free once the registry exists | 0.25 d | P1.7 |
+| H4 | **Help that runs actions and opens anywhere.** Searchable, opens on top of dialogs, Enter on a row runs it | The help turns into a mini palette before P4.4 exists | 0.25 d | P0.3 |
+| H5 | **Palette shows keys.** Every command row shows its current binding | Already planned in P4.4 (§5.5) | 0 | P4.4 |
+| H6 | **"Did you know" tips.** After the 3rd pointer use of a bound action, one polite toast: "Tip: Ctrl+F focuses search", with "Got it" and "Stop tips". At most one tip a day, each action once, only when a hardware keyboard is likely, never during a call. A drawer switch turns tips off, saved per device | Teaches the keys people would actually use, at the moment they'd use them | 0.5 d | P4.10 |
+| H7 | **Generated, exportable cheat sheet.** `docs/keybindings.md` generated from the registry with a CI drift check, and "Copy / Save cheat sheet" in help using the same formatter (print via the browser in the PWA) | The docs can't go stale the way DC's `KEYBINDINGS.md` did. Easy to share or print | 0.25 d | P5.5 |
+| H8 | **Android system shortcut helper.** `MainActivity.onProvideKeyboardShortcuts` builds `KeyboardShortcutGroup`s from a list the web layer pushes over the Tauri bridge whenever the registry changes. Display only; the WebView still handles the keys | Meta+/ lists Velta's shortcuts like a native app's. DC Android has none (§2.6) | 0.5 d | P4.11 |
+
+Enabler: `data-kb` on controls plus `decorate()` in the registry (P0.1,
++0.25 d). H1, H3 and `aria-keyshortcuts` all read the same attribute.
+
+Left out: long-press hints on Android controls (long-press is the context
+menu and TalkBack's double-tap-and-hold, and with a hardware keyboard the
+Ctrl+/ hold already works), and hover-delay hints (H3's tooltips cover them).
 
 ---
 
@@ -629,13 +764,13 @@ New modules go in `app/js/` as ES modules. Each new module is added to the
 service worker's asset list, and the cache version constant in `app/sw.js`
 is bumped (AGENTS.md §6.2).
 
-### P0: Foundation, 3 days
+### P0: Foundation, 3.5 days
 
 | Task | Files | Days |
 |---|---|---|
-| 0.1 **`app/js/keybindings.js` registry.** `register({id, keys:{default, mac, android?}, scope, when, repeat, run, label, group})`. One capture-phase `keydown` dispatcher. It handles platform `Mod`, layout-independent matching (DC `matchesLetterShortcut` logic), the `isComposing`/229 guard, scope resolution (§5.5), and `preventDefault` only when a binding fires. It also exports `ariaKeys(id)` and `labelKeys(id)`. | new `app/js/keybindings.js`; `app/js/app.js` (boot wiring); `app/sw.js` | 1 |
+| 0.1 **`app/js/keybindings.js` registry.** `register({id, keys:{default, mac, android?}, scope, when, repeat, run, label, group})`. One capture-phase `keydown` dispatcher. It handles platform `Mod`, layout-independent matching (DC `matchesLetterShortcut` logic), the `isComposing`/229 guard, scope resolution (§5.5), and `preventDefault` only when a binding fires. It also exports `ariaKeys(id)` and `labelKeys(id)`. Controls that trigger a binding carry `data-kb="<id>"`, set at render, and `decorate(root)` writes `aria-keyshortcuts` from it. P1.7 tooltips and the P4.8 overlay read the same attribute. Keep the binding table importable in Node without the DOM, so P5.5 can generate the cheat sheet. | new `app/js/keybindings.js`; `app/js/app.js` (boot wiring); `app/sw.js` | 1.25 |
 | 0.2 **Layered Esc chain.** Topmost layer first: lightbox → menu/popover → modal → drawer → reply/edit preview → selection mode → search field → (nothing). One layer per press. The existing global listener (`app.js:4763-4764`) and `closeAllPopups()` stay for programmatic use, but Esc stops calling them. Register the listener early in boot (modal-plan finding M6). Esc and BACK share one `closeTop()` (modal plan M3). | `app/js/app.js`, `app/js/ui.js`, `app/js/chat-view.js` | 0.5 |
-| 0.3 **Help dialog** (Mod+/, `?` outside fields, F1). Generated from the registry, grouped, searchable, with platform labels (⌘ ⌥ ⇧ on macOS) and only the bindings available in this shell. Built on the modal plan M1 dialog helper. A "Keyboard shortcuts" entry in the drawer. | new `app/js/keyboard-help.js`; `app/css/main.css`; `index.html` drawer entry | 0.75 |
+| 0.3 **Help dialog** (Mod+/, `?` outside fields, F1). Generated from the registry, grouped, searchable, with platform labels (⌘ ⌥ ⇧ on macOS) and only the bindings available in this shell. Built on the modal plan M1 dialog helper. A "Keyboard shortcuts" entry in the drawer. **H4:** it opens on top of other dialogs too, and Enter on a row closes help and runs that action if its `when` holds (unavailable rows say why). Mod+/ inside help closes it, until P4.8 turns that into "show hints on screen". | new `app/js/keyboard-help.js`; `app/css/main.css`; `index.html` drawer entry | 1 |
 | 0.4 **Accelerator policy.** The registry owns Mod+F/R/P/N and F5 when bound. In Tauri desktop, turn off WebView browser accelerators (Windows: `with_browser_accelerator_keys(false)` via wry, or `tauri-plugin-prevent-default` after the Tauri ≥ 2.12 upgrade). DevTools stays behind the Diagnostics switch. Write the reserved-key list per shell into the registry. | `velta-app/src-tauri/src/lib.rs`, `Cargo.toml`, `app/js/keybindings.js` | 0.5 |
 | 0.5 **`isSubmitEnter(e)`** in the 8 Enter handlers (K4), unless modal plan M2 has already turned them into `<form>`s. **Quick win N1:** `tabindex="-1"` + `aria-hidden="true"` on `.msg-hover-reply`. | `app/js/app.js`, `p2p.js`, `ui.js`, `invites.js`, `qr-scan.js`, `chat-view.js:1572-1587` | 0.25 |
 
@@ -648,13 +783,16 @@ is bumped (AGENTS.md §6.2).
 - **Acceptance.**
   - Mod+/ opens a help dialog that lists every registered binding, with ⌘
     labels on macOS.
+  - Help also opens from inside a dialog, and Enter on a row runs that
+    action.
+  - Every bound control has `aria-keyshortcuts` generated from `data-kb`.
   - Esc closes exactly one layer per press, including the reply preview.
   - Ctrl+F/P/R/F5 never trigger native find/print/reload in the Tauri
     Windows build.
   - A CJK candidate commit never submits a prompt.
   - Tab from the composer never lands on an invisible element.
 
-### P1: DC parity, 3 days
+### P1: DC parity, 3.25 days
 
 | Task | Files | Days |
 |---|---|---|
@@ -664,6 +802,7 @@ is bumped (AGENTS.md §6.2).
 | 1.4 **App keys.** D7 Mod+N new chat (Tauri / standalone PWA), D14 F5 → `maybe_network` + toast, D39 scoped Mod+A (K7). | `app/js/app.js`, `rpc-core.js:239-244` | 0.25 |
 | 1.5 **Lightbox keys.** D32 ←/→ across the open chat's media (order from the history model), D33 Mod + = / − / 0 zoom. | `app/js/ui.js:1073-1170` | 0.5 |
 | 1.6 **Send-on-Enter default** (K5). Coarse pointer → off, fine pointer → on, an explicit user choice always wins. Matching `enterkeyhint` (native-elements §10). An inline hint under the composer the first time. `aria-keyshortcuts` on Send, the search buttons and New chat. | `app/js/chat-view.js:2559-2568`, `ui.js:615, 836-840`, `index.html:168-173` | 0.25 |
+| 1.7 **Keys in tooltips and menus** (H3, §5.7). `decorate()` appends the key to `title` ("Search (Ctrl+F)") and adds a right-aligned `<kbd aria-hidden="true">` to context-menu and attach-menu items, which get `aria-keyshortcuts`. Message-scope keys from P2.3 show up on their own, because the hints are generated. Only when a hardware keyboard is likely (fine pointer, or a physical keydown seen this session), so touch-only Android stays clean. | `app/js/keybindings.js`, `ui.js:28-55`, `chat-view.js:2212-2268, 2589-2620`, `main.css` | 0.25 |
 
 - **Risks.**
   - Alt+↑/↓ collides with ⌥↑/↓ caret movement on macOS: apply the
@@ -677,6 +816,8 @@ is bumped (AGENTS.md §6.2).
     Tauri desktop build (Windows, Linux, macOS) and in Chrome PWA standalone.
   - In a browser tab, the tab-safe alternatives work.
   - The help dialog lists them all.
+  - On desktop, every control and menu item with a binding shows its key in
+    its tooltip or menu row. On a touch-only phone, none do.
   - On Android with a soft keyboard, Enter inserts a newline by default.
 
 ### P2: Roving focus, message actions, announcements, 5 days
@@ -728,7 +869,7 @@ is bumped (AGENTS.md §6.2).
     scrolling.
   - Every tap target is at least 44 px.
 
-### P4: Beyond DC, 4 days
+### P4: Beyond DC, 6.5 days (+1 day stretch)
 
 | Task | Files | Days |
 |---|---|---|
@@ -738,17 +879,37 @@ is bumped (AGENTS.md §6.2).
 | 4.4 **Mod+K palette.** Chats, contacts and actions (`>` prefix for commands), each command showing its binding. Pin, mute, archive and mark read come from the existing context-menu actions (`app.js:1748-1777`). Replaces D8/D9 without taking Mod+P. | new `app/js/palette.js`, `main.css` | 1.25 |
 | 4.5 **Custom bindings.** A rebinding UI in the help dialog, with conflict detection against the registry and the reserved list, saved per device, and reset/export. | `keyboard-help.js`, `keybindings.js` | 1 |
 | 4.6 **Calls.** Mod+D toggles mute, Mod+Shift+E toggles the camera, Esc minimizes (doesn't hang up). | `app/js/calls.js` | 0.1 |
-| 4.7 **Android hardware-keyboard QA.** Ctrl as `Mod`, no Meta bindings, TalkBack + keyboard (Alt reserved), the Esc/BACK double-fire check. | test notes only | 0.15 |
+| 4.7 **Android hardware-keyboard QA.** Ctrl as `Mod`, no Meta bindings, TalkBack + keyboard (Alt reserved), the Esc/BACK double-fire check. Also check that no screen reader uses Ctrl+/ or ⌘/ (§5.7). | test notes only | 0.15 |
+| 4.8 **Shortcut hints overlay** (H1, spec in §5.7). Tap/hold resolver for Mod+/ in the registry (`repeat`-based, ⌘ keyup on macOS), peek and sticky modes, badges on visible, enabled, non-inert `data-kb` controls of the active scope, region legends, `popover="manual"` container with JS placement and an anchor-positioning enhancement, dismissal, one announcer line, RTL, reduced motion, forced colors. A "Show on screen" button in help and a palette command. The overlay is one more layer on the Esc chain. | new `app/js/key-hints.js`, `keybindings.js`, `keyboard-help.js`, `main.css`, `app/sw.js` | 1.5 |
+| 4.9 **Letter-hint jump mode** (H2, **stretch**). Letter labels on every visible focusable control in sticky mode, `ev.code` matching, activate / Shift to focus only, Backspace, Esc. Palette command "Jump to control…". | `app/js/key-hints.js` | 1 (stretch) |
+| 4.10 **"Did you know" tips** (H6). `run(id, {via: "pointer"})` counts pointer uses per action in `localStorage`. After the 3rd, one toast through the existing toast stack. Caps: one a day, each action once, keyboard likely, not in calls. Drawer switch "Shortcut tips". | `keybindings.js`, `ui.js` (toasts, drawer) | 0.5 |
+| 4.11 **Android system shortcut helper** (H8). The web layer pushes `{group, label, keyCode, meta}` to Kotlin when the registry changes. `MainActivity.onProvideKeyboardShortcuts` returns it, so Meta+/ lists Velta's shortcuts. | `MainActivity.kt`, `velta-app/src-tauri/src/lib.rs` (command), `keybindings.js` | 0.5 |
 
-- **Risks.** The palette overlaps search. Keep one search backend. Custom
-  bindings make the docs and help dynamic, so the help reads from the live
-  registry.
+- **Risks.**
+  - The palette overlaps search. Keep one search backend.
+  - Custom bindings make the docs and help dynamic, so the help reads from
+    the live registry.
+  - A lost Mod keyup (an OS shortcut or a window switch takes it) would leave
+    peek mode stuck. That's why `blur`, `visibilitychange` and `pointerdown`
+    also hide it.
+  - Badges get cluttered on dense screens. The cap, the primary-control rule
+    and the region legends keep it readable. Check at 320 px and UI scale 2.0.
+  - Tips can nag. Keep the caps, and turn them off with one tap.
+  - The Android shortcut bridge must not delay startup: push the list lazily
+    after boot.
 - **Acceptance.**
   - The palette reaches every action that has a binding.
-  - A rebound key shows up in the help dialog, `aria-keyshortcuts` and
-    tooltips without a reload.
+  - A rebound key shows up in the help dialog, `aria-keyshortcuts`,
+    tooltips and the hints overlay without a reload.
+  - Tap Mod+/ opens help, holding it shows the overlay until release, and
+    Mod+/ in help switches to sticky hints. This works on Windows, Linux,
+    macOS (⌘/) and Android (Ctrl+/), and in a Chrome tab.
+  - With a dialog open, only that dialog's controls get badges. Nothing
+    inert, hidden, disabled or off-screen gets one. Focus doesn't move, and
+    a screen reader hears one summary line.
+  - Meta+/ on an Android hardware keyboard lists Velta's shortcuts.
 
-### P5: Tests and guards, 2.5 days
+### P5: Tests and guards, 3.25 days
 
 | Task | Files | Days |
 |---|---|---|
@@ -756,11 +917,15 @@ is bumped (AGENTS.md §6.2).
 | 5.2 Playwright keyboard suite **generated from the registry**. For each binding: set up `when`, press it, check its effect. Plus the Esc-chain and roving-focus storm tests. | new `tests/a11y/keyboard.spec.mjs` (next to modal phase M6's specs). Playwright stays a test-only dependency outside `app/`, as WC plan phase 4 says | 1 |
 | 5.3 axe matrix: 4 themes × (default, forced colors, reduced motion) × 3 screens, with 0 serious/critical as the gate. The CSP bypass stays in the test browser only. | `tests/a11y/` (shared with modal phase M6) | 0.5 |
 | 5.4 Target-size and contrast checks, plus a source guard: CI fails on any new `addEventListener('keydown'` outside `keybindings.js`, the composer and the allow-list. | `tests/app-source-integrity.test.mjs` (extend), `tests/a11y/` | 0.5 |
+| 5.5 **Discoverability tests and the generated cheat sheet.** Playwright: tap vs hold (hold via CDP `Input.dispatchKeyEvent` with `autoRepeat: true`, since `keyboard.down` doesn't repeat), the sticky cycle, badges only on visible, enabled, non-inert controls of the active scope, no focus change, every dismissal path, RTL mirroring, reduced-motion and forced-colors snapshots, axe with the overlay shown. `scripts/gen-keybindings.mjs` writes `docs/keybindings.md` from the registry and CI fails if it's stale. Help's "Copy / Save cheat sheet" uses the same formatter (H7). Manual: Safari ⌘/ in a tab, macOS with key repeat off. | `tests/a11y/key-hints.spec.mjs`, new `scripts/gen-keybindings.mjs`, `docs/keybindings.md` (generated) | 0.75 |
 
 - **Acceptance.** CI runs the keyboard and axe suites on every PR to
   `master`. Adding a binding without a test fails the generated suite.
 
-**Total: P0 3 + P1 3 + P2 5 + P3 3.5 + P4 4 + P5 2.5 = 21 days.**
+**Total: P0 3.5 + P1 3.25 + P2 5 + P3 3.5 + P4 6.5 + P5 3.25 = 25 days**,
+plus 1 day for the stretch item P4.9 (letter-hint jump mode). It was 21 days
+before the discoverability items (§5.7): +0.5 in P0, +0.25 in P1, +2.5 in P4,
++0.75 in P5.
 
 ### 6.7 Overlap and sequencing with the other plans
 
@@ -778,6 +943,8 @@ is bumped (AGENTS.md §6.2).
 | P2.6 Call overlay | Modal plan **M5.2** (call `alertdialog`) | Same PR. |
 | P3.1 Reduced motion | Modal plan **M4** (motion) | M4 covers overlays, P3.1 the rest. Use one media block. |
 | P3.3 Contrast | WC plan **3.4** | Do it once, in whichever plan ships first. |
+| P1.7 Menu key hints | WC plan **2.5**, modal plan **M5.3** (menus) | The hints come from the menu renderer those plans build, not a second menu path. |
+| P4.8 Hints overlay | native-elements **§1** (popover, top layer, toast re-show), modal plan **M3** (overlay stack), P2.5 / WC **2.6** announcer | The overlay is a layer on M3's stack, and its scope comes from the same stack. The badge container follows the toast stack's `popover="manual"` pattern. The summary goes through the one announcer. |
 | P5 Tests | WC plan **phase 4**, modal plan **phase M6** (`tests/a11y/*.spec.mjs`) | One Playwright harness, one axe matrix. |
 
 **Recommended order:**
@@ -787,7 +954,8 @@ is bumped (AGENTS.md §6.2).
 4. P1, with native-elements §4/§10 and M5.1.
 5. WC phase 2 together with P2.
 6. P3, sharing work with WC 3.4 and M4.
-7. P4.
+7. P4. P4.8 (hints overlay) only needs P0.1–P0.3 and the announcer, so it
+   can move up to right after P2, or after P1 with a temporary status node.
 8. P5. Its checks grow alongside each phase; the CI gate goes in at the end.
 
 ### 6.8 Cross-plan risks
