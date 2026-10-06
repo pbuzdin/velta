@@ -90,6 +90,13 @@ self.onmessage = async (e) => {
     } catch (err) {
       self.postMessage({ type: "file-error", id: d.id, error: String(err?.message ?? err) });
     }
+  } else if (d.type === "list-dir") {
+    try {
+      const entries = await glue.vfs_list(d.path);
+      self.postMessage({ type: "dir", id: d.id, entries });
+    } catch (err) {
+      self.postMessage({ type: "file-error", id: d.id, error: String(err?.message ?? err) });
+    }
   } else if (d.type === "write-file") {
     try {
       const parts = d.path.split("/").filter(Boolean);

@@ -92,21 +92,33 @@ try {
     await rpc('configure', [id1])
     await rpc('start_io', [id1])
 
-    const tarPath = '/identity/selfkeys.tar'
-    await rpc('export_self_keys', [id1, tarPath, PASS])
-    const tar = window.core.fs_read(tarPath)
-    let b64 = ''
-    const u8 = new Uint8Array(tar)
-    for (let i = 0; i < u8.length; i += 0x8000) {
-      b64 += String.fromCharCode(...u8.subarray(i, i + 0x8000))
+    // imex treats the path as a DIRECTORY of armored key files.
+    const exportDir = '/identity/export'
+    await rpc('export_self_keys', [id1, exportDir, PASS])
+    const entries = await window.core.fs_list(exportDir)
+    const keysFiles = {}
+    for (const entry of entries) {
+      if (!entry.endsWith('/')) {
+        const bytes = window.core.fs_read(entry)
+        let b64 = ''
+        const u8 = new Uint8Array(bytes)
+        for (let i = 0; i < u8.length; i += 0x8000) {
+          b64 += String.fromCharCode(...u8.subarray(i, i + 0x8000))
+        }
+        keysFiles[entry.split('/').pop()] = b64
+      }
     }
-    if (b64.length < 100) throw new Error('self-keys tar suspiciously small')
+    if (Object.keys(keysFiles).length === 0) throw new Error('self-keys export produced no files')
 
     const id2 = await rpc('add_account')
     await rpc('batch_set_config', [id2, { addr: email, mail_pw: password }])
-    window.core.fs_write('/identity/import.tar', Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)))
-    await rpc('import_self_keys', [id2, '/identity/import.tar', PASS])
+    // configure FIRST: import_self_keys marks the account configured, which
+    // would short-circuit a later configure() (configured_addr stays null).
     await rpc('configure', [id2])
+    for (const [name, b64] of Object.entries(keysFiles)) {
+      window.core.fs_write(`/identity/import/${name}`, Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)))
+    }
+    await rpc('import_self_keys', [id2, '/identity/import', PASS])
     const configuredAddr = await rpc('get_config', [id2, 'configured_addr'])
     return { configuredAddr }
   }, { email, password })

@@ -1163,6 +1163,7 @@ dependencies = [
  "console_error_panic_hook",
  "deltachat",
  "deltachat-jsonrpc",
+ "futures-core",
  "js-sys",
  "serde_json",
  "velta-tokio-wasm",

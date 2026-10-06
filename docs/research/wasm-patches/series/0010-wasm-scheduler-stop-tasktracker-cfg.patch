@@ -1,0 +1,83 @@
+wasm(0010) scheduler stop — WASM-CORE-0010
+
+TaskTracker::spawn panics on wasm32 ("there is no reactor running"):
+tokio_util rides the real tokio, which has no runtime in the browser.
+Gate the tracker path to native; wasm32 spawns the shutdown waits
+directly onto the velta-tokio-wasm event loop.
+
+Native impact: none — native keeps the original code path.
+
+--- a/src/scheduler.rs
++++ b/src/scheduler.rs
+@@ -850,25 +850,56 @@
+         // Actually shutdown tasks.
+         let timeout_duration = std::time::Duration::from_secs(30);
+ 
+-        let tracker = TaskTracker::new();
+-        for b in self.inboxes {
+-            let context = context.clone();
+-            tracker.spawn(async move {
+-                tokio::time::timeout(timeout_duration, b.handle)
+-                    .await
+-                    .log_err(&context)
+-            });
++        #[cfg(not(target_arch = "wasm32"))]
++        {
++            let tracker = TaskTracker::new();
++            for b in self.inboxes {
++                let context = context.clone();
++                tracker.spawn(async move {
++                    tokio::time::timeout(timeout_duration, b.handle)
++                        .await
++                        .log_err(&context)
++                });
++            }
++            {
++                let context = context.clone();
++                tracker.spawn(async move {
++                    tokio::time::timeout(timeout_duration, self.smtp_handle)
++                        .await
++                        .log_err(&context)
++                });
++            }
++            tracker.close();
++            tracker.wait().await;
+         }
++        // wasm32: tokio_util::TaskTracker rides the real tokio, which has no
++        // runtime in the browser — spawn the shutdown waits onto the
++        // velta-tokio-wasm event loop directly instead.
++        #[cfg(target_arch = "wasm32")]
+         {
+-            let context = context.clone();
+-            tracker.spawn(async move {
+-                tokio::time::timeout(timeout_duration, self.smtp_handle)
++            let mut handles = Vec::new();
++            for b in self.inboxes {
++                let context = context.clone();
++                handles.push(tokio::spawn(async move {
++                    tokio::time::timeout(timeout_duration, b.handle)
++                        .await
++                        .log_err(&context)
++                }));
++            }
++            {
++                let context = context.clone();
++                handles.push(tokio::spawn(async move {
++                    tokio::time::timeout(timeout_duration, self.smtp_handle)
++                        .await
++                        .log_err(&context)
++                }));
++            }
++            for h in handles {
++                tokio::time::timeout(timeout_duration, h)
+                     .await
+-                    .log_err(&context)
+-            });
++                    .log_err(&context);
++            }
+         }
+-        tracker.close();
+-        tracker.wait().await;
+ 
+         // Abort tasks, then await them to ensure the `Future` is dropped.
+         // Just aborting the task may keep resources such as `Context` clone

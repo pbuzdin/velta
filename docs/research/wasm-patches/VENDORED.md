@@ -121,6 +121,7 @@ wasm-pack + smoke + e2e (see checklist §7).
 | 0007 | net/blob/time: `ws_tcp`, wasm clocks, blob `sync_fs`, fetch | 18 files (blob, tools, net/*, imap, smtp, sql/migrations, ratelimit…) | **high** — `Time::now()`→`tools::time_now()` sweep touches many call sites; re-grep `Time::now()` after each bump | mechanical refactors; avatar golden unchanged |
 | 0008 | fs/net/tls: `path_exists`/`is_dir`, wasm `connect_tcp`, JsClock, mail-builder 0.5 | Cargo.toml, accounts, context, imex, net, tools | medium | wrappers = `Path::exists/is_dir` |
 | 0009 | tests: blob_tests use `BufRead + Seek` `image_metadata` | blob/blob_tests.rs | low | test-only |
+| 0010 | scheduler: `stop()` without `tokio_util::TaskTracker` on wasm32 | scheduler.rs | low — one function, cfg-split | none — native path byte-identical |
 
 Upstream tracking: chatmail/core #8559 (wasm32 target), relay #1030
 (websockify). Drop any patch upstream covers.

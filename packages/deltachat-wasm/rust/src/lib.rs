@@ -155,4 +155,8 @@ impl DeltaChat {
     pub fn fs_mkdirp(&self, path: String) -> Result<(), JsValue> {
         tokio::fs::sync_create_dir_all(&path).map_err(fs_err)
     }
+
+    pub async fn fs_list(&self, path: String) -> Result<js_sys::Array, JsValue> {
+        vfs_list(path).await
+    }
 }
