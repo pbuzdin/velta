@@ -332,7 +332,10 @@ frontend into Velta. Coexist with Velta's existing 13 core patches
   **Day 22:** fork branch `pbuzdin/relay` `websockify-c3` = upstream
   websockify + `ws_allowed_origins` Origin allowlist + per-IP
   `limit_conn` + `/new` CORS (in-browser minting) + behaviour docs
-  (spike log Day 22). Next: test-relay deploy → wasm e2e vs `/imap`+`/smtp`.
+  (spike log Day 22). **Day 23:** pushed to the fork and extended with the
+  wasm-core bridge scheme — `/tcp/{host}/993|465` + `/dns/` (TLS targets:
+  TLS terminates inside the wasm sandbox, never at the proxy). Next:
+  test-relay deploy → wasm e2e with `RELAY_WS_URL`.
 - **C4 — PWA shell for C (dist + identity backup DONE, 2026-10-06).**
   `scripts/build-pwa.mjs` builds the deployable dist (SW precache, CSP with
   `'wasm-unsafe-eval'`, `pwa-config.js` proxy/relay endpoints, rig-verified

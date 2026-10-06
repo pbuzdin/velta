@@ -1,16 +1,23 @@
 // Day-9 alice→bob networking e2e against the IN-REPO MPL wrapper
 // (packages/deltachat-wasm built from an apply-on-copy workspace).
 //
-// Path: browser wasm core → local ws-tcp-proxy (generic design-G bridge,
-// Unlicense, NOT vendored into Velta) → public chatmail relay (default
-// nine.testrun.org). Two throwaway accounts from CHATMAIL_NEW; addresses and
-// passwords are never printed. No relay changes required.
+// Two transports:
+//   classic (default) — browser wasm core → local ws-tcp-proxy (generic
+//     design-G bridge, Unlicense, NOT vendored into Velta) → public chatmail
+//     relay (default nine.testrun.org). No relay changes required.
+//   relay-native (RELAY_WS_URL set) — the core dials the relay's own
+//     websockify endpoints directly (wss://relay + /tcp/{host}/{port} +
+//     /dns/{host}, the C3 branch on pbuzdin/relay); TLS stays in wasm, so
+//     the relay bridges to imaps/smtps. No local proxy involved.
+// Two throwaway accounts from CHATMAIL_NEW; addresses and passwords are
+// never printed.
 //
 // Env:
 //   PACKAGE_ROOT   built wrapper dir containing example/ + wasm-dist/
 //                  (default: ../packages/deltachat-wasm)
-//   WS_TCP_PROXY   path to ws-tcp-proxy.mjs (required; e.g. a scratch clone of
-//                  slothfulchat-web packages/ws-tcp-proxy with `npm i ws`)
+//   WS_TCP_PROXY   path to ws-tcp-proxy.mjs (classic mode)
+//   RELAY_WS_URL   wss://relay origin running the C3 websockify scheme
+//                  (relay-native mode; wins over WS_TCP_PROXY)
 //   CHATMAIL_NEW   account factory (default https://nine.testrun.org/new)
 //   PROXY_PORT     default 8641
 //   CHROMIUM_BIN   optional system Chrome/Chromium
@@ -24,9 +31,10 @@ import { chromium } from 'playwright'
 
 const CHATMAIL_NEW = process.env.CHATMAIL_NEW ?? 'https://nine.testrun.org/new'
 const PROXY_PORT = process.env.PROXY_PORT ?? '8641'
+const RELAY_WS_URL = (process.env.RELAY_WS_URL ?? '').replace(/\/+$/, '')
 const PROXY_SCRIPT = process.env.WS_TCP_PROXY
-if (!PROXY_SCRIPT) {
-  console.error('FAIL: set WS_TCP_PROXY=/path/to/ws-tcp-proxy.mjs (not vendored in Velta)')
+if (!RELAY_WS_URL && !PROXY_SCRIPT) {
+  console.error('FAIL: set WS_TCP_PROXY=/path/to/ws-tcp-proxy.mjs (classic bridge) or RELAY_WS_URL=wss://relay (relay-native, C3)')
   process.exit(2)
 }
 
@@ -39,11 +47,14 @@ const alice = await newAccount()
 const bob = await newAccount()
 console.log(`created 2 throwaway accounts on ${new URL(CHATMAIL_NEW).host}`)
 
-const proxy = fork(PROXY_SCRIPT, [], {
-  env: { ...process.env, PORT: PROXY_PORT },
-  stdio: 'inherit',
-})
-await new Promise((r) => setTimeout(r, 800))
+let proxy = null
+if (PROXY_SCRIPT && !RELAY_WS_URL) {
+  proxy = fork(PROXY_SCRIPT, [], {
+    env: { ...process.env, PORT: PROXY_PORT },
+    stdio: 'inherit',
+  })
+  await new Promise((r) => setTimeout(r, 800))
+}
 
 const root = process.env.PACKAGE_ROOT
   ? process.env.PACKAGE_ROOT
@@ -82,13 +93,13 @@ page.on('pageerror', (e) => console.error('[pageerror]', e.message))
 let failed = false
 const watchdog = setTimeout(() => {
   console.error('FAIL: global watchdog (6 min)')
-  proxy.kill()
+  proxy?.kill()
   process.exit(1)
 }, 360_000)
 
 const t0 = Date.now()
 try {
-  const proxyUrl = `ws://127.0.0.1:${PROXY_PORT}`
+  const proxyUrl = RELAY_WS_URL || `ws://127.0.0.1:${PROXY_PORT}`
   await page.goto(
     `http://127.0.0.1:${port}/example/index.html?proxy=${encodeURIComponent(proxyUrl)}`,
   )
@@ -184,6 +195,6 @@ try {
   clearTimeout(watchdog)
   await browser.close()
   server.close()
-  proxy.kill()
+  proxy?.kill()
 }
 process.exit(failed ? 1 : 0)
