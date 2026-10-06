@@ -53,6 +53,11 @@ no gateway custody — but also no email interop, and a real wasm port of the
 engine (tokio/iroh) is its own project. The same PWA shell can grow this as
 a second transport later; plan for it, don't build it first.
 
+See also [`docs/iroh-layer-plan.md`](docs/iroh-layer-plan.md) §8: the
+planned email-backed iroh live layer (iroh folder/chip, Message-ID dedup)
+reaches the PWA only relay-only, preferably as a wasm build of the link
+engine on iroh 1.0 after Architecture C lands.
+
 ### Architecture C — Wasm core + mail proxy (non-custodial with addresses)
 
 ```
