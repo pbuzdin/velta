@@ -121,6 +121,8 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── docs/modals-audit-and-plan.md # modal/overlay/popup inventory + native <dialog> plan
 ├── docs/native-elements.md       # where native HTML elements can replace custom JS/ARIA
 ├── docs/accessibility-and-keybindings.md # DC Desktop shortcut reference, Velta keyboard/a11y audit + plan (K1–K8, N1–N13)
+├── docs/iroh-layer-plan.md        # iroh second layer over chatmail: iroh folder + chip, link protocol, dedup, calls, phases (proposal)
+├── docs/research/iroh-layer-research.md # what core 2.62's iroh exposes (webxdc realtime, backup), keys, calls, upstream, wasm — file:line cites
 └── tools/                    # icon generation, WSL APK build/sign helpers,
                               serve-dev.py (no-cache static server for app/)
 ```
@@ -1265,6 +1267,11 @@ KEEP also: the Proxy's relay-chat fall-throughs forward the FULL argument
 list (`(t, id, ...rest)`) — an early version dropped `ids`/`{forAll}`, so
 with local chat on every message deletion in normal chats failed with
 serde `invalid type: null, expected a sequence` (fixed post-1.4.35).
+Planned (not built): an email-backed **iroh second layer** (iroh chats
+folder, "iroh" chip, live text/typing/presence with Message-ID dedup, call
+signalling) that extends this engine with a relay mode and core-contact
+links instead of patching core — read docs/iroh-layer-plan.md and
+docs/research/iroh-layer-research.md before touching p2p.rs for it.
 
 ### 5.5 In-app browser (Android)
 
