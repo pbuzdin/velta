@@ -225,8 +225,14 @@ Native builds must not change behaviour because of the wasm patches.
 - ⬜ Security review: TLS stays in wasm (no proxy termination), proxy
   allowlist (never port 25), no credentials in logs, CSP
   `'wasm-unsafe-eval'` scope.
-- ⬜ Upstream status re-checked (chatmail/core #8559, relay #1030) — drop
-  any patch upstream already covers.
+- ✅ Upstream status re-checked (chatmail/core #8559, relay #1030) — drop
+  any patch upstream already covers. **Day 27 re-check (2026-10-07):**
+  core #8559 still an uncommented proposal (socket-security `WebSocket`
+  variant + WS-as-stream-transport — same direction as our series, nothing
+  merged, no client work); relay #1030 still an open draft awaiting review
+  since Aug 31, no CORS/allowlist at all upstream — nothing to drop, the
+  Velta series and the relay hardening stay ahead. Re-check per core bump
+  and at landing.
 
 ## 7. Process
 

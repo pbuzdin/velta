@@ -1241,3 +1241,23 @@ the wasm-layer rollback (discrete stack, `cfg`-gated, one revert).
   Day-19 rig work.
 - With this, the machine-doable queue is empty. Every remaining checklist
   box maps to an issue (#94/#95/#96) or device work (#92).
+
+## Day 27 — upstream re-check; interop gated on VPN (2026-10-07)
+
+- **§6 upstream status box TICKED (2026-10-07 re-check):** chatmail/core
+  #8559 is still an uncommented proposal — it plans a `WebSocket` variant
+  for the socket-security enum and WS-as-stream-transport (tungstenite),
+  i.e. the same direction the Velta series already implements; no client
+  work, nothing merged. Relay #1030 is still an open draft, last reviewer
+  activity Aug 31, and it has no CORS/allowlist/port-confinement at all —
+  upstream covers none of our patches or relay hardening. Nothing to drop;
+  re-check per core bump and at landing.
+- **§5 interop attempt deferred — VPN window closed:** relay TLS times out
+  from the dev box (nine.testrun.org TCP connects, TLS blocked = the
+  known fake-IP pattern; github.com 200 as control). The wasm↔native
+  interop e2e (wasm side through the local proxy, native side via
+  `deltachat-rpc-server` python client — both to nine.testrun.org,
+  throwaway accounts, SecureJoin both ways) is fully scoped and runs the
+  moment a VPN window opens. Not started = nothing half-done.
+- Remaining boxes: all map to #94 (relay chain), #95 (sign-offs), #96
+  (Oct 8 e2e), #92 (device day) — or landing itself.
