@@ -672,7 +672,13 @@ mail-builder 17 / astral-tokio-tar 61 changed src lines, all with their
 MIT/Apache files.
 
 ### 4. CI run (Day 11 commit, `e2e=true`)
-CI_DAY11_PLACEHOLDER
+Run [`37392355171`](https://github.com/pbuzdin/velta/actions/runs/37392355171)
+on `fbcd9bd` (`e2e=true`, 2026-10-06 03:08–03:25 MSK): **success**, every step
+green. `wasm-opt: 29 961 755 → 18 563 602`; **Size budget green**: raw
+18 563 602 / brotli-11 4 639 370 / gzip-9 7 206 954. Smoke on both artifacts
+PASS. **e2e PASS**: `OK … wasm-roundtrip-eer97kjxefm`, 6.9 s. CI e2e passes so
+far: Day 10 (`37388272660`) + Day 11 — 2 consecutive, but all on the same
+calendar day (2026-10-06), so the checklist's "≥ 3 on different days" is not met yet.
 
 ### Checklist
 Ticked: per-patch VENDORISSUES entries; shim rustfmt documented as imported
