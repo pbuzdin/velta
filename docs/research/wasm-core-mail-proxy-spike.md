@@ -897,3 +897,32 @@ the wasm-layer rollback (discrete stack, `cfg`-gated, one revert).
   the update-check origin (`github.com/pbuzdin/velta`) and the mail-proxy
   origin from `pwa-config.js` — the rig showed the update check blocked by
   the shipped Tauri CSP (harmless there, by design).
+
+---
+
+## Day 16 — OPFS persistence: accounts survive reload (2026-10-06)
+
+- **Wrapper** (`packages/deltachat-wasm/rust`): module-level `vfs_*`
+  bindings (`read/write/remove/mkdirp/exists` + async `vfs_list` — snapshot
+  `read_dir` drained with `Waker::noop`, dirs carry a trailing `/`),
+  usable **before** `init` so JS can restore a snapshot ahead of core
+  startup. New direct dep `futures-core` (already in the tree via the
+  facade — lock refresh only, no version churn; `refresh-lock` re-pinned,
+  wasm-bindgen 0.2.129, verify-copy OK).
+- **Worker** (`app/js/worker-wasm.js`): on boot with persistence (default
+  on), the OPFS snapshot of `/accounts` is restored into memfs **before**
+  `init`; checkpoints run on an 8 s interval + on demand (`checkpoint`
+  message) as a **full rewrite** of the snapshot, so deletions propagate.
+- **Transport** (`app/js/transport-worker-wasm.js`): Web Locks single-tab
+  gate — second tab gets "wasm core is already open in another tab".
+- **Rig PASS (PERSIST mode):** create contact → checkpoint → `page.reload()`
+  → fresh boot restores the snapshot → `lookup_contact_id_by_addr` finds
+  Bob. App-boot mode re-verified with persistence on (no demo fallback).
+- Honest limits: checkpoint granularity = 8 s / on demand, so a hard crash
+  can lose the last seconds (WAL files ride the snapshot, sqlite recovers on
+  open); OPFS eviction hardening (`navigator.storage.persist()`, V2.5
+  identity backup) stays mandatory before any real user lands here.
+- APK-build box: **proposed waiver** recorded in the checklist §3 —
+  aarch64 `cargo check` green + Windows sidecar link+smoke green cover the
+  native-breakage risk; release CI builds the APKs from the landed tree at
+  the landing tag anyway. Needs Pavel's written waiver to close.
