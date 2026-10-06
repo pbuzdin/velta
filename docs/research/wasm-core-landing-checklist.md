@@ -146,7 +146,9 @@ Native builds must not change behaviour because of the wasm patches.
   Transfer size is what matters for a PWA: serve the wasm **pre-compressed
   with brotli** (≈4.4 MiB first load, then Service-Worker cached); gzip-only
   hosts cost ≈6.9 MiB. CI step `Size budget (wasm-opt artifact)` checks all
-  three (informational until landing). ⬜ Pavel to accept/adjust numbers.
+  three (informational until landing). ✅ Pavel accepted the Day-10 numbers
+  2026-10-06; making the CI gate required (not informational) stays open
+  until landing.
 - ⬜ wasm CI job is required (not `continue-on-error`) on the landing branch,
   still kept out of Release workflows until C2 ships.
 - ✅ Copy builds are reproducible (`--locked`, pinned locks) — Day 9 CI run
