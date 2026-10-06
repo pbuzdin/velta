@@ -183,10 +183,17 @@ Native builds must not change behaviour because of the wasm patches.
 - ✅ e2e runnable in CI: `workflow_dispatch` input `e2e=true` (manual only;
   proxy fetched pinned at `452cd0d`, allowlisted to nine.testrun.org) — Day 10.
 - ⬜ e2e against relay-native websockify (`/imap`, `/smtp` + CORS, C3) on a
-  test deploy of `pbuzdin/relay`.
+  test deploy of `pbuzdin/relay`. Day 19 finding: relay `/new` must be
+  same-origin (or CORS-enabled) too — the PWA's in-browser account-minting
+  fetch is refused today, so C3 scope is `/new` + `/imap` + `/smtp`.
 - ⬜ Interop: wasm client ↔ native Velta (Android/desktop) message both ways,
   Autocrypt/SecureJoin verified.
 - ⬜ Persistence (OPFS) restart test; storage-eviction backup path (C4).
+  Day 19: app-level restart PASS in the PWA dist rig
+  (`scripts/verify-pwa-dist.mjs` 7/7 — snapshot written, reload restores,
+  SW active). Still open: the storage-eviction backup path (identity backup
+  UX, Day 20) and `navigator.storage.persist()` granted in a real browser
+  (rig headless denies the hint).
 
 ## 6. Review
 

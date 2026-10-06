@@ -4745,11 +4745,13 @@ async function boot() {
     if (autoOpen && !isNaN(+autoOpen)) openChat(+autoOpen);
 
     // PWA: service worker + install prompt
-    // The service worker was removed: native shells (Tauri/Android) serve
-    // bundled assets fresh on every launch, and the SW's cache-first fetch
-    // kept serving STALE js across upgrades — devices kept running old code
-    // with a new Rust shell, which is un-debuggable. Unregister leftovers.
-    if ("serviceWorker" in navigator) {
+    // The SW was removed from the native shells (Tauri/Android): they serve
+    // bundled assets fresh on every launch, and a cache-first SW kept serving
+    // STALE js across upgrades — devices kept running old code with a new
+    // Rust shell, which is un-debuggable. Unregister leftovers. The C4 PWA
+    // dist (window.VELTA_PWA) registers its own precache SW and is exempt —
+    // there the SW is the update mechanism, not a staleness hazard.
+    if ("serviceWorker" in navigator && !window.VELTA_PWA) {
       navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister())).catch(() => {});
       if (navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage("unregister");
     }

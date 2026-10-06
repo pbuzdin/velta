@@ -990,3 +990,49 @@ the wasm-layer rollback (discrete stack, `cfg`-gated, one revert).
   first green. Applicator note: `refresh-lock` must be re-run after any
   series change (PROVENANCE pins the series hash) — order: add patch →
   refresh-lock → gated apply.
+
+## Day 19 — C4: PWA dist builder + verify rig (2026-10-06)
+
+- **`scripts/build-pwa.mjs`:** static deployable dist (`build/dist-pwa`) =
+  `app/` copied as-is + `wasm/` (glue + `_bg.wasm` from a wrapper build or CI
+  artifact; optional `--wasm-opt` for deploy sizes) + generated
+  `pwa-config.js` + generated precache `sw.js` (content-hash version,
+  cache-first for same-origin, skipWaiting+claim). `index.html` is the only
+  patched file: CSP gains `'wasm-unsafe-eval'` (script-src) and the
+  `--ws-proxy` origin (connect-src), and `pwa-config.js` loads before the app
+  module.
+- **Config seam:** `window.VELTA_PWA = { wasmCore: true, wsProxyUrl: "" }` —
+  `wasmOptIn()` treats the dist as wasm-by-default (`?wasm=0` still escapes),
+  and `createCore` passes `wsProxyUrl` through to the worker (relay
+  websockify endpoint, empty until C3).
+- **`worker-wasm.js`:** best-effort `navigator.storage.persist()` at boot
+  (eviction hedge; the real hedge stays the V2.5 identity backup).
+- **`scripts/verify-pwa-dist.mjs` (7/7 PASS, msedge headless):** dist served
+  in-memory → real app boots on the worker-wasm core (no demo fallback) →
+  unconfigured splash → OPFS snapshot written by the 8s checkpoint → reload →
+  worker-wasm boots again and the snapshot survives → SW active + controlling
+  → app shell served from the SW cache. `persisted=false` in the rig (headless
+  denies the persist hint — best-effort by design).
+- **Bug found by the rig:** `app.js` unregistered **every** service worker at
+  boot (the #48 anti-staleness cleanup) — it killed the PWA SW right after
+  install. Now gated on `!window.VELTA_PWA`. Rig gotcha: with the bug live,
+  `getRegistrations()` returned 0 while the precache was complete (106/106
+  entries), which reads like a fetch flake — check what *writes* the cache
+  before blaming the SW.
+- **Finding (C3/R1 dependency, now concrete):** the splash "Create an
+  account" flow dies at the in-browser credential fetch — chatmail relays
+  send no CORS headers on `/new`, so `fetch POST` from the wasm worker is
+  refused. CI identity e2e never hits this (it mints credentials node-side).
+  PWA account minting needs the relay to serve `/new` same-origin (or CORS) —
+  exactly the C3 websockify origin; R1 invites mint relay-side and sidestep it.
+- **Gotcha:** CI `wasm-dist-no-opt` artifacts from runs that predate the
+  Day-16 push (e.g. run 37411669569 @ 04:00Z vs 865a9d34 @ 05:25Z) lack the
+  module-level `vfs_*` exports — the worker then silently no-ops OPFS
+  (checkpoint failures are swallowed). Quick check:
+  `grep -c vfs_list deltachat_wasm.js`.
+- **CI (run 37504603502):** identity e2e (V2.5 round-trip) **first green** —
+  Day-17/18 leftover closed. Networking e2e pass #4, still on 2026-10-06, so
+  the "≥3 passes on different days" box stays open.
+- **Open:** identity backup UX (export/restore in the PWA — Day 20), a CI job
+  that builds + verifies the PWA dist, wasm-opt for deploy dists, SW version
+  swap tested across a redeploy.

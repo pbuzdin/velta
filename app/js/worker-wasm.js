@@ -68,7 +68,12 @@ self.onmessage = async (e) => {
       glue = await import(d.glueUrl);
       await glue.default();
       const persist = d.persist !== false;
-      if (persist) await restore();
+      if (persist) {
+        // C4: ask for eviction exemption (best-effort — denial is not fatal;
+        // the V2.5 identity backup is the real hedge against storage pressure).
+        navigator.storage?.persist?.().catch(() => {});
+        await restore();
+      }
       dc = await glue.init(
         (line) => self.postMessage({ type: "line", line }),
         d.wsProxyUrl ?? null,
