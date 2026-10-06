@@ -308,13 +308,13 @@ frontend into Velta. Coexist with Velta's existing 13 core patches
   23 boxes open) — production `core/` stays stock until then.
   Release-profile wasm CI job; rebase checklist per core bump (COREUPDATE
   §0b).
-- **C2 — WS worker transport in Velta.** `core-wasm` wasm-bindgen wrapper
-  over `deltachat_jsonrpc::CommandApi` in a dedicated worker; new
-  `worker-wasm` transport in `app/js` behind the existing line-oriented
-  `rpc-core.js` seam (`setReceiver` / `send(line)`). Feature-detect: no
-  Tauri + PWA + wasm flag → worker transport. Capability gates: no
-  sqlcipher, no closed-tab push, single-tab OPFS (Web Locks), optional
-  crypto offload worker later.
+- **C2 — WS worker transport in Velta (scaffolding rig-verified
+  2026-10-06).** `worker-wasm.js` + `WorkerWasmTransport` in `app/js` behind
+  the existing line-oriented `rpc-core.js` seam (`setReceiver` / `send(line)`)
+  — real `JsonRpcCore.init()` handshake + `get_system_info` PASS in a browser
+  worker (spike log Day 14a). Still open: app-boot feature-detect wiring
+  (no Tauri + PWA + wasm flag → worker transport), OPFS persistence +
+  Web Locks single-tab gate, optional crypto offload worker later.
 - **C3 — Relay websockify / CORS or generic proxy.** Prefer relay-native
   websockify (upstream PR #1030 / fork branch `link2xt/websockify`): nginx
   `/imap`→localhost:143, `/smtp`→localhost:587, plus CORS/`Origin`
