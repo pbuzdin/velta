@@ -29,7 +29,7 @@ index ba93277..129523c 100644
 +++ b/Cargo.toml
 @@ -245,3 +245,5 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
  async-imap = { path = "../vendor-crates/async-imap" }
- # routes tokio through tokio-wasm-shim so tar works on wasm32
+ # routes tokio through velta-tokio-wasm so tar works on wasm32
  astral-tokio-tar = { path = "../vendor-crates/astral-tokio-tar" }
 +# routes SystemTime::now through web-time on wasm32
 +mail-builder = { path = "../vendor-crates/mail-builder" }

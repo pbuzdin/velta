@@ -131,8 +131,8 @@ def prepare_copy(dest_root: Path) -> Path:
     """Create dest_root/{core,crates,vendor-crates} from master core + support."""
     if not MASTER_CORE.is_dir():
         die(f"master core missing: {MASTER_CORE}")
-    if not (SUPPORT / "crates" / "tokio-wasm-shim").is_dir():
-        die(f"support shim missing: {SUPPORT / 'crates' / 'tokio-wasm-shim'}")
+    if not (SUPPORT / "crates" / "velta-tokio-wasm").is_dir():
+        die(f"support shim missing: {SUPPORT / 'crates' / 'velta-tokio-wasm'}")
     dest_root.mkdir(parents=True, exist_ok=True)
     core_dst = dest_root / "core"
     print(f"Copying master core/ → {core_dst}")
@@ -339,7 +339,7 @@ def cmd_apply_on_copy(dest: Path, force_master: bool, pinned: bool = True) -> in
         # Still need support crates next to repo root for Cargo path deps
         crates = ROOT / "crates"
         vendors = ROOT / "vendor-crates"
-        if not (crates / "tokio-wasm-shim").exists():
+        if not (crates / "velta-tokio-wasm").exists():
             _copy_tree(SUPPORT / "crates", crates)
         if not (vendors / "async-imap").exists():
             _copy_tree(SUPPORT / "vendor-crates", vendors)
@@ -392,7 +392,7 @@ def cmd_verify_copy(dest: Path) -> int:
         print(marker.read_text())
     # support layout
     root = core.parent
-    shim = root / "crates" / "tokio-wasm-shim" / "Cargo.toml"
+    shim = root / "crates" / "velta-tokio-wasm" / "Cargo.toml"
     if not shim.is_file():
         die(f"verify-copy FAILED: missing {shim}", code=2)
     pin = core / ".velta-wasm-pinned-lock"

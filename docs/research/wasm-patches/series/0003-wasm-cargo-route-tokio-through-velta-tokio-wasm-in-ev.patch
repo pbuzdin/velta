@@ -1,11 +1,11 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: spike <spike@local>
 Date: Mon, 5 Oct 2026 21:55:53 +0300
-Subject: [PATCH] wasm(cargo): route tokio through tokio-wasm-shim in every
+Subject: [PATCH] wasm(cargo): route tokio through velta-tokio-wasm in every
  workspace crate
 
 Cargo allows one source per dependency name across all targets, so every
-crate that names `tokio` must use the same facade. tokio-wasm-shim is a
+crate that names `tokio` must use the same facade. velta-tokio-wasm is a
 transparent `pub use tokio::*` (features = "full") on native; drop the
 now-redundant root dev-dependency.
 
@@ -40,7 +40,7 @@ index 1c943eb..7492b25 100644
  num-traits = { workspace = true }
  serde_json = { workspace = true }
 -tokio = { workspace = true, features = ["rt-multi-thread"] }
-+tokio = { package = "tokio-wasm-shim", path = "../../crates/tokio-wasm-shim" }
++tokio = { package = "velta-tokio-wasm", path = "../../crates/velta-tokio-wasm" }
  anyhow = { workspace = true }
  thiserror = { workspace = true }
  rand = { workspace = true }
@@ -53,7 +53,7 @@ index 82a7c13..e578c29 100644
  
  [dev-dependencies]
 -tokio = { workspace = true, features = ["full", "rt-multi-thread"] }
-+tokio = { package = "tokio-wasm-shim", path = "../../crates/tokio-wasm-shim" }
++tokio = { package = "velta-tokio-wasm", path = "../../crates/velta-tokio-wasm" }
  tempfile = { workspace = true }
  futures = { workspace = true }
  
@@ -66,7 +66,7 @@ index 704bace..32a35e5 100644
  rusqlite = { workspace = true }
  rustyline = "16"
 -tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros"] }
-+tokio = { package = "tokio-wasm-shim", path = "../../crates/tokio-wasm-shim" }
++tokio = { package = "velta-tokio-wasm", path = "../../crates/velta-tokio-wasm" }
  tracing-subscriber = { workspace = true, features = ["env-filter"] }
  
  [features]
@@ -79,7 +79,7 @@ index 99e7d92..23480d3 100644
  serde_json = { workspace = true }
  serde = { workspace = true, features = ["derive"] }
 -tokio = { workspace = true, features = ["io-std"] }
-+tokio = { package = "tokio-wasm-shim", path = "../../crates/tokio-wasm-shim" }
++tokio = { package = "velta-tokio-wasm", path = "../../crates/velta-tokio-wasm" }
  tokio-util = { workspace = true }
  tracing-subscriber = { workspace = true, features = ["env-filter"] }
  yerpc = { workspace = true, features = ["anyhow_expose", "openrpc"] }
