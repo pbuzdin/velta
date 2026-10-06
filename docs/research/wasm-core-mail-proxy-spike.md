@@ -1,6 +1,6 @@
 # Spike log — wasm core + WebSocket mail proxy
 
-**Status:** day 12 (licence) — imported `tokio-wasm-shim` replaced by Velta-original, clean-room `velta-tokio-wasm` (MPL-2.0); all gates re-run green incl. local e2e. Day 11: tar rebased onto 0.6.4, SQLCipher upgrade/rollback PASS. [Landing checklist](wasm-core-landing-checklist.md) **24 open** — master `core/` stays stock.
+**Status:** day 18 — scheduler `TaskTracker` panic on wasm32 fixed (patch 0010, series 10 patches); real-relay configure from the wasm worker PASS; OPFS persistence + identity-bundle plumbing (V2.5) in; C2 consumer wired. [Landing checklist](wasm-core-landing-checklist.md) **18 open** — master `core/` stays stock.
 Started **2026-10-05** (Europe/Moscow). Research baseline:
 [`wasm-core-mail-proxy.md`](wasm-core-mail-proxy.md).
 
