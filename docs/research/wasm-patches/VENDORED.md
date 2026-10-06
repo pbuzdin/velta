@@ -20,27 +20,38 @@ wasm-only.
 
 | Crate | Path | Upstream base | Licence | Local delta (src) | Native effect |
 |---|---|---|---|---|---|
-| tokio-wasm-shim 1.0.0 | `support/crates/tokio-wasm-shim` | experintellia/slothfulchat-web `crates/tokio-wasm-shim` @ `452cd0d` (byte-identical) | `MPL-2.0` per its Cargo.toml — ⚠ see A1 | n/a (imported as-is, 2 418 lines) | `pub use tokio::*` (feature `full`); `registry`/`durability`/`limits` modules compile everywhere |
+| **velta-tokio-wasm 0.1.0** (Velta-original) | `support/crates/velta-tokio-wasm` | none — written clean-room Day 12 (replaces imported `tokio-wasm-shim`) | **MPL-2.0**, authored by Velta: `LICENSE` (canonical MPL-2.0 text) + SPDX header in every source file | n/a (1.4 k lines, rustfmt-clean) | `pub use tokio::*` (feature `full`); wasm modules not compiled on native |
 | astral-tokio-tar **0.6.4** | `support/vendor-crates/astral-tokio-tar` | crates.io 0.6.4 / [astral-sh/tokio-tar](https://github.com/astral-sh/tokio-tar) | MIT OR Apache-2.0 (LICENSE-MIT, LICENSE-APACHE kept) | 61 changed lines (header.rs, entry.rs, builder.rs) | `canonicalize` via `tokio::fs` (= `spawn_blocking(std::fs::canonicalize)`); rest gated |
 | async-imap 0.11.3 | `support/vendor-crates/async-imap` | crates.io 0.11.3 / [async-email/async-imap](https://github.com/async-email/async-imap) @ `24b5aa3` | MIT OR Apache-2.0 (kept) | 6 lines `extensions/idle.rs` + wasm-only `wasmtimer` dep; drops tokio `net` feature | none (all gated) |
 | mail-builder 0.5.0 | `support/vendor-crates/mail-builder` | crates.io 0.5.0 / [stalwartlabs/mail-builder](https://github.com/stalwartlabs/mail-builder) | Apache-2.0 OR MIT (`LICENSES/` kept) | 17 lines (`headers/date.rs`, `mime.rs`) + wasm-only `web-time` dep | none (imports gated) |
 
-### A1. tokio-wasm-shim — licence provenance ⚠ open
+### A1. velta-tokio-wasm — Velta-original replacement (Day 12) ✅
 
-**Status: imported as-is; licence needs upstream confirmation before landing.**
+**Status: resolved.** Day 11 found the imported `tokio-wasm-shim` was
+byte-identical to experintellia/slothfulchat-web `crates/tokio-wasm-shim`
+@ `452cd0d`, whose repo is GPL-3.0-or-later overall, with MPL-2.0 only in the
+crate's Cargo.toml and no LICENSE file. Pavel chose a Velta rewrite.
 
-The crate's `Cargo.toml` declares `license = "MPL-2.0"`, but the
-slothfulchat-web repo is GPL-3.0-or-later as a whole and its README
-licensing table lists `patches/core`, `packages/core-wasm` (MPL) and
-`packages/ws-tcp-proxy` (Unlicense) — **not** `crates/tokio-wasm-shim`. The
-crate directory has no LICENSE file. The `license` field is a reasonable
-signal of intent but not an explicit grant we can point a reviewer at.
-
-Options (pick one before landing): (1) ask the slothfulchat-web author to
-add the shim to the README table / a LICENSE file (MPL-2.0); (2) Velta
-rewrites the shim (it is a facade: ~2.4 k lines, most in `fs.rs`/`opfs.rs`).
-Rustfmt: 9 files differ from `rustfmt --edition 2021` — leave as imported
-code until A1 is decided (formatting it makes upstream diffs noisier).
+- **Clean-room method** ([requirements note](velta-tokio-wasm-requirements.md)):
+  the old crate was deleted before writing; requirements came only from
+  consumer call sites (grep + `cargo check` errors on the patched copy and
+  the smoke/e2e harnesses), tokio's public API docs, and public APIs of
+  `wasmtimer` (MIT), `wasm-bindgen-futures`/`js-sys`/`futures-core`
+  (MIT OR Apache-2.0). No code, structure or comments carried over.
+  Prior exposure recorded there (old Cargo.toml + `lib.rs` header comment
+  seen during Day 1–11 reviews; the facade idea is dictated by Cargo).
+- **Licence:** MPL-2.0 (matches core), `Copyright (c) 2026 Velta
+  contributors`, `LICENSE` + `SPDX-License-Identifier: MPL-2.0` headers.
+- **Scope:** native = tokio; wasm32 = tokio `io`/`sync`/macros + `time`
+  (wasmtimer), `task` (`spawn`/`JoinHandle`/`JoinSet`/`spawn_blocking`/
+  `block_in_place`), `runtime::Handle`, in-memory `fs` (+ `sync_*` helpers),
+  `net` stubs (`Unsupported`). Dropped vs. the old crate: OPFS persistence,
+  sqlite VFS, account registry, crypto offload — no consumer uses them
+  (wrapper has no OPFS; rusqlite brings its own sqlite-wasm-rs VFS). Lock
+  effect: 17 shim-only crates (sqlite-wasm-vfs, indexed_db_futures, …) gone.
+- **Renames:** crate `tokio-wasm-shim` → `velta-tokio-wasm`; patch 0003
+  file/subject and the `package =`/path lines in 0002/0003/0004/0008,
+  wrapper Cargo.toml, vendored tar Cargo.toml and the applicator updated.
 
 ### A2. astral-tokio-tar — rebased onto stock 0.6.4 (Day 11) ✅
 
@@ -102,8 +113,8 @@ wasm-pack + smoke + e2e (see checklist §7).
 | # | Subject (short) | Files | Anchors / re-apply risk | Native impact |
 |---|---|---|---|---|
 | 0001 | time: `deltachat-time` reads `js_sys::Date` on wasm32 | deltachat-time/{Cargo.toml,src/lib.rs} | tiny; low | none |
-| 0002 | cargo: target-gate native-only deps, add shim, **rusqlite 0.40** | .cargo/config.toml, Cargo.toml, jsonrpc/Cargo.toml | **high** — rewrites `[dependencies]` table; conflicts on every core dep bump | rusqlite 0.37→0.40.2 ⇒ SQLCipher 4.6.1→4.14.0 (Day 11 upgrade/rollback ✅) |
-| 0003 | cargo: route `tokio` through shim in every crate | ffi/jsonrpc/repl/rpc-server Cargo.toml | low (one line each) | facade only |
+| 0002 | cargo: target-gate native-only deps, add `velta-tokio-wasm`, **rusqlite 0.40** | .cargo/config.toml, Cargo.toml, jsonrpc/Cargo.toml | **high** — rewrites `[dependencies]` table; conflicts on every core dep bump | rusqlite 0.37→0.40.2 ⇒ SQLCipher 4.6.1→4.14.0 (Day 11 upgrade/rollback ✅) |
+| 0003 | cargo: route `tokio` through `velta-tokio-wasm` in every crate | ffi/jsonrpc/repl/rpc-server Cargo.toml | low (one line each) | facade only |
 | 0004 | cargo: `[patch.crates-io]` async-imap + astral-tokio-tar | Cargo.toml | medium — pin `=0.6.4` must track stock tar version | vendored sources on native (see A2/A3) |
 | 0005 | net/accounts: `http_wasm`/`proxy_wasm` + cfg stubs | accounts, net, net/{http_wasm,proxy_wasm,session,tls}, qr | medium — `net/tls.rs` churns upstream | none (gated) |
 | 0006 | blob/cargo: `ReadDir` cfg for memfs, serde_urlencoded | Cargo.toml, blob.rs | low | none |

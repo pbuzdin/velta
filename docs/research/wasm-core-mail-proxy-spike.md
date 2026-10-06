@@ -1,6 +1,6 @@
 # Spike log — wasm core + WebSocket mail proxy
 
-**Status:** day 11 — astral-tokio-tar rebased onto stock 0.6.4 (native downgrade removed), SQLCipher 4.6.1↔4.14.0 upgrade + rollback PASS on a real-schema DB, vendored code register ([`VENDORED.md`](wasm-patches/VENDORED.md)), CI e2e run 3. Day 10 complete (CI e2e PASS on `d777ab0`). [Landing checklist](wasm-core-landing-checklist.md) **25 open** — master `core/` stays stock.
+**Status:** day 12 (licence) — imported `tokio-wasm-shim` replaced by Velta-original, clean-room `velta-tokio-wasm` (MPL-2.0); all gates re-run green incl. local e2e. Day 11: tar rebased onto 0.6.4, SQLCipher upgrade/rollback PASS. [Landing checklist](wasm-core-landing-checklist.md) **24 open** — master `core/` stays stock.
 Started **2026-10-05** (Europe/Moscow). Research baseline:
 [`wasm-core-mail-proxy.md`](wasm-core-mail-proxy.md).
 
@@ -690,12 +690,59 @@ No production `core/` wasm merge; `core/` + `core/Cargo.lock` untouched.
 
 ---
 
+## Day 12a (2026-10-06) — clean-room `velta-tokio-wasm` (licence blocker)
+
+Pavel decided: rewrite the tokio facade as Velta code. Only this item from
+the Day 12 list was done; no other Day 12 work started. Still **no**
+production `core/` merge.
+
+**Method** ([requirements note](wasm-patches/velta-tokio-wasm-requirements.md)):
+old crate deleted first (`git rm`), then requirements from consumers only:
+grep of `tokio::…` paths in the patched copy, `cargo check` errors against an
+empty facade, then smoke/e2e failures. Inputs otherwise limited to tokio's
+public API and the public APIs of wasmtimer (MIT), wasm-bindgen-futures,
+js-sys, futures-core (MIT OR Apache-2.0). New crate
+`support/crates/velta-tokio-wasm` (1.4 k lines, rustfmt-clean): MPL-2.0,
+canonical `LICENSE`, SPDX headers, "Velta contributors".
+
+Consumer requirements found the hard way (each traced to a call site):
+`sync_copy`/`sync_rename` (blob.rs), `ReadDir: Stream` (blob.rs),
+`Handle::current().spawn_blocking` (key.rs), `read_link`/`hard_link`
+(tar), read-only `File::open(dir)` + `sync_all` (accounts.rs fsyncs the
+parent after rename — first boot failed with `is a directory: /accounts`),
+`sync_write` creating parents (wrapper side channel `/t/x/hello.bin`).
+
+Renames: `tokio-wasm-shim` → `velta-tokio-wasm` in patches 0002/0003/0004/0008
+(0003 file + subject renamed, `series.txt` updated), wrapper + vendored tar
+Cargo.toml, applicator. `refresh-lock`: only the facade's own tree moved —
+`tokio-wasm-shim` + 17 shim-only crates (sqlite-wasm-vfs, indexed_db_futures,
+macroific…, sealed…) removed, `velta-tokio-wasm 0.1.0` added; no shared crate
+changed version.
+
+Gates on fresh pinned apply-on-copy `/tmp/velta-wasm-day12` (9/9, verify-copy OK):
+
+| Check | Result |
+|---|---|
+| wasm `cargo check --locked` | **PASS**, 0 warnings in `deltachat` / `velta-tokio-wasm` |
+| native `cargo nextest run --locked -p deltachat --lib` | **1135 run: 1135 passed, 1 skipped** (32.7 s), 0 warnings |
+| `wasm-pack … -- --locked` | **PASS**, 29 755 896 B `--no-opt` (Day 11: 29 917 028; −161 KB) |
+| smoke | **PASS** (`core v2.62.0`, sqlite 3.53.0, memfs roundtrip) |
+| local alice→bob e2e (allowlisted proxy) | **PASS** `wasm-roundtrip-pe499zodon9`, 5.9 s |
+
+### CI run (Day 12a commit, `e2e=true`)
+CI_DAY12_PLACEHOLDER
+
+### Checklist
+Licensing ⬜→✅ (shim replaced, Velta-original MPL-2.0); facade rustfmt note
+updated. **24 open** (was 25).
+
+---
+
 ## Next concrete steps (day 12)
 
 1. SQLCipher test on a copied **production** Velta DB (Android + desktop,
    older dbversion) with the series engine; keep the copy scratch-only.
-2. tokio-wasm-shim licence (A1): ask the slothfulchat-web author to confirm
-   MPL-2.0 (README table / LICENSE file), or scope a Velta rewrite.
+2. ~~tokio-wasm-shim licence~~ — done Day 12a (Velta-original `velta-tokio-wasm`).
 3. Native build of the copy for Android (aarch64) + `velta-core-service`
    (desktop) and native artifact size vs. stock (checklist §3).
 4. COREUPDATE.md "re-apply wasm series" step + rollback plan (§7).
@@ -705,5 +752,4 @@ No production `core/` wasm merge; `core/` + `core/Cargo.lock` untouched.
 
 - Day 11 result (see above); accept/adjust the size budget (still open).
 - Approve Day 12 scope (items 1–5 above) — still **no** production `core/` merge.
-- Item 2 needs Pavel: OK to contact the slothfulchat-web author about the shim
-  licence, or prefer a Velta rewrite?
+- Item 2 resolved (Pavel chose the rewrite; done Day 12a).
