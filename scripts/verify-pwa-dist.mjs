@@ -129,6 +129,28 @@ const sw = await page.evaluate(async () => {
 check(sw.regs > 0 && sw.state?.active, `service worker registered + active (${JSON.stringify(sw.state ?? sw)})`)
 check(sw.hit, 'app shell in the SW cache')
 
+// 4. V2.5 identity backup: the splash offers restore, Chromium WebCrypto
+// round-trips the bundle through the same module the app ships, and the
+// drawer carries the identity-backup row on the wasm core (drawer itself
+// can't open while the splash is up — row presence is the assertion).
+// Full export/restore against a relay is the CI identity e2e's job.
+const splashHasIdentity = await page.locator('#splash [data-identity-restore]').isVisible().catch(() => false)
+check(splashHasIdentity, 'splash offers identity-backup restore')
+
+const cryptoRoundTrip = await page.evaluate(async () => {
+  const m = await import('./js/identity-backup.js')
+  const keys = { 'private-key-test.asc': m.bytesToBase64(new TextEncoder().encode('-----BEGIN PGP PRIVATE KEY-----\ntest\n')) }
+  const bundle = m.buildIdentityBundle({ addr: 'rig@example.org', mail_pw: 'rig-pass', keys })
+  const wrapped = await m.wrapIdentityBundle(bundle, 'rig-passphrase-1')
+  const out = await m.unwrapIdentityBundle(wrapped, 'rig-passphrase-1')
+  return out.addr === 'rig@example.org' && out.keys['private-key-test.asc'] === keys['private-key-test.asc']
+})
+check(cryptoRoundTrip, 'identity bundle round-trips in Chromium (WebCrypto)')
+
+const rowInDom = await page.locator('[data-act="identity-backup"]').count()
+check(rowInDom > 0, 'drawer carries the identity-backup row on the wasm core')
+
+
 console.log('\nconsole tail:')
 for (const l of consoleLines.slice(-8)) console.log('  ' + l.slice(0, 200))
 await browser.close()

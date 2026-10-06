@@ -1448,6 +1448,14 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 }
 .text-field:focus { border-color: var(--accent); }
 
+/* Identity backup modal (V2.5): hint text, labeled fields, status line. */
+.modal-hint { margin: 0 0 10px; font-size: 13px; opacity: .8; }
+.modal-field { display: block; margin: 10px 0; font-size: 13px; opacity: .9; }
+.modal-field .text-field { width: 100%; margin-top: 4px; }
+.modal-status { margin: 10px 0 0; font-size: 13px; opacity: .85; white-space: pre-wrap; overflow-wrap: anywhere; }
+.modal details.backup-export, .modal details.backup-restore { margin: 8px 0; }
+.modal details.backup-export summary, .modal details.backup-restore summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
+
 .info-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14.5px; }
 .info-row:last-child { border-bottom: 0; }
 .info-row .k { color: var(--text-dim); }

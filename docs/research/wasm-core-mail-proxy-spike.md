@@ -1036,3 +1036,38 @@ the wasm-layer rollback (discrete stack, `cfg`-gated, one revert).
 - **Open:** identity backup UX (export/restore in the PWA — Day 20), a CI job
   that builds + verifies the PWA dist, wasm-opt for deploy dists, SW version
   swap tested across a redeploy.
+
+## Day 20 — V2.5 identity backup UX (2026-10-06)
+
+- **Product surface for the Day-17 plumbing** (mandatory pre-user: OPFS can
+  be evicted, a downloaded file can't):
+  - `app/js/identity-backup.js` — pure crypto/bundle module, node-testable:
+    AES-GCM-256 over a JSON bundle, key = PBKDF2-SHA-256 (310k) from the user
+    passphrase; file layout `VeltaIdentity-v1 | salt(16) | iv(12) | ct`. The
+    SAME passphrase also protects the key files inside the core
+    (`export/import_self_keys`), so the user remembers one secret. Bundle =
+    `{kind:"velta-identity", addr, mail_pw, keys{name→b64}, exported}`.
+  - `app/js/rpc-core.js` — thin wrappers: `addAccount`, `batchSetConfig`,
+    `configureAccount` (3-min timeout — relay login),
+    `getAccountConfig`, `exportSelfKeys`, `importSelfKeys`.
+  - UI: drawer row "Identity backup…" (wasm core only) → modal with Export
+    (passphrase ×2 → core export → memfs read via the transport file
+    passthrough → download `velta-identity-<addr>.velta-identity`) and
+    Restore (file + passphrase → decrypt → fresh account →
+    `batch_set_config{addr, mail_pw}` → **configure first** → write key
+    files → `import_self_keys` → reload). Splash gains "Restore an identity
+    backup…" (wasm dist only; splash stays open underneath — failed restore
+    leaves the user on the splash, success reloads).
+- **Gating:** `identityBackupAvailable()` = worker-wasm transport present
+  (`core.transport.readCoreFile` + `backend.kind`); drawer row, splash
+  button and every RPC path are behind it, so demo/MockCore never sees the
+  new methods — no mock twins on purpose.
+- **Verification:** node crypto tests 6/6 (round-trip, wrong passphrase,
+  tamper, bad magic, b64 binary round-trip); PWA dist rig extended to 10/10
+  (splash offers restore, bundle round-trips through Chromium's WebCrypto
+  with the exact shipped module, drawer row present). Full UI export →
+  restore against a real relay still needs relay reachability (VPN window
+  or CI) — the CI identity e2e proves the core-level round-trip with the
+  same RPC order, so only the UI shell (file pick + passphrase) is new.
+- **Open:** UI-level restore e2e with a live relay (C3 or VPN day); CI job
+  that builds the PWA dist + runs the rig; wasm-opt deploy dist.
