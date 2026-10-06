@@ -302,7 +302,7 @@ Ship/opt path should prefer `wasm-opt` when available (~38% smaller here).
 | Path | Contents |
 |---|---|
 | `docs/research/wasm-patches/series/*.patch` | **8** discrete patches (`git format-patch` from side-tree baseline `0a10087` → HEAD; `Cargo.lock` hunks stripped) |
-| `docs/research/wasm-patches/SERIES` | Apply order |
+| `docs/research/wasm-patches/series.txt` (was `SERIES`; renamed so it no longer clashes with `series/` on case-insensitive filesystems) | Apply order |
 | `docs/research/wasm-patches/support/` | `tokio-wasm-shim` + async-imap / astral-tokio-tar / mail-builder (~1 MB) |
 
 Baseline `0a10087` matched Velta master `core/` at extract (diff empty).

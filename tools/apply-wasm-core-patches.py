@@ -49,7 +49,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PATCH_HOME = ROOT / "docs" / "research" / "wasm-patches"
 SERIES_DIR = PATCH_HOME / "series"
-SERIES_FILE = PATCH_HOME / "SERIES"
+SERIES_FILE = PATCH_HOME / "series.txt"
 SUPPORT = PATCH_HOME / "support"
 README = PATCH_HOME / "README.md"
 DEFAULT_DEST = ROOT / ".wasm-core-apply"
@@ -79,7 +79,7 @@ def series_patches() -> list[Path]:
     for name in names:
         p = SERIES_DIR / name
         if not p.is_file():
-            die(f"missing patch listed in SERIES: {p}")
+            die(f"missing patch listed in series.txt: {p}")
         out.append(p)
     return out
 
