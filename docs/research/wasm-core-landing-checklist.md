@@ -186,6 +186,11 @@ Native builds must not change behaviour because of the wasm patches.
   test deploy of `pbuzdin/relay`. Day 19 finding: relay `/new` must be
   same-origin (or CORS-enabled) too — the PWA's in-browser account-minting
   fetch is refused today, so C3 scope is `/new` + `/imap` + `/smtp`.
+  Day 22: fork branch `websockify-c3` built (upstream PR #1030 websockify +
+  `ws_allowed_origins` Origin allowlist + per-IP limit_conn + `/new` CORS,
+  spike log Day 22); push to the fork blocked by the Mimosa L3 project gate
+  (pre-existing upstream findings) — needs Pavel's terminal; then a
+  test-relay deploy for this e2e.
 - ⬜ Interop: wasm client ↔ native Velta (Android/desktop) message both ways,
   Autocrypt/SecureJoin verified.
 - ⬜ Persistence (OPFS) restart test; storage-eviction backup path (C4).

@@ -1,13 +1,14 @@
 # Spike log — wasm core + WebSocket mail proxy
 
-**Status:** day 20 — V2.5 identity backup UX (export/restore in the PWA,
-passphrase-wrapped bundle, rig 10/10); day 19 = C4 PWA dist
-(`scripts/build-pwa.mjs` + precache SW + `VELTA_PWA` seam, rig 7/7);
-scheduler `TaskTracker` wasm32 fix (patch 0010, series 10 patches);
-real-relay configure from the wasm worker PASS; OPFS persistence; C2
-consumer wired; CI identity e2e first green (run 37504603502). [Landing
+**Status:** day 21 — CI builds + rigs + ships the PWA dist (`dist-pwa`
+artifact, run 37524331472); day 20 = V2.5 identity backup UX (export/restore
+in the PWA, passphrase-wrapped bundle, rig 10/10); day 19 = C4 PWA dist
+(`scripts/build-pwa.mjs` + precache SW + `VELTA_PWA` seam); scheduler
+`TaskTracker` wasm32 fix (patch 0010, series 10 patches); real-relay
+configure from the wasm worker PASS; OPFS persistence; C2 consumer wired;
+CI identity e2e first green (run 37504603502). [Landing
 checklist](wasm-core-landing-checklist.md) **18 open** — master `core/`
-stays stock.
+stays stock. Next: **C3** (relay websockify — `/new` + `/imap` + `/smtp`).
 Started **2026-10-05** (Europe/Moscow). Research baseline:
 [`wasm-core-mail-proxy.md`](wasm-core-mail-proxy.md).
 
@@ -1103,3 +1104,39 @@ the wasm-layer rollback (discrete stack, `cfg`-gated, one revert).
   + `/smtp` same-origin), UI-level restore e2e vs a live relay (VPN window),
   "≥3 e2e passes on different days" (automation fires Oct 7 09:00), the
   remaining human-review/Pavel boxes in the landing checklist.
+
+## Day 22 — C3: websockify branch on the relay fork (2026-10-06)
+
+- **Upstream basis:** chatmail/relay PR #1030 (open draft,
+  branch `link2xt/websockify`, tip `02c7d3d`) — two `websockify` systemd
+  units (127.0.0.1:8143→localhost:143 Dovecot, 127.0.0.1:8587→localhost:587
+  Postfix submission) + nginx `/imap` `/smtp` WS-upgrade locations.
+  Reviewer gaps = exactly what the plan required us to add: CORS left to
+  deployers, no Origin checks, no per-IP caps, plus the loopback per-IP/
+  HELO caveat (every WS client arrives at Dovecot/Postfix from 127.0.0.1).
+- **Fork branch `websockify-c3`** (base = fork `iroh-relay-1.0` so a deploy
+  carries both #1061 co-hosting and C3; upstream commit cherry-picked clean
+  as `ffbe19a`) + Velta hardening (`0260c22`):
+  - new `ws_allowed_origins` chatmail.ini param (comma-separated https
+    origins; empty = same-origin only) → nginx `map`s.
+  - `/imap` `/smtp`: 403 for non-allowlisted Origin (browsers always send
+    one on WS handshakes; origin-less native clients stay allowed) +
+    `limit_conn wsmail_conn 10` per client IP (compensates the shared
+    loopback source).
+  - `/new`: `Access-Control-Allow-Origin` for allowlisted origins only —
+    closes the Day-19 CORS finding (in-browser minting = simple POST, no
+    preflight, no credentials).
+  - `websockify/README.md`: TLS topology (wss = transport TLS; STARTTLS
+    rides the tunnel end-to-end on 587; proxy never terminates mail TLS),
+    Origin model, loopback per-IP/HELO caveat.
+- **Validated:** `py_compile` + jinja render of `nginx.conf.j2` (origin
+  appears exactly 3× across the two maps, hardening directives present).
+  Not yet run against a live deploy — needs a test relay.
+- **⚠ Push blocked by Mimosa L3** (3 attempts): the gate scans the whole
+  upstream tree and trips on 15 PRE-EXISTING upstream findings (test
+  fixtures' hardcoded creds, online-test SSRF, `cmdeploy.py` command
+  injection) — none in the C3 diff. Needs the push from Pavel's terminal:
+  `cd upstream/relay && git push fork websockify-c3`.
+- **Remaining for C3 completeness:** deploy the branch on a test relay,
+  point `ws_allowed_origins` at the PWA origin, run the wasm e2e against
+  `/imap`+`/smtp` (checklist §5 box), then in-browser minting e2e.
