@@ -1,15 +1,16 @@
 # Spike log — wasm core + WebSocket mail proxy
 
-**Status:** day 25 — nightly box TICKED (native copy check green on stable
-1.98.1, wasm32-only requirement proven) + `core/Cargo.lock` landing plan
-written ([`wasm-core-lock-landing-plan.md`](wasm-core-lock-landing-plan.md));
-landing checklist **15 open**. Day 24: C3 deploy runbook
-([`websockify-c3-deploy.md`](websockify-c3-deploy.md)) — a test-relay
-deploy of `websockify-c3` is the remaining C3 step (branch push from
-Pavel's terminal). Day 21: CI builds + rigs + ships the PWA dist
-(`dist-pwa` artifact). Day 20: V2.5 identity backup UX (export/restore in
-the PWA, rig 10/10). CI identity e2e first green (run 37504603502). Master
-`core/` stays stock until the checklist is green.
+**Status:** day 26 — the human-step items are tracked as issues #94 (C3
+relay push + test deploy + relay-native e2e), #95 (landing sign-offs:
+§0 decision, §3 APK waiver, §6 reviews, §7 go-ahead) and #96 (Oct 8 e2e
+dispatch for the different-days box); landing checklist **15 open**. Day
+25: nightly box TICKED (native copy check green on stable 1.98.1,
+wasm32-only proven) + `core/Cargo.lock` landing plan
+([`wasm-core-lock-landing-plan.md`](wasm-core-lock-landing-plan.md)).
+Day 24: C3 deploy runbook
+([`websockify-c3-deploy.md`](websockify-c3-deploy.md)). CI identity e2e
+first green (run 37504603502); different-days streak at 2 distinct days.
+Master `core/` stays stock until the checklist is green.
 Started **2026-10-05** (Europe/Moscow). Research baseline:
 [`wasm-core-mail-proxy.md`](wasm-core-mail-proxy.md).
 
@@ -1219,3 +1220,24 @@ the wasm-layer rollback (discrete stack, `cfg`-gated, one revert).
   the vendored crates have no version movement, and step 7 re-runs
   `refresh-lock` after landing so the pinned locks match production.
 - Landing checklist burn-down: **17 → 15 open**.
+
+## Day 26 — human-step items become tracked issues (2026-10-07)
+
+- Pavel's standing instruction: anything needed from him goes into the
+  Velta issue tracker instead of waiting on a session. Three issues opened:
+  - **#94 — C3 relay chain:** push `websockify-c3` from the user's
+    terminal (Mimosa L3 keeps tripping agent pushes) → test-relay deploy
+    per `websockify-c3-deploy.md` → `RELAY_WS_URL` e2e → tick the §5 C3
+    box. This is the critical path's only remaining engineering block.
+  - **#95 — landing sign-offs:** §0 landing decision (prefer upstream),
+    §3 APK-build written waiver, §6 independent line-by-line series review
+    (focus areas listed) + security review, §7 final go-ahead.
+  - **#96 — 2026-10-08 e2e dispatch:** third distinct day for the
+    "≥3 passes on different days" box (the manual replacement for the
+    dropped automation).
+- Housekeeping: `scripts/package-lock.json` committed — it pins the
+  `npm install` that the wasm CI's browser-smoke/rig steps run in
+  `scripts/` (playwright 1.56.0); it had been sitting untracked since the
+  Day-19 rig work.
+- With this, the machine-doable queue is empty. Every remaining checklist
+  box maps to an issue (#94/#95/#96) or device work (#92).
