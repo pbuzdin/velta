@@ -353,13 +353,15 @@ frontend into Velta. Coexist with Velta's existing 13 core patches
 
 ## 6. Open questions
 
-- **OQ-1 (acceptance):** Who holds keys for the PWA?
+- **OQ-1 (acceptance): DECIDED 2026-10-06 — Architecture C** (non-custodial
+  with addresses). Who holds keys for the PWA?
   - **A — Gateway custody:** server holds DB + keys (webmail model;
     passphrase-at-rest mitigations). Cheapest path to full chatmail + push.
+    *Not chosen.*
   - **C — Non-custodial with addresses:** wasm core in the browser +
     WebSocket mail proxy; keys/DB client-side; full chatmail interop; residual
-    trust is PWA code origin + browser storage. Spike effectively done
-    (e2e round-trip PASS locally + CI; real-relay deploy open) — landing
+    trust is PWA code origin + browser storage. **CHOSEN.** Spike effectively
+    done (e2e round-trip PASS locally + CI; real-relay deploy open) — landing
     gated on the checklist. Research:
     [`docs/research/wasm-core-mail-proxy.md`](docs/research/wasm-core-mail-proxy.md);
     spike log:

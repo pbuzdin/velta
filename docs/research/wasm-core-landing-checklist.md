@@ -22,8 +22,8 @@ Legend: ✅ done on the opt-in copy (evidence linked) · ⬜ open · ⛔ blocker
 
 ## 0. Preconditions (decision)
 
-- ⬜ OQ-1 in `PLAN-PWA-WEBSOCKET.MD` resolved in favour of Architecture C
-  (non-custodial with addresses) — otherwise there is no reason to land.
+- ✅ OQ-1 in `PLAN-PWA-WEBSOCKET.MD` resolved in favour of Architecture C
+  (non-custodial with addresses) — **decided by Pavel 2026-10-06**.
 - ⬜ C2 (worker-wasm transport in `app/js`) has a consumer ready to use the
   landed core; landing without a consumer only adds maintenance cost.
 - ⬜ Decision recorded: land as cfg-gated patches in `core/` **vs.** keep the
@@ -113,10 +113,13 @@ Native builds must not change behaviour because of the wasm patches.
   (astral-tokio-tar 0.6.4 rebase): **1135/1135, 1 skipped, 0 warnings**.
 - ✅ Avatar golden parity: copy and stock both produce `d57cb5ce…af.png`
   for `test_selfavatar_in_blobdir`; 0009 changes no golden — Day 8.
-- ⬜ Same nextest run with the **landed** lock (after §2 bumps), plus
-  `deltachat-jsonrpc`, `deltachat-rpc-server`, `deltachat-ffi` crates.
-- ⬜ Golden / fixture hashes unchanged vs. stock across the whole suite
-  (any intentional change documented per test with the cause).
+- ✅ Same nextest run with the **landed** lock (Day 13): `deltachat --lib`
+  1135/1135 (1 skipped); `deltachat-jsonrpc` + `deltachat-rpc-server` 2/2.
+  `deltachat_ffi` has no testable rust target (`cdylib, staticlib`; C-side
+  tests out of nextest scope).
+- ✅ Golden / fixture hashes unchanged vs. stock across the whole suite:
+  the embedded golden/fixture expectations pass on both stock CI and the
+  wasm-series copy (Day 13 run); no intentional golden changes.
 - ⬜ `python3 tools/apply-core-patches.py verify` → 13/13 **after** the
   wasm series is in `core/` (the two layers coexist).
 - ⬜ Android APK + Windows sidecar + `velta-core-service` build from the

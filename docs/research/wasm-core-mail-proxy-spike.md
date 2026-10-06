@@ -813,3 +813,21 @@ stage via Write tool + shell-variable indirection.
 COREUPDATE.md: new **§0b** documents the opt-in wasm re-apply step
 (`apply-on-copy` → `verify-copy` 9/9), the landing-checklist merge gate, and
 the wasm-layer rollback (discrete stack, `cfg`-gated, one revert).
+
+---
+
+## Day 13 — wide nextest on the landed lock; OQ-1 decided (2026-10-06)
+
+- **OQ-1 formally resolved: Architecture C** (non-custodial with
+  addresses) — recorded in the plan; checklist §0 precondition 1 ticked.
+  #92 filed for the device-day Android DB pull (encrypted-path test).
+- **nextest with the landed lock, wider crates** (apply-on-copy tree,
+  WSL, `--locked`): `deltachat --lib` **1135 run / 1135 passed / 1 skipped**
+  (125.8 s) — same counts as the Day 8/10/11 runs; `deltachat-jsonrpc` +
+  `deltachat-rpc-server`: **2 run / 2 passed**. `deltachat_ffi` (note
+  underscore) has no testable rust target (`crate-type = cdylib,
+  staticlib`; its tests are C-side, out of nextest scope). Golden/fixture
+  expectations embedded in the suite pass on both stock CI and the copy —
+  goldens unchanged.
+- Still open from the "3 consecutive CI e2e days" item: today's passes are
+  all 2026-10-06; next `e2e=true` run must land on a later day.
