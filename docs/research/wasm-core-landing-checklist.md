@@ -188,9 +188,10 @@ Native builds must not change behaviour because of the wasm patches.
   fetch is refused today, so C3 scope is `/new` + `/imap` + `/smtp`.
   Day 22: fork branch `websockify-c3` built (upstream PR #1030 websockify +
   `ws_allowed_origins` Origin allowlist + per-IP limit_conn + `/new` CORS,
-  spike log Day 22); push to the fork blocked by the Mimosa L3 project gate
-  (pre-existing upstream findings) — needs Pavel's terminal; then a
-  test-relay deploy for this e2e.
+  spike log Day 22). Day 23: branch PUSHED to `pbuzdin/relay` and extended
+  with the wasm-core bridge scheme (`/tcp/{host}/993|465` + `/dns/`, TLS
+  targets inside wasm) — remaining: test-relay deploy, then run the e2e
+  with `RELAY_WS_URL=wss://<relay>` and the in-browser minting check.
 - ⬜ Interop: wasm client ↔ native Velta (Android/desktop) message both ways,
   Autocrypt/SecureJoin verified.
 - ⬜ Persistence (OPFS) restart test; storage-eviction backup path (C4).
