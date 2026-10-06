@@ -310,16 +310,16 @@ frontend into Velta. Coexist with Velta's existing 13 core patches
   `tokio-wasm-shim`, Day 12a) + vendored forks (async-imap, mail-builder,
   astral-tokio-tar). Landing gate = checklist §7
   ([`docs/research/wasm-core-landing-checklist.md`](docs/research/wasm-core-landing-checklist.md),
-  23 boxes open) — production `core/` stays stock until then.
+  18 boxes open 2026-10-06) — production `core/` stays stock until then.
   Release-profile wasm CI job; rebase checklist per core bump (COREUPDATE
   §0b).
-- **C2 — WS worker transport in Velta (scaffolding rig-verified
-  2026-10-06).** `worker-wasm.js` + `WorkerWasmTransport` in `app/js` behind
+- **C2 — WS worker transport in Velta (DONE, 2026-10-06).**
+  `worker-wasm.js` + `WorkerWasmTransport` in `app/js` behind
   the existing line-oriented `rpc-core.js` seam (`setReceiver` / `send(line)`)
   — real `JsonRpcCore.init()` handshake + `get_system_info` PASS in a browser
-  worker (spike log Day 14a). Still open: app-boot feature-detect wiring
-  (no Tauri + PWA + wasm flag → worker transport), OPFS persistence +
-  Web Locks single-tab gate, optional crypto offload worker later.
+  worker (spike log Day 14a); wired into `createCore()` with the real app UI
+  booting on the wasm core, no demo fallback (Day 15); OPFS persistence +
+  Web Locks single-tab gate (Day 16). Optional crypto offload worker later.
 - **C3 — Relay websockify / CORS or generic proxy.** Prefer relay-native
   websockify (upstream PR #1030 / fork branch `link2xt/websockify`): nginx
   `/imap`→localhost:143, `/smtp`→localhost:587, plus CORS/`Origin`
@@ -328,11 +328,14 @@ frontend into Velta. Coexist with Velta's existing 13 core patches
   (allowlist ports 465/993/587/143, never 25; TLS stays in wasm) on the
   PWA origin for interop tests against any chatmail. Avoid TLS-terminated-
   at-proxy (design T).
-- **C4 — PWA shell for C.** Same V0 dist shape (SW, CSP with
-  `'wasm-unsafe-eval'`, `pwa-config.js` proxy/relay endpoints); onboarding
-  via invite/claim or `dcaccount:` bare-domain; identity/key backup UX
-  (mandatory — storage eviction); optional OPFS persistence hardening
-  (sahpool, `navigator.storage.persist()`, blob mirror).
+- **C4 — PWA shell for C (dist + identity backup DONE, 2026-10-06).**
+  `scripts/build-pwa.mjs` builds the deployable dist (SW precache, CSP with
+  `'wasm-unsafe-eval'`, `pwa-config.js` proxy/relay endpoints, rig-verified
+  7/7 — Day 19); identity/key backup UX shipped (passphrase-wrapped bundle,
+  export/restore in drawer + splash, rig 10/10 — Day 20), mandatory
+  pre-user. Still open: onboarding via invite/claim or `dcaccount:` needs
+  C3's relay origin (relay `/new` sends no CORS), CI dist-build job,
+  wasm-opt deploy dist, optional OPFS hardening (sahpool, blob mirror).
 - **Maintenance note.** Expect **~0.5–1 person-week per upstream core
   bump** to rebase the wasm patch stack. Track chatmail/core #8559 and
   relay #1030 — their landing shrinks the custom networking patch. Prefer

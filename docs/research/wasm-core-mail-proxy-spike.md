@@ -1,6 +1,13 @@
 # Spike log — wasm core + WebSocket mail proxy
 
-**Status:** day 18 — scheduler `TaskTracker` panic on wasm32 fixed (patch 0010, series 10 patches); real-relay configure from the wasm worker PASS; OPFS persistence + identity-bundle plumbing (V2.5) in; C2 consumer wired. [Landing checklist](wasm-core-landing-checklist.md) **18 open** — master `core/` stays stock.
+**Status:** day 20 — V2.5 identity backup UX (export/restore in the PWA,
+passphrase-wrapped bundle, rig 10/10); day 19 = C4 PWA dist
+(`scripts/build-pwa.mjs` + precache SW + `VELTA_PWA` seam, rig 7/7);
+scheduler `TaskTracker` wasm32 fix (patch 0010, series 10 patches);
+real-relay configure from the wasm worker PASS; OPFS persistence; C2
+consumer wired; CI identity e2e first green (run 37504603502). [Landing
+checklist](wasm-core-landing-checklist.md) **18 open** — master `core/`
+stays stock.
 Started **2026-10-05** (Europe/Moscow). Research baseline:
 [`wasm-core-mail-proxy.md`](wasm-core-mail-proxy.md).
 
