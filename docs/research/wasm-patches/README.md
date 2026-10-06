@@ -16,7 +16,7 @@ meaning a **Velta-owned forward-port of chatmail/core 2.62+** targeting
 | Location | Role |
 |---|---|
 | Spike side tree `/workspace/velta-wasm-port` | Proven Day 3–5 workspace (artifact + e2e) |
-| `series/*.patch` + `SERIES` (this dir) | **Extracted** discrete patches (Day 6) from side-tree commits after baseline `0a10087` (= Velta master `core/` at extract time). `Cargo.lock` hunks stripped — regenerate lock via cargo |
+| `series/*.patch` + `series.txt` (this dir) | **Extracted** discrete patches (Day 6) from side-tree commits after baseline `0a10087` (= Velta master `core/` at extract time). `Cargo.lock` hunks stripped — regenerate lock via cargo |
 | `support/{crates,vendor-crates}/` | `tokio-wasm-shim` + vendored async-imap / astral-tokio-tar / mail-builder |
 | [`VENDORED.md`](VENDORED.md) | Day 11 register: vendored crates (upstream base, licence, local delta, native effect) + per-patch re-apply notes |
 | `sqlcipher-harness/` | Day 11 scratch harness: SQLCipher 4.6.1↔4.14.0 upgrade/rollback on a real-schema DB (not built by CI) |
@@ -90,7 +90,7 @@ wasm-bindgen 0.2.129, rusqlite 0.40.2, libsqlite3-sys 0.38.2, png 0.18.0
 
 ## Patch series (commit order)
 
-See [`SERIES`](SERIES). Rough mapping to inventory WASM-CORE ids:
+See [`series.txt`](series.txt). Rough mapping to inventory WASM-CORE ids:
 
 | Series | Intent |
 |---|---|
@@ -106,7 +106,7 @@ native dependency implications are in the
 [landing checklist](../wasm-core-landing-checklist.md) §1–§2.
 To edit the series: `git am` it onto a scratch git copy of master `core/`,
 amend/fixup, `git format-patch --zero-commit -N`, replace `series/`, update
-`SERIES`, then `refresh-lock`.
+`series.txt`, then `refresh-lock`.
 
 ## Long-term patch home
 
