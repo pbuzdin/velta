@@ -1,6 +1,6 @@
 # Landing checklist — wasm patches into production `core/`
 
-**Status:** DRAFT (Day 9, burn-down started Day 10, 2026-10-06). **Not green.** Nothing on this list
+**Status:** DRAFT (Day 9, burn-down Day 10–11, 2026-10-06). **Not green.** Nothing on this list
 authorises a merge by itself; Pavel signs off the final box.
 
 > **Production `core/` stays stock until this checklist is green.**
@@ -40,20 +40,28 @@ Legend: ✅ done on the opt-in copy (evidence linked) · ⬜ open · ⛔ blocker
 - ✅ Warnings: `deltachat` lib on wasm32 **0** (was 4: unused `bail`, 3
   API-parity fns in `http_wasm.rs`); native lib+tests **0** (was 1: unused
   `sync_fs::read` re-export in `blob.rs`). Remaining warnings are in the
-  vendored astral-tokio-tar only (2× `unused_braces`, upstream code).
+  vendored astral-tokio-tar only (2× `unused_braces`, upstream code — also in
+  stock 0.6.4; Day 11 re-check after the rebase: still 0 in `deltachat`).
 - ✅ rustfmt: series adds **no** new `cargo fmt --check` diffs (the 5
   remaining diffs exist on stock master too — `blob_tests.rs`,
   `scheduler.rs`, `smtp.rs` — and are not ours to fix here).
 - ✅ Gating audit (Day 10, table below): every non-`cfg`-gated hunk is a
   target-neutral wrapper or call-site refactor.
-- ⬜ Each patch has a VENDORISSUES-style entry so re-apply on core bumps is
-  possible (or the series is converted into anchor-based blocks in
-  `apply-core-patches.py` style).
+- ✅ Each patch has a VENDORISSUES-style entry so re-apply on core bumps is
+  possible — Day 11: [`wasm-patches/VENDORED.md`](wasm-patches/VENDORED.md)
+  §B (files, anchors/re-apply risk, native impact per patch; 0002 and 0007
+  flagged high-churn).
 - ⬜ Licensing: only MPL-2.0 patch ideas + Velta-written code; no GPL
   slothfulchat-web UI; vendored crates keep their licences/NOTICE files;
   `ws-tcp-proxy` (Unlicense) still not vendored (CI fetches it pinned).
-- ⬜ `tokio-wasm-shim` (support crate) has its own rustfmt diffs (9 hunks);
-  format or document as imported code before landing.
+  Day 11 audit ([VENDORED.md](wasm-patches/VENDORED.md) §A): astral-tokio-tar,
+  async-imap, mail-builder keep MIT/Apache files ✅. **Open:**
+  `tokio-wasm-shim` says `MPL-2.0` only in its Cargo.toml; slothfulchat-web is
+  GPL-3.0-or-later overall and its README licence table does not list the
+  shim; no LICENSE file in the crate → get upstream confirmation or rewrite (A1).
+- ✅ `tokio-wasm-shim` rustfmt diffs (9 files) documented as imported code
+  (byte-identical to slothfulchat-web `452cd0d`; left unformatted to keep
+  upstream diffs clean) — Day 11, VENDORED.md §A1. Re-decide if Velta rewrites it.
 
 ### Gating audit — hunks that are *not* behind `cfg(target_arch = "wasm32")`
 
@@ -62,7 +70,7 @@ Legend: ✅ done on the opt-in copy (evidence linked) · ⬜ open · ⛔ blocker
 | 0001 | `deltachat-time` gains `SystemTimeTools::now()` | none (std on native) |
 | 0002 | Cargo: native deps moved to `cfg(not(wasm32))` table; `rusqlite` **0.37→0.40** + `fallible_uint` | **dependency bump** — see §2 |
 | 0003 | `tokio` → `tokio-wasm-shim` in ffi / jsonrpc / repl / rpc-server | facade = `pub use tokio::*` with `full` (feature superset) |
-| 0004/0008 | `[patch.crates-io]` async-imap, astral-tokio-tar, mail-builder | **vendored sources used on native too** (Cargo `[patch]` cannot be per-target) — see §2 |
+| 0004/0008 | `[patch.crates-io]` async-imap, astral-tokio-tar (=0.6.4 since Day 11), mail-builder | **vendored sources used on native too** (Cargo `[patch]` cannot be per-target) — see §2 |
 | 0005/0008 | `accounts`/`context`/`imex`: `path_exists`/`path_is_dir`/`path_is_file` | wrappers call `Path::exists/is_dir/is_file` on native |
 | 0007 | `Time::now()` → `tools::time_now()` (context, imap, idle, key, quota, scheduler, smtp, migrations, wal_checkpoint), ratelimit `now()` | wrapper calls `Time::now()` on native |
 | 0007 | `blob`: `image_metadata` takes `BufRead + Seek`; `sync_fs` facade | target-neutral refactor; recode output byte-identical (avatar golden `d57cb5ce…`) |
@@ -80,11 +88,11 @@ Legend: ✅ done on the opt-in copy (evidence linked) · ⬜ open · ⛔ blocker
   | Crate (native graph) | Stock | With series | Implication |
   |---|---|---|---|
   | rusqlite | 0.37.0 | **0.40.2** | API bump (`fallible_uint` for u64 ToSql); full lib nextest green on copy |
-  | libsqlite3-sys (`bundled-sqlcipher-vendored-openssl`) | 0.35.0 | **0.38.2** | bundled **SQLCipher 4.6.1 → 4.14.0** (SQLite 3.46.1 → 3.51.3). Same SQLCipher 4 file format, but every existing user DB is opened by the new engine: needs an upgrade test on a real Android/desktop DB + downgrade (rollback) test before release |
+  | libsqlite3-sys (`bundled-sqlcipher-vendored-openssl`) | 0.35.0 | **0.38.2** | bundled **SQLCipher 4.6.1 → 4.14.0** (SQLite 3.46.1 → 3.51.3). Same SQLCipher 4 file format. ✅ **Day 11 upgrade + rollback PASS** on a real-schema Velta DB (dbversion 167, WAL) created by stock core, plaintext (Velta default) **and** legacy passphrase mode: 4.6.1 create → 4.14.0 open/write → 4.6.1 reopen/write → 4.14.0 reopen, `integrity_check=ok` and all rows at every hop (harness: `wasm-patches/sqlcipher-harness/`). Remaining: same test on a copied **production** Android/desktop DB (older dbversion → migrations under the new engine) |
   | hashlink | 0.10.0 | 0.12.2 | rusqlite statement cache; internal |
   | tokio | 1.53.1 | 1.53.1 (via `tokio-wasm-shim`) | facade only; shim's `registry`/`durability`/`limits` modules compile on native |
   | async-imap | 0.11.3 crates.io | 0.11.3 **vendored** | 2 files / 10 lines, all `cfg`-gated (idle timeout import) |
-  | astral-tokio-tar | **0.6.4** | **0.6.3 vendored** | ⛔ **native downgrade** (loses 0.6.4's 32-bit Unix nanosecond fix + rustix 1.0). Vendor diff (~170 lines) is mostly gated, but `canonicalize` moves to `tokio::fs` on native too. Rebase vendor onto stock version before landing |
+  | astral-tokio-tar | 0.6.4 | **0.6.4 vendored** (Day 11 rebase) | ✅ downgrade removed: vendor = crates.io 0.6.4 + 61 wasm lines; native lock now 0.6.4 + rustix 1.1.4 like stock. Ungated: `canonicalize` via `tokio::fs` (same result, blocking pool). Day 11 nextest 1135/1135 |
   | mail-builder | 0.5.0 crates.io | 0.5.0 **vendored** | 3 files / 88 lines, `SystemTime` imports `cfg`-gated |
   | wasm-bindgen / js-sys / web-sys / sqlite-wasm-rs / wasmtimer / indexed_db_futures | 0.2.100 … | 0.2.129 … | **not in native graphs** (wasm-only) |
 
@@ -101,7 +109,8 @@ Legend: ✅ done on the opt-in copy (evidence linked) · ⬜ open · ⛔ blocker
 Native builds must not change behaviour because of the wasm patches.
 
 - ✅ Full `cargo nextest run -p deltachat --lib` on the copy:
-  **1135/1135** (1 skipped) — Day 8.
+  **1135/1135** (1 skipped) — Day 8; re-run Day 10 (hygiene) and Day 11
+  (astral-tokio-tar 0.6.4 rebase): **1135/1135, 1 skipped, 0 warnings**.
 - ✅ Avatar golden parity: copy and stock both produce `d57cb5ce…af.png`
   for `test_selfavatar_in_blobdir`; 0009 changes no golden — Day 8.
 - ⬜ Same nextest run with the **landed** lock (after §2 bumps), plus
@@ -160,8 +169,10 @@ Native builds must not change behaviour because of the wasm patches.
 
 ## 6. Review
 
-- ⬜ Review vendored crates against upstream (they ship on native too):
-  async-imap (10 lines), astral-tokio-tar (~170), mail-builder (88).
+- ⬜ Review vendored crates against upstream (they ship on native too).
+  Day 11 machine diff vs crates.io `src/`: astral-tokio-tar 0.6.4 **61**
+  changed lines, async-imap 0.11.3 **6**, mail-builder 0.5.0 **17** (all
+  listed in VENDORED.md §A). Human review still open.
 - ⬜ Line-by-line review of the series by someone other than the author
   (agent-written patches need human review), focusing on: TLS clock
   provider, `ws_tcp` DNS/connect path, `http_wasm` fetch, blob memfs.

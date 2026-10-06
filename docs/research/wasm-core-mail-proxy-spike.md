@@ -1,6 +1,6 @@
 # Spike log — wasm core + WebSocket mail proxy
 
-**Status:** day 10 **complete** — series hygiene pass (0 warnings wasm+native, rustfmt-clean, `wasm(<area>)` subjects), native-impact analysis (SQLCipher 4.6.1→4.14.0, astral-tokio-tar downgrade ⛔), size budget proposed + CI-enforced (20 MB raw / 5 MB brotli / 7.8 MB gzip), optional CI e2e (`workflow_dispatch e2e=true`) **PASS** on `d777ab0`. Day 9: locks pinned + CI `--locked` green, in-repo e2e PASS. [Landing checklist](wasm-core-landing-checklist.md) not green — master `core/` stays stock.
+**Status:** day 11 — astral-tokio-tar rebased onto stock 0.6.4 (native downgrade removed), SQLCipher 4.6.1↔4.14.0 upgrade + rollback PASS on a real-schema DB, vendored code register ([`VENDORED.md`](wasm-patches/VENDORED.md)), CI e2e run 3. Day 10 complete (CI e2e PASS on `d777ab0`). [Landing checklist](wasm-core-landing-checklist.md) **25 open** — master `core/` stays stock.
 Started **2026-10-05** (Europe/Moscow). Research baseline:
 [`wasm-core-mail-proxy.md`](wasm-core-mail-proxy.md).
 
@@ -614,21 +614,90 @@ No production `core/` wasm merge; `core/` + `core/Cargo.lock` untouched;
 
 ---
 
-## Next concrete steps (day 11)
+## Day 11 (2026-10-06) — tar rebase, SQLCipher upgrade/rollback, vendored register
 
-1. Rebase vendored astral-tokio-tar onto stock 0.6.4 (removes the native downgrade);
-   refresh-lock; re-run nextest.
-2. SQLCipher 4.6.1 → 4.14.0 upgrade/rollback test on a real Velta DB (native, copy).
-3. VENDORISSUES-style entries per series patch; format or document `tokio-wasm-shim`.
-4. Repeat CI e2e on another day (checklist wants ≥ 3 passes).
+Pavel approved Day 11. Still **no** production `core/` merge.
+
+### 1. astral-tokio-tar 0.6.3 → 0.6.4 (native downgrade removed)
+Upstream 0.6.3→0.6.4 delta is tiny (`entry.data.truncate(0)`→`clear()`,
+`subsec_nanos().into()`→`as _` for 32-bit Unix, rustix 0.38→1.0). Replayed onto
+the vendor, bumped its version, pinned 0004 to `=0.6.4` (commit-message native
+note updated). `diff -ru` vs crates.io 0.6.4 `src/` = **only** the wasm hunks
+(61 lines). `refresh-lock` (fresh apply-on-copy): core lock moves only
+astral-tokio-tar 0.6.3→0.6.4 + rustix 1.1.4 (== stock); wrapper lock drops
+rustix 0.38.44 / linux-raw-sys 0.4.14.
+
+Verification on fresh pinned apply-on-copy `/tmp/velta-wasm-day11`
+(9/9 + `verify-copy` OK, locks == support/locks/):
+
+| Check | Result |
+|---|---|
+| native `cargo nextest run --locked -p deltachat --lib` | **1135 run: 1135 passed, 1 skipped** (33.5 s), 0 warnings |
+| wasm `cargo check --locked` (nightly-2026-08-01) | **PASS**, 0 `deltachat` warnings (2× upstream `unused_braces` in tar) |
+| `wasm-pack build --release --no-opt -- --locked` | **PASS**, `deltachat_wasm_bg.wasm` 29 917 028 B |
+| `smoke-deltachat-wasm.mjs` | **PASS** (`core v2.62.0`, sqlite 3.53.0; memfs roundtrip) |
+
+### 2. SQLCipher 4.6.1 → 4.14.0 upgrade + rollback (native, scratch)
+Harness ([`wasm-patches/sqlcipher-harness/`](wasm-patches/sqlcipher-harness/)):
+one `main.rs` built twice — against stock `core/` (rusqlite 0.37 /
+libsqlite3-sys 0.35 ⇒ **4.6.1**, SQLite 3.46.1) and against the series copy
+(rusqlite 0.40.2 / 0.38.2 ⇒ **4.14.0**, SQLite 3.51.3). Each "write" opens a
+real `Context` (full migrations, dbversion 167), adds 50 contacts+chats with
+drafts, a group, 200 device messages and a `ui.d11.<step>` marker; each step
+then reports via a raw rusqlite connection.
+
+| Step | Engine | plaintext (Velta default) | passphrase (legacy) |
+|---|---|---|---|
+| 1 create | 4.6.1 | ok, msgs 261 | ok, msgs 261 |
+| 2 open (upgrade) | 4.14.0 | ok, 261, marker 1 | ok, 261, marker 1 |
+| 3 write | 4.14.0 | ok, 513 | ok, 513 |
+| 4 reopen (rollback) | 4.6.1 | ok, 513, markers 1+3 | ok, 513, markers 1+3 |
+| 5 write after rollback | 4.6.1 | ok, 765 | ok, 765 |
+| 6 reopen | 4.14.0 | ok, 765, markers 1+3+5 | ok, 765, markers 1+3+5 |
+
+"ok" = `PRAGMA integrity_check` = `ok`; page_size 4096, WAL throughout; no
+rekey/migration needed in either direction. **Risk:** low for the file format
+(both SQLCipher 4 defaults). Still open: a copied **production** Android/desktop
+DB with an older dbversion (migrations under the new engine) and the APK/desktop
+build itself — tracked in checklist §2/§3.
+
+### 3. Vendored code register
+New [`wasm-patches/VENDORED.md`](wasm-patches/VENDORED.md): §A per vendored/support
+crate (upstream base + link, licence, local src delta vs crates.io, native effect,
+upstream candidate), §B per series patch (files, re-apply risk, native impact).
+Findings: tokio-wasm-shim is byte-identical to slothfulchat-web `452cd0d`;
+**licence open** — only its Cargo.toml says MPL-2.0, the repo is GPL-3.0-or-later
+overall and its README licence table does not list the shim (A1). async-imap 6 /
+mail-builder 17 / astral-tokio-tar 61 changed src lines, all with their
+MIT/Apache files.
+
+### 4. CI run (Day 11 commit, `e2e=true`)
+CI_DAY11_PLACEHOLDER
+
+### Checklist
+Ticked: per-patch VENDORISSUES entries; shim rustfmt documented as imported
+code; astral-tokio-tar downgrade row resolved; SQLCipher upgrade/rollback
+evidence added. **25 open** (was 27).
+
+### Master
+No production `core/` wasm merge; `core/` + `core/Cargo.lock` untouched.
+
+---
+
+## Next concrete steps (day 12)
+
+1. SQLCipher test on a copied **production** Velta DB (Android + desktop,
+   older dbversion) with the series engine; keep the copy scratch-only.
+2. tokio-wasm-shim licence (A1): ask the slothfulchat-web author to confirm
+   MPL-2.0 (README table / LICENSE file), or scope a Velta rewrite.
+3. Native build of the copy for Android (aarch64) + `velta-core-service`
+   (desktop) and native artifact size vs. stock (checklist §3).
+4. COREUPDATE.md "re-apply wasm series" step + rollback plan (§7).
+5. CI e2e on another day toward ≥3 consecutive passes.
 
 ## Ask Pavel to approve next
 
-- Day 10 is complete (CI e2e PASS on `d777ab0`, size budget green). Accept or
-  adjust the size budget (20 MB raw / 5 MB brotli / 7.8 MB gzip).
-- **Proposed Day 11** (still **no** production `core/` merge): (1) rebase
-  vendored astral-tokio-tar onto stock 0.6.4 and refresh-lock + nextest;
-  (2) SQLCipher 4.6.1→4.14.0 upgrade/rollback test on a real Velta DB (native
-  copy); (3) VENDORISSUES-style entries per series patch / document
-  `tokio-wasm-shim`; (4) one more CI e2e (`e2e=true`) toward the checklist’s
-  ≥3 passes.
+- Day 11 result (see above); accept/adjust the size budget (still open).
+- Approve Day 12 scope (items 1–5 above) — still **no** production `core/` merge.
+- Item 2 needs Pavel: OK to contact the slothfulchat-web author about the shim
+  licence, or prefer a Velta rewrite?
