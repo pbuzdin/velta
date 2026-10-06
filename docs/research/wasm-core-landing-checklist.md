@@ -24,8 +24,12 @@ Legend: ✅ done on the opt-in copy (evidence linked) · ⬜ open · ⛔ blocker
 
 - ✅ OQ-1 in `PLAN-PWA-WEBSOCKET.MD` resolved in favour of Architecture C
   (non-custodial with addresses) — **decided by Pavel 2026-10-06**.
-- ⬜ C2 (worker-wasm transport in `app/js`) has a consumer ready to use the
-  landed core; landing without a consumer only adds maintenance cost.
+- ✅ C2 (worker-wasm transport in `app/js`) has a consumer ready to use the
+  landed core — **Day 15: opt-in `WorkerWasmTransport` wired into
+  `createCore()`** (`?wasm=1` / `localStorage velta-wasm=1`, non-native
+  shells only); the real app UI boots over the wasm core in a worker (rig,
+  no demo fallback). OPFS persistence + single-tab gate still pending (C4)
+  — accounts are ephemeral until then.
 - ⬜ Decision recorded: land as cfg-gated patches in `core/` **vs.** keep the
   opt-in layer forever **vs.** upstream to chatmail/core first. Prefer
   upstream (`cfg(target_arch = "wasm32")`, track chatmail/core #8559).

@@ -9,11 +9,34 @@
 //      allows fetch() with Private-Network-Access headers)
 //   5. anything else (dev/demo)       → mock core
 import { JsonRpcCore } from "./rpc-core.js";
+import { WorkerWasmTransport } from "./transport-worker-wasm.js";
 
 const WS_URL = "ws://127.0.0.1:20808";
 const HTTP_URL = "http://127.0.0.1:20809";
 const WS_PROBE_MS = 900;
 const HTTP_PROBE_MS = 1500;
+
+// Architecture C (PWA): opt-in wasm core hosted in a worker. Enabled by
+// ?wasm=1 (or localStorage velta-wasm=1) and only tried when no native shell
+// exists — the Tauri/Android builds never take this path. The glue bundle
+// location is overridable via ?wasm-glue= / localStorage velta-wasm-glue
+// (defaults to ./wasm/ next to the app, i.e. the PWA dist layout from C4).
+function wasmOptIn() {
+  try {
+    const params = new URLSearchParams(location.search);
+    if (params.has("wasm")) return params.get("wasm") !== "0";
+    return localStorage.getItem("velta-wasm") === "1";
+  } catch { return false; }
+}
+
+function wasmGlueUrl() {
+  try {
+    const params = new URLSearchParams(location.search);
+    const override = params.get("wasm-glue") || localStorage.getItem("velta-wasm-glue");
+    if (override) return override;
+  } catch {}
+  return new URL("wasm/deltachat_wasm.js", document.baseURI).href;
+}
 
 function rustLog(msg) {
   try {
@@ -230,6 +253,12 @@ export async function createCore({ onDiagnostic = () => {} } = {}) {
   if (window.__TAURI__) {
     diagnostic("info", "Tauri runtime detected; probing embedded core");
     attempts.push(() => tauriTransport());
+  }
+  // Opt-in wasm core (Architecture C): first in line when explicitly enabled
+  // on a non-native shell, so it wins over the loopback service probes.
+  if (wasmOptIn() && !window.VeltaBridge && !window.__TAURI__) {
+    diagnostic("info", "wasm opt-in: trying worker-wasm core");
+    attempts.push(() => new WorkerWasmTransport({ glueUrl: wasmGlueUrl() }));
   }
   attempts.push(websocketTransport);
   attempts.push(async () => (await probeHttp()) ? httpTransport() : null);
