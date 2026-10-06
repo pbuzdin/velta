@@ -857,3 +857,24 @@ the wasm-layer rollback (discrete stack, `cfg`-gated, one revert).
   dedicated event-flow assertion still open.
 - C2 remainder: app-boot feature-detect wiring, OPFS persistence +
   Web Locks single-tab gate, proxy URL from `pwa-config.js` (C4).
+
+---
+
+## Day 14b — local wasm build + event-flow assertion (2026-10-06)
+
+- **Local wasm-pack build now possible on the dev box:** clang installed in
+  WSL (sudo, apt; `Ubuntu clang 18.1.3`) unblocks the cc-rs C dep. Build of
+  the MPL wrapper on the Day-12b copy: **2 m 14 s, 29 763 181 B no-opt**
+  (CI's is 29 792 923 — ~30 KB toolchain nondeterminism, informational).
+- **Rig hardened** (`build-artifacts/c2-rig/`): event-flow assertion —
+  `create_contact` queues ContactsChanged; the running `get_next_event_batch`
+  poll must deliver a non-empty batch back through the worker transport
+  within 15 s. **PASS on both the local and the CI dists**: account 1,
+  core v2.62.0, sqlite 3.53.0, event batches ≥ 1. C2 event pipeline
+  (worker → transport → `_onLine` → poll dispatch) is now exercised, not
+  just the handshake.
+- Gotchas for the log: `JsonRpcCore._call(method, ...args)` is **variadic** —
+  passing an array as one arg produces `params: [[…]]` and yerpc answers
+  `-32602 This method takes an array of N arguments` (N = the method's real
+  arity, e.g. `create_contact(account_id, email, name)` is 3). The misleading
+  part: the message names the EXPECTED arity, not what you sent.
