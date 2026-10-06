@@ -831,3 +831,29 @@ the wasm-layer rollback (discrete stack, `cfg`-gated, one revert).
   goldens unchanged.
 - Still open from the "3 consecutive CI e2e days" item: today's passes are
   all 2026-10-06; next `e2e=true` run must land on a later day.
+
+---
+
+## Day 14a — C2 scaffolding: JsonRpcCore boots the wasm core in a worker (2026-10-06)
+
+- **New in `app/js/`:** `worker-wasm.js` (module worker bridging
+  postMessage ↔ the wrapper's message-oriented JSON-RPC:
+  `init(on_message, ws_proxy_url, persist)` + `receive(line)`) and
+  `transport-worker-wasm.js` (`WorkerWasmTransport` satisfying the
+  JsonRpcCore contract `{ name, send(line), setReceiver(fn) }`). The
+  wrapper's callback/receive shape maps 1:1 onto the existing
+  line-oriented seam — no rpc-core changes needed. App-boot feature-detect
+  (no `__TAURI__` + PWA + wasm flag → this transport) intentionally NOT
+  wired yet; lands with C4/PWA dist.
+- **CI:** `wasm-core-opt-in.yml` now uploads `wasm-dist-no-opt` (the exact
+  bits CI smoked) — needed because local wasm builds lack clang on the dev
+  box (cc-rs dep; no passwordless sudo). Rig used artifact from run
+  37411669569 (29 792 923 B no-opt, matches Day 12a).
+- **Rig PASS** (`build-artifacts/c2-rig/`, playwright + Edge): real
+  `JsonRpcCore.init()` handshake over the worker —
+  `get_all_account_ids` → `add_account` (memfs) → `select_account` →
+  `start_io_for_all_accounts` — then `get_system_info`: **account 1, core
+  v2.62.0, sqlite 3.53.0**. Event polling starts with the handshake;
+  dedicated event-flow assertion still open.
+- C2 remainder: app-boot feature-detect wiring, OPFS persistence +
+  Web Locks single-tab gate, proxy URL from `pwa-config.js` (C4).
