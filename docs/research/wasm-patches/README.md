@@ -17,7 +17,8 @@ meaning a **Velta-owned forward-port of chatmail/core 2.62+** targeting
 |---|---|
 | Spike side tree `/workspace/velta-wasm-port` | Proven Day 3–5 workspace (artifact + e2e) |
 | `series/*.patch` + `series.txt` (this dir) | **Extracted** discrete patches (Day 6) from side-tree commits after baseline `0a10087` (= Velta master `core/` at extract time). `Cargo.lock` hunks stripped — regenerate lock via cargo |
-| `support/{crates,vendor-crates}/` | `tokio-wasm-shim` + vendored async-imap / astral-tokio-tar / mail-builder |
+| `support/{crates,vendor-crates}/` | `velta-tokio-wasm` (Velta-original, MPL-2.0, Day 12) + vendored async-imap / astral-tokio-tar / mail-builder |
+| [`velta-tokio-wasm-requirements.md`](velta-tokio-wasm-requirements.md) | Clean-room requirements + method for the tokio facade (Day 12) |
 | [`VENDORED.md`](VENDORED.md) | Day 11 register: vendored crates (upstream base, licence, local delta, native effect) + per-patch re-apply notes |
 | `sqlcipher-harness/` | Day 11 scratch harness: SQLCipher 4.6.1↔4.14.0 upgrade/rollback on a real-schema DB (not built by CI) |
 | `support/locks/` | **Pinned** copy lockfiles (Day 9): `core.Cargo.lock`, `deltachat-wasm.Cargo.lock`, `PROVENANCE` |
