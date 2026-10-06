@@ -730,7 +730,13 @@ Gates on fresh pinned apply-on-copy `/tmp/velta-wasm-day12` (9/9, verify-copy OK
 | local alice→bob e2e (allowlisted proxy) | **PASS** `wasm-roundtrip-pe499zodon9`, 5.9 s |
 
 ### CI run (Day 12a commit, `e2e=true`)
-CI_DAY12_PLACEHOLDER
+Run [`37396231552`](https://github.com/pbuzdin/velta/actions/runs/37396231552)
+on `464a2bd` (`e2e=true`, 2026-10-06 03:52–04:03 MSK): **success**, all steps
+green. `wasm-opt: 29 792 923 → 18 506 546`; **Size budget green**: raw
+18 506 546 / brotli-11 4 630 965 / gzip-9 7 192 450 (slightly smaller than
+Day 11). Smoke on both artifacts PASS. **e2e PASS**: `OK …
+wasm-roundtrip-l2i2yavyhxe`, 7.4 s. CI e2e passes: 3 consecutive (Day 10,
+Day 11, Day 12a) but all on 2026-10-06 — "different days" still unmet.
 
 ### Checklist
 Licensing ⬜→✅ (shim replaced, Velta-original MPL-2.0); facade rustfmt note

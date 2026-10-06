@@ -161,7 +161,9 @@ Native builds must not change behaviour because of the wasm patches.
   `CHATMAIL_ALLOWLIST=nine.testrun.org`, plus CI. CI `e2e=true` PASS:
   [`37388272660`](https://github.com/pbuzdin/velta/actions/runs/37388272660) (Day 10),
   [`37392355171`](https://github.com/pbuzdin/velta/actions/runs/37392355171) (Day 11) —
-  all on 2026-10-06, so the "different days" condition is still unmet.
+  [`37396231552`](https://github.com/pbuzdin/velta/actions/runs/37396231552) (Day 12a,
+  new `velta-tokio-wasm`) — 3 consecutive, all on 2026-10-06, so the
+  "different days" condition is still unmet.
 - ✅ e2e runnable in CI: `workflow_dispatch` input `e2e=true` (manual only;
   proxy fetched pinned at `452cd0d`, allowlisted to nine.testrun.org) — Day 10.
 - ⬜ e2e against relay-native websockify (`/imap`, `/smtp` + CORS, C3) on a
