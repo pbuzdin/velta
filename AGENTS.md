@@ -120,6 +120,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── docs/web-components-plan.md   # phased fix plan for that audit (quick wins → tests)
 ├── docs/modals-audit-and-plan.md # modal/overlay/popup inventory + native <dialog> plan
 ├── docs/native-elements.md       # where native HTML elements can replace custom JS/ARIA
+├── docs/accessibility-and-keybindings.md # DC Desktop shortcut reference, Velta keyboard/a11y audit + plan (K1–K8, N1–N13)
 └── tools/                    # icon generation, WSL APK build/sign helpers,
                               serve-dev.py (no-cache static server for app/)
 ```
@@ -1308,6 +1309,13 @@ replies; applies regardless of which tools or modes are active.)
   `showModal()`, the lightbox, webxdc/HTML-viewer/in-app-browser overlays or
   the call screen. `docs/native-elements.md` lists native-element
   replacements (popover, forms, `<progress>`, `<time>`, composer hints).
+- Keyboard shortcuts and accessibility beyond the component audit (focus
+  order, roving tabindex, reduced motion, forced colors, contrast, text
+  scaling, touch targets, TalkBack): read `docs/accessibility-and-keybindings.md`
+  (Delta Chat Desktop shortcut reference, gap table, phased plan P0–P5)
+  before adding any key handler. New shortcuts go through the planned
+  registry (`app/js/keybindings.js`, plan P0.1), not ad-hoc `keydown`
+  listeners. Enter handlers must ignore IME composition (`isComposing`).
 - SVG icons are inline strings; no icon library.
 - CSS is a single hand-written file (`app/css/main.css`).
 - The service worker cache version is a hard-coded constant in `app/sw.js`.

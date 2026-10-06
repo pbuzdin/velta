@@ -16,6 +16,17 @@ is low-value there, though harmless.
 > (7 phases, 11.5 days). It **supersedes items 0.4 and 2.4** below, and folds
 > in 0.1. Native-element replacements (popover, forms, `<progress>`, `<time>`,
 > composer hints, …) are surveyed in [`native-elements.md`](native-elements.md).
+>
+> **Update (2026-10-06, keyboard/a11y):** keyboard shortcuts (with a Delta Chat
+> Desktop reference), the Esc chain, roving tabindex, reduced motion, forced
+> colors, Android text scaling and touch targets are planned in
+> [`accessibility-and-keybindings.md`](accessibility-and-keybindings.md)
+> (phases P0–P5, 21 days). Its P2.1 roving engine covers the focus parts of
+> items **2.1/2.2/2.6** below, and its announcer (P2.5) should be the same
+> module as the 2.6 announcer. **Key conflict:** 2.6's "Alt+Up from the
+> composer" clashes with Alt+↑/↓ chat switching (Delta Chat parity). Use
+> Shift+Tab or F6 instead. Contrast item **3.4** is shared with its P3.3, and
+> the phase 4 test harness with its P5.
 
 Ground rules for every phase:
 - No bundler, no npm runtime deps in `app/` (`AGENTS.md` §6.2). Test-only deps
