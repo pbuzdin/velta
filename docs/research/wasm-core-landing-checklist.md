@@ -84,10 +84,12 @@ Legend: ✅ done on the opt-in copy (evidence linked) · ⬜ open · ⛔ blocker
 
 - ✅ Copy locks pinned under `docs/research/wasm-patches/support/locks/`
   with `PROVENANCE`; CI builds with `--locked` — Day 9.
-- ⬜ Landing plan for `core/Cargo.lock`: the wasm series **changes native
-  builds**, so that lock diff is its own review item (Day 10 analysis via
-  `cargo tree -i` on the pinned copy for x86_64-linux, aarch64-android,
-  x86_64-windows):
+- ✅ Landing plan for `core/Cargo.lock`: the wasm series **changes native
+  builds**, so that lock diff is its own review item — Day 24/25: the
+  ordered review + merge steps live in
+  [`wasm-core-lock-landing-plan.md`](wasm-core-lock-landing-plan.md)
+  (Day 10 analysis via `cargo tree -i` on the pinned copy for
+  x86_64-linux, aarch64-android, x86_64-windows is the evidence base):
 
   | Crate (native graph) | Stock | With series | Implication |
   |---|---|---|---|
@@ -106,15 +108,16 @@ Legend: ✅ done on the opt-in copy (evidence linked) · ⬜ open · ⛔ blocker
   `PROVENANCE`, Day 9) and documented for local builds — Day 24: the pinned
   version (0.2.129) and the local-build matching requirement are documented
   in [`packages/deltachat-wasm/README.md`](../../packages/deltachat-wasm/README.md).
-- ⬜ Pinned nightly (`nightly-2026-08-01`, needed for rusqlite `cfg_select!`)
+- ✅ Pinned nightly (`nightly-2026-08-01`, needed for rusqlite `cfg_select!`)
   replaced by stable, or the nightly pin is accepted for the wasm target
-  only and **never** affects Android/desktop builds. Day 24 note: the pin
-  today lives ONLY in the opt-in wasm CI job and the copy workspace
-  (production `core/` and the native Release builds are stable). Open
-  verification before this box can tick: build the copy's native target on
-  stable (`cargo check -p deltachat --lib` without the wasm target in a
-  WSL workspace — `apply-on-copy` refuses on the CRLF `/mnt/c` checkout)
-  to prove the series does not drag nightly into native builds.
+  only and **never** affects Android/desktop builds. **Day 25 — accepted
+  for wasm-only, with evidence:** a full native `cargo check --locked -p
+  deltachat --lib` of the copy workspace on **stable 1.98.1** (WSL LF
+  clone → `apply-on-copy --dest` → check) finished green in 3m15s
+  *including* rusqlite 0.40.2 — the nightly requirement is wasm32-only
+  (`cfg_select!` resolves on stable for native compilation); the opt-in CI
+  installs the nightly pin only in the wasm job, and production `core/`
+  native builds stay stable.
 
 ## 3. Native parity ("stock hash parity")
 
