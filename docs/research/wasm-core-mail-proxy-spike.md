@@ -959,3 +959,34 @@ the wasm-layer rollback (discrete stack, `cfg`-gated, one revert).
 - Config-key lessons: the keys are `mail_pw`/`send_pw` (not
   `mail_password`); `imex` self-keys requires `configured_addr`; the
   offline-rig identity assertions had to move to CI with the real relay.
+
+---
+
+## Day 18 — scheduler wasm fix + local real-relay identity run (2026-10-06)
+
+- **Real-relay configure works from the wasm worker:** with the VPN up, a
+  throwaway nine.testrun.org account configured over IMAP/SMTP through the
+  local ws-tcp-proxy (poller/pinned 452cd0d2 + ws@8.22.0) — the C2 stack
+  does full chatmail login in-browser.
+- **Wasm series gap found + fixed (patch 0010):** `export_self_keys` panicked
+  `there is no reactor running` — `Scheduler::stop()` uses
+  `tokio_util::TaskTracker`, which rides the REAL tokio on wasm32 (no
+  runtime). 0010 cfg-splits `stop()`: native keeps the tracker path
+  byte-for-byte; wasm32 spawns the shutdown waits onto the
+  velta-tokio-wasm event loop. Series now 10 patches; fresh-copy apply 10/10
+  + verify-copy OK + wasm build green.
+- **imex semantics:** `export_self_keys`/`import_self_keys` treat the path
+  as a DIRECTORY of armored key files (not a tar file) — the rig bundles
+  the directory contents.
+- **Restore ordering:** `import_self_keys` marks the fresh account
+  configured, so a later `configure()` short-circuits with
+  `configured_addr=null`. Correct order: `batch_set_config` → `configure`
+  (re-login proof) → `import_self_keys`. CI script
+  (`e2e-deltachat-wasm-identity.mjs`) updated to this order + directory
+  semantics + wrapper `fs_list` instance method.
+- **Open:** the full local round-trip still needs a stable VPN window
+  (flapping `fetch` killed two attempts mid-run); the CI identity e2e runs
+  on a clean network and is non-blocking (`continue-on-error`) until its
+  first green. Applicator note: `refresh-lock` must be re-run after any
+  series change (PROVENANCE pins the series hash) — order: add patch →
+  refresh-lock → gated apply.

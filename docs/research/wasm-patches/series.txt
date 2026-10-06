@@ -14,3 +14,4 @@
 0007-wasm-net-blob-time-ws_tcp-transport-wasm-clocks-blob.patch
 0008-wasm-fs-net-tls-path_exists-is_dir-helpers-wasm-conn.patch
 0009-wasm-tests-blob_tests-use-the-BufRead-Seek-image_met.patch
+0010-wasm-scheduler-stop-tasktracker-cfg.patch

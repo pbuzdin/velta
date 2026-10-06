@@ -29,14 +29,18 @@ export class WorkerWasmTransport {
   // Generic memfs passthrough (V2.5 identity backup: grab the self-keys tar
   // the core wrote, or place one for import). Resolves Uint8Array / undefined.
   readCoreFile(path) {
-    return this._fileRequest({ type: "read-file", path });
+    return this._fileRequest({ type: "read-file", path }, "file");
+  }
+
+  readCoreFileList(path) {
+    return this._fileRequest({ type: "list-dir", path }, "dir");
   }
 
   writeCoreFile(path, bytes) {
-    return this._fileRequest({ type: "write-file", path, bytes });
+    return this._fileRequest({ type: "write-file", path, bytes }, "written");
   }
 
-  _fileRequest(msg) {
+  _fileRequest(msg, okType) {
     if (!this._worker) return Promise.reject(new Error("worker not booted"));
     const id = ++this._fileSeq;
     return new Promise((resolve, reject) => {
@@ -44,8 +48,7 @@ export class WorkerWasmTransport {
         const d = e.data;
         if (d.id !== id) return;
         this._worker.removeEventListener("message", onMsg);
-        if (d.type === "file") resolve(d.bytes);
-        else if (d.type === "written") resolve();
+        if (d.type === okType) resolve(d.bytes ?? d.entries);
         else reject(new Error(d.error));
       };
       this._worker.addEventListener("message", onMsg);
