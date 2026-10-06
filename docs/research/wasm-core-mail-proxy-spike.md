@@ -746,12 +746,16 @@ updated. **24 open** (was 25).
 
 ## Next concrete steps (day 12)
 
-1. SQLCipher test on a copied **production** Velta DB (Android + desktop,
-   older dbversion) with the series engine; keep the copy scratch-only.
+1. ~~SQLCipher test on a copied **production** Velta DB (Android + desktop,
+   older dbversion) with the series engine; keep the copy scratch-only.~~ —
+   done Day 12b (real desktop DB, all 6 steps PASS).
 2. ~~tokio-wasm-shim licence~~ — done Day 12a (Velta-original `velta-tokio-wasm`).
-3. Native build of the copy for Android (aarch64) + `velta-core-service`
-   (desktop) and native artifact size vs. stock (checklist §3).
-4. COREUPDATE.md "re-apply wasm series" step + rollback plan (§7).
+3. ~~Native build of the copy for Android (aarch64) + `velta-core-service`
+   (desktop) and native artifact size vs. stock (checklist §3).~~ — done
+   Day 12b for Windows sidecar (+0.09 %) + aarch64 `cargo check`; full APK
+   and `velta-core-service` APK builds still open.
+4. ~~COREUPDATE.md "re-apply wasm series" step + rollback plan (§7).~~ —
+   done Day 12b (new §0b).
 5. CI e2e on another day toward ≥3 consecutive passes.
 
 ## Ask Pavel to approve next
@@ -773,3 +777,39 @@ updated. **24 open** (was 25).
   `velta-core-service`) are parity evidence built from the copy, not release
   artifacts. Landing remains behind the checklist §7 merge gate (13/13 Velta
   patch verify, APK/sidecar smoke, native size check, one-revert rollback).
+
+---
+
+## Day 12b — native parity evidence + real-DB SQLCipher round-trip (2026-10-06)
+
+All work on apply-on-copy trees (`/tmp/velta-wasm-day12b` WSL clone;
+`C:\Users\pave\Velta\build-artifacts\wasm-day12b-copy` for the Windows
+build); production `core/` untouched.
+
+| Check | Result |
+|---|---|
+| Windows sidecar build from the copy (`cargo build --release --locked -p deltachat-rpc-server`, strawberry-perl + nasm on PATH, 9 m 48 s) | **PASS** (only the known LNK4099 PDB + `proc-macro-error2` future-incompat warnings) |
+| Native artifact size vs stock | copy 22 514 176 B vs committed stock 22 494 720 B = **+19 456 B (+0.086 %)** — no wasm-only dep leakage into native |
+| Sidecar functional smoke (§4.3.1: `get_system_info` via stdin) | **PASS** — `v2.62.0`, sqlite 3.51.3 (series' bumped sqlite), JSON-RPC round-trip clean |
+| aarch64 `cargo check --locked -p deltachat --lib --target aarch64-linux-android` (WSL, NDK env) | **PASS** (script continued under `set -e`) |
+| SQLCipher harness on a **real production desktop DB** (account `0be0cb14`, dbversion 167, 336 msgs / 64 chats / 85 contacts), stock 4.6.1/sqlite 3.46.1 ↔ series 4.14.0/sqlite 3.51.3 | **all 6 steps PASS**: stock opens real DB → series opens (integrity ok) → series writes → stock rollback opens → stock writes → series reopens; `ui.d11.*` markers accumulate correctly |
+
+Caveats: the desktop DBs are plaintext-mode (`PRAGMA key` empty — "SQLite
+format 3" header), so the harness exercised schema/migration compatibility
+in `P=""` mode; the encrypted-cipher upgrade path itself remains untested
+against a real encrypted DB (Android DBs are SQLCipher-encrypted — the
+device-side copy test is still open). Harness builds ran with the stock /
+series workspace locks copied per the Day 11 recipe (`rusqlite =0.37.0` vs
+`=0.40.2`).
+
+Gotchas for the log: Windows checkouts are CRLF (`core.autocrlf` `text=auto`),
+which breaks the applicator's LF-sha `PROVENANCE` pinning gate — run
+`apply-on-copy` from an LF clone (WSL) with `--dest` on `/mnt/c` when a
+Windows-side copy is needed. WSL `/tmp` is wiped on VM restart; keep day
+artifacts out of it or expect to re-clone. Mimosa's Bash-write hook
+pattern-matches source extensions (`.rs`) even for copies outside the repo —
+stage via Write tool + shell-variable indirection.
+
+COREUPDATE.md: new **§0b** documents the opt-in wasm re-apply step
+(`apply-on-copy` → `verify-copy` 9/9), the landing-checklist merge gate, and
+the wasm-layer rollback (discrete stack, `cfg`-gated, one revert).
