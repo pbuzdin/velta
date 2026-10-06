@@ -756,6 +756,20 @@ updated. **24 open** (was 25).
 
 ## Ask Pavel to approve next
 
-- Day 11 result (see above); accept/adjust the size budget (still open).
-- Approve Day 12 scope (items 1–5 above) — still **no** production `core/` merge.
+- Day 11 result (see above); accept/adjust the size budget (**approved 2026-10-06** — see below).
+- Approve Day 12 scope (items 1–5 above) — still **no** production `core/` merge (**approved 2026-10-06** — see below).
 - Item 2 resolved (Pavel chose the rewrite; done Day 12a).
+
+---
+
+## Approval — Pavel, 2026-10-06
+
+- Size budget: **accepted** (Day-10 proposal — raw 20 000 000 / brotli-11
+  5 000 000 / gzip-9 7 800 000, ~8 % headroom each).
+- Day 12 scope (items 1–5): **approved**. Still **no** production `core/`
+  merge — apply-on-copy only.
+- Condition confirmed: existing Velta apps (desktop + Android) keep the
+  **stock original core**. The item-3 native builds (Android aarch64,
+  `velta-core-service`) are parity evidence built from the copy, not release
+  artifacts. Landing remains behind the checklist §7 merge gate (13/13 Velta
+  patch verify, APK/sidecar smoke, native size check, one-revert rollback).
