@@ -1,14 +1,15 @@
 # Spike log — wasm core + WebSocket mail proxy
 
-**Status:** day 24 — C3 relay branch (`websockify-c3`) carries the full
-wasm-core bridge scheme (TLS-port websockify targets, `/tcp/` + `/dns/`
-locations, origin allowlist, `/new` CORS); deploy runbook written
+**Status:** day 25 — nightly box TICKED (native copy check green on stable
+1.98.1, wasm32-only requirement proven) + `core/Cargo.lock` landing plan
+written ([`wasm-core-lock-landing-plan.md`](wasm-core-lock-landing-plan.md));
+landing checklist **15 open**. Day 24: C3 deploy runbook
 ([`websockify-c3-deploy.md`](websockify-c3-deploy.md)) — a test-relay
-deploy is the remaining C3 step. Day 21: CI builds + rigs + ships the PWA
-dist (`dist-pwa` artifact). Day 20: V2.5 identity backup UX (export/
-restore in the PWA, rig 10/10). CI identity e2e first green
-(run 37504603502). [Landing checklist](wasm-core-landing-checklist.md)
-**17 open** — master `core/` stays stock.
+deploy of `websockify-c3` is the remaining C3 step (branch push from
+Pavel's terminal). Day 21: CI builds + rigs + ships the PWA dist
+(`dist-pwa` artifact). Day 20: V2.5 identity backup UX (export/restore in
+the PWA, rig 10/10). CI identity e2e first green (run 37504603502). Master
+`core/` stays stock until the checklist is green.
 Started **2026-10-05** (Europe/Moscow). Research baseline:
 [`wasm-core-mail-proxy.md`](wasm-core-mail-proxy.md).
 
@@ -1197,3 +1198,24 @@ the wasm-layer rollback (discrete stack, `cfg`-gated, one revert).
   `automation-3cba28fd` fires 2026-10-08 09:00 to dispatch the third-day
   run and tick the §5 box if green (the previous one-shot never fired and
   was gone from the automation list).
+
+## Day 25 — nightly box ticked + lock landing plan (2026-10-07)
+
+- **Automation dropped by Pavel** (`automation-3cba28fd` deleted before it
+  fired) — the third distinct-day e2e pass will be dispatched manually.
+- **§2 nightly box TICKED with fresh evidence:** a WSL LF clone +
+  `apply-on-copy --dest ~/velta-wasm-copy-stable` + native
+  `cargo check --locked -p deltachat --lib` on **stable 1.98.1** finished
+  green in 3m15s *including* rusqlite 0.40.2 — `cfg_select!` resolves on
+  stable for native compilation, so the nightly requirement is wasm32-only
+  and can never reach Android/desktop builds (the opt-in CI job installs
+  the pin for the wasm target alone). Reproduce in ~4 minutes with the
+  same three commands (fresh clone each time; `apply-on-copy` needs an LF
+  checkout — it refuses on `/mnt/c`).
+- **§2 lock landing box TICKED:** the ordered review/merge steps for the
+  `core/Cargo.lock` diff now live in
+  [`wasm-core-lock-landing-plan.md`](wasm-core-lock-landing-plan.md) —
+  the native review surface is just rusqlite + libsqlite3-sys (+ hashlink);
+  the vendored crates have no version movement, and step 7 re-runs
+  `refresh-lock` after landing so the pinned locks match production.
+- Landing checklist burn-down: **17 → 15 open**.
