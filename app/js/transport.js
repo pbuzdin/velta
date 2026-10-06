@@ -17,14 +17,17 @@ const WS_PROBE_MS = 900;
 const HTTP_PROBE_MS = 1500;
 
 // Architecture C (PWA): opt-in wasm core hosted in a worker. Enabled by
-// ?wasm=1 (or localStorage velta-wasm=1) and only tried when no native shell
-// exists — the Tauri/Android builds never take this path. The glue bundle
-// location is overridable via ?wasm-glue= / localStorage velta-wasm-glue
-// (defaults to ./wasm/ next to the app, i.e. the PWA dist layout from C4).
+// ?wasm=1 (or localStorage velta-wasm=1), by window.VELTA_PWA.wasmCore (the
+// C4 PWA dist config), and only tried when no native shell exists — the
+// Tauri/Android builds never take this path. The glue bundle location is
+// overridable via ?wasm-glue= / localStorage velta-wasm-glue (defaults to
+// ./wasm/ next to the app, i.e. the PWA dist layout from C4). ?wasm=0
+// always wins, so a broken dist can still be inspected without the worker.
 function wasmOptIn() {
   try {
     const params = new URLSearchParams(location.search);
     if (params.has("wasm")) return params.get("wasm") !== "0";
+    if (window.VELTA_PWA?.wasmCore) return true;
     return localStorage.getItem("velta-wasm") === "1";
   } catch { return false; }
 }
@@ -258,7 +261,10 @@ export async function createCore({ onDiagnostic = () => {} } = {}) {
   // on a non-native shell, so it wins over the loopback service probes.
   if (wasmOptIn() && !window.VeltaBridge && !window.__TAURI__) {
     diagnostic("info", "wasm opt-in: trying worker-wasm core");
-    attempts.push(() => new WorkerWasmTransport({ glueUrl: wasmGlueUrl() }));
+    attempts.push(() => new WorkerWasmTransport({
+      glueUrl: wasmGlueUrl(),
+      wsProxyUrl: window.VELTA_PWA?.wsProxyUrl || null,
+    }));
   }
   attempts.push(websocketTransport);
   attempts.push(async () => (await probeHttp()) ? httpTransport() : null);
