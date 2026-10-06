@@ -91,6 +91,15 @@ jobs:
             docs/research/wasm-patches/support/locks/deltachat-wasm.Cargo.lock "$PWD/Cargo.lock"
           ls -lh ../wasm-dist/deltachat_wasm_bg.wasm
 
+      # Day 14a: publish the no-opt artifact so the C2 worker rig can test the
+      # exact bits CI smoked (local wasm builds lack clang on the dev box).
+      - name: Upload wasm-dist (no-opt artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-dist-no-opt
+          path: ${{ runner.temp }}/velta-wasm-copy/packages/deltachat-wasm/wasm-dist/
+          if-no-files-found: error
+
       - name: Browser smoke (get_system_info)
         env:
           PACKAGE_ROOT: ${{ runner.temp }}/velta-wasm-copy/packages/deltachat-wasm
