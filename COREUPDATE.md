@@ -33,6 +33,30 @@ the script's copy of the block. Each re-applied block carries a
 audit. Remember the consumers table below: patching `core/` alone changes
 nothing until the sidecar / APK / prebuilts are rebuilt.
 
+## 0b. Opt-in: re-apply the wasm series (Architecture C track)
+
+After §0 reports 13/13, the wasm patch series (`docs/research/wasm-patches/`)
+is re-applied with the dedicated, opt-in applicator — **never** let a core
+upgrade silently ship wasm patches to native consumers:
+
+```
+python tools/apply-wasm-core-patches.py apply-on-copy        # copy under .wasm-core-apply/, master core/ untouched
+python tools/apply-wasm-core-patches.py verify-copy          # must report 9/9
+```
+
+Land them into production `core/` only after the merge gate in
+`docs/research/wasm-core-landing-checklist.md` §7 passes
+(Pavel's written go-ahead included). Per-bump rebase checklist lives in that
+checklist §7; `refresh-lock` re-pins the copy's lockfiles (wasm-bindgen and
+friends must stay pinned — Day 7/9 drift gotchas). Consuming the landed tree
+means rebuilding every consumer in the table below again.
+
+Rollback for the wasm layer specifically: it is a discrete patch stack, so
+one revert of the landing commit(s) restores stock `core/` for native builds
+(the series is `cfg(target_arch = "wasm32")`-gated; native behaviour is
+parity-tested per checklist §3). Downgrade caveat from §9 applies unchanged
+for database state.
+
 ## 1. Where the core is consumed
 
 Every consumer must be rebuilt or swapped when the core changes:

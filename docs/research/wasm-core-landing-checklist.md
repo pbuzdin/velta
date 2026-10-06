@@ -122,8 +122,12 @@ Native builds must not change behaviour because of the wasm patches.
 - ⬜ Android APK + Windows sidecar + `velta-core-service` build from the
   landed tree; smoke per COREUPDATE.md §2 frontend contract (RPC/event
   surface unchanged).
-- ⬜ Binary-size check of native artifacts vs. previous release
-  (no unexpected growth from wasm-only deps leaking into native targets).
+- ✅ Binary-size check of native artifacts vs. previous release: Windows
+  sidecar from the wasm-series copy is **+19 456 B (+0.086 %)** vs the
+  committed stock prebuilt (22 514 176 vs 22 494 720 B) — Day 12b; no
+  wasm-only deps leak into native targets. (Sidecar `get_system_info` smoke
+  PASS; aarch64 `cargo check` PASS; full APK / `velta-core-service` APK
+  builds still open.)
 
 ## 4. wasm build, size, smoke
 
