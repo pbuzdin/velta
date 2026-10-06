@@ -102,11 +102,19 @@ Legend: ✅ done on the opt-in copy (evidence linked) · ⬜ open · ⛔ blocker
 
   Native crate bumps need release-notes mention and their own native test
   pass (§3) independent of the wasm work.
-- ⬜ wasm-bindgen crate version == `wasm-bindgen-cli` in CI (derived from
-  `PROVENANCE`, Day 9) and documented for local builds.
+- ✅ wasm-bindgen crate version == `wasm-bindgen-cli` in CI (derived from
+  `PROVENANCE`, Day 9) and documented for local builds — Day 24: the pinned
+  version (0.2.129) and the local-build matching requirement are documented
+  in [`packages/deltachat-wasm/README.md`](../../packages/deltachat-wasm/README.md).
 - ⬜ Pinned nightly (`nightly-2026-08-01`, needed for rusqlite `cfg_select!`)
   replaced by stable, or the nightly pin is accepted for the wasm target
-  only and **never** affects Android/desktop builds.
+  only and **never** affects Android/desktop builds. Day 24 note: the pin
+  today lives ONLY in the opt-in wasm CI job and the copy workspace
+  (production `core/` and the native Release builds are stable). Open
+  verification before this box can tick: build the copy's native target on
+  stable (`cargo check -p deltachat --lib` without the wasm target in a
+  WSL workspace — `apply-on-copy` refuses on the CRLF `/mnt/c` checkout)
+  to prove the series does not drag nightly into native builds.
 
 ## 3. Native parity ("stock hash parity")
 
