@@ -531,6 +531,16 @@ export class JsonRpcCore extends EventTarget {
         }
         break;
       }
+      case "ReactionsChanged":
+        // #93: peer reactions arrive as this kind, never as MsgsChanged —
+        // without it the open chat kept stale chips until restart. Core emits
+        // ChatlistItemChanged separately for the chat-list preview line.
+        this._invalidateChat(chatId || 0, accountEpoch);
+        if (msgId) {
+          const m = await this._getDecoratedMessage(msgId, accountId);
+          if (m) this._emitAccount("msg-updated", { chatId: m.chatId, msg: m }, accountEpoch);
+        }
+        break;
       case "MsgDelivered":
         this._untrackSending(msgId);
         if (msgId) this._msgStateHints.set(msgId, "delivered");
