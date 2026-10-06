@@ -167,3 +167,25 @@ yanked `chacha20`) are recorded but not acted on.
 
 *Generated from the sealed Mimosa scan artifacts listed above. Findings marked `static-finding` are
 unvalidated static alerts; exploitability must be confirmed manually before acting on any individual item.*
+
+---
+
+## Addendum — 2026-10-06 rescan (post-fixture cleanup)
+
+- **Mimosa deep scan** `scan-2026-10-06T01-26-48.688Z-206d89f62f65`, seal `sha256:60fb56bf0639919c0cd7b3c2def9bd395a27f501122ea1c66c25c18bb87e4863`,
+  artifacts `C:\Users\pave\.mimosa\security-scans\project-7b9e528a0cfb53d9825eaa6c\scan-2026-10-06T01-26-48.688Z-206d89f62f65\`.
+  Run `inconclusive`, partial coverage (0 validated findings, incomplete call graph) — same tool
+  limitations as the 10-01 scan. With `test-rig/edge-profile/` out of scan scope, volume dropped
+  2 738 → **156 findings (53 high / 101 medium / 2 low)**.
+- **Finding classes unchanged** vs the triage above: app/js "SSRF/XSS entry" labels on local
+  sidecar RPC calls (false positives), dev-script `../` path traversal, test-only pytest `eval`.
+  No new classes; zero findings in the wasm-spike files (`docs/research/wasm-patches`,
+  `velta-tokio-wasm`) or `velta-app/`.
+- **Dependencies re-audited** (cargo-audit 0.22.2, advisory-db ef6173cb 2026-10-03; npm audit:
+  0): the 8 Rust vulnerabilities match the accepted-risk section exactly. Root cause now
+  attributed: iroh/iroh-relay 0.35.0 pin `rustls-webpki ^0.102` (fixed only in ≥0.103.13) and
+  `pgp` (rPGP) pulls `rsa` (Marvin, unfixed upstream) + `ml-dsa`. No semver headroom
+  (`cargo update -p iroh`: 0 packages). Resolution vehicle: the Iroh 1.0 bump (core PR 8182 +
+  relay #1061) — recorded with full table on issue #55 (comment 6007664607).
+- **No lockfile edits made**: the wasm Day-12 native-parity evidence is pinned `--locked` to
+  these lockfiles; bump rides the next vendored-core/Iroh upgrade.
