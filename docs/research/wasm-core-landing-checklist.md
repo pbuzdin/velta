@@ -37,7 +37,7 @@ Legend: ✅ done on the opt-in copy (evidence linked) · ⬜ open · ⛔ blocker
 ## 1. Patch series hygiene
 
 - ✅ Series is discrete, ordered, applies cleanly onto current master `core/`
-  (9/9, `verify-copy` OK) — Day 6–10.
+  (10/10, `verify-copy` OK) — Day 6–10, `0010` Day 18.
 - ✅ No spike leftovers in subjects/comments: Day 10 re-export with
   `wasm(<area>):` subjects, WASM-CORE ids and a "Native impact" line per
   patch; stale `/workspace/velta-wasm-port` path comment fixed.
