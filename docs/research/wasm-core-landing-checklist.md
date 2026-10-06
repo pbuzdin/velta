@@ -128,7 +128,10 @@ Native builds must not change behaviour because of the wasm patches.
   wasm series is in `core/` (the two layers coexist).
 - ⬜ Android APK + Windows sidecar + `velta-core-service` build from the
   landed tree; smoke per COREUPDATE.md §2 frontend contract (RPC/event
-  surface unchanged).
+  surface unchanged). Sidecar done Day 12b. **Proposed waiver for the APK
+  part (Pavel, pending):** aarch64 `cargo check` green (Day 12b) + Windows
+  sidecar link+smoke green cover the native-breakage risk; release CI
+  builds the APKs from the landed tree at the landing tag regardless.
 - ✅ Binary-size check of native artifacts vs. previous release: Windows
   sidecar from the wasm-series copy is **+19 456 B (+0.086 %)** vs the
   committed stock prebuilt (22 514 176 vs 22 494 720 B) — Day 12b; no

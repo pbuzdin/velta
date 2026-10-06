@@ -18,6 +18,64 @@ extern "C" {
     fn console_error(s: &str);
 }
 
+/// Module-level memfs bindings — usable before [`init`] so the JS worker can
+/// restore a persisted OPFS snapshot into the memfs ahead of core startup.
+
+#[wasm_bindgen]
+pub fn vfs_read(path: String) -> Result<js_sys::Uint8Array, JsValue> {
+    let data = tokio::fs::sync_read(&path).map_err(fs_err)?;
+    Ok(js_sys::Uint8Array::from(data.as_slice()))
+}
+
+#[wasm_bindgen]
+pub fn vfs_write(path: String, data: &[u8]) -> Result<(), JsValue> {
+    tokio::fs::sync_write(&path, data).map_err(fs_err)
+}
+
+#[wasm_bindgen]
+pub fn vfs_remove(path: String) -> Result<(), JsValue> {
+    tokio::fs::sync_remove(&path).map_err(fs_err)
+}
+
+#[wasm_bindgen]
+pub fn vfs_mkdirp(path: String) -> Result<(), JsValue> {
+    tokio::fs::sync_create_dir_all(&path).map_err(fs_err)
+}
+
+#[wasm_bindgen]
+pub fn vfs_exists(path: String) -> bool {
+    tokio::fs::sync_exists(&path)
+}
+
+/// Lists a memfs directory as absolute paths; directories carry a trailing `/`.
+#[wasm_bindgen]
+pub async fn vfs_list(path: String) -> Result<js_sys::Array, JsValue> {
+    use futures_core::Stream;
+    use std::task::{Context, Poll};
+
+    let rd = tokio::fs::read_dir(&path).await.map_err(fs_err)?;
+    let arr = js_sys::Array::new();
+    // ReadDir is a ready snapshot; drain it with a noop waker instead of
+    // pulling an async runtime across the JS boundary.
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    let mut stream = std::pin::pin!(rd);
+    loop {
+        match stream.as_mut().poll_next(&mut cx) {
+            Poll::Ready(Some(Ok(entry))) => {
+                let p = entry.path().to_string_lossy().to_string();
+                if tokio::fs::sync_is_dir(&p) {
+                    arr.push(&JsValue::from_str(&format!("{p}/")));
+                } else {
+                    arr.push(&JsValue::from_str(&p));
+                }
+            }
+            Poll::Ready(Some(Err(e))) => return Err(fs_err(e)),
+            Poll::Ready(None) | Poll::Pending => break,
+        }
+    }
+    Ok(arr)
+}
+
 #[wasm_bindgen]
 pub struct DeltaChat {
     session: RpcSession<CommandApi>,
