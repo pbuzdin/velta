@@ -1766,4 +1766,40 @@ export class JsonRpcCore extends EventTarget {
   async stopOngoingProcess() {
     return this._call("stop_ongoing_process", this.accountId);
   }
+
+  // ---- V2.5 identity backup (spike days 17–20) ----
+  // Self-keys imex over the worker's memfs: paths are DIRECTORIES of armored
+  // key files (not tars), reached from the UI via the transport file
+  // passthrough (readCoreFile/readCoreFileList/writeCoreFile). Restore
+  // order matters: configure BEFORE import_self_keys (the import marks the
+  // account configured and would short-circuit a later configure).
+
+  // Fresh unconfigured account to receive a restored identity; returns the id.
+  async addAccount() {
+    return this._call("add_account");
+  }
+
+  async batchSetConfig(accountId, map) {
+    const flat = Object.fromEntries(
+      Object.entries(map).map(([k, v]) => [k, v == null ? null : String(v)]),
+    );
+    return this._call("batch_set_config", accountId, flat);
+  }
+
+  // Full relay login — minutes, not milliseconds.
+  async configureAccount(accountId) {
+    return this._callWithTimeout(180_000, "configure", accountId);
+  }
+
+  async getAccountConfig(accountId, key) {
+    return (await this._call("get_config", accountId, key)) ?? null;
+  }
+
+  async exportSelfKeys(accountId, dir, passphrase) {
+    return this._callWithTimeout(120_000, "export_self_keys", accountId, dir, passphrase);
+  }
+
+  async importSelfKeys(accountId, dir, passphrase) {
+    return this._callWithTimeout(120_000, "import_self_keys", accountId, dir, passphrase);
+  }
 }

@@ -190,10 +190,11 @@ Native builds must not change behaviour because of the wasm patches.
   Autocrypt/SecureJoin verified.
 - ⬜ Persistence (OPFS) restart test; storage-eviction backup path (C4).
   Day 19: app-level restart PASS in the PWA dist rig
-  (`scripts/verify-pwa-dist.mjs` 7/7 — snapshot written, reload restores,
-  SW active). Still open: the storage-eviction backup path (identity backup
-  UX, Day 20) and `navigator.storage.persist()` granted in a real browser
-  (rig headless denies the hint).
+  (`scripts/verify-pwa-dist.mjs` — snapshot written, reload restores,
+  SW active). Day 20: the storage-eviction backup path has a product
+  surface (identity backup UX — export/restore modals, passphrase-wrapped
+  bundle, 6/6 crypto tests, rig 10/10); UI-level restore against a live
+  relay still needs a relay window (CI e2e covers the core-level order).
 
 ## 6. Review
 

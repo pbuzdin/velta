@@ -17,6 +17,7 @@ import { timeAgo, formatBytes } from "./format.js";
 import { acquireCode, mountScanner } from "./qr-scan.js";
 import { scanTabAvailable, canShareLink, copyLink, shareLink, classifyScannedCode } from "./qr-actions.js";
 import { linkPreviewEnabled, setLinkPreviewEnabled, LINK_PREVIEW_IP_WARNING } from "./link-preview.js";
+import { wrapIdentityBundle, unwrapIdentityBundle, buildIdentityBundle, bytesToBase64, base64ToBytes } from "./identity-backup.js";
 
 const diagnostics = new DiagnosticsStore();
 window.__veltaDiagnostics = diagnostics;
@@ -3549,6 +3550,117 @@ async function accountTapFlow(id) {
     errToast("Switch failed: " + (err.message || err));
   }
 }
+
+/* ---------------- identity backup (V2.5, wasm core only) ---------------- */
+// The wasm core keeps accounts in OPFS, which the browser may evict; the
+// identity backup is the way out — one passphrase-protected file holding the
+// relay credentials + the self-keys. Export reads the armored key files the
+// core wrote (imex paths are DIRECTORIES); restore replays them into a fresh
+// account — configure BEFORE import_self_keys, which would otherwise mark
+// the account configured and short-circuit the login proof (spike day 18).
+function identityBackupAvailable() {
+  return !!(core?.transport?.readCoreFile && core?.backend?.kind === "worker-wasm");
+}
+
+function downloadBytes(bytes, name) {
+  const url = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+async function runIdentityExport(pass) {
+  if (!pass || pass.length < 8) throw new Error("Use a passphrase of at least 8 characters — this file IS your account");
+  const addr = await core.getConfig("addr");
+  const mailPw = await core.getConfig("mail_pw");
+  if (!addr || !mailPw) throw new Error("This profile is not configured yet — nothing to back up");
+  const dir = "/identity/export";
+  await core.exportSelfKeys(core.accountId, dir, pass);
+  const entries = (await core.transport.readCoreFileList(dir)).filter(e => !e.endsWith("/"));
+  const keys = {};
+  for (const entry of entries) {
+    keys[entry.split("/").pop()] = bytesToBase64(await core.transport.readCoreFile(entry));
+  }
+  if (!Object.keys(keys).length) throw new Error("The core produced no key files — nothing to back up");
+  const wrapped = await wrapIdentityBundle(buildIdentityBundle({ addr, mail_pw: mailPw, keys }), pass);
+  downloadBytes(wrapped, `velta-identity-${String(addr).replace(/[^a-z0-9._-]/gi, "_")}.velta-identity`);
+  return addr;
+}
+
+async function runIdentityRestore(file, pass, onPhase) {
+  onPhase("Reading backup…");
+  const bundle = await unwrapIdentityBundle(new Uint8Array(await file.arrayBuffer()), pass);
+  onPhase(`Adding account for ${bundle.addr}…`);
+  const id = await core.addAccount();
+  await core.batchSetConfig(id, { addr: bundle.addr, mail_pw: bundle.mail_pw });
+  onPhase("Logging in to the relay…");
+  await core.configureAccount(id);
+  onPhase("Importing encryption keys…");
+  const dir = "/identity/import";
+  for (const [name, b64] of Object.entries(bundle.keys)) {
+    await core.transport.writeCoreFile(`${dir}/${name}`, base64ToBytes(b64));
+  }
+  await core.importSelfKeys(id, dir, pass);
+  onPhase("Done — reloading…");
+  setTimeout(() => location.reload(), 800);
+}
+
+function openIdentityBackup({ restoreOnly = false } = {}) {
+  if (!identityBackupAvailable()) {
+    toast("Identity backup needs the wasm core (the Velta PWA)");
+    return;
+  }
+  const body = document.createElement("div");
+  body.innerHTML = `
+    <p class="modal-hint">Your identity is the relay address, its password and your encryption keys — one file keeps all three. The passphrase protects it; losing the passphrase means losing the account.</p>
+    ${restoreOnly ? "" : `
+    <details class="backup-export" open>
+      <summary>Export this profile</summary>
+      <label class="modal-field">Passphrase <input class="text-field" data-pass type="password" autocomplete="new-password" placeholder="at least 8 characters"></label>
+      <label class="modal-field">Repeat <input class="text-field" data-pass2 type="password" autocomplete="new-password"></label>
+      <button class="btn-primary" data-export type="button">Export identity backup</button>
+    </details>`}
+    <details class="backup-restore"${restoreOnly ? " open" : ""}>
+      <summary>Restore from a backup file</summary>
+      <label class="modal-field">Backup file <input class="text-field" data-file type="file" accept=".velta-identity,application/octet-stream"></label>
+      <label class="modal-field">Passphrase <input class="text-field" data-pass-r type="password" autocomplete="off"></label>
+      <button class="btn-primary" data-restore type="button">Restore</button>
+    </details>
+    <p class="modal-status" data-status hidden></p>`;
+  const status = body.querySelector("[data-status]");
+  const phase = (text) => { status.hidden = false; status.textContent = text; };
+  const busy = (btn, on) => { btn.disabled = on; btn.classList.toggle("btn-loading", on); };
+  const exportBtn = body.querySelector("[data-export]");
+  exportBtn?.addEventListener("click", async () => {
+    const pass = body.querySelector("[data-pass]").value;
+    if (pass !== body.querySelector("[data-pass2]").value) { toast("Passphrases don't match"); return; }
+    busy(exportBtn, true);
+    try {
+      const addr = await runIdentityExport(pass);
+      phase(`Backup saved — keep the file somewhere safe (${addr})`);
+    } catch (err) {
+      phase(err?.message || String(err));
+    } finally { busy(exportBtn, false); }
+  });
+  const restoreBtn = body.querySelector("[data-restore]");
+  restoreBtn?.addEventListener("click", async () => {
+    const file = body.querySelector("[data-file]").files[0];
+    if (!file) { toast("Pick a backup file first"); return; }
+    busy(restoreBtn, true);
+    try {
+      await runIdentityRestore(file, body.querySelector("[data-pass-r]").value, phase);
+    } catch (err) {
+      phase(err?.message || String(err));
+      busy(restoreBtn, false);
+    }
+  });
+  showModal({
+    title: "Identity backup",
+    body,
+  });
+}
+
 function rebuildDrawer() {
   if (state.accountChanging) return;
   drawer?.el.remove();
@@ -3567,6 +3679,8 @@ function rebuildDrawer() {
   drawer = buildDrawer({
     account: state.account,
     theme: state.theme,
+    identityBackupAvailable: identityBackupAvailable(),
+    onIdentityBackup: () => openIdentityBackup(),
     barHidden,
     onBarToggle: (key, visible) => {
       barHidden = visible ? barHidden.filter(k => k !== key) : [...new Set([...barHidden, key])];
@@ -3856,6 +3970,7 @@ function showSplash() {
         <button class="btn-primary splash-btn" data-create type="button">Create an account</button>
         <button class="btn-text splash-btn" data-second type="button">Add as a second device…</button>
         <button class="btn-text splash-btn" data-restore type="button">Restore from a backup…</button>
+        ${identityBackupAvailable() ? `<button class="btn-text splash-btn" data-identity-restore type="button">Restore an identity backup…</button>` : ""}
         <button class="btn-text splash-btn" data-local type="button">Enter local chat…</button>
       </div>
       <div class="splash-form" data-form hidden>
@@ -3964,6 +4079,13 @@ function showSplash() {
       diagnosticsSink.append("error", `local chat: ${err?.message || err}`);
       showActions();
     }
+  });
+
+  // V2.5 identity restore (wasm dist): the splash stays open underneath the
+  // modal — a failed restore (e.g. relay unreachable) leaves the user on the
+  // splash, a successful one reloads the app into the restored profile.
+  el.querySelector("[data-identity-restore]")?.addEventListener("click", () => {
+    openIdentityBackup({ restoreOnly: true });
   });
 
   // --- restore from a backup ---
