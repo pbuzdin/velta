@@ -1078,3 +1078,28 @@ the wasm-layer rollback (discrete stack, `cfg`-gated, one revert).
   same RPC order, so only the UI shell (file pick + passphrase) is new.
 - **Open:** UI-level restore e2e with a live relay (C3 or VPN day); CI job
   that builds the PWA dist + runs the rig; wasm-opt deploy dist.
+
+## Day 21 — CI builds + rigs the PWA dist; docs audit (2026-10-06)
+
+- **CI dist pipeline (run 37524331472):** the opt-in workflow now builds the
+  PWA dist from the **wasm-opt'ed** wasm (the ship path), runs the full rig
+  in chromium, and uploads a `dist-pwa` artifact — deploy dists come off CI,
+  so the "wasm-opt deploy dist" open item is covered (local builds keep
+  `--wasm-opt` for ad-hoc deploys). Steps sit after the wasm-opt smoke;
+  the rig step logs to a file first so the RIG's exit code — not a pipe's —
+  decides the step (the tee'd e2e step has that latent hazard, noted).
+- **Windows flag bug found by the CI rehearsal:** `path.join(repoRoot,
+  flag)` in build-pwa/verify broke ABSOLUTE `--out`/`--wasm-dist`/`--dist`
+  paths (join concatenates `C:\…` onto the repo root on Windows) — fixed
+  with `path.resolve`, rig re-run 10/10 locally.
+- **Docs audit (asked: "are docs and AGENTS up to date?"):** three drift
+  spots fixed — spike-log header said day 18; plan §4b C1 said "23 boxes"
+  (Day-9 count, now 18); plan C2 still listed its "still open" items though
+  days 15/16 closed them, and C4 read as future though days 19/20 shipped
+  dist + identity backup. AGENTS §4.2/§4.2.1 were already current (written
+  Day 19/20); the §5 suggested-order table is left as-is (re-sequencing was
+  offered, not yet approved).
+- **Open after Day 21:** C3 relay websockify (relay fork — `/new` + `/imap`
+  + `/smtp` same-origin), UI-level restore e2e vs a live relay (VPN window),
+  "≥3 e2e passes on different days" (automation fires Oct 7 09:00), the
+  remaining human-review/Pavel boxes in the landing checklist.
