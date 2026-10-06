@@ -320,22 +320,28 @@ frontend into Velta. Coexist with Velta's existing 13 core patches
   worker (spike log Day 14a); wired into `createCore()` with the real app UI
   booting on the wasm core, no demo fallback (Day 15); OPFS persistence +
   Web Locks single-tab gate (Day 16). Optional crypto offload worker later.
-- **C3 — Relay websockify / CORS or generic proxy.** Prefer relay-native
-  websockify (upstream PR #1030 / fork branch `link2xt/websockify`): nginx
+- **C3 — Relay websockify / CORS or generic proxy (fork branch built,
+  2026-10-06, deploy pending).** Prefer relay-native websockify (upstream
+  PR #1030 / fork branch `link2xt/websockify`): nginx
   `/imap`→localhost:143, `/smtp`→localhost:587, plus CORS/`Origin`
   allowlist for the PWA origin, connection caps, document loopback
   per-IP / HELO behaviour. Fallback: generic design-G `ws-tcp-proxy`
   (allowlist ports 465/993/587/143, never 25; TLS stays in wasm) on the
   PWA origin for interop tests against any chatmail. Avoid TLS-terminated-
   at-proxy (design T).
+  **Day 22:** fork branch `pbuzdin/relay` `websockify-c3` = upstream
+  websockify + `ws_allowed_origins` Origin allowlist + per-IP
+  `limit_conn` + `/new` CORS (in-browser minting) + behaviour docs
+  (spike log Day 22). Next: test-relay deploy → wasm e2e vs `/imap`+`/smtp`.
 - **C4 — PWA shell for C (dist + identity backup DONE, 2026-10-06).**
   `scripts/build-pwa.mjs` builds the deployable dist (SW precache, CSP with
   `'wasm-unsafe-eval'`, `pwa-config.js` proxy/relay endpoints, rig-verified
   7/7 — Day 19); identity/key backup UX shipped (passphrase-wrapped bundle,
   export/restore in drawer + splash, rig 10/10 — Day 20), mandatory
-  pre-user. Still open: onboarding via invite/claim or `dcaccount:` needs
-  C3's relay origin (relay `/new` sends no CORS), CI dist-build job,
-  wasm-opt deploy dist, optional OPFS hardening (sahpool, blob mirror).
+  pre-user; CI builds + rigs the dist and ships a `dist-pwa` artifact on
+  every opt-in run (Day 21, run 37524331472). Still open: onboarding via
+  invite/claim or `dcaccount:` needs C3's relay origin (relay `/new` sends
+  no CORS), optional OPFS hardening (sahpool, blob mirror).
 - **Maintenance note.** Expect **~0.5–1 person-week per upstream core
   bump** to rebase the wasm patch stack. Track chatmail/core #8559 and
   relay #1030 — their landing shrinks the custom networking patch. Prefer
