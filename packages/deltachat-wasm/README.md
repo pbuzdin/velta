@@ -15,12 +15,29 @@ CC=clang wasm-pack build --target web --release --no-opt --out-dir ../wasm-dist 
 `apply-on-copy` installs the pinned `Cargo.lock` for this crate from
 `docs/research/wasm-patches/support/locks/deltachat-wasm.Cargo.lock`.
 
+**wasm-bindgen version:** the pinned `wasm-bindgen` crate (0.2.129, see
+`wasm_bindgen_version` in `docs/research/wasm-patches/support/locks/PROVENANCE`)
+must match the `wasm-bindgen-cli` that generates the glue. CI installs
+`wasm-bindgen-cli --version "$WASM_BINDGEN_VERSION"` from that pin; for local
+builds use a wasm-pack release whose bundled wasm-bindgen matches, otherwise
+the build fails with a version-mismatch error. Check with
+`wasm-pack --version` and `cargo install --list | grep wasm-bindgen-cli`.
+
 Networking e2e (alice→bob through a local `ws-tcp-proxy`):
 
 ```sh
 cd scripts && npm install
 PACKAGE_ROOT=/tmp/velta-wasm-copy/packages/deltachat-wasm \
   WS_TCP_PROXY=/path/to/ws-tcp-proxy.mjs node e2e-deltachat-wasm-network.mjs
+```
+
+Relay-native e2e against a deployed C3 relay (no local proxy):
+
+```sh
+cd scripts && npm install
+PACKAGE_ROOT=/tmp/velta-wasm-copy/packages/deltachat-wasm \
+  RELAY_WS_URL=wss://<relay> CHATMAIL_NEW=https://<relay>/new \
+  node e2e-deltachat-wasm-network.mjs
 ```
 
 See `docs/research/wasm-patches/README.md`.

@@ -1,14 +1,14 @@
 # Spike log — wasm core + WebSocket mail proxy
 
-**Status:** day 23 — C3 relay-native bridge complete on the fork:
-`websockify-c3` pushed to `pbuzdin/relay` (upstream websockify + origin
-allowlist + caps + `/new` CORS + the wasm-core `/tcp/`+`/dns/` scheme with
-TLS-port targets); test-relay deploy is the remaining C3 step. Day 21: CI
-builds + rigs + ships the PWA dist (`dist-pwa` artifact). Day 20: V2.5
-identity backup UX (export/restore in the PWA, rig 10/10). CI identity e2e
-first green (run 37504603502). [Landing
-checklist](wasm-core-landing-checklist.md) **18 open** — master `core/`
-stays stock.
+**Status:** day 24 — C3 relay branch (`websockify-c3`) carries the full
+wasm-core bridge scheme (TLS-port websockify targets, `/tcp/` + `/dns/`
+locations, origin allowlist, `/new` CORS); deploy runbook written
+([`websockify-c3-deploy.md`](websockify-c3-deploy.md)) — a test-relay
+deploy is the remaining C3 step. Day 21: CI builds + rigs + ships the PWA
+dist (`dist-pwa` artifact). Day 20: V2.5 identity backup UX (export/
+restore in the PWA, rig 10/10). CI identity e2e first green
+(run 37504603502). [Landing checklist](wasm-core-landing-checklist.md)
+**17 open** — master `core/` stays stock.
 Started **2026-10-05** (Europe/Moscow). Research baseline:
 [`wasm-core-mail-proxy.md`](wasm-core-mail-proxy.md).
 
@@ -1168,3 +1168,32 @@ the wasm-layer rollback (discrete stack, `cfg`-gated, one revert).
   relay-native e2e runs the moment a test relay deploys the branch.
 - **Validated:** python compiles + jinja render (tcp/dns locations, 5
   origin gates). Still needs a live deploy for the real e2e.
+
+## Day 24 — C3 deploy runbook + small landing boxes (2026-10-07)
+
+- **Push gate reality check:** the `.mimosa/` removal only temporarily
+  appeases the L3 push gate — it re-trips on later pushes. Also caught a
+  silent failure mode: a gated COMPOUND command (commit `&&` push) aborts
+  BEFORE executing, so Day 23's relay commit silently never happened while
+  the day's docs claimed it did — the changes survived as untracked/
+  modified files and were re-committed Day 24 (`e43b294`). Lesson: when a
+  Mimosa block fires, re-verify the filesystem, don't trust the planned
+  command sequence. Pushes of the relay branch stay with Pavel (own
+  terminal, post-removal).
+- **Deploy runbook:** [`websockify-c3-deploy.md`](websockify-c3-deploy.md) —
+  cmdeploy steps with `ws_allowed_origins`, hand-verification via websocat
+  (DNS bridge JSON, origin 403, openssl-through-tunnel IMAPS banner, `/new`
+  CORS curl), the `RELAY_WS_URL` e2e invocation, and the dist `--ws-proxy`
+  wiring. Self-signed-cert caveat for the wasm rustls client documented.
+- **Landing checklist burn-down (18 → 17):** ticked §2
+  "wasm-bindgen crate == wasm-bindgen-cli … documented for local builds"
+  (PROVENANCE 0.2.129 + local matching requirement now in
+  `packages/deltachat-wasm/README.md`). Sharpened the §2 nightly box: the
+  pin lives only in the wasm CI job + copy workspace; ticking needs the
+  open verification that the copy builds natively on stable (WSL —
+  `apply-on-copy` refuses on the CRLF `/mnt/c` checkout).
+- **Different-days streak:** network + identity e2e green on 2026-10-07
+  (run 37531692405) = 2 distinct days; one-shot automation
+  `automation-3cba28fd` fires 2026-10-08 09:00 to dispatch the third-day
+  run and tick the §5 box if green (the previous one-shot never fired and
+  was gone from the automation list).
