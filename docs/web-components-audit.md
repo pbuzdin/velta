@@ -31,7 +31,9 @@ impact is new.
 - **The static app shell is already a good base.** `index.html` paints the
   sidebar header, the bottom action bar, the "Select a chat" empty state and
   (hidden) the chat header and composer before any JS runs. All CSS lives in
-  one page stylesheet (`app/css/main.css`). No component injects styles from JS.
+  one page stylesheet (`app/css/main.css`). No Elena component injects styles
+  from JS (exception: the in-app browser, `inapp-browser.js:10-40`, injects its
+  own `<style>`; see `modals-audit-and-plan.md` M14).
   What is missing: the chat list paints empty until the whole module graph
   boots, and the theme is only applied by `app.js`.
 - **Accessibility is the main gap.** The core chat loop is not
@@ -452,8 +454,10 @@ shell would avoid both.
 
 *Positive:* all component CSS lives in the page stylesheet. There are no
 constructed stylesheets, no shadow roots and no JS-injected component styles.
-The only injected `<style>` is the theme/font block for the sandboxed HTML-mail
-iframe, which is legitimate. The shell markup for the header, bottom bar,
+Two `<style>` blocks are injected: the theme/font block for the sandboxed
+HTML-mail iframe, which is legitimate, and the in-app browser's own styles
+(`inapp-browser.js:10-40`), which should move to `main.css` (correction
+2026-10-06). The shell markup for the header, bottom bar,
 composer and selection bar is static.
 
 ### C. CSS semantics

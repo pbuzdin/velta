@@ -118,6 +118,8 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │                              onboarding, security-triage) — referenced from §5/§11
 ├── docs/web-components-audit.md  # UI semantics/a11y/progressive-rendering audit (2026-10-06)
 ├── docs/web-components-plan.md   # phased fix plan for that audit (quick wins → tests)
+├── docs/modals-audit-and-plan.md # modal/overlay/popup inventory + native <dialog> plan
+├── docs/native-elements.md       # where native HTML elements can replace custom JS/ARIA
 └── tools/                    # icon generation, WSL APK build/sign helpers,
                               serve-dev.py (no-cache static server for app/)
 ```
@@ -1300,6 +1302,12 @@ replies; applies regardless of which tools or modes are active.)
   `docs/web-components-audit.md` (findings A1…D4 with file:line refs) and
   `docs/web-components-plan.md` (phased plan) before touching components,
   dialogs, the drawer, the chat list or message rows.
+- Modals, overlays, menus, popovers, toasts and Android BACK handling: read
+  `docs/modals-audit-and-plan.md` (inventory, WebView support matrix,
+  `<dialog>` conversion plan; supersedes plan items 0.4/2.4) before touching
+  `showModal()`, the lightbox, webxdc/HTML-viewer/in-app-browser overlays or
+  the call screen. `docs/native-elements.md` lists native-element
+  replacements (popover, forms, `<progress>`, `<time>`, composer hints).
 - SVG icons are inline strings; no icon library.
 - CSS is a single hand-written file (`app/css/main.css`).
 - The service worker cache version is a hard-coded constant in `app/sw.js`.

@@ -11,6 +11,12 @@ the manual demo-mode check (`AGENTS.md` §4.2/§7.2).
 `app/` from local disk, where the measured first-row time is about 0.3 s, so phase 1
 is low-value there, though harmless.
 
+> **Update (2026-10-06):** modals, overlays and popups now have their own audit
+> and conversion plan in [`modals-audit-and-plan.md`](modals-audit-and-plan.md)
+> (7 phases, 11.5 days). It **supersedes items 0.4 and 2.4** below, and folds
+> in 0.1. Native-element replacements (popover, forms, `<progress>`, `<time>`,
+> composer hints, …) are surveyed in [`native-elements.md`](native-elements.md).
+
 Ground rules for every phase:
 - No bundler, no npm runtime deps in `app/` (`AGENTS.md` §6.2). Test-only deps
   stay outside `app/`, for example in `scripts/package.json` or a new
@@ -34,7 +40,7 @@ Small, local edits with no architecture change. Each one can ship on its own.
 | 0.1 | Add `aria-label="Close"` + `title` to the modal close button | `app/js/ui.js:116-118` | A11 |
 | 0.2 | `#toasts` → `role="status" aria-live="polite" aria-atomic="false"`; danger toasts go into a second `role="alert"` container (or set `role="alert"` on the toast element); `#boot-error` → `role="alert"` | `app/index.html:27,182`, `app/js/ui.js:166-248` | A14 |
 | 0.3 | Drawer: set `inert` while closed and remove it on open; give `#bar-menu` `aria-expanded` + `aria-controls="drawer"`; on open, focus the first drawer control; on close, return focus to `#bar-menu` | `app/js/ui.js:524-528,788-802`, `app/index.html:71` | A12 |
-| 0.4 | Interim modal semantics: `role="dialog"`, `aria-modal="true"`, `aria-labelledby` → `.modal-title` id; on open, focus the first focusable element (callers that already focus an input keep winning); on close, restore focus to the previously focused element | `app/js/ui.js:99-152` | A10 (part) |
+| 0.4 | Interim modal semantics: `role="dialog"`, `aria-modal="true"`, `aria-labelledby` → `.modal-title` id; on open, focus the first focusable element (callers that already focus an input keep winning); on close, restore focus to the previously focused element | `app/js/ui.js:99-152` | A10 (part). **Superseded** by [`modals-audit-and-plan.md`](modals-audit-and-plan.md) M1; ship only as a stopgap if M1 slips |
 | 0.5 | `div role="button"` attachment cards → `<button type="button">` (keep classes); webxdc card: outer div loses `role`, the app name becomes the open button next to Start | `app/js/chat-view.js:1435,1456,1466,1475-1479,1482` + CSS reset for `button.msg-file` in `app/css/main.css` | A5 |
 | 0.6 | `<velta-video>`: render the play overlay as `<button type="button" class="velta-video-play" aria-label="${this.ariaLabel()}">` and move the click handler onto it | `app/js/components.js:163-179,239-260` | A4 |
 | 0.7 | Message image: wrap `img` in `<button type="button" class="img-open" aria-label="Open photo">`; set `alt` from the caption or "Photo from <sender>"; lightbox `alt` = caption | `app/js/chat-view.js:1432,1715`, `app/js/ui.js:1053-1057` | A6, A20 (part) |
@@ -109,7 +115,7 @@ screen-reader-operable.
 | 2.1 | **Chat list as a list of buttons/links.** `#chat-list` → `<nav aria-label="Chats"><ul role="list">` with an `<li>` per row. `<velta-chat-item>` renders a `<button type="button" class="chat-item">` (or `<a href="#chat/ID">`) as its `element` with `aria-current="true"` when open. Drop `role="listbox"`/`"option"`. Context menu via the `contextmenu` event on the focused button (Shift+F10 / Menu key) plus a visible "More" affordance on focus. This aligns with the existing contact and call rows (`app.js:1316,1353,1376`). | `app/index.html:54`, `app/js/components.js:301-362`, `app/js/app.js:1553-1672`, `app/css/main.css:1184-1233` | 1.5 |
 | 2.2 | **Focus survives row recreation (D3).** Rows are recreated on data change (VENDORISSUES #8). Before `replaceWith`, remember whether the row (or a descendant) had focus, and re-focus the new row's button after. The same goes for the chat head. Optional upstream fix of E2 removes the need. | `app/js/app.js:1557-1600,1904-1929,2001,2070,2089,2499` | 0.5 |
 | 2.3 | **Chat header and avatars as controls.** `<velta-chat-head>` renders the name/status block inside a `<button type="button" class="chat-head-btn" aria-haspopup="dialog">`; the name becomes `<h2>`. Clickable avatars (drawer head, group sender) get wrapped in a `<button aria-label="Profile of …">`, while the decorative tile stays `aria-hidden`. | `app/js/components.js:365-412`, `app/js/ui.js:531`, `app/js/chat-view.js:1379-1381,1558-1565` | 0.5 |
-| 2.4 | **Dialogs on native `<dialog>`.** `showModal()` builds `<dialog class="modal" aria-labelledby>`, opened with `dialog.showModal()` (top layer, inert background, Esc → `cancel`) and closed via `close()`. Map `cancel` → `doClose` so the history contract and "settle before close" keep working. Apply the same pattern to the lightboxes (A20), the webxdc, HTML-viewer and in-app-browser overlays, and the call overlay (as `role="alertdialog"` with focus on Accept, A15). Toasts must keep rendering *above* modals, so move `#toasts` to `popover="manual"` (top layer, shown after dialogs) or render toasts into the open dialog. | `app/js/ui.js:99-152,1033-1174`, `app/js/calls.js:280-310`, `app/js/webxdc-manager.js:215-250`, `app/js/inapp-browser.js:70-95`, `app/js/chat-view.js:2954-2990`, `app/css/main.css` (`.pop-overlay`, `.modal`, `.lightbox`, `#call-overlay`) | 1.5 |
+| 2.4 | **Dialogs on native `<dialog>`.** `showModal()` builds `<dialog class="modal" aria-labelledby>`, opened with `dialog.showModal()` (top layer, inert background, Esc → `cancel`) and closed via `close()`. Map `cancel` → `doClose` so the history contract and "settle before close" keep working. Apply the same pattern to the lightboxes (A20), the webxdc, HTML-viewer and in-app-browser overlays, and the call overlay (as `role="alertdialog"` with focus on Accept, A15). Toasts must keep rendering *above* modals, so move `#toasts` to `popover="manual"` (top layer, shown after dialogs) or render toasts into the open dialog. | `app/js/ui.js:99-152,1033-1174`, `app/js/calls.js:280-310`, `app/js/webxdc-manager.js:215-250`, `app/js/inapp-browser.js:70-95`, `app/js/chat-view.js:2954-2990`, `app/css/main.css` (`.pop-overlay`, `.modal`, `.lightbox`, `#call-overlay`) | 1.5 → see note |
 | 2.5 | **Menus.** `showContextMenu()` → `role="menu"` with `role="menuitem"` buttons, separators as `role="separator"`, focus on the first item, Arrow/Home/End/Esc, focus returned to the invoking element. The account switcher popover in the drawer gets the same treatment. | `app/js/ui.js:28-55,536-539,860-875` | 0.5 |
 | 2.6 | **Message history semantics + live announcer.** `#history` → `role="list"` (or `feed`) with rows as `role="listitem"`/`<article aria-labelledby>`, each carrying a hidden "sender, time" prefix. Day chips become `<h3>`/`role="separator"`, and times become `<time datetime>`. Rows are focusable (`tabindex="-1"` + roving, with ArrowUp/Down from the composer via Alt+Up) so the context menu and Shift+F10 work. Add **one** visually-hidden `aria-live="polite"` announcer, fed from the incoming-message path (where `notifyIncoming` already decides "new message in the open chat"), rate-limited (coalesce bursts: "3 new messages from Ada"). Typing and failed sends go through the same announcer. The virtual scroller's row churn stays out of it. | `app/js/chat-view.js:1334-1900` (row build), `1374`, `1549`, `app/index.html:118-119`, `app/js/ui.js:1176-1246` (notify path) | 1.5 |
 | 2.7 | **Tabs, toggles and status icons.** Proper `tablist`/`tab`/`tabpanel` with `aria-selected` for the QR and search tabs and the profile-management tabs. `aria-pressed` on category chips. `aria-current="page"` on the active bottom-bar view. Ticks, pin, mute and lock get `<title>`/`aria-label` text ("Read", "Delivered", "Sending", "Failed", "Pinned", "Muted", "Unencrypted"). Unread badge: "14 unread". Relay line: real text in a visually-hidden span instead of `aria-label` only. | `app/js/app.js:1268,1407-1409,1550,2948-2955,3103,680-752`, `app/js/components.js:268-298,334`, `app/index.html:43-53` | 0.5 |
@@ -119,6 +125,10 @@ screen-reader-operable.
   `scroll-restore`, `chat-msg-update-hardening` and `read-tracking`. Row
   signatures (`_rowSigCache`) must include any new attributes, or event storms
   come back (`AGENTS.md` §11, "Event-storm hardening").
+- 2.4 is **superseded** by [`modals-audit-and-plan.md`](modals-audit-and-plan.md)
+  (phases M0–M6, 11.5 days, including the history stack, forms, popover
+  fallbacks and device QA that the 1.5-day estimate left out). The notes
+  below are kept for context.
 - 2.4: the `<dialog>` top layer changes stacking. Stickers, toasts, lightbox
   over modal, and "confirm before lightbox" (`chat-view.js:1718-1735`) all
   depend on the current z-order. WebView2 and Android WebView support
@@ -207,7 +217,7 @@ call for a tolerance and font pinning. Keep the committed screenshot baselines s
 |---|---|---|---|
 | 0 | Quick wins: labels, alt, buttons, drawer `inert`, interim dialog roles, toast live region, iframe titles | 2 | All shells: removes the axe criticals and the worst keyboard traps |
 | 1 | Progressive app shell: pre-paint theme, chat-list skeleton, boot status, pre-hydration CSS, static templates | 3 | **PWA** (wasm core startup); cosmetic on Tauri/Android |
-| 2 | Lists as buttons/links, `<dialog>`, menus, history semantics + live announcer, tabs/toggles/status icons | 6 | All shells: keyboard + screen-reader operable chat loop |
+| 2 | Lists as buttons/links, `<dialog>` (now detailed in `modals-audit-and-plan.md`, 11.5 d on its own), menus, history semantics + live announcer, tabs/toggles/status icons | 6 | All shells: keyboard + screen-reader operable chat loop |
 | 3 | State in ARIA/`data-*`/host attributes, inline styles → CSS, `hidden`, focus rings, contrast | 3 | All shells: maintainability, themeability, visible focus |
 | 4 | axe + keyboard + no-JS + startup-budget tests, source guards | 2.5 | Regression safety |
 | | **Total** | **16.5** | |
