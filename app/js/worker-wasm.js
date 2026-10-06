@@ -83,5 +83,25 @@ self.onmessage = async (e) => {
     dc.receive(d.line);
   } else if (d.type === "checkpoint") {
     checkpoint().catch(() => {});
+  } else if (d.type === "read-file") {
+    try {
+      const bytes = glue.vfs_read(d.path);
+      self.postMessage({ type: "file", id: d.id, bytes });
+    } catch (err) {
+      self.postMessage({ type: "file-error", id: d.id, error: String(err?.message ?? err) });
+    }
+  } else if (d.type === "write-file") {
+    try {
+      const parts = d.path.split("/").filter(Boolean);
+      let dir = "/";
+      for (let i = 0; i < parts.length - 1; i++) {
+        dir += parts[i] + "/";
+        glue.vfs_mkdirp(dir);
+      }
+      glue.vfs_write(d.path, d.bytes);
+      self.postMessage({ type: "written", id: d.id });
+    } catch (err) {
+      self.postMessage({ type: "file-error", id: d.id, error: String(err?.message ?? err) });
+    }
   }
 };

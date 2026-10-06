@@ -14,6 +14,7 @@ export class WorkerWasmTransport {
     this._wsProxyUrl = wsProxyUrl;
     this._receiver = null;
     this._worker = null;
+    this._fileSeq = 0;
   }
 
   async setReceiver(fn) {
@@ -23,6 +24,33 @@ export class WorkerWasmTransport {
 
   send(line) {
     this._worker?.postMessage({ type: "line", line });
+  }
+
+  // Generic memfs passthrough (V2.5 identity backup: grab the self-keys tar
+  // the core wrote, or place one for import). Resolves Uint8Array / undefined.
+  readCoreFile(path) {
+    return this._fileRequest({ type: "read-file", path });
+  }
+
+  writeCoreFile(path, bytes) {
+    return this._fileRequest({ type: "write-file", path, bytes });
+  }
+
+  _fileRequest(msg) {
+    if (!this._worker) return Promise.reject(new Error("worker not booted"));
+    const id = ++this._fileSeq;
+    return new Promise((resolve, reject) => {
+      const onMsg = (e) => {
+        const d = e.data;
+        if (d.id !== id) return;
+        this._worker.removeEventListener("message", onMsg);
+        if (d.type === "file") resolve(d.bytes);
+        else if (d.type === "written") resolve();
+        else reject(new Error(d.error));
+      };
+      this._worker.addEventListener("message", onMsg);
+      this._worker.postMessage({ ...msg, id });
+    });
   }
 
   async _boot() {

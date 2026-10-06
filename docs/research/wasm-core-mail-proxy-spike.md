@@ -926,3 +926,36 @@ the wasm-layer rollback (discrete stack, `cfg`-gated, one revert).
   aarch64 `cargo check` green + Windows sidecar link+smoke green cover the
   native-breakage risk; release CI builds the APKs from the landed tree at
   the landing tag anyway. Needs Pavel's written waiver to close.
+
+---
+
+## Day 17 — V2.5 identity backup plumbing + CI identity e2e (2026-10-06)
+
+- **Worker/transport plumbing:** generic memfs passthrough — worker
+  `read-file`/`write-file` messages, `WorkerWasmTransport.readCoreFile(path)`
+  / `writeCoreFile(path, bytes)`. This is the escape hatch the V2.5 bundle
+  needs (grab the core-written self-keys tar, place one for import) and is
+  generally useful (exported chat files, logs).
+- **Identity round-trip design (V2.5 per plan):** bundle =
+  `{addr, mail_pw, config snapshot, keys_tar}` where `keys_tar` is core's
+  own `export_self_keys` output (passphrase-encrypted by core); the whole
+  bundle is AES-GCM-wrapped client-side (PBKDF2-SHA-256, 310k, WebCrypto).
+  Restore = fresh account → `batch_set_config {addr, mail_pw}` →
+  `import_self_keys` → `configure`. Export/import implemented in the local
+  worker rig (`build-artifacts/c2-rig/main.js`); product home = app boot
+  flow (C4).
+- **Why CI:** the round-trip proof needs a *configured* account —
+  `export_self_keys` fails with "No self addr configured" offline, and
+  2.62's transports era means the addr must belong to a transport; faking
+  that with dummy credentials times out in `add_transport_from_qr`. The dev
+  box cannot reach chatmail relays at all (VPN fake-IP: TCP connects, TLS
+  times out — verified vs nine.testrun.org; github.com works). Hence the
+  identity e2e lives in CI where the network e2e already runs.
+- **New `scripts/e2e-deltachat-wasm-identity.mjs`:** real throwaway account
+  → configure over the proxy → `export_self_keys` → tar via memfs side
+  channel → fresh account → same addr/password → `import_self_keys` →
+  `configure` → assert `configured_addr == email`. Workflow step added
+  (`continue-on-error` until first green; script in the trigger paths).
+- Config-key lessons: the keys are `mail_pw`/`send_pw` (not
+  `mail_password`); `imex` self-keys requires `configured_addr`; the
+  offline-rig identity assertions had to move to CI with the real relay.
