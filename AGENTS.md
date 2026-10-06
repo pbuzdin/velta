@@ -250,16 +250,51 @@ send (groups never do) — and `sendMessage`/`resendMessage` emit
 envelope work in the demo (demo *mode* itself still suppresses both marks:
 no relay configured, nothing sends through one).
 
-The service worker is dead by design: boot unregisters every registration
-(app.js, near the PWA comment — cache-first SWs kept serving stale JS across
-upgrades). `app/sw.js` shipped dead weight for years and was deleted (#48);
-don't re-register one. Startup script loads (#48): `ui-scale.js` and
+The service worker was dead by design for the plain `app/` tree and stays
+dead there: boot unregisters every registration (app.js, near the PWA
+comment — cache-first SWs kept serving stale JS across upgrades), and
+`app/sw.js` shipped dead weight for years before deletion (#48). The C4 PWA
+**dist** is the exception: it generates its own versioned precache SW
+(`scripts/build-pwa.mjs`), and boot's unregister sweep skips the dist
+(`window.VELTA_PWA` gate) — there the SW is the update mechanism, not a
+staleness hazard. Don't re-introduce a SW into `app/` itself.
+Startup script loads (#48): `ui-scale.js` and
 `boot-net.js` stay parser-blocking on purpose (pre-paint scale, early error
 banner); `vendor/virtual-scroller.js` is `defer` — module scripts run after
 deferred scripts, so the global class exists before `new VirtualScroller`.
 `mock-core.js` must stay out of the prod import graph: transport dynamic-
 imports the demo core, and prod modules take the shared helpers from
 `format.js` (mock-core re-exports them for demo mode and tests).
+
+### 4.2.1 PWA dist (Architecture C) — build + verify
+
+```bash
+# wasm core assets: download a CI artifact (or wasm-pack, see
+# packages/deltachat-wasm/README.md) into build/wasm-dist
+gh run download <run-id> -n wasm-dist-no-opt -D build/wasm-dist
+# build the deployable dist → build/dist-pwa
+node scripts/build-pwa.mjs [--ws-proxy wss://host/path] [--wasm-opt [BIN]]
+# verify in a real browser (7 checks; headless msedge via playwright)
+node scripts/verify-pwa-dist.mjs
+```
+
+Detection is runtime-only — `app.js` is shared by all three targets and
+never branches at build time: `window.VELTA_PWA` exists ONLY in the dist
+(builder-generated `pwa-config.js`), `window.__TAURI__` / `window.VeltaBridge`
+mark the shells. Defense in depth: the worker-wasm transport attempt also
+requires `!VeltaBridge && !__TAURI__`, so a dist accidentally served inside
+Tauri still can't take over the transport. Gotchas (spike Day 19):
+- CI artifacts from runs that predate the Day-16 push (865a9d34) lack the
+  module-level `vfs_*` exports → OPFS persistence silently no-ops (worker
+  checkpoint errors are swallowed). Check `grep -c vfs_list
+  build/wasm-dist/deltachat_wasm.js` before building a dist on an artifact.
+  Run timestamps are UTC, commit times +0300 — compare carefully.
+- The verify rig's static server serves the dist from memory on purpose:
+  per-request reads of the 28 MB wasm flaked connections under the SW-install
+  burst (install fails → registration goes redundant).
+- If a SW check shows a full precache cache but `getRegistrations()` = 0,
+  something is UNREGISTERING the worker (that's how the #48 boot sweep bug
+  surfaced) — don't chase fetch flakes first.
 
 ### 4.3 Tauri desktop/Android app (`velta-app/`)
 
