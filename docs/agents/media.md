@@ -94,7 +94,10 @@ The composer fetches the OG card (`fetch_link_preview`) and
 `renderPreviewImage` paints a 480px card in Velta's dark colors (`#1c1c26`)
 to WebP (JPEG if this webview's `toBlob` does not return `image/webp`).
 A "Sent with Velta" chip sits in the top-right corner, with a dim fill and
-a hairline border. The live card has no chip. `_sendPreviewImage` writes
+a hairline border. A landscape page image is drawn at the card width and
+its own height; a portrait image stays in the 220px cover band. The live
+card has no chip, and its image uses `max-width: 100%` plus a max-height
+so the sides are not clipped. `_sendPreviewImage` writes
 `uploads/lp-<ts>.webp` (or `.jpg`) and sends it as `viewtype: image` with
 the draft as the caption. The recipient does not fetch the URL. Plain-text
 messages still fetch on receive only when that side is `fetch`;

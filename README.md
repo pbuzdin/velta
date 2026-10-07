@@ -245,8 +245,9 @@ context menu (that chat wins):
 - **Send a picture** — a finished `https://` link goes out as a picture
   of the card (WebP, or JPEG when this app cannot encode WebP) with your
   text as the caption. The picture uses Velta's dark colors, with a small
-  "Sent with Velta" chip in the top-right corner. The people you write to
-  see that picture and do not contact the site.
+  "Sent with Velta" chip in the top-right corner. A landscape photo on
+  that picture is shown whole. The people you write to see that picture
+  and do not contact the site.
 - **Load on this device** — the old card. This device fetches the page
   when a plain text link is on screen. The same note sits under the
   radios: the fetch is https only, capped at 256 KB of page and 512 KB of
@@ -523,7 +524,7 @@ attached (m4a when the app can record it, otherwise ogg or webm).
 
 | Type | How it is sent | How it is shown |
 |---|---|---|
-| Photo | `viewtype: Image` with the original file path | Rendered inline as an `<img>` |
+| Photo | `viewtype: Image` with the original file path | Rendered inline as an `<img>`. A landscape photo is shown whole; a portrait photo fills its frame. |
 | Video | `viewtype: Video` | Rendered as a native first-frame preview; tapping plays it in a fullscreen lightbox (controls live there) |
 | Voice | recorded in the composer, `viewtype: Voice` plus the audio file | Rendered inline as an `<audio controls>` element |
 | Audio file | `viewtype: Audio` | Rendered inline as an `<audio controls>` element |
