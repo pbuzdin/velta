@@ -891,6 +891,17 @@ html[data-theme="brutal"] .msg-fail-badge { color: #3d3405; background: rgba(229
   opacity: 0; transform: scale(1.03);
   transition: opacity .35s ease, transform .45s cubic-bezier(.2, .7, .3, 1);
 }
+/* Landscape photos show the whole frame. Cover would clip the sides when
+   the reserved box is taller than the picture. */
+.msg-image .img-wrap.is-land img { object-fit: contain; }
+/* Chromium only. Safari keeps the px-only inline width: a percentage inside
+   min() collapses its shrink-to-fit bubble (#27). The bubble width is set
+   first so 100% is a real length. For a 960×376 photo this is
+   min(960px, 100%, 2.5532 * min(450px, 45vh)). */
+html[data-engine="chromium"] .bubble:has(.img-wrap.is-land) { width: min(480px, 100%); }
+html[data-engine="chromium"] .img-wrap.is-land.ready {
+  width: min(var(--img-w, 480px), 100%, calc(min(var(--img-cap, 450px), 45vh) * var(--img-r, 1))) !important;
+}
 .msg-image .img-wrap.ready img { opacity: 1; transform: none; }
 .img-ph {
   position: absolute; inset: 0; display: grid; place-items: center;
@@ -1992,6 +2003,7 @@ li.failed .step-ico::after { content: "✕"; }
 
 /* ===== Link preview card (first link in a text message) ===== */
 .msg-link-preview { margin-top: 8px; }
+.msg-link-preview .link-preview { width: 100%; }
 .link-preview {
   display: block;
   border-radius: 10px;
@@ -2007,11 +2019,13 @@ li.failed .step-ico::after { content: "✕"; }
 .link-preview .lp-img {
   -webkit-user-drag: none;
   display: block;
-  width: 100%;
-  /* Fixed band (like the official clients): og:image is often a small logo,
-     and height:auto rendered it as a thin strip; cover crops to fill. */
-  height: 220px;
-  object-fit: cover;
+  /* width/height auto plus both maxes: a max-height alone widens a landscape
+     image past the card, and the card's overflow:hidden then clips the sides. */
+  width: auto; height: auto;
+  max-width: 100%; max-height: 280px;
+  margin-inline: auto;
+  object-fit: contain;
+  background: #1c1c26;
 }
 .link-preview .lp-body {
   display: block;
@@ -2061,8 +2075,8 @@ html[data-theme="brutal"] .msg-row.out .link-preview .lp-desc { color: #3d3405; 
   .link-preview:hover { background: rgba(255, 255, 255, 0.12); }
 }
 /* Composer ghost: shorter than the in-bubble card so it doesn't eat the input. */
-.lp-draft-body .link-preview { max-width: 420px; }
-.lp-draft-body .lp-img { height: 120px; }
+.lp-draft-body .link-preview { width: 100%; max-width: 420px; }
+.lp-draft-body .lp-img { max-height: 120px; }
 
 /* ===== Webxdc mini-apps ===== */
 .msg-webxdc {

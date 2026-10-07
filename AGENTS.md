@@ -679,6 +679,12 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   bug; the probe showed Chromium collapsing too when the meta line doesn't
   rescue the bubble width). `max-width:100%` handles the narrow-bubble
   clamp; the reserve box equals the decoded box, so the decode never jumps.
+  Chromium exception (`html[data-engine="chromium"]`, set from `chat-view.js`;
+  iOS WebKit shells are excluded): once a landscape wrap is `.ready`, that
+  bubble gets `width: min(480px, 100%)` and the wrap
+  `min(var(--img-w), 100%, calc(min(var(--img-cap), 45vh) * var(--img-r)))`.
+  The definite bubble width is what makes the percentage safe. Safari keeps
+  the px-only inline width. Do not put `%` inside `min()` on that inline width.
   `.chat-item` cards use full
   `contain: layout paint style`. The rendered-row LRU (`_rowCache`) survives
   `close()`; `open()` clears it when the account changed.
@@ -1146,7 +1152,9 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   (`#link-preview-draft`) for the first finished `https://` URL
   (`senderPreviewUrl`: skip invites, `deltachat.id`, and hosts with no
   dot) and on send bakes it to a 480px image (`renderPreviewImage`: WebP
-  at quality 0.72, JPEG if `toBlob` does not return `image/webp`) and
+  at quality 0.72, JPEG if `toBlob` does not return `image/webp`,
+  dark card `#1c1c26`, "Sent with Velta" chip in the top-right with a dim
+  fill and hairline border; the live card has no chip) and
   sends that as a normal image with the draft as the caption
   (`_sendPreviewImage`, file `lp-<ts>.webp` or `.jpg` under `uploads/`).
   The recipient does not contact the site. `fetch` still runs

@@ -7,6 +7,12 @@ import { openWebxdc, prefetchInfo, appIconUrl } from "./webxdc-manager.js";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
 
+// iOS Chrome/Edge/Firefox are WebKit, so they stay on the px-only image width.
+const ua = globalThis.navigator?.userAgent || "";
+if (!/CriOS|FxiOS|EdgiOS/.test(ua) && /Chrome\/|Chromium\/|Edg\//.test(ua)) {
+  globalThis.document?.documentElement?.setAttribute("data-engine", "chromium");
+}
+
 function composerFieldSized() {
   return typeof CSS !== "undefined" && CSS.supports?.("field-sizing", "content");
 }
@@ -1477,6 +1483,7 @@ export class ChatView {
         // Stickers stay compact (official Android DC renders stickers inside
         // a 175dp square — media_bubble_sticker_dimens) instead of the
         // 45vh/450px photo cap.
+        const capPx = m.viewtype === "sticker" ? 175 : 450;
         const cap = m.viewtype === "sticker" ? "175px" : "45vh, 450px";
         // Core dimensions win; else the remembered decode shape (below).
         const dims = (dw && dh) ? [dw, dh] : mediaDims(this.core.accountId, m.id);
@@ -1487,10 +1494,14 @@ export class ChatView {
         // min(natural, bubble, maxHeight × ratio) box: portrait shots get
         // cappedHeight × their ratio, landscape ones the 480px bubble cap.
         // The reserve IS the final box, so the decode causes no jump.
+        // --img-w / --img-r / --img-cap feed the Chromium rule that swaps the
+        // 480px cap for 100% once the bubble width is definite. Safari does
+        // not use them.
         const box = dims && dims[0] && dims[1]
-          ? ` style="width:min(${dims[0]}px, 480px, calc(min(${cap}) * ${(dims[0] / dims[1]).toFixed(4)})); aspect-ratio:${dims[0]} / ${dims[1]}; max-width:100%"`
+          ? ` style="--img-w:${dims[0]}px;--img-r:${(dims[0] / dims[1]).toFixed(4)};--img-cap:${capPx}px;width:min(${dims[0]}px, 480px, calc(min(${cap}) * ${(dims[0] / dims[1]).toFixed(4)})); aspect-ratio:${dims[0]} / ${dims[1]}; max-width:100%"`
           : "";
-        const wrapCls = `${m.viewtype === "sticker" ? " sticker" : ""}${box ? "" : " no-dims"}`;
+        const land = dims && dims[0] > dims[1] ? " is-land" : "";
+        const wrapCls = `${m.viewtype === "sticker" ? " sticker" : ""}${box ? "" : " no-dims"}${land}`;
         bubble += `<div class="msg-image"><div class="img-wrap${wrapCls}"${box}><div class="img-ph"><div class="img-ph-ico">${ICO.photo}</div></div><img data-src="image" decoding="async" alt=""></div></div>`;
       } else {
         const size = m.fileSize ? formatBytes(m.fileSize) : "";
@@ -1741,10 +1752,14 @@ export class ChatView {
         if (mediaImg.naturalWidth && mediaImg.naturalHeight && wrap) {
           const r = mediaImg.naturalWidth / mediaImg.naturalHeight;
           wrap.style.aspectRatio = `${mediaImg.naturalWidth} / ${mediaImg.naturalHeight}`;
+          wrap.classList.toggle("is-land", mediaImg.naturalWidth > mediaImg.naturalHeight);
           // Stickers match the official Android cap (175dp, see the reserve
           // above) — the photo cap made stickers render up to 450px AND
           // jump from the reserve.
           const cap = m.viewtype === "sticker" ? 175 : 450;
+          wrap.style.setProperty("--img-w", `${mediaImg.naturalWidth}px`);
+          wrap.style.setProperty("--img-r", r.toFixed(4));
+          wrap.style.setProperty("--img-cap", `${cap}px`);
           // px terms only (#27): no % inside min() — a percentage here
           // collapses the box in Safari's shrink-to-fit bubble. max-width
           // on the wrap handles the narrow-bubble clamp instead.
