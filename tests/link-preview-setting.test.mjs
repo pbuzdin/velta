@@ -14,7 +14,7 @@ globalThis.localStorage = {
   removeItem(k) { delete store[k]; },
 };
 
-const { linkPreview, linkPreviewEnabled, setLinkPreviewEnabled, LINK_PREVIEW_IP_WARNING } = await import("../app/js/link-preview.js");
+const { linkPreview, linkPreviewEnabled, setLinkPreviewEnabled, LINK_PREVIEW_IP_WARNING, senderPreviewUrl, receiveFetchesPreview, wrapLines } = await import("../app/js/link-preview.js");
 
 test("link previews are off until the user opts in", () => {
   localStorage.removeItem("velta-link-preview");
@@ -61,4 +61,34 @@ test("deltachat.id and invite links are not fetched", async () => {
   const preview = await linkPreview("https://example.com/page");
   assert.equal(preview.title, "Example");
   assert.deepEqual(calls.map(c => c.args.url), ["https://example.com/page"]);
+});
+
+test("sender preview attaches only for a finished https url with no file", () => {
+  const on = { enabled: true };
+  assert.equal(senderPreviewUrl("https://example.com/a", on), "https://example.com/a");
+  assert.equal(senderPreviewUrl("see [docs](https://example.com/a)", on), "https://example.com/a");
+  assert.equal(senderPreviewUrl("https://example.com/a", { enabled: false }), null);
+  assert.equal(senderPreviewUrl("https://example.com/a", { enabled: true, hasFile: true }), null);
+  assert.equal(senderPreviewUrl("https://example.com/a", { enabled: true, dismissed: "https://example.com/a" }), null);
+  assert.equal(senderPreviewUrl("https://example.com/b", { enabled: true, dismissed: "https://example.com/a" }), "https://example.com/b");
+  assert.equal(senderPreviewUrl("https://deltachat.id/x", on), null);
+  assert.equal(senderPreviewUrl("https://e", on), null);
+  assert.equal(senderPreviewUrl("http://example.com/a", on), null);
+  const fp = "a".repeat(40);
+  assert.equal(senderPreviewUrl(`https://i.delta.chat/#${fp}`, on), null);
+});
+
+test("a photo caption does not fetch a preview", () => {
+  assert.equal(receiveFetchesPreview("text"), true);
+  assert.equal(receiveFetchesPreview(undefined), true);
+  assert.equal(receiveFetchesPreview("image"), false);
+  assert.equal(receiveFetchesPreview("file"), false);
+  assert.equal(receiveFetchesPreview("video"), false);
+});
+
+test("wrapLines breaks on the measure, and keeps a single word", () => {
+  const measure = s => s.length;
+  assert.deepEqual(wrapLines("one two three", 7, measure), ["one two", "three"]);
+  assert.deepEqual(wrapLines("hello", 3, measure), ["hello"]);
+  assert.deepEqual(wrapLines("", 10, measure), []);
 });

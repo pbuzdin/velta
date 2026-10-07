@@ -2,6 +2,8 @@
 // Fetches shell-side (fetch_link_preview command, CSP: renderer has no
 // remote reach), in-memory cache per URL, and a user setting
 // (localStorage["velta-link-preview"] === "1") that gates rendering.
+// When the setting is on, the composer bakes the card into a WebP and
+// sends that image, so the recipient never contacts the site (#88).
 import { escapeHtml, escapeAttr } from "./components.js";
 import { parseInviteLink } from "./invites.js";
 
@@ -61,13 +63,46 @@ function isDeltachatIdHost(url) {
   }
 }
 
+// https URL worth a sender-side card, or null. A half-typed host (no dot)
+// is not fetched. Dismiss is the exact URL the user crossed out.
+export function senderPreviewUrl(text, { enabled = false, hasFile = false, dismissed = null } = {}) {
+  if (!enabled || hasFile) return null;
+  const url = firstLink(text);
+  if (!url || !/^https:\/\//.test(url)) return null;
+  if (parseInviteLink(url) || isDeltachatIdHost(url)) return null;
+  let host = "";
+  try { host = new URL(url).hostname; } catch { return null; }
+  if (!host.includes(".")) return null;
+  if (dismissed && dismissed === url) return null;
+  return url;
+}
+
+// Receive-time fetch is for plain text only. An image caption — including
+// a card we baked — must not contact the site.
+export function receiveFetchesPreview(viewtype) {
+  return !viewtype || viewtype === "text";
+}
+
+// Greedy word wrap. `measure` returns a width in the same unit as maxW.
+export function wrapLines(text, maxW, measure) {
+  const lines = [];
+  let line = "";
+  for (const w of String(text || "").split(/\s+/).filter(Boolean)) {
+    const next = line ? line + " " + w : w;
+    if (line && measure(next) > maxW) { lines.push(line); line = w; }
+    else line = next;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
 function invoke(cmd, args) {
   try {
     const tauri = window.__TAURI__;
     const fn = tauri?.core?.invoke || tauri?.invoke;
-    if (!fn) return null;
+    if (!fn) return Promise.resolve(null);
     return fn(cmd, args);
-  } catch { return null; }
+  } catch { return Promise.resolve(null); }
 }
 
 let inFlight = new Map(); // url -> Promise (dedupe concurrent renders)
@@ -101,7 +136,7 @@ export async function linkPreview(text, chatId = null) {
   return p;
 }
 
-export function linkPreviewCardHtml(preview, url) {
+export function linkPreviewCardHtml(preview, url, { link = true } = {}) {
   if (!preview) return "";
   const img = preview.image
     ? `<img class="lp-img" src="${escapeAttr(preview.image)}" alt="" loading="lazy" draggable="false">`
@@ -110,10 +145,72 @@ export function linkPreviewCardHtml(preview, url) {
     ? `<span class="lp-desc">${escapeHtml(preview.description)}</span>`
     : "";
   const title = preview.title || url;
-  return `<a class="link-preview" href="${escapeAttr(url)}" target="_blank" rel="noopener" draggable="false">` +
+  const attrs = link ? ` href="${escapeAttr(url)}" target="_blank" rel="noopener"` : "";
+  const tag = link ? "a" : "div";
+  return `<${tag} class="link-preview"${attrs} draggable="false">` +
     img +
     `<span class="lp-body"><span class="lp-host">${escapeHtml(hostOf(url))}</span>` +
-    `<span class="lp-title">${escapeHtml(title)}</span>${desc}</span></a>`;
+    `<span class="lp-title">${escapeHtml(title)}</span>${desc}</span></${tag}>`;
+}
+
+const CARD_W = 480;
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("image"));
+    img.src = src;
+  });
+}
+
+// ponytail: one 480px card, no theme and no @2x. WebP, JPEG if this
+// webview's toBlob ignores WebP. A core preview field replaces this.
+export async function renderPreviewImage(preview, url) {
+  if (!preview || typeof document === "undefined" || !document.createElement) return null;
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext?.("2d");
+  if (!ctx) return null;
+  let photo = null;
+  if (preview.image) {
+    try { photo = await loadImage(preview.image); } catch { photo = null; }
+  }
+  const pad = 16;
+  const maxW = CARD_W - pad * 2;
+  const measure = (font) => (s) => { ctx.font = font; return ctx.measureText(s).width; };
+  const title = preview.title || hostOf(url);
+  const titleLines = wrapLines(title, maxW, measure("600 22px sans-serif")).slice(0, 2);
+  const descLines = preview.description
+    ? wrapLines(preview.description, maxW, measure("16px sans-serif")).slice(0, 3)
+    : [];
+  const imgH = photo ? 220 : 0;
+  const textH = 16 + 18 + 8 + titleLines.length * 28 + (descLines.length ? 8 + descLines.length * 22 : 0) + 16;
+  canvas.width = CARD_W;
+  canvas.height = imgH + textH;
+  ctx.fillStyle = "#f4f4f5";
+  ctx.fillRect(0, 0, CARD_W, canvas.height);
+  if (photo) {
+    const scale = Math.max(CARD_W / photo.width, imgH / photo.height);
+    const sw = CARD_W / scale;
+    const sh = imgH / scale;
+    ctx.drawImage(photo, (photo.width - sw) / 2, (photo.height - sh) / 2, sw, sh, 0, 0, CARD_W, imgH);
+  }
+  let y = imgH + 16;
+  ctx.fillStyle = "#5c6570";
+  ctx.font = "14px sans-serif";
+  ctx.fillText(hostOf(url), pad, y + 14);
+  y += 26;
+  ctx.fillStyle = "#111214";
+  ctx.font = "600 22px sans-serif";
+  for (const line of titleLines) { ctx.fillText(line, pad, y + 20); y += 28; }
+  ctx.fillStyle = "#3a3f46";
+  ctx.font = "16px sans-serif";
+  y += 4;
+  for (const line of descLines) { ctx.fillText(line, pad, y + 16); y += 22; }
+  const encode = (type) => new Promise(res => canvas.toBlob(res, type, 0.72));
+  const webp = await encode("image/webp");
+  if (webp && webp.type === "image/webp") return webp;
+  return encode("image/jpeg");
 }
 
 function hostOf(url) {
