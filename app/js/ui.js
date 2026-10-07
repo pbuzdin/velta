@@ -2,19 +2,41 @@
 import { escapeHtml, escapeAttr } from "./components.js";
 import { shouldNotifyIncoming } from "./notify-policy.js";
 import { fileUrl } from "./media.js";
-import { linkPreviewEnabled, setLinkPreviewEnabled, LINK_PREVIEW_IP_WARNING } from "./link-preview.js";
+import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS, LINK_PREVIEW_IP_WARNING } from "./link-preview.js";
 import { trackingStripEnabled, setTrackingStripEnabled } from "./trackers.js";
 import { APP_VERSION } from "./version.gen.js";
 
 const popups = () => document.getElementById("popups");
+
+// Popover API: Chromium 114+ and Safari 17+. macOS 10.15/11 stay on the overlay.
+export function popoverSupported() {
+  return typeof HTMLElement === "function" && Object.prototype.hasOwnProperty.call(HTMLElement.prototype, "popover");
+}
+
+// #toasts is popover=manual so it paints above lightbox and full-screen overlays.
+// Re-show after each of those opens; the newest top-layer entry would cover it.
+export function raiseToasts() {
+  const box = document.getElementById("toasts");
+  if (!box || !popoverSupported() || !box.childElementCount) return;
+  try {
+    if (!box.hasAttribute("popover")) box.setAttribute("popover", "manual");
+    if (!box.matches(":popover-open")) box.showPopover();
+  } catch { box.removeAttribute("popover"); }
+}
+
+function hideToastsIfEmpty() {
+  const box = document.getElementById("toasts");
+  if (!box || !popoverSupported() || box.childElementCount) return;
+  try { if (box.matches(":popover-open")) box.hidePopover(); } catch {}
+}
 
 let activeDrawer = null; // set by buildDrawer, closed by closeAllPopups
 let activeModalClose = null;
 let modalReplacing = false; // a showModal→closeAllPopups pair is mid-flight — skip the history consume
 
 // House close icon: bold stroke to match the other icon buttons (the
-// unicode ✕ renders hairline-thin). Used by modals, the image lightbox and
-// the HTML/full-message overlay.
+// unicode ✕ renders hairline-thin). Used by modals, the image lightbox, the
+// HTML/full-message overlay, and toasts.
 export const CLOSE_SVG =
   '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>';
 
@@ -24,6 +46,12 @@ export function closeAllPopups() {
   // the drawer lives outside #popups — close it explicitly, otherwise an
   // open drawer whose overlay was just wiped becomes impossible to dismiss
   activeDrawer?.close();
+}
+
+function placeMenu(menu, x, y) {
+  const r = menu.getBoundingClientRect();
+  menu.style.left = Math.max(8, Math.min(x, innerWidth - r.width - 10)) + "px";
+  menu.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 10)) + "px";
 }
 
 export function showContextMenu(items, x, y) {
@@ -38,20 +66,30 @@ export function showContextMenu(items, x, y) {
       continue;
     }
     const b = document.createElement("button");
+    b.type = "button";
     b.className = "ctx-item" + (it.danger ? " danger" : "");
     b.innerHTML = (it.icon || "") + "<span>" + escapeHtml(it.label) + "</span>";
     b.addEventListener("click", () => { closeAllPopups(); it.onClick?.(); });
     menu.appendChild(b);
+  }
+  if (popoverSupported()) {
+    menu.popover = "auto";
+    menu.addEventListener("toggle", (e) => {
+      if (e.newState === "closed") menu.remove();
+    });
+    popups().append(menu);
+    try {
+      menu.showPopover();
+      placeMenu(menu, x, y);
+      return menu;
+    } catch { menu.removeAttribute("popover"); menu.remove(); }
   }
   const overlay = document.createElement("div");
   overlay.className = "pop-overlay transparent";
   overlay.addEventListener("pointerdown", closeAllPopups);
   overlay.addEventListener("contextmenu", e => { e.preventDefault(); closeAllPopups(); });
   popups().append(overlay, menu);
-  // keep on screen
-  const r = menu.getBoundingClientRect();
-  menu.style.left = Math.min(x, innerWidth - r.width - 10) + "px";
-  menu.style.top = Math.min(y, innerHeight - r.height - 10) + "px";
+  placeMenu(menu, x, y);
   return menu;
 }
 
@@ -63,11 +101,23 @@ export function showStickerPicker({ getStickers, onPick }) {
   grid.className = "sticker-grid";
   grid.innerHTML = `<div class="sticker-note">Loading…</div>`;
   pop.append(grid);
-  const overlay = document.createElement("div");
-  overlay.className = "pop-overlay transparent";
-  overlay.addEventListener("pointerdown", closeAllPopups);
-  overlay.addEventListener("contextmenu", e => { e.preventDefault(); closeAllPopups(); });
-  popups().append(overlay, pop);
+  let popped = false;
+  if (popoverSupported()) {
+    pop.popover = "auto";
+    pop.addEventListener("toggle", (e) => {
+      if (e.newState === "closed") pop.remove();
+    });
+    popups().append(pop);
+    try { pop.showPopover(); popped = true; }
+    catch { pop.removeAttribute("popover"); pop.remove(); }
+  }
+  if (!popped) {
+    const overlay = document.createElement("div");
+    overlay.className = "pop-overlay transparent";
+    overlay.addEventListener("pointerdown", closeAllPopups);
+    overlay.addEventListener("contextmenu", e => { e.preventDefault(); closeAllPopups(); });
+    popups().append(overlay, pop);
+  }
   Promise.resolve(getStickers()).then((collections) => {
     grid.replaceChildren();
     let n = 0;
@@ -97,7 +147,7 @@ export function showStickerPicker({ getStickers, onPick }) {
   return pop;
 }
 
-export function showModal({ title, body, foot, onClose, compact = false }) {
+export function showModal({ title, body, foot, onClose, compact = false, form = false }) {
   // Android BACK must close a modal, not exit the app: the modal rides a
   // history entry (same contract as the lightbox). When a modal replaces
   // another, the entry is reused — history.back() is async, so a
@@ -115,6 +165,7 @@ export function showModal({ title, body, foot, onClose, compact = false }) {
   head.className = "modal-head";
   head.innerHTML = `<div class="modal-title">${escapeHtml(title)}</div>`;
   const close = document.createElement("button");
+  close.type = "button";
   close.className = "icon-btn";
   close.innerHTML = CLOSE_SVG;
   let closed = false;
@@ -137,32 +188,43 @@ export function showModal({ title, body, foot, onClose, compact = false }) {
   const bodyEl = document.createElement("div");
   bodyEl.className = "modal-body";
   if (typeof body === "string") bodyEl.innerHTML = body; else if (body) bodyEl.appendChild(body);
-  modal.append(head, bodyEl);
+  modal.append(head);
+  // A prompt form wraps body + foot so Enter submits. The close button stays
+  // outside the form. display is a column so the body still scrolls.
+  let formEl = null;
+  if (form) {
+    formEl = document.createElement("form");
+    formEl.addEventListener("submit", e => e.preventDefault());
+    modal.append(formEl);
+  }
+  const parent = formEl || modal;
+  parent.append(bodyEl);
   if (foot) {
     const f = document.createElement("div");
     f.className = "modal-foot";
-    if (typeof foot === "string") f.innerHTML = foot; else f.appendChild(foot);
-    modal.appendChild(f);
+    if (typeof foot === "string") f.innerHTML = foot; else f.append(foot);
+    parent.append(f);
   }
   overlay.appendChild(modal);
   overlay.addEventListener("pointerdown", e => { if (e.target === overlay) doClose(); });
   popups().appendChild(overlay);
   if (history.state?.velta !== "modal") history.pushState({ velta: "modal" }, "");
   window.addEventListener("popstate", onModalPop);
-  return { close: doClose, modal };
+  raiseToasts();
+  return { close: doClose, modal, form: formEl };
 }
 
 // Full-width bar pinned above the composer / bottom action bar (see
 // .toasts in main.css; z-index rides above modal overlays). One line with
 // ellipsis; when the text overflows, a chip appears and the first tap
 // expands the text AND pauses the auto-hide timer (second tap collapses and
-// resumes). Expanded toasts gain a copy button; every toast has a close ✕.
+// resumes). Expanded toasts gain a copy button; every toast has a close icon.
 // opts.danger: red timer bar (errToast).
 // Full-width bar pinned above the composer / bottom action bar (see
 // .toasts in main.css; z-index rides above modal overlays). One line with
 // ellipsis; when the text overflows, a chip appears and opening the toast
 // pauses the auto-hide timer (closing resumes). The open pane shows the
-// full text plus a copy button. Every toast has a close X.
+// full text plus a copy button. Every toast has a close icon.
 // opts.danger: red timer bar (errToast).
 export function toast(text, ms = 2200, opts = {}) {
   const box = document.getElementById("toasts");
@@ -183,7 +245,7 @@ export function toast(text, ms = 2200, opts = {}) {
   const chip = document.createElement("span");
   chip.className = "toast-chip"; chip.hidden = true;
   const closeBtn = document.createElement("button");
-  closeBtn.type = "button"; closeBtn.className = "toast-close"; closeBtn.setAttribute("aria-label", "Close"); closeBtn.textContent = "X";
+  closeBtn.type = "button"; closeBtn.className = "toast-close"; closeBtn.setAttribute("aria-label", "Close"); closeBtn.innerHTML = CLOSE_SVG;
   summary.append(timerBar, textEl, chip, closeBtn);
   const moreText = document.createElement("div");
   moreText.className = "toast-more-text";
@@ -196,12 +258,13 @@ export function toast(text, ms = 2200, opts = {}) {
   el.append(summary, more);
   box.appendChild(el);
   while (box.children.length > 3 && box.firstElementChild) box.firstElementChild.remove();
+  raiseToasts();
 
   const clickLabel = (() => {
     try { return matchMedia("(hover: hover) and (pointer: fine)").matches ? "Click" : "Tap"; } catch { return "Tap"; }
   })();
 
-  const dismiss = () => el.remove();
+  const dismiss = () => { el.remove(); hideToastsIfEmpty(); };
   if (typeof opts.undo === "function") {
     const undoBtn = document.createElement("button");
     undoBtn.type = "button";
@@ -265,8 +328,10 @@ export function confirmModal(title, text, okLabel = "Delete", danger = true) {
   return new Promise(resolve => {
     const foot = document.createElement("div");
     const cancel = document.createElement("button");
+    cancel.type = "button";
     cancel.className = "btn-text"; cancel.textContent = "Cancel";
     const ok = document.createElement("button");
+    ok.type = "button";
     ok.className = "btn-text"; ok.textContent = okLabel;
     if (danger) ok.style.color = "var(--danger)";
     foot.append(cancel, ok);
@@ -289,6 +354,7 @@ export function confirmDeleteMessagesModal(count, canForAll) {
     const foot = document.createElement("div");
     const mk = (label, value) => {
       const b = document.createElement("button");
+      b.type = "button";
       b.className = "btn-text";
       b.textContent = label;
       if (value) b.style.color = "var(--danger)";
@@ -370,6 +436,12 @@ function renderUpdateBanner() {
   const btn = document.createElement("button");
   btn.className = "update-banner-btn";
   btn.type = "button";
+  const prog = document.createElement("progress");
+  prog.className = "update-progress";
+  prog.max = 100;
+  prog.id = "update-progress";
+  prog.hidden = true;
+  btn.setAttribute("aria-describedby", "update-progress");
   // Desktop installer installs get the one-click path (updater plugin);
   // Android sideloads and the PWA still go through the system browser.
   const desktop = !/android/i.test(navigator.userAgent) && window.__TAURI__?.core?.invoke;
@@ -389,7 +461,7 @@ function renderUpdateBanner() {
       window.open(updateInfo.url, "_blank", "noopener");
     }
   });
-  banner.append(text, btn);
+  banner.append(text, btn, prog);
   foot.before(banner);
 }
 
@@ -401,9 +473,15 @@ function renderUpdateBanner() {
 async function inAppApkUpdate(btn, tauri) {
   btn.disabled = true;
   const setPct = (received, total) => {
+    const pct = total ? Math.min(100, Math.round((received / total) * 100)) : 0;
     btn.textContent = total
-      ? `Downloading… ${Math.min(100, Math.round((received / total) * 100))}%`
+      ? `Downloading… ${pct}%`
       : `Downloading… ${(received / 1048576).toFixed(1)} MB`;
+    const bar = btn.parentElement?.querySelector("progress");
+    if (!bar) return;
+    bar.hidden = false;
+    if (total) bar.value = pct;
+    else bar.removeAttribute("value");
   };
   const listen = tauri.event?.listen?.bind(tauri.event);
   let unlisten = null;
@@ -451,7 +529,12 @@ async function selfUpdate(btn) {
       else if (ev.event === "Progress") {
         got += ev.data.chunkLength;
         const pct = total ? Math.round((got / total) * 100) : 0;
-        if (pct !== lastPct) { lastPct = pct; btn.textContent = pct ? `Downloading ${pct}%` : "Downloading…"; }
+        if (pct !== lastPct) {
+          lastPct = pct;
+          btn.textContent = pct ? `Downloading ${pct}%` : "Downloading…";
+          const bar = btn.parentElement?.querySelector("progress");
+          if (bar) { bar.hidden = false; if (total) bar.value = pct; else bar.removeAttribute("value"); }
+        }
       } else if (ev.event === "Finished") btn.textContent = "Installing…";
     });
     btn.textContent = "Restarting…";
@@ -549,91 +632,105 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
           <button type="button" data-act="edit-profile">Edit profile</button>
           ${accounts.length ? `<button type="button" data-act="switch-account">Switch account<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           <div class="acct-pop" data-acct-pop hidden>
-            ${accounts.map(a => `<button class="ctx-item" data-act="account" data-account="${escapeAttr(a.id)}"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>${a.id === currentAccountId ? `<path d="M8.5 12.5l2.5 2.5 5-5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>` : ""}</svg><span>${escapeHtml(a.name || a.addr)}${a.id === currentAccountId ? " · current" : ""}</span></button>`).join("")}
+            ${accounts.map(a => `<button type="button" class="ctx-item" data-act="account" data-account="${escapeAttr(a.id)}"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>${a.id === currentAccountId ? `<path d="M8.5 12.5l2.5 2.5 5-5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>` : ""}</svg><span>${escapeHtml(a.name || a.addr)}${a.id === currentAccountId ? " · current" : ""}</span></button>`).join("")}
           </div>` : ""}
         </div>
       </div>
     </div>
     <div class="drawer-items">
-      <button class="ctx-item" data-act="saved"><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4.5L6 21z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Saved Messages</span></button>
-      <button class="ctx-item" data-act="invite"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="13" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="3" width="8" height="8" rx="1" fill="currentColor"/><rect x="3" y="13" width="8" height="8" rx="1" fill="currentColor"/></svg><span>Invite friends (QR)</span></button>
-      ${p2pAvailable ? `<label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M2.5 9.5a14 14 0 0119 0M5.5 13a9.5 9.5 0 0113 0M8.5 16.5a5 5 0 017 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="19.5" r="1.4" fill="currentColor"/></svg><span>Local chat: ${p2pOn ? "on" : "off"}</span><input type="checkbox" data-toggle="p2p"${p2pOn ? " checked" : ""}></label>` : ""}
-      ${p2pAvailable && p2pOn ? `<label class="ctx-item" title="Show when someone in a local chat is typing, and let them see when you are. Hints are live only and never stored."><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="8" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="16" cy="12" r="1.2" fill="currentColor"/></svg><span>Typing indicator: ${localStorage.getItem("velta-p2p-typing") !== "0" ? "on" : "off"}</span><input type="checkbox" data-toggle="p2p-typing"${localStorage.getItem("velta-p2p-typing") !== "0" ? " checked" : ""}></label>` : ""}
+      <button type="button" class="ctx-item" data-act="saved"><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4.5L6 21z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Saved Messages</span></button>
+      <button type="button" class="ctx-item" data-act="invite"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="13" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="3" width="8" height="8" rx="1" fill="currentColor"/><rect x="3" y="13" width="8" height="8" rx="1" fill="currentColor"/></svg><span>Invite friends (QR)</span></button>
+      ${p2pAvailable ? `<label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M2.5 9.5a14 14 0 0119 0M5.5 13a9.5 9.5 0 0113 0M8.5 16.5a5 5 0 017 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="19.5" r="1.4" fill="currentColor"/></svg><span>Local chat: ${p2pOn ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="p2p"${p2pOn ? " checked" : ""}></label>` : ""}
+      ${p2pAvailable && p2pOn ? `<label class="ctx-item" title="Show when someone in a local chat is typing, and let them see when you are. Hints are live only and never stored."><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="8" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="16" cy="12" r="1.2" fill="currentColor"/></svg><span>Typing indicator: ${localStorage.getItem("velta-p2p-typing") !== "0" ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="p2p-typing"${localStorage.getItem("velta-p2p-typing") !== "0" ? " checked" : ""}></label>` : ""}
       <div class="drawer-sec">Settings</div>
       <details class="drawer-details">
         <summary><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 109 9c0-1.5-1.2-2.6-2.6-2.6h-1.9a2.5 2.5 0 01-2.5-2.5V5.1C14 4 13.3 3 12 3z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="7.5" cy="10.5" r="1.2" fill="currentColor"/><circle cx="12" cy="7.5" r="1.2" fill="currentColor"/><circle cx="16.5" cy="10.5" r="1.2" fill="currentColor"/></svg><span data-theme-summary>Theme: ${THEME_LABELS[theme] || "Auto"}</span></summary>
-        <div class="scale-opts" data-theme-opts>
+        <fieldset class="scale-opts" data-theme-opts>
+          <legend class="vh">Theme</legend>
           ${Object.entries(THEME_LABELS).map(([v, label]) => `<label class="scale-opt"><input type="radio" name="app-theme" value="${v}"${v === theme ? " checked" : ""}><span>${label}</span></label>`).join("")}
-        </div>
+        </fieldset>
       </details>
       <details class="drawer-details">
         <summary><svg viewBox="0 0 24 24"><path d="M5 19L11.2 5h1.6L19 19M7.2 15h9.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M16.5 5.5L21 10M21 5.5L16.5 10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-scale-summary>Interface scale: ${uiScaleLabel()}</span></summary>
-        <div class="scale-opts" data-scale-opts>
+        <fieldset class="scale-opts" data-scale-opts>
+          <legend class="vh">Interface scale</legend>
           ${UI_SCALES.map(([v, label]) => `<label class="scale-opt"><input type="radio" name="ui-scale" value="${v}"${v === uiScaleValue() ? " checked" : ""}><span>${label}</span></label>`).join("")}
-        </div>
+        </fieldset>
       </details>
       <details class="drawer-details">
         <summary><svg viewBox="0 0 24 24"><rect x="3" y="17" width="18" height="4" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><path d="M6 17v-4m6 4V9m6 8V5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Bottom bar buttons</span></summary>
-        <div class="scale-opts" data-bar-opts>
-          ${[["chats", "Chats"], ["contacts", "Contacts"], ["calls", "Calls"], ["qr", "QR code"]].map(([key, label]) => `<label class="scale-opt"><input type="checkbox" data-bar-key="${key}"${barHidden.includes(key) ? "" : " checked"}><span>${label}</span></label>`).join("")}
-        </div>
+        <fieldset class="scale-opts" data-bar-opts>
+          <legend class="vh">Bottom bar buttons</legend>
+          ${[["chats", "Chats"], ["contacts", "Contacts"], ["calls", "Calls"], ["qr", "QR code"]].map(([key, label]) => `<label class="scale-opt"><input type="checkbox" role="switch" data-bar-key="${key}"${barHidden.includes(key) ? "" : " checked"}><span>${label}</span></label>`).join("")}
+        </fieldset>
         <div class="bar-opts-hint">Menu button is always visible.</div>
       </details>
       <details class="drawer-details">
         <summary><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Chat categories</span></summary>
-        <div class="scale-opts" data-cat-opts>
-          ${[["people", "People"], ["groups", "Groups"], ["channels", "Channels"], ["bots", "Bots"], ["system", "System"]].map(([key, label]) => `<label class="scale-opt"><input type="checkbox" data-cat-key="${key}"${catsHidden.includes(key) ? "" : " checked"}><span>${label}</span></label>`).join("")}
-        </div>
+        <fieldset class="scale-opts" data-cat-opts>
+          <legend class="vh">Chat categories</legend>
+          ${[["people", "People"], ["groups", "Groups"], ["channels", "Channels"], ["bots", "Bots"], ["system", "System"]].map(([key, label]) => `<label class="scale-opt"><input type="checkbox" role="switch" data-cat-key="${key}"${catsHidden.includes(key) ? "" : " checked"}><span>${label}</span></label>`).join("")}
+        </fieldset>
         <div class="bar-opts-hint">"All" is always visible.</div>
       </details>
       <details class="drawer-details">
         <summary><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.7 21a2 2 0 01-3.4 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Notifications</span></summary>
-        <div class="scale-opts" data-notify-opts>
-          <label class="scale-opt"><input type="checkbox" data-notify-key="notifications"${notifyChecked("velta-notify") ? " checked" : ""}><span>Notifications</span></label>
-          <label class="scale-opt"><input type="checkbox" data-notify-key="mentions"${notifyChecked("velta-notify-mentions") ? " checked" : ""}><span>Replies only (skip the rest)</span></label>
-          <label class="scale-opt"><input type="checkbox" data-notify-key="text"${notifyChecked("velta-notify-text") ? " checked" : ""}><span>Show message content</span></label>
-          <label class="scale-opt"><input type="checkbox" data-notify-key="system"${notifyChecked("velta-notify-system") ? " checked" : ""}><span>System notification for new messages</span></label>
+        <fieldset class="scale-opts" data-notify-opts>
+          <legend class="vh">Notifications</legend>
+          <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="notifications"${notifyChecked("velta-notify") ? " checked" : ""}><span>Notifications</span></label>
+          <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="mentions"${notifyChecked("velta-notify-mentions") ? " checked" : ""}><span>Replies only (skip the rest)</span></label>
+          <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="text"${notifyChecked("velta-notify-text") ? " checked" : ""}><span>Show message content</span></label>
+          <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="system"${notifyChecked("velta-notify-system") ? " checked" : ""}><span>System notification for new messages</span></label>
           ${isAndroid ? `
-          <label class="scale-opt"><input type="checkbox" data-notify-key="vibration"${notifyChecked("velta-notify-vibration") ? " checked" : ""}><span>Vibration</span></label>
-          <label class="scale-opt"><input type="checkbox" data-notify-key="sounds"${notifyChecked("velta-notify-sounds") ? " checked" : ""}><span>In-chat sounds</span></label>` : ""}
-          <label class="scale-opt"><input type="checkbox" data-notify-key="calls"${notifyChecked("velta-notify-calls") ? " checked" : ""}><span>Calls</span></label>
+          <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="vibration"${notifyChecked("velta-notify-vibration") ? " checked" : ""}><span>Vibration</span></label>
+          <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="sounds"${notifyChecked("velta-notify-sounds") ? " checked" : ""}><span>In-chat sounds</span></label>` : ""}
+          <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="calls"${notifyChecked("velta-notify-calls") ? " checked" : ""}><span>Calls</span></label>
           ${isAndroid ? `
-          <label class="scale-opt"><input type="checkbox" data-notify-key="bg"${notifyChecked("velta-notify-bg") ? " checked" : ""}><span>Use background connection</span></label>
-          <label class="scale-opt"><input type="checkbox" data-notify-key="bgforce"${notifyChecked("velta-notify-bgforce") ? " checked" : ""}><span>Force background connection</span></label>
+          <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="bg"${notifyChecked("velta-notify-bg") ? " checked" : ""}><span>Use background connection</span></label>
+          <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="bgforce"${notifyChecked("velta-notify-bgforce") ? " checked" : ""}><span>Force background connection</span></label>
           <div class="bar-opts-hint">Force keeps background fetching alive under battery restrictions (asks Android for exemption).</div>` : ""}
-        </div>
+        </fieldset>
         <div class="bar-opts-hint">Per-chat muting lives in each chat's info sheet.</div>
       </details>
       <details class="drawer-details">
         <summary><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Image quality</span></summary>
-        <div class="scale-opts" data-mq-opts>
+        <fieldset class="scale-opts" data-mq-opts>
+          <legend class="vh">Image quality</legend>
           ${[["0", "Standard (compress to 940 KB)"], ["1", "Compact (compress to 130 KB)"]].map(([value, label]) => `<label class="scale-opt"><input type="radio" name="media-quality" data-mq-value="${value}"${value === mediaQuality ? " checked" : ""}><span>${label}</span></label>`).join("")}
-        </div>
+        </fieldset>
         <div class="bar-opts-hint">Large photos only — smaller images are sent unchanged.</div>
         <div class="scale-opts">
-          <label class="scale-opt"><input type="checkbox" data-compress-photos${localStorage.getItem("velta-compress-photos") === "0" ? "" : " checked"}><span>Compress photos to save relay space</span></label>
+          <label class="scale-opt"><input type="checkbox" role="switch" data-compress-photos${localStorage.getItem("velta-compress-photos") === "0" ? "" : " checked"}><span>Compress photos to save relay space</span></label>
         </div>
         <div class="bar-opts-hint">Big JPEG/WebP photos are re-encoded as smaller WebP before sending, when that saves at least 10%. This also removes location and camera info from those photos. Animated images, transparent images, small photos and files are never changed.</div>
       </details>
       <details class="drawer-details">
         <summary><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="4" y="17" width="16" height="4" rx="1" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Auto-download limit</span></summary>
-        <div class="scale-opts" data-dl-opts>
+        <fieldset class="scale-opts" data-dl-opts>
+          <legend class="vh">Auto-download limit</legend>
           ${[["0", "No limit (default)"], ["655360", "640 KB"], ["5242880", "5 MB"], ["26214400", "25 MB"]].map(([value, label]) => `<label class="scale-opt"><input type="radio" name="download-limit" data-dl-value="${value}"${value === downloadLimit ? " checked" : ""}><span>${label}</span></label>`).join("")}
-        </div>
+        </fieldset>
         <div class="bar-opts-hint">Caps the chat history auto-downloaded from another device when you join as a second device. Regular messages are always downloaded.</div>
       </details>
-      <button class="ctx-item" data-act="profile-management"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 5v4M21 7h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Profile management…</span></button>
-      <button class="ctx-item" data-act="relays"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Relays of this profile…</span></button>
-      ${identityBackupAvailable ? `<button class="ctx-item" data-act="identity-backup"><svg viewBox="0 0 24 24"><circle cx="8" cy="14" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M11 11l8-8M17 5l3 3M14 8l2.5 2.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Identity backup…</span></button>` : ""}
-      <button class="ctx-item" data-act="invite-domains"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Invite link domains</span></button>
-      <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Link previews: ${linkPreviewEnabled() ? "on" : "off"}</span><input type="checkbox" data-toggle="link-preview"${linkPreviewEnabled() ? " checked" : ""}></label>
-      <label class="ctx-item" title="Drops utm and click-id parameters when you paste or open a link. Undo brings them back."><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 20l5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Strip tracking from links: ${trackingStripEnabled() ? "on" : "off"}</span><input type="checkbox" data-toggle="strip-trackers"${trackingStripEnabled() ? " checked" : ""}></label>
-      <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M20 5v6a2 2 0 01-2 2H5m0 0l4-4m-4 4l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Send on Enter: ${localStorage.getItem("velta-send-enter") === "0" ? "off" : "on"}</span><input type="checkbox" data-toggle="send-enter"${localStorage.getItem("velta-send-enter") === "0" ? "" : " checked"}></label>
-      <label class="ctx-item" title="Off also stops seen-status sync between your own devices"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 12a8 8 0 0114-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M20 12a8 8 0 01-14 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Show and send read receipts: ${localStorage.getItem("velta-mdns") === "0" ? "off" : "on"}</span><input type="checkbox" data-toggle="read-receipts"${localStorage.getItem("velta-mdns") === "0" ? "" : " checked"}></label>
-      ${isAndroid ? `<label class="ctx-item" title="While the phone is under 10% and off the charger, your latest message in each chat gets a 🪫 reaction so the other side knows replies may stop. Recipients see it as a normal reaction; other clients show the emoji only."><svg viewBox="0 0 24 24"><rect x="2.5" y="8" width="16.5" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M21.5 10.5v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><rect x="4.5" y="10" width="3.5" height="4" rx="0.5" fill="currentColor"/></svg><span>Low-battery marker: ${localStorage.getItem("velta-low-battery-react") === "1" ? "on" : "off"}</span><input type="checkbox" data-toggle="low-battery"${localStorage.getItem("velta-low-battery-react") === "1" ? " checked" : ""}></label>` : ""}
-      <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 20h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Remember scroll position in chats: ${localStorage.getItem("velta-remember-scroll") === "0" ? "off" : "on"}</span><input type="checkbox" data-toggle="remember-scroll"${localStorage.getItem("velta-remember-scroll") === "0" ? "" : " checked"}></label>
-      <label class="ctx-item"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 9h6v6H9z" fill="currentColor"/></svg><span>Demo mode: ${localStorage.getItem("velta-mock") === "1" ? "on" : "off"}</span><input type="checkbox" data-toggle="demo"${localStorage.getItem("velta-mock") === "1" ? " checked" : ""}></label>
-      <button class="ctx-item" data-act="about"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 10v6M12 7v.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><span>About Velta</span></button>
+      <button type="button" class="ctx-item" data-act="profile-management"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 5v4M21 7h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Profile management…</span></button>
+      <button type="button" class="ctx-item" data-act="relays"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Relays of this profile…</span></button>
+      ${identityBackupAvailable ? `<button type="button" class="ctx-item" data-act="identity-backup"><svg viewBox="0 0 24 24"><circle cx="8" cy="14" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M11 11l8-8M17 5l3 3M14 8l2.5 2.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Identity backup…</span></button>` : ""}
+      <button type="button" class="ctx-item" data-act="invite-domains"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Invite link domains</span></button>
+      <details class="drawer-details">
+        <summary><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Link previews: ${LINK_PREVIEW_LABELS[linkPreviewMode()]}</span></summary>
+        <fieldset class="scale-opts" data-lp-opts>
+          <legend class="vh">Link previews</legend>
+          ${[["off", "Off"], ["picture", "Send a picture"], ["fetch", "Load on this device"]].map(([value, label]) => `<label class="scale-opt"><input type="radio" name="link-preview-mode" data-lp-value="${value}"${value === linkPreviewMode() ? " checked" : ""}><span>${label}</span></label>`).join("")}
+        </fieldset>
+        <div class="bar-opts-hint">Send a picture attaches a snapshot; other people do not open the site. ${LINK_PREVIEW_IP_WARNING}</div>
+      </details>
+      <label class="ctx-item" title="Drops utm and click-id parameters when you paste or open a link. Undo brings them back."><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 20l5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Strip tracking from links: ${trackingStripEnabled() ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="strip-trackers"${trackingStripEnabled() ? " checked" : ""}></label>
+      <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M20 5v6a2 2 0 01-2 2H5m0 0l4-4m-4 4l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Send on Enter: ${localStorage.getItem("velta-send-enter") === "0" ? "off" : "on"}</span><input type="checkbox" role="switch" data-toggle="send-enter"${localStorage.getItem("velta-send-enter") === "0" ? "" : " checked"}></label>
+      <label class="ctx-item" title="Off also stops seen-status sync between your own devices"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 12a8 8 0 0114-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M20 12a8 8 0 01-14 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Show and send read receipts: ${localStorage.getItem("velta-mdns") === "0" ? "off" : "on"}</span><input type="checkbox" role="switch" data-toggle="read-receipts"${localStorage.getItem("velta-mdns") === "0" ? "" : " checked"}></label>
+      ${isAndroid ? `<label class="ctx-item" title="While the phone is under 10% and off the charger, your latest message in each chat gets a 🪫 reaction so the other side knows replies may stop. Recipients see it as a normal reaction; other clients show the emoji only."><svg viewBox="0 0 24 24"><rect x="2.5" y="8" width="16.5" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M21.5 10.5v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><rect x="4.5" y="10" width="3.5" height="4" rx="0.5" fill="currentColor"/></svg><span>Low-battery marker: ${localStorage.getItem("velta-low-battery-react") === "1" ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="low-battery"${localStorage.getItem("velta-low-battery-react") === "1" ? " checked" : ""}></label>` : ""}
+      <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 20h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Remember scroll position in chats: ${localStorage.getItem("velta-remember-scroll") === "0" ? "off" : "on"}</span><input type="checkbox" role="switch" data-toggle="remember-scroll"${localStorage.getItem("velta-remember-scroll") === "0" ? "" : " checked"}></label>
+      <label class="ctx-item"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 9h6v6H9z" fill="currentColor"/></svg><span>Demo mode: ${localStorage.getItem("velta-mock") === "1" ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="demo"${localStorage.getItem("velta-mock") === "1" ? " checked" : ""}></label>
+      <button type="button" class="ctx-item" data-act="about"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 10v6M12 7v.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><span>About Velta</span></button>
     </div>
     <div class="drawer-foot" data-versions>
       <div class="drawer-ver"><span>Velta</span><span data-v="app">…</span></div>
@@ -674,6 +771,19 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
   popups().appendChild(overlay);
 
   const acctPop = drawer.querySelector("[data-acct-pop]");
+  const switchBtn = drawer.querySelector("[data-act=switch-account]");
+  if (acctPop && switchBtn && popoverSupported()) {
+    acctPop.id = "acct-pop";
+    acctPop.popover = "auto";
+    acctPop.hidden = false;
+    switchBtn.setAttribute("popovertarget", "acct-pop");
+    acctPop.addEventListener("toggle", () => {
+      if (!acctPop.matches(":popover-open")) return;
+      const r = switchBtn.getBoundingClientRect();
+      acctPop.style.left = Math.max(8, Math.min(r.left, innerWidth - acctPop.offsetWidth - 8)) + "px";
+      acctPop.style.top = (r.bottom + 6) + "px";
+    });
+  }
 
   // Interface scale radios (inside the spoiler): apply live, keep the
   // summary label in sync. Radios have no data-act, so the drawer stays open.
@@ -810,7 +920,9 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
   }
   function close() {
     drawer.classList.remove("open");
-    if (acctPop) acctPop.hidden = true;
+    if (acctPop?.matches?.(":popover-open")) {
+      try { acctPop.hidePopover(); } catch {}
+    } else if (acctPop) acctPop.hidden = true;
     // the overlay may already be gone (wiped by closeAllPopups) — guard it
     if (overlay.isConnected) overlay.style.display = "none";
     document.removeEventListener("pointerdown", onDocPointer, true);
@@ -818,7 +930,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
   }
   activeDrawer = { close };
 
-  // Setting checkboxes (Local chat / Link previews / Strip tracking /
+  // Setting checkboxes (Local chat / Strip tracking /
   // Send on Enter / Remember scroll position / Demo mode): the checkbox is the state indicator, the span keeps the
   // human-readable "Name: on/off" form. The rows are labels, not data-act
   // buttons — a click must only flip the checkbox, never close the drawer.
@@ -840,14 +952,14 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     setToggleUi("p2p-typing", "Typing indicator", on);
     toast(`Typing indicator ${on ? "on" : "off"}`);
   });
-  drawer.querySelector('[data-toggle="link-preview"]')?.addEventListener("change", async e => {
-    const on = e.target.checked;
-    // confirmModal closes the drawer. Storage is written only after Turn on,
-    // so a cancel leaves the next open of the drawer off (#30).
-    if (on && !(await confirmModal("Link previews", LINK_PREVIEW_IP_WARNING, "Turn on", true))) return;
-    setLinkPreviewEnabled(on);
-    setToggleUi("link-preview", "Link previews", on);
-    toast(`Link previews ${on ? "on" : "off"}`);
+  drawer.querySelector("[data-lp-opts]")?.addEventListener("change", e => {
+    const input = e.target.closest?.("[data-lp-value]") || e.target;
+    const mode = input?.dataset?.lpValue;
+    if (!mode || mode === linkPreviewMode()) return;
+    setLinkPreviewMode(mode);
+    const summary = drawer.querySelector("[data-lp-opts]")?.closest("details")?.querySelector("summary span");
+    if (summary) summary.textContent = `Link previews: ${LINK_PREVIEW_LABELS[mode]}`;
+    toast(`Link previews: ${LINK_PREVIEW_LABELS[mode]}`);
   });
   drawer.querySelector('[data-toggle="strip-trackers"]')?.addEventListener("change", e => {
     const on = e.target.checked;
@@ -860,6 +972,8 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     if (on) localStorage.removeItem("velta-send-enter");
     else localStorage.setItem("velta-send-enter", "0");
     setToggleUi("send-enter", "Send on Enter", on);
+    const composer = document.getElementById("composer-input");
+    if (composer) composer.enterKeyHint = on ? "send" : "enter";
     toast(`Send on Enter ${on ? "on" : "off"}`);
   });
   // Remember scroll position in chats (issue #18, default ON per #70):
@@ -883,7 +997,10 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     const btn = e.target.closest("[data-act]");
     if (!btn) return;
     const act = btn.dataset.act;
-    if (act === "switch-account") { acctPop.hidden = !acctPop.hidden; return; }
+    if (act === "switch-account") {
+      if (!popoverSupported()) acctPop.hidden = !acctPop.hidden;
+      return;
+    }
     close();
     if (act === "saved") onOpenChat("saved");
     if (act === "invite") onInvite?.();
@@ -918,8 +1035,8 @@ export function showEditProfile({ name, avatarUrl, color, pickImage, contactId =
     body.innerHTML = `
       <div class="ep-avatar"><velta-avatar size="84"${contactId ? ` contact-id="${contactId}"` : ""}${kind ? ` kind="${kind}"` : ""}></velta-avatar></div>
       <div class="ep-avatar-actions">
-        <button class="btn-text" data-ep="pick">Change picture</button>
-        <button class="btn-text" data-ep="remove" style="display:none">Remove photo</button>
+        <button type="button" class="btn-text" data-ep="pick">Change picture</button>
+        <button type="button" class="btn-text" data-ep="remove" style="display:none">Remove photo</button>
       </div>
       <input class="text-field" maxlength="64" autocomplete="off" spellcheck="false" aria-label="Name" placeholder="Your name">
       <textarea class="text-field ep-desc" rows="3" spellcheck="false" aria-label="Description" placeholder="Description"></textarea>`;
@@ -958,15 +1075,17 @@ export function showEditProfile({ name, avatarUrl, color, pickImage, contactId =
     const foot = document.createElement("div");
     foot.className = "edit-profile-foot";
     const cancel = document.createElement("button");
+    cancel.type = "button";
     cancel.className = "btn-text"; cancel.textContent = "Cancel";
     const save = document.createElement("button");
+    save.type = "submit";
     save.className = "btn-text btn-primary"; save.textContent = "Save";
     foot.append(cancel, save);
 
     // first settlement wins — close() fires onClose, which must not win
     let settled = false;
     const finish = value => { if (!settled) { settled = true; resolve(value); } };
-    const { close } = showModal({ title, body, foot,
+    const { close, form } = showModal({ title, body, foot, form: true,
       onClose: () => finish(null) });
     input.focus();
     input.select();
@@ -981,10 +1100,7 @@ export function showEditProfile({ name, avatarUrl, color, pickImage, contactId =
       finish(value);
       close();
     };
-    save.addEventListener("click", submit);
-    input.addEventListener("keydown", e => {
-      if (e.key === "Enter") { e.preventDefault(); submit(); }
-    });
+    form.addEventListener("submit", submit);
     cancel.addEventListener("click", () => { close(); finish(null); });
   });
 }
@@ -1001,7 +1117,7 @@ export function showInvite(provider, { title = "Invite to Delta Chat", group = f
       : "Anyone scanning this code with Delta Chat can reach you with verified end-to-end encryption."}</p>
     <div class="qr-box"><div class="qr-loading">Generating QR code…</div></div>
     <div class="invite-link" style="word-break:break-all"></div>
-    <div style="text-align:center;margin-top:6px"><button class="btn-text" data-copy>Copy invite link</button></div>`;
+    <div style="text-align:center;margin-top:6px"><button type="button" class="btn-text" data-copy>Copy invite link</button></div>`;
   showModal({ title, body });
   body.querySelector("[data-copy]").addEventListener("click", () => {
     const link = body.querySelector(".invite-link").textContent;
@@ -1073,11 +1189,12 @@ export function openImageLightbox(src, caption = "") {
   overlay.innerHTML = `
     <div class="lightbox-bar">
       <span class="lightbox-cap"></span>
-      <button class="lightbox-close" aria-label="Close" title="Close"></button>
+      <button type="button" class="lightbox-close" aria-label="Close" title="Close"></button>
     </div>
     <div class="lightbox-stage"><img class="lightbox-img" decoding="async" alt=""></div>`;
   overlay.querySelector(".lightbox-close").innerHTML = CLOSE_SVG;
   document.body.appendChild(overlay);
+  raiseToasts();
   overlay.querySelector(".lightbox-cap").textContent = caption;
   const img = overlay.querySelector(".lightbox-img");
   const stage = overlay.querySelector(".lightbox-stage");
@@ -1170,11 +1287,12 @@ export function openVideoLightbox(src, caption = "") {
   overlay.innerHTML = `
     <div class="lightbox-bar">
       <span class="lightbox-cap"></span>
-      <button class="lightbox-close" aria-label="Close" title="Close"></button>
+      <button type="button" class="lightbox-close" aria-label="Close" title="Close"></button>
     </div>
     <div class="lightbox-stage"><video class="lightbox-video" controls autoplay playsinline></video></div>`;
   overlay.querySelector(".lightbox-close").innerHTML = CLOSE_SVG;
   document.body.appendChild(overlay);
+  raiseToasts();
   overlay.querySelector(".lightbox-cap").textContent = caption;
   const video = overlay.querySelector("video");
   video.src = src;

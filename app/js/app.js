@@ -10,13 +10,13 @@ import { initCalls } from "./calls.js";
 import { initWebxdc } from "./webxdc-manager.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal, isShortInviteLink, expandShortInvite } from "./invites.js";
-import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate } from "./ui.js";
+import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate, popoverSupported } from "./ui.js";
 import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact, showCreateGroupModal, showAddMembersModal } from "./p2p.js";
 import { withLocalChat, hubModel, renameDevice, removePeer, dismissLocalGroup, groupRename, groupRemoveMember, peerGroupImpact, groupActionsModel, groupMemberHint, removePeerImpactText, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
-import { timeAgo, formatBytes } from "./format.js";
+import { timeAgo, formatBytes, timeTag } from "./format.js";
 import { acquireCode, mountScanner } from "./qr-scan.js";
 import { scanTabAvailable, canShareLink, copyLink, shareLink, classifyScannedCode } from "./qr-actions.js";
-import { linkPreviewEnabled, setLinkPreviewEnabled, LINK_PREVIEW_IP_WARNING } from "./link-preview.js";
+import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS } from "./link-preview.js";
 import { wrapIdentityBundle, unwrapIdentityBundle, buildIdentityBundle, bytesToBase64, base64ToBytes } from "./identity-backup.js";
 
 const diagnostics = new DiagnosticsStore();
@@ -775,6 +775,14 @@ function renderRelayLine() {
       const pct = (String(s.quota || "").match(/(\d+)\s*%/) || [])[1];
       label.textContent = maskRelayDomain(s.domain) + (pct ? ` · ${pct}% used` : s.text ? ` · ${s.text}` : "");
       chip.append(label);
+      if (pct) {
+        const meter = document.createElement("meter");
+        meter.className = "relay-meter";
+        meter.min = 0; meter.max = 100; meter.low = 70; meter.high = 90; meter.optimum = 0;
+        meter.value = Number(pct);
+        meter.title = `${pct}% used`;
+        chip.append(meter);
+      }
       chip.title = `${segTitle(s)}${s.quota ? ` · ${s.quota}` : ""}`;
       return chip;
     }));
@@ -981,17 +989,20 @@ function renderLcQueueTray() {
   chip.title = "Offline media queued — tap to manage";
 }
 
+let lcQueueJustClosed = false;
 function toggleLcQueuePop(chatId) {
   const existing = document.getElementById("lc-queue-pop");
   if (existing) { existing.remove(); return; }
+  // Light-dismiss fires before the chip's click. Skip the reopen.
+  if (lcQueueJustClosed) return;
   const items = lcQueueItems(chatId);
   const pop = document.createElement("div");
   pop.id = "lc-queue-pop";
   pop.innerHTML = `<div class="lq-head">Queued — sends when the device is reachable</div>` + items.map(it => `
     <div class="lq-row" data-id="${escapeAttr(it.id)}">
       <span class="lq-name">${escapeHtml(it.name || "file")}${it.size ? ` · ${formatBytes(it.size)}` : ""}</span>
-      <button class="btn-text" data-lq-retry="${escapeAttr(it.id)}">Send now</button>
-      <button class="btn-text" data-lq-cancel="${escapeAttr(it.id)}" aria-label="Remove from queue">✕</button>
+      <button type="button" class="btn-text" data-lq-retry="${escapeAttr(it.id)}">Send now</button>
+      <button type="button" class="btn-text" data-lq-cancel="${escapeAttr(it.id)}" aria-label="Remove from queue">✕</button>
     </div>`).join("");
   document.body.appendChild(pop);
   pop.addEventListener("click", async e => {
@@ -1000,18 +1011,30 @@ function toggleLcQueuePop(chatId) {
     if (retryId) {
       try { await retryQueuedItem(chatId, retryId); toast("Sending…"); }
       catch (err) { toast(String(err?.message || err)); }
-      toggleLcQueuePop(chatId); // re-render with fresh queue
+      toggleLcQueuePop(chatId);
     }
     if (cancelId) { cancelQueuedItem(chatId, cancelId); toggleLcQueuePop(chatId); }
   });
-  const anchor = () => document.getElementById("lc-queue-chip");
   const place = () => {
-    const a = anchor();
+    const a = document.getElementById("lc-queue-chip");
     if (!a) return;
     pop.style.right = Math.max(8, innerWidth - a.getBoundingClientRect().right) + "px";
     pop.style.bottom = Math.round(innerHeight - a.getBoundingClientRect().top + 10) + "px";
   };
+  let popped = false;
+  if (popoverSupported()) {
+    pop.popover = "auto";
+    pop.addEventListener("toggle", (e) => {
+      if (e.newState !== "closed") return;
+      lcQueueJustClosed = true;
+      pop.remove();
+      setTimeout(() => { lcQueueJustClosed = false; }, 0);
+    });
+    try { pop.showPopover(); popped = true; }
+    catch { pop.removeAttribute("popover"); }
+  }
   place();
+  if (popped) return;
   const outside = ev => { if (!pop.contains(ev.target) && ev.target !== document.getElementById("lc-queue-chip")) { pop.remove(); document.removeEventListener("pointerdown", outside, true); } };
   document.addEventListener("pointerdown", outside, true);
 }
@@ -1122,21 +1145,21 @@ async function renderLocalChatCard() {
       <span class="lc-dot ${p.online ? "on" : ""}"></span>
       <span class="lc-row-name">${escapeHtml(p.name)}</span>
       ${p.queued ? `<span class="lc-row-queued">${p.queued} queued</span>` : ""}
-      <button class="btn-text lc-chat" data-chat="${escapeAttr(p.id)}" title="Open chat" aria-label="Open chat with ${escapeAttr(p.name)}">Chat</button>
-      <button class="btn-text lc-remove" data-remove="${escapeAttr(p.rawId || p.id)}" title="Remove device" aria-label="Remove ${escapeAttr(p.name)}">✕</button>
+      <button type="button" class="btn-text lc-chat" data-chat="${escapeAttr(p.id)}" title="Open chat" aria-label="Open chat with ${escapeAttr(p.name)}">Chat</button>
+      <button type="button" class="btn-text lc-remove" data-remove="${escapeAttr(p.rawId || p.id)}" title="Remove device" aria-label="Remove ${escapeAttr(p.name)}">✕</button>
     </div>`).join("");
   const nearbyRows = model.nearby.map(n => `
     <div class="lc-row" data-pair="${escapeAttr(n.id)}">
       <span class="lc-dot on"></span>
       <span class="lc-row-name">${escapeHtml(n.name || n.id.slice(0, 12))}</span>
-      <button class="btn-text" data-pair="${escapeAttr(n.id)}">Pair</button>
+      <button type="button" class="btn-text" data-pair="${escapeAttr(n.id)}">Pair</button>
     </div>`).join("");
   const groupRows = (model.groups || []).map(g => `
     <div class="lc-row" data-open="${escapeAttr(g.id)}">
       <span class="lc-dot ${g.removed ? "" : g.online > 1 ? "on" : ""}"></span>
       <span class="lc-row-name">${escapeHtml(g.name)}</span>
       <span class="lc-row-queued">${g.removed ? "closed" : `${g.members} members · ${g.online} online`}</span>
-      <button class="btn-text lc-chat" data-chat="${escapeAttr(g.id)}" title="Open group" aria-label="Open group ${escapeAttr(g.name)}">Chat</button>
+      <button type="button" class="btn-text lc-chat" data-chat="${escapeAttr(g.id)}" title="Open group" aria-label="Open group ${escapeAttr(g.name)}">Chat</button>
     </div>`).join("");
   el.innerHTML = `
     <div class="lc-card-head${lcCardOpen ? " open" : ""}" data-toggle>
@@ -1145,11 +1168,11 @@ async function renderLocalChatCard() {
       <span class="lc-card-chevron"><svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
     </div>
     <div class="lc-card-body">
-      <div class="lc-device">This device: <b>${escapeHtml(model.device.name)}</b>${short ? ` <span class="lc-nodeid">(${escapeHtml(short)})</span>` : ""} <button class="btn-text" data-rename>Edit name</button></div>
+      <div class="lc-device">This device: <b>${escapeHtml(model.device.name)}</b>${short ? ` <span class="lc-nodeid">(${escapeHtml(short)})</span>` : ""} <button type="button" class="btn-text" data-rename>Edit name</button></div>
       <div class="lc-actions">
-        <button class="btn-text" data-invite>Show invite</button>
-        <button class="btn-text" data-add>Add contact</button>
-        <button class="btn-text" data-new-group>New group</button>
+        <button type="button" class="btn-text" data-invite>Show invite</button>
+        <button type="button" class="btn-text" data-add>Add contact</button>
+        <button type="button" class="btn-text" data-new-group>New group</button>
       </div>
       ${nearbyRows ? `<div class="lc-sec">Nearby — discovered on this network</div>${nearbyRows}` : ""}
       ${peerRows ? `<div class="lc-sec">Paired devices</div>${peerRows}` : ""}
@@ -1315,6 +1338,7 @@ async function renderContactsView() {
   }
   const renderRow = (c) => {
     const b = document.createElement("button");
+    b.type = "button";
     b.className = "chat-item contact-row";
     b.innerHTML = `
       <velta-avatar name="${escapeAttr(c.name)}" color="${escapeAttr(c.color || "#777")}" size="42" contact-id="${c.id}"${c.avatar ? ` avatar="${escapeAttr(fileUrl(c.avatar))}"` : ""}></velta-avatar>
@@ -1351,6 +1375,7 @@ async function renderArchivedTab(rows) {
   }
   for (const c of chats) {
     const b = document.createElement("button");
+    b.type = "button";
     b.className = "chat-item contact-row";
     b.innerHTML = `
       <velta-avatar name="${escapeAttr(c.name)}" color="${escapeAttr(c.avatarColor || "#777")}" kind="${escapeAttr(c.kind)}" size="42"${c.avatar ? ` avatar="${escapeAttr(fileUrl(c.avatar))}"` : ""}></velta-avatar>
@@ -1374,11 +1399,12 @@ function renderCallsView() {
   for (const e of log) {
     const chat = state.chats.find(c => c.id === e.chatId);
     const b = document.createElement("button");
+    b.type = "button";
     b.className = "chat-item call-row";
     b.innerHTML = `
       <span class="call-row-ico"><svg viewBox="0 0 24 24"><path d="M6.6 10.8a15.1 15.1 0 006.6 6.6l2.2-2.2a1 1 0 011-.24 11.4 11.4 0 003.6.58 1 1 0 011 1V20a1 1 0 01-1 1A17 17 0 013 4a1 1 0 011-1h3.5a1 1 0 011 1 11.4 11.4 0 00.57 3.6 1 1 0 01-.25 1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></span>
       <div class="ci-name">${escapeHtml(chat ? chat.name : "Unknown chat")}</div>
-      <div class="ci-time">${timeAgo(e.ts)}</div>`;
+      <div class="ci-time">${timeTag(e.ts, timeAgo(e.ts))}</div>`;
     b.addEventListener("click", () => { setListView("chats"); openChat(e.chatId); });
     rows.append(b);
   }
@@ -1406,14 +1432,14 @@ function renderQrView() {
   wrap.className = "qr-view";
   const tabs = scanTab ? `
     <div class="chat-cats side-tabs" role="tablist">
-      <button role="tab" data-qr-tab="mine" class="${qrTab === "mine" ? "active" : ""}">My code</button>
-      <button role="tab" data-qr-tab="scan" class="${qrTab === "scan" ? "active" : ""}">Scan a QR code</button>
+      <button type="button" role="tab" data-qr-tab="mine" class="${qrTab === "mine" ? "active" : ""}">My code</button>
+      <button type="button" role="tab" data-qr-tab="scan" class="${qrTab === "scan" ? "active" : ""}">Scan a QR code</button>
     </div>` : "";
   if (qrTab === "scan") {
     wrap.innerHTML = `${tabs}
       <div class="qr-scan"><video muted playsinline></video></div>
       <div class="qr-scan-status" data-scan-status>Starting camera…</div>
-      <button class="btn-text" data-scan-retry hidden>Try again</button>`;
+      <button type="button" class="btn-text" data-scan-retry hidden>Try again</button>`;
   } else {
     const canShare = canShareLink({
       ua: navigator.userAgent,
@@ -1424,8 +1450,8 @@ function renderQrView() {
       <div class="qr-box"><div class="qr-loading">Generating QR code…</div></div>
       <div class="invite-link" style="word-break:break-all"></div>
       <div class="qr-actions">
-        <button class="btn-text" data-copy-link disabled>Copy a link</button>
-        ${canShare ? `<button class="btn-text" data-share-link disabled>Share a link</button>` : ""}
+        <button type="button" class="btn-text" data-copy-link disabled>Copy a link</button>
+        ${canShare ? `<button type="button" class="btn-text" data-share-link disabled>Share a link</button>` : ""}
       </div>`;
   }
   rows.append(wrap);
@@ -1763,17 +1789,20 @@ function chatContextMenu(chat, x, y) {
   showContextMenu([
     grp ? null : { label: chat.pinned ? "Unpin" : "Pin to top", icon: icons.pin, onClick: () => core.setChatFlags(chat.id, { pinned: !chat.pinned }) },
     grp ? null : { label: chat.muted ? "Unmute" : "Mute notifications", icon: icons.mute, onClick: () => core.setChatFlags(chat.id, { muted: !chat.muted }) },
-    { label: `Link previews: ${linkPreviewEnabled(chat.id) ? "on" : "off"}`, icon: icons.link, onClick: async () => {
-      const next = !linkPreviewEnabled(chat.id);
-      if (next && !(await confirmModal("Link previews", LINK_PREVIEW_IP_WARNING, "Turn on", true))) return;
+    { label: `Link previews: ${LINK_PREVIEW_LABELS[linkPreviewMode(chat.id)]}`, icon: icons.link, onClick: () => {
       if (!accountIsCurrent(epoch)) return;
-      setLinkPreviewEnabled(next, chat.id);
-      toast(`Link previews ${linkPreviewEnabled(chat.id) ? "on" : "off"} for this chat`);
-      // re-render open chat rows so the toggle takes effect immediately
-      if (state.activeChatId === chat.id && chatView?.open) {
-        chatView.close();
-        openChat(chat.id);
-      }
+      const apply = (mode) => {
+        if (!accountIsCurrent(epoch)) return;
+        setLinkPreviewMode(mode, chat.id);
+        toast(`Link previews: ${LINK_PREVIEW_LABELS[mode]} for this chat`);
+        if (state.activeChatId === chat.id && chatView?.open) {
+          chatView.close();
+          openChat(chat.id);
+        }
+      };
+      showContextMenu([["off", "Off"], ["picture", "Send a picture"], ["fetch", "Load on this device"]].map(([mode, label]) => ({
+        label, onClick: () => apply(mode),
+      })), x, y);
     } },
     chat.unread > 0 ? { label: "Mark as read", icon: icons.read, onClick: () => core.markRead(chat.id) } : null,
     grp ? null : {
@@ -1846,7 +1875,7 @@ async function closeVanishedGroupChat() {
 // The action buttons of a local group's info sheet (see groupActionsModel).
 function p2pGroupActionsHtml(chat) {
   const btns = groupActionsModel(chat).map(a =>
-    `<button class="btn-text" data-pg="${a.key}"${a.danger ? ` style="color:var(--danger)"` : ""}${a.disabled ? " disabled" : ""}>${escapeHtml(a.label)}</button>`);
+    `<button type="button" class="btn-text" data-pg="${a.key}"${a.danger ? ` style="color:var(--danger)"` : ""}${a.disabled ? " disabled" : ""}>${escapeHtml(a.label)}</button>`);
   return `<div class="profile-actions">${btns.join("")}</div>`;
 }
 
@@ -2126,7 +2155,12 @@ function formatEphemeralTimer(secs) {
 async function openEphemeralDialog(chat, valEl, epoch) {
   let current = 0;
   try { current = (await core.getChatEphemeralTimer(chat.id)) || 0; } catch { /* offline — default Off */ }
-  const list = document.createElement("div");
+  const list = document.createElement("fieldset");
+  list.className = "eph-set";
+  const legend = document.createElement("legend");
+  legend.className = "vh";
+  legend.textContent = "Disappearing messages";
+  list.append(legend);
   for (const o of EPHEMERAL_OPTIONS) {
     const label = document.createElement("label");
     label.className = "eph-row";
@@ -2145,9 +2179,11 @@ async function openEphemeralDialog(chat, valEl, epoch) {
   body.append(list, note);
   const foot = document.createDocumentFragment(); // direct child of .modal-foot -> one-row flex
   const cancel = document.createElement("button");
+  cancel.type = "button";
   cancel.className = "btn-text";
   cancel.textContent = "Cancel";
   const ok = document.createElement("button");
+  ok.type = "button";
   ok.className = "btn-text";
   ok.textContent = "OK";
   foot.append(cancel, ok);
@@ -2185,13 +2221,20 @@ const MUTE_OPTIONS = [
 // tap; Cancel dismisses. The sheet's muted flag is kept in sync so a second
 // open offers Unmute.
 function openMuteDialog(chat, valEl, epoch) {
-  const list = document.createElement("div");
+  const list = document.createElement("fieldset");
+  list.className = "eph-set";
+  const legend = document.createElement("legend");
+  legend.className = "vh";
+  legend.textContent = "Mute notifications";
+  list.append(legend);
   const rows = (chat.muted ? [{ label: "Unmute", secs: 0 }] : []).concat(MUTE_OPTIONS);
   for (const o of rows) {
-    const row = document.createElement("div");
-    row.className = "eph-row";
-    row.textContent = o.label;
-    row.addEventListener("click", () => {
+    const label = document.createElement("label");
+    label.className = "eph-row";
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = "mute-option";
+    input.addEventListener("change", () => {
       const muted = o.secs !== 0;
       chat.muted = muted;
       core.setChatMuted(chat.id, o.secs)
@@ -2199,10 +2242,12 @@ function openMuteDialog(chat, valEl, epoch) {
         .catch((err) => errToast("Couldn't update notifications: " + (err.message || err)));
       close();
     });
-    list.appendChild(row);
+    label.append(input, Object.assign(document.createElement("span"), { textContent: o.label }));
+    list.appendChild(label);
   }
   const foot = document.createDocumentFragment(); // direct child of .modal-foot -> one-row flex
   const cancel = document.createElement("button");
+  cancel.type = "button";
   cancel.className = "btn-text";
   cancel.textContent = "Cancel";
   foot.append(cancel);
@@ -2233,7 +2278,7 @@ async function showChatInfo(chat) {
   const contactRows = chat.contact ? `
     <div class="info-row"><span class="k">Address</span><span class="v">${escapeHtml(chat.contact.addr)}</span></div>
     ${chat.contactId ? `<div class="info-row"><span class="k">Profile key</span><span class="v"><span class="avatar-profile-fpr" data-profile-key>…</span></span></div>` : ""}
-    ${chat.contact && (chat.contact.online || chat.contact.lastSeen) ? `<div class="info-row"><span class="k">Last seen</span><span class="v">${escapeHtml(chat.contact.online ? "online" : timeAgo(chat.contact.lastSeen))}</span></div>` : ""}` : "";
+    ${chat.contact && (chat.contact.online || chat.contact.lastSeen) ? `<div class="info-row"><span class="k">Last seen</span><span class="v">${chat.contact.online ? "online" : timeTag(chat.contact.lastSeen, timeAgo(chat.contact.lastSeen))}</span></div>` : ""}` : "";
   const isGroup = chat.kind === "group" || chat.kind === "channel";
   const isSelf = chat.contactId === 1;
   const isContactProfile = !isGroup && chat.contactId && !isSelf;
@@ -2276,14 +2321,14 @@ async function showChatInfo(chat) {
     </div>
     <div class="profile-name">${escapeHtml(chat.name)}</div>
     <div class="profile-description" data-desc hidden></div>
-    ${(isSelf || (isGroup && !chat.isP2pGroup)) ? `<div class="profile-actions"><button class="btn-text" data-pa="ep"${chat.kind === "channel" ? " hidden" : ""}>${isSelf ? "Edit profile" : chat.kind === "channel" ? "Edit channel" : "Edit group"}</button></div>` : ""}
-    ${chat.kind === "group" && !chat.isP2pGroup ? `<div class="profile-actions"><button class="btn-text" data-pa="add-members">Add members</button><button class="btn-text" data-pa="invite">Invite via link/QR</button></div>` : ""}
-    ${chat.kind === "channel" ? `<div class="profile-actions"><button class="btn-text" data-pa="invite">Invite via link/QR</button></div>` : ""}
+    ${(isSelf || (isGroup && !chat.isP2pGroup)) ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="ep"${chat.kind === "channel" ? " hidden" : ""}>${isSelf ? "Edit profile" : chat.kind === "channel" ? "Edit channel" : "Edit group"}</button></div>` : ""}
+    ${chat.kind === "group" && !chat.isP2pGroup ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="add-members">Add members</button><button type="button" class="btn-text" data-pa="invite">Invite via link/QR</button></div>` : ""}
+    ${chat.kind === "channel" ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="invite">Invite via link/QR</button></div>` : ""}
     ${chat.isP2pGroup ? p2pGroupActionsHtml(chat) : ""}
     ${!isGroup && chat.contactId && chat.contactId !== 1 ? `<div class="profile-actions">
-      <button class="btn-text" data-pa="send">Send message</button>
-      <button class="btn-text" data-pa="rename">Edit name</button>
-      <button class="btn-text" data-pa="block" style="color:var(--danger)">Block</button>
+      <button type="button" class="btn-text" data-pa="send">Send message</button>
+      <button type="button" class="btn-text" data-pa="rename">Edit name</button>
+      <button type="button" class="btn-text" data-pa="block" style="color:var(--danger)">Block</button>
     </div>` : ""}
     ${isGroup ? `<details class="info-details" data-members-details${chat.isP2pGroup ? " open" : ""}>
       <summary class="info-row"><span class="k">Members</span><span class="v" data-member-count>…</span></summary>
@@ -2530,14 +2575,24 @@ async function showChatInfo(chat) {
     });
     actBtn("rename")?.addEventListener("click", () => {
       const input = document.createElement("input");
-      input.className = "text-field"; input.maxLength = 64;
+      input.className = "text-field"; input.maxLength = 64; input.required = true;
       input.value = (chat.contact && chat.contact.name) || chat.name || "";
       const wrap = document.createElement("div");
       wrap.appendChild(input);
       const renameModal = { close: null };
       const save = document.createElement("button");
+      save.type = "submit";
       save.className = "btn-text btn-primary"; save.textContent = "Save";
-      save.addEventListener("click", async () => {
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "btn-text"; cancel.textContent = "Cancel";
+      cancel.addEventListener("click", () => renameModal.close());
+      const foot = document.createElement("div");
+      foot.className = "modal-foot edit-profile-foot";
+      foot.append(cancel, save);
+      const m = showModal({ title: "Edit name", body: wrap, foot, form: true });
+      renameModal.close = m.close;
+      m.form.addEventListener("submit", async () => {
         const name = input.value.trim();
         if (!name) return;
         save.disabled = true;
@@ -2560,14 +2615,6 @@ async function showChatInfo(chat) {
           save.disabled = false;
         }
       });
-      const cancel = document.createElement("button");
-      cancel.className = "btn-text"; cancel.textContent = "Cancel";
-      cancel.addEventListener("click", () => renameModal.close());
-      const foot = document.createElement("div");
-      foot.className = "modal-foot edit-profile-foot";
-      foot.append(cancel, save);
-      const m = showModal({ title: "Edit name", body: wrap, foot });
-      renameModal.close = m.close;
       setTimeout(() => { input.focus(); input.select(); }, 50);
     });
     const blockBtn = actBtn("block");
@@ -2721,7 +2768,7 @@ async function showChatInfo(chat) {
           row.className = "info-row";
           const dot = chat.isP2pGroup ? `<span style="color:${m.online ? "#2ecc71" : "#7a7a85"}" aria-hidden="true">●</span> ` : "";
           const canRemove = chat.isP2pGroup && chat.canManage && !chat.readOnly && !m.self && !m.isCreator;
-          row.innerHTML = `<span class="k" style="color:${escapeAttr(m.color || "#888")}">${dot}${escapeHtml(m.name)}</span><span class="v"${domain && !chat.isP2pGroup ? ` title="${escapeAttr(m.addr)}"` : ""}>${escapeHtml(domain)}${canRemove ? ` <button class="btn-text" data-pg-remove="${escapeAttr(m.id)}" aria-label="Remove ${escapeAttr(m.name)}">Remove</button>` : ""}</span>`;
+          row.innerHTML = `<span class="k" style="color:${escapeAttr(m.color || "#888")}">${dot}${escapeHtml(m.name)}</span><span class="v"${domain && !chat.isP2pGroup ? ` title="${escapeAttr(m.addr)}"` : ""}>${escapeHtml(domain)}${canRemove ? ` <button type="button" class="btn-text" data-pg-remove="${escapeAttr(m.id)}" aria-label="Remove ${escapeAttr(m.name)}">Remove</button>` : ""}</span>`;
           list.appendChild(row);
         }
       }
@@ -2798,6 +2845,10 @@ function bindChatHeadMenu() {
     const chatId = chat.id;
     const p2p = chat.isP2p || String(chatId).startsWith("p2p:");
     const input = document.createElement("input");
+    input.type = "search";
+    input.enterKeyHint = "search";
+    input.autocomplete = "off";
+    input.setAttribute("aria-label", "Search in chat");
     input.className = "text-field";
     input.placeholder = p2p ? "Search in loaded messages…" : "Search in chat…";
     const results = document.createElement("div");
@@ -2837,6 +2888,7 @@ function bindChatHeadMenu() {
         if (mySeq !== seq || !accountIsCurrent(epoch)) return;
         for (const m of hits) {
           const b = document.createElement("button");
+          b.type = "button";
           b.className = "ctx-item";
           b.innerHTML = `<span><b>${escapeHtml(m.fromContact?.name || "")}</b>: ${escapeHtml((m.text || "").slice(0, 80))}</span>`;
           b.addEventListener("click", () => { closeAllPopups(); chatView._jumpToMessage(m.id); });
@@ -2879,8 +2931,10 @@ async function pickContactModal(title, multi = false) {
     }
     const foot = document.createDocumentFragment(); // direct child of .modal-foot -> one-row flex
     const cancel = document.createElement("button");
+    cancel.type = "button";
     cancel.className = "btn-text"; cancel.textContent = "Cancel";
     const ok = document.createElement("button");
+    ok.type = "button";
     ok.className = "btn-text"; ok.textContent = multi ? "Create" : "OK";
     ok.disabled = true;
     foot.append(cancel, ok);
@@ -2930,6 +2984,7 @@ function renderNewChatView() {
   const rows = sideViewShell("Start something", "Pick what to create");
   for (const opt of newChatOptions()) {
     const b = document.createElement("button");
+    b.type = "button";
     b.className = "chat-item side-option";
     b.innerHTML = `<span class="side-option-label">${escapeHtml(opt.label)}</span>
       <svg viewBox="0 0 24 24" class="side-option-arrow"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -2947,8 +3002,8 @@ function renderSearchView() {
   shell.innerHTML = `
     <div class="side-view">
       <div class="chat-cats side-tabs" role="tablist">
-        <button role="tab" data-tab="search">Search</button>
-        <button role="tab" data-tab="archived">Archived${archivedCount ? ` (${archivedCount})` : ""}</button>
+        <button type="button" role="tab" data-tab="search">Search</button>
+        <button type="button" role="tab" data-tab="archived">Archived${archivedCount ? ` (${archivedCount})` : ""}</button>
       </div>
       <div class="side-view-rows" data-tab-body></div>`;
   const body = shell.querySelector("[data-tab-body]");
@@ -2969,6 +3024,10 @@ function renderSearchView() {
     return;
   }
   const input = document.createElement("input");
+  input.type = "search";
+  input.enterKeyHint = "search";
+  input.autocomplete = "off";
+  input.setAttribute("aria-label", "Search chats");
   input.className = "text-field side-search-input";
   input.placeholder = "Search chats…";
   const results = document.createElement("div");
@@ -2988,6 +3047,7 @@ function renderSearchView() {
     }
     for (const c of hits) {
       const b = document.createElement("button");
+      b.type = "button";
       b.className = "chat-item side-option";
       b.innerHTML = `<span class="side-option-label">${escapeHtml(c.name)}</span>
         <svg viewBox="0 0 24 24" class="side-option-arrow"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -3011,17 +3071,18 @@ function askText(title, value, okLabel) {
     input.value = value || "";
     const foot = document.createDocumentFragment();
     const cancel = document.createElement("button");
+    cancel.type = "button";
     cancel.className = "btn-text"; cancel.textContent = "Cancel";
     const ok = document.createElement("button");
+    ok.type = "submit";
     ok.className = "btn-text btn-primary";
     ok.style.width = "auto";
     ok.textContent = okLabel || "Save";
     foot.append(cancel, ok);
     const done = v => { resolve(v); close(); };
-    const { close } = showModal({ title, body, foot, onClose: () => resolve(null) });
-    ok.addEventListener("click", () => done(input.value.trim()));
+    const { close, form } = showModal({ title, body, foot, form: true, onClose: () => resolve(null) });
+    form.addEventListener("submit", () => done(input.value.trim()));
     cancel.addEventListener("click", () => done(null));
-    input.addEventListener("keydown", e => { if (e.key === "Enter") done(input.value.trim()); });
     setTimeout(() => { input.focus(); input.select(); }, 60);
   });
 }
@@ -3035,19 +3096,18 @@ function askGroupName() {
     // .modal-foot and inherit its one-row flex layout.
     const foot = document.createDocumentFragment();
     const cancel = document.createElement("button");
+    cancel.type = "button";
     cancel.className = "btn-text"; cancel.textContent = "Cancel";
     const ok = document.createElement("button");
+    ok.type = "submit";
     ok.className = "btn-text btn-primary";
     ok.style.width = "auto"; // btn-primary defaults to the full-width onboarding bar
     ok.textContent = "Create group";
     foot.append(cancel, ok);
     const done = value => { resolve(value); close(); };
-    const { close } = showModal({ title: "New group", body, foot, onClose: () => resolve(null) });
-    ok.addEventListener("click", () => done(input.value.trim() || "New group"));
+    const { close, form } = showModal({ title: "New group", body, foot, form: true, onClose: () => resolve(null) });
+    form.addEventListener("submit", () => done(input.value.trim() || "New group"));
     cancel.addEventListener("click", () => done(null));
-    input.addEventListener("keydown", e => {
-      if (e.key === "Enter") done(input.value.trim() || "New group");
-    });
     setTimeout(() => { input.focus(); input.select(); }, 60);
   });
 }
@@ -3063,31 +3123,33 @@ function openProfileManagement() {
   const body = document.createElement("div");
   body.innerHTML = `
     <div class="pm-tabs" data-tabs>
-      <button class="pm-tab active" data-tab="add">Add profile</button>
-      <button class="pm-tab" data-tab="device">Second device</button>
-      <button class="pm-tab" data-tab="export">Export backup</button>
+      <button type="button" class="pm-tab active" data-tab="add">Add profile</button>
+      <button type="button" class="pm-tab" data-tab="device">Second device</button>
+      <button type="button" class="pm-tab" data-tab="export">Export backup</button>
     </div>
     <div class="pm-pane" data-pane="add">
       <p class="pm-hint">Paste a <b>chatmail</b> invite link (<span>dcaccount:…</span>) or a relay domain — a new end-to-end encrypted profile is created on it.</p>
-      <input class="text-field" data-relay placeholder="Relay address — e.g. nine.testrun.org" autocomplete="off" inputmode="url" autocapitalize="none">
-      <div class="pm-actions">
-        <button class="btn-text" data-scan>Scan a QR code</button>
-        <button class="btn-primary" data-add>Add profile</button>
-      </div>
+      <form data-add-form>
+        <input class="text-field" data-relay required placeholder="Relay address — e.g. nine.testrun.org" autocomplete="off" inputmode="url" autocapitalize="none" spellcheck="false">
+        <div class="pm-actions">
+          <button type="button" class="btn-text" data-scan>Scan a QR code</button>
+          <button type="submit" class="btn-primary" data-add>Add profile</button>
+        </div>
+      </form>
     </div>
     <div class="pm-pane" data-pane="device" hidden>
       <p class="p2p-hint">Move this profile to a new device, or receive a profile from another one. Both devices must be on the same network.</p>
       <div class="pm-actions pm-col">
-        <button class="btn-text btn-primary" data-old>Show QR on this device</button>
-        <button class="btn-text" data-new>Receive a profile on this device…</button>
+        <button type="button" class="btn-text btn-primary" data-old>Show QR on this device</button>
+        <button type="button" class="btn-text" data-new>Receive a profile on this device…</button>
       </div>
       <div data-transfer-pane></div>
     </div>
     <div class="pm-pane" data-pane="export" hidden>
       <p class="pm-hint">Write this profile — messages, contacts and keys — into a backup file. The profile stays signed in.</p>
       <input class="text-field" data-dest placeholder="Choose a folder…" readonly>
-      <input class="text-field" data-pass type="password" placeholder="Passphrase (optional, min 6 chars)" autocomplete="new-password">
-      <div class="pm-actions"><button class="btn-primary" data-export disabled>Export backup</button></div>
+      <input class="text-field" data-pass type="password" minlength="6" placeholder="Passphrase (optional, min 6 chars)" autocomplete="new-password">
+      <div class="pm-actions"><button type="button" class="btn-primary" data-export disabled>Export backup</button></div>
       <div class="pm-progress" data-progress hidden></div>
     </div>`;
 
@@ -3120,7 +3182,7 @@ function openProfileManagement() {
     // refreshed drawer/UI takes over.
     if (accountIsCurrent(epoch) && state.accounts.length > 1) close();
   };
-  panes.add.querySelector("[data-add]").addEventListener("click", submitAdd);
+  panes.add.querySelector("[data-add-form]").addEventListener("submit", e => { e.preventDefault(); submitAdd(); });
   panes.add.querySelector("[data-scan]").addEventListener("click", async () => {
     const code = await acquireCode({
       title: "Add account",
@@ -3147,7 +3209,7 @@ function openProfileManagement() {
     transferPane.innerHTML = `
       <div class="qr-box" style="margin-top:10px"><div class="qr-loading">Preparing QR…</div></div>
       <div class="p2p-hint" style="opacity:.6">On the new device, tap "Receive a profile on this device" and scan or paste this code. Keep both devices on this screen until the transfer finishes.</div>
-      <div style="margin-top:8px"><button class="btn-text" data-cancel>Cancel</button></div>`;
+      <div style="margin-top:8px"><button type="button" class="btn-text" data-cancel>Cancel</button></div>`;
     const transferDone = () => {
       if (!accountIsCurrent(epoch)) return;
       cleanupTransfer();
@@ -3216,7 +3278,7 @@ function openProfileManagement() {
     const dest = destInput.value.trim();
     if (!dest) { toast("Choose a destination folder first"); return; }
     const pass = passInput.value;
-    if (pass && pass.length < 6) { toast("Passphrase must be at least 6 characters"); return; }
+    if (pass && !passInput.reportValidity()) return;
     lock(true);
     exportBtn.disabled = true;
     progressBox.hidden = false;
@@ -3466,8 +3528,8 @@ function chooseRelayOrNewProfile(link) {
     body.innerHTML = `
       <p class="p2p-hint">Use the <b>${escapeHtml(host)}</b> invite to…</p>
       <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
-        <button class="btn-text btn-primary" data-relay>Add the relay to this profile</button>
-        ${/^dclogin:/i.test(link) ? "" : `<button class="btn-text" data-new>Create a new profile on it</button>`}
+        <button type="button" class="btn-text btn-primary" data-relay>Add the relay to this profile</button>
+        ${/^dclogin:/i.test(link) ? "" : `<button type="button" class="btn-text" data-new>Create a new profile on it</button>`}
       </div>`;
     let settled = false;
     const pick = v => { if (settled) return; settled = true; close(); resolve(v); };
@@ -3917,16 +3979,18 @@ function joinFlow() {
   const body = document.createElement("div");
   body.innerHTML = `
     <p style="font-size:14.5px;line-height:1.5;margin-bottom:4px">Paste an invite link (<code>https://i.delta.chat/#…</code>, a mirror domain, or a short link like <code>deltachat.id/&lt;name&gt;</code>) — works for both 1:1 contacts and group chats.</p>
-    <input class="text-field" placeholder="https://i.delta.chat/#DD1F…" id="join-input">`;
+    <input class="text-field" placeholder="https://i.delta.chat/#DD1F…" id="join-input" required inputmode="url" autocapitalize="none" autocomplete="off" spellcheck="false" aria-label="Invite link">`;
   const foot = document.createDocumentFragment(); // direct child of .modal-foot -> one-row flex
   const cancel = document.createElement("button");
+  cancel.type = "button";
   cancel.className = "btn-text"; cancel.textContent = "Cancel";
   const ok = document.createElement("button");
+  ok.type = "submit";
   ok.className = "btn-text"; ok.textContent = "Join";
   foot.append(cancel, ok);
-  const { close } = showModal({ title: "Join chat via invite link", body, foot });
+  const { close, form } = showModal({ title: "Join chat via invite link", body, foot, form: true });
   cancel.addEventListener("click", close);
-  ok.addEventListener("click", () => {
+  form.addEventListener("submit", () => {
     const v = body.querySelector("#join-input").value.trim();
     if (!parseInviteLink(v) && !isShortInviteLink(v)) {
       toast("That doesn't look like an invite link (e.g. https://i.delta.chat/#… or OPENPGP4FPR:…)"); return;
@@ -3973,13 +4037,13 @@ function showSplash() {
         ${identityBackupAvailable() ? `<button class="btn-text splash-btn" data-identity-restore type="button">Restore an identity backup…</button>` : ""}
         <button class="btn-text splash-btn" data-local type="button">Enter local chat…</button>
       </div>
-      <div class="splash-form" data-form hidden>
+      <form class="splash-form" data-form hidden>
         <p class="splash-hint">Enter a <b>chatmail</b> relay address — an instant end-to-end encrypted profile will be created for you. No email or password needed.</p>
-        <input class="text-field" data-relay placeholder="Relay address — e.g. nine.testrun.org" autocomplete="off" inputmode="url" autocapitalize="none">
+        <input class="text-field" data-relay required placeholder="Relay address — e.g. nine.testrun.org" autocomplete="off" inputmode="url" autocapitalize="none" spellcheck="false">
         ${navigator.mediaDevices?.getUserMedia ? `<div style="margin-top:10px"><button class="btn-text" data-scan type="button">Scan a QR code</button></div>` : ""}
-        <div style="margin-top:12px"><button class="btn-primary splash-btn" data-ok type="button">Create account</button></div>
+        <div style="margin-top:12px"><button class="btn-primary splash-btn" data-ok type="submit">Create account</button></div>
         ${core?.initTransports ? `<div style="margin-top:4px"><button class="btn-text" data-auto type="button">Autopick the fastest relay</button></div>` : ""}
-      </div>
+      </form>
       <ul class="ob-steps" data-steps></ul>
     </div>
     <details class="splash-log">
@@ -4169,18 +4233,19 @@ function showSplash() {
       resolve();
     };
     const skip = document.createElement("button");
+    skip.type = "button";
     skip.className = "btn-text"; skip.textContent = "Skip";
     skip.addEventListener("click", () => settle(false));
     const save = document.createElement("button");
+    save.type = "submit";
     save.className = "btn-text btn-primary"; save.textContent = "Save name";
-    save.addEventListener("click", () => settle(true));
-    input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); settle(true); } });
     const foot = document.createElement("div");
     foot.className = "modal-foot edit-profile-foot";
     foot.append(skip, save);
-    const m = showModal({ title: "Welcome to Velta", body: wrap, foot, compact: true,
+    const m = showModal({ title: "Welcome to Velta", body: wrap, foot, compact: true, form: true,
       onClose: () => resolve() });
     nm.close = m.close;
+    m.form.addEventListener("submit", () => settle(true));
     setTimeout(() => input.focus(), 50);
   });
   const runCreate = async ({ trigger, intro, phases, run }) => {
@@ -4222,7 +4287,8 @@ function showSplash() {
     }
   };
 
-  ok.addEventListener("click", async () => {
+  formEl.addEventListener("submit", async (e) => {
+    e.preventDefault();
     if (!accountIsCurrent(epoch)) return;
     const raw = input.value;
     const link = normalizeRelayLink(raw);
@@ -4308,7 +4374,7 @@ async function openRelaysModal() {
   const body = document.createElement("div");
   body.innerHTML = `
     <div data-list><div class="p2p-hint" style="opacity:.6">Loading…</div></div>
-    <div style="margin-top:10px"><button class="btn-text" data-add>Add relay…</button></div>`;
+    <div style="margin-top:10px"><button type="button" class="btn-text" data-add>Add relay…</button></div>`;
   showModal({ title: "Relays", body });
   const listEl = body.querySelector("[data-list]");
 
@@ -4347,9 +4413,9 @@ async function openRelaysModal() {
       const other = transports.find(x => x.addr !== t.addr);
       const st = statusByDomain?.get((t.addr || "").split("@").pop());
       const hint = !st || st.state === "ok" ? "" : ` <span class="relay-row-status">${st.state === "down" ? "unreachable — messages queue until it's back" : "connecting…"}</span>`;
-      const demote = primary && other ? `<button class="btn-text" data-demote>Stop using for sending</button>` : "";
+      const demote = primary && other ? `<button type="button" class="btn-text" data-demote>Stop using for sending</button>` : "";
       row.innerHTML = `<span class="k">${escapeHtml(t.addr)}${primary ? " · sending" : ""}${hint}</span>
-        <span class="v">${primary ? demote : `<button class="btn-text" data-sendvia>Use for sending</button>`}<button class="btn-text" data-remove style="color:var(--danger)">Remove</button></span>`;
+        <span class="v">${primary ? demote : `<button type="button" class="btn-text" data-sendvia>Use for sending</button>`}<button type="button" class="btn-text" data-remove style="color:var(--danger)">Remove</button></span>`;
       row.querySelector("[data-sendvia]")?.addEventListener("click", async () => {
         const ok = await confirmModal(
           `Send via ${t.addr}?`,

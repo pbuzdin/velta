@@ -99,9 +99,9 @@ export function acquireCode({ title, hint, validate, autoScan = false }) {
     body.innerHTML = `
       <p style="font-size:14.5px;line-height:1.5">${hint}</p>
       <textarea class="text-field" rows="3" placeholder="Paste code…" spellcheck="false" autocomplete="off"></textarea>
-      <div style="margin-top:8px;text-align:center"><button class="btn-text" data-use-btn>Use this code</button></div>
+      <div style="margin-top:8px;text-align:center"><button type="button" class="btn-text" data-use-btn>Use this code</button></div>
       ${canScan ? `
-      <div style="margin-top:10px"><button class="btn-text" data-scan-btn>Scan QR code</button></div>
+      <div style="margin-top:10px"><button type="button" class="btn-text" data-scan-btn>Scan QR code</button></div>
       <div data-scan hidden style="margin-top:10px">
         <video muted playsinline style="width:100%;border-radius:10px;background:#0b0b10"></video>
       </div>` : `
@@ -120,7 +120,7 @@ export function acquireCode({ title, hint, validate, autoScan = false }) {
     };
 
     ta.addEventListener("keydown", e => {
-      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(ta.value); }
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(ta.value); }
     });
     // Android soft keyboards deliver Enter unreliably — always give paste a
     // tappable submit.

@@ -226,12 +226,10 @@ Local (nearby) chats are searched within their loaded history only.
 <details>
 <summary>Link previews</summary>
 
-The first link in a text message renders as a preview card: image, title,
-description and domain, fetched from the page's Open Graph tags when the
-message is on screen. Tapping the card opens the link - in your system
-browser on desktop, in the in-app browser on Android. Invite links are
-not previewed: they already render as invite cards. That includes every
-`deltachat.id` link.
+A link can show a preview card: image, title, description and domain.
+Tapping the card opens the link — in your system browser on desktop, in
+the in-app browser on Android. Invite links are not previewed: they
+already render as invite cards. That includes every `deltachat.id` link.
 
 Addresses typed without `https://` are highlighted as links too
 (`t.me/smysl_doc/10234`, `github.com/user/repo`, `www.example.com`,
@@ -240,26 +238,23 @@ endings are recognised, so `main.js`, `notes.md`, `v1.2.3`, `e.g.` and
 e-mail addresses stay plain text. Link previews still look only at
 links written with `https://`.
 
-Previews can be turned off in two places:
+**Drawer → Link previews**, and the same three choices on a chat's
+context menu (that chat wins):
 
-- **Drawer - Link previews**: the global switch (default off).
-- **Chat context menu (long-press/right-click a chat) - Link previews:
-  on/off**: per-chat override that wins over the global switch.
+- **Off** — no card.
+- **Send a picture** — a finished `https://` link goes out as a picture
+  of the card (WebP, or JPEG when this app cannot encode WebP) with your
+  text as the caption. The people you write to see that picture and do
+  not contact the site.
+- **Load on this device** — the old card. This device fetches the page
+  when a plain text link is on screen. The same note sits under the
+  radios: the fetch is https only, capped at 256 KB of page and 512 KB of
+  image, cached in memory for the session, and it tells the linked site
+  your IP address. Someone in a private or group chat may own that site,
+  or be able to edit the page.
 
-Turning previews on asks you to confirm first. The preview is fetched by
-the app itself (not through relays or any third-party service), https
-only, capped at 256 KB of page and 512 KB of image per card, cached in
-memory for the session. Fetching it tells the linked site your IP address.
-Someone in a private or group chat may own that site, or be able to edit
-the page, and can send you the link so the preview reveals your address
-to them.
-
-With previews on, a message whose text contains a finished `https://`
-link sends the card as a picture (WebP, or JPEG when this app cannot
-encode WebP) and your text as its caption. The people you write to see
-that picture and do not contact the site. A plain text message can still
-load a preview on their side if they have previews on. Captions on
-photos, videos and files do not.
+Captions on photos, videos and files do not load a preview. A picture
+already sent does not turn back into a live card.
 
 </details>
 

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 // link-preview.js pulls the UI module graph, which extends HTMLElement.
 class Element {}
@@ -14,33 +15,45 @@ globalThis.localStorage = {
   removeItem(k) { delete store[k]; },
 };
 
-const { linkPreview, linkPreviewEnabled, setLinkPreviewEnabled, LINK_PREVIEW_IP_WARNING, senderPreviewUrl, receiveFetchesPreview, wrapLines } = await import("../app/js/link-preview.js");
+const { linkPreview, linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_IP_WARNING, senderPreviewUrl, receiveFetchesPreview, wrapLines } = await import("../app/js/link-preview.js");
 
-test("link previews are off until the user opts in", () => {
+test("link previews are off until a mode is chosen, and the old on is fetch", () => {
   localStorage.removeItem("velta-link-preview");
-  assert.equal(linkPreviewEnabled(), false);
-  // The previous default stored "off" as "0" and treated a missing key as on.
+  assert.equal(linkPreviewMode(), "off");
   localStorage.setItem("velta-link-preview", "0");
-  assert.equal(linkPreviewEnabled(), false);
-  setLinkPreviewEnabled(true);
-  assert.equal(localStorage.getItem("velta-link-preview"), "1");
-  assert.equal(linkPreviewEnabled(), true);
-  setLinkPreviewEnabled(false);
+  assert.equal(linkPreviewMode(), "off");
+  localStorage.setItem("velta-link-preview", "1");
+  assert.equal(linkPreviewMode(), "fetch");
+  setLinkPreviewMode("picture");
+  assert.equal(localStorage.getItem("velta-link-preview"), "picture");
+  assert.equal(linkPreviewMode(), "picture");
+  setLinkPreviewMode("off");
   assert.equal(localStorage.getItem("velta-link-preview"), null);
-  assert.equal(linkPreviewEnabled(), false);
+  assert.equal(linkPreviewMode(), "off");
 });
 
 test("a per-chat override wins, and the warning names the IP leak", () => {
-  setLinkPreviewEnabled(false);
-  assert.equal(linkPreviewEnabled(4), false);
-  setLinkPreviewEnabled(true, 4);
-  assert.equal(linkPreviewEnabled(4), true);
-  assert.equal(linkPreviewEnabled(5), false);
-  setLinkPreviewEnabled(null, 4);
-  assert.equal(linkPreviewEnabled(4), false);
+  setLinkPreviewMode("fetch");
+  assert.equal(linkPreviewMode(4), "fetch");
+  setLinkPreviewMode("picture", 4);
+  assert.equal(linkPreviewMode(4), "picture");
+  assert.equal(linkPreviewMode(5), "fetch");
+  localStorage.setItem("velta-link-preview-chats", JSON.stringify({ 4: "on" }));
+  assert.equal(linkPreviewMode(4), "fetch");
+  setLinkPreviewMode(null, 4);
+  assert.equal(linkPreviewMode(4), "fetch");
+  setLinkPreviewMode("picture");
+  setLinkPreviewMode("off", 4);
+  assert.equal(linkPreviewMode(4), "off");
+  assert.equal(linkPreviewMode(5), "picture");
   assert.match(LINK_PREVIEW_IP_WARNING, /IP address/);
   assert.match(LINK_PREVIEW_IP_WARNING, /private or group chat/);
   assert.match(LINK_PREVIEW_IP_WARNING, /edit the page/);
+  const ui = readFileSync(new URL("../app/js/ui.js", import.meta.url), "utf8");
+  const app = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8");
+  assert.match(ui, /\$\{LINK_PREVIEW_IP_WARNING\}/);
+  assert.doesNotMatch(ui, /confirmModal\("Link previews"/);
+  assert.doesNotMatch(app, /confirmModal\("Link previews"/);
 });
 
 test("deltachat.id and invite links are not fetched", async () => {
@@ -53,7 +66,11 @@ test("deltachat.id and invite links are not fetched", async () => {
       },
     },
   };
-  setLinkPreviewEnabled(true);
+  setLinkPreviewMode("off");
+  assert.equal(await linkPreview("https://example.com/page"), null);
+  setLinkPreviewMode("picture");
+  assert.equal((await linkPreview("https://example.com/page")).title, "Example");
+  setLinkPreviewMode("fetch");
   const fp = "a".repeat(40);
   assert.equal(await linkPreview(`https://deltachat.id/alice`), null);
   assert.equal(await linkPreview(`https://deltachat.id/`), null);
@@ -61,6 +78,8 @@ test("deltachat.id and invite links are not fetched", async () => {
   const preview = await linkPreview("https://example.com/page");
   assert.equal(preview.title, "Example");
   assert.deepEqual(calls.map(c => c.args.url), ["https://example.com/page"]);
+  const cv = readFileSync(new URL("../app/js/chat-view.js", import.meta.url), "utf8");
+  assert.match(cv, /linkPreviewMode\(chatId\) === "fetch"/);
 });
 
 test("sender preview attaches only for a finished https url with no file", () => {

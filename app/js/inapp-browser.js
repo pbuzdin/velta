@@ -28,13 +28,7 @@ function injectStyles() {
     .iab-meta { flex: 1; min-width: 0; text-align: center; line-height: 1.25; }
     .iab-title { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .iab-domain { font-size: 12px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .iab-progress { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; overflow: hidden; }
-    .iab-progress::before {
-      content: ""; display: block; height: 100%; width: 40%;
-      background: var(--accent); border-radius: 2px;
-      animation: iab-slide 1s ease-in-out infinite;
-    }
-    @keyframes iab-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
+    progress.iab-progress { position: absolute; left: 0; right: 0; bottom: -1px; width: 100%; height: 2px; border: 0; }
     .iab-frame { flex: 1; border: 0; width: 100%; background: #fff; }`;
   document.head.appendChild(s);
 }
@@ -85,7 +79,7 @@ function openIframeOverlay(url) {
         <svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 13v6a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
     </div>
-    <div class="iab-progress" data-progress></div>
+    <progress class="iab-progress" data-progress aria-label="Loading page"></progress>
     <iframe class="iab-frame" sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-downloads" referrerpolicy="no-referrer-when-downgrade"></iframe>`;
 
   // The URL comes from a message: set it through the DOM, never through the

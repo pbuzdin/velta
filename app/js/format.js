@@ -59,6 +59,36 @@ export function formatDay(ts) {
 
 // "just now" / "5 minutes ago" / "3 hours ago" / "2 days ago" — relative time
 // for last-seen info.
+function escTime(s) {
+  return String(s ?? "").replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+}
+
+// datetime is an instant, or a local YYYY-MM-DD when day is set (UTC slice
+// would label the wrong calendar day).
+export function timeParts(ts, { day = false } = {}) {
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return null;
+  const datetime = day
+    ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+    : d.toISOString();
+  return { datetime, title: d.toLocaleString() };
+}
+
+export function timeTag(ts, text, { day = false, className = "" } = {}) {
+  const cls = className ? ` class="${escTime(className)}"` : "";
+  const body = escTime(text);
+  const p = timeParts(ts, { day });
+  if (!p) return `<span${cls}>${body}</span>`;
+  return `<time${cls} datetime="${escTime(p.datetime)}" title="${escTime(p.title)}">${body}</time>`;
+}
+
+export function stampTime(el, ts, { day = false } = {}) {
+  const p = timeParts(ts, { day });
+  if (!p || !el) return;
+  el.dateTime = p.datetime;
+  el.title = p.title;
+}
+
 export function timeAgo(ts) {
   const sec = Math.max(0, (Date.now() - ts) / 1000);
   if (sec < 60) return "just now";

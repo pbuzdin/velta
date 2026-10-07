@@ -19,7 +19,9 @@ Related documents. This one doesn't repeat them; it cites their finding IDs:
   says "finding M6" for a finding; a bare "modal plan M3" means the phase). It covers `<dialog>`, the overlay stack, Esc via `cancel`,
   Android BACK, and menus as popovers.
 - [`native-elements.md`](native-elements.md). It covers `enterkeyhint`,
-  `type="search"`, `<time>`, form controls and popover.
+  `type="search"`, `<time>`, form controls and popover. Update (2026-10-07):
+  the top recommendations in that file are in the app. This audit's gap
+  table is still the 2026-10-06 baseline.
 
 New findings in this document use two prefixes. **K1–K8** are keyboard and
 shortcut findings. **N1–N13** are accessibility findings that the earlier

@@ -61,12 +61,12 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── read-markers.js   # manual "read up to here" markers per (account, chat), localStorage-only
 │   │   ├── qr-actions.js     # QR screen logic: scan-tab/share availability, copy/share link, scanned-code classification (#37)
 │   │   ├── qr-scan.js        # code acquisition: paste or camera scan (native BarcodeDetector probed with a 2s timeout, vendored jsQR fallback (`app/vendor/jsQR.js`, minified ~131 KB, loaded on demand) — many Android WebViews ship no Shape Detection API or one whose detect() hangs)
-│   │   ├── format.js         # pure time/size/pageBounds helpers shared by prod modules (mock-core re-exports them)
+│   │   ├── format.js         # time/size/pageBounds helpers; timeTag/stampTime emit <time datetime>
 │   │   ├── mock-core.js      # in-memory demo core implementing the JSON-RPC surface (NOT in the prod import graph: transport imports it dynamically)
 │   │   ├── rpc-core.js       # JsonRpcCore wrapper over transports + event mapping
 │   │   ├── transport.js      # backend auto-detection (Tauri, WebSocket, HTTP, mock)
 │   │   ├── webxdc-manager.js # webxdc host: opaque-origin sandboxed app overlay, shim postMessage relay, per-instance serials
-│   │   ├── link-preview.js   # OG cards; with the setting on, the sender bakes the card to WebP (#88)
+│   │   ├── link-preview.js   # OG cards; drawer is off / picture / fetch (#88)
 │   │   ├── trackers.js       # drop known tracking query params on paste and on open (#89)
 │   │   └── ui.js             # drawer, modals, context menus, toasts
 │   ├── vendor/               # third-party frontend libraries
@@ -1131,28 +1131,28 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   failed fetches cached as null. Never fetched: a registered invite URL
   (already an invite card) and any `deltachat.id` URL (short username
   links are invite cards; the rest of that host is the same service).
-  Setting: drawer → “Link previews”
-  (localStorage `velta-link-preview`, “1” = on, default off; the old “0”
-  stays off. Turning previews on, globally or for one chat, confirms
-  `LINK_PREVIEW_IP_WARNING` first — the fetch reveals this device’s IP,
-  and someone in a private or group chat may own the site or be able to
-  edit the page (issue #30). KEEP: the card slot is
-  rendered empty (`data-lp`) and hydrates async — the hydration MUST call
-  `notifyHeight()` after unhiding or the virtual scroller’s layout math
-  goes stale (same contract as image decode). Cards never render in demo
-  mode (no Tauri shell → no fetch command). Per-chat override: chat context
-  menu → “Link previews: on/off” (localStorage `velta-link-preview-chats`,
-  `{chatId: “on”|“off”}`, wins over the global drawer value). With the
-  setting on, the composer shows a dismissible ghost card
+  Setting: drawer → “Link previews” radios, and the same three on the
+  chat context menu (localStorage `velta-link-preview`, per-chat
+  `velta-link-preview-chats` wins). `off` (unset and the old `"0"`),
+  `picture`, `fetch`. The old global `"1"` and per-chat `"on"` read as
+  `fetch`. The drawer hint is `LINK_PREVIEW_IP_WARNING` — the fetch
+  reveals this device’s IP (issue #30). No confirm dialog. `picture`
+  does not fetch incoming links. KEEP: the
+  card slot is rendered empty (`data-lp`) and hydrates async — the
+  hydration MUST call `notifyHeight()` after unhiding or the virtual
+  scroller’s layout math goes stale (same contract as image decode).
+  Cards never render in demo mode (no Tauri shell → no fetch command).
+  `picture`: the composer shows a dismissible ghost card
   (`#link-preview-draft`) for the first finished `https://` URL
   (`senderPreviewUrl`: skip invites, `deltachat.id`, and hosts with no
   dot) and on send bakes it to a 480px image (`renderPreviewImage`: WebP
   at quality 0.72, JPEG if `toBlob` does not return `image/webp`) and
   sends that as a normal image with the draft as the caption
   (`_sendPreviewImage`, file `lp-<ts>.webp` or `.jpg` under `uploads/`).
-  The recipient does not contact the site. Receive-time `linkPreview()`
-  still runs for plain-text messages only (`receiveFetchesPreview`); an
-  image/file/video caption, including a baked card, does not fetch.
+  The recipient does not contact the site. `fetch` still runs
+  `linkPreview()` for plain-text messages only (`receiveFetchesPreview`);
+  `picture` and `off` do not. An image/file/video caption, including a
+  baked card, does not fetch.
   Sending before the card is ready, or an encode failure, sends plain
   text. Dismiss remembers that exact URL. KEEP: bubble
   anchors (markdown links AND card links) are handled by the DELEGATED
@@ -1205,6 +1205,19 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   profile sheet via `onProfile`), display name, Edit profile and Switch
   account (`.acct-pop` dropdown, current checked). `.qr-box` carries no
   background/border of its own — the core's QR SVG is self-contained.
+  **Native controls (2026-10-07):** the top eight rows of
+  `docs/native-elements.md` are in the app (counts in "What landed"); the
+  survey tables there are the original notes. Traps: popover is used only
+  when `HTMLElement.prototype` has `popover` (macOS 10.15/11 keep the
+  overlay) and `#toasts` (`popover="manual"`) is re-shown after a dialog
+  or lightbox; prompt modals pass `form: true` and every button has an
+  explicit `type` (an untyped button inside a form submits); the QR paste
+  box stays a textarea and ignores Enter during IME composition;
+  `field-sizing` on the composer is behind `@supports`, with `sizeComposer`
+  kept for Android 7 and Safari; day-chip `<time>` uses a local
+  `YYYY-MM-DD`, not a UTC slice; a file chosen in the browser still cannot
+  be sent without the Velta app (the core wants a real path); toast close
+  is `CLOSE_SVG` at `--ico-2`. Tests: `tests/native-elements.test.mjs`.
 - `app/js/mock-core.js` — self-contained demo backend when no real core is
   reachable (`localStorage["velta-mock"] = "1"` forces it). Implements the
   same contract surface as the real core, including
@@ -1265,7 +1278,7 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   above the composer/bottom bar: 3px shrinking timer bar (danger red for
   errToast) whose animationend dismisses, one-line ellipsis,
   overflow-gated expand chip (re-measured after `document.fonts.ready`),
-  copy button in the open pane, close X in the summary. `opts.undo`
+  copy button in the open pane, the house close icon in the summary. `opts.undo`
   adds an Undo button in the summary; the click preventDefaults so the
   `<summary>` does not toggle, then dismisses. Clicking pauses
   the dismissal timer — expandable toasts via the native open/close toggle,
@@ -1401,8 +1414,10 @@ replies; applies regardless of which tools or modes are active.)
   `docs/modals-audit-and-plan.md` (inventory, WebView support matrix,
   `<dialog>` conversion plan; supersedes plan items 0.4/2.4) before touching
   `showModal()`, the lightbox, webxdc/HTML-viewer/in-app-browser overlays or
-  the call screen. `docs/native-elements.md` lists native-element
-  replacements (popover, forms, `<progress>`, `<time>`, composer hints).
+  the call screen. The `<dialog>` conversion in that plan has not started.
+  `docs/native-elements.md` records the native controls that landed on
+  2026-10-07 (popover, forms, `<progress>`, `<time>`, composer hints,
+  field-sizing); its survey tables are the original notes.
 - Keyboard shortcuts and accessibility beyond the component audit (focus
   order, roving tabindex, reduced motion, forced colors, contrast, text
   scaling, touch targets, TalkBack): read `docs/accessibility-and-keybindings.md`

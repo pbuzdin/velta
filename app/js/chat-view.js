@@ -1,11 +1,21 @@
 // chat-view.js — virtualized message history (virtual-scroller) + composer
-import { formatTime, formatDay, formatBytes } from "./format.js";
+import { formatTime, formatDay, formatBytes, timeTag, stampTime } from "./format.js";
 import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener } from "./components.js";
 import { showContextMenu, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG } from "./ui.js";
 import { diagnosticRow } from "./diagnostics.js";
 import { openWebxdc, prefetchInfo, appIconUrl } from "./webxdc-manager.js";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
+
+function composerFieldSized() {
+  return typeof CSS !== "undefined" && CSS.supports?.("field-sizing", "content");
+}
+function sizeComposer(input) {
+  if (!input) return;
+  if (composerFieldSized()) { input.style.height = ""; return; }
+  input.style.height = "auto";
+  input.style.height = Math.min(input.scrollHeight, innerHeight * 0.4) + "px";
+}
 
 // Decoded-dimension memory for media the core had no dimensions for: those
 // rows reserve a 4:3 (image) / fixed-band (video) guess, and the true shape
@@ -45,7 +55,7 @@ import { renderMarkdown, extractBotCommands } from "./markdown.js";
 import { compressImage, compressEnabled } from "./image-compress.js";
 import { lcRetryTransfer } from "./local-chat.js";
 import { TypingSender } from "./typing.js";
-import { linkPreview, linkPreviewCardHtml, linkPreviewEnabled, firstLink as firstLinkOf, senderPreviewUrl, receiveFetchesPreview, renderPreviewImage } from "./link-preview.js";
+import { linkPreview, linkPreviewCardHtml, linkPreviewMode, firstLink as firstLinkOf, senderPreviewUrl, receiveFetchesPreview, renderPreviewImage } from "./link-preview.js";
 import { stripTrackingUrl, stripTrackingText, trackingStripEnabled } from "./trackers.js";
 import { getReadMarker, clearReadMarker } from "./read-markers.js";
 
@@ -243,8 +253,8 @@ function openImageCropper(imageUrl) {
         </div>
       </div>
       <div style="display:flex;gap:8px;margin-top:10px;justify-content:center">
-        <button class="btn-text" data-apply style="background:var(--accent);color:#f4f4f4">Apply</button>
-        <button class="btn-text" data-cancelcrop>Cancel</button>
+        <button type="button" class="btn-text" data-apply style="background:var(--accent);color:#f4f4f4">Apply</button>
+        <button type="button" class="btn-text" data-cancelcrop>Cancel</button>
       </div>`;
     const { close } = showModal({ title: "Crop image", body, onClose: () => finish(null) });
     const canvas = body.querySelector("[data-canvas]");
@@ -561,8 +571,8 @@ export class ChatView {
       const input = document.getElementById("composer-input");
       input.value = draft?.text || "";
       input.disabled = false;
-      input.style.height = "auto";
-      input.style.height = Math.min(input.scrollHeight, innerHeight * 0.4) + "px";
+      input.enterKeyHint = localStorage?.getItem("velta-send-enter") !== "0" ? "send" : "enter";
+      sizeComposer(input);
       this.replyTo = draft?.replyTo || null;
       this.replyFragment = draft?.replyFragment || null;
       this._renderReplyPreview();
@@ -655,7 +665,7 @@ export class ChatView {
     const item = (m) => `
       <div class="pin-tray-item" data-pin-id="${m.id}">
         <span class="pb-text"><b>${escapeHtml(m.fromContact?.name || "")}</b> ${escapeHtml(snippet(m))}</span>
-        <button class="pin-unpin" data-unpin="${m.id}" title="Unpin" aria-label="Unpin">✕</button>
+        <button type="button" class="pin-unpin" data-unpin="${m.id}" title="Unpin" aria-label="Unpin">✕</button>
       </div>`;
     bar.innerHTML = `
       <summary class="pin-tray-summary">
@@ -733,7 +743,7 @@ export class ChatView {
     this._flushMarkRead(); // messages were on screen — mark them before the session dies
     this._session = null;
     input.value = "";
-    input.style.height = "auto";
+    sizeComposer(input);
     input.disabled = true;
     this.stopLive();
     if (this._tailRefetchTimer) { clearTimeout(this._tailRefetchTimer); this._tailRefetchTimer = null; }
@@ -1376,9 +1386,10 @@ export class ChatView {
   }
 
   _dayChipEl(item) {
-    const el = document.createElement("div");
+    const el = document.createElement("time");
     el.className = "day-chip";
     el.textContent = formatDay(item.msg.ts);
+    stampTime(el, item.msg.ts, { day: true });
     return el;
   }
 
@@ -1422,10 +1433,10 @@ export class ChatView {
 
     let inner = "";
     // Day chip rides inside the first row of the day (see _annotateMessages).
-    if (item.dayFirst) inner += `<div class="day-chip">${escapeHtml(formatDay(m.ts))}</div>`;
+    if (item.dayFirst) inner += timeTag(m.ts, formatDay(m.ts), { day: true, className: "day-chip" });
     if (item.unreadFirst) inner += `<div class="unread-sep">Unread messages</div>`;
     if (this.selection.size) {
-      inner += `<div class="msg-checkbox">${this.selection.has(m.id) ? ICO.check : ""}</div>`;
+      inner += `<input type="checkbox" class="msg-checkbox" aria-label="Select message"${this.selection.has(m.id) ? " checked" : ""}>`;
     }
     if (showAvatar) {
       inner += `<velta-avatar name="${escapeHtml(fc.name)}" color="${fc.color}" size="42" contact-id="${fc.id ?? ""}" addr="${escapeAttr(fc.addr || "")}"${fc.avatar ? ` avatar="${escapeAttr(fileUrl(fc.avatar))}"` : ""}></velta-avatar>`;
@@ -1451,7 +1462,7 @@ export class ChatView {
       if (m.transfer.failed) {
         bubble += `<div class="msg-transfer is-failed">${head}<div class="mfp-fail">Transfer interrupted</div><button type="button" class="btn-text" data-act="lc-retry">Retry</button></div>`;
       } else {
-        bubble += `<div class="msg-transfer">${head}<div class="mfp-bar"><i style="width:${pct}%"></i></div><div class="mfp-pct">${pct}%</div></div>`;
+        bubble += `<div class="msg-transfer">${head}<progress class="mfp-bar" max="100" value="${pct}" aria-label="Transfer">${pct}%</progress><div class="mfp-pct">${pct}%</div></div>`;
       }
     } else if (m.viewtype === "image" || m.viewtype === "gif" || m.viewtype === "sticker") {
       // Demo stickers are emoji placeholders, not files — render the emoji.
@@ -1597,7 +1608,7 @@ export class ChatView {
       const reason = failReason(m.error);
       failBadge = `<span class="msg-fail-badge" title="${escapeAttr(m.error || "Not sent")}">${escapeHtml(reason)}</span>`;
     }
-    bubble += `<span class="msg-meta">${edited}${star}${botChip}${formatTime(m.ts)}${ticks}</span>${failBadge}</div>`;
+    bubble += `<span class="msg-meta">${edited}${star}${botChip}${timeTag(m.ts, formatTime(m.ts))}${ticks}</span>${failBadge}</div>`;
     if (m.reactions?.length) {
       bubble += `<div class="msg-reactions">${reactionChipsHtml(m.reactions)}</div>`;
     }
@@ -1649,7 +1660,7 @@ export class ChatView {
     // Link preview hydration: only plain-text first-link messages carry the
     // slot; failed/off settings resolve null and the slot stays hidden.
     const lpSlot = row.querySelector("[data-lp]");
-    if (lpSlot && lpSlot.dataset.lpDone !== "1") {
+    if (lpSlot && linkPreviewMode(chatId) === "fetch" && lpSlot.dataset.lpDone !== "1") {
       lpSlot.dataset.lpDone = "1";
       linkPreview(m.text, chatId).then((p) => {
         if (!p || !alive() || !lpSlot.isConnected) return;
@@ -1913,7 +1924,11 @@ export class ChatView {
     row.addEventListener("touchcancel", () => endReplySwipe(false));
     row.addEventListener("click", async e => {
       if (!alive()) return;
-      if (this.selection.size) { this._toggleSelect(m.id, row); return; }
+      if (this.selection.size) {
+        if (e.target.closest?.(".msg-checkbox")) e.preventDefault();
+        this._toggleSelect(m.id, row);
+        return;
+      }
       // Bubble anchors (markdown links, link-preview cards): delegated, not
       // per-anchor wiring — the preview card's <a> is inserted ASYNC after
       // row build, so per-anchor wiring never sees it. Android WebView drops
@@ -2415,7 +2430,7 @@ export class ChatView {
     else this.selection.add(msgId);
     row?.classList.toggle("selected", this.selection.has(msgId));
     const box = row?.querySelector(".msg-checkbox");
-    if (box) box.innerHTML = this.selection.has(msgId) ? ICO.check : "";
+    if (box) box.checked = this.selection.has(msgId);
     if (!this.selection.size) this.exitSelection();
     else document.getElementById("sel-count").textContent = this.selection.size;
   }
@@ -2435,9 +2450,11 @@ export class ChatView {
       row.classList.add("selectable");
       row.classList.toggle("selected", this.selection.has(id));
       if (!row.querySelector(".msg-checkbox")) {
-        const cb = document.createElement("div");
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
         cb.className = "msg-checkbox";
-        cb.innerHTML = this.selection.has(id) ? ICO.check : "";
+        cb.setAttribute("aria-label", "Select message");
+        cb.checked = this.selection.has(id);
         row.prepend(cb);
       }
     }
@@ -2597,7 +2614,10 @@ export class ChatView {
   _bindComposer() {
     const input = document.getElementById("composer-input");
     const send = document.getElementById("btn-send");
-    const grow = () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, innerHeight * 0.4) + "px"; };
+    const grow = () => sizeComposer(input);
+    input.autocapitalize = "sentences";
+    input.autocomplete = "off";
+    input.enterKeyHint = localStorage?.getItem("velta-send-enter") !== "0" ? "send" : "enter";
     input.addEventListener("input", () => { grow(); this._scheduleLinkPreview(); });
     // Typing hint (local chats only; core.sendTyping is a no-op when the
     // setting is off). Empty box = stopped.
@@ -2683,6 +2703,9 @@ export class ChatView {
         { label: "Video", icon: ICO.photo, onClick: () => this._sendAttachment("video") },
         { label: "File", icon: ICO.file, onClick: () => this._sendAttachment("file") },
       ];
+      if (!window.__TAURI__ && /Android/i.test(navigator.userAgent)) {
+        attachItems.splice(1, 0, { label: "Camera", icon: ICO.photo, onClick: () => this._sendAttachment("camera") });
+      }
       // Voice messages are not supported in local chat — hide the item there.
       if (!this.chat?.isP2p) {
         attachItems.push({ label: "Voice message", icon: ICO.mic, onClick: () => this._sendAttachment("voice") });
@@ -2779,7 +2802,7 @@ export class ChatView {
     const tauri = window.__TAURI__;
     const invoke = tauri?.core?.invoke || tauri?.invoke;
     this._clearPendingMedia();
-    input.value = ""; input.style.height = "auto";
+    input.value = ""; sizeComposer(input);
     try {
       const { quoteId, quoteText, prefix } = this._takeQuote();
       let filePath = pm.corePath;
@@ -2860,7 +2883,7 @@ export class ChatView {
     const bar = document.getElementById("link-preview-draft");
     const text = document.getElementById("composer-input")?.value || "";
     const url = senderPreviewUrl(text, {
-      enabled: !!(this.chat && !this.editingMsg && linkPreviewEnabled(this.chat.id)),
+      enabled: !!(this.chat && !this.editingMsg && linkPreviewMode(this.chat.id) === "picture"),
       hasFile: !!this.pendingMedia,
       dismissed: this._lpDismissed,
     });
@@ -2874,7 +2897,7 @@ export class ChatView {
     const preview = await linkPreview(text, this.chat?.id);
     if (!this._isCurrent(session) || token !== this._lpSeq) return;
     const urlNow = senderPreviewUrl(document.getElementById("composer-input")?.value || "", {
-      enabled: !!(this.chat && !this.editingMsg && linkPreviewEnabled(this.chat.id)),
+      enabled: !!(this.chat && !this.editingMsg && linkPreviewMode(this.chat.id) === "picture"),
       hasFile: !!this.pendingMedia,
       dismissed: this._lpDismissed,
     });
@@ -2930,13 +2953,13 @@ export class ChatView {
     }
     if (!text) return;
     const url = senderPreviewUrl(text, {
-      enabled: !!(this.chat && !this.editingMsg && linkPreviewEnabled(this.chat.id)),
+      enabled: !!(this.chat && !this.editingMsg && linkPreviewMode(this.chat.id) === "picture"),
       hasFile: false,
       dismissed: this._lpDismissed,
     });
     const attach = this._lpPreview && this._lpPreview.url === url ? this._lpPreview : null;
     input.value = "";
-    input.style.height = "auto";
+    sizeComposer(input);
     this._resetLinkPreview();
     if (this.editingMsg) {
       const editing = this.editingMsg;
@@ -3074,6 +3097,22 @@ export class ChatView {
     }
   }
 
+  // PWA / browser: no Tauri path. cancel is Chromium 113+; older Safari can leave this pending.
+  _pickLocalFile(kind) {
+    const input = document.createElement("input");
+    input.type = "file";
+    if (kind === "image" || kind === "camera") input.accept = "image/*";
+    else if (kind === "video") input.accept = "video/*";
+    if (kind === "camera") input.capture = "environment";
+    return new Promise(resolve => {
+      let done = false;
+      const finish = (file) => { if (done) return; done = true; resolve(file || null); };
+      input.addEventListener("change", () => finish(input.files?.[0]));
+      input.addEventListener("cancel", () => finish(null));
+      input.click();
+    });
+  }
+
   async _sendAttachment(kind) {
     const session = this._session;
     if (!this._isCurrent(session) || !this.chat) return;
@@ -3092,7 +3131,11 @@ export class ChatView {
     const tauri = window.__TAURI__;
     const invoke = tauri?.core?.invoke || tauri?.invoke;
     if (!invoke) {
-      errToast("File picker is only available in the Tauri app");
+      if (kind === "file") { errToast("Sending that file needs the Velta app"); return; }
+      const file = await this._pickLocalFile(kind);
+      if (!file || !this._isCurrent(session)) return;
+      const mediaKind = kind === "camera" ? "image" : kind;
+      if (mediaKind === "image" || mediaKind === "video") this._setPendingMedia(mediaKind, file, null, file.name);
       return;
     }
 

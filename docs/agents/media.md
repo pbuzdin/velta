@@ -88,13 +88,14 @@ sent as is.
 
 ## Sender-side link previews (#88)
 
-With drawer **Link previews** on (`velta-link-preview` === `"1"`, default
-off, #30), the composer fetches the OG card (`fetch_link_preview`) and
+Drawer **Link previews** is `off` | `picture` | `fetch` (`linkPreviewMode`).
+Unset and `"0"` are off; the old `"1"` is `fetch`. Only `picture` bakes.
+The composer fetches the OG card (`fetch_link_preview`) and
 `renderPreviewImage` paints a 480px card to WebP (JPEG if this webview's
 `toBlob` does not return `image/webp`). `_sendPreviewImage` writes
 `uploads/lp-<ts>.webp` (or `.jpg`) and sends it as `viewtype: image` with
 the draft as the caption. The recipient does not fetch the URL. Plain-text
-messages can still fetch on receive when that side has the setting on;
+messages still fetch on receive only when that side is `fetch`;
 image, file and video captions do not (`receiveFetchesPreview`). Invite
 links, `deltachat.id`, and hosts with no dot are not fetched. Tests:
 `tests/link-preview-setting.test.mjs`.

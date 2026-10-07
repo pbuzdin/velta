@@ -27,6 +27,11 @@ is low-value there, though harmless.
 > composer" clashes with Alt+↑/↓ chat switching (Delta Chat parity). Use
 > Shift+Tab or F6 instead. Contrast item **3.4** is shared with its P3.3, and
 > the phase 4 test harness with its P5.
+>
+> **Update (2026-10-07):** the top eight rows in
+> [`native-elements.md`](native-elements.md) are in the app. That file's
+> "What landed" section is the count; its survey tables are the original
+> notes. The `<dialog>` conversion in the modals plan has not started.
 
 Ground rules for every phase:
 - No bundler, no npm runtime deps in `app/` (`AGENTS.md` §6.2). Test-only deps

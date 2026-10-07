@@ -104,8 +104,10 @@ async function showPairRequest(peerId, name) {
         <p class="p2p-hint" style="opacity:.75">Pair only if you recognize this device.</p>`;
       const foot = document.createDocumentFragment(); // direct child of .modal-foot -> one-row flex
       const deny = document.createElement("button");
+      deny.type = "button";
       deny.className = "btn-text"; deny.textContent = "Deny";
       const ok = document.createElement("button");
+      ok.type = "button";
       ok.className = "btn-text btn-primary"; ok.textContent = "Pair";
       foot.append(deny, ok);
       const { close, modal } = showModal({ title: "Pairing request", body, foot, onClose: () => resolve(false) });
@@ -183,21 +185,20 @@ function promptName() {
       <p class="p2p-hint">Pick the name other devices will see for this device in Local chat.
       Local chat is end-to-end encrypted and works directly between devices on the same
       Wi-Fi network — no accounts, no servers.</p>
-      <input class="text-field" maxlength="64" placeholder="Device name">`;
+      <input class="text-field" maxlength="64" required placeholder="Device name">`;
     const input = body.querySelector("input");
     const foot = document.createDocumentFragment(); // direct child of .modal-foot -> one-row flex
     const cancel = document.createElement("button");
+    cancel.type = "button";
     cancel.className = "btn-text"; cancel.textContent = "Cancel";
     const ok = document.createElement("button");
+    ok.type = "submit";
     ok.className = "btn-text"; ok.textContent = "Continue";
     foot.append(cancel, ok);
-    const { close } = showModal({ title: "Welcome to Local chat", body, foot });
+    const { close, form } = showModal({ title: "Welcome to Local chat", body, foot, form: true });
     const finish = value => { close(); resolve(value); };
-    ok.addEventListener("click", () => { const v = input.value.trim(); if (v) finish(v); });
+    form.addEventListener("submit", () => { const v = input.value.trim(); if (v) finish(v); });
     cancel.addEventListener("click", () => finish(null));
-    input.addEventListener("keydown", e => {
-      if (e.key === "Enter") { const v = input.value.trim(); if (v) finish(v); }
-    });
     setTimeout(() => input.focus(), 60);
   });
 }
@@ -245,7 +246,7 @@ function renderHubInto(body, invoke, renderQr, status, actions) {
           <span class="p2p-dot ${p.online ? "on" : ""}"></span>
           <span class="p2p-row-name">${escapeHtml_(p.name || p.id.slice(0, 12))}</span>
           ${p.queued ? `<span class="p2p-row-queued">${p.queued} queued</span>` : ""}
-          ${!p.online ? `<button class="btn-text" data-retry="${escapeHtml_(p.id)}">Retry</button>` : ""}
+          ${!p.online ? `<button type="button" class="btn-text" data-retry="${escapeHtml_(p.id)}">Retry</button>` : ""}
         </div>`).join("")}
       </div>`
     : `<div class="p2p-empty">No contacts yet.<br>Pair with another Velta device on the same Wi-Fi network — exchange invite codes once, then chat directly, encrypted, with no servers in between.</div>`;
@@ -254,15 +255,15 @@ function renderHubInto(body, invoke, renderQr, status, actions) {
         <div class="p2p-row" data-nearby="${escapeHtml_(n.id)}">
           <span class="p2p-dot on"></span>
           <span class="p2p-row-name">${escapeHtml_(n.name || n.id.slice(0, 12))}</span>
-          <button class="btn-text" data-nearby-pair="${escapeHtml_(n.id)}">Pair</button>
+          <button type="button" class="btn-text" data-nearby-pair="${escapeHtml_(n.id)}">Pair</button>
         </div>`).join("")}</div>`
     : "";
   body.innerHTML = `
     <p class="p2p-hint">This device: <b>${escapeHtml_(status.name || "device")}</b>
       <span style="opacity:.55;font-size:12px">(${escapeHtml_(shortId(status.nodeId))})</span></p>
     <div style="display:flex;gap:10px;margin-top:8px">
-      <button class="btn-text" data-invite>Show invite</button>
-      <button class="btn-text" data-add>Add contact</button>
+      <button type="button" class="btn-text" data-invite>Show invite</button>
+      <button type="button" class="btn-text" data-add>Add contact</button>
     </div>
     ${nearbyRows ? `<div class="p2p-hint" style="margin-top:10px;opacity:.75">Nearby — discovered on this network:</div>${nearbyRows}` : rows}`;
   body.querySelector("[data-invite]").addEventListener("click", () => showInviteModal(invoke, renderQr).catch(err => toast(String(err?.message || err))));
@@ -330,7 +331,7 @@ export async function showInviteModal(invoke, renderQr) {
     what establishes the end-to-end encryption trust.</p>
     <div class="qr-box"><div class="qr-loading">Generating invite…</div></div>
     <div class="invite-link" style="word-break:break-all;font-size:12px;opacity:.7"></div>
-    <div style="text-align:center;margin-top:6px"><button class="btn-text" data-copy>Copy code</button></div>`;
+    <div style="text-align:center;margin-top:6px"><button type="button" class="btn-text" data-copy>Copy code</button></div>`;
   showModal({ title: "My invite code", body });
   const ticket = await invoke("p2p_create_invite");
   body.querySelector(".invite-link").textContent = ticket;
@@ -382,21 +383,19 @@ function openPairingModal() {
   const body = document.createElement("div");
   body.innerHTML = `
     <div data-step class="p2p-hint">Preparing…</div>
-    <div data-progress style="margin-top:10px;height:4px;border-radius:2px;background:rgba(127,127,127,.25);overflow:hidden">
-      <div data-bar style="height:100%;width:30%;background:rgba(76,141,255,.9);border-radius:2px;transition:width .4s"></div>
-    </div>`;
+    <progress class="pair-bar" data-bar max="100" aria-label="Pairing"></progress>`;
   const { close } = showModal({ title: "Pairing", body });
   const stepEl = body.querySelector("[data-step]");
   const bar = body.querySelector("[data-bar]");
   const setStep = (text, pct) => {
     if (stepEl) stepEl.textContent = text;
-    if (bar && pct != null) bar.style.width = pct + "%";
+    if (bar && pct != null) bar.value = pct;
   };
   return {
     setStep,
     close,
     fail: err => {
-      if (bar) bar.style.background = "rgba(255,107,107,.9)";
+      if (bar) bar.classList.add("is-fail");
       setStep(`✗ Pairing failed — ${err}`);
       const hints = document.createElement("div");
       hints.className = "p2p-hint";
@@ -437,8 +436,10 @@ export async function showCreateGroupModal(invoke) {
       <p class="p2p-hint" data-warn style="opacity:.8" hidden></p>`;
     const foot = document.createDocumentFragment();
     const cancel = document.createElement("button");
+    cancel.type = "button";
     cancel.className = "btn-text"; cancel.textContent = "Cancel";
     const ok = document.createElement("button");
+    ok.type = "button";
     ok.className = "btn-text"; ok.textContent = "Create";
     foot.append(cancel, ok);
     let busy = false;
@@ -514,8 +515,10 @@ export async function showAddMembersModal(invoke, gid) {
         : `<div class="p2p-empty">No other paired devices. Pair with a device first (Local chat → Add contact).</div>`}`;
     const foot = document.createDocumentFragment();
     const cancel = document.createElement("button");
+    cancel.type = "button";
     cancel.className = "btn-text"; cancel.textContent = "Cancel";
     const ok = document.createElement("button");
+    ok.type = "button";
     ok.className = "btn-text"; ok.textContent = "Add";
     foot.append(cancel, ok);
     const countEl = body.querySelector("[data-count]");
@@ -561,10 +564,10 @@ function openChatModal(invoke, peerId, name) {
   const body = document.createElement("div");
   body.innerHTML = `
     <div class="p2p-msgs"><div class="p2p-empty">Loading…</div></div>
-    <div class="p2p-input-row">
+    <form class="p2p-input-row">
       <input class="text-field" placeholder="Message…" autocomplete="off">
-      <button class="btn-text" data-send>Send</button>
-    </div>`;
+      <button type="submit" class="btn-text" data-send>Send</button>
+    </form>`;
   const input = body.querySelector("input");
   const { close, modal } = showModal({
     title: `${name || shortId(peerId)} · local chat`,
@@ -586,10 +589,7 @@ function openChatModal(invoke, peerId, name) {
       toast(String(err?.message || err));
     }
   };
-  body.querySelector("[data-send]").addEventListener("click", doSend);
-  input.addEventListener("keydown", e => {
-    if (e.key === "Enter") { e.preventDefault(); doSend(); }
-  });
+  body.querySelector("form").addEventListener("submit", e => { e.preventDefault(); doSend(); });
   renderActiveChat().catch(() => {});
 }
 
