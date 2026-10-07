@@ -1076,6 +1076,9 @@ velta-video { display: block; height: 100%; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
 }
 .media-preview .icon-btn { margin-left: auto; }
+.voice-rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); flex: none; }
+#voice-rec-label { flex: 1; font-size: 14px; }
+.lp-draft-body { flex: 1; min-width: 0; }
 .composer-input-wrap {
   flex: 1; display: flex; align-items: flex-end;
   background: var(--bg-sidebar);
@@ -1639,12 +1642,12 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
   word-break: break-word;
 }
 .toast-more-text { flex: 1; }
-.toast-chip, .toast-copy {
+.toast-chip, .toast-copy, .toast-undo {
   flex: none; cursor: pointer;
   font-size: 11px; padding: 3px 8px; border-radius: 999px;
   border: 1px solid var(--border); background: none; color: var(--text-dim);
 }
-.toast-copy:hover { color: var(--text); }
+.toast-copy:hover, .toast-undo:hover { color: var(--text); }
 .toast-close {
   flex: none; cursor: pointer; background: none; border: 0;
   color: var(--text-dim); font-size: 15px; line-height: 1; padding: 2px 3px;
@@ -1999,6 +2002,9 @@ html[data-theme="brutal"] .msg-row.out .link-preview .lp-desc { color: #3d3405; 
 @media (hover: hover) and (pointer: fine) {
   .link-preview:hover { background: rgba(255, 255, 255, 0.12); }
 }
+/* Composer ghost: shorter than the in-bubble card so it doesn't eat the input. */
+.lp-draft-body .link-preview { max-width: 420px; }
+.lp-draft-body .lp-img { height: 120px; }
 
 /* ===== Webxdc mini-apps ===== */
 .msg-webxdc {

@@ -59,7 +59,7 @@ globalThis.window = { addEventListener() {}, removeEventListener() {} };
 globalThis.history = { state: null, pushState() {}, back() {}, replaceState() {} };
 globalThis.innerHeight = 800;
 globalThis.innerWidth = 1200;
-const { ChatView } = await import("../app/js/chat-view.js");
+const { ChatView, voiceFileExt } = await import("../app/js/chat-view.js");
 const { closeAllPopups, confirmModal, confirmDeleteMessagesModal, showModal } = await import("../app/js/ui.js");
 
 function deferred() {
@@ -301,6 +301,39 @@ test("draft text and reply belong to account plus chat, not the current core ID 
   await view.open(7);
   assert.equal(node("composer-input").value, "");
   assert.equal(view.replyTo, null);
+});
+
+test("voice file extension prefers m4a, then ogg, then webm", () => {
+  assert.deepEqual(voiceFileExt(() => false), { mime: "", ext: "webm" });
+  assert.deepEqual(voiceFileExt(t => t === "audio/mp4"), { mime: "audio/mp4", ext: "m4a" });
+  assert.deepEqual(voiceFileExt(t => String(t).startsWith("audio/ogg")), { mime: "audio/ogg;codecs=opus", ext: "ogg" });
+});
+
+test("a voice send includes the recording file", async t => {
+  const { view, core } = setup(t);
+  await view.open(7);
+  const session = view._session;
+  let sent;
+  core.sendMessage = async (id, data) => { sent = { id, data }; return message(99); };
+  window.__TAURI__ = { core: { invoke: async (command, args) => {
+    if (command === "resolve_upload_path") return "/data/" + args.filename;
+    if (command === "plugin:fs|write_file") return;
+  } } };
+  await view._sendVoiceFile(session, new Blob([Uint8Array.from([1, 2, 3])]), "m4a");
+  assert.equal(sent.id, 7);
+  assert.equal(sent.data.viewtype, "voice");
+  assert.match(sent.data.file, /\/data\/voice-\d+\.m4a$/);
+  assert.match(sent.data.filename, /^voice-\d+\.m4a$/);
+  assert.ok(view.msgIndex.has(99));
+});
+
+test("voice without a recorder does not send an empty voice message", async t => {
+  const { view, core } = setup(t);
+  await view.open(7);
+  let sent = false;
+  core.sendMessage = () => { sent = true; };
+  await view._sendAttachment("voice");
+  assert.equal(sent, false);
 });
 
 for (const voice of [false, true]) {

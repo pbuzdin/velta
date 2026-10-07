@@ -3,6 +3,7 @@ import { escapeHtml, escapeAttr } from "./components.js";
 import { shouldNotifyIncoming } from "./notify-policy.js";
 import { fileUrl } from "./media.js";
 import { linkPreviewEnabled, setLinkPreviewEnabled, LINK_PREVIEW_IP_WARNING } from "./link-preview.js";
+import { trackingStripEnabled, setTrackingStripEnabled } from "./trackers.js";
 import { APP_VERSION } from "./version.gen.js";
 
 const popups = () => document.getElementById("popups");
@@ -201,6 +202,19 @@ export function toast(text, ms = 2200, opts = {}) {
   })();
 
   const dismiss = () => el.remove();
+  if (typeof opts.undo === "function") {
+    const undoBtn = document.createElement("button");
+    undoBtn.type = "button";
+    undoBtn.className = "toast-undo";
+    undoBtn.textContent = "Undo";
+    undoBtn.addEventListener("click", e => {
+      e.preventDefault();
+      e.stopPropagation();
+      opts.undo();
+      dismiss();
+    });
+    summary.insertBefore(undoBtn, closeBtn);
+  }
   timerBar.style.animationDuration = duration + "ms";
   timerBar.addEventListener("animationend", dismiss);
   closeBtn.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); dismiss(); });
@@ -613,6 +627,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
       ${identityBackupAvailable ? `<button class="ctx-item" data-act="identity-backup"><svg viewBox="0 0 24 24"><circle cx="8" cy="14" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M11 11l8-8M17 5l3 3M14 8l2.5 2.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Identity backup…</span></button>` : ""}
       <button class="ctx-item" data-act="invite-domains"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Invite link domains</span></button>
       <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Link previews: ${linkPreviewEnabled() ? "on" : "off"}</span><input type="checkbox" data-toggle="link-preview"${linkPreviewEnabled() ? " checked" : ""}></label>
+      <label class="ctx-item" title="Drops utm and click-id parameters when you paste or open a link. Undo brings them back."><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 20l5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Strip tracking from links: ${trackingStripEnabled() ? "on" : "off"}</span><input type="checkbox" data-toggle="strip-trackers"${trackingStripEnabled() ? " checked" : ""}></label>
       <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M20 5v6a2 2 0 01-2 2H5m0 0l4-4m-4 4l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Send on Enter: ${localStorage.getItem("velta-send-enter") === "0" ? "off" : "on"}</span><input type="checkbox" data-toggle="send-enter"${localStorage.getItem("velta-send-enter") === "0" ? "" : " checked"}></label>
       <label class="ctx-item" title="Off also stops seen-status sync between your own devices"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 12a8 8 0 0114-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M20 12a8 8 0 01-14 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Show and send read receipts: ${localStorage.getItem("velta-mdns") === "0" ? "off" : "on"}</span><input type="checkbox" data-toggle="read-receipts"${localStorage.getItem("velta-mdns") === "0" ? "" : " checked"}></label>
       ${isAndroid ? `<label class="ctx-item" title="While the phone is under 10% and off the charger, your latest message in each chat gets a 🪫 reaction so the other side knows replies may stop. Recipients see it as a normal reaction; other clients show the emoji only."><svg viewBox="0 0 24 24"><rect x="2.5" y="8" width="16.5" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M21.5 10.5v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><rect x="4.5" y="10" width="3.5" height="4" rx="0.5" fill="currentColor"/></svg><span>Low-battery marker: ${localStorage.getItem("velta-low-battery-react") === "1" ? "on" : "off"}</span><input type="checkbox" data-toggle="low-battery"${localStorage.getItem("velta-low-battery-react") === "1" ? " checked" : ""}></label>` : ""}
@@ -803,8 +818,8 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
   }
   activeDrawer = { close };
 
-  // Setting checkboxes (Local chat / Link previews / Send on Enter /
-  // Remember scroll position / Demo mode): the checkbox is the state indicator, the span keeps the
+  // Setting checkboxes (Local chat / Link previews / Strip tracking /
+  // Send on Enter / Remember scroll position / Demo mode): the checkbox is the state indicator, the span keeps the
   // human-readable "Name: on/off" form. The rows are labels, not data-act
   // buttons — a click must only flip the checkbox, never close the drawer.
   const setToggleUi = (key, label, on) => {
@@ -833,6 +848,12 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     setLinkPreviewEnabled(on);
     setToggleUi("link-preview", "Link previews", on);
     toast(`Link previews ${on ? "on" : "off"}`);
+  });
+  drawer.querySelector('[data-toggle="strip-trackers"]')?.addEventListener("change", e => {
+    const on = e.target.checked;
+    setTrackingStripEnabled(on);
+    setToggleUi("strip-trackers", "Strip tracking from links", on);
+    toast(`Strip tracking from links ${on ? "on" : "off"}`);
   });
   drawer.querySelector('[data-toggle="send-enter"]')?.addEventListener("change", e => {
     const on = e.target.checked;

@@ -147,6 +147,20 @@
         </button>
       </div>
 
+      <div id="link-preview-draft" class="media-preview" hidden>
+        <div data-lp-body class="lp-draft-body"></div>
+        <button id="btn-lp-dismiss" class="icon-btn" type="button" aria-label="Don't send link preview">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+
+      <div id="voice-rec" class="media-preview" hidden>
+        <span class="voice-rec-dot" aria-hidden="true"></span>
+        <span id="voice-rec-label">Recording 0:00</span>
+        <button id="btn-voice-cancel" class="btn-text" type="button">Cancel</button>
+        <button id="btn-voice-send" class="btn-text" type="button" aria-pressed="true">Send</button>
+      </div>
+
       <div id="diagnostic-actions" class="composer" hidden>
         <button id="btn-diag-pause" class="icon-btn" type="button" title="Pause diagnostics" aria-label="Pause diagnostics" aria-pressed="false">
           <svg viewBox="0 0 24 24"><path d="M9 5.5v13M15 5.5v13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>

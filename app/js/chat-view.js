@@ -45,7 +45,8 @@ import { renderMarkdown, extractBotCommands } from "./markdown.js";
 import { compressImage, compressEnabled } from "./image-compress.js";
 import { lcRetryTransfer } from "./local-chat.js";
 import { TypingSender } from "./typing.js";
-import { linkPreview, linkPreviewCardHtml, firstLink as firstLinkOf } from "./link-preview.js";
+import { linkPreview, linkPreviewCardHtml, linkPreviewEnabled, firstLink as firstLinkOf, senderPreviewUrl, receiveFetchesPreview, renderPreviewImage } from "./link-preview.js";
+import { stripTrackingUrl, stripTrackingText, trackingStripEnabled } from "./trackers.js";
 import { getReadMarker, clearReadMarker } from "./read-markers.js";
 
 function reactionChipsHtml(reactions) {
@@ -75,6 +76,28 @@ export function isMediaFilePath(path) {
   return /\.(?:png|jpe?g|gif|webp|bmp|avif)$/i.test(path || "");
 }
 
+// First type this webview can record. m4a/ogg stay voice the core already
+// labels; webm is the leftover. ponytail: no duration field — MessageData
+// has none, the player reads length from the file.
+const VOICE_TYPES = [
+  ["audio/mp4", "m4a"],
+  ["audio/ogg;codecs=opus", "ogg"],
+  ["audio/webm;codecs=opus", "webm"],
+  ["audio/webm", "webm"],
+];
+export function voiceFileExt(isSupported) {
+  for (const [mime, ext] of VOICE_TYPES) {
+    try { if (isSupported?.(mime)) return { mime, ext }; } catch { /* next */ }
+  }
+  return { mime: "", ext: "webm" };
+}
+function extForMime(mime) {
+  const m = String(mime || "");
+  if (m.includes("mp4") || m.includes("aac") || m.includes("m4a")) return "m4a";
+  if (m.includes("ogg")) return "ogg";
+  return "webm";
+}
+
 // Desktop: open a URL in the SYSTEM browser. wry swallows window.open /
 // target=_blank new-window requests, so this rides the opener plugin — the
 // same verified path as the update banner (plugin:opener|open_url,
@@ -94,6 +117,27 @@ function openExternal(url) {
     if (invoke) return void invoke("plugin:opener|open_url", { url }).catch(() => window.open(url, "_blank", "noopener"));
   } catch {}
   window.open(url, "_blank", "noopener");
+}
+
+// Bubble links and HTML-mail links. Tracker params come off first (#89);
+// Undo opens the original once.
+function openHttp(href) {
+  const go = (url) => {
+    if (/Android/.test(navigator.userAgent)) openInAppBrowser(url);
+    else openExternal(url);
+  };
+  if (!trackingStripEnabled()) { go(href); return; }
+  const cleaned = stripTrackingUrl(href);
+  go(cleaned);
+  if (cleaned === href) return;
+  let used = false;
+  toast("Tracking removed from link", 6000, {
+    undo() {
+      if (used) return;
+      used = true;
+      go(href);
+    },
+  });
 }
 
 
@@ -379,6 +423,10 @@ export class ChatView {
     this.replyFragment = null;
     this.editingMsg = null;
     this.pendingMedia = null; // attachment awaiting send: {kind, blob?, url, corePath, name}
+    this._lpPreview = null;   // {url, preview} card the next send will bake
+    this._lpDismissed = null; // exact URL the user crossed out
+    this._lpTimer = null;
+    this._lpSeq = 0;
     this._session = null;
     this._drafts = new Map();
     // onMsgsChanged refetch coalescing window (tests shrink it).
@@ -518,6 +566,7 @@ export class ChatView {
       this.replyTo = draft?.replyTo || null;
       this.replyFragment = draft?.replyFragment || null;
       this._renderReplyPreview();
+      this._scheduleLinkPreview();
       this._rebuildItems(messages);
       this._createScroller();
       this._refreshPinnedBar();
@@ -719,6 +768,8 @@ export class ChatView {
     this.replyFragment = null;
     this.editingMsg = null;
     this._clearPendingMedia(); // media not in drafts — re-attach if needed
+    this._stopVoice(false);
+    this._resetLinkPreview();
     this._renderReplyPreview();
     this.exitSelection();
     this.listEl.replaceChildren();
@@ -1515,9 +1566,9 @@ export class ChatView {
         }
       }
       if (fullMsg) bubble += `<div style="margin-top:6px"><button type="button" class="btn-text" data-fullmsg style="padding:4px 8px;font-size:13px">Show Full Message…</button></div>`;
-      // Link preview card for the first link: empty slot here, hydrates
-      // async below (notifyHeight keeps the scroller's layout math fresh).
-      bubble += `<div class="msg-link-preview" data-lp hidden></div>`;
+      // Plain text only. A baked sender preview is an image, and fetching
+      // its caption would put the recipient's IP on that site (#88).
+      if (receiveFetchesPreview(m.viewtype)) bubble += `<div class="msg-link-preview" data-lp hidden></div>`;
     } else if (m.viewtype === "call") {
       // Issue #8: call messages render as a Velta call card — direction,
       // state and duration come from core call_info (hydrated below); the
@@ -1878,8 +1929,7 @@ export class ChatView {
         if (/^https?:/i.test(href)) {
           e.preventDefault();
           e.stopPropagation();
-          if (/Android/.test(navigator.userAgent)) openInAppBrowser(href);
-          else openExternal(href);
+          openHttp(href);
         }
         return; // non-http hrefs: browser default, never row selection
       }
@@ -2548,7 +2598,7 @@ export class ChatView {
     const input = document.getElementById("composer-input");
     const send = document.getElementById("btn-send");
     const grow = () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, innerHeight * 0.4) + "px"; };
-    input.addEventListener("input", grow);
+    input.addEventListener("input", () => { grow(); this._scheduleLinkPreview(); });
     // Typing hint (local chats only; core.sendTyping is a no-op when the
     // setting is off). Empty box = stopped.
     input.addEventListener("input", () => {
@@ -2572,9 +2622,34 @@ export class ChatView {
       const items = [...(e.clipboardData?.items || [])];
       let file = items.find(i => i.kind === "file" && i.type.startsWith("image/"))?.getAsFile();
       if (!file) file = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith("image/"));
-      if (!file) return; // fall through to normal text paste
+      if (file) {
+        e.preventDefault();
+        this._setPendingMedia("image", file);
+        return;
+      }
+      const pasted = e.clipboardData?.getData?.("text/plain") || "";
+      const { text, changed } = stripTrackingText(pasted);
+      if (!changed) return;
       e.preventDefault();
-      this._setPendingMedia("image", file);
+      const start = input.selectionStart ?? input.value.length;
+      const end = input.selectionEnd ?? start;
+      if (input.setRangeText) input.setRangeText(text, start, end, "end");
+      else {
+        input.value = input.value.slice(0, start) + text + input.value.slice(end);
+        input.selectionStart = input.selectionEnd = start + text.length;
+      }
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      let used = false;
+      toast("Tracking removed from link", 6000, {
+        undo() {
+          if (used) return;
+          used = true;
+          if (input.value.slice(start, start + text.length) !== text) return;
+          if (input.setRangeText) input.setRangeText(pasted, start, start + text.length, "end");
+          else input.value = input.value.slice(0, start) + pasted + input.value.slice(start + text.length);
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        },
+      });
     });
     send.addEventListener("click", () => this._send());
     document.getElementById("btn-sticker").addEventListener("click", () => this._toggleStickerPicker());
@@ -2585,7 +2660,16 @@ export class ChatView {
       const cropped = await openImageCropper(pm.url).finally(() => {}); // pm.url still alive — cropped replaces it
       if (cropped) this._setPendingMedia("image", cropped, null, pm.name); // cropped bytes need writing
     });
-    document.getElementById("btn-reply-close").addEventListener("click", () => { this.replyTo = null; this.replyFragment = null; this.editingMsg = null; this._renderReplyPreview(); });
+    document.getElementById("btn-reply-close").addEventListener("click", () => { this.replyTo = null; this.replyFragment = null; this.editingMsg = null; this._renderReplyPreview(); this._scheduleLinkPreview(); });
+    document.getElementById("btn-voice-cancel")?.addEventListener("click", () => this._stopVoice(false));
+    document.getElementById("btn-voice-send")?.addEventListener("click", () => this._stopVoice(true));
+    document.getElementById("btn-lp-dismiss")?.addEventListener("click", () => {
+      if (this._lpPreview?.url) this._lpDismissed = this._lpPreview.url;
+      this._lpPreview = null;
+      this._lpSeq++;
+      const bar = document.getElementById("link-preview-draft");
+      if (bar) bar.hidden = true;
+    });
     document.getElementById("btn-attach").addEventListener("click", e => {
       const session = this._session;
       if (!this._isCurrent(session) || !this.chat) return;
@@ -2649,6 +2733,7 @@ export class ChatView {
       corePath, name,
     };
     this._renderMediaPreview();
+    this._scheduleLinkPreview();
     document.getElementById("composer-input").focus(); // caption = input (#5)
   }
 
@@ -2656,6 +2741,7 @@ export class ChatView {
     if (this.pendingMedia?.blob) URL.revokeObjectURL(this.pendingMedia.url);
     this.pendingMedia = null;
     this._renderMediaPreview();
+    this._scheduleLinkPreview();
   }
 
   _renderMediaPreview() {
@@ -2754,20 +2840,104 @@ export class ChatView {
     return { quoteId, quoteText, prefix };
   }
 
+  _scheduleLinkPreview() {
+    clearTimeout(this._lpTimer);
+    this._lpTimer = setTimeout(() => { this._refreshLinkPreview(); }, 300);
+  }
+
+  _resetLinkPreview() {
+    clearTimeout(this._lpTimer);
+    this._lpTimer = null;
+    this._lpSeq++;
+    this._lpPreview = null;
+    this._lpDismissed = null;
+    const bar = document.getElementById("link-preview-draft");
+    if (bar) bar.hidden = true;
+  }
+
+  async _refreshLinkPreview() {
+    const session = this._session;
+    const bar = document.getElementById("link-preview-draft");
+    const text = document.getElementById("composer-input")?.value || "";
+    const url = senderPreviewUrl(text, {
+      enabled: !!(this.chat && !this.editingMsg && linkPreviewEnabled(this.chat.id)),
+      hasFile: !!this.pendingMedia,
+      dismissed: this._lpDismissed,
+    });
+    if (!url || !bar) {
+      this._lpPreview = null;
+      if (bar) bar.hidden = true;
+      return;
+    }
+    if (this._lpPreview?.url === url && !bar.hidden) return;
+    const token = ++this._lpSeq;
+    const preview = await linkPreview(text, this.chat?.id);
+    if (!this._isCurrent(session) || token !== this._lpSeq) return;
+    const urlNow = senderPreviewUrl(document.getElementById("composer-input")?.value || "", {
+      enabled: !!(this.chat && !this.editingMsg && linkPreviewEnabled(this.chat.id)),
+      hasFile: !!this.pendingMedia,
+      dismissed: this._lpDismissed,
+    });
+    if (urlNow !== url || !preview) {
+      if (urlNow !== url) return;
+      this._lpPreview = null;
+      bar.hidden = true;
+      return;
+    }
+    this._lpPreview = { url, preview };
+    const body = bar.querySelector("[data-lp-body]");
+    if (body) body.innerHTML = linkPreviewCardHtml(preview, url, { link: false });
+    bar.hidden = false;
+  }
+
+  // Bake the composer card to WebP (JPEG if the webview won't) and send it.
+  // Returns the sent message, or null so the caller can send plain text.
+  async _sendPreviewImage(session, text, baked, quoteId, quoteText) {
+    const tauri = window.__TAURI__;
+    const invoke = tauri?.core?.invoke || tauri?.invoke;
+    if (!invoke) return null;
+    try {
+      const blob = await renderPreviewImage(baked.preview, baked.url);
+      if (!blob) return null;
+      const ext = blob.type === "image/webp" ? "webp" : "jpg";
+      const filename = `lp-${Date.now()}.${ext}`;
+      const filePath = await invoke("resolve_upload_path", { filename });
+      if (!filePath) return null;
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      await invoke("plugin:fs|write_file", bytes, {
+        headers: { path: encodeURIComponent(filePath) },
+      });
+      return await this._sendArchivedAware(session.chatId, {
+        text, viewtype: "image", file: filePath, filename, quoteId, quoteText,
+      });
+    } catch (e) {
+      diagnosticsSink.append("error", `link preview image failed: ${e?.message || e}`);
+      return null;
+    }
+  }
+
   async _send() {
     const session = this._session;
     const input = document.getElementById("composer-input");
     const text = input.value.trim();
     if (!this._isCurrent(session) || !this.chat) return;
     this._typingStop();
+    if (this._voice) { this._stopVoice(true); return; }
     if (this.pendingMedia) {
       // Attachment pending: caption = composer text (may be empty).
       await this._sendPendingMedia(session);
       return;
     }
     if (!text) return;
+    const url = senderPreviewUrl(text, {
+      enabled: !!(this.chat && !this.editingMsg && linkPreviewEnabled(this.chat.id)),
+      hasFile: false,
+      dismissed: this._lpDismissed,
+    });
+    const attach = this._lpPreview && this._lpPreview.url === url ? this._lpPreview : null;
     input.value = "";
     input.style.height = "auto";
+    this._resetLinkPreview();
     if (this.editingMsg) {
       const editing = this.editingMsg;
       this.editingMsg = null;
@@ -2782,7 +2952,9 @@ export class ChatView {
     const { quoteId, quoteText, prefix } = this._takeQuote();
     const sendText = prefix + text;
     try {
-      const msg = await this._sendArchivedAware(session.chatId, { text: sendText, quoteId, quoteText });
+      let msg = null;
+      if (attach) msg = await this._sendPreviewImage(session, sendText, attach, quoteId, quoteText);
+      if (!msg) msg = await this._sendArchivedAware(session.chatId, { text: sendText, quoteId, quoteText });
       if (!this._isCurrent(session)) return;
       this.appendOutgoing(msg);
       this.onChatsChanged();
@@ -2791,22 +2963,122 @@ export class ChatView {
     }
   }
 
+  _showVoiceRec(on) {
+    const bar = document.getElementById("voice-rec");
+    if (bar) bar.hidden = !on;
+    if (!on) {
+      const label = document.getElementById("voice-rec-label");
+      if (label) label.textContent = "Recording 0:00";
+    }
+  }
+
+  // Record, then send the blob as a Voice message with a real file. A voice
+  // viewtype without a file is what the core rejects ("attachment missing").
+  async _recordVoice() {
+    const session = this._session;
+    if (!this._isCurrent(session) || !this.chat || this.chat.isP2p || this._voice) return;
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      errToast("Voice recording isn't available here");
+      return;
+    }
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      const denied = err?.name === "NotAllowedError" || err?.name === "SecurityError";
+      if (this._isCurrent(session)) errToast(denied
+        ? "Microphone access is blocked. Enable it in system settings, then try again."
+        : "Couldn't use the microphone: " + (err?.message || err));
+      return;
+    }
+    if (!this._isCurrent(session)) { stream.getTracks().forEach(t => t.stop()); return; }
+    const picked = voiceFileExt(t => MediaRecorder.isTypeSupported(t));
+    let rec;
+    try {
+      rec = picked.mime ? new MediaRecorder(stream, { mimeType: picked.mime }) : new MediaRecorder(stream);
+    } catch (err) {
+      stream.getTracks().forEach(t => t.stop());
+      if (this._isCurrent(session)) errToast("Couldn't start recording: " + (err?.message || err));
+      return;
+    }
+    const chunks = [];
+    rec.addEventListener("dataavailable", e => { if (e.data?.size) chunks.push(e.data); });
+    const voice = {
+      rec, chunks, stream, session,
+      ext: extForMime(rec.mimeType || picked.mime),
+      mime: rec.mimeType || picked.mime || "audio/webm",
+      started: Date.now(), send: false, done: false, timer: 0,
+    };
+    this._voice = voice;
+    this._showVoiceRec(true);
+    const tick = () => {
+      if (this._voice !== voice) return;
+      const s = Math.floor((Date.now() - voice.started) / 1000);
+      const label = document.getElementById("voice-rec-label");
+      if (label) label.textContent = `Recording ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+      voice.timer = setTimeout(tick, 500);
+    };
+    tick();
+    rec.addEventListener("stop", () => { this._finishVoice(voice); });
+    rec.start();
+  }
+
+  _stopVoice(send) {
+    const voice = this._voice;
+    if (!voice || voice.done) return;
+    voice.send = !!send;
+    try {
+      if (voice.rec.state === "recording") { voice.rec.stop(); return; }
+    } catch { /* already stopped */ }
+    this._finishVoice(voice);
+  }
+
+  async _finishVoice(voice) {
+    if (voice.done) return;
+    voice.done = true;
+    if (this._voice === voice) this._voice = null;
+    clearTimeout(voice.timer);
+    voice.stream.getTracks().forEach(t => t.stop());
+    this._showVoiceRec(false);
+    if (!voice.send) return;
+    const blob = new Blob(voice.chunks, { type: voice.mime });
+    if (!blob.size) {
+      if (this._isCurrent(voice.session)) errToast("Couldn't send voice message: recording was empty");
+      return;
+    }
+    await this._sendVoiceFile(voice.session, blob, voice.ext);
+  }
+
+  async _sendVoiceFile(session, blob, ext) {
+    try {
+      const tauri = window.__TAURI__;
+      const invoke = tauri?.core?.invoke || tauri?.invoke;
+      if (!invoke) throw new Error("Voice messages need the app");
+      const filename = `voice-${Date.now()}.${ext || "webm"}`;
+      const filePath = await invoke("resolve_upload_path", { filename });
+      if (!filePath) throw new Error("resolve_upload_path returned empty");
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      await invoke("plugin:fs|write_file", bytes, {
+        headers: { path: encodeURIComponent(filePath) },
+      });
+      if (!this._isCurrent(session)) return;
+      const { quoteId, quoteText, prefix } = this._takeQuote();
+      const msg = await this._sendArchivedAware(session.chatId, {
+        text: prefix, viewtype: "voice", file: filePath, filename, quoteId, quoteText,
+      });
+      if (!this._isCurrent(session)) return;
+      this.appendOutgoing(msg);
+      this.onChatsChanged();
+    } catch (err) {
+      if (this._isCurrent(session)) errToast("Couldn't send voice message: " + (err.message || err));
+    }
+  }
+
   async _sendAttachment(kind) {
     const session = this._session;
     if (!this._isCurrent(session) || !this.chat) return;
 
-    // Voice recording is not implemented yet — keep the old demo placeholder.
-    if (kind === "voice") {
-      try {
-        const msg = await this._sendArchivedAware(session.chatId, { text: "", viewtype: "voice", extra: { duration: 5 + Math.floor(Math.random() * 40) } });
-        if (!this._isCurrent(session)) return;
-        this.appendOutgoing(msg);
-        this.onChatsChanged();
-      } catch (err) {
-        if (this._isCurrent(session)) errToast("Couldn't send voice message: " + (err.message || err));
-      }
-      return;
-    }
+    if (kind === "voice") { await this._recordVoice(); return; }
 
     let filters;
     if (kind === "image") {
@@ -3001,8 +3273,7 @@ export class ChatView {
       if (e.source !== frame.contentWindow) return;
       const href = e.data?.veltaHtmlLink;
       if (typeof href !== "string" || !/^https?:/i.test(href)) return;
-      if (/Android/.test(navigator.userAgent)) openInAppBrowser(href);
-      else openExternal(href);
+      openHttp(href);
     };
     const closeViewer = () => {
       window.removeEventListener("message", onFrameLink);
