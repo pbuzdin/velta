@@ -1154,7 +1154,11 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   dot) and on send bakes it to a 480px image (`renderPreviewImage`: WebP
   at quality 0.72, JPEG if `toBlob` does not return `image/webp`,
   dark card `#1c1c26`, "Sent with Velta" chip in the top-right with a dim
-  fill and hairline border; the live card has no chip) and
+  fill and hairline border; the live card has no chip). A landscape page
+  image is drawn at the card width and its own height; a portrait page
+  image stays in the 220px cover band. The live card sizes the image with
+  `max-width: 100%` and a max-height so a wide image is not clipped on the
+  sides. It
   sends that as a normal image with the draft as the caption
   (`_sendPreviewImage`, file `lp-<ts>.webp` or `.jpg` under `uploads/`).
   The recipient does not contact the site. `fetch` still runs
