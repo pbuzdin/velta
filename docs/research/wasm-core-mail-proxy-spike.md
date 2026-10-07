@@ -1,16 +1,14 @@
 # Spike log — wasm core + WebSocket mail proxy
 
-**Status:** day 26 — the human-step items are tracked as issues #94 (C3
-relay push + test deploy + relay-native e2e), #95 (landing sign-offs:
-§0 decision, §3 APK waiver, §6 reviews, §7 go-ahead) and #96 (Oct 8 e2e
-dispatch for the different-days box); landing checklist **15 open**. Day
-25: nightly box TICKED (native copy check green on stable 1.98.1,
-wasm32-only proven) + `core/Cargo.lock` landing plan
-([`wasm-core-lock-landing-plan.md`](wasm-core-lock-landing-plan.md)).
-Day 24: C3 deploy runbook
-([`websockify-c3-deploy.md`](websockify-c3-deploy.md)). CI identity e2e
-first green (run 37504603502); different-days streak at 2 distinct days.
-Master `core/` stays stock until the checklist is green.
+**Status:** day 28 — hygiene day: VPN window still closed (interop stays
+scoped, not started), docs header drift fixed, agent memory index trimmed
+(33.7 KB → 14.5 KB). Landing checklist **15 open**, all mapped: #94 (C3
+relay chain — push + test deploy + e2e), #95 (landing sign-offs), #96
+(Oct 8 e2e dispatch), #92 (device day), or landing itself. Day 26: human
+steps became issues #94/#95/#96. Day 25: nightly box TICKED (native copy
+check green on stable 1.98.1) + lock landing plan. Day 24: C3 deploy
+runbook ([`websockify-c3-deploy.md`](websockify-c3-deploy.md)). Master
+`core/` stays stock until the checklist is green.
 Started **2026-10-05** (Europe/Moscow). Research baseline:
 [`wasm-core-mail-proxy.md`](wasm-core-mail-proxy.md).
 
@@ -1261,3 +1259,13 @@ the wasm-layer rollback (discrete stack, `cfg`-gated, one revert).
   moment a VPN window opens. Not started = nothing half-done.
 - Remaining boxes: all map to #94 (relay chain), #95 (sign-offs), #96
   (Oct 8 e2e), #92 (device day) — or landing itself.
+
+## Day 28 — hygiene (2026-10-07)
+
+- **VPN re-probe: still closed** (relay TLS 000 @ 10s, github 200 control)
+  — the scoped interop e2e stays not-started.
+- **Header drift fixed** (the day-27 append left the status line at day 26
+  — same burn-down-drift class as before; bump the header IN the same
+  commit as the day section).
+- **Agent memory index trimmed** 33.7 KB → 14.5 KB (one ≤200-char line per
+  file; a duplicate index entry removed). No repo content.
