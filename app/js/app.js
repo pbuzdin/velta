@@ -16,6 +16,7 @@ import { withLocalChat, hubModel, renameDevice, removePeer, dismissLocalGroup, g
 import { timeAgo, formatBytes, timeTag } from "./format.js";
 import { acquireCode, mountScanner } from "./qr-scan.js";
 import { scanTabAvailable, canShareLink, copyLink, shareLink, classifyScannedCode } from "./qr-actions.js";
+import { parseSharePayload, shareTextIfUnconsumed, shareViewtype } from "./share-in.js";
 import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS } from "./link-preview.js";
 import { wrapIdentityBundle, unwrapIdentityBundle, buildIdentityBundle, bytesToBase64, base64ToBytes } from "./identity-backup.js";
 
@@ -3488,7 +3489,7 @@ async function handleDeeplinkFromUrl(rawUrl, { clearUrl = false } = {}) {
     // A web page can fire velta://chat. Only notifications minted by this
     // install carry the token, so a missing or wrong t is ignored.
     if (chatLinkToken && chatLink.token === chatLinkToken) await openChatFromLink(chatLink);
-    return;
+    return true;
   }
   const velta = extractVeltaLink(rawUrl);
   if (velta) rawUrl = velta;
@@ -3502,21 +3503,22 @@ async function handleDeeplinkFromUrl(rawUrl, { clearUrl = false } = {}) {
       "A second-device code was opened. Receive that profile on this device and switch to it? Only continue if you started the transfer on your other device.",
       "Receive", false);
     if (ok && accountIsCurrent(epoch)) receiveSecondDeviceProfile(epoch, null, backupLink);
-    return;
+    return true;
   }
   const joinLink = extractJoinLink(rawUrl);
   const link = extractInviteLink(rawUrl);
-  if (!joinLink && !link) return;
+  if (!joinLink && !link) return false;
   // clean the URL so a reload doesn't re-run the invite
   if (clearUrl) history.replaceState(null, "", location.pathname);
   if (joinLink) await joinFromInvite(joinLink);
-  if (!link) return;
+  if (!link) return true;
   // A dcaccount: link is ambiguous once a profile exists — it can become a
   // second relay on the current profile or create a new profile on that relay.
   const epoch = core.accountEpoch;
   const choice = await chooseRelayOrNewProfile(link);
   if (choice === "relay") await addRelayFlow(epoch, null, link);
   else if (choice === "new") await addAccountFromInvite(link);
+  return true;
 }
 
 // Ask what a clicked/pasted dcaccount: invite should do. Resolve "relay",
@@ -3547,6 +3549,112 @@ async function handleDeeplink() {
 
 // Runtime URL changes (e.g. user navigates to an invite link in the webview)
 addEventListener("hashchange", () => handleDeeplink());
+
+// #97: one picker for a burst (a share of several photos emits one url each).
+let shareQueue = Promise.resolve();
+let openedTimer = 0;
+
+async function routeOpenedBatch(urls) {
+  const shares = [];
+  for (const raw of urls) {
+    if (!raw || typeof raw !== "string") continue;
+    const share = parseSharePayload(raw);
+    if (share) { shares.push(share); continue; }
+    const consumed = await handleDeeplinkFromUrl(raw);
+    const leftover = shareTextIfUnconsumed(raw, consumed);
+    if (leftover) shares.push(leftover);
+  }
+  if (shares.length) offerShare(shares);
+}
+
+function offerShare(items) {
+  const batch = items.filter(i => i && (i.text != null || i.file));
+  if (!batch.length) return;
+  shareQueue = shareQueue.then(() => offerShareNow(batch)).catch(err => {
+    errToast("Couldn't share: " + (err?.message || err));
+  });
+}
+
+function pickShareChat() {
+  return new Promise(resolve => {
+    const epoch = core.accountEpoch;
+    const list = document.createElement("div");
+    list.className = "modal-list";
+    const targets = state.chats.filter(c => !["deaddrop", "device"].includes(c.kind) && !c.readOnly);
+    if (!targets.length) list.innerHTML = `<div class="side-view-empty">No chat to share to.</div>`;
+    let picked = false;
+    const { close } = showModal({
+      title: "Share to…",
+      body: list,
+      onClose: () => { if (!picked) resolve(null); },
+    });
+    for (const chat of targets) {
+      const item = document.createElement("velta-chat-item");
+      item.setData(chat);
+      item.addEventListener("click", () => {
+        if (!accountIsCurrent(epoch)) { close(); return; }
+        picked = true;
+        close();
+        resolve(chat);
+      });
+    }
+  });
+}
+
+async function offerShareNow(items) {
+  if (state.accountChanging || !core) return;
+  const epoch = core.accountEpoch;
+  const chat = await pickShareChat();
+  if (!chat || !accountIsCurrent(epoch)) return;
+  await deliverShare(chat, items, epoch);
+}
+
+async function deliverShare(chat, items, epoch) {
+  const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+  const texts = items.filter(i => i.text != null).map(i => i.text);
+  const files = items.filter(i => i.file).map(i => i.file);
+  const caption = texts.join("\n\n");
+  const sendFile = async (file, text) => {
+    if (!accountIsCurrent(epoch)) return;
+    let path = file;
+    if (/^content:\/\//i.test(file)) {
+      if (!invoke) throw new Error("Sending that file needs the Velta app");
+      path = await invoke("resolve_content_uri", { uri: file, filename: String(Date.now()) });
+    }
+    if (!accountIsCurrent(epoch)) return;
+    const name = String(path).replace(/\\/g, "/").split("/").pop() || "file";
+    const msg = await core.sendMessage(chat.id, {
+      text: text || "", viewtype: shareViewtype(name), file: path, filename: name,
+    });
+    if (accountIsCurrent(epoch) && state.activeChatId === chat.id) chatView?.appendOutgoing(msg);
+  };
+  if (files.length === 1) await sendFile(files[0], caption);
+  else {
+    if (caption && accountIsCurrent(epoch)) {
+      const msg = await core.sendMessage(chat.id, { text: caption });
+      if (accountIsCurrent(epoch) && state.activeChatId === chat.id) chatView?.appendOutgoing(msg);
+    }
+    for (const file of files) await sendFile(file, "");
+  }
+  if (!accountIsCurrent(epoch)) return;
+  if (chat.archived && core.setChatFlags) {
+    try { await core.setChatFlags(chat.id, { archived: false }); } catch { /* keep the flag */ }
+  }
+  toast(`Sent to ${chat.name}`);
+  refreshChatList();
+}
+
+async function drainOpened() {
+  const invoke = window.__TAURI__?.core?.invoke;
+  if (!invoke) return;
+  const urls = await invoke("take_opened_urls");
+  if (Array.isArray(urls) && urls.length) await routeOpenedBatch(urls);
+}
+
+function scheduleDrainOpened() {
+  clearTimeout(openedTimer);
+  openedTimer = setTimeout(() => { drainOpened().catch(err => console.warn("share in:", err)); }, 0);
+}
 
 async function forwardFlow(msgIds) {
   if (state.accountChanging) return;
@@ -4891,7 +4999,7 @@ async function boot() {
 
     appLog("boot: handleDeeplink");
     // Before any chat link is routed: a cold-start notification is parked in
-    // get_initial_deeplink and would otherwise be accepted with no token yet.
+    // the opened-url queue and would otherwise be accepted with no token yet.
     try {
       const token = await window.__TAURI__?.core?.invoke?.("chat_link_token");
       if (typeof token === "string" && token) chatLinkToken = token;
@@ -4900,30 +5008,22 @@ async function boot() {
     }
     await handleDeeplink();
 
-    // Tauri runtime deep links (OS-level invite links and second-instance args)
+    // OS opens (invite links, notification taps, #97 shares). The shell parks
+    // them until take_opened_urls; "deeplink" is only the wake-up, so a burst
+    // of photos is one drain. Listen first, then drain, or a share that
+    // arrives during boot is emitted before anyone is listening.
     try {
       const tauri = window.__TAURI__;
-      if (tauri?.core?.invoke) {
-        const initial = await tauri.core.invoke("get_initial_deeplink");
-        if (initial) await handleDeeplinkFromUrl(initial);
-      }
       if (tauri?.event?.listen) {
-        // Mobile custom event emitted by our Rust layer.
-        // The shell also parks the link for get_initial_deeplink (cold start);
-        // drain it once handled live, or a later WebView reload replays it.
-        tauri.event.listen("deeplink", ev => {
-          if (!ev.payload) return;
-          tauri.core?.invoke?.("get_initial_deeplink").catch(() => {});
-          handleDeeplinkFromUrl(ev.payload);
-        });
+        await tauri.event.listen("deeplink", () => scheduleDrainOpened());
         // Desktop event emitted by tauri-plugin-deep-link (Windows / Linux / macOS).
-        tauri.event.listen("deep-link://new-url", ev => {
+        // That plugin does not use the opened-url queue.
+        await tauri.event.listen("deep-link://new-url", ev => {
           const urls = Array.isArray(ev.payload) ? ev.payload : [ev.payload];
-          for (const url of urls) {
-            if (url) handleDeeplinkFromUrl(url);
-          }
+          routeOpenedBatch(urls.filter(Boolean));
         });
       }
+      await drainOpened();
     } catch (err) {
       console.warn("Tauri deep-link setup failed:", err);
     }
