@@ -929,7 +929,8 @@ export class ChatView {
       const item = this.msgIndex.get(m.id);
       if (item?.msg && item.msg !== m
         && (item.msg.downloadState !== m.downloadState || item.msg.viewtype !== m.viewtype
-          || item.msg.state !== m.state || item.msg.text !== m.text)) {
+          || item.msg.state !== m.state || item.msg.text !== m.text
+          || JSON.stringify(item.msg.reactions) !== JSON.stringify(m.reactions))) {
         this.onMsgUpdated(this.chat.id, m);
         updated++;
       }
@@ -1335,9 +1336,11 @@ export class ChatView {
     // recreates its <video>/<audio> element, which resets playback (the
     // "flickering player"). Invalidate the cache entry when content changes.
     const cached = this._rowCache.get(item.key);
-    // Rows are cached across opens; a row built with other in-row markers
-    // (day chip, unread line, read marker) is stale for this item.
-    if (cached && cached._veltaFlags === this._itemFlags(item)) {
+    // Flags catch a stale day/unread/marker chip. The signature catches a
+    // reaction or edit that landed while this chat was closed (#93).
+    const sig = item.type === "msg" ? this._rowSignature(item.msg) : null;
+    if (cached && cached._veltaFlags === this._itemFlags(item)
+        && (sig == null || this._rowSigCache.get(item.key) === sig)) {
       if (cached.querySelector?.("video")) {
         debugLog(`render: CACHED video row ${item.key} t=${Date.now() % 100000}`);
       }
@@ -1348,7 +1351,7 @@ export class ChatView {
     // Record the rendered content's signature so the first onMsgUpdated can
     // compare against it instead of treating "no known signature" as a
     // change (which silently rebuilt the row on every duplicate event).
-    if (item.type === "msg") this._rowSigCache.set(item.key, this._rowSignature(item.msg));
+    if (sig != null) this._rowSigCache.set(item.key, sig);
     // Detached rows keep their event listeners alive while cached — cap the
     // cache so a long session can't retain the whole history as detached DOM.
     if (this._rowCache.size > 200) {

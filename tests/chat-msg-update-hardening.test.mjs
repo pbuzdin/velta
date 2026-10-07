@@ -240,6 +240,37 @@ test("a reaction updates the chips and keeps the same row", async t => {
   assert.equal(view.vs.heightCalls.length, 2);
 });
 
+test("a reaction that landed while the chat was closed shows on the next render (#93)", async t => {
+  const { view } = setup(t);
+  await view.open(7);
+  const item = view.msgIndex.get(10);
+  const stale = view._renderItem(item);
+  assert.equal(stale.innerHTML.includes("msg-reactions"), false);
+  item.msg = message(10, 7, { reactions: [{ emoji: "👍", count: 1, mine: false }] });
+  const fresh = view._renderItem(item);
+  assert.notEqual(fresh, stale);
+  assert.equal(fresh.innerHTML.includes("👍"), true);
+});
+
+test("a reaction-only tail refetch updates the open chat (#93)", async t => {
+  const { view, core, node } = setup(t);
+  await view.open(7);
+  const row = document.createElement("div");
+  row.dataset.msgid = "10";
+  row.className = "msg-row";
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  row.append(bubble);
+  node("history").appendChild(row);
+  view._rowCache.set("m10", row);
+  view._rowSigCache.set("m10", view._rowSignature(message(10, 7)));
+  view.tailRefetchGapMs = 0;
+  const reacted = message(10, 7, { reactions: [{ emoji: "👍", count: 1, mine: false }] });
+  core.getMessages = async () => page(reacted);
+  await view.onMsgsChanged(7, {});
+  assert.equal(bubble.querySelector(".msg-reactions").innerHTML.includes("👍"), true);
+});
+
 test("a reaction on an unmounted cached row patches the cache and does not notify height", async t => {
   const { view } = setup(t);
   await view.open(7);
