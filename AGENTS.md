@@ -123,6 +123,15 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── docs/accessibility-and-keybindings.md # DC Desktop shortcut reference, Velta keyboard/a11y audit + plan (K1–K8, N1–N13)
 ├── docs/iroh-layer-plan.md        # iroh second layer over chatmail: iroh folder + chip, link protocol, dedup, calls, phases (proposal)
 ├── docs/research/iroh-layer-research.md # what core 2.62's iroh exposes (webxdc realtime, backup), keys, calls, upstream, wasm — file:line cites
+├── PLAN-PWA-WEBSOCKET.MD         # PWA + restricted-WS-relay plan; §4b = Architecture C track (OQ-1 decided = C)
+├── docs/research/wasm-core-mail-proxy-spike.md    # wasm spike log, day-by-day — status header = current state
+├── docs/research/wasm-core-landing-checklist.md   # landing gate: every ⬜→✅ box; master core/ stays stock until green
+├── docs/research/wasm-core-lock-landing-plan.md   # ordered review/merge steps for the core/Cargo.lock diff at landing
+├── docs/research/websockify-c3-deploy.md          # C3 runbook: deploy the websockify-c3 relay, verify, RELAY_WS_URL e2e
+├── docs/research/wasm-patches/   # 10-patch wasm series (series.txt, VENDORED.md, pinned locks + PROVENANCE)
+├── packages/deltachat-wasm/      # MPL wasm wrapper — README = local wasm-pack build + e2e recipes
+├── scripts/build-pwa.mjs         # C4 PWA dist builder (app/ + wasm assets + pwa-config.js + precache SW) — §4.2.1
+├── scripts/verify-pwa-dist.mjs   # PWA dist rig: 10 checks (boot, OPFS persist, SW, identity-backup surface)
 └── tools/                    # icon generation, WSL APK build/sign helpers,
                               serve-dev.py (no-cache static server for app/)
 ```

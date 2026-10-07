@@ -1,13 +1,12 @@
 # Spike log — wasm core + WebSocket mail proxy
 
-**Status:** day 28 — hygiene day: VPN window still closed (interop stays
-scoped, not started), docs header drift fixed, agent memory index trimmed
-(33.7 KB → 14.5 KB). Landing checklist **15 open**, all mapped: #94 (C3
-relay chain — push + test deploy + e2e), #95 (landing sign-offs), #96
-(Oct 8 e2e dispatch), #92 (device day), or landing itself. Day 26: human
-steps became issues #94/#95/#96. Day 25: nightly box TICKED (native copy
-check green on stable 1.98.1) + lock landing plan. Day 24: C3 deploy
-runbook ([`websockify-c3-deploy.md`](websockify-c3-deploy.md)). Master
+**Status:** day 29 — audit found the wasm/PWA stack missing from AGENTS
+§2's directory tree; the block is added (plan, spike log, landing
+checklist, lock plan, C3 runbook, patches, wrapper, dist builder + rig).
+Landing checklist **15 open**, all mapped: #94 (C3 relay chain), #95
+(landing sign-offs), #96 (Oct 8 e2e dispatch), #92 (device day), or
+landing itself. Day 28: hygiene (memory index trimmed). Day 27: upstream
+re-check (nothing to drop); interop scoped, gated on a VPN window. Master
 `core/` stays stock until the checklist is green.
 Started **2026-10-05** (Europe/Moscow). Research baseline:
 [`wasm-core-mail-proxy.md`](wasm-core-mail-proxy.md).
@@ -1269,3 +1268,14 @@ the wasm-layer rollback (discrete stack, `cfg`-gated, one revert).
   commit as the day section).
 - **Agent memory index trimmed** 33.7 KB → 14.5 KB (one ≤200-char line per
   file; a duplicate index entry removed). No repo content.
+
+## Day 29 — AGENTS §2 tree maps the wasm stack (2026-10-07)
+
+- Docs audit: the §2 directory tree listed the a11y/iroh docs but none of
+  the wasm/PWA work — plan, spike log, landing checklist, lock plan, C3
+  runbook, the patch series dir, the wrapper package and the dist
+  builder/rig. Block added (this is the main line of work; the map should
+  say so). Rest of AGENTS current.
+- No state movement overnight: no origin commits, no new CI runs, issues
+  #94/#95/#96 untouched, VPN window closed (probed 03:26 RTZST) — issue
+  #96's dispatch day is tomorrow.
