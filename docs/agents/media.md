@@ -86,6 +86,37 @@ sent as is.
 - Tests: `tests/image-compress.test.mjs` (sniffing, decision function,
   keep-smaller, `compressImage` with fake decode/encode deps).
 
+## Sender-side link previews (#88)
+
+With drawer **Link previews** on (`velta-link-preview` === `"1"`, default
+off, #30), the composer fetches the OG card (`fetch_link_preview`) and
+`renderPreviewImage` paints a 480px card to WebP (JPEG if this webview's
+`toBlob` does not return `image/webp`). `_sendPreviewImage` writes
+`uploads/lp-<ts>.webp` (or `.jpg`) and sends it as `viewtype: image` with
+the draft as the caption. The recipient does not fetch the URL. Plain-text
+messages can still fetch on receive when that side has the setting on;
+image, file and video captions do not (`receiveFetchesPreview`). Invite
+links, `deltachat.id`, and hosts with no dot are not fetched. Tests:
+`tests/link-preview-setting.test.mjs`.
+
+## Voice messages
+
+Attach → Voice message starts `MediaRecorder` (`getUserMedia({audio:true})`).
+`#voice-rec` is the timer plus Cancel and Send. The blob is written to
+`uploads/voice-<ts>.<ext>` and sent as `viewtype: voice` with that file.
+Extension is the first recorder type the webview supports: `audio/mp4` →
+`.m4a`, opus ogg → `.ogg`, else `.webm` (`voiceFileExt`). The core rejects
+a Voice message with no attachment. Local groups hide the menu item (their
+core rejects voice). `MessageData` has no duration; the `<audio>` element
+reads it from the file. Tests: `tests/chat-account-isolation.test.mjs`.
+
+## Tracking params on links (#89)
+
+Not a media transform. `app/js/trackers.js` drops known tracker query
+params when a link is pasted or opened (drawer **Strip tracking from
+links**, default on). The baked preview and the voice file are separate.
+Tests: `tests/trackers.test.mjs`.
+
 ## Path scoping
 
 `scoped_accounts_path` (lib.rs) scopes every shell filesystem command to

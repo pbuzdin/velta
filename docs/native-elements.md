@@ -160,7 +160,7 @@ Support: universal. Styling: `appearance:none` + `::-webkit-progress-*` / `::-mo
 | Thumbnails at DPR | thumbnail URLs (`?w=720`) | `srcset` (360/720/1440w) + `sizes`, or `<picture>` with WebP when the core can produce it. Mainly saves PWA bandwidth | Med (PWA) | M | Med (media URL chain, WebView2 protocol quirks in `media.js:34,79`) | P3 |
 | Audio messages | `chat-view.js:1463` | native `<audio controls preload=metadata>`, keep; add `aria-label="Voice message from …"` | Low | S | Low | P2 |
 | Video | `components.js:163-256`, `ui.js:1152` | tap-to-create `<video>` then native controls in the lightbox; keep (decoder budget). Play overlay → `<button>` (plan 0.6) | – | – | – | plan |
-| Voice recording | `chat-view.js:2797-2808` | not implemented (demo placeholder). When built: `MediaRecorder` + a `<button aria-pressed>`; no native element replaces it | – | – | – | n/a |
+| Voice recording | `chat-view.js` `_recordVoice`, `#voice-rec` | implemented: `MediaRecorder` + `#btn-voice-send` (`aria-pressed="true"`) while recording. No native element replaces the recorder | – | – | – | keep |
 | `alt` text | message images, lightbox, stickers | covered by plan 0.7/0.9 | – | – | – | plan |
 
 ### 10. Composer: `enterkeyhint`, `inputmode`, `autocomplete`; contenteditable vs textarea

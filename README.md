@@ -254,6 +254,27 @@ Someone in a private or group chat may own that site, or be able to edit
 the page, and can send you the link so the preview reveals your address
 to them.
 
+With previews on, a message whose text contains a finished `https://`
+link sends the card as a picture (WebP, or JPEG when this app cannot
+encode WebP) and your text as its caption. The people you write to see
+that picture and do not contact the site. A plain text message can still
+load a preview on their side if they have previews on. Captions on
+photos, videos and files do not.
+
+</details>
+
+<details>
+<summary>Strip tracking from links</summary>
+
+Pasting a link into the composer, or opening one, drops known tracking
+parameters (`utm_…` and click ids such as `fbclid`). A real id on the
+same link stays (`https://example.com/?utm_source=x&id=1` keeps `id=1`).
+A toast offers **Undo** for a few seconds, which puts the original link
+back. Invite links and non-web links are left alone.
+
+**Drawer → Strip tracking from links** is on until you turn it off.
+
+</details>
 
 <details>
 <summary>Video messages</summary>
@@ -271,7 +292,7 @@ button, Esc, or the system back button.
   card with the play button.
 
 </details>
-</details>
+
 <details>
 <summary>Shared contacts (vCards)</summary>
 
@@ -499,11 +520,17 @@ above); this also drops location/camera info from those photos. Small
 photos, GIFs, animated or transparent images and files are never touched. From the attachment menu you
 can send:
 
+**Voice message** (not offered in local groups) records from the
+microphone. A bar above the composer shows the time, **Cancel**, and
+**Send**. The recording is sent as a voice message with the audio file
+attached (m4a when the app can record it, otherwise ogg or webm).
+
 | Type | How it is sent | How it is shown |
 |---|---|---|
 | Photo | `viewtype: Image` with the original file path | Rendered inline as an `<img>` |
 | Video | `viewtype: Video` | Rendered as a native first-frame preview; tapping plays it in a fullscreen lightbox (controls live there) |
-| Audio / voice | `viewtype: Audio` or `Voice` | Rendered inline as an `<audio controls>` element |
+| Voice | recorded in the composer, `viewtype: Voice` plus the audio file | Rendered inline as an `<audio controls>` element |
+| Audio file | `viewtype: Audio` | Rendered inline as an `<audio controls>` element |
 | Any file | `viewtype: File` | Shown as a file card with name, size and a download/open action |
 
 Implementation files:

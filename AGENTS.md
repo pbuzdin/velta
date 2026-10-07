@@ -66,6 +66,8 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── rpc-core.js       # JsonRpcCore wrapper over transports + event mapping
 │   │   ├── transport.js      # backend auto-detection (Tauri, WebSocket, HTTP, mock)
 │   │   ├── webxdc-manager.js # webxdc host: opaque-origin sandboxed app overlay, shim postMessage relay, per-instance serials
+│   │   ├── link-preview.js   # OG cards; with the setting on, the sender bakes the card to WebP (#88)
+│   │   ├── trackers.js       # drop known tracking query params on paste and on open (#89)
 │   │   └── ui.js             # drawer, modals, context menus, toasts
 │   ├── vendor/               # third-party frontend libraries
 │   │   ├── elena.js          # lightweight web-components library
@@ -746,9 +748,9 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   single consumer of the pending reply (`replyTo`/`replyFragment`) — full
   replies ride the core's `quotedMessageId`, fragment replies become
   `"> "` quote lines prefixed to the text/caption — and `_send`,
-  `_sendPendingMedia` and `_sendAttachment`'s file/video paths all use it.
-  Adding a new send path MUST call `_takeQuote()` too, or replies get
-  silently dropped (the image path did, pre-1.4.26).
+  `_sendPendingMedia`, `_sendVoiceFile` and `_sendAttachment`'s file/video
+  paths all use it. Adding a new send path MUST call `_takeQuote()` too,
+  or replies get silently dropped (the image path did, pre-1.4.26).
 - **Pending attachment strip** (post-1.4.31, #5): no send-preview modal.
   Picked/pasted media shows in `#media-preview` (strip above the composer,
   official-client pattern); the caption IS the composer input, focused on
@@ -761,6 +763,19 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   shell media commands scope paths to AppLocalData, and out-of-tree
   picked files broke the poster/send reads. Media does NOT ride drafts —
   `close()` drops it (official client does the same).
+- **Voice messages** record in the composer (attach menu → Voice message;
+  hidden in local chats — that core rejects `viewtype: voice`).
+  `MediaRecorder` + `getUserMedia({audio:true})`; `#voice-rec` shows the
+  timer, Cancel, and Send (`#btn-voice-send` is `aria-pressed`). The blob
+  is written under `uploads/` as `voice-<ts>.m4a`, `.ogg`, or `.webm`
+  (`voiceFileExt`: first of `audio/mp4`, opus ogg, opus webm that
+  `isTypeSupported` accepts) and sent as `viewtype: voice` WITH that file.
+  A voice message with no file is what the core rejects ("attachment
+  missing for message of type #Voice") — the old demo placeholder did
+  exactly that. `MessageData` has no duration field; `<audio controls>`
+  reads the length from the file. `close()` stops the mic and does not
+  send. A send whose upload outlives the chat checks `_isCurrent` before
+  `sendMessage`, so it cannot land in the next account.
 - **Message editing** (1.4.20): own text messages edit via core
   `send_edit_request` (rpc-core `editMessage` → refetch → `msg-updated`).
   KEEP: `onMsgsChanged`'s in-place compare must include
@@ -1127,13 +1142,39 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   goes stale (same contract as image decode). Cards never render in demo
   mode (no Tauri shell → no fetch command). Per-chat override: chat context
   menu → “Link previews: on/off” (localStorage `velta-link-preview-chats`,
-  `{chatId: “on”|“off”}`, wins over the global drawer value). KEEP: bubble
+  `{chatId: “on”|“off”}`, wins over the global drawer value). With the
+  setting on, the composer shows a dismissible ghost card
+  (`#link-preview-draft`) for the first finished `https://` URL
+  (`senderPreviewUrl`: skip invites, `deltachat.id`, and hosts with no
+  dot) and on send bakes it to a 480px image (`renderPreviewImage`: WebP
+  at quality 0.72, JPEG if `toBlob` does not return `image/webp`) and
+  sends that as a normal image with the draft as the caption
+  (`_sendPreviewImage`, file `lp-<ts>.webp` or `.jpg` under `uploads/`).
+  The recipient does not contact the site. Receive-time `linkPreview()`
+  still runs for plain-text messages only (`receiveFetchesPreview`); an
+  image/file/video caption, including a baked card, does not fetch.
+  Sending before the card is ready, or an encode failure, sends plain
+  text. Dismiss remembers that exact URL. KEEP: bubble
   anchors (markdown links AND card links) are handled by the DELEGATED
   branch in the row click handler (`e.target.closest(`a[href]`)`) — the
   card's <a> is inserted async after row build, so per-anchor wiring
-  never sees it. Desktop opens links via `openExternal()` =
-  `plugin:opener|open_url` (system browser); Android keeps the in-app
-  browser chain (see §5.5).
+  never sees it. http(s) opens go through `openHttp()` (strip trackers,
+  then Android in-app browser / desktop `openExternal()` =
+  `plugin:opener|open_url`). See §5.5.
+- `app/js/trackers.js` — drop known tracking query params (#89). Drawer
+  “Strip tracking from links” (localStorage `velta-strip-trackers`,
+  missing = on, `"0"` = off). Paste into the composer and opening an
+  http(s) link share one list: `utm_*`, `hsa_*`, and known click ids
+  (`fbclid`, `gclid`, and the rest in `CLICK_IDS`). Short names are
+  host-limited so real ids survive: `si` on YouTube and Spotify, `s` /
+  `t` / `ref_src` / `ref_url` on X and Twitter, `tag` / `linkcode` /
+  `linkid` / `ascsubtag` on Amazon. Nothing removed → the original
+  string (a clean URL is not re-serialized). Non-http schemes and invite
+  fragments (40-hex hash, including OPENPGP4FPR-style) are unchanged.
+  A toast “Tracking removed from link” offers Undo once (`toast`
+  `opts.undo`, 6s): paste restores the clipboard text if that slice is
+  still intact; open opens the original URL. Copy does not strip. Short
+  links are not unwrapped. Tests: `tests/trackers.test.mjs`.
 - **Native video frames replace posters (post-1.4.31)** — `poster.js` and
   the click-to-load `#active` state are GONE. `velta-video` renders a real
   `<video preload="metadata" src="...#t=0.1">` (no `controls` — Android WebView
@@ -1224,7 +1265,9 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   above the composer/bottom bar: 3px shrinking timer bar (danger red for
   errToast) whose animationend dismisses, one-line ellipsis,
   overflow-gated expand chip (re-measured after `document.fonts.ready`),
-  copy button in the open pane, close X in the summary. Clicking pauses
+  copy button in the open pane, close X in the summary. `opts.undo`
+  adds an Undo button in the summary; the click preventDefaults so the
+  `<summary>` does not toggle, then dismisses. Clicking pauses
   the dismissal timer — expandable toasts via the native open/close toggle,
   one-liners by toggling pause/resume directly (they used to vanish
   mid-read). On the desktop
