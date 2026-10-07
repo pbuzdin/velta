@@ -91,8 +91,10 @@ sent as is.
 Drawer **Link previews** is `off` | `picture` | `fetch` (`linkPreviewMode`).
 Unset and `"0"` are off; the old `"1"` is `fetch`. Only `picture` bakes.
 The composer fetches the OG card (`fetch_link_preview`) and
-`renderPreviewImage` paints a 480px card to WebP (JPEG if this webview's
-`toBlob` does not return `image/webp`). `_sendPreviewImage` writes
+`renderPreviewImage` paints a 480px card in Velta's dark colors (`#1c1c26`)
+to WebP (JPEG if this webview's `toBlob` does not return `image/webp`).
+A "Sent with Velta" chip sits in the top-right corner, with a dim fill and
+a hairline border. The live card has no chip. `_sendPreviewImage` writes
 `uploads/lp-<ts>.webp` (or `.jpg`) and sends it as `viewtype: image` with
 the draft as the caption. The recipient does not fetch the URL. Plain-text
 messages still fetch on receive only when that side is `fetch`;

@@ -176,8 +176,8 @@ function loadImage(src) {
   });
 }
 
-// ponytail: one 480px card, no theme and no @2x. WebP, JPEG if this
-// webview's toBlob ignores WebP. A core preview field replaces this.
+// One 480px card in Velta's dark colors (the picture is frozen for other
+// clients). WebP, JPEG if this webview's toBlob ignores WebP.
 export async function renderPreviewImage(preview, url) {
   if (!preview || typeof document === "undefined" || !document.createElement) return null;
   const canvas = document.createElement("canvas");
@@ -195,30 +195,63 @@ export async function renderPreviewImage(preview, url) {
   const descLines = preview.description
     ? wrapLines(preview.description, maxW, measure("16px sans-serif")).slice(0, 3)
     : [];
-  const imgH = photo ? 220 : 0;
+  const landscape = photo && photo.width >= photo.height;
+  const imgH = photo ? (landscape ? Math.max(1, Math.round(CARD_W * photo.height / photo.width)) : 220) : 0;
   const textH = 16 + 18 + 8 + titleLines.length * 28 + (descLines.length ? 8 + descLines.length * 22 : 0) + 16;
-  canvas.width = CARD_W;
-  canvas.height = imgH + textH;
-  ctx.fillStyle = "#f4f4f5";
-  ctx.fillRect(0, 0, CARD_W, canvas.height);
-  if (photo) {
+  // 2x bitmap so the chip's "t" survives being shown smaller and WebP compression.
+  canvas.width = CARD_W * 2;
+  canvas.height = (imgH + textH) * 2;
+  ctx.setTransform(2, 0, 0, 2, 0, 0);
+  ctx.fillStyle = "#1c1c26";
+  ctx.fillRect(0, 0, CARD_W, imgH + textH);
+  if (photo && landscape) {
+    ctx.drawImage(photo, 0, 0, CARD_W, imgH);
+  } else if (photo) {
     const scale = Math.max(CARD_W / photo.width, imgH / photo.height);
     const sw = CARD_W / scale;
     const sh = imgH / scale;
     ctx.drawImage(photo, (photo.width - sw) / 2, (photo.height - sh) / 2, sw, sh, 0, 0, CARD_W, imgH);
   }
+  const sign = "Sent with Velta";
+  const signFont = "600 16px \"Segoe UI\", Roboto, sans-serif";
+  ctx.font = signFont;
+  const chipW = Math.ceil(ctx.measureText(sign).width) + 20;
+  const chipH = 28;
+  const chipX = CARD_W - 10 - chipW;
+  const chipY = 10;
   let y = imgH + 16;
-  ctx.fillStyle = "#5c6570";
+  const hostMax = photo ? maxW : Math.max(40, chipX - pad - 8);
+  const host = wrapLines(hostOf(url), hostMax, measure("14px sans-serif"))[0] || "";
+  ctx.fillStyle = "#8f8f9c";
   ctx.font = "14px sans-serif";
-  ctx.fillText(hostOf(url), pad, y + 14);
+  ctx.fillText(host, pad, y + 14);
   y += 26;
-  ctx.fillStyle = "#111214";
+  ctx.fillStyle = "#f2f2f5";
   ctx.font = "600 22px sans-serif";
   for (const line of titleLines) { ctx.fillText(line, pad, y + 20); y += 28; }
-  ctx.fillStyle = "#3a3f46";
+  ctx.fillStyle = "#b7b7c2";
   ctx.font = "16px sans-serif";
   y += 4;
   for (const line of descLines) { ctx.fillText(line, pad, y + 16); y += 22; }
+  ctx.beginPath();
+  const r = 6;
+  ctx.moveTo(chipX + r, chipY);
+  ctx.arcTo(chipX + chipW, chipY, chipX + chipW, chipY + chipH, r);
+  ctx.arcTo(chipX + chipW, chipY + chipH, chipX, chipY + chipH, r);
+  ctx.arcTo(chipX, chipY + chipH, chipX, chipY, r);
+  ctx.arcTo(chipX, chipY, chipX + chipW, chipY, r);
+  ctx.closePath();
+  ctx.fillStyle = "rgba(15,15,20,0.78)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(242,242,245,0.35)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.font = signFont;
+  ctx.lineWidth = 0.6;
+  ctx.strokeStyle = "#f2f2f5";
+  ctx.strokeText(sign, chipX + 10, chipY + 19);
+  ctx.fillStyle = "#f2f2f5";
+  ctx.fillText(sign, chipX + 10, chipY + 19);
   const encode = (type) => new Promise(res => canvas.toBlob(res, type, 0.72));
   const webp = await encode("image/webp");
   if (webp && webp.type === "image/webp") return webp;

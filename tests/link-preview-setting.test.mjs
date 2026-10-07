@@ -15,7 +15,7 @@ globalThis.localStorage = {
   removeItem(k) { delete store[k]; },
 };
 
-const { linkPreview, linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_IP_WARNING, senderPreviewUrl, receiveFetchesPreview, wrapLines } = await import("../app/js/link-preview.js");
+const { linkPreview, linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_IP_WARNING, senderPreviewUrl, receiveFetchesPreview, wrapLines, renderPreviewImage, linkPreviewCardHtml } = await import("../app/js/link-preview.js");
 
 test("link previews are off until a mode is chosen, and the old on is fetch", () => {
   localStorage.removeItem("velta-link-preview");
@@ -103,6 +103,15 @@ test("a photo caption does not fetch a preview", () => {
   assert.equal(receiveFetchesPreview("image"), false);
   assert.equal(receiveFetchesPreview("file"), false);
   assert.equal(receiveFetchesPreview("video"), false);
+});
+
+test("the sent picture signs Velta and the live card does not", () => {
+  const bake = renderPreviewImage.toString();
+  assert.match(bake, /Sent with Velta/);
+  assert.match(bake, /600 16px/);
+  assert.match(bake, /#1c1c26/);
+  assert.match(bake, /rgba\(15,15,20,0\.78\)/);
+  assert.doesNotMatch(linkPreviewCardHtml.toString(), /Sent with Velta/);
 });
 
 test("wrapLines breaks on the measure, and keeps a single word", () => {

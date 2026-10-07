@@ -244,8 +244,9 @@ context menu (that chat wins):
 - **Off** — no card.
 - **Send a picture** — a finished `https://` link goes out as a picture
   of the card (WebP, or JPEG when this app cannot encode WebP) with your
-  text as the caption. The people you write to see that picture and do
-  not contact the site.
+  text as the caption. The picture uses Velta's dark colors, with a small
+  "Sent with Velta" chip in the top-right corner. The people you write to
+  see that picture and do not contact the site.
 - **Load on this device** — the old card. This device fetches the page
   when a plain text link is on screen. The same note sits under the
   radios: the fetch is https only, capped at 256 KB of page and 512 KB of
