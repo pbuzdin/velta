@@ -21,7 +21,9 @@ use tauri::{Emitter, Manager, State};
 pub mod p2p;
 
 static LOG_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
-static INITIAL_DEEPLINK: Mutex<Option<String>> = Mutex::new(None);
+// OS opens waiting for the page: invite links, notification taps, and
+// #97 shares. take_opened_urls drains the lot; get_initial_deeplink pops one.
+static OPENED_URLS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 static SIDECAR_STATUS: Mutex<Option<serde_json::Value>> = Mutex::new(None);
 
 // Non-blocking logger: messages are pushed onto an unbounded mpsc channel and
@@ -1326,13 +1328,53 @@ fn notify_incoming(
     toast.show().map_err(|e| e.to_string())
 }
 
-// Restore and focus the main window on toast activation.
-#[cfg(target_os = "windows")]
+// Restore and focus the main window on toast activation and on a share.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn focus_main_window(app: &tauri::AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.unminimize();
         let _ = win.show();
         let _ = win.set_focus();
+    }
+}
+
+// The .lnk stores the target path as UTF-16. Recreate only when it does not
+// point at this exe (install moved, or dev and release traded the shortcut).
+#[cfg(any(windows, test))]
+fn lnk_points_at(link: &Path, exe: &Path) -> bool {
+    let Ok(bytes) = std::fs::read(link) else {
+        return false;
+    };
+    let needle: Vec<u8> = exe.to_string_lossy().encode_utf16().flat_map(|c| c.to_le_bytes()).collect();
+    !needle.is_empty() && bytes.windows(needle.len()).any(|w| w == needle)
+}
+
+// ponytail: the Windows 11 Share flyout only lists packaged share targets.
+// Send to is the menu an unpackaged exe can join. MSIX shareTarget if we
+// ever ship a package identity.
+#[cfg(windows)]
+fn ensure_sendto_shortcut() {
+    let Ok(exe) = std::env::current_exe() else { return };
+    let Ok(appdata) = std::env::var("APPDATA") else { return };
+    let link = PathBuf::from(appdata).join(r"Microsoft\Windows\SendTo").join("Velta.lnk");
+    if lnk_points_at(&link, &exe) {
+        return;
+    }
+    let Some(parent) = link.parent() else { return };
+    if std::fs::create_dir_all(parent).is_err() {
+        return;
+    }
+    let q = |s: &str| format!("'{}'", s.replace('\'', "''"));
+    let script = format!(
+        "$s=(New-Object -ComObject WScript.Shell).CreateShortcut({});$s.TargetPath={};$s.Description='Share to Velta';$s.Save()",
+        q(&link.display().to_string()),
+        q(&exe.display().to_string()),
+    );
+    let mut cmd = Command::new("powershell");
+    cmd.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    if let Err(e) = cmd.spawn() {
+        log(&format!("sendto shortcut: {e}"));
     }
 }
 
@@ -2421,9 +2463,44 @@ fn resolve_content_uri_blocking(app: tauri::AppHandle, uri: String, filename: St
     Ok(dest_str)
 }
 
+fn queue_opened(url: String) {
+    if url.is_empty() {
+        return;
+    }
+    let mut q = OPENED_URLS.lock().unwrap();
+    // argv and RunEvent::Opened can both report the same link.
+    if !q.iter().any(|u| u == &url) {
+        q.push(url);
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
+fn log_opened(url: &str) {
+    if url.starts_with("data:") || url.starts_with("content:") || url.starts_with("file:") || Path::new(url).is_file() {
+        log("opened share payload");
+    } else {
+        log(&format!("deeplink opened: {}", redact_chat_link(url)));
+    }
+}
+
+// Deeplink-shaped args, plus paths of files that exist (Windows Send to,
+// "Open with"). Flags are not files.
+pub fn collect_startup_args(args: impl IntoIterator<Item = impl AsRef<str>>, is_file: impl Fn(&str) -> bool) -> Vec<String> {
+    args.into_iter()
+        .filter_map(|a| {
+            let a = a.as_ref();
+            if maybe_extract_deeplink(a).is_some() || (!a.starts_with('-') && is_file(a)) {
+                Some(a.to_string())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 pub fn set_initial_deeplink_from_env() {
-    if let Some(link) = std::env::args().skip(1).find_map(|a| maybe_extract_deeplink(&a)) {
-        *INITIAL_DEEPLINK.lock().unwrap() = Some(link);
+    for url in collect_startup_args(std::env::args().skip(1), |a| Path::new(a).is_file()) {
+        queue_opened(url);
     }
 }
 
@@ -2482,7 +2559,13 @@ fn set_devtools(_app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
 
 #[tauri::command]
 fn get_initial_deeplink() -> Option<String> {
-    INITIAL_DEEPLINK.lock().unwrap().take()
+    let mut q = OPENED_URLS.lock().unwrap();
+    if q.is_empty() { None } else { Some(q.remove(0)) }
+}
+
+#[tauri::command]
+fn take_opened_urls() -> Vec<String> {
+    std::mem::take(&mut *OPENED_URLS.lock().unwrap())
 }
 
 struct RpcState {
@@ -3356,6 +3439,8 @@ pub fn run() {
             }
 
             log("setup started");
+            #[cfg(windows)]
+            ensure_sendto_shortcut();
 
             let accounts = accounts_dir(app.handle());
             let _ = std::fs::create_dir_all(&accounts);
@@ -3552,18 +3637,30 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, allow_picked_path, webxdc_begin, set_notify_prefs, get_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, install_update, get_battery_status, share_text, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_groups, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, allow_picked_path, webxdc_begin, set_notify_prefs, get_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, take_opened_urls, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, install_update, get_battery_status, share_text, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_groups, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         builder = builder
-            .plugin(tauri_plugin_single_instance::init(|_app, argv, cwd| {
+            .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
                 let redacted: Vec<String> = argv.iter().map(|a| redact_chat_link(a)).collect();
                 log(&format!("single-instance args: {redacted:?} cwd={cwd}"));
-                // The deep-link plugin (with the single-instance feature) forwards
-                // the URL to the running instance as a `deep-link://new-url` event.
+                // The deep-link plugin forwards velta:// to the running instance
+                // as deep-link://new-url. File paths (Send to) are not that scheme.
+                let files: Vec<String> = collect_startup_args(argv.iter().skip(1), |a| Path::new(a).is_file())
+                    .into_iter()
+                    .filter(|a| maybe_extract_deeplink(a).is_none())
+                    .collect();
+                if files.is_empty() {
+                    return;
+                }
+                focus_main_window(app);
+                for f in files {
+                    queue_opened(f.clone());
+                    app.emit("deeplink", f).ok();
+                }
             }))
             .plugin(tauri_plugin_deep_link::init())
             // Windows self-update: the renderer drives check/download/install
@@ -3578,10 +3675,10 @@ pub fn run() {
         .run(|_app, _event| {
             #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
             if let tauri::RunEvent::Opened { urls } = _event {
-                if let Some(url) = urls.first() {
+                for url in &urls {
                     let s = url.to_string();
-                    log(&format!("deeplink opened: {}", redact_chat_link(&s)));
-                    *INITIAL_DEEPLINK.lock().unwrap() = Some(s.clone());
+                    log_opened(&s);
+                    queue_opened(s.clone());
                     _app.emit("deeplink", s).ok();
                 }
             }
@@ -3871,5 +3968,40 @@ mod chat_link_token_tests {
         assert_eq!(redact_chat_link("https://x?t=secret#frag"), "https://x?t=…#frag");
         assert_eq!(redact_chat_link("no token"), "no token");
         assert_eq!(redact_chat_link(r"C:\Users\t=foo"), r"C:\Users\t=foo");
+    }
+}
+
+#[cfg(test)]
+mod opened_args_tests {
+    use super::*;
+
+    #[test]
+    fn startup_args_keep_deeplinks_and_existing_files_only() {
+        let file = std::env::temp_dir().join(format!("velta-share-arg-{}", std::process::id()));
+        std::fs::write(&file, b"x").unwrap();
+        let path = file.to_string_lossy().to_string();
+        let got = collect_startup_args(
+            ["--flag", "velta://chat?chat=1", "https://example.com", path.as_str(), "not-a-file"],
+            |a| Path::new(a).is_file(),
+        );
+        assert_eq!(
+            got,
+            vec!["velta://chat?chat=1".to_string(), "https://example.com".to_string(), path]
+        );
+        let _ = std::fs::remove_file(&file);
+    }
+
+    #[test]
+    fn sendto_shortcut_matches_only_its_target() {
+        let dir = std::env::temp_dir().join(format!("velta-lnk-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("velta-app.exe");
+        let link = dir.join("Velta.lnk");
+        let needle: Vec<u8> = exe.to_string_lossy().encode_utf16().flat_map(|c| c.to_le_bytes()).collect();
+        std::fs::write(&link, &needle).unwrap();
+        assert!(lnk_points_at(&link, &exe));
+        assert!(!lnk_points_at(&link, &dir.join("other.exe")));
+        assert!(!lnk_points_at(&dir.join("missing.lnk"), &exe));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

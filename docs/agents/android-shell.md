@@ -184,6 +184,17 @@ the page uses `navigator.share` when it exists and hides the button otherwise
 (`app/js/qr-actions.js`). Like the rest of the Kotlin here it has no local
 compile check - CI is the gate.
 
+## Share into Velta (#97)
+
+The share sheet shows Velta because `MainActivity` handles `ACTION_SEND` and
+`ACTION_SEND_MULTIPLE` (`AndroidManifest.xml`). tao already turns those
+intents into `RunEvent::Opened` (text → `data:text/plain,…` or an https URL,
+files → `content://`). The page drains them with `take_opened_urls` and asks
+which chat to send to (`app/js/share-in.js`, `offerShare` in `app.js`).
+Windows has no share-sheet registration: the 11 Share flyout only lists
+packaged apps. A first launch writes `SendTo\Velta.lnk`, and a file path on
+the command line takes the same picker.
+
 ## Notification preferences bridge (v1.4.54)
 
 The drawer's nine notification switches push the full set to the shell via
