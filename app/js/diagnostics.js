@@ -121,6 +121,7 @@ export function diagnosticRow(message) {
     `${new Date(message.ts).toLocaleTimeString([], { hour12: false })}  ${emoji} ${text}` +
     (message.count > 1 ? ` ×${message.count}` : "");
   const copy = document.createElement("button");
+  copy.type = "button";
   copy.className = "diag-copy";
   copy.title = "Copy to clipboard";
   copy.setAttribute("aria-label", "Copy to clipboard");

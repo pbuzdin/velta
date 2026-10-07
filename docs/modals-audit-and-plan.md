@@ -16,6 +16,11 @@ than a release.
 Related: `docs/web-components-audit.md` (findings A10, A11, A12, A14, A15, A20)
 and `docs/native-elements.md` (popover and other native-element candidates).
 
+Update (2026-10-07): menus, the sticker picker, the account menu, the
+local-chat queue, and toasts use the Popover API when the WebView has it,
+and prompt modals are `<form>`s. This plan's `<dialog>` conversion has not
+started. See "What landed" in `docs/native-elements.md`.
+
 ---
 
 ## Summary

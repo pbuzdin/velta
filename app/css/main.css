@@ -274,6 +274,14 @@ svg { width: 24px; height: 24px; display: block; }
   opacity: 0; transition: opacity .25s;
 }
 .chat-load-bar[data-on] { opacity: 1; }
+/* progress is a replaced element: hide the native bar so the sweep (or the tint) shows */
+progress.chat-load-bar {
+  appearance: none; -webkit-appearance: none;
+  display: block; width: 100%; border: 0;
+}
+progress.chat-load-bar::-webkit-progress-bar,
+progress.chat-load-bar::-webkit-progress-value { background: transparent; }
+progress.chat-load-bar::-moz-progress-bar { background: transparent; }
 
 /* Pinned-message strip between chat head and history (chat-view _refreshPinnedBar) */
 .pinned-bar {
@@ -1002,13 +1010,20 @@ velta-video { display: block; height: 100%; }
 .reaction-chip.mine { border-color: var(--accent); background: rgba(90,162,230,.18); }
 
 .msg-checkbox {
-  align-self: center; margin-right: 8px;
+  appearance: none; -webkit-appearance: none;
+  align-self: center; margin: 0 8px 0 0; padding: 0;
   width: 22px; height: 22px; border-radius: 50%;
   border: 2px solid var(--text-dim); flex: none;
   display: grid; place-items: center; color: #f4f4f4;
+  background: transparent;
 }
-.msg-row.selected .msg-checkbox { background: var(--accent); border-color: var(--accent); }
-.msg-checkbox svg { width: var(--ico-1); height: var(--ico-1); }
+.msg-row.selected .msg-checkbox,
+.msg-checkbox:checked { background: var(--accent); border-color: var(--accent); }
+.msg-checkbox:checked::after {
+  content: ""; width: 5px; height: 9px;
+  border: solid #f4f4f4; border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translate(-1px, -1px);
+}
 
 /* ---------- Go-down button ---------- */
 /* Sticky, not absolute: the button lives inside the scroll container, where
@@ -1092,6 +1107,10 @@ velta-video { display: block; height: 100%; }
   max-height: 40dvh; font-size: 15.5px; line-height: 1.3;
 }
 #composer-input::placeholder { color: var(--text-dim); }
+/* Chromium 123+. Android 7 and Safari keep the scrollHeight grow in chat-view. */
+@supports (field-sizing: content) {
+  #composer-input { field-sizing: content; }
+}
 /* Sticker picker trigger: tucked inside the input wrap's right edge like the
    official clients' emoji/sticker button — not a separate composer column. */
 #btn-sticker {
@@ -1313,6 +1332,44 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .scale-opt input { accent-color: var(--accent); flex: none; }
 .ctx-sep { height: 1px; background: var(--border); margin: 5px 8px; }
 
+/* Popover UA sheet (inset:0, margin:auto, Canvas, border) leaks on unset
+   properties. Do not set left/right here: the 821px toast query and the
+   sticker/queue anchors own those edges. display:flex beats the UA closed
+   state, so those widgets hide explicitly. */
+.ctx-menu[popover] {
+  margin: 0; position: fixed;
+  top: auto; left: auto; right: auto; bottom: auto;
+  width: max-content; height: auto;
+  background: var(--bg-sidebar); color: var(--text);
+  border: 1px solid var(--border); overflow: visible;
+}
+.sticker-pop[popover],
+#lc-queue-pop[popover] {
+  margin: 0; top: auto; left: auto; height: auto;
+  background: var(--bg-sidebar); color: var(--text);
+}
+.acct-pop[popover] {
+  position: fixed; margin: 0; inset: auto;
+  width: max-content; height: auto;
+  background: var(--bg-sidebar); color: var(--text);
+}
+.acct-pop[popover]:not(:popover-open) { display: none; }
+.toasts[popover] {
+  margin: 0; border: none; background: transparent; color: inherit;
+  overflow: visible; width: auto; height: auto; top: auto;
+}
+.toasts[popover]:not(:popover-open) { display: none; }
+.toasts[popover]:popover-open { display: flex; }
+
+.vh {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+fieldset.scale-opts { border: 0; margin: 0; min-inline-size: 0; }
+fieldset.eph-set { border: 0; margin: 0; padding: 0; min-inline-size: 0; }
+
+.modal > form { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.modal > form .modal-body { flex: 1; min-height: 0; }
 .modal {
   background: var(--bg-sidebar);
   border: 1px solid var(--border);
@@ -1567,7 +1624,7 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
    and the foot do not). Rendered by ui.js renderUpdateBanner when a newer
    release is published (version.txt asset on GitHub releases). */
 .update-banner {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
   padding: 10px 12px;
   border-top: 1px solid var(--border);
   background: var(--bg-sidebar);
@@ -1650,8 +1707,9 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 .toast-copy:hover, .toast-undo:hover { color: var(--text); }
 .toast-close {
   flex: none; cursor: pointer; background: none; border: 0;
-  color: var(--text-dim); font-size: 15px; line-height: 1; padding: 2px 3px;
+  color: var(--text-dim); line-height: 1; padding: 2px 3px;
 }
+.toast-close svg { width: var(--ico-2); height: var(--ico-2); }
 .toast-close:hover { color: var(--text); }
 
 /* Welcome splash (first boot, unconfigured account) */
@@ -2157,8 +2215,23 @@ html[data-theme="light"] .webxdc-frame { color-scheme: light; background: #fff; 
 /* Transfer-in-progress card inside a bubble (local chat media) */
 .msg-transfer { padding: 8px 6px; min-width: 180px; }
 .mfp-name { font-size: 14px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mfp-bar { height: 4px; border-radius: 2px; background: rgba(127,127,127,.25); overflow: hidden; margin-top: 8px; }
-.mfp-bar i { display: block; height: 100%; background: var(--accent); border-radius: 2px; transition: width .4s; }
+progress.mfp-bar, progress.pair-bar {
+  appearance: none; -webkit-appearance: none;
+  display: block; width: 100%; height: 4px; border: 0;
+  border-radius: 2px; background: rgba(127,127,127,.25);
+  overflow: hidden; margin-top: 8px; color: var(--accent);
+}
+progress.mfp-bar::-webkit-progress-bar,
+progress.pair-bar::-webkit-progress-bar { background: transparent; border-radius: 2px; }
+progress.mfp-bar::-webkit-progress-value,
+progress.pair-bar::-webkit-progress-value { background: var(--accent); border-radius: 2px; }
+progress.mfp-bar::-moz-progress-bar,
+progress.pair-bar::-moz-progress-bar { background: var(--accent); border-radius: 2px; }
+progress.pair-bar.is-fail { color: #ff6b6b; }
+progress.pair-bar.is-fail::-webkit-progress-value { background: #ff6b6b; }
+progress.pair-bar.is-fail::-moz-progress-bar { background: #ff6b6b; }
+meter.relay-meter { width: 36px; height: 8px; flex: none; }
+.update-progress { flex: 1 0 100%; height: 6px; }
 .mfp-pct { font-size: 12px; color: var(--text-dim); margin-top: 4px; text-align: right; }
 .mfp-fail { font-size: 12.5px; color: #e5484d; margin-top: 6px; }
 .msg-transfer.is-failed .btn-text { padding: 2px 8px; margin-top: 4px; font-size: 13px; }

@@ -324,10 +324,10 @@ export function showInviteDomainsModal() {
   body.innerHTML = `
     <p style="font-size:14.5px;line-height:1.5;margin-bottom:8px">Links on these domains open as chat invites in Velta — in messages they render as invite cards, and pasted links are recognized.</p>
     <div class="modal-list" data-host-list style="max-height:220px;overflow:auto"></div>
-    <div style="display:flex;gap:8px;margin-top:10px">
-      <input class="text-field" data-host-input placeholder="mirror.example.org" autocomplete="off" inputmode="url" autocapitalize="none" style="flex:1">
-      <button class="btn-text" data-host-add>Add</button>
-    </div>
+    <form data-host-form style="display:flex;gap:8px;margin:10px 0 0">
+      <input class="text-field" data-host-input required placeholder="mirror.example.org" autocomplete="off" inputmode="url" autocapitalize="none" spellcheck="false" style="flex:1">
+      <button type="submit" class="btn-text" data-host-add>Add</button>
+    </form>
     <p style="font-size:12.5px;line-height:1.45;color:var(--text-dim);margin-top:10px">To have Android offer Velta for a new domain everywhere (e.g. in the browser), it also needs an entry in the app's intent filters — that list is compiled into the APK.</p>`;
 
   const list = body.querySelector("[data-host-list]");
@@ -345,6 +345,7 @@ export function showInviteDomainsModal() {
       item.innerHTML = `<span class="v">${escapeHtml(row.host)}${row.builtin ? ' <span style="opacity:.55">(built-in)</span>' : ""}</span>`;
       if (!row.builtin) {
         const rm = document.createElement("button");
+        rm.type = "button";
         rm.className = "btn-text";
         rm.textContent = "Remove";
         rm.style.color = "var(--danger)";
@@ -356,15 +357,13 @@ export function showInviteDomainsModal() {
   };
   renderList();
 
-  const { close } = showModal({ title: "Invite link domains", body });
-  body.querySelector("[data-host-add]").addEventListener("click", () => {
+  showModal({ title: "Invite link domains", body });
+  body.querySelector("[data-host-form]").addEventListener("submit", (e) => {
+    e.preventDefault();
     const host = addInviteHost(input.value);
     if (!host) { toast("Enter a plain hostname, e.g. mirror.example.org"); return; }
     input.value = "";
     renderList();
     toast(`${host} added`);
-  });
-  input.addEventListener("keydown", e => {
-    if (e.key === "Enter") { e.preventDefault(); body.querySelector("[data-host-add]").click(); }
   });
 }

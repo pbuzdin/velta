@@ -1,6 +1,6 @@
 // components.js — Progressive Web Components built on Elena (@elenajs/core)
 import { Elena, html, unsafeHTML } from "../vendor/elena.js";
-import { formatListTime, timeAgo } from "./format.js";
+import { formatListTime, timeAgo, timeTag } from "./format.js";
 import { fileUrl, mediaFallbackUrl } from "./media.js";
 import { diagnosticsSink } from "./diagnostics.js";
 import { avatarBackgroundUrl, fingerprintFor, cachedFingerprint, fingerprintGroups } from "./avatar.js";
@@ -349,7 +349,7 @@ class VeltaChatItem extends Elena(HTMLElement) {
         <div class="ci-main">
           <div class="ci-top">
             <div class="ci-name">${c.name} ${unsafeHTML(nameBadges)}</div>
-            <div class="ci-time">${c.lastTs ? formatListTime(c.lastTs) : ""}</div>
+            <div class="ci-time">${c.lastTs ? unsafeHTML(timeTag(c.lastTs, formatListTime(c.lastTs))) : ""}</div>
           </div>
           <div class="ci-bottom">
             <div class="ci-last">${unsafeHTML(ticks)} ${unsafeHTML(last)}</div>
@@ -399,13 +399,16 @@ class VeltaChatHead extends Elena(HTMLElement) {
     const st = this.statusLine();
     const online = typeof st === "object" && st.online;
     const stText = typeof st === "object" ? st.text : st;
+    const stHtml = (c.contact?.lastSeen && typeof st === "string" && st.startsWith("last seen"))
+      ? timeTag(c.contact.lastSeen, st)
+      : escapeHtml(stText);
     return html`
       <div class="chat-head-avatar">
         ${unsafeHTML(`<velta-avatar name="${escapeAttr(c.name)}" color="${c.avatarColor || ""}" kind="${c.kind}" size="42"${c.contactId ? ` contact-id="${c.contactId}"` : ""}${c.avatar ? ` avatar="${escapeAttr(fileUrl(c.avatar))}"` : ""}></velta-avatar>`)}
       </div>
       <div class="chat-head-text">
         <div class="cht-name"><span class="cht-name-text">${c.name}</span>${unsafeHTML(nameBadgesFor(c))}</div>
-        <div class="cht-status${online ? " online" : ""}">${stText}</div>
+        <div class="cht-status${online ? " online" : ""}">${unsafeHTML(stHtml)}</div>
       </div>`;
   }
 }

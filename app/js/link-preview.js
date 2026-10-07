@@ -1,46 +1,56 @@
 // link-preview.js — OG preview card for the FIRST link in a message text.
 // Fetches shell-side (fetch_link_preview command, CSP: renderer has no
 // remote reach), in-memory cache per URL, and a user setting
-// (localStorage["velta-link-preview"] === "1") that gates rendering.
-// When the setting is on, the composer bakes the card into a WebP and
-// sends that image, so the recipient never contacts the site (#88).
+// Drawer radios: off, "picture" (sender bakes a WebP, #88), "fetch"
+// (this device loads the card, #30). Old "1" / per-chat "on" are fetch.
 import { escapeHtml, escapeAttr } from "./components.js";
 import { parseInviteLink } from "./invites.js";
 
 const CACHE = new Map(); // url -> {title, description, image} | null (failed)
 const SETTING_KEY = "velta-link-preview";
-const PER_CHAT_KEY = "velta-link-preview-chats"; // { [chatId]: "on" | "off" }
+const PER_CHAT_KEY = "velta-link-preview-chats"; // { [chatId]: "off" | "picture" | "fetch" }
 
-// Shown before any path turns previews on. The fetch is this device's IP,
-// and a person in the chat may control the page that receives it.
+// Drawer hint under Link previews. The fetch is this device's IP.
 export const LINK_PREVIEW_IP_WARNING =
   "A link preview is loaded from this device, so the website learns your IP address. Someone in a private or group chat may own that site, or be able to edit the page, and can send you the link so the preview reveals your address to them.";
 
-// Global drawer setting. Per-chat overrides win: a chat with an explicit
-// entry renders (or not) regardless of the global value.
-// "1" = on. Unset and the old "0" are off (#30). Installs that never chose
-// start off, including ones that were implicitly on before this default.
-export function linkPreviewEnabled(chatId = null) {
-  try {
-    if (chatId != null) {
-      const per = JSON.parse(localStorage.getItem(PER_CHAT_KEY) || "{}");
-      if (per[chatId]) return per[chatId] === "on";
-    }
-    return localStorage.getItem(SETTING_KEY) === "1";
-  } catch { return false; }
+export const LINK_PREVIEW_LABELS = {
+  off: "Off",
+  picture: "Send a picture",
+  fetch: "Load on this device",
+};
+
+// "1" and per-chat "on" are the old single switch: this device fetched.
+function storedMode(raw) {
+  if (raw === "picture" || raw === "fetch" || raw === "off") return raw;
+  if (raw === "1" || raw === "on") return "fetch";
+  return "off";
 }
 
-export function setLinkPreviewEnabled(on, chatId = null) {
+// Per-chat entry wins. Missing entry follows the drawer. Unset and "0" are off.
+export function linkPreviewMode(chatId = null) {
   try {
     if (chatId != null) {
       const per = JSON.parse(localStorage.getItem(PER_CHAT_KEY) || "{}");
-      if (on === null) delete per[chatId]; // back to global default
-      else per[chatId] = on ? "on" : "off";
+      if (per[chatId] != null) return storedMode(per[chatId]);
+    }
+    return storedMode(localStorage.getItem(SETTING_KEY));
+  } catch { return "off"; }
+}
+
+// chatId + mode null clears that chat's override. Off removes the global key.
+export function setLinkPreviewMode(mode, chatId = null) {
+  try {
+    if (chatId != null) {
+      const per = JSON.parse(localStorage.getItem(PER_CHAT_KEY) || "{}");
+      if (mode == null) delete per[chatId];
+      else per[chatId] = storedMode(mode);
       localStorage.setItem(PER_CHAT_KEY, JSON.stringify(per));
       return;
     }
-    if (on) localStorage.setItem(SETTING_KEY, "1");
-    else localStorage.removeItem(SETTING_KEY);
+    const next = storedMode(mode);
+    if (next === "off") localStorage.removeItem(SETTING_KEY);
+    else localStorage.setItem(SETTING_KEY, next);
   } catch {}
 }
 
@@ -107,9 +117,11 @@ function invoke(cmd, args) {
 
 let inFlight = new Map(); // url -> Promise (dedupe concurrent renders)
 
-// Resolves {title, description, image} or null (off/disabled/failed/no Tauri).
+// Resolves {title, description, image} or null (off/failed/no Tauri).
+// `picture` may call this from the composer. Incoming rows must call it
+// only for `fetch` — a picture-mode receive must not contact the site.
 export async function linkPreview(text, chatId = null) {
-  if (!linkPreviewEnabled(chatId)) return null;
+  if (linkPreviewMode(chatId) === "off") return null;
   const url = firstLink(text);
   if (!url || !/^https:\/\//.test(url)) return null;
   // Invite links on the registered domains render as invite cards in the

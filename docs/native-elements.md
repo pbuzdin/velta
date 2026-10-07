@@ -1,6 +1,6 @@
 # Native HTML elements survey: where the platform can replace custom JS/ARIA
 
-Date: 2026-10-06. Base commit: `6c108a4`. Docs only. No app code was changed.
+Date: 2026-10-06. Base commit: `6c108a4`. The survey below is the original notes. The top 8 rows landed in the working tree on 2026-10-07 (not committed). The element count is in "What landed".
 
 Companion to `docs/modals-audit-and-plan.md` (which covers `<dialog>` and the
 overlay history contract) and `docs/web-components-audit.md` /
@@ -36,6 +36,34 @@ chat info, pin tray, splash log); `<audio controls>`; `<video controls>` in the
 lightbox; `<textarea>` composer (no contenteditable); `<label>`-wrapped
 checkboxes and radios in the drawer; radios in the ephemeral dialog;
 `overscroll-behavior`; `:has()`; `loading="lazy"` on stickers and link previews.
+
+The table above is the original recommendation, including the ~136 button estimate and the 3 search fields. The count below is what the diff against `v1.4.60` actually changed. A form and the controls inside it are counted as separate elements. Disappearing-message radios were already radios; only their fieldset and legend are new.
+
+## What landed
+
+**217 elements.**
+
+| What | Elements |
+|---|---|
+| Untyped buttons given `type="button"` | 119 |
+| Untyped buttons given `type="submit"` | 10 |
+| Splash "Create account", already `type="button"`, now `type="submit"` | 1 |
+| `<form>`: ask text, group name, edit name, join link, nickname, device name, edit profile (`showModal({ form: true })`), plus profile-add, splash relay, invite domain, local-chat send | 11 |
+| Popovers: context menu, sticker picker, account menu, local-chat queue, toasts | 5 |
+| `<progress>`: transfer, pairing, chat-load, in-app browser, app update | 5 |
+| Relay quota `<meter>` | 1 |
+| `<fieldset>`: 8 drawer groups, disappearing messages, mute | 10 |
+| `<legend>` on those fieldsets | 10 |
+| Drawer checkboxes given `role="switch"` (4 bottom-bar, 5 chat categories, 18 other rows; 5 of the 27 are Android-only) | 27 |
+| Mute rows turned from divs into radios (5 durations, plus Unmute) | 6 |
+| Message-selection tick turned into a checkbox | 1 |
+| `<time>`: message, day chip, chat list, chat-head last seen, chat-info last seen, calls | 6 |
+| Composer (`enterkeyhint`, capitalization, `autocomplete`, `field-sizing` with the `scrollHeight` fallback) | 1 |
+| Search fields set to `type="search"` | 2 |
+| Invite-link field (`inputmode="url"`) | 1 |
+| PWA `<input type="file">` | 1 |
+
+Not in this pass: there is no contact-picker search field, so two search fields rather than three. The QR paste box stays a textarea (Enter submits only when an IME composition is not open). Local group create and add-members stay as they were. Popover placement stays in JS until the floor reaches Chromium 125 / Safari 26, and macOS 10.15/11 keep the overlay path. `field-sizing` stays behind `CSS.supports`. A file chosen in the browser still needs the Velta app to send, because the core wants a real path.
 
 ---
 
