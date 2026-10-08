@@ -186,14 +186,50 @@ compile check - CI is the gate.
 
 ## Share into Velta (#97)
 
-The share sheet shows Velta because `MainActivity` handles `ACTION_SEND` and
-`ACTION_SEND_MULTIPLE` (`AndroidManifest.xml`). tao already turns those
-intents into `RunEvent::Opened` (text → `data:text/plain,…` or an https URL,
-files → `content://`). The page drains them with `take_opened_urls` and asks
-which chat to send to (`app/js/share-in.js`, `offerShare` in `app.js`).
-Windows has no share-sheet registration: the 11 Share flyout only lists
-packaged apps. A first launch writes `SendTo\Velta.lnk`, and a file path on
-the command line takes the same picker.
+Outbound "Share a link" (#37, above) is a different path. This one is Velta
+as the destination.
+
+The share sheet lists Velta because `MainActivity` has one `ACTION_SEND`
+filter and one `ACTION_SEND_MULTIPLE` filter (`AndroidManifest.xml`), each
+with `DEFAULT` and mime types that OR: `text/plain`, `text/*`, `image/*`,
+`video/*`, `audio/*`, `application/*`, `*/*`. Kotlin is unchanged:
+`onNewIntent` already reaches `Rust.onNewIntent`. tao turns those intents
+into `RunEvent::Opened` (plain text → `data:text/plain,…`, a text URL →
+that https URL, files → `content://` or `file://`). `run()` appends every
+URL to `OPENED_URLS` and emits `deeplink` as a wake-up. The page listens
+first, then drains with `take_opened_urls`, so a burst during boot is not
+lost and several photos are one picker. `get_initial_deeplink` still pops
+one URL; the page does not call it. A desktop `deep-link://new-url` is not
+in the queue: the plugin emits the URL and the page routes that payload.
+Notification taps use the same queue (Android `Opened`, Windows toast
+`on_activated`); a toast tap that only emits the URL does not open the chat.
+
+`app/js/share-in.js` classifies the payload. `data:text/plain` is share
+text. `content://`, `file://`, a Windows path, a UNC path, or an absolute
+`/` path is a file. `velta://` and `dcaccount:` are not shares.
+`handleDeeplinkFromUrl` returns true when it consumed a chat, backup, or
+invite link (a chat link with a bad token still counts), and other https
+becomes share text. The picker is always shown ("Share to…"): chats that
+are not `deaddrop`, `device`, or `readOnly`, including p2p. Empty copy is
+"No chat to share to." One file plus text is the caption; otherwise the
+text message goes first, then each file. `content://` is copied with
+`resolve_content_uri` before `core.sendMessage` (viewtype from the
+extension, same map as local chat). An archived chat is unarchived. The
+open chat appends the outgoing row.
+
+Windows 11's Share flyout only lists packaged apps. Velta is unpackaged, so
+`setup()` writes `%APPDATA%\Microsoft\Windows\SendTo\Velta.lnk` (target =
+current exe, no `%1`). It is recreated only when that file does not contain
+the exe path as UTF-16LE. Do not put anything else in Send to: each file
+there is a menu entry. Send to passes paths as argv. A cold start queues
+them in `set_initial_deeplink_from_env`. A warm start queues them in the
+single-instance callback and leaves scheme URLs to the deep-link plugin,
+which is the only `velta://` path. The same picker sends the file.
+
+Skipped: Direct Share / ChooserTargetService, mailto, a separate
+ShareActivity, and an MSIX share target. Pinned by `tests/share-in.test.mjs`
+and `cargo test --lib opened_args_tests`. The manifest has no local compile
+check; CI gradle is the gate.
 
 ## Notification preferences bridge (v1.4.54)
 
