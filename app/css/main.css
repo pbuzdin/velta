@@ -129,6 +129,9 @@ svg { width: 24px; height: 24px; display: block; }
 .relay-line .relay-seg[data-state="ok"]         { color: #2ecc71; }
 .relay-line .relay-seg[data-state="connecting"] { color: #e6a23c; }
 .relay-line .relay-seg[data-state="unreachable"] { color: #e6a23c; }
+/* #102 sending delayed: relay up, SMTP retrying — amber like connecting;
+   the difference lives in the line title and the detail chip text. */
+.relay-line .relay-seg[data-state="delayed"]    { color: #e6a23c; }
 .relay-line .relay-seg[data-state="down"]       { color: #e05252; }
 .relay-line .relay-seg[data-state="local"]      { color: #4c8dff; }
 /* Sending dashes on the sending relay's segment only (marked per-segment

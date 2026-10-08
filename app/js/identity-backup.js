@@ -72,6 +72,13 @@ export function buildIdentityBundle({ addr, mail_pw, keys }) {
   return { kind: "velta-identity", v: 1, addr, mail_pw, keys, exported: new Date().toISOString() };
 }
 
+// #104: full-account backup download name. The archive is the core's .tar
+// byte-identical (not a zip wrapper) so desktop import round-trips without
+// an unzip step.
+export function backupDownloadName(addr, date) {
+  return `velta-backup-${String(addr || "profile").replace(/[^a-z0-9._-]/gi, "_")}-${date}.tar`;
+}
+
 export function bytesToBase64(u8) {
   let s = "";
   for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000));

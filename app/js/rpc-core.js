@@ -208,7 +208,12 @@ export class JsonRpcCore extends EventTarget {
       if (!this.accountId || !ids.includes(this.accountId)) this.accountId = ids[0];
     }
     await this._callWithTimeout(4000, "select_account", this.accountId);
-    await this._callWithTimeout(4000, "start_io_for_all_accounts");
+    // #101 "sync only active profile": renderer-owned flag, persisted in
+    // localStorage and read here because init() runs inside createCore
+    // before app.js could set it. All for-all-accounts IO paths funnel
+    // through _startIo so the flag holds everywhere.
+    try { this.syncOnlyActive = localStorage.getItem("velta-sync-only-active") === "1"; } catch {}
+    await this._startIo();
     this._pollEvents();
     return this;
   }
@@ -226,7 +231,7 @@ export class JsonRpcCore extends EventTarget {
     await this.transport.setReceiver(this._onLine);
     if (!this._isCurrentAccount(accountEpoch)) return false;
     await this._call("select_account", accountId);
-    await this._call("start_io_for_all_accounts");
+    await this._startIo();
     // #28: reconnect after a service restart re-arms IO unconditionally —
     // pause it again if the device still has no network.
     if (typeof navigator !== "undefined" && !navigator.onLine) {
@@ -236,9 +241,34 @@ export class JsonRpcCore extends EventTarget {
     return true;
   }
 
+  // #101 "sync only active profile": when set, only the selected account
+  // runs mail IO (background profiles are fully quiesced). The flag itself
+  // is read from localStorage in init(); these helpers are the single funnel
+  // so every IO path honors it.
+  get syncOnlyActive() { return this._syncOnlyActive === true; }
+  set syncOnlyActive(v) { this._syncOnlyActive = v === true; }
+
+  async _startIo() {
+    if (this.syncOnlyActive) await this._call("start_io", this.accountId);
+    else await this._call("start_io_for_all_accounts");
+  }
+
+  // Applies the mode mid-session: ON quiesces every non-selected account
+  // right away; OFF restarts IO for all accounts.
+  async applySyncMode() {
+    if (this.syncOnlyActive) {
+      const ids = await this._call("get_all_account_ids").catch(() => []);
+      await Promise.all(ids
+        .filter(id => String(id) !== String(this.accountId))
+        .map(id => this._call("stop_io", id).catch(() => {})));
+    } else {
+      await this._startIo();
+    }
+  }
+
   async restartIo() {
     await this._call("stop_io_for_all_accounts");
-    await this._call("start_io_for_all_accounts");
+    await this._startIo();
     await this._call("maybe_network");
     this._emit("diagnostic", { level: "info", message: "Core network I/O restarted" });
     return true;
@@ -254,7 +284,7 @@ export class JsonRpcCore extends EventTarget {
   async setNetworkIo(on) {
     try {
       if (on) {
-        await this._call("start_io_for_all_accounts");
+        await this._startIo();
         await this._call("maybe_network");
       } else {
         await this._call("stop_io_for_all_accounts");
@@ -488,6 +518,9 @@ export class JsonRpcCore extends EventTarget {
       case "ImapInboxIdle":
       case "ConnectivityChanged":
         if (ev.kind === "ConnectivityChanged") this._emitAccount("connectivity-changed", {}, accountEpoch);
+        // #102: epoch-gated clear signal for the relay line's "sending
+        // delayed" state (the diagnostic collapse drops the event kind).
+        if (ev.kind === "SmtpMessageSent") this._emitAccount("smtp-message-sent", {}, accountEpoch);
         this._emit("diagnostic", {
           level: ev.kind === "Error" ? "error" : ev.kind === "Warning" ? "warning" : "info",
           message: ev.msg || ev.comment || ev.kind,
@@ -941,8 +974,16 @@ export class JsonRpcCore extends EventTarget {
     if (!Number.isInteger(id)) throw new Error(`Bad account id: ${id}`);
     this._beginAccountChange();
     let failed = true;
+    const prevId = this.accountId;
     try {
       await this._call("select_account", id);
+      // #101: stop the OLD account's IO only AFTER the switch committed —
+      // a failed switch must leave IO running. The offline pause below
+      // (reconnect) and restartIo funnel through _startIo elsewhere.
+      if (this.syncOnlyActive && prevId !== id) {
+        await this._call("stop_io", prevId).catch(() => {});
+        await this._call("start_io", id).catch(() => {});
+      }
       this.accountId = id;
       const account = await this.getAccount();
       failed = false;
@@ -959,6 +1000,36 @@ export class JsonRpcCore extends EventTarget {
     return this._call("get_connectivity", this.accountId);
   }
 
+  // #100: permanently removes a profile (core deletes the account directory
+  // and updates accounts.toml, reconciling the selection). Deleting the
+  // selected account re-points the wrapper at the core's reconciled
+  // selection — same epoch boundaries as switchAccount, so the UI refreshes
+  // through the normal account-changed path. Returns the account snapshot
+  // when the selection moved, null for background deletions.
+  async deleteAccount(id) {
+    id = Number(id);
+    if (!Number.isInteger(id)) throw new Error(`Bad account id: ${id}`);
+    this._beginAccountChange();
+    let failed = true;
+    try {
+      await this._call("remove_account", id);
+      if (String(this.accountId) !== String(id)) { failed = false; return null; }
+      const ids = await this._call("get_all_account_ids");
+      if (!ids.length) throw new Error("the last remaining profile cannot be deleted here");
+      let selected = await this._call("get_selected_account_id").catch(() => null);
+      if (!ids.includes(selected)) selected = ids[0];
+      await this._call("select_account", selected);
+      this.accountId = selected;
+      // #101: the reconciled selection's IO may never have been started
+      // (sync-only mode) — idempotent either way.
+      await this._startIo();
+      const account = await this.getAccount();
+      failed = false;
+      return account;
+    } finally {
+      await this._finishAccountChange(failed);
+    }
+  }
   // HTML overview listing each transport with its per-folder connectivity
   // dots — the only per-relay status the core exposes (parsed in app.js).
   async getConnectivityHtml() {
