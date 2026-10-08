@@ -143,3 +143,38 @@ export function diagnosticRow(message) {
   row.appendChild(copy);
   return row;
 }
+
+// #102: core send/relay failures worth surfacing on the relay status line.
+// The scheduler repeats "Retry." warnings on every pass — match the failing
+// pipeline, not the retry cadence, and only at warning/error level (Info
+// chatter like "SMTP connected" must never raise the state).
+export function isSendFailureDiagnostic(level, message) {
+  if (level !== "warning" && level !== "error") return false;
+  return /send_smtp_messages failed|failed to send message/i.test(String(message || ""));
+}
+
+// #102: the relay line's transient "sending delayed" state plus the 60 s
+// error-toast throttle (Retry warnings repeat every scheduler pass — never
+// toast per retry). Cleared on SmtpMessageSent or connectivity 3000+.
+export function createRelaySendErrorState({ now = () => Date.now(), toastGapMs = 60000 } = {}) {
+  let active = false;
+  let lastErrorToast = -Infinity; // first error toasts immediately
+  return {
+    get active() { return active; },
+    note(level) {
+      const raised = !active;
+      active = true;
+      let toastIt = false;
+      if (level === "error" && now() - lastErrorToast >= toastGapMs) {
+        lastErrorToast = now();
+        toastIt = true;
+      }
+      return { raised, toast: toastIt };
+    },
+    clear() {
+      const was = active;
+      active = false;
+      return was;
+    },
+  };
+}

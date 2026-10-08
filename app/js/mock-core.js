@@ -658,6 +658,18 @@ export class MockCore extends EventTarget {
   async stopOngoingProcess() {}
   async addAccountWithBackup() { return this.accountId; }
 
+  // #100 twin — the demo has exactly one profile, so the delete tab's
+  // last-profile refusal is the only reachable path; same error as rpc-core.
+  async deleteAccount() {
+    throw new Error("the last remaining profile cannot be deleted here");
+  }
+
+  // #101 twin — nothing to quiesce with a single demo account, but the flag
+  // round-trips so the Profile management checkbox works in demo mode.
+  get syncOnlyActive() { return this._syncOnlyActive === true; }
+  set syncOnlyActive(v) { this._syncOnlyActive = v === true; }
+  async applySyncMode() {}
+
   // Paged history: newest-first pages, like scrolling up through time.
   // Original body for demo messages flagged hasHtml (Read more in the chat
   // view). Mirrors the core: forwarded copies (hasHtml false) get null.
@@ -775,7 +787,14 @@ export class MockCore extends EventTarget {
     // marks ride the same send-activity event the real core emits
     // (rpc-core _trackSending).
     this._emit("send-activity", { sending: true });
-    setTimeout(() => { m.state = "sent"; this._emit("msg-state", { chatId, msgId: m.id, state: "sent" }); }, 350);
+    // #102 demo twin of the scheduler's SMTP retry: set
+    // core._sendFailureMode = true (console) to hold sends pending and emit
+    // the same Warning the real core logs; false again + resend to recover.
+    if (this._sendFailureMode) {
+      this._emit("diagnostic", { level: "warning", message: "send_smtp_messages failed: Failed to send message: Retry." });
+      return m.id;
+    }
+    setTimeout(() => { m.state = "sent"; this._emit("msg-state", { chatId, msgId: m.id, state: "sent" }); this._emit("smtp-message-sent", {}); }, 350);
     setTimeout(() => { m.state = "delivered"; this._emit("msg-state", { chatId, msgId: m.id, state: "delivered" }); this._emit("send-activity", { sending: false }); }, 1200);
     if (c.kind === "single") {
       const mdn = setTimeout(() => {

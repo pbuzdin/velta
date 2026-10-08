@@ -51,3 +51,29 @@ test("base64 helpers round-trip binary bytes", () => {
   const u8 = new Uint8Array(70_000).map((_, i) => i % 251);
   assert.deepEqual(base64ToBytes(bytesToBase64(u8)), u8);
 });
+
+// #105 audit: the restore path must never strand the user on a half-created
+// account. Source-integrity pins for the app.js flow (not importable):
+//   • unwrap BEFORE addAccount — a wrong passphrase creates nothing;
+//   • configure failure removes the stray (deleteAccount) instead of
+//     leaving it selected (#99 family);
+//   • configure runs BEFORE import_self_keys (spike day 18 — the import
+//     marks the account configured and would short-circuit the login proof).
+const appSrc = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8")
+  .replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+import { readFileSync } from "node:fs";
+
+test("restore flow ordering: unwrap-first, configure-before-keys, stray rollback", () => {
+  const start = appSrc.indexOf("async function runIdentityRestore(");
+  const end = appSrc.indexOf("function openIdentityBackup(", start);
+  assert.ok(start !== -1 && end > start, "runIdentityRestore exists before openIdentityBackup");
+  const body = appSrc.slice(start, end);
+  const unwrap = body.indexOf("unwrapIdentityBundle(");
+  const add = body.indexOf("core.addAccount()");
+  const configure = body.indexOf("core.configureAccount(id)");
+  const keys = body.indexOf("importSelfKeys(id, dir, pass)");
+  const rollback = body.indexOf("core.deleteAccount(id)");
+  assert.ok(unwrap !== -1 && unwrap < add, "bundle unwrapped before any account is created");
+  assert.ok(add !== -1 && add < configure && configure < keys, "configure BEFORE import_self_keys (day 18)");
+  assert.ok(rollback !== -1 && rollback < keys, "failed configure removes the stray account");
+});

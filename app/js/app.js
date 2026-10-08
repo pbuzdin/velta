@@ -8,7 +8,7 @@ import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintGroups
 import { ChatView, setAvatarProfileOpener } from "./chat-view.js";
 import { initCalls } from "./calls.js";
 import { initWebxdc } from "./webxdc-manager.js";
-import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow } from "./diagnostics.js";
+import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow, isSendFailureDiagnostic, createRelaySendErrorState } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal, isShortInviteLink, expandShortInvite } from "./invites.js";
 import { activeWsRelay, showWsRelaysModal } from "./ws-relays.js";
 import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate, popoverSupported } from "./ui.js";
@@ -19,7 +19,7 @@ import { acquireCode, mountScanner } from "./qr-scan.js";
 import { scanTabAvailable, canShareLink, copyLink, shareLink, classifyScannedCode } from "./qr-actions.js";
 import { parseSharePayload, shareTextIfUnconsumed, shareViewtype } from "./share-in.js";
 import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS } from "./link-preview.js";
-import { wrapIdentityBundle, unwrapIdentityBundle, buildIdentityBundle, bytesToBase64, base64ToBytes } from "./identity-backup.js";
+import { wrapIdentityBundle, unwrapIdentityBundle, buildIdentityBundle, bytesToBase64, base64ToBytes, backupDownloadName } from "./identity-backup.js";
 
 const diagnostics = new DiagnosticsStore();
 window.__veltaDiagnostics = diagnostics;
@@ -397,6 +397,13 @@ core.addEventListener?.("diagnostic", e => {
     if (DIAGNOSTIC_INFO_SKIP.test(message) && !DIAGNOSTIC_INFO_KEEP.test(message)) return;
   }
   diagnostics.append(level, message);
+  // #102: send failures also raise the relay line's transient "sending
+  // delayed" state; the toast is throttled inside (error-level only).
+  if (isSendFailureDiagnostic(level, message)) {
+    const r = relaySendErrorState.note(level);
+    if (r.raised) renderRelayLine();
+    if (r.toast) toast("Sending delayed — the relay is retrying in the background", 6000);
+  }
 });
 
 // #28: pause the core's IMAP/SMTP loops while the device has no network
@@ -500,6 +507,7 @@ addEventListener("velta-core-status", e => {
 let relayConnectivity = null;  // last get_connectivity value (1000/2000/3000/4000)
 let relayDownSince = 0;        // first NotConnected observation — red after a grace period
 let relaySending = false;      // any message queued/sending through the relay
+const relaySendErrorState = createRelaySendErrorState(); // #102 "sending delayed" while SMTP retries
 let relayUpgradeTimer = null;
 let relaySegments = [];        // per-relay [{ domain, text, state }] — [] falls back to the combined view
 let relaySmtpState = null;     // "ok"/"connecting"/"down" from the HTML's Outgoing-messages dot (account-global)
@@ -632,6 +640,9 @@ async function refreshRelayStatusInner() {
     const value = await core.getConnectivity();
     if (!accountIsCurrent(epoch)) return;
     relayConnectivity = value;
+    // #102: the core making progress again (IMAP/SMTP working, 3000+)
+    // clears the delayed-send state; a fresh failure re-raises it.
+    if (value >= 3000) relaySendErrorState.clear();
     // "Updating…" strip (desktop-parity, ConnectivityToast.tsx): sweep while
     // the core is WORKING (3000-3999) — IMAP fetch or SMTP send, the core
     // can't distinguish. Reuses chat-view's bar with its 150 ms min-on and
@@ -692,7 +703,10 @@ function renderRelayLine() {
   } else if (relayConnectivity == null) {
     relayState = "connecting"; title = "Checking relay…";
   } else if (relayConnectivity >= 4000) {
-    relayState = "ok"; title = "Relay connected";
+    // #102: relay up but SMTP keeps retrying — distinct "delayed" state,
+    // not the red relay-down look.
+    relayState = relaySendErrorState.active ? "delayed" : "ok";
+    title = relaySendErrorState.active ? "Sending delayed — the relay is retrying" : "Relay connected";
   } else if (relayConnectivity >= 2000) {
     relayState = "connecting"; title = "Connecting to relay…";
   } else if (relayDownSince && Date.now() - relayDownSince > RELAY_DOWN_AFTER_MS) {
@@ -729,6 +743,11 @@ function renderRelayLine() {
     if (segState === "ok" && probe?.ok === false) segState = "unreachable";
     if (isSendRelay(s) && relaySmtpState && (SEVERITY[relaySmtpState] ?? 0) > (SEVERITY[segState] ?? 0)) {
       segState = relaySmtpState;
+    }
+    // #102: delayed-send marker rides the sending relay's green segment only
+    // — never masks connecting/down/unreachable.
+    if (isSendRelay(s) && relaySendErrorState.active && (SEVERITY[segState] ?? 0) === 0) {
+      segState = "delayed";
     }
     return { ...s, state: segState };
   });
@@ -786,7 +805,7 @@ function renderRelayLine() {
         meter.title = `${pct}% used`;
         chip.append(meter);
       }
-      chip.title = `${segTitle(s)}${s.quota ? ` · ${s.quota}` : ""}`;
+      chip.title = `${segTitle(s)}${s.quota ? ` · ${s.quota}` : ""}${isSendRelay(s) && relaySendErrorState.active ? " · sending delayed — retrying" : ""}`;
       return chip;
     }));
   }
@@ -861,6 +880,10 @@ core.addEventListener?.("transports-modified", () => {
 core.addEventListener?.("send-activity", e => {
   relaySending = !!e.detail?.sending;
   renderRelayLine();
+});
+core.addEventListener?.("smtp-message-sent", () => {
+  // #102: a send got through — the delayed state did its job.
+  if (relaySendErrorState.clear()) renderRelayLine();
 });
 renderRelayLine();
 refreshRelayStatus();
@@ -3129,7 +3152,12 @@ function openProfileManagement() {
       <button type="button" class="pm-tab active" data-tab="add">Add profile</button>
       <button type="button" class="pm-tab" data-tab="device">Second device</button>
       <button type="button" class="pm-tab" data-tab="export">Export backup</button>
+      <button type="button" class="pm-tab" data-tab="delete" style="color:var(--danger)">Delete profile</button>
     </div>
+    <label class="scale-opt" style="margin:2px 2px 10px" title="Only the selected profile runs mail sync; background profiles are fully paused.">
+      <input type="checkbox" role="switch" data-sync-only>
+      <span>Sync only active profile — other profiles won't receive messages until you switch to them</span>
+    </label>
     <div class="pm-pane" data-pane="add">
       <p class="pm-hint">Paste a <b>chatmail</b> invite link (<span>dcaccount:…</span>) or a relay domain — a new end-to-end encrypted profile is created on it.</p>
       <form data-add-form>
@@ -3154,6 +3182,17 @@ function openProfileManagement() {
       <input class="text-field" data-pass type="password" minlength="6" placeholder="Passphrase (optional, min 6 chars)" autocomplete="new-password">
       <div class="pm-actions"><button type="button" class="btn-primary" data-export disabled>Export backup</button></div>
       <div class="pm-progress" data-progress hidden></div>
+    </div>
+    <div class="pm-pane" data-pane="delete" hidden>
+      <p class="pm-hint">Removes <b data-del-name></b> for good: the account, its keys, the message database and all blobs on this device. This cannot be undone.</p>
+      <p class="pm-hint">Tip: write an <b>Export backup</b> first — it is the only copy that survives this.</p>
+      <p class="pm-hint" data-del-last hidden style="color:var(--danger)">This is the last remaining profile — it cannot be deleted here.</p>
+      <div data-del-form>
+        <p class="pm-hint">Type the profile's address (<b data-del-addr></b>) to confirm.</p>
+        <input class="text-field" data-del-confirm autocomplete="off" autocapitalize="none" spellcheck="false" aria-label="Type the profile address to confirm deletion">
+        <div class="pm-actions"><button type="button" class="btn-text" data-delete disabled style="color:var(--danger)">Delete this profile</button></div>
+        <div class="pm-progress" data-del-progress hidden></div>
+      </div>
     </div>`;
 
   const tabsBox = body.querySelector("[data-tabs]");
@@ -3161,6 +3200,7 @@ function openProfileManagement() {
     add: body.querySelector('[data-pane="add"]'),
     device: body.querySelector('[data-pane="device"]'),
     export: body.querySelector('[data-pane="export"]'),
+    delete: body.querySelector('[data-pane="delete"]'),
   };
   const lock = (on) => tabsBox.classList.toggle("locked", on);
   tabsBox.addEventListener("click", e => {
@@ -3168,6 +3208,21 @@ function openProfileManagement() {
     if (!tab || tabsBox.classList.contains("locked")) return;
     tabsBox.querySelectorAll(".pm-tab").forEach(t => t.classList.toggle("active", t === tab));
     for (const [key, pane] of Object.entries(panes)) pane.hidden = key !== tab.dataset.tab;
+  });
+
+  /* -- sync only active profile (#101) -- */
+  const syncOnly = body.querySelector("[data-sync-only]");
+  syncOnly.checked = core.syncOnlyActive === true ||
+    localStorage.getItem("velta-sync-only-active") === "1";
+  syncOnly.addEventListener("change", async () => {
+    const on = syncOnly.checked;
+    localStorage.setItem("velta-sync-only-active", on ? "1" : "0");
+    core.syncOnlyActive = on;
+    try {
+      await core.applySyncMode();
+    } catch (err) {
+      errToast("Couldn't apply the sync mode: " + (err?.message || err));
+    }
   });
 
   /* -- add profile -- */
@@ -3257,25 +3312,38 @@ function openProfileManagement() {
   const exportBtn = panes.export.querySelector("[data-export]");
   const progressBox = panes.export.querySelector("[data-progress]");
   const isAndroid = /Android/.test(navigator.userAgent);
-  if (isAndroid) {
+  // #104: wasm core (PWA) has no folder picker — the backup tar is written
+  // into memfs and downloaded by the browser; desktop/Android paths unchanged.
+  const pwaExport = core.backend?.kind === "worker-wasm" && !!core.transport?.readCoreFileList;
+  if (pwaExport) {
+    panes.export.querySelector(".pm-hint").textContent =
+      "Writes this profile — messages, contacts and keys — into a backup archive and downloads it. The profile stays signed in.";
+    destInput.value = "/backup/export";
+    exportBtn.disabled = false;
+  } else if (isAndroid) {
     // No directory picker on Android — export into a fixed folder next to
     // the accounts directory and surface the path in the field.
     destInput.value = (window.veltaAccountsDir || "").replace(/\/accounts\/?$/, "") + "/exports";
+    exportBtn.disabled = false;
   } else {
-    destInput.addEventListener("click", async () => {
-      const tauri = window.__TAURI__;
-      const invoke = tauri?.core?.invoke || tauri?.invoke;
-      if (!invoke) return;
-      try {
-        const picked = await invoke("plugin:dialog|open", { options: { directory: true, multiple: false, title: "Choose backup folder" } });
-        if (typeof picked === "string" && picked) {
-          destInput.value = picked;
-          exportBtn.disabled = false;
+    const tauriInvoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+    if (!tauriInvoke) {
+      // #104: no export path in this backend — say so instead of a dead field.
+      destInput.placeholder = "Backup export needs the desktop app or the Velta PWA";
+      destInput.readOnly = true;
+    } else {
+      destInput.addEventListener("click", async () => {
+        try {
+          const picked = await tauriInvoke("plugin:dialog|open", { options: { directory: true, multiple: false, title: "Choose backup folder" } });
+          if (typeof picked === "string" && picked) {
+            destInput.value = picked;
+            exportBtn.disabled = false;
+          }
+        } catch (err) {
+          errToast("Couldn't open the folder picker: " + (err?.message || err));
         }
-      } catch (err) {
-        errToast("Couldn't open the folder picker: " + (err?.message || err));
-      }
-    });
+      });
+    }
   }
   exportBtn.addEventListener("click", async () => {
     const dest = destInput.value.trim();
@@ -3291,14 +3359,58 @@ function openProfileManagement() {
       progressBox.textContent = p >= 1000 ? "Backup written." : `Exporting… ${Math.round(p / 10)}%`;
     };
     core.addEventListener("imex-progress", onProg);
-    try {
+  try {
+    if (pwaExport) {
+      await runBackupExport(pass || null);
+      progressBox.textContent = "Backup downloaded — check your browser downloads.";
+    } else {
       await core.exportBackup(dest, pass || null);
-    } catch (err) {
+    }
+  } catch (err) {
       errToast("Export failed: " + (err?.message || err));
       progressBox.hidden = true;
     } finally {
       core.removeEventListener("imex-progress", onProg);
       exportBtn.disabled = false;
+      lock(false);
+    }
+  });
+
+  /* -- delete profile (#100) -- */
+  const delForm = panes.delete.querySelector("[data-del-form]");
+  const delLast = panes.delete.querySelector("[data-del-last]");
+  const delInput = panes.delete.querySelector("[data-del-confirm]");
+  const delBtn = panes.delete.querySelector("[data-delete]");
+  const delProgress = panes.delete.querySelector("[data-del-progress]");
+  panes.delete.querySelector("[data-del-name]").textContent =
+    state.account?.displayName || state.account?.addr || "this profile";
+  const delAddr = String(state.account?.addr || "");
+  panes.delete.querySelector("[data-del-addr]").textContent = delAddr || "(no address)";
+  if (state.accounts.length <= 1) {
+    delForm.hidden = true;
+    delLast.hidden = false;
+  }
+  delInput.addEventListener("input", () => {
+    delBtn.disabled = !delAddr || delInput.value.trim().toLowerCase() !== delAddr.toLowerCase();
+  });
+  delBtn.addEventListener("click", async () => {
+    if (state.accountChanging || core._accountTransitionBusy) {
+      errToast("Another account operation is running — try again in a moment");
+      return;
+    }
+    lock(true);
+    delBtn.disabled = true;
+    delProgress.hidden = false;
+    delProgress.textContent = "Deleting profile…";
+    try {
+      const moved = await core.deleteAccount(core.accountId);
+      // account-changed refreshes chats and drawer for the reconciled
+      // selection; the modal has nothing left to show either way.
+      toast(moved ? `Profile deleted — switched to ${moved.displayName || moved.addr}` : "Profile deleted");
+      close();
+    } catch (err) {
+      errToast("Delete failed: " + (err?.message || err));
+      delProgress.hidden = true;
       lock(false);
     }
   });
@@ -3742,8 +3854,22 @@ function downloadBytes(bytes, name) {
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
-async function runIdentityExport(pass) {
-  if (!pass || pass.length < 8) throw new Error("Use a passphrase of at least 8 characters — this file IS your account");
+// #104: full-account backup as a browser download (wasm core). The core's
+// imex wrote a .tar into memfs — ship it byte-identical so desktop import
+// round-trips without an unzip step (a zip wrapper would need unpacking
+// before every restore).
+async function runBackupExport(pass) {
+  const dir = "/backup/export";
+  await core.exportBackup(dir, pass || null);
+  const entries = (await core.transport.readCoreFileList(dir)).filter(e => !e.endsWith("/"));
+  if (!entries.length) throw new Error("The core produced no backup file");
+  const name = entries[entries.length - 1];
+  const bytes = await core.transport.readCoreFile(name);
+  downloadBytes(bytes, backupDownloadName(state.account?.addr, new Date().toISOString().slice(0, 10)));
+  return name;
+}
+
+async function runIdentityExport(pass) {  if (!pass || pass.length < 8) throw new Error("Use a passphrase of at least 8 characters — this file IS your account");
   const addr = await core.getConfig("addr");
   const mailPw = await core.getConfig("mail_pw");
   if (!addr || !mailPw) throw new Error("This profile is not configured yet — nothing to back up");
@@ -3762,12 +3888,24 @@ async function runIdentityExport(pass) {
 
 async function runIdentityRestore(file, pass, onPhase) {
   onPhase("Reading backup…");
+  // Wrong passphrase / corrupt file throw here — BEFORE any account is
+  // created, so a bad file can never leave a stray behind.
   const bundle = await unwrapIdentityBundle(new Uint8Array(await file.arrayBuffer()), pass);
   onPhase(`Adding account for ${bundle.addr}…`);
   const id = await core.addAccount();
-  await core.batchSetConfig(id, { addr: bundle.addr, mail_pw: bundle.mail_pw });
-  onPhase("Logging in to the relay…");
-  await core.configureAccount(id);
+  try {
+    await core.batchSetConfig(id, { addr: bundle.addr, mail_pw: bundle.mail_pw });
+    onPhase("Logging in to the relay…");
+    await core.configureAccount(id);
+  } catch (err) {
+    // #99 family: add_account selected the fresh, empty account — a dead
+    // relay here would strand the user on it. Remove the stray (the wrapper
+    // reconciles selection back); on a fresh PWA nothing else exists and the
+    // splash stays the usable retry surface.
+    onPhase("Restore failed — removing the half-created profile…");
+    await core.deleteAccount(id).catch(() => {});
+    throw err;
+  }
   onPhase("Importing encryption keys…");
   const dir = "/identity/import";
   for (const [name, b64] of Object.entries(bundle.keys)) {
@@ -3785,7 +3923,7 @@ function openIdentityBackup({ restoreOnly = false } = {}) {
   }
   const body = document.createElement("div");
   body.innerHTML = `
-    <p class="modal-hint">Your identity is the relay address, its password and your encryption keys — one file keeps all three. The passphrase protects it; losing the passphrase means losing the account.</p>
+    <p class="modal-hint">Your identity is the relay address, its password and your encryption keys — one file keeps all three. The passphrase protects it; losing the passphrase means losing the account. It holds <b>no message history</b> — a full copy including messages is Profile management → Export backup.</p>
     ${restoreOnly ? "" : `
     <details class="backup-export" open>
       <summary>Export this profile</summary>
@@ -4055,6 +4193,10 @@ async function joinFromInvite(link) {
     if (!parsed) { errToast("Could not expand this short invite link", 4500); return; }
   }
   const label = parsed ? inviteLabel(parsed) : null;
+  // joinFlow closed its modal right before calling us: its history.back()
+  // lands async, and a confirm opened before the pop shares the dying entry
+  // and is torn down by it — resolve(false), Join silently does nothing (#103).
+  await modalHistorySettled();
   let ok;
   if (label?.kind === "group") {
     ok = await confirmModal("Join group",
