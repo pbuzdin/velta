@@ -497,13 +497,21 @@ for (const configured of [false, true]) {
         gate.resolve();
         assert.equal(await pending, target);
       }
-      assert.equal(core.accountId, target);
+      // A failed signup on a freshly created account must switch back to the
+      // previous account (#99) — the empty-profile path has nothing to undo.
+      const settled = fails && configured ? A : target;
+      assert.equal(core.accountId, settled);
       assert.equal(core.accountEpoch, 2);
       assert.equal(core._accountTransitionBusy, false);
       assert.equal(core.msgIdCache.size, 0);
       assert.deepEqual(events.at(-1), {
-        name: "account-changed", detail: { accountId: target, accountEpoch: 2 },
+        name: "account-changed", detail: { accountId: settled, accountEpoch: 2 },
       });
+      if (fails && configured) {
+        assert.deepEqual(calls.filter(([method]) => method === "select_account"), [
+          ["select_account", B], ["select_account", A],
+        ]);
+      }
       assert.deepEqual(calls.filter(([method]) => ["set_config_from_qr", "start_io"].includes(method)), [
         ["set_config_from_qr", target, QR], ...(!fails ? [["start_io", target]] : []),
       ]);
