@@ -7,7 +7,12 @@ Extracted from AGENTS.md. Everything about the multi-relay UI in app.js.
 Thin strip below the sidebar header; one equal-width segment per configured
 relay (up to `MAX_RELAYS = 5` in the core, `configure.rs`), each colored by
 that relay's own status — green connected / yellow connecting or retrying /
-amber unreachable-for-new-connections (#76) / red down / blue demo or
+amber unreachable-for-new-connections (#76) / amber **delayed** (#102: relay
+up, SMTP retrying — the combined title reads "Sending delayed — the relay is
+retrying", raised by send-pipeline Warning/Error diagnostics via
+`isSendFailureDiagnostic`, cleared on `smtp-message-sent` or connectivity
+3000+, error toasts throttled to one per 60 s by
+`createRelaySendErrorState` in diagnostics.js) / red down / blue demo or
 local-chat mode. Per-relay status comes from parsing the core's
 `get_connectivity_html` (the only per-transport status the core exposes;
 ceiling noted in `parseConnectivityHtml`). With one relay the line is the

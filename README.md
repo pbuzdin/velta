@@ -332,9 +332,13 @@ description together):
 
 </details>
 <details>
-<summary>Profile management (add, transfer, export)</summary>
+<summary>Profile management (add, transfer, export, delete)</summary>
 
-The drawer's **Profile management…** modal has three tabs:
+The drawer's **Profile management…** modal has four tabs, plus a
+**"Sync only active profile"** switch above them: when enabled, only the
+profile you are currently using syncs mail — other profiles won't receive
+messages until you switch to them (saves battery when you keep several
+profiles around).
 
 - **Add profile** — paste a chatmail invite link, a relay domain, or scan a
   QR; a new profile is created on the relay. No relay name? The splash's
@@ -356,7 +360,14 @@ The drawer's **Profile management…** modal has three tabs:
 - **Export backup** — writes the whole profile (messages, contacts, keys)
   into a timestamped `.tar` in a folder you choose, with an optional
   passphrase (min 6 chars). The profile stays signed in; import via the
-  restore option on the splash.
+  restore option on the splash. In the browser PWA there is no folder
+  picker — the backup downloads straight from the page as
+  `velta-backup-<addr>-<date>.tar`.
+- **Delete profile** — permanently removes the profile you are in: the
+  account, its keys, the message database and all blobs on this device.
+  Velta asks you to type the profile's address to confirm, suggests writing
+  an export first, and refuses to delete your last remaining profile. This
+  cannot be undone.
 
 The **Welcome to Velta** splash (full-screen, with the same choices: create a
 new profile on a relay — type the address or scan its QR — **add as second

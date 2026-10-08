@@ -20,6 +20,12 @@ the `[media]` server in lib.rs.
    read but fails mid-file ones, which kills demuxing of moov-at-end MP4s
    (most phone recordings).
 3. **Asset protocol** — last resort.
+4. **Wasm dist only** — if none of the above apply and
+   `VELTA_PWA.wasmCore` or `localStorage velta-wasm===1`, an
+   `/accounts/` path with no `..` becomes `{base}blob?p=<encoded path>`.
+   The dist service worker reads the bytes from the page
+   (`core.transport.readCoreFile`). A raw `/accounts/...` URL 404s at the
+   site root. Same rule in `mediaFallbackUrl`. See AGENTS.md §4.2.1.
 
 `<img>`/`<video>`/`<audio>` error handlers swap to the legacy chain once
 (`mediaFallbackUrl`) before showing a failure placeholder — keep those

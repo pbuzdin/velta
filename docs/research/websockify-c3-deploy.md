@@ -44,8 +44,10 @@ DNS bridge 8153) and the patched `newemail.py` CGI.
 ## 2. Verify by hand (no browser needed)
 
 ```sh
-# DNS bridge answers a JSON IP array and closes:
-websocat -1 wss://<relay-domain>/dns/<relay-domain>          # → ["203.0.113.7"]
+# DNS bridge answers a JSON IP array and closes. nginx ignores the address
+# in /tcp/<ip>/<port> and dials local IMAP/submission, so the answer is
+# loopback for the mail domain (anything else is []).
+websocat -1 wss://<relay-domain>/dns/<relay-domain>          # → ["127.0.0.1"]
 # Origin gate: browser-like handshake from a disallowed origin is refused:
 websocat -H 'Origin: https://evil.example' wss://<relay-domain>/tcp/<relay-domain>/993  # → 403
 # Mail tunnels carry TLS (client-side): an openssl handshake through the tunnel:
@@ -91,3 +93,8 @@ dist boots on the wasm core with relay-native mail — no other change.
   self-signed mode; the CORS header does not bypass any limiter.
 - The Mimosa push gate (flaky L3 project scan) — pushes of this branch must
   come from the user's terminal after removing `.mimosa/` from the clone.
+- websockify answers a WebSocket close that has no status code with code
+  1005. Chrome logs "Received a broken close frame containing a reserved
+  status code." That is the close handshake. A close with code 1000 is
+  answered 1000. The core logs the DNS address before it connects; that
+  address is not where nginx dials.
