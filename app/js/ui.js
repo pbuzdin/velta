@@ -588,11 +588,11 @@ async function getAppVersion() {
   return APP_VERSION;
 }
 
-// The app-shell cache name (velta-vNN) doubles as the service worker version.
+// Cache name is the service worker version: velta-vNN, or velta-pwa-<hash>.
 async function getSwVersion() {
   try {
     const keys = await caches.keys();
-    const m = keys.map(k => /^velta-(v\d+)$/.exec(k)).find(Boolean);
+    const m = keys.map(k => /^velta-(v\d+|pwa-[0-9a-f]{12})$/.exec(k)).find(Boolean);
     if (m) return m[1];
   } catch {}
   return null;
@@ -618,7 +618,7 @@ function notifyChecked(storageKey) {
 
 const isAndroid = /Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
 
-export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality, downloadLimit = "0", onDownloadLimit, onReadReceipts, onLowBatteryToggle, identityBackupAvailable = false, onIdentityBackup }) {
+export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, onWsRelays, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality, downloadLimit = "0", onDownloadLimit, onReadReceipts, onLowBatteryToggle, identityBackupAvailable = false, onIdentityBackup }) {
   const isTauri = !!window.__TAURI__;
   const drawer = document.createElement("div");
   drawer.className = "drawer";
@@ -714,6 +714,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
       </details>
       <button type="button" class="ctx-item" data-act="profile-management"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 5v4M21 7h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Profile management…</span></button>
       <button type="button" class="ctx-item" data-act="relays"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Relays of this profile…</span></button>
+      ${onWsRelays ? `<button type="button" class="ctx-item" data-act="ws-relays"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>WebSocket relays</span></button>` : ""}
       ${identityBackupAvailable ? `<button type="button" class="ctx-item" data-act="identity-backup"><svg viewBox="0 0 24 24"><circle cx="8" cy="14" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M11 11l8-8M17 5l3 3M14 8l2.5 2.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Identity backup…</span></button>` : ""}
       <button type="button" class="ctx-item" data-act="invite-domains"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Invite link domains</span></button>
       <details class="drawer-details">
@@ -752,8 +753,19 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     if (tv) box.querySelector('[data-v="tauri"]').textContent = tv;
     else box.querySelector('[data-v="tauri"]')?.closest(".drawer-ver")?.remove();
     if (!isTauri) {
-      const sw = await getSwVersion();
-      box.querySelector('[data-v="sw"]').textContent = sw || "not registered";
+      const el = box.querySelector('[data-v="sw"]');
+      const paint = async () => {
+        const sw = await getSwVersion();
+        if (sw) el.textContent = sw;
+        else if (el.textContent === "…") el.textContent = "not registered";
+      };
+      await paint();
+      // Drawer is built during boot. The PWA worker is registered on window
+      // load and its cache appears only after install, so the first read is
+      // often empty. Paint again once that worker is active.
+      if (!/^(?:v\d+|pwa-[0-9a-f]{12})$/.test(el.textContent)) {
+        navigator.serviceWorker?.ready.then(() => paint()).catch(() => {});
+      }
     }
   })();
 
@@ -1009,6 +1021,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     if (act === "profile-management") onProfileManagement?.();
     if (act === "account") onAccountTap?.(btn.dataset.account);
     if (act === "relays") onRelays?.();
+    if (act === "ws-relays") onWsRelays?.();
     if (act === "invite-domains") onInviteDomains?.();
     if (act === "identity-backup") onIdentityBackup?.();
     if (act === "about") showAbout();
