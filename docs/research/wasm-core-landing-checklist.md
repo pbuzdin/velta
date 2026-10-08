@@ -183,14 +183,16 @@ Native builds must not change behaviour because of the wasm patches.
 
 - ✅ alice→bob over local `ws-tcp-proxy` → nine.testrun.org on the
   **in-repo** wrapper built from the pinned copy — Day 9 (see spike log).
-- ⬜ Repeated e2e (≥ 3 consecutive passes on different days) incl.
-  wasm-opt artifact. Day 9: 2/2 local; Day 10: 1 local with proxy
-  `CHATMAIL_ALLOWLIST=nine.testrun.org`, plus CI. CI `e2e=true` PASS:
-  [`37388272660`](https://github.com/pbuzdin/velta/actions/runs/37388272660) (Day 10),
-  [`37392355171`](https://github.com/pbuzdin/velta/actions/runs/37392355171) (Day 11) —
-  [`37396231552`](https://github.com/pbuzdin/velta/actions/runs/37396231552) (Day 12a,
-  new `velta-tokio-wasm`) — 3 consecutive, all on 2026-10-06, so the
-  "different days" condition is still unmet.
+- ✅ Repeated e2e (≥ 3 consecutive passes on different days) incl.
+  wasm-opt artifact. CI `e2e=true` PASS:
+  [`37388272660`](https://github.com/pbuzdin/velta/actions/runs/37388272660),
+  [`37392355171`](https://github.com/pbuzdin/velta/actions/runs/37392355171),
+  [`37396231552`](https://github.com/pbuzdin/velta/actions/runs/37396231552)
+  (2026-10-06),
+  [`37531692405`](https://github.com/pbuzdin/velta/actions/runs/37531692405)
+  (2026-10-07),
+  [`37702314407`](https://github.com/pbuzdin/velta/actions/runs/37702314407)
+  (2026-10-08). Networking e2e alice→bob green on each distinct day (#96).
 - ✅ e2e runnable in CI: `workflow_dispatch` input `e2e=true` (manual only;
   proxy fetched pinned at `452cd0d`, allowlisted to nine.testrun.org) — Day 10.
 - ⬜ e2e against relay-native websockify (`/imap`, `/smtp` + CORS, C3) on a
