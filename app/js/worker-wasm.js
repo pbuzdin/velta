@@ -17,9 +17,7 @@ async function opfsRoot() {
 
 // OPFS snapshot → memfs, before core init (restore survives even a core that
 // never gets to boot — it only needs the module-level vfs_* bindings).
-async function restore() {
-  const root = await opfsRoot();
-  if (!root) return;
+async function restore(root) {
   const walk = async (dir, prefix) => {
     for await (const [name, handle] of dir.entries()) {
       const p = `${prefix}/${name}`;
@@ -36,29 +34,35 @@ async function restore() {
 }
 
 // memfs /accounts → OPFS. Full rewrite of the snapshot so deletions and
-// renames between checkpoints propagate on the next restore.
+// renames between checkpoints propagate on the next restore. The snapshot is
+// staged in memory first: removeEntry must not run unless the memfs walk
+// fully succeeded, or a mid-walk throw would leave OPFS wiped (#106).
 async function checkpoint() {
   const root = await opfsRoot();
   if (!root || !glue) return;
-  try { await root.removeEntry("accounts", { recursive: true }); } catch {}
+  const files = [];
   const walk = async (path) => {
     for (const entry of await glue.vfs_list(path)) {
       if (entry.endsWith("/")) {
         await walk(entry);
       } else {
-        const parts = entry.split("/").filter(Boolean);
-        let dir = root;
-        for (let i = 0; i < parts.length - 1; i++) {
-          dir = await dir.getDirectoryHandle(parts[i], { create: true });
-        }
-        const fh = await dir.getFileHandle(parts[parts.length - 1], { create: true });
-        const w = await fh.createWritable();
-        await w.write(glue.vfs_read(entry));
-        await w.close();
+        files.push({ path: entry, bytes: glue.vfs_read(entry) });
       }
     }
   };
   await walk("/accounts");
+  try { await root.removeEntry("accounts", { recursive: true }); } catch {}
+  for (const f of files) {
+    const parts = f.path.split("/").filter(Boolean);
+    let dir = root;
+    for (let i = 0; i < parts.length - 1; i++) {
+      dir = await dir.getDirectoryHandle(parts[i], { create: true });
+    }
+    const fh = await dir.getFileHandle(parts[parts.length - 1], { create: true });
+    const w = await fh.createWritable();
+    await w.write(f.bytes);
+    await w.close();
+  }
 }
 
 self.onmessage = async (e) => {
@@ -72,7 +76,13 @@ self.onmessage = async (e) => {
         // C4: ask for eviction exemption (best-effort — denial is not fatal;
         // the V2.5 identity backup is the real hedge against storage pressure).
         navigator.storage?.persist?.().catch(() => {});
-        await restore();
+        // #106: a skipped restore boots an empty core that init() reads as a
+        // fresh install — it would add_account and the next checkpoint would
+        // rewrite the good snapshot over it. Fail the boot loudly instead;
+        // the worker answers no RPC until the snapshot is confirmed restored.
+        const root = await opfsRoot();
+        if (!root) throw new Error("OPFS unavailable — cannot restore accounts");
+        await restore(root);
       }
       dc = await glue.init(
         (line) => self.postMessage({ type: "line", line }),
