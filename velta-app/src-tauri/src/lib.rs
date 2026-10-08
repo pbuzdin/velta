@@ -1307,7 +1307,8 @@ fn notify_incoming(
     }
     // Activation fires in-process while the app runs (toasts are only shown
     // when the window is hidden, so it normally does): bring the window back
-    // and route the chat link into the WebView's deep-link listener.
+    // and park the chat link. The page treats "deeplink" as a wake-up and
+    // drains OPENED_URLS, so the link has to be queued or the tap is a no-op.
     // Without a token the toast still shows; its tap only focuses the app,
     // because the page would reject a bare velta://chat link.
     if let Some(chat_id) = chat_id.filter(|&id| id > 0) {
@@ -1318,6 +1319,7 @@ fn notify_incoming(
                 toast = toast.on_activated(move |_action| {
                     focus_main_window(&app);
                     log(&format!("toast activated: {}", redact_chat_link(&link)));
+                    queue_opened(link.clone());
                     app.emit("deeplink", link.clone()).ok();
                     Ok(())
                 });

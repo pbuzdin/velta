@@ -129,6 +129,16 @@ test("an account switch racing the chat lookup drops the open", async () => {
   assert.deepEqual(log, [["getChat", 5]]);
 });
 
+test("a Windows toast tap queues the chat link before the wake-up emit", () => {
+  const lib = readFileSync(new URL("../velta-app/src-tauri/src/lib.rs", import.meta.url), "utf8");
+  const start = lib.indexOf("toast = toast.on_activated");
+  assert.ok(start > 0);
+  const body = lib.slice(start, lib.indexOf("Ok(())", start));
+  const queue = body.indexOf("queue_opened(link.clone())");
+  const emit = body.indexOf("app.emit(\"deeplink\"");
+  assert.ok(queue >= 0 && emit > queue);
+});
+
 test("a chat link without this install's token does not open", async () => {
   const { ctx, log } = setup();
   await ctx.handleDeeplinkFromUrl("velta://chat?account=2&chat=9");

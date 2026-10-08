@@ -60,6 +60,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── p2p.js            # Local chat UI: drawer toggle, list card, pairing, legacy 1:1 modal (Tauri only)
 │   │   ├── read-markers.js   # manual "read up to here" markers per (account, chat), localStorage-only
 │   │   ├── qr-actions.js     # QR screen logic: scan-tab/share availability, copy/share link, scanned-code classification (#37)
+│   │   ├── share-in.js       # inbound share (#97): text/file payloads; invite and chat links stay on the deeplink router
 │   │   ├── qr-scan.js        # code acquisition: paste or camera scan (native BarcodeDetector probed with a 2s timeout, vendored jsQR fallback (`app/vendor/jsQR.js`, minified ~131 KB, loaded on demand) — many Android WebViews ship no Shape Detection API or one whose detect() hangs)
 │   │   ├── format.js         # time/size/pageBounds helpers; timeTag/stampTime emit <time datetime>
 │   │   ├── mock-core.js      # in-memory demo core implementing the JSON-RPC surface (NOT in the prod import graph: transport imports it dynamically)
@@ -508,12 +509,17 @@ profile). The token is a persistent 128-bit hex value in app-local data
 signature must keep matching) and sets an explicit `ACTION_VIEW` content
 intent with the link on `MainActivity`; tao turns VIEW data into
 `RunEvent::Opened` on cold start (onCreate) and warm start (singleTask →
-onNewIntent), and `run()` parks it for `get_initial_deeplink` + emits
-`deeplink`. Windows: `notify_incoming` takes `accountId`/`chatId`, appends
-the same token, and the toast's `on_activated` focuses the main window and
-emits `deeplink` (in-process only — a toast clicked after the app quit just
-launches it). Frontend: load `chat_link_token` before handling any link,
-then `handleDeeplinkFromUrl` → `extractChatLink` → `openChatFromLink`
+onNewIntent). `run()` appends every opened URL to `OPENED_URLS` and emits
+`deeplink` as a wake-up only. Windows: `notify_incoming` takes `accountId`/`chatId`, appends
+the same token, and the toast's `on_activated` focuses the main window,
+queues that link, and emits `deeplink` (in-process only — a toast clicked
+after the app quit just launches it). Frontend: load `chat_link_token`
+before handling any link, listen for `deeplink`, then drain with
+`take_opened_urls` (`get_initial_deeplink` still pops one entry; the page
+does not call it). The `deeplink` payload is not the URL.
+`deep-link://new-url` is the exception: the desktop plugin does not queue,
+and the page routes that payload. Then `handleDeeplinkFromUrl` →
+`extractChatLink` → `openChatFromLink`
 (switch account if needed, `getChat` check, `openChat`). A `velta://chat`
 whose `t` does not match is ignored (issue #23), so a web page that fires
 the scheme cannot switch account or open a chat. Pinned by
@@ -523,6 +529,21 @@ because that is its only caller. The macOS and Windows release builds set
 `RUSTFLAGS=-D warnings`, so an ungated helper is dead code on macOS and
 fails the job (v1.4.44 never published). Gate a new helper with the same
 `cfg` as the code that calls it. See docs/agents/release-ci.md.
+
+**Share into Velta (#97)** uses that same queue. KEEP: `MainActivity`
+registers `ACTION_SEND` and `ACTION_SEND_MULTIPLE` (separate filters,
+`DEFAULT`, mime types OR). The page always shows "Share to…" (skip
+`deaddrop`, `device`, and `readOnly`; p2p included) and sends through
+`core.sendMessage` after `resolve_content_uri` for `content://`. Invite and
+chat links are not shares: `handleDeeplinkFromUrl` returns true when it
+consumed one, including a rejected token, and only unconsumed https becomes
+text. Listen for `deeplink`, then drain. Windows has no share-sheet entry
+(the 11 flyout is packaged-only): setup writes
+`%APPDATA%\Microsoft\Windows\SendTo\Velta.lnk` and recreates it only when
+the UTF-16LE target is not this exe. Do not add other files there. Outbound
+QR "Share a link" is still #37 (`share_text`). Pinned by
+`tests/share-in.test.mjs` and `cargo test --lib opened_args_tests`. Detail:
+docs/agents/android-shell.md.
 
 The skeleton currently contains only Cargo/Gradle manifests. To rebuild when the
 source is added:
@@ -999,7 +1020,7 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   Contacts come from `core.getContacts` through a virtual scroller
   (`sideScroller`, stopped by `stopSideScroller` on every view switch);
   Calls read the LOCAL call log (localStorage `velta-call-log`, capped 30 —
-  the core has no call-log API); QR renders `inviteQrProvider(null)` (#37: tabs My code / Scan a QR code — scan tab phones-only, in-page `mountScanner` in qr-scan.js, camera stopped by `stopQrScanner` from `setListView`; Copy a link; Share a link = `share_text` JNI → Share.kt on Android, Web Share elsewhere; logic in qr-actions.js, test tests/qr-screen.test.mjs). The
+  the core has no call-log API); QR renders `inviteQrProvider(null)` (#37: tabs My code / Scan a QR code — scan tab phones-only, in-page `mountScanner` in qr-scan.js, camera stopped by `stopQrScanner` from `setListView`; Copy a link; Share a link = `share_text` JNI → Share.kt on Android, Web Share elsewhere; logic in qr-actions.js, test tests/qr-screen.test.mjs). Inbound share into a chat is #97 (§4.4), not this button. The
   header search button and `#btn-new-chat` are view toggles
   (`syncHeaderButtons()` from `setListView` — keep that call). Button
   visibility is user-configurable (drawer → Bottom bar buttons, localStorage
