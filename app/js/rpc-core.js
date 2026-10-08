@@ -1687,10 +1687,13 @@ export class JsonRpcCore extends EventTarget {
 
   // Add a profile from a dcaccount: / relay invite link.
   // Configures the current account if it's still empty, otherwise creates
-  // a new account on the relay and switches to it.
+  // a new account on the relay and switches to it. A failed configure on a
+  // freshly created account selects the previous account back — the core
+  // keeps the stray account selected otherwise (#99).
   // Returns the configured account ID. Uses the same two epoch boundaries
   // as switchAccount, including when configuring the existing empty profile.
   async addAccountWithQr(qrContent) {
+    const prevId = this.accountId;
     let { accountId } = this;
     if (!/^dcaccount:/i.test(qrContent) && !/^https?:\/\//i.test(qrContent)) {
       throw new Error("not a relay invite link");
@@ -1707,6 +1710,11 @@ export class JsonRpcCore extends EventTarget {
       await this.configureWithQr(qrContent, accountId);
       failed = false;
       return accountId;
+    } catch (err) {
+      if (accountId !== prevId) {
+        try { await this._call("select_account", prevId); } catch { /* reconcile below */ }
+      }
+      throw err;
     } finally {
       await this._finishAccountChange(failed);
     }
@@ -1745,8 +1753,9 @@ export class JsonRpcCore extends EventTarget {
   // into a fresh account (reuses the current one if still unconfigured) and
   // starts IO on it. The transfer itself runs fire-and-forget — it can take
   // minutes; track it via imex-progress events. Same two epoch boundaries
-  // as addAccountWithQr.
+  // as addAccountWithQr, including the select-back on failure (#99).
   async addAccountWithBackup(qrContent) {
+    const prevId = this.accountId;
     this._beginAccountChange();
     let failed = true;
     try {
@@ -1760,6 +1769,11 @@ export class JsonRpcCore extends EventTarget {
       this._call("get_backup", targetId, qrContent).catch(() => {});
       failed = false;
       return targetId;
+    } catch (err) {
+      if (this.accountId !== prevId) {
+        try { await this._call("select_account", prevId); } catch { /* reconcile below */ }
+      }
+      throw err;
     } finally {
       await this._finishAccountChange(failed);
     }
