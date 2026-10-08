@@ -78,6 +78,8 @@ const directives = cspMatch[2].split(';').map((d) => d.trim()).filter(Boolean)
   .map((d) => [d.split(' ')[0], ...d.split(' ').slice(1)])
 const get = (name) => directives.find(([k]) => k === name)
 get('script-src').push("'wasm-unsafe-eval'")
+// User-chosen relays (WebSocket relays setting) are not known at build time.
+get('connect-src').push("https:", "wss:")
 if (wsProxy) get('connect-src').push(wsProxy)
 const csp = directives.map(([k, ...v]) => [k, ...v].join(' ')).join('; ')
 html = html.replace(cspMatch[0], cspMatch[1] + csp + cspMatch[3])
@@ -97,7 +99,7 @@ window.VELTA_PWA = {
   wsProxyUrl: ${JSON.stringify(wsProxy)}, // ws(s):// mail proxy (C3 websockify); "" until the relay ships it
 };
 if ('serviceWorker' in navigator) {
-  addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+  addEventListener('load', () => navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch(() => {}));
 }
 `)
 
@@ -127,9 +129,37 @@ self.addEventListener('activate', (e) => {
 });
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
-  if (new URL(e.request.url).origin !== self.location.origin) return;
+  const url = new URL(e.request.url);
+  if (url.origin !== self.location.origin) return;
+  if (url.pathname.endsWith('/blob') && url.searchParams.has('p')) {
+    e.respondWith(serveAccountBlob(e, url.searchParams.get('p')));
+    return;
+  }
   e.respondWith(caches.match(e.request).then((hit) => hit || fetch(e.request)));
 });
+function serveAccountBlob(event, path) {
+  if (!path || !path.startsWith('/accounts/') || path.includes('..')) {
+    return Promise.resolve(new Response('bad path', { status: 400 }));
+  }
+  const ext = (path.split('.').pop() || '').toLowerCase();
+  const type = ({ jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', mp4: 'video/mp4', webm: 'video/webm', mp3: 'audio/mpeg', ogg: 'audio/ogg', m4a: 'audio/mp4', pdf: 'application/pdf' })[ext] || 'application/octet-stream';
+  return (async () => {
+    const client = await self.clients.get(event.clientId) || (await self.clients.matchAll({ type: 'window', includeUncontrolled: true }))[0];
+    if (!client) return new Response('no client', { status: 404 });
+    const bytes = await new Promise((resolve, reject) => {
+      const ch = new MessageChannel();
+      const timer = setTimeout(() => reject(new Error('timeout')), 20000);
+      ch.port1.onmessage = (ev) => {
+        clearTimeout(timer);
+        if (ev.data && ev.data.error) reject(new Error(ev.data.error));
+        else resolve(ev.data && ev.data.bytes);
+      };
+      client.postMessage({ type: 'velta-blob', path }, [ch.port2]);
+    });
+    if (!bytes) return new Response('missing', { status: 404 });
+    return new Response(bytes, { headers: { 'Content-Type': type, 'Cache-Control': 'private, max-age=3600' } });
+  })().catch(() => new Response('blob failed', { status: 404 }));
+}
 `)
 
 console.log(`PWA dist: ${outDir} (${files.length} files, wasm ${(wasmBytes / 1048576).toFixed(1)} MB${wasmOpt ? ', optimized' : ', NO-OPT — pass --wasm-opt for deploys'})`)

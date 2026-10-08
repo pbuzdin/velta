@@ -3,13 +3,14 @@ import { createCore } from "./transport.js";
 import "./components.js";
 import { escapeHtml, escapeAttr } from "./components.js";
 import { chatCategoryOf, swipeCategoryStep, batteryReactionPlan } from "./rpc-core.js";
-import { fileUrl } from "./media.js";
+import { fileUrl, setWasmBlobReader } from "./media.js";
 import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintGroups } from "./avatar.js";
 import { ChatView, setAvatarProfileOpener } from "./chat-view.js";
 import { initCalls } from "./calls.js";
 import { initWebxdc } from "./webxdc-manager.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal, isShortInviteLink, expandShortInvite } from "./invites.js";
+import { activeWsRelay, showWsRelaysModal } from "./ws-relays.js";
 import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate, popoverSupported } from "./ui.js";
 import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact, showCreateGroupModal, showAddMembersModal } from "./p2p.js";
 import { withLocalChat, hubModel, renameDevice, removePeer, dismissLocalGroup, groupRename, groupRemoveMember, peerGroupImpact, groupActionsModel, groupMemberHint, removePeerImpactText, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
@@ -382,6 +383,7 @@ if (!core) {
   core = withLocalChat(new MockCore());
   core.backend = { kind: "mock", label: "demo mode (no local core)", connected: false };
 }
+if (core?.transport?.readCoreFile) setWasmBlobReader((path) => core.transport.readCoreFile(path));
 // The core's per-transport Info events (IMAP/DNS/quota/idle chatter) flood
 // the Diagnostics chat within seconds and bury everything useful. Keep
 // warnings/errors plus the Info lines that actually describe message
@@ -3914,6 +3916,9 @@ function rebuildDrawer() {
     currentAccountId: core.accountId,
     onAccountTap: accountTapFlow,
     onRelays: () => openRelaysModal(),
+    onWsRelays: (!window.__TAURI__ && !window.VeltaBridge && (window.VELTA_PWA?.wasmCore || localStorage.getItem("velta-wasm") === "1"))
+      ? () => showWsRelaysModal()
+      : undefined,
     onSetTheme: (mode) => { state.theme = mode; applyTheme(); },
     onProfileManagement: () => openProfileManagement(),
     onInvite: () => showInvite(inviteQrProvider(null), { account: state.account }),
@@ -4144,6 +4149,7 @@ function showSplash() {
         <button class="btn-text splash-btn" data-restore type="button">Restore from a backup…</button>
         ${identityBackupAvailable() ? `<button class="btn-text splash-btn" data-identity-restore type="button">Restore an identity backup…</button>` : ""}
         <button class="btn-text splash-btn" data-local type="button">Enter local chat…</button>
+        ${(!window.__TAURI__ && !window.VeltaBridge && (window.VELTA_PWA?.wasmCore || localStorage.getItem("velta-wasm") === "1")) ? `<button class="btn-text splash-btn" data-ws-relays type="button">WebSocket relays</button>` : ""}
       </div>
       <form class="splash-form" data-form hidden>
         <p class="splash-hint">Enter a <b>chatmail</b> relay address — an instant end-to-end encrypted profile will be created for you. No email or password needed.</p>
@@ -4204,8 +4210,10 @@ function showSplash() {
   el.querySelector("[data-create]").addEventListener("click", () => {
     actionsEl.hidden = true;
     formEl.hidden = false;
+    if (!input.value && activeWsRelay()) input.value = activeWsRelay();
     setTimeout(() => input.focus(), 60);
   });
+  el.querySelector("[data-ws-relays]")?.addEventListener("click", () => showWsRelaysModal());
 
   // Camera permission is requested inside acquireCode — the sheet opens with
   // the camera starting immediately (autoScan), no second tap needed.

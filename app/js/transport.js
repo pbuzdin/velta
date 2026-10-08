@@ -10,6 +10,7 @@
 //   5. anything else (dev/demo)       → mock core
 import { JsonRpcCore } from "./rpc-core.js";
 import { WorkerWasmTransport } from "./transport-worker-wasm.js";
+import { wsProxyUrl } from "./ws-relays.js";
 
 const WS_URL = "ws://127.0.0.1:20808";
 const HTTP_URL = "http://127.0.0.1:20809";
@@ -263,7 +264,7 @@ export async function createCore({ onDiagnostic = () => {} } = {}) {
     diagnostic("info", "wasm opt-in: trying worker-wasm core");
     attempts.push(() => new WorkerWasmTransport({
       glueUrl: wasmGlueUrl(),
-      wsProxyUrl: window.VELTA_PWA?.wsProxyUrl || null,
+      wsProxyUrl: wsProxyUrl(),
     }));
   }
   attempts.push(websocketTransport);

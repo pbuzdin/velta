@@ -71,8 +71,52 @@ export function fileUrl(path, opts = {}) {
       debugLog(`fileUrl path=${path} resolved=${resolved} url=${url}`);
       return url;
     }
+    // Wasm keeps blobs in the core memfs. A raw /accounts/... src is fetched
+    // from the site root and 404s. The service worker answers /blob instead.
+    if (wasmBlobs()) {
+      const href = wasmBlobHref(resolved, document.baseURI);
+      if (href) {
+        debugLog(`fileUrl path=${path} url=${href} (wasm blob)`);
+        return href;
+      }
+    }
   } catch (e) { rustLog(`fileUrl error: ${e}`); }
   return path;
+}
+
+function wasmBlobs() {
+  try {
+    if (window.VELTA_PWA?.wasmCore) return true;
+    return localStorage.getItem("velta-wasm") === "1";
+  } catch { return false; }
+}
+
+// Only account blobs. Anything else stays a plain path.
+export function wasmBlobHref(resolved, base) {
+  if (!resolved || !resolved.startsWith("/accounts/") || resolved.includes("..")) return "";
+  try {
+    return new URL("blob?p=" + encodeURIComponent(resolved), base).href;
+  } catch { return ""; }
+}
+
+let readWasmBlob = null;
+export function setWasmBlobReader(fn) { readWasmBlob = fn; }
+
+if (typeof navigator !== "undefined" && navigator.serviceWorker) {
+  navigator.serviceWorker.addEventListener("message", async (e) => {
+    if (e.data?.type !== "velta-blob") return;
+    const port = e.ports?.[0];
+    if (!port) return;
+    try {
+      if (!readWasmBlob) throw new Error("blob reader not ready");
+      let bytes = await readWasmBlob(e.data.path);
+      if (!bytes) throw new Error("empty blob");
+      if (!(bytes instanceof Uint8Array)) bytes = new Uint8Array(bytes);
+      port.postMessage({ bytes });
+    } catch (err) {
+      port.postMessage({ error: String(err?.message || err) });
+    }
+  });
 }
 
 // Legacy chain for per-element recovery: when a blobfile media request
@@ -85,5 +129,9 @@ export function mediaFallbackUrl(path) {
   if (base) return `${base}/${encodeURIComponent(resolved)}`;
   const tauri = window.__TAURI__;
   if (tauri?.core?.convertFileSrc) return tauri.core.convertFileSrc(resolved);
+  if (wasmBlobs()) {
+    const href = wasmBlobHref(resolved, document.baseURI);
+    if (href) return href;
+  }
   return path;
 }
