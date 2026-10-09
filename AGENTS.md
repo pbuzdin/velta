@@ -146,6 +146,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── docs/research/wasm-patches/   # 10-patch wasm series (series.txt, VENDORED.md, pinned locks + PROVENANCE)
 ├── packages/deltachat-wasm/      # MPL wasm wrapper — README = local wasm-pack build + e2e recipes
 ├── scripts/build-pwa.mjs         # C4 PWA dist builder (app/ + wasm assets + pwa-config.js + precache SW) — §4.2.1
+├── scripts/relay-invite/         # invite-only signup: invite.py CGI (interstitial + claim) + invite-tool.py CLI — deployed to the private relay (§4.2.1 relay-list bullet)
 ├── scripts/verify-pwa-dist.mjs   # PWA dist rig: 10 checks (boot, OPFS persist, SW, identity-backup surface)
 └── tools/                    # icon generation, WSL APK build/sign helpers,
                               serve-dev.py (no-cache static server for app/)
@@ -366,6 +367,28 @@ Wasm mail in that dist (`tests/ws-relays.test.mjs`, `tests/wasm-blob-url.test.mj
   multi-transport mail in wasm still rides the single active tunnel, a
   deeper design question. The probe runbook + chatmail.uk verdict:
   docs/research/ws-relay-endpoints-probe.md.
+- **Invite-only account creation (R1/V2 v1, 10-09).** Open signup is
+  CLOSED on the private relay: nginx `/new` + `/cgi-bin/newemail.py`
+  return 403; the only path is an invite link `https://<relay>/i/<token>`.
+  Relay pieces live in `scripts/relay-invite/` (deployed to the box:
+  `/usr/lib/cgi-bin/invite.py` + `/root/relay/invite-tool.py`, store
+  `/var/lib/velta-invites/invites.json` root:www-data **0660** — the claim
+  CGI must WRITE the decrement; `invite-tool save()` has to chown the
+  tmp file or every mint flips it root:root and all claims 502). Flow:
+  interstitial GET `/i/<token>` → same-origin PWA link
+  `/app/index.html#/join?t=<token>` → `createAccountFromRelayInvite` →
+  GET `/i/claim?t=` (fcgiwrap 502s request BODIES on this box — do not
+  "fix" it back to POST) → flock'd atomic single-use consume →
+  `configureWithCredentials`. Claimed credentials park in
+  `sessionStorage velta-invite-creds` (30 min) so a configure failure
+  retries without burning a second invite; tunnel-switch reload resumes
+  via `velta-pending-invite`. Minting (on the box, root):
+  `python3 /root/relay/invite-tool.py add [uses] [days] [note]` prints
+  the link; `list` / `revoke <token|url>`. Known simplifications vs the
+  plan: raw token rides URLs (it IS the invite secret), no AEAD tickets,
+  CLI minting instead of admin endpoints, no client-URL redirect dance
+  (PWA is same-origin). PWA-only claim path; native clients get set up
+  via dclogin: links from the operator.
 - **The logged IP is the DNS answer, printed before connect.** On wasm the
   dial is `wss://<proxy>/tcp/<ip>/993` (465 for submission). nginx ignores
   `<ip>` and connects to this relay's Dovecot or Postfix; TLS checks the
@@ -1710,7 +1733,7 @@ Skip Lighthouse for the installed app; it's only weakly useful for PWA mode.
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 51 files, 420 tests as of 2026-10-09:
+whole set — 52 files, 426 tests as of 2026-10-09:
 
 ```bash
 node --test tests/

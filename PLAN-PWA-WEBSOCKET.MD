@@ -166,7 +166,7 @@ possible (same discipline as PR #1061).
 - **R0 — Fork baseline.** Fork `chatmail/relay`, branch `velta-pwa`, decide
   tracking: mirror upstream main, keep our changes as few thematic commits
   (rebase-friendly). Record the fork in `docs/`.
-- **R1 — Invite-link account creation** (upstream-PR candidate on its own;
+- **R1 — Invite-link account creation — SHIPPED v1 (10-09, simplified: scripts/relay-invite/ + PWA #/join flow; upstream-PR candidate for the full version)** (upstream-PR candidate on its own;
   resolves OQ-3: invites, not just a cap).
   - Data model: `invites` store (token hash, kind single|multi, uses_left,
     expires_at, revoked, note). `chatmail.ini`: `invite_required =
