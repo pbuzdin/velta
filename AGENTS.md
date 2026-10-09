@@ -69,7 +69,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── transport-worker-wasm.js # wasm transport: hosts the core in a module worker; memfs file passthrough (readCoreFile/readCoreFileList/writeCoreFile), single-tab Web Locks gate
 │   │   ├── worker-wasm.js    # wasm worker: OPFS snapshot → memfs before core init (persist boot FAILS LOUDLY without OPFS — #106), checkpoint stages in memory before the destructive rewrite, memfs file ops
 │   │   ├── identity-backup.js # V2.5 identity backup: bundle build/wrap/unwrap (WebCrypto), base64 helpers, backup download name (#104), gzipBytes/gunzipBytes (CompressionStream — returns input unchanged when unsupported; callers detect by identity to decide the .gz suffix)
-│   │   ├── ws-relays.js      # PWA websocket relay list; baked VELTA_PWA.wsProxyUrl until a domain is chosen
+│   │   ├── ws-relays.js      # PWA websocket relay list; baked VELTA_PWA.wsProxyUrl until a domain is chosen; probeC3Relay (C3 capability probe)
 │   │   ├── webxdc-manager.js # webxdc host: opaque-origin sandboxed app overlay, shim postMessage relay, per-instance serials
 │   │   ├── link-preview.js   # OG cards; drawer is off / picture / fetch (#88)
 │   │   ├── trackers.js       # drop known tracking query params on paste and on open (#89)
@@ -351,6 +351,21 @@ Wasm mail in that dist (`tests/ws-relays.test.mjs`, `tests/wasm-blob-url.test.mj
   Hostnames need a dot; schemes, paths, and `:port` are stripped. The dist
   CSP `connect-src` adds `https:` and `wss:` plus the baked URL. Another
   relay must allow this page's Origin. Placeholders stay `relay.example.org`.
+- **Account creation is C3-gated (10-09).** All three create paths (splash
+  form, profile-modal add, deeplink new-profile) run
+  `ensureMailTunnelForLink(link)` first — PWA only (`VELTA_PWA.wasmCore`),
+  never the shells/mock. It probes `wss://<host>/dns/<host>`
+  (`probeC3Relay`, ws-relays.js): a capable relay answers its own name with
+  a NON-EMPTY JSON IP array; 404 (stock chatmail, e.g. nine.testrun.org),
+  origin-gate 403, HTML, or silence → clear error instead of the core's
+  misleading "Could not find DNS resolutions". Capable-but-not-active →
+  `addWsRelay`+`useWsRelay`+stash the link in `sessionStorage
+  velta-pending-add`+reload; boot resumes the create after the
+  notifications block (stash removed before use — no reload loops). Note:
+  adding a relay to an EXISTING profile (`addRelayFlow`) is not gated —
+  multi-transport mail in wasm still rides the single active tunnel, a
+  deeper design question. The probe runbook + chatmail.uk verdict:
+  docs/research/ws-relay-endpoints-probe.md.
 - **The logged IP is the DNS answer, printed before connect.** On wasm the
   dial is `wss://<proxy>/tcp/<ip>/993` (465 for submission). nginx ignores
   `<ip>` and connects to this relay's Dovecot or Postfix; TLS checks the
