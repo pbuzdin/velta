@@ -12,8 +12,11 @@ up, SMTP retrying — the combined title reads "Sending delayed — the relay is
 retrying", raised by send-pipeline Warning/Error diagnostics via
 `isSendFailureDiagnostic`, cleared on `smtp-message-sent` or connectivity
 3000+, error toasts throttled to one per 60 s by
-`createRelaySendErrorState` in diagnostics.js) / red down / blue demo or
-local-chat mode. Per-relay status comes from parsing the core's
+`createRelaySendErrorState` in diagnostics.js) / grey **offline** (probe
+failing past the 10 min `RELAY_OFFLINE_AFTER_MS` grace — a relay down for
+days is a fact, not an active problem; overrides every core state including
+stale-green) / red down / blue demo or local-chat mode. Per-relay status
+comes from parsing the core's
 `get_connectivity_html` (the only per-transport status the core exposes;
 ceiling noted in `parseConnectivityHtml`). With one relay the line is the
 old single bar; the combined `get_connectivity` view drives the 45 s
@@ -29,15 +32,23 @@ timeout; a bare TCP connect is useless behind a fake-IP VPN, the local proxy
 accepts instantly). Any HTTP response counts as reachable; a transport error
 downgrades a core-green segment to `data-state="unreachable"` (amber, seg +
 chip) with the tooltip suffix "not accepting new connections (web check
-failed)". Probes run at most once per domain per 60 s (`relayProbeCache`);
+failed)". Probe entries carry `failedSince` (the first consecutive failure,
+preserved across the 60 s re-probe cycles): once a relay keeps failing for
+`RELAY_OFFLINE_AFTER_MS` (10 min), `relaySegmentDisplayState` drops the
+segment to `data-state="offline"` (grey seg + chip, tooltip "offline (not
+accepting connections for a while)") — including core-red, since the probe
+is ground truth for reachability. A passing probe clears `failedSince` and
+the segment recovers on the next render. Probes run at most once per domain
+per 60 s (`relayProbeCache`);
 a 60 s `setInterval(refreshRelayStatus)` drives them while the core is
 silent. `parseConnectivityHtml` now also captures the SMTP dot the core
 renders OUTSIDE the transport `<li>`s ("Outgoing messages" section — the
 per-transport loop can't see it) and the sending relay's segment inherits
-it worst-of; a failed probe is cleared the next time the relay answers. The HTML
+it worst-of. The HTML
 parsing (segments + SMTP dot + smtp-via) is pinned by
-`tests/relay-connectivity-parse.test.mjs`, which runs the production
-`parseConnectivityHtml` via the slice harness.
+`tests/relay-connectivity-parse.test.mjs`, and the offline escalation by
+`tests/relay-offline-state.test.mjs` — both run the production functions
+via the slice harness.
 
 ## Relay detail chips (`#relay-detail`)
 
@@ -50,10 +61,13 @@ The chip row reuses the line's flex template (equal widths, same gap), so
 each chip sits directly above its own segment.
 
 Chip content is info-only: the masked domain plus the quota percent —
-`chat.example.uk` renders as `cha*.uk · 55% used` (`maskRelayDomain`: first
-3 chars, one asterisk, TLD visible). Unmasked domain, status text and the
-full quota line ride the `title` tooltip; a red border marks a down relay,
-an amber border the #76 unreachable state.
+`chat.example.uk` renders as `cha*.uk · 55%` (`maskRelayDomain`: first
+3 chars, one asterisk, TLD visible); the old `<meter>` gauge is gone and
+the percent text carries its warning colors instead (green < 70, amber
+70–90, red > 90 via `data-level`). Status text ("· connecting") appears
+only when the relay has no quota line to show. Unmasked domain, status text and the
+full quota line ride the `title` tooltip; chip borders mirror the segment
+state — red down, amber #76 unreachable, grey offline.
 The relay SELECTED for sending is the transport the SMTP loop is actually
 bound to (#79): the vendored core exposes it as `<span class="smtp-via">`
 in the connectivity HTML's Outgoing section (VENDORISSUES entry 10 —
@@ -63,7 +77,10 @@ marker follows the messages and moves back on reconnect. Old cores report
 nothing and the envelope falls back to `configured_addr`
 (`state.account.addr`'s domain, or the only relay when unmatched). Demo/
 local mode is never marked. The envelope marks identity, not activity — the
-line's animated dashes stay the messages-in-flight signal. Revealed by
+line's animated dashes stay the messages-in-flight signal — but its color
+reports SMTP-loop health via `data-smtp`: green ok, amber retrying
+(`connecting` or the #102 delayed state), red down, grey unknown (old core
+without the #79 patch). Revealed by
 hovering the line (desktop) or pulling down at the top of the chat list on
 mobile (touch listeners on `#chat-list`); hides itself after a few
 seconds. Quota comes from the connectivity page's `quota-list` (same

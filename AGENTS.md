@@ -1783,7 +1783,8 @@ node --test tests/
 The suites pin renderer logic without a browser: account isolation
 (rpc/chat/app), event polling, message-update hardening, read tracking,
 scroll restore, incremental chat list, category bar, local groups/media/typing,
-plus the newer areas — relay-line connectivity parsing and the #102
+plus the newer areas — relay-line connectivity parsing, the offline
+escalation (`relay-offline-state.test.mjs`) and the #102
 delayed-send state machine (`relay-send-error.test.mjs`), profile deletion
 wrapper boundaries (`delete-account.test.mjs`), the sync-only-active IO
 funnel (`sync-only-active.test.mjs`), wasm worker boot/checkpoint ordering

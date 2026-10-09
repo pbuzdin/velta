@@ -140,7 +140,6 @@ Support: universal. Styling: `appearance:none` + `::-webkit-progress-*` / `::-mo
 | Chat load bar | `index.html:85` | `div[role=progressbar]` with a CSS sweep | `<progress aria-label="Loading chat history">` without value = indeterminate | Low | S | Low | P3 |
 | In-app browser load bar | `inapp-browser.js:31` | `::before` sweep | indeterminate `<progress>` | Low | S | Low | P3 |
 | Update download | `ui.js:389-440` | percentage in the button text | `<progress>` under the button + `aria-describedby` | Med | S | Low | P2 |
-| Relay quota | `app.js:572,774-775` | "55% used" text parsed from core HTML | `<meter min=0 max=100 low=70 high=90 optimum=0 value=55>` in the relay detail | Med | S | Low | P2 |
 | Selection count | `index.html:106` (`#sel-count`) | span updated by JS | `<output aria-live="polite">` | Low | S | Low | P3 |
 
 ### 6. `<time datetime>`, `<search>`, `<menu>`

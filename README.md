@@ -409,13 +409,18 @@ animation on the sending relay's segment only.
 The thin status line above the chat list reflects the relay connection:
 green connected, yellow connecting/retrying, amber when a relay is not
 accepting new connections (Velta checks them out-of-band — the core alone
-can keep a dead relay green for hours), red unreachable (after a 45 s
+can keep a dead relay green for hours), grey once a relay has been refusing
+connections for a while (offline — a fact, not an active problem), red
+unreachable (after a 45 s
 grace), blue for demo or local-chat-only mode; animated dashes while a
 message is on its way to the relay. Hovering the line (or pulling down at
 the top of the chat list on mobile) reveals one **chip per relay** above the
-line — `cha*.uk · 55% used` style: the relay's domain privacy-masked, plus
-its storage quota. A **✉ envelope** on a chip marks the relay your messages
-actually go through — it follows automatic failover. Full domain, status and
+line — `cha*.uk · 55%` style: the relay's domain privacy-masked, plus its
+storage quota (the percent turns amber near 70% and red past 90%). A
+**✉ envelope** on a chip marks the relay your messages
+actually go through — it follows automatic failover, and its color reports
+sending health: green sent, amber retrying, red broken, grey unknown. Full
+domain, status and
 quota sit in each chip's tooltip.
 
 </details>
