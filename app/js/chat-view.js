@@ -416,6 +416,11 @@ export class ChatView {
     this._readOnly = false; // read-only chat: reply affordances hide (see readOnly)
     this.items = [];        // flattened items for the virtual scroller
     this.msgIndex = new Map();
+    // True while another surface (the Diagnostics chat) owns #history instead
+    // of a real chat session: the back-swipe must still commit, its
+    // _isCurrent() session check can never pass then (#98). Set by app.js
+    // after close(); open()/close() clear it.
+    this.externalSurface = false;
     this._rowCache = new Map();  // item.key → rendered element (reused across setItems)
     this._rowSigCache = new Map();  // item.key → render signature of the cached row
     this.hasMore = false;
@@ -770,6 +775,7 @@ export class ChatView {
     this._userAway = false;
     this._restoring = false;
     this._openedWithUnread = false;
+    this.externalSurface = false;
     this._hideGoDown();
     this._leaveTextSelection();
     this._cancelHistorySwipe?.();
@@ -3508,7 +3514,7 @@ export class ChatView {
         drag.settled = true;
         if (this._historyDrag === drag) this._historyDrag = null;
         if (g?.on) return;
-        const committed = go && this._isCurrent();
+        const committed = go && (this._isCurrent() || this.externalSurface);
         if (committed) {
           // Match the closed stylesheet position before closeChat drops
           // .chat-open. close() keeps this park for one frame.

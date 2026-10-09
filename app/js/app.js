@@ -189,6 +189,10 @@ function openDiagnosticsChat() {
   // believes the previous chat is open and interleaves old rows (the
   // "two chats merged" bug), and switching back skipped re-rendering.
   chatView?.close();
+  // #98: no chat session is open now, so the back-swipe's _isCurrent() check
+  // could never pass — mark the surface as externally owned so swiping left
+  // still closes back to the chat list.
+  if (chatView) chatView.externalSurface = true;
   state.activeChatId = DIAGNOSTICS_CHAT_ID;
   $("no-chat").hidden = true;
   $("chat-view").hidden = false;

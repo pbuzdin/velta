@@ -825,6 +825,44 @@ test("swipe left on the history slides the chat column away and goes back", asyn
   assert.equal(app.className.includes("swipe-back"), false);
 });
 
+test("#98: back-swipe commits on the diagnostics surface (externalSurface, no session)", async t => {
+  let backs = 0;
+  const { view, node } = setup(t);
+  // Mirror the app wiring: onBack is closeChat, whose teardown clears the flag.
+  view.onBack = () => { backs++; view.close(); };
+  // Simulate openDiagnosticsChat: the view is fully closed (no session) and
+  // the app marks the history surface as externally owned.
+  await view.open(7);
+  view.close();
+  assert.equal(view._isCurrent(), false, "no chat session while diagnostics owns #history");
+  view.externalSurface = true;
+  mobileGestures(t, true);
+  const scroller = node("history-scroll");
+  const main = node("main");
+  const app = document.querySelector(".app");
+  await scroller.fire("touchstart", { touches: [{ clientX: 200, clientY: 80 }] });
+  await scroller.fire("touchmove", {
+    touches: [{ clientX: 120, clientY: 84 }], cancelable: true, preventDefault() {},
+  });
+  assert.equal(main.style.transform, "translateX(-80px)");
+  await scroller.fire("touchend", { touches: [] });
+  await main.fire("transitionend");
+  assert.equal(backs, 1, "the swipe closes the diagnostics chat");
+  assert.equal(view.externalSurface, false, "close() clears the flag for the next surface");
+  assert.equal(app.className.includes("swipe-back"), false);
+
+  // Same state WITHOUT the flag must still spring back (regression guard).
+  await view.open(7);
+  view.close();
+  await scroller.fire("touchstart", { touches: [{ clientX: 200, clientY: 80 }] });
+  await scroller.fire("touchmove", {
+    touches: [{ clientX: 120, clientY: 84 }], cancelable: true, preventDefault() {},
+  });
+  await scroller.fire("touchend", { touches: [] });
+  await main.fire("transitionend");
+  assert.equal(backs, 1, "no session and no flag: the swipe springs back");
+});
+
 // ---- Swipes that start on a link preview card (#35) ----
 
 // Tiny DOM chain: just enough of closest() for the selectors the gesture code
