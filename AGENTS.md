@@ -1715,6 +1715,28 @@ Linters don't find runtime bottlenecks. Use:
 
 Skip Lighthouse for the installed app; it's only weakly useful for PWA mode.
 
+### 6.6 Public-repo hygiene — private relay identifiers (hard rule)
+
+This repo is public; the operator's relay is private. NEVER commit the
+relay's domain, its IP, the hosting-provider name, or bare `a7` used as a
+host — not in code, docs, tests, commit messages, issue text, or release
+notes. Docs and tests use `relay.example.org` / `<relay-domain>` /
+`<relay-ip>` placeholders. Before EVERY push, this sweep must be empty
+(binary PNG hits are fine):
+
+```bash
+git grep -nE "a7\.velta\.cc|aeza|95\.181\.162\.170|\ba7\b" -- '*.md' '*.mjs' '*.js' '*.rs' '*.toml' '*.json'
+```
+
+On 2026-10-09 the identifiers leaked into 6 commits across 2 sessions and
+the whole history was rewritten with `git filter-repo`
+(--replace-text + --replace-message; force-push `88f15966` → `15372ed`).
+Consequences to remember: commit SHAs from 2026-10-09 cited in old notes,
+chat summaries, or issue bodies are DANGLING (pre-rewrite); old SHAs stay
+fetchable on GitHub by exact SHA until GC; and any other working copy of
+this repo must `git fetch && git reset --hard origin/master` before its
+next push or the tainted commits come back.
+
 ---
 
 ## 7. Testing strategy

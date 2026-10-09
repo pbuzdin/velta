@@ -16,6 +16,19 @@ failed to answer after its retries (log surface). The three setup paths:
    relay pool, configures the fastest, then grows the profile to ~3
    transports from IMAP idle hooks). The button renders only when the
    core surface has `initTransports` (demo/mock hides it).
+   Since 10-09 the private relay is **invite-only** (nginx `/new` 403s
+   open signup): relay addresses typed into the create paths fail there
+   with the server's "invite-only" error, and the supported path is an
+   invite link `https://<relay>/i/<token>` — pasted into this input or
+   the profile-modal's Add profile, or opened directly (the interstitial
+   links the PWA as `#/join?t=<token>`). `parseRelayInvite` recognizes
+   the link shape; `createAccountFromRelayInvite` claims it
+   (GET `/i/claim?t=`, atomic single-use on the relay, flock'd JSON
+   store) and configures via `configureWithCredentials`. Claimed
+   credentials park in `sessionStorage velta-invite-creds` (30 min) so a
+   failed configure can retry without burning the invite; a tunnel
+   switch reloads and resumes from `velta-pending-invite`. Minting is a
+   root CLI on the relay, not a UI (`invite-tool.py add`).
 2. Add as a second device — `dcbackup:` receive (see below).
 3. Restore from a backup file — Tauri file dialog → `resolve_content_uri`
    on Android → `importBackup`, fire-and-forget with `imex-progress`;
