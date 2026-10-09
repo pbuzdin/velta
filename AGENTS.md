@@ -389,6 +389,25 @@ Wasm mail in that dist (`tests/ws-relays.test.mjs`, `tests/wasm-blob-url.test.mj
   CLI minting instead of admin endpoints, no client-URL redirect dance
   (PWA is same-origin). PWA-only claim path; native clients get set up
   via dclogin: links from the operator.
+- **Relay ops: checking outbound port 25 — the naive probe LIES.** A bare
+  `/dev/tcp/host/25` + `head -c 80` waits for exactly 80 bytes; SMTP
+  greetings are shorter, so a fully WORKING port reads as "blocked"
+  (cost us a false diagnosis on 10-09). Ground truth, in order:
+  1. Read ONE greeting line with its own timeout:
+     `timeout 10 bash -c 'exec 3<>/dev/tcp/mx.google.com/25; timeout 5 head -1 <&3'`
+     → `220 … ESMTP` = open. TCP connects but no banner = reachable yet
+     tarpitted — Yandex-class receivers silently stall sources whose PTR
+     is missing or mismatches the HELO name (fix rDNS at the hoster, not
+     the firewall).
+  2. Doubt the network path? tcpdump the SYN while probing — SYN out +
+     SYN-ACK back means the path is fine and the problem is SMTP-level.
+  3. Postfix's verdict lives in mail.log as
+     `proxy-reject: END-OF-MESSAGE: 451 …` with `sasl_username=` proving
+     the client auth was fine. mail.log uses ISO timestamps
+     (`2026-10-09T14:35:56`) — grep those, NOT syslog `Oct  9` form.
+  Status 10-09: outbound 25 unblocked (gmail banner 220 ✓), PTR still the
+  default-pool name → tarpitted by strict receivers, queue waiting on the
+  rDNS fix.
 - **The logged IP is the DNS answer, printed before connect.** On wasm the
   dial is `wss://<proxy>/tcp/<ip>/993` (465 for submission). nginx ignores
   `<ip>` and connects to this relay's Dovecot or Postfix; TLS checks the

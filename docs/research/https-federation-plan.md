@@ -165,6 +165,19 @@ peers). Stage 2 (client-side 443) unchanged.
 
 ## Operational findings (2026-10-09, separate from this plan)
 
+- **How to actually check whether outbound port 25 is open** (10-09: the
+  naive probe lied for hours): `head -c 80` after a `/dev/tcp` connect
+  waits for exactly 80 bytes — SMTP greetings are shorter, so an OPEN
+  port reads as blocked. Read ONE line with its own timeout instead:
+  `timeout 10 bash -c 'exec 3<>/dev/tcp/mx.google.com/25; timeout 5 head -1 <&3'`
+  → `220 … ESMTP` = open. TCP-connect-without-banner = reachable but
+  tarpitted (PTR missing/mismatched — strict receivers stall such sources
+  silently; fix rDNS at the hoster). Decisive network-path proof:
+  `tcpdump -i <if> host <mx> and tcp port 25` during a probe — SYN +
+  SYN-ACK back = path fine, problem is SMTP-level. Postfix's own verdict:
+  `proxy-reject: END-OF-MESSAGE: 451 …` in mail.log (ISO timestamps!)
+  with `sasl_username=` showing client auth was already fine.
+
 - **Outbound SMTP rejects for missing PTR**: filtermail-transport logs
   `450 4.7.25 Client host rejected: cannot find your hostname,
   [<relay-ip>]` (vivaldi.net et al) — the relay's host IP has no reverse
