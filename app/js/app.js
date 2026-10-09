@@ -19,7 +19,7 @@ import { acquireCode, mountScanner } from "./qr-scan.js";
 import { scanTabAvailable, canShareLink, copyLink, shareLink, classifyScannedCode } from "./qr-actions.js";
 import { parseSharePayload, shareTextIfUnconsumed, shareViewtype } from "./share-in.js";
 import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS } from "./link-preview.js";
-import { wrapIdentityBundle, unwrapIdentityBundle, buildIdentityBundle, bytesToBase64, base64ToBytes, backupDownloadName } from "./identity-backup.js";
+import { wrapIdentityBundle, unwrapIdentityBundle, buildIdentityBundle, bytesToBase64, base64ToBytes, backupDownloadName, gzipBytes } from "./identity-backup.js";
 
 const diagnostics = new DiagnosticsStore();
 window.__veltaDiagnostics = diagnostics;
@@ -3429,7 +3429,29 @@ async function askNotificationPermission() {
       new Promise(r => setTimeout(r, 2500)),
     ]);
   } catch {}
+  // PWA: same "never at plain boot" rule, but a Notification prompt fired
+  // without user activation is silently dropped by browsers, so piggyback
+  // on the next tap when this ran outside a gesture.
+  if (!window.__TAURI__ && "Notification" in window && Notification.permission === "default") {
+    const ask = () => Notification.requestPermission().catch(() => {});
+    if (navigator.userActivation?.isActive) ask();
+    else addEventListener("pointerdown", ask, { once: true, capture: true });
+  }
   await askBatteryExemption();
+}
+
+// SW notificationclick handover (PWA): the service worker focuses a client
+// and posts the tapped notification's chat target; a cold-started window
+// asks for a stashed click once a controller exists. openChatFromLink fails
+// safe (unknown chat/account just toasts) if this races the boot.
+if (navigator.serviceWorker) {
+  navigator.serviceWorker.addEventListener("message", (ev) => {
+    const d = ev.data;
+    if (d?.type === "velta-notification-click" && Number(d.chatId) > 0) {
+      openChatFromLink({ accountId: d.accountId != null ? Number(d.accountId) : null, chatId: Number(d.chatId) });
+    }
+  });
+  navigator.serviceWorker.controller?.postMessage({ type: "velta-pending-notification" });
 }
 
 // Doze and OEM battery managers freeze the in-process core while the
@@ -3860,9 +3882,9 @@ function downloadBytes(bytes, name) {
 }
 
 // #104: full-account backup as a browser download (wasm core). The core's
-// imex wrote a .tar into memfs — ship it byte-identical so desktop import
-// round-trips without an unzip step (a zip wrapper would need unpacking
-// before every restore).
+// imex wrote a .tar into memfs — shipped gzip-compressed when the platform
+// offers CompressionStream (the shells' prep path decompresses before
+// import); byte-identical .tar where it doesn't.
 async function runBackupExport(pass) {
   const dir = "/backup/export";
   await core.exportBackup(dir, pass || null);
@@ -3870,7 +3892,9 @@ async function runBackupExport(pass) {
   if (!entries.length) throw new Error("The core produced no backup file");
   const name = entries[entries.length - 1];
   const bytes = await core.transport.readCoreFile(name);
-  downloadBytes(bytes, backupDownloadName(state.account?.addr, new Date().toISOString().slice(0, 10)));
+  const gz = await gzipBytes(bytes);
+  const base = backupDownloadName(state.account?.addr, new Date().toISOString().slice(0, 10));
+  downloadBytes(gz, gz === bytes ? base : base + ".gz");
   return name;
 }
 
@@ -4434,6 +4458,11 @@ function showSplash() {
         return;
       }
     }
+    // PWA exports arrive gzip-compressed; the shell sniffs the magic and
+    // hands back a decompressed temp path the core can import.
+    try {
+      picked = await invoke("prep_backup", { path: picked });
+    } catch {}
 
     actionsEl.hidden = true;
     stepsEl.replaceChildren();

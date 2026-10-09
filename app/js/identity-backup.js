@@ -79,6 +79,21 @@ export function backupDownloadName(addr, date) {
   return `velta-backup-${String(addr || "profile").replace(/[^a-z0-9._-]/gi, "_")}-${date}.tar`;
 }
 
+// PWA backup downloads ship gzip-compressed (CompressionStream) to cut the
+// download size; the shells' prep path decompresses before the core imports.
+// Returns the input unchanged when CompressionStream is missing — callers
+// detect that by identity, because only then does the .gz suffix NOT apply.
+export async function gzipBytes(bytes) {
+  if (typeof CompressionStream !== "function") return bytes;
+  const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+export async function gunzipBytes(bytes) {
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
 export function bytesToBase64(u8) {
   let s = "";
   for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000));

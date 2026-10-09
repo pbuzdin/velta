@@ -2298,6 +2298,41 @@ async fn resolve_content_uri(app: tauri::AppHandle, uri: String, filename: Strin
         .map_err(|e| e.to_string())?
 }
 
+/// PWA backup downloads arrive gzip-compressed (CompressionStream export);
+/// the core's imex only reads plain tars. Sniff the gzip magic and
+/// decompress to a temp file when needed; anything else passes through.
+fn prep_backup_blocking(path: String) -> Result<String, String> {
+    use std::io::Read;
+    let gz = std::fs::File::open(&path)
+        .and_then(|mut f| {
+            let mut magic = [0u8; 2];
+            f.read_exact(&mut magic)?;
+            Ok(magic == [0x1f, 0x8b])
+        })
+        .unwrap_or(false);
+    if !gz {
+        return Ok(path);
+    }
+    let dir = std::env::temp_dir().join("velta-backup");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let stem = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let dest = dir.join(format!("backup-{stem}.tar"));
+    let mut decoder = flate2::read::GzDecoder::new(std::fs::File::open(&path).map_err(|e| e.to_string())?);
+    let mut out = std::fs::File::create(&dest).map_err(|e| e.to_string())?;
+    std::io::copy(&mut decoder, &mut out).map_err(|e| e.to_string())?;
+    Ok(dest.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+async fn prep_backup(path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || prep_backup_blocking(path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[cfg(target_os = "android")]
 fn resolve_content_uri_blocking(app: tauri::AppHandle, uri: String, filename: String) -> Result<String, String> {
     use tauri::path::BaseDirectory;
@@ -2462,7 +2497,9 @@ fn resolve_content_uri_blocking(app: tauri::AppHandle, uri: String, filename: St
 
     copy_result?;
     log(&format!("resolve_content_uri copied {} -> {}", uri, dest_str));
-    Ok(dest_str)
+    // PWA backup exports are gzipped — route through the same sniff the
+    // desktop pick path uses so the core always sees a plain tar.
+    prep_backup_blocking(dest_str)
 }
 
 fn queue_opened(url: String) {
@@ -3639,7 +3676,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, allow_picked_path, webxdc_begin, set_notify_prefs, get_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, take_opened_urls, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, install_update, get_battery_status, share_text, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_groups, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, allow_picked_path, webxdc_begin, set_notify_prefs, get_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, take_opened_urls, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, prep_backup, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, install_update, get_battery_status, share_text, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_groups, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 

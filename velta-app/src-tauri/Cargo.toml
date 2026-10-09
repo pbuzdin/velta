@@ -33,6 +33,8 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["protocol-asset", "devtools"] }
+# Gzip sniff/decompress for PWA-produced backup tars (prep_backup).
+flate2 = "1"
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"

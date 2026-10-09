@@ -1335,26 +1335,40 @@ function logNotify(msg) {
 }
 export function notifyIncoming(title, body, info = {}) {
   const tauri = window.__TAURI__;
-  if (!tauri) return;
-  const android = /Android/i.test(navigator.userAgent || "");
-  if (android) return;
+  if (tauri) return notifyIncomingTauri(tauri, title, body, info);
+  return notifyIncomingWeb(title, body, info);
+}
+
+// Drawer + privacy gates shared by both platforms. Returns null = stay
+// silent, otherwise the (possibly redacted) preview body.
+function notifyGateBody(body) {
   // Drawer master switch (default on). Desktop path only — on Android the
   // Rust background poller posts notifications while this page is frozen
   // and cannot run this gate.
-  if (localStorage.getItem("velta-notify") === "0") return;
+  if (localStorage.getItem("velta-notify") === "0") return null;
   // "System notification for new messages" OFF: no OS toast.
-  if (localStorage.getItem("velta-notify-system") === "0") return;
+  if (localStorage.getItem("velta-notify-system") === "0") return null;
   // "Mentions only": skip messages that neither @mention anyone nor name
   // the user.
   if (localStorage.getItem("velta-notify-mentions") === "1") {
     const lower = (body || "").toLowerCase();
-    if (!lower.includes("@")) return;
+    if (!lower.includes("@")) return null;
   }
   // Privacy toggle: drop the message text from the preview (the chat and
   // sender names stay).
   if (localStorage.getItem("velta-notify-text") === "0") {
     body = "New message";
   }
+  return body;
+}
+
+// Tauri shell: the Android page stays quiet (Rust posts the one
+// MessagingStyle card); desktop WebView2 toasts through notify_incoming.
+function notifyIncomingTauri(tauri, title, body, info) {
+  const android = /Android/i.test(navigator.userAgent || "");
+  if (android) return;
+  const gated = notifyGateBody(body);
+  if (gated === null) return;
   const send = () => {
     const now = Date.now();
     if (now - lastNotifyAt < 4000) return;
@@ -1362,7 +1376,7 @@ export function notifyIncoming(title, body, info = {}) {
     const invoke = tauri.core?.invoke || tauri.invoke;
     invoke("notify_incoming", {
       title,
-      body,
+      body: gated,
       chatName: info.chatName || null,
       senderName: info.senderName || null,
       senderAvatar: info.senderAvatar || null,
@@ -1397,4 +1411,37 @@ export function notifyIncoming(title, body, info = {}) {
   Promise.all([win.isMinimized(), win.isFocused()]).then(([minimized, focused]) => {
     consider(minimized, focused);
   }).catch((err) => logNotify(`notifyIncoming window state: ${err}`));
+}
+
+// PWA / plain browser: post through the service worker so the toast still
+// fires while the tab is hidden (new Notification() from a hidden page is
+// throttled hard). The notificationclick side lives in the generated sw.js;
+// it focuses a client and hands over {accountId, chatId} via postMessage.
+async function notifyIncomingWeb(title, body, info) {
+  const gated = notifyGateBody(body);
+  if (gated === null) return;
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  if (!shouldNotifyIncoming({
+    web: true,
+    hidden: !!document.hidden,
+    focused: document.hasFocus(),
+  })) return;
+  const now = Date.now();
+  if (now - lastNotifyAt < 4000) return;
+  lastNotifyAt = now;
+  const payload = {
+    body: gated,
+    tag: `velta-${info.accountId ?? 0}-${info.chatId ?? 0}`,
+    renotify: true,
+    icon: "icons/icon-192.png",
+    badge: "icons/icon-192.png",
+    data: { accountId: info.accountId ?? null, chatId: info.chatId ?? null },
+  };
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration();
+    if (reg) await reg.showNotification(title, payload);
+    else new Notification(title, payload);
+  } catch (err) {
+    console.warn("showNotification failed:", err);
+  }
 }

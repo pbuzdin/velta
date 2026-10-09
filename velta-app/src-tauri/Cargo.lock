@@ -8840,6 +8840,7 @@ dependencies = [
  "anyhow",
  "data-encoding",
  "deltachat-jsonrpc",
+ "flate2",
  "futures-lite",
  "image",
  "iroh",

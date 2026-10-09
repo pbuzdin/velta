@@ -11,6 +11,8 @@
 // Everything platform-shaped (RTCPeerConnection, getUserMedia, timers) is
 // injected so the state machine can be exercised in tests.
 
+import { wakeLockAcquire, wakeLockRelease } from "./wakelock.js";
+
 const GATHER_TIMEOUT = 3000; // ICE gathering ceiling before sending anyway
 const ENDED_VISIBLE_MS = 2500; // how long the ended overlay stays readable
 
@@ -67,6 +69,7 @@ export class CallManager extends EventTarget {
       this.finish("Mic unavailable");
       return false;
     }
+    wakeLockAcquire(); // the screen must not sleep mid-call
     try {
       const cfg = { iceServers: await this.safeIceServers() };
       this.pc = this._rtcpFactory(cfg);
@@ -106,6 +109,7 @@ export class CallManager extends EventTarget {
     this.render("Connecting…", ["hangup"]);
     try {
       this.localStream = await this._getUserMedia({ audio: true });
+      wakeLockAcquire(); // the screen must not sleep mid-call
       const info = await this.core.callInfo(msgId);
       const cfg = { iceServers: await this.safeIceServers() };
       this.pc = this._rtcpFactory(cfg);
@@ -261,6 +265,7 @@ export class CallManager extends EventTarget {
   }
 
   releaseMedia() {
+    wakeLockRelease();
     if (this.durationTimer) { clearInterval(this.durationTimer); this.durationTimer = null; }
     try { if (this.pc) this.pc.close(); } catch {}
     try { for (const t of this.localStream?.getTracks() || []) t.stop(); } catch {}

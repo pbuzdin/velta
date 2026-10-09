@@ -137,6 +137,36 @@ self.addEventListener('fetch', (e) => {
   }
   e.respondWith(caches.match(e.request).then((hit) => hit || fetch(e.request)));
 });
+// Notification tap (PWA): focus an in-scope client and hand it the chat
+// target; if none exists, open one and stash the click until that page
+// (now controlled) asks for it.
+let pendingClick = null;
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const data = e.notification.data || {};
+  e.waitUntil((async () => {
+    const scope = new URL(self.registration.scope);
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const inScope = clients.filter((c) => {
+      try { const u = new URL(c.url); return u.origin === scope.origin && u.pathname.startsWith(scope.pathname); } catch { return false; }
+    });
+    const hit = inScope.find((c) => c.visibilityState === 'visible') || inScope[0];
+    const msg = { type: 'velta-notification-click', accountId: data.accountId ?? null, chatId: data.chatId ?? null };
+    if (hit) {
+      await hit.focus();
+      hit.postMessage(msg);
+      return;
+    }
+    pendingClick = msg;
+    await self.clients.openWindow(scope.href);
+  })());
+});
+self.addEventListener('message', (e) => {
+  if (e.data && e.data.type === 'velta-pending-notification' && pendingClick) {
+    e.source.postMessage(pendingClick);
+    pendingClick = null;
+  }
+});
 function serveAccountBlob(event, path) {
   if (!path || !path.startsWith('/accounts/') || path.includes('..')) {
     return Promise.resolve(new Response('bad path', { status: 400 }));

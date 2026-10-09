@@ -12,6 +12,7 @@
 
 import { showModal, toast } from "./ui.js";
 import { diagnosticsSink } from "./diagnostics.js";
+import { wakeLockAcquire, wakeLockRelease } from "./wakelock.js";
 
 const canUseCamera = () => !!navigator.mediaDevices?.getUserMedia;
 
@@ -86,6 +87,7 @@ export function acquireCode({ title, hint, validate, autoScan = false }) {
     const stopScan = () => {
       stream?.getTracks().forEach(t => t.stop());
       stream = null;
+      wakeLockRelease();
     };
     const finish = value => {
       if (settled) return;
@@ -195,6 +197,7 @@ export function acquireCode({ title, hint, validate, autoScan = false }) {
       scanning = true;
       startedAt = Date.now();
       hinted = false;
+      wakeLockAcquire(); // screen stays on while the camera is decoding
       scanBtn.textContent = "Use paste instead";
       scanArea.hidden = false;
       video.srcObject = stream;
