@@ -998,6 +998,11 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   try/catch and clears the inline transform when it failed, `closeChatUI`
   (app.js) wraps `chatView.close()` in try/catch so the `.chat-open` drop
   always runs, and `_typingStop` swallows a `TypingSender.stop()` error.
+  The commit check is `_isCurrent() || externalSurface` (#98): the
+  Diagnostics chat releases the view and writes `#history` itself, so
+  `openDiagnosticsChat` sets `chatView.externalSurface = true` after
+  `close()` — without it no session exists and the swipe could never close
+  the diagnostics chat. `open()`/`close()` clear the flag.
   Pinned by `tests/chat-msg-update-hardening.test.mjs`. Detail:
   docs/agents/android-shell.md.
 - **Select text (#36)** — bubble text stays unselectable on touch (long-press
