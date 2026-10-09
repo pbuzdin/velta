@@ -419,7 +419,12 @@ line — `cha*.uk · 55%` style: the relay's domain privacy-masked, plus its
 storage quota (the percent turns amber near 70% and red past 90%). A
 **✉ envelope** on a chip marks the relay your messages
 actually go through — it follows automatic failover, and its color reports
-sending health: green sent, amber retrying, red broken, grey unknown. Full
+sending health: green sent, amber retrying, red broken, grey unknown. The
+marker keys off what the SMTP loop is really bound to, not the configured
+address — a Velta core patch reports the live sending transport, so when
+the core rotates or fails over between a profile's relays the envelope
+moves with the traffic (within one status refresh) instead of going stale.
+Full
 domain, status and
 quota sit in each chip's tooltip.
 

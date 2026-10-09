@@ -222,9 +222,18 @@ cd core   # run from WSL — native Windows cargo fails in openssl-sys (SQLCiphe
 
 KEEP (local patches): the vendored tree carries Velta patches (animated
 WebP byte-exact, SMTP sending-transport exposure — VENDORISSUES #7/#10,
-every block marked `Velta patch`). Any core re-vendor wipes them;
+every block marked `Velta patch`; #7 is RETIRED since 2.63.0 — upstream
+81140d51 supersedes it, ops removed from the script). Any core re-vendor
+wipes them;
 re-apply mechanically with `python tools/apply-core-patches.py apply`
-(verify: `… verify` must report 14/14) — see COREUPDATE.md §0.
+(verify: `… verify` must report 11/11) — see COREUPDATE.md §0. What the
+#10 exposure buys (docs/agents/relays.md has the mechanics): the relay
+line's envelope + send dashes key to the transport the SMTP loop is
+ACTUALLY bound to, not `configured_addr` — through core rotations and
+failovers (2.63: #8797 transport_id reset + sticky last-successful
+transport) the marker keeps telling the truth, and diagnostics tag the
+send line "(failover)" when it differs. The wasm patch series has no #10
+equivalent yet (#112) — the PWA falls back to the configured address.
 
 ```bash
 # Run all Rust tests; use nextest — plain `cargo test` flakes a varying

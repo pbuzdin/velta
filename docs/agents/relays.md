@@ -73,9 +73,20 @@ bound to (#79): the vendored core exposes it as `<span class="smtp-via">`
 in the connectivity HTML's Outgoing section (VENDORISSUES entry 10 —
 re-apply on core upgrades); `parseConnectivityHtml` surfaces it as
 `smtpVia` and the envelope + dashes key to its domain. On failover the
-marker follows the messages and moves back on reconnect. Old cores report
+marker follows the messages and moves back on reconnect. **Rotation is
+covered too**: the core re-elects a transport on disconnect/failure (2.63
+made it deterministic — #8797 resets the loop's `transport_id`, and it
+reconnects to the most recently successful transport first), and the
+marker keeps telling the truth because `smtpVia` is re-read on every
+relay-status refresh (ConnectivityChanged, boot, account switch, and the
+60 s probe interval — a fully silent rotation can show the old envelope
+for up to a minute; the next refresh is always exact). When the marker's
+domain differs from the configured address the diagnostics log tags the
+send line with "(failover)". Old cores report
 nothing and the envelope falls back to `configured_addr`
-(`state.account.addr`'s domain, or the only relay when unmatched). Demo/
+(`state.account.addr`'s domain, or the only relay when unmatched) — the
+wasm core's patch series has no #10 equivalent yet (fold into #112), so
+the PWA runs on that fallback. Demo/
 local mode is never marked. The envelope marks identity, not activity — the
 line's animated dashes stay the messages-in-flight signal — but its color
 reports SMTP-loop health via `data-smtp`: green ok, amber retrying
