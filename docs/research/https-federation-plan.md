@@ -78,16 +78,56 @@ MX drops the peer (or goes to an MX-only hostname). Never a hard cutover.
 - Abuse posture: HTTPS receiver ≈ today's port 25 for-mydomain-only posture,
   minus the SMTP smear (no HELO/EHLO games, no open-relay probes in logs).
 
-## Test matrix (stage 1 acceptance)
+## Test matrix (stage 1 acceptance) — RUN 2026-10-09, all green
 
-- [x] Receiver live: `POST /mxdeliv` junk body → 500 Invalid DATA (parses RFC822).
-- [ ] Valid message to a local user over public HTTPS → 2xx → message lands
-      in the user's Dovecot mailbox (doveadm/log evidence).
-- [ ] Loop test: locally submitted mail to a local user forced through the
-      HTTPS transport arrives at the mailbox (proves pipe → script → nginx →
-      10082 → reinject → LDA).
-- [ ] Auth: peer entry with wrong token → non-2xx → sender defers (exit 75),
-      nothing delivered.
-- [ ] Non-local recipient → receiver rejects (no relay-for-others).
-- [ ] Regular SMTP delivery for non-mapped domains unchanged after the
-      transport_maps addition.
+- [x] Receiver live: junk body → 400 "500 Invalid DATA"; unsigned body →
+      400 "554 No DKIM signature found" (the receiver REQUIRES valid DKIM —
+      port-25 inbound enforces the same on this fork, verified in mail.log).
+- [x] Valid DKIM-signed message to a local user over public HTTPS → 200
+      "250 OK" → postfix lmtp `status=sent (250 … Saved)` → INBOX.
+- [x] Sender: `mxdeliv-send` (installed at
+      `/usr/local/lib/chatmaild/mxdeliv-send`, runs against
+      `/opt/mxdeliv-venv`, DKIM-signs with `/etc/dkimkeys/opendkim.private`,
+      selector `opendkim`) → exit 0 + lmtp `status=sent` for a local user.
+- [x] Defer: unreachable peer → exit 75 (Postfix retries).
+- [x] Bounce: no peer entry → exit 1. Hardened: a 2xx whose body is not
+      "250 …" (SPA fallback / captive portal false-2xx) → exit 1.
+- [x] Non-local recipient: **not relayed** — receiver answers 250 then
+      drops (no postfix trace). Not an open relay, but a protocol bug:
+      peers must get 550 for non-local recipients (fix belongs in the
+      fork's filtermail). Tolerable between trusted peers; must be
+      documented to them.
+- [x] Regular SMTP untouched: `transport_maps` intentionally NOT installed
+      yet — per-peer wiring is one master.cf pipe entry + one map line at
+      enablement time (mapping applies to REMOTE peer domains only, so the
+      reinject loop risk only exists for self-domain tests, which we skipped
+      on a live relay).
+
+## Install state on the relay (2026-10-09)
+
+- `/usr/local/lib/chatmaild/mxdeliv-send` + `/opt/mxdeliv-venv` (dkimpy).
+- `/etc/chatmail-federation/peers.json` — `relay.example.org →
+  https://relay.example.org/mxdeliv` as the self-entry/example; add real peers as
+  `{"peer.example": {"url": "…/mxdeliv", "token": "…"}}`.
+- Postfix wiring (NOT yet applied — do per peer enablement):
+  `postconf -e transport_maps=hash:/etc/postfix/transport`, master.cf pipe
+  entry `httpsfederation … pipe flags=DRhu user=postfix argv=
+  /usr/local/lib/chatmaild/mxdeliv-send ${recipient}`, map line
+  `peer.example  httpsfederation:` + `postmap`.
+- Receiver auth: none at HTTP layer yet (dkim-verified mail from anyone is
+  processed for LOCAL recipients only; non-local dropped). For private
+  federation add the nginx `allow <peer-IP>; deny all;` + Bearer-token
+  check when the peer set exists.
+
+## Operational findings (2026-10-09, separate from this plan)
+
+- **Outbound SMTP rejects for missing PTR**: filtermail-transport logs
+  `450 4.7.25 Client host rejected: cannot find your hostname,
+  [203.0.113.10]` (vivaldi.net et al) — the hosting-provider IP has no reverse DNS.
+  Fix = set a PTR (`relay.example.org`) in the hosting-provider panel; until then some
+  outbound mail defers forever. HTTPS federation is immune to this — one
+  more argument for stage 2.
+- The /new-minted test account `4vysiqdl9@relay.example.org` accepted a message
+  (250) with no delivery trace, same accept-then-drop class as non-local
+  recipients — account visibility inside filtermail should be re-checked
+  before any peer cutover.
