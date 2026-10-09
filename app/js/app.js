@@ -3229,8 +3229,16 @@ function openProfileManagement() {
   const relayInput = panes.add.querySelector("[data-relay]");
   const submitAdd = async () => {
     const link = normalizeRelayLink(relayInput.value);
-    if (!link) {
-      toast(relayInput.value.trim() ? "That doesn't look like a chatmail relay or dcaccount: link" : "Enter a relay address");
+    const invite = parseRelayInvite(relayInput.value);
+    if (!link && !invite) {
+      toast(relayInput.value.trim() ? "That doesn't look like a chatmail relay, invite link, or dcaccount: link" : "Enter a relay address");
+      return;
+    }
+    if (invite) {
+      lock(true);
+      await createAccountFromRelayInvite(invite.host, invite.token);
+      lock(false);
+      if (accountIsCurrent(epoch) && state.accounts.length > 1) close();
       return;
     }
     if (!(await ensureMailTunnelForLink(link))) return;
@@ -3530,6 +3538,79 @@ async function ensureMailTunnelForLink(link) {
   return new Promise(() => {}); // the reload never lets this resolve
 }
 
+// Relay signup invites (PLAN-PWA-WEBSOCKET R1/V2): https://<host>/i/<token> —
+// distinct from the contact/group invites in invites.js. The token is the
+// bearer secret; the relay's /i/claim endpoint swaps it for one-time
+// credentials. PWA-only for now (native clients use dclogin: links).
+function parseRelayInvite(raw) {
+  const m = /^(?:https?:\/\/)?([a-z0-9][a-z0-9.-]*\.[a-z]{2,})\/i\/([A-Za-z0-9_-]{8,})\/?$/i.exec((raw || "").trim());
+  if (!m) return null;
+  const host = normalizeHost(m[1]);
+  return host ? { host, token: m[2] } : null;
+}
+
+function extractRelayInviteJoin(rawUrl = location.href) {
+  let h;
+  try { h = new URL(rawUrl, location.href).hash; } catch { return null; }
+  if (!h.startsWith("#/join")) return null;
+  const q = new URLSearchParams(h.slice("#/join".length));
+  const host = normalizeHost(q.get("r") || location.hostname);
+  const token = (q.get("t") || "").trim();
+  return host && token ? { host, token } : null;
+}
+
+async function claimAndConfigure(host, token) {
+  const parkKey = "velta-invite-creds";
+  let creds = null;
+  try {
+    const parked = JSON.parse(sessionStorage.getItem(parkKey) || "null");
+    if (parked?.host === host && parked?.token === token && parked.exp > Date.now()) creds = parked.creds;
+  } catch {}
+  if (!creds) {
+    toast("Claiming invite…");
+    let res;
+    try {
+      // GET, not POST — fcgiwrap on the relay 502s request bodies; the
+      // token already rides URLs by design, credentials never do.
+      res = await fetch(`https://${host}/i/claim?t=${encodeURIComponent(token)}`, { cache: "no-store" });
+    } catch (err) {
+      throw new Error(`Invite claim failed: ${err.message || err}`);
+    }
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j.error || `Invite rejected (${res.status})`);
+    }
+    creds = await res.json();
+    if (!creds?.email || !creds?.password) throw new Error("Invite answer was missing credentials");
+    // The invite is consumed at claim time — park the credentials so a
+    // configure failure can retry without burning a second invite.
+    sessionStorage.setItem(parkKey, JSON.stringify({ host, token, creds, exp: Date.now() + 30 * 60_000 }));
+  }
+  toast("Setting up your profile…");
+  await core.configureWithCredentials(creds.email, creds.password);
+  if (core.startIo) await core.startIo();
+  sessionStorage.removeItem(parkKey);
+  const epoch = core.accountEpoch;
+  await accountRefreshPromise;
+  if (accountIsCurrent(epoch)) await askNotificationPermission();
+  if (accountIsCurrent(epoch)) toast(`Account ready: ${state.account?.addr || creds.email}`, 3500);
+}
+
+async function createAccountFromRelayInvite(host, token) {
+  if (state.accountChanging) return;
+  if (!window.VELTA_PWA?.wasmCore) { toast("Invite links work in the Velta PWA — use the app or a dclogin link", 5000); return; }
+  if (!core.configureWithCredentials) { toast("This backend cannot create relay accounts"); return; }
+  // A tunnel switch reloads the page — park the invite so boot resumes it.
+  if (activeWsRelay() !== host) sessionStorage.setItem("velta-pending-invite", JSON.stringify({ host, token }));
+  if (!(await ensureMailTunnelForLink(`dcaccount:https://${host}/new`))) return;
+  sessionStorage.removeItem("velta-pending-invite");
+  try {
+    await claimAndConfigure(host, token);
+  } catch (err) {
+    errToast(err.message || String(err), 6000);
+  }
+}
+
 /* ---------------- deeplinks ----------------
    Supported entry points:
      • web+dcaccount: protocol handler → index.html?qr=dcaccount:…
@@ -3646,6 +3727,16 @@ async function openChatFromLink({ accountId, chatId }) {
 }
 
 async function handleDeeplinkFromUrl(rawUrl, { clearUrl = false } = {}) {
+  // Relay signup invite (R1/V2): https://<relay>/i/<token> interstitials
+  // land here as <pwa>/#/join?t=<token>. Only meaningful without a profile —
+  // an existing user follows invites through the Add-profile pane instead.
+  const relayInvite = extractRelayInviteJoin(rawUrl);
+  if (relayInvite) {
+    if (clearUrl) history.replaceState(null, "", location.pathname + location.search);
+    if (state.account?.configured) toast("You already have a profile — paste the invite into Add profile", 5000);
+    else await createAccountFromRelayInvite(relayInvite.host, relayInvite.token);
+    return true;
+  }
   const chatLink = extractChatLink(rawUrl);
   if (chatLink) {
     // A web page can fire velta://chat. Only notifications minted by this
@@ -4612,8 +4703,28 @@ function showSplash() {
     e.preventDefault();
     if (!accountIsCurrent(epoch)) return;
     const raw = input.value;
-    const link = normalizeRelayLink(raw);
-    if (!link) { toast(raw.trim() ? "That doesn't look like a relay address" : "Enter a relay address"); return; }
+    const invite = parseRelayInvite(raw);
+    const link = invite ? null : normalizeRelayLink(raw);
+    if (!link && !invite) { toast(raw.trim() ? "That doesn't look like a relay or invite address" : "Enter a relay address"); return; }
+    if (invite) {
+      if (activeWsRelay() !== invite.host) sessionStorage.setItem("velta-pending-invite", JSON.stringify(invite));
+      if (!(await ensureMailTunnelForLink(`dcaccount:https://${invite.host}/new`))) return;
+      sessionStorage.removeItem("velta-pending-invite");
+      await runCreate({
+        trigger: ok,
+        intro: `Claiming your invite on ${invite.host}`,
+        phases: [
+          [1,   `Invite accepted at ${invite.host}`],
+          [200, "Setting up your profile"],
+          [750, "Finalizing account"],
+        ],
+        run: async () => {
+          await claimAndConfigure(invite.host, invite.token);
+          return core.getAccount();
+        },
+      });
+      return;
+    }
     if (!(await ensureMailTunnelForLink(link))) return;
     const host = link.replace(/^dcaccount:https:\/\//i, "").replace(/\/new.*$/, "");
     await runCreate({
@@ -5059,6 +5170,12 @@ async function boot() {
       const pending = sessionStorage.getItem("velta-pending-add");
       sessionStorage.removeItem("velta-pending-add");
       addAccountFromInvite(pending);
+    }
+    if (window.VELTA_PWA?.wasmCore && sessionStorage.getItem("velta-pending-invite")) {
+      let pendingInvite = null;
+      try { pendingInvite = JSON.parse(sessionStorage.getItem("velta-pending-invite")); } catch {}
+      sessionStorage.removeItem("velta-pending-invite");
+      if (pendingInvite?.host && pendingInvite?.token) createAccountFromRelayInvite(pendingInvite.host, pendingInvite.token);
     }
 
     try {

@@ -61,6 +61,8 @@ function setup({ accountId = 1, accounts = [{ id: 1 }, { id: 2 }], chats = { 1: 
     // Other deep-link kinds are out of scope here.
     extractJoinLink: () => null,
     extractInviteLink: () => null,
+    extractRelayInviteJoin: () => null,
+    createAccountFromRelayInvite: async () => {},
     confirmModal: async () => false,
     chatLinkToken: TOKEN,
   };
