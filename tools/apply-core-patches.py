@@ -25,50 +25,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # upstream text), text (block to insert), where ("after"|"before" the anchor),
 # occ (1-based occurrence of the anchor, for deliberately ambiguous anchors).
 PATCHES = [
-    # ---- VENDORISSUES #7: animated WebP must not be recoded to static JPEG ----
-    dict(
-        id="#7 call site (blob.rs: skip recode for animated webp)",
-        file="core/src/blob.rs",
-        applied="if is_animated_webp(&mut file)",
-        anchor="// reference. Ok, just rewind it.\n            file.rewind()?;\n",
-        where="after",
-        text="""            // Velta patch (re-apply on core upgrades, see VENDORISSUES.MD):
-            // animated WebP must not be recoded — the `image` crate decodes
-            // only the first frame, so the recode below would silently turn
-            // an animated, transparent webp into a static JPEG.
-            if is_animated_webp(&mut file).unwrap_or(false) {
-                return Ok(name);
-            }
-            file.rewind()?;
-""",
-    ),
-    dict(
-        id="#7 helper (blob.rs: is_animated_webp)",
-        file="core/src/blob.rs",
-        applied="fn is_animated_webp(",
-        anchor="/// Returns image file size and Exif.\n",
-        where="before",
-        text="""/// Velta patch (re-apply on core upgrades, see VENDORISSUES.MD): detects an
-/// animated WebP from its container header. WebP is a RIFF container; each
-/// animation frame lives in an "ANMF" chunk, which only animated files carry
-/// (always near the start, right after the VP8X/ANIM chunks). The `image`
-/// crate decodes only the first frame, so recoding an animated webp would
-/// silently strip the animation — upstream tracks this in the TODO inside
-/// `check_or_recode_to_size`. Animated webps are sent byte-exact instead.
-fn is_animated_webp(file: &mut std::fs::File) -> std::io::Result<bool> {
-    use std::io::Read;
-    file.rewind()?;
-    let mut head = Vec::new();
-    std::io::Read::take(&mut *file, 4096).read_to_end(&mut head)?;
-    file.rewind()?;
-    Ok(head.len() > 12
-        && head.get(0..4) == Some(b"RIFF".as_slice())
-        && head.get(8..12) == Some(b"WEBP".as_slice())
-        && head.windows(4).any(|w| w == b"ANMF"))
-}
-
-""",
-    ),
+    # ---- VENDORISSUES #7 (animated WebP) RETIRED at core 2.63.0: upstream
+    # 81140d51 now keeps animated WebPs byte-exact via the real decoder's
+    # has_animation() (avatars still flatten — deliberate). Do not re-add.
     # ---- VENDORISSUES #10: expose the SMTP loop's bound transport ----
     dict(
         id="#10 Smtp struct field (smtp.rs)",

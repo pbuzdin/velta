@@ -196,12 +196,19 @@ Re-vendor note: both core patches re-apply mechanically — `python tools/apply-
 
 ### 7. Recoding an animated WebP strips its animation (static JPEG out)
 
-> **Upstream status (2026-10-03):** chatmail/core PR **8777** (open) implements the same fix — drop this patch on the next core re-vendor once a release carries it. See also docs/upstream/README.md.
+> **RETIRED at core 2.63.0 (2026-10-09):** upstream commit 81140d51 ("do not
+> reencode animated WebPs into JPEG") landed the fix natively — the real
+> WebP decoder's `has_animation()` gates the recode, animated non-avatar
+> images return byte-exact, and animated avatars are deliberately flattened
+> (stricter than our header sniff, which skipped recoding unconditionally).
+> The patch ops are removed from `tools/apply-core-patches.py`; do not
+> re-add. (The open PR tracked here, #8777, was NOT the landed fix.)
 
-**Status: patched locally (`core/src/blob.rs` — `is_animated_webp()` early
+**Status (historical): patched locally (`core/src/blob.rs` —
+`is_animated_webp()` early
 exit in `check_or_recode_to_size`; re-apply on every core upgrade, the call
 site is the `Velta patch` block right before the `ImageReader`
-construction).**
+construction). Kept through 2.62.0.**
 
 `check_or_recode_to_size()` decodes every Image-viewtype attachment with the
 `image` crate when it exceeds the media-quality byte limit or carries Exif,

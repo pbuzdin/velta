@@ -1417,16 +1417,6 @@ impl Session {
                 context,
                 "Transport {transport_id}: Failed to store device token: {err:#}."
             );
-            // Surface the per-relay push availability to the UI (the
-            // Diagnostics chat shows Info/Warning events): a relay that
-            // rejects the token means no push wake-ups for that account.
-            context.emit_event(EventType::Warning(format!(
-                "Transport {transport_id}: relay did not accept the push token ({err:#}) — no push notifications for this relay"
-            )));
-        } else {
-            context.emit_event(EventType::Info(format!(
-                "Transport {transport_id}: push notifications registered — the relay will wake the app on new mail"
-            )));
         }
 
         Ok(())
@@ -1464,10 +1454,9 @@ impl Session {
     /// or flags have been changed.
     /// In this case we may want to skip next IDLE and do a round
     /// of fetching new messages and synchronizing seen flags.
-    fn drain_unsolicited_responses(&self, context: &Context) -> Result<bool> {
+    fn drain_unsolicited_responses(&self, context: &Context) -> bool {
         use UnsolicitedResponse::*;
         use async_imap::imap_proto::Response;
-        use async_imap::imap_proto::ResponseCode;
 
         let folder = self.selected_folder.as_deref().unwrap_or_default();
         let mut should_refetch = false;
@@ -1482,34 +1471,25 @@ impl Session {
                 }
 
                 Expunge(_) | Recent(_) => {}
-                Other(ref response_data) => {
-                    match response_data.parsed() {
-                        Response::Fetch { .. } => {
-                            info!(
-                                context,
-                                "Need to refetch {folder:?}, got unsolicited FETCH {response:?}"
-                            );
-                            should_refetch = true;
-                        }
-
-                        // We are not interested in the following responses and they are are
-                        // sent quite frequently, so, we ignore them without logging them.
-                        Response::Done {
-                            code: Some(ResponseCode::CopyUid(_, _, _)),
-                            ..
-                        } => {}
-
-                        _ => {
-                            info!(context, "{folder:?}: got unsolicited response {response:?}")
-                        }
+                Other(ref response_data) => match response_data.parsed() {
+                    Response::Fetch { .. } => {
+                        info!(
+                            context,
+                            "Need to refetch {folder:?}, got unsolicited FETCH {response:?}"
+                        );
+                        should_refetch = true;
                     }
-                }
+
+                    _ => {
+                        info!(context, "{folder:?}: got unsolicited response {response:?}")
+                    }
+                },
                 _ => {
                     info!(context, "{folder:?}: got unsolicited response {response:?}")
                 }
             }
         }
-        Ok(should_refetch)
+        should_refetch
     }
 }
 

@@ -187,9 +187,9 @@ dependencies = [
 
 [[package]]
 name = "astral-tokio-tar"
-version = "0.6.4"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b18457efd137254e016bbde5e1d88df61c4e1a5ae2223746e56123bac6af2463"
+checksum = "6f2e989b33246fe9240d39accf4dd9a01e0b6c1f3ce9dd095e0a47fa02505523"
 dependencies = [
  "futures-core",
  "libc",
@@ -198,6 +198,7 @@ dependencies = [
  "rustix",
  "tokio",
  "tokio-stream",
+ "zerocopy 0.8.56",
 ]
 
 [[package]]
@@ -277,19 +278,19 @@ dependencies = [
 
 [[package]]
 name = "async-imap"
-version = "0.11.3"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a6728e0f7931b36d725ac234fcb02539e9f7888dbeaaa8a18d9ea5792181570"
+checksum = "f97b87216c9f0ccc63c516263169085fa34bba25633f6d96c6a9b9ca1fd5f70a"
 dependencies = [
  "async-channel 2.5.0",
  "async-compression",
- "base64 0.22.1",
+ "base64 0.23.1",
  "bytes",
  "chrono",
- "futures",
+ "futures-util",
  "imap-proto",
  "log",
- "nom 7.1.3",
+ "nom 8.0.0",
  "pin-project",
  "pin-utils",
  "self_cell",
@@ -526,6 +527,12 @@ name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+
+[[package]]
+name = "base64"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "base64ct"
@@ -1521,7 +1528,7 @@ dependencies = [
 
 [[package]]
 name = "deltachat"
-version = "2.62.0"
+version = "2.63.0"
 dependencies = [
  "anyhow",
  "astral-tokio-tar",
@@ -1531,7 +1538,7 @@ dependencies = [
  "async-native-tls",
  "async-smtp",
  "async_zip",
- "base64 0.22.1",
+ "base64 0.23.1",
  "blake3",
  "brotli",
  "bytes",
@@ -1539,7 +1546,6 @@ dependencies = [
  "colorutils-rs",
  "data-encoding",
  "deltachat-contact-tools",
- "deltachat-time",
  "deltachat_derive",
  "escaper",
  "fast-socks5",
@@ -1575,7 +1581,6 @@ dependencies = [
  "regex",
  "rusqlite",
  "sanitize-filename",
- "sdp",
  "serde",
  "serde_json",
  "sha-1",
@@ -1593,7 +1598,6 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "toml 0.9.12+spec-1.1.0",
- "tracing",
  "url",
  "uuid",
  "walkdir",
@@ -1612,11 +1616,11 @@ dependencies = [
 
 [[package]]
 name = "deltachat-jsonrpc"
-version = "2.62.0"
+version = "2.63.0"
 dependencies = [
  "anyhow",
  "async-channel 2.5.0",
- "base64 0.22.1",
+ "base64 0.23.1",
  "deltachat",
  "deltachat-contact-tools",
  "num-traits",
@@ -1628,10 +1632,6 @@ dependencies = [
  "typescript-type-def",
  "yerpc",
 ]
-
-[[package]]
-name = "deltachat-time"
-version = "1.0.0"
 
 [[package]]
 name = "deltachat_derive"
@@ -3442,11 +3442,11 @@ dependencies = [
 
 [[package]]
 name = "imap-proto"
-version = "0.16.7"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25f6af35c6a517aea5c72314abe90134980d2ae6a763809b50c208b3e429d71f"
+checksum = "5ccf963d57074747b455398a1763d174da80bcaba6f51e3671a82252b531a68b"
 dependencies = [
- "nom 7.1.3",
+ "nom 8.0.0",
 ]
 
 [[package]]
@@ -4205,15 +4205,15 @@ dependencies = [
 
 [[package]]
 name = "mail-builder"
-version = "0.5.0"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c942e8a4b83f9351236c1e531ea9fa0237913d63c7fc36818430e0128a1ddf3"
+checksum = "ccbc27cb02a58a311a404769a22f5abf63fe3173b290d80be7c534f9c7023151"
 
 [[package]]
 name = "mailparse"
-version = "0.16.1"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60819a97ddcb831a5614eb3b0174f3620e793e97e09195a395bfa948fd68ed2f"
+checksum = "8469955699e572455f8e1a40689e07ab309911d659632f65062598192254c091"
 dependencies = [
  "charset",
  "data-encoding",
@@ -5297,9 +5297,9 @@ dependencies = [
 
 [[package]]
 name = "pgp"
-version = "0.20.0"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1cfa4743b28656065ff4c0ba09e46b357a65e8c00fc2341e89084b82f87cbdf1"
+checksum = "ae70f4d9325a391db30d115d6191a7bb67cec856aa0bba131290f0c4e09a532a"
 dependencies = [
  "aead",
  "aes",
@@ -6634,18 +6634,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
-name = "sdp"
-version = "0.17.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66b6eecfa5151edef84d544ff3885dff98e5b5fe97586757a4b5118bde51c958"
-dependencies = [
- "rand 0.9.5",
- "substring",
- "thiserror 1.0.69",
- "url",
-]
-
-[[package]]
 name = "sealed"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7420,15 +7408,6 @@ dependencies = [
  "precis-profiles",
  "quoted-string-parser",
  "rand 0.9.5",
-]
-
-[[package]]
-name = "substring"
-version = "1.4.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42ee6433ecef213b2e72f587ef64a2f5943e7cd16fbd82dbe8bc07486c534c86"
-dependencies = [
- "autocfg",
 ]
 
 [[package]]

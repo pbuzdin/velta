@@ -70,10 +70,11 @@ test("restore flow ordering: unwrap-first, configure-before-keys, stray rollback
   const body = appSrc.slice(start, end);
   const unwrap = body.indexOf("unwrapIdentityBundle(");
   const add = body.indexOf("core.addAccount()");
-  const configure = body.indexOf("core.configureAccount(id)");
+  const configure = body.indexOf("core.configureWithCredentials(bundle.addr");
   const keys = body.indexOf("importSelfKeys(id, dir, pass)");
   const rollback = body.indexOf("core.deleteAccount(id)");
   assert.ok(unwrap !== -1 && unwrap < add, "bundle unwrapped before any account is created");
   assert.ok(add !== -1 && add < configure && configure < keys, "configure BEFORE import_self_keys (day 18)");
   assert.ok(rollback !== -1 && rollback < keys, "failed configure removes the stray account");
+  assert.ok(!body.includes("batchSetConfig"), "core 2.63: legacy addr/mail_pw configs are gone — add_transport configures");
 });

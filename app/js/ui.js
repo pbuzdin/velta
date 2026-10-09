@@ -371,7 +371,7 @@ export function confirmDeleteMessagesModal(count, canForAll) {
 // Fallback only: the live core version is fetched via get_system_info in
 // app.js boot and pushed here with setCoreVersionDisplay (the running
 // sidecar/in-process core is the source of truth, not this constant).
-let CORE_VERSION = "2.62.0";
+let CORE_VERSION = "2.63.0";
 
 export function setCoreVersionDisplay(v) {
   if (!v) return;

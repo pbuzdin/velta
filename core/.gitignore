@@ -55,5 +55,3 @@ result
 .envrc
 .direnv
 .aider*
-target-win/
-target-android/

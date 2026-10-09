@@ -606,27 +606,7 @@ impl Context {
         if self.scheduler.is_running().await {
             self.scheduler.interrupt_inbox_idle().await;
             let include_smtp = false;
-            // #42/#25 P8: bound the wait. After the interrupt, the fetch runs
-            // on the existing session; if that socket died quietly (NAT
-            // timeout, Doze freezer), the read blocks for up to
-            // `crate::net::TIMEOUT` before erroring, so a push wake-up would
-            // wait out the stale connection instead of delivering. If the
-            // fetch does not finish quickly, restart IO so the wake-up
-            // reconnects on fresh sockets.
-            if tokio::time::timeout(
-                std::time::Duration::from_secs(10),
-                self.wait_for_work_done(include_smtp),
-            )
-            .await
-            .is_err()
-            {
-                warn!(
-                    self,
-                    "background_fetch: work not done within 10s, restarting IO to drop a stale connection."
-                );
-                self.restart_io_if_running().await;
-                self.wait_for_work_done(include_smtp).await;
-            }
+            self.wait_for_work_done(include_smtp).await;
         } else {
             self.scheduler.background_fetch_any(self).await?;
         }

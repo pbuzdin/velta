@@ -1661,9 +1661,18 @@ export class JsonRpcCore extends EventTarget {
   }
 
   // --- onboarding: configure the account (not in MockCore) ---
-  async configureWithCredentials(addr, password) {
-    const { accountId, accountEpoch } = this;
-    await this._call("add_transport", accountId, { addr, password });
+  async configureWithCredentials(addr, password, accountId = this.accountId) {
+    const { accountEpoch } = this;
+    // core 2.63.0: add_transport takes the full EnteredLoginParam (serde has
+    // no field defaults; legacy addr/mail_pw configs are gone) — same shape
+    // list_transports returns. Chatmail derives SMTP login from these.
+    await this._call("add_transport", accountId, {
+      addr,
+      imap: { server: "", port: 0, folder: "", security: "Automatic", user: addr, password },
+      smtp: { server: "", port: 0, security: "Automatic", user: addr, password },
+      certificate_checks: "Strict",
+      oauth2: false,
+    });
     this._emitAccount("chat-updated", { chatId: 0 }, accountEpoch);
   }
 

@@ -396,3 +396,29 @@ in `_mapContact`; a future UI could dim "Old" contacts (not done — no demand).
 its code had latent build breaks (yerpc 0.6 vs 0.7 trait bounds, ambiguous
 `StreamExt::next`, JNI `JValue` borrow shape). Now pinned to tag `v2.61.0`
 with `yerpc = "0.7"` and compiles clean.
+
+## 6. Update → 2.63.0 (2026-10-09; 2.62.0 shipped 2026-09-26 without its own section)
+
+2.62.0 brought multi-transport polish Velta already consumes (immediate
+`delete_transport`, connectivity HTML per-transport dots, autorelay growth).
+2.63.0 highlights:
+
+- **Breaking (migrated):** legacy config values (`addr`, `mail_pw`, …) are no
+  longer saved when configuring a transport. Velta's identity backup export
+  now reads credentials from `list_transports()` (`imap.password`), and the
+  invite-claim + identity-restore paths configure via `add_transport` with
+  the full `EnteredLoginParam` shape (serde has no field defaults).
+- **Vendored patch #7 retired:** upstream 81140d51 keeps animated WebPs
+  byte-exact (`has_animation()` gate; animated avatars deliberately
+  flattened). Patch count 13 → 11.
+- **#8797** (SMTP loop resets `transport_id`/`from` on disconnect) — landed;
+  the #79 vendored patch (#10 series) re-applied cleanly on top.
+- **Failover:** connects to the most recently successfully used SMTP
+  transport first — `smtp-via` flips more predictably; no API change.
+- **Additive:** `PinnedMessagesChanged` event (unused yet), unencrypted-MDN
+  hardening (no request/send for unencrypted), securejoin invite codes
+  percent-encode fix, handled securejoin messages deleted on all relays,
+  HTTP(S) proxy error context.
+- **Not landed:** #8777/#8711 (HEIC/image pipeline) and #8798 (client-facing
+  sending-transport signal — the vendored #10 patch remains the substitute).
+- **Deps:** rPGP 0.20→0.21, mail-builder 1.0, async-imap 0.12, mailparse 0.17.

@@ -4041,9 +4041,17 @@ async function runBackupExport(pass) {
   return name;
 }
 
-async function runIdentityExport(pass) {  if (!pass || pass.length < 8) throw new Error("Use a passphrase of at least 8 characters — this file IS your account");
-  const addr = await core.getConfig("addr");
-  const mailPw = await core.getConfig("mail_pw");
+async function runIdentityExport(pass) {
+  if (!pass || pass.length < 8) throw new Error("Use a passphrase of at least 8 characters — this file IS your account");
+  // core 2.63.0 removed the legacy addr/mail_pw configs — credentials now
+  // live in the transports list (imap.password). Prefer the sending address.
+  const transports = await core.listTransports();
+  const byAddr = state.account?.addr
+    ? transports.find(t => String(t.addr || "").toLowerCase() === String(state.account.addr).toLowerCase())
+    : null;
+  const transport = byAddr || transports.find(t => t.imap?.password) || transports[0];
+  const addr = transport?.addr;
+  const mailPw = transport?.imap?.password;
   if (!addr || !mailPw) throw new Error("This profile is not configured yet — nothing to back up");
   const dir = "/identity/export";
   await core.exportSelfKeys(core.accountId, dir, pass);
@@ -4066,9 +4074,10 @@ async function runIdentityRestore(file, pass, onPhase) {
   onPhase(`Adding account for ${bundle.addr}…`);
   const id = await core.addAccount();
   try {
-    await core.batchSetConfig(id, { addr: bundle.addr, mail_pw: bundle.mail_pw });
+    // core 2.63.0: legacy addr/mail_pw configs are gone — configure via
+    // add_transport (it runs the full configure + start_io internally).
     onPhase("Logging in to the relay…");
-    await core.configureAccount(id);
+    await core.configureWithCredentials(bundle.addr, bundle.mail_pw, id);
   } catch (err) {
     // #99 family: add_account selected the fresh, empty account — a dead
     // relay here would strand the user on it. Remove the stray (the wrapper

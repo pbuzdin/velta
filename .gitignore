@@ -114,3 +114,6 @@ Velta.zip
 # deltachat-wasm build output
 packages/deltachat-wasm/wasm-dist/
 scripts/node_modules/
+
+# Windows sidecar build tree (matches **/target/ pattern not)
+**/target-win/
