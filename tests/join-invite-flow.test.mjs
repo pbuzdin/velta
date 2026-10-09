@@ -20,3 +20,21 @@ test("joinFromInvite settles the modal history before its confirm chain", () => 
   assert.ok(settle !== -1, "must await modalHistorySettled()");
   assert.ok(confirm !== -1 && settle < confirm, "settle must precede the confirmModal chain");
 });
+
+// Same contract for the relay flow: acquireCode closes its modal before
+// addRelayFlow opens "Adding relay", and success closes the steps modal
+// right before the Relays list reopens — both need the settle first.
+test("addRelayFlow settles the modal history at both reopen points", () => {
+  const start = stripped.indexOf("async function addRelayFlow(");
+  assert.ok(start !== -1, "addRelayFlow exists outside comments");
+  const next = stripped.indexOf("\nasync function ", start + 10);
+  const body = stripped.slice(start, next === -1 ? undefined : next);
+  const settle = body.indexOf("await modalHistorySettled()");
+  const adding = body.indexOf('showModal({ title: "Adding relay"');
+  const reopen = body.indexOf("openRelaysModal()");
+  assert.ok(settle !== -1 && adding !== -1 && settle < adding,
+    "settle must precede the Adding-relay modal");
+  const settleReopen = body.indexOf("await modalHistorySettled()", settle + 10);
+  assert.ok(settleReopen !== -1 && reopen !== -1 && settleReopen < reopen,
+    "settle must precede reopening the Relays list");
+});
