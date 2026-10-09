@@ -4753,6 +4753,11 @@ async function addRelayFlow(epoch, refresh, presetCode) {
     validate: c => (/^(dcaccount:|dclogin:)/i.test(c.trim()) || normalizeRelayLink(c) ? null : "That doesn't look like a relay address or invite code"),
   });
   if (!code || !accountIsCurrent(epoch)) return;
+  // acquireCode closed its modal right before this: its history.back() lands
+  // async, and an "Adding relay" modal opened before the pop shares the dying
+  // entry and is torn down by it — the whole flow runs invisibly (the same
+  // contract as #103).
+  await modalHistorySettled();
   // Bare domains / https links normalize to dcaccount:https://<host>/new;
   // dclogin: (rejected by normalizeRelayLink) passes through for checkQr.
   const qr = normalizeRelayLink(code) ?? code.trim();
@@ -4805,10 +4810,13 @@ async function addRelayFlow(epoch, refresh, presetCode) {
       refresh();
       // Success must not leave the steps modal open — close it and, if the
       // flow was started from the Relays modal, show the updated list again.
-      setTimeout(() => {
+      setTimeout(async () => {
         if (!accountIsCurrent(epoch)) return;
         closeAdding();
-        if (refresh) openRelaysModal();
+        if (refresh) {
+          await modalHistorySettled(); // close-then-reopen: #103 contract
+          openRelaysModal();
+        }
       }, 900);
     } finally {
       core.removeEventListener("configure-progress", onProg);
