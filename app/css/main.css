@@ -669,6 +669,12 @@ html[data-theme="light"] .msg-row.out .msg-quote .q-text { color: #4d5a68; }
   -webkit-user-drag: none;
   -webkit-touch-callout: none;
 }
+/* Outgoing bubble is blue — the accent link vanishes on it (blue on blue,
+   ~3:1 dark / ~2.9:1 light, both under the 4.5:1 AA text bar). Use the
+   established light-on-blue bubble palette (same tones as .msg-row.out
+   blockquote/quote text): 6.7:1 dark, 7.3:1 light. */
+.msg-row.out .msg-text a { color: #dfeaf6; }
+html[data-theme="light"] .msg-row.out .msg-text a { color: #14507e; }
 /* Markdown lists (markdown.js emits <ul>/<ol> as block units; the surrounding
    msg-text keeps pre-wrap for plain paragraphs) */
 .msg-text ul, .msg-text ol { margin: 2px 0; padding-left: 20px; }
