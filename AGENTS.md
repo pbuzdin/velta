@@ -1653,7 +1653,7 @@ Skip Lighthouse for the installed app; it's only weakly useful for PWA mode.
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 49 files, 410 tests as of 2026-10-09:
+whole set — 49 files, 411 tests as of 2026-10-09:
 
 ```bash
 node --test tests/
@@ -1668,8 +1668,9 @@ wrapper boundaries (`delete-account.test.mjs`), the sync-only-active IO
 funnel (`sync-only-active.test.mjs`), wasm worker boot/checkpoint ordering
 driven through the real worker script (`wasm-boot-order.test.mjs`), the
 identity-backup crypto + restore-ordering pins (`identity-backup.test.mjs`),
-backup export naming/gating (`backup-export.test.mjs`), and the join-invite
-modal-history contract (`join-invite-flow.test.mjs`).
+backup export naming/gating (`backup-export.test.mjs`), and the modal-history
+contract — join-invite confirms AND the add-relay reopen points
+(`join-invite-flow.test.mjs`).
 
 The local-chat suites (`local-*.test.mjs`) pin the adapter contract of local
 groups (ids, ticks derived from per-member acks, system lines, member
