@@ -791,9 +791,10 @@ function renderRelayLine() {
 
   // Detail chips (hover / pull-down reveal): one chip per relay-line segment,
   // equal widths so each chip sits above its own segment — masked domain plus
-  // the quota percent ("cha*.uk · 55% used"). The relay the SMTP loop is
-  // actually bound to (#79) carries a static envelope. The unmasked domain,
-  // status and full quota line ride the title tooltip.
+  // the quota percent ("cha*.uk · 55%"). The send relay carries an envelope
+  // colored by SMTP-loop health (green ok, amber retrying, red broken, grey
+  // = old core without the #79 patch). The unmasked domain, status and full
+  // quota line ride the title tooltip.
   const detail = document.getElementById("relay-detail");
   if (detail) {
     detail.replaceChildren(...segs.map(s => {
@@ -805,21 +806,28 @@ function renderRelayLine() {
         const ico = document.createElement("span");
         ico.className = "relay-detail-send";
         ico.innerHTML = RELAY_SEND_SVG; // static constant, no data
+        ico.dataset.smtp = relaySmtpState === "ok" ? "ok"
+          : relaySmtpState === "down" ? "down"
+          : relaySmtpState === "connecting" || relaySendErrorState.active ? "retrying"
+          : "unknown";
         chip.append(ico);
       }
       const label = document.createElement("span");
       label.className = "relay-detail-label";
-      const pct = (String(s.quota || "").match(/(\d+)\s*%/) || [])[1];
-      label.textContent = maskRelayDomain(s.domain) + (pct ? ` · ${pct}% used` : s.text ? ` · ${s.text}` : "");
-      chip.append(label);
-      if (pct) {
-        const meter = document.createElement("meter");
-        meter.className = "relay-meter";
-        meter.min = 0; meter.max = 100; meter.low = 70; meter.high = 90; meter.optimum = 0;
-        meter.value = Number(pct);
-        meter.title = `${pct}% used`;
-        chip.append(meter);
+      label.append(maskRelayDomain(s.domain));
+      const pct = Number((String(s.quota || "").match(/(\d+)\s*%/) || [])[1]);
+      if (Number.isFinite(pct)) {
+        // The <meter> went away — the % text carries the warning color itself
+        // (same thresholds the meter's low/high had).
+        const p = document.createElement("span");
+        p.className = "relay-pct";
+        p.dataset.level = pct > 90 ? "full" : pct >= 70 ? "high" : "ok";
+        p.textContent = ` · ${pct}%`;
+        label.append(p);
+      } else if (s.text) {
+        label.append(` · ${s.text}`);
       }
+      chip.append(label);
       chip.title = `${segTitle(s)}${s.quota ? ` · ${s.quota}` : ""}${isSendRelay(s) && relaySendErrorState.active ? " · sending delayed — retrying" : ""}`;
       return chip;
     }));
