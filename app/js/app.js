@@ -543,17 +543,31 @@ function scheduleRelayProbes(segs) {
     if (!d) continue;
     const c = relayProbeCache.get(d);
     if (c?.pending || (c && Date.now() - c.ts < RELAY_PROBE_MIN_GAP_MS)) continue;
-    const entry = { pending: true };
+    const entry = { pending: true, failedSince: c?.ok === false ? (c.failedSince || c.ts) : undefined };
     relayProbeCache.set(d, entry);
     probeRelayReachable(d).catch(() => false).then(ok => {
       entry.ok = ok;
       entry.ts = Date.now();
       entry.pending = false;
+      if (ok) delete entry.failedSince;
+      else if (entry.failedSince == null) entry.failedSince = entry.ts;
       if (core.backend?.kind !== "mock") renderRelayLine();
     });
   }
 }
 const RELAY_DOWN_AFTER_MS = 45000;
+
+// A relay that keeps refusing new connections is "offline", not "connecting"
+// — amber for days reads as a live problem. The probe is ground truth (the
+// core's dot can stay green off a zombie session for hours, #76); the grace
+// period keeps short blips amber and only then drops to the calmer grey.
+const RELAY_OFFLINE_AFTER_MS = 10 * 60 * 1000;
+function relaySegmentDisplayState(state, probe, now = Date.now()) {
+  if (probe?.ok !== false) return state;
+  const since = probe.failedSince || probe.ts;
+  if (since && now - since >= RELAY_OFFLINE_AFTER_MS) return "offline";
+  return state === "ok" ? "unreachable" : state;
+}
 
 // The core exposes per-transport status only inside its connectivity HTML
 // page: one <li class="transport[ unpublished]"> per relay, each folder
@@ -724,7 +738,7 @@ function renderRelayLine() {
   // established session can keep the core's dot green for hours), and the
   // sending relay also inherits the account-global SMTP dot (the core renders
   // SMTP outside the per-transport sections it parses).
-  const SEVERITY = { ok: 0, connecting: 1, unreachable: 2, down: 3 };
+  const SEVERITY = { ok: 0, connecting: 1, unreachable: 2, offline: 2, down: 3 };
   // #79: the SMTP loop's ACTUALLY bound transport (core patch reports it in
   // the connectivity HTML) outranks configured_addr for the envelope/dashes —
   // on failover the marker follows the messages. Old cores report nothing
@@ -739,8 +753,7 @@ function renderRelayLine() {
     (rawSegs.length === 1 && !effectiveSendDomain));
   const segs = rawSegs.map(s => {
     const probe = s.domain ? relayProbeCache.get(String(s.domain).toLowerCase()) : null;
-    let segState = s.state;
-    if (segState === "ok" && probe?.ok === false) segState = "unreachable";
+    let segState = relaySegmentDisplayState(s.state, probe);
     if (isSendRelay(s) && relaySmtpState && (SEVERITY[relaySmtpState] ?? 0) > (SEVERITY[segState] ?? 0)) {
       segState = relaySmtpState;
     }
@@ -758,7 +771,9 @@ function renderRelayLine() {
   }
   const segTitle = s => {
     const base = s.domain ? `${s.domain}: ${s.text}` : (s.text || title);
-    return s.state === "unreachable" ? `${base} — not accepting new connections (web check failed)` : base;
+    if (s.state === "unreachable") return `${base} — not accepting new connections (web check failed)`;
+    if (s.state === "offline") return `${base} — offline (not accepting connections for a while)`;
+    return base;
   };
   el.replaceChildren(...segs.map((s, i) => {
     const seg = document.createElement("span");

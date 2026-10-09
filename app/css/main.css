@@ -129,6 +129,9 @@ svg { width: 24px; height: 24px; display: block; }
 .relay-line .relay-seg[data-state="ok"]         { color: #2ecc71; }
 .relay-line .relay-seg[data-state="connecting"] { color: #e6a23c; }
 .relay-line .relay-seg[data-state="unreachable"] { color: #e6a23c; }
+/* #108 sustained offline (probe failing > 10 min): calm grey, not amber —
+   a relay down for days is a fact, not an active problem. */
+.relay-line .relay-seg[data-state="offline"]     { color: #9aa0a6; }
 /* #102 sending delayed: relay up, SMTP retrying — amber like connecting;
    the difference lives in the line title and the detail chip text. */
 .relay-line .relay-seg[data-state="delayed"]    { color: #e6a23c; }
@@ -184,6 +187,7 @@ svg { width: 24px; height: 24px; display: block; }
 }
 .relay-detail-chip[data-state="down"] { border-color: #e05252; }
 .relay-detail-chip[data-state="unreachable"] { border-color: #e6a23c; }
+.relay-detail-chip[data-state="offline"] { border-color: #9aa0a6; }
 /* Frosted variant where supported: the relay line's state colors ghost
    through each chip (62% bg keeps the 11px labels readable). Without
    backdrop-filter the solid var(--bg-sidebar) rule above stands. */
