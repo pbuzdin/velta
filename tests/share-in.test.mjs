@@ -51,3 +51,16 @@ test("opened urls are drained into the share picker, not dropped", () => {
   assert.match(app, /parseSharePayload/);
   assert.match(app, /Share to…/);
 });
+
+test("the share picker waits for the chat list on a cold-start share", () => {
+  // Sharing from a browser cold-starts the app: pickShareChat used to open
+  // before refreshChatList filled state.chats — an empty "Share to…" sheet.
+  const app = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+  const start = app.indexOf("async function offerShareNow(");
+  const pick = app.indexOf("await pickShareChat()");
+  assert.ok(start !== -1 && pick > start, "offerShareNow exists and picks a chat");
+  const wait = app.slice(start, pick);
+  assert.match(wait, /accountRefreshPromise\s*\?\?\s*refreshChatList\(\)/,
+    "offerShareNow must await the chat list before the picker");
+});

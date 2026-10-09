@@ -3718,6 +3718,11 @@ function pickShareChat() {
 async function offerShareNow(items) {
   if (state.accountChanging || !core) return;
   const epoch = core.accountEpoch;
+  // A share cold-starts the app (share sheet → Velta): the chat list is
+  // still loading, so the picker must wait for it or it opens as an empty
+  // "Share to…" sheet.
+  try { await (accountRefreshPromise ?? refreshChatList()); } catch { /* pick from whatever is loaded */ }
+  if (!accountIsCurrent(epoch)) return;
   const chat = await pickShareChat();
   if (!chat || !accountIsCurrent(epoch)) return;
   await deliverShare(chat, items, epoch);
