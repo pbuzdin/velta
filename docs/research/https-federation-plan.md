@@ -103,6 +103,50 @@ MX drops the peer (or goes to an MX-only hostname). Never a hard cutover.
       reinject loop risk only exists for self-domain tests, which we skipped
       on a live relay).
 
+## CORRECTION (2026-10-09, after mrgluek's review of this commit)
+
+The test matrix above contains misreadings — walked back with probes:
+
+- **The envelope rides HTTP headers, not the body.** `X-MAIL-FROM` (single)
+  and `X-MAIL-TO` (repeatable) are the only recipient source; `To:`/`Cc:`
+  are never read. My earlier probes set no `X-MAIL-TO`, so every "250 OK"
+  was a no-op (empty RCPT list); the lmtp `status=sent` lines I attributed
+  to my probes were real user traffic. With the header set properly, the
+  chain works exactly as the protocol intends: reinject → postfix
+  `550 5.1.1 User doesn't exist` for an unknown user (proper SMTP
+  semantics, not a "250-then-drop bug" — that flag is retracted), and
+  plaintext to a real local user → `400 "523 Encryption Needed"` — the
+  receiver **enforces E2E** for local users, stronger than stated.
+- **Outbound HTTPS federation is already shipped.** The fork runs
+  **filtermail 0.6.4** (changelog: "Upgrade to filtermail v0.6.4"), which
+  carries the upstream HTTPS transport channel: Postfix
+  `default_transport = lmtp-filtermail:inet:[127.0.0.1]:10083` routes ALL
+  outbound through filtermail-transport, which tries
+  `POST https://<mx>/mxdeliv` first per MX and falls back to SMTP:25 with a
+  30-min per-host cache. Stage 1's "build" therefore collapses to
+  configuration that is already live; `mxdeliv-send` / pipe /
+  `transport_maps` / `peers.json` are **redundant** (kept on the box as a
+  diagnostic probe only, now protocol-correct: sets the X-MAIL-* envelope
+  and classifies by the SMTP code inside the 400 body).
+- **Sender response semantics**: the receiver answers 200 only after the
+  reinject got 250; every rejection is 400 with the SMTP reply in the body
+  (`4xx` SMTP → defer, `5xx` SMTP → bounce), `413` = oversize. HTTP status
+  alone is not meaningful.
+- **Peer auth**: the wire protocol has no token — stock relays send only
+  `X-MAIL-FROM`/`X-MAIL-TO`. A Bearer requirement at nginx is a protocol
+  fork that pushes stock peers to their SMTP:25 fallback; behind
+  Cloudflare, IP allowlists additionally need `set_real_ip_from` +
+  `real_ip_header CF-Connecting-IP` or nginx sees only CF addresses. The
+  stock trust model (DKIM domain alignment + E2EE-for-local + local-only
+  recipients) is the gate; decide consciously if the private federation
+  needs more.
+
+**Revised stages:** Stage 1 is DONE (shipped upstream, live on the relay). The
+only decision left for "Private Federation" is Stage 0's firewall policy —
+inbound-25 off = drop SMTP-only peers; outbound-25 off = stop talking to
+them entirely (HTTPS-first makes this survivable for current-filtermail
+peers). Stage 2 (client-side 443) unchanged.
+
 ## Install state on the relay (2026-10-09)
 
 - `/usr/local/lib/chatmaild/mxdeliv-send` + `/opt/mxdeliv-venv` (dkimpy).
