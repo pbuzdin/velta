@@ -99,6 +99,41 @@ export function useWsRelay(host) {
   return true;
 }
 
+// Browser probe for a relay's C3 mail-tunnel capability (wasm patch 0007):
+// the core resolves names over wss://<host>/dns/<host> and a capable relay
+// answers with a JSON array of IPs, then may close. Anything else — 404,
+// origin-gate 403, an HTML error page, silence — means this PWA cannot
+// tunnel mail there (relays gate browser origins, so "capable" here always
+// means "capable from THIS app's origin", which is what matters).
+export function probeC3Relay(host) {
+  return new Promise((resolve) => {
+    let done = false;
+    let ws = null;
+    const finish = (v) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { ws?.close(); } catch {}
+      resolve(v);
+    };
+    try { ws = new WebSocket(`wss://${host}/dns/${host}`); }
+    catch { return finish(false); }
+    const timer = setTimeout(() => finish(false), 5000);
+    ws.onmessage = (ev) => {
+      if (typeof ev.data !== "string") return finish(false);
+      try {
+        const v = JSON.parse(ev.data);
+        // Non-empty: the relay's own name must resolve, or the core would
+        // still die at DNS (a relay answering [] for itself is broken).
+        finish(Array.isArray(v) && v.length > 0);
+      }
+      catch { finish(false); }
+    };
+    ws.onerror = () => finish(false);
+    ws.onclose = () => finish(false);
+  });
+}
+
 function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }

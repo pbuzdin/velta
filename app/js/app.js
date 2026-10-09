@@ -10,7 +10,7 @@ import { initCalls } from "./calls.js";
 import { initWebxdc } from "./webxdc-manager.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow, isSendFailureDiagnostic, createRelaySendErrorState } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal, isShortInviteLink, expandShortInvite } from "./invites.js";
-import { activeWsRelay, showWsRelaysModal } from "./ws-relays.js";
+import { activeWsRelay, addWsRelay, listWsRelays, normalizeHost, probeC3Relay, showWsRelaysModal, useWsRelay } from "./ws-relays.js";
 import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate, popoverSupported } from "./ui.js";
 import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact, showCreateGroupModal, showAddMembersModal } from "./p2p.js";
 import { withLocalChat, hubModel, renameDevice, removePeer, dismissLocalGroup, groupRename, groupRemoveMember, peerGroupImpact, groupActionsModel, groupMemberHint, removePeerImpactText, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
@@ -3233,6 +3233,7 @@ function openProfileManagement() {
       toast(relayInput.value.trim() ? "That doesn't look like a chatmail relay or dcaccount: link" : "Enter a relay address");
       return;
     }
+    if (!(await ensureMailTunnelForLink(link))) return;
     lock(true);
     await addAccountFromInvite(link);
     lock(false);
@@ -3504,6 +3505,31 @@ async function addAccountFromInvite(link) {
   }
 }
 
+// PWA: browser mail rides the active WS relay's C3 tunnel, and the wasm
+// worker reads that proxy once at boot. Before creating an account on a
+// relay, probe its /dns/<host> WebSocket — a capable relay answers its own
+// name with a JSON IP array, anything else means the PWA could never reach
+// it (the misleading "Could not find DNS resolutions" came from routing a
+// capable relay through a stale non-capable one). When the account's relay
+// IS capable but not the active tunnel, switch and stash the link: the page
+// reloads so the worker boots on the new proxy, and boot resumes the create.
+async function ensureMailTunnelForLink(link) {
+  if (!window.VELTA_PWA?.wasmCore) return true;
+  const host = normalizeHost(/^dcaccount:https:\/\/([^/]+)\/new/i.exec(link || "")?.[1] || "");
+  if (!host || activeWsRelay() === host) return true;
+  toast(`Checking ${host}…`);
+  if (!(await probeC3Relay(host))) {
+    errToast(`${host} doesn't answer browser mail (no WebSocket endpoints) — use the Velta app for it, or a relay that supports the PWA, e.g. the one serving this app.`, 7000);
+    return false;
+  }
+  if (!listWsRelays().includes(host)) addWsRelay(host);
+  useWsRelay(host);
+  sessionStorage.setItem("velta-pending-add", link);
+  toast(`Routing mail through ${host} — reloading…`);
+  location.reload();
+  return new Promise(() => {}); // the reload never lets this resolve
+}
+
 /* ---------------- deeplinks ----------------
    Supported entry points:
      • web+dcaccount: protocol handler → index.html?qr=dcaccount:…
@@ -3653,7 +3679,10 @@ async function handleDeeplinkFromUrl(rawUrl, { clearUrl = false } = {}) {
   const epoch = core.accountEpoch;
   const choice = await chooseRelayOrNewProfile(link);
   if (choice === "relay") await addRelayFlow(epoch, null, link);
-  else if (choice === "new") await addAccountFromInvite(link);
+  else if (choice === "new") {
+    if (!(await ensureMailTunnelForLink(link))) return true;
+    await addAccountFromInvite(link);
+  }
   return true;
 }
 
@@ -4585,6 +4614,7 @@ function showSplash() {
     const raw = input.value;
     const link = normalizeRelayLink(raw);
     if (!link) { toast(raw.trim() ? "That doesn't look like a relay address" : "Enter a relay address"); return; }
+    if (!(await ensureMailTunnelForLink(link))) return;
     const host = link.replace(/^dcaccount:https:\/\//i, "").replace(/\/new.*$/, "");
     await runCreate({
       trigger: ok,
@@ -5020,6 +5050,16 @@ async function boot() {
         await askBatteryExemption();
       }
     } catch {}
+
+    // PWA relay auto-switch resume: the create-account gate reloaded the
+    // page to point the worker's mail tunnel at the account's own relay;
+    // finish the interrupted create now that the core is up on the right
+    // tunnel. Removed from storage before use — a failure here must not loop.
+    if (window.VELTA_PWA?.wasmCore && sessionStorage.getItem("velta-pending-add")) {
+      const pending = sessionStorage.getItem("velta-pending-add");
+      sessionStorage.removeItem("velta-pending-add");
+      addAccountFromInvite(pending);
+    }
 
     try {
       const tauri = window.__TAURI__;
