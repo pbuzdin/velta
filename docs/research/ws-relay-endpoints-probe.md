@@ -31,10 +31,11 @@ the workspace root):
 
 1. chatmail.uk runs a C3-style websockify at root (`/tcp/{host}/{port}` +
    `/dns/{host}`) → PWA users just add `chatmail.uk`.
-2. We bridge: a7 joins Yggdrasil by peering over `wss://chatmail.uk:443/ygg-ws`
-   (exactly what the endpoint is for), then a7's C3 proxy routes
-   `201:9b0a:…:993/465` over `ygg0`. PWA users keep adding `relay.example.org`;
+2. We bridge: the private relay joins Yggdrasil by peering over
+   `wss://chatmail.uk:443/ygg-ws` (exactly what the endpoint is for), then
+   the relay's C3 proxy routes `201:9b0a:…:993/465` over `ygg0`. PWA users
+   keep adding the relay domain they already use;
    chatmail.uk's real IP never appears in any client artifact. Also a
    censorship-resistant path (Yggdrasil rides reachable transports).
    Open question: whether chatmail.uk's ygg node exposes 993/465 on its
-   overlay address — verify from a7 once it has a ygg interface.
+   overlay address — verify from the relay once it has a ygg interface.

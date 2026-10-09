@@ -9,7 +9,8 @@ HTTPS-submission discussions (client↔server).
 The Velta PWA (browser wasm core) can only talk to relays that run the Velta
 C3 websocket bridge (`wss /tcp/993, /tcp/465, /dns/`), because browsers
 cannot open raw TCP/ALPN. That pins every PWA user to relays running our
-stack (the private relay) — stock relays like nine.testrun.org are unreachable from the
+stack (the private relay) — stock relays like nine.testrun.org are
+unreachable from the
 browser even though they speak HTTPS federation (`/mxdeliv`) to each other.
 
 A **client HTTPS mail API** fixes the class of problem: the relay exposes
@@ -69,7 +70,7 @@ The stock DC core speaks IMAP/SMTP; it cannot use this API today. Options:
 3. **Interim (already available): websocket proxy to any relay** — the C3
    bridge becomes an allowlisted multi-relay byte pipe; the core keeps
    speaking IMAP/SMTP end-to-end TLS through it (see the multi-relay proxy
-   notes in this repo's session notes / the private relay deployment). Zero core
+   notes in this repo's session notes / the private relay's deployment). Zero core
    changes, zero API needed — the bridge stays a dumb pipe and the user's
    TLS runs browser→target-relay, so the proxy reads nothing.
 

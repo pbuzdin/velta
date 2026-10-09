@@ -23,9 +23,9 @@ posts its usual MessagingStyle notification. No FCM, no Google.
 - The token is opaque to the core — for us it decrypts to a **UnifiedPush
   endpoint URL** (`https://<ntfy-host>/<secret-topic>`).
 
-## relay state (verified 2026-10-09)
+## Relay state (verified 2026-10-09)
 
-- dovecot 2.3.21, maildir `/home/vmail/mail/relay.example.org/%u`, real IMAP :993,
+- dovecot 2.3.21, maildir `/home/vmail/mail/<relay-domain>/%u`, real IMAP :993,
   websockify 127.0.0.1:8143, nginx :3341 (iroh relay). Metadata plugin state
   NOT yet verified — needs `doveconf -n | grep imap_metadata` before
   registration can work; `/shared/vendor/deltachat/*` entries may be missing
@@ -38,7 +38,7 @@ posts its usual MessagingStyle notification. No FCM, no Google.
    vendored `core/src/push.rs` (quilt patch — must survive the next
    re-vendor; add to the quilt series). Private key lands on the relay only.
 2. **Relay: ntfy server.** Static binary + systemd unit, listening on a
-   local unix socket behind nginx (`/ntfy` on relay.example.org or push.velta.cc,
+   local unix socket behind nginx (`/ntfy` under the relay domain,
    TLS via existing cert). Auth off — the topic name is the secret.
 3. **Relay: notifier daemon.** dovecot `notify`/maildir hook on new-mail for
    user U → `doveadm metadata get -u U -mailbox INBOX /private/devicetoken`

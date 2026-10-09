@@ -1,7 +1,7 @@
 # HTTPS Federation — dropping port 25 for relay-to-relay mail (plan)
 
-Status: **stage 1 in progress** · 2026-10-09 · target: relay.example.org (modified
-chatmail fork) · author notes from the 10-09 relay audit.
+Status: **stage 1 in progress** · 2026-10-09 · target: the private relay
+(modified chatmail fork) · author notes from the 10-09 relay audit.
 
 ## Goal
 
@@ -51,7 +51,7 @@ list breaks live federation. Everything else below works regardless.
    `allow <peer-IP>; deny all;` inside `location /mxdeliv` (per-peer IPs),
    optional shared-token check later. 30 MB body cap already enforced.
 4. **Self-federation test** (no second server needed): `transport_maps`
-   temporarily maps `relay.example.org` itself to the HTTPS transport → a locally
+   temporarily maps the relay's own domain to the HTTPS transport → a locally
    submitted message loops through pipe → public HTTPS → nginx → 10082 →
    filtermail → 10026 → Dovecot. Proves every hop; revert the map after.
 
@@ -141,8 +141,8 @@ The test matrix above contains misreadings — walked back with probes:
   recipients) is the gate; decide consciously if the private federation
   needs more.
 
-**Revised stages:** Stage 1 is DONE (shipped upstream, live on the relay). The
-only decision left for "Private Federation" is Stage 0's firewall policy —
+**Revised stages:** Stage 1 is DONE (shipped upstream, live on the relay).
+The only decision left for "Private Federation" is Stage 0's firewall policy —
 inbound-25 off = drop SMTP-only peers; outbound-25 off = stop talking to
 them entirely (HTTPS-first makes this survivable for current-filtermail
 peers). Stage 2 (client-side 443) unchanged.
@@ -150,8 +150,8 @@ peers). Stage 2 (client-side 443) unchanged.
 ## Install state on the relay (2026-10-09)
 
 - `/usr/local/lib/chatmaild/mxdeliv-send` + `/opt/mxdeliv-venv` (dkimpy).
-- `/etc/chatmail-federation/peers.json` — `relay.example.org →
-  https://relay.example.org/mxdeliv` as the self-entry/example; add real peers as
+- `/etc/chatmail-federation/peers.json` — `<relay-domain> →
+  https://<relay-domain>/mxdeliv` as the self-entry/example; add real peers as
   `{"peer.example": {"url": "…/mxdeliv", "token": "…"}}`.
 - Postfix wiring (NOT yet applied — do per peer enablement):
   `postconf -e transport_maps=hash:/etc/postfix/transport`, master.cf pipe
@@ -167,11 +167,11 @@ peers). Stage 2 (client-side 443) unchanged.
 
 - **Outbound SMTP rejects for missing PTR**: filtermail-transport logs
   `450 4.7.25 Client host rejected: cannot find your hostname,
-  [203.0.113.10]` (vivaldi.net et al) — the hosting-provider IP has no reverse DNS.
-  Fix = set a PTR (`relay.example.org`) in the hosting-provider panel; until then some
-  outbound mail defers forever. HTTPS federation is immune to this — one
-  more argument for stage 2.
-- The /new-minted test account `4vysiqdl9@relay.example.org` accepted a message
+  [<relay-ip>]` (vivaldi.net et al) — the relay's host IP has no reverse
+  DNS. Fix = set a PTR (the relay domain) at the hosting panel; until then
+  some outbound mail defers forever. HTTPS federation is immune to this —
+  one more argument for stage 2.
+- The /new-minted test account `4vysiqdl9@<relay-domain>` accepted a message
   (250) with no delivery trace, same accept-then-drop class as non-local
   recipients — account visibility inside filtermail should be re-checked
   before any peer cutover.
