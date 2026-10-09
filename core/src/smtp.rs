@@ -63,13 +63,21 @@ pub(crate) struct Smtp {
 
 /// Returns transports with their IDs in the order in which they should be tried.
 async fn sorted_transports(context: &Context) -> Result<Vec<(u32, ConfiguredLoginParam)>> {
+    // Velta patch (#11, temporary — upstream #8711 removes ConfiguredAddr;
+    // drop this when a first-class preferred-transport concept lands):
+    // "Use for sending" (configured_addr) pins the preferred sending
+    // transport — try it before the recency-failover order below.
+    let configured_addr: Option<String> = context
+        .get_config(Config::ConfiguredAddr)
+        .await?
+        .filter(|addr| !addr.is_empty());
     context
         .sql
         .query_map_vec(
             "SELECT transports.id, configured_param FROM transports
              LEFT JOIN smtp_success ON smtp_success.transport_id=transports.id
-             ORDER BY IFNULL(smtp_success.id, 0) DESC, transports.id ASC",
-            (),
+             ORDER BY (transports.addr = ?1) DESC, IFNULL(smtp_success.id, 0) DESC, transports.id ASC",
+            (configured_addr,),
             |row| {
                 let id: u32 = row.get(0)?;
                 let json: String = row.get(1)?;

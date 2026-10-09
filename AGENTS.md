@@ -224,7 +224,7 @@ KEEP (local patches): the vendored tree carries Velta patches (animated
 WebP byte-exact, SMTP sending-transport exposure — VENDORISSUES #7/#10,
 every block marked `Velta patch`). Any core re-vendor wipes them;
 re-apply mechanically with `python tools/apply-core-patches.py apply`
-(verify: `… verify` must report 13/13) — see COREUPDATE.md §0.
+(verify: `… verify` must report 14/14) — see COREUPDATE.md §0.
 
 ```bash
 # Run all Rust tests; use nextest — plain `cargo test` flakes a varying

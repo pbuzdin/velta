@@ -47,3 +47,33 @@ async fn test_smtp_candidates() -> Result<()> {
 
     Ok(())
 }
+
+// Velta patch (#11, temporary — upstream #8711 removes ConfiguredAddr):
+// "Use for sending" (configured_addr) pins the preferred sending transport
+// ahead of the recency-failover order.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_sorted_transports_prefers_configured_addr() -> Result<()> {
+    let mut tcm = TestContextManager::new();
+    let t = &tcm.unconfigured().await;
+
+    transport::add_pseudo_transport(t, "foo@example.net").await?;
+    transport::add_pseudo_transport(t, "bar@example.net").await?;
+    transport::add_pseudo_transport(t, "baz@example.net").await?;
+
+    let transports = super::sorted_transports(t).await?;
+    let [(_id_foo, _), (_id_bar, _), (id_baz, _)] = transports[..] else {
+        panic!("Unexpected number of transports");
+    };
+
+    // Recency favours baz; "Use for sending" prefers bar — the pin wins.
+    super::record_success(t, id_baz).await?;
+    t.set_config(crate::config::Config::ConfiguredAddr, Some("bar@example.net"))
+        .await?;
+
+    let transports2 = super::sorted_transports(t).await?;
+    assert_eq!(transports2[0].1.addr, "bar@example.net");
+    assert_eq!(transports2[1].1.addr, "baz@example.net");
+    assert_eq!(transports2[2].1.addr, "foo@example.net");
+
+    Ok(())
+}

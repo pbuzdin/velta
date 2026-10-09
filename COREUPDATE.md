@@ -25,7 +25,7 @@ After swapping in the new upstream sources, run:
 
 ```
 python tools/apply-core-patches.py apply     # inserts what's missing
-python tools/apply-core-patches.py verify    # must report 13/13
+python tools/apply-core-patches.py verify    # must report 14/14
 ```
 
 The script is idempotent and anchor-based (not line-diffs), so it tolerates
@@ -38,7 +38,7 @@ nothing until the sidecar / APK / prebuilts are rebuilt.
 
 ## 0b. Opt-in: re-apply the wasm series (Architecture C track)
 
-After §0 reports 13/13, the wasm patch series (`docs/research/wasm-patches/`)
+After §0 reports 14/14, the wasm patch series (`docs/research/wasm-patches/`)
 is re-applied with the dedicated, opt-in applicator — **never** let a core
 upgrade silently ship wasm patches to native consumers:
 

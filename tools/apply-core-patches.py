@@ -167,6 +167,81 @@ PATCHES = [
         }
 """,
     ),
+    # ---- VENDORISSUES #11 (temporary — upstream #8711 removes
+    # ConfiguredAddr; drop all four ops when a first-class
+    # preferred-transport concept lands): "Use for sending"
+    # (configured_addr) pins the preferred sending transport — tried before
+    # the recency-failover order, failover itself unchanged.
+    dict(
+        id="#11 sorted_transports fetches configured_addr (smtp.rs)",
+        file="core/src/smtp.rs",
+        applied=".filter(|addr| !addr.is_empty());",
+        anchor="async fn sorted_transports(context: &Context) -> Result<Vec<(u32, ConfiguredLoginParam)>> {\n    context\n        .sql\n        .query_map_vec(\n",
+        where="replace",
+        text="""async fn sorted_transports(context: &Context) -> Result<Vec<(u32, ConfiguredLoginParam)>> {
+    // Velta patch (#11, temporary — upstream #8711 removes ConfiguredAddr;
+    // drop this when a first-class preferred-transport concept lands):
+    // "Use for sending" (configured_addr) pins the preferred sending
+    // transport — try it before the recency-failover order below.
+    let configured_addr: Option<String> = context
+        .get_config(Config::ConfiguredAddr)
+        .await?
+        .filter(|addr| !addr.is_empty());
+    context
+        .sql
+        .query_map_vec(
+""",
+    ),
+    dict(
+        id="#11 ORDER BY prefers configured_addr (smtp.rs)",
+        file="core/src/smtp.rs",
+        applied="ORDER BY (transports.addr = ?1) DESC",
+        anchor="""             ORDER BY IFNULL(smtp_success.id, 0) DESC, transports.id ASC",
+            (),
+""",
+        where="replace",
+        text="""             ORDER BY (transports.addr = ?1) DESC, IFNULL(smtp_success.id, 0) DESC, transports.id ASC",
+            (configured_addr,),
+""",
+    ),
+    dict(
+        id="#11 test import (smtp_tests.rs)",
+        file="core/src/smtp/smtp_tests.rs",
+        applied="test_sorted_transports_prefers_configured_addr",
+        anchor="use anyhow::Result;\n",
+        where="after",
+        text="""
+// Velta patch (#11, temporary — upstream #8711 removes ConfiguredAddr):
+// "Use for sending" (configured_addr) pins the preferred sending transport
+// ahead of the recency-failover order.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_sorted_transports_prefers_configured_addr() -> Result<()> {
+    let mut tcm = TestContextManager::new();
+    let t = &tcm.unconfigured().await;
+
+    transport::add_pseudo_transport(t, "foo@example.net").await?;
+    transport::add_pseudo_transport(t, "bar@example.net").await?;
+    transport::add_pseudo_transport(t, "baz@example.net").await?;
+
+    let transports = super::sorted_transports(t).await?;
+    let [(_id_foo, _), (_id_bar, _), (id_baz, _)] = transports[..] else {
+        panic!("Unexpected number of transports");
+    };
+
+    // Recency favours baz; "Use for sending" prefers bar — the pin wins.
+    super::record_success(t, id_baz).await?;
+    t.set_config(crate::config::Config::ConfiguredAddr, Some("bar@example.net"))
+        .await?;
+
+    let transports2 = super::sorted_transports(t).await?;
+    assert_eq!(transports2[0].1.addr, "bar@example.net");
+    assert_eq!(transports2[1].1.addr, "baz@example.net");
+    assert_eq!(transports2[2].1.addr, "foo@example.net");
+
+    Ok(())
+}
+""",
+    ),
 ]
 
 

@@ -256,3 +256,24 @@ for unpatched cores. Upstream fix: expose the bound transport properly
 > message") — references the removal series (#8619/#8705/#8703/#8709/#8797
 > merged, #8711/#8771 open, umbrella #8572). When a core carrying that API
 > ships, port Velta's consumer (`relaySmtpVia`) to it and drop this patch.
+
+### #11 — "Use for sending" does not pin the sending transport (core/src/smtp.rs)
+
+**Status:** patched (temporary). **Upstream:** chatmail/core **#8711** (open,
+WIP) removes `maybe_update_sending_transport` and all `ConfiguredAddr`
+usage; when a first-class preferred-transport concept lands there, drop
+this patch and port the UI to it.
+
+Upstream 2.62/2.63 `Stmp::connect_configured()` tries transports in
+`sorted_transports()` order — most-recent-SMTP-success first, insertion id
+as tie-break. The Velta "Use for sending" setting (Relays modal →
+`set_config configured_addr`) never enters that ordering, so with offline
+relays in the pool every new SMTP connection burns their connect timeouts
+before reaching the live one; the user's selection cannot pin sending.
+
+Patch: `sorted_transports()` orders the transport whose `addr` matches
+`configured_addr` first (`ORDER BY (transports.addr = ?1) DESC, …`),
+recency/insertion order stays as failover. Re-vendor application: ops
+"#11 …" in `tools/apply-core-patches.py` (uses the script's `replace`
+mode). Pinned by `test_sorted_transports_prefers_configured_addr` in
+`core/src/smtp/smtp_tests.rs`.
