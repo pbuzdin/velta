@@ -771,6 +771,16 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `.chat-item` cards use full
   `contain: layout paint style`. The rendered-row LRU (`_rowCache`) survives
   `close()`; `open()` clears it when the account changed.
+- **Bubble contrast (main.css)**: the outgoing bubble is blue
+  (`--bg-bubble-out`) in BOTH themes, so links/inline elements inside
+  `.msg-row.out .bubble` must never ride `var(--accent)` — blue-on-blue,
+  ~3:1 dark / ~2.9:1 light (both below the 4.5:1 AA text bar). Out-bubble
+  elements use the light-on-blue palette instead: `#dfeaf6` in dark,
+  `#14507e` in light (6.7:1 / 7.3:1) —
+  the same tones `.msg-row.out` blockquote and quote text already use
+  (brutal theme overrides to `--nb-main-ink` on its yellow bubble).
+  `.msg-row.out .msg-text a` carries the rule as the precedent; put new
+  inline elements (links, mentions, code) on that palette, not the accent.
 - **Read tracking** (1.4.40, PR #17): opening a chat no longer marks it read.
   `open()` lands at the manual read marker (while unread remain), else the
   core's `get_first_unread_message_of_chat`, else the bottom — loading a
