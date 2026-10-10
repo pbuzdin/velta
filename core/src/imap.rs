@@ -1417,6 +1417,17 @@ impl Session {
                 context,
                 "Transport {transport_id}: Failed to store device token: {err:#}."
             );
+            // Velta patch (#13, re-apply on core upgrades): surface the
+            // per-relay push availability to the UI (the Diagnostics chat
+            // shows Info/Warning events): a relay that rejects the token
+            // means no push wake-ups for that account.
+            context.emit_event(EventType::Warning(format!(
+                "Transport {transport_id}: relay did not accept the push token ({err:#}) — no push notifications for this relay"
+            )));
+        } else {
+            context.emit_event(EventType::Info(format!(
+                "Transport {transport_id}: push notifications registered — the relay will wake the app on new mail"
+            )));
         }
 
         Ok(())

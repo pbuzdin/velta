@@ -1,0 +1,102 @@
+# Core patch gate. The vendored chatmail core (core/) may differ from the
+# pinned upstream tag ONLY by the ops in tools/apply-core-patches.py (the
+# quilt). This workflow fails the build when:
+#   - the quilt table or tool is broken (lint + self-test),
+#   - any op's marker is missing from core/ (verify),
+#   - pristine upstream v<core/Cargo.toml version> + quilt != core/
+#     (tree-check: undeclared edits, drift, extra/missing files),
+#   - the patched core does not build, or the patched modules' tests fail.
+name: core-patches
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - 'core/**'
+      - 'tools/apply-core-patches.py'
+      - 'tests/apply-core-patches.test.mjs'
+      - 'tests/send-relay-pin.test.mjs'
+      - 'app/js/rpc-core.js'
+      - '.github/workflows/core-patches.yml'
+  pull_request:
+    paths:
+      - 'core/**'
+      - 'tools/apply-core-patches.py'
+      - 'tests/apply-core-patches.test.mjs'
+      - 'tests/send-relay-pin.test.mjs'
+      - 'app/js/rpc-core.js'
+      - '.github/workflows/core-patches.yml'
+
+concurrency:
+  group: core-patches-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  quilt:
+    name: quilt verify + whole-tree check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Quilt self-test
+        run: python3 tools/apply-core-patches.py self-test
+
+      - name: Verify every quilt op is present in core/
+        run: python3 tools/apply-core-patches.py verify
+
+      - name: Whole-tree check against the upstream tag
+        run: python3 tools/apply-core-patches.py tree-check --fetch
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Quilt + send-relay pin JS tests
+        run: node --test tests/apply-core-patches.test.mjs tests/send-relay-pin.test.mjs
+
+  core:
+    name: cargo check + patched-module tests
+    needs: quilt
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable (moving branch, Dependabot updates)
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: core
+          shared-key: core-patches
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: rustfmt (quilt ops must be rustfmt-clean)
+        run: cargo fmt -p deltachat --check
+
+      - name: cargo check (lib + tests)
+        run: cargo check -p deltachat --lib --tests --locked
+
+      # Patched modules only: smtp (#10/#11), scheduler/connectivity (#10),
+      # context/background_fetch (#12), imap/push (#13) — ~40 tests, seconds
+      # once built. The full suite needs real DNS/network for a few
+      # configure/autorelay tests and ~18 min; run it locally per
+      # COREUPDATE.md §4 on re-vendors. nextest, not cargo test:
+      # upstream gates on it (process isolation for time-shift tests).
+      - name: Patched-module tests
+        run: >-
+          cargo nextest run -p deltachat --lib --locked --no-fail-fast
+          -E 'test(/^(smtp|scheduler|context|imap|push)::/) | test(smtp) | test(background_fetch)'

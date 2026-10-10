@@ -528,7 +528,7 @@ impl Context {
         ret += &*escaper::encode_minimal(&detailed.to_string_smtp(self));
         // Velta patch (#79, re-apply on core upgrades): report which
         // transport the SMTP loop is actually bound to, so clients can mark
-        // the real sending relay (failover may differ from configured_addr).
+        // the real sending relay (failover may differ from the pin).
         if sending_transport_id > 0 {
             let sending_addr: Option<String> = self
                 .sql

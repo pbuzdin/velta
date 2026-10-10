@@ -942,7 +942,9 @@ impl SmtpConnectionState {
 
     /// Transport the SMTP loop is currently bound to (0 = none). Velta #79.
     pub(crate) fn sending_transport(&self) -> u32 {
-        self.state.sending_transport.load(std::sync::atomic::Ordering::SeqCst)
+        self.state
+            .sending_transport
+            .load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// Interrupt any form of idle.

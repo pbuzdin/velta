@@ -59,25 +59,94 @@ pub(crate) struct Smtp {
 
     /// If sending the last message failed, contains the error message.
     pub(crate) last_send_error: Option<String>,
+
+    /// Velta patch (#11): when each transport last failed to connect (cleared
+    /// on success). A pinned send transport that failed within
+    /// `VELTA_PIN_BACKOFF` is tried second, not first.
+    pub(crate) velta_connect_failed: std::collections::BTreeMap<u32, tools::Time>,
 }
 
-/// Returns transports with their IDs in the order in which they should be tried.
-async fn sorted_transports(context: &Context) -> Result<Vec<(u32, ConfiguredLoginParam)>> {
-    // Velta patch (#11, temporary — upstream #8711 removes ConfiguredAddr;
-    // drop this when a first-class preferred-transport concept lands):
-    // "Use for sending" (configured_addr) pins the preferred sending
-    // transport — try it before the recency-failover order below.
-    let configured_addr: Option<String> = context
-        .get_config(Config::ConfiguredAddr)
+/// Velta patch (#11, re-apply on core upgrades): ui config key holding the
+/// address of the transport the user chose for sending ("Use for sending").
+/// Velta-owned so upstream's removal of `ConfiguredAddr` (#8711) can't break
+/// it. Unset, empty, or naming a removed transport = no pin.
+pub(crate) const VELTA_SEND_TRANSPORT_KEY: &str = "ui.velta.send_transport";
+
+/// Velta patch (#11): how long a pinned transport that failed to connect
+/// yields to the most recently successful one. Bounds the cost of a dead pin
+/// to one connect timeout per window; after it the pin is tried first again.
+pub(crate) const VELTA_PIN_BACKOFF: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// Velta patch (#11): id of the pinned send transport, if the pin names an
+/// existing transport.
+pub(crate) async fn velta_pinned_transport(context: &Context) -> Result<Option<u32>> {
+    let Some(addr) = context
+        .get_ui_config(VELTA_SEND_TRANSPORT_KEY)
         .await?
-        .filter(|addr| !addr.is_empty());
+        .map(|addr| addr.trim().to_lowercase())
+        .filter(|addr| !addr.is_empty())
+    else {
+        return Ok(None);
+    };
+    context
+        .sql
+        .query_get_value("SELECT id FROM transports WHERE addr=?", (addr,))
+        .await
+}
+
+/// Velta patch (#11): whether the pin is backing off after a recent connect
+/// failure.
+fn velta_pin_backed_off(
+    connect_failed: &std::collections::BTreeMap<u32, tools::Time>,
+    pin: u32,
+) -> bool {
+    connect_failed
+        .get(&pin)
+        .is_some_and(|failed_at| time_elapsed(failed_at) < VELTA_PIN_BACKOFF)
+}
+
+/// Velta patch (#11): moves the pinned transport to the front of upstream's
+/// order — or to second place, behind the most recently successful
+/// transport, while it is backing off.
+fn velta_pin_first(
+    transports: &mut Vec<(u32, ConfiguredLoginParam)>,
+    pin: Option<u32>,
+    connect_failed: &std::collections::BTreeMap<u32, tools::Time>,
+) {
+    let Some(pin) = pin else { return };
+    let Some(pos) = transports.iter().position(|(id, _)| *id == pin) else {
+        return;
+    };
+    let entry = transports.remove(pos);
+    let at = if velta_pin_backed_off(connect_failed, pin) {
+        transports.len().min(1)
+    } else {
+        0
+    };
+    transports.insert(at, entry);
+}
+
+/// Returns transports with their IDs in the order in which they should be
+/// tried: the user's pinned send transport first (Velta patch #11), then
+/// upstream's most-recently-successful order. Test-only since the patch:
+/// `connect_configured` also applies the connect-failure backoff.
+#[cfg(test)]
+async fn sorted_transports(context: &Context) -> Result<Vec<(u32, ConfiguredLoginParam)>> {
+    let mut transports = upstream_sorted_transports(context).await?;
+    let pin = velta_pinned_transport(context).await?;
+    velta_pin_first(&mut transports, pin, &Default::default());
+    Ok(transports)
+}
+
+/// Upstream's order (most recently successful first), unchanged body.
+async fn upstream_sorted_transports(context: &Context) -> Result<Vec<(u32, ConfiguredLoginParam)>> {
     context
         .sql
         .query_map_vec(
             "SELECT transports.id, configured_param FROM transports
              LEFT JOIN smtp_success ON smtp_success.transport_id=transports.id
-             ORDER BY (transports.addr = ?1) DESC, IFNULL(smtp_success.id, 0) DESC, transports.id ASC",
-            (configured_addr,),
+             ORDER BY IFNULL(smtp_success.id, 0) DESC, transports.id ASC",
+            (),
             |row| {
                 let id: u32 = row.get(0)?;
                 let json: String = row.get(1)?;
@@ -118,8 +187,8 @@ impl Smtp {
         }
         self.transport_id = None;
         self.from = None;
-        self.transport_id = None;
-        self.sending_transport.store(0, std::sync::atomic::Ordering::SeqCst);
+        self.sending_transport
+            .store(0, std::sync::atomic::Ordering::SeqCst);
         self.last_success = None;
     }
 
@@ -145,13 +214,31 @@ impl Smtp {
             self.disconnect();
         }
 
+        // Velta patch (#11): the user pinned another transport (or the pin's
+        // backoff expired) — drop the live connection so the next connect
+        // tries the pin first.
+        let velta_pin = velta_pinned_transport(context).await?;
+        if let (Some(pin), Some(bound)) = (velta_pin, self.transport_id)
+            && pin != bound
+            && !velta_pin_backed_off(&self.velta_connect_failed, pin)
+        {
+            info!(
+                context,
+                "Pinned send transport {pin} differs from bound transport {bound}, reconnecting."
+            );
+            self.disconnect();
+        }
+
         if self.is_connected() {
             return Ok(());
         }
 
         self.connectivity.set_connecting(context);
         let proxy_config = ProxyConfig::load(context).await?;
-        for (transport_id, lp) in sorted_transports(context).await? {
+        // Velta patch (#11): pinned transport first unless backing off.
+        let mut transports = upstream_sorted_transports(context).await?;
+        velta_pin_first(&mut transports, velta_pin, &self.velta_connect_failed);
+        for (transport_id, lp) in transports {
             info!(context, "Trying to connect to transport {transport_id}.");
             match self
                 .connect(
@@ -166,7 +253,9 @@ impl Smtp {
             {
                 Ok(()) => {
                     self.transport_id = Some(transport_id);
-                    self.sending_transport.store(transport_id, std::sync::atomic::Ordering::SeqCst);
+                    self.velta_connect_failed.remove(&transport_id);
+                    self.sending_transport
+                        .store(transport_id, std::sync::atomic::Ordering::SeqCst);
                     return Ok(());
                 }
                 Err(err) => {
@@ -174,6 +263,8 @@ impl Smtp {
                         context,
                         "Failed to connect to SMTP transport {transport_id}: {err:#}."
                     );
+                    self.velta_connect_failed
+                        .insert(transport_id, tools::Time::now());
                 }
             }
         }
