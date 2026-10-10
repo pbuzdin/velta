@@ -192,7 +192,7 @@ as the destination.
 The share sheet lists Velta because `MainActivity` has one `ACTION_SEND`
 filter and one `ACTION_SEND_MULTIPLE` filter (`AndroidManifest.xml`), each
 with `DEFAULT` and mime types that OR: `text/plain`, `text/*`, `image/*`,
-`video/*`, `audio/*`, `application/*`, `*/*`. Kotlin is unchanged:
+`video/*`, `audio/*`, `application/*`, `*/*`. Kotlin only adds the replay guard below;
 `onNewIntent` already reaches `Rust.onNewIntent`. tao turns those intents
 into `RunEvent::Opened` (plain text → `data:text/plain,…`, a text URL →
 that https URL, files → `content://` or `file://`). `run()` appends every
@@ -206,16 +206,37 @@ Notification taps use the same queue (Android `Opened`, Windows toast
 
 `app/js/share-in.js` classifies the payload. `data:text/plain` is share
 text. `content://`, `file://`, a Windows path, a UNC path, or an absolute
-`/` path is a file. `velta://` and `dcaccount:` are not shares.
-`handleDeeplinkFromUrl` returns true when it consumed a chat, backup, or
-invite link (a chat link with a bad token still counts), and other https
-becomes share text. The picker is always shown ("Share to…"): chats that
-are not `deaddrop`, `device`, or `readOnly`, including p2p. Empty copy is
-"No chat to share to." One file plus text is the caption; otherwise the
-text message goes first, then each file. `content://` is copied with
-`resolve_content_uri` before `core.sendMessage` (viewtype from the
-extension, same map as local chat). An archived chat is unarchived. The
-open chat appends the outgoing row.
+`/` path is a file. `velta://`, `dcaccount:`, `dclogin:`, `dcbackup:` and `openpgp4fpr:` are
+not shares. `handleDeeplinkFromUrl` returns true when it consumed a chat,
+backup, or invite link (a chat link with a bad token still counts); other
+https, and any other scheme tao passed through because the text parsed as a
+URL ("Re: x"), becomes share text.
+
+Shares go through `createShareInbox` (`share-in.js`): boot drains the queue
+after the chat list loaded and calls `shareInbox.ready()` last, so a
+cold-start share is held, then each burst gets one picker, never two at
+once. `visibilitychange` and `velta-foreground` drain again (a wake-up
+emitted while the WebView was frozen is not lost; the shell keeps the URLs).
+`offerShareNow` waits for a running profile switch, takes the full chat
+list (fetching it when `state.chats` is only the diagnostics row or the
+list search narrowed it), and opens "Share to…" (`buildSharePicker`: search
+field, a chip per profile when there are several, chat rows that are not
+`deaddrop`, `device`, or `readOnly`, p2p included; "No chat to share to.").
+A profile chip switches and re-opens the picker on that profile. The
+picked chat is opened and `ChatView.receiveShare` takes over: text only →
+composer (appended to a draft); one jpg/png/gif/webp/bmp or video → the
+attachment strip with the text as caption (the user taps Send); a document
+or several files → sent at once (one file: text is the caption; several:
+text first, then each file), "Sent to …" toast. `content://` is copied with
+`resolve_content_uri`; a desktop path gets `allow_picked_path` and is
+copied to uploads (`resolveAttachmentPath`), as the file picker does.
+
+Root cause of "chat list not showing" (v1.4.64): `pickShareChat` built a
+`velta-chat-item` per chat but never appended it, so the sheet was always
+empty. `tests/share-flow.test.mjs` runs the real app.js block and asserts
+the rows. `MainActivity.onCreate` also swaps a replayed SEND (launched from
+Recents, or restored state) for `ACTION_MAIN` before `super.onCreate`, or
+tao would offer the old share again.
 
 Windows 11's Share flyout only lists packaged apps. Velta is unpackaged, so
 `setup()` writes `%APPDATA%\Microsoft\Windows\SendTo\Velta.lnk` (target =
@@ -227,8 +248,15 @@ single-instance callback and leaves scheme URLs to the deep-link plugin,
 which is the only `velta://` path. The same picker sends the file.
 
 Skipped: Direct Share / ChooserTargetService, mailto, a separate
-ShareActivity, and an MSIX share target. Pinned by `tests/share-in.test.mjs`
-and `cargo test --lib opened_args_tests`. The manifest has no local compile
+ShareActivity, and an MSIX share target. The Windows 11 Share flyout needs
+package identity: a full MSIX, or a signed sparse package registered by the
+installer (`uap:ShareTarget` + `AllowExternalContent`) whose activation the
+exe would then read through WinRT `ShareOperation`. That is installer and
+signing work, not a shell tweak; Send to covers files meanwhile. tao drops
+`EXTRA_TEXT` unless the intent type is exactly `text/plain`, and with a file
+share the text extra is ignored. Pinned by `tests/share-in.test.mjs`,
+`tests/share-flow.test.mjs`, `tests/share-receive.test.mjs` and
+`cargo test --lib opened_args_tests`. The manifest has no local compile
 check; CI gradle is the gate.
 
 ## Notification preferences bridge (v1.4.54)

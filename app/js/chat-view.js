@@ -64,6 +64,7 @@ import { TypingSender } from "./typing.js";
 import { linkPreview, linkPreviewCardHtml, linkPreviewMode, firstLink as firstLinkOf, senderPreviewUrl, receiveFetchesPreview, renderPreviewImage } from "./link-preview.js";
 import { stripTrackingUrl, stripTrackingText, trackingStripEnabled } from "./trackers.js";
 import { getReadMarker, clearReadMarker } from "./read-markers.js";
+import { shareStageKind, shareViewtype } from "./share-in.js";
 
 function reactionChipsHtml(reactions) {
   return (reactions || []).map(r =>
@@ -3228,6 +3229,83 @@ export class ChatView {
       errToast("Could not send file: " + (err.message || err), 4000);
       console.error(err);
     }
+  }
+
+  // #97 share-in: another app shared text and/or files into this chat.
+  // Text alone lands in the composer and one photo or video in the
+  // attachment strip with the text as its caption, so the user reviews it
+  // and taps Send (the official clients' pattern). Documents and several
+  // files go out right away, like a picked file. Returns "staged", "sent"
+  // or null when the view moved on (closed, other chat, other profile).
+  async receiveShare({ text = "", files = [] } = {}) {
+    const session = this._session;
+    if (!this._isCurrent(session) || !this.chat) return null;
+    const tauri = window.__TAURI__;
+    const invoke = tauri?.core?.invoke || tauri?.invoke;
+    if (this.readOnly && this.chat.kind === "channel" && this.core.canSend) {
+      // openChat starts a channel read-only until its rights check lands.
+      const can = await this.core.canSend(session.chatId).catch(() => false);
+      if (!this._isCurrent(session)) return null;
+      if (can) this.readOnly = false;
+    }
+    if (this.readOnly) throw new Error("You can't write in this chat");
+    const resolved = [];
+    for (const file of files) {
+      let path = file;
+      if (/^content:\/\//i.test(file)) {
+        if (!invoke) throw new Error("Sending that file needs the Velta app");
+        path = await invoke("resolve_content_uri", { uri: file, filename: String(Date.now()) });
+      } else if (invoke) {
+        // Send to / Open with: the user's own pick is the consent, as with
+        // the file picker (V-07/#65), then copy it next to the accounts.
+        await invoke("allow_picked_path", { path: file }).catch(e => rustLog(`allow_picked_path: ${e}`));
+        path = await resolveAttachmentPath(file, file.replace(/\\/g, "/").split("/").pop());
+      }
+      if (!this._isCurrent(session)) return null;
+      resolved.push(path);
+    }
+    let kind = shareStageKind(resolved);
+    if (kind === "image" && !invoke) kind = "send";
+    const input = document.getElementById("composer-input");
+    if (kind !== "send") {
+      if (kind === "image") {
+        const path = resolved[0];
+        const exts = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" };
+        const bytes = new Uint8Array(await invoke("plugin:fs|read_file", { path }));
+        if (!this._isCurrent(session)) return null;
+        const name = path.replace(/\\/g, "/").split("/").pop() || "image";
+        this._setPendingMedia("image", new Blob([bytes], { type: exts[extOf(path)] || "image/png" }), path, name);
+      } else if (kind === "video") {
+        const path = resolved[0];
+        this._setPendingMedia("video", fileUrl(path), path, path.replace(/\\/g, "/").split("/").pop() || "video");
+      }
+      if (text) {
+        input.value = input.value.trim() ? `${input.value}\n${text}` : text;
+        sizeComposer(input);
+        this._scheduleLinkPreview();
+      }
+      input.focus();
+      return "staged";
+    }
+    const sendFile = async (path, caption) => {
+      const name = String(path).replace(/\\/g, "/").split("/").pop() || "file";
+      const msg = await this._sendArchivedAware(session.chatId, { text: caption, viewtype: shareViewtype(name), file: path, filename: name });
+      if (!this._isCurrent(session)) return false;
+      this.appendOutgoing(msg);
+      return true;
+    };
+    if (resolved.length === 1) {
+      if (!await sendFile(resolved[0], text)) return null;
+    } else {
+      if (text) {
+        const msg = await this._sendArchivedAware(session.chatId, { text });
+        if (!this._isCurrent(session)) return null;
+        this.appendOutgoing(msg);
+      }
+      for (const path of resolved) if (!await sendFile(path, "")) return null;
+    }
+    this.onChatsChanged();
+    return "sent";
   }
 
   async _downloadMedia(msgId) {

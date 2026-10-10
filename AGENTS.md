@@ -720,17 +720,22 @@ future Web-Push/VAPID track for browsers.
 
 **Share into Velta (#97)** uses that same queue. KEEP: `MainActivity`
 registers `ACTION_SEND` and `ACTION_SEND_MULTIPLE` (separate filters,
-`DEFAULT`, mime types OR). The page always shows "Share to…" (skip
-`deaddrop`, `device`, and `readOnly`; p2p included) and sends through
-`core.sendMessage` after `resolve_content_uri` for `content://`. Invite and
-chat links are not shares: `handleDeeplinkFromUrl` returns true when it
-consumed one, including a rejected token, and only unconsumed https becomes
-text. Listen for `deeplink`, then drain. Windows has no share-sheet entry
+`DEFAULT`, mime types OR). Shares wait in `createShareInbox` until boot
+calls `shareInbox.ready()` (after the chat list and the first drain); the
+page always shows "Share to…" (`buildSharePicker`: search, profile chips
+when several, skip `deaddrop`, `device`, and `readOnly`; p2p included),
+opens the picked chat and hands over to `ChatView.receiveShare` (text and
+one photo/video are staged in the composer, documents and several files
+are sent). Invite and chat links are not shares: `handleDeeplinkFromUrl`
+returns true when it consumed one, including a rejected token, and only
+unconsumed https or non-app schemes become text. Listen for `deeplink`,
+then drain; drain again on `visibilitychange`/`velta-foreground`. Windows has no share-sheet entry
 (the 11 flyout is packaged-only): setup writes
 `%APPDATA%\Microsoft\Windows\SendTo\Velta.lnk` and recreates it only when
 the UTF-16LE target is not this exe. Do not add other files there. Outbound
 QR "Share a link" is still #37 (`share_text`). Pinned by
-`tests/share-in.test.mjs` and `cargo test --lib opened_args_tests`. Detail:
+`tests/share-in.test.mjs`, `tests/share-flow.test.mjs`,
+`tests/share-receive.test.mjs` and `cargo test --lib opened_args_tests`. Detail:
 docs/agents/android-shell.md.
 
 The skeleton currently contains only Cargo/Gradle manifests. To rebuild when the

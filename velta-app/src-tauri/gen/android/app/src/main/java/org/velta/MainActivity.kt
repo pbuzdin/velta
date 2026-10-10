@@ -1,6 +1,7 @@
 package org.velta
 
 import android.content.Context
+import android.content.Intent
 import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.os.Handler
@@ -40,6 +41,15 @@ class MainActivity : TauriActivity() {
   external fun setActivityForeground(foreground: Boolean)
 
   override fun onCreate(savedInstanceState: Bundle?) {
+    // #97: a share-sheet launch is the task's base intent. Reopening the task
+    // from Recents (or a restored activity) hands that SEND back to tao, which
+    // would offer the old share again; start as a plain launch instead.
+    val action = intent?.action
+    val replayed = savedInstanceState != null ||
+      ((intent?.flags ?: 0) and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
+    if (replayed && (action == Intent.ACTION_SEND || action == Intent.ACTION_SEND_MULTIPLE)) {
+      intent = Intent(Intent.ACTION_MAIN)
+    }
     enableEdgeToEdge()
     // Edge-to-edge + API 30+ ignore adjustResize: without this the system
     // PANS the window when the soft keyboard opens and the chat header ends

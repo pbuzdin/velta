@@ -17,7 +17,7 @@ import { withLocalChat, hubModel, renameDevice, removePeer, dismissLocalGroup, g
 import { timeAgo, formatBytes, timeTag } from "./format.js";
 import { acquireCode, mountScanner } from "./qr-scan.js";
 import { scanTabAvailable, canShareLink, copyLink, shareLink, classifyScannedCode } from "./qr-actions.js";
-import { parseSharePayload, shareTextIfUnconsumed, shareViewtype } from "./share-in.js";
+import { parseSharePayload, shareTextIfUnconsumed, sharePlan, createShareInbox, buildSharePicker } from "./share-in.js";
 import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS } from "./link-preview.js";
 import { wrapIdentityBundle, unwrapIdentityBundle, buildIdentityBundle, bytesToBase64, base64ToBytes, backupDownloadName, gzipBytes } from "./identity-backup.js";
 
@@ -3834,9 +3834,16 @@ async function handleDeeplink() {
 // Runtime URL changes (e.g. user navigates to an invite link in the webview)
 addEventListener("hashchange", () => handleDeeplink());
 
-// #97: one picker for a burst (a share of several photos emits one url each).
-let shareQueue = Promise.resolve();
+// #97 share-in. Android hands over ACTION_SEND/SEND_MULTIPLE as opened urls
+// (tao: text -> data:text/plain or a URL, files -> content://); Windows Send
+// to passes file paths. One picker per burst (several photos arrive as one
+// url each, drained together). A cold start from the share sheet drains
+// during boot: the inbox holds the share until boot marks it ready, so the
+// picker never opens before the chat list exists.
 let openedTimer = 0;
+const shareInbox = createShareInbox(items => offerShareNow(items), err => {
+  errToast("Couldn't share: " + (err?.message || err));
+});
 
 async function routeOpenedBatch(urls) {
   const shares = [];
@@ -3852,85 +3859,106 @@ async function routeOpenedBatch(urls) {
 }
 
 function offerShare(items) {
-  const batch = items.filter(i => i && (i.text != null || i.file));
-  if (!batch.length) return;
-  shareQueue = shareQueue.then(() => offerShareNow(batch)).catch(err => {
-    errToast("Couldn't share: " + (err?.message || err));
-  });
+  shareInbox.push(items);
 }
 
-function pickShareChat() {
-  return new Promise(resolve => {
-    const epoch = core.accountEpoch;
-    const list = document.createElement("div");
-    list.className = "modal-list";
-    const targets = state.chats.filter(c => !["deaddrop", "device"].includes(c.kind) && !c.readOnly);
-    if (!targets.length) list.innerHTML = `<div class="side-view-empty">No chat to share to.</div>`;
-    let picked = false;
-    const { close } = showModal({
-      title: "Share to…",
-      body: list,
-      onClose: () => { if (!picked) resolve(null); },
-    });
-    for (const chat of targets) {
-      const item = document.createElement("velta-chat-item");
-      item.setData(chat);
-      item.addEventListener("click", () => {
-        if (!accountIsCurrent(epoch)) { close(); return; }
-        picked = true;
-        close();
-        resolve(chat);
-      });
+// An account switch (ours from the picker, or one already running) must
+// finish before the picker lists chats — mid-switch state.chats is empty.
+async function shareAccountSettled(ms = 20000) {
+  const until = Date.now() + ms;
+  while (state.accountChanging && Date.now() < until) await new Promise(r => setTimeout(r, 100));
+  try { await accountRefreshPromise; } catch { /* list whatever loaded */ }
+  return !state.accountChanging;
+}
+
+// The full chat list of the current profile. state.chats is it unless the
+// chat-list search narrowed it or it has not loaded (only the diagnostics
+// row) — then ask the core directly.
+async function shareChatList(epoch) {
+  const loaded = state.chats.filter(c => c.id !== DIAGNOSTICS_CHAT_ID);
+  if (loaded.length && !state.query) return state.chats;
+  try {
+    if (!state.query) {
+      await refreshChatList();
+      if (state.chats.some(c => c.id !== DIAGNOSTICS_CHAT_ID)) return state.chats;
     }
+    const chats = await core.getChatList({});
+    return accountIsCurrent(epoch) ? chats : [];
+  } catch (err) {
+    console.warn("share: chat list failed:", err);
+    return state.chats;
+  }
+}
+
+// Resolves { chat }, { accountId } (switch profile and pick again) or null.
+function pickShareChat(chats) {
+  return new Promise(resolve => {
+    let settled = false;
+    const done = value => { if (!settled) { settled = true; resolve(value); } };
+    const picker = buildSharePicker(document, {
+      chats,
+      accounts: state.accounts || [],
+      currentAccountId: core.accountId,
+      makeItem: chat => {
+        const item = document.createElement("velta-chat-item");
+        item.setData(chat);
+        return item;
+      },
+      onPick: value => { done(value); close(); },
+    });
+    const { close } = showModal({ title: "Share to…", body: picker.el, onClose: () => done(null) });
+    // Phones: no keyboard over the list until the user taps the field.
+    if (!/Android|iPhone|iPad/i.test(navigator.userAgent || "")) picker.search.focus?.();
   });
 }
 
 async function offerShareNow(items) {
-  if (state.accountChanging || !core) return;
-  const epoch = core.accountEpoch;
-  // A share cold-starts the app (share sheet → Velta): the chat list is
-  // still loading, so the picker must wait for it or it opens as an empty
-  // "Share to…" sheet.
-  try { await (accountRefreshPromise ?? refreshChatList()); } catch { /* pick from whatever is loaded */ }
-  if (!accountIsCurrent(epoch)) return;
-  const chat = await pickShareChat();
-  if (!chat || !accountIsCurrent(epoch)) return;
-  await deliverShare(chat, items, epoch);
+  // A picker switch, or a switch someone else started, re-lists the new
+  // profile's chats; bounded so a flapping profile cannot loop forever.
+  for (let round = 0; round < 4; round++) {
+    if (!core) return;
+    if (!await shareAccountSettled()) { errToast("Couldn't share: the profile is still switching"); return; }
+    const epoch = core.accountEpoch;
+    const chats = await shareChatList(epoch);
+    if (!accountIsCurrent(epoch)) continue;
+    // A modal that just closed (battery prompt, invite) still owns a
+    // pending history.back(); the picker must not ride that entry (#103).
+    await modalHistorySettled();
+    if (!accountIsCurrent(epoch)) continue;
+    const pick = await pickShareChat(chats);
+    if (!pick) return;
+    if (pick.accountId != null) {
+      await modalHistorySettled();
+      try {
+        await core.switchAccount(pick.accountId);
+      } catch (err) {
+        errToast("Switch failed: " + (err?.message || err));
+      }
+      continue;
+    }
+    if (!accountIsCurrent(epoch)) continue;
+    await deliverShare(pick.chat, items, epoch);
+    return;
+  }
 }
 
+// Open the picked chat and hand the share to its composer (text, one
+// photo/video) or send it (documents, several files): ChatView.receiveShare.
 async function deliverShare(chat, items, epoch) {
-  const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
-  const texts = items.filter(i => i.text != null).map(i => i.text);
-  const files = items.filter(i => i.file).map(i => i.file);
-  const caption = texts.join("\n\n");
-  const sendFile = async (file, text) => {
-    if (!accountIsCurrent(epoch)) return;
-    let path = file;
-    if (/^content:\/\//i.test(file)) {
-      if (!invoke) throw new Error("Sending that file needs the Velta app");
-      path = await invoke("resolve_content_uri", { uri: file, filename: String(Date.now()) });
-    }
-    if (!accountIsCurrent(epoch)) return;
-    const name = String(path).replace(/\\/g, "/").split("/").pop() || "file";
-    const msg = await core.sendMessage(chat.id, {
-      text: text || "", viewtype: shareViewtype(name), file: path, filename: name,
-    });
-    if (accountIsCurrent(epoch) && state.activeChatId === chat.id) chatView?.appendOutgoing(msg);
-  };
-  if (files.length === 1) await sendFile(files[0], caption);
-  else {
-    if (caption && accountIsCurrent(epoch)) {
-      const msg = await core.sendMessage(chat.id, { text: caption });
-      if (accountIsCurrent(epoch) && state.activeChatId === chat.id) chatView?.appendOutgoing(msg);
-    }
-    for (const file of files) await sendFile(file, "");
-  }
+  const { text, files } = sharePlan(items);
+  await modalHistorySettled(); // the picker's history.back() lands first
   if (!accountIsCurrent(epoch)) return;
-  if (chat.archived && core.setChatFlags) {
-    try { await core.setChatFlags(chat.id, { archived: false }); } catch { /* keep the flag */ }
+  await openChat(chat.id);
+  if (!accountIsCurrent(epoch)) return;
+  if (state.activeChatId !== chat.id || !chatView) {
+    errToast(`Couldn't open ${chat.name}`);
+    return;
   }
-  toast(`Sent to ${chat.name}`);
-  refreshChatList();
+  const result = await chatView.receiveShare({ text, files });
+  if (result === "sent" && accountIsCurrent(epoch)) {
+    toast(`Sent to ${chat.name}`);
+    refreshChatList();
+  }
 }
 
 async function drainOpened() {
@@ -5413,6 +5441,12 @@ async function boot() {
     } catch (err) {
       console.warn("Tauri deep-link setup failed:", err);
     }
+    // The chat list is up: a share parked during boot opens its picker now.
+    shareInbox.ready();
+    // A wake-up emitted while the WebView was frozen or reloading can be
+    // lost; the shell keeps the urls, so drain again on every return.
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) scheduleDrainOpened(); });
+    try { window.__TAURI__?.event?.listen?.("velta-foreground", () => scheduleDrainOpened()); } catch { /* no shell */ }
 
     // diagnostic hook: ?openchat=<id> opens a chat directly after boot
     const autoOpen = new URLSearchParams(location.search).get("openchat");
