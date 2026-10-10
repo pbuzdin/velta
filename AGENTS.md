@@ -1034,7 +1034,10 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   and `contextmenu` do not open the bubble menu (`_msgContextMenu` returns;
   the long-press timer is not armed). The floating `#sel-quote-chip` stays
   hidden so there is one Reply. Desktop mouse selection is unchanged and
-  still uses the chip. The desktop menu does not offer Select text.
+  still uses the chip — which binds ONLY on
+  `(hover: hover) and (pointer: fine)` (#113: touch selects through this
+  Select-text flow instead; `_bindSelectionQuote` gates itself, pinned by
+  `tests/selection-quote.test.mjs`). The desktop menu does not offer Select text.
   Multi-touch still cancels the long-press timer (the guard above); it does
   not enter selection.
 - **Send/receive ticks** (1.4.20, semantics updated post-1.4.36): the tick
@@ -1788,7 +1791,7 @@ next push or the tainted commits come back.
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 52 files, 426 tests as of 2026-10-09:
+whole set — 54 files, 432 tests as of 2026-10-10:
 
 ```bash
 node --test tests/

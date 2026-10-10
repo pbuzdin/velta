@@ -4,7 +4,7 @@ A cross-platform **Delta Chat** client built as a single PWA-ish web app wrapped
 
 ## Download
 
-**[Android](https://github.com/pbuzdin/velta/releases/download/v1.4.63/Velta-1.4.63-arm64.apk)** (~49 MB) · **[Windows](https://github.com/pbuzdin/velta/releases/download/v1.4.63/Velta_1.4.63_x64-setup.exe)** (~13 MB) · **[macOS](https://github.com/pbuzdin/velta/releases/download/v1.4.63/Velta_1.4.63_universal.dmg)** (~36 MB)
+**[Android](https://github.com/pbuzdin/velta/releases/download/v1.4.64/Velta-1.4.64-arm64.apk)** (~49 MB) · **[Windows](https://github.com/pbuzdin/velta/releases/download/v1.4.64/Velta_1.4.64_x64-setup.exe)** (~13 MB) · **[macOS](https://github.com/pbuzdin/velta/releases/download/v1.4.64/Velta_1.4.64_universal.dmg)** (~36 MB)
 
 Android needs an arm64 phone. Windows is the x64 installer. macOS is a universal test build that isn't notarized yet, so see [Install](#install) before the first launch. Other files and older versions are on the [releases page](https://github.com/pbuzdin/velta/releases).
 
@@ -643,7 +643,7 @@ Hovering a message on desktop shows a small **Reply** pill along the bubble's ri
 
 On a phone, swipe a bubble to the right to reply. The bubble slides a short way with your finger, and letting go far enough sets the reply and focuses the composer, the same as Reply in the menu. A short swipe snaps the bubble back. Swipe left on the message history to go back to the chat list: the chat screen follows your finger, the list shows underneath, and letting go far enough leaves the chat, the same as the back button. A short swipe snaps back. Scrolling up and down stays a scroll. A read-only chat can swipe back, and it does not swipe to reply. Neither swipe runs on desktop.
 
-On a phone, long-press a bubble and choose **Select text**. The whole message starts selected, and the native handles shrink that span. **Reply**, **Copy**, and **Close** sit inside the bubble: Reply quotes just the selected text, Copy copies that span, and Close leaves the mode and dismisses the handles. While that bar is open, a long-press does not open the message menu. The desktop message menu has no Select text. Select with the mouse as usual; a small Reply chip quotes the selection.
+On a phone, long-press a bubble and choose **Select text**. The whole message starts selected, and the native handles shrink that span. **Reply**, **Copy**, and **Close** sit inside the bubble: Reply quotes just the selected text, Copy copies that span, and Close leaves the mode and dismisses the handles. While that bar is open, a long-press does not open the message menu. The desktop message menu has no Select text. Select with the mouse as usual; on desktop a small Reply chip quotes the selection (the floating chip is desktop-only — touch quotes through this Select-text flow).
 
 Note: other Delta Chat clients render only the core's markdown subset (bold, italic, strikethrough, code). Underline and lists are Velta-side rendering niceties — other clients show those markers literally.
 
