@@ -51,6 +51,17 @@ export function swipeCategoryStep(dx, dy, threshold = 48) {
 // dead connection indefinitely.
 const EVENT_POLL_TIMEOUT_MS = 240_000;
 
+// VENDORISSUES #11: the user's "Use for sending" relay (a transport addr).
+// Velta-owned ui key read by core patch #11 — not configured_addr, which
+// upstream #8711 removes. The flag marks the one-time configured_addr
+// adoption as done for that account.
+export const SEND_TRANSPORT_KEY = "ui.velta.send_transport";
+export const SEND_TRANSPORT_MIGRATED_KEY = "ui.velta.send_transport_migrated";
+const sameAddr = (a, b) => String(a || "").toLowerCase() === String(b || "").toLowerCase();
+// The JSON-RPC server answers set/get_config for a key the core no longer
+// knows with `unknown key "<key>"` (deltachat-jsonrpc api.rs).
+const isUnknownConfigKey = err => /unknown key/i.test(String(err?.message || err));
+
 import { debugLog } from "./diagnostics.js";
 import { pageBounds } from "./format.js";
 
@@ -908,11 +919,13 @@ export class JsonRpcCore extends EventTarget {
         color: "#5aa2e6", bio: "", relay: "", configured: false,
       };
     }
-    // core 2.61.0: the Account object no longer carries `addr` — the sending
-    // address lives in the `configured_addr` config (what setSendRelay writes).
+    // core 2.61.0: the Account object no longer carries `addr`. The sending
+    // address is the user's "Use for sending" pin (VENDORISSUES #11), else
+    // the core's configured_addr / first transport — see _sendAddr.
     let addr = "";
+    try { await this._migrateSendTransport(accountId); } catch { /* retried next getAccount */ }
     try {
-      addr = (await this._call("get_config", accountId, "configured_addr")) || "";
+      addr = await this._sendAddr(accountId, { validate: true });
     } catch { /* unconfigured or transport hiccup — fall back to "" */ }
     const account = {
       id: accountId,
@@ -946,10 +959,10 @@ export class JsonRpcCore extends EventTarget {
     const infos = await Promise.all(ids.map(id =>
       this._call("get_account_info", id).catch(() => null)
     ));
-    // core 2.61.0: Account objects carry no `addr` — read the sending
-    // address from `configured_addr` per account (one extra RPC per row).
+    // core 2.61.0: Account objects carry no `addr` — resolve the sending
+    // address per account (pin, else configured_addr; 1-2 RPCs per row).
     const addrs = await Promise.all(ids.map(id =>
-      this._call("get_config", id, "configured_addr").catch(() => null)
+      this._sendAddr(id).catch(() => null)
     ));
     return infos
       .map((acc, i) => ({ acc, id: ids[i], addr: addrs[i] || "" }))
@@ -1066,20 +1079,84 @@ export class JsonRpcCore extends EventTarget {
     await this._callWithTimeout(180000, "init_transports", this.accountId, qr);
   }
 
-  // Make `addr` the sending (primary) transport. The core validates that the
-  // address belongs to a configured transport and republishes/re-signs the
-  // public key. Core 2.61.0: no I/O restart anymore, and no device-sync
-  // message on this change (other devices learn via TransportsModified when
-  // transports actually change).
+  // "Use for sending" (VENDORISSUES #11): pin `addr` as the transport the
+  // SMTP loop tries first. The pin lives in the Velta-owned ui key
+  // SEND_TRANSPORT_KEY (core patch #11 reads it in sorted_transports; ui.*
+  // keys are stored verbatim, per device, not synced). A dead pin backs off
+  // behind the most recently successful relay for 5 min, then is retried.
+  //
+  // configured_addr is still written on cores that have it (2.63: it is the
+  // self-contact address and "primary" address the UI shows, and the core
+  // validates that `addr` is a configured transport). Upstream #8711 removes
+  // the key: set_config then fails with "unknown key" and we continue with
+  // only the pin. The From header follows the transport actually used for
+  // sending on both (2.63 renders queued mail with the bound transport).
   async setSendRelay(addr) {
-    return this._call("set_config", this.accountId, "configured_addr", addr);
+    const accountId = this.accountId;
+    try {
+      await this._call("set_config", accountId, "configured_addr", addr);
+    } catch (err) {
+      if (!isUnknownConfigKey(err)) throw err;
+    }
+    await this._call("set_config", accountId, SEND_TRANSPORT_KEY, addr);
   }
 
   // Removes the relay immediately (core 2.60.0+). The core refuses only to
   // remove the last relay, re-electing the sending transport as needed, and
-  // sends keyupdate messages so contacts learn the new address set.
+  // sends keyupdate messages so contacts learn the new address set. A pin on
+  // the removed relay is cleared (the core would ignore it anyway).
   async deleteTransport(addr) {
-    return this._call("delete_transport", this.accountId, addr);
+    const accountId = this.accountId;
+    await this._call("delete_transport", accountId, addr);
+    try {
+      const pin = await this._call("get_config", accountId, SEND_TRANSPORT_KEY);
+      if (pin && sameAddr(pin, addr)) await this._call("set_config", accountId, SEND_TRANSPORT_KEY, null);
+    } catch { /* best effort: an unknown pin is ignored by the core */ }
+  }
+
+  // The address Velta shows as "sending": the pin when it names a configured
+  // transport, else configured_addr (cores before #8711), else the first
+  // transport. `validate` checks the pin against list_transports (one more
+  // RPC; getAccount uses it, the drawer list doesn't).
+  async _sendAddr(accountId, { validate = false } = {}) {
+    const pin = await this._call("get_config", accountId, SEND_TRANSPORT_KEY).catch(() => null);
+    let transports = null;
+    if (pin) {
+      if (!validate) return pin;
+      transports = await this._call("list_transports", accountId).catch(() => null);
+      if (!transports || transports.some(t => sameAddr(t.addr, pin))) return pin;
+    }
+    try {
+      const configured = await this._call("get_config", accountId, "configured_addr");
+      if (configured) return configured;
+    } catch { /* #8711 core: unknown key */ }
+    transports ||= await this._call("list_transports", accountId).catch(() => null);
+    return transports?.[0]?.addr || "";
+  }
+
+  // One-time migration to the ui-key pin (VENDORISSUES #11): before it, the
+  // pin WAS configured_addr. If the user had moved sending to a non-first
+  // relay, adopt that choice once; a first-transport configured_addr is the
+  // core's default, not a choice, and is left unpinned (pure upstream order).
+  async _migrateSendTransport(accountId) {
+    if (this._sendPinMigrated?.has(accountId)) return;
+    const done = await this._call("get_config", accountId, SEND_TRANSPORT_MIGRATED_KEY).catch(() => null);
+    if (!done) {
+      const pin = await this._call("get_config", accountId, SEND_TRANSPORT_KEY);
+      if (!pin) {
+        let configured = null;
+        try { configured = await this._call("get_config", accountId, "configured_addr"); } catch { /* #8711 */ }
+        if (configured) {
+          const transports = await this._call("list_transports", accountId);
+          if (transports.length > 1 && !sameAddr(transports[0].addr, configured)
+              && transports.some(t => sameAddr(t.addr, configured))) {
+            await this._call("set_config", accountId, SEND_TRANSPORT_KEY, configured);
+          }
+        }
+      }
+      await this._call("set_config", accountId, SEND_TRANSPORT_MIGRATED_KEY, "1");
+    }
+    (this._sendPinMigrated ||= new Set()).add(accountId);
   }
 
   /* -- audio calls (core 2.60+): encrypted signaling, client WebRTC -- */

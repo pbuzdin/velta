@@ -340,7 +340,8 @@ if (window.__TAURI__) {
     invoke("get_sidecar_status").then(applySidecarStatus).catch(() => {});
     // UnifiedPush: the shell confirms the distributor endpoint was applied to
     // the core. Per-relay acceptance surfaces separately as core Info/Warning
-    // events ("push notifications registered for transport N") via onDiagnostic.
+    // events ("Transport N: push notifications registered — …" / "relay did
+    // not accept the push token", core patch #13) via onDiagnostic.
     listen("velta-push", () => {
       diagnostics.append("info", "UnifiedPush: push endpoint registered with the distributor");
     });
@@ -611,7 +612,7 @@ function parseConnectivityHtml(html) {
   const dots = [...html.matchAll(/<span class="(red|green|yellow|grey) dot"/g)];
   const smtpState = dots.length ? (stateFor[dots[dots.length - 1][1]] || null) : null;
   // #79: the core (Velta patch) reports the transport the SMTP loop is
-  // actually bound to — failover may differ from configured_addr.
+  // actually bound to — failover may differ from the "Use for sending" pin.
   const smtpVia = (html.match(/<span class="smtp-via">([^<]+)<\/span>/) || [])[1] || null;
   return { segs: out, smtpState, smtpVia };
 }
@@ -744,7 +745,7 @@ function renderRelayLine() {
   // SMTP outside the per-transport sections it parses).
   const SEVERITY = { ok: 0, connecting: 1, unreachable: 2, offline: 2, down: 3 };
   // #79: the SMTP loop's ACTUALLY bound transport (core patch reports it in
-  // the connectivity HTML) outranks configured_addr for the envelope/dashes —
+  // the connectivity HTML) outranks the pinned sending addr for the envelope/dashes —
   // on failover the marker follows the messages. Old cores report nothing
   // and the configured fallback stays.
   const smtpViaDomain = (relaySmtpVia || "").split("@")[1]?.toLowerCase() || null;
@@ -4888,7 +4889,7 @@ async function openRelaysModal() {
       row.querySelector("[data-sendvia]")?.addEventListener("click", async () => {
         const ok = await confirmModal(
           `Send via ${t.addr}?`,
-          "New messages will be sent through this relay and it becomes the address new contacts see. Messages currently waiting to be sent are dropped (they carry the old sender address). The change syncs to your other devices.",
+          "New messages go out through this relay first and carry its address. If it is unreachable, Velta falls back to your other relays and retries this one every few minutes. This choice applies to this device.",
           "Use for sending");
         if (!ok || !accountIsCurrent(epoch)) return;
         try {
@@ -4902,14 +4903,14 @@ async function openRelaysModal() {
           toast(String(err?.message || err));
         }
       });
-      // Demotion: sending stays pinned to one relay (configured_addr) and
-      // only re-elects when that relay vanishes — so "Stop using for
-      // sending" on the sending row is the user-facing way to move sending
-      // to another configured relay.
+      // Demotion: sending stays pinned to one relay (the ui.velta.send_transport
+      // pin, VENDORISSUES #11) — failover is automatic but temporary — so
+      // "Stop using for sending" on the sending row is the user-facing way to
+      // move the pin to another configured relay.
       row.querySelector("[data-demote]")?.addEventListener("click", async () => {
         const ok = await confirmModal(
           `Stop using ${t.addr} for sending?`,
-          `Sending moves to ${other.addr}: new messages go out through it and new contacts see its address. Messages currently waiting to be sent are dropped (they carry the old sender address). The change syncs to your other devices.`,
+          `Sending moves to ${other.addr}: new messages go out through it first and carry its address. This choice applies to this device.`,
           "Stop using for sending");
         if (!ok || !accountIsCurrent(epoch)) return;
         try {
