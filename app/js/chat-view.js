@@ -2584,8 +2584,14 @@ export class ChatView {
   }
 
   // Selection → floating "Reply" chip: watches text selections anchored in a
-  // bubble's text and offers quoting just that fragment.
+  // bubble's text and offers quoting just that fragment. Desktop-only
+  // (#113): touch reaches the same action through the in-bubble "Select
+  // text" bar (whose Reply button quotes the fragment), and the floating
+  // chip would only fight the system selection menu for space.
   _bindSelectionQuote() {
+    try {
+      if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+    } catch { /* no matchMedia (node tests): bind, desktop-assumed */ }
     const chip = document.createElement("button");
     chip.id = "sel-quote-chip";
     chip.type = "button";
