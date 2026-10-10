@@ -460,7 +460,7 @@ view is a **local** call log in localStorage `velta-call-log`
 | Relay | chatmail iroh relay or n0 (n0 for 0.35 ends 2026-12-31) | needs the relay URL, which JSON-RPC does not expose (§1.4) | core already has it |
 | Desktop sidecar | works | works (engine is in the shell) | needs a custom-built sidecar |
 | PWA | maybe, if wasm core peer channels work | needs an engine port | wasm core + patch on top of the wasm series |
-| Maintenance | low | medium (Velta already owns p2p.rs) | high: rebase every core release, on top of 13 production patches (`tools/apply-core-patches.py`) and the wasm series |
+| Maintenance | low | medium (Velta already owns p2p.rs) | high: rebase every core release, on top of the production core quilt (`tools/apply-core-patches.py`, 21 ops at 2.63.0) and the wasm series |
 
 **About option C:** core already de-duplicates by Message-ID. An incoming
 message whose `rfc724_mid` exists is dropped at `receive_imf.rs:554-561`. If

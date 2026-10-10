@@ -83,8 +83,8 @@ relay-status refresh (ConnectivityChanged, boot, account switch, and the
 for up to a minute; the next refresh is always exact). When the marker's
 domain differs from the configured address the diagnostics log tags the
 send line with "(failover)". Old cores report
-nothing and the envelope falls back to `configured_addr`
-(`state.account.addr`'s domain, or the only relay when unmatched) — the
+nothing and the envelope falls back to the displayed sending address
+(`state.account.addr`'s domain — the pin, else `configured_addr`, or the only relay when unmatched) — the
 wasm core's patch series has no #10 equivalent yet (fold into #112), so
 the PWA runs on that fallback. Demo/
 local mode is never marked. The envelope marks identity, not activity — the
@@ -140,22 +140,54 @@ into `receiveSecondDeviceProfile` (presetCode).
 
 ## Sending relay
 
-Sending always goes through the primary relay (`configured_addr`). The
-Relays modal offers **"Use for sending"** per non-primary relay
-(`rpc-core.setSendRelay` → core `set_config("configured_addr", …)`), which
-republishes/re-signs the key. Since core 2.61.0 this no longer restarts I/O
-and no longer sends a device-sync message of its own — other devices learn
-via `TransportsModified` when transports actually change, and the SMTP queue
-is handled by the core's pre-encryption queueing. The segmented status line
-marks only the sending relay's segment with the sending dashes.
+**Pin ("Use for sending", VENDORISSUES #11, re-keyed 2026-10-10).** The
+user chooses the sending relay. The choice is stored in the Velta-owned ui
+config key **`ui.velta.send_transport`** (the transport's addr; `ui.*` keys
+are stored verbatim by the core, per device, NOT synced, included in
+backups). `rpc-core.setSendRelay(addr)` writes it; core patch #11
+(`smtp.rs`) reads it on every SMTP connect:
 
-**Demotion (post-1.4.37, issue #11):** the core re-elects the sending
-transport only when the pinned one VANISHES
-(`maybe_update_sending_transport`) — so a slow sending relay needs an
-explicit user action. The sending relay's own row offers **"Stop using for
+- **Order:** pinned transport first, then upstream's order (most recently
+  successful first, chatmail/core #8771, in 2.63) as failover. No pin, an
+  empty pin, or a pin naming a removed transport = pure upstream order.
+- **Dead-pin backoff:** when the pinned transport fails to CONNECT, the
+  SMTP loop remembers it (in memory, `Smtp::velta_connect_failed`) and for
+  `VELTA_PIN_BACKOFF` = 5 min the pin is tried second, behind the most
+  recently successful transport — a dead pin costs at most one connect
+  timeout per 5 min, not one per reconnect. A successful connect clears it.
+- **Return to the pin:** when a connection is live on another transport
+  (failover, or the user just pinned a different relay) and the pin is not
+  backing off, the next send drops that connection and reconnects with the
+  pin first. So sending moves back to the pinned relay at the first send
+  after the backoff window once it works again. Send errors after a
+  successful connect do not trigger the backoff (the loop disconnects and
+  retries upstream-style). I/O restart resets the in-memory backoff.
+- **From:** in 2.63 the SMTP envelope AND the rendered From header use the
+  addr of the transport the loop is bound to (`smtp.from`, set in
+  `Smtp::connect`), so From follows the pin (and a failover). On 2.63
+  `setSendRelay` ALSO sets `configured_addr` (the core validates that the
+  addr is a configured transport; it is the self-contact/"primary" address
+  the UI shows). Upstream #8711 (draft) removes `ConfiguredAddr`: then
+  `set_config("configured_addr")` fails with "unknown key", rpc-core
+  catches exactly that and writes only the pin; From still follows the
+  bound transport, while the core's self-contact address becomes the oldest
+  transport (`get_primary_self_addr` = first transport by id).
+- **Displayed sending address** (`state.account.addr`, `rpc-core
+  _sendAddr`): the pin when it names a configured transport, else
+  `configured_addr` (cores before #8711), else the first transport.
+- **Migration (once per account, flag `ui.velta.send_transport_migrated`):**
+  before the re-key the pin WAS `configured_addr`. If the new key is unset
+  and `configured_addr` names a non-first transport, it is adopted as the
+  pin; a first-transport `configured_addr` is the core default, not a
+  choice, and stays unpinned.
+- **Removing** the pinned relay clears the pin (`deleteTransport`).
+
+The segmented status line marks the relay the SMTP loop is ACTUALLY bound
+to (#10 `smtp-via`), falling back to the displayed sending address.
+
+**Demotion:** the sending relay's own row offers **"Stop using for
 sending"** (enabled only when another relay exists): it confirms, then calls
-`setSendRelay` on the chosen remaining relay. Do not try to *unset*
-configured_addr — the core forbids it (`config.rs` bails).
+`setSendRelay` on the chosen remaining relay (moves the pin).
 
 **Stale-transport hint (post-1.4.37):** each modal row shows the relay's
 live state from `parseConnectivityHtml` — "unreachable — messages queue

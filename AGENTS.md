@@ -220,20 +220,48 @@ README's requirements section).
 cd core   # run from WSL — native Windows cargo fails in openssl-sys (SQLCipher)
 ```
 
-KEEP (local patches): the vendored tree carries Velta patches (animated
-WebP byte-exact, SMTP sending-transport exposure — VENDORISSUES #7/#10,
-every block marked `Velta patch`; #7 is RETIRED since 2.63.0 — upstream
-81140d51 supersedes it, ops removed from the script). Any core re-vendor
-wipes them;
-re-apply mechanically with `python tools/apply-core-patches.py apply`
-(verify: `… verify` must report 11/11) — see COREUPDATE.md §0. What the
-#10 exposure buys (docs/agents/relays.md has the mechanics): the relay
-line's envelope + send dashes key to the transport the SMTP loop is
-ACTUALLY bound to, not `configured_addr` — through core rotations and
-failovers (2.63: #8797 transport_id reset + sticky last-successful
-transport) the marker keeps telling the truth, and diagnostics tag the
-send line "(failover)" when it differs. The wasm patch series has no #10
-equivalent yet (#112) — the PWA falls back to the configured address.
+KEEP (local patches) — **every change inside `core/` MUST be an op in the
+quilt `tools/apply-core-patches.py`** (anchor + marker ops; never hand-edit
+`core/`, never apply the wasm series in `docs/research/wasm-patches/` to
+production `core/`). The 2.63.0 re-vendor (2aac743) silently dropped two
+hand-made core edits that were never quilt ops (#12, #13 below); v1.4.64
+shipped without them. Restored 2026-10-10. Current quilt (21 ops, 6 files;
+intent in VENDORISSUES.MD):
+
+| # | What | Files |
+|---|------|-------|
+| #7 | animated WebP byte-exact — RETIRED at 2.63.0 (upstream #8777) | — |
+| #10 | SMTP loop's bound transport → `smtp-via` in the connectivity HTML (#79) | smtp.rs, scheduler.rs, scheduler/connectivity.rs, smtp_tests.rs |
+| #11 | "Use for sending" pin: `ui.velta.send_transport` first, upstream recency failover, 5-min dead-pin backoff | smtp.rs, smtp_tests.rs |
+| #12 | `background_fetch` 10 s bound + I/O restart for dead IDLE sockets (#42/#25 P8) | context.rs |
+| #13 | push-token accepted/rejected Info/Warning events (Diagnostics chat) | imap.rs |
+
+```bash
+python3 tools/apply-core-patches.py apply        # re-insert missing ops (fails, writes nothing, on a moved anchor)
+python3 tools/apply-core-patches.py verify       # every op's marker present, else exit 1
+python3 tools/apply-core-patches.py tree-check --fetch   # pristine upstream tag + quilt == core/, else exit 1
+python3 tools/apply-core-patches.py self-test    # the tool's own tests
+```
+
+`verify` fails on ANY missing marker (it used to skip an op whose marker
+and anchor were both gone and still print "N/N"). `tree-check` downloads
+the upstream tag matching `core/Cargo.toml`, applies the quilt to it and
+compares the whole tree (git-ignored paths skipped; CRLF/LF-only
+differences tolerated outside `test-data/`): undeclared edits, drift in a
+quilt file, extra or missing files all fail. CI: `.github/workflows/
+core-patches.yml` runs self-test + verify + tree-check, the quilt/pin node
+tests, then rustfmt, `cargo check` and the patched modules' nextest
+(smtp/scheduler/connectivity/context/imap) on every push/PR touching
+`core/**`, the tool, or rpc-core.js. COREUPDATE.md §0 has the re-vendor
+steps. What the #10 exposure buys (docs/agents/relays.md has the
+mechanics): the relay line's envelope + send dashes key to the transport
+the SMTP loop is ACTUALLY bound to, through core rotations and failovers
+(2.63: #8797 transport_id reset + #8771 most-recently-successful first),
+and diagnostics tag the send line "(failover)" when it differs from the
+pin. #11 semantics (pin, backoff, From before/after upstream #8711,
+migration from configured_addr): docs/agents/relays.md "Sending relay".
+The wasm patch series has no #10/#11 equivalent and is frozen at its 2.62
+baseline (#112) — the PWA falls back to the configured address.
 
 ```bash
 # Run all Rust tests; use nextest — plain `cargo test` flakes a varying
@@ -2141,12 +2169,12 @@ talks to Google.
   core + JSON-RPC); the shell calls the accounts Arc directly via the
   `ANDROID_ACCOUNTS`/`ANDROID_RPC_TX`/`APP_HANDLE` globals. A token arriving
   before the core initializes is parked in `PENDING_PUSH_TOKEN`. The only
-  vendored-core edit (1.4.29) is the observability events below — the push
+  vendored-core edit (1.4.29) is the observability events below (core quilt
+  op #13; dropped by the 2.63.0 re-vendor, restored 2026-10-10) — the push
   registration path itself is untouched upstream behavior.
 - **Observability (1.4.29)** — the Diagnostics chat shows the whole chain:
   the shell emits `velta-push` when the distributor endpoint is applied, and
-  the core (vendored change in `imap.rs register_token` / scheduler error
-  path) emits `Info`/`Warning` events per transport — "push notifications
+  the core (quilt op #13 in `imap.rs register_token`) emits `Info`/`Warning` events per transport — "push notifications
   registered" (relay accepted the token) vs "relay did not accept the push
   token". The rpc-core `Info`/`Warning` → diagnostic mapping surfaces both.
   Since 1.4.51 `push_wakeup_impl` also mirrors its start/done lines to
@@ -2164,13 +2192,15 @@ talks to Google.
   OS does not refreeze the process during the async fetch (bounded to 30 s
   shell-side), then calls `jobFinished(reschedule=false)`. Scheduled
   idempotently from `MainActivity.onCreate`.
-- **Wake vs dead IDLE (#42/#25 P8, vendored core)** — `Context::
+- **Wake vs dead IDLE (#42/#25 P8, core quilt op #12)** — `Context::
   background_fetch` now bounds its `wait_for_work_done` at 10 s: if the
   post-interrupt fetch has not finished (a half-open IDLE socket read can
   block up to `net::TIMEOUT` = 60 s), it restarts IO so a push wake-up
   reconnects on fresh sockets instead of waiting out the stale one. Device
   evidence in #50: a backgrounded app sat 8.5 min silent because the OS
   cut the socket and nothing noticed until resume.
+  NOTE: the 2.63.0 re-vendor dropped this (it was a hand edit, not a quilt
+  op); v1.4.64 shipped without it. Restored as quilt op #12 on 2026-10-10.
 - ** ceilings:** (1) `CoreService` is NOT stopped when push registers —
   stopping it requires cold-start-by-push support, which needs the Rust core
   to initialize from a Service (there is no `Application` class; `run()`

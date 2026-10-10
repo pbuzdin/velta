@@ -305,7 +305,8 @@ frontend into Velta. Coexist with Velta's existing 13 core patches
   [`docs/research/wasm-core-mail-proxy-spike.md`](docs/research/wasm-core-mail-proxy-spike.md).
 - **C1 — Port wasm patches onto Velta core 2.62 (applies on copy; not
   merged).** 10-patch Velta-owned series (`docs/research/wasm-patches/`)
-  applies beside Velta's 13 production patches (verify-copy 10/10), incl. the
+  applies beside Velta's 2.62-era production quilt (13 ops; verify-copy
+  10/10; series FROZEN at 2.62 — does not apply to 2.63.0), incl. the
   clean-room facade `velta-tokio-wasm` (MPL-2.0; replaced the imported
   `tokio-wasm-shim`, Day 12a) + vendored forks (async-imap, mail-builder,
   astral-tokio-tar). Landing gate = checklist §7

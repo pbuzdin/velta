@@ -28,7 +28,14 @@ meaning a **Velta-owned forward-port of chatmail/core 2.62+** targeting
 | `scripts/e2e-deltachat-wasm-network.mjs` | alice→bob e2e over a local `ws-tcp-proxy` → public chatmail (`PACKAGE_ROOT`, `WS_TCP_PROXY`) |
 | [`../wasm-core-landing-checklist.md`](../wasm-core-landing-checklist.md) | What must be green before **any** merge into production `core/` |
 
-Master `core/` stays on Velta’s 13 patches (`tools/apply-core-patches.py`).
+Master `core/` stays on Velta’s production quilt (`tools/apply-core-patches.py`;
+13 ops at the series’ 2.62 baseline, 21 ops at core 2.63.0).
+
+> **FROZEN at the 2.62 baseline (2026-10-10).** The series is **10 patches**
+> (`series.txt`, 0001–0010) and no longer applies to production `core/`
+> 2.63.0: 0002, 0004 and 0007 fail (0006/0008 fail standalone too), and the
+> pinned locks are stale. Not rebased; the PWA keeps its 2.62-based wasm
+> build until a dedicated rebase task. Never apply it to production `core/`.
 **Production `core/` stays stock until the
 [landing checklist](../wasm-core-landing-checklist.md) is green.**
 
@@ -51,7 +58,8 @@ Bare `apply` is refused. Applying onto master `core/` requires an explicit
 dangerous flag (not for CI). Default dest `.wasm-core-apply/` is gitignored.
 
 **Verified Day 6:** 9/9 patches apply cleanly onto a copy of master `core/`;
-`cargo check` wasm lib **PASS** on that copy.
+`cargo check` wasm lib **PASS** on that copy. (Historical: 0010 was added
+Day 18 — the series is 10 patches, verified 10/10 on the 2.62 baseline.)
 
 ## Pinned lockfiles (Day 9)
 

@@ -408,17 +408,21 @@ with `yerpc = "0.7"` and compiles clean.
   now reads credentials from `list_transports()` (`imap.password`), and the
   invite-claim + identity-restore paths configure via `add_transport` with
   the full `EnteredLoginParam` shape (serde has no field defaults).
-- **Vendored patch #7 retired:** upstream 81140d51 keeps animated WebPs
-  byte-exact (`has_animation()` gate; animated avatars deliberately
-  flattened). Patch count 13 → 11.
+- **Vendored patch #7 retired:** upstream #8777 (81140d51) keeps animated
+  WebPs byte-exact (`has_animation()` gate; animated avatars deliberately
+  flattened). The re-vendor also silently dropped hand edits #12
+  (bounded `background_fetch`) and #13 (push-token events); restored as
+  quilt ops 2026-10-10 — quilt now 21 ops (COREUPDATE.md §0).
 - **#8797** (SMTP loop resets `transport_id`/`from` on disconnect) — landed;
   the #79 vendored patch (#10 series) re-applied cleanly on top.
-- **Failover:** connects to the most recently successfully used SMTP
-  transport first — `smtp-via` flips more predictably; no API change.
+- **Failover (#8771):** connects to the most recently successfully used SMTP
+  transport first — `smtp-via` flips more predictably; no API change. Velta
+  patch #11 puts the user's pin (`ui.velta.send_transport`) in front of it.
 - **Additive:** `PinnedMessagesChanged` event (unused yet), unencrypted-MDN
   hardening (no request/send for unencrypted), securejoin invite codes
   percent-encode fix, handled securejoin messages deleted on all relays,
   HTTP(S) proxy error context.
-- **Not landed:** #8777/#8711 (HEIC/image pipeline) and #8798 (client-facing
-  sending-transport signal — the vendored #10 patch remains the substitute).
+- **Not landed:** #8711 (draft, removes `ConfiguredAddr` — patch #11 no
+  longer depends on it) and #8798 (client-facing sending-transport signal —
+  the vendored #10 patch remains the substitute).
 - **Deps:** rPGP 0.20→0.21, mail-builder 1.0, async-imap 0.12, mailparse 0.17.

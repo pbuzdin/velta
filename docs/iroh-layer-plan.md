@@ -117,7 +117,7 @@ data plane with core as rendezvous, **C** a core patch series.
    offers broadcast only, without sender identity or backpressure.
 2. **No core patches.** Desktop runs the stock `deltachat-rpc-server`
    sidecar, so any core change means a custom sidecar build on every platform,
-   on top of 13 production patches and the wasm series.
+   on top of the production core quilt (21 ops at 2.63.0) and the wasm series.
 3. **Identity is stable.** Core's iroh node id changes on every `stop_io`.
    Rendezvous via core would cost one hidden email per chat per restart.
 4. **It fits Pavel's "use the iroh inside core" in practice.** It is the same

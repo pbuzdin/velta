@@ -192,17 +192,23 @@ the same way when updating; verified by decoding generated QR codes.
 
 ## Delta Chat core (vendored `core/`, upstream chatmail/core)
 
-Re-vendor note: both core patches re-apply mechanically — `python tools/apply-core-patches.py apply` (see COREUPDATE.md §0).
+Re-vendor note: every Velta core change is an op in the quilt
+`tools/apply-core-patches.py` (live: #10, #11, #12, #13; retired: #7) and
+re-applies mechanically — `apply`, then `verify` and `tree-check --fetch`
+must pass (COREUPDATE.md §0; CI `core-patches.yml` enforces both). Hand
+edits to `core/` that are not quilt ops are lost on re-vendor — exactly how
+#12 and #13 silently vanished in the 2.63.0 re-vendor (2aac743, v1.4.64).
 
 ### 7. Recoding an animated WebP strips its animation (static JPEG out)
 
-> **RETIRED at core 2.63.0 (2026-10-09):** upstream commit 81140d51 ("do not
-> reencode animated WebPs into JPEG") landed the fix natively — the real
+> **RETIRED at core 2.63.0 (2026-10-09):** upstream chatmail/core **#8777**
+> (merged 2026-10-09 as 81140d51, "do not reencode animated WebPs into
+> JPEG") landed the fix natively — the real
 > WebP decoder's `has_animation()` gates the recode, animated non-avatar
 > images return byte-exact, and animated avatars are deliberately flattened
 > (stricter than our header sniff, which skipped recoding unconditionally).
-> The patch ops are removed from `tools/apply-core-patches.py`; do not
-> re-add. (The open PR tracked here, #8777, was NOT the landed fix.)
+> The patch ops are removed from `tools/apply-core-patches.py` and the
+> unfiled draft `docs/upstream/0001-*.patch` is deleted; do not re-add.
 
 **Status (historical): patched locally (`core/src/blob.rs` —
 `is_animated_webp()` early
@@ -233,7 +239,10 @@ Upstream fix: handle animation (or at least skip recoding for formats the
 
 **Status: patched locally (`core/src/smtp.rs` + `core/src/scheduler.rs` +
 `core/src/scheduler/connectivity.rs` — all blocks carry the `Velta patch
-(#79)` marker; re-apply on every core upgrade).**
+(#79)` marker; quilt ops "#10 …"). Since 2.63.0 upstream #8797 resets
+`transport_id`/`from` in `disconnect()` itself, so the op there only clears
+the shared handle. Pinned by `test_velta_disconnect_clears_sending_transport`
+in `smtp_tests.rs`.**
 
 The SMTP loop tries every configured transport on (re)connect (newest first)
 and uses whichever connects, but `configured_addr` is only re-elected when a
@@ -251,29 +260,71 @@ envelope/dashes to it (`relaySmtpVia`), falling back to `configured_addr`
 for unpatched cores. Upstream fix: expose the bound transport properly
 (e.g. an RPC or event per chatmail/core#8619) — then drop this patch.
 
-> **Upstream status (2026-10-04):** feature request filed as chatmail/core
-> **#8798** ("Client-facing signal for which SMTP transport actually sent a
-> message") — references the removal series (#8619/#8705/#8703/#8709/#8797
-> merged, #8711/#8771 open, umbrella #8572). When a core carrying that API
-> ships, port Velta's consumer (`relaySmtpVia`) to it and drop this patch.
+> **Upstream status (2026-10-10):** feature request chatmail/core **#8798**
+> ("Client-facing signal for which SMTP transport actually sent a message")
+> is open; a maintainer asked for the use case (2026-10-06) and Pavel
+> answered (user-facing "Sent via <relay>" + delivery debugging); no API
+> agreed yet. Removal series: #8619/#8705/#8703/#8709/#8797 merged, **#8771
+> merged 2026-10-06 and shipped in 2.63.0** (most recently successful SMTP
+> transport first), **#8711** ("refactor: remove ConfiguredAddr") still an
+> open draft; umbrella #8572. When a core carrying the #8798 API ships, port
+> Velta's consumer (`relaySmtpVia`) to it and drop this patch.
 
-### #11 — "Use for sending" does not pin the sending transport (core/src/smtp.rs)
+### 11. "Use for sending" does not pin the sending transport (core/src/smtp.rs)
 
-**Status:** patched (temporary). **Upstream:** chatmail/core **#8711** (open,
-WIP) removes `maybe_update_sending_transport` and all `ConfiguredAddr`
-usage; when a first-class preferred-transport concept lands there, drop
-this patch and port the UI to it.
+**Status: patched locally (quilt ops "#11 …", `core/src/smtp.rs` +
+`smtp_tests.rs`). Re-keyed 2026-10-10** from `configured_addr` to the
+Velta-owned ui key `ui.velta.send_transport`, because upstream **#8711**
+(open draft) deletes `Config::ConfiguredAddr` — the old patch read it in
+`sorted_transports()` and would stop compiling, and the JS wrote it.
 
-Upstream 2.62/2.63 `Stmp::connect_configured()` tries transports in
-`sorted_transports()` order — most-recent-SMTP-success first, insertion id
-as tie-break. The Velta "Use for sending" setting (Relays modal →
-`set_config configured_addr`) never enters that ordering, so with offline
-relays in the pool every new SMTP connection burns their connect timeouts
-before reaching the live one; the user's selection cannot pin sending.
+Upstream 2.63 `Smtp::connect_configured()` tries transports in
+`sorted_transports()` order — most-recent-SMTP-success first (#8771),
+insertion id as tie-break. Nothing lets the user choose; Pavel's
+requirement: "I need to select relay for sending myself."
 
-Patch: `sorted_transports()` orders the transport whose `addr` matches
-`configured_addr` first (`ORDER BY (transports.addr = ?1) DESC, …`),
-recency/insertion order stays as failover. Re-vendor application: ops
-"#11 …" in `tools/apply-core-patches.py` (uses the script's `replace`
-mode). Pinned by `test_sorted_transports_prefers_configured_addr` in
-`core/src/smtp/smtp_tests.rs`.
+Patch:
+- `VELTA_SEND_TRANSPORT_KEY = "ui.velta.send_transport"` holds the chosen
+  transport's addr (`ui.*` = stored verbatim via `get_ui_config`, per
+  device, not synced). Unset/empty/unknown addr = no pin.
+- `velta_pin_first()` moves the pinned transport to the front of
+  upstream's order (`upstream_sorted_transports()`, body unchanged).
+- Dead-pin backoff: `Smtp::velta_connect_failed` remembers connect failures
+  (in memory, cleared on success); a pin that failed within
+  `VELTA_PIN_BACKOFF` (5 min) goes second, behind the most recently
+  successful transport — at most one connect timeout per window instead of
+  one per reconnect (the regression #8771 fixed for unpinned cores).
+- Return to the pin: if a live connection is on another transport and the
+  pin is not backing off, `connect_configured` disconnects so the next
+  connect tries the pin first (also makes a fresh pin take effect on the
+  next send).
+- From: 2.63 renders queued mail with the bound transport's addr
+  (`smtp.from`), so From follows the pin/failover. JS keeps writing
+  `configured_addr` on cores that have it (self-contact/"primary" address,
+  core-side validation) and ignores "unknown key" after #8711.
+
+Tests: `test_smtp_candidates` (upstream, unpinned order unchanged),
+`test_velta_pinned_send_transport`, `test_velta_pin_backoff` in
+`smtp_tests.rs`; JS contract in `tests/send-relay-pin.test.mjs`. Drop when
+upstream grows a first-class preferred-transport API.
+
+### 12. A push wake-up waits out a dead IDLE socket (core/src/context.rs)
+
+**Status: patched locally (quilt op "#12 …"). Originally 78df479 (#42/#25
+P8); dropped by the 2.63.0 re-vendor (it was a hand edit), restored
+2026-10-10.** `Context::background_fetch` interrupts IDLE and waits for the
+fetch; on a half-open socket (NAT timeout, Doze freezer) the read blocks up
+to `net::TIMEOUT` (60 s). Patch: bound `wait_for_work_done` at 10 s, then
+`restart_io_if_running()` and wait again, so the wake-up reconnects on fresh
+sockets. Upstream fix: a bounded fetch / stale-session detection in
+`background_fetch`.
+
+### 13. Push-token registration is invisible to the UI (core/src/imap.rs)
+
+**Status: patched locally (quilt op "#13 …"). Originally f133237 (1.4.29);
+dropped by the 2.63.0 re-vendor, restored 2026-10-10.**
+`Session::register_token` only logs. Patch: emit `EventType::Info`
+("Transport N: push notifications registered — …") on SETMETADATA success
+and `EventType::Warning` ("… relay did not accept the push token …") on
+failure; the Diagnostics chat (app.js, rpc-core Info/Warning → diagnostic)
+shows them. Upstream fix: a structured push-registration status API.

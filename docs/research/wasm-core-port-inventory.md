@@ -81,7 +81,7 @@ Layout: `core/` (copy of Velta 2.62 + Velta’s 13 patches), `crates/tokio-wasm-
 | Side-tree host native `cargo check` (Day 5, system OpenSSL) | **PASS** |
 | `wasm-opt -Os` size (Day 5) | ~29 MB → ~18 MB |
 
-### Coexistence with Velta’s 13 patches
+### Coexistence with Velta’s production quilt (13 ops at 2.62; 21 at 2.63.0)
 Side-tree baseline started from Velta `core/` with all 13 present
 (`apply-core-patches.py verify` on master still **13/13**). blob.rs wasm
 ReadDir edit is adjacent to Velta’s animated-WebP helpers — rebase carefully.
@@ -101,7 +101,7 @@ MPL patch ideas only. See [`wasm-patches/README.md`](wasm-patches/README.md).
 ## Patch home (Day 5 decision)
 **Opt-in** `tools/apply-wasm-core-patches.py` + `docs/research/wasm-patches/`.
 Side tree remains source of truth until patches are extracted. Do **not** fold
-into `apply-core-patches.py` (the 13 production patches).
+into `apply-core-patches.py` (the production quilt).
 
 ## Native / size (Day 5)
 | Check | Result |

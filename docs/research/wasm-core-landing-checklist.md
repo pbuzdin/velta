@@ -4,8 +4,9 @@
 authorises a merge by itself; Pavel signs off the final box.
 
 > **Production `core/` stays stock until this checklist is green.**
-> "Stock" = upstream chatmail/core 2.62.x + Velta's 13 production patches
-> (`python3 tools/apply-core-patches.py verify` → 13/13), with
+> "Stock" = upstream chatmail/core + Velta's production quilt
+> (`python3 tools/apply-core-patches.py verify` → all ops present, 21/21 at
+> 2.63.0, plus `tree-check --fetch` green), with
 > `core/Cargo.lock` unchanged by wasm work. Until then the wasm port lives
 > only in the opt-in layer (`docs/research/wasm-patches/` +
 > `tools/apply-wasm-core-patches.py apply-on-copy`) and in scratch copies.

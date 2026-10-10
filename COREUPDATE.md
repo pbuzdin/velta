@@ -12,39 +12,80 @@ statement in `README.md`; feature-by-feature notes per release live in
 `CORE-CAPABILITIES.MD`). 2.63.0 notes: legacy `addr`/`mail_pw` configs are
 gone (identity backup + invite-claim now configure via `add_transport`;
 EnteredLoginParam needs the full serde shape), the animated-WebP vendored
-patch #7 is retired (upstream 81140d51), patch count is 11 (was 13).
+patch #7 is retired (upstream #8777 = 81140d51). The 2.63.0 re-vendor
+(2aac743) silently lost two hand edits that were never quilt ops (#12,
+#13) — restored 2026-10-10; the quilt is now 21 ops and CI enforces it.
 
 ## 0. Re-apply the Velta patches FIRST
 
-Velta carries local patches inside the vendored `core/` tree — currently
-**animated WebP byte-exact sending** (VENDORISSUES #7) and the **SMTP loop's
-bound transport exposure** (#79/#10, feeds the relay line's sending marker).
-Re-vendoring upstream replaces the whole tree and wipes them.
+Velta carries local patches inside the vendored `core/` tree. Re-vendoring
+upstream replaces the whole tree and wipes them. **The quilt
+`tools/apply-core-patches.py` is the single source of truth: every Velta
+change inside `core/` must be an op there** (anchor + marker); a hand edit
+that is not an op is lost on the next re-vendor — that is how #12 and #13
+vanished in 2.63.0. Current quilt at core 2.63.0 — **21 ops in 6 files**
+(intent per patch in VENDORISSUES.MD):
 
-After swapping in the new upstream sources, run:
+| Patch | Ops | Files | What |
+|---|---|---|---|
+| #7 | 0 | — | animated WebP byte-exact — RETIRED at 2.63.0 (upstream #8777) |
+| #10 | 12 | smtp.rs, scheduler.rs, scheduler/connectivity.rs, smtp/smtp_tests.rs | SMTP loop's bound transport → `smtp-via` in the connectivity HTML (#79) + test |
+| #11 | 7 | smtp.rs, smtp/smtp_tests.rs | "Use for sending" pin, re-keyed to `ui.velta.send_transport` (upstream #8711 removes ConfiguredAddr); pinned first, recency failover, 5-min dead-pin backoff + tests |
+| #12 | 1 | context.rs | `background_fetch` 10 s bound + I/O restart for dead IDLE sockets (restored) |
+| #13 | 1 | imap.rs | push-token accepted/rejected Info/Warning events (restored) |
+
+Re-vendor steps:
 
 ```
-python tools/apply-core-patches.py apply     # inserts what's missing
-python tools/apply-core-patches.py verify    # must report 11/11 (13 before 2.63.0 retired patch #7)
+# 1. swap in the pristine upstream tree for the new tag (core/ = tarball/tag)
+# 2. re-apply the quilt
+python3 tools/apply-core-patches.py apply                # CONFLICT = anchor moved; nothing is written
+# 3. prove it
+python3 tools/apply-core-patches.py verify               # must report 21/21 (any missing marker fails)
+python3 tools/apply-core-patches.py tree-check --fetch   # pristine v<Cargo.toml version> + quilt == core/
+python3 tools/apply-core-patches.py self-test            # if you touched the tool
+# 4. build + targeted tests (WSL on Windows)
+cd core && cargo fmt -p deltachat --check && cargo check -p deltachat --lib --tests --locked
+cargo nextest run -p deltachat --lib --locked -E 'test(/^(smtp|scheduler|context|imap|push)::/) | test(smtp) | test(background_fetch)'
 ```
 
-The script is idempotent and anchor-based (not line-diffs), so it tolerates
-unrelated upstream churn. `CONFLICT` output means upstream reshaped an
-anchor — port that patch by hand using its VENDORISSUES entry, then update
-the script's copy of the block. Each re-applied block carries a
-`Velta patch (re-apply on core upgrades)` marker comment; grep for it to
-audit. Remember the consumers table below: patching `core/` alone changes
-nothing until the sidecar / APK / prebuilts are rebuilt.
+The script is anchor-based (not line-diffs), so it tolerates unrelated
+upstream churn. `CONFLICT` output means upstream reshaped an anchor — port
+that op by hand using its VENDORISSUES entry, then update the op's
+anchor/text in the script (never hand-edit `core/` alone). `verify` fails
+on any missing marker, whether or not the anchor still exists (before
+2026-10-10 it silently skipped ops whose marker AND anchor were gone and
+still printed "N/N" — a false green). `tree-check` applies the quilt to the
+pristine upstream tag (`--fetch` downloads
+`github.com/chatmail/core/archive/refs/tags/v<version>.tar.gz`; or pass
+`--upstream DIR`) and compares the whole tree: any file outside the quilt's
+files that differs, drift in a quilt file, and extra or missing files fail.
+Git-ignored paths are skipped; CRLF/LF-only differences are tolerated
+except under `test-data/` (raw mail — upstream keeps CRLF bytes; the
+2.61-2.63 vendors had 23 `.eml` files LF-converted, fixed 2026-10-10).
+Directory symlinks upstream (`python/tests/data/key`) may be real
+directories in a Windows checkout; same bytes = OK. CI
+(`.github/workflows/core-patches.yml`) runs all of this on every push/PR
+touching `core/**`, the tool or rpc-core.js. Remember the consumers table
+below: patching `core/` alone changes nothing until the sidecar / APK /
+prebuilts are rebuilt.
 
 ## 0b. Opt-in: re-apply the wasm series (Architecture C track)
 
-After §0 reports 11/11, the wasm patch series (`docs/research/wasm-patches/`)
-is re-applied with the dedicated, opt-in applicator — **never** let a core
-upgrade silently ship wasm patches to native consumers:
+> **FROZEN at its 2.62 baseline (2026-10-10).** The series (10 patches,
+> `series.txt`) does not apply to 2.63.0: 0002, 0004 and 0007 fail
+> (0006/0008 fail standalone too, on top of the failed hunks), and the
+> pinned locks are stale against the 2.63 `Cargo.lock`. Not rebased; the
+> PWA stays on its 2.62-based wasm build until a dedicated rebase task.
+
+When rebased, after §0 is green the wasm patch series
+(`docs/research/wasm-patches/`) is re-applied with the dedicated, opt-in
+applicator — **never** let a core upgrade silently ship wasm patches to
+native consumers:
 
 ```
 python tools/apply-wasm-core-patches.py apply-on-copy        # copy under .wasm-core-apply/, master core/ untouched
-python tools/apply-wasm-core-patches.py verify-copy          # must report 9/9
+python tools/apply-wasm-core-patches.py verify-copy          # must report 10/10
 ```
 
 Land them into production `core/` only after the merge gate in

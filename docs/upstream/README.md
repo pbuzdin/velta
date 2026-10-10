@@ -1,84 +1,36 @@
-# Upstream drafts — chatmail/core
+# Upstream tracking — chatmail/core
 
-Texts for the two upstream contributions that would let Velta drop its
-vendored-core patches (VENDORISSUES #7 and #10).
+What Velta's vendored-core patches (quilt `tools/apply-core-patches.py`,
+VENDORISSUES.MD) wait for upstream, and the texts we filed. Velta never
+posts in chatmail/deltachat repos from automation; filing is Pavel's call.
 
-## Status (2026-10-04 update)
+## Status (2026-10-10, core 2.63.0)
 
-- **#7 animated WebP: SUPERSEDED — do not file.** Upstream PR **8777**
-  ("fix: do not reencode animated WebPs into JPEG", still open, closes
-  #8740) is the same fix against the same files (their version uses the
-  `image` crate's `WebPDecoder::has_animation()` instead of our raw
-  RIFF/ANMF sniff, and adds a real `animated.webp` fixture). Our branch
-  `fix/animated-webp-byte-exact` and `0001-*.patch` stay here for
-  reference only. Action for us: none — **drop quilt entry #7 on the
-  next core re-vendor** once a release carries 8777.
-- **#10 sending transport: FILED — chatmail/core#8798** (2026-10-04,
+- **#7 animated WebP — DONE upstream, patch retired.** chatmail/core
+  **#8777** ("fix: do not reencode animated WebPs into JPEG") merged
+  2026-10-09 as 81140d51 and ships in 2.63.0. Our unfiled draft PR
+  (`0001-*.patch`, branch `fix/animated-webp-byte-exact`) is deleted.
+- **#10 sending transport — FILED: chatmail/core#8798** (2026-10-04,
   "Client-facing signal for which SMTP transport actually sent a
-  message"; text below is what was posted, minus formatting). The
-  removal series is mostly landed: #8619, #8705, #8703, #8709, #8797
-  merged; #8711 (remove `maybe_update_sending_transport` and the last
-  `ConfiguredAddr` uses) and #8771 (most-recently-successful transport
-  first) still open under the #8572 umbrella. When a core carries the
-  API that comes out of #8798, port Velta's `relaySmtpVia` consumer to
-  it and drop quilt patch #10.
-
-## Contents
-
-- `0001-*.patch` — the #7 PR branch (`fix/animated-webp-byte-exact` in the
-  local clone at /tmp/chatmail-core, based on upstream 2.63.0-dev
-  @ 7073049). Superseded by 8777; kept for reference.
-- `issue-sending-transport.md` — the #10 feature issue (file first, PR the
-  implementation after the API shape is agreed). PR text below.
-
-## PR text — fix: don't recode animated WebPs, send them byte-exact
-
-**Title:** `fix: don't recode animated WebPs — send them byte-exact instead of losing animation`
-
-**Body:**
-
-Closes the first half of the TODO in `check_or_recode_to_size`
-("Fix lost animation and transparency when recoding using the `image`
-crate").
-
-### The bug
-
-Any animated WebP that exceeds the media-quality byte limit or carries an
-EXIF chunk is currently run through the `image`-crate recode. The `image`
-crate decodes only the **first frame**, so the recipient receives a silent
-**static JPEG**: animation gone, transparency flattened. This affects every
-client (iOS/Android/Desktop) because the recode happens core-side on send.
-
-### The fix
-
-`check_or_recode_to_size` now detects animated WebPs from the container
-header (RIFF/WEBP magic + an `ANMF` chunk in the first 4 KiB — a chunk only
-animated files carry) and returns them **byte-exact** before any decode is
-attempted. No new dependencies; the sniff is ~15 lines and takes
-`impl Read + Seek` so it is unit-testable without fixtures.
-
-### What this does NOT do (the remaining TODO)
-
-- Transparency for *recoded* still images is unchanged.
-- EXIF is not stripped from the byte-exact animated WebPs (the RIFF EXIF
-  chunk survives). Proper handling — re-animating after recode, or
-  byte-exact EXIF-chunk removal — belongs to the full fix the existing TODO
-  describes; the early return carries a TODO pointer.
-- Byte-exact sending means the media-quality byte limit is not enforced for
-  animated WebPs (they were already being sent over-limit in practice when
-  small enough to pass; now also when larger). Chatmail relays enforce
-  their own server-side size ceiling regardless.
-
-### Testing
-
-- New `src/blob_tests.rs` (this also fixes the test build at HEAD —
-  `mod blob_tests;` was declared but the file was missing): container-frame
-  construction tests for the sniff — animated detected, static WebP/VP8X-
-  only/JPEG/truncated inputs rejected.
-- `cargo test -p deltachat --lib blob_tests` green.
-
----
-*Committed on top of 7073049 (2.63.0-dev). Happy to rebase/split.*
+  message"; text below). Open; a maintainer asked for the use case
+  (2026-10-06), answered the same day (user-facing "Sent via <relay>" +
+  delivery debugging); no API shape agreed yet. When a core carries it,
+  port Velta's `relaySmtpVia` consumer and drop quilt patch #10.
+- **#8771 — MERGED 2026-10-06, in 2.63.0:** the SMTP loop connects to the
+  most recently successful transport first (`smtp_success` table). Velta
+  patch #11 keeps this as the failover order behind the user's pin.
+- **#8711 — open DRAFT** ("refactor: remove ConfiguredAddr"; removes
+  `Config::ConfiguredAddr` and `maybe_update_sending_transport`;
+  `get_primary_self_addr` becomes "first transport by id"). Velta patch #11
+  was re-keyed to the ui key `ui.velta.send_transport` (2026-10-10) so this
+  cannot break it; rpc-core tolerates `configured_addr` becoming an unknown
+  key. Watch it at every re-vendor.
+- Removal series context: #8619, #8705, #8703, #8709, #8797 merged
+  (#8797, in 2.63.0, resets `transport_id`/`from` in `Smtp::disconnect`);
+  umbrella #8572.
+- Not filed: #11 (user-chosen send transport), #12 (bounded
+  `background_fetch`), #13 (push-token events). Candidates if upstream
+  wants them.
 
 ## Issue text — expose which transport the SMTP loop is bound to
 

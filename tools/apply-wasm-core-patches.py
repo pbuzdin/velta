@@ -5,7 +5,10 @@ Velta-owned forward-port of chatmail/core 2.62+ for wasm32. Reuses MPL patch
 *ideas* only — not a fork of slothfulchat-web; no GPL UI.
 
 Relationship to tools/apply-core-patches.py:
-  - apply-core-patches.py  → Velta's 13 production patches (Android/desktop).
+  - apply-core-patches.py  → Velta's production quilt (Android/desktop;
+                              21 ops at core 2.63.0, 13 at this series' 2.62
+                              baseline). This 10-patch series is FROZEN at
+                              2.62: it does not apply to 2.63.0.
   - THIS script            → wasm32 ports; MUST stay opt-in.
 
 Safety:
