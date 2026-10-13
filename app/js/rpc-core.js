@@ -1944,6 +1944,22 @@ export class JsonRpcCore extends EventTarget {
     globalThis.window?.__TAURI__?.core?.invoke?.("tunnel_reapply").catch(() => {});
   }
 
+  // #118: the receiving account was unconfigured when IO started (boot or
+  // add_account), and the core refuses start_io on an unconfigured context,
+  // so nothing ever started IO on it once the transfer configured it: the
+  // new device sat offline until a core restart. Start IO on it now (same
+  // sync-only and offline gates as _startIo / setNetworkIo), then let the
+  // shell fix the proxy, which restarts the IO that is now running.
+  async _afterBackupReceived(targetId) {
+    const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+    const allowed = !this.syncOnlyActive || String(this.accountId) === String(targetId);
+    if (allowed && !offline) {
+      await this._call("start_io", targetId).catch(() => {});
+      await this._call("maybe_network").catch(() => {});
+    }
+    this._tunnelReapply();
+  }
+
   // QR text for a running provideBackup(). Blocks on the backend until the
   // provider is up (fails after 60 s).
   async getBackupQr() {
@@ -1981,7 +1997,7 @@ export class JsonRpcCore extends EventTarget {
         await this._call("select_account", targetId);
         this.accountId = targetId;
       }
-      this._call("get_backup", targetId, qrContent).then(() => this._tunnelReapply()).catch(() => {});
+      this._call("get_backup", targetId, qrContent).then(() => this._afterBackupReceived(targetId)).catch(() => {});
       failed = false;
       return targetId;
     } catch (err) {
