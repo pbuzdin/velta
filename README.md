@@ -1446,7 +1446,7 @@ Pre-configured workflows live in `.github/workflows/`:
 
 | Workflow | What it builds |
 |---|---|
-| `build-android.yml` | arm64-v8a Android APK on `ubuntu-latest` |
+| `build-android.yml` | arm64-v8a Android APK on `ubuntu-latest`. Manual runs default to `org.velta.test` / Velta Test so the APK installs beside the main app; release tags keep `org.velta`. |
 | `build-windows.yml` | Windows installer on `windows-latest`, compiling the sidecar natively (needs Perl + NASM) |
 | `build-macos.yml` | Universal macOS `.app` + DMG + updater tarball on `macos-14`, sidecars for both architectures merged with `lipo`; ad-hoc signed (Developer ID signing/notarization switch on via the `APPLE_*` secrets) |
 | `build-windows-cross.yml` | Windows installer where the sidecar is cross-compiled on Ubuntu to avoid installing Perl/NASM on Windows |

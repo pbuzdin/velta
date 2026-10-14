@@ -23,7 +23,9 @@
       "csp": "default-src 'self'; script-src 'self' 'sha256-8g+JKwDwKdYL2n4VrSU5f2pYq799ckvbz9HvJpfpNF8='; connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:20808 http://127.0.0.1:20809 http://127.0.0.1:* http://blobfile.localhost blobfile:; frame-src 'self' https: http://webxdc.localhost webxdc: http://127.0.0.1:* http://blobfile.localhost blobfile:; img-src 'self' data: blob: file: asset: blobfile: http://blobfile.localhost http://asset.localhost http://127.0.0.1:* http://webxdc.localhost; media-src 'self' blob: asset: blobfile: http://blobfile.localhost http://asset.localhost http://127.0.0.1:*; style-src 'self' 'unsafe-inline'",
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPLOCALDATA/**"]
+        "scope": [
+          "$APPLOCALDATA/**"
+        ]
       }
     }
   },
@@ -45,17 +47,24 @@
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
       }
+    },
+    "android": {
+      "debugApplicationIdSuffix": ".test"
     }
   },
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["velta"]
+        "schemes": [
+          "velta"
+        ]
       }
     },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENCMjlDODFEM0VBNENFMDIKUldRQ3pxUStIY2dweTIyZ3ZMcEdLTlBpT1lGcEMybmtzdHZnc0xxOVlTbDdDNHZsRVRDcFVoY0QK",
-      "endpoints": ["https://github.com/pbuzdin/velta/releases/latest/download/latest.json"]
+      "endpoints": [
+        "https://github.com/pbuzdin/velta/releases/latest/download/latest.json"
+      ]
     }
   }
 }
