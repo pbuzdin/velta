@@ -1,6 +1,6 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
-    <style name="Theme.velta_app" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+    <style name="Theme.velta_app" parent="Theme.AppCompat.DayNight.NoActionBar">
         <!-- Edge-to-edge: draw app content under system bars and let CSS handle insets.
              Must match values-night/themes.xml exactly, otherwise the system bars
              flash opaque during the day→night theme transition and on some OEM

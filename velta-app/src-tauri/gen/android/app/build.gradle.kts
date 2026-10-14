@@ -19,6 +19,9 @@ android {
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
         applicationId = "org.velta"
+        // test/no-material: side-by-side test build. Override with
+        // -PveltaAppIdSuffix=... (empty string = regular org.velta).
+        applicationIdSuffix = (project.findProperty("veltaAppIdSuffix") as String?) ?: ".materialtest"
         minSdk = 24
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
@@ -74,7 +77,6 @@ dependencies {
     implementation("androidx.browser:browser:1.8.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.activity:activity-ktx:1.10.1")
-    implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.lifecycle:lifecycle-process:2.10.0")
     // UnifiedPush connector: registration + push-event plumbing with the
     // user-selected distributor app (no Play Services involved).
