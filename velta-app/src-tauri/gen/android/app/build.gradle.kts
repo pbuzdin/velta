@@ -87,3 +87,10 @@ dependencies {
 }
 
 apply(from = "tauri.build.gradle.kts")
+// test/no-material: tauri-android, tauri-plugin-fs/-dialog/-deep-link/-notification
+// declare material transitively. Strip it from the APK (library modules still
+// compile against it). Only DialogPlugin.showMessageDialog uses it, and the
+// capabilities grant dialog:allow-open/save only. -PveltaKeepMaterial=true to keep.
+if ((project.findProperty("veltaKeepMaterial") as String?) != "true") {
+    configurations.all { exclude(group = "com.google.android.material", module = "material") }
+}
