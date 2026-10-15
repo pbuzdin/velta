@@ -2605,11 +2605,18 @@ async function showChatInfo(chat) {
         if (name && name !== chat.name) await core.renameChat(chat.id, name);
         if (result.description !== currentDesc) await core.setChatDescription(chat.id, result.description);
         if (result.avatar === "remove") await core.setChatImage(chat.id, null);
-        else if (result.avatar !== "keep") await core.setChatImage(chat.id, result.avatar.path);
+        else if (result.avatar !== "keep") {
+          await core.setChatImage(chat.id, result.avatar.path);
+          dropUpload(result.avatar.path);
+        }
         if (!accountIsCurrent(epoch)) return;
         if (name) chat.name = name;
-        chat.avatar = result.avatar === "remove" ? null
-          : (result.avatar !== "keep" ? result.avatar.path : chat.avatar);
+        // The core's blobdir copy, not the picked temp path (gone above).
+        if (result.avatar === "remove") chat.avatar = null;
+        else if (result.avatar !== "keep") {
+          const fresh = await core.getChat?.(chat.id).catch(() => null);
+          chat.avatar = fresh?.avatar ?? null;
+        }
         refreshChatList();
         if (state.activeChatHead && state.activeChatId === chat.id) {
           const fresh = renderChatHead(chat);
@@ -4478,6 +4485,14 @@ async function writePickedImage(file) {
   return path;
 }
 
+// The core copied the picture into its blobdir (set_config selfavatar /
+// set_chat_profile_image), so the /uploads/ temp copy only costs memory.
+function dropUpload(path) {
+  const rm = core?.transport?.removeCoreFile;
+  if (typeof rm !== "function" || !/^\/uploads\//.test(String(path || ""))) return;
+  rm.call(core.transport, path).catch(() => {});
+}
+
 async function pickProfileImage() {
   const tauri = window.__TAURI__;
   const invoke = tauri?.core?.invoke || tauri?.invoke;
@@ -4532,7 +4547,10 @@ async function editProfileFlow() {
     await core.setDisplayName(result.name);
     if (!accountIsCurrent(epoch)) return;
     if (result.avatar === "remove") await core.setAvatar(null);
-    else if (result.avatar !== "keep") await core.setAvatar(result.avatar.path);
+    else if (result.avatar !== "keep") {
+      await core.setAvatar(result.avatar.path);
+      dropUpload(result.avatar.path);
+    }
     if (core.setSelfStatus && result.description !== status) await core.setSelfStatus(result.description);
     if (!accountIsCurrent(epoch)) return;
     const account = await core.getAccount();

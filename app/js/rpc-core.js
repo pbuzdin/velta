@@ -1251,15 +1251,26 @@ export class JsonRpcCore extends EventTarget {
     return this._call("leave_webxdc_realtime", this.accountId, msgId);
   }
 
+  // Wasm PWA: the core lives in memory and reaches OPFS only through a
+  // checkpoint (8 s interval, best-effort on hide). A reload right after
+  // "Profile updated" dropped the change: the toast showed, the avatar was
+  // gone after the reload, and peers never got it. Await a checkpoint after
+  // changes the user expects to stick. No-op on Tauri / WS transports.
+  async _persist() {
+    await this.transport?.checkpoint?.().catch(() => {});
+  }
+
   async setDisplayName(name) {
     const trimmed = (name || "").trim();
     await this._call("set_config", this.accountId, "displayname", trimmed || null);
+    await this._persist();
   }
 
   // path: absolute filesystem path the core can read (uploads/ dir), or null
   // to remove the picture. The core copies the file into its blobdir.
   async setAvatar(path) {
     await this._call("set_config", this.accountId, "selfavatar", path || null);
+    await this._persist();
   }
 
   async getContacts() {
@@ -1312,6 +1323,7 @@ export class JsonRpcCore extends EventTarget {
   // as Contact.status). null clears.
   async setSelfStatus(status) {
     await this._call("set_config", this.accountId, "selfstatus", (status || "").trim() || null);
+    await this._persist();
   }
 
   // Group/channel name + picture. set_chat_profile_image with null removes
@@ -1322,6 +1334,7 @@ export class JsonRpcCore extends EventTarget {
 
   async setChatImage(chatId, path) {
     await this._call("set_chat_profile_image", this.accountId, chatId, path || null);
+    await this._persist();
   }
 
   // Disappearing-messages timer for a chat, in seconds (0 = off). Changing
@@ -1498,6 +1511,9 @@ export class JsonRpcCore extends EventTarget {
     }
     const msgId = await this._call("send_msg", accountId, chatId, data);
     this._trackSending(msgId);
+    // A sent file is now a blob in the account dir: save it soon, but do
+    // not hold the send on the OPFS write.
+    if (file) this._persist();
     // #83: low-battery marker — best-effort hook installed by app.js; a
     // failure here must never surface as a send error.
     if (this._batteryGate) {

@@ -546,6 +546,26 @@ Wasm mail in that dist (`tests/ws-relays.test.mjs`, `tests/wasm-blob-url.test.mj
   identity restore awaits a checkpoint before its reload. `read-file`
   falls back to `sqlite_export`, so the backup password fallback can read
   dc.db.
+- **Saves that must survive a reload (PWA avatar loss, 10-15).** Blob dirs
+  ARE in the snapshot (`snap-<n>/accounts/<uuid>/dc.db-blobs/`); the avatar
+  was lost because nothing saved it before the user reloaded: the 8 s
+  interval and the hide flush lose any change made a few seconds before a
+  reload (page cannot await OPFS while unloading). `JsonRpcCore._persist()`
+  awaits a checkpoint after `setAvatar` / `setDisplayName` /
+  `setSelfStatus` / `setChatImage`, and starts one (not awaited) after a
+  `sendMessage` with a file. Add it to any new "user expects this to stick"
+  write. KEEP the snapshot order databases → memfs walk: `vfs_list` is async
+  and the core runs between awaits; it writes a blob before the row naming
+  it, so dbs-first can only add orphan blobs, never a `selfavatar` /
+  attachment row pointing at a missing file (the old order did — avatar
+  broken after reload and `build_avatar_file` failing, so no
+  Chat-User-Avatar went out). The core's own avatar path (copy → recode via
+  the image crate → blobdir) works in wasm (a 4000×3000 JPEG recodes in
+  ~1.3 s). `/uploads/` is outside the snapshot; `dropUpload` frees the
+  picked temp file after `set_config selfavatar` / `set_chat_profile_image`
+  via the worker's `remove-file` (only `/uploads/<name>`). Sent-file
+  uploads are not dropped yet. `tests/wasm-blob-persist.test.mjs`,
+  `tests/wasm-opfs-snapshot.test.mjs`.
 - **SW updates (10-13).** Install precaches with `cache: 'reload'` (a host
   with max-age otherwise filled the new VERSION with old files — reproduced
   headless); navigations are network-first with the precached
