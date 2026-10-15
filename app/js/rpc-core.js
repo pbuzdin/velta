@@ -787,6 +787,9 @@ export class JsonRpcCore extends EventTarget {
       case "audio": return "Audio";
       case "gif": return "Gif";
       case "sticker": return "Sticker";
+      // #138: without this a .xdc went out as Text+file, so the core never
+      // created a Webxdc message and get_webxdc_blob 404'd ("not found").
+      case "webxdc": return "Webxdc";
       default: return "Text";
     }
   }
