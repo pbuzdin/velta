@@ -2538,6 +2538,15 @@ talks to Google.
   the core (quilt op #13 in `imap.rs register_token`) emits `Info`/`Warning` events per transport — "push notifications
   registered" (relay accepted the token) vs "relay did not accept the push
   token". The rpc-core `Info`/`Warning` → diagnostic mapping surfaces both.
+- **Relays modal "(U)" mark (#110)** — op #13's events name the relay
+  (`Transport N (addr): …`, helper `velta_transport_addr`; list_transports
+  carries no ids). `app/js/relay-push.js` parses them from onDiagnostic and
+  caches per domain in localStorage `velta.relayPush`; the Relays modal marks
+  a row `(U)` (title/aria-label "Supports UnifiedPush push notifications")
+  only when the core confirmed SETMETADATA succeeded on a relay whose
+  METADATA says supports_push. No probe, no guessing: desktop/PWA (no device
+  token) and never-registered relays show no mark; a later rejection clears it.
+  Does not prove the relay's notifier delivers, only that it took the token.
   Since 1.4.51 `push_wakeup_impl` also mirrors its start/done lines to
   logcat (`println!` → RustStdoutStderr): a wake can run while the process
   is half-frozen by an OEM where the buffered velta.log may never flush —

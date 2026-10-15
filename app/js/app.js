@@ -8,6 +8,7 @@ import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintFromVc
 import { ChatView, setAvatarProfileOpener } from "./chat-view.js";
 import { initCalls } from "./calls.js";
 import { initWebxdc } from "./webxdc-manager.js";
+import { notePushDiagnostic, relaySupportsPush, pushMarkHtml } from "./relay-push.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow, isSendFailureDiagnostic, createRelaySendErrorState } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal, isShortInviteLink, expandShortInvite } from "./invites.js";
 import { activeWsRelay, addWsRelay, listWsRelays, normalizeHost, probeC3Relay, probeDnsVia, showWsRelaysModal, useWsRelay } from "./ws-relays.js";
@@ -362,6 +363,7 @@ let splashSession = null;
 coreStartupPromise = createCore({
   onDiagnostic: (level, message) => {
     diagnostics.append(level, message);
+    notePushDiagnostic(message); // #110: relay "(U)" marks
     try {
       const tauri = window.__TAURI__;
       const invoke = tauri?.core?.invoke || tauri?.invoke;
@@ -5130,7 +5132,8 @@ async function openRelaysModal() {
       const st = statusByDomain?.get((t.addr || "").split("@").pop());
       const hint = !st || st.state === "ok" ? "" : ` <span class="relay-row-status">${st.state === "down" ? "unreachable — messages queue until it's back" : "connecting…"}</span>`;
       const demote = primary && other ? `<button type="button" class="btn-text" data-demote>Stop using for sending</button>` : "";
-      row.innerHTML = `<span class="k">${escapeHtml(t.addr)}${primary ? " · sending" : ""}${hint}</span>
+      const pushMark = relaySupportsPush(t.addr) ? pushMarkHtml() : "";
+      row.innerHTML = `<span class="k">${escapeHtml(t.addr)}${pushMark}${primary ? " · sending" : ""}${hint}</span>
         <span class="v">${primary ? demote : `<button type="button" class="btn-text" data-sendvia>Use for sending</button>`}<button type="button" class="btn-text" data-remove style="color:var(--danger)">Remove</button></span>`;
       row.querySelector("[data-sendvia]")?.addEventListener("click", async () => {
         const ok = await confirmModal(

@@ -328,3 +328,6 @@ dropped by the 2.63.0 re-vendor, restored 2026-10-10.**
 and `EventType::Warning` ("… relay did not accept the push token …") on
 failure; the Diagnostics chat (app.js, rpc-core Info/Warning → diagnostic)
 shows them. Upstream fix: a structured push-registration status API.
+
+#110 (2026-10-15): the event texts now carry the relay addr (`Transport N (addr): …`, via a `velta_transport_addr` SELECT on `transports`) so the Relays modal can show a "(U)" mark per relay.
+

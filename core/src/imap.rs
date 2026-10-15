@@ -1421,17 +1421,33 @@ impl Session {
             // per-relay push availability to the UI (the Diagnostics chat
             // shows Info/Warning events): a relay that rejects the token
             // means no push wake-ups for that account.
+            // Velta #110: name the relay (addr) so the Relays modal can mark
+            // it "(U)" — list_transports carries no transport ids.
+            let addr = velta_transport_addr(context, transport_id).await;
             context.emit_event(EventType::Warning(format!(
-                "Transport {transport_id}: relay did not accept the push token ({err:#}) — no push notifications for this relay"
+                "Transport {transport_id} ({addr}): relay did not accept the push token ({err:#}) — no push notifications for this relay"
             )));
         } else {
+            let addr = velta_transport_addr(context, transport_id).await;
             context.emit_event(EventType::Info(format!(
-                "Transport {transport_id}: push notifications registered — the relay will wake the app on new mail"
+                "Transport {transport_id} ({addr}): push notifications registered — the relay will wake the app on new mail"
             )));
         }
 
         Ok(())
     }
+}
+
+/// Velta patch (#13/#110): the relay address of a transport id, for the
+/// push-registration events (empty when unknown).
+async fn velta_transport_addr(context: &Context, transport_id: u32) -> String {
+    context
+        .sql
+        .query_get_value::<String>("SELECT addr FROM transports WHERE id=?", (transport_id,))
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default()
 }
 
 impl Session {
