@@ -72,6 +72,8 @@ import { stripTrackingUrl, stripTrackingText, trackingStripEnabled } from "./tra
 import { getReadMarker, clearReadMarker } from "./read-markers.js";
 import { shareStageKind, shareViewtype } from "./share-in.js";
 import { reactionToggle, myReaction } from "./reactions.js";
+import { sendLargeFile, largeFileAvailable, largeFileInfoHtml, wireLargeFileInfo } from "./large-file.js";
+import { lufiUploadFor } from "./lufi.js";
 
 function reactionChipsHtml(reactions) {
   return (reactions || []).map(r =>
@@ -2545,10 +2547,12 @@ export class ChatView {
       <div class="info-row"><span class="k">State</span><span class="v">${escapeHtml(state)}</span></div>
       <div class="info-reacts" data-reacts hidden></div>
       ${deliveryRows}
+      ${largeFileInfoHtml(lufiUploadFor(this.core.accountId, m.id))}
       <div class="info-row"><span class="k">Database ID</span><span class="v">#${escapeHtml(m.id)}</span></div>
       <div class="info-row wrap"><span class="k">Message-ID</span><span class="v" data-mid>…</span></div>
       <div class="info-row wrap"><span class="k">Server URL</span><span class="v" data-servers>…</span></div>`,
     });
+    wireLargeFileInfo(info.modal, this.core.accountId, m.id);
     const reactBox = info.modal.querySelector("[data-reacts]");
     const paintReactions = (payload) => {
       if (!reactBox || !info.modal.isConnected) return;
@@ -3026,6 +3030,11 @@ export class ChatView {
         { label: "Video", icon: ICO.photo, onClick: () => this._sendAttachment("video") },
         { label: "File", icon: ICO.file, onClick: () => this._sendAttachment("file") },
       ];
+      // #138: encrypted upload to a Lufi server, the chat gets the link.
+      // Shell-only (proxy-aware sockets); local chats send files directly.
+      if (largeFileAvailable() && !this.chat?.isP2p) {
+        attachItems.push({ label: "Large file", icon: ICO.file, onClick: () => this._sendLargeFile() });
+      }
       if (!window.__TAURI__ && /Android/i.test(navigator.userAgent)) {
         attachItems.splice(1, 0, { label: "Camera", icon: ICO.photo, onClick: () => this._sendAttachment("camera") });
       }
@@ -3502,6 +3511,20 @@ export class ChatView {
     } catch (err) {
       if (this._isCurrent(session)) errToast("Could not send image: " + (err?.message || err));
     }
+  }
+
+  async _sendLargeFile() {
+    const session = this._session;
+    if (!this._isCurrent(session) || !this.chat) return;
+    await sendLargeFile({
+      accountId: this.core.accountId,
+      isCurrent: () => this._isCurrent(session),
+      send: async (text) => {
+        const msg = await this._sendArchivedAware(session.chatId, { text });
+        if (this._isCurrent(session)) { this.appendOutgoing(msg); this.onChatsChanged(); }
+        return msg;
+      },
+    });
   }
 
   async _sendAttachment(kind) {

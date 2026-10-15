@@ -77,7 +77,9 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── identity-backup.js # V2.5 identity backup: bundle build/wrap/unwrap (WebCrypto), base64 helpers, backup download name (#104), gzipBytes/gunzipBytes (CompressionStream — returns input unchanged when unsupported; callers detect by identity to decide the .gz suffix)
 │   │   ├── ws-relays.js      # PWA websocket relay list; baked VELTA_PWA.wsProxyUrl until a domain is chosen; probeC3Relay (C3 capability probe)
 │   │   ├── webxdc-manager.js # webxdc host: opaque-origin sandboxed app overlay, shim postMessage relay, per-instance serials
-│   │   ├── link-preview.js   # OG cards; drawer is off / picture / fetch (#88)
+│   │   ├── link-preview.js   # OG cards; drawer is off / picture / fetch (#88); shellProxy() = fail-closed proxy reader for shell-side fetches
+│   │   ├── lufi.js           # #138 Lufi client logic: SJCL slice encryption (Lufi-web compatible), upload state machine, expiry rules, deletion-token store (node-tested)
+│   │   ├── large-file.js     # #138 attach menu "Large file" flow: pick → expiry dialog → progress/cancel → link message; message-info delete
 │   │   ├── trackers.js       # drop known tracking query params on paste and on open (#89)
 │   │   ├── inapp-browser.js  # Telegram-style in-app browser overlay for message links (bar, history, JS bridge to the shell's Custom Tab)
 │   │   ├── notify-policy.js  # when an already-received message may raise an OS notification (Android posts from Rust; page stays quiet there; `web` flag = PWA path: hidden or unfocused)
@@ -120,6 +122,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │       │   ├── lib.rs        # Windows sidecar bridge + Android in-process core
 │       │   ├── p2p.rs        # Local chat engine: iroh (relay-less) QUIC pairing + 1:1 chat
 │       │   ├── tunnel.rs     # Optional DNS tunnel (Android): loads libsoartunnel.so, keeps proxy_url
+│       │   ├── lufi.rs       # #138 Large file: proxy-aware (fail-closed) minimal WebSocket client for Lufi /upload, slice reads, config/delete
 │       │   ├── bin/          # p2p-hub.rs — headless terminal hub (debug helper)
 │       │   └── main.rs       # Tauri entry point
 │       └── build.rs
@@ -137,7 +140,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── design/                   # token snapshot of app/css/main.css (HTML + SVG); restamp header with APP_VERSION
 ├── docs/agents/              # per-subsystem agent notes (webxdc, relays,
 │                              p2p/local chat, android-shell, media,
-│                              onboarding, security-triage) — referenced from §5/§11
+│                              onboarding, security-triage, large-file) — referenced from §5/§11
 ├── docs/as-built-architecture.md # product snapshot at cd59531 (2026-10-13); no implementation plan
 ├── docs/web-components-audit.md  # UI semantics/a11y/progressive-rendering audit (2026-10-06)
 ├── docs/web-components-plan.md   # phased fix plan for that audit (quick wins → tests)
@@ -1852,6 +1855,22 @@ folder, "iroh" chip, live text/typing/presence with Message-ID dedup, call
 signalling) that extends this engine with a relay mode and core-contact
 links instead of patching core — read docs/iroh-layer-plan.md and
 docs/research/iroh-layer-research.md before touching p2p.rs for it.
+
+### 5.4.1 Large file via Lufi (#138)
+
+Attach menu → "Large file" (Tauri shell only, not in local chats): the file
+is encrypted on-device with SJCL exactly like the Lufi web client
+(`app/vendor/sjcl.mjs` = Lufi's own sjcl.js 1.0.8, hash-pinned by
+`tests/lufi.test.mjs`), uploaded slice by slice over `wss://<server>/upload`
+by `lufi.rs`, and the chat gets `📦 name (size)` + `<server>/r/<short>#<key>`.
+Recipients without Velta open the link in any browser; the Lufi page
+decrypts. KEEP: every network call takes the account proxy from
+`shellProxy()` and `lufi.rs` routes it through `link_preview_proxy` —
+fail closed, never a direct fallback. KEEP: the deletion token lives only in
+localStorage (`velta-lufi-files`, per account+msg), never in the message.
+Server URL default `https://upload.disroot.org` (changeable in the upload
+dialog, `velta-lufi-server`). Details, live round-trip recipe:
+docs/agents/large-file.md.
 
 ### 5.5 In-app browser (Android)
 

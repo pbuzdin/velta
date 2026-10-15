@@ -51,6 +51,11 @@ data-encoding = "2"
 # socks-proxy: link previews go through the account proxy / DNS tunnel (SOCKS5).
 ureq = { version = "2", features = ["socks-proxy"] }
 socket2 = "0.5"
+# Large file (#138, lufi.rs): WebSocket over TLS through the account proxy.
+# Same versions ureq already links — no new crates in the lock.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "0.26"
+socks = "0.3"
 # Terminal QR rendering for the p2p-hub debug example.
 qrcode = { version = "0.14", default-features = false }
 # Local-only P2P chat (p2p.rs): relay-less iroh with mDNS re-discovery on the LAN.

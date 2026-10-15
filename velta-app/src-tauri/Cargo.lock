@@ -8840,10 +8840,12 @@ dependencies = [
  "libloading",
  "qrcode",
  "rand 0.8.7",
+ "rustls",
  "serde",
  "serde_json",
  "sha1",
  "socket2 0.5.10",
+ "socks",
  "tauri",
  "tauri-build",
  "tauri-plugin-deep-link",
@@ -8858,6 +8860,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "ureq",
+ "webpki-roots 0.26.11",
  "yerpc",
 ]
 
