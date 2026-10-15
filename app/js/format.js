@@ -28,6 +28,16 @@ export function pageBounds(ids, { beforeId = null, afterId = null, aroundId = nu
   return { start: Math.max(0, end - limit), end };
 }
 
+// Elapsed seconds -> "mm:ss", or "h:mm:ss" from one hour on. Shared by the
+// call overlay timer, call cards, voice recording and video duration badges.
+// Fractions are floored; negative / non-finite input reads as 0.
+export function formatDuration(seconds) {
+  const t = Math.max(0, Math.floor(Number(seconds) || 0));
+  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
+  const p2 = (n) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${p2(m)}:${p2(s)}` : `${p2(m)}:${p2(s)}`;
+}
+
 export function formatBytes(n) {
   if (n < 1024) return n + " B";
   if (n < 1048576) return (n / 1024).toFixed(1) + " KB";

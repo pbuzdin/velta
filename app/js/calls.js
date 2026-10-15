@@ -12,6 +12,7 @@
 // injected so the state machine can be exercised in tests.
 
 import { wakeLockAcquire, wakeLockRelease } from "./wakelock.js";
+import { formatDuration } from "./format.js";
 
 const GATHER_TIMEOUT = 3000; // ICE gathering ceiling before sending anyway
 const ENDED_VISIBLE_MS = 2500; // how long the ended overlay stays readable
@@ -226,10 +227,8 @@ export class CallManager extends EventTarget {
     const tick = () => {
       if (this.state !== "active" || typeof document === "undefined") return;
       const s = Math.floor((Date.now() - this.connectedAt) / 1000);
-      const mm = String(Math.floor(s / 60)).padStart(2, "0");
-      const ss = String(s % 60).padStart(2, "0");
       const el = document.querySelector("#call-overlay .call-timer");
-      if (el) el.textContent = `${mm}:${ss}`;
+      if (el) el.textContent = formatDuration(s);
     };
     tick();
     this.durationTimer = setInterval(tick, 1000);
@@ -317,12 +316,6 @@ export class CallManager extends EventTarget {
     box.querySelector('[data-call="decline"]')?.addEventListener("click", () => this.declineIncoming());
     box.querySelector('[data-call="mute"]')?.addEventListener("click", () => this.toggleMute());
   }
-}
-
-export function formatDuration(seconds) {
-  const mm = String(Math.floor(seconds / 60)).padStart(2, "0");
-  const ss = String(seconds % 60).padStart(2, "0");
-  return `${mm}:${ss}`;
 }
 
 // Non-trickle ICE: resolve when gathering completes, or after the timeout

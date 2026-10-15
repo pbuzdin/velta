@@ -1,6 +1,6 @@
 // components.js — Progressive Web Components built on Elena (@elenajs/core)
 import { Elena, html, unsafeHTML } from "../vendor/elena.js";
-import { formatListTime, timeAgo, timeTag } from "./format.js";
+import { formatListTime, timeAgo, timeTag, formatDuration } from "./format.js";
 import { fileUrl, mediaFallbackUrl } from "./media.js";
 import { diagnosticsSink } from "./diagnostics.js";
 import { avatarBackgroundUrl, fingerprintFor, cachedFingerprint, cachedFingerprintIsDerived, fingerprintGroups } from "./avatar.js";
@@ -251,7 +251,7 @@ class VeltaVideo extends Elena(HTMLElement) {
     // videos, which stacked on top of the overlay below (two play buttons
     // near the same spot). The no-opener fallback re-adds them in updated().
     const d = Number(this.duration) || 0;
-    const dur = d > 0 ? `${Math.floor(d / 60)}:${String(Math.floor(d % 60)).padStart(2, "0")}` : "";
+    const dur = d > 0 ? formatDuration(d) : "";
     return html`<div class="velta-video-card">
       <video preload="metadata" playsinline src="${this.src}${this.src.includes("#") ? "" : "#t=0.1"}"></video>
       <span class="velta-video-play">${unsafeHTML(PLAY_SVG)}</span>

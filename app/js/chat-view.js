@@ -1,7 +1,7 @@
 // chat-view.js — virtualized message history (virtual-scroller) + composer
 import { canEditMsg } from "./msg-edit.js";
 import { prepareBuiltinXdc } from "./builtin-xdc.js";
-import { formatTime, formatDay, formatDateTime, formatServerUrl, messageInfoState, messageInfoReactions, formatBytes, timeTag, stampTime } from "./format.js";
+import { formatTime, formatDay, formatDateTime, formatServerUrl, messageInfoState, messageInfoReactions, formatBytes, timeTag, stampTime, formatDuration } from "./format.js";
 import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener } from "./components.js";
 import { bindMenuToggle, showContextMenu, showMessageSheet, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG } from "./ui.js";
 import { diagnosticRow } from "./diagnostics.js";
@@ -2133,10 +2133,9 @@ export class ChatView {
     const label = card.querySelector("[data-call-label]");
     const sub = card.querySelector("[data-call-sub]");
     const kind = state.kind || state;
-    const fmt = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
     if (kind === "Completed") {
       if (label) label.textContent = m.from === 1 ? "Outgoing call" : "Incoming call";
-      if (sub) sub.textContent = `Ended · ${fmt(state.duration || 0)}`;
+      if (sub) sub.textContent = `Ended · ${formatDuration(state.duration || 0)}`;
     } else if (kind === "Missed") {
       if (label) label.textContent = "Missed call";
       card.classList.add("missed");
@@ -3395,7 +3394,7 @@ export class ChatView {
       if (this._voice !== voice) return;
       const s = Math.floor((Date.now() - voice.started) / 1000);
       const label = document.getElementById("voice-rec-label");
-      if (label) label.textContent = `Recording ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+      if (label) label.textContent = `Recording ${formatDuration(s)}`;
       voice.timer = setTimeout(tick, 500);
     };
     tick();
