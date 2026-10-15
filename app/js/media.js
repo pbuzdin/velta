@@ -1,11 +1,7 @@
 // media.js — turn blob/file paths into URLs the WebView can load.
 import { debugLog } from "./diagnostics.js";
+import { rustLog, tauriInvoke } from "./tauri.js";
 
-function rustLog(msg) {
-  const tauri = window.__TAURI__;
-  const invoke = tauri?.core?.invoke || tauri?.invoke;
-  if (invoke) invoke("js_log", { msg }).catch(() => {});
-}
 
 function resolveUnderAccounts(path) {
   let resolved = path.replace(/\\/g, "/");

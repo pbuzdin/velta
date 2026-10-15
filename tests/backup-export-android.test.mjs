@@ -19,7 +19,7 @@ test("desktop backup export uses the folder picker + core export, never publish_
   const end = app.indexOf("/* -- delete profile", start);
   const handler = app.slice(start, end === -1 ? undefined : end);
   // The save-dialog URI is only ever filled on Android (and not the PWA).
-  assert.match(handler, /if \(isAndroid && !pwaExport\) \{[\s\S]*?androidUri = typeof picked === "string"/);
+  assert.match(handler, /if \(onAndroid && !pwaExport\) \{[\s\S]*?androidUri = typeof picked === "string"/);
   assert.deepEqual(handler.match(/androidUri = [^;]*/g),
     ['androidUri = ""', 'androidUri = typeof picked === "string" ? picked : ""'],
     "androidUri starts empty and is assigned only in the Android branch");
@@ -32,7 +32,7 @@ test("desktop backup export uses the folder picker + core export, never publish_
   assert.equal((app.match(/publish_backup/g) || []).length, 1, "no other publish_backup caller");
   // Desktop: core writes straight into the folder picked via plugin:dialog|open.
   assert.match(handler.slice(desktop), /^\} else \{\s*await core\.exportBackup\(dest, pass \|\| null\);/);
-  assert.match(app, /tauriInvoke\("plugin:dialog\|open", \{ options: \{ directory: true/);
+  assert.match(app, /shell\("plugin:dialog\|open", \{ options: \{ directory: true/);
 });
 
 test("Android capability grants the save dialog the backup export calls", () => {

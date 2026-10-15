@@ -27,7 +27,7 @@ test("export pane: wasm branch gates on the wasm backend and downloads; desktop 
   assert.ok(stripped.includes("await runBackupExport(pass || null)"), "pane drives the wasm flow");
   assert.ok(stripped.includes("await core.exportBackup(dest, pass || null)"), "desktop/Android path unchanged");
   assert.ok(stripped.includes("backupDownloadName(state.account?.addr"), "download rides backupDownloadName");
-  assert.ok(stripped.includes("tauriInvoke(\"plugin:dialog|open\""), "desktop picker kept");
+  assert.ok(stripped.includes("shell(\"plugin:dialog|open\""), "desktop picker kept");
   assert.ok(stripped.includes("Backup export needs the desktop app or the Velta PWA"), "dead-end case explains itself");
 });
 

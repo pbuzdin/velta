@@ -8,6 +8,7 @@
 // Shell commands: tunnel_preview, tunnel_install, tunnel_remove,
 // tunnel_status, tunnel_set_mode, tunnel_network_changed, share_text.
 import { escapeHtml } from "./format.js";
+import { tauriInvoke } from "./tauri.js";
 
 const MODES = [
   ["auto", "Automatic", "Direct while the relays answer; through the tunnel when only allowlisted sites work."],
@@ -17,10 +18,6 @@ const MODES = [
 
 let cached = { installed: false, available: false };
 
-function shellInvoke() {
-  const t = globalThis.window?.__TAURI__;
-  return t?.core?.invoke || t?.invoke || null;
-}
 
 
 function errMsg(e) {
@@ -42,7 +39,7 @@ export function tunnelStatus() {
   return cached;
 }
 
-export async function refreshTunnelStatus(events = 0, invoke = shellInvoke()) {
+export async function refreshTunnelStatus(events = 0, invoke = tauriInvoke()) {
   if (!invoke) return (cached = { installed: false, available: false });
   try {
     cached = await invoke("tunnel_status", { events });
@@ -125,7 +122,7 @@ export function tunnelReport(s, { app = "", now = new Date() } = {}) {
  * A velta://tunnel link was opened (deep link, QR, paste). Links can come from
  * any web page or app, so nothing changes without the user's confirmation.
  */
-export async function acceptTunnelLink(link, { confirmModal, toast, errToast, onChange, invoke = shellInvoke() }) {
+export async function acceptTunnelLink(link, { confirmModal, toast, errToast, onChange, invoke = tauriInvoke() }) {
   if (!invoke) {
     toast("DNS tunnel links work in the Velta Android app", 5000);
     return false;
@@ -185,7 +182,7 @@ const DIAG_SEEN_KEY = "velta-tunnel-diag-seen";
  * only events newer than the last one shown. The high-water mark survives UI
  * reloads, so a reconnect does not repeat old lines.
  */
-export function initTunnelDiagnostics({ append, invoke = shellInvoke(), listen = globalThis.window?.__TAURI__?.event?.listen, intervalMs = 20000 }) {
+export function initTunnelDiagnostics({ append, invoke = tauriInvoke(), listen = globalThis.window?.__TAURI__?.event?.listen, intervalMs = 20000 }) {
   if (!invoke) return null;
   let seen = 0;
   try { seen = Number(globalThis.localStorage?.getItem(DIAG_SEEN_KEY)) || 0; } catch {}
@@ -214,7 +211,7 @@ export function initTunnelDiagnostics({ append, invoke = shellInvoke(), listen =
 }
 
 /** Re-check routing after a network switch (Wi-Fi <-> mobile, airplane mode). */
-export function bindTunnelNetworkEvents(invoke = shellInvoke()) {
+export function bindTunnelNetworkEvents(invoke = tauriInvoke()) {
   if (!invoke) return;
   // Mobile WebViews fire "change" on every bandwidth/RTT estimate; the shell
   // only acts on a real resolver/operator change, so a few calls are plenty.
@@ -264,7 +261,7 @@ export function interceptionWarning(s) {
 }
 
 /** Settings sheet: state, mode, diagnostics, removal. */
-export async function openTunnelSettings({ showModal, confirmModal, toast, errToast, onChange, appVersion = "", invoke = shellInvoke() }) {
+export async function openTunnelSettings({ showModal, confirmModal, toast, errToast, onChange, appVersion = "", invoke = tauriInvoke() }) {
   if (!invoke) return;
   const s = await refreshTunnelStatus(200, invoke);
   const body = document.createElement("div");

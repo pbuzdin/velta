@@ -65,6 +65,7 @@ const isUnknownConfigKey = err => /unknown key/i.test(String(err?.message || err
 import { debugLog } from "./diagnostics.js";
 import { pageBounds } from "./format.js";
 import { LruCache } from "./lru.js";
+import { rustLog, tauriInvoke } from "./tauri.js";
 
 // Bounded (lru.js): message-id lists of the 20 most recently used chats, or
 // 2 MB (8 bytes per id), whichever first. A miss re-asks get_message_ids;
@@ -74,16 +75,6 @@ function newMsgIdCache() {
     sizeOf: (ids) => (Array.isArray(ids) ? ids.length * 8 : 0) });
 }
 
-function rustLog(msg) {
-  try {
-    console.log("[velta]", msg);
-  } catch {}
-  try {
-    const tauri = window.__TAURI__;
-    const invoke = tauri?.core?.invoke || tauri?.invoke;
-    if (invoke) invoke("js_log", { msg }).catch(() => {});
-  } catch {}
-}
 
 export class JsonRpcCore extends EventTarget {
   /**
@@ -478,7 +469,7 @@ export class JsonRpcCore extends EventTarget {
     // and it learns the initial visibility in the same round trip so the
     // shell's first polls cannot notify while the app is foreground.
     try {
-      const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+      const invoke = tauriInvoke();
       if (invoke && (await invoke("get_event_reader_mode")) === "rust") {
         await invoke("events_listener_ready", { visible: !document.hidden });
         return;
@@ -1967,7 +1958,7 @@ export class JsonRpcCore extends EventTarget {
   // transfers, or the restored profile (in any Velta) can't reach its
   // relays. No-op where the shell has no tunnel commands.
   async _withoutTunnelProxy(run) {
-    const invoke = globalThis.window?.__TAURI__?.core?.invoke;
+    const invoke = tauriInvoke();
     const accountId = this.accountId;
     let detached = false;
     if (invoke) {
@@ -1984,7 +1975,7 @@ export class JsonRpcCore extends EventTarget {
   // profile's proxy now (a stale tunnel proxy from the source device would
   // otherwise block its mail until the shell's next periodic pass).
   _tunnelReapply() {
-    globalThis.window?.__TAURI__?.core?.invoke?.("tunnel_reapply").catch(() => {});
+    tauriInvoke()?.("tunnel_reapply").catch(() => {});
   }
 
   // QR text for a running provideBackup(). Blocks on the backend until the

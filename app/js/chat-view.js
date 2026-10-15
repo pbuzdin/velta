@@ -76,6 +76,7 @@ import { shareStageKind, shareViewtype } from "./share-in.js";
 import { reactionToggle, myReaction } from "./reactions.js";
 import { sendLargeFile, largeFileAvailable, largeFileInfoHtml, wireLargeFileInfo } from "./large-file.js";
 import { lufiUploadFor } from "./lufi.js";
+import { isAndroid, rustLog, tauriInvoke } from "./tauri.js";
 
 function reactionChipsHtml(reactions) {
   return (reactions || []).map(r =>
@@ -83,13 +84,6 @@ function reactionChipsHtml(reactions) {
   ).join("");
 }
 
-function rustLog(msg) {
-  try {
-    const tauri = window.__TAURI__;
-    const invoke = tauri?.core?.invoke || tauri?.invoke;
-    if (invoke) invoke("js_log", { msg }).catch(() => {});
-  } catch {}
-}
 
 // Error toast that ALSO lands in the Diagnostics chat (sink mirrors to
 // velta.log): toasts vanish in 2-4 s, diagnostics persist for triage.
@@ -112,7 +106,7 @@ function asBytes(raw) {
 // Tauri reads the account file. The wasm core reads its memfs. Anything else
 // (a local-chat preview asset) is fetched from the URL the bubble uses.
 async function attachmentBytes(core, path) {
-  const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+  const invoke = tauriInvoke();
   if (invoke) return asBytes(await invoke("read_media_bytes", { src: path }));
   if (core?.transport?.readCoreFile) {
     const raw = await core.transport.readCoreFile(path);
@@ -176,8 +170,7 @@ const HTML_VIEW_LINK_JS = `document.addEventListener("click",function(e){var a=e
 
 function openExternal(url) {
   try {
-    const tauri = window.__TAURI__;
-    const invoke = tauri?.core?.invoke || tauri?.invoke;
+    const invoke = tauriInvoke();
     if (invoke) return void invoke("plugin:opener|open_url", { url }).catch(() => window.open(url, "_blank", "noopener"));
   } catch {}
   window.open(url, "_blank", "noopener");
@@ -187,7 +180,7 @@ function openExternal(url) {
 // Undo opens the original once.
 function openHttp(href) {
   const go = (url) => {
-    if (/Android/.test(navigator.userAgent)) openInAppBrowser(url);
+    if (isAndroid()) openInAppBrowser(url);
     else openExternal(url);
   };
   if (!trackingStripEnabled()) { go(href); return; }
@@ -257,8 +250,7 @@ function failReason(error) {
 // dir (scoped_accounts_path in lib.rs), so an out-of-tree picked file breaks
 // the poster pipeline and send's own reads. Copy those too.
 async function resolveAttachmentPath(originalPath, filename) {
-  const tauri = window.__TAURI__;
-  const invoke = tauri?.core?.invoke || tauri?.invoke;
+  const invoke = tauriInvoke();
   if (!invoke) return originalPath;
 
   const normalized = originalPath.replace(/\\/g, "/");
@@ -3046,7 +3038,7 @@ export class ChatView {
         // Tauri shell only.
         attachItems.push({ label: "Velta Beam (both online)", icon: ICO.beam, onClick: () => this._sendDirectApp() });
       }
-      if (!window.__TAURI__ && /Android/i.test(navigator.userAgent)) {
+      if (!window.__TAURI__ && isAndroid()) {
         attachItems.splice(1, 0, { label: "Camera", icon: ICO.photo, onClick: () => this._sendAttachment("camera") });
       }
       // Voice messages are not supported in local chat — hide the item there.
@@ -3141,7 +3133,7 @@ export class ChatView {
   // Tauri copies into the accounts dir. The wasm core reads the same memfs
   // writeCoreFile uses for identity restore, so a picked Blob can be sent.
   async _writeBlobForSend(filename, bytes) {
-    const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+    const invoke = tauriInvoke();
     if (invoke) {
       const filePath = await invoke("resolve_upload_path", { filename });
       if (!filePath) throw new Error("resolve_upload_path returned empty");
@@ -3469,7 +3461,7 @@ export class ChatView {
   // #120: two or more gallery images each go out as their own message.
   // One image still stops in the composer strip so it can take a caption.
   async _sendSeparateImages(session, paths) {
-    const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+    const invoke = tauriInvoke();
     let quote = null;
     let sent = 0;
     for (let i = 0; i < paths.length; i++) {
@@ -3532,7 +3524,7 @@ export class ChatView {
     if (!this._isCurrent(session) || !this.chat) return;
     try {
       // #138: never send unless a valid .xdc is on disk (see builtin-xdc.js).
-      const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+      const invoke = tauriInvoke();
       const path = await prepareBuiltinXdc("send-direct", {
         invoke, fetchImpl: (u) => fetch(u), baseURI: document.baseURI,
         writeFile: (n, b) => this._writeBlobForSend(n, b),
@@ -3579,7 +3571,7 @@ export class ChatView {
     }
 
     const tauri = window.__TAURI__;
-    const invoke = tauri?.core?.invoke || tauri?.invoke;
+    const invoke = tauriInvoke();
     if (!invoke) {
       const file = await this._pickLocalFile(kind);
       if (!file || (Array.isArray(file) && !file.length) || !this._isCurrent(session)) return;
@@ -3668,8 +3660,7 @@ export class ChatView {
   async receiveShare({ text = "", files = [] } = {}) {
     const session = this._session;
     if (!this._isCurrent(session) || !this.chat) return null;
-    const tauri = window.__TAURI__;
-    const invoke = tauri?.core?.invoke || tauri?.invoke;
+    const invoke = tauriInvoke();
     if (this.readOnly && this.chat.kind === "channel" && this.core.canSend) {
       // openChat starts a channel read-only until its rights check lands.
       const can = await this.core.canSend(session.chatId).catch(() => false);
@@ -3758,8 +3749,8 @@ export class ChatView {
       }
       if (!msg.filePath) throw new Error("This attachment isn't available yet");
       const name = attachmentName(msg);
-      const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
-      if (/Android/.test(navigator.userAgent || "") && invoke) {
+      const invoke = tauriInvoke();
+      if (isAndroid() && invoke) {
         const picked = await invoke("plugin:dialog|save", { options: { title: "Save file", defaultPath: name } });
         const uri = typeof picked === "string" ? picked : "";
         if (!uri) return;
@@ -3807,7 +3798,7 @@ export class ChatView {
     // plugin-internal arg parsing), and the app's private storage is not
     // reachable from other apps without a FileProvider anyway. Media opens
     // in the lightbox instead; other types say so honestly.
-    if (/Android/.test(navigator.userAgent)) {
+    if (isAndroid()) {
       if (isMediaFilePath(path)) {
         openImageLightbox(fileUrl(path), name || "image");
         return;
@@ -3815,8 +3806,7 @@ export class ChatView {
       errToast("Opening this file type isn't supported on Android yet");
       return;
     }
-    const tauri = window.__TAURI__;
-    const invoke = tauri?.core?.invoke || tauri?.invoke;
+    const invoke = tauriInvoke();
     if (invoke) {
       // The core returns blob paths RELATIVE to the accounts dir; the opener
       // scope pattern ($APPLOCALDATA/accounts/**) matches absolute paths

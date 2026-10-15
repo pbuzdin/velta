@@ -1,4 +1,5 @@
 // diagnostics.js — local-only startup/core log presented as a device chat.
+import { tauriInvoke } from "./tauri.js";
 export const DIAGNOSTICS_CHAT_ID = -9007199254740991;
 
 // Verbose tracing (poll ticks, scroller calls, media URLs, event dumps).
@@ -15,8 +16,7 @@ export function debugLog(msg) {
   if (!VELTA_DEBUG) return;
   console.log("[velta]", msg);
   try {
-    const tauri = window.__TAURI__;
-    const invoke = tauri?.core?.invoke || tauri?.invoke;
+    const invoke = tauriInvoke();
     if (invoke) invoke("js_log", { msg }).catch(() => {});
   } catch {}
 }
@@ -30,7 +30,7 @@ export const diagnosticsSink = {
   append(level, text) {
     if (window.__veltaDiagnostics) window.__veltaDiagnostics.append(level, text);
     try {
-      const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+      const invoke = tauriInvoke();
       if (invoke) invoke("js_log", { msg: `[sink:${level}] ${text}` }).catch(() => {});
     } catch {}
   },

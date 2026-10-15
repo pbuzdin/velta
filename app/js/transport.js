@@ -11,6 +11,7 @@
 import { JsonRpcCore } from "./rpc-core.js";
 import { WorkerWasmTransport } from "./transport-worker-wasm.js";
 import { wsProxyUrl } from "./ws-relays.js";
+import { rustLog, tauriInvoke } from "./tauri.js";
 
 const WS_URL = "ws://127.0.0.1:20808";
 const HTTP_URL = "http://127.0.0.1:20809";
@@ -42,18 +43,6 @@ function wasmGlueUrl() {
   return new URL("wasm/deltachat_wasm.js", document.baseURI).href;
 }
 
-function rustLog(msg) {
-  try {
-    console.log("[velta]", msg);
-  } catch {}
-  try {
-    const tauri = window.__TAURI__;
-    const invoke = tauri?.core?.invoke || tauri?.invoke;
-    if (invoke) {
-      invoke("js_log", { msg }).catch(() => {});
-    }
-  } catch {}
-}
 
 /* ---------------- Android WebView JS bridge (in-app, no network) ---------------- */
 

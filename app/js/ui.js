@@ -7,6 +7,7 @@ import { trackingStripEnabled, setTrackingStripEnabled } from "./trackers.js";
 import { APP_VERSION } from "./version.gen.js";
 import { formatSplashVersion } from "./format.js";
 import { searchEmoji } from "./emoji.js";
+import { isAndroid, isTauri, tauriInvoke } from "./tauri.js";
 
 const popups = () => document.getElementById("popups");
 
@@ -620,14 +621,14 @@ function renderUpdateBanner() {
   btn.setAttribute("aria-describedby", "update-progress");
   // Desktop installer installs get the one-click path (updater plugin);
   // Android sideloads and the PWA still go through the system browser.
-  const desktop = !/android/i.test(navigator.userAgent) && window.__TAURI__?.core?.invoke;
+  const desktop = !isAndroid() && window.__TAURI__?.core?.invoke;
   btn.textContent = desktop ? "Update" : "Download APK";
   btn.addEventListener("click", async () => {
     if (desktop) return selfUpdate(btn);
     const tauri = window.__TAURI__;
     // #60: Android — download in-app with progress, hand the APK straight
     // to the system installer (FileProvider, no browser detour).
-    if (tauri?.core?.invoke && /android/i.test(navigator.userAgent)) {
+    if (tauri?.core?.invoke && isAndroid()) {
       return inAppApkUpdate(btn, tauri);
     }
     if (tauri?.core?.invoke) {
@@ -827,10 +828,10 @@ function notifyChecked(storageKey) {
   return v !== "0";
 }
 
-const isAndroid = /Android/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
+const IS_ANDROID = isAndroid();
 
 export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, onWsRelays, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality, downloadLimit = "0", onDownloadLimit, onReadReceipts, onLowBatteryToggle, multiDevice = false, onMultiDevice, onDrawerOpen, identityBackupAvailable = false, onIdentityBackup, onTunnel = null, tunnelLabel = "" }) {
-  const isTauri = !!window.__TAURI__;
+  const inTauri = isTauri();
   const drawer = document.createElement("div");
   drawer.className = "drawer";
   drawer.id = "drawer";
@@ -894,11 +895,11 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="mentions"${notifyChecked("velta-notify-mentions") ? " checked" : ""}><span>Replies only (skip the rest)</span></label>
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="text"${notifyChecked("velta-notify-text") ? " checked" : ""}><span>Show message content</span></label>
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="system"${notifyChecked("velta-notify-system") ? " checked" : ""}><span>System notification for new messages</span></label>
-          ${isAndroid ? `
+          ${IS_ANDROID ? `
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="vibration"${notifyChecked("velta-notify-vibration") ? " checked" : ""}><span>Vibration</span></label>
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="sounds"${notifyChecked("velta-notify-sounds") ? " checked" : ""}><span>In-chat sounds</span></label>` : ""}
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="calls"${notifyChecked("velta-notify-calls") ? " checked" : ""}><span>Calls</span></label>
-          ${isAndroid ? `
+          ${IS_ANDROID ? `
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="bg"${notifyChecked("velta-notify-bg") ? " checked" : ""}><span>Use background connection</span></label>
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="bgforce"${notifyChecked("velta-notify-bgforce") ? " checked" : ""}><span>Force background connection</span></label>
           <div class="bar-opts-hint">Force keeps background fetching alive under battery restrictions (asks Android for exemption).</div>` : ""}
@@ -943,7 +944,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
       <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M20 5v6a2 2 0 01-2 2H5m0 0l4-4m-4 4l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Send on Enter: ${localStorage.getItem("velta-send-enter") === "0" ? "off" : "on"}</span><input type="checkbox" role="switch" data-toggle="send-enter"${localStorage.getItem("velta-send-enter") === "0" ? "" : " checked"}></label>
       <label class="ctx-item" title="Off also stops seen-status sync between your own devices"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 12a8 8 0 0114-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M20 12a8 8 0 01-14 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Show and send read receipts: ${localStorage.getItem("velta-mdns") === "0" ? "off" : "on"}</span><input type="checkbox" role="switch" data-toggle="read-receipts"${localStorage.getItem("velta-mdns") === "0" ? "" : " checked"}></label>
       <label class="ctx-item" title="Copies messages you send to your other devices and syncs state between them"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="14" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><rect x="14" y="6" width="7" height="14" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Multi-device: ${multiDevice ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="multidevice"${multiDevice ? " checked" : ""}></label>
-      ${isAndroid ? `<label class="ctx-item" title="While the phone is under 10% and off the charger, your latest message in each chat gets a 🪫 reaction so the other side knows replies may stop. Recipients see it as a normal reaction; other clients show the emoji only."><svg viewBox="0 0 24 24"><rect x="2.5" y="8" width="16.5" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M21.5 10.5v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><rect x="4.5" y="10" width="3.5" height="4" rx="0.5" fill="currentColor"/></svg><span>Low-battery marker: ${localStorage.getItem("velta-low-battery-react") === "1" ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="low-battery"${localStorage.getItem("velta-low-battery-react") === "1" ? " checked" : ""}></label>` : ""}
+      ${IS_ANDROID ? `<label class="ctx-item" title="While the phone is under 10% and off the charger, your latest message in each chat gets a 🪫 reaction so the other side knows replies may stop. Recipients see it as a normal reaction; other clients show the emoji only."><svg viewBox="0 0 24 24"><rect x="2.5" y="8" width="16.5" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M21.5 10.5v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><rect x="4.5" y="10" width="3.5" height="4" rx="0.5" fill="currentColor"/></svg><span>Low-battery marker: ${localStorage.getItem("velta-low-battery-react") === "1" ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="low-battery"${localStorage.getItem("velta-low-battery-react") === "1" ? " checked" : ""}></label>` : ""}
       <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 20h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Remember scroll position in chats: ${localStorage.getItem("velta-remember-scroll") === "0" ? "off" : "on"}</span><input type="checkbox" role="switch" data-toggle="remember-scroll"${localStorage.getItem("velta-remember-scroll") === "0" ? "" : " checked"}></label>
       <label class="ctx-item"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 9h6v6H9z" fill="currentColor"/></svg><span>Demo mode: ${localStorage.getItem("velta-mock") === "1" ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="demo"${localStorage.getItem("velta-mock") === "1" ? " checked" : ""}></label>
       <button type="button" class="ctx-item" data-act="about"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 10v6M12 7v.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><span>About Velta</span></button>
@@ -951,8 +952,8 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     <div class="drawer-foot" data-versions>
       <div class="drawer-ver"><span>Velta</span><span data-v="app">…</span></div>
       <div class="drawer-ver"><span>Chatmail core</span><span data-v="core">${CORE_VERSION}</span></div>
-      ${isTauri ? `<div class="drawer-ver"><span>Tauri</span><span data-v="tauri">…</span></div>` : ""}
-      ${isTauri ? "" : `<div class="drawer-ver"><span>Service worker</span><span data-v="sw">…</span></div>`}
+      ${inTauri ? `<div class="drawer-ver"><span>Tauri</span><span data-v="tauri">…</span></div>` : ""}
+      ${inTauri ? "" : `<div class="drawer-ver"><span>Service worker</span><span data-v="sw">…</span></div>`}
     </div>`;
   document.body.appendChild(drawer);
 
@@ -967,7 +968,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     const tv = await getTauriVersion();
     if (tv) box.querySelector('[data-v="tauri"]').textContent = tv;
     else box.querySelector('[data-v="tauri"]')?.closest(".drawer-ver")?.remove();
-    if (!isTauri) {
+    if (!inTauri) {
       const el = box.querySelector('[data-v="sw"]');
       const paint = async () => {
         const sw = await getSwVersion();
@@ -1058,13 +1059,13 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
       }
     }
     if (key === "bgforce" && e.target.checked) {
-      const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+      const invoke = tauriInvoke();
       invoke?.("request_battery_exemption")?.catch?.(() => {});
     }
     if (key === "bg" && !e.target.checked) {
       toast("Background connection off — messages arrive when you open Velta");
     }
-    const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+    const invoke = tauriInvoke();
     const prefs = {
       enabled: localStorage.getItem("velta-notify") !== "0",
       mentions_only: localStorage.getItem("velta-notify-mentions") === "1",
@@ -1546,7 +1547,7 @@ export function openVideoLightbox(src, caption = "") {
 let lastNotifyAt = 0;
 function logNotify(msg) {
   try {
-    const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+    const invoke = tauriInvoke();
     if (invoke) invoke("js_log", { msg }).catch(() => {});
   } catch {}
 }
@@ -1582,7 +1583,7 @@ function notifyGateBody(body) {
 // Tauri shell: the Android page stays quiet (Rust posts the one
 // MessagingStyle card); desktop WebView2 toasts through notify_incoming.
 function notifyIncomingTauri(tauri, title, body, info) {
-  const android = /Android/i.test(navigator.userAgent || "");
+  const android = isAndroid();
   if (android) return;
   const gated = notifyGateBody(body);
   if (gated === null) return;

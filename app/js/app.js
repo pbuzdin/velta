@@ -22,6 +22,7 @@ import { parseSharePayload, shareTextIfUnconsumed, sharePlan, createShareInbox, 
 import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS, setLinkPreviewProxySource, activeProxyUrl } from "./link-preview.js";
 import { extractTunnelLink, acceptTunnelLink, openTunnelSettings, refreshTunnelStatus, tunnelInstalled, tunnelStatus, describeTunnel, bindTunnelNetworkEvents, initTunnelDiagnostics } from "./tunnel.js";
 import { wrapIdentityBundle, unwrapIdentityBundle, buildIdentityBundle, bytesToBase64, base64ToBytes, backupDownloadName, gzipBytes, mailLoginFromTransports, accountDirFromToml, mailLoginsFromDbText } from "./identity-backup.js";
+import { isAndroid, tauriInvoke } from "./tauri.js";
 
 const diagnostics = new DiagnosticsStore();
 window.__veltaDiagnostics = diagnostics;
@@ -94,8 +95,7 @@ const state = {
 
 function appLog(msg) {
   try {
-    const tauri = window.__TAURI__;
-    const invoke = tauri?.core?.invoke || tauri?.invoke;
+    const invoke = tauriInvoke();
     if (invoke) invoke("js_log", { msg }).catch(() => {});
   } catch {}
   console.log("[velta]", msg);
@@ -218,7 +218,7 @@ function openDiagnosticsChat() {
       loggingSw.addEventListener("change", () => {
         const on = loggingSw.checked;
         localStorage.setItem("velta-logging", on ? "1" : "0");
-        const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+        const invoke = tauriInvoke();
         invoke?.("set_logging_enabled", { enabled: on }).catch?.(() => {});
         diagnostics.append("info", `Shell logging ${on ? "enabled" : "disabled"} — velta.log ${on ? "resumes" : "is frozen"} (Diagnostics chat keeps working)`);
       });
@@ -228,7 +228,7 @@ function openDiagnosticsChat() {
     devtoolsSw.dataset.bound = "1";
     devtoolsSw.addEventListener("change", async () => {
       const on = devtoolsSw.checked;
-      const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+      const invoke = tauriInvoke();
       try {
         await invoke?.("set_devtools", { enabled: on });
         diagnostics.append("info", on
@@ -322,7 +322,7 @@ bindEarlyRecoveryActions();
 // V-09/#66). js_log gates itself, so this fires before the core connects
 // and there is no window where an early log line escapes the gate.
 if (window.__TAURI__) {
-  const invoke = window.__TAURI__.core?.invoke || window.__TAURI__.invoke;
+  const invoke = tauriInvoke();
   invoke?.("set_logging_enabled", { enabled: localStorage.getItem("velta-logging") === "1" })?.catch?.(() => {});
 }
 
@@ -365,8 +365,7 @@ coreStartupPromise = createCore({
     diagnostics.append(level, message);
     notePushDiagnostic(message); // #110: relay "(U)" marks
     try {
-      const tauri = window.__TAURI__;
-      const invoke = tauri?.core?.invoke || tauri?.invoke;
+      const invoke = tauriInvoke();
       if (invoke) invoke("js_log", { msg: `[diag:${level}] ${message}` }).catch(() => {});
     } catch {}
   },
@@ -436,7 +435,7 @@ async function queryBattery() {
   if (now - batteryCache.at < 30000) return batteryCache.value;
   let value = null;
   try {
-    const raw = await window.__TAURI__?.core?.invoke?.("get_battery_status");
+    const raw = await tauriInvoke()?.("get_battery_status");
     if (typeof raw === "string" && raw.includes("|")) {
       const [level, charging] = raw.split("|");
       value = { level: Number(level), charging: charging === "true" };
@@ -550,8 +549,7 @@ async function probeRelayReachable(domain) {
   // Shell-side probe (probe_relay): renderer fetch is CSP-bound and a bare
   // TCP connect lies behind a fake-IP VPN. Without the shell (dev rigs) there
   // is no signal — assume reachable rather than paint false alarms.
-  const tauri = window.__TAURI__;
-  const invoke = tauri?.core?.invoke || tauri?.invoke;
+  const invoke = tauriInvoke();
   if (!invoke) return true;
   try {
     return !!(await invoke("probe_relay", { domain }));
@@ -1025,8 +1023,7 @@ function refreshAfterBackground() {
 }
 function reportUiVisible() {
   try {
-    const tauri = window.__TAURI__;
-    const invoke = tauri?.core?.invoke || tauri?.invoke;
+    const invoke = tauriInvoke();
     invoke?.("set_ui_visible", { visible: !document.hidden })?.catch?.(() => {});
   } catch {}
   if (!document.hidden) refreshAfterBackground();
@@ -1182,8 +1179,7 @@ async function refreshChatList({ fromDirty = false } = {}) {
     // would spin an undebounced rerender loop (and leak renderer memory fast).
     console.warn("[velta] refreshChatList error:", err?.message || err);
     try {
-      const tauri = window.__TAURI__;
-      const invoke = tauri?.core?.invoke || tauri?.invoke;
+      const invoke = tauriInvoke();
       if (invoke) invoke("js_log", { msg: `refreshChatList error: ${err?.message || err}` }).catch(() => {});
     } catch {}
   } finally {
@@ -1253,7 +1249,7 @@ async function renderLocalChatCard() {
     </div>`;
   if (lcCardOpen) el.classList.add("open");
   el.querySelector("[data-toggle]").addEventListener("click", () => { lcCardOpen = !lcCardOpen; el.classList.toggle("open"); });
-  const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+  const invoke = tauriInvoke();
   const renderQr = text => core.createQrSvg(text);
   el.querySelector("[data-invite]").addEventListener("click", () => {
     if (!invoke) return toast("Pairing needs the Velta app shell");
@@ -1302,7 +1298,7 @@ async function renderLocalChatCard() {
 // the new group chat. Only reachable with local chat on (the hub card and the
 // new-chat menu entry are both gated on it).
 async function newLocalGroupFlow() {
-  const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+  const invoke = tauriInvoke();
   if (!invoke || !p2pEnabled()) return toast("Local groups need the Velta app with local chat on");
   const epoch = core.accountEpoch;
   try {
@@ -1516,7 +1512,7 @@ function renderQrView() {
   } else {
     const canShare = canShareLink({
       ua: navigator.userAgent,
-      hasInvoke: !!(window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke),
+      hasInvoke: !!tauriInvoke(),
       hasWebShare: typeof navigator.share === "function",
     });
     wrap.innerHTML = `${tabs}
@@ -1577,7 +1573,7 @@ function renderQrView() {
   });
   shareBtn?.addEventListener("click", async () => {
     try {
-      const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+      const invoke = tauriInvoke();
       await shareLink(inviteText, {
         ua: navigator.userAgent, invoke,
         webShare: typeof navigator.share === "function" ? o => navigator.share(o) : null,
@@ -2780,7 +2776,7 @@ async function showChatInfo(chat) {
 
   if (chat.isP2pGroup) {
     const gid = String(chat.id).slice("p2pg:".length);
-    const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+    const invoke = tauriInvoke();
     // The management dialogs replace the sheet (showModal swaps popups in
     // place): always come back to a fresh one.
     const reopen = async () => {
@@ -3383,7 +3379,7 @@ function openProfileManagement() {
   const passInput = panes.export.querySelector("[data-pass]");
   const exportBtn = panes.export.querySelector("[data-export]");
   const progressBox = panes.export.querySelector("[data-progress]");
-  const isAndroid = /Android/.test(navigator.userAgent);
+  const onAndroid = isAndroid();
   // #104: wasm core (PWA) has no folder picker — the backup tar is written
   // into memfs and downloaded by the browser; desktop/Android paths unchanged.
   const pwaExport = core.backend?.kind === "worker-wasm" && !!core.transport?.readCoreFileList;
@@ -3392,7 +3388,7 @@ function openProfileManagement() {
       "Writes this profile — messages, contacts and keys — into a backup archive and downloads it. The profile stays signed in.";
     destInput.value = "/backup/export";
     exportBtn.disabled = false;
-  } else if (isAndroid) {
+  } else if (onAndroid) {
     // The old fixed folder was app-private (/data/user/0/…/exports) — the
     // file existed and the user could not open it. The save dialog asks
     // where the file should go; the core still writes a temp tar first.
@@ -3401,15 +3397,15 @@ function openProfileManagement() {
       "Writes this profile — messages, contacts and keys — into a backup file. You'll be asked where to save it. The profile stays signed in.";
     exportBtn.disabled = false;
   } else {
-    const tauriInvoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
-    if (!tauriInvoke) {
+    const shell = tauriInvoke();
+    if (!shell) {
       // #104: no export path in this backend — say so instead of a dead field.
       destInput.placeholder = "Backup export needs the desktop app or the Velta PWA";
       destInput.readOnly = true;
     } else {
       destInput.addEventListener("click", async () => {
         try {
-          const picked = await tauriInvoke("plugin:dialog|open", { options: { directory: true, multiple: false, title: "Choose backup folder" } });
+          const picked = await shell("plugin:dialog|open", { options: { directory: true, multiple: false, title: "Choose backup folder" } });
           if (typeof picked === "string" && picked) {
             destInput.value = picked;
             exportBtn.disabled = false;
@@ -3423,9 +3419,9 @@ function openProfileManagement() {
   exportBtn.addEventListener("click", async () => {
     const pass = passInput.value;
     if (pass && !passInput.reportValidity()) return;
-    const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+    const invoke = tauriInvoke();
     let androidUri = "";
-    if (isAndroid && !pwaExport) {
+    if (onAndroid && !pwaExport) {
       if (!invoke) { toast("Backup export needs the Velta app"); return; }
       const name = backupDownloadName(state.account?.addr, new Date().toISOString().slice(0, 10));
       try {
@@ -3566,9 +3562,9 @@ addEventListener("velta-sw-updated", () => {
 // cold start until the exemption is granted; sessionStorage blocks a second
 // dialog in the same process (account create and boot can both reach here).
 async function askBatteryExemption() {
-  if (!/Android/i.test(navigator.userAgent || "")) return;
+  if (!isAndroid()) return;
   if (sessionStorage.getItem("velta-battery-opt-asked")) return;
-  const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+  const invoke = tauriInvoke();
   if (!invoke) return;
   let exempt = true;
   try {
@@ -4496,8 +4492,7 @@ function dropUpload(path) {
 }
 
 async function pickProfileImage() {
-  const tauri = window.__TAURI__;
-  const invoke = tauri?.core?.invoke || tauri?.invoke;
+  const invoke = tauriInvoke();
   if (!invoke) {
     const inp = document.createElement("input");
     inp.type = "file";
@@ -4836,7 +4831,7 @@ function showSplash() {
   // --- restore from a backup ---
   el.querySelector("[data-restore]").addEventListener("click", async () => {
     if (!core.importBackup) { toast("Restore is not available on this backend"); return; }
-    const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+    const invoke = tauriInvoke();
     if (!invoke) { toast("Restore from a backup file needs the Velta app — use \"Add as a second device\" instead"); return; }
     let picked = await invoke("plugin:dialog|open", { options: {
       multiple: false,
@@ -5651,7 +5646,7 @@ async function boot() {
     // Before any chat link is routed: a cold-start notification is parked in
     // the opened-url queue and would otherwise be accepted with no token yet.
     try {
-      const token = await window.__TAURI__?.core?.invoke?.("chat_link_token");
+      const token = await tauriInvoke()?.("chat_link_token");
       if (typeof token === "string" && token) chatLinkToken = token;
     } catch (err) {
       console.warn("chat link token unavailable:", err);

@@ -8,16 +8,13 @@ import { showModal, toast, confirmModal } from "./ui.js";
 import { escapeHtml, escapeAttr } from "./components.js";
 import { formatBytes, formatDateTime } from "./format.js";
 import { shellProxy } from "./link-preview.js";
+import { tauriInvoke } from "./tauri.js";
 import {
   lufiServer, setLufiServer, normalizeLufiServer, lufiDelayChoices, lufiDelayLabel,
   lufiUpload, lufiMessageText, rememberLufiUpload, lufiUploadFor, markLufiDeleted,
   LufiCancelled, partCount,
 } from "./lufi.js";
 
-function tauriInvoke() {
-  const t = globalThis.window?.__TAURI__;
-  return t?.core?.invoke || t?.invoke || null;
-}
 export const largeFileAvailable = () => !!tauriInvoke();
 
 function errText(e) { return String(e?.message || e || "unknown error"); }

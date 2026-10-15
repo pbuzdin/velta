@@ -8,6 +8,7 @@
 // it cleanly for now.
 
 import { typingText, SHOW_TTL_MS } from "./typing.js";
+import { tauriInvoke } from "./tauri.js";
 
 const P2P_PREFIX = "p2p:";
 // Local groups (serverless group chats of up to 5 devices) live in their own
@@ -26,14 +27,8 @@ const isEnabled = () => {
 export const typingEnabled = () => {
   try { return localStorage.getItem("velta-p2p-typing") !== "0"; } catch { return true; }
 };
-const isTauri = () => {
-  const t = window.__TAURI__;
-  return !!(t && (t.core?.invoke || t.invoke));
-};
-const invoke = () => {
-  const t = window.__TAURI__;
-  return t.core?.invoke || t.invoke;
-};
+const isTauri = () => !!tauriInvoke();
+const invoke = tauriInvoke;
 
 function colorFor(name) {
   let h = 0;

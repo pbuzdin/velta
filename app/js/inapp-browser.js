@@ -6,6 +6,7 @@
 // cross-origin iframe's document title is unreadable from here. Sites that
 // refuse framing (X-Frame-Options / frame-ancestors) show an empty frame;
 // the bar's external-open button is the always-working escape hatch.
+import { isAndroid, tauriInvoke } from "./tauri.js";
 
 const STYLE_ID = "inapp-browser-styles";
 
@@ -40,8 +41,8 @@ export function openInAppBrowser(url) {
   // iframe overlay (old shell). The bar's open-external button is the escape
   // hatch in every in-app variant.
   const t = window.__TAURI__;
-  if (t && /Android/.test(navigator.userAgent || "")) {
-    const invoke = t?.core?.invoke || t?.invoke;
+  if (t && isAndroid()) {
+    const invoke = tauriInvoke();
     invoke?.("open_in_app_browser", { url })
       .catch((e) => {
         invoke("js_log", { msg: `open_in_app_browser fell back to the webview overlay: ${e}` }).catch(() => {});

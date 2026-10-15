@@ -7,6 +7,7 @@
 import { CLOSE_SVG, toast, confirmModal } from "./ui.js";
 import { LruCache } from "./lru.js";
 import { wantsPanel } from "./webxdc-panel.js";
+import { tauriInvoke } from "./tauri.js";
 
 let core = null;
 let active = null; // { msgId, iframe, serial, realtime }
@@ -145,8 +146,7 @@ async function handleCall(data) {
 // resolve_upload_path + fs-write pipeline the image send flow uses, and send
 // it as a normal file message into the chat the app lives in.
 async function sendToChat({ file, name, text }) {
-  const tauri = window.__TAURI__;
-  const invoke = tauri?.core?.invoke || tauri?.invoke;
+  const invoke = tauriInvoke();
   if (!invoke) throw new Error("sendToChat requires the Velta app");
   if (!(file instanceof Blob) && !text) throw new Error("sendToChat: nothing to send");
   const msgId = active?.msgId;
@@ -173,8 +173,7 @@ async function sendToChat({ file, name, text }) {
 // bridge. Ceiling: the dialog plugin filters by extension only — mimeTypes
 // in the filter are ignored (apps re-check types themselves).
 async function importFiles(filters = {}) {
-  const tauri = window.__TAURI__;
-  const invoke = tauri?.core?.invoke || tauri?.invoke;
+  const invoke = tauriInvoke();
   if (!invoke) return [];
   const exts = (filters.extensions || []).map(e => String(e).replace(/^\./, ""));
   let picked;
@@ -292,8 +291,7 @@ export async function openWebxdc(msgId, fallbackName = "Webxdc app", opts = {}) 
   // V-05/#63: register this instance with webxdc_serve BEFORE the frame
   // loads — the server refuses non-icon blobs for any other prefix, so an
   // open app cannot read another instance's files.
-  const tauri = window.__TAURI__;
-  const invoke = tauri?.core?.invoke || tauri?.invoke;
+  const invoke = tauriInvoke();
   await invoke?.("webxdc_begin", { account, msg: Number(msgId) }).catch(() => {});
   iframe.src = `${base}/${msgId}/index.html?velta-theme=${theme}`;
   iframe.className = "webxdc-frame";

@@ -3,6 +3,7 @@
 // chat messages, and the "Invite link domains" settings modal.
 import { showModal, toast } from "./ui.js";
 import { escapeHtml, escapeAttr } from "./components.js";
+import { tauriInvoke } from "./tauri.js";
 
 // Mirror the AndroidManifest.xml intent filters: OS-level interception of a
 // domain is compiled into the app, this list controls what Velta recognizes
@@ -267,8 +268,7 @@ export async function expandShortInvite(shortUrl) {
   if (cached) return parseInviteLink(cached);
   let candidates = [];
   try {
-    const t = window.__TAURI__;
-    const invoke = t?.core?.invoke ?? t?.invoke?.bind(t);
+    const invoke = tauriInvoke();
     if (invoke) {
       // Same proxy policy as link previews: through the configured proxy or
       // DNS tunnel only, direct when none; unknown setting -> no fetch.
