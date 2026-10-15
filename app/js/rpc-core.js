@@ -741,7 +741,7 @@ export class JsonRpcCore extends EventTarget {
       avatarColor: c.color || null,
       avatar: c.avatarPath || null,
       lastMsg: lastMsg || null,
-      lastTs: c.lastUpdated ? c.lastUpdated * 1000 : 0,
+      lastTs: c.lastUpdated || 0, // core ChatListItem.lastUpdated is already ms
       lastFrom: outgoing ? 1 : null,
       lastState: outgoing ? this._mapState(c.summaryStatus) : null,
     };
