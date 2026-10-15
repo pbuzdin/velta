@@ -1,4 +1,5 @@
 // chat-view.js — virtualized message history (virtual-scroller) + composer
+import { prepareBuiltinXdc } from "./builtin-xdc.js";
 import { formatTime, formatDay, formatDateTime, formatServerUrl, messageInfoState, messageInfoReactions, formatBytes, timeTag, stampTime } from "./format.js";
 import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener } from "./components.js";
 import { showContextMenu, showMessageSheet, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG } from "./ui.js";
@@ -3523,10 +3524,13 @@ export class ChatView {
     const session = this._session;
     if (!this._isCurrent(session) || !this.chat) return;
     try {
-      const res = await fetch(new URL("builtin/send-direct.xdc", document.baseURI));
-      if (!res.ok) throw new Error(`built-in app missing (${res.status})`);
-      const bytes = new Uint8Array(await res.arrayBuffer());
-      const path = await this._writeBlobForSend(`send-direct-${Date.now()}.xdc`, bytes);
+      // #138: never send unless a valid .xdc is on disk (see builtin-xdc.js).
+      const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+      const path = await prepareBuiltinXdc("send-direct", {
+        invoke, fetchImpl: (u) => fetch(u), baseURI: document.baseURI,
+        writeFile: (n, b) => this._writeBlobForSend(n, b),
+      });
+      if (!path) throw new Error("built-in app could not be prepared");
       if (!this._isCurrent(session)) return;
       const msg = await this._sendArchivedAware(session.chatId, { viewtype: "webxdc", file: path, filename: "send-direct.xdc", text: "" });
       if (!this._isCurrent(session)) return;
