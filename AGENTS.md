@@ -379,7 +379,8 @@ Deploy-dist rules (10-09):
   build/wasm-dist/deltachat_wasm_bg.wasm -o <same file>` → then build
   WITHOUT the flag so the SW content hash covers the optimized bytes
   (28.4 → 17.7 MB on 1.4.62's wasm; 28.7 → 16.8 MB on the 2.63 wasm
-  deployed 2026-10-14, SW `velta-pwa-3b497112c3bd`).
+  deployed 2026-10-14, SW `velta-pwa-3b497112c3bd`; 28.7 → 17.6 MB for
+  1.4.70, deployed 2026-10-15, SW `velta-pwa-229af68c1333`).
 - Deploy steps (10-13): wasm with `sqlite_*` → optimize → move
   `app/.mimosa` and `app/js/.mimosa` out → build (no `--ws-proxy`) →
   verify-pwa-dist (10 PASS) → upload the WHOLE dist including `sw.js` →
