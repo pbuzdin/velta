@@ -22,8 +22,12 @@ test("panel wiring: no reload, no history entry, accessible controls", () => {
   assert.match(mgr, /wrap\.setAttribute\("role", "region"\)/);
   assert.match(mgr, /if \(active\.panel\) \{ if \(isWebxdcExpanded\(\)\) applyExpanded\(false\); return; \}/);
   const css = src("app/css/main.css");
-  assert.match(css, /--webxdc-panel-h: min\(70vh, max\(220px, 30vh\)\)/);
-  assert.match(css, /html\.webxdc-panel-open \.app \{ height: calc\(100% - var\(--webxdc-panel-h\)\); \}/);
+  assert.match(css, /--webxdc-panel-h: min\(max\(220px, 30dvh\), 45%\)/);
+  assert.match(css, /flex: 0 0 var\(--webxdc-panel-h\)/);
+  assert.ok(!/webxdc-panel-open/.test(css + mgr), "no overlay shrink of the app shell any more");
+  // in flow under the chat header, inserted once
+  assert.match(mgr, /document\.querySelector\("#chat-view > \.chat-head"\)/);
+  assert.match(mgr, /if \(chatHead\) chatHead\.after\(wrap\);/);
   const cv = src("app/js/chat-view.js");
   assert.match(cv, /openWebxdc\(msg\.id, "Velta Beam", \{ panel: true \}\)/);
   assert.match(cv, /panel: \/\^send-direct/);

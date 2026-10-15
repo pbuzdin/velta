@@ -1907,9 +1907,9 @@ Renamed "Velta Beam" (manifest name, menu label, docs); internal id
 `send-direct`, folder `app/webxdc/send-direct/`, `send-direct.xdc` and the
 `prepare_builtin_xdc` name stay so existing messages/tests keep working.
 Icon: `icon.svg` (faceted V, beam spanning the arm tips) → `icon.png` (512px, cairosvg); the build script now
-packs the committed PNG. It opens as a **bottom panel** (`webxdc-panel.js`
-`wantsPanel`: name "Velta Beam" or `send-direct*.xdc`): `.app` shrinks by
-`--webxdc-panel-h` (30vh, ≥220px), no focus trap, no history entry; the ⤢
+packs the committed PNG. It opens as a **panel below the chat header** (in the chat-view flex flow; history shrinks, composer stays visible) (`webxdc-panel.js`
+`wantsPanel`: name "Velta Beam" or `send-direct*.xdc`), height
+`--webxdc-panel-h` (max(220px, 30dvh), capped at 45% of the chat view), no focus trap, no history entry; the ⤢
 button expands (pushes an entry; BACK collapses), ✕ closes. Expand/collapse
 only toggles classes, and reopening the open app is a no-op — the frame is
 never reloaded, so a transfer survives.
