@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { setTimeout as sleep } from "node:timers/promises";
+import { installChatViewGlobals, installFakeDocument, installFakeFrames } from "./helpers/fake-dom.mjs";
 
 // Regression tests for the event-storm hardening in ChatView:
 //  - duplicate msg updates must not loop re-render work for unmounted rows
@@ -8,81 +9,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 //    (onItemHeightDidChange)" console spam), and
 //  - msgs-changed bursts must collapse into one tail refetch per gap.
 
-// Only the DOM surface used by ChatView's lifecycle and the real modal helpers.
-class Element {
-  constructor(tag = "div") {
-    this.tagName = tag.toUpperCase();
-    this.children = [];
-    this.listeners = new Map();
-    this.style = {};
-    this.dataset = {};
-    this.attributes = new Map();
-    this.hidden = false;
-    this.className = "";
-    this.innerHTML = "";
-    this.textContent = "";
-    this.value = "";
-    this.scrollTop = 0;
-    this.scrollHeight = 1000;
-    this.clientHeight = 500;
-    this.classList = {
-      add: (...names) => { this.className += " " + names.join(" "); },
-      remove: (...names) => { this.className = this.className.split(/\s+/).filter(n => !names.includes(n)).join(" "); },
-      toggle: (name, on) => on ? this.classList.add(name) : this.classList.remove(name),
-    };
-  }
-  append(...children) { for (const child of children) this.appendChild(child); }
-  appendChild(child) { child.remove(); child.parent = this; this.children.push(child); return child; }
-  remove() {
-    if (this.parent) this.parent.children = this.parent.children.filter(child => child !== this);
-    this.parent = null;
-  }
-  replaceWith(el) {
-    if (!this.parent) return;
-    const i = this.parent.children.indexOf(this);
-    if (i >= 0) this.parent.children[i] = el;
-    el.parent = this.parent;
-    this.parent = null;
-  }
-  replaceChildren(...children) { for (const child of [...this.children]) child.remove(); this.append(...children); }
-  addEventListener(name, fn) {
-    if (!this.listeners.has(name)) this.listeners.set(name, new Set());
-    this.listeners.get(name).add(fn);
-  }
-  removeEventListener(name, fn) { this.listeners.get(name)?.delete(fn); }
-  fire(name, event = {}) { return Promise.all([...this.listeners.get(name) || []].map(fn => fn({ target: this, currentTarget: this, ...event }))); }
-  querySelectorAll(selector) {
-    const matches = el => {
-      if (selector.startsWith(".")) return el.className.split(/\s+/).includes(selector.slice(1));
-      const attr = selector.match(/^\[data-msgid="(.+)"\]$/);
-      if (attr) return String(el.dataset.msgid) === attr[1];
-      return el.tagName.toLowerCase() === selector;
-    };
-    return this.children.flatMap(child => [...(matches(child) ? [child] : []), ...child.querySelectorAll(selector)]);
-  }
-  querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
-  getBoundingClientRect() { return { top: 20, left: 20, right: 200, bottom: 100, width: 180, height: 80 }; }
-  focus() {}
-  setAttribute(name, value) { this.attributes.set(name, String(value)); }
-  removeAttribute(name) { this.attributes.delete(name); }
-  getAttribute(name) { return this.attributes.get(name) ?? null; }
-  after(child) { const p = this.parent; if (!p) return child; p.children.splice(p.children.indexOf(this) + 1, 0, child); child.parent = p; return child; }
-  insertBefore(child, before) {
-    child.remove();
-    const i = before ? this.children.indexOf(before) : -1;
-    this.children.splice(i < 0 ? this.children.length : i, 0, child);
-    child.parent = this;
-    return child;
-  }
-  scrollTo({ top }) { this.scrollTop = top; }
-}
-
-globalThis.HTMLElement = Element;
-const elements = new Map();
-globalThis.customElements = { get: name => elements.get(name), define: (name, el) => elements.set(name, el) };
-globalThis.window = { addEventListener() {}, removeEventListener() {} };
-globalThis.innerHeight = 800;
-globalThis.innerWidth = 1200;
+// Stub DOM: tests/helpers/fake-dom.mjs (only the surface ChatView touches).
+installChatViewGlobals();
 globalThis.localStorage = { _s: {}, getItem(k) { return this._s[k] ?? null; }, setItem(k, v) { this._s[k] = String(v); }, removeItem(k) { delete this._s[k]; } };
 const { ChatView } = await import("../app/js/chat-view.js");
 const { closeAllPopups } = await import("../app/js/ui.js");
@@ -104,24 +32,8 @@ async function held(promise) {
 }
 
 function setup(t) {
-  const nodes = new Map();
-  const node = id => {
-    if (!nodes.has(id)) nodes.set(id, new Element());
-    return nodes.get(id);
-  };
-  globalThis.document = {
-    getElementById: node,
-    querySelector: node,
-    createElement: tag => new Element(tag),
-    body: new Element("body"),
-    addEventListener() {},
-    removeEventListener() {},
-    hidden: false,
-  };
-  const frames = new Map();
-  let frameId = 0;
-  globalThis.requestAnimationFrame = fn => { frames.set(++frameId, fn); return frameId; };
-  globalThis.cancelAnimationFrame = id => frames.delete(id);
+  const node = installFakeDocument();
+  const frames = installFakeFrames();
   const timer = globalThis.setTimeout;
   t.mock.method(globalThis, "setTimeout", (...args) => timer(...args).unref());
   window.__TAURI__ = null;
