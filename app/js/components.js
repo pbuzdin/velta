@@ -414,7 +414,4 @@ class VeltaChatHead extends Elena(HTMLElement) {
 }
 VeltaChatHead.define();
 
-export function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
-}
-export function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
+export { escapeHtml, escapeAttr } from "./format.js";

@@ -7,6 +7,7 @@
 //
 // Shell commands: tunnel_preview, tunnel_install, tunnel_remove,
 // tunnel_status, tunnel_set_mode, tunnel_network_changed, share_text.
+import { escapeHtml } from "./format.js";
 
 const MODES = [
   ["auto", "Automatic", "Direct while the relays answer; through the tunnel when only allowlisted sites work."],
@@ -21,9 +22,6 @@ function shellInvoke() {
   return t?.core?.invoke || t?.invoke || null;
 }
 
-function esc(s) {
-  return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-}
 
 function errMsg(e) {
   return e?.message || String(e);
@@ -232,7 +230,7 @@ export function bindTunnelNetworkEvents(invoke = shellInvoke()) {
 
 function stateHtml(s) {
   const d = describeTunnel(s);
-  return `<b>${esc(d.headline)}</b>${d.detail ? ` — ${esc(d.detail)}` : ""}`;
+  return `<b>${escapeHtml(d.headline)}</b>${d.detail ? ` — ${escapeHtml(d.detail)}` : ""}`;
 }
 
 /** Path summary for the sheet. On the direct route the tunnel is idle and
@@ -246,14 +244,14 @@ export function pathsSummary(s) {
 }
 
 function pathsHtml(s) {
-  return `Server: ${esc(s.zone || "?")} · ${esc(pathsSummary(s))}`;
+  return `Server: ${escapeHtml(s.zone || "?")} · ${escapeHtml(pathsSummary(s))}`;
 }
 
 /** Android Private DNS intercepts the tunnel's DNS queries (measured: answers
  * shrink to ~512 bytes and every path runs through one provider). */
 export function privateDnsWarning(s) {
   if (!s?.network?.private_dns) return "";
-  const name = s.network.private_dns_name ? ` (${esc(s.network.private_dns_name)})` : "";
+  const name = s.network.private_dns_name ? ` (${escapeHtml(s.network.private_dns_name)})` : "";
   return `<p class="p2p-hint" style="color:var(--danger)">Private DNS is on${name}. It intercepts the tunnel's DNS queries and makes it much slower. Turn it off in Android Settings → Network → Private DNS while you need the tunnel.</p>`;
 }
 
@@ -261,7 +259,7 @@ export function privateDnsWarning(s) {
  * paths collapse into that one, and only DNS-over-TLS gets past it. */
 export function interceptionWarning(s) {
   if (!s?.dns_intercepted) return "";
-  const via = s.dns_egress ? ` (answered via ${esc(s.dns_egress)})` : "";
+  const via = s.dns_egress ? ` (answered via ${escapeHtml(s.dns_egress)})` : "";
   return `<p class="p2p-hint" style="color:var(--danger)">This network intercepts DNS${via}: every plain-DNS resolver path goes through one resolver, so the tunnel relies on DNS-over-TLS here and may be slow. Check the router's DNS settings.</p>`;
 }
 
@@ -276,9 +274,9 @@ export async function openTunnelSettings({ showModal, confirmModal, toast, errTo
     ${interceptionWarning(s)}
     <fieldset class="scale-opts" data-tunnel-modes>
       <legend class="vh">Tunnel mode</legend>
-      ${MODES.map(([v, label, hint]) => `<label class="scale-opt" title="${esc(hint)}"><input type="radio" name="tunnel-mode" value="${v}"${s.mode === v ? " checked" : ""}><span>${esc(label)}</span></label>`).join("")}
+      ${MODES.map(([v, label, hint]) => `<label class="scale-opt" title="${escapeHtml(hint)}"><input type="radio" name="tunnel-mode" value="${v}"${s.mode === v ? " checked" : ""}><span>${escapeHtml(label)}</span></label>`).join("")}
     </fieldset>
-    <div class="bar-opts-hint" data-tunnel-hint>${esc((MODES.find(m => m[0] === s.mode) || MODES[0])[2])}</div>
+    <div class="bar-opts-hint" data-tunnel-hint>${escapeHtml((MODES.find(m => m[0] === s.mode) || MODES[0])[2])}</div>
     <p class="p2p-hint" data-tunnel-paths>${pathsHtml(s)}</p>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
       <button type="button" class="btn-text" data-tunnel-share>Share diagnostics…</button>

@@ -3,7 +3,7 @@
 // the plain-browser PWA has no iroh endpoint to talk to.
 
 import { showModal, toast, notifyIncoming } from "./ui.js";
-import { formatTime } from "./format.js";
+import { formatTime, escapeHtml } from "./format.js";
 import { acquireCode } from "./qr-scan.js";
 import { diagnosticsSink } from "./diagnostics.js";
 import { createLocalGroup, groupAddMember, groupPickerModel, findDuplicateGroup, lcGroupName, GROUP_MAX_OTHERS, GROUP_NAME_MAX } from "./local-chat.js";
@@ -99,7 +99,7 @@ async function showPairRequest(peerId, name) {
     const accepted = await new Promise(resolve => {
       const body = document.createElement("div");
       body.innerHTML = `
-        <p class="p2p-hint"><b>${escapeHtml_(name || "A device")}</b> (${shortId(peerId)}) wants to
+        <p class="p2p-hint"><b>${escapeHtml(name || "A device")}</b> (${shortId(peerId)}) wants to
         pair with this device for Local chat — direct end-to-end-encrypted messages between
         devices on the same network.</p>
         <p class="p2p-hint" style="opacity:.75">Pair only if you recognize this device.</p>`;
@@ -243,25 +243,25 @@ function renderHubInto(body, invoke, renderQr, status, actions) {
   const nearby = status.nearby || [];
   const rows = peers.length
     ? `<div class="p2p-rows">${peers.map(p => `
-        <div class="p2p-row" data-peer="${escapeHtml_(p.id)}">
+        <div class="p2p-row" data-peer="${escapeHtml(p.id)}">
           <span class="p2p-dot ${p.online ? "on" : ""}"></span>
-          <span class="p2p-row-name">${escapeHtml_(p.name || p.id.slice(0, 12))}</span>
+          <span class="p2p-row-name">${escapeHtml(p.name || p.id.slice(0, 12))}</span>
           ${p.queued ? `<span class="p2p-row-queued">${p.queued} queued</span>` : ""}
-          ${!p.online ? `<button type="button" class="btn-text" data-retry="${escapeHtml_(p.id)}">Retry</button>` : ""}
+          ${!p.online ? `<button type="button" class="btn-text" data-retry="${escapeHtml(p.id)}">Retry</button>` : ""}
         </div>`).join("")}
       </div>`
     : `<div class="p2p-empty">No contacts yet.<br>Pair with another Velta device on the same Wi-Fi network — exchange invite codes once, then chat directly, encrypted, with no servers in between.</div>`;
   const nearbyRows = nearby.length
     ? `<div class="p2p-rows">${nearby.map(n => `
-        <div class="p2p-row" data-nearby="${escapeHtml_(n.id)}">
+        <div class="p2p-row" data-nearby="${escapeHtml(n.id)}">
           <span class="p2p-dot on"></span>
-          <span class="p2p-row-name">${escapeHtml_(n.name || n.id.slice(0, 12))}</span>
-          <button type="button" class="btn-text" data-nearby-pair="${escapeHtml_(n.id)}">Pair</button>
+          <span class="p2p-row-name">${escapeHtml(n.name || n.id.slice(0, 12))}</span>
+          <button type="button" class="btn-text" data-nearby-pair="${escapeHtml(n.id)}">Pair</button>
         </div>`).join("")}</div>`
     : "";
   body.innerHTML = `
-    <p class="p2p-hint">This device: <b>${escapeHtml_(status.name || "device")}</b>
-      <span style="opacity:.55;font-size:12px">(${escapeHtml_(shortId(status.nodeId))})</span></p>
+    <p class="p2p-hint">This device: <b>${escapeHtml(status.name || "device")}</b>
+      <span style="opacity:.55;font-size:12px">(${escapeHtml(shortId(status.nodeId))})</span></p>
     <div style="display:flex;gap:10px;margin-top:8px">
       <button type="button" class="btn-text" data-invite>Show invite</button>
       <button type="button" class="btn-text" data-add>Add contact</button>
@@ -313,9 +313,6 @@ export async function pairNearbyFlow(invoke, id) {
   hub?.refresh?.().catch(() => {});
 }
 
-function escapeHtml_(s) {
-  return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
 
 function shortId(nodeId) {
   const s = String(nodeId || "");
@@ -422,9 +419,9 @@ export async function showCreateGroupModal(invoke) {
     const body = document.createElement("div");
     const rows = model.peers.map(p => `
       <label class="p2p-row" style="${p.disabled ? "opacity:.55;cursor:default" : ""}">
-        <input type="checkbox" data-pick="${escapeHtml_(p.id)}"${p.disabled ? " disabled" : ""}>
-        <span class="p2p-row-name">${escapeHtml_(p.name)}</span>
-        ${p.disabled ? `<span class="p2p-row-queued">${escapeHtml_(p.reason)}</span>` : ""}
+        <input type="checkbox" data-pick="${escapeHtml(p.id)}"${p.disabled ? " disabled" : ""}>
+        <span class="p2p-row-name">${escapeHtml(p.name)}</span>
+        ${p.disabled ? `<span class="p2p-row-queued">${escapeHtml(p.reason)}</span>` : ""}
       </label>`).join("");
     body.innerHTML = `
       <input class="text-field" data-gname maxlength="${GROUP_NAME_MAX}" placeholder="Group name" autocomplete="off">
@@ -504,9 +501,9 @@ export async function showAddMembersModal(invoke, gid) {
     const body = document.createElement("div");
     const rows = peers.map(p => `
       <label class="p2p-row" style="${p.disabled ? "opacity:.55;cursor:default" : ""}">
-        <input type="checkbox" data-pick="${escapeHtml_(p.id)}"${p.disabled ? " disabled" : ""}>
-        <span class="p2p-row-name">${escapeHtml_(p.name)}</span>
-        ${p.disabled ? `<span class="p2p-row-queued">${escapeHtml_(p.reason)}</span>` : ""}
+        <input type="checkbox" data-pick="${escapeHtml(p.id)}"${p.disabled ? " disabled" : ""}>
+        <span class="p2p-row-name">${escapeHtml(p.name)}</span>
+        ${p.disabled ? `<span class="p2p-row-queued">${escapeHtml(p.reason)}</span>` : ""}
       </label>`).join("");
     body.innerHTML = `
       <p class="p2p-hint">A local group holds up to ${GROUP_MAX_OTHERS + 1} devices, you included.

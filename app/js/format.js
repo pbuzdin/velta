@@ -28,6 +28,14 @@ export function pageBounds(ids, { beforeId = null, afterId = null, aroundId = nu
   return { start: Math.max(0, end - limit), end };
 }
 
+// HTML text / attribute escaping for template strings. Null-safe (null and
+// undefined render as ""). Single source; components.js re-exports both.
+export function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+}
+// escapeHtml already escapes both quote kinds, so it is attribute-safe too.
+export const escapeAttr = escapeHtml;
+
 // Elapsed seconds -> "mm:ss", or "h:mm:ss" from one hour on. Shared by the
 // call overlay timer, call cards, voice recording and video duration badges.
 // Fractions are floored; negative / non-finite input reads as 0.
@@ -70,12 +78,6 @@ export function messageInfoState(m) {
   return `${seen ? "Seen" : "Not seen"}, ${enc}`;
 }
 
-function escInfo(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  }[c]));
-}
-
 // Message-info reactions (#122). One open <details> per emoji: the summary is
 // a chip (button, so the tap reacts and does not toggle the details), the
 // body is who sent it. payload is get_message_reactions plus names[id].
@@ -98,8 +100,8 @@ export function messageInfoReactions(payload) {
     const people = who.get(emoji) || [];
     const mine = !!(r.isFromSelf || r.mine);
     const count = Number(r.count) || people.length || 0;
-    const body = people.map((n) => `<div class="info-react-who">${escInfo(n)}</div>`).join("");
-    return `<details open class="info-react"><summary><button type="button" class="reaction-chip${mine ? " mine" : ""}" aria-pressed="${mine ? "true" : "false"}" data-react="${escInfo(emoji)}">${escInfo(emoji)} ${count}</button></summary>${body}</details>`;
+    const body = people.map((n) => `<div class="info-react-who">${escapeHtml(n)}</div>`).join("");
+    return `<details open class="info-react"><summary><button type="button" class="reaction-chip${mine ? " mine" : ""}" aria-pressed="${mine ? "true" : "false"}" data-react="${escapeHtml(emoji)}">${escapeHtml(emoji)} ${count}</button></summary>${body}</details>`;
   }).join("");
 }
 
@@ -158,10 +160,6 @@ export function formatDay(ts, now = Date.now()) {
 
 // "just now" / "5 minutes ago" / "3 hours ago" / "2 days ago" — relative time
 // for last-seen info.
-function escTime(s) {
-  return String(s ?? "").replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
-}
-
 // datetime is an instant, or a local YYYY-MM-DD when day is set (UTC slice
 // would label the wrong calendar day).
 export function timeParts(ts, { day = false } = {}) {
@@ -174,11 +172,11 @@ export function timeParts(ts, { day = false } = {}) {
 }
 
 export function timeTag(ts, text, { day = false, className = "" } = {}) {
-  const cls = className ? ` class="${escTime(className)}"` : "";
-  const body = escTime(text);
+  const cls = className ? ` class="${escapeHtml(className)}"` : "";
+  const body = escapeHtml(text);
   const p = timeParts(ts, { day });
   if (!p) return `<span${cls}>${body}</span>`;
-  return `<time${cls} datetime="${escTime(p.datetime)}" title="${escTime(p.title)}">${body}</time>`;
+  return `<time${cls} datetime="${escapeHtml(p.datetime)}" title="${escapeHtml(p.title)}">${body}</time>`;
 }
 
 export function stampTime(el, ts, { day = false } = {}) {

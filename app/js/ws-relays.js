@@ -1,6 +1,7 @@
 // PWA websocket relays. The wasm core has one tunnel base, set once at boot
 // (wss://<domain>, C3 websockify on that relay). The baked
 // window.VELTA_PWA.wsProxyUrl stays the default until a domain is chosen here.
+import { escapeHtml } from "./format.js";
 const LIST_KEY = "velta-ws-relays";
 const ACTIVE_KEY = "velta-ws-relay";
 
@@ -160,9 +161,6 @@ export function probeDnsVia(proxyHost, name) {
   return probeDns(`wss://${proxy}/dns/${host}`);
 }
 
-function esc(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
 
 export async function showWsRelaysModal() {
   const { showModal, toast } = await import("./ui.js");
@@ -194,7 +192,7 @@ export async function showWsRelaysModal() {
     for (const host of listWsRelays()) {
       const item = document.createElement("div");
       item.className = "info-row";
-      item.innerHTML = `<span class="v">${esc(host)}${host === active ? ' <span style="opacity:.55">(in use)</span>' : ""}</span>`;
+      item.innerHTML = `<span class="v">${escapeHtml(host)}${host === active ? ' <span style="opacity:.55">(in use)</span>' : ""}</span>`;
       const btn = (label, click) => {
         const b = document.createElement("button");
         b.type = "button";
