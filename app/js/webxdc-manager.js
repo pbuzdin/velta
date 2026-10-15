@@ -8,7 +8,10 @@ import { CLOSE_SVG, toast, confirmModal } from "./ui.js";
 import { LruCache } from "./lru.js";
 
 let core = null;
-let active = null; // { msgId, iframe, serial }
+let active = null; // { msgId, iframe, serial, realtime }
+// Spec limit for one realtime payload (webxdc.d.ts: 128 000 bytes); the
+// core's gossip caps a message at 128 KiB including its own trailer.
+export const REALTIME_MAX = 128000;
 // serials stays a plain Map: it is the delivered-serial watermark; evicting
 // one would restart delivery at 0 and re-post old updates to an app. It is
 // one number per opened/updated app, dropped on instance delete and cleared
@@ -36,6 +39,11 @@ export function initWebxdc(coreInstance) {
     const d = e?.detail || {};
     if (active && active.msgId === Number(d.msgId)) closeWebxdc();
     serials.delete(Number(d.msgId));
+  });
+  core.addEventListener("webxdc-realtime-data", (e) => {
+    const d = e?.detail || {};
+    if (!active?.realtime || active.msgId !== Number(d.msgId)) return;
+    post({ type: "velta-webxdc-realtime", data: Uint8Array.from(d.data || []) });
   });
   core.addEventListener("account-changing", () => {
     closeWebxdc();
@@ -97,6 +105,29 @@ async function handleCall(data) {
       const update = data.params?.update;
       if (typeof update !== "object" || update === null) throw new Error("update must be an object");
       await core.sendWebxdcStatusUpdate(msgId, JSON.stringify(update), data.params?.description || null);
+      return {};
+    }
+    // Realtime channel (joinRealtimeChannel in the shim): join = advertise
+    // on the instance's iroh-gossip topic (core sends the hidden
+    // advertisement mail); data rides send_webxdc_realtime_data; leave on
+    // app close too. Peers arrive via WebxdcRealtimeData events above.
+    case "realtimeJoin": {
+      if (!core.sendWebxdcRealtimeAdvertisement) throw new Error("realtime channels are not available");
+      await core.sendWebxdcRealtimeAdvertisement(msgId);
+      if (active?.msgId === msgId) active.realtime = true;
+      return {};
+    }
+    case "realtimeSend": {
+      if (!active?.realtime) throw new Error("realtime channel not joined");
+      const bytes = realtimeBytes(data.params?.data);
+      await core.sendWebxdcRealtimeData(msgId, Array.from(bytes));
+      return {};
+    }
+    case "realtimeLeave": {
+      if (active?.realtime && active.msgId === msgId) {
+        active.realtime = false;
+        await core.leaveWebxdcRealtime(msgId).catch(() => {});
+      }
       return {};
     }
     case "sendToChat":
@@ -174,6 +205,17 @@ async function importFiles(filters = {}) {
     } catch { /* skip unreadable pick */ }
   }
   return files;
+}
+
+// Payload from the frame (structured clone) → bytes, spec-capped.
+export function realtimeBytes(data) {
+  let b;
+  if (data instanceof Uint8Array) b = data;
+  else if (data instanceof ArrayBuffer) b = new Uint8Array(data);
+  else if (ArrayBuffer.isView(data)) b = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  else throw new Error("realtime data must be a Uint8Array");
+  if (b.byteLength > REALTIME_MAX) throw new Error(`realtime data too large (${b.byteLength} > ${REALTIME_MAX})`);
+  return b;
 }
 
 async function getInfo(msgId) {
@@ -285,6 +327,8 @@ window.addEventListener("popstate", (e) => {
 });
 
 function closeWebxdcFrame() {
+  // Closing the app leaves its realtime channel (spec: leave() or unload).
+  if (active?.realtime) core?.leaveWebxdcRealtime?.(active.msgId)?.catch?.(() => {});
   document.getElementById("webxdc-overlay")?.remove();
   window.removeEventListener("message", onWindowMessage);
   active = null;

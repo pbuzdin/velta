@@ -3034,6 +3034,10 @@ export class ChatView {
       // Shell-only (proxy-aware sockets); local chats send files directly.
       if (largeFileAvailable() && !this.chat?.isP2p) {
         attachItems.push({ label: "Large file", icon: ICO.file, onClick: () => this._sendLargeFile() });
+        // #138 part 2: built-in webxdc that streams a file peer to peer over
+        // the instance's realtime channel (iroh gossip) — webxdc runs in the
+        // Tauri shell only.
+        attachItems.push({ label: "Send directly (both online)", icon: ICO.file, onClick: () => this._sendDirectApp() });
       }
       if (!window.__TAURI__ && /Android/i.test(navigator.userAgent)) {
         attachItems.splice(1, 0, { label: "Camera", icon: ICO.photo, onClick: () => this._sendAttachment("camera") });
@@ -3510,6 +3514,27 @@ export class ChatView {
       if (sent) this.onChatsChanged();
     } catch (err) {
       if (this._isCurrent(session)) errToast("Could not send image: " + (err?.message || err));
+    }
+  }
+
+  // Posts app/builtin/send-direct.xdc (built by tools/build-builtin-xdc.mjs)
+  // into the chat and opens it so the sender can pick the file right away.
+  async _sendDirectApp() {
+    const session = this._session;
+    if (!this._isCurrent(session) || !this.chat) return;
+    try {
+      const res = await fetch(new URL("builtin/send-direct.xdc", document.baseURI));
+      if (!res.ok) throw new Error(`built-in app missing (${res.status})`);
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      const path = await this._writeBlobForSend(`send-direct-${Date.now()}.xdc`, bytes);
+      if (!this._isCurrent(session)) return;
+      const msg = await this._sendArchivedAware(session.chatId, { viewtype: "webxdc", file: path, filename: "send-direct.xdc", text: "" });
+      if (!this._isCurrent(session)) return;
+      this.appendOutgoing(msg);
+      this.onChatsChanged();
+      if (msg?.id != null) openWebxdc(msg.id, "Send directly");
+    } catch (err) {
+      if (this._isCurrent(session)) errToast("Could not start direct send: " + (err?.message || err), 4000);
     }
   }
 

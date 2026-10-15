@@ -672,6 +672,11 @@ export class JsonRpcCore extends EventTarget {
       case "WebxdcInstanceDeleted":
         this._emitAccount("webxdc-instance-deleted", { msgId: msgId }, accountEpoch);
         break;
+      case "WebxdcRealtimeData":
+        // iroh gossip payload for an app that joined its realtime channel
+        // (webxdc-manager relays it to the open frame). No sender field.
+        this._emitAccount("webxdc-realtime-data", { msgId: msgId, data: ev.data || [] }, accountEpoch);
+        break;
       case "ChatlistChanged":
       case "ChatlistItemChanged":
         // Fine-grained chat-list signals (issue #25), used by app.js to
@@ -1236,6 +1241,10 @@ export class JsonRpcCore extends EventTarget {
 
   async sendWebxdcRealtimeData(msgId, dataBytes) {
     return this._call("send_webxdc_realtime_data", this.accountId, msgId, dataBytes);
+  }
+
+  async sendWebxdcRealtimeAdvertisement(msgId) {
+    return this._call("send_webxdc_realtime_advertisement", this.accountId, msgId);
   }
 
   async leaveWebxdcRealtime(msgId) {

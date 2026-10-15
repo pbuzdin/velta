@@ -519,6 +519,7 @@ export class MockCore extends EventTarget {
   async getWebxdcStatusUpdates(msgId, lastSerial) { return "[]"; }
   async sendWebxdcStatusUpdate(msgId, updateStr, descr) {}
   async sendWebxdcRealtimeData(msgId, data) {}
+  async sendWebxdcRealtimeAdvertisement(msgId) {}
   async leaveWebxdcRealtime(msgId) {}
   async getWebxdcHref(infoMsgId) { return null; }
 

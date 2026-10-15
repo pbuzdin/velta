@@ -163,7 +163,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── scripts/build-pwa.mjs         # C4 PWA dist builder (app/ + wasm assets + pwa-config.js + precache SW + wasm.br/gz sidecars not in PRECACHE); refuses a wasm without sqlite_export unless --allow-no-db-persist — §4.2.1; ship snapshot is git branch pwa-dist
 ├── scripts/relay-invite/         # invite-only signup: invite.py CGI (interstitial + claim) + invite-tool.py CLI + README (deploy/features/troubleshooting) — deployed to the private relay (§4.2.1 relay-list bullet)
 ├── scripts/verify-pwa-dist.mjs   # PWA dist rig: 10 checks (boot, OPFS persist incl. sqlite/, SW, identity-backup surface)
-└── tools/                    # icon generation, WSL APK build/sign helpers,
+└── tools/                    # build-builtin-xdc.mjs (app/builtin/*.xdc from app/webxdc/*), icon generation, WSL APK build/sign helpers,
                               serve-dev.py (no-cache static server for app/)
 ```
 
@@ -1871,6 +1871,18 @@ localStorage (`velta-lufi-files`, per account+msg), never in the message.
 Server URL default `https://upload.disroot.org` (changeable in the upload
 dialog, `velta-lufi-server`). Details, live round-trip recipe:
 docs/agents/large-file.md.
+
+### 5.4.2 "Send directly (both online)" — built-in webxdc (#138 part 2)
+
+Attach menu item next to Large file: sends `app/builtin/send-direct.xdc`
+into the chat and opens it. Sources in `app/webxdc/send-direct/`
+(`transfer.js` = node-tested protocol: OFFER/REQ/CHUNK frames over the
+webxdc realtime channel, 48 KiB chunks, windowed re-requests for lossy
+gossip, pure-JS SHA-256 check; `ui.js`; `index.html`; `manifest.toml`).
+KEEP: after editing them run `node tools/build-builtin-xdc.mjs` — the .xdc
+is a reproducible STORE zip and `tests/send-direct-xdc.test.mjs` fails on a
+stale one. Receiver saves via `webxdc.sendToChat` (normal attachment) or
+Download. Host realtime wiring: docs/agents/webxdc.md.
 
 ### 5.5 In-app browser (Android)
 

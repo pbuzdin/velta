@@ -70,8 +70,20 @@ app" — the `webxdc.localhost` handler exists only in the Tauri shell
   only — mimeTypes in the filter are ignored, a dialog-plugin ceiling),
   `resolve_content_uri` for Android content:// picks, bytes read via fs and
   returned to the app as File objects over the bridge.
-- Realtime (low-latency) channels are NOT wired — apps relying on them
-  degrade gracefully to status updates.
+- Realtime channels (#138, wired 2026-10-15): the shim's
+  `joinRealtimeChannel()` returns `{setListener, send, leave}` (one channel
+  per app; `send` takes a Uint8Array ≤ 128 000 B, queued until the join
+  resolved). Host (`webxdc-manager.js`): `realtimeJoin` →
+  `send_webxdc_realtime_advertisement` (core joins the instance's
+  iroh-gossip topic and mails a hidden advertisement), `realtimeSend` →
+  `send_webxdc_realtime_data` (bytes as a JSON number array),
+  `realtimeLeave`/app close → `leave_webxdc_realtime`; the core's
+  `WebxdcRealtimeData {msgId, data}` event (rpc-core →
+  `webxdc-realtime-data`) is posted to the open frame only while it is
+  joined. Same JSON-RPC on desktop (sidecar) and Android (in-process core),
+  so both shells are covered; the wasm PWA does not run webxdc at all.
+  Gossip carries no sender id and is lossy — apps must ack/retry.
+  `listRealtimeAdapters()` still returns [].
 
 ## App card in chat history (1.4.17)
 

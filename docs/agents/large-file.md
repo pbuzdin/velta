@@ -72,3 +72,24 @@ new crates: rustls/webpki-roots/socks are ureq's own.
   responsive per slice; a worker would be smoother for multi-GB files).
 - Receiving side has no special card yet: the link opens in the in-app
   browser, the Lufi page decrypts.
+
+# Part 2 — "Send directly (both online)"
+
+Built-in webxdc (`app/webxdc/send-direct/` → `app/builtin/send-direct.xdc`,
+AGENTS.md §5.4.2) over the realtime channel Velta's host now implements
+(docs/agents/webxdc.md). Sender: Choose a file (`importFiles`) → OFFER
+broadcast every 2.5 s + a status update (`Offering …` info line, lets late
+openers see the offer). Receiver: Receive (enabled once a live OFFER is
+heard) → REQ windows of 8 chunks, re-asked after 1.5 s → assembled bytes
+must match the offer's SHA-256 → Save to chat / Download. Several
+receivers can pull at once (chunks are broadcast, sender de-dupes bursts).
+
+Verified: node tests (lossy two-receiver simulation, tamper → mismatch,
+shim join/send/leave over the bridge, xdc freshness); a two-page Chromium
+run of the built .xdc with a stub webxdc relay dropping 10 % of frames
+(300 kB, SHA-256 match after Save to chat). NOT verified here: the real
+core path (iroh gossip between two devices) — needs an on-device check.
+
+Ceilings: both peers must have the app open; the sender holds the whole
+file in memory (`importFiles` reads it fully), so this is for files that
+fit in RAM; each chunk crosses JSON-RPC as a number array (~4× size).
