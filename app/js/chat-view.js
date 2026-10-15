@@ -1,4 +1,5 @@
 // chat-view.js — virtualized message history (virtual-scroller) + composer
+import { canEditMsg } from "./msg-edit.js";
 import { prepareBuiltinXdc } from "./builtin-xdc.js";
 import { formatTime, formatDay, formatDateTime, formatServerUrl, messageInfoState, messageInfoReactions, formatBytes, timeTag, stampTime } from "./format.js";
 import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener } from "./components.js";
@@ -2404,7 +2405,7 @@ export class ChatView {
     // Core mirrors these guards (own + plain text + non-empty); the menu just
     // hides the entry where the core would refuse. P2P chats keep a separate
     // message store — no edit there yet.
-    if (!this.chat?.isP2p && m.from === 1 && m.viewtype === "text" && m.text) items.push({ label: "Edit", pair: "own", icon: ICO.edit, onClick: () => this._setEdit(item) });
+    if (canEditMsg(m, this.chat)) items.push({ label: "Edit", pair: "own", icon: ICO.edit, onClick: () => this._setEdit(item) });
     if (!this.chat?.isP2p && m.viewtype === "sticker" && m.from !== 1 && m.filePath) {
       items.push({
         label: "Save sticker", short: "Sticker", pair: "file", icon: ICO.download,
@@ -2838,6 +2839,9 @@ export class ChatView {
 
   _setEdit(item) {
     if (!this._isCurrent() || this.msgIndex.get(item.msg.id) !== item) return;
+    // A staged attachment would make _send() post new media instead of the
+    // edit; caption edits keep the ORIGINAL attachment (core edits text only).
+    if (this.pendingMedia || !canEditMsg(item.msg, this.chat)) return;
     this.replyTo = null;
     this.replyFragment = null;
     this.editingMsg = item.msg;

@@ -1167,8 +1167,16 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   KEEP: `onMsgsChanged`'s in-place compare must include
   `item.msg.text !== m.text` — without it, edits arriving from the other
   device never re-render (only downloadState/viewtype/state were compared).
-  Menu guards mirror the core's (own + plain text + non-empty, not P2P —
-  `local-chat`'s proxy would fall through to the wrong id space).
+  Menu guards live in `app/js/msg-edit.js` `canEditMsg` and mirror the
+  core's `send_edit_request` (own, not info, not hasHtml, not call, non-empty
+  original text; not P2P — `local-chat`'s proxy would fall through to the
+  wrong id space). Caption edits: own image/gif/video/audio/voice/file/vcard
+  messages WITH a caption are editable (text only; the attachment is kept,
+  "edited" marker + in-place re-render as for text). Core refuses
+  "Cannot add text", so media sent without a caption cannot gain one — no
+  Edit item then. webxdc/sticker excluded (no user caption). Core has no
+  edit time window. `_setEdit` bails if an attachment is staged
+  (`pendingMedia`), else `_send()` would post new media instead of the edit.
 - **Long-press guard** (1.4.20): the row's 500 ms context-menu timer cancels
   on `touchcancel` AND on multi-touch (`touches.length > 1`) — the WebView
   claims two-finger gestures and answers with `touchcancel`, not `touchmove`,
