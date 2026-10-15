@@ -4742,17 +4742,7 @@ function showSplash() {
     refreshChatList();
   };
 
-  const addStep = (text) => {
-    stepsEl.querySelectorAll("li.active").forEach(li => { li.classList.remove("active"); li.classList.add("done"); });
-    const li = document.createElement("li");
-    li.className = "active";
-    li.innerHTML = `<span class="step-ico"></span><span>${escapeHtml(text)}</span>`;
-    stepsEl.appendChild(li);
-    return li;
-  };
-  const finishSteps = (ok_) => {
-    stepsEl.querySelectorAll("li.active").forEach(li => { li.classList.remove("active"); li.classList.add(ok_ ? "done" : "failed"); });
-  };
+  const { addStep, finishSteps } = stepList(stepsEl);
 
   const showActions = () => {
     epoch = core?.accountEpoch;
@@ -4934,15 +4924,7 @@ function showSplash() {
     input.disabled = true;
     stepsEl.replaceChildren();
     addStep(intro);
-    let phaseIdx = 0;
-    const onProg = (e) => {
-      const p = e.detail?.progress || 0;
-      while (phaseIdx < phases.length && p >= phases[phaseIdx][0]) {
-        addStep(phases[phaseIdx][1]);
-        phaseIdx++;
-      }
-    };
-    core.addEventListener("configure-progress", onProg);
+    const stopPhases = trackPhases(phases, addStep);
     try {
       const account = await run();
       if (!accountIsCurrent(epoch)) return;
@@ -4964,7 +4946,7 @@ function showSplash() {
       trigger.disabled = false; trigger.classList.remove("btn-loading"); trigger.textContent = "Retry";
       input.disabled = false;
     } finally {
-      core.removeEventListener("configure-progress", onProg);
+      stopPhases();
     }
   };
 
@@ -5222,16 +5204,7 @@ async function addRelayFlow(epoch, refresh, presetCode) {
   body.innerHTML = `<ul class="ob-steps" data-steps></ul>`;
   const { close: closeAdding } = showModal({ title: "Adding relay", body });
   const stepsEl = body.querySelector("[data-steps]");
-  const addStep = (text) => {
-    stepsEl.querySelectorAll("li.active").forEach(li => { li.classList.remove("active"); li.classList.add("done"); });
-    const li = document.createElement("li");
-    li.className = "active";
-    li.innerHTML = `<span class="step-ico"></span><span>${escapeHtml(text)}</span>`;
-    stepsEl.appendChild(li);
-  };
-  const finishSteps = (ok_) => {
-    stepsEl.querySelectorAll("li.active").forEach(li => { li.classList.remove("active"); li.classList.add(ok_ ? "done" : "failed"); });
-  };
+  const { addStep, finishSteps } = stepList(stepsEl);
 
   addStep("Checking the code…");
   try {
@@ -5248,15 +5221,7 @@ async function addRelayFlow(epoch, refresh, presetCode) {
       [400, "Adding relay to this profile"],
       [750, "Finalizing"],
     ];
-    let phaseIdx = 0;
-    const onProg = (e) => {
-      const p = e.detail?.progress || 0;
-      while (phaseIdx < phases.length && p >= phases[phaseIdx][0]) {
-        addStep(phases[phaseIdx][1]);
-        phaseIdx++;
-      }
-    };
-    core.addEventListener("configure-progress", onProg);
+    const stopPhases = trackPhases(phases, addStep);
     try {
       await core.addTransportFromQr(qr);
       if (!accountIsCurrent(epoch)) return;
@@ -5275,13 +5240,47 @@ async function addRelayFlow(epoch, refresh, presetCode) {
         }
       }, 900);
     } finally {
-      core.removeEventListener("configure-progress", onProg);
+      stopPhases();
     }
   } catch (err) {
     if (!accountIsCurrent(epoch)) return;
     finishSteps(false);
     addStep("Adding relay failed: " + (err?.message || err));
   }
+}
+
+// Step list (ul.ob-steps) shared by onboarding, add-relay and receive-profile:
+// addStep marks the previous active line done and appends a new active one;
+// finishSteps settles the active line as done or failed.
+function stepList(stepsEl) {
+  const addStep = (text) => {
+    stepsEl.querySelectorAll("li.active").forEach(li => { li.classList.remove("active"); li.classList.add("done"); });
+    const li = document.createElement("li");
+    li.className = "active";
+    li.innerHTML = `<span class="step-ico"></span><span>${escapeHtml(text)}</span>`;
+    stepsEl.appendChild(li);
+    return li;
+  };
+  const finishSteps = (ok_) => {
+    stepsEl.querySelectorAll("li.active").forEach(li => { li.classList.remove("active"); li.classList.add(ok_ ? "done" : "failed"); });
+  };
+  return { addStep, finishSteps };
+}
+
+// Friendly phase lines driven by the core's ConfigureProgress (0..1000):
+// phases is [[threshold, text], ...] in ascending order. Returns the detach
+// function (call it in a finally).
+function trackPhases(phases, addStep) {
+  let phaseIdx = 0;
+  const onProg = (e) => {
+    const p = e.detail?.progress || 0;
+    while (phaseIdx < phases.length && p >= phases[phaseIdx][0]) {
+      addStep(phases[phaseIdx][1]);
+      phaseIdx++;
+    }
+  };
+  core.addEventListener("configure-progress", onProg);
+  return () => core.removeEventListener("configure-progress", onProg);
 }
 
 // Receive a profile on this device from another device's DCBACKUP<n>: code
@@ -5307,17 +5306,7 @@ async function receiveSecondDeviceProfile(epoch, onStart, presetCode) {
   stepsBody.innerHTML = `<ul class="ob-steps" data-steps></ul>`;
   showModal({ title: "Receiving profile", body: stepsBody });
   const stepsEl = stepsBody.querySelector("[data-steps]");
-  const addStep = (text) => {
-    stepsEl.querySelectorAll("li.active").forEach(li => { li.classList.remove("active"); li.classList.add("done"); });
-    const li = document.createElement("li");
-    li.className = "active";
-    li.innerHTML = `<span class="step-ico"></span><span>${escapeHtml(text)}</span>`;
-    stepsEl.appendChild(li);
-    return li;
-  };
-  const finishSteps = (ok_) => {
-    stepsEl.querySelectorAll("li.active").forEach(li => { li.classList.remove("active"); li.classList.add(ok_ ? "done" : "failed"); });
-  };
+  const { addStep, finishSteps } = stepList(stepsEl);
 
   addStep("Preparing this device…");
   let seenProgress = false;
