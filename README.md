@@ -242,6 +242,10 @@ just loaded messages — backed by the core's fulltext index (group chats
 included). Results list sender and text; tapping one jumps to the message.
 Local (nearby) chats are searched within their loaded history only.
 
+**Hashtags.** A `#tag` in message text (letters, digits and `_`, at least
+one letter, so `#123` stays text) is tappable and opens Search in chat
+prefilled with that tag. Tags inside links are left alone.
+
 </details>
 
 <details>
@@ -274,7 +278,10 @@ context menu (that chat wins):
   radios: the fetch is https only, capped at 256 KB of page and 512 KB of
   image, cached in memory for the session, and it tells the linked site
   your IP address. Someone in a private or group chat may own that site,
-  or be able to edit the page.
+  or be able to edit the page. When the profile has a proxy configured
+  (SOCKS5 or HTTP, including the Android DNS tunnel), the page and its
+  image are fetched through it; if the proxy is unsupported or unreachable,
+  no preview is loaded rather than falling back to a direct fetch.
 
 Captions on photos, videos and files do not load a preview. A picture
 already sent does not turn back into a live card.
@@ -644,6 +651,21 @@ Delta Chat splits very large messages into a small placeholder plus a downloadab
 </details>
 
 <details>
+<summary>Large files (Lufi link)</summary>
+
+On desktop, the attach menu's **Large file** encrypts the file on your
+device the same way Lufi's web client does, uploads it to a Lufi server
+(default `https://upload.disroot.org`, configurable) through your proxy if
+one is set, and posts the name, size and a download link in the chat. The
+decryption key is in the link's `#` part, so the server never sees it and
+recipients without Velta can download it in any browser. You choose the
+expiry within the server's limits and can make it burn after reading;
+**Message info** keeps the deletion link with **Delete from server**. Not
+offered in local chats.
+
+</details>
+
+<details>
 <summary>Media internals: size limit, caching, platform notes</summary>
 
 ### Attachment size limit
@@ -746,7 +768,8 @@ Outgoing messages show where they are in the pipeline:
   sent and received, Seen and Encrypted, the database id, the Message-ID,
   and the server URL (one line per copy on the server). Each reaction is
   listed there, with the people who sent it. Tap a reaction to send the
-  same one.
+  same one; tap your own reaction (highlighted) to remove it, and picking
+  another emoji replaces it. Local chats have no reactions.
 
 Long-press/right-click one of your own messages and pick **Resend** to push
 the same message through the pipeline again — useful when the recipient says
@@ -986,9 +1009,13 @@ syncs to every chat member through end-to-end encrypted status updates,
 and the relay's STUN/TURN servers power the connection). The app frame is
 themed to match the shell (dark canvas, dark scrollbars) — an app can still
 set its own `color-scheme`. `sendToChat` (including file export to a chat)
-and the file-picking `importFiles` are wired; realtime (low-latency)
-channels are not — apps that rely on them degrade gracefully to status
-updates.
+and the file-picking `importFiles` are wired, and so are realtime
+(low-latency) channels via `webxdc.joinRealtimeChannel()`.
+
+**Send directly.** The attach menu's **Send directly (both online)** posts a
+built-in mini-app that sends a file peer-to-peer over the realtime channel
+(chunked, re-requested on loss, SHA-256 checked) to everyone who opens it
+while the sender is online. The file never goes through the relay.
 
 </details>
 
@@ -1001,6 +1028,10 @@ Works for any bot chat; the chips are extracted from the bot's own message
 text, so nothing needs to be configured per bot. Every bubble a bot sends
 also carries a small bordered **bot** tag next to the timestamp, so bot
 messages are distinguishable at a glance.
+
+Typing `/` in the composer opens a popup of the commands you sent recently in
+that chat (or across the profile when the chat has none yet); arrow keys and
+Enter/Tab insert one without sending it.
 
 </details>
 

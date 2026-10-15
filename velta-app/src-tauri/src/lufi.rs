@@ -281,7 +281,7 @@ impl Ws {
                 }
                 0xA => continue,
                 0x8 => return Err("server closed the connection".into()),
-                0x0 | 0x1 | 0x2 => {
+                0x0..=0x2 => {
                     msg.extend_from_slice(&p);
                     if msg.len() > MAX_REPLY {
                         return Err("reply too large".into());

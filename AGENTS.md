@@ -2089,11 +2089,20 @@ next push or the tainted commits come back.
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 77 files, 582 tests as of 2026-10-15:
+whole set — 80 files, 607 tests as of 2026-10-15 (1.4.70):
 
 ```bash
 node --test tests/
 ```
+
+Chat-list time (`app/js/format.js` `formatListTime`/`formatDay`,
+`tests/format-list-time.test.mjs`): LOCAL CALENDAR days, not a 24 h window —
+today `HH:MM`, yesterday `Yesterday`, 2–6 days ago weekday, same year `Oct 3`,
+older with year; future timestamps never get a weekday. Never pass
+`hour12:false` together with `hourCycle:'h23'` (V8 renders 00:05 as 24:05).
+
+Instant View research (AMP vs Readability vs JSON-LD, not implemented):
+`docs/research/instant-view-research.md`.
 
 Own-reaction toggle (`app/js/reactions.js`, `tests/reaction-toggle.test.mjs`):
 core `send_reaction(acc, msgId, list)` REPLACES our whole reaction set, so
