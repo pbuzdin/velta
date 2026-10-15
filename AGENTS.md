@@ -59,9 +59,11 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── markdown.js       # escape-first message markdown: bold/italic/underline, links, lists + bot command extraction
 │   │   ├── image-compress.js # outgoing photo → lossy WebP when it clearly pays (size-gated, renderer-side canvas, #81)
 │   │   ├── bare-links.js     # scheme-less link detection (t.me/x, example.com) for markdown.js: TLD tiers, boundaries (#85)
+│   │   ├── hashtags.js       # #hashtag detection for markdown.js (#134): Unicode/Cyrillic, ≥1 letter (#123 is not a tag), word-start only, ≤64 chars
 │   │   ├── media.js          # media URL helpers: blobfile:// protocol (boot-probed) → loopback server → asset protocol + per-element fallback
 │   │   ├── p2p.js            # Local chat UI: drawer toggle, list card, pairing, legacy 1:1 modal (Tauri only)
 │   │   ├── tunnel.js         # optional Android DNS tunnel UI: deep link, drawer row, settings sheet, diagnostics (#116/#119/#128)
+│   │   ├── recent-commands.js # #135 recent "/" bot commands popup + per-(account,chat) history, localStorage
 │   │   ├── read-markers.js   # manual "read up to here" markers per (account, chat), localStorage-only
 │   │   ├── qr-actions.js     # QR screen logic: scan-tab/share availability, copy/share link, scanned-code classification (#37)
 │   │   ├── share-in.js       # inbound share (#97): text/file payloads; invite and chat links stay on the deeplink router
@@ -75,7 +77,9 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── identity-backup.js # V2.5 identity backup: bundle build/wrap/unwrap (WebCrypto), base64 helpers, backup download name (#104), gzipBytes/gunzipBytes (CompressionStream — returns input unchanged when unsupported; callers detect by identity to decide the .gz suffix)
 │   │   ├── ws-relays.js      # PWA websocket relay list; baked VELTA_PWA.wsProxyUrl until a domain is chosen; probeC3Relay (C3 capability probe)
 │   │   ├── webxdc-manager.js # webxdc host: opaque-origin sandboxed app overlay, shim postMessage relay, per-instance serials
-│   │   ├── link-preview.js   # OG cards; drawer is off / picture / fetch (#88)
+│   │   ├── link-preview.js   # OG cards; drawer is off / picture / fetch (#88); shellProxy() = fail-closed proxy reader for shell-side fetches
+│   │   ├── lufi.js           # #138 Lufi client logic: SJCL slice encryption (Lufi-web compatible), upload state machine, expiry rules, deletion-token store (node-tested)
+│   │   ├── large-file.js     # #138 attach menu "Large file" flow: pick → expiry dialog → progress/cancel → link message; message-info delete
 │   │   ├── trackers.js       # drop known tracking query params on paste and on open (#89)
 │   │   ├── inapp-browser.js  # Telegram-style in-app browser overlay for message links (bar, history, JS bridge to the shell's Custom Tab)
 │   │   ├── notify-policy.js  # when an already-received message may raise an OS notification (Android posts from Rust; page stays quiet there; `web` flag = PWA path: hidden or unfocused)
@@ -118,6 +122,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │       │   ├── lib.rs        # Windows sidecar bridge + Android in-process core
 │       │   ├── p2p.rs        # Local chat engine: iroh (relay-less) QUIC pairing + 1:1 chat
 │       │   ├── tunnel.rs     # Optional DNS tunnel (Android): loads libsoartunnel.so, keeps proxy_url
+│       │   ├── lufi.rs       # #138 Large file: proxy-aware (fail-closed) minimal WebSocket client for Lufi /upload, slice reads, config/delete
 │       │   ├── bin/          # p2p-hub.rs — headless terminal hub (debug helper)
 │       │   └── main.rs       # Tauri entry point
 │       └── build.rs
@@ -135,7 +140,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── design/                   # token snapshot of app/css/main.css (HTML + SVG); restamp header with APP_VERSION
 ├── docs/agents/              # per-subsystem agent notes (webxdc, relays,
 │                              p2p/local chat, android-shell, media,
-│                              onboarding, security-triage) — referenced from §5/§11
+│                              onboarding, security-triage, large-file) — referenced from §5/§11
 ├── docs/as-built-architecture.md # product snapshot at cd59531 (2026-10-13); no implementation plan
 ├── docs/web-components-audit.md  # UI semantics/a11y/progressive-rendering audit (2026-10-06)
 ├── docs/web-components-plan.md   # phased fix plan for that audit (quick wins → tests)
@@ -158,7 +163,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── scripts/build-pwa.mjs         # C4 PWA dist builder (app/ + wasm assets + pwa-config.js + precache SW + wasm.br/gz sidecars not in PRECACHE); refuses a wasm without sqlite_export unless --allow-no-db-persist — §4.2.1; ship snapshot is git branch pwa-dist
 ├── scripts/relay-invite/         # invite-only signup: invite.py CGI (interstitial + claim) + invite-tool.py CLI + README (deploy/features/troubleshooting) — deployed to the private relay (§4.2.1 relay-list bullet)
 ├── scripts/verify-pwa-dist.mjs   # PWA dist rig: 10 checks (boot, OPFS persist incl. sqlite/, SW, identity-backup surface)
-└── tools/                    # icon generation, WSL APK build/sign helpers,
+└── tools/                    # build-builtin-xdc.mjs (app/builtin/*.xdc from app/webxdc/*), icon generation, WSL APK build/sign helpers,
                               serve-dev.py (no-cache static server for app/)
 ```
 
@@ -374,7 +379,8 @@ Deploy-dist rules (10-09):
   build/wasm-dist/deltachat_wasm_bg.wasm -o <same file>` → then build
   WITHOUT the flag so the SW content hash covers the optimized bytes
   (28.4 → 17.7 MB on 1.4.62's wasm; 28.7 → 16.8 MB on the 2.63 wasm
-  deployed 2026-10-14, SW `velta-pwa-3b497112c3bd`).
+  deployed 2026-10-14, SW `velta-pwa-3b497112c3bd`; 28.7 → 17.6 MB for
+  1.4.70, deployed 2026-10-15, SW `velta-pwa-229af68c1333`).
 - Deploy steps (10-13): wasm with `sqlite_*` → optimize → move
   `app/.mimosa` and `app/js/.mimosa` out → build (no `--ws-proxy`) →
   verify-pwa-dist (10 PASS) → upload the WHOLE dist including `sw.js` →
@@ -541,6 +547,26 @@ Wasm mail in that dist (`tests/ws-relays.test.mjs`, `tests/wasm-blob-url.test.mj
   identity restore awaits a checkpoint before its reload. `read-file`
   falls back to `sqlite_export`, so the backup password fallback can read
   dc.db.
+- **Saves that must survive a reload (PWA avatar loss, 10-15).** Blob dirs
+  ARE in the snapshot (`snap-<n>/accounts/<uuid>/dc.db-blobs/`); the avatar
+  was lost because nothing saved it before the user reloaded: the 8 s
+  interval and the hide flush lose any change made a few seconds before a
+  reload (page cannot await OPFS while unloading). `JsonRpcCore._persist()`
+  awaits a checkpoint after `setAvatar` / `setDisplayName` /
+  `setSelfStatus` / `setChatImage`, and starts one (not awaited) after a
+  `sendMessage` with a file. Add it to any new "user expects this to stick"
+  write. KEEP the snapshot order databases → memfs walk: `vfs_list` is async
+  and the core runs between awaits; it writes a blob before the row naming
+  it, so dbs-first can only add orphan blobs, never a `selfavatar` /
+  attachment row pointing at a missing file (the old order did — avatar
+  broken after reload and `build_avatar_file` failing, so no
+  Chat-User-Avatar went out). The core's own avatar path (copy → recode via
+  the image crate → blobdir) works in wasm (a 4000×3000 JPEG recodes in
+  ~1.3 s). `/uploads/` is outside the snapshot; `dropUpload` frees the
+  picked temp file after `set_config selfavatar` / `set_chat_profile_image`
+  via the worker's `remove-file` (only `/uploads/<name>`). Sent-file
+  uploads are not dropped yet. `tests/wasm-blob-persist.test.mjs`,
+  `tests/wasm-opfs-snapshot.test.mjs`.
 - **SW updates (10-13).** Install precaches with `cache: 'reload'` (a host
   with max-age otherwise filled the new VERSION with old files — reproduced
   headless); navigations are network-first with the precached
@@ -724,6 +750,32 @@ Failure catalog (both hit on 2026-09-26; the fixes live in the script):
   could not grow. Free C: space first — deleting WSL-side files does NOT
   shrink the vhdx (sparse mode is refused by WSL over corruption risk), so
   the room must exist on C: before the build starts.
+
+### 4.3.4 No Material Components in the APK (`veltaKeepMaterial`)
+
+The Tauri APK ships without `com.google.android.material` (merged from the
+tested `test/no-material` branch). In `gen/android/app/`:
+
+- `build.gradle.kts` no longer declares `material`, and a
+  `configurations.all { exclude(group = "com.google.android.material") }`
+  rule strips the copy that `tauri-android`, `tauri-plugin-fs`,
+  `-dialog`, `-deep-link`, `-notification` pull in transitively (library
+  modules still compile against it; only the app APK drops it).
+- `themes.xml` (day + night) parent `Theme.AppCompat.DayNight.NoActionBar`.
+- `activity_main.xml` (unused template) is a `FrameLayout`, not
+  ConstraintLayout (that came in via Material).
+- Caveat: `tauri-plugin-dialog`'s `showMessageDialog`
+  (`MaterialAlertDialogBuilder`) would crash. JS only uses
+  `plugin:dialog|open`/`save` and capabilities grant only those; do not
+  call `message`/`ask`/`confirm` from the dialog plugin on Android.
+- Opt-out: `-PveltaKeepMaterial=true` keeps Material in the APK
+  (e.g. to bisect a regression).
+- `-PveltaAppIdSuffix=.foo` gives a local side-by-side `org.velta.foo`
+  build; the default is empty, so default/release builds stay `org.velta`
+  with label "Velta". CI side-by-side builds (PR #133) patch
+  `applicationId`/`strings.xml` in the workflow instead.
+- These files are `cargo tauri android init` output: re-running init
+  reverts all of this — re-apply after any re-init.
 
 ### 4.4 Android background service (`velta-core-service/`)
 
@@ -1115,8 +1167,16 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   KEEP: `onMsgsChanged`'s in-place compare must include
   `item.msg.text !== m.text` — without it, edits arriving from the other
   device never re-render (only downloadState/viewtype/state were compared).
-  Menu guards mirror the core's (own + plain text + non-empty, not P2P —
-  `local-chat`'s proxy would fall through to the wrong id space).
+  Menu guards live in `app/js/msg-edit.js` `canEditMsg` and mirror the
+  core's `send_edit_request` (own, not info, not hasHtml, not call, non-empty
+  original text; not P2P — `local-chat`'s proxy would fall through to the
+  wrong id space). Caption edits: own image/gif/video/audio/voice/file/vcard
+  messages WITH a caption are editable (text only; the attachment is kept,
+  "edited" marker + in-place re-render as for text). Core refuses
+  "Cannot add text", so media sent without a caption cannot gain one — no
+  Edit item then. webxdc/sticker excluded (no user caption). Core has no
+  edit time window. `_setEdit` bails if an attachment is staged
+  (`pendingMedia`), else `_send()` would post new media instead of the edit.
 - **Long-press guard** (1.4.20): the row's 500 ms context-menu timer cancels
   on `touchcancel` AND on multi-touch (`touches.length > 1`) — the WebView
   claims two-finger gestures and answers with `touchcancel`, not `touchmove`,
@@ -1202,7 +1262,7 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   not INBOX). Message-ID and server URLs come from `get_message_info_object`.
   Reactions (#122) sit under State: one open `<details>` per emoji
   (`messageInfoReactions` in format.js). The summary chip is a `<button>`,
-  so a tap calls `addReaction` and does not toggle the details. The body
+  so a tap toggles our reaction (see below) and does not toggle the details. The body
   names who sent it. `getMessageReactions` reads `get_message_reactions`
   and `get_contacts_by_ids`; contact 1 with no name is "You". A local chat
   skips that RPC and shows the chips already on the message, with no
@@ -1825,6 +1885,34 @@ signalling) that extends this engine with a relay mode and core-contact
 links instead of patching core — read docs/iroh-layer-plan.md and
 docs/research/iroh-layer-research.md before touching p2p.rs for it.
 
+### 5.4.1 Large file via Lufi (#138)
+
+Attach menu → "Large file" (Tauri shell only, not in local chats): the file
+is encrypted on-device with SJCL exactly like the Lufi web client
+(`app/vendor/sjcl.mjs` = Lufi's own sjcl.js 1.0.8, hash-pinned by
+`tests/lufi.test.mjs`), uploaded slice by slice over `wss://<server>/upload`
+by `lufi.rs`, and the chat gets `📦 name (size)` + `<server>/r/<short>#<key>`.
+Recipients without Velta open the link in any browser; the Lufi page
+decrypts. KEEP: every network call takes the account proxy from
+`shellProxy()` and `lufi.rs` routes it through `link_preview_proxy` —
+fail closed, never a direct fallback. KEEP: the deletion token lives only in
+localStorage (`velta-lufi-files`, per account+msg), never in the message.
+Server URL default `https://upload.disroot.org` (changeable in the upload
+dialog, `velta-lufi-server`). Details, live round-trip recipe:
+docs/agents/large-file.md.
+
+### 5.4.2 "Send directly (both online)" — built-in webxdc (#138 part 2)
+
+Attach menu item next to Large file: sends `app/builtin/send-direct.xdc`
+into the chat and opens it. Sources in `app/webxdc/send-direct/`
+(`transfer.js` = node-tested protocol: OFFER/REQ/CHUNK frames over the
+webxdc realtime channel, 48 KiB chunks, windowed re-requests for lossy
+gossip, pure-JS SHA-256 check; `ui.js`; `index.html`; `manifest.toml`).
+KEEP: after editing them run `node tools/build-builtin-xdc.mjs` — the .xdc
+is a reproducible STORE zip and `tests/send-direct-xdc.test.mjs` fails on a
+stale one. Receiver saves via `webxdc.sendToChat` (normal attachment) or
+Download. Host realtime wiring: docs/agents/webxdc.md.
+
 ### 5.5 In-app browser (Android)
 
 Message links open without leaving the app: Custom Tab (the user's default
@@ -1994,6 +2082,16 @@ next push or the tainted commits come back.
 
 ---
 
+### 6.7 Pitfalls found in 1.4.70 (and how to avoid them)
+
+- **Timestamp units.** jsonrpc `ChatListItem.lastUpdated` and message `timestamp` fields: check the Rust type in `core/deltachat-jsonrpc/src/api/types/` before scaling. `lastUpdated` is already **milliseconds** (`get_timestamp() * 1000`); multiplying again gave year 58757. Never assume seconds; a 2-digit year format hid this bug for months. Tests with a fixed clock must assert the full year.
+- **Date math uses calendar days**, not `(now - ts) / 86400e3` windows (`calendarDaysAgo` in `format.js`). Never pair `hour12:false` with `hourCycle:"h23"` (node/WebView then print "24:05").
+- **Bundled assets sent to core (Tauri).** Don't fetch an app asset in the WebView and write it with the fs plugin before passing the path to core: on Android the bytes came out corrupt, core still sent an empty webxdc, and opening it showed "not found". Embed with `include_bytes!` and write from Rust (`builtin_xdc.rs`, `prepare_builtin_xdc`), validate (zip with `index.html`, read back), and **never send a message unless the file validated**; show an error toast instead.
+- **PWA persistence is snapshot-based.** Anything that must survive a reload (avatar, profile, chat image, sent blobs) must await a checkpoint before reporting success; snapshots export DBs first, then list blobs, so a DB row never points at a missing blob.
+- **Verify the claim, not the commit.** "Fixed on tip" isn't fixed until reproduced on the deployed build: check the served `sw.js` cache name, and for Android check the release APK. Subagent or reviewer statements like "timestamps are converted from seconds" must be checked against the code.
+- **Read the user's words literally.** "above app logs" meant the App log bar, not the logo; ask or re-read before moving UI.
+- **Releases.** Run the full node suite and look at real dates/times in a screenshot of the chat list before tagging. Tag only after AGENTS/docs reflect the release.
+
 ## 7. Testing strategy
 
 ### 7.1 Rust core
@@ -2010,11 +2108,65 @@ next push or the tainted commits come back.
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 72 files, 543 tests as of 2026-10-14:
+whole set — 80 files, 607 tests as of 2026-10-15 (1.4.70):
 
 ```bash
 node --test tests/
 ```
+
+Chat-list time (`app/js/format.js` `formatListTime`/`formatDay`,
+`tests/format-list-time.test.mjs`): LOCAL CALENDAR days, not a 24 h window —
+today `HH:MM`, yesterday `Yesterday`, 2–6 days ago weekday, same year `Oct 3`,
+older with year; future timestamps never get a weekday. Never pass
+`hour12:false` together with `hourCycle:'h23'` (V8 renders 00:05 as 24:05).
+
+Instant View research (AMP vs Readability vs JSON-LD, not implemented):
+`docs/research/instant-view-research.md`.
+
+Own-reaction toggle (`app/js/reactions.js`, `tests/reaction-toggle.test.mjs`):
+core `send_reaction(acc, msgId, list)` REPLACES our whole reaction set, so
+`[]` removes it and `[e]` replaces it; Velta keeps one emoji per sender.
+`reactionToggle(reactions, emoji)` → `{send, removing, reactions}`: tapping
+the emoji we already sent removes it, any other replaces it. All entry points
+(chips under the bubble, desktop quick-reaction menu, phone sheet incl. the
+emoji tray, message-info chips) go through `ChatView._toggleReaction`, which
+patches chips optimistically via `onMsgUpdated` and rolls back + toasts on
+error. `core.setReaction(chatId, msgId, list)` (rpc + mock) is the wire call;
+`addReaction`/`clearReaction` stay for the battery marker. Chips are
+`<button aria-pressed>`; our emoji is `.mine` / `aria-pressed="true"` in the
+chips, the sheet (`showMessageSheet({selected})`, shown first if not in the
+grid) and the context menu (`pressed` item → `.ctx-item.pressed`). Local P2P
+chats (`chat.isP2p`, 1:1 and groups) carry no reactions (`reactions: null`,
+`addReaction` not proxied), so the React entries and chip taps are off there.
+
+Recent commands (#135, `tests/recent-commands.test.mjs`):
+`app/js/recent-commands.js`. Sending a message whose first line starts with
+`/` (not edits) records that first line, trimmed, ≤64 chars, into
+localStorage `velta-recent-commands` = `{acc: {global: [...], chats: {chatId:
+[...]}}}` — distinct, most-recent-first, capped 10 per list (≤200 chats per
+account, oldest pruned). Lookup is PER-CHAT, falling back to the account-wide
+global list when the chat has none. When composer text starts with `/` (single
+line) a `role=listbox` `<ul id=recent-commands>` is appended inside
+`#main-composer` (made `position: relative`), `bottom: 100%`, prefix-filtered
+case-insensitively. Textarea gets `aria-autocomplete/aria-expanded/
+aria-controls/aria-activedescendant`. ArrowUp/Down move, Enter/Tab insert the
+active option (Tab with none = first), Escape/blur/send hide; Enter with NO
+active option still sends. Selection inserts `cmd + " "`, never auto-sends.
+Option taps `preventDefault` on pointerdown/mousedown so the Android soft
+keyboard stays up. `_bindComposer` keydown calls `handleKey` FIRST. There was
+no @-mention autocomplete to reuse; styles mirror `.ctx-menu`.
+
+Hashtags (#134, `tests/hashtags.test.mjs`): `app/js/hashtags.js` finds
+`#tag` (Unicode letters/marks/digits/`_`, at least one letter, ≤64 chars,
+`#` must start a word — `C#`, `&#123;`, `a#b`, `##x` stay text; `#123` is an
+issue number, not a tag). markdown.js scans only the text left after
+[label](url), bare and scheme-less links, so URL `#fragments` are never tags,
+and renders `<button type="button" class="hashtag" data-hashtag="#tag">`
+(native focus + Enter/Space). chat-view's row click dispatches
+`velta-hashtag`; app.js `openChatSearch(prefill)` opens the existing
+"Search in chat" modal prefilled (core `search_messages` scoped to the
+chat; P2P chats filter loaded rows). Velta markdown has no code
+spans/blocks, so there is no code exclusion to apply.
 
 The suites pin renderer logic without a browser: account isolation
 (rpc/chat/app), event polling, message-update hardening, read tracking,
@@ -2386,6 +2538,15 @@ talks to Google.
   the core (quilt op #13 in `imap.rs register_token`) emits `Info`/`Warning` events per transport — "push notifications
   registered" (relay accepted the token) vs "relay did not accept the push
   token". The rpc-core `Info`/`Warning` → diagnostic mapping surfaces both.
+- **Relays modal "(U)" mark (#110)** — op #13's events name the relay
+  (`Transport N (addr): …`, helper `velta_transport_addr`; list_transports
+  carries no ids). `app/js/relay-push.js` parses them from onDiagnostic and
+  caches per domain in localStorage `velta.relayPush`; the Relays modal marks
+  a row `(U)` (title/aria-label "Supports UnifiedPush push notifications")
+  only when the core confirmed SETMETADATA succeeded on a relay whose
+  METADATA says supports_push. No probe, no guessing: desktop/PWA (no device
+  token) and never-registered relays show no mark; a later rejection clears it.
+  Does not prove the relay's notifier delivers, only that it took the token.
   Since 1.4.51 `push_wakeup_impl` also mirrors its start/done lines to
   logcat (`println!` → RustStdoutStderr): a wake can run while the process
   is half-frozen by an OEM where the buffered velta.log may never flush —

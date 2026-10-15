@@ -19,6 +19,10 @@ android {
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
         applicationId = "org.velta"
+        // Optional local side-by-side build: -PveltaAppIdSuffix=.foo gives
+        // org.velta.foo. Default empty, so release/default builds stay org.velta.
+        // (CI side-by-side builds patch applicationId directly; see build-android.yml.)
+        applicationIdSuffix = (project.findProperty("veltaAppIdSuffix") as String?) ?: ""
         minSdk = 24
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
@@ -74,7 +78,6 @@ dependencies {
     implementation("androidx.browser:browser:1.8.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.activity:activity-ktx:1.10.1")
-    implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.lifecycle:lifecycle-process:2.10.0")
     // UnifiedPush connector: registration + push-event plumbing with the
     // user-selected distributor app (no Play Services involved).
@@ -85,3 +88,10 @@ dependencies {
 }
 
 apply(from = "tauri.build.gradle.kts")
+// Material removal: tauri-android, tauri-plugin-fs/-dialog/-deep-link/-notification
+// declare material transitively. Strip it from the APK (library modules still
+// compile against it). Only DialogPlugin.showMessageDialog uses it, and the
+// capabilities grant dialog:allow-open/save only. -PveltaKeepMaterial=true to keep.
+if ((project.findProperty("veltaKeepMaterial") as String?) != "true") {
+    configurations.all { exclude(group = "com.google.android.material", module = "material") }
+}

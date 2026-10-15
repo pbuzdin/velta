@@ -48,9 +48,12 @@ export default async function () {}
 export function vfs_mkdirp() {}
 export function vfs_write(p, b) { s.memfs.set(p, new Uint8Array(b)); }
 export function vfs_read(p) { if (!s.memfs.has(p)) throw new Error("ENOENT " + p); return s.memfs.get(p); }
+export function vfs_remove(p) { s.memfs.delete(p); }
 export async function vfs_list(p) {
   const pre = p.endsWith("/") ? p : p + "/"; const out = new Set();
   for (const k of s.memfs.keys()) if (k.startsWith(pre)) { const rest = k.slice(pre.length); const i = rest.indexOf("/"); out.add(i === -1 ? pre + rest : pre + rest.slice(0, i) + "/"); }
+  // The core gets the thread after a directory was listed (async export).
+  if (s.onList && p.includes("dc.db-blobs")) { const f = s.onList; s.onList = null; f(); }
   return [...out];
 }
 export function sqlite_list() { return [...s.dbs.keys()]; }
@@ -131,4 +134,40 @@ test("read-file falls back to the database VFS (#124 password fallback)", async 
   const r = await waitFor((m) => m.id === 77);
   assert.equal(r.type, "file");
   assert.equal(text(r.bytes), "db-bytes");
+});
+
+test("a blob written during the walk never leaves the saved db pointing at nothing", async () => {
+  await boot();
+  store.dbs.set(DB, bytes("selfavatar="));
+  store.memfs.set("/accounts/accounts.toml", bytes("t"));
+  store.memfs.set("/accounts/uuid-1/dc.db-blobs/old.jpg", bytes("old"));
+  // The core runs between the walk's awaits: it writes the avatar blob, then
+  // the config row naming it (set_config selfavatar order).
+  const BLOB = "/accounts/uuid-1/dc.db-blobs/av.jpg";
+  store.onList = () => { store.memfs.set(BLOB, bytes("jpeg")); store.dbs.set(DB, bytes("selfavatar=" + BLOB)); };
+  assert.equal((await checkpoint()).type, "checkpoint-done");
+  await boot();
+  const saved = text(store.dbs.get(DB));
+  const named = saved.slice("selfavatar=".length);
+  if (named) assert.ok(store.memfs.has(named), `db names ${named} but the snapshot lacks it`);
+  // the next checkpoint catches up with both
+  store.memfs.set(BLOB, bytes("jpeg")); store.dbs.set(DB, bytes("selfavatar=" + BLOB));
+  assert.equal((await checkpoint()).type, "checkpoint-done");
+  await boot();
+  assert.equal(text(store.dbs.get(DB)), "selfavatar=" + BLOB);
+  assert.equal(text(store.memfs.get(BLOB)), "jpeg");
+});
+
+test("remove-file only touches /uploads/<name>", async () => {
+  await boot();
+  store.memfs.set("/uploads/avatar-1.jpg", bytes("x"));
+  store.memfs.set("/accounts/accounts.toml", bytes("t"));
+  send({ type: "remove-file", path: "/uploads/avatar-1.jpg", id: 901 });
+  assert.equal((await waitFor((m) => m.id === 901)).type, "removed");
+  assert.equal(store.memfs.has("/uploads/avatar-1.jpg"), false);
+  send({ type: "remove-file", path: "/accounts/accounts.toml", id: 902 });
+  assert.equal((await waitFor((m) => m.id === 902)).type, "file-error");
+  send({ type: "remove-file", path: "/uploads/../accounts/accounts.toml", id: 903 });
+  assert.equal((await waitFor((m) => m.id === 903)).type, "file-error");
+  assert.ok(store.memfs.has("/accounts/accounts.toml"));
 });

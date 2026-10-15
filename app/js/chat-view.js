@@ -1,8 +1,11 @@
 // chat-view.js — virtualized message history (virtual-scroller) + composer
+import { canEditMsg } from "./msg-edit.js";
+import { prepareBuiltinXdc } from "./builtin-xdc.js";
 import { formatTime, formatDay, formatDateTime, formatServerUrl, messageInfoState, messageInfoReactions, formatBytes, timeTag, stampTime } from "./format.js";
 import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener } from "./components.js";
 import { showContextMenu, showMessageSheet, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG } from "./ui.js";
 import { diagnosticRow } from "./diagnostics.js";
+import { attachRecentCommands, recordCommand } from "./recent-commands.js";
 import { openWebxdc, prefetchInfo, appIconUrl } from "./webxdc-manager.js";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
@@ -70,10 +73,13 @@ import { linkPreview, linkPreviewCardHtml, linkPreviewMode, firstLink as firstLi
 import { stripTrackingUrl, stripTrackingText, trackingStripEnabled } from "./trackers.js";
 import { getReadMarker, clearReadMarker } from "./read-markers.js";
 import { shareStageKind, shareViewtype } from "./share-in.js";
+import { reactionToggle, myReaction } from "./reactions.js";
+import { sendLargeFile, largeFileAvailable, largeFileInfoHtml, wireLargeFileInfo } from "./large-file.js";
+import { lufiUploadFor } from "./lufi.js";
 
 function reactionChipsHtml(reactions) {
   return (reactions || []).map(r =>
-    `<span class="reaction-chip${r.mine ? " mine" : ""}" data-react="${escapeAttr(r.emoji)}">${escapeHtml(r.emoji)} ${Number(r.count) || 0}</span>`
+    `<button type="button" class="reaction-chip${r.mine ? " mine" : ""}" aria-pressed="${r.mine ? "true" : "false"}" aria-label="${escapeAttr(r.emoji)} ${Number(r.count) || 0}${r.mine ? ", your reaction, tap to remove" : ""}" data-react="${escapeAttr(r.emoji)}">${escapeHtml(r.emoji)} ${Number(r.count) || 0}</button>`
   ).join("");
 }
 
@@ -2058,8 +2064,18 @@ export class ChatView {
         }
         return; // non-http hrefs: browser default, never row selection
       }
+      // #134: tapping a #hashtag searches for it in this chat (app.js
+      // listens and opens the chat search prefilled with the tag).
+      const tagBtn = e.target.closest("button[data-hashtag]");
+      if (tagBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (Date.now() - (this._swipedAt || 0) < 400) return;
+        window.dispatchEvent(new CustomEvent("velta-hashtag", { detail: { tag: tagBtn.dataset.hashtag } }));
+        return;
+      }
       const chip = e.target.closest("[data-react]");
-      if (chip) { this.core.addReaction(this.chat.id, m.id, chip.dataset.react); return; }
+      if (chip) { e.stopPropagation(); if (!this.chat?.isP2p) this._toggleReaction(this.chat.id, m.id, chip.dataset.react); return; }
       const quote = e.target.closest("[data-quote]");
       if (quote) { this._jumpToMessage(Number(quote.dataset.quote)); return; }
       const mediaAction = e.target.closest("[data-act]");
@@ -2389,7 +2405,7 @@ export class ChatView {
     // Core mirrors these guards (own + plain text + non-empty); the menu just
     // hides the entry where the core would refuse. P2P chats keep a separate
     // message store — no edit there yet.
-    if (!this.chat?.isP2p && m.from === 1 && m.viewtype === "text" && m.text) items.push({ label: "Edit", pair: "own", icon: ICO.edit, onClick: () => this._setEdit(item) });
+    if (canEditMsg(m, this.chat)) items.push({ label: "Edit", pair: "own", icon: ICO.edit, onClick: () => this._setEdit(item) });
     if (!this.chat?.isP2p && m.viewtype === "sticker" && m.from !== 1 && m.filePath) {
       items.push({
         label: "Save sticker", short: "Sticker", pair: "file", icon: ICO.download,
@@ -2448,7 +2464,8 @@ export class ChatView {
         }
       } },
     );
-    if (!p2pg && !touch) items.push(
+    const canReact = !this.chat?.isP2p; // local chats carry no reactions
+    if (canReact && !touch) items.push(
       { label: "React", icon: QUICK_REACTIONS[0], onClick: () => this._reactionMenu(item, x, y) },
     );
     items.push({ label: "Select", pair: "meta", icon: ICO.select, onClick: () => this._enterSelection(m.id) });
@@ -2465,8 +2482,9 @@ export class ChatView {
       (action.pair && buckets.has(action.pair) ? buckets.get(action.pair) : tail).push(action);
     }
     showMessageSheet({
-      reactions: p2pg ? [] : SHEET_REACTIONS,
-      onReact: (emoji) => { if (this._isCurrent(session)) return this.core.addReaction(session.chatId, m.id, emoji); },
+      reactions: canReact ? SHEET_REACTIONS : [],
+      selected: myReaction(m.reactions),
+      onReact: (emoji) => { if (this._isCurrent(session)) return this._toggleReaction(session.chatId, m.id, emoji); },
       items: [...SHEET_PAIRS.flatMap(k => buckets.get(k)), ...tail],
     });
   }
@@ -2474,9 +2492,33 @@ export class ChatView {
   _reactionMenu(item, x, y) {
     const session = this._session;
     if (!this._isCurrent(session) || this.msgIndex.get(item.msg.id) !== item) return;
-    showContextMenu(QUICK_REACTIONS.map(e => ({
-      label: e, onClick: () => { if (this._isCurrent(session)) return this.core.addReaction(session.chatId, item.msg.id, e); },
+    const mine = myReaction(item.msg.reactions);
+    const list = mine && !QUICK_REACTIONS.includes(mine) ? [...QUICK_REACTIONS, mine] : QUICK_REACTIONS;
+    showContextMenu(list.map(e => ({
+      label: e, pressed: e === mine, ariaLabel: e === mine ? `Remove reaction ${e}` : `React ${e}`,
+      onClick: () => { if (this._isCurrent(session)) return this._toggleReaction(session.chatId, item.msg.id, e); },
     })), x, y - 10);
+  }
+
+  // Own-reaction toggle with optimistic chips. Same emoji removes ours
+  // (send_reaction []), another replaces it. On error the chips roll back.
+  async _toggleReaction(chatId, msgId, emoji) {
+    const session = this._session;
+    const item = this.msgIndex.get(msgId);
+    const before = item?.msg;
+    const plan = reactionToggle(before?.reactions, emoji);
+    const live = () => this._isCurrent(session) && this.chat?.id === chatId && this.msgIndex.get(msgId)?.msg;
+    if (before) this.onMsgUpdated(chatId, { ...before, reactions: plan.reactions });
+    try {
+      if (this.core.setReaction) await this.core.setReaction(chatId, msgId, plan.send);
+      else if (plan.removing) await this.core.clearReaction(msgId);
+      else await this.core.addReaction(chatId, msgId, emoji);
+    } catch (err) {
+      const cur = live();
+      if (before && cur) this.onMsgUpdated(chatId, { ...cur, reactions: before.reactions });
+      if (this._isCurrent(session)) errToast((plan.removing ? "Couldn't remove reaction: " : "Couldn't react: ") + (err?.message || err));
+    }
+    return plan;
   }
 
   _showInfo(item) {
@@ -2507,10 +2549,12 @@ export class ChatView {
       <div class="info-row"><span class="k">State</span><span class="v">${escapeHtml(state)}</span></div>
       <div class="info-reacts" data-reacts hidden></div>
       ${deliveryRows}
+      ${largeFileInfoHtml(lufiUploadFor(this.core.accountId, m.id))}
       <div class="info-row"><span class="k">Database ID</span><span class="v">#${escapeHtml(m.id)}</span></div>
       <div class="info-row wrap"><span class="k">Message-ID</span><span class="v" data-mid>…</span></div>
       <div class="info-row wrap"><span class="k">Server URL</span><span class="v" data-servers>…</span></div>`,
     });
+    wireLargeFileInfo(info.modal, this.core.accountId, m.id);
     const reactBox = info.modal.querySelector("[data-reacts]");
     const paintReactions = (payload) => {
       if (!reactBox || !info.modal.isConnected) return;
@@ -2518,7 +2562,7 @@ export class ChatView {
       reactBox.hidden = !html;
       reactBox.innerHTML = html;
       reactBox.querySelectorAll("[data-react]").forEach(chip => chip.addEventListener("click", () => {
-        if (this.chat) this.core.addReaction(this.chat.id, m.id, chip.dataset.react);
+        if (this.chat && !this.chat.isP2p) this._toggleReaction(this.chat.id, m.id, chip.dataset.react);
       }));
     };
     const fromMsg = m.reactions?.length
@@ -2795,6 +2839,9 @@ export class ChatView {
 
   _setEdit(item) {
     if (!this._isCurrent() || this.msgIndex.get(item.msg.id) !== item) return;
+    // A staged attachment would make _send() post new media instead of the
+    // edit; caption edits keep the ORIGINAL attachment (core edits text only).
+    if (this.pendingMedia || !canEditMsg(item.msg, this.chat)) return;
     this.replyTo = null;
     this.replyFragment = null;
     this.editingMsg = item.msg;
@@ -2907,7 +2954,11 @@ export class ChatView {
       if (input.value.trim()) this._typingFor(this.chat.id).ping();
       else this._typingStop();
     });
+    // #135 recent "/" commands popup (anchored in #main-composer).
+    this._recentCmds = attachRecentCommands(input, document.getElementById("main-composer"),
+      () => (this.chat && this.core ? { accountId: this.core.accountId, chatId: this.chat.id } : null));
     input.addEventListener("keydown", e => {
+      if (this._recentCmds.handleKey(e)) return;
       // Send on Enter is a setting (drawer, default on). Off: Enter falls
       // through to the textarea's native newline insert, whose input event
       // runs grow() — every line stays visible. Shift+Enter is always a
@@ -2984,6 +3035,15 @@ export class ChatView {
         { label: "Video", icon: ICO.photo, onClick: () => this._sendAttachment("video") },
         { label: "File", icon: ICO.file, onClick: () => this._sendAttachment("file") },
       ];
+      // #138: encrypted upload to a Lufi server, the chat gets the link.
+      // Shell-only (proxy-aware sockets); local chats send files directly.
+      if (largeFileAvailable() && !this.chat?.isP2p) {
+        attachItems.push({ label: "Large file", icon: ICO.file, onClick: () => this._sendLargeFile() });
+        // #138 part 2: built-in webxdc that streams a file peer to peer over
+        // the instance's realtime channel (iroh gossip) — webxdc runs in the
+        // Tauri shell only.
+        attachItems.push({ label: "Send directly (both online)", icon: ICO.file, onClick: () => this._sendDirectApp() });
+      }
       if (!window.__TAURI__ && /Android/i.test(navigator.userAgent)) {
         attachItems.splice(1, 0, { label: "Camera", icon: ICO.photo, onClick: () => this._sendAttachment("camera") });
       }
@@ -3243,6 +3303,8 @@ export class ChatView {
       return;
     }
     if (!text) return;
+    this._recentCmds?.hide();
+    if (!this.editingMsg) recordCommand(this.core.accountId, session.chatId, text);
     const url = senderPreviewUrl(text, {
       enabled: !!(this.chat && !this.editingMsg && linkPreviewMode(this.chat.id) === "picture"),
       hasFile: false,
@@ -3458,6 +3520,44 @@ export class ChatView {
     } catch (err) {
       if (this._isCurrent(session)) errToast("Could not send image: " + (err?.message || err));
     }
+  }
+
+  // Posts app/builtin/send-direct.xdc (built by tools/build-builtin-xdc.mjs)
+  // into the chat and opens it so the sender can pick the file right away.
+  async _sendDirectApp() {
+    const session = this._session;
+    if (!this._isCurrent(session) || !this.chat) return;
+    try {
+      // #138: never send unless a valid .xdc is on disk (see builtin-xdc.js).
+      const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+      const path = await prepareBuiltinXdc("send-direct", {
+        invoke, fetchImpl: (u) => fetch(u), baseURI: document.baseURI,
+        writeFile: (n, b) => this._writeBlobForSend(n, b),
+      });
+      if (!path) throw new Error("built-in app could not be prepared");
+      if (!this._isCurrent(session)) return;
+      const msg = await this._sendArchivedAware(session.chatId, { viewtype: "webxdc", file: path, filename: "send-direct.xdc", text: "" });
+      if (!this._isCurrent(session)) return;
+      this.appendOutgoing(msg);
+      this.onChatsChanged();
+      if (msg?.id != null) openWebxdc(msg.id, "Send directly");
+    } catch (err) {
+      if (this._isCurrent(session)) errToast("Could not start direct send: " + (err?.message || err), 4000);
+    }
+  }
+
+  async _sendLargeFile() {
+    const session = this._session;
+    if (!this._isCurrent(session) || !this.chat) return;
+    await sendLargeFile({
+      accountId: this.core.accountId,
+      isCurrent: () => this._isCurrent(session),
+      send: async (text) => {
+        const msg = await this._sendArchivedAware(session.chatId, { text });
+        if (this._isCurrent(session)) { this.appendOutgoing(msg); this.onChatsChanged(); }
+        return msg;
+      },
+    });
   }
 
   async _sendAttachment(kind) {

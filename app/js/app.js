@@ -8,6 +8,7 @@ import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintFromVc
 import { ChatView, setAvatarProfileOpener } from "./chat-view.js";
 import { initCalls } from "./calls.js";
 import { initWebxdc } from "./webxdc-manager.js";
+import { notePushDiagnostic, relaySupportsPush, pushMarkHtml } from "./relay-push.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow, isSendFailureDiagnostic, createRelaySendErrorState } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal, isShortInviteLink, expandShortInvite } from "./invites.js";
 import { activeWsRelay, addWsRelay, listWsRelays, normalizeHost, probeC3Relay, probeDnsVia, showWsRelaysModal, useWsRelay } from "./ws-relays.js";
@@ -362,6 +363,7 @@ let splashSession = null;
 coreStartupPromise = createCore({
   onDiagnostic: (level, message) => {
     diagnostics.append(level, message);
+    notePushDiagnostic(message); // #110: relay "(U)" marks
     try {
       const tauri = window.__TAURI__;
       const invoke = tauri?.core?.invoke || tauri?.invoke;
@@ -2605,11 +2607,18 @@ async function showChatInfo(chat) {
         if (name && name !== chat.name) await core.renameChat(chat.id, name);
         if (result.description !== currentDesc) await core.setChatDescription(chat.id, result.description);
         if (result.avatar === "remove") await core.setChatImage(chat.id, null);
-        else if (result.avatar !== "keep") await core.setChatImage(chat.id, result.avatar.path);
+        else if (result.avatar !== "keep") {
+          await core.setChatImage(chat.id, result.avatar.path);
+          dropUpload(result.avatar.path);
+        }
         if (!accountIsCurrent(epoch)) return;
         if (name) chat.name = name;
-        chat.avatar = result.avatar === "remove" ? null
-          : (result.avatar !== "keep" ? result.avatar.path : chat.avatar);
+        // The core's blobdir copy, not the picked temp path (gone above).
+        if (result.avatar === "remove") chat.avatar = null;
+        else if (result.avatar !== "keep") {
+          const fresh = await core.getChat?.(chat.id).catch(() => null);
+          chat.avatar = fresh?.avatar ?? null;
+        }
         refreshChatList();
         if (state.activeChatHead && state.activeChatId === chat.id) {
           const fresh = renderChatHead(chat);
@@ -2911,7 +2920,13 @@ function bindChatHeadMenu() {
     ], r.right - 220, r.bottom + 6);
   });
   $("btn-back").addEventListener("click", closeChat);
-  $("btn-chat-search").addEventListener("click", () => {
+  $("btn-chat-search").addEventListener("click", () => openChatSearch());
+  // #134: a tapped #hashtag in message text opens the same search, prefilled.
+  window.addEventListener("velta-hashtag", e => {
+    const tag = String(e.detail?.tag || "");
+    if (tag.startsWith("#")) openChatSearch(tag);
+  });
+  function openChatSearch(prefill = "") {
     const epoch = core.accountEpoch;
     const chat = state.chats.find(c => c.id === state.activeChatId);
     if (!chat) return;
@@ -2972,8 +2987,9 @@ function bindChatHeadMenu() {
     };
     input.addEventListener("input", search);
     showModal({ title: "Search in chat", body: wrap });
+    if (prefill) { input.value = prefill; search(); }
     setTimeout(() => input.focus(), 50);
-  });
+  }
 }
 
 /* ---------------- new chat / forward ---------------- */
@@ -4471,6 +4487,14 @@ async function writePickedImage(file) {
   return path;
 }
 
+// The core copied the picture into its blobdir (set_config selfavatar /
+// set_chat_profile_image), so the /uploads/ temp copy only costs memory.
+function dropUpload(path) {
+  const rm = core?.transport?.removeCoreFile;
+  if (typeof rm !== "function" || !/^\/uploads\//.test(String(path || ""))) return;
+  rm.call(core.transport, path).catch(() => {});
+}
+
 async function pickProfileImage() {
   const tauri = window.__TAURI__;
   const invoke = tauri?.core?.invoke || tauri?.invoke;
@@ -4525,7 +4549,10 @@ async function editProfileFlow() {
     await core.setDisplayName(result.name);
     if (!accountIsCurrent(epoch)) return;
     if (result.avatar === "remove") await core.setAvatar(null);
-    else if (result.avatar !== "keep") await core.setAvatar(result.avatar.path);
+    else if (result.avatar !== "keep") {
+      await core.setAvatar(result.avatar.path);
+      dropUpload(result.avatar.path);
+    }
     if (core.setSelfStatus && result.description !== status) await core.setSelfStatus(result.description);
     if (!accountIsCurrent(epoch)) return;
     const account = await core.getAccount();
@@ -4661,10 +4688,10 @@ function normalizeRelayLink(raw) {
 }
 
 // The "Welcome to Velta" splash. Shown full-screen whenever the current
-// account is unconfigured (first boot): version line (#127), large Velta logo,
+// account is unconfigured (first boot): large Velta logo,
 // tagline, the three setup paths (create an account / add as a second device /
-// restore from a backup) and a collapsed app-log footer for errors and debug
-// messages.
+// restore from a backup), a version line (#127) pinned just above the
+// collapsed app-log footer for errors and debug messages.
 // Removes itself once a profile is ready — the create flow hides it
 // directly, the second-device receive resolves, restore reloads the app.
 function showSplash() {
@@ -4676,7 +4703,6 @@ function showSplash() {
   el.className = "splash"; el.id = "splash";
   el.innerHTML = `
     <div class="splash-main">
-      <p class="splash-ver" data-splash-ver>…</p>
       <img class="splash-logo" src="./icons/v-logo.svg" alt="Velta logo">
       <h1 class="splash-title">Welcome to Velta</h1>
       <p class="splash-tag">End-to-end encrypted messaging built on Delta Chat — no phone number, no central server. Pick how to set up your profile:</p>
@@ -4697,6 +4723,7 @@ function showSplash() {
       </form>
       <ul class="ob-steps" data-steps></ul>
     </div>
+    <p class="splash-ver" data-splash-ver>…</p>
     <details class="splash-log">
       <summary>App log — errors &amp; debug</summary>
       <div class="splash-log-bar"><button class="btn-text" data-copylog type="button">Copy log</button></div>
@@ -5105,7 +5132,8 @@ async function openRelaysModal() {
       const st = statusByDomain?.get((t.addr || "").split("@").pop());
       const hint = !st || st.state === "ok" ? "" : ` <span class="relay-row-status">${st.state === "down" ? "unreachable — messages queue until it's back" : "connecting…"}</span>`;
       const demote = primary && other ? `<button type="button" class="btn-text" data-demote>Stop using for sending</button>` : "";
-      row.innerHTML = `<span class="k">${escapeHtml(t.addr)}${primary ? " · sending" : ""}${hint}</span>
+      const pushMark = relaySupportsPush(t.addr) ? pushMarkHtml() : "";
+      row.innerHTML = `<span class="k">${escapeHtml(t.addr)}${pushMark}${primary ? " · sending" : ""}${hint}</span>
         <span class="v">${primary ? demote : `<button type="button" class="btn-text" data-sendvia>Use for sending</button>`}<button type="button" class="btn-text" data-remove style="color:var(--danger)">Remove</button></span>`;
       row.querySelector("[data-sendvia]")?.addEventListener("click", async () => {
         const ok = await confirmModal(

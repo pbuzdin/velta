@@ -63,6 +63,12 @@ export class WorkerWasmTransport {
     return this._fileRequest({ type: "write-file", path, bytes }, "written");
   }
 
+  // Drop a temp upload once the core has copied it (worker allows only
+  // /uploads/<name>).
+  removeCoreFile(path) {
+    return this._fileRequest({ type: "remove-file", path }, "removed");
+  }
+
   _fileRequest(msg, okType) {
     if (!this._worker) return Promise.reject(new Error("worker not booted"));
     const id = ++this._fileSeq;
@@ -129,6 +135,9 @@ export class WorkerWasmTransport {
       globalThis.document?.addEventListener?.("visibilitychange", () => {
         if (globalThis.document.visibilityState === "hidden") this.checkpoint().catch(() => {});
       });
+      // Best effort only: the page cannot wait for OPFS writes while it
+      // unloads. Anything the user just saved goes through
+      // JsonRpcCore._persist() instead, which awaits the checkpoint.
     });
   }
 }

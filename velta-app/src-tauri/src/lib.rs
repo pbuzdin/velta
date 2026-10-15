@@ -598,6 +598,26 @@ fn get_accounts_dir(app: tauri::AppHandle) -> String {
     accounts_dir(&app).to_string_lossy().to_string()
 }
 
+/// #138: write a built-in .xdc (bundled via include_bytes!) into uploads/
+/// and return its verified path for the core to send.
+#[tauri::command]
+fn prepare_builtin_xdc(app: tauri::AppHandle, name: String) -> Result<String, String> {
+    use tauri::path::BaseDirectory;
+    if builtin_xdc::builtin_bytes(&name).is_none() {
+        return Err(format!("unknown built-in app: {name}"));
+    }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let dest = app
+        .path()
+        .resolve(format!("uploads/{name}-{stamp}.xdc"), BaseDirectory::AppLocalData)
+        .map_err(|e| e.to_string())?;
+    builtin_xdc::write_builtin(&name, &dest)?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 fn resolve_upload_path(app: tauri::AppHandle, filename: String) -> String {
     use tauri::path::BaseDirectory;
@@ -652,6 +672,8 @@ fn allow_picked_path(app: tauri::AppHandle, path: String) -> Result<(), String> 
 }
 
 mod webxdc_serve;
+pub mod builtin_xdc;
+pub mod lufi;
 use webxdc_serve::{webxdc_resolve_line, webxdc_serve};
 mod bg_events;
 
@@ -3927,7 +3949,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, allow_picked_path, webxdc_begin, set_notify_prefs, get_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, take_opened_urls, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, install_update, get_battery_status, share_text, tunnel::tunnel_preview, tunnel::tunnel_install, tunnel::tunnel_remove, tunnel::tunnel_status, tunnel::tunnel_set_mode, tunnel::tunnel_network_changed, tunnel::tunnel_backup_begin, tunnel::tunnel_backup_end, tunnel::tunnel_reapply, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_groups, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, allow_picked_path, webxdc_begin, set_notify_prefs, get_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, take_opened_urls, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, install_update, get_battery_status, share_text, tunnel::tunnel_preview, tunnel::tunnel_install, tunnel::tunnel_remove, tunnel::tunnel_status, tunnel::tunnel_set_mode, tunnel::tunnel_network_changed, tunnel::tunnel_backup_begin, tunnel::tunnel_backup_end, tunnel::tunnel_reapply, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_groups, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 

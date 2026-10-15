@@ -69,7 +69,9 @@ export function showContextMenu(items, x, y) {
     }
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "ctx-item" + (it.danger ? " danger" : "");
+    b.className = "ctx-item" + (it.danger ? " danger" : "") + (it.pressed ? " pressed" : "");
+    if (it.pressed !== undefined) b.setAttribute("aria-pressed", it.pressed ? "true" : "false");
+    if (it.ariaLabel) b.setAttribute("aria-label", it.ariaLabel);
     b.innerHTML = (it.icon || "") + "<span>" + escapeHtml(it.label) + "</span>";
     b.addEventListener("click", () => { closeAllPopups(); it.onClick?.(); });
     menu.appendChild(b);
@@ -119,7 +121,7 @@ function sheetAction(it) {
 
 // Mobile message menu: emoji grid, then related actions in two columns.
 // The last reaction cell opens a searchable tray and does not send a reaction.
-export function showMessageSheet({ reactions = [], onReact, items }) {
+export function showMessageSheet({ reactions = [], selected = null, onReact, items }) {
   closeAllPopups();
   const menu = document.createElement("div");
   menu.className = "ctx-menu msg-sheet";
@@ -133,12 +135,14 @@ export function showMessageSheet({ reactions = [], onReact, items }) {
   if (reactions.length) {
     const reacts = document.createElement("div");
     reacts.className = "msg-reacts";
-    for (const emoji of reactions) {
+    const shown = selected && !reactions.includes(selected) ? [selected, ...reactions.slice(0, -1)] : reactions;
+    for (const emoji of shown) {
       const b = document.createElement("button");
       b.type = "button";
-      b.className = "msg-react";
+      b.className = "msg-react" + (emoji === selected ? " mine" : "");
       b.textContent = emoji;
-      b.setAttribute("aria-label", emoji);
+      b.setAttribute("aria-pressed", emoji === selected ? "true" : "false");
+      b.setAttribute("aria-label", emoji === selected ? `Remove reaction ${emoji}` : emoji);
       b.addEventListener("click", () => { closeAllPopups(); onReact?.(emoji); });
       reacts.append(b);
     }

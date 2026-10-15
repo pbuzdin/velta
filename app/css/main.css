@@ -710,8 +710,18 @@ html[data-theme="light"] .msg-row.out .msg-quote .q-text { color: #4d5a68; }
    ~3:1 dark / ~2.9:1 light, both under the 4.5:1 AA text bar). Use the
    established light-on-blue bubble palette (same tones as .msg-row.out
    blockquote/quote text): 6.7:1 dark, 7.3:1 light. */
-.msg-row.out .msg-text a { color: #dfeaf6; }
-html[data-theme="light"] .msg-row.out .msg-text a { color: #14507e; }
+.msg-row.out .msg-text a, .msg-row.out .msg-text .hashtag { color: #dfeaf6; }
+html[data-theme="light"] .msg-row.out .msg-text a,
+html[data-theme="light"] .msg-row.out .msg-text .hashtag { color: #14507e; }
+/* #134: #hashtags are native <button>s (focusable, Enter/Space) styled as
+   inline links; tap = search the tag in this chat. */
+.msg-text .hashtag {
+  color: var(--accent); -webkit-touch-callout: none;
+  font: inherit; background: none; border: 0; padding: 0; margin: 0;
+  display: inline; cursor: pointer; text-decoration: underline;
+  text-underline-offset: 2px; white-space: inherit;
+}
+.msg-text .hashtag:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; border-radius: 2px; }
 /* Markdown lists (markdown.js emits <ul>/<ol> as block units; the surrounding
    msg-text keeps pre-wrap for plain paragraphs) */
 .msg-text ul, .msg-text ol { margin: 2px 0; padding-left: 20px; }
@@ -1352,6 +1362,7 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .ctx-item:hover { background: var(--bg-hover); }
 }
 .ctx-item.danger { color: var(--danger); }
+.ctx-item.pressed { background: rgba(90,162,230,.18); box-shadow: inset 0 0 0 1px var(--accent); }
 .ctx-item svg { width: var(--ico-3); height: var(--ico-3); color: var(--text-dim); }
 .ctx-item.danger svg { color: var(--danger); }
 /* Setting toggles rendered as checkbox rows: the box is the state indicator
@@ -1416,6 +1427,7 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
   background: var(--bg-hover); color: var(--text);
   font-size: 22px; display: grid; place-items: center; padding: 0;
 }
+.msg-react.mine { background: rgba(90,162,230,.18); box-shadow: inset 0 0 0 2px var(--accent); }
 .msg-react svg { width: 22px; height: 22px; }
 .msg-react:active, .msg-emoji:active, .msg-actions .ctx-item:active { background: var(--bg-hover); }
 .msg-actions { display: flex; flex-direction: column; gap: 8px; }
@@ -1843,14 +1855,22 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 }
 .splash-main {
   flex: 1; min-height: 0; overflow-y: auto;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  display: flex; flex-direction: column; align-items: center;
+  /* safe: when the content overflows (short screens, open form) keep the top
+     (version + logo) reachable instead of clipping it above the scroll area */
+  justify-content: safe center;
   text-align: center; padding: 32px 24px 12px;
 }
-.splash-ver {
-  font-size: 13px; line-height: 1.4; color: var(--text-dim, #999);
-  margin: 0 0 12px; max-width: 420px;
-}
 .splash-logo { width: 132px; height: 132px; margin-bottom: 18px; }
+/* Version line (#127): its own flex:none row of the .splash column, between
+   the scrolling .splash-main and the App log bar, so it stays pinned just
+   above the bar and never overlaps the buttons (they scroll above it).
+   Left padding matches the log summary's 16px. */
+.splash-ver {
+  flex: none; margin: 0; padding: 0 16px 6px;
+  font-size: 12px; line-height: 1.4; color: var(--text-dim, #999);
+  text-align: left; overflow-wrap: anywhere;
+}
 .splash-title { font-size: 30px; font-weight: 700; margin: 0 0 10px; }
 .splash-tag { font-size: 14.5px; line-height: 1.55; color: var(--text-dim, #999); max-width: 420px; margin: 0 0 26px; }
 .splash-actions, .splash-form { width: min(420px, 100%); display: flex; flex-direction: column; gap: 10px; }
@@ -2467,7 +2487,8 @@ html[data-theme="brutal"] .msg-row.out .bubble .msg-text,
 html[data-theme="brutal"] .msg-row.out .msg-fwd { color: var(--nb-main-ink); }
 html[data-theme="brutal"] .msg-row.out .msg-meta { color: var(--text-meta-out); }
 html[data-theme="brutal"] .msg-meta .ticks.read { color: var(--nb-main-ink); }
-html[data-theme="brutal"] .msg-row.out .msg-text a {
+html[data-theme="brutal"] .msg-row.out .msg-text a,
+html[data-theme="brutal"] .msg-row.out .msg-text .hashtag {
   color: var(--nb-main-ink); text-decoration-thickness: 2px;
 }
 /* The 1.4.3 light-on-blue quote palettes don't apply on yellow — ink text */
@@ -2539,3 +2560,23 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 .side-view .qr-scan video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .side-view .qr-scan-status { text-align: center; font-size: 13.5px; color: var(--text-dim, #777); }
 .side-view .qr-view > .side-tabs { margin-bottom: 4px; }
+
+/* #135 recent "/" commands: listbox anchored above #main-composer. */
+#main-composer { position: relative; }
+.recent-commands-pop {
+  position: absolute; left: 14px; right: 14px; bottom: 100%;
+  margin: 0 0 4px; padding: 4px 0; list-style: none;
+  max-height: min(50vh, 340px); overflow-y: auto; z-index: 30;
+  background: var(--bg-sidebar); color: var(--text);
+  border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+.recent-commands-pop [role=option] {
+  padding: 10px 14px; cursor: pointer; font-family: ui-monospace, monospace;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.recent-commands-pop [role=option]:hover,
+.recent-commands-pop [role=option].active { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+
+/* #110: relay confirmed UnifiedPush support (Relays modal). */
+.relay-push-mark { font-size: .85em; opacity: .7; margin-left: 4px; }

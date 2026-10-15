@@ -127,6 +127,14 @@ const inFlight = new Map(); // url -> Promise (dedupe concurrent renders); remov
 let proxySource = null;
 export function setLinkPreviewProxySource(fn) { proxySource = typeof fn === "function" ? fn : null; }
 
+// Same reader for other shell-side network features (Large file, #138):
+// the proxy URL or null for direct. Throws while the setting is unknown —
+// callers must not fall back to a direct connection then (fail closed).
+export async function shellProxy() {
+  if (!proxySource) throw new Error("proxy setting not known yet");
+  return (await proxySource()) || null;
+}
+
 // proxy_enabled + proxy_url as the core stores them -> the URL to pass, or null.
 export function activeProxyUrl(enabled, url) {
   if (String(enabled ?? "") !== "1") return null;

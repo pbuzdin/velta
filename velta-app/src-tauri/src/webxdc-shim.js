@@ -32,6 +32,7 @@
   var updates = [];
   var pending = new Map();
   var reqId = 0;
+  var rt = null; // the realtime channel (one per app, spec)
   var info = {
     name: "", document: "", summary: "", sourceCodeUrl: "",
     internetAccess: false, selfAddr: "", selfName: "",
@@ -88,6 +89,10 @@
         if (listener) { try { listener(u); } catch (e) {} }
       }
       if (d.done) { var l = listener; listener = null; if (l) l({ serial: serial, maxSerial: serial, done: true }); }
+    }
+    if (d.type === "velta-webxdc-realtime") {
+      if (rt && !rt.left && rt.cb) { try { rt.cb(d.data); } catch (e) {} }
+      return;
     }
     if (d.type === "velta-webxdc-info" && d.info) {
       Object.assign(info, d.info);
@@ -151,6 +156,32 @@
       return { addr: info.selfAddr, name: info.selfName, color: "#7d8a99" };
     },
     listRealtimeAdapters: function () { return []; },
+    // Spec (webxdc.d.ts): one channel per app; send(Uint8Array <= 128000),
+    // setListener(cb(Uint8Array)), leave(). Backed by the core's iroh
+    // gossip topic for this instance (host: webxdc-manager realtime*).
+    joinRealtimeChannel: function () {
+      if (rt && !rt.left) throw new Error("realtime channel already joined");
+      var ch = { left: false, cb: null };
+      rt = ch;
+      var joined = call("realtimeJoin", {});
+      joined.catch(function () {});
+      return {
+        setListener: function (cb) { ch.cb = typeof cb === "function" ? cb : null; },
+        send: function (data) {
+          if (ch.left) throw new Error("realtime channel left");
+          if (!(data instanceof Uint8Array)) throw new Error("realtime data must be a Uint8Array");
+          if (data.byteLength > 128000) throw new Error("realtime data too large");
+          var copy = new Uint8Array(data);
+          joined.then(function () { return call("realtimeSend", { data: copy }); }).catch(function () {});
+        },
+        leave: function () {
+          if (ch.left) return;
+          ch.left = true;
+          ch.cb = null;
+          call("realtimeLeave", {}).catch(function () {});
+        },
+      };
+    },
   };
   Object.defineProperty(window.webxdc, "selfInfo", { get: function () { return { addr: info.selfAddr, name: info.selfName }; } });
   Object.defineProperty(window.webxdc, "myAddr", { get: function () { return info.selfAddr; } });

@@ -118,7 +118,7 @@ export function diagnosticRow(message) {
   bubble.textContent =
     // 24-hour everywhere (AGENTS.md §5.1): a bare locale time string
     // renders "03:21 AM" on en-US devices.
-    `${new Date(message.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, hourCycle: "h23" })}  ${emoji} ${text}` +
+    `${new Date(message.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" })}  ${emoji} ${text}` +
     (message.count > 1 ? ` ×${message.count}` : "");
   const copy = document.createElement("button");
   copy.type = "button";

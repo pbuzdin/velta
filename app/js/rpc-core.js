@@ -672,6 +672,11 @@ export class JsonRpcCore extends EventTarget {
       case "WebxdcInstanceDeleted":
         this._emitAccount("webxdc-instance-deleted", { msgId: msgId }, accountEpoch);
         break;
+      case "WebxdcRealtimeData":
+        // iroh gossip payload for an app that joined its realtime channel
+        // (webxdc-manager relays it to the open frame). No sender field.
+        this._emitAccount("webxdc-realtime-data", { msgId: msgId, data: ev.data || [] }, accountEpoch);
+        break;
       case "ChatlistChanged":
       case "ChatlistItemChanged":
         // Fine-grained chat-list signals (issue #25), used by app.js to
@@ -736,7 +741,7 @@ export class JsonRpcCore extends EventTarget {
       avatarColor: c.color || null,
       avatar: c.avatarPath || null,
       lastMsg: lastMsg || null,
-      lastTs: c.lastUpdated ? c.lastUpdated * 1000 : 0,
+      lastTs: c.lastUpdated || 0, // core ChatListItem.lastUpdated is already ms
       lastFrom: outgoing ? 1 : null,
       lastState: outgoing ? this._mapState(c.summaryStatus) : null,
     };
@@ -782,6 +787,9 @@ export class JsonRpcCore extends EventTarget {
       case "audio": return "Audio";
       case "gif": return "Gif";
       case "sticker": return "Sticker";
+      // #138: without this a .xdc went out as Text+file, so the core never
+      // created a Webxdc message and get_webxdc_blob 404'd ("not found").
+      case "webxdc": return "Webxdc";
       default: return "Text";
     }
   }
@@ -1238,19 +1246,34 @@ export class JsonRpcCore extends EventTarget {
     return this._call("send_webxdc_realtime_data", this.accountId, msgId, dataBytes);
   }
 
+  async sendWebxdcRealtimeAdvertisement(msgId) {
+    return this._call("send_webxdc_realtime_advertisement", this.accountId, msgId);
+  }
+
   async leaveWebxdcRealtime(msgId) {
     return this._call("leave_webxdc_realtime", this.accountId, msgId);
+  }
+
+  // Wasm PWA: the core lives in memory and reaches OPFS only through a
+  // checkpoint (8 s interval, best-effort on hide). A reload right after
+  // "Profile updated" dropped the change: the toast showed, the avatar was
+  // gone after the reload, and peers never got it. Await a checkpoint after
+  // changes the user expects to stick. No-op on Tauri / WS transports.
+  async _persist() {
+    await this.transport?.checkpoint?.().catch(() => {});
   }
 
   async setDisplayName(name) {
     const trimmed = (name || "").trim();
     await this._call("set_config", this.accountId, "displayname", trimmed || null);
+    await this._persist();
   }
 
   // path: absolute filesystem path the core can read (uploads/ dir), or null
   // to remove the picture. The core copies the file into its blobdir.
   async setAvatar(path) {
     await this._call("set_config", this.accountId, "selfavatar", path || null);
+    await this._persist();
   }
 
   async getContacts() {
@@ -1303,6 +1326,7 @@ export class JsonRpcCore extends EventTarget {
   // as Contact.status). null clears.
   async setSelfStatus(status) {
     await this._call("set_config", this.accountId, "selfstatus", (status || "").trim() || null);
+    await this._persist();
   }
 
   // Group/channel name + picture. set_chat_profile_image with null removes
@@ -1313,6 +1337,7 @@ export class JsonRpcCore extends EventTarget {
 
   async setChatImage(chatId, path) {
     await this._call("set_chat_profile_image", this.accountId, chatId, path || null);
+    await this._persist();
   }
 
   // Disappearing-messages timer for a chat, in seconds (0 = off). Changing
@@ -1489,6 +1514,9 @@ export class JsonRpcCore extends EventTarget {
     }
     const msgId = await this._call("send_msg", accountId, chatId, data);
     this._trackSending(msgId);
+    // A sent file is now a blob in the account dir: save it soon, but do
+    // not hold the send on the OPFS write.
+    if (file) this._persist();
     // #83: low-battery marker — best-effort hook installed by app.js; a
     // failure here must never surface as a send error.
     if (this._batteryGate) {
@@ -1695,6 +1723,14 @@ export class JsonRpcCore extends EventTarget {
   async addReaction(chatId, msgId, emoji) {
     const { accountId, accountEpoch } = this;
     await this._call("send_reaction", accountId, msgId, [emoji]);
+    const m = await this._getDecoratedMessage(msgId, accountId);
+    if (m) this._emitAccount("msg-updated", { chatId, msg: m }, accountEpoch);
+  }
+
+  // send_reaction replaces our whole set: [] removes it, [e] replaces it.
+  async setReaction(chatId, msgId, emojis) {
+    const { accountId, accountEpoch } = this;
+    await this._call("send_reaction", accountId, msgId, Array.isArray(emojis) ? emojis : []);
     const m = await this._getDecoratedMessage(msgId, accountId);
     if (m) this._emitAccount("msg-updated", { chatId, msg: m }, accountEpoch);
   }

@@ -120,20 +120,32 @@ let lastDigest = "";
 async function snapshot() {
   const root = await opfsRoot();
   if (!root || !glue) return;
-  const files = [];
-  const walk = async (path) => {
-    for (const entry of await glue.vfs_list(path)) {
-      if (entry.endsWith("/")) await walk(entry);
-      else files.push({ path: entry, bytes: glue.vfs_read(entry) });
-    }
-  };
-  await walk("/accounts");
+  // Databases FIRST, then the memfs. vfs_list is async, so the core runs
+  // between the awaits of the walk. The core writes a blob before the row
+  // that names it (set_config selfavatar, send_msg, received attachments),
+  // so a db captured before the walk only names blobs the walk will find.
+  // The old order (walk, then dbs) could save `selfavatar` = a blob that
+  // was written after its directory was listed: after a reload the avatar
+  // pointed at a missing file and outgoing mail had no Chat-User-Avatar.
   const dbs = [];
   if (typeof glue.sqlite_list === "function") {
     // Synchronous on purpose: no await between exports, so the databases
     // are captured at one point of the core's timeline.
     for (const name of glue.sqlite_list()) dbs.push({ name, bytes: glue.sqlite_export(name) });
   }
+  const files = [];
+  const walk = async (path) => {
+    for (const entry of await glue.vfs_list(path)) {
+      if (entry.endsWith("/")) await walk(entry);
+      else {
+        // Deleted between list and read (housekeeping): skip, not fail.
+        let bytes;
+        try { bytes = glue.vfs_read(entry); } catch { continue; }
+        files.push({ path: entry, bytes });
+      }
+    }
+  };
+  await walk("/accounts");
   const digest = await digestOf(files, dbs);
   if (digest === lastDigest) return;
   const next = generation + 1;
@@ -227,6 +239,17 @@ self.onmessage = async (e) => {
     try {
       const entries = await glue.vfs_list(d.path);
       self.postMessage({ type: "dir", id: d.id, entries });
+    } catch (err) {
+      self.postMessage({ type: "file-error", id: d.id, error: String(err?.message ?? err) });
+    }
+  } else if (d.type === "remove-file") {
+    // Temp copies the core no longer needs (/uploads/ after set_config
+    // selfavatar / send_msg copied them into the blobdir). Only /uploads/:
+    // the page must never delete account files.
+    try {
+      if (!/^\/uploads\/[^/]+$/.test(d.path || "") || d.path.includes("..")) throw new Error("only /uploads/<name> can be removed");
+      try { glue.vfs_remove(d.path); } catch { /* already gone */ }
+      self.postMessage({ type: "removed", id: d.id });
     } catch (err) {
       self.postMessage({ type: "file-error", id: d.id, error: String(err?.message ?? err) });
     }
