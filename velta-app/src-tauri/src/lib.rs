@@ -1666,35 +1666,25 @@ fn install_update(path: String) -> Result<(), String> {
 #[cfg(target_os = "android")]
 #[tauri::command]
 fn get_battery_status() -> Result<String, String> {
-    let ctx_guard = APP_CONTEXT.lock().unwrap();
-    let context = ctx_guard
-        .as_ref()
-        .map(|r| r.as_obj())
-        .ok_or("application context was not handed over yet")?;
-    let vm_guard = APP_JAVA_VM.lock().unwrap();
-    let vm_ref = vm_guard.as_ref().ok_or("jvm was not handed over yet")?;
-    let mut env = vm_ref.attach_current_thread().map_err(|e| format!("jvm attach: {e}"))?;
-    let class_guard = APP_BATTERY_CLASS.lock().unwrap();
-    let class_ref = class_guard
-        .as_ref()
-        .ok_or("Battery class was not cached at startup")?;
-    let out = env
-        .call_static_method(
-            class_ref,
-            "status",
-            "(Landroid/content/Context;)Ljava/lang/String;",
-            &[(&context).into()],
-        )
-        .map_err(|e| e.to_string())?;
-    let jstr = jni::objects::JString::from(out.l().map_err(|e| e.to_string())?);
-    // Bind to a local: a tail-expression temporary would outlive the JVM
-    // guard's borrow (E0597).
-    let s = env
-        .get_string(&jstr)
-        .map_err(|e| e.to_string())?
-        .to_string_lossy()
-        .into_owned();
-    Ok(s)
+    with_android_class(&APP_BATTERY_CLASS, "Battery", |env, context, class_ref| {
+        let out = env
+            .call_static_method(
+                class_ref,
+                "status",
+                "(Landroid/content/Context;)Ljava/lang/String;",
+                &[(&context).into()],
+            )
+            .map_err(|e| e.to_string())?;
+        let jstr = jni::objects::JString::from(out.l().map_err(|e| e.to_string())?);
+        // Bind to a local: a tail-expression temporary would outlive the JVM
+        // guard's borrow (E0597).
+        let s = env
+            .get_string(&jstr)
+            .map_err(|e| e.to_string())?
+            .to_string_lossy()
+            .into_owned();
+        Ok(s)
+    })
 }
 
 #[cfg(not(target_os = "android"))]
@@ -1708,31 +1698,21 @@ fn get_battery_status() -> Result<String, String> {
 #[cfg(target_os = "android")]
 #[tauri::command]
 fn share_text(text: String, title: String) -> Result<(), String> {
-    let ctx_guard = APP_CONTEXT.lock().unwrap();
-    let context = ctx_guard
-        .as_ref()
-        .map(|r| r.as_obj())
-        .ok_or("application context was not handed over yet")?;
-    let vm_guard = APP_JAVA_VM.lock().unwrap();
-    let vm_ref = vm_guard.as_ref().ok_or("jvm was not handed over yet")?;
-    let mut env = vm_ref.attach_current_thread().map_err(|e| format!("jvm attach: {e}"))?;
-    let class_guard = APP_SHARE_CLASS.lock().unwrap();
-    let class_ref = class_guard
-        .as_ref()
-        .ok_or("Share class was not cached at startup")?;
-    let text_j = env.new_string(text).map_err(|e| e.to_string())?;
-    let title_j = env.new_string(title).map_err(|e| e.to_string())?;
-    let shown = env
-        .call_static_method(
-            class_ref,
-            "text",
-            "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)Z",
-            &[(&context).into(), (&text_j).into(), (&title_j).into()],
-        )
-        .map_err(|e| e.to_string())?
-        .z()
-        .map_err(|e| e.to_string())?;
-    if shown { Ok(()) } else { Err("no app can handle the share request".into()) }
+    with_android_class(&APP_SHARE_CLASS, "Share", |env, context, class_ref| {
+        let text_j = env.new_string(text).map_err(|e| e.to_string())?;
+        let title_j = env.new_string(title).map_err(|e| e.to_string())?;
+        let shown = env
+            .call_static_method(
+                class_ref,
+                "text",
+                "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)Z",
+                &[(&context).into(), (&text_j).into(), (&title_j).into()],
+            )
+            .map_err(|e| e.to_string())?
+            .z()
+            .map_err(|e| e.to_string())?;
+        if shown { Ok(()) } else { Err("no app can handle the share request".into()) }
+    })
 }
 
 #[cfg(not(target_os = "android"))]
@@ -2005,6 +1985,43 @@ fn serve_media_connection(stream: &mut std::net::TcpStream, accounts: &PathBuf) 
     }
     let _ = stream.flush();
 }
+/// Android JNI entry for the shell commands: locks the application context,
+/// then the JVM, attaches the current thread and runs `f` with the env and
+/// the context. Lock order (APP_CONTEXT -> APP_JAVA_VM -> class cache in
+/// with_android_class) is the one every command used before this helper;
+/// keep it, or two commands can deadlock.
+#[cfg(target_os = "android")]
+fn with_android_env<R>(
+    f: impl FnOnce(&mut jni::JNIEnv<'_>, &jni::objects::JObject<'_>) -> Result<R, String>,
+) -> Result<R, String> {
+    let ctx_guard = APP_CONTEXT.lock().unwrap();
+    let context = ctx_guard
+        .as_ref()
+        .map(|r| r.as_obj())
+        .ok_or("application context was not handed over yet")?;
+    let vm_guard = APP_JAVA_VM.lock().unwrap();
+    let vm_ref = vm_guard.as_ref().ok_or("jvm was not handed over yet")?;
+    let mut env = vm_ref.attach_current_thread().map_err(|e| format!("jvm attach: {e}"))?;
+    f(&mut env, context)
+}
+
+/// with_android_env plus one of the Kotlin helper classes cached at startup
+/// (setApplicationContext); `name` only feeds the not-cached error.
+#[cfg(target_os = "android")]
+fn with_android_class<R>(
+    class: &Mutex<Option<jni::objects::GlobalRef>>,
+    name: &str,
+    f: impl FnOnce(&mut jni::JNIEnv<'_>, &jni::objects::JObject<'_>, &jni::objects::GlobalRef) -> Result<R, String>,
+) -> Result<R, String> {
+    with_android_env(|env, context| {
+        let class_guard = class.lock().unwrap();
+        let class_ref = class_guard
+            .as_ref()
+            .ok_or_else(|| format!("{name} class was not cached at startup"))?;
+        f(env, context, class_ref)
+    })
+}
+
 #[cfg(target_os = "android")]
 static APP_CONTEXT: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
 
@@ -2309,36 +2326,25 @@ fn open_in_app_browser(_url: String) -> Result<(), String> {
 #[cfg(target_os = "android")]
 #[tauri::command]
 fn open_in_app_browser(url: String) -> Result<(), String> {
-    let ctx_guard = APP_CONTEXT.lock().unwrap();
-    let context = ctx_guard
-        .as_ref()
-        .map(|r| r.as_obj())
-        .ok_or("application context was not handed over yet")?;
-    let vm_guard = APP_JAVA_VM.lock().unwrap();
-    let vm_ref = vm_guard.as_ref().ok_or("jvm was not handed over yet")?;
-    let mut env = vm_ref.attach_current_thread().map_err(|e| format!("jvm attach: {e}"))?;
-
-    let class_guard = APP_INAPP_BROWSER_CLASS.lock().unwrap();
-    let class_ref = class_guard
-        .as_ref()
-        .ok_or("InAppBrowser class was not cached at startup")?;
-    let url_j = env.new_string(url).map_err(|e| e.to_string())?;
-    let opened = env
-        .call_static_method(
-            class_ref,
-            "open",
-            "(Landroid/content/Context;Ljava/lang/String;)Z",
-            &[(&context).into(), (&url_j).into()],
-        )
-        .map_err(|e| e.to_string())?
-        .z()
-        .map_err(|e| e.to_string())?;
-    if !opened {
-        // No Custom Tabs provider on the device: the frontend opens the
-        // native WebView overlay next (better than a full browser switch).
-        return Err("no custom tabs provider".into());
-    }
-    Ok(())
+    with_android_class(&APP_INAPP_BROWSER_CLASS, "InAppBrowser", |env, context, class_ref| {
+        let url_j = env.new_string(url).map_err(|e| e.to_string())?;
+        let opened = env
+            .call_static_method(
+                class_ref,
+                "open",
+                "(Landroid/content/Context;Ljava/lang/String;)Z",
+                &[(&context).into(), (&url_j).into()],
+            )
+            .map_err(|e| e.to_string())?
+            .z()
+            .map_err(|e| e.to_string())?;
+        if !opened {
+            // No Custom Tabs provider on the device: the frontend opens the
+            // native WebView overlay next (better than a full browser switch).
+            return Err("no custom tabs provider".into());
+        }
+        Ok(())
+    })
 }
 
 /// Android: second-WebView browser overlay (the no-Custom-Tabs-provider
@@ -2353,30 +2359,19 @@ fn open_webview_browser(_url: String) -> Result<(), String> {
 #[cfg(target_os = "android")]
 #[tauri::command]
 fn open_webview_browser(url: String) -> Result<(), String> {
-    let ctx_guard = APP_CONTEXT.lock().unwrap();
-    let context = ctx_guard
-        .as_ref()
-        .map(|r| r.as_obj())
-        .ok_or("application context was not handed over yet")?;
-    let vm_guard = APP_JAVA_VM.lock().unwrap();
-    let vm_ref = vm_guard.as_ref().ok_or("jvm was not handed over yet")?;
-    let mut env = vm_ref.attach_current_thread().map_err(|e| format!("jvm attach: {e}"))?;
-
-    let class_guard = APP_INAPP_BROWSER_CLASS.lock().unwrap();
-    let class_ref = class_guard
-        .as_ref()
-        .ok_or("InAppBrowser class was not cached at startup")?;
-    let url_j = env.new_string(url).map_err(|e| e.to_string())?;
-    // openWebView posts to the main looper itself; it returns void and never
-    // fails visibly (a missing activity attachment is logged in Kotlin).
-    env.call_static_method(
-        class_ref,
-        "openWebView",
-        "(Landroid/content/Context;Ljava/lang/String;)V",
-        &[(&context).into(), (&url_j).into()],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
+    with_android_class(&APP_INAPP_BROWSER_CLASS, "InAppBrowser", |env, context, class_ref| {
+        let url_j = env.new_string(url).map_err(|e| e.to_string())?;
+        // openWebView posts to the main looper itself; it returns void and never
+        // fails visibly (a missing activity attachment is logged in Kotlin).
+        env.call_static_method(
+            class_ref,
+            "openWebView",
+            "(Landroid/content/Context;Ljava/lang/String;)V",
+            &[(&context).into(), (&url_j).into()],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    })
 }
 
 #[cfg(target_os = "android")]
@@ -2451,86 +2446,79 @@ fn publish_backup_blocking(dir: String, uri: String) -> Result<(), String> {
 
 #[cfg(target_os = "android")]
 fn copy_path_to_content_uri(src: &std::path::Path, uri: &str) -> Result<(), String> {
-    let ctx_guard = APP_CONTEXT.lock().unwrap();
-    let context = ctx_guard
-        .as_ref()
-        .map(|r| r.as_obj())
-        .ok_or("application context was not handed over yet")?;
-    let vm_guard = APP_JAVA_VM.lock().unwrap();
-    let vm_ref = vm_guard.as_ref().ok_or("jvm was not handed over yet")?;
-    let mut env = vm_ref.attach_current_thread().map_err(|e| format!("jvm attach: {e}"))?;
-
-    let uri_j = env.new_string(uri).map_err(|e| e.to_string())?;
-    let uri_class = env.find_class("android/net/Uri").map_err(|e| e.to_string())?;
-    let uri_obj = env
-        .call_static_method(&uri_class, "parse", "(Ljava/lang/String;)Landroid/net/Uri;", &[(&uri_j).into()])
-        .map_err(|e| e.to_string())?
-        .l()
-        .map_err(|e| e.to_string())?;
-    let cr = env
-        .call_method(context, "getContentResolver", "()Landroid/content/ContentResolver;", &[])
-        .map_err(|e| e.to_string())?
-        .l()
-        .map_err(|e| e.to_string())?;
-    let os = env
-        .call_method(&cr, "openOutputStream", "(Landroid/net/Uri;)Ljava/io/OutputStream;", &[(&uri_obj).into()])
-        .map_err(|e| e.to_string())?
-        .l()
-        .map_err(|e| e.to_string())?;
-    if env.exception_check().map_err(|e| e.to_string())? || os.is_null() {
-        let _ = env.exception_clear();
-        return Err("openOutputStream failed for this save location".into());
-    }
-
-    let src_str = src.to_string_lossy().into_owned();
-    let src_j = env.new_string(&src_str).map_err(|e| e.to_string())?;
-    let is = env
-        .new_object("java/io/FileInputStream", "(Ljava/lang/String;)V", &[(&src_j).into()])
-        .map_err(|e| e.to_string())?;
-    let buf = env.new_byte_array(64 * 1024).map_err(|e| e.to_string())?;
-    let buf_obj: jni::objects::JObject = buf.into();
-    let mut copy_result: Result<(), String> = Ok(());
-    loop {
-        if copy_result.is_err() {
-            break;
+    with_android_env(|env, context| {
+        let uri_j = env.new_string(uri).map_err(|e| e.to_string())?;
+        let uri_class = env.find_class("android/net/Uri").map_err(|e| e.to_string())?;
+        let uri_obj = env
+            .call_static_method(&uri_class, "parse", "(Ljava/lang/String;)Landroid/net/Uri;", &[(&uri_j).into()])
+            .map_err(|e| e.to_string())?
+            .l()
+            .map_err(|e| e.to_string())?;
+        let cr = env
+            .call_method(context, "getContentResolver", "()Landroid/content/ContentResolver;", &[])
+            .map_err(|e| e.to_string())?
+            .l()
+            .map_err(|e| e.to_string())?;
+        let os = env
+            .call_method(&cr, "openOutputStream", "(Landroid/net/Uri;)Ljava/io/OutputStream;", &[(&uri_obj).into()])
+            .map_err(|e| e.to_string())?
+            .l()
+            .map_err(|e| e.to_string())?;
+        if env.exception_check().map_err(|e| e.to_string())? || os.is_null() {
+            let _ = env.exception_clear();
+            return Err("openOutputStream failed for this save location".into());
         }
-        let n = match env.call_method(&is, "read", "([B)I", &[(&buf_obj).into()]) {
-            Ok(v) => match v.i() {
-                Ok(n) => n,
+
+        let src_str = src.to_string_lossy().into_owned();
+        let src_j = env.new_string(&src_str).map_err(|e| e.to_string())?;
+        let is = env
+            .new_object("java/io/FileInputStream", "(Ljava/lang/String;)V", &[(&src_j).into()])
+            .map_err(|e| e.to_string())?;
+        let buf = env.new_byte_array(64 * 1024).map_err(|e| e.to_string())?;
+        let buf_obj: jni::objects::JObject = buf.into();
+        let mut copy_result: Result<(), String> = Ok(());
+        loop {
+            if copy_result.is_err() {
+                break;
+            }
+            let n = match env.call_method(&is, "read", "([B)I", &[(&buf_obj).into()]) {
+                Ok(v) => match v.i() {
+                    Ok(n) => n,
+                    Err(e) => {
+                        copy_result = Err(format!("FileInputStream.read: {e}"));
+                        break;
+                    }
+                },
                 Err(e) => {
                     copy_result = Err(format!("FileInputStream.read: {e}"));
                     break;
                 }
-            },
-            Err(e) => {
-                copy_result = Err(format!("FileInputStream.read: {e}"));
+            };
+            if n < 0 {
                 break;
             }
-        };
-        if n < 0 {
-            break;
+            if let Err(e) = env.call_method(
+                &os,
+                "write",
+                "([BII)V",
+                &[(&buf_obj).into(), jni::objects::JValue::Int(0), jni::objects::JValue::Int(n)],
+            ) {
+                copy_result = Err(format!("OutputStream.write: {e}"));
+                break;
+            }
         }
-        if let Err(e) = env.call_method(
-            &os,
-            "write",
-            "([BII)V",
-            &[(&buf_obj).into(), jni::objects::JValue::Int(0), jni::objects::JValue::Int(n)],
-        ) {
-            copy_result = Err(format!("OutputStream.write: {e}"));
-            break;
+        if let Err(e) = env.call_method(&os, "flush", "()V", &[]) {
+            log(&format!("output stream flush: {e}"));
         }
-    }
-    if let Err(e) = env.call_method(&os, "flush", "()V", &[]) {
-        log(&format!("output stream flush: {e}"));
-    }
-    if let Err(e) = env.call_method(&os, "close", "()V", &[]) {
-        log(&format!("output stream close: {e}"));
-    }
-    if let Err(e) = env.call_method(&is, "close", "()V", &[]) {
-        log(&format!("input stream close: {e}"));
-    }
-    let _ = env.exception_clear();
-    copy_result
+        if let Err(e) = env.call_method(&os, "close", "()V", &[]) {
+            log(&format!("output stream close: {e}"));
+        }
+        if let Err(e) = env.call_method(&is, "close", "()V", &[]) {
+            log(&format!("input stream close: {e}"));
+        }
+        let _ = env.exception_clear();
+        copy_result
+    })
 }
 
 // Android save dialog returns a content URI. Copy the account-scoped file there.
@@ -2593,167 +2581,160 @@ fn resolve_content_uri_blocking(app: tauri::AppHandle, uri: String, filename: St
 
     // The application context was handed over from MainActivity.onCreate
     // (see setApplicationContext below) and is stored as a global ref.
-    let ctx_guard = APP_CONTEXT.lock().unwrap();
-    let context = ctx_guard
-        .as_ref()
-        .map(|r| r.as_obj())
-        .ok_or("application context was not handed over yet")?;
-    let vm_guard = APP_JAVA_VM.lock().unwrap();
-    let vm_ref = vm_guard.as_ref().ok_or("jvm was not handed over yet")?;
-    let mut env = vm_ref.attach_current_thread().map_err(|e| format!("jvm attach: {e}"))?;
-
-    let uri_j = env.new_string(&uri).map_err(|e| e.to_string())?;
-    let uri_class = env.find_class("android/net/Uri").map_err(|e| e.to_string())?;
-    let uri_obj = env
-        .call_static_method(&uri_class, "parse", "(Ljava/lang/String;)Landroid/net/Uri;", &[(&uri_j).into()])
-        .map_err(|e| e.to_string())?
-        .l()
-        .map_err(|e| e.to_string())?;
-
-    let cr = env
-        .call_method(context, "getContentResolver", "()Landroid/content/ContentResolver;", &[])
-        .map_err(|e| e.to_string())?
-        .l()
-        .map_err(|e| e.to_string())?;
-
-    // Query the display name (keeps the real filename + extension, so the
-    // attachment is sent as image/video instead of a generic file).
-    let mut display_name = String::new();
-    let proj_str = env.new_string("_display_name").map_err(|e| e.to_string())?;
-    let proj = env
-        .new_object_array(1, "java/lang/String", &proj_str)
-        .map_err(|e| e.to_string())?;
-    let null_obj = jni::objects::JObject::null();
-    let cursor = env
-        .call_method(
-            &cr,
-            "query",
-            "(Landroid/net/Uri;[Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;Ljava/lang/String;)Landroid/database/Cursor;",
-            &[
-                (&uri_obj).into(),
-                (&proj).into(),
-                (&null_obj).into(),
-                (&null_obj).into(),
-                (&null_obj).into(),
-            ],
-        )
-        .map_err(|e| e.to_string())?
-        .l()
-        .map_err(|e| e.to_string())?;
-    let _ = env.exception_clear();
-    if !cursor.is_null() {
-        if let Err(e) = env.call_method(&cursor, "moveToFirst", "()Z", &[]) {
-            log(&format!("cursor moveToFirst: {e}"));
-        }
-        let _ = env.exception_clear();
-        let name_obj = env
-            .call_method(&cursor, "getString", "(I)Ljava/lang/String;", &[jni::objects::JValue::Int(0)])
+    with_android_env(|env, context| {
+        let uri_j = env.new_string(&uri).map_err(|e| e.to_string())?;
+        let uri_class = env.find_class("android/net/Uri").map_err(|e| e.to_string())?;
+        let uri_obj = env
+            .call_static_method(&uri_class, "parse", "(Ljava/lang/String;)Landroid/net/Uri;", &[(&uri_j).into()])
             .map_err(|e| e.to_string())?
             .l()
             .map_err(|e| e.to_string())?;
-        if !name_obj.is_null() {
-            let name_jstr = jni::objects::JString::from(name_obj);
-            display_name = env.get_string(&name_jstr).map_err(|e| e.to_string())?.to_string_lossy().into_owned();
-        }
-        if let Err(e) = env.call_method(&cursor, "close", "()V", &[]) {
-            log(&format!("cursor close: {e}"));
-        }
+
+        let cr = env
+            .call_method(context, "getContentResolver", "()Landroid/content/ContentResolver;", &[])
+            .map_err(|e| e.to_string())?
+            .l()
+            .map_err(|e| e.to_string())?;
+
+        // Query the display name (keeps the real filename + extension, so the
+        // attachment is sent as image/video instead of a generic file).
+        let mut display_name = String::new();
+        let proj_str = env.new_string("_display_name").map_err(|e| e.to_string())?;
+        let proj = env
+            .new_object_array(1, "java/lang/String", &proj_str)
+            .map_err(|e| e.to_string())?;
+        let null_obj = jni::objects::JObject::null();
+        let cursor = env
+            .call_method(
+                &cr,
+                "query",
+                "(Landroid/net/Uri;[Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;Ljava/lang/String;)Landroid/database/Cursor;",
+                &[
+                    (&uri_obj).into(),
+                    (&proj).into(),
+                    (&null_obj).into(),
+                    (&null_obj).into(),
+                    (&null_obj).into(),
+                ],
+            )
+            .map_err(|e| e.to_string())?
+            .l()
+            .map_err(|e| e.to_string())?;
         let _ = env.exception_clear();
-    }
-
-    // Keep the real filename (with extension) so the attachment is typed as
-    // image/video rather than a generic file.
-    let base_name = if display_name.is_empty() {
-        if filename.is_empty() { "attachment.bin".to_string() } else { filename.clone() }
-    } else {
-        display_name.replace(['/', '\\'], "_")
-    };
-    let dest = app
-        .path()
-        .resolve(format!("uploads/{}", base_name), BaseDirectory::AppLocalData)
-        .map_err(|e| e.to_string())?;
-    if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let is = env
-        .call_method(&cr, "openInputStream", "(Landroid/net/Uri;)Ljava/io/InputStream;", &[(&uri_obj).into()])
-        .map_err(|e| e.to_string())?
-        .l()
-        .map_err(|e| e.to_string())?;
-    if env.exception_check().map_err(|e| e.to_string())? {
-        let _ = env.exception_clear();
-        return Err("openInputStream failed for this content uri".into());
-    }
-
-    let dest_str = dest.to_string_lossy().to_string();
-    let _ = &display_name;
-    let dest_j = env.new_string(&dest_str).map_err(|e| e.to_string())?;
-    let file_obj = env
-        .new_object("java/io/File", "(Ljava/lang/String;)V", &[(&dest_j).into()])
-        .map_err(|e| e.to_string())?;
-    let parent = env
-        .call_method(&file_obj, "getParentFile", "()Ljava/io/File;", &[])
-        .map_err(|e| e.to_string())?
-        .l()
-        .map_err(|e| e.to_string())?;
-    if !parent.is_null() {
-        if let Err(e) = env.call_method(&parent, "mkdirs", "()Z", &[]) {
-            log(&format!("mkdirs error: {e}"));
+        if !cursor.is_null() {
+            if let Err(e) = env.call_method(&cursor, "moveToFirst", "()Z", &[]) {
+                log(&format!("cursor moveToFirst: {e}"));
+            }
+            let _ = env.exception_clear();
+            let name_obj = env
+                .call_method(&cursor, "getString", "(I)Ljava/lang/String;", &[jni::objects::JValue::Int(0)])
+                .map_err(|e| e.to_string())?
+                .l()
+                .map_err(|e| e.to_string())?;
+            if !name_obj.is_null() {
+                let name_jstr = jni::objects::JString::from(name_obj);
+                display_name = env.get_string(&name_jstr).map_err(|e| e.to_string())?.to_string_lossy().into_owned();
+            }
+            if let Err(e) = env.call_method(&cursor, "close", "()V", &[]) {
+                log(&format!("cursor close: {e}"));
+            }
+            let _ = env.exception_clear();
         }
-        let _ = env.exception_clear();
-    }
 
-    let fos = env
-        .new_object("java/io/FileOutputStream", "(Ljava/io/File;)V", &[(&file_obj).into()])
-        .map_err(|e| e.to_string())?;
-
-    let buf = env.new_byte_array(64 * 1024).map_err(|e| e.to_string())?;
-    let buf_obj: jni::objects::JObject = buf.into();
-    let mut copy_result: Result<(), String> = Ok(());
-    loop {
-        if copy_result.is_err() {
-            break;
+        // Keep the real filename (with extension) so the attachment is typed as
+        // image/video rather than a generic file.
+        let base_name = if display_name.is_empty() {
+            if filename.is_empty() { "attachment.bin".to_string() } else { filename.clone() }
+        } else {
+            display_name.replace(['/', '\\'], "_")
+        };
+        let dest = app
+            .path()
+            .resolve(format!("uploads/{}", base_name), BaseDirectory::AppLocalData)
+            .map_err(|e| e.to_string())?;
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
-        let n = match env.call_method(&is, "read", "([B)I", &[(&buf_obj).into()]) {
-            Ok(v) => match v.i() {
-                Ok(n) => n,
+        let is = env
+            .call_method(&cr, "openInputStream", "(Landroid/net/Uri;)Ljava/io/InputStream;", &[(&uri_obj).into()])
+            .map_err(|e| e.to_string())?
+            .l()
+            .map_err(|e| e.to_string())?;
+        if env.exception_check().map_err(|e| e.to_string())? {
+            let _ = env.exception_clear();
+            return Err("openInputStream failed for this content uri".into());
+        }
+
+        let dest_str = dest.to_string_lossy().to_string();
+        let _ = &display_name;
+        let dest_j = env.new_string(&dest_str).map_err(|e| e.to_string())?;
+        let file_obj = env
+            .new_object("java/io/File", "(Ljava/lang/String;)V", &[(&dest_j).into()])
+            .map_err(|e| e.to_string())?;
+        let parent = env
+            .call_method(&file_obj, "getParentFile", "()Ljava/io/File;", &[])
+            .map_err(|e| e.to_string())?
+            .l()
+            .map_err(|e| e.to_string())?;
+        if !parent.is_null() {
+            if let Err(e) = env.call_method(&parent, "mkdirs", "()Z", &[]) {
+                log(&format!("mkdirs error: {e}"));
+            }
+            let _ = env.exception_clear();
+        }
+
+        let fos = env
+            .new_object("java/io/FileOutputStream", "(Ljava/io/File;)V", &[(&file_obj).into()])
+            .map_err(|e| e.to_string())?;
+
+        let buf = env.new_byte_array(64 * 1024).map_err(|e| e.to_string())?;
+        let buf_obj: jni::objects::JObject = buf.into();
+        let mut copy_result: Result<(), String> = Ok(());
+        loop {
+            if copy_result.is_err() {
+                break;
+            }
+            let n = match env.call_method(&is, "read", "([B)I", &[(&buf_obj).into()]) {
+                Ok(v) => match v.i() {
+                    Ok(n) => n,
+                    Err(e) => {
+                        copy_result = Err(format!("InputStream.read: {e}"));
+                        break;
+                    }
+                },
                 Err(e) => {
                     copy_result = Err(format!("InputStream.read: {e}"));
                     break;
                 }
-            },
-            Err(e) => {
-                copy_result = Err(format!("InputStream.read: {e}"));
+            };
+            if n < 0 {
                 break;
             }
-        };
-        if n < 0 {
-            break;
+            if let Err(e) = env.call_method(
+                &fos,
+                "write",
+                "([BII)V",
+                &[(&buf_obj).into(), jni::objects::JValue::Int(0), jni::objects::JValue::Int(n)],
+            ) {
+                copy_result = Err(format!("FileOutputStream.write: {e}"));
+                break;
+            }
         }
-        if let Err(e) = env.call_method(
-            &fos,
-            "write",
-            "([BII)V",
-            &[(&buf_obj).into(), jni::objects::JValue::Int(0), jni::objects::JValue::Int(n)],
-        ) {
-            copy_result = Err(format!("FileOutputStream.write: {e}"));
-            break;
+
+        if let Err(e) = env.call_method(&fos, "close", "()V", &[]) {
+            log(&format!("fos close error: {e}"));
         }
-    }
+        if let Err(e) = env.call_method(&is, "close", "()V", &[]) {
+            log(&format!("is close error: {e}"));
+        }
+        let _ = env.exception_clear();
 
-    if let Err(e) = env.call_method(&fos, "close", "()V", &[]) {
-        log(&format!("fos close error: {e}"));
-    }
-    if let Err(e) = env.call_method(&is, "close", "()V", &[]) {
-        log(&format!("is close error: {e}"));
-    }
-    let _ = env.exception_clear();
-
-    copy_result?;
-    log(&format!("resolve_content_uri copied {} -> {}", uri, dest_str));
-    // PWA backup exports are gzipped — route through the same sniff the
-    // desktop pick path uses so the core always sees a plain tar.
-    prep_backup_blocking(dest_str)
+        copy_result?;
+        log(&format!("resolve_content_uri copied {} -> {}", uri, dest_str));
+        // PWA backup exports are gzipped — route through the same sniff the
+        // desktop pick path uses so the core always sees a plain tar.
+        prep_backup_blocking(dest_str)
+    })
 }
 
 fn queue_opened(url: String) {
@@ -3478,83 +3459,55 @@ fn kotlin_notify_incoming(
     text: &str,
     timestamp_ms: i64,
 ) -> Result<(), String> {
-    let ctx_guard = APP_CONTEXT.lock().unwrap();
-    let context = ctx_guard
-        .as_ref()
-        .map(|r| r.as_obj())
-        .ok_or("application context was not handed over yet")?;
-    let vm_guard = APP_JAVA_VM.lock().unwrap();
-    let vm_ref = vm_guard.as_ref().ok_or("jvm was not handed over yet")?;
-    let mut env = vm_ref.attach_current_thread().map_err(|e| format!("jvm attach: {e}"))?;
+    with_android_class(&APP_NOTIFICATIONS_CLASS, "Notifications", |env, context, class_ref| {
+        let token = chat_link_token_for(app)?;
+        let chat_key = env.new_string(format!("{account}:{chat_id}")).map_err(|e| e.to_string())?;
+        let chat_name_j = env.new_string(chat_name).map_err(|e| e.to_string())?;
+        let chat_avatar_j = opt_jstring(env, chat_avatar)?;
+        let sender_name_j = env.new_string(sender_name).map_err(|e| e.to_string())?;
+        let sender_avatar_j = opt_jstring(env, sender_avatar)?;
+        let text_j = env.new_string(text).map_err(|e| e.to_string())?;
+        let token_j = env.new_string(token).map_err(|e| e.to_string())?;
 
-    let class_guard = APP_NOTIFICATIONS_CLASS.lock().unwrap();
-    let class_ref = class_guard
-        .as_ref()
-        .ok_or("Notifications class was not cached at startup")?;
-
-    let token = chat_link_token_for(app)?;
-    let chat_key = env.new_string(format!("{account}:{chat_id}")).map_err(|e| e.to_string())?;
-    let chat_name_j = env.new_string(chat_name).map_err(|e| e.to_string())?;
-    let chat_avatar_j = opt_jstring(&mut env, chat_avatar)?;
-    let sender_name_j = env.new_string(sender_name).map_err(|e| e.to_string())?;
-    let sender_avatar_j = opt_jstring(&mut env, sender_avatar)?;
-    let text_j = env.new_string(text).map_err(|e| e.to_string())?;
-    let token_j = env.new_string(token).map_err(|e| e.to_string())?;
-
-    env.call_static_method(
-        class_ref,
-        "show",
-        "(Landroid/content/Context;Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;)V",
-        &[
-            (&context).into(),
-            (&chat_key).into(),
-            jni::objects::JValue::Bool(is_group as u8),
-            (&chat_name_j).into(),
-            (&chat_avatar_j).into(),
-            (&sender_name_j).into(),
-            (&sender_avatar_j).into(),
-            (&text_j).into(),
-            jni::objects::JValue::Long(timestamp_ms),
-            (&token_j).into(),
-        ],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
+        env.call_static_method(
+            class_ref,
+            "show",
+            "(Landroid/content/Context;Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;)V",
+            &[
+                (&context).into(),
+                (&chat_key).into(),
+                jni::objects::JValue::Bool(is_group as u8),
+                (&chat_name_j).into(),
+                (&chat_avatar_j).into(),
+                (&sender_name_j).into(),
+                (&sender_avatar_j).into(),
+                (&text_j).into(),
+                jni::objects::JValue::Long(timestamp_ms),
+                (&token_j).into(),
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    })
 }
 
 #[cfg(target_os = "android")]
 fn battery_is_exempt() -> Result<bool, String> {
-    let ctx_guard = APP_CONTEXT.lock().unwrap();
-    let context = ctx_guard
-        .as_ref()
-        .map(|r| r.as_obj())
-        .ok_or("application context was not handed over yet")?;
-    let vm_guard = APP_JAVA_VM.lock().unwrap();
-    let vm_ref = vm_guard.as_ref().ok_or("jvm was not handed over yet")?;
-    let mut env = vm_ref.attach_current_thread().map_err(|e| format!("jvm attach: {e}"))?;
-    let class_guard = APP_BATTERY_CLASS.lock().unwrap();
-    let class_ref = class_guard.as_ref().ok_or("Battery class was not cached at startup")?;
-    env.call_static_method(class_ref, "isExempt", "(Landroid/content/Context;)Z", &[(&context).into()])
-        .map_err(|e| e.to_string())?
-        .z()
-        .map_err(|e| e.to_string())
+    with_android_class(&APP_BATTERY_CLASS, "Battery", |env, context, class_ref| {
+        env.call_static_method(class_ref, "isExempt", "(Landroid/content/Context;)Z", &[(&context).into()])
+            .map_err(|e| e.to_string())?
+            .z()
+            .map_err(|e| e.to_string())
+    })
 }
 
 #[cfg(target_os = "android")]
 fn battery_request_exemption() -> Result<(), String> {
-    let ctx_guard = APP_CONTEXT.lock().unwrap();
-    let context = ctx_guard
-        .as_ref()
-        .map(|r| r.as_obj())
-        .ok_or("application context was not handed over yet")?;
-    let vm_guard = APP_JAVA_VM.lock().unwrap();
-    let vm_ref = vm_guard.as_ref().ok_or("jvm was not handed over yet")?;
-    let mut env = vm_ref.attach_current_thread().map_err(|e| format!("jvm attach: {e}"))?;
-    let class_guard = APP_BATTERY_CLASS.lock().unwrap();
-    let class_ref = class_guard.as_ref().ok_or("Battery class was not cached at startup")?;
-    env.call_static_method(class_ref, "request", "(Landroid/content/Context;)V", &[(&context).into()])
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    with_android_class(&APP_BATTERY_CLASS, "Battery", |env, context, class_ref| {
+        env.call_static_method(class_ref, "request", "(Landroid/content/Context;)V", &[(&context).into()])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    })
 }
 
 // #60: hand the downloaded APK to the system installer via UpdateInstall.kt
@@ -3562,32 +3515,22 @@ fn battery_request_exemption() -> Result<(), String> {
 // installer activity actually launched.
 #[cfg(target_os = "android")]
 fn install_update_android(path: String) -> Result<(), String> {
-    let ctx_guard = APP_CONTEXT.lock().unwrap();
-    let context = ctx_guard
-        .as_ref()
-        .map(|r| r.as_obj())
-        .ok_or("application context was not handed over yet")?;
-    let vm_guard = APP_JAVA_VM.lock().unwrap();
-    let vm_ref = vm_guard.as_ref().ok_or("jvm was not handed over yet")?;
-    let mut env = vm_ref.attach_current_thread().map_err(|e| format!("jvm attach: {e}"))?;
-    let class_guard = APP_UPDATE_INSTALL_CLASS.lock().unwrap();
-    let class_ref = class_guard
-        .as_ref()
-        .ok_or("UpdateInstall class was not cached at startup")?;
-    let jpath = env.new_string(&path).map_err(|e| e.to_string())?;
-    let ok = env
-        .call_static_method(
-            class_ref,
-            "install",
-            "(Landroid/content/Context;Ljava/lang/String;)Z",
-            &[(&context).into(), (&jpath).into()],
-        )
-        .map_err(|e| e.to_string())?;
-    if ok.z().map_err(|e| e.to_string())? {
-        Ok(())
-    } else {
-        Err("installer did not open — APK missing?".into())
-    }
+    with_android_class(&APP_UPDATE_INSTALL_CLASS, "UpdateInstall", |env, context, class_ref| {
+        let jpath = env.new_string(&path).map_err(|e| e.to_string())?;
+        let ok = env
+            .call_static_method(
+                class_ref,
+                "install",
+                "(Landroid/content/Context;Ljava/lang/String;)Z",
+                &[(&context).into(), (&jpath).into()],
+            )
+            .map_err(|e| e.to_string())?;
+        if ok.z().map_err(|e| e.to_string())? {
+            Ok(())
+        } else {
+            Err("installer did not open — APK missing?".into())
+        }
+    })
 }
 
 #[cfg(target_os = "android")]
