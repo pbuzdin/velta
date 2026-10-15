@@ -56,6 +56,50 @@ function placeMenu(menu, x, y) {
   menu.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 10)) + "px";
 }
 
+// #136: a menu button that turns into a close (X) button while its menu is
+// open. A second tap closes the menu; any other close (outside tap, Esc, a
+// pick, Android Back, closeAllPopups) restores the icon — the menu element's
+// removal from the DOM is the single signal. `open(e)` returns the menu.
+export const MENU_CLOSE_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`;
+export function bindMenuToggle(btn, open, { closeLabel = "Close menu" } = {}) {
+  const st = { menu: null, obs: null, wasOpen: false, icon: null, label: null, title: null };
+  btn.setAttribute("aria-haspopup", "menu");
+  btn.setAttribute("aria-expanded", "false");
+  const restore = () => {
+    if (!st.menu) return;
+    st.obs?.disconnect();
+    st.menu = null; st.obs = null;
+    btn.innerHTML = st.icon;
+    if (st.label != null) btn.setAttribute("aria-label", st.label);
+    if (st.title != null) btn.title = st.title;
+    btn.setAttribute("aria-expanded", "false");
+    btn.classList.remove("menu-open");
+  };
+  // Popover light-dismiss hides the menu on pointerup of the same tap that
+  // hits the button (before click); pointerdown still sees it open, so the
+  // click closes instead of reopening.
+  btn.addEventListener("pointerdown", () => { st.wasOpen = !!st.menu; }, true);
+  btn.addEventListener("click", (e) => {
+    const wasOpen = st.wasOpen || !!st.menu;
+    st.wasOpen = false;
+    if (wasOpen) { if (st.menu) closeAllPopups(); restore(); return; }
+    const menu = open(e);
+    if (!menu || !menu.isConnected) return;
+    st.icon = btn.innerHTML; st.label = btn.getAttribute("aria-label"); st.title = btn.getAttribute("title");
+    st.menu = menu;
+    btn.innerHTML = MENU_CLOSE_SVG;
+    btn.setAttribute("aria-label", closeLabel);
+    btn.title = closeLabel;
+    btn.setAttribute("aria-expanded", "true");
+    btn.classList.add("menu-open");
+    const root = menu.parentNode;
+    st.obs = new MutationObserver(() => { if (!menu.isConnected) restore(); });
+    st.obs.observe(root, { childList: true });
+    menu.addEventListener("toggle", (ev) => { if (ev.newState === "closed") restore(); });
+  });
+  return { isOpen: () => !!st.menu, restore };
+}
+
 export function showContextMenu(items, x, y) {
   closeAllPopups();
   const menu = document.createElement("div");

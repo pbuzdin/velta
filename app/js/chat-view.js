@@ -3,7 +3,7 @@ import { canEditMsg } from "./msg-edit.js";
 import { prepareBuiltinXdc } from "./builtin-xdc.js";
 import { formatTime, formatDay, formatDateTime, formatServerUrl, messageInfoState, messageInfoReactions, formatBytes, timeTag, stampTime } from "./format.js";
 import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener } from "./components.js";
-import { showContextMenu, showMessageSheet, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG } from "./ui.js";
+import { bindMenuToggle, showContextMenu, showMessageSheet, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG } from "./ui.js";
 import { diagnosticRow } from "./diagnostics.js";
 import { attachRecentCommands, recordCommand } from "./recent-commands.js";
 import { openWebxdc, prefetchInfo, appIconUrl } from "./webxdc-manager.js";
@@ -222,6 +222,8 @@ const ICO = {
   info: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 10v6M12 7v.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`,
   download: `<svg viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M4 19h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   photo: `<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="10" r="1.6" fill="currentColor"/><path d="M4 17l5-5 3.5 3.5L16 12l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`,
+  // Velta Beam: monochrome V + beam silhouette of app/webxdc/send-direct/icon.svg.
+  beam: `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M3 5l3-1.1h12L21 5l-3 1.1H6zM4 8h2.7L12 18.9 17.3 8H20l-6.6 13h-2.8z"/></svg>`,
   file: `<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 3v4h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`,
   webxdc: `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="3" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="3" y="13" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M17.5 13.5v6m-3-3h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
   mic: `<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 11a7 7 0 0014 0M12 18v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
@@ -3023,7 +3025,7 @@ export class ChatView {
       const bar = document.getElementById("link-preview-draft");
       if (bar) bar.hidden = true;
     });
-    document.getElementById("btn-attach").addEventListener("click", e => {
+    bindMenuToggle(document.getElementById("btn-attach"), e => {
       const session = this._session;
       if (!this._isCurrent(session) || !this.chat) return;
       // Anchored to the attach button: bottom edge 10px above its top,
@@ -3043,7 +3045,7 @@ export class ChatView {
         // #138 part 2: built-in webxdc that streams a file peer to peer over
         // the instance's realtime channel (iroh gossip) — webxdc runs in the
         // Tauri shell only.
-        attachItems.push({ label: "Velta Beam (both online)", icon: ICO.file, onClick: () => this._sendDirectApp() });
+        attachItems.push({ label: "Velta Beam (both online)", icon: ICO.beam, onClick: () => this._sendDirectApp() });
       }
       if (!window.__TAURI__ && /Android/i.test(navigator.userAgent)) {
         attachItems.splice(1, 0, { label: "Camera", icon: ICO.photo, onClick: () => this._sendAttachment("camera") });
@@ -3064,6 +3066,7 @@ export class ChatView {
           menu.style.top = "8px";
         }
       });
+      return menu;
     });
   }
 

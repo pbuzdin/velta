@@ -12,7 +12,7 @@ import { notePushDiagnostic, relaySupportsPush, pushMarkHtml } from "./relay-pus
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow, isSendFailureDiagnostic, createRelaySendErrorState } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal, isShortInviteLink, expandShortInvite } from "./invites.js";
 import { activeWsRelay, addWsRelay, listWsRelays, normalizeHost, probeC3Relay, probeDnsVia, showWsRelaysModal, useWsRelay } from "./ws-relays.js";
-import { buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate, popoverSupported, fillSplashVersion } from "./ui.js";
+import { bindMenuToggle, buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate, popoverSupported, fillSplashVersion } from "./ui.js";
 import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact, showCreateGroupModal, showAddMembersModal } from "./p2p.js";
 import { withLocalChat, hubModel, renameDevice, removePeer, dismissLocalGroup, groupRename, groupRemoveMember, peerGroupImpact, groupActionsModel, groupMemberHint, removePeerImpactText, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
 import { timeAgo, formatBytes, timeTag } from "./format.js";
@@ -2863,12 +2863,12 @@ async function showChatInfo(chat) {
 
 /* ---------------- chat head menu ---------------- */
 function bindChatHeadMenu() {
-  $("btn-chat-menu").addEventListener("click", e => {
+  bindMenuToggle($("btn-chat-menu"), e => {
     const epoch = core.accountEpoch;
     const chat = state.chats.find(c => c.id === state.activeChatId);
     if (!chat) return;
     const r = e.currentTarget.getBoundingClientRect();
-    showContextMenu([
+    return showContextMenu([
       { label: "Chat info", onClick: () => showChatInfo(chat) },
       ...(chat.kind === "group" && !chat.isP2pGroup ? [{ label: "Group invite QR", onClick: () =>
         showInvite(inviteQrProvider(chat.id), { title: chat.name, group: true }) }] : []),

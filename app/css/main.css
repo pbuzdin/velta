@@ -2596,3 +2596,8 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 #webxdc-overlay.webxdc-panel:not(.webxdc-expanded) .webxdc-bar { padding-top: 6px; padding-bottom: 6px; }
 .webxdc-bar .webxdc-title { flex: 1; }
 .webxdc-expand span { font-size: 18px; line-height: 1; }
+
+/* #136: menu buttons show an X while their menu is open. */
+.icon-btn.menu-open svg { animation: menu-x-in .16s ease-out; }
+@keyframes menu-x-in { from { transform: rotate(-90deg) scale(.6); opacity: .4; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .icon-btn.menu-open svg { animation: none; } }
