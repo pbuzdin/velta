@@ -6,6 +6,7 @@
 
 import { CLOSE_SVG, toast, confirmModal } from "./ui.js";
 import { LruCache } from "./lru.js";
+import { wantsPanel } from "./webxdc-panel.js";
 
 let core = null;
 let active = null; // { msgId, iframe, serial, realtime }
@@ -254,13 +255,23 @@ export function isWebxdcOpen(msgId) {
   return active?.msgId === Number(msgId);
 }
 
-export async function openWebxdc(msgId, fallbackName = "Webxdc app") {
+// #138: apps opened as a bottom panel (the built-in Velta Drop) leave the
+// chat usable above them; the panel can expand to full screen and back.
+// Toggling only flips classes on the overlay — the iframe is never moved or
+// re-created, so the app (and a running transfer) is not reloaded.
+
+export async function openWebxdc(msgId, fallbackName = "Webxdc app", opts = {}) {
   if (typeof document === "undefined") return;
   // The webxdc.localhost handler only exists inside the Tauri shell. In a
   // plain browser (demo/dev) the frame would 404 every asset and spam the
   // console — explain instead of opening a dead overlay.
   if (!window.__TAURI__) {
     toast("webxdc apps run in the Velta app", 3000);
+    return;
+  }
+  // Already open: keep the running frame (a reload would kill a transfer).
+  if (active?.msgId === Number(msgId) && document.getElementById("webxdc-overlay")) {
+    if (active.panel) active.wrap?.querySelector(".webxdc-close")?.focus();
     return;
   }
   if (active) closeWebxdcFrame(); // reopen: no history touch, entry reused below
@@ -289,11 +300,19 @@ export async function openWebxdc(msgId, fallbackName = "Webxdc app") {
 
   const wrap = document.createElement("div");
   wrap.id = "webxdc-overlay";
+  const panel = wantsPanel(infoCache.get(msgId)?.name || fallbackName, opts);
   wrap.innerHTML = `
     <div class="webxdc-bar">
       <div class="webxdc-title"></div>
+      ${panel ? `<button type="button" class="webxdc-expand icon-btn" aria-expanded="false" title="Expand to full screen" aria-label="Expand to full screen"><span aria-hidden="true">⤢</span></button>` : ""}
       <button type="button" class="webxdc-close icon-btn" title="Close app" aria-label="Close app">${CLOSE_SVG}</button>
     </div>`;
+  if (panel) {
+    // A panel is a non-modal region: no focus trap, the chat stays reachable.
+    wrap.classList.add("webxdc-panel");
+    wrap.setAttribute("role", "region");
+    document.documentElement.classList.add("webxdc-panel-open");
+  }
   wrap.appendChild(iframe);
   document.body.appendChild(wrap);
 
@@ -301,8 +320,16 @@ export async function openWebxdc(msgId, fallbackName = "Webxdc app") {
   const info = infoCache.get(msgId);
   title.textContent = info?.name || fallbackName || "Webxdc app";
 
-  active = { msgId: Number(msgId), iframe, serial: serials.get(Number(msgId)) || 0 };
+  if (panel) wrap.setAttribute("aria-label", title.textContent);
+  active = { msgId: Number(msgId), iframe, serial: serials.get(Number(msgId)) || 0, panel, wrap };
   wrap.querySelector(".webxdc-close").addEventListener("click", () => closeWebxdc());
+  wrap.querySelector(".webxdc-expand")?.addEventListener("click", () => setWebxdcExpanded(!isWebxdcExpanded()));
+  if (panel) {
+    // No history entry while it is a panel: BACK keeps working for the chat
+    // underneath; expanding pushes one so BACK collapses (see popstate).
+    window.addEventListener("message", onWindowMessage);
+    return;
+  }
   // Android BACK closes the app: the pushed history entry pops (WebView
   // history navigation) and popstate tears the overlay down — same pattern
   // as openChat/closeChat in app.js and the HTML attachment viewer.
@@ -323,13 +350,47 @@ function onWindowMessage(e) {
 // BACK pops the entry pushed by openWebxdc; ✕/programmatic closes consume
 // the same entry via history.back() — either way the frame tears down once.
 window.addEventListener("popstate", (e) => {
-  if (active && e.state?.velta !== "webxdc") closeWebxdcFrame();
+  if (!active || e.state?.velta === "webxdc") return;
+  if (active.panel) { if (isWebxdcExpanded()) applyExpanded(false); return; }
+  closeWebxdcFrame();
 });
+
+export function isWebxdcExpanded() {
+  return !!active?.wrap?.classList.contains("webxdc-expanded");
+}
+
+function applyExpanded(on) {
+  const wrap = active?.wrap;
+  if (!wrap) return;
+  wrap.classList.toggle("webxdc-expanded", on);
+  document.documentElement.classList.toggle("webxdc-panel-open", !on);
+  const b = wrap.querySelector(".webxdc-expand");
+  if (b) {
+    const label = on ? "Collapse to panel" : "Expand to full screen";
+    b.setAttribute("aria-expanded", String(on));
+    b.title = label; b.setAttribute("aria-label", label);
+    b.firstElementChild.textContent = on ? "⤡" : "⤢";
+  }
+}
+
+/** Panel apps only: expand to full screen (true) or back to the panel. */
+export function setWebxdcExpanded(on) {
+  if (!active?.panel || on === isWebxdcExpanded()) return;
+  if (on) {
+    applyExpanded(true);
+    history.pushState({ velta: "webxdc" }, "");
+  } else if (history.state?.velta === "webxdc") {
+    history.back(); // popstate collapses
+  } else {
+    applyExpanded(false);
+  }
+}
 
 function closeWebxdcFrame() {
   // Closing the app leaves its realtime channel (spec: leave() or unload).
   if (active?.realtime) core?.leaveWebxdcRealtime?.(active.msgId)?.catch?.(() => {});
   document.getElementById("webxdc-overlay")?.remove();
+  document.documentElement.classList.remove("webxdc-panel-open");
   window.removeEventListener("message", onWindowMessage);
   active = null;
 }

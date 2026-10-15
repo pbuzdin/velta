@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Velta Drop icon: faceted Velta "V" catching a drop. Source for icon.png
+       (render: python3 -c "import cairosvg; cairosvg.svg2png(url='icon.svg', write_to='icon.png', output_width=512, output_height=512)") -->
+  <rect width="512" height="512" rx="104" fill="#0a1020"/>
+  <!-- V: left arm (lit) and right arm (shade), bevelled inner faces -->
+  <path fill="#03a1ec" d="M72,120 H176 L256,352 L256,432 H204 Z"/>
+  <path fill="#0081d2" d="M176,120 L204,148 L256,300 L256,352 Z"/>
+  <path fill="#0068b8" d="M440,120 H336 L256,352 L256,432 H308 Z"/>
+  <path fill="#03a1ec" d="M336,120 L308,148 L256,300 L256,352 Z" opacity=".55"/>
+  <!-- top bevels -->
+  <path fill="#66ccfe" d="M72,120 H176 L204,148 H92 Z"/>
+  <path fill="#46befc" d="M440,120 H336 L308,148 H420 Z"/>
+  <!-- drop -->
+  <path fill="#66ccfe" d="M256,96 C232,140 206,172 206,206 A50,50 0 0 0 256,256 Z"/>
+  <path fill="#46befc" d="M256,96 C280,140 306,172 306,206 A50,50 0 0 1 256,256 Z"/>
+  <path fill="#ffffff" opacity=".55" d="M228,200 C228,186 236,174 244,164 C240,180 238,192 240,208 Z"/>
+</svg>

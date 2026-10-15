@@ -2580,3 +2580,18 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 
 /* #110: relay confirmed UnifiedPush support (Relays modal). */
 .relay-push-mark { font-size: .85em; opacity: .7; margin-left: 4px; }
+
+/* #138: Velta Drop opens as a bottom panel; the app shell shrinks above it
+   so the chat stays scrollable and the composer usable. */
+:root { --webxdc-panel-h: min(70vh, max(220px, 30vh)); }
+html.webxdc-panel-open .app { height: calc(100% - var(--webxdc-panel-h)); }
+#webxdc-overlay.webxdc-panel:not(.webxdc-expanded) {
+  inset: auto 0 0 0;
+  height: var(--webxdc-panel-h);
+  border-top: 1px solid rgba(255,255,255,.12);
+  box-shadow: 0 -4px 16px rgba(0,0,0,.35);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+#webxdc-overlay.webxdc-panel:not(.webxdc-expanded) .webxdc-bar { padding-top: 6px; padding-bottom: 6px; }
+.webxdc-bar .webxdc-title { flex: 1; }
+.webxdc-expand span { font-size: 18px; line-height: 1; }

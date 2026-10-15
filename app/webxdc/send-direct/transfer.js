@@ -1,4 +1,4 @@
-// transfer.js — "Send directly" webxdc app protocol (#138 part 2).
+// transfer.js — "Velta Drop" webxdc app protocol (#138 part 2).
 // Pure logic (no DOM): runs in the app and under node tests.
 //
 // Everything rides the webxdc realtime channel (iroh gossip, broadcast to
