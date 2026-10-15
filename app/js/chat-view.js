@@ -3,6 +3,7 @@ import { formatTime, formatDay, formatDateTime, formatServerUrl, messageInfoStat
 import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener } from "./components.js";
 import { showContextMenu, showMessageSheet, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG } from "./ui.js";
 import { diagnosticRow } from "./diagnostics.js";
+import { attachRecentCommands, recordCommand } from "./recent-commands.js";
 import { openWebxdc, prefetchInfo, appIconUrl } from "./webxdc-manager.js";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
@@ -2917,7 +2918,11 @@ export class ChatView {
       if (input.value.trim()) this._typingFor(this.chat.id).ping();
       else this._typingStop();
     });
+    // #135 recent "/" commands popup (anchored in #main-composer).
+    this._recentCmds = attachRecentCommands(input, document.getElementById("main-composer"),
+      () => (this.chat && this.core ? { accountId: this.core.accountId, chatId: this.chat.id } : null));
     input.addEventListener("keydown", e => {
+      if (this._recentCmds.handleKey(e)) return;
       // Send on Enter is a setting (drawer, default on). Off: Enter falls
       // through to the textarea's native newline insert, whose input event
       // runs grow() — every line stays visible. Shift+Enter is always a
@@ -3253,6 +3258,8 @@ export class ChatView {
       return;
     }
     if (!text) return;
+    this._recentCmds?.hide();
+    if (!this.editingMsg) recordCommand(this.core.accountId, session.chatId, text);
     const url = senderPreviewUrl(text, {
       enabled: !!(this.chat && !this.editingMsg && linkPreviewMode(this.chat.id) === "picture"),
       hasFile: false,

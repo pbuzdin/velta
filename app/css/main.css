@@ -2558,3 +2558,20 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 .side-view .qr-scan video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .side-view .qr-scan-status { text-align: center; font-size: 13.5px; color: var(--text-dim, #777); }
 .side-view .qr-view > .side-tabs { margin-bottom: 4px; }
+
+/* #135 recent "/" commands: listbox anchored above #main-composer. */
+#main-composer { position: relative; }
+.recent-commands-pop {
+  position: absolute; left: 14px; right: 14px; bottom: 100%;
+  margin: 0 0 4px; padding: 4px 0; list-style: none;
+  max-height: min(50vh, 340px); overflow-y: auto; z-index: 30;
+  background: var(--bg-sidebar); color: var(--text);
+  border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+.recent-commands-pop [role=option] {
+  padding: 10px 14px; cursor: pointer; font-family: ui-monospace, monospace;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.recent-commands-pop [role=option]:hover,
+.recent-commands-pop [role=option].active { background: color-mix(in srgb, var(--accent) 18%, transparent); }

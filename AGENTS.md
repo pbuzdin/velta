@@ -63,6 +63,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── media.js          # media URL helpers: blobfile:// protocol (boot-probed) → loopback server → asset protocol + per-element fallback
 │   │   ├── p2p.js            # Local chat UI: drawer toggle, list card, pairing, legacy 1:1 modal (Tauri only)
 │   │   ├── tunnel.js         # optional Android DNS tunnel UI: deep link, drawer row, settings sheet, diagnostics (#116/#119/#128)
+│   │   ├── recent-commands.js # #135 recent "/" bot commands popup + per-(account,chat) history, localStorage
 │   │   ├── read-markers.js   # manual "read up to here" markers per (account, chat), localStorage-only
 │   │   ├── qr-actions.js     # QR screen logic: scan-tab/share availability, copy/share link, scanned-code classification (#37)
 │   │   ├── share-in.js       # inbound share (#97): text/file payloads; invite and chat links stay on the deeplink router
@@ -2037,11 +2038,28 @@ next push or the tainted commits come back.
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 75 files, 568 tests as of 2026-10-15:
+whole set — 76 files, 576 tests as of 2026-10-15:
 
 ```bash
 node --test tests/
 ```
+
+Recent commands (#135, `tests/recent-commands.test.mjs`):
+`app/js/recent-commands.js`. Sending a message whose first line starts with
+`/` (not edits) records that first line, trimmed, ≤64 chars, into
+localStorage `velta-recent-commands` = `{acc: {global: [...], chats: {chatId:
+[...]}}}` — distinct, most-recent-first, capped 10 per list (≤200 chats per
+account, oldest pruned). Lookup is PER-CHAT, falling back to the account-wide
+global list when the chat has none. When composer text starts with `/` (single
+line) a `role=listbox` `<ul id=recent-commands>` is appended inside
+`#main-composer` (made `position: relative`), `bottom: 100%`, prefix-filtered
+case-insensitively. Textarea gets `aria-autocomplete/aria-expanded/
+aria-controls/aria-activedescendant`. ArrowUp/Down move, Enter/Tab insert the
+active option (Tab with none = first), Escape/blur/send hide; Enter with NO
+active option still sends. Selection inserts `cmd + " "`, never auto-sends.
+Option taps `preventDefault` on pointerdown/mousedown so the Android soft
+keyboard stays up. `_bindComposer` keydown calls `handleKey` FIRST. There was
+no @-mention autocomplete to reuse; styles mirror `.ctx-menu`.
 
 Hashtags (#134, `tests/hashtags.test.mjs`): `app/js/hashtags.js` finds
 `#tag` (Unicode letters/marks/digits/`_`, at least one letter, ≤64 chars,
