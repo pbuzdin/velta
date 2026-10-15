@@ -1832,7 +1832,7 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
   margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--border);
   word-break: break-word;
 }
-.toast-more-text { flex: 1; }
+.toast-more-text { flex: 1; max-height: 40vh; overflow-y: auto; }
 .toast-chip, .toast-copy, .toast-undo {
   flex: none; cursor: pointer;
   font-size: 11px; padding: 3px 8px; border-radius: 999px;
