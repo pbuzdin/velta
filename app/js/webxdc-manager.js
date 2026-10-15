@@ -255,7 +255,7 @@ export function isWebxdcOpen(msgId) {
   return active?.msgId === Number(msgId);
 }
 
-// #138: apps opened as a bottom panel (the built-in Velta Drop) leave the
+// #138: apps opened as a bottom panel (the built-in Velta Beam) leave the
 // chat usable above them; the panel can expand to full screen and back.
 // Toggling only flips classes on the overlay — the iframe is never moved or
 // re-created, so the app (and a running transfer) is not reloaded.
