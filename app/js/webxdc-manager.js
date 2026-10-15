@@ -311,10 +311,15 @@ export async function openWebxdc(msgId, fallbackName = "Webxdc app", opts = {}) 
     // A panel is a non-modal region: no focus trap, the chat stays reachable.
     wrap.classList.add("webxdc-panel");
     wrap.setAttribute("role", "region");
-    document.documentElement.classList.add("webxdc-panel-open");
   }
   wrap.appendChild(iframe);
-  document.body.appendChild(wrap);
+  // Panel: in the chat view's layout flow right below the chat header, so the
+  // message list shrinks between it and the composer (never overlays the
+  // input, also with the Android keyboard open). Inserted once — the frame is
+  // never moved afterwards (moving an iframe reloads it).
+  const chatHead = panel ? document.querySelector("#chat-view > .chat-head") : null;
+  if (chatHead) chatHead.after(wrap);
+  else document.body.appendChild(wrap);
 
   const title = wrap.querySelector(".webxdc-title");
   const info = infoCache.get(msgId);
@@ -363,7 +368,6 @@ function applyExpanded(on) {
   const wrap = active?.wrap;
   if (!wrap) return;
   wrap.classList.toggle("webxdc-expanded", on);
-  document.documentElement.classList.toggle("webxdc-panel-open", !on);
   const b = wrap.querySelector(".webxdc-expand");
   if (b) {
     const label = on ? "Collapse to panel" : "Expand to full screen";
@@ -390,7 +394,6 @@ function closeWebxdcFrame() {
   // Closing the app leaves its realtime channel (spec: leave() or unload).
   if (active?.realtime) core?.leaveWebxdcRealtime?.(active.msgId)?.catch?.(() => {});
   document.getElementById("webxdc-overlay")?.remove();
-  document.documentElement.classList.remove("webxdc-panel-open");
   window.removeEventListener("message", onWindowMessage);
   active = null;
 }
