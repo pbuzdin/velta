@@ -295,25 +295,15 @@ async fn download_update(_app: tauri::AppHandle, _version: String) -> Result<Str
 /// and a hard timeout — a slow or hostile page must not hang the bar. Any
 /// failure is reported as an empty string; the bar falls back to the domain.
 #[tauri::command]
-async fn fetch_page_title(url: String) -> Result<String, String> {
+async fn fetch_page_title(url: String, proxy: Option<String>) -> Result<String, String> {
     if !url.starts_with("https://") {
         return Err("only https URLs are supported".into());
     }
+    // Best-effort: an unusable proxy means no fetch (never a direct one) and
+    // the bar keeps the domain, same as a failed fetch.
+    let Ok(agent) = link_preview_agent(proxy.as_deref()) else { return Ok(String::new()) };
     tauri::async_runtime::spawn_blocking(move || {
-        let agent = ureq::AgentBuilder::new()
-            .timeout(std::time::Duration::from_secs(5))
-            .build();
-        let resp = match agent.get(&url).call() {
-            Ok(r) => r,
-            Err(_) => return Ok(String::new()),
-        };
-        let mut body = Vec::new();
-        use std::io::Read;
-        let _ = resp
-            .into_reader()
-            .take(256 * 1024)
-            .read_to_end(&mut body);
-        let text = String::from_utf8_lossy(&body);
+        let Ok(text) = fetch_capped(&agent, &url) else { return Ok(String::new()) };
         let lower = text.to_ascii_lowercase();
         let Some(start) = lower.find("<title") else { return Ok(String::new()) };
         let Some(open_end) = lower[start..].find('>') else { return Ok(String::new()) };
@@ -350,25 +340,15 @@ fn html_escape_decode(s: &str) -> String {
 /// fetch_page_title; no candidates -> empty vec, and the UI degrades to a
 /// plain link.
 #[tauri::command]
-async fn expand_invite_link(url: String) -> Result<Vec<String>, String> {
+async fn expand_invite_link(url: String, proxy: Option<String>) -> Result<Vec<String>, String> {
     if !url.starts_with("https://") {
         return Err("only https URLs are supported".into());
     }
+    // Fails closed like fetch_link_preview: an unusable proxy is an Err and
+    // the frontend renders a plain link instead of fetching directly.
+    let agent = link_preview_agent(proxy.as_deref())?;
     tauri::async_runtime::spawn_blocking(move || {
-        let agent = ureq::AgentBuilder::new()
-            .timeout(std::time::Duration::from_secs(5))
-            .build();
-        let resp = match agent.get(&url).call() {
-            Ok(r) => r,
-            Err(_) => return Ok(Vec::new()),
-        };
-        let mut body = Vec::new();
-        use std::io::Read;
-        let _ = resp
-            .into_reader()
-            .take(256 * 1024)
-            .read_to_end(&mut body);
-        let text = String::from_utf8_lossy(&body);
+        let Ok(text) = fetch_capped(&agent, &url) else { return Ok(Vec::new()) };
         let mut out = Vec::new();
         let mut from = 0;
         while let Some(pos) = text[from..].find("https://") {
@@ -449,6 +429,19 @@ fn link_preview_proxy(proxy: Option<&str>) -> Result<Option<String>, String> {
     Ok(Some(format!("{scheme}://{rest}")))
 }
 
+/// GET `url` with `agent` and return at most the first 256 KB as lossy
+/// UTF-8. Shared by fetch_page_title, expand_invite_link and
+/// fetch_link_preview; a transport error is Err("fetch failed") and each
+/// caller maps it to its own semantics. The agent decides direct vs proxy
+/// (link_preview_agent: never a direct fallback when a proxy is set).
+fn fetch_capped(agent: &ureq::Agent, url: &str) -> Result<String, String> {
+    use std::io::Read;
+    let resp = agent.get(url).call().map_err(|_| "fetch failed".to_string())?;
+    let mut body = Vec::new();
+    let _ = resp.into_reader().take(256 * 1024).read_to_end(&mut body);
+    Ok(String::from_utf8_lossy(&body).into_owned())
+}
+
 /// The ureq agent for fetch_link_preview: direct without a proxy, through it
 /// otherwise. Err (no agent at all) when the proxy can't be used.
 fn link_preview_agent(proxy: Option<&str>) -> Result<ureq::Agent, String> {
@@ -479,17 +472,7 @@ async fn fetch_link_preview(url: String, proxy: Option<String>) -> Result<serde_
     }
     let agent = link_preview_agent(proxy.as_deref())?;
     tauri::async_runtime::spawn_blocking(move || {
-        let resp = match agent.get(&url).call() {
-            Ok(r) => r,
-            Err(_) => return Err("fetch failed".into()),
-        };
-        let mut body = Vec::new();
-        use std::io::Read;
-        let _ = resp
-            .into_reader()
-            .take(256 * 1024)
-            .read_to_end(&mut body);
-        let text = String::from_utf8_lossy(&body);
+        let text = fetch_capped(&agent, &url)?;
         let lower = text.to_ascii_lowercase();
 
         // og: property first, twitter: name second, plain <title>/description

@@ -107,7 +107,12 @@ function openIframeOverlay(url) {
   // Title: fetch_page_title is best-effort — keep the domain until it answers.
   const titleEl = wrap.querySelector("[data-title]");
   const t = window.__TAURI__;
-  (t?.core?.invoke || t?.invoke)?.("fetch_page_title", { url })
+  const titleInvoke = t?.core?.invoke || t?.invoke;
+  // Through the configured proxy/DNS tunnel only (direct when none); an
+  // unknown proxy setting means no title fetch, never a direct one.
+  if (titleInvoke) import("./link-preview.js")
+    .then(({ shellProxy }) => shellProxy())
+    .then((proxy) => titleInvoke("fetch_page_title", { url, proxy }))
     .then((title) => { if (title) titleEl.textContent = title; })
     .catch(() => {});
 

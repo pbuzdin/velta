@@ -161,3 +161,15 @@ test("activeProxyUrl follows proxy_enabled and takes the first list entry", () =
   assert.match(rs, /async fn fetch_link_preview\(url: String, proxy: Option<String>\)/);
   assert.match(rs, /link_preview_agent\(proxy\.as_deref\(\)\)\?/);
 });
+
+test("page title and invite expansion share fetch_capped and the proxy policy", () => {
+  const rs = readFileSync(new URL("../velta-app/src-tauri/src/lib.rs", import.meta.url), "utf8");
+  assert.match(rs, /async fn fetch_page_title\(url: String, proxy: Option<String>\)/);
+  assert.match(rs, /async fn expand_invite_link\(url: String, proxy: Option<String>\)/);
+  assert.equal((rs.match(/fetch_capped\(&agent, &url\)/g) || []).length, 3);
+  assert.equal((rs.match(/take\(256 \* 1024\)/g) || []).length, 1);
+  for (const f of ["inapp-browser.js", "invites.js"]) {
+    const js = readFileSync(new URL(`../app/js/${f}`, import.meta.url), "utf8");
+    assert.match(js, /shellProxy\(\)/, f);
+  }
+});
