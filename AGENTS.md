@@ -2082,6 +2082,16 @@ next push or the tainted commits come back.
 
 ---
 
+### 6.7 Pitfalls found in 1.4.70 (and how to avoid them)
+
+- **Timestamp units.** jsonrpc `ChatListItem.lastUpdated` and message `timestamp` fields: check the Rust type in `core/deltachat-jsonrpc/src/api/types/` before scaling. `lastUpdated` is already **milliseconds** (`get_timestamp() * 1000`); multiplying again gave year 58757. Never assume seconds; a 2-digit year format hid this bug for months. Tests with a fixed clock must assert the full year.
+- **Date math uses calendar days**, not `(now - ts) / 86400e3` windows (`calendarDaysAgo` in `format.js`). Never pair `hour12:false` with `hourCycle:"h23"` (node/WebView then print "24:05").
+- **Bundled assets sent to core (Tauri).** Don't fetch an app asset in the WebView and write it with the fs plugin before passing the path to core: on Android the bytes came out corrupt, core still sent an empty webxdc, and opening it showed "not found". Embed with `include_bytes!` and write from Rust (`builtin_xdc.rs`, `prepare_builtin_xdc`), validate (zip with `index.html`, read back), and **never send a message unless the file validated**; show an error toast instead.
+- **PWA persistence is snapshot-based.** Anything that must survive a reload (avatar, profile, chat image, sent blobs) must await a checkpoint before reporting success; snapshots export DBs first, then list blobs, so a DB row never points at a missing blob.
+- **Verify the claim, not the commit.** "Fixed on tip" isn't fixed until reproduced on the deployed build: check the served `sw.js` cache name, and for Android check the release APK. Subagent or reviewer statements like "timestamps are converted from seconds" must be checked against the code.
+- **Read the user's words literally.** "above app logs" meant the App log bar, not the logo; ask or re-read before moving UI.
+- **Releases.** Run the full node suite and look at real dates/times in a screenshot of the chat list before tagging. Tag only after AGENTS/docs reflect the release.
+
 ## 7. Testing strategy
 
 ### 7.1 Rust core
