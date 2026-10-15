@@ -1901,7 +1901,18 @@ Server URL default `https://upload.disroot.org` (changeable in the upload
 dialog, `velta-lufi-server`). Details, live round-trip recipe:
 docs/agents/large-file.md.
 
-### 5.4.2 "Send directly (both online)" — built-in webxdc (#138 part 2)
+### 5.4.2 "Velta Drop (both online)" (was "Send directly") — built-in webxdc (#138 part 2)
+
+Renamed "Velta Drop" (manifest name, menu label, docs); internal id
+`send-direct`, folder `app/webxdc/send-direct/`, `send-direct.xdc` and the
+`prepare_builtin_xdc` name stay so existing messages/tests keep working.
+Icon: `icon.svg` → `icon.png` (512px, cairosvg); the build script now
+packs the committed PNG. It opens as a **bottom panel** (`webxdc-panel.js`
+`wantsPanel`: name "Velta Drop" or `send-direct*.xdc`): `.app` shrinks by
+`--webxdc-panel-h` (30vh, ≥220px), no focus trap, no history entry; the ⤢
+button expands (pushes an entry; BACK collapses), ✕ closes. Expand/collapse
+only toggles classes, and reopening the open app is a no-op — the frame is
+never reloaded, so a transfer survives.
 
 Attach menu item next to Large file: sends `app/builtin/send-direct.xdc`
 into the chat and opens it. Sources in `app/webxdc/send-direct/`
