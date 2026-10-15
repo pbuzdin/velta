@@ -7,6 +7,11 @@
   const fmt = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : n < 1073741824 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`;
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   let me = "";
+  const sessionPeer = "anon-" + Math.random().toString(16).slice(2, 10);
+  const myName = () => String(wx.selfName || me || wx.selfAddr || "");
+  const myPeer = () => String(wx.selfAddr || me || sessionPeer);
+  const trackers = new Map(); // offer id -> ReceiverTracker (sender and receivers)
+  const tracker = (id) => { let t = trackers.get(id); if (!t) trackers.set(id, t = new Transfer.ReceiverTracker({ id })); return t; };
   let channel = null;
   const senders = new Map();   // id -> Sender (files I offer, this session)
   const offers = new Map();    // id -> {offer, from, card, rx}
@@ -23,7 +28,11 @@
       if (!f) return;
       if (f.type === Transfer.T_OFFER && Transfer.validOffer(f.header)) addOffer(f.header, "");
       else if (f.type === Transfer.T_REQ) { const s = senders.get(f.header.id); if (s) { s.handle(f); paintSender(f.header.id); } }
-      else if (f.type === Transfer.T_CHUNK) { const o = offers.get(f.header.id); if (o && o.rx && o.rx.handle(f)) paintRx(o); }
+      else if (f.type === Transfer.T_PROG) {
+        if (f.header.peer === myPeer()) return;
+        if (tracker(f.header.id).handle(f)) { if (senders.has(f.header.id)) paintSender(f.header.id); else paintPeers(offers.get(f.header.id)); }
+      }
+      else if (f.type === Transfer.T_CHUNK) { const o = offers.get(f.header.id); if (o && o.rx && o.rx.handle(f)) { paintRx(o); if (o.rx.done) sendProgress(o); } }
     });
   }
 
@@ -48,12 +57,14 @@
       <div class="meta">${fmt(offer.size)}${o.from ? " · from " + esc(o.from) : ""}</div>
       <div class="meta" data-state>${state}</div>
       ${rx && !rx.done ? `<progress max="1000" value="${Math.round(rx.progress * 1000)}"></progress>` : ""}
-      <div class="row" data-actions></div>`;
+      <div class="row" data-actions></div>
+      <div data-peers></div>`;
+    paintPeers(o);
     const act = o.card.querySelector("[data-actions]");
     if (!rx) {
       const b = Object.assign(document.createElement("button"), { textContent: "Receive" });
       b.disabled = !online;
-      b.onclick = () => { o.rx = new Transfer.Receiver({ offer, send }); o.rx.pump(); paintRx(o); };
+      b.onclick = () => { o.rx = new Transfer.Receiver({ offer, send }); o.rx.pump(); sendProgress(o); paintRx(o); };
       act.append(b);
     } else if (rx.done && rx.ok) {
       const blob = () => new File([rx.bytes], offer.name);
@@ -67,10 +78,32 @@
     }
   }
 
+  function sendProgress(o) {
+    if (o && o.rx) send(Transfer.progressFrame(o.rx, myPeer(), myName()));
+  }
+
+  // Receiver list (percent bar per receiver, "done" once SHA-256 verified).
+  function peersHtml(id) {
+    const t = trackers.get(id);
+    const rows = t ? t.list() : [];
+    if (!rows.length) return "";
+    return `<ul class="peers" aria-label="Receivers">${rows.map((p) => {
+      const st = p.done ? (p.ok ? '<span class="ok">done</span>' : '<span class="bad">checksum failed</span>') : p.stale ? `${p.percent}% · stale` : `${p.percent}%`;
+      return `<li><span class="pn">${esc(p.name)}</span><progress max="100" value="${p.done ? 100 : p.percent}" aria-label="${esc(p.name)} ${p.percent}%"></progress><span class="ps">${st}</span></li>`;
+    }).join("")}</ul>`;
+  }
+  function paintPeers(o) {
+    const el = o && o.card && o.card.querySelector("[data-peers]");
+    if (el) el.innerHTML = peersHtml(o.offer.id);
+  }
+
   function paintSender(id) {
     const s = senders.get(id);
     if (!s || !s.card) return;
-    s.card.querySelector("[data-state]").textContent = s.served ? `Sending… ${s.served} chunk(s) served` : "Waiting for receivers…";
+    const t = trackers.get(id);
+    const n = t ? t.activeCount() : 0;
+    s.card.querySelector("[data-state]").textContent = n ? `${n} receiver${n === 1 ? "" : "s"}` + (s.served ? ` · ${s.served} chunk(s) served` : "") : s.served ? `Sending… ${s.served} chunk(s) served` : "Waiting for receivers…";
+    s.card.querySelector("[data-peers]").innerHTML = peersHtml(id);
   }
 
   $("#pick").onclick = async () => {
@@ -84,7 +117,7 @@
     senders.set(s.offer.id, s);
     s.card = document.createElement("div");
     s.card.className = "card";
-    s.card.innerHTML = `<div class="name">${esc(s.offer.name)}</div><div class="meta">${fmt(s.offer.size)} · you are offering this</div><div class="meta" data-state>Waiting for receivers…</div><div class="meta">Keep this app open until they have it.</div>`;
+    s.card.innerHTML = `<div class="name">${esc(s.offer.name)}</div><div class="meta">${fmt(s.offer.size)} · you are offering this</div><div class="meta" data-state>Waiting for receivers…</div><div class="meta">Keep this app open until they have it.</div><div data-peers></div>`;
     list.prepend(s.card);
     s.announce();
     // Status update: chat info line + receivers who open the app later see it.
@@ -97,9 +130,17 @@
       if (o.rx && !o.rx.done) o.rx.pump();
       else if (!o.rx) paintRx(o);
     }
-    $("#peers").textContent = lastHeard && Date.now() - lastHeard < 8000 ? "A peer is connected" : "";
+    let n = 0;
+    for (const t of trackers.values()) n += t.activeCount();
+    const line = n ? `${n} receiver${n === 1 ? "" : "s"}` : lastHeard && Date.now() - lastHeard < 8000 ? "A peer is connected" : "";
+    if ($("#peers").textContent !== line) $("#peers").textContent = line; // aria-live: announce changes only
+    for (const id of senders.keys()) paintSender(id);
+    for (const o of offers.values()) paintPeers(o);
   }, 2500);
   setInterval(() => { for (const o of offers.values()) if (o.rx && !o.rx.done) o.rx.pump(); }, 400);
+  // Progress every ~1 s while receiving, and keep announcing "done" while open
+  // (the channel is lossy; the sender drops silent receivers after 10 s).
+  setInterval(() => { for (const o of offers.values()) sendProgress(o); }, Transfer.PROG_MS);
 
   (async () => {
     try { const i = await wx.getSelfInfo(); me = (i && i.addr) || ""; } catch (e) {}

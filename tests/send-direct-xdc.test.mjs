@@ -182,3 +182,40 @@ test("host wiring: realtime methods, events and leave-on-close", () => {
   const cv = readFileSync(new URL("../app/js/chat-view.js", import.meta.url), "utf8");
   assert.match(cv, /label: "Velta Beam \(both online\)"/);
 });
+
+test("receiver progress: frames, tracker percent/done/stale/drop", () => {
+  let now = 0;
+  const bytes = new Uint8Array(randomBytes(T.CHUNK * 3 + 5));
+  const s = new T.Sender({ name: "f", bytes, send() {} });
+  const r = new T.Receiver({ offer: s.offer, send() {} });
+  const frame = T.progressFrame(r, "bob@x.org", "Bob ".repeat(40));
+  assert.ok(frame.length < 1000);
+  const h = T.decodeFrame(frame).header;
+  assert.equal(h.name.length, 64);
+  assert.ok(T.validProgress(h));
+  assert.equal(T.validProgress({ ...h, have: 99 }), false);
+
+  const t = new T.ReceiverTracker({ id: s.offer.id, now: () => now });
+  const prog = (peer, have, done = false, ok = null) =>
+    T.decodeFrame(T.encodeFrame(T.T_PROG, { id: s.offer.id, peer, name: peer.split("@")[0], have, n: 4, done, ok }));
+  assert.equal(t.handle(T.decodeFrame(T.encodeFrame(T.T_PROG, { ...h, id: "ffffffffffffffff" }))), false);
+  t.handle(prog("a@x", 2)); t.handle(prog("b@x", 0)); t.handle(prog("c@x", 4, true, true));
+  assert.equal(t.activeCount(), 3);
+  assert.deepEqual(t.list().map(p => [p.peer, p.percent, p.done, p.stale]),
+    [["a@x", 50, false, false], ["b@x", 0, false, false], ["c@x", 100, true, false]]);
+  t.handle(prog("a@x", 1)); // reordered/lost frames never move progress back
+  assert.equal(t.list()[0].percent, 50);
+  now = 11000;
+  const l = t.list();
+  assert.deepEqual(l.map(p => [p.peer, p.stale]), [["a@x", true], ["c@x", false]]); // b dropped, a stale, c done
+  assert.equal(t.activeCount(), 0);
+  t.handle(prog("a@x", 3));
+  assert.equal(t.list()[0].stale, false);
+});
+
+test("ui wires progress broadcast and the receiver list", () => {
+  const ui = readFileSync(new URL("../app/webxdc/send-direct/ui.js", import.meta.url), "utf8");
+  for (const s of ["Transfer.T_PROG", "Transfer.progressFrame(o.rx, myPeer(), myName())", "Transfer.PROG_MS", "receiver${n === 1 ? \"\" : \"s\"}", 'aria-label="Receivers"']) assert.ok(ui.includes(s), s);
+  const main = classicTransfer(readFileSync(new URL("../app/webxdc/send-direct/transfer.js", import.meta.url), "utf8"));
+  for (const n of ["T_PROG", "PROG_MS", "SILENT_MS", "ReceiverTracker", "progressFrame", "validProgress"]) assert.match(main, new RegExp(`window\\.Transfer = \\{[^}]*\\b${n}\\b`));
+});
