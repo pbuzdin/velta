@@ -4668,10 +4668,10 @@ function normalizeRelayLink(raw) {
 }
 
 // The "Welcome to Velta" splash. Shown full-screen whenever the current
-// account is unconfigured (first boot): version line (#127), large Velta logo,
+// account is unconfigured (first boot): large Velta logo,
 // tagline, the three setup paths (create an account / add as a second device /
-// restore from a backup) and a collapsed app-log footer for errors and debug
-// messages.
+// restore from a backup), a version line (#127) pinned just above the
+// collapsed app-log footer for errors and debug messages.
 // Removes itself once a profile is ready — the create flow hides it
 // directly, the second-device receive resolves, restore reloads the app.
 function showSplash() {
@@ -4683,10 +4683,7 @@ function showSplash() {
   el.className = "splash"; el.id = "splash";
   el.innerHTML = `
     <div class="splash-main">
-      <div class="splash-brand">
-        <p class="splash-ver" data-splash-ver>…</p>
-        <img class="splash-logo" src="./icons/v-logo.svg" alt="Velta logo">
-      </div>
+      <img class="splash-logo" src="./icons/v-logo.svg" alt="Velta logo">
       <h1 class="splash-title">Welcome to Velta</h1>
       <p class="splash-tag">End-to-end encrypted messaging built on Delta Chat — no phone number, no central server. Pick how to set up your profile:</p>
       <div class="splash-actions" data-actions>
@@ -4706,6 +4703,7 @@ function showSplash() {
       </form>
       <ul class="ob-steps" data-steps></ul>
     </div>
+    <p class="splash-ver" data-splash-ver>…</p>
     <details class="splash-log">
       <summary>App log — errors &amp; debug</summary>
       <div class="splash-log-bar"><button class="btn-text" data-copylog type="button">Copy log</button></div>
