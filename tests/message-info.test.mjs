@@ -13,7 +13,7 @@ test("clocks are 24-hour", () => {
     assert.doesNotMatch(formatDateTime(ts), /AM|PM/);
     assert.doesNotMatch(timeParts(ts).title, /AM|PM/);
   }
-  const clock = (ts) => new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, hourCycle: "h23" });
+  const clock = (ts) => new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
   assert.ok(formatDateTime(afternoon).includes(clock(afternoon)));
   assert.ok(formatDateTime(morning).includes(clock(morning)));
   assert.equal(timeParts(afternoon).title, formatDateTime(afternoon));
@@ -114,6 +114,6 @@ test("message info and clocks do not use a 12-hour locale string", () => {
   for (const f of ["app/js/format.js", "app/js/diagnostics.js"]) {
     const calls = read(f).match(/toLocaleTimeString\([\s\S]{0,220}?\)/g) || [];
     assert.ok(calls.length > 0, f);
-    for (const c of calls) assert.match(c, /hour12:\s*false|\bH24\b/);
+    for (const c of calls) { assert.match(c, /hourCycle:\s*"h23"|\bH24\b/); assert.doesNotMatch(c, /hour12/); }
   }
 });

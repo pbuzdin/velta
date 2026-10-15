@@ -34,8 +34,8 @@ export function formatBytes(n) {
   return (n / 1048576).toFixed(1) + " MB";
 }
 
-// hourCycle h23 keeps midnight at 00, not 24, on engines where hour12:false still emits 24.
-const H24 = { hour: "2-digit", minute: "2-digit", hour12: false, hourCycle: "h23" };
+// hourCycle h23 alone: adding hour12:false overrides it and V8/ICU then emits "24:05" after midnight.
+const H24 = { hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
 
 export function formatTime(ts) {
   const d = new Date(ts);
@@ -105,21 +105,45 @@ export function formatServerUrl(raw) {
   return folder && folder !== "INBOX" ? `${addr} ${folder} UID=${m[2]}` : `${addr} UID=${m[2]}`;
 }
 
-export function formatListTime(ts) {
-  const d = new Date(ts), now = new Date();
-  const sameDay = d.toDateString() === now.toDateString();
-  if (sameDay) return formatTime(ts);
-  const diff = (now - d) / 86400e3;
-  if (diff < 7) return d.toLocaleDateString([], { weekday: "short" });
-  return d.toLocaleDateString([], { day: "2-digit", month: "2-digit", year: "2-digit" });
+// Whole local calendar days between ts and now (0 = today, 1 = yesterday).
+// Counted on local midnights, not 24h windows, so DST and early-morning
+// "now" do not shift the boundary; negative for future timestamps.
+export function calendarDaysAgo(ts, now = Date.now()) {
+  const d = new Date(ts), n = new Date(now);
+  const a = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const b = new Date(n.getFullYear(), n.getMonth(), n.getDate());
+  return Math.round((b - a) / 86400e3);
 }
 
-export function formatDay(ts) {
-  const d = new Date(ts), now = new Date();
-  if (d.toDateString() === now.toDateString()) return "Today";
-  const y = new Date(now - 86400e3);
-  if (d.toDateString() === y.toDateString()) return "Yesterday";
-  return d.toLocaleDateString([], { day: "numeric", month: "long", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
+function relativeDayLabel() {
+  try {
+    const s = new Intl.RelativeTimeFormat([], { numeric: "auto" }).format(-1, "day");
+    return s.charAt(0).toLocaleUpperCase() + s.slice(1);
+  } catch { return "Yesterday"; }
+}
+
+// Chat-list stamp, Delta Chat convention: today HH:MM, yesterday
+// "Yesterday", 2–6 calendar days ago weekday, same year "Oct 3", older
+// with year. Future timestamps (clock skew) never get a weekday.
+export function formatListTime(ts, now = Date.now()) {
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return "";
+  const days = calendarDaysAgo(ts, now);
+  if (days === 0) return formatTime(ts);
+  if (days === 1) return relativeDayLabel();
+  if (days > 1 && days < 7) return d.toLocaleDateString([], { weekday: "short" });
+  const sameYear = d.getFullYear() === new Date(now).getFullYear();
+  return d.toLocaleDateString([], sameYear
+    ? { month: "short", day: "numeric" }
+    : { month: "short", day: "numeric", year: "numeric" });
+}
+
+export function formatDay(ts, now = Date.now()) {
+  const d = new Date(ts);
+  const days = calendarDaysAgo(ts, now);
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  return d.toLocaleDateString([], { day: "numeric", month: "long", year: d.getFullYear() !== new Date(now).getFullYear() ? "numeric" : undefined });
 }
 
 // "just now" / "5 minutes ago" / "3 hours ago" / "2 days ago" — relative time
