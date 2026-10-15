@@ -2058,6 +2058,16 @@ export class ChatView {
         }
         return; // non-http hrefs: browser default, never row selection
       }
+      // #134: tapping a #hashtag searches for it in this chat (app.js
+      // listens and opens the chat search prefilled with the tag).
+      const tagBtn = e.target.closest("button[data-hashtag]");
+      if (tagBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (Date.now() - (this._swipedAt || 0) < 400) return;
+        window.dispatchEvent(new CustomEvent("velta-hashtag", { detail: { tag: tagBtn.dataset.hashtag } }));
+        return;
+      }
       const chip = e.target.closest("[data-react]");
       if (chip) { this.core.addReaction(this.chat.id, m.id, chip.dataset.react); return; }
       const quote = e.target.closest("[data-quote]");

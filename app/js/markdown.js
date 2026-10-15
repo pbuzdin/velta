@@ -3,12 +3,15 @@
 //   [label](https://…) links, bare URLs, scheme-less addresses like
 //   t.me/x/1 or example.com (bare-links.js, #85) — and invite cards via
 //   invites.js
+//   #hashtags (hashtags.js, #134) → <button class="hashtag" data-hashtag>,
+//   scanned only in text outside links, so URL #fragments are never tags
 //   "- item" / "* item" bullets and "1." / "1)" numbered lists
 // All text is HTML-escaped before any tag is produced; only http(s) URLs
 // become links, so message content can never inject markup. There is no code
 // span/block syntax, so nothing is excluded from linking on that account.
 import { escapeHtml, escapeAttr } from "./components.js";
 import { findBareLinks, trimLinkEnd } from "./bare-links.js";
+import { findHashtags } from "./hashtags.js";
 import { parseInviteLink, inviteCardHtml, isShortInviteLink, shortInviteCardHtml } from "./invites.js";
 
 const PLACEHOLDER_RE = /\x00(\d+)\x00/g;
@@ -90,14 +93,29 @@ function inline(raw) {
       : `<a href="${escapeAttr(url)}" target="_blank" rel="noopener">${escapeHtml(label)}</a>`;
   };
   // Plain text between explicit links: pick out scheme-less addresses.
+  // Hashtags (#134) only in what's left after links, so "a.com/#x" and
+  // "https://x/#y" fragments are never tags. A native <button> is keyboard
+  // focusable and Enter/Space-activatable; the tag is [\p{L}\p{N}_] only but
+  // is escaped anyway.
+  const tags = seg => {
+    let out = "";
+    let at = 0;
+    for (const h of findHashtags(seg)) {
+      out += seg.slice(at, h.start) + hold(
+        `<button type="button" class="hashtag" data-hashtag="${escapeAttr(h.text)}" ` +
+        `aria-label="${escapeAttr("Search " + h.text)}">${escapeHtml(h.text)}</button>`);
+      at = h.end;
+    }
+    return out + seg.slice(at);
+  };
   const plain = seg => {
     let out = "";
     let at = 0;
     for (const b of findBareLinks(seg)) {
-      out += seg.slice(at, b.start) + hold(linkToken(b.url, b.text));
+      out += tags(seg.slice(at, b.start)) + hold(linkToken(b.url, b.text));
       at = b.end;
     }
-    return out + seg.slice(at);
+    return out + tags(seg.slice(at));
   };
   let work = "";
   let last = 0;

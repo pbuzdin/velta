@@ -59,6 +59,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── markdown.js       # escape-first message markdown: bold/italic/underline, links, lists + bot command extraction
 │   │   ├── image-compress.js # outgoing photo → lossy WebP when it clearly pays (size-gated, renderer-side canvas, #81)
 │   │   ├── bare-links.js     # scheme-less link detection (t.me/x, example.com) for markdown.js: TLD tiers, boundaries (#85)
+│   │   ├── hashtags.js       # #hashtag detection for markdown.js (#134): Unicode/Cyrillic, ≥1 letter (#123 is not a tag), word-start only, ≤64 chars
 │   │   ├── media.js          # media URL helpers: blobfile:// protocol (boot-probed) → loopback server → asset protocol + per-element fallback
 │   │   ├── p2p.js            # Local chat UI: drawer toggle, list card, pairing, legacy 1:1 modal (Tauri only)
 │   │   ├── tunnel.js         # optional Android DNS tunnel UI: deep link, drawer row, settings sheet, diagnostics (#116/#119/#128)
@@ -2010,11 +2011,23 @@ next push or the tainted commits come back.
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 72 files, 543 tests as of 2026-10-14:
+whole set — 75 files, 568 tests as of 2026-10-15:
 
 ```bash
 node --test tests/
 ```
+
+Hashtags (#134, `tests/hashtags.test.mjs`): `app/js/hashtags.js` finds
+`#tag` (Unicode letters/marks/digits/`_`, at least one letter, ≤64 chars,
+`#` must start a word — `C#`, `&#123;`, `a#b`, `##x` stay text; `#123` is an
+issue number, not a tag). markdown.js scans only the text left after
+[label](url), bare and scheme-less links, so URL `#fragments` are never tags,
+and renders `<button type="button" class="hashtag" data-hashtag="#tag">`
+(native focus + Enter/Space). chat-view's row click dispatches
+`velta-hashtag`; app.js `openChatSearch(prefill)` opens the existing
+"Search in chat" modal prefilled (core `search_messages` scoped to the
+chat; P2P chats filter loaded rows). Velta markdown has no code
+spans/blocks, so there is no code exclusion to apply.
 
 The suites pin renderer logic without a browser: account isolation
 (rpc/chat/app), event polling, message-update hardening, read tracking,

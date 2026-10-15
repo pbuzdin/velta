@@ -2911,7 +2911,13 @@ function bindChatHeadMenu() {
     ], r.right - 220, r.bottom + 6);
   });
   $("btn-back").addEventListener("click", closeChat);
-  $("btn-chat-search").addEventListener("click", () => {
+  $("btn-chat-search").addEventListener("click", () => openChatSearch());
+  // #134: a tapped #hashtag in message text opens the same search, prefilled.
+  window.addEventListener("velta-hashtag", e => {
+    const tag = String(e.detail?.tag || "");
+    if (tag.startsWith("#")) openChatSearch(tag);
+  });
+  function openChatSearch(prefill = "") {
     const epoch = core.accountEpoch;
     const chat = state.chats.find(c => c.id === state.activeChatId);
     if (!chat) return;
@@ -2972,8 +2978,9 @@ function bindChatHeadMenu() {
     };
     input.addEventListener("input", search);
     showModal({ title: "Search in chat", body: wrap });
+    if (prefill) { input.value = prefill; search(); }
     setTimeout(() => input.focus(), 50);
-  });
+  }
 }
 
 /* ---------------- new chat / forward ---------------- */

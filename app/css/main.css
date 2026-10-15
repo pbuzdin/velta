@@ -710,8 +710,18 @@ html[data-theme="light"] .msg-row.out .msg-quote .q-text { color: #4d5a68; }
    ~3:1 dark / ~2.9:1 light, both under the 4.5:1 AA text bar). Use the
    established light-on-blue bubble palette (same tones as .msg-row.out
    blockquote/quote text): 6.7:1 dark, 7.3:1 light. */
-.msg-row.out .msg-text a { color: #dfeaf6; }
-html[data-theme="light"] .msg-row.out .msg-text a { color: #14507e; }
+.msg-row.out .msg-text a, .msg-row.out .msg-text .hashtag { color: #dfeaf6; }
+html[data-theme="light"] .msg-row.out .msg-text a,
+html[data-theme="light"] .msg-row.out .msg-text .hashtag { color: #14507e; }
+/* #134: #hashtags are native <button>s (focusable, Enter/Space) styled as
+   inline links; tap = search the tag in this chat. */
+.msg-text .hashtag {
+  color: var(--accent); -webkit-touch-callout: none;
+  font: inherit; background: none; border: 0; padding: 0; margin: 0;
+  display: inline; cursor: pointer; text-decoration: underline;
+  text-underline-offset: 2px; white-space: inherit;
+}
+.msg-text .hashtag:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; border-radius: 2px; }
 /* Markdown lists (markdown.js emits <ul>/<ol> as block units; the surrounding
    msg-text keeps pre-wrap for plain paragraphs) */
 .msg-text ul, .msg-text ol { margin: 2px 0; padding-left: 20px; }
@@ -2467,7 +2477,8 @@ html[data-theme="brutal"] .msg-row.out .bubble .msg-text,
 html[data-theme="brutal"] .msg-row.out .msg-fwd { color: var(--nb-main-ink); }
 html[data-theme="brutal"] .msg-row.out .msg-meta { color: var(--text-meta-out); }
 html[data-theme="brutal"] .msg-meta .ticks.read { color: var(--nb-main-ink); }
-html[data-theme="brutal"] .msg-row.out .msg-text a {
+html[data-theme="brutal"] .msg-row.out .msg-text a,
+html[data-theme="brutal"] .msg-row.out .msg-text .hashtag {
   color: var(--nb-main-ink); text-decoration-thickness: 2px;
 }
 /* The 1.4.3 light-on-blue quote palettes don't apply on yellow — ink text */
