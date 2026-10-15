@@ -1362,6 +1362,7 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .ctx-item:hover { background: var(--bg-hover); }
 }
 .ctx-item.danger { color: var(--danger); }
+.ctx-item.pressed { background: rgba(90,162,230,.18); box-shadow: inset 0 0 0 1px var(--accent); }
 .ctx-item svg { width: var(--ico-3); height: var(--ico-3); color: var(--text-dim); }
 .ctx-item.danger svg { color: var(--danger); }
 /* Setting toggles rendered as checkbox rows: the box is the state indicator
@@ -1426,6 +1427,7 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
   background: var(--bg-hover); color: var(--text);
   font-size: 22px; display: grid; place-items: center; padding: 0;
 }
+.msg-react.mine { background: rgba(90,162,230,.18); box-shadow: inset 0 0 0 2px var(--accent); }
 .msg-react svg { width: 22px; height: 22px; }
 .msg-react:active, .msg-emoji:active, .msg-actions .ctx-item:active { background: var(--bg-hover); }
 .msg-actions { display: flex; flex-direction: column; gap: 8px; }

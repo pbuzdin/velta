@@ -1699,6 +1699,14 @@ export class JsonRpcCore extends EventTarget {
     if (m) this._emitAccount("msg-updated", { chatId, msg: m }, accountEpoch);
   }
 
+  // send_reaction replaces our whole set: [] removes it, [e] replaces it.
+  async setReaction(chatId, msgId, emojis) {
+    const { accountId, accountEpoch } = this;
+    await this._call("send_reaction", accountId, msgId, Array.isArray(emojis) ? emojis : []);
+    const m = await this._getDecoratedMessage(msgId, accountId);
+    if (m) this._emitAccount("msg-updated", { chatId, msg: m }, accountEpoch);
+  }
+
   async clearReaction(msgId) {
     const { accountId } = this;
     await this._call("send_reaction", accountId, msgId, []);

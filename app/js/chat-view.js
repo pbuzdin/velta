@@ -71,10 +71,11 @@ import { linkPreview, linkPreviewCardHtml, linkPreviewMode, firstLink as firstLi
 import { stripTrackingUrl, stripTrackingText, trackingStripEnabled } from "./trackers.js";
 import { getReadMarker, clearReadMarker } from "./read-markers.js";
 import { shareStageKind, shareViewtype } from "./share-in.js";
+import { reactionToggle, myReaction } from "./reactions.js";
 
 function reactionChipsHtml(reactions) {
   return (reactions || []).map(r =>
-    `<span class="reaction-chip${r.mine ? " mine" : ""}" data-react="${escapeAttr(r.emoji)}">${escapeHtml(r.emoji)} ${Number(r.count) || 0}</span>`
+    `<button type="button" class="reaction-chip${r.mine ? " mine" : ""}" aria-pressed="${r.mine ? "true" : "false"}" aria-label="${escapeAttr(r.emoji)} ${Number(r.count) || 0}${r.mine ? ", your reaction, tap to remove" : ""}" data-react="${escapeAttr(r.emoji)}">${escapeHtml(r.emoji)} ${Number(r.count) || 0}</button>`
   ).join("");
 }
 
@@ -2070,7 +2071,7 @@ export class ChatView {
         return;
       }
       const chip = e.target.closest("[data-react]");
-      if (chip) { this.core.addReaction(this.chat.id, m.id, chip.dataset.react); return; }
+      if (chip) { e.stopPropagation(); if (!this.chat?.isP2p) this._toggleReaction(this.chat.id, m.id, chip.dataset.react); return; }
       const quote = e.target.closest("[data-quote]");
       if (quote) { this._jumpToMessage(Number(quote.dataset.quote)); return; }
       const mediaAction = e.target.closest("[data-act]");
@@ -2459,7 +2460,8 @@ export class ChatView {
         }
       } },
     );
-    if (!p2pg && !touch) items.push(
+    const canReact = !this.chat?.isP2p; // local chats carry no reactions
+    if (canReact && !touch) items.push(
       { label: "React", icon: QUICK_REACTIONS[0], onClick: () => this._reactionMenu(item, x, y) },
     );
     items.push({ label: "Select", pair: "meta", icon: ICO.select, onClick: () => this._enterSelection(m.id) });
@@ -2476,8 +2478,9 @@ export class ChatView {
       (action.pair && buckets.has(action.pair) ? buckets.get(action.pair) : tail).push(action);
     }
     showMessageSheet({
-      reactions: p2pg ? [] : SHEET_REACTIONS,
-      onReact: (emoji) => { if (this._isCurrent(session)) return this.core.addReaction(session.chatId, m.id, emoji); },
+      reactions: canReact ? SHEET_REACTIONS : [],
+      selected: myReaction(m.reactions),
+      onReact: (emoji) => { if (this._isCurrent(session)) return this._toggleReaction(session.chatId, m.id, emoji); },
       items: [...SHEET_PAIRS.flatMap(k => buckets.get(k)), ...tail],
     });
   }
@@ -2485,9 +2488,33 @@ export class ChatView {
   _reactionMenu(item, x, y) {
     const session = this._session;
     if (!this._isCurrent(session) || this.msgIndex.get(item.msg.id) !== item) return;
-    showContextMenu(QUICK_REACTIONS.map(e => ({
-      label: e, onClick: () => { if (this._isCurrent(session)) return this.core.addReaction(session.chatId, item.msg.id, e); },
+    const mine = myReaction(item.msg.reactions);
+    const list = mine && !QUICK_REACTIONS.includes(mine) ? [...QUICK_REACTIONS, mine] : QUICK_REACTIONS;
+    showContextMenu(list.map(e => ({
+      label: e, pressed: e === mine, ariaLabel: e === mine ? `Remove reaction ${e}` : `React ${e}`,
+      onClick: () => { if (this._isCurrent(session)) return this._toggleReaction(session.chatId, item.msg.id, e); },
     })), x, y - 10);
+  }
+
+  // Own-reaction toggle with optimistic chips. Same emoji removes ours
+  // (send_reaction []), another replaces it. On error the chips roll back.
+  async _toggleReaction(chatId, msgId, emoji) {
+    const session = this._session;
+    const item = this.msgIndex.get(msgId);
+    const before = item?.msg;
+    const plan = reactionToggle(before?.reactions, emoji);
+    const live = () => this._isCurrent(session) && this.chat?.id === chatId && this.msgIndex.get(msgId)?.msg;
+    if (before) this.onMsgUpdated(chatId, { ...before, reactions: plan.reactions });
+    try {
+      if (this.core.setReaction) await this.core.setReaction(chatId, msgId, plan.send);
+      else if (plan.removing) await this.core.clearReaction(msgId);
+      else await this.core.addReaction(chatId, msgId, emoji);
+    } catch (err) {
+      const cur = live();
+      if (before && cur) this.onMsgUpdated(chatId, { ...cur, reactions: before.reactions });
+      if (this._isCurrent(session)) errToast((plan.removing ? "Couldn't remove reaction: " : "Couldn't react: ") + (err?.message || err));
+    }
+    return plan;
   }
 
   _showInfo(item) {
@@ -2529,7 +2556,7 @@ export class ChatView {
       reactBox.hidden = !html;
       reactBox.innerHTML = html;
       reactBox.querySelectorAll("[data-react]").forEach(chip => chip.addEventListener("click", () => {
-        if (this.chat) this.core.addReaction(this.chat.id, m.id, chip.dataset.react);
+        if (this.chat && !this.chat.isP2p) this._toggleReaction(this.chat.id, m.id, chip.dataset.react);
       }));
     };
     const fromMsg = m.reactions?.length

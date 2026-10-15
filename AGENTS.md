@@ -1230,7 +1230,7 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   not INBOX). Message-ID and server URLs come from `get_message_info_object`.
   Reactions (#122) sit under State: one open `<details>` per emoji
   (`messageInfoReactions` in format.js). The summary chip is a `<button>`,
-  so a tap calls `addReaction` and does not toggle the details. The body
+  so a tap toggles our reaction (see below) and does not toggle the details. The body
   names who sent it. `getMessageReactions` reads `get_message_reactions`
   and `get_contacts_by_ids`; contact 1 with no name is "You". A local chat
   skips that RPC and shows the chips already on the message, with no
@@ -2038,11 +2038,27 @@ next push or the tainted commits come back.
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 76 files, 576 tests as of 2026-10-15:
+whole set — 77 files, 582 tests as of 2026-10-15:
 
 ```bash
 node --test tests/
 ```
+
+Own-reaction toggle (`app/js/reactions.js`, `tests/reaction-toggle.test.mjs`):
+core `send_reaction(acc, msgId, list)` REPLACES our whole reaction set, so
+`[]` removes it and `[e]` replaces it; Velta keeps one emoji per sender.
+`reactionToggle(reactions, emoji)` → `{send, removing, reactions}`: tapping
+the emoji we already sent removes it, any other replaces it. All entry points
+(chips under the bubble, desktop quick-reaction menu, phone sheet incl. the
+emoji tray, message-info chips) go through `ChatView._toggleReaction`, which
+patches chips optimistically via `onMsgUpdated` and rolls back + toasts on
+error. `core.setReaction(chatId, msgId, list)` (rpc + mock) is the wire call;
+`addReaction`/`clearReaction` stay for the battery marker. Chips are
+`<button aria-pressed>`; our emoji is `.mine` / `aria-pressed="true"` in the
+chips, the sheet (`showMessageSheet({selected})`, shown first if not in the
+grid) and the context menu (`pressed` item → `.ctx-item.pressed`). Local P2P
+chats (`chat.isP2p`, 1:1 and groups) carry no reactions (`reactions: null`,
+`addReaction` not proxied), so the React entries and chip taps are off there.
 
 Recent commands (#135, `tests/recent-commands.test.mjs`):
 `app/js/recent-commands.js`. Sending a message whose first line starts with

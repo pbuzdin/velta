@@ -44,8 +44,8 @@ test("message info lists each reaction and who sent it", () => {
     names: { "4": "Ann <a>", "9": "Bo" },
   });
   assert.match(html, /<details open class="info-react">/);
-  assert.match(html, /<button type="button" class="reaction-chip mine" data-react="👍">👍 2<\/button>/);
-  assert.match(html, /<button type="button" class="reaction-chip" data-react="🔥">🔥 1<\/button>/);
+  assert.match(html, /<button type="button" class="reaction-chip mine" aria-pressed="true" data-react="👍">👍 2<\/button>/);
+  assert.match(html, /<button type="button" class="reaction-chip" aria-pressed="false" data-react="🔥">🔥 1<\/button>/);
   assert.match(html, /info-react-who">You</);
   assert.match(html, /info-react-who">Ann &lt;a&gt;</);
   assert.match(html, /info-react-who">Bo</);

@@ -905,6 +905,19 @@ export class MockCore extends EventTarget {
     this._emit("msg-updated", { chatId, msg: this._decorate(m) });
   }
 
+  async setReaction(chatId, msgId, emojis) {
+    const c = this.chats.find(x => x.id === chatId);
+    const m = c?.messages.find(x => x.id === msgId);
+    if (!m) return;
+    let list = (m.reactions || []).map(r => r.mine ? { ...r, mine: false, count: r.count - 1 } : r).filter(r => r.count > 0);
+    for (const e of emojis || []) {
+      const r = list.find(x => x.emoji === e);
+      if (r) { r.count++; r.mine = true; } else list.push({ emoji: e, count: 1, mine: true });
+    }
+    m.reactions = list;
+    this._emit("msg-updated", { chatId, msg: this._decorate(m) });
+  }
+
   async editMessage(chatId, msgId, text) {
     const c = this.chats.find(x => x.id === chatId);
     const m = c?.messages.find(x => x.id === msgId);

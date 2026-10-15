@@ -89,7 +89,7 @@ export function messageInfoReactions(payload) {
     const mine = !!(r.isFromSelf || r.mine);
     const count = Number(r.count) || people.length || 0;
     const body = people.map((n) => `<div class="info-react-who">${escInfo(n)}</div>`).join("");
-    return `<details open class="info-react"><summary><button type="button" class="reaction-chip${mine ? " mine" : ""}" data-react="${escInfo(emoji)}">${escInfo(emoji)} ${count}</button></summary>${body}</details>`;
+    return `<details open class="info-react"><summary><button type="button" class="reaction-chip${mine ? " mine" : ""}" aria-pressed="${mine ? "true" : "false"}" data-react="${escInfo(emoji)}">${escInfo(emoji)} ${count}</button></summary>${body}</details>`;
   }).join("");
 }
 
