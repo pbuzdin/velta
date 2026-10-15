@@ -45,6 +45,9 @@
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
       }
+    },
+    "android": {
+      "debugApplicationIdSuffix": ".test"
     }
   },
   "plugins": {

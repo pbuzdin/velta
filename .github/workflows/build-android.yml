@@ -1,8 +1,21 @@
 name: Build Android APK
 
 on:
+  # Release (workflow_call) keeps org.velta. Manual "Build Android APK"
+  # defaults to a side-by-side test id so the APK installs next to the
+  # main app instead of replacing it.
   workflow_call:
+    inputs:
+      side_by_side:
+        description: Use org.velta.test and label the app Velta Test
+        type: boolean
+        default: false
   workflow_dispatch:
+    inputs:
+      side_by_side:
+        description: Install alongside the main Velta app (org.velta.test / Velta Test)
+        type: boolean
+        default: true
 
 env:
   RUST_BACKTRACE: 1
@@ -17,6 +30,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Side-by-side test application id
+        if: ${{ inputs.side_by_side }}
+        run: |
+          # Release builds stay org.velta. Manual / test builds use
+          # org.velta.test so the APK can sit next to the main install.
+          GRADLE=velta-app/src-tauri/gen/android/app/build.gradle.kts
+          STRINGS=velta-app/src-tauri/gen/android/app/src/main/res/values/strings.xml
+          sed -i 's/applicationId = "org.velta"/applicationId = "org.velta.test"/' "$GRADLE"
+          grep -q 'applicationId = "org.velta.test"' "$GRADLE"
+          sed -i 's/>\"Velta\"</>\"Velta Test\"</g' "$STRINGS"
+          grep -q 'Velta Test' "$STRINGS"
+          echo "SIDE_BY_SIDE=1" >> "$GITHUB_ENV"
+          echo "Patched applicationId=org.velta.test app_name=Velta Test"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable (moving branch, Dependabot updates)
@@ -183,6 +210,13 @@ jobs:
         run: |
           VERSION=$(grep -m1 '^version' velta-app/src-tauri/Cargo.toml | cut -d'"' -f2)
           mkdir -p dist
+          PREFIX=Velta
+          ARTIFACT=velta-android
+          if [ "${SIDE_BY_SIDE:-}" = "1" ]; then
+            PREFIX=Velta-Test
+            ARTIFACT=velta-android-test
+          fi
+          echo "ARTIFACT_NAME=$ARTIFACT" >> "$GITHUB_ENV"
           for f in velta-app/src-tauri/gen/android/app/build/outputs/apk/*/release/*-signed.apk; do
             abi=$(basename "$(dirname "$(dirname "$f")")")
             # Tauri always names the --apk output flavor "universal"; this
@@ -191,12 +225,12 @@ jobs:
             # --target ABIs are ever added, drop this mapping back to the
             # real flavor name.
             [ "$abi" = "universal" ] && abi=arm64
-            cp "$f" "dist/Velta-${VERSION}-${abi}.apk"
+            cp "$f" "dist/${PREFIX}-${VERSION}-${abi}.apk"
           done
           ls -lh dist
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: velta-android
+          name: ${{ env.ARTIFACT_NAME || 'velta-android' }}
           path: dist/*.apk
