@@ -5,8 +5,8 @@ import { readFileSync } from "node:fs";
 import { wantsPanel } from "../app/js/webxdc-panel.js";
 const src = (f) => readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
 
-test("only Velta Drop (or an explicit opt-in) opens as a panel", () => {
-  assert.equal(wantsPanel("Velta Drop"), true);
+test("only Velta Beam (or an explicit opt-in) opens as a panel", () => {
+  assert.equal(wantsPanel("Velta Beam"), true);
   assert.equal(wantsPanel("Some game"), false);
   assert.equal(wantsPanel("Some game", { panel: true }), true);
 });
@@ -25,12 +25,12 @@ test("panel wiring: no reload, no history entry, accessible controls", () => {
   assert.match(css, /--webxdc-panel-h: min\(70vh, max\(220px, 30vh\)\)/);
   assert.match(css, /html\.webxdc-panel-open \.app \{ height: calc\(100% - var\(--webxdc-panel-h\)\); \}/);
   const cv = src("app/js/chat-view.js");
-  assert.match(cv, /openWebxdc\(msg\.id, "Velta Drop", \{ panel: true \}\)/);
+  assert.match(cv, /openWebxdc\(msg\.id, "Velta Beam", \{ panel: true \}\)/);
   assert.match(cv, /panel: \/\^send-direct/);
 });
 
-test("renamed to Velta Drop; ids and filenames kept", () => {
-  assert.match(src("app/webxdc/send-direct/manifest.toml"), /^name = "Velta Drop"$/m);
+test("renamed to Velta Beam; ids and filenames kept", () => {
+  assert.match(src("app/webxdc/send-direct/manifest.toml"), /^name = "Velta Beam"$/m);
   assert.match(src("app/js/chat-view.js"), /prepareBuiltinXdc\("send-direct"/);
   const icon = readFileSync(new URL("../app/webxdc/send-direct/icon.png", import.meta.url));
   assert.equal(icon.readUInt32BE(16), 512);

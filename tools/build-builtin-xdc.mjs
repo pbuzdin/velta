@@ -51,7 +51,7 @@ export function zipStore(entries) {
   return Buffer.concat([...locals, cd, end]);
 }
 
-// Legacy 64x64 placeholder (unused since the Velta Drop icon.svg/png): accent tile with a white right-pointing arrow (no image deps).
+// Legacy 64x64 placeholder (unused since the Velta Beam icon.svg/png): accent tile with a white right-pointing arrow (no image deps).
 export function iconPng() {
   const W = 64;
   const raw = Buffer.alloc((W * 4 + 1) * W);
@@ -97,7 +97,7 @@ export function buildSendDirect(icon) {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  // icon.png is rendered from icon.svg (Velta Drop artwork, see icon.svg).
+  // icon.png is rendered from icon.svg (Velta Beam artwork, see icon.svg).
   const icon = readFileSync(`${root}app/webxdc/send-direct/icon.png`);
   mkdirSync(`${root}app/builtin`, { recursive: true });
   const xdc = buildSendDirect(icon);

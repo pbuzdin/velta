@@ -73,7 +73,7 @@ new crates: rustls/webpki-roots/socks are ureq's own.
 - Receiving side has no special card yet: the link opens in the in-app
   browser, the Lufi page decrypts.
 
-# Part 2 — "Velta Drop (both online)" (formerly "Send directly")
+# Part 2 — "Velta Beam (both online)" (formerly "Send directly")
 
 Built-in webxdc (`app/webxdc/send-direct/` → `app/builtin/send-direct.xdc`,
 AGENTS.md §5.4.2) over the realtime channel Velta's host now implements

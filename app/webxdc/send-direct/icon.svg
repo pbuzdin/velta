@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <!-- Velta Drop icon: faceted Velta "V" catching a drop. Source for icon.png
+  <!-- Velta Beam icon: faceted Velta "V" with a beam shooting out of it. Source for icon.png
        (render: python3 -c "import cairosvg; cairosvg.svg2png(url='icon.svg', write_to='icon.png', output_width=512, output_height=512)") -->
   <rect width="512" height="512" rx="104" fill="#0a1020"/>
   <!-- V: left arm (lit) and right arm (shade), bevelled inner faces -->
@@ -10,8 +10,10 @@
   <!-- top bevels -->
   <path fill="#66ccfe" d="M72,120 H176 L204,148 H92 Z"/>
   <path fill="#46befc" d="M440,120 H336 L308,148 H420 Z"/>
-  <!-- drop -->
-  <path fill="#66ccfe" d="M256,96 C232,140 206,172 206,206 A50,50 0 0 0 256,256 Z"/>
-  <path fill="#46befc" d="M256,96 C280,140 306,172 306,206 A50,50 0 0 1 256,256 Z"/>
-  <path fill="#ffffff" opacity=".55" d="M228,200 C228,186 236,174 244,164 C240,180 238,192 240,208 Z"/>
+  <!-- beam: a faceted ray shooting up out of the V's notch -->
+  <path fill="#66ccfe" d="M256,300 L214,72 L256,72 Z"/>
+  <path fill="#46befc" d="M256,300 L298,72 L256,72 Z"/>
+  <!-- spark at the beam's tip -->
+  <path fill="#ffffff" d="M256,40 L268,62 L256,84 L244,62 Z"/>
+  <path fill="#66ccfe" opacity=".8" d="M226,62 L256,56 L286,62 L256,68 Z"/>
 </svg>

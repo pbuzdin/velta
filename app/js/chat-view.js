@@ -3043,7 +3043,7 @@ export class ChatView {
         // #138 part 2: built-in webxdc that streams a file peer to peer over
         // the instance's realtime channel (iroh gossip) — webxdc runs in the
         // Tauri shell only.
-        attachItems.push({ label: "Velta Drop (both online)", icon: ICO.file, onClick: () => this._sendDirectApp() });
+        attachItems.push({ label: "Velta Beam (both online)", icon: ICO.file, onClick: () => this._sendDirectApp() });
       }
       if (!window.__TAURI__ && /Android/i.test(navigator.userAgent)) {
         attachItems.splice(1, 0, { label: "Camera", icon: ICO.photo, onClick: () => this._sendAttachment("camera") });
@@ -3541,7 +3541,7 @@ export class ChatView {
       if (!this._isCurrent(session)) return;
       this.appendOutgoing(msg);
       this.onChatsChanged();
-      if (msg?.id != null) openWebxdc(msg.id, "Velta Drop", { panel: true });
+      if (msg?.id != null) openWebxdc(msg.id, "Velta Beam", { panel: true });
     } catch (err) {
       if (this._isCurrent(session)) errToast("Could not start direct send: " + (err?.message || err), 4000);
     }

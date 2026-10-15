@@ -1,4 +1,4 @@
-// UI glue for the "Velta Drop" (formerly "Send directly") webxdc app. Concatenated after
+// UI glue for the "Velta Beam" (formerly "Send directly") webxdc app. Concatenated after
 // transfer.js into main.js by tools/build-builtin-xdc.mjs.
 (function () {
   const wx = window.webxdc;
@@ -88,7 +88,7 @@
     list.prepend(s.card);
     s.announce();
     // Status update: chat info line + receivers who open the app later see it.
-    wx.sendUpdate({ payload: { offer: s.offer, from: me }, info: `Offering ${s.offer.name} (${fmt(s.offer.size)}) — open "Velta Drop" to receive` }, "");
+    wx.sendUpdate({ payload: { offer: s.offer, from: me }, info: `Offering ${s.offer.name} (${fmt(s.offer.size)}) — open "Velta Beam" to receive` }, "");
   };
 
   setInterval(() => {
