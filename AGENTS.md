@@ -773,7 +773,10 @@ tested `test/no-material` branch). In `gen/android/app/`:
 - `-PveltaAppIdSuffix=.foo` gives a local side-by-side `org.velta.foo`
   build; the default is empty, so default/release builds stay `org.velta`
   with label "Velta". CI side-by-side builds (PR #133) patch
-  `applicationId`/`strings.xml` in the workflow instead.
+  `applicationId`/`strings.xml` in the workflow instead: `build-android.yml`
+  `workflow_dispatch` input `side_by_side` (default true for manual runs)
+  builds `org.velta.test` / "Velta Test" (artifact `velta-android-test`);
+  tag/release builds always stay `org.velta`. On master since PR #133.
 - These files are `cargo tauri android init` output: re-running init
   reverts all of this — re-apply after any re-init.
 
@@ -2108,6 +2111,12 @@ next push or the tainted commits come back.
 - **Read the user's words literally.** "above app logs" meant the App log bar, not the logo; ask or re-read before moving UI.
 - **Releases.** Run the full node suite and look at real dates/times in a screenshot of the chat list before tagging. Tag only after AGENTS/docs reflect the release.
 
+### 6.8 Pitfalls found in 1.4.71
+
+- **Map every viewtype in `_toCoreViewtype` (rpc-core.js).** Unknown types fall back to `"Text"`; a webxdc sent as Text+file never becomes a Webxdc message, `get_webxdc_blob` fails and `webxdc_serve` answers its 404 body `not found` — the "Send directly not found" bug that survived c0a6d6f (fixed e25678b, `tests/send-webxdc-viewtype.test.mjs`). When adding a viewtype, add its case and a test.
+- **Menu buttons that toggle (#136):** use `bindMenuToggle` (ui.js) — it swaps in the X icon and restores it on ANY close because it watches the menu leave the DOM; don't restore icons from individual close handlers.
+- **Never move a webxdc iframe in the DOM** (it reloads and kills a Velta Beam transfer); panel/expand states are CSS classes only.
+
 ## 7. Testing strategy
 
 ### 7.1 Rust core
@@ -2124,7 +2133,7 @@ next push or the tainted commits come back.
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 80 files, 607 tests as of 2026-10-15 (1.4.70):
+whole set — 87 files, 628 tests as of 2026-10-15 (1.4.72):
 
 ```bash
 node --test tests/

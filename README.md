@@ -4,7 +4,7 @@ A cross-platform **Delta Chat** client built as a single PWA-ish web app wrapped
 
 ## Download
 
-**[Android](https://github.com/pbuzdin/velta/releases/download/v1.4.71/Velta-1.4.71-arm64.apk)** (~49 MB) · **[Windows](https://github.com/pbuzdin/velta/releases/download/v1.4.71/Velta_1.4.71_x64-setup.exe)** (~13 MB) · **[macOS](https://github.com/pbuzdin/velta/releases/download/v1.4.71/Velta_1.4.71_universal.dmg)** (~36 MB)
+**[Android](https://github.com/pbuzdin/velta/releases/download/v1.4.72/Velta-1.4.72-arm64.apk)** (~49 MB) · **[Windows](https://github.com/pbuzdin/velta/releases/download/v1.4.72/Velta_1.4.72_x64-setup.exe)** (~13 MB) · **[macOS](https://github.com/pbuzdin/velta/releases/download/v1.4.72/Velta_1.4.72_universal.dmg)** (~36 MB)
 
 Android needs an arm64 phone. Windows is the x64 installer. macOS is a universal test build that isn't notarized yet, so see [Install](#install) before the first launch. Other files and older versions are on the [releases page](https://github.com/pbuzdin/velta/releases).
 
@@ -426,6 +426,9 @@ currently waiting to be sent are dropped, since they carry the old sender
 address; the change syncs to your other devices). The status bar shows one
 segment per relay, each colored by that relay's own status, with the sending
 animation on the sending relay's segment only.
+A relay marked **(U)** confirmed UnifiedPush push notifications: the core
+registered this device's push token there (Android with a UnifiedPush
+distributor). No mark means "not confirmed", never a guess.
 
 - **Add relay** — paste a `dcaccount:`/`dclogin:` invite code or just the relay's domain (`nine.testrun.org`); the core
   configures it as a second transport (progress modal during setup).
@@ -1016,6 +1019,10 @@ and the file-picking `importFiles` are wired, and so are realtime
 built-in mini-app that sends a file peer-to-peer over the realtime channel
 (chunked, re-requested on loss, SHA-256 checked) to everyone who opens it
 while the sender is online. The file never goes through the relay.
+It opens as a panel directly below the chat header (the chat stays usable
+underneath; ⤢ expands to full screen, ✕ closes), and the sender sees each
+receiver's progress ("N receivers", a percent bar per person, "done" once
+the checksum is verified).
 
 </details>
 
@@ -1477,7 +1484,7 @@ Pre-configured workflows live in `.github/workflows/`:
 
 | Workflow | What it builds |
 |---|---|
-| `build-android.yml` | arm64-v8a Android APK on `ubuntu-latest`. Manual runs default to `org.velta.test` / Velta Test so the APK installs beside the main app; release tags keep `org.velta`. |
+| `build-android.yml` | arm64-v8a Android APK on `ubuntu-latest`. Manual runs default to `org.velta.test` / Velta Test so the APK installs beside the main app; release tags keep `org.velta`. Input `side_by_side=false` builds the normal id. |
 | `build-windows.yml` | Windows installer on `windows-latest`, compiling the sidecar natively (needs Perl + NASM) |
 | `build-macos.yml` | Universal macOS `.app` + DMG + updater tarball on `macos-14`, sidecars for both architectures merged with `lipo`; ad-hoc signed (Developer ID signing/notarization switch on via the `APPLE_*` secrets) |
 | `build-windows-cross.yml` | Windows installer where the sidecar is cross-compiled on Ubuntu to avoid installing Perl/NASM on Windows |

@@ -83,6 +83,11 @@ openers see the offer). Receiver: Receive (enabled once a live OFFER is
 heard) → REQ windows of 8 chunks, re-asked after 1.5 s → assembled bytes
 must match the offer's SHA-256 → Save to chat / Download. Several
 receivers can pull at once (chunks are broadcast, sender de-dupes bursts).
+Receivers broadcast PROG (`have/n`, done+SHA-256 verdict) every ~1 s; the
+sender lists each receiver with a percent bar and "N receivers" (stale after
+10 s silence if partway, dropped if they had nothing). In the host it opens
+as a panel below the chat header (`webxdc-panel.js`; expand/collapse never
+reloads the frame).
 
 Verified: node tests (lossy two-receiver simulation, tamper → mismatch,
 shim join/send/leave over the bridge, xdc freshness); a two-page Chromium
