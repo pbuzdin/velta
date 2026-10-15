@@ -1853,14 +1853,26 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 }
 .splash-main {
   flex: 1; min-height: 0; overflow-y: auto;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  display: flex; flex-direction: column; align-items: center;
+  /* safe: when the content overflows (short screens, open form) keep the top
+     (version + logo) reachable instead of clipping it above the scroll area */
+  justify-content: safe center;
   text-align: center; padding: 32px 24px 12px;
 }
-.splash-ver {
-  font-size: 13px; line-height: 1.4; color: var(--text-dim, #999);
-  margin: 0 0 12px; max-width: 420px;
+/* Version line (#127) and logo form one centered group. The V glyph starts
+   ~23% down the SVG's square viewBox (y≈240/1024), so a plain margin left a
+   ~45px hole and the line read as a detached header at the top of the
+   screen; the negative margin pulls it to ~8px above the visible glyph. */
+.splash-brand {
+  display: flex; flex-direction: column; align-items: center;
+  margin-bottom: 18px; max-width: 100%;
 }
-.splash-logo { width: 132px; height: 132px; margin-bottom: 18px; }
+.splash-ver {
+  position: relative; z-index: 1;
+  font-size: 12.5px; line-height: 1.4; color: var(--text-dim, #999);
+  margin: 0 0 -23px; max-width: 420px; opacity: .85;
+}
+.splash-logo { width: 132px; height: 132px; display: block; }
 .splash-title { font-size: 30px; font-weight: 700; margin: 0 0 10px; }
 .splash-tag { font-size: 14.5px; line-height: 1.55; color: var(--text-dim, #999); max-width: 420px; margin: 0 0 26px; }
 .splash-actions, .splash-form { width: min(420px, 100%); display: flex; flex-direction: column; gap: 10px; }

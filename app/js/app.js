@@ -4683,8 +4683,10 @@ function showSplash() {
   el.className = "splash"; el.id = "splash";
   el.innerHTML = `
     <div class="splash-main">
-      <p class="splash-ver" data-splash-ver>…</p>
-      <img class="splash-logo" src="./icons/v-logo.svg" alt="Velta logo">
+      <div class="splash-brand">
+        <p class="splash-ver" data-splash-ver>…</p>
+        <img class="splash-logo" src="./icons/v-logo.svg" alt="Velta logo">
+      </div>
       <h1 class="splash-title">Welcome to Velta</h1>
       <p class="splash-tag">End-to-end encrypted messaging built on Delta Chat — no phone number, no central server. Pick how to set up your profile:</p>
       <div class="splash-actions" data-actions>
