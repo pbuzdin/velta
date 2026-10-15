@@ -1,5 +1,14 @@
 #!/bin/bash
+# Android APK build from WSL.
+#   tools/wsl-android-build.sh [universal|aarch64] [extra cargo-tauri args...]
+# universal (default): every ABI, apk/universal/; aarch64: arm64 only,
+# apk/arm64/ (tools/wsl-android-build-aarch64.sh is a wrapper for that).
 set -e
+
+TARGET=universal
+case "${1:-}" in
+  universal|aarch64) TARGET="$1"; shift ;;
+esac
 
 source "$HOME/.cargo/env" 2>/dev/null || true
 
@@ -69,4 +78,8 @@ echo "which cargo: $(which cargo)"
 echo "which llvm-ar: $(which llvm-ar)"
 echo "which aarch64-linux-android-ranlib: $(which aarch64-linux-android-ranlib)"
 
-cargo tauri android build --apk "$@"
+if [ "$TARGET" = aarch64 ]; then
+  cargo tauri android build --apk --target aarch64 "$@"
+else
+  cargo tauri android build --apk "$@"
+fi
