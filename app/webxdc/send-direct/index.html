@@ -18,6 +18,11 @@
   progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent); }
   .ok { color: #2e9d57; } .bad { color: #d64545; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  ul.peers { list-style: none; margin: 8px 0 0; padding: 0; font-size: 13px; }
+  ul.peers li { display: grid; grid-template-columns: minmax(0,1fr) 30% auto; gap: 8px; align-items: center; padding: 2px 0; }
+  ul.peers .pn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  ul.peers progress { margin: 0; }
+  ul.peers .ps { color: var(--dim); }
   #peers { font-size: 13px; color: var(--dim); }
 </style>
 </head>
@@ -25,7 +30,7 @@
 <h1>Velta Beam</h1>
 <p class="note">Peer to peer while both of you have this app open — no server stores the file. Encrypted in transit; checked with SHA-256 on arrival.</p>
 <div class="row"><button id="pick">Choose a file to send…</button></div>
-<div id="peers"></div>
+<div id="peers" aria-live="polite"></div>
 <div id="list"></div>
 <script src="main.js"></script>
 </body>

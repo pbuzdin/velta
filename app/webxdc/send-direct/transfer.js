@@ -8,11 +8,15 @@
 //   REQ    {id, idx:[chunk indices]}               receiver asks for missing
 //   CHUNK  {id, i} + bytes                         sender answers (broadcast:
 //                                                  every receiver may use it)
+//   PROG   {id, peer, name, have, n, done, ok}     receiver, every ~1 s and on
+//                                                  completion (progress list)
 // Receivers keep a small window of requested chunks and re-ask after a
 // timeout, so a lost gossip message only costs a retry. Integrity: the
 // assembled file must match the offer's sha256 before it can be saved.
 
-export const T_OFFER = 1, T_REQ = 2, T_CHUNK = 3;
+export const T_OFFER = 1, T_REQ = 2, T_CHUNK = 3, T_PROG = 4;
+export const PROG_MS = 1000;   // receiver progress broadcast period
+export const SILENT_MS = 10000; // receiver considered gone/stale after this
 export const CHUNK = 48 * 1024; // + header, and the RPC carries it as a JSON number array
 export const WINDOW = 8;
 export const RETRY_MS = 1500;
@@ -181,4 +185,52 @@ export function validOffer(o) {
     && Number.isInteger(o.chunk) && o.chunk > 0 && o.chunk <= 100000
     && Number.isInteger(o.n) && o.n === Math.max(1, Math.ceil(o.size / o.chunk))
     && /^[0-9a-f]{64}$/.test(String(o.sha256));
+}
+
+// ---- receiver progress (T_PROG) ----
+export function progressFrame(rx, peer, name) {
+  return encodeFrame(T_PROG, {
+    id: rx.offer.id, peer: String(peer || "").slice(0, 128), name: String(name || "").slice(0, 64),
+    have: rx.got, n: rx.offer.n, done: !!rx.done, ok: rx.done ? !!rx.ok : null,
+  });
+}
+
+export function validProgress(h) {
+  return !!h && typeof h.id === "string" && /^[0-9a-f]{16}$/.test(h.id)
+    && typeof h.peer === "string" && h.peer.length > 0 && h.peer.length <= 128
+    && typeof h.name === "string" && h.name.length <= 64
+    && Number.isInteger(h.n) && h.n > 0 && Number.isInteger(h.have) && h.have >= 0 && h.have <= h.n;
+}
+
+// Per-offer receiver list: who is downloading, how far, and who is done.
+// A receiver silent for SILENT_MS is dropped, unless it was partway through
+// (then it stays, marked stale) or finished (stays done).
+export class ReceiverTracker {
+  constructor({ id, now = () => Date.now(), silentMs = SILENT_MS } = {}) {
+    this.id = id; this.now = now; this.silentMs = silentMs;
+    this.peers = new Map(); // peer -> {peer, name, have, n, done, ok, seen}
+  }
+  handle(frame) {
+    if (!frame || frame.type !== T_PROG || frame.header.id !== this.id || !validProgress(frame.header)) return false;
+    const h = frame.header;
+    const prev = this.peers.get(h.peer);
+    this.peers.set(h.peer, {
+      peer: h.peer, name: h.name || h.peer, n: h.n, seen: this.now(),
+      have: Math.max(h.have, prev?.have || 0), done: !!h.done || !!prev?.done,
+      ok: h.done ? h.ok === true : prev?.ok ?? null,
+    });
+    return true;
+  }
+  list() {
+    const t = this.now();
+    const out = [];
+    for (const [k, p] of this.peers) {
+      const silent = t - p.seen > this.silentMs;
+      if (silent && !p.done && p.have === 0) { this.peers.delete(k); continue; }
+      out.push({ ...p, percent: Math.floor((p.have / p.n) * 100), stale: silent && !p.done });
+    }
+    return out;
+  }
+  /** Receivers currently connected (heard recently) — the status-line count. */
+  activeCount() { return this.list().filter(p => !p.stale && !(p.done && this.now() - p.seen > this.silentMs)).length; }
 }

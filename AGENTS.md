@@ -1906,13 +1906,18 @@ docs/agents/large-file.md.
 Renamed "Velta Beam" (manifest name, menu label, docs); internal id
 `send-direct`, folder `app/webxdc/send-direct/`, `send-direct.xdc` and the
 `prepare_builtin_xdc` name stay so existing messages/tests keep working.
-Icon: `icon.svg` (faceted V + beam) → `icon.png` (512px, cairosvg); the build script now
+Icon: `icon.svg` (faceted V, beam spanning the arm tips) → `icon.png` (512px, cairosvg); the build script now
 packs the committed PNG. It opens as a **bottom panel** (`webxdc-panel.js`
 `wantsPanel`: name "Velta Beam" or `send-direct*.xdc`): `.app` shrinks by
 `--webxdc-panel-h` (30vh, ≥220px), no focus trap, no history entry; the ⤢
 button expands (pushes an entry; BACK collapses), ✕ closes. Expand/collapse
 only toggles classes, and reopening the open app is a no-op — the frame is
 never reloaded, so a transfer survives.
+Receiver progress: receivers broadcast `T_PROG {id, peer, name, have, n,
+done, ok}` every 1 s (and on completion); `ReceiverTracker` (transfer.js)
+gives the sender — and other receivers — a per-receiver list (percent bar,
+"done" after SHA-256) and the "N receivers" status. Silent >10 s: dropped
+if it had nothing, kept as "stale" if partway, done stays done.
 
 Attach menu item next to Large file: sends `app/builtin/send-direct.xdc`
 into the chat and opens it. Sources in `app/webxdc/send-direct/`
