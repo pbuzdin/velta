@@ -726,6 +726,32 @@ Failure catalog (both hit on 2026-09-26; the fixes live in the script):
   shrink the vhdx (sparse mode is refused by WSL over corruption risk), so
   the room must exist on C: before the build starts.
 
+### 4.3.4 No Material Components in the APK (`veltaKeepMaterial`)
+
+The Tauri APK ships without `com.google.android.material` (merged from the
+tested `test/no-material` branch). In `gen/android/app/`:
+
+- `build.gradle.kts` no longer declares `material`, and a
+  `configurations.all { exclude(group = "com.google.android.material") }`
+  rule strips the copy that `tauri-android`, `tauri-plugin-fs`,
+  `-dialog`, `-deep-link`, `-notification` pull in transitively (library
+  modules still compile against it; only the app APK drops it).
+- `themes.xml` (day + night) parent `Theme.AppCompat.DayNight.NoActionBar`.
+- `activity_main.xml` (unused template) is a `FrameLayout`, not
+  ConstraintLayout (that came in via Material).
+- Caveat: `tauri-plugin-dialog`'s `showMessageDialog`
+  (`MaterialAlertDialogBuilder`) would crash. JS only uses
+  `plugin:dialog|open`/`save` and capabilities grant only those; do not
+  call `message`/`ask`/`confirm` from the dialog plugin on Android.
+- Opt-out: `-PveltaKeepMaterial=true` keeps Material in the APK
+  (e.g. to bisect a regression).
+- `-PveltaAppIdSuffix=.foo` gives a local side-by-side `org.velta.foo`
+  build; the default is empty, so default/release builds stay `org.velta`
+  with label "Velta". CI side-by-side builds (PR #133) patch
+  `applicationId`/`strings.xml` in the workflow instead.
+- These files are `cargo tauri android init` output: re-running init
+  reverts all of this — re-apply after any re-init.
+
 ### 4.4 Android background service (`velta-core-service/`)
 
 **Incoming-message notifications** have platform parity: Windows

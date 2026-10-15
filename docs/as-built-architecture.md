@@ -13,6 +13,8 @@
 
 This document records the product that is in the tree at `cd59531` (app 1.4.67). It does not propose a new stack, a new mail protocol, or a rewrite. It schedules no implementation change. Chat behavior shipped after this snapshot — several gallery images, touch text selection, reaction names in message info, and the new-chat button's corners — is in AGENTS.md and the README. The no-Google-library constraint is not met: the Android release classpath still contains Material Components, and removing it requires a maintained fork of Tauri crates outside `gen/android`. That fork is not scheduled.
 
+> **Update (post-1.4.69):** Material Components has since been removed from the Tauri APK: no app dependency, AppCompat theme parents, and a Gradle `exclude` rule strips the transitive AAR from the app runtime classpath (`-PveltaKeepMaterial=true` opts back in). `showMessageDialog` is therefore unusable on Android; shipping JS never calls it. See AGENTS.md §4.3.4. The Material statements below describe the `cd59531` snapshot.
+
 ---
 
 ## Overview
