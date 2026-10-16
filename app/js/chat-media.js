@@ -20,11 +20,14 @@ export const MEDIA_SECTIONS = [
   { key: "apps", label: "Apps", types: ["Webxdc"], layout: "list", search: "Search apps", empty: "No apps found" },
   { key: "photos", label: "Photos", types: ["Image", "Gif", "Sticker"], layout: "grid" },
   { key: "videos", label: "Videos", types: ["Video"], layout: "grid" },
-  { key: "audio", label: "Audio", types: ["Audio", "Voice"], layout: "list" },
+  // Audio rows hold name + sender/date/duration + the inline <audio> player.
+  { key: "audio", label: "Audio", types: ["Audio", "Voice"], layout: "list", rowH: 80 },
   { key: "files", label: "Files", types: ["File"], layout: "list", search: "Search files", empty: "No files found" },
 ];
 
 export const MEDIA_ROW_H = 56;
+// Fixed virtual-list row height per list section (CSS .media-row-<key> matches).
+export function mediaRowHeight(section) { return section?.rowH || MEDIA_ROW_H; }
 export const MEDIA_GRID_COLS = 4;
 export const MEDIA_BATCH = 50;
 export const MEDIA_CACHE_MAX = 400; // mapped messages kept per sheet (LRU)
@@ -194,7 +197,7 @@ function mountSection(host, section, ids, cache, opts) {
   const state = { all: ids.map((id) => ({ id })), shown: null, rendered: new Map(), loaded: !section.search };
   state.shown = state.all;
 
-  const rowH = () => grid ? Math.max(48, Math.floor((scroller.clientWidth || 320) / MEDIA_GRID_COLS)) : MEDIA_ROW_H;
+  const rowH = () => grid ? Math.max(48, Math.floor((scroller.clientWidth || 320) / MEDIA_GRID_COLS)) : mediaRowHeight(section);
   const unitCount = () => grid ? Math.ceil(state.shown.length / MEDIA_GRID_COLS) : state.shown.length;
 
   const release = (node) => {
@@ -209,7 +212,7 @@ function mountSection(host, section, ids, cache, opts) {
   const makeNode = (m, i) => {
     const node = doc.createElement(grid ? "button" : "div");
     const h = rowH();
-    node.className = grid ? "media-tile" : "member-row media-row";
+    node.className = grid ? "media-tile" : `member-row media-row media-row-${section.key}`;
     node.setAttribute("role", "listitem");
     node.dataset.index = String(i);
     node.dataset.msgId = String(m.id);

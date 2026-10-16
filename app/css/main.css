@@ -2640,3 +2640,8 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 .media-play { flex: none; }
 .media-audio { display: block; width: 100%; height: 28px; }
 .media-details summary[aria-disabled="true"] { opacity: .6; }
+/* Media list rows: fixed heights = mediaRowHeight() in chat-media.js; never scroll inside a row. */
+.media-row { overflow: visible; }
+.media-row .member-text { overflow: visible; justify-content: center; gap: 2px; }
+.media-row-audio { height: 80px; align-items: center; }
+.media-row-audio .media-audio { height: 28px; max-height: 28px; margin-top: 2px; overflow: hidden; }

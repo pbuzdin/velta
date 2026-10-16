@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { installChatViewGlobals, installFakeDocument, FakeElement } from "./helpers/fake-dom.mjs";
 import {
-  MEDIA_SECTIONS, MEDIA_BATCH, MEDIA_GRID_COLS, queryChatMedia, filterMedia, mediaItemName,
+  MEDIA_SECTIONS, MEDIA_ROW_H, mediaRowHeight, MEDIA_BATCH, MEDIA_GRID_COLS, queryChatMedia, filterMedia, mediaItemName,
   mediaRowHtml, mediaTileHtml, mediaSectionsHtml, mountChatMedia, loadMessages,
 } from "../app/js/chat-media.js";
 import { LruCache } from "../app/js/lru.js";
@@ -206,4 +206,25 @@ test("chat info wires the sections for group, channel and 1:1", () => {
   assert.match(app, /chat\.kind === "group" \|\| chat\.kind === "channel" \|\| chat\.kind === "single"\) \? mediaSectionsHtml\(\)/);
   assert.match(app, /mountChatMedia\(body, \{/);
   assert.match(app, /function openChatMediaItem\(kind, m\)/);
+});
+
+test("audio rows: fixed height for text + player, same as the virtual row height; no inner scroll", async () => {
+  installChatViewGlobals();
+  installFakeDocument();
+  const audio = MEDIA_SECTIONS.find(s => s.key === "audio");
+  assert.ok(mediaRowHeight(audio) >= 72 && mediaRowHeight(audio) <= 80);
+  for (const k of ["apps", "files"]) assert.equal(mediaRowHeight(MEDIA_SECTIONS.find(s => s.key === k)), MEDIA_ROW_H);
+  const css = readFileSync(new URL("../app/css/main.css", import.meta.url), "utf8");
+  const cssH = Number(/\.media-row-audio \{ height: (\d+)px/.exec(css)?.[1]);
+  assert.equal(cssH, mediaRowHeight(audio), "CSS audio row height = virtual list row height");
+  assert.match(css, /\.media-row \{ overflow: visible; \}/);
+  const root = fakeRoot();
+  const { sections, ready } = mountChatMedia(root, { core: fakeCore(sample), chatId: 1 });
+  await ready;
+  const ctl = await sections.get("audio").open();
+  const rows = ctl.scroller.children[0].children;
+  assert.deepEqual(rows.map(r => r.style.height), ["80px", "80px"]);
+  assert.deepEqual(rows.map(r => r.style.top), ["0px", "80px"]);
+  assert.match(rows[0].className, /media-row-audio/);
+  assert.equal(ctl.scroller.children[0].style.height, "160px");
 });
