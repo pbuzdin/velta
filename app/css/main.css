@@ -1230,7 +1230,15 @@ button.reaction-chip { font: inherit; color: inherit; }
 #main-composer .icon-btn svg { width: var(--ico-5); height: var(--ico-5); }
 
 /* ---------- Elena components ---------- */
-velta-avatar { display: block; flex: none; }
+velta-avatar { display: block; flex: none; flex-shrink: 0; }
+/* Reserve the avatar slot from the size attribute, so a row never collapses
+   to zero width even while the tile is (re)rendering. */
+velta-avatar[size="36"] { width: 36px; height: 36px; min-width: 36px; }
+velta-avatar[size="42"] { width: 42px; height: 42px; min-width: 42px; }
+velta-avatar[size="48"] { width: 48px; height: 48px; min-width: 48px; }
+velta-avatar[size="56"] { width: 56px; height: 56px; min-width: 56px; }
+velta-avatar[size="84"] { width: 84px; height: 84px; min-width: 84px; }
+velta-avatar[size="168"] { width: 168px; height: 168px; min-width: 168px; }
 .velta-avatar-tile {
   border-radius: 22%; display: grid; place-items: center;
   color: #f4f4f4; font-weight: 600; user-select: none;

@@ -35,11 +35,17 @@ class VeltaAvatar extends Elena(HTMLElement) {
     // is bare (unhydrated), so a diff pass deletes our rendered circle and
     // leaves us connected but empty. Clearing Elena's render caches forces
     // the next N() through the full first-render path, restoring the circle.
-    if (this.h && this.childElementCount === 0) {
-      delete this.D;
-      delete this.F;
-      this.N?.();
+    this._heal();
+    // The same diff runs on every in-place re-render of the HOST (a chat
+    // item's setData/requestUpdate, chat head refresh): the host's template
+    // holds a bare <velta-avatar>, so the diff strips our tile while we stay
+    // connected and none of our attributes change, i.e. nothing re-renders
+    // us. The row was left with an empty, zero-width avatar. Watch our own
+    // children and heal whenever a diff empties us (microtask, before paint).
+    if (!this._healObserver && typeof MutationObserver !== "undefined") {
+      this._healObserver = new MutationObserver(() => this._heal());
     }
+    this._healObserver?.observe(this, { childList: true });
     // Identity tiles need the contact's fingerprint — resolve it once per
     // contact and re-render when it arrives (initials show until then).
     // Photo contacts need it too: the photo is padded onto the color matrix.
@@ -53,6 +59,21 @@ class VeltaAvatar extends Elena(HTMLElement) {
     // (fingerprint already cached) stayed unbound — its img shimmered
     // forever. rAF = after Elena's synchronous first render, before paint.
     requestAnimationFrame(() => this._bindImg());
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback?.();
+    this._healObserver?.disconnect();
+  }
+
+  // Re-render through Elena's first-render path when we are connected,
+  // already hydrated, but empty (see connectedCallback).
+  _heal() {
+    if (!this.isConnected || !this.h || this.childElementCount !== 0) return;
+    delete this.D;
+    delete this.F;
+    this.N?.();
+    this._bindImg();
   }
 
   willUpdate() {
