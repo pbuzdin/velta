@@ -159,6 +159,10 @@ pub enum HeaderDef {
     /// Advertised gossip topic for one webxdc.
     IrohGossipTopic,
 
+    /// EXPERIMENTAL (Velta): iroh 1.x `EndpointAddr` (relay only), sent next to
+    /// [`HeaderDef::IrohNodeAddr`]. Clients that do not know it ignore it.
+    IrohEndpointAddr,
+
     /// See <https://www.rfc-editor.org/rfc/rfc9788.html#name-hp-outer-header-field>.
     HpOuter,
 

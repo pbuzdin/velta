@@ -1144,6 +1144,7 @@ async fn decide_chat_assignment(
     } else if mime_parser.get_header(HeaderDef::ChatEdit).is_some()
         || mime_parser.get_header(HeaderDef::ChatDelete).is_some()
         || mime_parser.get_header(HeaderDef::IrohNodeAddr).is_some()
+        || mime_parser.get_header(HeaderDef::IrohEndpointAddr).is_some()
         || mime_parser.sync_items.is_some()
     {
         info!(context, "Chat edit/delete/iroh/sync message (TRASH).");
@@ -2041,6 +2042,14 @@ async fn add_parts(
                         add_gossip_peer_from_header(context, instance_id, node_addr).await
                     {
                         warn!(context, "Failed to add iroh peer from header: {err:#}.");
+                    }
+                    // EXPERIMENTAL: iroh 1.x address of a Velta peer.
+                    if let Some(endpoint_addr) =
+                        mime_parser.get_header(HeaderDef::IrohEndpointAddr)
+                        && let Err(err) =
+                            add_gossip_peer_from_header(context, instance_id, endpoint_addr).await
+                    {
+                        warn!(context, "Failed to add iroh 1.x peer from header: {err:#}.");
                     }
                 }
                 None => {

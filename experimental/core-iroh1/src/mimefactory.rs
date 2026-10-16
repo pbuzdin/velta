@@ -1694,20 +1694,31 @@ impl MimeFactory {
                 ));
             }
             SystemMessage::IrohNodeAddr => {
-                let node_addr = context
-                    .get_or_try_init_peer_channel()
-                    .await?
-                    .get_node_addr()
-                    .await?;
+                let iroh = context.get_or_try_init_peer_channel().await?;
+                let node_addr = iroh.get_node_addr().await?;
 
                 // We should not send `null` as relay URL
                 // as this is the only way to reach the node.
                 debug_assert!(node_addr.relay_urls().next().is_some());
+                // Upstream header, understood by Delta Chat (iroh 0.35 JSON in dual-stack mode).
                 headers.push((
                     HeaderDef::IrohNodeAddr.into(),
+                    mail_builder::headers::text::Text::new(iroh.node_addr_header().await?).into(),
+                ));
+                // EXPERIMENTAL: iroh 1.x address; unknown headers are ignored by Delta Chat.
+                #[cfg(test)]
+                let skip = iroh
+                    .skip_endpoint_addr
+                    .load(std::sync::atomic::Ordering::Relaxed);
+                #[cfg(not(test))]
+                let skip = false;
+                if !skip {
+                headers.push((
+                    HeaderDef::IrohEndpointAddr.into(),
                     mail_builder::headers::text::Text::new(serde_json::to_string(&node_addr)?)
                         .into(),
                 ));
+                }
             }
             SystemMessage::CallAccepted => {
                 headers.push((

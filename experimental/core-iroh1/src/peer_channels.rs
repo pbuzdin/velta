@@ -54,6 +54,19 @@ use crate::mimeparser::SystemMessage;
 const PUBLIC_KEY_LENGTH: usize = 32;
 const PUBLIC_KEY_STUB: &[u8] = b"static_string";
 
+#[cfg(feature = "dc-compat")]
+pub(crate) mod legacy;
+
+/// iroh 1.x peers are stored separately from the upstream (iroh 0.35) `iroh_gossip_peers`
+/// table, which keeps holding the topic stub and Delta Chat (legacy) peers.
+/// Created lazily to avoid a DB migration in this experimental build.
+const CREATE_V1_TABLE: &str = "CREATE TABLE IF NOT EXISTS iroh1_gossip_peers (msg_id INTEGER NOT NULL, topic BLOB NOT NULL, public_key BLOB NOT NULL, relay_server TEXT, PRIMARY KEY(topic, public_key)) STRICT";
+
+async fn ensure_v1_table(ctx: &Context) -> Result<()> {
+    ctx.sql.execute(CREATE_V1_TABLE, ()).await?;
+    Ok(())
+}
+
 /// Store Iroh peer channels for the context.
 #[derive(Debug)]
 pub struct Iroh {
@@ -76,17 +89,49 @@ pub struct Iroh {
     ///
     /// This is attached to every message to work around `iroh_gossip` deduplication.
     pub(crate) public_key: PublicKey,
+
+    /// iroh 0.35 stack for talking to unmodified Delta Chat clients.
+    #[cfg(feature = "dc-compat")]
+    pub(crate) legacy: Option<legacy::LegacyIroh>,
+
+    /// Test-only: do not send `Iroh-Endpoint-Addr`, i.e. behave like a Delta Chat peer
+    /// that can only be reached over the legacy stack.
+    #[cfg(test)]
+    pub(crate) skip_endpoint_addr: std::sync::atomic::AtomicBool,
 }
+
+/// Shared "joined" notifier: fired by whichever swarm sees the first neighbor.
+pub(crate) type JoinTx = std::sync::Arc<Mutex<Option<oneshot::Sender<()>>>>;
 
 impl Iroh {
     /// Notify the endpoint that the network has changed.
     pub(crate) async fn network_change(&self) {
+        #[cfg(feature = "dc-compat")]
+        if let Some(legacy) = &self.legacy {
+            legacy.network_change().await;
+        }
         self.router.endpoint().network_change().await
     }
 
     /// Closes the QUIC endpoint.
     pub(crate) async fn close(self) -> Result<()> {
+        #[cfg(feature = "dc-compat")]
+        if let Some(legacy) = self.legacy {
+            legacy.close().await.ok();
+        }
         self.router.shutdown().await.context("Closing iroh failed")
+    }
+
+    /// JSON for the `Iroh-Node-Addr` header.
+    ///
+    /// In dual-stack mode this is the iroh 0.35 address so that Delta Chat understands it,
+    /// otherwise the iroh 1.x address.
+    pub(crate) async fn node_addr_header(&self) -> Result<String> {
+        #[cfg(feature = "dc-compat")]
+        if let Some(legacy) = &self.legacy {
+            return legacy.node_addr_json().await;
+        }
+        Ok(serde_json::to_string(&self.get_node_addr().await?)?)
     }
 
     /// Join a topic and create the subscriber loop for it.
@@ -136,14 +181,59 @@ impl Iroh {
             .await?
             .split();
 
+        let seen = Seen::default();
+        let join_tx: JoinTx = std::sync::Arc::new(Mutex::new(Some(join_tx)));
+
+        #[cfg(feature = "dc-compat")]
+        let (legacy_sender, legacy_loop) = match &self.legacy {
+            Some(legacy) => {
+                let (tx, rx) = legacy.subscribe(ctx, msg_id, *topic.as_bytes()).await?;
+                let ctx2 = ctx.clone();
+                let seen2 = seen.clone();
+                let fwd = gossip_sender.clone();
+                let join_tx2 = join_tx.clone();
+                let topic_bytes = *topic.as_bytes();
+                let handle = tokio::spawn(async move {
+                    if let Err(e) =
+                        legacy::legacy_subscribe_loop(
+                            &ctx2, rx, topic_bytes, msg_id, seen2, fwd, join_tx2,
+                        )
+                            .await
+                    {
+                        warn!(ctx2, "legacy subscribe_loop failed: {e}")
+                    }
+                });
+                (Some(tx), Some(handle))
+            }
+            None => (None, None),
+        };
+
         let ctx = ctx.clone();
+        let bridge = Bridge {
+            seen: seen.clone(),
+            #[cfg(feature = "dc-compat")]
+            legacy_sender: legacy_sender.clone(),
+        };
         let subscribe_loop = tokio::spawn(async move {
-            if let Err(e) = subscribe_loop(&ctx, gossip_receiver, topic, msg_id, join_tx).await {
+            if let Err(e) =
+                subscribe_loop(&ctx, gossip_receiver, topic, msg_id, join_tx, bridge).await
+            {
                 warn!(ctx, "subscribe_loop failed: {e}")
             }
         });
 
-        iroh_channels.insert(topic, ChannelState::new(subscribe_loop, gossip_sender));
+        iroh_channels.insert(
+            topic,
+            ChannelState {
+                subscribe_loop,
+                sender: gossip_sender,
+                seen,
+                #[cfg(feature = "dc-compat")]
+                legacy_sender,
+                #[cfg(feature = "dc-compat")]
+                legacy_loop,
+            },
+        );
 
         Ok(Some(join_rx))
     }
@@ -153,6 +243,17 @@ impl Iroh {
         if let Some(state) = self.iroh_channels.read().await.get(&topic) {
             self.address_lookup.add_endpoint_info(peer.clone());
             state.sender.join_peers(vec![peer.id]).await?;
+        }
+        Ok(())
+    }
+
+    /// Add a Delta Chat (iroh 0.35) peer to the realtime channel if it is already active.
+    #[cfg(feature = "dc-compat")]
+    pub async fn maybe_add_legacy_peer(&self, topic: TopicId, peer: iroh035::NodeAddr) -> Result<()> {
+        if let (Some(legacy), Some(state)) = (&self.legacy, self.iroh_channels.read().await.get(&topic))
+            && let Some(sender) = &state.legacy_sender
+        {
+            legacy.add_peer(sender, peer).await?;
         }
         Ok(())
     }
@@ -178,7 +279,15 @@ impl Iroh {
         data.extend(seq_num.to_le_bytes());
         data.extend(self.public_key.as_bytes());
 
-        state.sender.broadcast(data.into()).await?;
+        let data: bytes::Bytes = data.into();
+        state.seen.lock().insert(&data);
+        #[cfg(feature = "dc-compat")]
+        if let Some(legacy_sender) = &state.legacy_sender {
+            if let Err(err) = legacy_sender.broadcast(data.clone()).await {
+                warn!(ctx, "IROH_REALTIME: legacy broadcast failed: {err:#}");
+            }
+        }
+        state.sender.broadcast(data).await?;
 
         if env::var("REALTIME_DEBUG").is_ok() {
             info!(ctx, "Sent realtime data");
@@ -226,6 +335,11 @@ impl Iroh {
             // drops the receiver.
             channel.subscribe_loop.abort();
             let _ = channel.subscribe_loop.await;
+            #[cfg(feature = "dc-compat")]
+            if let Some(legacy_loop) = channel.legacy_loop {
+                legacy_loop.abort();
+                let _ = legacy_loop.await;
+            }
         }
         Ok(())
     }
@@ -238,15 +352,40 @@ pub(crate) struct ChannelState {
     subscribe_loop: JoinHandle<()>,
 
     sender: iroh_gossip::api::GossipSender,
+
+    /// Deduplication across the two swarms.
+    seen: Seen,
+
+    #[cfg(feature = "dc-compat")]
+    legacy_sender: Option<iroh_gossip035::net::GossipSender>,
+
+    #[cfg(feature = "dc-compat")]
+    legacy_loop: Option<JoinHandle<()>>,
 }
 
-impl ChannelState {
-    fn new(subscribe_loop: JoinHandle<()>, sender: iroh_gossip::api::GossipSender) -> Self {
-        Self {
-            subscribe_loop,
-            sender,
-        }
+#[cfg(feature = "dc-compat")]
+type Seen = legacy::SharedSeen;
+
+/// Without the compat stack there is a single swarm, iroh-gossip already deduplicates.
+#[cfg(not(feature = "dc-compat"))]
+#[derive(Debug, Clone, Default)]
+struct Seen;
+
+#[cfg(not(feature = "dc-compat"))]
+impl Seen {
+    fn lock(&self) -> &Self {
+        self
     }
+    fn insert(&self, _content: &[u8]) -> bool {
+        true
+    }
+}
+
+/// What the iroh 1.x subscribe loop needs for bridging.
+struct Bridge {
+    seen: Seen,
+    #[cfg(feature = "dc-compat")]
+    legacy_sender: Option<iroh_gossip035::net::GossipSender>,
 }
 
 impl Context {
@@ -255,6 +394,19 @@ impl Context {
         info!(self, "Initializing peer channels.");
         let secret_key = SecretKey::generate();
         let public_key = secret_key.public();
+        ensure_v1_table(self).await?;
+        #[cfg(feature = "dc-compat")]
+        let secret_key_bytes = secret_key.to_bytes();
+
+        let chatmail_relay = self
+            .metadata
+            .read()
+            .await
+            .values()
+            .next()
+            .and_then(|conf| conf.iroh_relay.clone());
+        #[cfg(not(feature = "dc-compat"))]
+        let _ = &chatmail_relay;
 
         let relay_mode = if let Some(relay_url) = self
             .metadata
@@ -275,7 +427,7 @@ impl Context {
         let endpoint = Box::pin(
             Endpoint::builder(presets::Minimal)
                 .address_lookup(address_lookup.clone())
-                .secret_key(secret_key)
+                .secret_key(secret_key.clone())
                 .alpns(vec![GOSSIP_ALPN.to_vec()])
                 .relay_mode(relay_mode)
                 .bind(),
@@ -291,6 +443,19 @@ impl Context {
             .max_message_size(128 * 1024)
             .spawn(endpoint.clone());
 
+        // NB: chatmail servers currently run an iroh 0.35 relay
+        // (`/shared/vendor/deltachat/irohrelay`), which iroh 1.x cannot use.
+        // The legacy stack uses it; the 1.x stack uses the URL as well, which only
+        // works once the server also runs an iroh-relay 1.x.
+        #[cfg(feature = "dc-compat")]
+        let legacy = match legacy::LegacyIroh::spawn(secret_key_bytes, chatmail_relay).await {
+            Ok(l) => Some(l),
+            Err(err) => {
+                warn!(self, "Failed to start legacy iroh 0.35 stack: {err:#}.");
+                None
+            }
+        };
+
         let router = iroh::protocol::Router::builder(endpoint)
             .accept(GOSSIP_ALPN, gossip.clone())
             .spawn();
@@ -302,6 +467,10 @@ impl Context {
             sequence_numbers: Mutex::new(HashMap::new()),
             iroh_channels: RwLock::new(HashMap::new()),
             public_key,
+            #[cfg(feature = "dc-compat")]
+            legacy,
+            #[cfg(test)]
+            skip_endpoint_addr: Default::default(),
         })
     }
 
@@ -364,9 +533,10 @@ pub(crate) async fn iroh_add_peer_for_topic(
     peer: NodeId,
     relay_server: Option<&str>,
 ) -> Result<()> {
+    ensure_v1_table(ctx).await?;
     ctx.sql
         .execute(
-            "INSERT OR REPLACE INTO iroh_gossip_peers (msg_id, public_key, topic, relay_server) VALUES (?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO iroh1_gossip_peers (msg_id, public_key, topic, relay_server) VALUES (?, ?, ?, ?)",
             (msg_id, peer.as_bytes(), topic.as_bytes(), relay_server),
         )
         .await?;
@@ -386,8 +556,16 @@ pub async fn add_gossip_peer_from_header(
         return Ok(());
     }
 
-    let node_addr =
-        serde_json::from_str::<NodeAddr>(node_addr).context("Failed to parse node address")?;
+    let node_addr = match serde_json::from_str::<NodeAddr>(node_addr) {
+        Ok(addr) => addr,
+        Err(err) => {
+            #[cfg(feature = "dc-compat")]
+            if let Ok(legacy_addr) = legacy::parse_legacy_node_addr(node_addr) {
+                return add_legacy_gossip_peer(context, instance_id, legacy_addr).await;
+            }
+            return Err(err).context("Failed to parse node address");
+        }
+    };
 
     info!(
         context,
@@ -414,6 +592,30 @@ pub async fn add_gossip_peer_from_header(
     Ok(())
 }
 
+/// Stores a Delta Chat (iroh 0.35) peer and joins it if the channel is active.
+#[cfg(feature = "dc-compat")]
+async fn add_legacy_gossip_peer(
+    context: &Context,
+    instance_id: MsgId,
+    addr: iroh035::NodeAddr,
+) -> Result<()> {
+    info!(
+        context,
+        "Adding legacy (iroh 0.35) peer {} to the topic of {instance_id}.", addr.node_id
+    );
+    context.emit_event(EventType::WebxdcRealtimeAdvertisementReceived {
+        msg_id: instance_id,
+    });
+    let Some(topic) = get_iroh_topic_for_msg(context, instance_id).await? else {
+        return Ok(());
+    };
+    legacy::store_legacy_peer(context, instance_id, *topic.as_bytes(), &addr).await?;
+    if let Some(iroh) = &*context.iroh.read().await {
+        iroh.maybe_add_legacy_peer(topic, addr).await?;
+    }
+    Ok(())
+}
+
 /// Insert topicId into the database so that we can use it to retrieve the topic.
 pub(crate) async fn insert_topic_stub(ctx: &Context, msg_id: MsgId, topic: TopicId) -> Result<()> {
     ctx.sql
@@ -427,9 +629,10 @@ pub(crate) async fn insert_topic_stub(ctx: &Context, msg_id: MsgId, topic: Topic
 
 /// Get a list of [NodeAddr]s for one webxdc.
 async fn get_iroh_gossip_peers(ctx: &Context, msg_id: MsgId) -> Result<Vec<NodeAddr>> {
+    ensure_v1_table(ctx).await?;
     ctx.sql
         .query_map(
-            "SELECT public_key, relay_server FROM iroh_gossip_peers WHERE msg_id = ? AND public_key != ?",
+            "SELECT public_key, relay_server FROM iroh1_gossip_peers WHERE msg_id = ? AND public_key != ?",
             (msg_id, PUBLIC_KEY_STUB),
             |row| {
                 let key:  Vec<u8> = row.get(0)?;
@@ -561,15 +764,15 @@ async fn subscribe_loop(
     mut stream: iroh_gossip::api::GossipReceiver,
     topic: TopicId,
     msg_id: MsgId,
-    join_tx: oneshot::Sender<()>,
+    join_tx: JoinTx,
+    bridge: Bridge,
 ) -> Result<()> {
-    let mut join_tx = Some(join_tx);
 
     while let Some(event) = stream.try_next().await? {
         match event {
             // iroh-gossip >=0.90 has no `Joined` event; the first `NeighborUp` means joined.
             Event::NeighborUp(node) => {
-                if let Some(join_tx) = join_tx.take() {
+                if let Some(join_tx) = join_tx.lock().take() {
                     // Try to notify that at least one peer joined,
                     // but ignore the error if receiver is dropped and nobody listens.
                     join_tx.send(()).ok();
@@ -579,6 +782,9 @@ async fn subscribe_loop(
             }
             Event::NeighborDown(_node) => {}
             Event::Received(message) => {
+                    if !bridge.seen.lock().insert(&message.content) {
+                        continue;
+                    }
                     info!(context, "IROH_REALTIME: Received realtime data");
                     context.emit_event(EventType::WebxdcRealtimeData {
                         msg_id,
@@ -588,6 +794,13 @@ async fn subscribe_loop(
                             .context("too few bytes in iroh message")?
                             .into(),
                     });
+                    // Bridge iroh 1.x swarm -> Delta Chat peers.
+                    #[cfg(feature = "dc-compat")]
+                    if let Some(legacy_sender) = &bridge.legacy_sender
+                        && let Err(err) = legacy_sender.broadcast(message.content).await
+                    {
+                        warn!(context, "IROH_REALTIME: failed to bridge v1->legacy: {err:#}");
+                    }
             }
             Event::Lagged => {
                 warn!(context, "Gossip lost some messages");

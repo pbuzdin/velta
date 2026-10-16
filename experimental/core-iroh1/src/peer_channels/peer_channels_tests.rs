@@ -635,3 +635,104 @@ async fn test_leave_webxdc_realtime_uninitialized() {
     leave_webxdc_realtime(alice, MsgId::new(1)).await.unwrap();
     assert!(alice.ctx.iroh.read().await.is_none());
 }
+
+/// EXPERIMENTAL dual-stack: Alice behaves like an unmodified Delta Chat client
+/// (only `Iroh-Node-Addr` with iroh 0.35 JSON is sent), so Bob must reach her
+/// over the legacy iroh 0.35 stack.
+#[cfg(feature = "dc-compat")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_dc_compat_legacy_only_peer() {
+    let mut tcm = TestContextManager::new();
+    let alice = &mut tcm.alice().await;
+    let bob = &mut tcm.bob().await;
+
+    let alice_chat = alice.create_chat(bob).await;
+    let mut instance = Message::new(Viewtype::File);
+    instance
+        .set_file_from_bytes(
+            alice,
+            "minimal.xdc",
+            include_bytes!("../../test-data/webxdc/minimal.xdc"),
+            None,
+        )
+        .unwrap();
+    send_msg(alice, alice_chat.id, &mut instance).await.unwrap();
+    let alice_webxdc = alice.get_last_msg().await;
+    let bob_webxdc = bob.recv_msg(&alice.pop_sent_msg().await).await;
+    bob_webxdc.chat_id.accept(bob).await.unwrap();
+
+    alice
+        .get_or_try_init_peer_channel()
+        .await
+        .unwrap()
+        .skip_endpoint_addr
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    send_webxdc_realtime_advertisement(alice, alice_webxdc.id)
+        .await
+        .unwrap();
+    bob.recv_msg_trash(&alice.pop_sent_msg().await).await;
+
+    // Bob knows Alice only as a legacy (iroh 0.35) peer.
+    assert!(get_iroh_gossip_peers(bob, bob_webxdc.id).await.unwrap().is_empty());
+    let legacy_peers = legacy::get_legacy_peers(bob, bob_webxdc.id).await.unwrap();
+    assert_eq!(legacy_peers.len(), 1);
+    assert_eq!(
+        legacy_peers[0].node_id.as_bytes(),
+        alice
+            .get_or_try_init_peer_channel()
+            .await
+            .unwrap()
+            .public_key
+            .as_bytes()
+    );
+
+    bob.get_or_try_init_peer_channel()
+        .await
+        .unwrap()
+        .join_and_subscribe_gossip(bob, bob_webxdc.id)
+        .await
+        .unwrap()
+        .unwrap()
+        .await
+        .unwrap();
+
+    bob.get_or_try_init_peer_channel()
+        .await
+        .unwrap()
+        .send_webxdc_realtime_data(bob, bob_webxdc.id, b"bob -> alice (0.35)".to_vec())
+        .await
+        .unwrap();
+    loop {
+        let event = alice.evtracker.recv().await.unwrap();
+        if let EventType::WebxdcRealtimeData { data, .. } = event.typ {
+            assert_eq!(data, b"bob -> alice (0.35)");
+            break;
+        }
+    }
+
+    alice
+        .get_or_try_init_peer_channel()
+        .await
+        .unwrap()
+        .send_webxdc_realtime_data(alice, alice_webxdc.id, b"alice -> bob (0.35)".to_vec())
+        .await
+        .unwrap();
+    loop {
+        let event = bob.evtracker.recv().await.unwrap();
+        if let EventType::WebxdcRealtimeData { data, .. } = event.typ {
+            assert_eq!(data, b"alice -> bob (0.35)");
+            break;
+        }
+    }
+}
+
+#[test]
+fn test_seen_dedup() {
+    let mut msg = b"payload".to_vec();
+    msg.extend(1i32.to_le_bytes());
+    msg.extend([7u8; 32]);
+    let seen = Seen::default();
+    assert!(seen.lock().insert(&msg));
+    #[cfg(feature = "dc-compat")]
+    assert!(!seen.lock().insert(&msg));
+}
