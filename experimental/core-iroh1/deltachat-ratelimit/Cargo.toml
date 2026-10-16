@@ -1,0 +1,8 @@
+[package]
+name = "ratelimit"
+version = "1.0.0"
+description = "Token bucket implementation"
+edition = "2024"
+license = "MPL-2.0"
+
+[dependencies]
