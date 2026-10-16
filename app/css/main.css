@@ -650,6 +650,10 @@ html[data-theme="light"] .msg-hover-reply {
   white-space: pre-wrap; word-break: break-word;
 }
 html[data-theme="light"] .service-msg { background: rgba(244,244,244,.8); color: #464b55; }
+/* Join/leave notices: involved contacts as profile chips (serviceChipsHtml). */
+.service-msg .svc-chip { font: inherit; color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); border: 0; border-radius: 999px; padding: 0 .45em; margin: 0 .05em; cursor: pointer; }
+.service-msg .svc-chip:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+.service-msg .svc-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .diag-copy {
   position: absolute; top: 5px; right: 7px;
   width: var(--ico-4); height: var(--ico-4); padding: 0; border: none; border-radius: 6px;

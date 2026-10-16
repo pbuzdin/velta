@@ -1,7 +1,7 @@
 // chat-view.js — virtualized message history (virtual-scroller) + composer
 import { canEditMsg } from "./msg-edit.js";
 import { prepareBuiltinXdc } from "./builtin-xdc.js";
-import { formatTime, formatDay, formatDateTime, formatServerUrl, messageInfoState, messageInfoReactions, formatBytes, timeTag, stampTime, formatDuration } from "./format.js";
+import { formatTime, formatDay, formatDateTime, formatServerUrl, messageInfoState, messageInfoReactions, formatBytes, timeTag, stampTime, formatDuration, serviceChipsHtml } from "./format.js";
 import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener } from "./components.js";
 import { bindMenuToggle, showContextMenu, showMessageSheet, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG } from "./ui.js";
 import { diagnosticRow } from "./diagnostics.js";
@@ -1459,6 +1459,28 @@ export class ChatView {
     return el;
   }
 
+  // Join/leave notices: the involved contacts become profile chips
+  // (serviceChipsHtml escapes everything and falls back to plain text).
+  _chipServiceRow(row, m, alive) {
+    const bubble = row.querySelector(".service-msg");
+    if (!bubble) return;
+    const text = String(m.text || "");
+    const full = bubble.textContent || "";
+    const at = full.lastIndexOf(text);
+    if (!text || at < 0) return;
+    const html = serviceChipsHtml(text, m.people);
+    if (!html.includes("svc-chip")) return;
+    bubble.innerHTML = escapeHtml(full.slice(0, at)) + html + escapeHtml(full.slice(at + text.length));
+    bubble.addEventListener("click", e => {
+      const chip = e.target?.closest?.(".svc-chip");
+      if (!chip || !alive()) return;
+      e.stopPropagation();
+      const id = Number(chip.dataset.contactId);
+      const person = m.people.find(p => p.id === id);
+      if (person) avatarProfileOpener?.({ contactId: id, name: person.name });
+    });
+  }
+
   _dayChipEl(item) {
     const el = document.createElement("time");
     el.className = "day-chip";
@@ -1481,6 +1503,7 @@ export class ChatView {
     const liveItem = () => (alive() ? this.msgIndex.get(m.id) : null);
     if (m.kind === "service") {
       const row = diagnosticRow(m);
+      if (m.people?.length) this._chipServiceRow(row, m, alive);
       if (!item.dayFirst && !item.unreadFirst && !item.readMarker) {
         row.dataset.msgid = m.id;
         return row;

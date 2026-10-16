@@ -63,7 +63,7 @@ const sameAddr = (a, b) => String(a || "").toLowerCase() === String(b || "").toL
 const isUnknownConfigKey = err => /unknown key/i.test(String(err?.message || err));
 
 import { debugLog } from "./diagnostics.js";
-import { pageBounds } from "./format.js";
+import { pageBounds, channelAuthorId } from "./format.js";
 import { LruCache } from "./lru.js";
 import { rustLog, tauriInvoke } from "./tauri.js";
 
@@ -720,6 +720,7 @@ export class JsonRpcCore extends EventTarget {
       id: c.id,
       name: c.name || "?",
       kind,
+      chatType: c.chatType || null,
       contactId: c.dmChatContact ?? null,
       memberCount: 0,
       pinned: !!c.isPinned,
@@ -852,6 +853,10 @@ export class JsonRpcCore extends EventTarget {
         sentTs, receivedTs,
         state: "read", fromContact: { name: "", color: "#888" },
         unread: this._isUnreadState(m.state),
+        systemType: m.systemMessageType || null,
+        // Join/leave notices: actor (sender) and the added/removed member
+        // (infoContactId); names are filled by _hydrateServicePeople.
+        people: this._servicePeople(m),
       };
     }
     const out = m.fromId === 1; // ContactId::SELF
@@ -915,8 +920,34 @@ export class JsonRpcCore extends EventTarget {
   async _getDecoratedMessage(msgId, accountId = this.accountId) {
     try {
       const m = await this._call("get_message", accountId, msgId);
-      return this._mapMessage(m);
+      const msg = this._mapMessage(m);
+      await this._hydrateServicePeople([msg], accountId);
+      return msg;
     } catch { return null; }
+  }
+
+  _servicePeople(m) {
+    const t = m.systemMessageType;
+    if (t !== "MemberAddedToGroup" && t !== "MemberRemovedFromGroup") return null;
+    const people = [];
+    if (m.fromId > 9) people.push({ id: m.fromId, name: m.sender?.displayName || "" });
+    if (m.infoContactId > 9 && m.infoContactId !== m.fromId) people.push({ id: m.infoContactId, name: "" });
+    return people.length ? people : null;
+  }
+
+  // Fills missing names in message.people with one get_contacts_by_ids call.
+  // Best effort: a failed lookup leaves the notice as plain text.
+  async _hydrateServicePeople(messages, accountId = this.accountId) {
+    const missing = new Set();
+    for (const msg of messages) for (const p of msg?.people || []) if (!p.name) missing.add(p.id);
+    if (missing.size) {
+      const byId = await this._call("get_contacts_by_ids", accountId, [...missing]).catch(() => ({}));
+      for (const msg of messages) for (const p of msg?.people || []) {
+        if (!p.name) { const c = byId?.[String(p.id)]; p.name = c?.displayName || c?.name || ""; }
+      }
+    }
+    for (const msg of messages) if (msg?.people) msg.people = msg.people.filter(p => p.name);
+    return messages;
   }
 
   /* ---------------- MockCore-compatible API ---------------- */
@@ -1415,7 +1446,7 @@ export class JsonRpcCore extends EventTarget {
     // The chat view opens at the first unread message when there is one.
     const unread = await this._call("get_fresh_msg_cnt", accountId, chatId).catch(() => 0);
     return {
-      id: chatId, name: info.name || "?", kind: this._chatKind(info),
+      id: chatId, name: info.name || "?", kind: this._chatKind(info), chatType: info.chatType || null,
       contactId, unread,
       encrypted: !!info.isEncrypted, verified: false, muted: !!info.isMuted, pinned: !!info.pinned,
       archived: !!info.archived, avatarColor: info.color || null, avatar: info.profileImage || null, contact: null, memberCount: 0,
@@ -1458,6 +1489,7 @@ export class JsonRpcCore extends EventTarget {
         messages.push(this._mapMessage(entry));
       }
     }
+    await this._hydrateServicePeople(messages, accountId);
     return { messages, hasMore: start > 0, hasNewer: end < ids.length };
   }
 
@@ -1558,7 +1590,9 @@ export class JsonRpcCore extends EventTarget {
   }
 
   async getMessage(msgId) {    const m = await this._call("get_message", this.accountId, msgId);
-    return this._mapMessage(m);
+    const msg = this._mapMessage(m);
+    await this._hydrateServicePeople([msg]);
+    return msg;
   }
 
   // RFC 724 Message-ID and IMAP server locations. Not on the message object.
@@ -1863,6 +1897,16 @@ export class JsonRpcCore extends EventTarget {
     const blocked = await this._call("get_blocked_contacts", this.accountId);
     const arr = Array.isArray(blocked) ? blocked : Object.values(blocked || {});
     return arr.map(c => c.id).filter(id => id != null);
+  }
+
+  // Issue #132: the one author of an incoming channel (InBroadcast), or null
+  // (outgoing channel = we are the author, mailing lists, unknown).
+  async getChannelAuthorId(chatId) {
+    const { accountId } = this;
+    const info = await this._call("get_basic_chat_info", accountId, chatId).catch(() => null);
+    if (info?.chatType !== "InBroadcast") return null;
+    const ids = await this._call("get_chat_contacts", accountId, chatId).catch(() => []);
+    return channelAuthorId(info.chatType, ids);
   }
 
   // Returns the chat id of the existing (or newly created) DM chat.

@@ -36,6 +36,49 @@ export function escapeHtml(s) {
 // escapeHtml already escapes both quote kinds, so it is attribute-safe too.
 export const escapeAttr = escapeHtml;
 
+// Group join/leave notices (MemberAddedToGroup / MemberRemovedFromGroup):
+// the core's text with each involved contact's name turned into a chip that
+// opens the profile. people = [{ id, name }] from the core's structured info
+// (message sender = actor, infoContactId = added/removed member), never from
+// parsing the sentence. A name is chipped at its first occurrence only, longest
+// names first so "Ann" can't split "Anna"; a name not found in the text, or no
+// people at all, falls back to plain escaped text. Chips are <button>s, so
+// they are focusable and Enter/Space activate them.
+export function serviceChipsHtml(text, people) {
+  const src = String(text ?? "");
+  const spans = [];
+  const list = (Array.isArray(people) ? people : [])
+    .filter(p => p && Number(p.id) > 9 && String(p.name || "").trim())
+    .sort((a, b) => String(b.name).length - String(a.name).length);
+  for (const p of list) {
+    const name = String(p.name);
+    let from = 0, at;
+    while ((at = src.indexOf(name, from)) >= 0) {
+      const end = at + name.length;
+      if (!spans.some(s => at < s.end && end > s.start)) { spans.push({ start: at, end, p }); break; }
+      from = at + 1;
+    }
+  }
+  if (!spans.length) return escapeHtml(src);
+  spans.sort((a, b) => a.start - b.start);
+  let out = "", pos = 0;
+  for (const s of spans) {
+    out += escapeHtml(src.slice(pos, s.start));
+    out += `<button type="button" class="svc-chip" data-contact-id="${Number(s.p.id)}" aria-label="Open profile of ${escapeAttr(s.p.name)}">${escapeHtml(s.p.name)}</button>`;
+    pos = s.end;
+  }
+  return out + escapeHtml(src.slice(pos));
+}
+
+// Channel author for issue #132: an incoming broadcast (InBroadcast) has
+// exactly one author, stored as its only non-special chat contact. Anything
+// else (outgoing broadcast = we are the author, mailing list, unknown) -> null.
+export function channelAuthorId(chatType, contactIds) {
+  if (chatType !== "InBroadcast") return null;
+  const ids = (Array.isArray(contactIds) ? contactIds : []).map(Number).filter(id => id > 9);
+  return ids.length === 1 ? ids[0] : null;
+}
+
 // Elapsed seconds -> "mm:ss", or "h:mm:ss" from one hour on. Shared by the
 // call overlay timer, call cards, voice recording and video duration badges.
 // Fractions are floored; negative / non-finite input reads as 0.

@@ -2074,6 +2074,7 @@ async function openChat(chatId) {
   // frames, so the dial button would only end in "Call failed".
   callBtn.hidden = chat.kind !== "single" || chat.isP2p;
   callBtn.onclick = chat.kind === "single" && !chat.isP2p ? () => startCallIfMicOk(chat) : null;
+  refreshChannelAuthorButton(chat, current);
   // Device messages are read-only system posts — no composer. Every open
   // sets it explicitly (closeChatUI restores it to visible). Channels need a
   // rights check: members without posting rights get no composer either.
@@ -2138,7 +2139,45 @@ function closeChatUI() {
   $("main-composer").hidden = false;
   if (chatView) chatView.readOnly = false;
   $("chat-head-actions").style.visibility = "";
+  hideChannelAuthorButton();
   renderChatList();
+}
+
+// Issue #132: "Message author" in an incoming channel's header opens (or
+// creates) the 1:1 chat with its one author. Hidden until the core names an
+// author; never shown for outgoing channels (we are the author), mailing
+// lists or an unknown author.
+function hideChannelAuthorButton() {
+  const btn = $("btn-channel-author");
+  if (!btn) return;
+  btn.hidden = true;
+  btn.onclick = null;
+}
+function refreshChannelAuthorButton(chat, current) {
+  hideChannelAuthorButton();
+  if (chat.kind !== "channel" || chat.chatType === "OutBroadcast" || chat.chatType === "Mailinglist" || !core.getChannelAuthorId) return;
+  const chatId = chat.id;
+  core.getChannelAuthorId(chatId).then(authorId => {
+    if (!current() || state.activeChatId !== chatId) return;
+    if (!authorId || authorId === 1) return;
+    const btn = $("btn-channel-author");
+    btn.hidden = false;
+    btn.onclick = () => openDirectChat(authorId);
+  }).catch(() => {});
+}
+
+// Open the 1:1 chat with a contact, creating it when needed.
+async function openDirectChat(contactId) {
+  const epoch = core?.accountEpoch;
+  const existing = state.chats.find(c => c.contactId === contactId && c.kind === "single");
+  if (existing) return openChat(existing.id);
+  try {
+    const chatId = await core.createChatByContactId(contactId);
+    if (!accountIsCurrent(epoch)) return;
+    await refreshChatList();
+    if (!accountIsCurrent(epoch)) return;
+    await openChat(Number(chatId));
+  } catch { errToast("Couldn't open the chat"); }
 }
 
 // Android BACK / gesture pops the entry pushed by openChat; this performs
