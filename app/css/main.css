@@ -2605,3 +2605,17 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 .icon-btn.menu-open svg { animation: menu-x-in .16s ease-out; }
 @keyframes menu-x-in { from { transform: rotate(-90deg) scale(.6); opacity: .4; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .icon-btn.menu-open svg { animation: none; } }
+
+/* Chat info member list (member-list.js): search row + fixed-height virtual rows. */
+.member-search { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
+.member-search .text-field { flex: 1; min-width: 0; }
+.member-scroll { position: relative; }
+.member-row { display: flex; align-items: center; gap: 10px; padding: 0 6px; box-sizing: border-box; cursor: pointer; border-radius: 8px; }
+.member-row:hover { background: var(--hover, rgba(127,127,127,.08)); }
+.member-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.member-row velta-avatar { flex: 0 0 auto; }
+.member-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.member-name, .member-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.member-sub { font-size: 12.5px; opacity: .7; }
+.member-you { opacity: .7; font-weight: normal; }
+.member-empty { padding: 12px 6px; opacity: .7; text-align: center; }

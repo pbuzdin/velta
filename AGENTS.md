@@ -52,6 +52,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── boot-net.js       # pre-app.js error/unhandledrejection net: Diagnostics sink once app.js lives, #boot-error banner before
 │   │   ├── chat-view.js      # message history, composer, selection actions, webxdc cards, bot command chips
 │   │   ├── calls.js          # audio calls: WebRTC media + core signaling state machine (screen wake lock held from mic acquisition to releaseMedia)
+│   │   ├── member-list.js    # chat info member list: <velta-avatar> + name + address, live search (diacritics-insensitive), fixed-height virtual window
 │   │   ├── tauri.js          # the one Tauri-shell bridge: tauriInvoke()/invoke(), isTauri(), isAndroid() (case-insensitive), rustLog(); lazy lookups
 │   │   ├── components.js     # Elena-based web components (<velta-avatar>, <velta-chat-item>, <velta-chat-head>, <velta-video>)
 │   │   ├── diagnostics.js    # diagnostics chat store + event sink + shared console-style row renderer

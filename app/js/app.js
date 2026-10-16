@@ -4,6 +4,7 @@ import "./components.js";
 import { escapeHtml, escapeAttr } from "./components.js";
 import { chatCategoryOf, swipeCategoryStep, batteryReactionPlan } from "./rpc-core.js";
 import { fileUrl, setWasmBlobReader, redactMediaUrl } from "./media.js";
+import { mountMemberList } from "./member-list.js";
 import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintFromVcard, fingerprintGroups, cachedFingerprintIsDerived } from "./avatar.js";
 import { ChatView, setAvatarProfileOpener } from "./chat-view.js";
 import { initCalls } from "./calls.js";
@@ -2440,7 +2441,7 @@ async function showChatInfo(chat) {
     </div>` : ""}
     ${isGroup ? `<details class="info-details" data-members-details${chat.isP2pGroup ? " open" : ""}>
       <summary class="info-row"><span class="k">Members</span><span class="v" data-member-count>…</span></summary>
-      <div class="modal-list" data-member-list style="max-height:240px;overflow:auto"></div>
+      <div class="modal-list member-list" data-member-list></div>
     </details>` : ""}
     ${chat.isP2pGroup ? `<div class="profile-description" data-pg-hint style="font-size:13px;opacity:.75;padding:6px 2px" hidden></div>` : ""}
     ${contactRows}
@@ -2871,23 +2872,22 @@ async function showChatInfo(chat) {
         hint.textContent = groupMemberHint(chat, members);
       }
       if (list) {
-        for (const m of members) {
-          // #72: the subtitle is the member's RELAY (address domain) — the
-          // "which relay is everyone on" read; the full address rides the
-          // title tooltip.
-          // Local P2P group: the subtitle is the member's reachability
-          // (members the user has not paired with are only known through
-          // the group — they're reached via the mesh).
-          const domain = chat.isP2pGroup
-            ? (m.self ? "you" : (m.online ? "online" : "offline") + (m.introduced ? " · not paired" : "")) + (m.isCreator ? " · admin" : "")
-            : (m.addr || "").split("@")[1] || "";
-          const row = document.createElement("div");
-          row.className = "info-row";
-          const dot = chat.isP2pGroup ? `<span style="color:${m.online ? "#2ecc71" : "#7a7a85"}" aria-hidden="true">●</span> ` : "";
-          const canRemove = chat.isP2pGroup && chat.canManage && !chat.readOnly && !m.self && !m.isCreator;
-          row.innerHTML = `<span class="k" style="color:${escapeAttr(m.color || "#888")}">${dot}${escapeHtml(m.name)}</span><span class="v"${domain && !chat.isP2pGroup ? ` title="${escapeAttr(m.addr)}"` : ""}>${escapeHtml(domain)}${canRemove ? ` <button type="button" class="btn-text" data-pg-remove="${escapeAttr(m.id)}" aria-label="Remove ${escapeAttr(m.name)}">Remove</button>` : ""}</span>`;
-          list.appendChild(row);
-        }
+        // Avatar + name + address per member (the per-member relay line of
+        // #72 is gone), live search and a fixed-height virtual window.
+        // Local P2P groups keep their reachability subtitle and Remove.
+        mountMemberList(list, members.map(m => ({ ...m, self: m.self || m.id === 1, avatarUrl: m.avatar ? fileUrl(m.avatar) : null })), {
+          rowOptions: m => {
+            if (!chat.isP2pGroup) return {};
+            const subtitle = (m.self ? "you" : (m.online ? "online" : "offline") + (m.introduced ? " · not paired" : "")) + (m.isCreator ? " · admin" : "");
+            const canRemove = chat.isP2pGroup && chat.canManage && !chat.readOnly && !m.self && !m.isCreator;
+            return { subtitle, actionsHtml: canRemove ? `<button type="button" class="btn-text" data-pg-remove="${escapeAttr(m.id)}" aria-label="Remove ${escapeAttr(m.name)}">Remove</button>` : "" };
+          },
+          // showModal replaces this sheet (and reuses its history entry).
+          onOpen: chat.isP2pGroup ? null : m => {
+            if (m.self) openSelfProfile();
+            else openContactProfile({ contactId: m.id, name: m.name });
+          },
+        });
       }
     }).catch(() => {
       const count = body.querySelector("[data-member-count]");

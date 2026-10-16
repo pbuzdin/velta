@@ -64,6 +64,13 @@ export class FakeElement {
     return this.children.flatMap(child => [...(matches(child) ? [child] : []), ...child.querySelectorAll(selector)]);
   }
   querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+  // ".class" or "tag", self first, then ancestors.
+  closest(selector) {
+    for (let el = this; el; el = el.parent) {
+      if (selector.startsWith(".") ? el.className.split(/\s+/).includes(selector.slice(1)) : el.tagName.toLowerCase() === selector) return el;
+    }
+    return null;
+  }
   getBoundingClientRect() { return { top: 20, left: 20, right: 200, bottom: 100, width: 180, height: 80 }; }
   focus() {}
   setAttribute(name, value) { this.attributes.set(name, String(value)); }
