@@ -2136,7 +2136,7 @@ function closeChatUI() {
   document.querySelector(".app").classList.remove("chat-open");
   $("diagnostic-actions").hidden = true;
   $("main-composer").hidden = false;
-  chatView.readOnly = false;
+  if (chatView) chatView.readOnly = false;
   $("chat-head-actions").style.visibility = "";
   renderChatList();
 }
