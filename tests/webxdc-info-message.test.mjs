@@ -115,3 +115,16 @@ test("webxdc card hydration is not aborted by a detached row", () => {
   const cv = src("app/js/chat-view.js");
   assert.doesNotMatch(cv, /webxdcCard\.isConnected/);
 });
+
+test("shim never forces the shell color-scheme onto the app document", () => {
+  const shim = src("velta-app/src-tauri/src/webxdc-shim.js").replace(/\/\/.*$/gm, "");
+  assert.doesNotMatch(shim, /colorScheme|color-scheme/);
+  const { webxdc } = loadShim();
+  assert.ok(webxdc);
+});
+
+test("iframe element keeps the Velta theme scheme (drives prefers-color-scheme)", () => {
+  const css = src("app/css/main.css");
+  assert.match(css, /\.webxdc-frame \{[^}]*color-scheme: dark/);
+  assert.match(css, /html\[data-theme="light"\] \.webxdc-frame \{ color-scheme: light/);
+});

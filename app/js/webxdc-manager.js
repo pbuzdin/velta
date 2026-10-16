@@ -460,8 +460,8 @@ export async function openWebxdc(msgId, fallbackName = "Webxdc app", opts = {}) 
     : "allow-scripts allow-downloads allow-forms allow-modals");
   iframe.setAttribute("allow", "autoplay");
   iframe.setAttribute("referrerpolicy", "no-referrer");
-  // Theme rides the query string; webxdc-shim.js applies it as the
-  // document's color-scheme so the frame's scrollbars match the shell.
+  // Theme rides the query string for reference only; the app document's color-scheme is left alone
+  // (see webxdc-shim.js).
   const theme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
   // V-05/#63: register this instance with webxdc_serve BEFORE the frame
   // loads — the server refuses non-icon blobs for any other prefix, so an

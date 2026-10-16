@@ -19,14 +19,13 @@
   } catch (_e) {
     // no window to guard — nothing to block
   }
-  // The host passes the shell theme (?velta-theme=) — apply it as the
-  // document's color-scheme so scrollbars and default canvas match. An
-  // app's own color-scheme CSS overrides this (inline < author rules with
-  // !important, or a later-declared rule on a more specific selector).
-  try {
-    var t = new URLSearchParams(location.search).get("velta-theme");
-    if (t === "dark" || t === "light") document.documentElement.style.colorScheme = t;
-  } catch (e) {}
+  // Never set color-scheme on the app document. Forcing the shell's dark
+  // scheme here made browser defaults (text color, form controls, canvas)
+  // dark while apps that only set a white background kept the default
+  // text color → white on white. Apps get the web default (light) like in
+  // Delta Chat; prefers-color-scheme follows the iframe element's
+  // color-scheme (the Velta theme, main.css .webxdc-frame), and Chromium
+  // paints an opaque canvas in the document's own scheme when they differ.
   var serial = 0;
   var listener = null;
   var updates = [];
