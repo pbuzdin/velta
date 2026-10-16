@@ -276,8 +276,9 @@ const ICO = {
   info: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 10v6M12 7v.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`,
   download: `<svg viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M4 19h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   photo: `<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="10" r="1.6" fill="currentColor"/><path d="M4 17l5-5 3.5 3.5L16 12l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`,
-  // Velta Beam: monochrome V + beam silhouette of app/webxdc/send-direct/icon.svg.
-  beam: `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M3 5l3-1.1h12L21 5l-3 1.1H6zM4 8h2.7L12 18.9 17.3 8H20l-6.6 13h-2.8z"/></svg>`,
+  // Velta Beam: beam bar over a split V, the shapes of app/webxdc/send-direct/icon.svg
+  // (1024 grid) rescaled to 24: 16px wide (solid, so narrower than the outlined icons), centred like the other attach icons.
+  beam: `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M4 4.17L20 4.17L20 5.78L4 5.78ZM4.95 6.54L9.01 6.54L13.99 16.1L12.08 19.83ZM15.02 6.54L19.08 6.54L14.45 15.39L12.54 11.5Z"/></svg>`,
   file: `<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 3v4h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`,
   webxdc: `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="3" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="3" y="13" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M17.5 13.5v6m-3-3h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
   mic: `<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 11a7 7 0 0014 0M12 18v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,

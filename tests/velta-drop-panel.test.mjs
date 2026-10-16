@@ -39,4 +39,8 @@ test("renamed to Velta Beam; ids and filenames kept", () => {
   const icon = readFileSync(new URL("../app/webxdc/send-direct/icon.png", import.meta.url));
   assert.equal(icon.readUInt32BE(16), 512);
   assert.equal(icon.readUInt32BE(20), 512);
+  const svg = src("app/webxdc/send-direct/icon.svg");
+  assert.match(svg, /<rect width="1024" height="1024" rx="208" fill="#0a1020"\/>/);
+  assert.match(svg, /<rect x="199" y="221" width="626" height="63"\/>/);
+  assert.match(src("app/js/chat-view.js"), /beam: `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M4 4\.17L20 4\.17/);
 });
