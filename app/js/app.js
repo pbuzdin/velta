@@ -6,7 +6,7 @@ import { chatCategoryOf, swipeCategoryStep, batteryReactionPlan } from "./rpc-co
 import { fileUrl, setWasmBlobReader, redactMediaUrl } from "./media.js";
 import { mountMemberList } from "./member-list.js";
 import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintFromVcard, fingerprintGroups, cachedFingerprintIsDerived } from "./avatar.js";
-import { ChatView, setAvatarProfileOpener, saveAttachmentFile, openAttachmentFile, fixInfiniteAudioDuration } from "./chat-view.js";
+import { ChatView, setAvatarProfileOpener, saveAttachmentFile, openAttachmentFile } from "./chat-view.js";
 import { mediaSectionsHtml, mountChatMedia } from "./chat-media.js";
 import { initCalls } from "./calls.js";
 import { initWebxdc, openWebxdc, prefetchInfo, appIconUrl } from "./webxdc-manager.js";
@@ -2470,7 +2470,7 @@ async function showChatInfo(chat) {
       appInfo: (id) => prefetchInfo(id),
       appIconUrl: (id, icon) => appIconUrl(id, icon),
       onOpen: (kind, m) => openChatMediaItem(kind, m),
-      prepareAudio: fixInfiniteAudioDuration,
+      onShowInChat: (m) => showMediaInChat(m),
       onSave: async (m) => {
         try { if (await saveAttachmentFile(core, m)) toast("Saved"); }
         catch (err) { if (!/cancel/i.test(String(err?.message || err))) toast("Couldn't save: " + (err?.message || err), 3000, { danger: true }); }
@@ -2915,16 +2915,42 @@ async function showChatInfo(chat) {
 }
 
 // Chat info media sections → the viewers the chat bubbles already use.
-function openChatMediaItem(kind, m) {
+// The info sheet owns a history entry: closing it calls history.back(),
+// which lands ASYNC. Viewers opened in the same tick (the lightbox calls
+// closeAllPopups itself, then pushes its own entry) were torn down by that
+// late popstate — the tile tap "did nothing". Close the sheet and wait for
+// its history to settle first.
+async function openChatMediaItem(kind, m) {
   const ready = m.filePath && (!m.downloadState || m.downloadState === "Done");
-  if (kind === "apps") { openWebxdc(m.id, (m.fileName || "Webxdc app").replace(/\.xdc$/i, "")); return; }
-  if (!ready) { toast("Not downloaded yet — open it from the chat to download"); return; }
-  if (kind === "photos") openImageLightbox(fileUrl(m.filePath), m.fileName || "photo");
+  if (kind !== "apps" && !ready) { toast("Not downloaded yet — use Show in chat to download it"); return; }
+  if (kind === "files") {
+    // Files open natively or in their own overlay (audio rows play inline).
+    openAttachmentFile(m.filePath, m.fileName, {
+      openHtml: chatView ? (p, n) => chatView._openHtmlIsolated(p, n) : null,
+      onError: (t) => toast(t, 3000, { danger: true }),
+    });
+    return;
+  }
+  closeAllPopups();
+  await modalHistorySettled();
+  if (kind === "apps") openWebxdc(m.id, (m.fileName || "Webxdc app").replace(/\.xdc$/i, ""));
+  else if (kind === "photos") openImageLightbox(fileUrl(m.filePath), m.fileName || "photo");
   else if (kind === "videos") openVideoLightbox(fileUrl(m.filePath), m.fileName || "video");
-  else openAttachmentFile(m.filePath, m.fileName, {
-    openHtml: chatView ? (p, n) => chatView._openHtmlIsolated(p, n) : null,
-    onError: (t) => toast(t, 3000, { danger: true }),
-  });
+}
+
+// "Show in chat": close the sheet, open the chat if needed, then the same
+// jump the search results and quotes use (scroll + highlight, fetching
+// older pages when the message isn't loaded).
+async function showMediaInChat(m) {
+  const epoch = core.accountEpoch;
+  closeAllPopups();
+  await modalHistorySettled();
+  if (!accountIsCurrent(epoch) || !chatView) return;
+  if (Number(chatView.chat?.id) !== Number(m.chatId)) {
+    await openChat(m.chatId);
+    if (!accountIsCurrent(epoch) || Number(chatView.chat?.id) !== Number(m.chatId)) return;
+  }
+  return chatView._jumpToMessage(m.id);
 }
 
 /* ---------------- chat head menu ---------------- */

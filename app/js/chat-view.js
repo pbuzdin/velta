@@ -6,6 +6,7 @@ import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener } from "./comp
 import { bindMenuToggle, showContextMenu, showMessageSheet, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG } from "./ui.js";
 import { diagnosticRow } from "./diagnostics.js";
 import { attachRecentCommands, recordCommand } from "./recent-commands.js";
+import { audioPlayerHtml, mountAudioPlayer, decodeAudioDuration } from "./audio-player.js";
 import { openWebxdc, appIconUrl, loadInfoWithRetry, builtinAppCard } from "./webxdc-manager.js";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
@@ -187,33 +188,6 @@ export function openAttachmentFile(path, name = null, { openHtml = null, onError
   } else {
     onError("File opening is only available in the Tauri app");
   }
-}
-
-// Voice notes recorded by MediaRecorder (Velta's own, webm or fragmented
-// mp4) carry no duration in their header, so the element reports
-// duration = Infinity and Chromium/Android WebView draws its "live stream"
-// controls: a small play + 0:00 pill with no total and no seek bar. Seek far
-// past the end once: the browser then scans the file, learns the real
-// duration and fires durationchange, and we rewind to 0. Files with a proper
-// header (most incoming audio) never enter this path.
-export function fixInfiniteAudioDuration(audio) {
-  if (!audio || audio.dataset?.durationFix) return;
-  if (audio.dataset) audio.dataset.durationFix = "1";
-  const unknown = () => !Number.isFinite(audio.duration) || audio.duration <= 0;
-  const settle = () => {
-    if (unknown()) return;
-    audio.removeEventListener("durationchange", settle);
-    audio.removeEventListener("timeupdate", settle);
-    try { audio.currentTime = 0; } catch { /* not seekable yet */ }
-  };
-  const onMeta = () => {
-    audio.removeEventListener("loadedmetadata", onMeta);
-    if (!unknown()) return;
-    audio.addEventListener("durationchange", settle);
-    audio.addEventListener("timeupdate", settle);
-    try { audio.currentTime = 1e7; } catch { /* not seekable */ }
-  };
-  audio.addEventListener("loadedmetadata", onMeta);
 }
 
 // Image extensions the lightbox can show when native opening is unavailable
@@ -1733,7 +1707,9 @@ export class ChatView {
       }
     } else if (m.viewtype === "audio" || m.viewtype === "voice") {
       if (m.downloadState === "Done" && m.filePath) {
-        bubble += `<div class="msg-audio"><audio data-src="audio" controls preload="metadata"></audio></div>`;
+        // Own bar, not native controls: see audio-player.js (header-less
+        // MediaRecorder voice notes made the native control a 0:00 pill).
+        bubble += `<div class="msg-audio">${audioPlayerHtml({ label: m.viewtype === "voice" ? "Voice message" : "Audio", duration: m.duration })}<audio data-src="audio" preload="metadata" hidden></audio></div>`;
       } else {
         const label = m.viewtype === "voice" ? "Voice message" : "Audio";
         bubble += `<div class="msg-file download-btn" role="button" data-act="download">
@@ -2039,7 +2015,10 @@ export class ChatView {
     }
     const mediaAudio = row.querySelector('.msg-audio audio[data-src]');
     if (mediaAudio) {
-      fixInfiniteAudioDuration(mediaAudio);
+      mountAudioPlayer(mediaAudio.closest(".msg-audio"), mediaAudio, {
+        duration: m.duration,
+        decodeDuration: () => decodeAudioDuration(mediaAudio.src || fileUrl(m.filePath)),
+      });
       mediaAudio.src = fileUrl(m.filePath);
       mediaAudio.onerror = () => {
         if (!alive()) return;

@@ -1042,12 +1042,16 @@ velta-video { display: block; height: 100%; }
   background: rgba(11, 11, 16, 0.86); border-radius: 6px;
   font-size: 12px; line-height: 1; padding: 4px 6px; color: #f2f2f5;
 }
+/* Fixed width: the player never collapses (outgoing bubbles shrink-wrap). */
 .msg-audio {
-  width: 320px; max-width: 100%; margin: 2px -5px 5px;
+  width: 100%; max-width: 320px; min-width: 240px; margin: 2px -5px 5px; box-sizing: border-box;
 }
-.msg-audio audio {
-  width: 100%; display: block;
-}
+.msg-audio audio { display: none; }
+.vp { display: flex; align-items: center; gap: 8px; width: 100%; height: 40px; padding: 0 10px 0 4px; box-sizing: border-box; border-radius: 20px; background: rgba(0,0,0,.18); }
+.vp-play { flex: none; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--accent, #5aa2e6); color: #fff; }
+.vp-play svg { width: 20px; height: 20px; }
+.vp-seek { flex: 1; min-width: 0; margin: 0; accent-color: var(--accent, #5aa2e6); }
+.vp-time { flex: none; font-size: 12px; font-variant-numeric: tabular-nums; opacity: .85; white-space: nowrap; }
 .msg-file {
   display: flex; align-items: center; gap: 10px; margin-bottom: 4px; min-width: 210px;
 }
@@ -2629,7 +2633,11 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 .member-empty { padding: 12px 6px; opacity: .7; text-align: center; }
 
 /* Chat info media sections (chat-media.js) */
-.media-grid .media-tile { padding: 2px; margin: 0; border: 0; border-radius: 0; min-width: 0; min-height: 0; background: none; box-sizing: border-box; cursor: pointer; overflow: hidden; display: block; }
+.media-grid .media-tile { padding: 2px; box-sizing: border-box; overflow: hidden; }
+.media-tile .media-open { display: block; width: 100%; height: 100%; padding: 0; margin: 0; border: 0; background: none; cursor: pointer; }
+.media-tile .media-goto { position: absolute; top: 4px; right: 4px; z-index: 2; width: 28px; height: 28px; min-width: 0; padding: 0; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; display: grid; place-items: center; }
+.media-tile .media-goto svg { width: 16px; height: 16px; }
+.media-row .media-goto { flex: none; }
 .media-tile .media-tile-inner { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 6px; background: var(--bg-elev, #2a2a2a); }
 .media-tile.media-loading::after { content: ""; display: block; width: 100%; height: 100%; border-radius: 6px; background: var(--bg-elev, #2a2a2a); opacity: .6; }
 .media-tile .media-video { position: relative; display: grid; place-items: center; color: #fff; overflow: hidden; }
@@ -2637,14 +2645,16 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 .media-video .media-play-glyph { position: relative; z-index: 1; display: grid; place-items: center; line-height: 0; }
 .media-video .media-play-glyph svg { width: 28px; height: 28px; }
 .media-video .media-dur { z-index: 1; line-height: 1.4; white-space: nowrap; position: absolute; right: 4px; bottom: 3px; font-size: 11px; background: rgba(0,0,0,.55); padding: 0 4px; border-radius: 4px; }
-.media-tile:focus-visible, .media-row:focus-visible { outline: 2px solid var(--accent, #5aa2e6); outline-offset: -2px; }
+.media-open:focus-visible, .media-goto:focus-visible, .media-row:focus-visible { outline: 2px solid var(--accent, #5aa2e6); outline-offset: -2px; }
 .media-app-icon { width: 36px; height: 36px; flex: none; border-radius: 8px; object-fit: cover; }
 .media-app-letter { display: grid; place-items: center; background: var(--bg-elev, #444); font-weight: 600; }
 .media-play { flex: none; }
-.media-audio { display: block; width: 100%; height: 28px; }
+.media-audio { display: block; width: 100%; }
 .media-details summary[aria-disabled="true"] { opacity: .6; }
 /* Media list rows: fixed heights = mediaRowHeight() in chat-media.js; never scroll inside a row. */
 .media-row { overflow: visible; }
 .media-row .member-text { overflow: visible; justify-content: center; gap: 2px; }
 .media-row-audio { height: 80px; align-items: center; }
-.media-row-audio .media-audio { height: 28px; max-height: 28px; margin-top: 2px; overflow: hidden; }
+.media-row-audio .media-audio { margin-top: 2px; }
+.media-audio .vp { height: 30px; background: none; padding: 0; }
+.media-audio .vp-play { width: 26px; height: 26px; }

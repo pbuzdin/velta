@@ -15,6 +15,7 @@
 import { escapeHtml, escapeAttr, formatBytes, formatDuration, formatDateTime } from "./format.js";
 import { foldText, virtualWindow } from "./member-list.js";
 import { LruCache } from "./lru.js";
+import { audioPlayerHtml, mountAudioPlayer, decodeAudioDuration } from "./audio-player.js";
 
 export const MEDIA_SECTIONS = [
   { key: "apps", label: "Apps", types: ["Webxdc"], layout: "list", search: "Search apps", empty: "No apps found" },
@@ -26,6 +27,11 @@ export const MEDIA_SECTIONS = [
 ];
 
 export const MEDIA_ROW_H = 56;
+const GOTO_SVG = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 10.5h6m-2.5-2.5 2.5 2.5-2.5 2.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const ROW_PLAY_SVG = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>`;
+export function gotoButtonHtml(name) {
+  return `<button type="button" class="icon-btn media-goto" data-media-goto aria-label="Show ${name} in chat" title="Show in chat">${GOTO_SVG}</button>`;
+}
 const PLAY_SVG = `<svg viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="12" r="11" fill="rgba(0,0,0,.5)"/><path d="M9.5 7.5v9l7-4.5z" fill="#fff"/></svg>`;
 // Square grid tiles: width of one column of the scroll box (minus scrollbar).
 export function gridTileSize(boxWidth, cols = MEDIA_GRID_COLS) {
@@ -74,17 +80,19 @@ export function mediaRowHtml(section, m, { info = null, iconUrl = "" } = {}) {
   if (section.key === "apps") {
     const letter = escapeHtml((mediaItemName(m, info)[0] || "?").toUpperCase());
     const icon = iconUrl ? `<img class="media-app-icon" src="${escapeAttr(iconUrl)}" alt="" loading="lazy" decoding="async">` : `<span class="media-app-icon media-app-letter" aria-hidden="true">${letter}</span>`;
-    return `${icon}<span class="member-text"><span class="member-name">${name}</span><span class="member-sub">${meta([who, when])}</span></span>`;
+    return `${icon}<span class="member-text"><span class="member-name">${name}</span><span class="member-sub">${meta([who, when])}</span></span>`
+      + `<span class="member-actions">${gotoButtonHtml(name)}</span>`;
   }
   if (section.key === "audio") {
     const dur = m.duration ? formatDuration(m.duration) : "";
-    return `<button type="button" class="icon-btn media-play" data-media-play aria-label="Play ${name}">▶</button>`
-      + `<span class="member-text"><span class="member-name">${name}</span><span class="member-sub">${meta([who, when, dur])}</span></span>`;
+    return `<button type="button" class="icon-btn media-play" data-media-play aria-label="Play ${name}">${ROW_PLAY_SVG}</button>`
+      + `<span class="member-text"><span class="member-name">${name}</span><span class="member-sub">${meta([who, when, dur])}</span></span>`
+      + `<span class="member-actions">${gotoButtonHtml(name)}</span>`;
   }
   const size = m.fileSize ? formatBytes(m.fileSize) : "";
   const pending = m.downloadState && m.downloadState !== "Done" ? "not downloaded" : "";
   return `<span class="member-text"><span class="member-name">${name}</span><span class="member-sub">${meta([size || pending, when, who])}</span></span>`
-    + `<span class="member-actions"><button type="button" class="btn-text" data-media-save aria-label="Save ${name}">Save</button></span>`;
+    + `<span class="member-actions"><button type="button" class="btn-text" data-media-save aria-label="Save ${name}">Save</button>${gotoButtonHtml(name)}</span>`;
 }
 
 // Inner HTML of one grid tile (photos / videos).
@@ -222,7 +230,7 @@ function mountSection(host, section, ids, cache, opts) {
   };
 
   const makeNode = (m, i) => {
-    const node = doc.createElement(grid ? "button" : "div");
+    const node = doc.createElement("div");
     const h = rowH();
     node.className = grid ? "media-tile" : `member-row media-row media-row-${section.key}`;
     node.setAttribute("role", "listitem");
@@ -230,7 +238,6 @@ function mountSection(host, section, ids, cache, opts) {
     node.dataset.msgId = String(m.id);
     node.style.position = "absolute";
     if (grid) {
-      node.type = "button";
       node.style.top = `${Math.floor(i / MEDIA_GRID_COLS) * h}px`;
       node.style.left = `${(i % MEDIA_GRID_COLS) * h}px`;
       node.style.width = `${h}px`;
@@ -244,7 +251,10 @@ function mountSection(host, section, ids, cache, opts) {
     }
     const full = cache.get(m.id);
     if (!full) { node.classList.add("media-loading"); node.dataset.loading = "1"; node.setAttribute("aria-busy", "true"); return node; }
-    if (grid) node.innerHTML = mediaTileHtml(section, full, { fileUrl });
+    // A tile is a div holding two real buttons (open, show in chat): no
+    // nested interactive content, both reachable by keyboard.
+    if (grid) node.innerHTML = `<button type="button" class="media-open" data-media-open>${mediaTileHtml(section, full, { fileUrl })}</button>`
+      + gotoButtonHtml(section.key === "videos" ? "video" : "photo");
     else {
       const info = infos.get(m.id);
       node.innerHTML = mediaRowHtml(section, full, { info, iconUrl: info?.icon && opts.appIconUrl ? opts.appIconUrl(m.id, info.icon) : "" });
@@ -313,8 +323,10 @@ function mountSection(host, section, ids, cache, opts) {
     if (!node) return;
     const m = itemAt(node);
     if (!m) return;
+    if (e.target?.closest?.("[data-media-goto]")) { opts.onShowInChat?.(m); return; }
     if (e.target?.closest?.("[data-media-save]")) { opts.onSave?.(m); return; }
-    if (e.target?.closest?.("[data-media-play]")) { playInline(node, m); return; }
+    if (e.target?.closest?.(".vp")) return; // the inline player's own controls
+    if (e.target?.closest?.("[data-media-play]") || section.key === "audio") { playInline(node, m); return; }
     opts.onOpen?.(section.key, m);
   });
   scroller.addEventListener("keydown", (e) => {
@@ -322,20 +334,30 @@ function mountSection(host, section, ids, cache, opts) {
     if (!node || e.target !== node || (e.key !== "Enter" && e.key !== " ")) return;
     e.preventDefault?.();
     const m = itemAt(node);
-    if (m) opts.onOpen?.(section.key, m);
+    if (!m) return;
+    if (section.key === "audio") playInline(node, m);
+    else opts.onOpen?.(section.key, m);
   });
 
-  // Audio: one shared <audio controls> per section, moved into the row.
+  // Audio: one shared player per section (the chat's own bar, see
+  // audio-player.js), moved into the tapped row.
   let player = null;
   const playInline = (node, m) => {
     if (!m.filePath) { opts.onOpen?.(section.key, m); return; }
-    if (!player) {
-      player = doc.createElement("audio"); player.controls = true; player.className = "media-audio";
-      opts.prepareAudio?.(player); // app.js: duration fix for header-less voice notes
-    }
-    player.src = fileUrl(m.filePath);
-    node.querySelector(".member-text")?.appendChild(player);
-    player.play?.()?.catch?.(() => {});
+    player?.box.remove();
+    const box = doc.createElement("div");
+    box.className = "media-audio";
+    box.innerHTML = audioPlayerHtml({ label: m.viewtype === "voice" ? "Voice message" : "Audio", duration: m.duration });
+    const audio = doc.createElement("audio");
+    audio.preload = "metadata";
+    audio.hidden = true;
+    box.appendChild(audio);
+    const url = fileUrl(m.filePath);
+    mountAudioPlayer(box, audio, { duration: m.duration, decodeDuration: () => decodeAudioDuration(url) });
+    audio.src = url;
+    player = { box, audio };
+    node.querySelector(".member-text")?.appendChild(box);
+    audio.play?.()?.catch?.(() => {});
   };
 
   const ready = (async () => {

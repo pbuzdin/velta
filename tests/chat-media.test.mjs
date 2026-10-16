@@ -228,3 +228,49 @@ test("audio rows: fixed height for text + player, same as the virtual row height
   assert.match(rows[0].className, /media-row-audio/);
   assert.equal(ctl.scroller.children[0].style.height, "160px");
 });
+
+test("video tile tap opens; 'Show in chat' on tiles and rows; audio row tap plays inline", async () => {
+  installChatViewGlobals();
+  installFakeDocument();
+  const root = fakeRoot();
+  const opened = [], shown = [];
+  const { sections, ready } = mountChatMedia(root, { core: fakeCore(sample), chatId: 42, onOpen: (k, m) => opened.push([k, m.id]), onShowInChat: m => shown.push(m.id) });
+  await ready;
+  const v = await sections.get("videos").open();
+  const tile = v.scroller.children[0].children[0];
+  assert.match(tile.innerHTML, /^<button type="button" class="media-open" data-media-open>/);
+  assert.match(tile.innerHTML, /data-media-goto aria-label="Show video in chat"/);
+  const hit = (node, which) => ({ closest: sel => sel === which ? {} : (sel.includes(".media-tile") ? node : null) });
+  await v.scroller.fire("click", { target: hit(tile, "[data-media-open]") });
+  assert.deepEqual(opened, [["videos", 4]]);
+  await v.scroller.fire("click", { target: hit(tile, "[data-media-goto]") });
+  assert.deepEqual(shown, [4]);
+  assert.equal(opened.length, 1, "Show in chat does not also open");
+  for (const k of ["apps", "audio", "files"]) {
+    const html = mediaRowHtml(MEDIA_SECTIONS.find(s => s.key === k), sample.find(m => m.viewtype === { apps: "webxdc", audio: "voice", files: "file" }[k]));
+    assert.match(html, /<button type="button" class="icon-btn media-goto" data-media-goto aria-label="Show [^"]+ in chat" title="Show in chat">/);
+    assert.doesNotMatch(html, /▶/);
+  }
+  const a = await sections.get("audio").open();
+  const row = a.scroller.children[0].children[0];
+  const text = new FakeElement("span"); text.className = "member-text"; row.appendChild(text); // fake DOM has no innerHTML parser
+  await a.scroller.fire("click", { target: { closest: sel => sel.includes(".media-row") ? row : null } });
+  assert.equal(opened.length, 1, "audio row plays inline instead of opening");
+  const bar = row.querySelectorAll(".media-audio")[0];
+  assert.ok(bar, "inline player mounted in the row");
+  assert.match(bar.innerHTML, /class="vp"/);
+});
+
+test("app: viewers open after the info sheet's history settles; Show in chat reuses the jump", () => {
+  const app = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8");
+  const fn = app.slice(app.indexOf("async function openChatMediaItem"), app.indexOf("async function showMediaInChat"));
+  assert.match(fn, /closeAllPopups\(\);\s*await modalHistorySettled\(\);[\s\S]*openVideoLightbox\(fileUrl\(m\.filePath\)/);
+  assert.ok(fn.indexOf("modalHistorySettled") < fn.indexOf("openImageLightbox"));
+  const show = app.slice(app.indexOf("async function showMediaInChat"), app.indexOf("/* ---------------- chat head menu"));
+  assert.match(show, /closeAllPopups\(\);\s*await modalHistorySettled\(\);/);
+  assert.match(show, /await openChat\(m\.chatId\)/);
+  assert.match(show, /return chatView\._jumpToMessage\(m\.id\);/);
+  assert.match(app, /onShowInChat: \(m\) => showMediaInChat\(m\),/);
+  // the race: lightbox tears down on any popstate
+  assert.match(readFileSync(new URL("../app/js/ui.js", import.meta.url), "utf8"), /window\.addEventListener\("popstate", \(\) => teardownLightbox\(false\)\);/);
+});

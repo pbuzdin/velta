@@ -57,42 +57,9 @@ test("videos: mounted grid uses px squares and re-lays out when the width change
   assert.equal(t2.style.top, "90px");
 });
 
-// ---- 2. Outgoing (recorded) audio: Infinity duration -> full player ---------
-const cv = await import("../app/js/chat-view.js");
-
-function fakeAudio(duration) {
-  const a = new FakeElement("audio");
-  a.duration = duration;
-  a.seeks = [];
-  let ct = 0;
-  Object.defineProperty(a, "currentTime", { get: () => ct, set: v => { ct = v; a.seeks.push(v); } });
-  return a;
-}
-
-test("audio without a duration header gets its real duration and rewinds", async () => {
-  const a = fakeAudio(Infinity); // MediaRecorder webm/fmp4: Chromium shows a live-stream pill
-  cv.fixInfiniteAudioDuration(a);
-  await a.fire("loadedmetadata");
-  assert.deepEqual(a.seeks, [1e7], "seek past the end makes the browser scan the file");
-  a.duration = 4.2;
-  await a.fire("durationchange");
-  assert.deepEqual(a.seeks, [1e7, 0], "rewound once the duration is known");
-  await a.fire("timeupdate");
-  assert.deepEqual(a.seeks, [1e7, 0], "listeners removed");
-});
-
-test("audio with a proper header is left alone; wired once per element and for every bubble", async () => {
-  const a = fakeAudio(4);
-  cv.fixInfiniteAudioDuration(a);
-  cv.fixInfiniteAudioDuration(a);
-  await a.fire("loadedmetadata");
-  assert.deepEqual(a.seeks, []);
-  assert.equal(a.listeners.get("loadedmetadata").size, 0);
-  const s = src("app/js/chat-view.js");
-  // same path for incoming and outgoing bubbles, before src is set
-  assert.match(s, /if \(mediaAudio\) \{\s*fixInfiniteAudioDuration\(mediaAudio\);\s*mediaAudio\.src = fileUrl\(m\.filePath\);/);
-  assert.match(src("app/js/app.js"), /prepareAudio: fixInfiniteAudioDuration/);
-});
+// ---- 2. Outgoing (recorded) audio: now covered by tests/audio-player.test.mjs
+// (5276656's seek trick was not enough on Android: the native control stayed
+// a pill until first play, so the chat draws its own player).
 
 // ---- 3. Webxdc cards: cold-start info retry + built-in Velta Beam ---------
 const wx = await import("../app/js/webxdc-manager.js");
