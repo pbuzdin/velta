@@ -695,6 +695,25 @@ export class MockCore extends EventTarget {
     return { messages: slice, hasMore: start > 0, hasNewer: end < c.messages.length };
   }
 
+  // Demo twin of rpc-core.getChatMedia (core viewtype names in, ids out,
+  // oldest first like the core).
+  async getChatMedia(chatId, types = []) {
+    const c = this.chats.find(x => x.id === chatId);
+    if (!c) return [];
+    const want = new Set(types.map(t => String(t).toLowerCase()));
+    if (want.has("gif")) want.add("image");
+    return c.messages.filter(m => m.kind !== "service" && want.has(m.viewtype)).map(m => m.id);
+  }
+
+  async getMessagesByIds(ids = []) {
+    const out = [];
+    for (const id of ids) {
+      const m = await this.getMessage(id);
+      if (m) out.push(m);
+    }
+    return out;
+  }
+
   // Demo twins of rpc-core.markSeen / getFirstUnreadMessageId: per-message
   // unread flags, the chat counter follows them.
   async markSeen(chatId, ids) {

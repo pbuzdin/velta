@@ -2627,3 +2627,16 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 .member-sub { font-size: 12.5px; opacity: .7; }
 .member-you { opacity: .7; font-weight: normal; }
 .member-empty { padding: 12px 6px; opacity: .7; text-align: center; }
+
+/* Chat info media sections (chat-media.js) */
+.media-grid .media-tile { padding: 2px; border: 0; background: none; box-sizing: border-box; cursor: pointer; }
+.media-tile .media-tile-inner { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 6px; background: var(--bg-elev, #2a2a2a); }
+.media-tile.media-loading::after { content: ""; display: block; width: 100%; height: 100%; border-radius: 6px; background: var(--bg-elev, #2a2a2a); opacity: .6; }
+.media-video { position: relative; display: grid; place-items: center; color: #fff; }
+.media-video .media-dur { position: absolute; right: 4px; bottom: 3px; font-size: 11px; background: rgba(0,0,0,.55); padding: 0 4px; border-radius: 4px; }
+.media-tile:focus-visible, .media-row:focus-visible { outline: 2px solid var(--accent, #5aa2e6); outline-offset: -2px; }
+.media-app-icon { width: 36px; height: 36px; flex: none; border-radius: 8px; object-fit: cover; }
+.media-app-letter { display: grid; place-items: center; background: var(--bg-elev, #444); font-weight: 600; }
+.media-play { flex: none; }
+.media-audio { display: block; width: 100%; height: 28px; }
+.media-details summary[aria-disabled="true"] { opacity: .6; }

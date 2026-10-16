@@ -1493,6 +1493,28 @@ export class JsonRpcCore extends EventTarget {
     return { messages, hasMore: start > 0, hasNewer: end < ids.length };
   }
 
+  // Gallery index for the chat info view: message ids of the given core
+  // viewtypes (up to three, e.g. ["Image", "Gif", "Sticker"]), oldest first.
+  async getChatMedia(chatId, types = []) {
+    const [t1, t2 = null, t3 = null] = types;
+    if (!t1) return [];
+    return await this._call("get_chat_media", this.accountId, chatId, t1, t2, t3);
+  }
+
+  // Mapped messages for explicit ids (one get_messages round trip; callers
+  // batch). Order follows `ids`; ids that failed to load are skipped.
+  async getMessagesByIds(ids = []) {
+    const { accountId } = this;
+    if (!ids.length) return [];
+    const loaded = await this._call("get_messages", accountId, ids);
+    const out = [];
+    for (const id of ids) {
+      const entry = loaded?.[String(id)];
+      if (entry?.kind === "message" || entry?.kind === "Message") out.push(this._mapMessage(entry));
+    }
+    return out;
+  }
+
   // Core fulltext search (SQLite FTS) over message text — every chat type,
   // groups included. With chatId: that chat only (unlimited results);
   // without: all chats (core caps at 1000 ids). Returns mapped messages,

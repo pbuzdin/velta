@@ -6,14 +6,15 @@ import { chatCategoryOf, swipeCategoryStep, batteryReactionPlan } from "./rpc-co
 import { fileUrl, setWasmBlobReader, redactMediaUrl } from "./media.js";
 import { mountMemberList } from "./member-list.js";
 import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintFromVcard, fingerprintGroups, cachedFingerprintIsDerived } from "./avatar.js";
-import { ChatView, setAvatarProfileOpener } from "./chat-view.js";
+import { ChatView, setAvatarProfileOpener, saveAttachmentFile, openAttachmentFile } from "./chat-view.js";
+import { mediaSectionsHtml, mountChatMedia } from "./chat-media.js";
 import { initCalls } from "./calls.js";
-import { initWebxdc } from "./webxdc-manager.js";
+import { initWebxdc, openWebxdc, prefetchInfo, appIconUrl } from "./webxdc-manager.js";
 import { notePushDiagnostic, relaySupportsPush, pushMarkHtml } from "./relay-push.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow, isSendFailureDiagnostic, createRelaySendErrorState } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal, isShortInviteLink, expandShortInvite } from "./invites.js";
 import { activeWsRelay, addWsRelay, listWsRelays, normalizeHost, probeC3Relay, probeDnsVia, showWsRelaysModal, useWsRelay } from "./ws-relays.js";
-import { bindMenuToggle, buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate, popoverSupported, fillSplashVersion } from "./ui.js";
+import { openImageLightbox, openVideoLightbox, bindMenuToggle, buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate, popoverSupported, fillSplashVersion } from "./ui.js";
 import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact, showCreateGroupModal, showAddMembersModal } from "./p2p.js";
 import { withLocalChat, hubModel, renameDevice, removePeer, dismissLocalGroup, groupRename, groupRemoveMember, peerGroupImpact, groupActionsModel, groupMemberHint, removePeerImpactText, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
 import { timeAgo, formatBytes, timeTag } from "./format.js";
@@ -2443,6 +2444,7 @@ async function showChatInfo(chat) {
       <summary class="info-row"><span class="k">Members</span><span class="v" data-member-count>…</span></summary>
       <div class="modal-list member-list" data-member-list></div>
     </details>` : ""}
+    ${!chat.isP2p && (chat.kind === "group" || chat.kind === "channel" || chat.kind === "single") ? mediaSectionsHtml() : ""}
     ${chat.isP2pGroup ? `<div class="profile-description" data-pg-hint style="font-size:13px;opacity:.75;padding:6px 2px" hidden></div>` : ""}
     ${contactRows}
     ${!chat.isP2p && !isSelf && (chat.kind === "group" || chat.kind === "channel" || chat.kind === "single") ? `<div class="info-row" data-muted style="cursor:pointer"><span class="k">Notifications</span><span class="v" data-muted-val>${chat.muted ? "Muted" : "On"}</span></div>` : `<div class="info-row"><span class="k">Notifications</span><span class="v">${chat.muted ? "Muted" : "On"}</span></div>`}
@@ -2459,6 +2461,21 @@ async function showChatInfo(chat) {
     </details>` : ""}`;
   // Name sits below the avatar now, so the head bar carries only the close.
   const modal = showModal({ title: "", body });
+
+  // Apps / Photos / Videos / Audio / Files: counts now, contents on open.
+  if (body.querySelector("[data-media]")) {
+    mountChatMedia(body, {
+      core, chatId: chat.id, fileUrl,
+      isCurrent: () => accountIsCurrent(epoch) && body.isConnected,
+      appInfo: (id) => prefetchInfo(id),
+      appIconUrl: (id, icon) => appIconUrl(id, icon),
+      onOpen: (kind, m) => openChatMediaItem(kind, m),
+      onSave: async (m) => {
+        try { if (await saveAttachmentFile(core, m)) toast("Saved"); }
+        catch (err) { if (!/cancel/i.test(String(err?.message || err))) toast("Couldn't save: " + (err?.message || err), 3000, { danger: true }); }
+      },
+    });
+  }
 
   // Disappearing messages row: hydrate the current timer, open the editor.
   const ephRow = body.querySelector("[data-ephemeral]");
@@ -2894,6 +2911,19 @@ async function showChatInfo(chat) {
       if (count) count.textContent = "unavailable";
     });
   }
+}
+
+// Chat info media sections → the viewers the chat bubbles already use.
+function openChatMediaItem(kind, m) {
+  const ready = m.filePath && (!m.downloadState || m.downloadState === "Done");
+  if (kind === "apps") { openWebxdc(m.id, (m.fileName || "Webxdc app").replace(/\.xdc$/i, "")); return; }
+  if (!ready) { toast("Not downloaded yet — open it from the chat to download"); return; }
+  if (kind === "photos") openImageLightbox(fileUrl(m.filePath), m.fileName || "photo");
+  else if (kind === "videos") openVideoLightbox(fileUrl(m.filePath), m.fileName || "video");
+  else openAttachmentFile(m.filePath, m.fileName, {
+    openHtml: chatView ? (p, n) => chatView._openHtmlIsolated(p, n) : null,
+    onError: (t) => toast(t, 3000, { danger: true }),
+  });
 }
 
 /* ---------------- chat head menu ---------------- */

@@ -128,6 +128,67 @@ function triggerBrowserDownload(bytes, name) {
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
+// Save a message's file: Android through the system save dialog, elsewhere
+// as a browser download. Resolves true when saved, false when cancelled.
+// Shared by the bubble menu and the chat info Files section.
+export async function saveAttachmentFile(core, msg) {
+  if (!msg?.filePath) throw new Error("This attachment isn't available yet");
+  const name = attachmentName(msg);
+  const invoke = tauriInvoke();
+  if (isAndroid() && invoke) {
+    const picked = await invoke("plugin:dialog|save", { options: { title: "Save file", defaultPath: name } });
+    const uri = typeof picked === "string" ? picked : "";
+    if (!uri) return false;
+    await invoke("save_attachment", { src: msg.filePath, uri });
+    return true;
+  }
+  const bytes = await attachmentBytes(core, msg.filePath);
+  triggerBrowserDownload(bytes, name);
+  return true;
+}
+
+// Open a message's file with the platform's handler (see ChatView._openFile).
+export function openAttachmentFile(path, name = null, { openHtml = null, onError = (t) => errToast(t) } = {}) {
+  if (!path) return;
+  // HTML attachments are untrusted web content: open them in a sandboxed
+  // iframe (no allow-same-origin -> opaque origin, no access to the app or
+  // the network context of this page) instead of the system browser.
+  if (/\.x?html?$/i.test(path)) {
+    if (openHtml) return openHtml(path, name);
+    onError("Open this HTML file from its message in the chat");
+    return;
+  }
+  // Android: tauri-plugin-opener ships no file-open implementation on
+  // mobile (its Kotlin side only handles URLs — open_path dies in
+  // plugin-internal arg parsing), and the app's private storage is not
+  // reachable from other apps without a FileProvider anyway. Media opens
+  // in the lightbox instead; other types say so honestly.
+  if (isAndroid()) {
+    if (isMediaFilePath(path)) {
+      openImageLightbox(fileUrl(path), name || "image");
+      return;
+    }
+    onError("Opening this file type isn't supported on Android yet");
+    return;
+  }
+  const invoke = tauriInvoke();
+  if (invoke) {
+    // The core returns blob paths RELATIVE to the accounts dir; the opener
+    // scope pattern ($APPLOCALDATA/accounts/**) matches absolute paths
+    // only, so resolve before invoking (window.veltaAccountsDir is set at
+    // boot by app.js get_accounts_dir).
+    let abs = path;
+    if (!/^(?:[a-zA-Z]:[\\/]|\/)/.test(path) && window.veltaAccountsDir) {
+      abs = window.veltaAccountsDir.replace(/[\\/]+$/, "") + "/" + path.replace(/^[\\/]+/, "");
+    }
+    invoke("plugin:opener|open_path", { path: abs }).catch(err => {
+      onError("Could not open file: " + (err.message || err) + " path=" + abs);
+    });
+  } else {
+    onError("File opening is only available in the Tauri app");
+  }
+}
+
 // Image extensions the lightbox can show when native opening is unavailable
 // (Android) — animated webp included, the <img> element animates it.
 export function isMediaFilePath(path) {
@@ -3770,21 +3831,8 @@ export class ChatView {
           this.onMsgUpdated(session.chatId, fresh);
         }
       }
-      if (!msg.filePath) throw new Error("This attachment isn't available yet");
-      const name = attachmentName(msg);
-      const invoke = tauriInvoke();
-      if (isAndroid() && invoke) {
-        const picked = await invoke("plugin:dialog|save", { options: { title: "Save file", defaultPath: name } });
-        const uri = typeof picked === "string" ? picked : "";
-        if (!uri) return;
-        await invoke("save_attachment", { src: msg.filePath, uri });
-        if (this._isCurrent(session)) toast("Saved");
-        return;
-      }
-      const bytes = await attachmentBytes(this.core, msg.filePath);
-      if (!this._isCurrent(session)) return;
-      triggerBrowserDownload(bytes, name);
-      toast("Saved");
+      const saved = await saveAttachmentFile(this.core, msg);
+      if (saved && this._isCurrent(session)) toast("Saved");
     } catch (err) {
       if (!this._isCurrent(session)) return;
       const text = String(err?.message || err || "");
@@ -3812,39 +3860,10 @@ export class ChatView {
   _openFile(path, name = null) {
     const session = this._session;
     if (!this._isCurrent(session) || !path) return;
-    // HTML attachments are untrusted web content: open them in a sandboxed
-    // iframe (no allow-same-origin -> opaque origin, no access to the app or
-    // the network context of this page) instead of the system browser.
-    if (/\.x?html?$/i.test(path)) return this._openHtmlIsolated(path, name);
-    // Android: tauri-plugin-opener ships no file-open implementation on
-    // mobile (its Kotlin side only handles URLs — open_path dies in
-    // plugin-internal arg parsing), and the app's private storage is not
-    // reachable from other apps without a FileProvider anyway. Media opens
-    // in the lightbox instead; other types say so honestly.
-    if (isAndroid()) {
-      if (isMediaFilePath(path)) {
-        openImageLightbox(fileUrl(path), name || "image");
-        return;
-      }
-      errToast("Opening this file type isn't supported on Android yet");
-      return;
-    }
-    const invoke = tauriInvoke();
-    if (invoke) {
-      // The core returns blob paths RELATIVE to the accounts dir; the opener
-      // scope pattern ($APPLOCALDATA/accounts/**) matches absolute paths
-      // only, so resolve before invoking (window.veltaAccountsDir is set at
-      // boot by app.js get_accounts_dir).
-      let abs = path;
-      if (!/^(?:[a-zA-Z]:[\\/]|\/)/.test(path) && window.veltaAccountsDir) {
-        abs = window.veltaAccountsDir.replace(/[\\/]+$/, "") + "/" + path.replace(/^[\\/]+/, "");
-      }
-      invoke("plugin:opener|open_path", { path: abs }).catch(err => {
-        if (this._isCurrent(session)) errToast("Could not open file: " + (err.message || err) + " path=" + abs);
-      });
-    } else {
-      errToast("File opening is only available in the Tauri app");
-    }
+    openAttachmentFile(path, name, {
+      openHtml: (p, n) => this._openHtmlIsolated(p, n),
+      onError: (text) => { if (this._isCurrent(session)) errToast(text); },
+    });
   }
 
   // Isolated viewer for HTML file attachments: same overlay pattern as the
