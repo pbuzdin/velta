@@ -37,6 +37,7 @@
     name: "", document: "", summary: "", sourceCodeUrl: "",
     internetAccess: false, selfAddr: "", selfName: "",
     sendUpdateInterval: 1000, sendUpdateMaxSize: 0,
+    veltaRealtime: true, // false in the Velta web app (PWA) until iroh runs in wasm
   };
 
   // The iframe is sandboxed without allow-same-origin, so the document runs
@@ -75,6 +76,10 @@
 
   window.addEventListener("message", function (ev) {
     var d = ev.data || {};
+    if (d.type === "velta-webxdc-response" && d.id === "info") {
+      if (d.result) Object.assign(info, d.result); // the eager getInfo below
+      return;
+    }
     if (d.type === "velta-webxdc-response" && pending.has(d.id)) {
       var p = pending.get(d.id);
       pending.delete(d.id);
@@ -161,6 +166,9 @@
     // gossip topic for this instance (host: webxdc-manager realtime*).
     joinRealtimeChannel: function () {
       if (rt && !rt.left) throw new Error("realtime channel already joined");
+      // Host said realtime is unavailable (Velta web app: no iroh in wasm
+      // yet) — fail loudly instead of a channel that never delivers.
+      if (info.veltaRealtime === false) throw new Error("Direct transfer (realtime channels) is not available in the Velta web app yet");
       var ch = { left: false, cb: null };
       rt = ch;
       var joined = call("realtimeJoin", {});
@@ -186,5 +194,8 @@
   Object.defineProperty(window.webxdc, "selfInfo", { get: function () { return { addr: info.selfAddr, name: info.selfName }; } });
   Object.defineProperty(window.webxdc, "myAddr", { get: function () { return info.selfAddr; } });
   Object.defineProperty(window.webxdc, "sendUpdateInterval", { get: function () { return info.sendUpdateInterval; } });
+  // Velta extension (not in the webxdc spec): false when realtime channels
+  // cannot work on this host (the PWA today). Read after getSelfInfo().
+  Object.defineProperty(window.webxdc, "veltaRealtimeAvailable", { get: function () { return info.veltaRealtime !== false; } });
   Object.defineProperty(window.webxdc, "sendUpdateMaxSize", { get: function () { return info.sendUpdateMaxSize; } });
 })();

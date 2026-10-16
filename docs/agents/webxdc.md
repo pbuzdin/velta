@@ -54,9 +54,68 @@ paths.
 
 ## openWebxdc (1.4.12+)
 
-Refuses to open in a plain browser: toast "webxdc apps run in the Velta
-app" — the `webxdc.localhost` handler exists only in the Tauri shell
-(before this, the overlay opened with every asset 404ing).
+Refuses to open in a plain browser (no Tauri, not the wasm PWA): toast
+"webxdc apps run in the Velta app" — the `webxdc.localhost` handler exists
+only in the Tauri shell. The wasm PWA has its own host (next section).
+
+## Wasm PWA host (Step A of docs/research/beam-pwa-research.md, 2026-10-16)
+
+Files: `app/webxdc-host/sw-route.js` (importScripts'd by the generated
+sw.js), `app/webxdc-host/frame.js` (loader, runs in the app frame), the
+SAME `webxdc-shim.js` as native (build-pwa copies it into the dist),
+`isPwaHost()`/`veltaBundle`/icon handler in webxdc-manager.js.
+E2E: `node scripts/e2e-webxdc-pwa.mjs` (Chromium, stub core);
+unit: tests/webxdc-pwa.test.mjs.
+
+- Frame URL `<scope>webxdc-run/<account>/<msg>/<path>`. The SW answers the
+  iframe NAVIGATION with a loader document (frame.js + shim inlined) and
+  the header CSP `WEBXDC_FRAME_CSP`: `sandbox allow-scripts allow-forms
+  allow-downloads allow-modals` (no allow-same-origin -> opaque origin) and
+  only `blob:`/`data:` sources — no network, not even the PWA origin.
+- Finding that shaped the design: **Chromium never routes an opaque-origin
+  document's requests through the service worker** — neither the
+  navigation of a frame whose sandbox ATTRIBUTE lacks allow-same-origin,
+  nor any subresource of an opaque document (verified with Playwright). So:
+  - KEEP: the PWA iframe attribute is `allow-scripts allow-same-origin
+    allow-downloads allow-forms allow-modals` (attribute + header flags
+    combine; the CSP header makes it opaque). Without allow-same-origin in
+    the attribute the loader navigation is never intercepted (404).
+  - KEEP: frame.js refuses to run unless `self.origin === "null"` and it
+    is a child frame; the SW gives EVERY other same-scope iframe navigation
+    a 403 with `CSP: sandbox` (an app navigating itself to a PWA URL, or
+    third-party framing) and 403s top-level loads of app URLs.
+  - Subresources cannot come from the SW: frame.js asks the host for the
+    .xdc (`veltaBundle` call; host only answers the open app's own frame,
+    for the open instance — same V-05/#63 rule as native), unzips it in the
+    sandbox (stored + DecompressionStream deflate), makes blob: URLs, then
+    rewrites index.html (src/href/srcset/style/inline modules, drops the
+    app's own CSP meta), CSS (`url()`, `@import`) and ES modules (static
+    specifiers -> blob:, `import()` -> `__veltaImport`, `import.meta.url` ->
+    the virtual URL) and `document.write`s the result. Runtime patches map
+    fetch/XHR (GET), element src/href setters, setAttribute, Worker and
+    innerHTML-inserted elements. Multi-page apps: navigating to
+    `other.html` goes through the SW loader again.
+- Icons for chat cards: SW -> page `velta-webxdc-icon` -> `get_webxdc_blob`
+  (icon.* only, current account; icons are public like on native).
+- importFiles: host `<input type=file>` (user activation from the frame tap
+  propagates to the parent). sendToChat: memfs `/uploads/` + send + remove.
+- Realtime: not in wasm yet (Step B). getInfo carries `veltaRealtime:false`,
+  the shim's `joinRealtimeChannel()` throws, `webxdc.veltaRealtimeAvailable`
+  is false (Velta extension), host `realtimeJoin` rejects. Beam shows "Direct
+  transfer is not available in the Velta web app yet" and disables sending
+  and Receive; offers from status updates still list.
+- Limits (document, don't regress silently): the frame can still navigate
+  ITSELF to a remote URL (CSP cannot block navigation; no allow-popups /
+  top-navigation, so only the frame) — same class as the WebRTC ceiling;
+  WebRTC stub ceiling unchanged; regex-based module rewriting (an
+  import-looking string literal is rewritten too), static import cycles
+  unsupported (clear error), bare specifiers/import maps unsupported,
+  Worker-internal relative fetches and CSS set via `element.style` with
+  relative `url()` are not mapped, the first request of innerHTML-inserted
+  elements is CSP-blocked before the fix-up. All apps share the PWA
+  origin's URL space but each document is its own opaque origin: no
+  persistent localStorage/IndexedDB (in-memory shim, as native). Firefox
+  and Safari behaviour is unverified (Playwright Firefox runs no SW).
 
 ## sendToChat / importFiles (1.4.12+, spec shapes 1.4.13)
 
@@ -81,7 +140,8 @@ app" — the `webxdc.localhost` handler exists only in the Tauri shell
   `WebxdcRealtimeData {msgId, data}` event (rpc-core →
   `webxdc-realtime-data`) is posted to the open frame only while it is
   joined. Same JSON-RPC on desktop (sidecar) and Android (in-process core),
-  so both shells are covered; the wasm PWA does not run webxdc at all.
+  so both shells are covered; the wasm PWA runs webxdc (see above) but has no
+  realtime yet.
   Gossip carries no sender id and is lossy — apps must ack/retry.
   `listRealtimeAdapters()` still returns [].
 

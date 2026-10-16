@@ -23,9 +23,26 @@ const serials = new Map(); // msgId -> last delivered serial
 const infoCache = new LruCache({ maxItems: 100, maxBytes: 2 * 1024 * 1024,
   sizeOf: (v) => JSON.stringify(v || {}).length * 2 }); // msgId -> info object
 
+// Wasm PWA host (no Tauri shell): apps run through the service worker's
+// webxdc route (app/webxdc-host/sw-route.js + frame.js, Step A of
+// docs/research/beam-pwa-research.md).
+export function isPwaHost() {
+  return typeof window !== "undefined" && !window.__TAURI__ && !!window.VELTA_PWA?.wasmCore;
+}
+
+// Realtime channels need the core's iroh peer channels, which the wasm
+// core does not run yet (Step B). Apps see `veltaRealtime: false` in
+// getInfo and realtimeJoin rejects with REALTIME_UNAVAILABLE.
+export const REALTIME_UNAVAILABLE = "Direct transfer (realtime channels) is not available in the Velta web app yet";
+export function realtimeAvailable() {
+  return !isPwaHost();
+}
+
 // The iframe origin depends on the platform: Windows and Android serve
 // custom protocols at http://<scheme>.localhost, mac/linux at <scheme>://.
+// The PWA serves <scope>webxdc-run/<account>/... from its service worker.
 function baseFor(accountId) {
+  if (isPwaHost()) return new URL(`webxdc-run/${accountId}`, document.baseURI).href;
   const ua = navigator.userAgent || "";
   if (/Windows|Android/.test(ua)) return `http://webxdc.localhost/${accountId}`;
   return `webxdc://localhost/${accountId}`;
@@ -90,7 +107,7 @@ async function handleCall(data) {
       return { name: info.name, document: info.document || "", summary: info.summary || "",
         sourceCodeUrl: info.sourceCodeUrl || "", selfAddr: info.selfAddr || "",
         selfName: info.selfName || "", sendUpdateInterval: info.sendUpdateInterval ?? 1000,
-        sendUpdateMaxSize: info.sendUpdateMaxSize ?? 0 };
+        sendUpdateMaxSize: info.sendUpdateMaxSize ?? 0, veltaRealtime: realtimeAvailable() };
     }
     case "getAllUpdates": {
       const { updates } = await fetchUpdates(msgId, 0);
@@ -114,6 +131,7 @@ async function handleCall(data) {
     // advertisement mail); data rides send_webxdc_realtime_data; leave on
     // app close too. Peers arrive via WebxdcRealtimeData events above.
     case "realtimeJoin": {
+      if (!realtimeAvailable()) throw new Error(REALTIME_UNAVAILABLE);
       if (!core.sendWebxdcRealtimeAdvertisement) throw new Error("realtime channels are not available");
       await core.sendWebxdcRealtimeAdvertisement(msgId);
       if (active?.msgId === msgId) active.realtime = true;
@@ -132,6 +150,11 @@ async function handleCall(data) {
       }
       return {};
     }
+    // PWA loader (webxdc-host/frame.js) asks for the app archive once per
+    // page load; only the open app's own frame gets an answer (onWindowMessage
+    // checks the source), and only for the open instance.
+    case "veltaBundle":
+      return { xdc: await readXdcArchive(msgId) };
     case "sendToChat":
       return sendToChat(data.params || {});
     case "importFiles":
@@ -147,7 +170,8 @@ async function handleCall(data) {
 // it as a normal file message into the chat the app lives in.
 async function sendToChat({ file, name, text }) {
   const invoke = tauriInvoke();
-  if (!invoke) throw new Error("sendToChat requires the Velta app");
+  const write = core?.transport?.writeCoreFile;
+  if (!invoke && typeof write !== "function") throw new Error("sendToChat requires the Velta app");
   if (!(file instanceof Blob) && !text) throw new Error("sendToChat: nothing to send");
   const msgId = active?.msgId;
   const msg = await core.getMessage(msgId).catch(() => null);
@@ -156,13 +180,25 @@ async function sendToChat({ file, name, text }) {
   const ok = await confirmModal("Send to chat", file ? `Send "${filename}" to this chat?` : "Send this text to this chat?", "Send", false);
   if (!ok) return { ok: false, cancelled: true };
   let dest = null;
+  let temp = false;
   if (file instanceof Blob) {
-    dest = await invoke("resolve_upload_path", { filename: `${Date.now()}-${filename}` });
-    if (!dest) throw new Error("resolve_upload_path returned empty");
     const bytes = new Uint8Array(await file.arrayBuffer());
-    await invoke("plugin:fs|write_file", bytes, { headers: { path: encodeURIComponent(dest) } });
+    if (invoke) {
+      dest = await invoke("resolve_upload_path", { filename: `${Date.now()}-${filename}` });
+      if (!dest) throw new Error("resolve_upload_path returned empty");
+      await invoke("plugin:fs|write_file", bytes, { headers: { path: encodeURIComponent(dest) } });
+    } else {
+      // Wasm PWA: the core reads the worker memfs (same as chat attachments).
+      dest = `/uploads/${Date.now()}-${String(filename).replace(/[\\/]/g, "_")}`;
+      await write.call(core.transport, dest, bytes);
+      temp = true;
+    }
   }
-  await core.sendMessage(msg.chatId, { viewtype: "file", file: dest, filename, text: text || "" });
+  try {
+    await core.sendMessage(msg.chatId, { viewtype: "file", file: dest, filename, text: text || "" });
+  } finally {
+    if (temp) core.transport.removeCoreFile?.(dest)?.catch?.(() => {});
+  }
   toast(`Sent ${filename}`, 2200);
   return { ok: true };
 }
@@ -174,7 +210,7 @@ async function sendToChat({ file, name, text }) {
 // in the filter are ignored (apps re-check types themselves).
 async function importFiles(filters = {}) {
   const invoke = tauriInvoke();
-  if (!invoke) return [];
+  if (!invoke) return isPwaHost() ? pickFilesInBrowser(filters) : [];
   const exts = (filters.extensions || []).map(e => String(e).replace(/^\./, ""));
   let picked;
   try {
@@ -205,6 +241,72 @@ async function importFiles(filters = {}) {
     } catch { /* skip unreadable pick */ }
   }
   return files;
+}
+
+// PWA importFiles: a host-side <input type=file>. The tap inside the app
+// frame carries user activation up to this page (UAv2), so the picker opens.
+export function acceptFor(filters = {}) {
+  const exts = (filters.extensions || []).map(e => "." + String(e).replace(/^\./, ""));
+  const mimes = (filters.mimeTypes || []).map(String);
+  return [...exts, ...mimes].join(",");
+}
+function pickFilesInBrowser(filters = {}) {
+  return new Promise((resolve) => {
+    const inp = document.createElement("input");
+    inp.type = "file";
+    inp.multiple = !!filters.multiple;
+    const accept = acceptFor(filters);
+    if (accept) inp.accept = accept;
+    inp.style.display = "none";
+    let settled = false;
+    const done = (files) => { if (settled) return; settled = true; inp.remove(); resolve(files); };
+    inp.addEventListener("change", () => done([...(inp.files || [])]));
+    inp.addEventListener("cancel", () => done([]));
+    document.body.appendChild(inp);
+    inp.click();
+  });
+}
+
+// PWA: the open app's .xdc archive (the loader unzips it inside the sandbox).
+async function readXdcArchive(msgId) {
+  if (!isPwaHost()) throw new Error("veltaBundle is only used by the web app");
+  const read = core?.transport?.readCoreFile;
+  if (typeof read !== "function") throw new Error("this core cannot read app files");
+  const msg = await core.getMessage(msgId);
+  let path = msg?.filePath;
+  if (!path) throw new Error("app archive not found");
+  if (!path.startsWith("/") && window.veltaAccountsDir) path = `${window.veltaAccountsDir.replace(/\/$/, "")}/${path}`;
+  const bytes = await read.call(core.transport, path);
+  if (!bytes || !bytes.byteLength) throw new Error("app archive is empty");
+  return bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+}
+
+// PWA chat cards: the SW asks for icon files (any instance — icons are
+// visible to every chat member, same exemption as native webxdc_serve).
+export function decodeBase64(b64) {
+  const bin = atob(String(b64 || ""));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+export const ICON_PATH_RE = /^icon\.[a-z]+$/;
+export async function serveIconRequest(data) {
+  if (!core || Number(data?.account) !== Number(core.accountId)) throw new Error("wrong account");
+  const path = String(data?.path || "");
+  if (!ICON_PATH_RE.test(path)) throw new Error("not an icon");
+  const b64 = await core.getWebxdcBlob(Number(data.msg), path);
+  if (!b64) throw new Error("missing");
+  return decodeBase64(b64);
+}
+if (typeof navigator !== "undefined" && navigator.serviceWorker) {
+  navigator.serviceWorker.addEventListener("message", (e) => {
+    if (e.data?.type !== "velta-webxdc-icon") return;
+    const port = e.ports?.[0];
+    if (!port) return;
+    serveIconRequest(e.data)
+      .then((bytes) => port.postMessage({ bytes }))
+      .catch((err) => port.postMessage({ error: String(err?.message || err) }));
+  });
 }
 
 // Payload from the frame (structured clone) → bytes, spec-capped.
@@ -292,8 +394,16 @@ export async function openWebxdc(msgId, fallbackName = "Webxdc app", opts = {}) 
   // plain browser (demo/dev) the frame would 404 every asset and spam the
   // console — explain instead of opening a dead overlay.
   if (!window.__TAURI__) {
-    toast("webxdc apps run in the Velta app", 3000);
-    return;
+    if (!isPwaHost()) {
+      toast("webxdc apps run in the Velta app", 3000);
+      return;
+    }
+    // The loader document only exists through the service worker (it sets
+    // the sandbox CSP); without a controller the frame would 404.
+    if (!navigator.serviceWorker?.controller) {
+      toast("Reload Velta once to enable apps (service worker not active yet)", 4000);
+      return;
+    }
   }
   // Already open: keep the running frame (a reload would kill a transfer).
   if (active?.msgId === Number(msgId) && document.getElementById("webxdc-overlay")) {
@@ -310,8 +420,20 @@ export async function openWebxdc(msgId, fallbackName = "Webxdc app", opts = {}) 
   // webxdc_serve sends Access-Control-Allow-Origin: * for fetch() calls.
   // webxdc-shim.js backs localStorage/sessionStorage with memory in that
   // origin (app state lives in status updates anyway).
-  iframe.setAttribute("sandbox", "allow-scripts allow-downloads allow-forms allow-modals");
+  // PWA: the opaque origin comes from the `sandbox` CSP header the service
+  // worker sends with the loader document (sw-route.js WEBXDC_FRAME_CSP).
+  // The ATTRIBUTE must keep allow-same-origin there: Chromium skips the
+  // service worker for frames whose sandbox attribute lacks it, and the
+  // loader document would 404. Header and attribute flags combine, so the
+  // document is still opaque; the attribute still blocks popups and top
+  // navigation for anything the frame loads. frame.js refuses to run unless
+  // its origin is "null"; the SW gives every other same-scope iframe
+  // navigation a `sandbox` CSP too. KEEP all three.
+  iframe.setAttribute("sandbox", isPwaHost()
+    ? "allow-scripts allow-same-origin allow-downloads allow-forms allow-modals"
+    : "allow-scripts allow-downloads allow-forms allow-modals");
   iframe.setAttribute("allow", "autoplay");
+  iframe.setAttribute("referrerpolicy", "no-referrer");
   // Theme rides the query string; webxdc-shim.js applies it as the
   // document's color-scheme so the frame's scrollbars match the shell.
   const theme = document.documentElement.dataset.theme === "light" ? "light" : "dark";

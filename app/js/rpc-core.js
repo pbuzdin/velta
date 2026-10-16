@@ -1250,6 +1250,11 @@ export class JsonRpcCore extends EventTarget {
 
   /* -- webxdc apps -- */
 
+  // Base64 of one file inside the app archive (PWA chat-card icons).
+  async getWebxdcBlob(msgId, path) {
+    return this._call("get_webxdc_blob", this.accountId, msgId, path);
+  }
+
   async getWebxdcInfo(msgId) {
     return this._call("get_webxdc_info", this.accountId, msgId);
   }

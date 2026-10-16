@@ -16,10 +16,25 @@
   const senders = new Map();   // id -> Sender (files I offer, this session)
   const offers = new Map();    // id -> {offer, from, card, rx}
   let lastHeard = 0;
+  // Velta web app (PWA): no realtime channels until iroh runs in wasm. Show
+  // that plainly instead of a channel that never connects; offers from
+  // status updates still list, but cannot be sent or received here.
+  const NO_RT = "Direct transfer is not available in the Velta web app yet. Open this chat in Velta for desktop or Android to send or receive.";
+  let noRealtime = false;
+  function markNoRealtime() {
+    noRealtime = true;
+    const b = $("#pick");
+    b.disabled = true;
+    b.title = NO_RT;
+    $("#peers").textContent = NO_RT;
+    for (const o of offers.values()) paintRx(o);
+  }
 
   function send(bytes) { try { channel && channel.send(bytes); } catch (e) { console.warn(e); } }
 
   function join() {
+    if (noRealtime) return;
+    if (wx.veltaRealtimeAvailable === false) { markNoRealtime(); return; }
     if (channel || !wx.joinRealtimeChannel) return;
     try { channel = wx.joinRealtimeChannel(); } catch (e) { $("#peers").textContent = "Realtime channel unavailable: " + e.message; return; }
     channel.setListener((data) => {
@@ -52,6 +67,7 @@
     const online = Date.now() - o.live < 8000;
     let state = online ? "Sender is online" : "Waiting for the sender to open this app…";
     if (rx && !rx.done) state = `Receiving ${fmt(rx.receivedBytes)} of ${fmt(offer.size)}`;
+    if (noRealtime && !rx) state = NO_RT;
     if (rx && rx.done) state = rx.ok ? '<span class="ok">Received — SHA-256 verified</span>' : '<span class="bad">Checksum mismatch — file discarded</span>';
     o.card.innerHTML = `<div class="name">${esc(offer.name)}</div>
       <div class="meta">${fmt(offer.size)}${o.from ? " · from " + esc(o.from) : ""}</div>
@@ -63,7 +79,7 @@
     const act = o.card.querySelector("[data-actions]");
     if (!rx) {
       const b = Object.assign(document.createElement("button"), { textContent: "Receive" });
-      b.disabled = !online;
+      b.disabled = !online || noRealtime;
       b.onclick = () => { o.rx = new Transfer.Receiver({ offer, send }); o.rx.pump(); sendProgress(o); paintRx(o); };
       act.append(b);
     } else if (rx.done && rx.ok) {
@@ -108,6 +124,7 @@
 
   $("#pick").onclick = async () => {
     join();
+    if (noRealtime) return;
     let files;
     try { files = await wx.importFiles({ multiple: false }); } catch (e) { alert(e.message); return; }
     const file = files && files[0];
@@ -132,7 +149,7 @@
     }
     let n = 0;
     for (const t of trackers.values()) n += t.activeCount();
-    const line = n ? `${n} receiver${n === 1 ? "" : "s"}` : lastHeard && Date.now() - lastHeard < 8000 ? "A peer is connected" : "";
+    const line = noRealtime ? NO_RT : n ? `${n} receiver${n === 1 ? "" : "s"}` : lastHeard && Date.now() - lastHeard < 8000 ? "A peer is connected" : "";
     if ($("#peers").textContent !== line) $("#peers").textContent = line; // aria-live: announce changes only
     for (const id of senders.keys()) paintSender(id);
     for (const o of offers.values()) paintPeers(o);

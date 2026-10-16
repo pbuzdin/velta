@@ -14,6 +14,11 @@ docs/agents/webxdc.md, docs/iroh-layer-plan.md, docs/research/wasm-patches/.
   on wasm32 is untested.
 
 ## A) Running webxdc in the PWA at all
+**Implemented 2026-10-16** (docs/agents/webxdc.md "Wasm PWA host"). Correction to option 1 below:
+Chromium does NOT send an opaque-origin document's navigation (sandbox attribute without
+allow-same-origin) or subresource requests through the parent's SW. Shipped design: the SW serves
+only the loader document (CSP-header sandbox -> opaque); the loader gets the .xdc from the host over
+postMessage and serves every file from blob: URLs with HTML/CSS/module rewriting.
 Options:
 1. **Service-worker virtual origin (recommended).** SW intercepts `/webxdc/<acct>/<msg>/<path>` on the
    PWA origin and answers from the wasm core (`get_webxdc_blob`) via a MessageChannel to the page/worker

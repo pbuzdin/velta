@@ -80,6 +80,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── identity-backup.js # V2.5 identity backup: bundle build/wrap/unwrap (WebCrypto), base64 helpers, backup download name (#104), gzipBytes/gunzipBytes (CompressionStream — returns input unchanged when unsupported; callers detect by identity to decide the .gz suffix)
 │   │   ├── ws-relays.js      # PWA websocket relay list; baked VELTA_PWA.wsProxyUrl until a domain is chosen; probeC3Relay (C3 capability probe)
 │   │   ├── webxdc-manager.js # webxdc host: opaque-origin sandboxed app overlay, shim postMessage relay, per-instance serials
+│   ├── webxdc-host/          # PWA webxdc host: sw-route.js (SW loader route, sandbox CSP) + frame.js (in-frame .xdc loader); KEEP rules in docs/agents/webxdc.md
 │   │   ├── link-preview.js   # OG cards; drawer is off / picture / fetch (#88); shellProxy() = fail-closed proxy reader for shell-side fetches
 │   │   ├── lufi.js           # #138 Lufi client logic: SJCL slice encryption (Lufi-web compatible), upload state machine, expiry rules, deletion-token store (node-tested)
 │   │   ├── large-file.js     # #138 attach menu "Large file" flow: pick → expiry dialog → progress/cancel → link message; message-info delete
