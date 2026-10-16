@@ -143,7 +143,7 @@ pub enum Qr {
     /// Provides a backup that can be retrieved using iroh-net based backup transfer protocol.
     Backup2 {
         /// Iroh node address.
-        node_addr: iroh::NodeAddr,
+        node_addr: iroh::EndpointAddr,
 
         /// Authentication token.
         auth_token: String,
@@ -790,13 +790,41 @@ fn decode_backup2(qr: &str) -> Result<Qr> {
         .split_once('&')
         .context("Backup QR code has no separator")?;
     let auth_token = auth_token.to_string();
-    let node_addr = serde_json::from_str::<iroh::NodeAddr>(node_addr)
+    let node_addr = parse_endpoint_addr_compat(node_addr)
         .context("Invalid node addr in backup QR code")?;
 
     Ok(Qr::Backup2 {
         node_addr,
         auth_token,
     })
+}
+
+/// Legacy (iroh <= 0.35) `NodeAddr` JSON: `{"node_id":..,"relay_url":..,"direct_addresses":[..]}`.
+#[derive(Debug, Deserialize)]
+struct LegacyNodeAddr {
+    node_id: iroh::PublicKey,
+    relay_url: Option<iroh::RelayUrl>,
+    #[serde(default)]
+    direct_addresses: Vec<std::net::SocketAddr>,
+}
+
+/// Parses an iroh 1.x `EndpointAddr` JSON, falling back to the legacy iroh 0.35 `NodeAddr` JSON.
+///
+/// NB: parsing a legacy address does NOT make the peer reachable:
+/// iroh 0.35 and iroh 1.x are not wire compatible (see docs/research/iroh-1-upgrade.md).
+pub(crate) fn parse_endpoint_addr_compat(s: &str) -> Result<iroh::EndpointAddr> {
+    if let Ok(addr) = serde_json::from_str::<iroh::EndpointAddr>(s) {
+        return Ok(addr);
+    }
+    let legacy: LegacyNodeAddr = serde_json::from_str(s)?;
+    Ok(iroh::EndpointAddr::from_parts(
+        legacy.node_id,
+        legacy
+            .relay_url
+            .map(iroh::TransportAddr::Relay)
+            .into_iter()
+            .chain(legacy.direct_addresses.into_iter().map(iroh::TransportAddr::Ip)),
+    ))
 }
 
 #[derive(Debug, Deserialize)]

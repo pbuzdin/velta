@@ -26,11 +26,17 @@
 use anyhow::{Context as _, Result, anyhow, bail};
 use data_encoding::BASE32_NOPAD;
 use futures_lite::StreamExt;
-use iroh::{Endpoint, NodeAddr, NodeId, PublicKey, RelayMode, RelayUrl, SecretKey};
-use iroh_gossip::net::{Event, GOSSIP_ALPN, Gossip, GossipEvent, JoinOptions};
+use iroh::address_lookup::MemoryLookup;
+use iroh::endpoint::presets;
+use iroh::{
+    Endpoint, EndpointAddr as NodeAddr, EndpointId as NodeId, PublicKey, RelayMode, RelayUrl,
+    SecretKey,
+};
+use iroh_gossip::api::{Event, JoinOptions};
+use iroh_gossip::net::{GOSSIP_ALPN, Gossip};
 use iroh_gossip::proto::TopicId;
 use parking_lot::Mutex;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::env;
 use tokio::sync::{RwLock, oneshot};
 use tokio::task::JoinHandle;
@@ -53,6 +59,9 @@ const PUBLIC_KEY_STUB: &[u8] = b"static_string";
 pub struct Iroh {
     /// Iroh router  needed for Iroh peer channels.
     pub(crate) router: iroh::protocol::Router,
+
+    /// In-memory address book (replaces `Endpoint::add_node_addr` from iroh 0.35).
+    pub(crate) address_lookup: MemoryLookup,
 
     /// [Gossip] needed for Iroh peer channels.
     pub(crate) gossip: Gossip,
@@ -105,7 +114,7 @@ impl Iroh {
         }
 
         let peers = get_iroh_gossip_peers(ctx, msg_id).await?;
-        let node_ids = peers.iter().map(|p| p.node_id).collect::<Vec<_>>();
+        let node_ids = peers.iter().map(|p| p.id).collect::<Vec<_>>();
 
         info!(
             ctx,
@@ -115,7 +124,7 @@ impl Iroh {
         // Inform iroh of potentially new node addresses
         for node_addr in &peers {
             if !node_addr.is_empty() {
-                self.router.endpoint().add_node_addr(node_addr.clone())?;
+                self.address_lookup.add_endpoint_info(node_addr.clone());
             }
         }
 
@@ -124,6 +133,7 @@ impl Iroh {
         let (gossip_sender, gossip_receiver) = self
             .gossip
             .subscribe_with_opts(topic, JoinOptions::with_bootstrap(node_ids))
+            .await?
             .split();
 
         let ctx = ctx.clone();
@@ -140,9 +150,9 @@ impl Iroh {
 
     /// Add gossip peer to realtime channel if it is already active.
     pub async fn maybe_add_gossip_peer(&self, topic: TopicId, peer: NodeAddr) -> Result<()> {
-        if self.iroh_channels.read().await.get(&topic).is_some() {
-            self.router.endpoint().add_node_addr(peer.clone())?;
-            self.gossip.subscribe(topic, vec![peer.node_id])?;
+        if let Some(state) = self.iroh_channels.read().await.get(&topic) {
+            self.address_lookup.add_endpoint_info(peer.clone());
+            state.sender.join_peers(vec![peer.id]).await?;
         }
         Ok(())
     }
@@ -190,9 +200,17 @@ impl Iroh {
     /// as it is the only way to reach the node
     /// without global discovery mechanisms.
     pub(crate) async fn get_node_addr(&self) -> Result<NodeAddr> {
-        let mut addr = self.router.endpoint().node_addr().await?;
-        addr.direct_addresses = BTreeSet::new();
-        debug_assert!(addr.relay_url().is_some());
+        let endpoint = self.router.endpoint();
+        // Make sure we have a home relay before advertising.
+        tokio::time::timeout(std::time::Duration::from_secs(10), endpoint.online())
+            .await
+            .ok();
+        let addr = endpoint.addr();
+        let addr = NodeAddr::from_parts(
+            addr.id,
+            addr.addrs.into_iter().filter(|a| a.is_relay()),
+        );
+        debug_assert!(addr.relay_urls().next().is_some());
         Ok(addr)
     }
 
@@ -219,11 +237,11 @@ pub(crate) struct ChannelState {
     /// The subscribe loop handle.
     subscribe_loop: JoinHandle<()>,
 
-    sender: iroh_gossip::net::GossipSender,
+    sender: iroh_gossip::api::GossipSender,
 }
 
 impl ChannelState {
-    fn new(subscribe_loop: JoinHandle<()>, sender: iroh_gossip::net::GossipSender) -> Self {
+    fn new(subscribe_loop: JoinHandle<()>, sender: iroh_gossip::api::GossipSender) -> Self {
         Self {
             subscribe_loop,
             sender,
@@ -235,7 +253,7 @@ impl Context {
     /// Create iroh endpoint and gossip.
     async fn init_peer_channels(&self) -> Result<Iroh> {
         info!(self, "Initializing peer channels.");
-        let secret_key = SecretKey::generate(rand_old::rngs::OsRng);
+        let secret_key = SecretKey::generate();
         let public_key = secret_key.public();
 
         let relay_mode = if let Some(relay_url) = self
@@ -253,9 +271,10 @@ impl Context {
             RelayMode::Default
         };
 
+        let address_lookup = MemoryLookup::new();
         let endpoint = Box::pin(
-            Endpoint::builder()
-                .tls_x509() // For compatibility with iroh <0.34.0
+            Endpoint::builder(presets::Minimal)
+                .address_lookup(address_lookup.clone())
                 .secret_key(secret_key)
                 .alpns(vec![GOSSIP_ALPN.to_vec()])
                 .relay_mode(relay_mode)
@@ -270,8 +289,7 @@ impl Context {
 
         let gossip = Gossip::builder()
             .max_message_size(128 * 1024)
-            .spawn(endpoint.clone())
-            .await?;
+            .spawn(endpoint.clone());
 
         let router = iroh::protocol::Router::builder(endpoint)
             .accept(GOSSIP_ALPN, gossip.clone())
@@ -279,6 +297,7 @@ impl Context {
 
         Ok(Iroh {
             router,
+            address_lookup,
             gossip,
             sequence_numbers: Mutex::new(HashMap::new()),
             iroh_channels: RwLock::new(HashMap::new()),
@@ -329,7 +348,7 @@ impl Context {
         if let Some(iroh) = &*self.iroh.read().await {
             info!(
                 self,
-                "Adding (maybe existing) peer with id {} to {topic}.", peer.node_id
+                "Adding (maybe existing) peer with id {} to {topic}.", peer.id
             );
             iroh.maybe_add_gossip_peer(topic, peer).await?;
         }
@@ -372,7 +391,7 @@ pub async fn add_gossip_peer_from_header(
 
     info!(
         context,
-        "Adding iroh peer with node id {} to the topic of {instance_id}.", node_addr.node_id
+        "Adding iroh peer with node id {} to the topic of {instance_id}.", node_addr.id
     );
 
     context.emit_event(EventType::WebxdcRealtimeAdvertisementReceived {
@@ -387,8 +406,8 @@ pub async fn add_gossip_peer_from_header(
         return Ok(());
     };
 
-    let node_id = node_addr.node_id;
-    let relay_server = node_addr.relay_url().map(|relay| relay.as_str());
+    let node_id = node_addr.id;
+    let relay_server = node_addr.relay_urls().next().map(|relay| relay.as_str());
     iroh_add_peer_for_topic(context, instance_id, topic, node_id, relay_server).await?;
 
     context.maybe_add_gossip_peer(topic, node_addr).await?;
@@ -424,7 +443,7 @@ async fn get_iroh_gossip_peers(ctx: &Context, msg_id: MsgId) -> Result<Vec<NodeA
                     let id = NodeId::from_bytes(&key.try_into()
                     .map_err(|_| anyhow!("Can't convert sql data to [u8; 32]"))?)?;
                     Ok::<_, anyhow::Error>(NodeAddr::from_parts(
-                        id, server, vec![]
+                        id, server.map(iroh::TransportAddr::Relay)
                     ))
                 })
                 .collect::<std::result::Result<Vec<_>, _>>()
@@ -539,7 +558,7 @@ pub(crate) fn iroh_topic_from_str(topic: &str) -> Result<TopicId> {
 #[expect(clippy::arithmetic_side_effects)]
 async fn subscribe_loop(
     context: &Context,
-    mut stream: iroh_gossip::net::GossipReceiver,
+    mut stream: iroh_gossip::api::GossipReceiver,
     topic: TopicId,
     msg_id: MsgId,
     join_tx: oneshot::Sender<()>,
@@ -548,24 +567,18 @@ async fn subscribe_loop(
 
     while let Some(event) = stream.try_next().await? {
         match event {
-            Event::Gossip(event) => match event {
-                GossipEvent::Joined(nodes) => {
-                    if let Some(join_tx) = join_tx.take() {
-                        // Try to notify that at least one peer joined,
-                        // but ignore the error if receiver is dropped and nobody listens.
-                        join_tx.send(()).ok();
-                    }
-
-                    for node in nodes {
-                        iroh_add_peer_for_topic(context, msg_id, topic, node, None).await?;
-                    }
+            // iroh-gossip >=0.90 has no `Joined` event; the first `NeighborUp` means joined.
+            Event::NeighborUp(node) => {
+                if let Some(join_tx) = join_tx.take() {
+                    // Try to notify that at least one peer joined,
+                    // but ignore the error if receiver is dropped and nobody listens.
+                    join_tx.send(()).ok();
                 }
-                GossipEvent::NeighborUp(node) => {
-                    info!(context, "IROH_REALTIME: NeighborUp: {}", node.to_string());
-                    iroh_add_peer_for_topic(context, msg_id, topic, node, None).await?;
-                }
-                GossipEvent::NeighborDown(_node) => {}
-                GossipEvent::Received(message) => {
+                info!(context, "IROH_REALTIME: NeighborUp: {}", node.to_string());
+                iroh_add_peer_for_topic(context, msg_id, topic, node, None).await?;
+            }
+            Event::NeighborDown(_node) => {}
+            Event::Received(message) => {
                     info!(context, "IROH_REALTIME: Received realtime data");
                     context.emit_event(EventType::WebxdcRealtimeData {
                         msg_id,
@@ -575,8 +588,7 @@ async fn subscribe_loop(
                             .context("too few bytes in iroh message")?
                             .into(),
                     });
-                }
-            },
+            }
             Event::Lagged => {
                 warn!(context, "Gossip lost some messages");
             }
