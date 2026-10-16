@@ -7,7 +7,7 @@ import { bindMenuToggle, showContextMenu, showMessageSheet, showModal, showStick
 import { diagnosticRow } from "./diagnostics.js";
 import { attachRecentCommands, recordCommand } from "./recent-commands.js";
 import { audioPlayerHtml, mountAudioPlayer, decodeAudioDuration } from "./audio-player.js";
-import { openWebxdc, appIconUrl, loadInfoWithRetry, builtinAppCard } from "./webxdc-manager.js";
+import { openWebxdc, appIconUrl, loadInfoWithRetry, builtinAppCard, isWebxdcInfoMsg, infoFor } from "./webxdc-manager.js";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
 // Two rows of six on the phone sheet. The last cell is the emoji tray, not a reaction.
@@ -1544,6 +1544,41 @@ export class ChatView {
     });
   }
 
+  // Webxdc info notice (an app's sendUpdate({info})): small app icon in
+  // front, tap/Enter opens the parent app instance at the update's href,
+  // like Delta Chat.
+  _webxdcInfoRow(row, m, alive) {
+    const bubble = row.querySelector(".service-msg");
+    if (!bubble) return;
+    const parentId = Number(m.parentId);
+    bubble.classList.add("webxdc-info");
+    bubble.setAttribute("role", "button");
+    bubble.tabIndex = 0;
+    bubble.title = "Open app";
+    const img = document.createElement("img");
+    img.className = "webxdc-info-icon";
+    img.alt = "";
+    img.hidden = true;
+    img.addEventListener("error", () => { img.hidden = true; });
+    img.addEventListener("load", () => { img.hidden = false; });
+    bubble.prepend(img);
+    const setIcon = info => {
+      if (info?.icon && alive()) img.src = appIconUrl(parentId, info.icon);
+    };
+    const cached = infoFor(parentId);
+    if (cached?.name) setIcon(cached);
+    else loadInfoWithRetry(parentId, { alive }).then(setIcon).catch(() => {});
+    const open = e => {
+      if (e.target?.closest?.(".svc-chip, .diag-copy") || !alive()) return;
+      e.stopPropagation();
+      openWebxdc(parentId, infoFor(parentId)?.name || "Webxdc app", { href: m.webxdcHref || "" });
+    };
+    bubble.addEventListener("click", open);
+    bubble.addEventListener("keydown", e => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(e); }
+    });
+  }
+
   _dayChipEl(item) {
     const el = document.createElement("time");
     el.className = "day-chip";
@@ -1567,6 +1602,7 @@ export class ChatView {
     if (m.kind === "service") {
       const row = diagnosticRow(m);
       if (m.people?.length) this._chipServiceRow(row, m, alive);
+      if (isWebxdcInfoMsg(m)) this._webxdcInfoRow(row, m, alive);
       if (!item.dayFirst && !item.unreadFirst && !item.readMarker) {
         row.dataset.msgid = m.id;
         return row;
@@ -1872,7 +1908,7 @@ export class ChatView {
       // generic glyph — the official client always shows the app name, never
       // the .xdc filename. The built-in Velta Beam keeps its bundled name/icon.
       const hydrateWebxdcCard = (info) => {
-        if (!info || !alive() || webxdcCard.isConnected === false) return;
+        if (!info || !alive()) return;
         const name = webxdcCard.querySelector(".file-name");
         const summary = webxdcCard.querySelector(".webxdc-summary");
         const shown = builtin?.name || info.name;
@@ -1898,7 +1934,10 @@ export class ChatView {
           if (letter) letter.hidden = true;
         } else showLetter();
       };
-      loadInfoWithRetry(m.id, { alive: () => alive() && webxdcCard.isConnected !== false })
+      // Gate on the chat only, not isConnected: the virtual scroller detaches
+      // cached rows, and a detached row used to abort hydration for good, so
+      // a forwarded app card stayed "app" + placeholder glyph.
+      loadInfoWithRetry(m.id, { alive: () => alive() })
         .then(hydrateWebxdcCard).catch(() => {});
     }
     if (m.fromContact?.bot) { // bot flag rides the sender contact (mock + core)

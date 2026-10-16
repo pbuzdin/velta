@@ -99,6 +99,16 @@ function post(payload) {
   try { active?.iframe?.contentWindow?.postMessage(payload, "*"); } catch {}
 }
 
+// The whole update object goes to core verbatim (both hosts: native shim
+// and PWA frame share this bridge), so `info`, `summary`, `document`,
+// `href` and `notify` reach send_webxdc_status_update — core creates the
+// WebxdcInfoMessage from `info` and stores `href` on it.
+export async function sendStatusUpdate(c, msgId, params) {
+  const update = params?.update;
+  if (typeof update !== "object" || update === null || Array.isArray(update)) throw new Error("update must be an object");
+  await c.sendWebxdcStatusUpdate(msgId, JSON.stringify(update), params?.description || null);
+}
+
 async function handleCall(data) {
   const msgId = active?.msgId;
   switch (data.method) {
@@ -121,9 +131,7 @@ async function handleCall(data) {
       return { updates, serial };
     }
     case "sendUpdate": {
-      const update = data.params?.update;
-      if (typeof update !== "object" || update === null) throw new Error("update must be an object");
-      await core.sendWebxdcStatusUpdate(msgId, JSON.stringify(update), data.params?.description || null);
+      await sendStatusUpdate(core, msgId, data.params);
       return {};
     }
     // Realtime channel (joinRealtimeChannel in the shim): join = advertise
@@ -379,6 +387,24 @@ export function appIconUrl(msgId, icon) {
   return `${base}/${msgId}/${icon || "icon.png"}`;
 }
 
+// Start document for an info message's webxdc `href` (DC opens the app at
+// it). Only the query and fragment are honored and the path stays
+// index.html: the native host injects the shim into index.html only, and an
+// href must never point outside the instance. Returns e.g. "index.html?x#y".
+export function webxdcStartPath(href) {
+  if (typeof href !== "string" || !href) return "index.html";
+  let u;
+  try { u = new URL(href, "https://xdc.invalid/app/"); } catch { return "index.html"; }
+  if (u.origin !== "https://xdc.invalid") return "index.html";
+  return "index.html" + u.search + u.hash;
+}
+
+// A core info message created by a webxdc update's `info` field
+// (SystemMessage::WebxdcInfoMessage); parentId is the app instance.
+export function isWebxdcInfoMsg(m) {
+  return !!m && m.kind === "service" && m.systemType === "WebxdcInfoMessage" && Number(m.parentId) > 0;
+}
+
 export function isWebxdcOpen(msgId) {
   return active?.msgId === Number(msgId);
 }
@@ -442,7 +468,11 @@ export async function openWebxdc(msgId, fallbackName = "Webxdc app", opts = {}) 
   // open app cannot read another instance's files.
   const invoke = tauriInvoke();
   await invoke?.("webxdc_begin", { account, msg: Number(msgId) }).catch(() => {});
-  iframe.src = `${base}/${msgId}/index.html?velta-theme=${theme}`;
+  const start = webxdcStartPath(opts.href);
+  const q = start.indexOf("?"), h = start.indexOf("#");
+  const hash = h >= 0 ? start.slice(h) : "";
+  const search = q >= 0 ? start.slice(q + 1, h >= 0 ? h : undefined) : "";
+  iframe.src = `${base}/${msgId}/index.html?${search ? search + "&" : ""}velta-theme=${theme}${hash}`;
   iframe.className = "webxdc-frame";
 
   const wrap = document.createElement("div");

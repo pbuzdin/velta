@@ -854,6 +854,10 @@ export class JsonRpcCore extends EventTarget {
         state: "read", fromContact: { name: "", color: "#888" },
         unread: this._isUnreadState(m.state),
         systemType: m.systemMessageType || null,
+        // WebxdcInfoMessage: parentId is the webxdc instance, webxdcHref the
+        // optional start href from the update's `href` (tap opens the app).
+        parentId: m.parentId ?? null,
+        webxdcHref: m.webxdcHref || null,
         // Join/leave notices: actor (sender) and the added/removed member
         // (infoContactId); names are filled by _hydrateServicePeople.
         people: this._servicePeople(m),

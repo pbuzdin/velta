@@ -74,6 +74,22 @@
     });
   }
 
+  // Hand updates newer than `serial` to the app's listener, once each, in
+  // order. The listener stays registered for the app's lifetime (spec):
+  // it used to be dropped after the first batch — and called with a fake
+  // payload-less {done} object — so a poll's own votes never showed and a
+  // reopened app never got its stored updates (the getStatusUpdates
+  // result was discarded).
+  function deliver(list) {
+    var sorted = (list || []).slice().sort(function (a, b) { return (a.serial || 0) - (b.serial || 0); });
+    for (var u of sorted) {
+      if (!u || (u.serial || 0) <= serial) continue;
+      updates.push(u);
+      serial = u.serial || serial;
+      if (listener) { try { listener(u); } catch (e) {} }
+    }
+  }
+
   window.addEventListener("message", function (ev) {
     var d = ev.data || {};
     if (d.type === "velta-webxdc-response" && d.id === "info") {
@@ -88,12 +104,8 @@
       return;
     }
     if (d.type === "velta-webxdc-status-updates") {
-      for (var u of d.updates || []) {
-        updates.push(u);
-        serial = Math.max(serial, u.serial || 0);
-        if (listener) { try { listener(u); } catch (e) {} }
-      }
-      if (d.done) { var l = listener; listener = null; if (l) l({ serial: serial, maxSerial: serial, done: true }); }
+      deliver(d.updates);
+      return;
     }
     if (d.type === "velta-webxdc-realtime") {
       if (rt && !rt.left && rt.cb) { try { rt.cb(d.data); } catch (e) {} }
@@ -118,10 +130,12 @@
       return updates;
     },
     setUpdateListener: function (cb, startSerial) {
-      serial = startSerial || 0;
-      listener = cb;
-      call("getStatusUpdates", { serial: serial });
-      return Promise.resolve();
+      serial = Number(startSerial) || 0;
+      listener = typeof cb === "function" ? cb : null;
+      // Resolves once every stored update after startSerial was delivered.
+      return call("getStatusUpdates", { serial: serial }).then(function (r) {
+        deliver(r && r.updates);
+      }, function () {});
     },
     sendUpdate: async function (update, description) {
       await call("sendUpdate", { update: update, description: description || "" });
