@@ -17,9 +17,11 @@ use std::collections::{HashSet, VecDeque};
 
 use anyhow::{Context as _, Result, anyhow};
 use futures_lite::StreamExt;
-use iroh035::{Endpoint, NodeAddr, NodeId, RelayMode, RelayUrl, SecretKey};
-use iroh_gossip035::net::{Event, GOSSIP_ALPN, Gossip, GossipEvent, GossipReceiver, GossipSender, JoinOptions};
+use iroh_gossip035::net::{
+    Event, GOSSIP_ALPN, Gossip, GossipEvent, GossipReceiver, GossipSender, JoinOptions,
+};
 use iroh_gossip035::proto::TopicId;
+use iroh035::{Endpoint, NodeAddr, NodeId, RelayMode, RelayUrl, SecretKey};
 use parking_lot::Mutex;
 use url::Url;
 
@@ -99,7 +101,10 @@ impl LegacyIroh {
     }
 
     pub(crate) async fn close(self) -> Result<()> {
-        self.router.shutdown().await.context("Closing legacy iroh failed")
+        self.router
+            .shutdown()
+            .await
+            .context("Closing legacy iroh failed")
     }
 
     /// Legacy `NodeAddr` (relay only) to put into the `Iroh-Node-Addr` header.
@@ -123,7 +128,10 @@ impl LegacyIroh {
             }
         }
         let ids = peers.iter().map(|p| p.node_id).collect::<Vec<_>>();
-        info!(ctx, "IROH_REALTIME(legacy 0.35): joining with peers {ids:?}.");
+        info!(
+            ctx,
+            "IROH_REALTIME(legacy 0.35): joining with peers {ids:?}."
+        );
         Ok(self
             .gossip
             .subscribe_with_opts(TopicId::from_bytes(topic), JoinOptions::with_bootstrap(ids))
@@ -249,5 +257,12 @@ pub(crate) async fn store_legacy_peer(
     addr: &NodeAddr,
 ) -> Result<()> {
     let relay = addr.relay_url().map(|r| r.to_string());
-    add_legacy_peer_row(ctx, msg_id, topic, addr.node_id.as_bytes(), relay.as_deref()).await
+    add_legacy_peer_row(
+        ctx,
+        msg_id,
+        topic,
+        addr.node_id.as_bytes(),
+        relay.as_deref(),
+    )
+    .await
 }

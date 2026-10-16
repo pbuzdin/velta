@@ -673,7 +673,12 @@ async fn test_dc_compat_legacy_only_peer() {
     bob.recv_msg_trash(&alice.pop_sent_msg().await).await;
 
     // Bob knows Alice only as a legacy (iroh 0.35) peer.
-    assert!(get_iroh_gossip_peers(bob, bob_webxdc.id).await.unwrap().is_empty());
+    assert!(
+        get_iroh_gossip_peers(bob, bob_webxdc.id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
     let legacy_peers = legacy::get_legacy_peers(bob, bob_webxdc.id).await.unwrap();
     assert_eq!(legacy_peers.len(), 1);
     assert_eq!(

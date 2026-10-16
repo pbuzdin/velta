@@ -194,11 +194,16 @@ impl Iroh {
                 let join_tx2 = join_tx.clone();
                 let topic_bytes = *topic.as_bytes();
                 let handle = tokio::spawn(async move {
-                    if let Err(e) =
-                        legacy::legacy_subscribe_loop(
-                            &ctx2, rx, topic_bytes, msg_id, seen2, fwd, join_tx2,
-                        )
-                            .await
+                    if let Err(e) = legacy::legacy_subscribe_loop(
+                        &ctx2,
+                        rx,
+                        topic_bytes,
+                        msg_id,
+                        seen2,
+                        fwd,
+                        join_tx2,
+                    )
+                    .await
                     {
                         warn!(ctx2, "legacy subscribe_loop failed: {e}")
                     }
@@ -249,8 +254,13 @@ impl Iroh {
 
     /// Add a Delta Chat (iroh 0.35) peer to the realtime channel if it is already active.
     #[cfg(feature = "dc-compat")]
-    pub async fn maybe_add_legacy_peer(&self, topic: TopicId, peer: iroh035::NodeAddr) -> Result<()> {
-        if let (Some(legacy), Some(state)) = (&self.legacy, self.iroh_channels.read().await.get(&topic))
+    pub async fn maybe_add_legacy_peer(
+        &self,
+        topic: TopicId,
+        peer: iroh035::NodeAddr,
+    ) -> Result<()> {
+        if let (Some(legacy), Some(state)) =
+            (&self.legacy, self.iroh_channels.read().await.get(&topic))
             && let Some(sender) = &state.legacy_sender
         {
             legacy.add_peer(sender, peer).await?;
@@ -282,10 +292,10 @@ impl Iroh {
         let data: bytes::Bytes = data.into();
         state.seen.lock().insert(&data);
         #[cfg(feature = "dc-compat")]
-        if let Some(legacy_sender) = &state.legacy_sender {
-            if let Err(err) = legacy_sender.broadcast(data.clone()).await {
-                warn!(ctx, "IROH_REALTIME: legacy broadcast failed: {err:#}");
-            }
+        if let Some(legacy_sender) = &state.legacy_sender
+            && let Err(err) = legacy_sender.broadcast(data.clone()).await
+        {
+            warn!(ctx, "IROH_REALTIME: legacy broadcast failed: {err:#}");
         }
         state.sender.broadcast(data).await?;
 
@@ -315,10 +325,7 @@ impl Iroh {
             .await
             .ok();
         let addr = endpoint.addr();
-        let addr = NodeAddr::from_parts(
-            addr.id,
-            addr.addrs.into_iter().filter(|a| a.is_relay()),
-        );
+        let addr = NodeAddr::from_parts(addr.id, addr.addrs.into_iter().filter(|a| a.is_relay()));
         debug_assert!(addr.relay_urls().next().is_some());
         Ok(addr)
     }
@@ -369,7 +376,7 @@ type Seen = legacy::SharedSeen;
 /// Without the compat stack there is a single swarm, iroh-gossip already deduplicates.
 #[cfg(not(feature = "dc-compat"))]
 #[derive(Debug, Clone, Default)]
-struct Seen;
+struct Seen(());
 
 #[cfg(not(feature = "dc-compat"))]
 impl Seen {
@@ -767,7 +774,6 @@ async fn subscribe_loop(
     join_tx: JoinTx,
     bridge: Bridge,
 ) -> Result<()> {
-
     while let Some(event) = stream.try_next().await? {
         match event {
             // iroh-gossip >=0.90 has no `Joined` event; the first `NeighborUp` means joined.
@@ -782,25 +788,28 @@ async fn subscribe_loop(
             }
             Event::NeighborDown(_node) => {}
             Event::Received(message) => {
-                    if !bridge.seen.lock().insert(&message.content) {
-                        continue;
-                    }
-                    info!(context, "IROH_REALTIME: Received realtime data");
-                    context.emit_event(EventType::WebxdcRealtimeData {
-                        msg_id,
-                        data: message
-                            .content
-                            .get(0..message.content.len() - 4 - PUBLIC_KEY_LENGTH)
-                            .context("too few bytes in iroh message")?
-                            .into(),
-                    });
-                    // Bridge iroh 1.x swarm -> Delta Chat peers.
-                    #[cfg(feature = "dc-compat")]
-                    if let Some(legacy_sender) = &bridge.legacy_sender
-                        && let Err(err) = legacy_sender.broadcast(message.content).await
-                    {
-                        warn!(context, "IROH_REALTIME: failed to bridge v1->legacy: {err:#}");
-                    }
+                if !bridge.seen.lock().insert(&message.content) {
+                    continue;
+                }
+                info!(context, "IROH_REALTIME: Received realtime data");
+                context.emit_event(EventType::WebxdcRealtimeData {
+                    msg_id,
+                    data: message
+                        .content
+                        .get(0..message.content.len() - 4 - PUBLIC_KEY_LENGTH)
+                        .context("too few bytes in iroh message")?
+                        .into(),
+                });
+                // Bridge iroh 1.x swarm -> Delta Chat peers.
+                #[cfg(feature = "dc-compat")]
+                if let Some(legacy_sender) = &bridge.legacy_sender
+                    && let Err(err) = legacy_sender.broadcast(message.content).await
+                {
+                    warn!(
+                        context,
+                        "IROH_REALTIME: failed to bridge v1->legacy: {err:#}"
+                    );
+                }
             }
             Event::Lagged => {
                 warn!(context, "Gossip lost some messages");

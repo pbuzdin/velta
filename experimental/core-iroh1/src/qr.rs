@@ -790,8 +790,8 @@ fn decode_backup2(qr: &str) -> Result<Qr> {
         .split_once('&')
         .context("Backup QR code has no separator")?;
     let auth_token = auth_token.to_string();
-    let node_addr = parse_endpoint_addr_compat(node_addr)
-        .context("Invalid node addr in backup QR code")?;
+    let node_addr =
+        parse_endpoint_addr_compat(node_addr).context("Invalid node addr in backup QR code")?;
 
     Ok(Qr::Backup2 {
         node_addr,
@@ -823,7 +823,12 @@ pub(crate) fn parse_endpoint_addr_compat(s: &str) -> Result<iroh::EndpointAddr> 
             .relay_url
             .map(iroh::TransportAddr::Relay)
             .into_iter()
-            .chain(legacy.direct_addresses.into_iter().map(iroh::TransportAddr::Ip)),
+            .chain(
+                legacy
+                    .direct_addresses
+                    .into_iter()
+                    .map(iroh::TransportAddr::Ip),
+            ),
     ))
 }
 

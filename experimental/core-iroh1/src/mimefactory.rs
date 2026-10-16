@@ -1713,11 +1713,11 @@ impl MimeFactory {
                 #[cfg(not(test))]
                 let skip = false;
                 if !skip {
-                headers.push((
-                    HeaderDef::IrohEndpointAddr.into(),
-                    mail_builder::headers::text::Text::new(serde_json::to_string(&node_addr)?)
-                        .into(),
-                ));
+                    headers.push((
+                        HeaderDef::IrohEndpointAddr.into(),
+                        mail_builder::headers::text::Text::new(serde_json::to_string(&node_addr)?)
+                            .into(),
+                    ));
                 }
             }
             SystemMessage::CallAccepted => {
