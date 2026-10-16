@@ -359,6 +359,14 @@ if (window.__TAURI__) {
 // Returning users with a configured profile never see it.
 let splashSession = null;
 
+// True from here (just before the first top-level await) until the module
+// has evaluated. The early diagnostics chat is clickable while the top-level `await coreStartupPromise` (worker-wasm init,
+// ~10+ s on phones) suspends evaluation, so renderChatList's helpers would
+// hit module consts still in their TDZ (chatCatsEl, chatItemGhostIO, ...)
+// and throw. renderChatList defers until the module is ready. (A global, not
+// a module let, so test harnesses that lift renderChatList stay unaffected.)
+globalThis.__veltaAppEvaluating = true;
+let chatListRenderDeferred = false;
 // Mirror diagnostics into velta.log (js_log): the in-app store is only
 // visible on the phone's splash footer, while velta.log is pullable via
 // adb (run-as) — every core/transport diagnostic must land in both.
@@ -1650,6 +1658,7 @@ function syncChatCategoryBar() {
 }
 
 function renderChatList() {
+  if (globalThis.__veltaAppEvaluating) { chatListRenderDeferred = true; return; }
   if (listView !== "chats") return; // another side view owns the container
   syncChatCategoryBar();
   const list = $("chat-list");
@@ -5800,4 +5809,6 @@ async function boot() {
   }
 }
 
+globalThis.__veltaAppEvaluating = false;
+if (chatListRenderDeferred) { chatListRenderDeferred = false; renderChatList(); }
 boot();
