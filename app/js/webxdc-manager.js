@@ -245,6 +245,33 @@ export async function prefetchInfo(msgId) {
   return infoCache.get(Number(msgId)) || null;
 }
 
+// Cold start: chat rows render before the core/account is ready, so the first
+// get_webxdc_info calls reject (getInfo then returns the uncached fallback
+// and prefetchInfo null). The card used to retry once after 2 s and then
+// stay on the filename + generic glyph until the next restart. Keep retrying
+// with backoff while the card is alive; resolves the info or null.
+export const WEBXDC_INFO_RETRY_MS = [1000, 2000, 4000, 8000, 15000, 30000];
+export async function loadInfoWithRetry(msgId, { alive = () => true, delays = WEBXDC_INFO_RETRY_MS, wait = (ms) => new Promise(r => setTimeout(r, ms)) } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    let info = null;
+    try { info = await prefetchInfo(msgId); } catch { info = null; }
+    if (!alive()) return null;
+    if (info?.name) return info;
+    if (attempt >= delays.length) return info;
+    await wait(delays[attempt]);
+    if (!alive()) return null;
+  }
+}
+
+// The built-in Velta Beam app (send-direct*.xdc): older builds shipped other
+// manifest names/icons, so the card always shows the bundled name and icon
+// (a plain app asset: no webxdc scheme, loads on Android and the PWA).
+export const BEAM_FILE_RE = /^send-direct(-\d+)?\.xdc$/i;
+export function builtinAppCard(fileName) {
+  if (!BEAM_FILE_RE.test(String(fileName || ""))) return null;
+  return { name: "Velta Beam", iconUrl: new URL("../webxdc/send-direct/icon.png", import.meta.url).href };
+}
+
 export function appIconUrl(msgId, icon) {
   const base = baseFor(core.accountId);
   return `${base}/${msgId}/${icon || "icon.png"}`;

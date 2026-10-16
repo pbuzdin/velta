@@ -26,6 +26,12 @@ export const MEDIA_SECTIONS = [
 ];
 
 export const MEDIA_ROW_H = 56;
+const PLAY_SVG = `<svg viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="12" r="11" fill="rgba(0,0,0,.5)"/><path d="M9.5 7.5v9l7-4.5z" fill="#fff"/></svg>`;
+// Square grid tiles: width of one column of the scroll box (minus scrollbar).
+export function gridTileSize(boxWidth, cols = MEDIA_GRID_COLS) {
+  const w = Number(boxWidth) > 0 ? Number(boxWidth) : 320;
+  return Math.max(48, Math.floor(w / cols));
+}
 // Fixed virtual-list row height per list section (CSS .media-row-<key> matches).
 export function mediaRowHeight(section) { return section?.rowH || MEDIA_ROW_H; }
 export const MEDIA_GRID_COLS = 4;
@@ -87,7 +93,11 @@ export function mediaTileHtml(section, m, { fileUrl = (p) => p } = {}) {
   const ready = m.filePath && (!m.downloadState || m.downloadState === "Done");
   if (section.key === "videos") {
     const dur = m.duration ? `<span class="media-dur">${escapeHtml(formatDuration(m.duration))}</span>` : "";
-    return `<span class="media-tile-inner media-video" role="img" aria-label="${label}"><span class="media-play-glyph" aria-hidden="true">▶</span>${dur}</span>`;
+    // Cheap real poster: only tiles in the window exist, and preload=metadata
+    // with #t=0.1 decodes one frame. The placeholder background shows until
+    // (or if) it paints. SVG play glyph: "▶" renders as a colour emoji on Android.
+    const poster = ready ? `<video class="media-poster" src="${escapeAttr(fileUrl(m.filePath))}#t=0.1" preload="metadata" muted playsinline disablepictureinpicture tabindex="-1" aria-hidden="true"></video>` : "";
+    return `<span class="media-tile-inner media-video" role="img" aria-label="${label}">${poster}<span class="media-play-glyph" aria-hidden="true">${PLAY_SVG}</span>${dur}</span>`;
   }
   if (!ready) return `<span class="media-tile-inner media-pending" role="img" aria-label="${label}, not downloaded"></span>`;
   return `<img class="media-tile-inner" src="${escapeAttr(fileUrl(m.filePath, { thumb: true }))}" alt="${label}" loading="lazy" decoding="async">`;
@@ -197,14 +207,16 @@ function mountSection(host, section, ids, cache, opts) {
   const state = { all: ids.map((id) => ({ id })), shown: null, rendered: new Map(), loaded: !section.search };
   state.shown = state.all;
 
-  const rowH = () => grid ? Math.max(48, Math.floor((scroller.clientWidth || 320) / MEDIA_GRID_COLS)) : mediaRowHeight(section);
+  const rowH = () => grid ? gridTileSize(scroller.clientWidth) : mediaRowHeight(section);
+  let laidOutH = 0;
   const unitCount = () => grid ? Math.ceil(state.shown.length / MEDIA_GRID_COLS) : state.shown.length;
 
   const release = (node) => {
-    for (const img of node.querySelectorAll?.("img") || []) {
-      const src = img.getAttribute?.("src") || "";
+    for (const media of [...(node.querySelectorAll?.("img") || []), ...(node.querySelectorAll?.("video") || [])]) {
+      const src = media.getAttribute?.("src") || "";
       if (src.startsWith("blob:")) { try { URL.revokeObjectURL(src); } catch {} }
-      img.removeAttribute?.("src");
+      media.removeAttribute?.("src");
+      if (media.tagName === "VIDEO") { try { media.load?.(); } catch {} } // drop the decoder
     }
     node.remove();
   };
@@ -220,8 +232,8 @@ function mountSection(host, section, ids, cache, opts) {
     if (grid) {
       node.type = "button";
       node.style.top = `${Math.floor(i / MEDIA_GRID_COLS) * h}px`;
-      node.style.left = `${(i % MEDIA_GRID_COLS) * (100 / MEDIA_GRID_COLS)}%`;
-      node.style.width = `${100 / MEDIA_GRID_COLS}%`;
+      node.style.left = `${(i % MEDIA_GRID_COLS) * h}px`;
+      node.style.width = `${h}px`;
       node.style.height = `${h}px`;
     } else {
       node.tabIndex = 0;
@@ -244,6 +256,13 @@ function mountSection(host, section, ids, cache, opts) {
   const render = () => {
     const n = state.shown.length;
     const h = rowH();
+    // Width changed (first layout after <details> opened, rotation, resize):
+    // tiles are positioned in px, so re-lay them all out square.
+    if (grid && laidOutH && h !== laidOutH) {
+      for (const node of state.rendered.values()) release(node);
+      state.rendered.clear();
+    }
+    laidOutH = h;
     spacer.style.height = `${unitCount() * h}px`;
     empty.hidden = n > 0;
     const vh = scroller.clientHeight || viewportH;
@@ -286,6 +305,9 @@ function mountSection(host, section, ids, cache, opts) {
 
   const itemAt = (node) => cache.get(state.shown[Number(node.dataset.index)]?.id);
   scroller.addEventListener("scroll", () => render());
+  if (grid && typeof ResizeObserver !== "undefined") {
+    new ResizeObserver(() => { if (host.isConnected !== false) render(); }).observe(scroller);
+  }
   scroller.addEventListener("click", (e) => {
     const node = e.target?.closest?.(".media-tile, .media-row");
     if (!node) return;
@@ -307,7 +329,10 @@ function mountSection(host, section, ids, cache, opts) {
   let player = null;
   const playInline = (node, m) => {
     if (!m.filePath) { opts.onOpen?.(section.key, m); return; }
-    if (!player) { player = doc.createElement("audio"); player.controls = true; player.className = "media-audio"; }
+    if (!player) {
+      player = doc.createElement("audio"); player.controls = true; player.className = "media-audio";
+      opts.prepareAudio?.(player); // app.js: duration fix for header-less voice notes
+    }
     player.src = fileUrl(m.filePath);
     node.querySelector(".member-text")?.appendChild(player);
     player.play?.()?.catch?.(() => {});

@@ -6,7 +6,7 @@ import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener } from "./comp
 import { bindMenuToggle, showContextMenu, showMessageSheet, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG } from "./ui.js";
 import { diagnosticRow } from "./diagnostics.js";
 import { attachRecentCommands, recordCommand } from "./recent-commands.js";
-import { openWebxdc, prefetchInfo, appIconUrl } from "./webxdc-manager.js";
+import { openWebxdc, appIconUrl, loadInfoWithRetry, builtinAppCard } from "./webxdc-manager.js";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
 // Two rows of six on the phone sheet. The last cell is the emoji tray, not a reaction.
@@ -187,6 +187,33 @@ export function openAttachmentFile(path, name = null, { openHtml = null, onError
   } else {
     onError("File opening is only available in the Tauri app");
   }
+}
+
+// Voice notes recorded by MediaRecorder (Velta's own, webm or fragmented
+// mp4) carry no duration in their header, so the element reports
+// duration = Infinity and Chromium/Android WebView draws its "live stream"
+// controls: a small play + 0:00 pill with no total and no seek bar. Seek far
+// past the end once: the browser then scans the file, learns the real
+// duration and fires durationchange, and we rewind to 0. Files with a proper
+// header (most incoming audio) never enter this path.
+export function fixInfiniteAudioDuration(audio) {
+  if (!audio || audio.dataset?.durationFix) return;
+  if (audio.dataset) audio.dataset.durationFix = "1";
+  const unknown = () => !Number.isFinite(audio.duration) || audio.duration <= 0;
+  const settle = () => {
+    if (unknown()) return;
+    audio.removeEventListener("durationchange", settle);
+    audio.removeEventListener("timeupdate", settle);
+    try { audio.currentTime = 0; } catch { /* not seekable yet */ }
+  };
+  const onMeta = () => {
+    audio.removeEventListener("loadedmetadata", onMeta);
+    if (!unknown()) return;
+    audio.addEventListener("durationchange", settle);
+    audio.addEventListener("timeupdate", settle);
+    try { audio.currentTime = 1e7; } catch { /* not seekable */ }
+  };
+  audio.addEventListener("loadedmetadata", onMeta);
 }
 
 // Image extensions the lightbox can show when native opening is unavailable
@@ -1717,9 +1744,10 @@ export class ChatView {
     } else if (m.viewtype === "webxdc") {
       // Webxdc mini-app: an app card (icon + name + summary hydrate async
       // from the app manifest); tapping opens the app in the webxdc overlay.
-      const appName = (m.fileName || "app.xdc").replace(/\.xdc$/i, "");
+      const builtin = builtinAppCard(m.fileName);
+      const appName = builtin?.name || (m.fileName || "app.xdc").replace(/\.xdc$/i, "");
       bubble += `<div class="msg-webxdc" role="button" data-act="open-webxdc">
-        <div class="webxdc-ico"><img data-webxdc-icon="${m.id}" alt="" decoding="async"><span class="webxdc-ico-letter" hidden></span><span class="webxdc-ico-glyph">${ICO.webxdc || ICO.download}</span></div>
+        <div class="webxdc-ico"><img data-webxdc-icon="${m.id}" alt="" decoding="async"${builtin ? ` src="${escapeAttr(builtin.iconUrl)}" style="display:block"` : ""}><span class="webxdc-ico-letter" hidden></span><span class="webxdc-ico-glyph"${builtin ? " hidden" : ""}>${ICO.webxdc || ICO.download}</span></div>
         <div><div class="file-name">${escapeHtml(appName)}</div><div class="file-sub"><span class="webxdc-summary">Webxdc app</span> · tap to open</div></div>
         <button type="button" class="webxdc-start" data-act="open-webxdc">Start</button>
       </div>`;
@@ -1861,46 +1889,41 @@ export class ChatView {
         openWebxdc(m.id, webxdcCard.querySelector(".file-name")?.textContent || "Webxdc app",
           { panel: /^send-direct(-\d+)?\.xdc$/i.test(m.fileName || "") });
       });
+      const builtin = builtinAppCard(m.fileName);
       const appName = (m.fileName || "app.xdc").replace(/\.xdc$/i, "");
       // Manifest data (name/icon/summary) applies to the card; an app with no
-      // icon gets a letter tile instead of the generic glyph — the official
-      // client always shows the app name, never the .xdc filename.
+      // icon (or one that fails to load) gets a letter tile instead of the
+      // generic glyph — the official client always shows the app name, never
+      // the .xdc filename. The built-in Velta Beam keeps its bundled name/icon.
       const hydrateWebxdcCard = (info) => {
         if (!info || !alive() || webxdcCard.isConnected === false) return;
         const name = webxdcCard.querySelector(".file-name");
         const summary = webxdcCard.querySelector(".webxdc-summary");
-        if (info.name && name) name.textContent = info.name;
+        const shown = builtin?.name || info.name;
+        if (shown && name) name.textContent = shown;
         if (summary) summary.textContent = info.summary || "App";
-        const title = String(info.name || appName).trim();
+        const title = String(shown || appName).trim();
         const iconImg = webxdcCard.querySelector("img[data-webxdc-icon]");
         const glyph = webxdcCard.querySelector(".webxdc-ico-glyph");
         const letter = webxdcCard.querySelector(".webxdc-ico-letter");
+        const showLetter = () => {
+          if (iconImg) iconImg.style.display = "none";
+          if (!letter) return;
+          letter.textContent = (title[0] || "A").toUpperCase();
+          letter.hidden = false;
+          if (glyph) glyph.hidden = true;
+        };
+        if (builtin) return;
         if (info.icon && iconImg) {
+          iconImg.onerror = showLetter;
           iconImg.src = appIconUrl(m.id, info.icon);
           iconImg.style.display = "block"; // beats the CSS `display: none` default
           if (glyph) glyph.hidden = true;
           if (letter) letter.hidden = true;
-        } else if (letter) {
-          letter.textContent = (title[0] || "A").toUpperCase();
-          letter.hidden = false;
-          if (glyph) glyph.hidden = true;
-        }
+        } else showLetter();
       };
-      const loadInfo = (attempt = 0) => {
-        prefetchInfo(m.id).then((info) => {
-          if (!alive() || webxdcCard.isConnected === false) return;
-          // A failed RPC returns the generic fallback without a name — retry
-          // once: the core answers with the manifest name/icon once it is idle.
-          if ((!info || !info.name) && attempt === 0) {
-            setTimeout(() => { if (alive() && webxdcCard.isConnected) loadInfo(1); }, 2000);
-            return;
-          }
-          hydrateWebxdcCard(info);
-        }).catch(() => {
-          if (attempt === 0) setTimeout(() => { if (alive() && webxdcCard.isConnected) loadInfo(1); }, 2000);
-        });
-      };
-      loadInfo();
+      loadInfoWithRetry(m.id, { alive: () => alive() && webxdcCard.isConnected !== false })
+        .then(hydrateWebxdcCard).catch(() => {});
     }
     if (m.fromContact?.bot) { // bot flag rides the sender contact (mock + core)
       row.querySelectorAll(".msg-cmd[data-cmd]").forEach((cmdBtn) => {
@@ -2016,6 +2039,7 @@ export class ChatView {
     }
     const mediaAudio = row.querySelector('.msg-audio audio[data-src]');
     if (mediaAudio) {
+      fixInfiniteAudioDuration(mediaAudio);
       mediaAudio.src = fileUrl(m.filePath);
       mediaAudio.onerror = () => {
         if (!alive()) return;

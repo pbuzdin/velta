@@ -6,7 +6,7 @@ import { chatCategoryOf, swipeCategoryStep, batteryReactionPlan } from "./rpc-co
 import { fileUrl, setWasmBlobReader, redactMediaUrl } from "./media.js";
 import { mountMemberList } from "./member-list.js";
 import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintFromVcard, fingerprintGroups, cachedFingerprintIsDerived } from "./avatar.js";
-import { ChatView, setAvatarProfileOpener, saveAttachmentFile, openAttachmentFile } from "./chat-view.js";
+import { ChatView, setAvatarProfileOpener, saveAttachmentFile, openAttachmentFile, fixInfiniteAudioDuration } from "./chat-view.js";
 import { mediaSectionsHtml, mountChatMedia } from "./chat-media.js";
 import { initCalls } from "./calls.js";
 import { initWebxdc, openWebxdc, prefetchInfo, appIconUrl } from "./webxdc-manager.js";
@@ -2470,6 +2470,7 @@ async function showChatInfo(chat) {
       appInfo: (id) => prefetchInfo(id),
       appIconUrl: (id, icon) => appIconUrl(id, icon),
       onOpen: (kind, m) => openChatMediaItem(kind, m),
+      prepareAudio: fixInfiniteAudioDuration,
       onSave: async (m) => {
         try { if (await saveAttachmentFile(core, m)) toast("Saved"); }
         catch (err) { if (!/cancel/i.test(String(err?.message || err))) toast("Couldn't save: " + (err?.message || err), 3000, { danger: true }); }
