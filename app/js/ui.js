@@ -830,7 +830,7 @@ function notifyChecked(storageKey) {
 
 const IS_ANDROID = isAndroid();
 
-export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, onWsRelays, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality, downloadLimit = "0", onDownloadLimit, onReadReceipts, onLowBatteryToggle, multiDevice = false, onMultiDevice, onDrawerOpen, identityBackupAvailable = false, onIdentityBackup, onTunnel = null, tunnelLabel = "" }) {
+export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, onWsRelays, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality, downloadLimit = "0", onDownloadLimit, onReadReceipts, onLowBatteryToggle, multiDevice = false, onMultiDevice, onDrawerOpen, identityBackupAvailable = false, onIdentityBackup, onTunnel = null, tunnelLabel = "", onDiagnostics = null }) {
   const inTauri = isTauri();
   const drawer = document.createElement("div");
   drawer.className = "drawer";
@@ -1236,7 +1236,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     if (act === "invite-domains") onInviteDomains?.();
     if (act === "tunnel") onTunnel?.();
     if (act === "identity-backup") onIdentityBackup?.();
-    if (act === "about") showAbout();
+    if (act === "about") showAbout({ onDiagnostics });
   });
 
   // Rebuilds (rebuildDrawer) discard this drawer: drop the document
@@ -1373,12 +1373,25 @@ export function showInvite(provider, { title = "Invite to Delta Chat", group = f
     });
 }
 
-async function showAbout() {
+async function showAbout({ onDiagnostics = null } = {}) {
   // Prefer the runtime version so the About dialog always matches the built
   // app; the core version is the pinned core/ workspace version.
   const version = await getAppVersion();
-  showModal({
+  let foot;
+  if (onDiagnostics) {
+    // Logs stay reachable from the drawer even when the chat list (where the
+    // Diagnostics chat normally sits) fails to render.
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn-text";
+    btn.dataset.openDiagnostics = "";
+    btn.textContent = "Open diagnostics log";
+    btn.addEventListener("click", () => { about.close(); onDiagnostics(); });
+    foot = btn;
+  }
+  const about = showModal({
     title: "About Velta",
+    foot,
     body: `
       <div class="info-row"><span class="k">App</span><span class="v">Velta ${escapeHtml(version)}</span></div>
       <div class="info-row"><span class="k">Core</span><span class="v">deltachat-core-rust ${CORE_VERSION}</span></div>

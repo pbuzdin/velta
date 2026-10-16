@@ -4443,6 +4443,7 @@ function rebuildDrawer() {
     onProfile: openSelfProfile,
     onEditProfile: editProfileFlow,
     onInviteDomains: () => showInviteDomainsModal(),
+    onDiagnostics: async () => { await modalHistorySettled(); openDiagnosticsChat(); },
     onTunnel: tunnelInstalled()
       ? () => openTunnelSettings({ showModal, confirmModal, toast, errToast, onChange: rebuildDrawer })
       : null,
