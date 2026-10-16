@@ -4,7 +4,7 @@ A cross-platform **Delta Chat** client built as a single PWA-ish web app wrapped
 
 ## Download
 
-**[Android](https://github.com/pbuzdin/velta/releases/download/v1.4.72/Velta-1.4.72-arm64.apk)** (~49 MB) · **[Windows](https://github.com/pbuzdin/velta/releases/download/v1.4.72/Velta_1.4.72_x64-setup.exe)** (~13 MB) · **[macOS](https://github.com/pbuzdin/velta/releases/download/v1.4.72/Velta_1.4.72_universal.dmg)** (~36 MB)
+**[Android](https://github.com/pbuzdin/velta/releases/download/v1.4.73/Velta-1.4.73-arm64.apk)** (~49 MB) · **[Windows](https://github.com/pbuzdin/velta/releases/download/v1.4.73/Velta_1.4.73_x64-setup.exe)** (~13 MB) · **[macOS](https://github.com/pbuzdin/velta/releases/download/v1.4.73/Velta_1.4.73_universal.dmg)** (~36 MB)
 
 Android needs an arm64 phone. Windows is the x64 installer. macOS is a universal test build that isn't notarized yet, so see [Install](#install) before the first launch. Other files and older versions are on the [releases page](https://github.com/pbuzdin/velta/releases).
 
@@ -901,6 +901,11 @@ The chat info sheet carries the per-chat actions:
 - **Invite via link/QR** (groups and channels) — share a secure-join
   invite: scanning or tapping it joins the group / subscribes to the
   channel, with end-to-end verification.
+- **Media sections** — Apps, Photos, Videos, Audio and Files. Tapping a
+  photo, video or app opens it; every tile and row has **Show in chat**,
+  which jumps to and highlights that message. Audio rows (and audio
+  bubbles in the chat) use Velta's own player: play, seek and
+  "current / total", full width from the first render.
 - **Leave group / Leave channel** — in the chat's ⋮ menu. The chat turns
   read-only and stops receiving messages; the history stays on this
   device until you delete or archive the chat.
@@ -1010,10 +1015,22 @@ page nor each other's data, and the injected shim backs
 `localStorage`/`sessionStorage` with memory in that origin (app state
 syncs to every chat member through end-to-end encrypted status updates,
 and the relay's STUN/TURN servers power the connection). The app frame is
-themed to match the shell (dark canvas, dark scrollbars) — an app can still
-set its own `color-scheme`. `sendToChat` (including file export to a chat)
+themed to match the shell (dark canvas, dark scrollbars), but the app's
+own document keeps the web default light scheme unless the app sets its own
+`color-scheme` (as in Delta Chat), so apps that paint only a white
+background stay readable. `sendToChat` (including file export to a chat)
 and the file-picking `importFiles` are wired, and so are realtime
 (low-latency) channels via `webxdc.joinRealtimeChannel()`.
+`setUpdateListener` stays subscribed and replays stored updates, so apps
+such as polls keep their state on reopen and see live votes. Info messages
+an app posts (`sendUpdate({info})`) show the app's icon in the chat; tapping
+one opens the app at the update's `href`.
+
+**In the browser/PWA** mini-apps run too: the service worker hands the app
+frame a loader page under an opaque-origin sandbox, which unpacks the
+`.xdc` inside the sandbox; the app gets no network access. Realtime
+channels aren't available there yet, so Velta Beam shows "direct transfer
+is not available in the Velta web app yet".
 
 **Velta Beam** (formerly "Send directly"). The attach menu's **Velta Beam (both online)** posts a
 built-in mini-app that sends a file peer-to-peer over the realtime channel

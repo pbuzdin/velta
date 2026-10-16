@@ -63,6 +63,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── image-compress.js # outgoing photo → lossy WebP when it clearly pays (size-gated, renderer-side canvas, #81)
 │   │   ├── bare-links.js     # scheme-less link detection (t.me/x, example.com) for markdown.js: TLD tiers, boundaries (#85)
 │   │   ├── hashtags.js       # #hashtag detection for markdown.js (#134): Unicode/Cyrillic, ≥1 letter (#123 is not a tag), word-start only, ≤64 chars
+│   │   ├── audio-player.js   # plain-DOM audio player (play, seek, "current / total", full width from first render) for chat bubbles + chat-info Audio rows
 │   │   ├── media.js          # media URL helpers: blobfile:// protocol (boot-probed) → loopback server → asset protocol + per-element fallback
 │   │   ├── p2p.js            # Local chat UI: drawer toggle, list card, pairing, legacy 1:1 modal (Tauri only)
 │   │   ├── tunnel.js         # optional Android DNS tunnel UI: deep link, drawer row, settings sheet, diagnostics (#116/#119/#128)
@@ -2121,6 +2122,17 @@ next push or the tainted commits come back.
 - **Menu buttons that toggle (#136):** use `bindMenuToggle` (ui.js) — it swaps in the X icon and restores it on ANY close because it watches the menu leave the DOM; don't restore icons from individual close handlers.
 - **Never move a webxdc iframe in the DOM** (it reloads and kills a Velta Beam transfer); panel/expand states are CSS classes only.
 
+### 6.9 Pitfalls found in 1.4.72
+
+- **No `.mjs` under `app/`.** nginx (the live PWA host) serves `.mjs` as `application/octet-stream`; Chromium's strict module MIME check rejects it, so `vendor/sjcl.mjs` (via lufi.js) stopped app.js and the splash never rendered. Renamed to `vendor/sjcl.js` (60b4cef); `tests/no-mjs-runtime-modules.test.mjs` forbids `.mjs` modules/imports. Don't fix this with server MIME config.
+- **TDZ during the top-level core await.** app.js suspends on `await coreStartupPromise` (worker-wasm init, 10+ s on phones) while the early Diagnostics chat is already tappable; openDiagnosticsChat → renderChatList hit module consts declared further down (`chatCatsEl`, then `chatItemGhostIO`): "Cannot access 'chatCatsEl' before initialization". Fix (4abf905): `globalThis.__veltaAppEvaluating` is set just before the await, renderChatList defers while it is set, and the module end clears it and flushes the deferred render (`tests/chatlist-tdz-boot.test.mjs`). Anything reachable from UI events before module end must not touch later-declared consts; reproduce by delaying the `.wasm` fetch in Playwright and tapping Diagnostics.
+- **The shim must not force `color-scheme` on app documents.** Setting `color-scheme: dark` on the app's `<html>` turned default text light while apps that only paint a white background kept it: white on white (poll app). Leave the document scheme to the app; the iframe element keeps Velta's scheme for `prefers-color-scheme` (10141f7).
+- **`setUpdateListener` is a subscription, not one batch.** The shim kept the listener for one batch, called it with a fake `{done}` object and ignored `getStatusUpdates`' result, so polls lost state on reopen and missed live updates. Keep the listener, replay stored updates from the given serial, then stream (c91ee58, poll state).
+- **Webxdc info messages** (`sendUpdate({info})`, viewtype WebxdcInfoMessage) render with the app icon; a tap opens the parent instance at the update's `href` (query/fragment only); `sendStatusUpdate` passes the whole update to core (c91ee58).
+- **Async row hydration must survive virtual-scroller detaches.** Webxdc card hydration aborted when the row was detached mid-fetch, leaving forwarded cards on "app" + placeholder; retry on reattach instead of aborting (c91ee58).
+- **PWA webxdc host (7834065; KEEP rules in docs/agents/webxdc.md).** The SW serves a loader page for `<scope>webxdc-run/...` frame navigations with a CSP-header sandbox (no allow-same-origin → opaque origin, blob:/data: only). The iframe ATTRIBUTE must include `allow-same-origin`, or Chromium never routes the navigation through the SW; the response sandbox makes it opaque. Must-keep safeguards: frame.js refuses to run unless `self.origin === "null"` in a child frame; every other same-scope frame navigation and top-level app loads get 403 + sandbox; the host hands the `.xdc` only to the open app's own frame.
+- **Live PWA deploy is manual** (a7.velta.cc, nginx root `/var/www/html`, PWA in `app/`; never edit nginx/postfix/dovecot configs). Build `node scripts/build-pwa.mjs` (no `--ws-proxy`), `node scripts/verify-pwa-dist.mjs`, refresh `pwa-dist` (orphan commit, force-push, keep its README), then copy the tree (no `.git`) to `/var/www/html/app.new`, `chown -R www-data:www-data`, `mv app app.prev-<timestamp>`, `mv app.new app`. Verify over HTTPS: `sw.js` VERSION, JS served as `application/javascript`, fresh-profile boot to the splash version line. Rollback: `mv app app.bad-<ts> && mv app.prev-<ts> app`. An already-open old build needs a reload or two (the first load after a deploy can still run the old SW's cache).
+
 ## 7. Testing strategy
 
 ### 7.1 Rust core
@@ -2137,7 +2149,7 @@ next push or the tainted commits come back.
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 87 files, 628 tests as of 2026-10-15 (1.4.72):
+whole set — 102 files, 713 tests as of 2026-10-16 (1.4.73):
 
 ```bash
 node --test tests/

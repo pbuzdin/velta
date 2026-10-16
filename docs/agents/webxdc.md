@@ -157,3 +157,16 @@ unit: tests/webxdc-pwa.test.mjs.
   forwarded-app cards on filename + generic glyph (1.4.14–1.4.16 regression
   on forwarded copies). Also KEEP: `iconImg.style.display = "block"` beats
   the CSS `display: none` default — `style.display = ""` cannot.
+
+## Shim rules learned in 1.4.72 (both hosts)
+
+- Never set `color-scheme` on the app document: forcing `dark` gave white
+  text on white backgrounds (poll app). The iframe element keeps Velta's
+  scheme, which drives `prefers-color-scheme` (10141f7).
+- `setUpdateListener(cb, serial)` is a lasting subscription: replay the
+  stored updates after `serial` from `getStatusUpdates`, then deliver live
+  ones; never call `cb` with a synthetic object (c91ee58).
+- Info updates (`sendUpdate({info, href})`) become WebxdcInfoMessage rows
+  with the app icon; tapping one opens the parent instance at `href`
+  (query/fragment only). `sendStatusUpdate` forwards the whole update.
+- Card hydration retries when the virtual scroller detaches the row.
