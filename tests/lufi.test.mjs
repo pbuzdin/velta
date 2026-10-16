@@ -10,7 +10,7 @@ globalThis.localStorage = {
   removeItem(k) { delete store[k]; },
 };
 const L = await import("../app/js/lufi.js");
-const sjcl = (await import("../app/vendor/sjcl.mjs")).default;
+const sjcl = (await import("../app/vendor/sjcl.js")).default;
 
 // Minimal in-memory Lufi /upload + /download, same checks as Controller/Files.pm.
 function mockServer({ failAt = -1 } = {}) {
@@ -42,7 +42,7 @@ function mockServer({ failAt = -1 } = {}) {
 const reader = (bytes) => async (j) => Buffer.from(bytes.subarray(j * L.LUFI_SLICE, (j + 1) * L.LUFI_SLICE)).toString("base64");
 
 test("vendored SJCL is byte-identical to the copy Lufi serves", () => {
-  const src = readFileSync(new URL("../app/vendor/sjcl.mjs", import.meta.url), "utf8");
+  const src = readFileSync(new URL("../app/vendor/sjcl.js", import.meta.url), "utf8");
   const body = src.slice(src.indexOf('"use strict";var sjcl='), src.lastIndexOf("export default sjcl;"));
   assert.equal(createHash("sha256").update(body).digest("hex"),
     "d09a8688f37c7442bb1e6699b46efb191d9281ef05a492586fa0f54dc4e5110a");

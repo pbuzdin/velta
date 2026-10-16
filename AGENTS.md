@@ -1896,7 +1896,7 @@ docs/research/iroh-layer-research.md before touching p2p.rs for it.
 
 Attach menu → "Large file" (Tauri shell only, not in local chats): the file
 is encrypted on-device with SJCL exactly like the Lufi web client
-(`app/vendor/sjcl.mjs` = Lufi's own sjcl.js 1.0.8, hash-pinned by
+(`app/vendor/sjcl.js` = Lufi's own sjcl.js 1.0.8, hash-pinned by
 `tests/lufi.test.mjs`), uploaded slice by slice over `wss://<server>/upload`
 by `lufi.rs`, and the chat gets `📦 name (size)` + `<server>/r/<short>#<key>`.
 Recipients without Velta open the link in any browser; the Lufi page

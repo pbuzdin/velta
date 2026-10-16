@@ -25,7 +25,7 @@
 // through the account proxy / DNS tunnel — fail closed, like link
 // previews). This module is pure logic + storage and runs under node.
 
-import sjcl from "../vendor/sjcl.mjs";
+import sjcl from "../vendor/sjcl.js";
 
 export const LUFI_SLICE = 750000;
 export const DEFAULT_LUFI_SERVER = "https://upload.disroot.org";
