@@ -414,4 +414,7 @@ class VeltaChatHead extends Elena(HTMLElement) {
 }
 VeltaChatHead.define();
 
-export { escapeHtml, escapeAttr } from "./format.js";
+// Imported for local use AND re-exported: a bare `export … from` creates no
+// local binding, so every render that escapes (chat items, avatars) threw.
+import { escapeHtml, escapeAttr } from "./format.js";
+export { escapeHtml, escapeAttr };
