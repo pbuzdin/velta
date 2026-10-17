@@ -1,11 +1,29 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="robots" content="noindex" />
-  <title>Content Manager</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Velta CMS</title>
+  <link rel="stylesheet" href="../css/marx.min.css" />
+  <style>
+    #editor { width: 100%; min-height: 60vh; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; }
+    #commit-msg { width: 320px; max-width: 100%; }
+    #token-draft { width: 340px; max-width: 100%; }
+    .admin-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .ok { color: #0a7d26; }
+    .err { color: #b00020; }
+  </style>
 </head>
 <body>
-  <script src="sveltia-cms.js"></script>
+  <main class="container">
+    <header>
+      <h1>Velta CMS</h1>
+      <p><a href="../">← velta.cc</a></p>
+      <hr />
+    </header>
+    <velta-admin></velta-admin>
+  </main>
+  <script type="module" src="admin.js"></script>
 </body>
 </html>
