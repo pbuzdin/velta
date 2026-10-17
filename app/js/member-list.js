@@ -51,38 +51,53 @@ export function memberRowHtml(m, { subtitle = null, actionsHtml = "" } = {}) {
 //   onOpen(m)     -> row activated (tap / Enter / Space); omitted = inert rows
 //   viewportH     -> scroll box height in px (default 240)
 // Returns { setMembers(list), render(), state } for tests and refreshes.
-export function mountMemberList(host, members, { rowOptions = () => ({}), onOpen = null, viewportH = 240, doc = document } = {}) {
-  host.replaceChildren();
+// Search field + hidden Clear button (.member-search), shared with the
+// chat-info media sections (chat-media.js).
+export function buildSearchRow(doc, { placeholder, clearLabel }) {
   const search = doc.createElement("div");
   search.className = "member-search";
   const input = doc.createElement("input");
   input.type = "search";
   input.className = "text-field";
-  input.placeholder = "Search members";
+  input.placeholder = placeholder;
   input.autocomplete = "off";
-  input.setAttribute("aria-label", "Search members");
+  input.setAttribute("aria-label", placeholder);
   const clear = doc.createElement("button");
   clear.type = "button";
   clear.className = "btn-text member-search-clear";
   clear.textContent = "Clear";
-  clear.setAttribute("aria-label", "Clear member search");
+  clear.setAttribute("aria-label", clearLabel);
   clear.hidden = true;
   search.append(input, clear);
+  return { search, input, clear };
+}
 
+// Virtual-list scaffolding: a capped scroll box (role=list) holding a
+// relative spacer for absolutely placed rows, plus a hidden empty line.
+export function buildVirtualScroller(doc, { className, viewportH, label, emptyText }) {
   const scroller = doc.createElement("div");
-  scroller.className = "member-scroll";
+  scroller.className = className;
   scroller.style.maxHeight = `${viewportH}px`;
   scroller.style.overflow = "auto";
   scroller.setAttribute("role", "list");
-  scroller.setAttribute("aria-label", "Members");
+  scroller.setAttribute("aria-label", label);
   const spacer = doc.createElement("div");
   spacer.className = "member-spacer";
   spacer.style.position = "relative";
   scroller.append(spacer);
   const empty = doc.createElement("div");
   empty.className = "member-empty";
-  empty.textContent = "No members found";
+  empty.textContent = emptyText;
   empty.hidden = true;
+  return { scroller, spacer, empty };
+}
+
+export function mountMemberList(host, members, { rowOptions = () => ({}), onOpen = null, viewportH = 240, doc = document } = {}) {
+  host.replaceChildren();
+  const { search, input, clear } = buildSearchRow(doc, { placeholder: "Search members", clearLabel: "Clear member search" });
+  const { scroller, spacer, empty } = buildVirtualScroller(doc, {
+    className: "member-scroll", viewportH, label: "Members", emptyText: "No members found",
+  });
   host.append(search, scroller, empty);
 
   const state = { all: members.slice(), shown: members.slice(), rendered: new Map(), focusIndex: -1 };

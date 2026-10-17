@@ -13,7 +13,7 @@
 // <img> src is cleared first so the decoder releases them; if an opener ever
 // hands us a blob: URL it is revoked only when its tile scrolls off-screen.
 import { escapeHtml, escapeAttr, formatBytes, formatDuration, formatDateTime } from "./format.js";
-import { foldText, virtualWindow } from "./member-list.js";
+import { foldText, virtualWindow, buildSearchRow, buildVirtualScroller } from "./member-list.js";
 import { LruCache } from "./lru.js";
 import { audioPlayerHtml, mountAudioPlayer, decodeAudioDuration } from "./audio-player.js";
 
@@ -177,37 +177,16 @@ function mountSection(host, section, ids, cache, opts) {
 
   let input = null, clear = null;
   if (section.search) {
-    const search = doc.createElement("div");
-    search.className = "member-search";
-    input = doc.createElement("input");
-    input.type = "search";
-    input.className = "text-field";
-    input.placeholder = section.search;
-    input.autocomplete = "off";
-    input.setAttribute("aria-label", section.search);
-    clear = doc.createElement("button");
-    clear.type = "button";
-    clear.className = "btn-text member-search-clear";
-    clear.textContent = "Clear";
-    clear.setAttribute("aria-label", `Clear ${section.label.toLowerCase()} search`);
-    clear.hidden = true;
-    search.append(input, clear);
-    host.append(search);
+    const row = buildSearchRow(doc, { placeholder: section.search, clearLabel: `Clear ${section.label.toLowerCase()} search` });
+    ({ input, clear } = row);
+    host.append(row.search);
   }
-  const scroller = doc.createElement("div");
-  scroller.className = `member-scroll media-scroll${grid ? " media-grid" : ""}`;
-  scroller.style.maxHeight = `${viewportH}px`;
-  scroller.style.overflow = "auto";
-  scroller.setAttribute("role", "list");
-  scroller.setAttribute("aria-label", section.label);
-  const spacer = doc.createElement("div");
-  spacer.className = "member-spacer";
-  spacer.style.position = "relative";
-  scroller.append(spacer);
-  const empty = doc.createElement("div");
-  empty.className = "member-empty";
-  empty.textContent = section.empty || `No ${section.label.toLowerCase()}`;
-  empty.hidden = true;
+  const { scroller, spacer, empty } = buildVirtualScroller(doc, {
+    className: `member-scroll media-scroll${grid ? " media-grid" : ""}`,
+    viewportH,
+    label: section.label,
+    emptyText: section.empty || `No ${section.label.toLowerCase()}`,
+  });
   host.append(scroller, empty);
 
   // Search sections need every name up front (apps/files are small and
