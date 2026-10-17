@@ -105,7 +105,6 @@ export class JsonRpcCore extends EventTarget {
     this._eventChain = Promise.resolve(); // serializes core event handlers (arrival order)
     this._eventsQueued = 0;               // handlers queued or running on _eventChain
     this.eventHandlerStallMs = 2000;      // max time one slow handler holds the queue
-    this.msgIdCache = newMsgIdCache();  // chatId -> [msgIds ascending]
     this._onLine = this._onLine.bind(this);
   }
 
