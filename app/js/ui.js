@@ -390,12 +390,6 @@ export function showModal({ title, body, foot, onClose, compact = false, form = 
 
 // Full-width bar pinned above the composer / bottom action bar (see
 // .toasts in main.css; z-index rides above modal overlays). One line with
-// ellipsis; when the text overflows, a chip appears and the first tap
-// expands the text AND pauses the auto-hide timer (second tap collapses and
-// resumes). Expanded toasts gain a copy button; every toast has a close icon.
-// opts.danger: red timer bar (errToast).
-// Full-width bar pinned above the composer / bottom action bar (see
-// .toasts in main.css; z-index rides above modal overlays). One line with
 // ellipsis; when the text overflows, a chip appears and opening the toast
 // pauses the auto-hide timer (closing resumes). The open pane shows the
 // full text plus a copy button. Every toast has a close icon.
