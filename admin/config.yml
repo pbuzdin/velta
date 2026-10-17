@@ -1,0 +1,17 @@
+backend:
+  name: github
+  repo: pbuzdin/velta
+  branch: website
+site_url: https://velta.cc
+media_folder: assets
+public_folder: /assets
+collections:
+  - name: pages
+    label: Pages
+    label_singular: Page
+    folder: content
+    extension: html
+    create: true
+    slug: "{{slug}}"
+    fields:
+      - { label: Content, name: body, widget: markdown }

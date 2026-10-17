@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Velta — a cross-platform Delta Chat client for Windows, macOS, Android and the browser.">
+  <title>Velta</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/marx-css@5/css/marx.min.css">
+</head>
+<body>
+  <main class="container">
+    <header>
+      <h1>Velta</h1>
+      <p>
+        <a href="#/">Home</a> ·
+        <a href="#/about">About</a> ·
+        <a href="https://github.com/pbuzdin/velta/releases">Download</a> ·
+        <a href="admin/">Edit</a>
+      </p>
+      <hr>
+    </header>
+    <article id="content" aria-live="polite"></article>
+    <footer>
+      <hr>
+      <p>© <span id="year"></span> Velta</p>
+    </footer>
+  </main>
+  <script>
+    const content = document.getElementById('content');
+    async function route() {
+      const page = (location.hash.replace(/^#\/?/, '').replace(/[^a-z0-9-]/gi, '')) || 'home';
+      try {
+        const res = await fetch('content/' + page + '.html');
+        content.innerHTML = res.ok ? await res.text() : '<h2>Not found</h2>';
+      } catch {
+        content.innerHTML = '<h2>Offline</h2>';
+      }
+    }
+    document.getElementById('year').textContent = new Date().getFullYear();
+    addEventListener('hashchange', route);
+    route();
+  </script>
+</body>
+</html>

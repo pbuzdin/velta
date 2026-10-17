@@ -1,4 +1,0 @@
-# Pinned to nightly: rusqlite uses nightly-only cfg_select!.
-[toolchain]
-channel = "nightly-2026-08-01"
-targets = ["wasm32-unknown-unknown"]
