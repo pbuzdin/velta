@@ -45,7 +45,13 @@ if (!existsSync(join(appRoot, 'index.html'))) {
   process.exit(2)
 }
 if (!existsSync(join(wasmDist, 'velta_wasm.js')) || !existsSync(join(wasmDist, 'velta_wasm_bg.wasm'))) {
-  console.error(`FAIL: ${wasmDist} lacks velta_wasm.js / velta_wasm_bg.wasm —
+  // Wrapper builds from before the deltachat-wasm → velta-wasm rename: the
+  // glue hard-codes its own deltachat_wasm_bg.wasm name, so renaming the
+  // files is not enough — use a build of packages/velta-wasm instead.
+  const legacy = existsSync(join(wasmDist, 'deltachat_wasm.js'))
+    ? `\n(${wasmDist} holds deltachat_wasm.* from before the velta-wasm rename — rebuild; renaming the files breaks the glue)`
+    : ''
+  console.error(`FAIL: ${wasmDist} lacks velta_wasm.js / velta_wasm_bg.wasm${legacy} —
 download the CI artifact: gh run download <run> -n wasm-dist-no-opt -D build/wasm-dist
 or build locally:          packages/velta-wasm/README.md (wasm-pack)`)
   process.exit(2)

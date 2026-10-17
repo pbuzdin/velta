@@ -401,6 +401,15 @@ never branches at build time: `window.VELTA_PWA` exists ONLY in the dist
 mark the shells. Defense in depth: the worker-wasm transport attempt also
 requires `!VeltaBridge && !__TAURI__`, so a dist accidentally served inside
 Tauri still can't take over the transport. Gotchas (spike Day 19):
+- 10-17: the wrapper is `packages/velta-wasm` (crate `velta-wasm`, glue
+  `velta_wasm.js` / `velta_wasm_bg.wasm`; was `deltachat-wasm`). The glue
+  loads its .wasm by its own built-in name, so an older `wasm-dist-no-opt`
+  artifact cannot be renamed into shape — `build-pwa.mjs` refuses
+  `deltachat_wasm.*`; build from a wasm-core (opt-in) run on/after the
+  rename. The live dist and the `pwa-dist` branch still carry the old names
+  until the next deploy; the SW VERSION hash covers file names, so that
+  deploy precaches the new files and drops the old cache. Delete the stale
+  `wasm/deltachat_wasm*` files from the host after uploading.
 - CI artifacts from runs that predate the Day-16 push (865a9d34) lack the
   module-level `vfs_*` exports → OPFS persistence silently no-ops (worker
   checkpoint errors are swallowed). Check `grep -c vfs_list
