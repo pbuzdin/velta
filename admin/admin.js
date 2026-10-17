@@ -1,20 +1,25 @@
 // admin.js — minimal GitHub-backed CMS for velta.cc, on elena web components.
 //
 // The site is fully static: every page is a complete .html document that
-// renders without JavaScript. Single source of truth lives in two layers:
+// renders without JavaScript. Single source of truth lives in layers:
 //   • _partials/nav.html and _partials/footer.html — the shared chrome,
 //     edited raw under "Blocks";
-//   • each page's body, between <!-- CMS:START --> / <!-- CMS:END -->.
-// The admin is the assembler: saving a page or hitting "Rebuild pages"
-// regenerates the full document from partials + body and commits it via
-// the GitHub Contents API. Pages without markers open in raw mode (whole
-// file in the textarea). Reads work signed-out (the repo is public);
-// saving needs a GitHub PAT with Contents read/write, kept in localStorage.
+//   • any other _partials/*.html — a reusable block, pulled into a page
+//     body with <!-- include:name -->. In the editor the include is one
+//     line; in the served page it is expanded to the block's current
+//     content (wrapped in the same comment pair), so every page save and
+//     "Rebuild pages" refreshes includes from the block;
+//   • each page's own body, between <!-- CMS:START --> / <!-- CMS:END -->.
+// The admin is the assembler: saving a page or rebuilding regenerates the
+// full document from partials + body and commits via the GitHub Contents
+// API. Pages without markers open in raw mode. Reads work signed-out (the
+// repo is public); saving needs a GitHub PAT with Contents read/write,
+// kept in localStorage.
 //
 // ponytail: last-write-wins — no draft/PR workflow; a stale save (file
 // changed on the server since it was opened) errors and the editor reopens
-// the saved version. Hand edits to a page's chrome are overwritten by the
-// next assembly — chrome belongs to the partials; that is the point.
+// the saved version. Hand edits inside an include pair are overwritten by
+// the next save — the block file is the truth; that is the point.
 
 import { Elena, html, nothing } from "./elena.js";
 
@@ -27,6 +32,22 @@ const FOOTER_PARTIAL = "_partials/footer.html";
 const START = "<!-- CMS:START -->";
 const END = "<!-- CMS:END -->";
 const MARKERS = /<!--\s*CMS:START\s*-->([\s\S]*?)<!--\s*CMS:END\s*-->/;
+
+// <!-- include:name --> optionally followed by the previously expanded
+// block content and <!-- /include:name --> — one regex handles both a bare
+// new directive and a cached expansion.
+const INCLUDE = /<!--\s*include:([a-z0-9-]+)\s*-->([\s\S]*?<!--\s*\/include:\1\s*-->)?/g;
+
+const expandIncludes = (body, blocks) =>
+  body.replace(INCLUDE, (m, name) =>
+    Object.prototype.hasOwnProperty.call(blocks, name)
+      ? `<!-- include:${name} -->\n${blocks[name].trim()}\n<!-- /include:${name} -->`
+      : m,
+  );
+
+// Editor view: keep only the opening directive; content comes back on save.
+const collapseIncludes = (body) =>
+  body.replace(/(<!--\s*include:[a-z0-9-]+\s*-->)[\s\S]*?<!--\s*\/include:[a-z0-9-]+\s*-->/g, "$1");
 
 const utf8ToB64 = (s) => {
   const bytes = new TextEncoder().encode(s);
@@ -69,7 +90,7 @@ const indent = (block) =>
 const spliceBody = (raw, body) =>
   raw.replace(MARKERS, () => `${START}\n${body.replace(/^\n+|\n+$/g, "")}\n${END}`);
 
-// The assembler: full static page = partials + body.
+// The assembler: full static page = partials + body (includes expanded).
 function assemble({ nav, footer, body, title, description, active }) {
   return `<!doctype html>
 <html lang="en">
@@ -106,9 +127,10 @@ class VeltaAdmin extends Elena(HTMLElement) {
     this.current = null; // { path, name, sha }
     this.raw = ""; // whole file on the server
     this.managed = true; // false = raw editing (no markers found)
-    this.content = ""; // textarea text: body section, or whole file in raw mode
+    this.content = ""; // textarea text: collapsed body, or whole file in raw mode
     this.commitMsg = "";
     this.newName = "";
+    this.newBlock = "";
     this.tokenDraft = "";
     this.status = "";
     this.error = "";
@@ -163,6 +185,23 @@ class VeltaAdmin extends Elena(HTMLElement) {
     return r.content.sha;
   }
 
+  async deleteFile(path, sha) {
+    await this.api(`/${path}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: `Delete ${path}`, sha, branch: BRANCH }),
+    });
+  }
+
+  // All block contents by name (filename without .html), for include expansion.
+  async getBlockMap() {
+    const blocks = {};
+    for (const f of (this.files || []).filter((f) => f.kind === "block")) {
+      blocks[f.name.replace(/\.html$/, "")] = await this.getRaw(f.path);
+    }
+    return blocks;
+  }
+
   onAction(e) {
     const el = e.target.closest("[data-action]");
     if (!el || !this.contains(el)) return;
@@ -171,6 +210,8 @@ class VeltaAdmin extends Elena(HTMLElement) {
     else if (action === "back") { this.current = null; this.status = ""; this.error = ""; this.requestUpdate(); }
     else if (action === "save") this.save();
     else if (action === "create") this.create();
+    else if (action === "create-block") this.createBlock();
+    else if (action === "delete-block") this.deleteBlock(el.dataset.path);
     else if (action === "rebuild") this.rebuildPages();
     else if (action === "login") this.login();
     else if (action === "logout") {
@@ -185,6 +226,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
     if (e.target.id === "editor") this.content = e.target.value;
     else if (e.target.id === "commit-msg") this.commitMsg = e.target.value;
     else if (e.target.id === "new-name") this.newName = e.target.value;
+    else if (e.target.id === "new-block") this.newBlock = e.target.value;
     else if (e.target.id === "token-draft") this.tokenDraft = e.target.value;
   }
 
@@ -222,10 +264,11 @@ class VeltaAdmin extends Elena(HTMLElement) {
       const f = await this.api(`/${path}?ref=${BRANCH}`);
       const raw = b64ToUtf8(f.content);
       const m = raw.match(MARKERS);
+      const isPage = path.endsWith(".html") && !path.startsWith("_partials/");
       this.current = { path: f.path, name: f.name, sha: f.sha };
       this.raw = raw;
       this.managed = !!m;
-      this.content = m ? m[1] : raw;
+      this.content = m && isPage ? collapseIncludes(m[1]) : raw;
       this.commitMsg = "";
       this.status = "";
     } catch (e) {
@@ -250,15 +293,16 @@ class VeltaAdmin extends Elena(HTMLElement) {
     try {
       let newRaw;
       if (this.managed && isPage) {
-        // Assemble the page fresh from the current partials.
-        const [nav, footer] = await Promise.all([
+        // Assemble the page fresh from the current partials and blocks.
+        const [nav, footer, blocks] = await Promise.all([
           this.getRaw(NAV_PARTIAL),
           this.getRaw(FOOTER_PARTIAL),
+          this.getBlockMap(),
         ]);
         newRaw = assemble({
           nav,
           footer,
-          body: this.content,
+          body: expandIncludes(this.content, blocks),
           title: titleOf(this.raw),
           description: descriptionOf(this.raw),
           active: activeOf(this.raw),
@@ -283,8 +327,8 @@ class VeltaAdmin extends Elena(HTMLElement) {
     this.requestUpdate();
   }
 
-  // Regenerate every page from the current partials. One commit per page —
-  // the Contents API has no multi-file commit.
+  // Regenerate every page from the current partials and blocks. One commit
+  // per page — the Contents API has no multi-file commit.
   async rebuildPages() {
     if (!this.token) {
       this.error = "Sign in first — rebuilding needs a token.";
@@ -296,9 +340,10 @@ class VeltaAdmin extends Elena(HTMLElement) {
     this.status = "";
     this.requestUpdate();
     try {
-      const [nav, footer] = await Promise.all([
+      const [nav, footer, blocks] = await Promise.all([
         this.getRaw(NAV_PARTIAL),
         this.getRaw(FOOTER_PARTIAL),
+        this.getBlockMap(),
       ]);
       let n = 0;
       for (const f of this.files.filter((f) => f.kind === "page")) {
@@ -308,7 +353,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
         const newRaw = assemble({
           nav,
           footer,
-          body: m[1],
+          body: expandIncludes(m[1], blocks),
           title: titleOf(raw),
           description: descriptionOf(raw),
           active: activeOf(raw),
@@ -368,6 +413,68 @@ class VeltaAdmin extends Elena(HTMLElement) {
       this.busy = false;
       this.requestUpdate();
     }
+  }
+
+  async createBlock() {
+    const name = this.newBlock.trim().toLowerCase();
+    if (!/^[a-z0-9-]+$/.test(name)) {
+      this.error = "Block name: lowercase letters, digits and dashes only.";
+      this.requestUpdate();
+      return;
+    }
+    const path = `_partials/${name}.html`;
+    if ((this.files || []).some((f) => f.path === path)) {
+      this.error = `${path} already exists.`;
+      this.requestUpdate();
+      return;
+    }
+    if (!this.token) {
+      this.error = "Sign in first — creating a block needs a token.";
+      this.requestUpdate();
+      return;
+    }
+    this.busy = true;
+    this.error = "";
+    this.requestUpdate();
+    try {
+      await this.putFile(path, `Create ${path}`, `<p>Block content.</p>\n`, null);
+      await this.loadFiles();
+      await this.open(path);
+      this.status = `Created. Use <!-- include:${name} --> in a page body; refresh pages via save or Rebuild.`;
+    } catch (e) {
+      this.error = String(e.message || e);
+      this.busy = false;
+      this.requestUpdate();
+    }
+  }
+
+  async deleteBlock(path) {
+    if (path === NAV_PARTIAL || path === FOOTER_PARTIAL) {
+      this.error = "The nav and footer blocks are the page chrome — they cannot be deleted.";
+      this.requestUpdate();
+      return;
+    }
+    const file = (this.files || []).find((f) => f.path === path);
+    if (!file) return;
+    if (!this.token) {
+      this.error = "Sign in first — deleting needs a token.";
+      this.requestUpdate();
+      return;
+    }
+    if (!confirm(`Delete ${path}? Pages keep their last expanded copy until rebuilt; recoverable via git history.`)) return;
+    this.busy = true;
+    this.error = "";
+    this.requestUpdate();
+    try {
+      await this.deleteFile(path, file.sha);
+      if (this.current && this.current.path === path) this.current = null;
+      await this.loadFiles();
+      this.status = `Deleted ${path}.`;
+    } catch (e) {
+      this.error = String(e.message || e);
+    }
+    this.busy = false;
+    this.requestUpdate();
   }
 
   login() {
@@ -431,15 +538,19 @@ class VeltaAdmin extends Elena(HTMLElement) {
                   (f) => html`
                     <tr>
                       <td><button data-action="open" data-path="${f.path}">${f.path}</button></td>
-                      <td>${f.size} B</td>
+                      <td><button data-action="delete-block" data-path="${f.path}">Delete</button></td>
                     </tr>
                   `,
                 )}
               </tbody>
             </table>
-            <p><small>Shared chrome, edited raw. After changing a block, use "Rebuild pages from partials" to apply it to every page.</small></p>
           `
         : nothing}
+      <p>
+        <input id="new-block" placeholder="block-name" /> .html
+        <button data-action="create-block">Create block</button>
+      </p>
+      <p><small>Blocks are shared snippets. In a page body, write <code>&lt;!-- include:block-name --&gt;</code>; on save it expands to the block's content. Edit the block, then save/rebuild pages to refresh every use. nav.html and footer.html are the page chrome and cannot be deleted.</small></p>
       <h3>New page</h3>
       <p>
         <input id="new-name" placeholder="page-name" /> .html
@@ -452,7 +563,9 @@ class VeltaAdmin extends Elena(HTMLElement) {
   renderEditor() {
     return html`
       <h2>${this.current.path}</h2>
-      <p><small>${this.managed ? "Editing the marked body section — the page chrome comes from the partials." : "Raw file — no body markers in this file."}</small></p>
+      <p><small>${this.managed
+        ? "Editing the marked body section — chrome comes from the partials; <!-- include:name --> lines expand to Blocks on save."
+        : "Raw file — no body markers in this file."}</small></p>
       <p class="admin-bar">
         <button data-action="save">Save</button>
         <button data-action="back">Back</button>
