@@ -8,6 +8,7 @@ import { CLOSE_SVG, toast, confirmModal } from "./ui.js";
 import { LruCache } from "./lru.js";
 import { wantsPanel } from "./webxdc-panel.js";
 import { tauriInvoke } from "./tauri.js";
+import { base64ToBytes } from "./identity-backup.js";
 
 let core = null;
 let active = null; // { msgId, iframe, serial, realtime }
@@ -291,12 +292,6 @@ async function readXdcArchive(msgId) {
 
 // PWA chat cards: the SW asks for icon files (any instance — icons are
 // visible to every chat member, same exemption as native webxdc_serve).
-export function decodeBase64(b64) {
-  const bin = atob(String(b64 || ""));
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
 export const ICON_PATH_RE = /^icon\.[a-z]+$/;
 export async function serveIconRequest(data) {
   if (!core || Number(data?.account) !== Number(core.accountId)) throw new Error("wrong account");
@@ -304,7 +299,7 @@ export async function serveIconRequest(data) {
   if (!ICON_PATH_RE.test(path)) throw new Error("not an icon");
   const b64 = await core.getWebxdcBlob(Number(data.msg), path);
   if (!b64) throw new Error("missing");
-  return decodeBase64(b64);
+  return base64ToBytes(String(b64));
 }
 if (typeof navigator !== "undefined" && navigator.serviceWorker) {
   navigator.serviceWorker.addEventListener("message", (e) => {
