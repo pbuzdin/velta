@@ -66,6 +66,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── audio-player.js   # plain-DOM audio player (play, seek, "current / total", full width from first render) for chat bubbles + chat-info Audio rows
 │   │   ├── media.js          # media URL helpers: blobfile:// protocol (boot-probed) → loopback server → asset protocol + per-element fallback
 │   │   ├── p2p.js            # Local chat UI: drawer toggle, pairing, group modals (Tauri only)
+│   │   ├── push-settings.js  # #140 Android drawer <details> "Push notifications": distributor picker/Off, relay support, last push (shell push_status/push_select/push_off → UnifiedPushBridge.kt)
 │   │   ├── tunnel.js         # optional Android DNS tunnel UI: deep link, drawer row, settings sheet, diagnostics (#116/#119/#128)
 │   │   ├── recent-commands.js # #135 recent "/" bot commands popup + per-(account,chat) history, localStorage
 │   │   ├── read-markers.js   # manual "read up to here" markers per (account, chat), localStorage-only
@@ -2163,7 +2164,7 @@ next push or the tainted commits come back.
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 105 files, 719 tests as of 2026-10-17 (1.4.74):
+whole set — 106 files, 725 tests as of 2026-10-17 (1.4.74, +#140 push settings):
 
 ```bash
 node --test tests/
@@ -2644,6 +2645,20 @@ talks to Google.
   self-hosted relay with its own notifier keypair needs it updated. (3) The
   relay must run a chatmail version whose notifier understands `webpush:`
   tokens (verify per deployment).
+- **Settings → Push notifications (#140)** — Android-only native
+  `<details class="drawer-details" data-push-section>` in the drawer
+  (`app/js/push-settings.js`, filled on every `toggle` open). Shell
+  commands `push_status` (JSON: distributors+labels, saved, optedOut,
+  lastPush ms) / `push_select{package}` / `push_off` (lib.rs) call
+  `UnifiedPushBridge.kt` via the cached-class JNI pattern. Prefs file
+  `velta_push`: `opted_out` (explicit Off — `maybeRegister` returns early,
+  never auto-registers over it; picking a distributor clears it) and
+  `last_push_ms` / `last_endpoint_ms` written by `UnifiedPushService`.
+  Auto-register still covers single/default distributor when the user never
+  chose. Relay line reuses the relay-push.js `velta.relayPush` cache, so it
+  stays "not confirmed" until a push app registered once. Gotcha: the drawer
+  is rebuilt (rebuildDrawer) — the section re-wires itself per build, keep
+  state in the shell, not in the DOM.
 - Test with at least two distributors (ntfy + a second one) per the
   UnifiedPush developer guidance.
 

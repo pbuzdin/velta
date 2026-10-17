@@ -831,7 +831,7 @@ function notifyChecked(storageKey) {
 
 const IS_ANDROID = isAndroid();
 
-export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, onWsRelays, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality, downloadLimit = "0", onDownloadLimit, onReadReceipts, onLowBatteryToggle, multiDevice = false, onMultiDevice, onDrawerOpen, identityBackupAvailable = false, onIdentityBackup, onTunnel = null, tunnelLabel = "", onDiagnostics = null }) {
+export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, onWsRelays, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality, downloadLimit = "0", onDownloadLimit, onReadReceipts, onLowBatteryToggle, multiDevice = false, onMultiDevice, onDrawerOpen, identityBackupAvailable = false, onIdentityBackup, onTunnel = null, tunnelLabel = "", onDiagnostics = null, onPushSection = null }) {
   const inTauri = isTauri();
   const drawer = document.createElement("div");
   drawer.className = "drawer";
@@ -907,6 +907,10 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
         </fieldset>
         <div class="bar-opts-hint">Per-chat muting lives in each chat's info sheet.</div>
       </details>
+      ${IS_ANDROID && onPushSection ? `<details class="drawer-details" data-push-section>
+        <summary><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v10m0 0l-4-4m4 4l4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 15v4h14v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-push-summary>Push notifications</span></summary>
+        <div data-push-body><div class="bar-opts-hint">Loading…</div></div>
+      </details>` : ""}
       <details class="drawer-details">
         <summary><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Image quality</span></summary>
         <fieldset class="scale-opts" data-mq-opts>
@@ -957,6 +961,9 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
       ${inTauri ? "" : `<div class="drawer-ver"><span>Service worker</span><span data-v="sw">…</span></div>`}
     </div>`;
   document.body.appendChild(drawer);
+  // #140: Android push section fills itself on open (push-settings.js).
+  const pushSec = drawer.querySelector("[data-push-section]");
+  if (pushSec) onPushSection?.(pushSec);
 
   // Update banner lives at the drawer's bottom, above the version foot.
   renderUpdateBanner();

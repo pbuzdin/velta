@@ -851,9 +851,13 @@ belongs to another profile, Velta switches to it first; if the chat was
 deleted meanwhile, the app just comes to the front.
 
 **UnifiedPush (Android, groundwork):** if a UnifiedPush distributor app
-(ntfy, NextPush, self-hosted — your choice, no Google) is installed with a
-default set, Velta registers with it automatically and uses the push channel
-to fetch messages the moment the server announces them. The relay-side
+(ntfy, NextPush, self-hosted — your choice, no Google) is installed (only one, or one set as default), Velta registers with it
+automatically and uses the push channel to fetch messages the moment the
+server announces them. **Settings → Push notifications** shows the current
+state, lets you pick among several installed push apps or turn push off
+(the choice sticks across restarts), tells whether your relay(s) confirmed
+push support and when the last push arrived, and links to ntfy when no
+push app is installed. The relay-side
 notifier must support `webpush:` push tokens (stock chatmail deployments
 with the notifier enabled do). The foreground service stays on for now, so
 this is currently an instant-fetch booster rather than a battery saver.

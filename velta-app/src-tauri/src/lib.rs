@@ -1652,6 +1652,65 @@ fn get_battery_status() -> Result<String, String> {
     Err("battery status is only on Android".into())
 }
 
+/// #140: UnifiedPush state for Settings → Push notifications, as the JSON
+/// string UnifiedPushBridge.status builds (distributors with app labels,
+/// saved distributor, explicit Off, last push / endpoint time in ms).
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn push_status() -> Result<String, String> {
+    with_android_class(&APP_UNIFIEDPUSH_CLASS, "UnifiedPushBridge", |env, context, class_ref| {
+        let out = env
+            .call_static_method(class_ref, "status", "(Landroid/content/Context;)Ljava/lang/String;", &[(&context).into()])
+            .map_err(|e| e.to_string())?;
+        let jstr = jni::objects::JString::from(out.l().map_err(|e| e.to_string())?);
+        let s = env.get_string(&jstr).map_err(|e| e.to_string())?.to_string_lossy().into_owned();
+        Ok(s)
+    })
+}
+
+/// #140: use this distributor now (saveDistributor + register).
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn push_select(package: String) -> Result<(), String> {
+    with_android_class(&APP_UNIFIEDPUSH_CLASS, "UnifiedPushBridge", |env, context, class_ref| {
+        let jpkg = env.new_string(&package).map_err(|e| e.to_string())?;
+        env.call_static_method(class_ref, "select", "(Landroid/content/Context;Ljava/lang/String;)V", &[(&context).into(), (&jpkg).into()])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    })
+}
+
+/// #140: explicit Off (unregister + removeDistributor, persisted so the
+/// start-up auto-register does not override it).
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn push_off() -> Result<(), String> {
+    with_android_class(&APP_UNIFIEDPUSH_CLASS, "UnifiedPushBridge", |env, context, class_ref| {
+        env.call_static_method(class_ref, "off", "(Landroid/content/Context;)V", &[(&context).into()])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    })
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn push_status() -> Result<String, String> {
+    Err("push settings are only on Android".into())
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn push_select(package: String) -> Result<(), String> {
+    let _ = package;
+    Err("push settings are only on Android".into())
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn push_off() -> Result<(), String> {
+    Err("push settings are only on Android".into())
+}
+
 /// #37: system share sheet for a plain-text payload (the QR screen's "Share a
 /// link"), via Share.kt. Desktop/Windows use the page's Web Share API instead.
 #[cfg(target_os = "android")]
@@ -1998,6 +2057,11 @@ static APP_UPDATE_INSTALL_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex:
 #[cfg(target_os = "android")]
 static APP_SHARE_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
 
+// org.velta.UnifiedPushBridge — #140 Settings → Push notifications
+// (distributor list/picker, explicit Off, last push time).
+#[cfg(target_os = "android")]
+static APP_UNIFIEDPUSH_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
+
 // --- UnifiedPush (Android) ---
 // Handles for the JNI callbacks from UnifiedPushService.kt. The accounts
 // manager and the request channel are set once init_android_core finishes;
@@ -2042,13 +2106,14 @@ pub extern "system" fn Java_org_velta_MainActivity_setApplicationContext(
     *APP_CONTEXT.lock().unwrap() = Some(global);
     // Global refs to the app's helper classes for later Rust commands
     // (NetInfo: DNS tunnel, tunnel.rs — operator resolvers + SIM operator).
-    let classes: [(&str, &Mutex<Option<jni::objects::GlobalRef>>); 6] = [
+    let classes: [(&str, &Mutex<Option<jni::objects::GlobalRef>>); 7] = [
         ("InAppBrowser", &APP_INAPP_BROWSER_CLASS),
         ("Notifications", &APP_NOTIFICATIONS_CLASS),
         ("Battery", &APP_BATTERY_CLASS),
         ("NetInfo", &APP_NETINFO_CLASS),
         ("UpdateInstall", &APP_UPDATE_INSTALL_CLASS),
         ("Share", &APP_SHARE_CLASS),
+        ("UnifiedPushBridge", &APP_UNIFIEDPUSH_CLASS),
     ];
     for (name, slot) in classes {
         match env.find_class(format!("org/velta/{name}")) {
@@ -3743,7 +3808,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, allow_picked_path, webxdc_begin, set_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, share_text, tunnel::tunnel_preview, tunnel::tunnel_install, tunnel::tunnel_remove, tunnel::tunnel_status, tunnel::tunnel_set_mode, tunnel::tunnel_network_changed, tunnel::tunnel_backup_begin, tunnel::tunnel_backup_end, tunnel::tunnel_reapply, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, allow_picked_path, webxdc_begin, set_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, push_status, push_select, push_off, share_text, tunnel::tunnel_preview, tunnel::tunnel_install, tunnel::tunnel_remove, tunnel::tunnel_status, tunnel::tunnel_set_mode, tunnel::tunnel_network_changed, tunnel::tunnel_backup_begin, tunnel::tunnel_backup_end, tunnel::tunnel_reapply, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 

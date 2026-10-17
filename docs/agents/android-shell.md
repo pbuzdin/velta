@@ -284,3 +284,15 @@ struct persisted to `notify-prefs.json` in app local data, plus a copy in
 WARNING: Kotlin changes here have no local compile check — the CI gradle
 build is the only gate (a missing `CHANNEL_ID_QUIET` const broke the first
 v1.4.54 android job while the local Rust build stayed green).
+
+## Push notifications settings (#140)
+
+Drawer → Settings → **Push notifications** (Android only, `<details>`):
+state line ("Using ntfy" / "Off" / "No push app installed — using periodic
+background checks"), radio picker of all `UnifiedPush.getDistributors`
+(app labels) + Off, relay push support (relay-push.js cache), last push
+time, and a "Get a push app (ntfy)" link when none is installed. JS:
+`app/js/push-settings.js`; shell: `push_status`/`push_select`/`push_off`
+(lib.rs) → `UnifiedPushBridge.kt`; explicit Off persisted in prefs
+`velta_push/opted_out` and honoured by `UnifiedPushService.maybeRegister`.
+See AGENTS.md §9.4.

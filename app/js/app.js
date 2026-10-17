@@ -22,6 +22,8 @@ import { acquireCode, mountScanner } from "./qr-scan.js";
 import { scanTabAvailable, canShareLink, copyLink, shareLink, classifyScannedCode } from "./qr-actions.js";
 import { parseSharePayload, shareTextIfUnconsumed, sharePlan, createShareInbox, buildSharePicker } from "./share-in.js";
 import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS, setLinkPreviewProxySource, activeProxyUrl } from "./link-preview.js";
+import { wirePushSection } from "./push-settings.js";
+import { openInAppBrowser } from "./inapp-browser.js";
 import { extractTunnelLink, acceptTunnelLink, openTunnelSettings, refreshTunnelStatus, tunnelInstalled, tunnelStatus, describeTunnel, bindTunnelNetworkEvents, initTunnelDiagnostics } from "./tunnel.js";
 import { wrapIdentityBundle, unwrapIdentityBundle, buildIdentityBundle, bytesToBase64, base64ToBytes, backupDownloadName, gzipBytes, mailLoginFromTransports, accountDirFromToml, mailLoginsFromDbText } from "./identity-backup.js";
 import { isAndroid, tauriInvoke } from "./tauri.js";
@@ -4508,6 +4510,17 @@ function rebuildDrawer() {
       ? () => openTunnelSettings({ showModal, confirmModal, toast, errToast, onChange: rebuildDrawer })
       : null,
     tunnelLabel: describeTunnel(tunnelStatus()).headline,
+    onPushSection: (el) => wirePushSection(el, {
+      invoke: tauriInvoke(),
+      getRelayAddrs: async () => {
+        let t = [];
+        try { t = await core.listTransports?.() || []; } catch { /* offline */ }
+        const addrs = t.map(x => x?.addr).filter(Boolean);
+        return addrs.length ? addrs : [state.account?.addr].filter(Boolean);
+      },
+      openUrl: (url) => openInAppBrowser(url),
+      toast, errToast,
+    }),
     onOpenChat: async kind => {
       if (state.accountChanging) return;
       const epoch = core.accountEpoch;

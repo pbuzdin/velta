@@ -36,6 +36,8 @@ class UnifiedPushService : PushService() {
         // chatmail push relay parses (same format as the upstream Delta Chat
         // UnifiedPush client); the core treats the token as opaque and
         // registers it with the relay itself (core push.rs / imap.rs).
+        UnifiedPushBridge.prefs(this).edit()
+            .putLong(UnifiedPushBridge.KEY_LAST_ENDPOINT, System.currentTimeMillis()).apply()
         val token = "webpush:${endpoint.url}|${key.pubKey}|${key.auth}"
         try {
             pushEndpointReceived(token)
@@ -46,6 +48,9 @@ class UnifiedPushService : PushService() {
 
     override fun onMessage(message: PushMessage, instance: String) {
         Log.d(TAG, "push received - waking the core")
+        // #140: last push time for Settings → Push notifications.
+        UnifiedPushBridge.prefs(this).edit()
+            .putLong(UnifiedPushBridge.KEY_LAST_PUSH, System.currentTimeMillis()).apply()
         try {
             pushWakeup()
         } catch (e: UnsatisfiedLinkError) {
@@ -74,24 +79,34 @@ class UnifiedPushService : PushService() {
         private const val VAPID_KEY =
             "BHNce1sXk99bpkFFYwiSR3Lp4n54PiS-Y0S9iX6R7va7sxQ5hE7ll6DMKlKs2tFT9POq92gLygezT7o0fkQU8NE"
 
-        // Auto-register with the default distributor on app start. Only the
-        // no-questions case is handled: when several distributors are
-        // installed without a system default, we skip silently (no OS picker
-        // popping up out of nowhere) — setting a default in the distributor
-        // app (or installing exactly one) enables push on the next start.
+        // Auto-register on app start. Only the no-questions case is handled:
+        // a single distributor or a system default (resolveDefaultDistributor
+        // Found), or one the user picked in Settings → Push notifications
+        // (#140). Several distributors without a default are skipped silently
+        // (no OS picker out of nowhere) — the Settings picker covers that.
+        // An explicit "Off" in Settings (UnifiedPushBridge KEY_OPTED_OUT)
+        // always wins over auto-registration.
         fun maybeRegister(context: Context) {
             try {
-                val resolved = UnifiedPush.resolveDefaultDistributor(context)
-                if (resolved is ResolvedDistributor.Found) {
-                    UnifiedPush.saveDistributor(context, resolved.packageName)
+                if (UnifiedPushBridge.optedOut(context)) {
+                    Log.d(TAG, "UnifiedPush off by user choice")
+                    return
                 }
-                if (UnifiedPush.getSavedDistributor(context) != null) {
-                    UnifiedPush.register(context, INSTANCE_DEFAULT, null, VAPID_KEY)
-                    Log.d(TAG, "UnifiedPush registration requested")
+                if (UnifiedPush.getSavedDistributor(context) == null) {
+                    val resolved = UnifiedPush.resolveDefaultDistributor(context)
+                    if (resolved is ResolvedDistributor.Found) {
+                        UnifiedPush.saveDistributor(context, resolved.packageName)
+                    }
                 }
+                if (UnifiedPush.getSavedDistributor(context) != null) register(context)
             } catch (e: Throwable) {
                 Log.e(TAG, "UnifiedPush setup failed", e)
             }
+        }
+
+        fun register(context: Context) {
+            UnifiedPush.register(context, INSTANCE_DEFAULT, null, VAPID_KEY)
+            Log.d(TAG, "UnifiedPush registration requested")
         }
     }
 }
