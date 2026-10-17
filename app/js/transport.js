@@ -21,9 +21,8 @@ const HTTP_PROBE_MS = 1500;
 // Architecture C (PWA): opt-in wasm core hosted in a worker. Enabled by
 // ?wasm=1 (or localStorage velta-wasm=1), by window.VELTA_PWA.wasmCore (the
 // C4 PWA dist config), and only tried when no native shell exists — the
-// Tauri/Android builds never take this path. The glue bundle location is
-// overridable via ?wasm-glue= / localStorage velta-wasm-glue (defaults to
-// ./wasm/ next to the app, i.e. the PWA dist layout from C4). ?wasm=0
+// Tauri/Android builds never take this path. The glue bundle is
+// ./wasm/ next to the app (the PWA dist layout from C4). ?wasm=0
 // always wins, so a broken dist can still be inspected without the worker.
 function wasmOptIn() {
   try {
@@ -35,11 +34,6 @@ function wasmOptIn() {
 }
 
 function wasmGlueUrl() {
-  try {
-    const params = new URLSearchParams(location.search);
-    const override = params.get("wasm-glue") || localStorage.getItem("velta-wasm-glue");
-    if (override) return override;
-  } catch {}
   return new URL("wasm/deltachat_wasm.js", document.baseURI).href;
 }
 
