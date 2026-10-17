@@ -654,6 +654,9 @@ export class MockCore extends EventTarget {
 
   // Second-device backup transfer — demo no-ops (same contract as rpc-core).
   async provideBackup() {}
+  // The real core returns the backup QR as an SVG card; demo draws a plain
+  // QR of a demo DCBACKUP2 code so the second-device pane renders.
+  async getBackupQrSvg() { return this.createQrSvg("DCBACKUP2:demo-second-device&demo"); }
   async getBackup() {}
   async stopOngoingProcess() {}
   async addAccountWithBackup() { return this.accountId; }
