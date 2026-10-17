@@ -1790,9 +1790,12 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   (`.pm-tabs.locked`) while a flow runs. Modals are full-screen below 600px
   viewport (`.modal-compact` opts out — confirmations use it); on desktop
   they fill the chat-list pane (width mirrors .sidebar via clamp, height
-  stops above the list bar; in-chat modals stay full-screen via
-  `:has(.app.chat-open)` gating — phones stop above the bottom bar in list
-  context). Modals ride a `{velta:'modal'}` history entry — Android BACK
+  stops above the list bar). On phones they cover the whole viewport in
+  every context, the chat list included — do not bring back a "stop above
+  the bottom bar" height there (it shortened the sheet and left the dimmed
+  bar showing; pinned by `tests/narrow-viewport-css.test.mjs`). Modal
+  content scrolls only in `.modal-body` — no inner max-height/overflow
+  scrollers (e.g. About's device-info `<pre>` expands fully). Modals ride a `{velta:'modal'}` history entry — Android BACK
   closes the top modal (lightbox pattern; replacement reuses the entry,
   `modalReplacing` guard). Toasts are `<details class=toast>` bars anchored
   above the composer/bottom bar: 3px shrinking timer bar (danger red for

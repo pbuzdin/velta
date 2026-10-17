@@ -1542,13 +1542,11 @@ fieldset.eph-set { border: 0; margin: 0; padding: 0; min-inline-size: 0; }
   }
   .modal:not(.modal-compact) .modal-body { flex: 1; }
   .modal:not(.modal-compact) .modal-foot { padding-bottom: max(14px, env(safe-area-inset-bottom)); }
-  /* Chat-list context: stop above the bottom action bar (same offset as the
-     drawer overlay) — the bar stays visible, dimmed under the scrim, and a
-     tap there dismisses the modal. In a chat (search modal) stay full-screen. */
-  body:not(:has(.app.chat-open)) .modal:not(.modal-compact) {
-    height: calc(var(--dvh) - var(--list-bar-h));
-    align-self: start;
-  }
+  /* Truly full screen in every context, the chat list included: no
+     "stop above the bottom action bar" offset (cee7084) — that left the
+     dimmed bar showing under a shortened sheet and cost the body ~64px
+     (more at interface scale) of scroll room. Guarded by
+     tests/narrow-viewport-css.test.mjs and scripts/e2e-narrow-overflow.mjs. */
 }
 @keyframes sheetIn { from { opacity: 0; transform: translateY(28px); } }
 /* Desktop: task modals fill the chat-list pane instead of floating a small
@@ -1724,7 +1722,8 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 .enc-note svg { width: var(--ico-3); height: var(--ico-3); flex: none; margin-top: 1px; }
 
 /* About → Show device info: native <details>; the <pre> wraps (pre-wrap +
-   anywhere) so a long user agent never widens the modal on a narrow phone. */
+   anywhere) so a long user agent never widens the modal on a narrow phone,
+   and never scrolls on its own (no nested scroll area inside the modal). */
 .device-info { margin: 12px 0 0; }
 .device-info > summary { cursor: pointer; color: var(--accent); font-weight: 600; padding: 8px 0; }
 .device-info-text {
@@ -1732,6 +1731,8 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
   background: var(--bg-hover); border-radius: 10px;
   font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;
+  /* Expands to its full height; the modal body is the only scroller. */
+  overflow: visible; max-height: none;
   -webkit-user-select: text; user-select: text;
 }
 .device-info-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
