@@ -309,9 +309,9 @@ function failReason(error) {
 // Delta Chat core cannot read directly. Copy the file into our app-local data
 // directory and return an absolute filesystem path the core can copy into blobs.
 // Desktop: absolute paths used to pass through unchanged — but shell-side
-// media commands (posters, read_media_bytes) scope every path to the accounts
+// media commands (read_media_bytes) scope every path to the accounts
 // dir (scoped_accounts_path in lib.rs), so an out-of-tree picked file breaks
-// the poster pipeline and send's own reads. Copy those too.
+// send's own reads. Copy those too.
 async function resolveAttachmentPath(originalPath, filename) {
   const invoke = tauriInvoke();
   if (!invoke) return originalPath;

@@ -58,8 +58,8 @@ videos — double play button; controls return only in the no-lightbox
 fallback via `v.controls = !videoLightboxOpener`) and WebView2/Chromium
 paints frame 0 directly. The `#t` fragment forces the first-frame fetch.
 `loadedmetadata` shapes the host box to the real aspect. The shell
-commands `poster_cache_path`/`read_media_bytes`/`write_poster` (lib.rs)
-are frontend-dead but still registered — candidates for removal.
+commands `poster_cache_path`/`write_poster` were removed with it
+(`read_media_bytes` stays: `attachmentBytes` in chat-view.js).
 
 ## Bubble image thumbnails
 
@@ -69,8 +69,8 @@ thumbnail — key `sha1(path+mtime+size+w)` under `<app-data>/thumbs`,
 generated in lib.rs via the `image` crate, EXIF orientation applied.
 The blobfile scheme is asynchronous (`register_asynchronous_uri_scheme_protocol`);
 the read, decode, and encode run in `spawn_blocking`, same as the
-`rpc`, `p2p_send_file`, `resolve_content_uri`, `read_media_bytes`, and
-`write_poster` commands. Do not put that work back on the UI thread.
+`rpc`, `p2p_send_file`, `resolve_content_uri`, and `read_media_bytes`
+commands. Do not put that work back on the UI thread.
 Animated gif/webp, non-static formats, Range requests and every failure
 fall through to the original bytes, so the UI can never regress on a
 failed thumbnail. Bubble images pass `thumb:true`; the lightbox never

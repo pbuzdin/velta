@@ -1676,9 +1676,8 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   AppLocalData root (accounts/ AND uploads/ are both under it), strips
   the `\\?\` canonical prefix before returning paths — convertFileSrc
   percent-encodes the prefix into asset.localhost URLs that 404.
-  - The Rust commands `poster_cache_path`/`read_media_bytes`/`write_poster`
-  are frontend-dead but still registered — remove in a lib.rs cleanup
-  pass (verify the Android service doesn't call them first).
+  - The dead poster commands `poster_cache_path`/`write_poster` were
+  removed; `read_media_bytes` stays (`attachmentBytes` in chat-view.js).
 - `app/js/ui.js` — drawer, modals, context menus, toasts, update banner,
   delete-confirmation dialog. Outside the native shells the footer
   "Service worker" line is the cache name from §4.2.1, and "WebSocket

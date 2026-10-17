@@ -1122,24 +1122,7 @@ fn media_base_url() -> String {
     format!("http://127.0.0.1:{port}/{token}")
 }
 
-// ---------- video poster cache ----------
-//
-// Posters are extracted in the WebView (hidden <video> over a blob URL, seek,
-// canvas) and persisted as WebP next to the account database, so a frame is
-// decoded only once per file. The cached image is served through the asset
-// protocol -- plain GETs work fine there even though range reads don't.
-
-fn poster_target(src: &str) -> Option<PathBuf> {
-    let p = std::path::Path::new(src);
-    let dir = p.parent()?;
-    let stem = p.file_stem()?.to_string_lossy();
-    let poster_dir = if dir.file_name()?.to_string_lossy() == "dc.db-blobs" {
-        dir.parent()?.join("velta-posters")
-    } else {
-        dir.join("velta-posters")
-    };
-    Some(poster_dir.join(format!("{stem}.webp")))
-}
+// ---------- scoped media paths ----------
 
 fn scoped_accounts_path(app: &tauri::AppHandle, path: &str) -> Result<PathBuf, String> {
     // The core returns paths RELATIVE to the accounts dir (e.g.
@@ -1160,7 +1143,7 @@ fn scoped_accounts_path(app: &tauri::AppHandle, path: &str) -> Result<PathBuf, S
     // while the base dirs don't. Scope = the whole AppLocalData root, not
     // just the accounts subdir: uploads/ (resolve_upload_path) is a SIBLING
     // of accounts/ and legitimately holds picked attachments pre-send —
-    // posters and read_media_bytes must reach them too.
+    // read_media_bytes must reach them too.
     use tauri::path::BaseDirectory;
     let base = app
         .path()
@@ -1178,17 +1161,8 @@ fn scoped_accounts_path(app: &tauri::AppHandle, path: &str) -> Result<PathBuf, S
     Ok(PathBuf::from(cleaned))
 }
 
-#[tauri::command]
-fn poster_cache_path(app: tauri::AppHandle, src: String) -> Result<serde_json::Value, String> {
-    let canon = scoped_accounts_path(&app, &src)?;
-    let target = poster_target(&canon.to_string_lossy()).ok_or("cannot derive poster path")?;
-    let exists = target.is_file();
-    Ok(serde_json::json!({ "path": target.to_string_lossy(), "exists": exists }))
-}
-
-// Posters are extracted from a full in-memory copy of the media -- refuse to
-// buffer oversized files into the IPC layer (the WebView's poster.js has its
-// own fast-path check, but this is the enforced bound).
+// read_media_bytes hands a full in-memory copy of the media to the WebView --
+// refuse to buffer oversized files into the IPC layer.
 const MAX_MEDIA_IPC_BYTES: u64 = 128 * 1024 * 1024;
 
 fn checked_media_read(canon: &std::path::Path) -> Result<Vec<u8>, String> {
@@ -1725,21 +1699,6 @@ fn share_text(_text: String, _title: String) -> Result<(), String> {
 #[tauri::command]
 fn install_update(_path: String) -> Result<(), String> {
     Err("in-app APK updates are Android-only".into())
-}
-
-#[tauri::command]
-async fn write_poster(app: tauri::AppHandle, src: String, bytes: Vec<u8>) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let canon = scoped_accounts_path(&app, &src)?;
-        let target = poster_target(&canon.to_string_lossy()).ok_or("cannot derive poster path")?;
-        if let Some(dir) = target.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        }
-        std::fs::write(&target, &bytes).map_err(|e| e.to_string())?;
-        Ok(target.to_string_lossy().to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
 }
 
 fn start_media_server(accounts: PathBuf) {
@@ -3875,7 +3834,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, allow_picked_path, webxdc_begin, set_notify_prefs, get_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, take_opened_urls, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, poster_cache_path, read_media_bytes, write_poster, notify_incoming, install_update, get_battery_status, share_text, tunnel::tunnel_preview, tunnel::tunnel_install, tunnel::tunnel_remove, tunnel::tunnel_status, tunnel::tunnel_set_mode, tunnel::tunnel_network_changed, tunnel::tunnel_backup_begin, tunnel::tunnel_backup_end, tunnel::tunnel_reapply, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_groups, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, allow_picked_path, webxdc_begin, set_notify_prefs, get_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, get_initial_deeplink, take_opened_urls, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, share_text, tunnel::tunnel_preview, tunnel::tunnel_install, tunnel::tunnel_remove, tunnel::tunnel_status, tunnel::tunnel_set_mode, tunnel::tunnel_network_changed, tunnel::tunnel_backup_begin, tunnel::tunnel_backup_end, tunnel::tunnel_reapply, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_retry, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_groups, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 
