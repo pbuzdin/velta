@@ -1,13 +1,11 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, OnceLock};
 
 use anyhow::Context;
-use futures_lite::stream::StreamExt;
-use futures_util::{SinkExt, StreamExt as WsStreamExt};
+use futures_util::{SinkExt, StreamExt};
 use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
 use jni::{JNIEnv, JavaVM};
-use once_cell::sync::OnceCell;
 use tokio::net::TcpListener;
 
 // V-01/#61: the loopback bridges authenticate clients with a per-start
@@ -15,7 +13,7 @@ use tokio::net::TcpListener;
 // WebSocket upgrade require it. The token reaches the legitimate client
 // out-of-band: JNI (same-process MainActivity shows it for pairing) and
 // the `velta-bridge-token` localStorage key on the PWA side.
-static BRIDGE_TOKEN: once_cell::sync::Lazy<String> = once_cell::sync::Lazy::new(|| {
+static BRIDGE_TOKEN: LazyLock<String> = LazyLock::new(|| {
     // 16 bytes of OS entropy, hex — no extra dependency.
     let mut buf = [0u8; 16];
     match std::fs::File::open("/dev/urandom").and_then(|mut f| std::io::Read::read_exact(&mut f, &mut buf)) {
@@ -48,10 +46,10 @@ use yerpc::{RpcClient, RpcSession};
 
 use deltachat_jsonrpc::api::{Accounts, CommandApi};
 
-static JAVA_VM: OnceCell<JavaVM> = OnceCell::new();
-static RPC_LISTENER: OnceCell<RwLock<Option<GlobalRef>>> = OnceCell::new();
-static SESSION: OnceCell<RwLock<Option<RpcSession<CommandApi>>>> = OnceCell::new();
-static BROADCAST: OnceCell<broadcast::Sender<String>> = OnceCell::new();
+static JAVA_VM: OnceLock<JavaVM> = OnceLock::new();
+static RPC_LISTENER: OnceLock<RwLock<Option<GlobalRef>>> = OnceLock::new();
+static SESSION: OnceLock<RwLock<Option<RpcSession<CommandApi>>>> = OnceLock::new();
+static BROADCAST: OnceLock<broadcast::Sender<String>> = OnceLock::new();
 
 fn loge(msg: &str) {
     log::error!("[rpc_core] {msg}");
@@ -148,7 +146,7 @@ pub extern "system" fn Java_org_velta_coreservice_RpcService_nativeStart(
 
         // forward every response/notification to Java listener and WS clients
         tokio::spawn(async move {
-            while let Some(msg) = futures_lite::StreamExt::next(&mut out_rx).await {
+            while let Some(msg) = StreamExt::next(&mut out_rx).await {
                 match serde_json::to_string(&msg) {
                     Ok(line) => {
                         deliver_to_java(&line);
@@ -270,7 +268,7 @@ async fn handle_ws_client(stream: tokio::net::TcpStream) -> anyhow::Result<()> {
     // broadcast subscription below only happens after the check, so an
     // unauthenticated peer never sees a single core event. The read is
     // time-boxed so a silent socket can't hold resources.
-    let first = tokio::time::timeout(std::time::Duration::from_secs(10), WsStreamExt::next(&mut read)).await;
+    let first = tokio::time::timeout(std::time::Duration::from_secs(10), StreamExt::next(&mut read)).await;
     match first {
         Ok(Some(Ok(Message::Text(line)))) if line.trim_matches('"') == bridge_token() => {}
         _ => {
@@ -295,7 +293,7 @@ async fn handle_ws_client(stream: tokio::net::TcpStream) -> anyhow::Result<()> {
     });
 
     // forward incoming lines to the core
-    while let Some(msg) = WsStreamExt::next(&mut read).await {
+    while let Some(msg) = StreamExt::next(&mut read).await {
         let msg = msg.context("ws read")?;
         if let Message::Text(line) = msg {
             let Some(sess) = SESSION.get() else { continue };
@@ -383,7 +381,7 @@ async fn run_http_bridge() -> anyhow::Result<()> {
                     session.handle_incoming(&body).await;
                 });
                 tokio::spawn(async move {
-                    while let Some(msg) = futures_lite::StreamExt::next(&mut out_rx).await {
+                    while let Some(msg) = StreamExt::next(&mut out_rx).await {
                         if let Ok(line) = serde_json::to_string(&msg) {
                             let _ = tx.send(line).await;
                             break;
