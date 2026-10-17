@@ -28,7 +28,7 @@ static BRIDGE_TOKEN: LazyLock<String> = LazyLock::new(|| {
             .map(|d| d.as_nanos())
             .unwrap_or(0x9E3779B97F4A7C15);
         for (i, chunk) in buf.chunks_mut(8).enumerate() {
-            let v = (t >> (i * 32)) as u64 ^ (t.wrapping_mul(0x2545F4914F6CDD1D));
+            let v = ((t >> (i * 32)) ^ t.wrapping_mul(0x2545F4914F6CDD1D)) as u64;
             for (j, b) in chunk.iter_mut().enumerate() {
                 *b = (v >> (j * 8)) as u8;
             }
@@ -337,9 +337,10 @@ async fn run_http_bridge() -> anyhow::Result<()> {
                 let auth_ok = request
                     .headers()
                     .iter()
-                    .any(|(k, v)| {
-                        k.as_str().as_bytes().eq_ignore_ascii_case(b"authorization")
-                            && v.as_ref() == format!("Bearer {}", bridge_token()).as_bytes()
+                    .any(|h| {
+                        // HeaderField::equiv is case-insensitive.
+                        h.field.equiv("Authorization")
+                            && h.value.as_str() == format!("Bearer {}", bridge_token())
                     });
                 if !auth_ok {
                     loge("http rpc: unauthorized (missing/invalid token)");
@@ -422,17 +423,17 @@ async fn run_http_bridge() -> anyhow::Result<()> {
 /// V-01/#61: the bridge token, readable by the service APK's own UI (same
 /// process) for pairing a loopback client. Never exposed over the network.
 #[no_mangle]
-pub extern "system" fn Java_org_velta_coreservice_RpcService_nativeGetBridgeToken(
-    mut env: JNIEnv,
-    _class: JClass,
-) -> JString {
+pub extern "system" fn Java_org_velta_coreservice_RpcService_nativeGetBridgeToken<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) -> JString<'local> {
     match env.new_string(bridge_token()) {
         Ok(s) => s,
         Err(e) => {
             loge(&format!("nativeGetBridgeToken: {e}"));
             match env.new_string("") {
                 Ok(s) => s,
-                Err(_) => JString::from(JObject::null().into_raw()),
+                Err(_) => JString::from(JObject::null()),
             }
         }
     }
