@@ -2018,6 +2018,13 @@ function renderChatHead(chat) {
   return head;
 }
 
+// Swap the open chat's header for a fresh one (see renderChatHead).
+function replaceChatHead(chat) {
+  const fresh = renderChatHead(chat);
+  state.activeChatHead?.replaceWith(fresh);
+  state.activeChatHead = fresh;
+}
+
 // Presence: fetch the contact's online/last-seen (the core tracks it from
 // incoming messages) and re-render the active chat head subtitle. The chat
 // object from getChatList lacks the contact — hydrated here on open, on
@@ -2030,9 +2037,7 @@ async function refreshChatHeadPresence(chatId) {
     if (state.activeChatId !== chat.id) return;
     chat.contact = { ...contact, name: contact.name || chat.name, contactId };
     if (state.activeChatHead) {
-      const fresh = renderChatHead(chat);
-      state.activeChatHead?.replaceWith(fresh);
-      state.activeChatHead = fresh;
+      replaceChatHead(chat);
     }
   } catch {}
 }
@@ -2105,9 +2110,7 @@ async function openChat(chatId) {
     core.getChatMembers(chatId).then(members => {
       if (!current() || state.activeChatId !== chatId) return;
       chat.memberCount = members.length;
-      const fresh = renderChatHead(chat);
-      state.activeChatHead?.replaceWith(fresh);
-      state.activeChatHead = fresh;
+      replaceChatHead(chat);
     }).catch(() => {});
   }
   // Hand over the chat fetched above: the view used to fetch it again.
@@ -2212,9 +2215,7 @@ async function refreshActiveChatHeader(chatId) {
     if (!accountIsCurrent(epoch) || navigation !== chatNavigation) return;
     if (state.activeChatId !== chat.id || chat.memberCount === members.length) return;
     chat.memberCount = members.length;
-    const fresh = renderChatHead(chat);
-    state.activeChatHead?.replaceWith(fresh);
-    state.activeChatHead = fresh;
+    replaceChatHead(chat);
   } catch { /* keep the last known count */ }
 }
 
@@ -2231,9 +2232,7 @@ async function refreshLocalGroupHeader(chat, navigation, epoch) {
     Object.assign(chat, { name: fresh.name, memberCount: fresh.memberCount, onlineCount: fresh.onlineCount, readOnly: fresh.readOnly, canManage: fresh.canManage, typingText: fresh.typingText });
     $("main-composer").hidden = !!chat.readOnly;
     chatView.readOnly = !!chat.readOnly;
-    const head = renderChatHead(chat);
-    state.activeChatHead?.replaceWith(head);
-    state.activeChatHead = head;
+    replaceChatHead(chat);
   } catch { /* keep the last known state */ }
 }
 
@@ -2667,9 +2666,7 @@ async function showChatInfo(chat) {
         }
         refreshChatList();
         if (state.activeChatHead && state.activeChatId === chat.id) {
-          const fresh = renderChatHead(chat);
-          state.activeChatHead?.replaceWith(fresh);
-          state.activeChatHead = fresh;
+          replaceChatHead(chat);
         }
         await modalHistorySettled();
         showChatInfo(chat); // fresh sheet — the editor's pop has landed by now
@@ -2731,9 +2728,7 @@ async function showChatInfo(chat) {
         toast("Name updated");
         refreshChatList();
         if (state.activeChatHead && state.activeChatId === chat.id) {
-          const fresh = renderChatHead(chat);
-          state.activeChatHead.replaceWith(fresh);
-          state.activeChatHead = fresh;
+          replaceChatHead(chat);
         }
         showChatInfo(chat); // fresh modal with the new name everywhere
         } catch (err) {
