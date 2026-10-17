@@ -9,6 +9,7 @@
 
 import { typingText, SHOW_TTL_MS } from "./typing.js";
 import { tauriInvoke } from "./tauri.js";
+import { shareViewtype } from "./share-in.js";
 
 const P2P_PREFIX = "p2p:";
 // Local groups (serverless group chats of up to 5 devices) live in their own
@@ -650,11 +651,11 @@ export function findDuplicateGroup(status, memberIds) {
   return null;
 }
 
+// Extension table shared with incoming shares (share-in.js); the engine's mime decides
+// for names without a known extension.
 function viewtypeFor(name, mime = "") {
-  const ext = (name || "").split(".").pop().toLowerCase();
-  if (["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"].includes(ext)) return "image";
-  if (["mp4", "mov", "mkv", "avi", "webm"].includes(ext)) return "video";
-  if (["mp3", "m4a", "ogg", "opus", "wav", "flac"].includes(ext)) return "audio";
+  const byName = shareViewtype(name);
+  if (byName !== "file") return byName;
   if (mime.startsWith("image/")) return "image";
   if (mime.startsWith("video/")) return "video";
   if (mime.startsWith("audio/")) return "audio";
