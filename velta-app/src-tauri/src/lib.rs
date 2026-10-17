@@ -2352,6 +2352,35 @@ fn publish_backup_blocking(dir: String, uri: String) -> Result<(), String> {
     copied
 }
 
+// Java stream copy through one reusable byte[] buffer; `*_label` name the
+// streams in error messages. The caller closes both streams.
+#[cfg(target_os = "android")]
+fn jni_copy_stream(
+    env: &mut jni::JNIEnv<'_>,
+    input: &jni::objects::JObject<'_>,
+    output: &jni::objects::JObject<'_>,
+    buf: &jni::objects::JObject<'_>,
+    read_label: &str,
+    write_label: &str,
+) -> Result<(), String> {
+    loop {
+        let n = env
+            .call_method(input, "read", "([B)I", &[buf.into()])
+            .and_then(|v| v.i())
+            .map_err(|e| format!("{read_label}.read: {e}"))?;
+        if n < 0 {
+            return Ok(());
+        }
+        env.call_method(
+            output,
+            "write",
+            "([BII)V",
+            &[buf.into(), jni::objects::JValue::Int(0), jni::objects::JValue::Int(n)],
+        )
+        .map_err(|e| format!("{write_label}.write: {e}"))?;
+    }
+}
+
 #[cfg(target_os = "android")]
 fn copy_path_to_content_uri(src: &std::path::Path, uri: &str) -> Result<(), String> {
     with_android_env(|env, context| {
@@ -2384,37 +2413,7 @@ fn copy_path_to_content_uri(src: &std::path::Path, uri: &str) -> Result<(), Stri
             .map_err(|e| e.to_string())?;
         let buf = env.new_byte_array(64 * 1024).map_err(|e| e.to_string())?;
         let buf_obj: jni::objects::JObject = buf.into();
-        let mut copy_result: Result<(), String> = Ok(());
-        loop {
-            if copy_result.is_err() {
-                break;
-            }
-            let n = match env.call_method(&is, "read", "([B)I", &[(&buf_obj).into()]) {
-                Ok(v) => match v.i() {
-                    Ok(n) => n,
-                    Err(e) => {
-                        copy_result = Err(format!("FileInputStream.read: {e}"));
-                        break;
-                    }
-                },
-                Err(e) => {
-                    copy_result = Err(format!("FileInputStream.read: {e}"));
-                    break;
-                }
-            };
-            if n < 0 {
-                break;
-            }
-            if let Err(e) = env.call_method(
-                &os,
-                "write",
-                "([BII)V",
-                &[(&buf_obj).into(), jni::objects::JValue::Int(0), jni::objects::JValue::Int(n)],
-            ) {
-                copy_result = Err(format!("OutputStream.write: {e}"));
-                break;
-            }
-        }
+        let copy_result = jni_copy_stream(env, &is, &os, &buf_obj, "FileInputStream", "OutputStream");
         if let Err(e) = env.call_method(&os, "flush", "()V", &[]) {
             log(&format!("output stream flush: {e}"));
         }
@@ -2597,37 +2596,7 @@ fn resolve_content_uri_blocking(app: tauri::AppHandle, uri: String, filename: St
 
         let buf = env.new_byte_array(64 * 1024).map_err(|e| e.to_string())?;
         let buf_obj: jni::objects::JObject = buf.into();
-        let mut copy_result: Result<(), String> = Ok(());
-        loop {
-            if copy_result.is_err() {
-                break;
-            }
-            let n = match env.call_method(&is, "read", "([B)I", &[(&buf_obj).into()]) {
-                Ok(v) => match v.i() {
-                    Ok(n) => n,
-                    Err(e) => {
-                        copy_result = Err(format!("InputStream.read: {e}"));
-                        break;
-                    }
-                },
-                Err(e) => {
-                    copy_result = Err(format!("InputStream.read: {e}"));
-                    break;
-                }
-            };
-            if n < 0 {
-                break;
-            }
-            if let Err(e) = env.call_method(
-                &fos,
-                "write",
-                "([BII)V",
-                &[(&buf_obj).into(), jni::objects::JValue::Int(0), jni::objects::JValue::Int(n)],
-            ) {
-                copy_result = Err(format!("FileOutputStream.write: {e}"));
-                break;
-            }
-        }
+        let copy_result = jni_copy_stream(env, &is, &fos, &buf_obj, "InputStream", "FileOutputStream");
 
         if let Err(e) = env.call_method(&fos, "close", "()V", &[]) {
             log(&format!("fos close error: {e}"));
