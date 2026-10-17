@@ -2139,6 +2139,14 @@ next push or the tainted commits come back.
 - **PWA webxdc host (7834065; KEEP rules in docs/agents/webxdc.md).** The SW serves a loader page for `<scope>webxdc-run/...` frame navigations with a CSP-header sandbox (no allow-same-origin → opaque origin, blob:/data: only). The iframe ATTRIBUTE must include `allow-same-origin`, or Chromium never routes the navigation through the SW; the response sandbox makes it opaque. Must-keep safeguards: frame.js refuses to run unless `self.origin === "null"` in a child frame; every other same-scope frame navigation and top-level app loads get 403 + sandbox; the host hands the `.xdc` only to the open app's own frame.
 - **Live PWA deploy is manual** (a7.velta.cc, nginx root `/var/www/html`, PWA in `app/`; never edit nginx/postfix/dovecot configs). Build `node scripts/build-pwa.mjs` (no `--ws-proxy`), `node scripts/verify-pwa-dist.mjs`, refresh `pwa-dist` (orphan commit, force-push, keep its README), then copy the tree (no `.git`) to `/var/www/html/app.new`, `chown -R www-data:www-data`, `mv app app.prev-<timestamp>`, `mv app.new app`. Verify over HTTPS: `sw.js` VERSION, JS served as `application/javascript`, fresh-profile boot to the splash version line. Rollback: `mv app app.bad-<ts> && mv app.prev-<ts> app`. An already-open old build needs a reload or two (the first load after a deploy can still run the old SW's cache).
 
+### 6.10 Pitfalls found in 1.4.73
+
+- **Code without a CI build rots silently.** d4632e7 (bridge token gate) was committed without compiling `velta-core-service` and no workflow built it, so five compile errors sat on master (fixed d80dc01), and the sidecar's tokio misuse (blocking_read in the forwarder task, `tokio::spawn` on a JNI thread) crashed it on a device (a1cf215). `core-service.yml` now runs clippy + tests on host and aarch64-linux-android with the committed `Cargo.lock` (`--locked`). Every crate that ships needs a CI job; if you can't build locally, say so and don't merge until CI is green.
+- **Line-ending-only commits mislead `git blame`.** The EOL renormalization (4044bce) shows up as the last change of every line it touched; use `git blame -w --ignore-rev 4044bce` (or `log -L`) before calling code "new" or attributing a bug. Keep EOL fixes in their own commits; plists must stay LF (d0214db).
+- **Verify audit claims before acting on them.** The audit flagged `dialog:allow-save` (capabilities/mobile.json) as unused, but the Android backup export needs it (`tests/backup-export-android.test.mjs`); `infoFor` (webxdc-manager.js) looked dead but chat-view.js uses it for info messages. Grep every caller, run the tests, and keep a finding open until it's reproduced.
+- **The wasm rename needs a rebuilt wasm.** wasm-bindgen glue embeds its output name (`velta_wasm_bg.wasm`), so renaming old `deltachat_wasm*` artifacts doesn't work; `build-pwa.mjs` refuses them (f37ebdf). Use a `wasm-core (opt-in)` run on/after f92d41e, then `wasm-opt -Os`.
+- **Remove stale files from the host after a renaming deploy.** The deploy copies a fresh tree, but check that no `wasm/deltachat_wasm*` (or other renamed leftovers) remain in `/var/www/html/app`; the SW VERSION covers file names, so the new cache never references them.
+
 ## 7. Testing strategy
 
 ### 7.1 Rust core
@@ -2155,7 +2163,7 @@ next push or the tainted commits come back.
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 102 files, 713 tests as of 2026-10-16 (1.4.73):
+whole set — 105 files, 719 tests as of 2026-10-17 (1.4.74):
 
 ```bash
 node --test tests/

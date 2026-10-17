@@ -4,7 +4,7 @@ A cross-platform **Delta Chat** client built as a single PWA-ish web app wrapped
 
 ## Download
 
-**[Android](https://github.com/pbuzdin/velta/releases/download/v1.4.73/Velta-1.4.73-arm64.apk)** (~49 MB) · **[Windows](https://github.com/pbuzdin/velta/releases/download/v1.4.73/Velta_1.4.73_x64-setup.exe)** (~13 MB) · **[macOS](https://github.com/pbuzdin/velta/releases/download/v1.4.73/Velta_1.4.73_universal.dmg)** (~36 MB)
+**[Android](https://github.com/pbuzdin/velta/releases/download/v1.4.74/Velta-1.4.74-arm64.apk)** (~49 MB) · **[Windows](https://github.com/pbuzdin/velta/releases/download/v1.4.74/Velta_1.4.74_x64-setup.exe)** (~13 MB) · **[macOS](https://github.com/pbuzdin/velta/releases/download/v1.4.74/Velta_1.4.74_universal.dmg)** (~36 MB)
 
 Android needs an arm64 phone. Windows is the x64 installer. macOS is a universal test build that isn't notarized yet, so see [Install](#install) before the first launch. Other files and older versions are on the [releases page](https://github.com/pbuzdin/velta/releases).
 
@@ -1504,6 +1504,8 @@ Pre-configured workflows live in `.github/workflows/`:
 | `build-android.yml` | arm64-v8a Android APK on `ubuntu-latest`. Manual runs default to `org.velta.test` / Velta Test so the APK installs beside the main app; release tags keep `org.velta`. Input `side_by_side=false` builds the normal id. |
 | `build-windows.yml` | Windows installer on `windows-latest`, compiling the sidecar natively (needs Perl + NASM) |
 | `build-macos.yml` | Universal macOS `.app` + DMG + updater tarball on `macos-14`, sidecars for both architectures merged with `lipo`; ad-hoc signed (Developer ID signing/notarization switch on via the `APPLE_*` secrets) |
+| `core-service.yml` | Checks `velta-core-service` (clippy -D warnings + tests on the host, clippy for aarch64-linux-android) on pushes touching the service or `core/` |
+| `wasm-core-opt-in.yml` | WebAssembly core for the PWA (`packages/velta-wasm`): artifacts `wasm-dist-no-opt` and `dist-pwa` |
 | `build-windows-cross.yml` | Windows installer where the sidecar is cross-compiled on Ubuntu to avoid installing Perl/NASM on Windows |
 
 The Android and cross-compiled Windows workflows are the easiest starting points if you just want an artifact.
