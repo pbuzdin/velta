@@ -66,14 +66,14 @@ curl -si -X POST https://<relay-domain>/new -H 'Origin: https://<pwa-origin>' |
 ## 3. Wasm e2e against the relay-native endpoints
 
 From the Velta repo (wrapper built via `apply-on-copy`, see
-`packages/deltachat-wasm/README.md`; needs `npm i` in `scripts/`):
+`packages/velta-wasm/README.md`; needs `npm i` in `scripts/`):
 
 ```sh
 cd scripts && npm install
-PACKAGE_ROOT=/tmp/velta-wasm-copy/packages/deltachat-wasm \
+PACKAGE_ROOT=/tmp/velta-wasm-copy/packages/velta-wasm \
   RELAY_WS_URL=wss://<relay-domain> \
   CHATMAIL_NEW=https://<relay-domain>/new \
-  node e2e-deltachat-wasm-network.mjs
+  node e2e-velta-wasm-network.mjs
 ```
 
 This exercises exactly what the PWA will do: the wasm core resolves the

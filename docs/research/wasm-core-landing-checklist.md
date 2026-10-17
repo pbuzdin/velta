@@ -108,7 +108,7 @@ Legend: ✅ done on the opt-in copy (evidence linked) · ⬜ open · ⛔ blocker
 - ✅ wasm-bindgen crate version == `wasm-bindgen-cli` in CI (derived from
   `PROVENANCE`, Day 9) and documented for local builds — Day 24: the pinned
   version (0.2.129) and the local-build matching requirement are documented
-  in [`packages/deltachat-wasm/README.md`](../../packages/deltachat-wasm/README.md).
+  in [`packages/velta-wasm/README.md`](../../packages/velta-wasm/README.md).
 - ✅ Pinned nightly (`nightly-2026-08-01`, needed for rusqlite `cfg_select!`)
   replaced by stable, or the nightly pin is accepted for the wasm target
   only and **never** affects Android/desktop builds. **Day 25 — accepted
@@ -167,7 +167,7 @@ Native builds must not change behaviour because of the wasm patches.
   | gzip `-9` | 7 201 173 | 6.87 | **7 800 000** | ~8 % |
   | (ref) raw `--no-opt` | 29 917 803 | 28.53 | — | — |
   | (ref) brotli-11 `--no-opt` | 4 940 377 | 4.71 | — | — |
-  | (ref) JS glue `deltachat_wasm.js` | 54 742 (9 525 gz) | — | — | — |
+  | (ref) JS glue `velta_wasm.js` | 54 742 (9 525 gz) | — | — | — |
 
   Transfer size is what matters for a PWA: serve the wasm **pre-compressed
   with brotli** (≈4.4 MiB first load, then Service-Worker cached); gzip-only

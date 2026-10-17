@@ -26,8 +26,8 @@ const work = mkdtempSync(join(tmpdir(), 'velta-wxdc-e2e-'))
 const wasmDist = join(work, 'wasm')
 const out = join(work, 'dist')
 mkdirSync(wasmDist)
-writeFileSync(join(wasmDist, 'deltachat_wasm.js'), '// stub core for the webxdc e2e (sqlite_export)\n')
-writeFileSync(join(wasmDist, 'deltachat_wasm_bg.wasm'), Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]))
+writeFileSync(join(wasmDist, 'velta_wasm.js'), '// stub core for the webxdc e2e (sqlite_export)\n')
+writeFileSync(join(wasmDist, 'velta_wasm_bg.wasm'), Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]))
 execFileSync(process.execPath, [join(repoRoot, 'scripts/build-pwa.mjs'), '--wasm-dist', wasmDist, '--out', out], { stdio: 'inherit' })
 
 // Deflate zip (the builtin Beam archive is stored-only; cover both).

@@ -34,7 +34,7 @@ function wasmOptIn() {
 }
 
 function wasmGlueUrl() {
-  return new URL("wasm/deltachat_wasm.js", document.baseURI).href;
+  return new URL("wasm/velta_wasm.js", document.baseURI).href;
 }
 
 

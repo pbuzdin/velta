@@ -7,7 +7,7 @@ import { chromium } from 'playwright'
 
 const root = process.env.PACKAGE_ROOT
   ? process.env.PACKAGE_ROOT
-  : fileURLToPath(new URL('../packages/deltachat-wasm', import.meta.url))
+  : fileURLToPath(new URL('../packages/velta-wasm', import.meta.url))
 const types = {
   '.html': 'text/html',
   '.js': 'text/javascript',

@@ -8,7 +8,7 @@ meaning a **Velta-owned forward-port of chatmail/core 2.62+** targeting
 | We do | We do not |
 |---|---|
 | Port MPL-2.0 (or dual MPL/GPL) **ideas** from the prototype’s WASM-CORE patches | Copy the GPL web app / desktop frontend into Velta |
-| Keep a Velta-built `deltachat-wasm` wrapper (MPL) + Unlicense-style WS→TCP bridge pattern | Depend on slothfulchat-web as the long-term source tree |
+| Keep a Velta-built `velta-wasm` wrapper (MPL) + Unlicense-style WS→TCP bridge pattern | Depend on slothfulchat-web as the long-term source tree |
 | Gate Android/desktop so they stay on the native path | Apply wasm patches in production CI by default |
 
 ## Where the code lives
@@ -21,11 +21,11 @@ meaning a **Velta-owned forward-port of chatmail/core 2.62+** targeting
 | [`velta-tokio-wasm-requirements.md`](velta-tokio-wasm-requirements.md) | Clean-room requirements + method for the tokio facade (Day 12) |
 | [`VENDORED.md`](VENDORED.md) | Day 11 register: vendored crates (upstream base, licence, local delta, native effect) + per-patch re-apply notes |
 | `sqlcipher-harness/` | Day 11 scratch harness: SQLCipher 4.6.1↔4.14.0 upgrade/rollback on a real-schema DB (not built by CI) |
-| `support/locks/` | **Pinned** copy lockfiles (Day 9): `core.Cargo.lock`, `deltachat-wasm.Cargo.lock`, `PROVENANCE` |
+| `support/locks/` | **Pinned** copy lockfiles (Day 9): `core.Cargo.lock`, `velta-wasm.Cargo.lock`, `PROVENANCE` |
 | `tools/apply-wasm-core-patches.py` | **Opt-in** applicator — **apply-on-copy only** by default |
-| `packages/deltachat-wasm/` (MPL) | Minimal JSON-RPC wasm wrapper; copied into apply-on-copy dest |
-| `scripts/smoke-deltachat-wasm.mjs` | Headless `get_system_info` smoke (`PACKAGE_ROOT` supported) |
-| `scripts/e2e-deltachat-wasm-network.mjs` | alice→bob e2e over a local `ws-tcp-proxy` → public chatmail (`PACKAGE_ROOT`, `WS_TCP_PROXY`) |
+| `packages/velta-wasm/` (MPL) | Minimal JSON-RPC wasm wrapper; copied into apply-on-copy dest |
+| `scripts/smoke-velta-wasm.mjs` | Headless `get_system_info` smoke (`PACKAGE_ROOT` supported) |
+| `scripts/e2e-velta-wasm-network.mjs` | alice→bob e2e over a local `ws-tcp-proxy` → public chatmail (`PACKAGE_ROOT`, `WS_TCP_PROXY`) |
 | [`../wasm-core-landing-checklist.md`](../wasm-core-landing-checklist.md) | What must be green before **any** merge into production `core/` |
 
 Master `core/` stays on Velta’s production quilt (`tools/apply-core-patches.py`;
@@ -53,7 +53,7 @@ cd /tmp/velta-wasm-copy/core
 CC=clang cargo check --locked -p deltachat --lib \
   --target wasm32-unknown-unknown --no-default-features
 
-cd ../packages/deltachat-wasm/rust
+cd ../packages/velta-wasm/rust
 CC=clang wasm-pack build --target web --release --no-opt --out-dir ../wasm-dist -- --locked
 ```
 
@@ -76,7 +76,7 @@ would silently break the pinned `wasm-bindgen-cli`. So:
 | File | Installed into the copy as |
 |---|---|
 | `support/locks/core.Cargo.lock` | `<dest>/core/Cargo.lock` |
-| `support/locks/deltachat-wasm.Cargo.lock` | `<dest>/packages/deltachat-wasm/rust/Cargo.lock` |
+| `support/locks/velta-wasm.Cargo.lock` | `<dest>/packages/velta-wasm/rust/Cargo.lock` |
 | `support/locks/PROVENANCE` | inputs + output hashes, `wasm_bindgen_version` |
 
 - `apply-on-copy` installs both locks by default and writes
@@ -147,7 +147,7 @@ Unlicense proxy, `CHATMAIL_ALLOWLIST=nine.testrun.org`, 2 throwaway accounts).
 Spike host (Day 4):  
 `/workspace/velta-wasm-port/packages/core-wasm/wasm-dist/deltachat_wasm_bg.wasm`  
 (~29 MB `--no-opt`; ~18 MB after `wasm-opt -Os`).
-In CI the in-repo wrapper builds to `$RUNNER_TEMP/velta-wasm-copy/packages/deltachat-wasm/wasm-dist/`.
+In CI the in-repo wrapper builds to `$RUNNER_TEMP/velta-wasm-copy/packages/velta-wasm/wasm-dist/`.
 
 ## See also
 

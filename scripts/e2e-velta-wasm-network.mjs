@@ -1,5 +1,5 @@
 // Day-9 alice→bob networking e2e against the IN-REPO MPL wrapper
-// (packages/deltachat-wasm built from an apply-on-copy workspace).
+// (packages/velta-wasm built from an apply-on-copy workspace).
 //
 // Two transports:
 //   classic (default) — browser wasm core → local ws-tcp-proxy (generic
@@ -14,7 +14,7 @@
 //
 // Env:
 //   PACKAGE_ROOT   built wrapper dir containing example/ + wasm-dist/
-//                  (default: ../packages/deltachat-wasm)
+//                  (default: ../packages/velta-wasm)
 //   WS_TCP_PROXY   path to ws-tcp-proxy.mjs (classic mode)
 //   RELAY_WS_URL   wss://relay origin running the C3 websockify scheme
 //                  (relay-native mode; wins over WS_TCP_PROXY)
@@ -58,7 +58,7 @@ if (PROXY_SCRIPT && !RELAY_WS_URL) {
 
 const root = process.env.PACKAGE_ROOT
   ? process.env.PACKAGE_ROOT
-  : fileURLToPath(new URL('../packages/deltachat-wasm', import.meta.url))
+  : fileURLToPath(new URL('../packages/velta-wasm', import.meta.url))
 const types = {
   '.html': 'text/html',
   '.js': 'text/javascript',

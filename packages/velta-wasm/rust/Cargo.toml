@@ -1,5 +1,5 @@
 [package]
-name = "deltachat-wasm"
+name = "velta-wasm"
 version = "0.1.0"
 edition = "2021"
 license = "MPL-2.0"
@@ -11,7 +11,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Paths are relative to this crate when built inside an apply-on-copy workspace:
-#   <dest>/packages/deltachat-wasm/rust  →  <dest>/{core,crates,vendor-crates}
+#   <dest>/packages/velta-wasm/rust  →  <dest>/{core,crates,vendor-crates}
 deltachat = { path = "../../../core", default-features = false }
 deltachat-jsonrpc = { path = "../../../core/deltachat-jsonrpc", default-features = false }
 tokio = { package = "velta-tokio-wasm", path = "../../../crates/velta-tokio-wasm" }

@@ -62,13 +62,13 @@ Do not build against the unpatched `core/` tree. Use a copy:
 
 ```sh
 python3 tools/apply-wasm-core-patches.py apply-on-copy --dest /tmp/velta-wasm-copy
-cd /tmp/velta-wasm-copy/packages/deltachat-wasm/rust
+cd /tmp/velta-wasm-copy/packages/velta-wasm/rust
 CC=clang wasm-pack build --target web --release --no-opt --out-dir ../wasm-dist -- --locked
 ```
 
-Copy `deltachat_wasm.js` and `deltachat_wasm_bg.wasm` into
+Copy `velta_wasm.js` and `velta_wasm_bg.wasm` into
 `build/wasm-dist/` in the Velta repo. Full local-build notes:
-[`packages/deltachat-wasm/README.md`](../packages/deltachat-wasm/README.md).
+[`packages/velta-wasm/README.md`](../packages/velta-wasm/README.md).
 
 Or download a `wasm-dist-no-opt` artifact from a **wasm-core (opt-in)**
 GitHub Actions run (workflow_dispatch; it does not run on every push):
@@ -80,7 +80,7 @@ gh run download <run-id> -n wasm-dist-no-opt -D build/wasm-dist
 Confirm the glue can save databases:
 
 ```sh
-grep -c sqlite_export build/wasm-dist/deltachat_wasm.js   # must be > 0
+grep -c sqlite_export build/wasm-dist/velta_wasm.js   # must be > 0
 ```
 
 Optimize before a public deploy (~28 MB → ~17 MB):
@@ -88,7 +88,7 @@ Optimize before a public deploy (~28 MB → ~17 MB):
 ```sh
 npm i --prefix tools/binaryen binaryen
 node tools/binaryen/node_modules/binaryen/bin/wasm-opt -Os \
-  build/wasm-dist/deltachat_wasm_bg.wasm -o build/wasm-dist/deltachat_wasm_bg.wasm
+  build/wasm-dist/velta_wasm_bg.wasm -o build/wasm-dist/velta_wasm_bg.wasm
 ```
 
 ## 2. Build the dist
@@ -143,7 +143,7 @@ server {
 }
 ```
 
-The dist already ships `wasm/deltachat_wasm_bg.wasm.br` and `.gz`.
+The dist already ships `wasm/velta_wasm_bg.wasm.br` and `.gz`.
 `gzip_static` / `brotli_static` pick those up. The service worker still
 fetches the raw `.wasm` (the browser decodes `Content-Encoding`); it
 does not precache the sidecars.

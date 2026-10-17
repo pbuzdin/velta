@@ -12,7 +12,7 @@ its Cargo.toml; no LICENSE file) with a **Velta-original** crate,
   were carried over or paraphrased.
 - Inputs used: (1) the *consumer side*, i.e. which `tokio::…` paths the
   patched core, `deltachat-jsonrpc`, the vendored astral-tokio-tar and Velta's
-  `packages/deltachat-wasm` wrapper reference when compiled for
+  `packages/velta-wasm` wrapper reference when compiled for
   `wasm32-unknown-unknown` (grep of an apply-on-copy + `cargo check` errors
   against an empty facade); (2) tokio's public API docs (signatures and
   semantics to mirror); (3) public APIs of permissively licensed crates:

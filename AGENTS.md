@@ -164,7 +164,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── docs/research/websockify-c3-deploy.md          # C3 runbook: deploy the websockify-c3 relay, verify, RELAY_WS_URL e2e
 ├── docs/research/ws-relay-endpoints-probe.md      # external WS endpoints vs the C3 contract — chatmail.uk /ygg-ws = Yggdrasil peering, not a mail tunnel (10-09)
 ├── docs/research/wasm-patches/   # 10-patch wasm series (series.txt, VENDORED.md, pinned locks + PROVENANCE)
-├── packages/deltachat-wasm/      # MPL wasm wrapper — README = local wasm-pack build + e2e recipes
+├── packages/velta-wasm/      # MPL wasm wrapper — README = local wasm-pack build + e2e recipes
 ├── scripts/build-pwa.mjs         # C4 PWA dist builder (app/ + wasm assets + pwa-config.js + precache SW + wasm.br/gz sidecars not in PRECACHE); refuses a wasm without sqlite_export unless --allow-no-db-persist — §4.2.1; ship snapshot is git branch pwa-dist
 ├── scripts/relay-invite/         # invite-only signup: invite.py CGI (interstitial + claim) + invite-tool.py CLI + README (deploy/features/troubleshooting) — deployed to the private relay (§4.2.1 relay-list bullet)
 ├── scripts/verify-pwa-dist.mjs   # PWA dist rig: 10 checks (boot, OPFS persist incl. sqlite/, SW, identity-backup surface)
@@ -353,9 +353,9 @@ imports the demo core, and prod modules take the shared helpers from
 ```bash
 # wasm core assets: a CI artifact from a "wasm-core (opt-in)" run AFTER
 # 643ee36 (it does not run on master pushes — dispatch it), or wasm-pack
-# (packages/deltachat-wasm/README.md), into build/wasm-dist
+# (packages/velta-wasm/README.md), into build/wasm-dist
 gh run download <run-id> -n wasm-dist-no-opt -D build/wasm-dist
-grep -c sqlite_export build/wasm-dist/deltachat_wasm.js   # must be > 0
+grep -c sqlite_export build/wasm-dist/velta_wasm.js   # must be > 0
 # build the deployable dist → build/dist-pwa (refuses a wasm without
 # sqlite_export; --allow-no-db-persist only for throwaway dists)
 node scripts/build-pwa.mjs [--ws-proxy wss://host/path] [--wasm-opt [BIN]]
@@ -381,7 +381,7 @@ Deploy-dist rules (10-09):
   script, not an exe):
   `npm i --prefix tools/binaryen binaryen` →
   `node tools/binaryen/node_modules/binaryen/bin/wasm-opt -Os
-  build/wasm-dist/deltachat_wasm_bg.wasm -o <same file>` → then build
+  build/wasm-dist/velta_wasm_bg.wasm -o <same file>` → then build
   WITHOUT the flag so the SW content hash covers the optimized bytes
   (28.4 → 17.7 MB on 1.4.62's wasm; 28.7 → 16.8 MB on the 2.63 wasm
   deployed 2026-10-14, SW `velta-pwa-3b497112c3bd`; 28.7 → 17.6 MB for
@@ -404,7 +404,7 @@ Tauri still can't take over the transport. Gotchas (spike Day 19):
 - CI artifacts from runs that predate the Day-16 push (865a9d34) lack the
   module-level `vfs_*` exports → OPFS persistence silently no-ops (worker
   checkpoint errors are swallowed). Check `grep -c vfs_list
-  build/wasm-dist/deltachat_wasm.js` before building a dist on an artifact.
+  build/wasm-dist/velta_wasm.js` before building a dist on an artifact.
   Run timestamps are UTC, commit times +0300 — compare carefully.
   Since #106 (7c68ffd3) a persist-build worker REFUSES to answer RPC when
   OPFS is unavailable (boot-error, no silent empty boot → no stray account),

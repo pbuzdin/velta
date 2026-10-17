@@ -102,7 +102,7 @@ flowchart TB
   Wasm -.-> DC
 ```
 
-Release sizes quoted by the README for `1.4.67`: Android arm64 APK about 49 MB, Windows x64 installer about 13 MB, macOS universal DMG about 36 MB. `rust-version = "1.89"` in `core/Cargo.toml` and `velta-app/src-tauri/Cargo.toml` is the minimum supported Rust for those two crates. Neither crate ships a `rust-toolchain.toml`, so 1.89 is an MSRV, not a pinned compiler. The unfinished wasm worker in the diagram is the one path that does pin a compiler: `packages/deltachat-wasm/rust/rust-toolchain.toml` sets `nightly-2026-08-01` with target `wasm32-unknown-unknown`.
+Release sizes quoted by the README for `1.4.67`: Android arm64 APK about 49 MB, Windows x64 installer about 13 MB, macOS universal DMG about 36 MB. `rust-version = "1.89"` in `core/Cargo.toml` and `velta-app/src-tauri/Cargo.toml` is the minimum supported Rust for those two crates. Neither crate ships a `rust-toolchain.toml`, so 1.89 is an MSRV, not a pinned compiler. The unfinished wasm worker in the diagram is the one path that does pin a compiler: `packages/velta-wasm/rust/rust-toolchain.toml` sets `nightly-2026-08-01` with target `wasm32-unknown-unknown`.
 
 ### Shells and how the core is reached
 

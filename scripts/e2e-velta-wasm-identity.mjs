@@ -1,5 +1,5 @@
 // Day-17 V2.5 identity round-trip e2e (same harness as
-// e2e-deltachat-wasm-network.mjs): one real throwaway account on the public
+// e2e-velta-wasm-network.mjs): one real throwaway account on the public
 // chatmail relay, then:
 //   configure → export_self_keys (passphrase) → grab tar via memfs side
 //   channel → fresh account → same addr/password → import_self_keys →
@@ -37,7 +37,7 @@ await new Promise((r) => setTimeout(r, 800))
 
 const root = process.env.PACKAGE_ROOT
   ? process.env.PACKAGE_ROOT
-  : fileURLToPath(new URL('../packages/deltachat-wasm', import.meta.url))
+  : fileURLToPath(new URL('../packages/velta-wasm', import.meta.url))
 const types = {
   '.html': 'text/html',
   '.js': 'text/javascript',

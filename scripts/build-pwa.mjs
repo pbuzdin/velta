@@ -7,9 +7,9 @@
 //   node scripts/build-pwa.mjs [--app-root app] [--wasm-dist build/wasm-dist]
 //        [--out build/dist-pwa] [--ws-proxy wss://host/path] [--wasm-opt [BIN]]
 //
-// --wasm-dist  wrapper build dir containing deltachat_wasm.js +
-//              deltachat_wasm_bg.wasm (CI artifact layout or a local
-//              wasm-pack build, see packages/deltachat-wasm/README.md)
+// --wasm-dist  wrapper build dir containing velta_wasm.js +
+//              velta_wasm_bg.wasm (CI artifact layout or a local
+//              wasm-pack build, see packages/velta-wasm/README.md)
 // --ws-proxy   ws(s):// mail-proxy endpoint (relay websockify, C3); the dist
 //              boots and persists accounts without one — it just can't
 //              configure against a relay yet
@@ -44,10 +44,10 @@ if (!existsSync(join(appRoot, 'index.html'))) {
   console.error(`FAIL: ${appRoot}/index.html missing`)
   process.exit(2)
 }
-if (!existsSync(join(wasmDist, 'deltachat_wasm.js')) || !existsSync(join(wasmDist, 'deltachat_wasm_bg.wasm'))) {
-  console.error(`FAIL: ${wasmDist} lacks deltachat_wasm.js / deltachat_wasm_bg.wasm —
+if (!existsSync(join(wasmDist, 'velta_wasm.js')) || !existsSync(join(wasmDist, 'velta_wasm_bg.wasm'))) {
+  console.error(`FAIL: ${wasmDist} lacks velta_wasm.js / velta_wasm_bg.wasm —
 download the CI artifact: gh run download <run> -n wasm-dist-no-opt -D build/wasm-dist
-or build locally:          packages/deltachat-wasm/README.md (wasm-pack)`)
+or build locally:          packages/velta-wasm/README.md (wasm-pack)`)
   process.exit(2)
 }
 
@@ -57,20 +57,20 @@ cpSync(appRoot, outDir, { recursive: true })
 
 // 2. Wasm core assets (glue + binary only; .d.ts/package.json are dev-only).
 mkdirSync(join(outDir, 'wasm'), { recursive: true })
-for (const f of ['deltachat_wasm.js', 'deltachat_wasm_bg.wasm']) {
+for (const f of ['velta_wasm.js', 'velta_wasm_bg.wasm']) {
   cpSync(join(wasmDist, f), join(outDir, 'wasm', f))
 }
 if (wasmOpt) {
   const bin = wasmOpt === true ? 'wasm-opt' : wasmOpt
-  execFileSync(bin, ['-Os', join(outDir, 'wasm', 'deltachat_wasm_bg.wasm'), '-o', join(outDir, 'wasm', 'deltachat_wasm_bg.wasm')], { stdio: 'inherit' })
+  execFileSync(bin, ['-Os', join(outDir, 'wasm', 'velta_wasm_bg.wasm'), '-o', join(outDir, 'wasm', 'velta_wasm_bg.wasm')], { stdio: 'inherit' })
 }
 // #123: a wasm core without the sqlite_* bindings saves accounts.toml but
 // never the databases, so every reload comes back unconfigured.
-if (!readFileSync(join(outDir, 'wasm', 'deltachat_wasm.js'), 'utf8').includes('sqlite_export') && !args.includes('--allow-no-db-persist')) {
-  console.error('FAIL: this wasm core cannot save its databases (no sqlite_export) — rebuild it from packages/deltachat-wasm, or pass --allow-no-db-persist for a throwaway dist')
+if (!readFileSync(join(outDir, 'wasm', 'velta_wasm.js'), 'utf8').includes('sqlite_export') && !args.includes('--allow-no-db-persist')) {
+  console.error('FAIL: this wasm core cannot save its databases (no sqlite_export) — rebuild it from packages/velta-wasm, or pass --allow-no-db-persist for a throwaway dist')
   process.exit(2)
 }
-const wasmOut = join(outDir, 'wasm', 'deltachat_wasm_bg.wasm')
+const wasmOut = join(outDir, 'wasm', 'velta_wasm_bg.wasm')
 const wasmBytes = statSync(wasmOut).size
 const wasmBuf = readFileSync(wasmOut)
 writeFileSync(wasmOut + '.gz', gzipSync(wasmBuf, { level: 9 }))

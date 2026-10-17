@@ -118,7 +118,7 @@ into `apply-core-patches.py` (the production quilt).
 ## Day 7 progress
 - blob_tests fixed (`image_metadata` + avatar golden); series **0009**.
 - Broad nextest filter **185/185 PASS**.
-- MPL `packages/deltachat-wasm` + smoke script; opt-in CI runs wasm-pack + Playwright.
+- MPL `packages/velta-wasm` + smoke script; opt-in CI runs wasm-pack + Playwright.
 
 ## Day 8 progress
 - Avatar golden: Day-7 change was `png` 0.18.1 lock drift; reverted — 0009 is test call sites only.

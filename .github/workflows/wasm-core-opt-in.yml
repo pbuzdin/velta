@@ -16,23 +16,23 @@ on:
     paths:
       - 'docs/research/wasm-patches/**'
       - 'tools/apply-wasm-core-patches.py'
-      - 'packages/deltachat-wasm/**'
-      - 'scripts/smoke-deltachat-wasm.mjs'
+      - 'packages/velta-wasm/**'
+      - 'scripts/smoke-velta-wasm.mjs'
       - 'scripts/build-pwa.mjs'
       - 'scripts/verify-pwa-dist.mjs'
-      - 'scripts/e2e-deltachat-wasm-network.mjs'
-      - 'scripts/e2e-deltachat-wasm-identity.mjs'
+      - 'scripts/e2e-velta-wasm-network.mjs'
+      - 'scripts/e2e-velta-wasm-identity.mjs'
       - '.github/workflows/wasm-core-opt-in.yml'
   pull_request:
     paths:
       - 'docs/research/wasm-patches/**'
       - 'tools/apply-wasm-core-patches.py'
-      - 'packages/deltachat-wasm/**'
-      - 'scripts/smoke-deltachat-wasm.mjs'
+      - 'packages/velta-wasm/**'
+      - 'scripts/smoke-velta-wasm.mjs'
       - 'scripts/build-pwa.mjs'
       - 'scripts/verify-pwa-dist.mjs'
-      - 'scripts/e2e-deltachat-wasm-network.mjs'
-      - 'scripts/e2e-deltachat-wasm-identity.mjs'
+      - 'scripts/e2e-velta-wasm-network.mjs'
+      - 'scripts/e2e-velta-wasm-identity.mjs'
       - '.github/workflows/wasm-core-opt-in.yml'
 
 concurrency:
@@ -66,7 +66,7 @@ jobs:
           python3 tools/apply-wasm-core-patches.py lock-status
           python3 tools/apply-wasm-core-patches.py apply-on-copy --dest "$RUNNER_TEMP/velta-wasm-copy"
           python3 tools/apply-wasm-core-patches.py verify-copy --dest "$RUNNER_TEMP/velta-wasm-copy"
-          test -d "$RUNNER_TEMP/velta-wasm-copy/packages/deltachat-wasm"
+          test -d "$RUNNER_TEMP/velta-wasm-copy/packages/velta-wasm"
           git diff --exit-code -- core/
           WBG=$(sed -n 's/^wasm_bindgen_version=//p' docs/research/wasm-patches/support/locks/PROVENANCE)
           echo "WASM_BINDGEN_VERSION=$WBG" >> "$GITHUB_ENV"
@@ -87,15 +87,15 @@ jobs:
           cargo install wasm-bindgen-cli --version "$WASM_BINDGEN_VERSION" --locked
 
       - name: wasm-pack build (MPL wrapper)
-        working-directory: ${{ runner.temp }}/velta-wasm-copy/packages/deltachat-wasm/rust
+        working-directory: ${{ runner.temp }}/velta-wasm-copy/packages/velta-wasm/rust
         env:
           CC: clang
           CARGO_BUILD_JOBS: "2"
         run: |
           wasm-pack build --target web --release --no-opt --out-dir ../wasm-dist -- --locked
           git -C "$GITHUB_WORKSPACE" diff --no-index --exit-code \
-            docs/research/wasm-patches/support/locks/deltachat-wasm.Cargo.lock "$PWD/Cargo.lock"
-          ls -lh ../wasm-dist/deltachat_wasm_bg.wasm
+            docs/research/wasm-patches/support/locks/velta-wasm.Cargo.lock "$PWD/Cargo.lock"
+          ls -lh ../wasm-dist/velta_wasm_bg.wasm
 
       # Day 14a: publish the no-opt artifact so the C2 worker rig can test the
       # exact bits CI smoked (local wasm builds lack clang on the dev box).
@@ -103,36 +103,36 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: wasm-dist-no-opt
-          path: ${{ runner.temp }}/velta-wasm-copy/packages/deltachat-wasm/wasm-dist/
+          path: ${{ runner.temp }}/velta-wasm-copy/packages/velta-wasm/wasm-dist/
           if-no-files-found: error
 
       - name: Browser smoke (get_system_info)
         env:
-          PACKAGE_ROOT: ${{ runner.temp }}/velta-wasm-copy/packages/deltachat-wasm
+          PACKAGE_ROOT: ${{ runner.temp }}/velta-wasm-copy/packages/velta-wasm
         working-directory: ${{ github.workspace }}/scripts
         run: |
           npm install --no-fund --no-audit playwright@1.56.0
           npx playwright install --with-deps chromium
-          node smoke-deltachat-wasm.mjs
+          node smoke-velta-wasm.mjs
 
       # Size step (Day 8): binaryen pinned to version_120 (matches local
       # measurement 29.9 MB → 18.5 MB). Informational; smoke re-runs on the
       # optimized artifact so a broken wasm-opt output is caught.
       - name: wasm-opt -Os (binaryen 120)
         continue-on-error: true
-        working-directory: ${{ runner.temp }}/velta-wasm-copy/packages/deltachat-wasm/wasm-dist
+        working-directory: ${{ runner.temp }}/velta-wasm-copy/packages/velta-wasm/wasm-dist
         run: |
           curl -sSfL https://github.com/WebAssembly/binaryen/releases/download/version_120/binaryen-version_120-x86_64-linux.tar.gz \
             | tar -xz -C "$RUNNER_TEMP"
           WASM_OPT="$RUNNER_TEMP/binaryen-version_120/bin/wasm-opt"
           "$WASM_OPT" --version
-          before=$(stat -c %s deltachat_wasm_bg.wasm)
+          before=$(stat -c %s velta_wasm_bg.wasm)
           "$WASM_OPT" -Os \
             --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext \
             --enable-mutable-globals --enable-reference-types --enable-multivalue \
-            deltachat_wasm_bg.wasm -o deltachat_wasm_bg.opt.wasm
-          mv deltachat_wasm_bg.opt.wasm deltachat_wasm_bg.wasm
-          after=$(stat -c %s deltachat_wasm_bg.wasm)
+            velta_wasm_bg.wasm -o velta_wasm_bg.opt.wasm
+          mv velta_wasm_bg.opt.wasm velta_wasm_bg.wasm
+          after=$(stat -c %s velta_wasm_bg.wasm)
           echo "wasm-opt: $before -> $after bytes" | tee -a "$GITHUB_STEP_SUMMARY"
 
       # Day 10 size budget (proposal, see docs/research/wasm-core-landing-checklist.md §4):
@@ -140,15 +140,15 @@ jobs:
       # Step fails above budget; job stays informational (continue-on-error).
       - name: Size budget (wasm-opt artifact)
         continue-on-error: true
-        working-directory: ${{ runner.temp }}/velta-wasm-copy/packages/deltachat-wasm/wasm-dist
+        working-directory: ${{ runner.temp }}/velta-wasm-copy/packages/velta-wasm/wasm-dist
         env:
           BUDGET_RAW: "20000000"
           BUDGET_BROTLI: "5000000"
           BUDGET_GZIP: "7800000"
         run: |
-          raw=$(stat -c %s deltachat_wasm_bg.wasm)
-          br=$(brotli -q 11 -c deltachat_wasm_bg.wasm | wc -c)
-          gz=$(gzip -9 -c deltachat_wasm_bg.wasm | wc -c)
+          raw=$(stat -c %s velta_wasm_bg.wasm)
+          br=$(brotli -q 11 -c velta_wasm_bg.wasm | wc -c)
+          gz=$(gzip -9 -c velta_wasm_bg.wasm | wc -c)
           {
             echo "| wasm-opt artifact | bytes | budget |"
             echo "|---|---|---|"
@@ -165,9 +165,9 @@ jobs:
       - name: Browser smoke on wasm-opt artifact
         continue-on-error: true
         env:
-          PACKAGE_ROOT: ${{ runner.temp }}/velta-wasm-copy/packages/deltachat-wasm
+          PACKAGE_ROOT: ${{ runner.temp }}/velta-wasm-copy/packages/velta-wasm
         working-directory: ${{ github.workspace }}/scripts
-        run: node smoke-deltachat-wasm.mjs
+        run: node smoke-velta-wasm.mjs
 
       # Day 21: build the C4 PWA dist from the (wasm-opt'ed) wasm — the ship
       # path: app shell + worker-wasm core + OPFS persistence + SW precache —
@@ -175,7 +175,7 @@ jobs:
       - name: Build PWA dist (C4)
         run: |
           node scripts/build-pwa.mjs \
-            --wasm-dist "$RUNNER_TEMP/velta-wasm-copy/packages/deltachat-wasm/wasm-dist" \
+            --wasm-dist "$RUNNER_TEMP/velta-wasm-copy/packages/velta-wasm/wasm-dist" \
             --out "$RUNNER_TEMP/dist-pwa"
           du -sh "$RUNNER_TEMP/dist-pwa"
 
@@ -224,12 +224,12 @@ jobs:
         continue-on-error: true
         timeout-minutes: 10
         env:
-          PACKAGE_ROOT: ${{ runner.temp }}/velta-wasm-copy/packages/deltachat-wasm
+          PACKAGE_ROOT: ${{ runner.temp }}/velta-wasm-copy/packages/velta-wasm
           CHATMAIL_NEW: https://nine.testrun.org/new
           CHATMAIL_ALLOWLIST: nine.testrun.org
         working-directory: ${{ github.workspace }}/scripts
         run: |
-          node e2e-deltachat-wasm-network.mjs 2>&1 | tee "$RUNNER_TEMP/e2e.log"
+          node e2e-velta-wasm-network.mjs 2>&1 | tee "$RUNNER_TEMP/e2e.log"
           grep -E '^OK: two accounts|^  wasm-roundtrip-|^elapsed' "$RUNNER_TEMP/e2e.log" >> "$GITHUB_STEP_SUMMARY" || true
 
       # Day 17: V2.5 identity round-trip (export_self_keys → fresh account →
@@ -240,8 +240,8 @@ jobs:
         continue-on-error: true
         timeout-minutes: 10
         env:
-          PACKAGE_ROOT: ${{ runner.temp }}/velta-wasm-copy/packages/deltachat-wasm
+          PACKAGE_ROOT: ${{ runner.temp }}/velta-wasm-copy/packages/velta-wasm
           CHATMAIL_NEW: https://nine.testrun.org/new
           CHATMAIL_ALLOWLIST: nine.testrun.org
         working-directory: ${{ github.workspace }}/scripts
-        run: node e2e-deltachat-wasm-identity.mjs
+        run: node e2e-velta-wasm-identity.mjs

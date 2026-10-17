@@ -29,7 +29,7 @@ test("the dist service worker installs fresh files and loads the page from the n
 });
 
 test("the wasm wrapper exports the database snapshot bindings", () => {
-  const lib = src("packages/deltachat-wasm/rust/src/lib.rs");
+  const lib = src("packages/velta-wasm/rust/src/lib.rs");
   for (const f of ["sqlite_list", "sqlite_export", "sqlite_import"]) assert.match(lib, new RegExp(`pub fn ${f}\\(`));
 });
 

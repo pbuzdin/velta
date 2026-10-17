@@ -1160,23 +1160,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "deltachat-wasm"
-version = "0.1.0"
-dependencies = [
- "console_error_panic_hook",
- "deltachat",
- "deltachat-jsonrpc",
- "futures-core",
- "js-sys",
- "serde_json",
- "sqlite-wasm-rs",
- "velta-tokio-wasm",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "yerpc",
-]
-
-[[package]]
 name = "deltachat_derive"
 version = "2.0.0"
 dependencies = [
@@ -6020,6 +6003,23 @@ dependencies = [
  "tokio",
  "wasm-bindgen-futures",
  "wasmtimer",
+]
+
+[[package]]
+name = "velta-wasm"
+version = "0.1.0"
+dependencies = [
+ "console_error_panic_hook",
+ "deltachat",
+ "deltachat-jsonrpc",
+ "futures-core",
+ "js-sys",
+ "serde_json",
+ "sqlite-wasm-rs",
+ "velta-tokio-wasm",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "yerpc",
 ]
 
 [[package]]

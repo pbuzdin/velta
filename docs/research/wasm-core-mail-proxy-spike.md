@@ -11,6 +11,10 @@ re-check (nothing to drop); interop scoped, gated on a VPN window. Master
 Started **2026-10-05** (Europe/Moscow). Research baseline:
 [`wasm-core-mail-proxy.md`](wasm-core-mail-proxy.md).
 
+> 2026-10-17: the wrapper was renamed `packages/deltachat-wasm` → `packages/velta-wasm`
+> (crate `velta-wasm`, glue `velta_wasm.js` / `velta_wasm_bg.wasm`, scripts
+> `*-velta-wasm*.mjs`). Entries below use the new names; side-tree paths keep theirs.
+
 Goal: validate `experintellia/slothfulchat-web` + `pbuzdin/relay` branch
 `link2xt/websockify` enough to decide whether to forward-port wasm patches onto
 Velta’s core 2.62.0.
@@ -54,9 +58,9 @@ or listed; the Unlicense `ws-tcp-proxy` is fine to reuse as a pattern.
      wasm-pack build --target web --release --no-opt --out-dir ../wasm-dist
    ```
 5. **Result: SUCCESS** in ~6m 23s. Artifact:
-   - `deltachat_wasm_bg.wasm` **~28 MB** (release, LTO, **without** `wasm-opt`;
+   - `velta_wasm_bg.wasm` **~28 MB** (release, LTO, **without** `wasm-opt`;
      published npm `@slothfulchat/core-wasm@0.9.1` ships ~17 MB after opt)
-   - companion `deltachat_wasm.js` / `.d.ts` from wasm-bindgen 0.2.126
+   - companion `velta_wasm.js` / `.d.ts` from wasm-bindgen 0.2.126
 
 ### Browser smoke (`get_system_info`)
 Used the published package’s JS glue (`dist/`, `@slothfulchat/core-wasm@0.9.1`)
@@ -197,7 +201,7 @@ hand port (Cargo + tls/blob drift).
 ### Blockers for wasm-pack / smoke on 2.62
 1. Port remaining WASM-CORE: **0005** (ws_tcp), **0006** (clocks), **0007**, **0010** (fetch).
 2. mail-builder 0.5 vs prototype 0.4.4 fork (time panics may return at runtime).
-3. MPL `deltachat-wasm` bindgen crate + JS glue (do not import GPL UI).
+3. MPL `velta-wasm` bindgen crate + JS glue (do not import GPL UI).
 4. Native full-feature check needs pkg-config/OpenSSL on the spike host (env).
 
 ## Build outcome
@@ -227,7 +231,7 @@ untouched (`apply-core-patches.py verify` **13/13**).
 ### Artifact
 - Minimal MPL `packages/core-wasm` (jsonrpc `init`/`receive` + memfs side channel; no OPFS/heal/crypto-offload).
 - `wasm-pack build --target web --release --no-opt` → **exit 0**
-- Artifact: `deltachat_wasm_bg.wasm` **~29 MB** (unoptimized; expect ~17 MB with `wasm-opt`)
+- Artifact: `velta_wasm_bg.wasm` **~29 MB** (unoptimized; expect ~17 MB with `wasm-opt`)
 - Toolchain: nightly-2026-08-01, `wasm-bindgen-cli` **0.2.129** (match lock), clang, `getrandom_backend=wasm_js`
 
 ### Browser smoke
@@ -296,7 +300,7 @@ gate for the experimental port; landing still needs extracted patches + review
 ### wasm-opt (optional)
 | Artifact | Size |
 |---|---|
-| `deltachat_wasm_bg.wasm` (`--no-opt`) | **~29 MB** (29 918 680 bytes) |
+| `velta_wasm_bg.wasm` (`--no-opt`) | **~29 MB** (29 918 680 bytes) |
 | after `wasm-opt -Os` (binaryen 120) | **~18 MB** (18 516 912 bytes) |
 
 Ship/opt path should prefer `wasm-opt` when available (~38% smaller here).
@@ -368,10 +372,10 @@ Day-4 port changed `image_metadata` to `fn(&mut R) -> Result<Option<Exif>>`
 Full `deltachat` lib (~1100+ tests) not run end-to-end this day (time); compile of `--lib` tests **PASS**.
 
 ### In-repo MPL wrapper
-- `packages/deltachat-wasm/` — MPL-2.0 minimal JSON-RPC wasm entry (from side-tree core-wasm)
+- `packages/velta-wasm/` — MPL-2.0 minimal JSON-RPC wasm entry (from side-tree core-wasm)
 - Paths assume apply-on-copy workspace (`../../../core` etc.)
 - `apply-on-copy` now copies the package into dest
-- `scripts/smoke-deltachat-wasm.mjs` (`PACKAGE_ROOT` env)
+- `scripts/smoke-velta-wasm.mjs` (`PACKAGE_ROOT` env)
 - Opt-in CI: apply-on-copy → check → **wasm-pack** → Playwright smoke
 
 ### Series
@@ -408,7 +412,7 @@ in master too. Not a wasm issue.
 ### Opt-in CI on GitHub — **green first try**
 `workflow_dispatch` run `37375955983` on `dadb5aa` (2026-10-06 00:27–00:40 MSK, ~13 min):
 apply-on-copy 9/9 → wasm `cargo check` (~3.5 min) → install wasm-pack + bindgen
-0.2.129 (~3 min) → **wasm-pack build of in-repo `packages/deltachat-wasm`** (~5.5 min)
+0.2.129 (~3 min) → **wasm-pack build of in-repo `packages/velta-wasm`** (~5.5 min)
 → **Playwright smoke PASS**. No fixes needed. First in-repo (non-side-tree)
 wasm-pack + smoke.
 
@@ -452,7 +456,7 @@ crates; `tools/apply-wasm-core-patches.py` + CI read it):
 | File | Notes |
 |---|---|
 | `core.Cargo.lock` | master `core/Cargo.lock` + the series' minimal re-resolve ("Locking 37 packages": wasm-bindgen 0.2.100→**0.2.129**, rusqlite 0.37→**0.40.2**, libsqlite3-sys 0.35→**0.38.2**, hashlink 0.10→0.12.2, js-sys/web-sys 0.3.106, sqlite-wasm-rs 0.5.5, vendored async-imap / astral-tokio-tar 0.6.3 / mail-builder 0.5.0 / tokio-wasm-shim, …) |
-| `deltachat-wasm.Cargo.lock` | wrapper is its own workspace; **seeded from the core copy lock** then resolved (only `console_error_panic_hook` added) → png **0.18.0**, same as core (the side tree had drifted to 0.18.1) |
+| `velta-wasm.Cargo.lock` | wrapper is its own workspace; **seeded from the core copy lock** then resolved (only `console_error_panic_hook` added) → png **0.18.0**, same as core (the side tree had drifted to 0.18.1) |
 | `PROVENANCE` | sha256 of master `core/Cargo.lock` (`03978ad9…7ea5`), series, support/wrapper manifests, both locks; `wasm_bindgen_version=0.2.129` |
 
 Script (`tools/apply-wasm-core-patches.py`):
@@ -474,11 +478,11 @@ Local verification (pinned copy `/tmp/velta-wasm-day9`):
 | `cargo check --locked -p deltachat --lib --target wasm32-unknown-unknown --no-default-features` | **PASS** (1m35s; 4 pre-existing warnings) |
 | `wasm-pack build --target web --release --no-opt --out-dir ../wasm-dist -- --locked` | **PASS** (3m02s); both locks byte-identical afterwards |
 | `wasm-opt -Os` (binaryen 120, CI feature flags) | **29 917 803 → 18 524 339 bytes** (54 s) |
-| `smoke-deltachat-wasm.mjs` on optimized artifact | **PASS** (`core v2.62.0`, sqlite 3.53.0; memfs roundtrip) |
+| `smoke-velta-wasm.mjs` on optimized artifact | **PASS** (`core v2.62.0`, sqlite 3.53.0; memfs roundtrip) |
 | Stale-lock negative test (edit a patch) | `REFUSED … series_sha256 …`, exit 3, nothing copied |
 
 ### 3. alice→bob e2e on the in-repo wrapper — **PASS**
-New in-repo harness `scripts/e2e-deltachat-wasm-network.mjs` (port of the Day-4
+New in-repo harness `scripts/e2e-velta-wasm-network.mjs` (port of the Day-4
 side-tree script; `PACKAGE_ROOT` + `WS_TCP_PROXY` env; never prints account
 addresses/passwords). Proxy: Unlicense `ws-tcp-proxy` from a scratch
 slothfulchat-web clone (not vendored). Relay: `nine.testrun.org`, unchanged.
@@ -486,16 +490,16 @@ slothfulchat-web clone (not vendored). Relay: `nine.testrun.org`, unchanged.
 ```sh
 python3 tools/apply-wasm-core-patches.py apply-on-copy --dest /tmp/velta-wasm-day9
 python3 tools/apply-wasm-core-patches.py verify-copy  --dest /tmp/velta-wasm-day9
-(cd /tmp/velta-wasm-day9/packages/deltachat-wasm/rust && \
+(cd /tmp/velta-wasm-day9/packages/velta-wasm/rust && \
   CC=clang wasm-pack build --target web --release --no-opt --out-dir ../wasm-dist -- --locked)
-(cd /tmp/velta-wasm-day9/packages/deltachat-wasm/wasm-dist && \
+(cd /tmp/velta-wasm-day9/packages/velta-wasm/wasm-dist && \
   wasm-opt -Os --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext \
     --enable-mutable-globals --enable-reference-types --enable-multivalue \
-    deltachat_wasm_bg.wasm -o o.wasm && mv o.wasm deltachat_wasm_bg.wasm)
+    velta_wasm_bg.wasm -o o.wasm && mv o.wasm velta_wasm_bg.wasm)
 cd scripts && npm install
-PACKAGE_ROOT=/tmp/velta-wasm-day9/packages/deltachat-wasm \
+PACKAGE_ROOT=/tmp/velta-wasm-day9/packages/velta-wasm \
 WS_TCP_PROXY=/path/to/slothfulchat-web/packages/ws-tcp-proxy/ws-tcp-proxy.mjs \
-CHROMIUM_BIN=/usr/bin/google-chrome node e2e-deltachat-wasm-network.mjs
+CHROMIUM_BIN=/usr/bin/google-chrome node e2e-velta-wasm-network.mjs
 ```
 
 | Artifact | Result | Marker | In-page time |
@@ -541,7 +545,7 @@ Pavel approved Day 10. Still **no** production `core/` merge.
 accounts on the public test relay). When set:
 - fetches the Unlicense `ws-tcp-proxy` **pinned** to slothfulchat-web
   `452cd0d` (`git fetch --depth 1 <sha>`, `npm ci`) — not vendored into Velta;
-- runs `scripts/e2e-deltachat-wasm-network.mjs` on the **wasm-opt** artifact
+- runs `scripts/e2e-velta-wasm-network.mjs` on the **wasm-opt** artifact
   with `CHATMAIL_ALLOWLIST=nine.testrun.org` (proxy refuses other hosts),
   `timeout-minutes: 10`, `continue-on-error`; marker + time go to the job summary.
 
@@ -641,8 +645,8 @@ Verification on fresh pinned apply-on-copy `/tmp/velta-wasm-day11`
 |---|---|
 | native `cargo nextest run --locked -p deltachat --lib` | **1135 run: 1135 passed, 1 skipped** (33.5 s), 0 warnings |
 | wasm `cargo check --locked` (nightly-2026-08-01) | **PASS**, 0 `deltachat` warnings (2× upstream `unused_braces` in tar) |
-| `wasm-pack build --release --no-opt -- --locked` | **PASS**, `deltachat_wasm_bg.wasm` 29 917 028 B |
-| `smoke-deltachat-wasm.mjs` | **PASS** (`core v2.62.0`, sqlite 3.53.0; memfs roundtrip) |
+| `wasm-pack build --release --no-opt -- --locked` | **PASS**, `velta_wasm_bg.wasm` 29 917 028 B |
+| `smoke-velta-wasm.mjs` | **PASS** (`core v2.62.0`, sqlite 3.53.0; memfs roundtrip) |
 
 ### 2. SQLCipher 4.6.1 → 4.14.0 upgrade + rollback (native, scratch)
 Harness ([`wasm-patches/sqlcipher-harness/`](wasm-patches/sqlcipher-harness/)):
@@ -895,7 +899,7 @@ the wasm-layer rollback (discrete stack, `cfg`-gated, one revert).
   (`=0` forces off) and tried **only when no native shell exists**
   (`!VeltaBridge && !__TAURI__`) — the Tauri/Android builds are untouched.
   Glue bundle location: `?wasm-glue=` / `localStorage velta-wasm-glue`,
-  default `./wasm/deltachat_wasm.js` (the C4 dist layout).
+  default `./wasm/velta_wasm.js` (the C4 dist layout).
 - **Rig PASS (app boot mode):** the real `app/index.html` UI booted over the
   worker-wasm transport — full boot sequence (drawer, chat view, chat-list
   refresh, UI bind) on a fresh memfs account, no demo-mode fallback. Landing
@@ -909,7 +913,7 @@ the wasm-layer rollback (discrete stack, `cfg`-gated, one revert).
 
 ## Day 16 — OPFS persistence: accounts survive reload (2026-10-06)
 
-- **Wrapper** (`packages/deltachat-wasm/rust`): module-level `vfs_*`
+- **Wrapper** (`packages/velta-wasm/rust`): module-level `vfs_*`
   bindings (`read/write/remove/mkdirp/exists` + async `vfs_list` — snapshot
   `read_dir` drained with `Waker::noop`, dirs carry a trailing `/`),
   usable **before** `init` so JS can restore a snapshot ahead of core
@@ -958,7 +962,7 @@ the wasm-layer rollback (discrete stack, `cfg`-gated, one revert).
   box cannot reach chatmail relays at all (VPN fake-IP: TCP connects, TLS
   times out — verified vs nine.testrun.org; github.com works). Hence the
   identity e2e lives in CI where the network e2e already runs.
-- **New `scripts/e2e-deltachat-wasm-identity.mjs`:** real throwaway account
+- **New `scripts/e2e-velta-wasm-identity.mjs`:** real throwaway account
   → configure over the proxy → `export_self_keys` → tar via memfs side
   channel → fresh account → same addr/password → `import_self_keys` →
   `configure` → assert `configured_addr == email`. Workflow step added
@@ -989,7 +993,7 @@ the wasm-layer rollback (discrete stack, `cfg`-gated, one revert).
   configured, so a later `configure()` short-circuits with
   `configured_addr=null`. Correct order: `batch_set_config` → `configure`
   (re-login proof) → `import_self_keys`. CI script
-  (`e2e-deltachat-wasm-identity.mjs`) updated to this order + directory
+  (`e2e-velta-wasm-identity.mjs`) updated to this order + directory
   semantics + wrapper `fs_list` instance method.
 - **Open:** the full local round-trip still needs a stable VPN window
   (flapping `fetch` killed two attempts mid-run); the CI identity e2e runs
@@ -1036,7 +1040,7 @@ the wasm-layer rollback (discrete stack, `cfg`-gated, one revert).
   Day-16 push (e.g. run 37411669569 @ 04:00Z vs 865a9d34 @ 05:25Z) lack the
   module-level `vfs_*` exports — the worker then silently no-ops OPFS
   (checkpoint failures are swallowed). Quick check:
-  `grep -c vfs_list deltachat_wasm.js`.
+  `grep -c vfs_list velta_wasm.js`.
 - **CI (run 37504603502):** identity e2e (V2.5 round-trip) **first green** —
   Day-17/18 leftover closed. Networking e2e pass #4, still on 2026-10-06, so
   the "≥3 passes on different days" box stays open.
@@ -1161,7 +1165,7 @@ the wasm-layer rollback (discrete stack, `cfg`-gated, one revert).
     own mail domain — no open resolver.
   - Origin gate + `limit_conn` apply to all three endpoints; README
     documents both endpoint shapes and the TLS topology.
-- **Velta side:** `e2e-deltachat-wasm-network.mjs` gained `RELAY_WS_URL`
+- **Velta side:** `e2e-velta-wasm-network.mjs` gained `RELAY_WS_URL`
   mode — set it to `wss://<relay>` and the core dials the relay-native
   endpoints directly (no local ws-tcp-proxy); classic mode unchanged. The
   relay-native e2e runs the moment a test relay deploys the branch.
@@ -1187,7 +1191,7 @@ the wasm-layer rollback (discrete stack, `cfg`-gated, one revert).
 - **Landing checklist burn-down (18 → 17):** ticked §2
   "wasm-bindgen crate == wasm-bindgen-cli … documented for local builds"
   (PROVENANCE 0.2.129 + local matching requirement now in
-  `packages/deltachat-wasm/README.md`). Sharpened the §2 nightly box: the
+  `packages/velta-wasm/README.md`). Sharpened the §2 nightly box: the
   pin lives only in the wasm CI job + copy workspace; ticking needs the
   open verification that the copy builds natively on stable (WSL —
   `apply-on-copy` refuses on the CRLF `/mnt/c` checkout).
