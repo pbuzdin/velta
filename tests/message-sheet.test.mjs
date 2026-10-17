@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 globalThis.HTMLElement = class {};
 globalThis.window = { addEventListener() {}, removeEventListener() {} };
-const { messageSheetRows } = await import("../app/js/ui.js");
+const { messageSheetRows, footButtons } = await import("../app/js/ui.js");
 const { searchEmoji } = await import("../app/js/emoji.js");
 
 test("related actions share a row and delete is full width", () => {
@@ -37,4 +37,21 @@ test("the emoji tray lists every glyph once and keeps merged keywords", () => {
   assert.equal(new Set(all.map(e => e.emoji)).size, all.length);
   assert.ok(searchEmoji("gymnastics").some(e => e.emoji === "🤸"));
   assert.ok(searchEmoji("lips").some(e => e.emoji === "👄"));
+});
+
+test("footButtons builds Cancel + action as direct fragment children", () => {
+  const prev = globalThis.document;
+  globalThis.document = {
+    createDocumentFragment: () => ({ kids: [], append(...k) { this.kids.push(...k); } }),
+    createElement: tag => ({ tag }),
+  };
+  try {
+    const { foot, cancel, ok } = footButtons("Join", { okType: "submit", okClass: "btn-text btn-primary" });
+    assert.deepEqual(foot.kids, [cancel, ok]);
+    assert.deepEqual({ ...cancel }, { tag: "button", type: "button", className: "btn-text", textContent: "Cancel" });
+    assert.deepEqual({ ...ok }, { tag: "button", type: "submit", className: "btn-text btn-primary", textContent: "Join" });
+    const only = footButtons(null, { cancelLabel: "Close" });
+    assert.equal(only.ok, null);
+    assert.deepEqual(only.foot.kids.map(b => b.textContent), ["Close"]);
+  } finally { globalThis.document = prev; }
 });

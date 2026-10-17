@@ -321,6 +321,24 @@ export function showStickerPicker({ getStickers, onPick }) {
   return pop;
 }
 
+// Modal footer as a fragment (its buttons become direct children of
+// .modal-foot -> one-row flex): a Cancel-style button plus an optional
+// action button. okType "submit" pairs with showModal({ form: true }).
+export function footButtons(okLabel = null, { cancelLabel = "Cancel", okType = "button", okClass = "btn-text" } = {}) {
+  const foot = document.createDocumentFragment();
+  const button = (text, type, className) => {
+    const b = document.createElement("button");
+    b.type = type;
+    b.className = className;
+    b.textContent = text;
+    return b;
+  };
+  const cancel = button(cancelLabel, "button", "btn-text");
+  const ok = okLabel == null ? null : button(okLabel, okType, okClass);
+  foot.append(...(ok ? [cancel, ok] : [cancel]));
+  return { foot, cancel, ok };
+}
+
 export function showModal({ title, body, foot, onClose, compact = false, form = false }) {
   // Android BACK must close a modal, not exit the app: the modal rides a
   // history entry (same contract as the lightbox). When a modal replaces

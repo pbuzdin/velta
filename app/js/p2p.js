@@ -2,7 +2,7 @@
 // Tauri shell (src-tauri/src/p2p.rs). Available only inside the Tauri app —
 // the plain-browser PWA has no iroh endpoint to talk to.
 
-import { showModal, toast, notifyIncoming } from "./ui.js";
+import { showModal, footButtons, toast, notifyIncoming } from "./ui.js";
 import { escapeHtml } from "./format.js";
 import { acquireCode } from "./qr-scan.js";
 import { diagnosticsSink } from "./diagnostics.js";
@@ -96,14 +96,7 @@ async function showPairRequest(peerId, name) {
         pair with this device for Local chat — direct end-to-end-encrypted messages between
         devices on the same network.</p>
         <p class="p2p-hint" style="opacity:.75">Pair only if you recognize this device.</p>`;
-      const foot = document.createDocumentFragment(); // direct child of .modal-foot -> one-row flex
-      const deny = document.createElement("button");
-      deny.type = "button";
-      deny.className = "btn-text"; deny.textContent = "Deny";
-      const ok = document.createElement("button");
-      ok.type = "button";
-      ok.className = "btn-text btn-primary"; ok.textContent = "Pair";
-      foot.append(deny, ok);
+      const { foot, cancel: deny, ok } = footButtons("Pair", { cancelLabel: "Deny", okClass: "btn-text btn-primary" });
       const { close, modal } = showModal({ title: "Pairing request", body, foot, onClose: () => resolve(false) });
       modal.classList.add("pair-request");
       deny.addEventListener("click", () => { resolve(false); close(); });
@@ -249,14 +242,7 @@ export async function showCreateGroupModal(invoke) {
         : `<div class="p2p-empty">No paired devices yet. Pair with another Velta device first.</div>`}
       ${model.atLimit ? `<p class="p2p-hint" style="color:var(--danger)">You already have ${model.active} active groups (the maximum). Leave one first.</p>` : ""}
       <p class="p2p-hint" data-warn style="opacity:.8" hidden></p>`;
-    const foot = document.createDocumentFragment();
-    const cancel = document.createElement("button");
-    cancel.type = "button";
-    cancel.className = "btn-text"; cancel.textContent = "Cancel";
-    const ok = document.createElement("button");
-    ok.type = "button";
-    ok.className = "btn-text"; ok.textContent = "Create";
-    foot.append(cancel, ok);
+    const { foot, cancel, ok } = footButtons("Create");
     let busy = false;
     const nameEl = body.querySelector("[data-gname]");
     const countEl = body.querySelector("[data-count]");
@@ -328,14 +314,7 @@ export async function showAddMembersModal(invoke, gid) {
         New members see messages sent from now on.</p>
       ${peers.length ? `<div class="p2p-rows">${rows}</div>`
         : `<div class="p2p-empty">No other paired devices. Pair with a device first (Local chat → Add contact).</div>`}`;
-    const foot = document.createDocumentFragment();
-    const cancel = document.createElement("button");
-    cancel.type = "button";
-    cancel.className = "btn-text"; cancel.textContent = "Cancel";
-    const ok = document.createElement("button");
-    ok.type = "button";
-    ok.className = "btn-text"; ok.textContent = "Add";
-    foot.append(cancel, ok);
+    const { foot, cancel, ok } = footButtons("Add");
     const countEl = body.querySelector("[data-count]");
     let busy = false, done = false;
     const sync = () => {

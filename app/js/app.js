@@ -14,7 +14,7 @@ import { notePushDiagnostic, relaySupportsPush, pushMarkHtml } from "./relay-pus
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow, isSendFailureDiagnostic, createRelaySendErrorState } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal, isShortInviteLink, expandShortInvite } from "./invites.js";
 import { activeWsRelay, addWsRelay, listWsRelays, normalizeHost, probeC3Relay, probeDnsVia, showWsRelaysModal, useWsRelay } from "./ws-relays.js";
-import { openImageLightbox, openVideoLightbox, bindMenuToggle, buildDrawer, showModal, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate, popoverSupported, fillSplashVersion } from "./ui.js";
+import { openImageLightbox, openVideoLightbox, bindMenuToggle, buildDrawer, showModal, footButtons, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate, popoverSupported, fillSplashVersion } from "./ui.js";
 import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact, showCreateGroupModal, showAddMembersModal } from "./p2p.js";
 import { withLocalChat, hubModel, renameDevice, removePeer, dismissLocalGroup, groupRename, groupRemoveMember, peerGroupImpact, groupActionsModel, groupMemberHint, removePeerImpactText, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
 import { timeAgo, formatBytes, timeTag } from "./format.js";
@@ -2293,16 +2293,7 @@ async function openEphemeralDialog(chat, valEl, epoch) {
   note.textContent = "Applies to all members of this chat; they can still copy, save, and forward messages.";
   const body = document.createElement("div");
   body.append(list, note);
-  const foot = document.createDocumentFragment(); // direct child of .modal-foot -> one-row flex
-  const cancel = document.createElement("button");
-  cancel.type = "button";
-  cancel.className = "btn-text";
-  cancel.textContent = "Cancel";
-  const ok = document.createElement("button");
-  ok.type = "button";
-  ok.className = "btn-text";
-  ok.textContent = "OK";
-  foot.append(cancel, ok);
+  const { foot, cancel, ok } = footButtons("OK");
   // The dialog replaces the sheet's modal history entry, so every close
   // path (OK, Cancel, X, BACK) tears the sheet down with it — reopen a
   // fresh sheet, same contract as the profile editor.
@@ -2361,12 +2352,7 @@ function openMuteDialog(chat, valEl, epoch) {
     label.append(input, Object.assign(document.createElement("span"), { textContent: o.label }));
     list.appendChild(label);
   }
-  const foot = document.createDocumentFragment(); // direct child of .modal-foot -> one-row flex
-  const cancel = document.createElement("button");
-  cancel.type = "button";
-  cancel.className = "btn-text";
-  cancel.textContent = "Cancel";
-  foot.append(cancel);
+  const { foot, cancel } = footButtons();
   const { close } = showModal({
     title: "Mute notifications", body: list, foot,
     onClose: async () => { await modalHistorySettled(); if (accountIsCurrent(epoch)) showChatInfo(chat); },
@@ -3116,15 +3102,8 @@ async function pickContactModal(title, multi = false) {
       });
       list.appendChild(item);
     }
-    const foot = document.createDocumentFragment(); // direct child of .modal-foot -> one-row flex
-    const cancel = document.createElement("button");
-    cancel.type = "button";
-    cancel.className = "btn-text"; cancel.textContent = "Cancel";
-    const ok = document.createElement("button");
-    ok.type = "button";
-    ok.className = "btn-text"; ok.textContent = multi ? "Create" : "OK";
+    const { foot, cancel, ok } = footButtons(multi ? "Create" : "OK");
     ok.disabled = true;
-    foot.append(cancel, ok);
     const { close } = showModal({ title, body: list, foot, onClose: () => resolve(null) });
     cancel.addEventListener("click", () => { close(); resolve(null); });
     ok.addEventListener("click", () => { resolve(contacts.filter(c => selected.has(c.id))); close(); });
@@ -3256,16 +3235,8 @@ function askText(title, value, okLabel) {
     body.innerHTML = `<input class="text-field" maxlength="64" placeholder="${escapeAttr(title)}">`;
     const input = body.querySelector("input");
     input.value = value || "";
-    const foot = document.createDocumentFragment();
-    const cancel = document.createElement("button");
-    cancel.type = "button";
-    cancel.className = "btn-text"; cancel.textContent = "Cancel";
-    const ok = document.createElement("button");
-    ok.type = "submit";
-    ok.className = "btn-text btn-primary";
+    const { foot, cancel, ok } = footButtons(okLabel || "Save", { okType: "submit", okClass: "btn-text btn-primary" });
     ok.style.width = "auto";
-    ok.textContent = okLabel || "Save";
-    foot.append(cancel, ok);
     const done = v => { resolve(v); close(); };
     const { close, form } = showModal({ title, body, foot, form: true, onClose: () => resolve(null) });
     form.addEventListener("submit", () => done(input.value.trim()));
@@ -3281,16 +3252,8 @@ function askGroupName() {
     const input = body.querySelector("input");
     // Fragment, not a wrapping div: the buttons land as direct children of
     // .modal-foot and inherit its one-row flex layout.
-    const foot = document.createDocumentFragment();
-    const cancel = document.createElement("button");
-    cancel.type = "button";
-    cancel.className = "btn-text"; cancel.textContent = "Cancel";
-    const ok = document.createElement("button");
-    ok.type = "submit";
-    ok.className = "btn-text btn-primary";
+    const { foot, cancel, ok } = footButtons("Create group", { okType: "submit", okClass: "btn-text btn-primary" });
     ok.style.width = "auto"; // btn-primary defaults to the full-width onboarding bar
-    ok.textContent = "Create group";
-    foot.append(cancel, ok);
     const done = value => { resolve(value); close(); };
     const { close, form } = showModal({ title: "New group", body, foot, form: true, onClose: () => resolve(null) });
     form.addEventListener("submit", () => done(input.value.trim() || "New group"));
@@ -4753,14 +4716,7 @@ function joinFlow() {
   body.innerHTML = `
     <p style="font-size:14.5px;line-height:1.5;margin-bottom:4px">Paste an invite link (<code>https://i.delta.chat/#…</code>, a mirror domain, or a short link like <code>deltachat.id/&lt;name&gt;</code>) — works for both 1:1 contacts and group chats.</p>
     <input class="text-field" placeholder="https://i.delta.chat/#DD1F…" id="join-input" required inputmode="url" autocapitalize="none" autocomplete="off" spellcheck="false" aria-label="Invite link">`;
-  const foot = document.createDocumentFragment(); // direct child of .modal-foot -> one-row flex
-  const cancel = document.createElement("button");
-  cancel.type = "button";
-  cancel.className = "btn-text"; cancel.textContent = "Cancel";
-  const ok = document.createElement("button");
-  ok.type = "submit";
-  ok.className = "btn-text"; ok.textContent = "Join";
-  foot.append(cancel, ok);
+  const { foot, cancel, ok } = footButtons("Join", { okType: "submit" });
   const { close, form } = showModal({ title: "Join chat via invite link", body, foot, form: true });
   cancel.addEventListener("click", close);
   form.addEventListener("submit", () => {
