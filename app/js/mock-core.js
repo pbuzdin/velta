@@ -653,12 +653,20 @@ export class MockCore extends EventTarget {
   }
 
   // Second-device backup transfer — demo no-ops (same contract as rpc-core).
-  async provideBackup() {}
+  // Like the real provide_backup: pending until a device takes the backup
+  // (never, in demo) or stopOngoingProcess cancels it — resolving at once
+  // made the pane report "Profile transferred" and close before the QR.
+  provideBackup() {
+    this._cancelProvide?.();
+    return new Promise((_, reject) => {
+      this._cancelProvide = () => { this._cancelProvide = null; reject(new Error("cancelled")); };
+    });
+  }
   // The real core returns the backup QR as an SVG card; demo draws a plain
   // QR of a demo DCBACKUP2 code so the second-device pane renders.
   async getBackupQrSvg() { return this.createQrSvg("DCBACKUP2:demo-second-device&demo"); }
   async getBackup() {}
-  async stopOngoingProcess() {}
+  async stopOngoingProcess() { this._cancelProvide?.(); }
   async addAccountWithBackup() { return this.accountId; }
 
   // #100 twin — the demo has exactly one profile, so the delete tab's

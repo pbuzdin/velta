@@ -18,3 +18,18 @@ test("demo core draws the second-device backup QR", async () => {
   assert.ok(svg.endsWith("</svg>"));
   assert.equal(svg, await core.getBackupQrSvg(), "deterministic");
 });
+
+// app.js treats a resolved provideBackup() as "transferred" and closes the
+// pane, so the demo twin must stay pending until cancelled, like the core.
+test("demo provideBackup stays pending until stopOngoingProcess", async () => {
+  const core = new MockCore();
+  core._simTimer?.unref();
+  let settled = null;
+  const p = core.provideBackup().then(() => { settled = "resolved"; }, (e) => { settled = e.message; });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(settled, null);
+  await core.stopOngoingProcess();
+  await p;
+  assert.equal(settled, "cancelled");
+  await core.stopOngoingProcess(); // nothing pending: no throw
+});
