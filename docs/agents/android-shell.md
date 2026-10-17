@@ -207,8 +207,7 @@ into `RunEvent::Opened` (plain text → `data:text/plain,…`, a text URL →
 that https URL, files → `content://` or `file://`). `run()` appends every
 URL to `OPENED_URLS` and emits `deeplink` as a wake-up. The page listens
 first, then drains with `take_opened_urls`, so a burst during boot is not
-lost and several photos are one picker. `get_initial_deeplink` still pops
-one URL; the page does not call it. A desktop `deep-link://new-url` is not
+lost and several photos are one picker. A desktop `deep-link://new-url` is not
 in the queue: the plugin emits the URL and the page routes that payload.
 Notification taps use the same queue (Android `Opened`, Windows toast
 `on_activated`); a toast tap that only emits the URL does not open the chat.

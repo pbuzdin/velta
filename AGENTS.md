@@ -822,8 +822,7 @@ the same token, and the toast's `on_activated` focuses the main window,
 queues that link, and emits `deeplink` (in-process only — a toast clicked
 after the app quit just launches it). Frontend: load `chat_link_token`
 before handling any link, listen for `deeplink`, then drain with
-`take_opened_urls` (`get_initial_deeplink` still pops one entry; the page
-does not call it). The `deeplink` payload is not the URL.
+`take_opened_urls`. The `deeplink` payload is not the URL.
 `deep-link://new-url` is the exception: the desktop plugin does not queue,
 and the page routes that payload. Then `handleDeeplinkFromUrl` →
 `extractChatLink` → `openChatFromLink`

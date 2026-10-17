@@ -4400,14 +4400,6 @@ pub fn p2p_messages(
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-pub fn p2p_retry(state: tauri::State<'_, P2pState>, peer_id: String) -> Result<(), String> {
-    engine(&state)
-        .map_err(|e| e.to_string())?
-        .retry(&peer_id)
-        .map_err(|e| e.to_string())
-}
-
 /// Pairs with a nearby (LAN-beaconed) device: the frontend calls this when the
 /// user taps a device in the "Nearby" list — no QR needed.
 #[tauri::command]
@@ -4433,11 +4425,6 @@ pub fn p2p_approve_pair(
 }
 
 // -- Local group chats (Phase 2). Same shape as the 1:1 commands above. -----
-
-#[tauri::command]
-pub fn p2p_groups(state: tauri::State<'_, P2pState>) -> Result<Vec<Value>, String> {
-    engine(&state).map_err(|e| e.to_string()).map(|e| e.groups())
-}
 
 /// Creates a group of this device plus 1..=3 paired devices.
 #[tauri::command]
