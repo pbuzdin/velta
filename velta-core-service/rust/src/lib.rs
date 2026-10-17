@@ -47,7 +47,12 @@ use yerpc::{RpcClient, RpcSession};
 use deltachat_jsonrpc::api::{Accounts, CommandApi};
 
 static JAVA_VM: OnceLock<JavaVM> = OnceLock::new();
-static RPC_LISTENER: OnceLock<RwLock<Option<GlobalRef>>> = OnceLock::new();
+// std lock, not tokio's: deliver_to_java runs inside the core's forwarder
+// task, where tokio's blocking_read() panics (and kills the forwarder).
+static RPC_LISTENER: OnceLock<std::sync::RwLock<Option<GlobalRef>>> = OnceLock::new();
+// The service runtime (nativeStart forgets it): JNI threads have no tokio
+// context, so nativeRpc spawns through this handle.
+static RUNTIME: OnceLock<tokio::runtime::Handle> = OnceLock::new();
 static SESSION: OnceLock<RwLock<Option<RpcSession<CommandApi>>>> = OnceLock::new();
 static BROADCAST: OnceLock<broadcast::Sender<String>> = OnceLock::new();
 
@@ -63,7 +68,7 @@ fn logi(msg: &str) {
 fn deliver_to_java(line: &str) {
     let Some(vm) = JAVA_VM.get() else { return };
     let Ok(mut env) = vm.attach_current_thread() else { return };
-    let Some(listener_ref) = RPC_LISTENER.get().and_then(|l| l.blocking_read().clone()) else {
+    let Some(listener_ref) = RPC_LISTENER.get().and_then(|l| l.read().ok()?.clone()) else {
         return;
     };
     let Ok(jstr) = env.new_string(line) else { return };
@@ -98,7 +103,7 @@ pub extern "system" fn Java_org_velta_coreservice_RpcService_nativeInit(
         return;
     };
     let _ = JAVA_VM.set(vm);
-    let _ = RPC_LISTENER.set(RwLock::new(None));
+    let _ = RPC_LISTENER.set(std::sync::RwLock::new(None));
     let _ = SESSION.set(RwLock::new(None));
     let (tx, _rx) = broadcast::channel(256);
     let _ = BROADCAST.set(tx);
@@ -169,6 +174,7 @@ pub extern "system" fn Java_org_velta_coreservice_RpcService_nativeStart(
     if let Some(sess) = SESSION.get() {
         *sess.blocking_write() = Some(session);
     }
+    let _ = RUNTIME.set(rt.handle().clone());
 
     // spawn the loopback WebSocket bridge
     rt.spawn(async move {
@@ -199,7 +205,7 @@ pub extern "system" fn Java_org_velta_coreservice_RpcService_nativeStop(
         *sess.blocking_write() = None;
     }
     if let Some(listener) = RPC_LISTENER.get() {
-        *listener.blocking_write() = None;
+        set_listener(listener, None);
     }
 }
 
@@ -215,9 +221,17 @@ pub extern "system" fn Java_org_velta_coreservice_RpcService_nativeRpc(
     };
     let Some(sess) = SESSION.get() else { return };
     let Some(session) = sess.blocking_read().clone() else { return };
-    tokio::spawn(async move {
+    let Some(rt) = RUNTIME.get() else {
+        loge("nativeRpc: core runtime not started");
+        return;
+    };
+    rt.spawn(async move {
         session.handle_incoming(&line).await;
     });
+}
+
+fn set_listener(lock: &std::sync::RwLock<Option<GlobalRef>>, value: Option<GlobalRef>) {
+    *lock.write().unwrap_or_else(|e| e.into_inner()) = value;
 }
 
 /// register a Java object that implements `onRpcMessage(String)`
@@ -233,11 +247,11 @@ pub extern "system" fn Java_org_velta_coreservice_RpcService_nativeSetRpcListene
         return;
     };
     if listener.is_null() {
-        *listener_map.blocking_write() = None;
+        set_listener(listener_map, None);
         return;
     }
     match env.new_global_ref(listener) {
-        Ok(g) => *listener_map.blocking_write() = Some(g),
+        Ok(g) => set_listener(listener_map, Some(g)),
         Err(e) => loge(&format!("nativeSetRpcListener: {e}")),
     }
 }
