@@ -842,6 +842,18 @@ export class JsonRpcCore extends EventTarget {
     if (!msg.fileName && label) msg.fileName = label;
   }
 
+  // get_messages result -> mapped messages in `ids` order; ids that failed
+  // to load are skipped. NB: MessageLoadResult uses serde rename_all
+  // camelCase on its tag, so the variant arrives as "message" (NOT "Message").
+  _mapLoaded(loaded, ids) {
+    const out = [];
+    for (const id of ids) {
+      const entry = loaded[String(id)];
+      if (entry?.kind === "message" || entry?.kind === "Message") out.push(this._mapMessage(entry));
+    }
+    return out;
+  }
+
   _mapMessage(m) {
     // timestamp is when it was sent; receivedTimestamp is when this device got it (0 = unset).
     const sentTs = m.timestamp > 0 ? m.timestamp * 1000 : null;
@@ -1488,16 +1500,7 @@ export class JsonRpcCore extends EventTarget {
     const { start, end } = pageBounds(ids, { beforeId, afterId, aroundId, before, limit });
     const page = ids.slice(start, end);
     if (!page.length) return { messages: [], hasMore: start > 0, hasNewer: end < ids.length };
-    const loaded = await this._call("get_messages", accountId, page);
-    const messages = [];
-    for (const id of page) {
-      const entry = loaded[String(id)];
-      // NB: MessageLoadResult uses serde rename_all camelCase on its tag,
-      // so the variant arrives as "message" (NOT "Message").
-      if (entry?.kind === "message" || entry?.kind === "Message") {
-        messages.push(this._mapMessage(entry));
-      }
-    }
+    const messages = this._mapLoaded(await this._call("get_messages", accountId, page), page);
     await this._hydrateServicePeople(messages, accountId);
     return { messages, hasMore: start > 0, hasNewer: end < ids.length };
   }
@@ -1516,12 +1519,7 @@ export class JsonRpcCore extends EventTarget {
     const { accountId } = this;
     if (!ids.length) return [];
     const loaded = await this._call("get_messages", accountId, ids);
-    const out = [];
-    for (const id of ids) {
-      const entry = loaded?.[String(id)];
-      if (entry?.kind === "message" || entry?.kind === "Message") out.push(this._mapMessage(entry));
-    }
-    return out;
+    return this._mapLoaded(loaded ?? {}, ids);
   }
 
   // Core fulltext search (SQLite FTS) over message text — every chat type,
@@ -1533,15 +1531,7 @@ export class JsonRpcCore extends EventTarget {
     const ids = await this._call("search_messages", accountId, query, chatId);
     const page = ids.slice(-limit).reverse();
     if (!page.length) return [];
-    const loaded = await this._call("get_messages", accountId, page);
-    const messages = [];
-    for (const id of page) {
-      const entry = loaded[String(id)];
-      if (entry?.kind === "message" || entry?.kind === "Message") {
-        messages.push(this._mapMessage(entry));
-      }
-    }
-    return messages;
+    return this._mapLoaded(await this._call("get_messages", accountId, page), page);
   }
 
   async sendMessage(chatId, { text = "", quoteId = null, viewtype = "text", file = null, filename = null } = {}) {
