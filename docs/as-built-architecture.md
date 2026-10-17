@@ -94,7 +94,7 @@ flowchart TB
   UI -->|"p2p_* commands, Tauri only"| Local
   Local -->|"QUIC, no iroh relay"| Peer
 
-  Svc["velta-core-service APK<br/>loopback :20808 / :20809<br/>not a release shell"]
+  Svc["velta-core-service APK<br/>loopback :20808<br/>not a release shell"]
   Wasm["PWA wasm worker<br/>work in progress, not a release target"]
   UI -.->|"probe if no shell"| Svc
   UI -.->|"wasm opt-in, no shell"| Wasm
@@ -111,7 +111,7 @@ Release sizes quoted by the README for `1.4.67`: Android arm64 APK about 49 MB, 
 1. `window.VeltaBridge` — an in-WebView bridge. No shipping shell sets it. Android boots through Tauri. `AGENTS.md` §4.3 already marks this probe as dead. Left as-is.
 2. `window.__TAURI__` — the supported path. The page sends JSON-RPC lines with the `rpc` command. Responses and core events come back on the `velta-rpc` event (`lib.rs`).
 3. Wasm worker, only when `wasmOptIn()` is true and neither `VeltaBridge` nor `__TAURI__` is set (`transport-worker-wasm.js`, `worker-wasm.js`). The C4 dist sets `window.VELTA_PWA.wasmCore`. This is the unfinished browser product.
-4. `ws://127.0.0.1:20808`, then `http://127.0.0.1:20809/rpc` — the headless `velta-core-service` APK (`velta-core-service/README.md`). Loopback only.
+4. `ws://127.0.0.1:20808` — the headless `velta-core-service` APK (`velta-core-service/README.md`). Loopback only.
 5. `MockCore` if nothing connects within 20 seconds.
 
 Desktop core process:

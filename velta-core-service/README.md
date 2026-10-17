@@ -71,21 +71,10 @@ gradle assembleDebug
 - Currently arm64-v8a only (covers virtually all devices in use); add
   `armeabi-v7a` by rebuilding the Rust target if needed.
 
-## Built-in PWA host (recommended way to use the chat UI)
+## Using it from the PWA
 
-The APK bundles the chat PWA in `assets/pwa/` and serves it on the same
-loopback HTTP bridge used for JSON-RPC:
-
-    http://127.0.0.1:20809/         → the chat PWA
-    http://127.0.0.1:20809/diag.html → connection diagnostics
-    http://127.0.0.1:20809/health    → "ok" if the bridge is alive
-    http://127.0.0.1:20809/rpc       → JSON-RPC endpoint (POST)
-    ws://127.0.0.1:20808             → JSON-RPC over WebSocket
-
-Open http://127.0.0.1:20809/ in Chrome, then "Add to Home screen" — the PWA
-installs from the loopback origin. Because page and core share the loopback
-host, Chrome's Private-Network-Access and mixed-content rules do not apply:
-the WebSocket transport works directly, with the HTTP transport as fallback.
-
-To update the bundled UI: copy the new PWA files into
-`android/app/src/main/assets/pwa/` and rebuild the APK.
+Pair once: tap the launcher icon, copy the bridge token, and store it in the
+client's `localStorage` as `velta-bridge-token`. The PWA then finds the
+service on `ws://127.0.0.1:20808`; `diag.html` checks the socket, the token
+and one JSON-RPC round trip. There is no HTTP endpoint (the old
+`127.0.0.1:20809` bridge was removed).

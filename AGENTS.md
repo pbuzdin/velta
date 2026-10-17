@@ -21,7 +21,7 @@ build/test commands, and conventions as they actually exist in this checkout.
   system WebView and the Delta Chat Rust core is linked in-process.
 - **Background Android service** (`velta-core-service/`) — a headless APK that runs
   the core as a foreground service and exposes it to the PWA over a loopback
-  WebSocket/HTTP bridge.
+  WebSocket bridge.
 - **Standalone browser** — the wasm PWA dist (`scripts/build-pwa.mjs`) is a
   static site with the Chatmail core in a worker. Mail uses a WebSocket
   proxy on a chatmail relay; the PWA origin and the proxy host can differ
@@ -926,8 +926,7 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   1. Android WebView native bridge (`window.VeltaBridge`)
   2. Tauri IPC (`window.__TAURI__`)
   3. WebSocket to `ws://127.0.0.1:20808`
-  4. HTTP to `http://127.0.0.1:20809/rpc`
-  5. `MockCore` fallback
+  4. `MockCore` fallback
 - `app/js/rpc-core.js` wraps any transport with a JSON-RPC client, maps core
   events to UI events, and exposes the same API surface as `mock-core.js`:
   multi-account (`getAllAccounts`/`switchAccount`/`addAccountWithQr` — a
@@ -2291,7 +2290,8 @@ Beyond that, the primary verification path is manual:
    media, and a 2400-message chat for scroller testing.
 2. Run a real backend (`deltachat-rpc-server`, the Tauri app, or the Android
    service) and confirm the transport switches from mock to real.
-3. Use `app/diag.html` to diagnose WebSocket/HTTP connectivity to the service.
+3. Use `app/diag.html` to diagnose WebSocket connectivity to the service
+   (open, token from `velta-bridge-token`, one JSON-RPC round trip).
 
 For end-to-end verification against a **real core** (message delivery,
 deletion requests, SecureJoin), the setup used during development is:
@@ -2345,8 +2345,8 @@ and account-switch cleared. Tests: `tests/lru-caches.test.mjs`.
 
 - **Encryption is handled by the core.** The frontend must never touch private
   keys or plaintext mail credentials; it only speaks JSON-RPC to the core.
-- **Loopback-only service.** The Android service bridge binds to `127.0.0.1:20808`
-  and `127.0.0.1:20809`. Do not expose these ports to other interfaces.
+- **Loopback-only service.** The Android service bridge binds to `127.0.0.1:20808`.
+  Do not expose it to other interfaces.
 - **CSP.** The Tauri `tauri.conf.json` and `tauri.android.conf.json` set a
   restrictive CSP rooted in `default-src 'self'` with no `unsafe-inline` or
   `unsafe-eval` for scripts (inline scripts are blocked — that is relied on,
@@ -2378,12 +2378,14 @@ and account-switch cleared. Tests: `tests/lru-caches.test.mjs`.
     CSP path pinning can never scope them (CSP paths are not a security
     boundary), and the cross-origin page fetch fails on CORS regardless
     (GitHub's CDN sends no ACAO headers — that is what silently killed the
-    banner in 1.4.14/1.4.15). The `ws://127.0.0.1:20808` / `http://127.0.0.1:20809`
-    entries stay (V-02 verdict, #62): they are the service-APK transports —
-    20809 exists because Chrome blocks `ws://` to loopback from a
-    secure-context page, so it cannot be dropped. Both endpoints are
-    token-gated since #61; never re-widen connect-src beyond loopback
-    without that same gating.
+    banner in 1.4.14/1.4.15). The `ws://127.0.0.1:20808` entry stays: it
+    is the service-APK transport, token-gated since #61; never re-widen
+    connect-src beyond loopback without that same gating. The
+    `http://127.0.0.1:20809` entry (V-02, #62: kept because Chrome blocks
+    `ws://` to loopback from a secure-context page) went 10-17 with the
+    service's HTTP bridge, which never answered an RPC (instant 504). If
+    that block applies, an HTTPS-hosted page has no service path; the
+    Tauri shells, the wasm PWA and pages served over http are unaffected.
 - **Webxdc sandbox is opaque-origin.** `webxdc-manager.js` deliberately omits
   `allow-same-origin` from the iframe sandbox: every mini-app document gets a
   unique opaque origin and can reach neither the host page nor other apps'
@@ -2537,27 +2539,22 @@ taps above). The vestigial-SW caveat below applies only to plain `app/`.
 
 ### 9.3 Android background service
 
-- The APK has no UI; it starts a foreground service, links `librpc_core.so`,
-  and optionally serves the PWA from `assets/pwa/` on `http://127.0.0.1:20809`.
+- The APK has no UI; it starts a foreground service and links `librpc_core.so`.
 - The WebSocket bridge is on `ws://127.0.0.1:20808` and supports multiple
   concurrent clients.
-- **Loopback bridges are token-gated** (V-01/#61): the service generates a
+- **The loopback bridge is token-gated** (V-01/#61): the service generates a
   128-bit token per start (`BRIDGE_TOKEN` in the service's lib.rs). The WS
   bridge requires the client's FIRST message to be the token (10 s timeout,
-  before the broadcast subscription — unauthenticated peers see nothing);
-  `POST /rpc` requires `Authorization: Bearer <token>`; `GET /health` stays
-  open for the transport probe. Delivery: `RpcService.nativeGetBridgeToken`
+  before the broadcast subscription — unauthenticated peers see nothing).
+  Delivery: `RpcService.nativeGetBridgeToken`
   JNI (same process) + a pairing dialog in the service's launcher activity
   (copy → paste into the client's localStorage `velta-bridge-token`).
   transport.js sends the token when configured — without it the bridge
   fails closed by design.
-- `POST /rpc` round-trips through the shared core session (10-17; before
-  that every call got an instant 504). Responses reach all clients over one
-  broadcast, so the bridge swaps the caller's id for `velta-http-N`, waits
-  for that id and restores the caller's (WS clients see the tagged reply
-  and ignore it). One task per request with a 600 s ceiling, above
-  rpc-core's 240 s long-poll backstop. Notifications get 204.
-- CI: `.github/workflows/core-service.yml` (host clippy -D warnings + tests,
+- No HTTP bridge (removed 10-17): the old `127.0.0.1:20809` `/health` +
+  `POST /rpc` server dropped its client and answered every RPC with 504.
+  The WebSocket on 20808 is the only service transport.
+- CI: `.github/workflows/core-service.yml` (host clippy -D warnings + cargo test,
   aarch64-linux-android clippy) from the committed
   `velta-core-service/rust/Cargo.lock`. The crate links upstream core by
   git tag, not `core/`; the job warns when the tag and `core/` differ.
