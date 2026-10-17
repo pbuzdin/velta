@@ -109,7 +109,6 @@ test("message info and clocks do not use a 12-hour locale string", () => {
   assert.match(chat, /Server URL/);
   assert.match(chat, /getMessageInfo/);
   assert.doesNotMatch(chat, /toLocaleString\(/);
-  assert.match(p2p, /formatTime\(m\.ts\)/);
   assert.doesNotMatch(p2p, /toLocaleTimeString/);
   for (const f of ["app/js/format.js", "app/js/diagnostics.js"]) {
     const calls = read(f).match(/toLocaleTimeString\([\s\S]{0,220}?\)/g) || [];

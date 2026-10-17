@@ -65,7 +65,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── hashtags.js       # #hashtag detection for markdown.js (#134): Unicode/Cyrillic, ≥1 letter (#123 is not a tag), word-start only, ≤64 chars
 │   │   ├── audio-player.js   # plain-DOM audio player (play, seek, "current / total", full width from first render) for chat bubbles + chat-info Audio rows
 │   │   ├── media.js          # media URL helpers: blobfile:// protocol (boot-probed) → loopback server → asset protocol + per-element fallback
-│   │   ├── p2p.js            # Local chat UI: drawer toggle, list card, pairing, legacy 1:1 modal (Tauri only)
+│   │   ├── p2p.js            # Local chat UI: drawer toggle, pairing, group modals (Tauri only)
 │   │   ├── tunnel.js         # optional Android DNS tunnel UI: deep link, drawer row, settings sheet, diagnostics (#116/#119/#128)
 │   │   ├── recent-commands.js # #135 recent "/" bot commands popup + per-(account,chat) history, localStorage
 │   │   ├── read-markers.js   # manual "read up to here" markers per (account, chat), localStorage-only
