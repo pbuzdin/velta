@@ -121,25 +121,30 @@ export function showContextMenu(items, x, y) {
     b.addEventListener("click", () => { closeAllPopups(); it.onClick?.(); });
     menu.appendChild(b);
   }
+  openLightDismiss(menu);
+  placeMenu(menu, x, y);
+  return menu;
+}
+
+// Light-dismiss popup in #popups: a native auto popover (removed when it
+// closes) where supported, else behind a transparent overlay that closes
+// on any outside tap. Returns true when shown as a popover.
+function openLightDismiss(el) {
   if (popoverSupported()) {
-    menu.popover = "auto";
-    menu.addEventListener("toggle", (e) => {
-      if (e.newState === "closed") menu.remove();
+    el.popover = "auto";
+    el.addEventListener("toggle", (e) => {
+      if (e.newState === "closed") el.remove();
     });
-    popups().append(menu);
-    try {
-      menu.showPopover();
-      placeMenu(menu, x, y);
-      return menu;
-    } catch { menu.removeAttribute("popover"); menu.remove(); }
+    popups().append(el);
+    try { el.showPopover(); return true; }
+    catch { el.removeAttribute("popover"); el.remove(); }
   }
   const overlay = document.createElement("div");
   overlay.className = "pop-overlay transparent";
   overlay.addEventListener("pointerdown", closeAllPopups);
   overlay.addEventListener("contextmenu", e => { e.preventDefault(); closeAllPopups(); });
-  popups().append(overlay, menu);
-  placeMenu(menu, x, y);
-  return menu;
+  popups().append(overlay, el);
+  return false;
 }
 
 // Consecutive items that share `pair` sit on one row (at most two).
@@ -275,23 +280,7 @@ export function showStickerPicker({ getStickers, onPick }) {
   grid.className = "sticker-grid";
   grid.innerHTML = `<div class="sticker-note">Loading…</div>`;
   pop.append(grid);
-  let popped = false;
-  if (popoverSupported()) {
-    pop.popover = "auto";
-    pop.addEventListener("toggle", (e) => {
-      if (e.newState === "closed") pop.remove();
-    });
-    popups().append(pop);
-    try { pop.showPopover(); popped = true; }
-    catch { pop.removeAttribute("popover"); pop.remove(); }
-  }
-  if (!popped) {
-    const overlay = document.createElement("div");
-    overlay.className = "pop-overlay transparent";
-    overlay.addEventListener("pointerdown", closeAllPopups);
-    overlay.addEventListener("contextmenu", e => { e.preventDefault(); closeAllPopups(); });
-    popups().append(overlay, pop);
-  }
+  openLightDismiss(pop);
   Promise.resolve(getStickers()).then((collections) => {
     grid.replaceChildren();
     let n = 0;
