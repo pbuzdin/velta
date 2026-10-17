@@ -153,7 +153,7 @@ const RAW = `
 🦴 bone
 🦷 tooth
 👅 tongue
-👄 mouth
+👄 mouth lips
 👶 baby
 🧒 child
 👦 boy
@@ -187,14 +187,13 @@ const RAW = `
 🧍 stand
 🧎 kneel
 🧗 climb
-🤸 cartwheel
-🤺 fence
+🤸 cartwheel gymnastics
+🤺 fence fencing
 🏇 horse race
-⛷️ ski
+⛷️ ski skier
 🏂 snowboard
 🏋️ lift weights gym
-🤼 wrestle
-🤸 gymnastics
+🤼 wrestle wrestling
 ⛹️ basketball
 🤾 handball
 🏌️ golf
@@ -206,7 +205,7 @@ const RAW = `
 🛌 bed sleep
 👪 family
 👫 couple
-🤝 handshake
+🤝 handshake deal
 👍 thumb up yes ok
 👎 thumb down no
 👊 fist punch
@@ -218,7 +217,6 @@ const RAW = `
 🫶 heart hands
 👐 open hands
 🤲 palms up
-🤝 handshake deal
 🙏 pray thanks please
 ✍️ write
 💅 nail polish
@@ -230,11 +228,6 @@ const RAW = `
 🦶 foot
 👂 ear
 👃 nose
-🧠 brain
-👀 eyes
-👁️ eye
-👅 tongue
-👄 lips
 🐶 dog
 🐱 cat
 🐭 mouse
@@ -442,7 +435,6 @@ const RAW = `
 🥩 steak meat
 🍗 poultry leg
 🍖 meat bone
-🦴 bone
 🌭 hot dog
 🍔 hamburger burger
 🍟 fries
@@ -551,23 +543,8 @@ const RAW = `
 ⛸️ ice skate
 🥌 curling
 🎿 skis
-⛷️ skier
-🏂 snowboard
 🪂 parachute
-🏋️ weights
-🤼 wrestling
-🤸 gymnastics
-⛹️ basketball
-🤺 fencing
-🤾 handball
-🏌️ golf
-🏇 horse
-🧘 yoga
-🏄 surf
-🏊 swim
 🤽 water polo
-🚣 row
-🧗 climb
 🚴 bicycle cycle
 🚵 mountain bike
 🏆 trophy
@@ -623,7 +600,6 @@ const RAW = `
 🛺 rickshaw
 🚲 bicycle
 🛴 kick scooter
-🛹 skateboard
 🚏 bus stop
 🛣️ motorway
 🛤️ railway
@@ -644,7 +620,6 @@ const RAW = `
 🛩️ small airplane
 🛫 departure
 🛬 arrival
-🪂 parachute
 💺 seat
 🚁 helicopter
 🚟 suspension railway
@@ -653,7 +628,6 @@ const RAW = `
 🛰️ satellite
 🚀 rocket
 🛸 flying saucer
-🪐 planet
 🌌 milky way
 🌠 shooting star
 🎆 fireworks
@@ -703,10 +677,7 @@ const RAW = `
 🕋 kaaba
 ⛩️ shinto shrine
 🗾 japan
-🌙 moon
 ☀️ sun
-⭐ star
-🌈 rainbow
 ⌚ watch time
 📱 phone mobile
 📲 phone arrow
@@ -817,8 +788,6 @@ const RAW = `
 🗡️ dagger
 ⚔️ swords
 🔫 gun
-🪃 boomerang
-🏹 bow
 🛡️ shield
 🪚 saw
 🔧 wrench
@@ -840,7 +809,6 @@ const RAW = `
 🧬 dna
 🔬 microscope
 🔭 telescope
-📡 satellite
 💉 syringe
 🩸 drop blood
 💊 pill
@@ -869,7 +837,6 @@ const RAW = `
 🫧 bubbles
 🪥 toothbrush
 🧽 sponge
-🧯 extinguisher
 🛒 shopping cart
 🚬 cigarette
 ⚰️ coffin
@@ -877,7 +844,6 @@ const RAW = `
 ⚱️ urn
 🧿 nazar
 🪬 hamsa
-🗿 moai
 🪧 placard
 🏧 atm
 🚮 litter

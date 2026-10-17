@@ -31,3 +31,10 @@ test("emoji search matches a name and is empty for nonsense", () => {
   assert.ok(searchEmoji("").length > 100);
   assert.equal(searchEmoji("zzznone").length, 0);
 });
+
+test("the emoji tray lists every glyph once and keeps merged keywords", () => {
+  const all = searchEmoji("");
+  assert.equal(new Set(all.map(e => e.emoji)).size, all.length);
+  assert.ok(searchEmoji("gymnastics").some(e => e.emoji === "🤸"));
+  assert.ok(searchEmoji("lips").some(e => e.emoji === "👄"));
+});
