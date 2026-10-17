@@ -20,6 +20,9 @@ desktop.ini
 # The app is built from a committed lockfile so CI resolves the exact
 # dependency set that was tested locally (e.g. shadowsocks MSRV bumps).
 !velta-app/src-tauri/Cargo.lock
+# Same for the core-service cdylib (an APK, not a library): its CI check
+# (core-service.yml) builds --locked from this file.
+!velta-core-service/rust/Cargo.lock
 
 # -----------------------------------------------------------------------------
 # Python virtual environments & caches
