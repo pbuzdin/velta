@@ -6,7 +6,7 @@
 <title>Velta — connection diagnostics</title>
 <!-- Dev page: whole-page inline script, so script-src needs 'unsafe-inline'
      here; the messenger surface (index.html) stays strict. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://127.0.0.1:20808 http://127.0.0.1:20809">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://127.0.0.1:20808">
 <style>
   body { font: 14px/1.6 system-ui, sans-serif; background: #0f0f14; color: #eee; max-width: 640px; margin: 24px auto; padding: 0 16px; }
   h1 { font-size: 19px; }
@@ -31,7 +31,6 @@
 <script>
 const log = document.getElementById("log");
 const WS_URL = "ws://127.0.0.1:20808";
-const HTTP_URL = "http://127.0.0.1:20809";
 
 function row(name) {
   const el = document.createElement("div");
@@ -44,69 +43,51 @@ function row(name) {
   };
 }
 
-async function testWs() {
-  const r = row("WebSocket ws://127.0.0.1:20808 (old transport)");
+// Opens the bridge socket; resolves the open WebSocket or null.
+function openWs() {
+  const r = row("WebSocket " + WS_URL);
   return new Promise(res => {
     let ws;
-    try { ws = new WebSocket(WS_URL); } catch (e) { r.fail("constructor threw: " + e); return res(false); }
-    const t = setTimeout(() => { try { ws.close(); } catch {} r.fail("timeout — service not listening?"); res(false); }, 2000);
-    ws.onopen = () => { clearTimeout(t); r.ok("socket opened"); try { ws.close(); } catch {} res(true); };
-    ws.onerror = () => { clearTimeout(t); r.fail("browser blocked/refused the socket (expected on HTTPS-hosted PWAs in Chrome — use HTTP below)"); res(false); };
+    try { ws = new WebSocket(WS_URL); } catch (e) { r.fail("constructor threw: " + e); return res(null); }
+    const t = setTimeout(() => { try { ws.close(); } catch {} r.fail("timeout — service not listening?"); res(null); }, 2000);
+    ws.onopen = () => { clearTimeout(t); r.ok("socket opened"); res(ws); };
+    ws.onerror = () => { clearTimeout(t); r.fail("browser blocked/refused the socket (Chrome blocks ws:// to loopback from HTTPS-hosted pages)"); res(null); };
   });
 }
 
-async function testHealth() {
-  const r = row("HTTP GET http://127.0.0.1:20809/health");
-  try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 3000);
-    const res = await fetch(HTTP_URL + "/health", { signal: ctrl.signal });
-    clearTimeout(t);
-    const text = await res.text();
-    if (res.ok && text.trim() === "ok") { r.ok('service answered "ok"'); return true; }
-    r.fail("unexpected response: HTTP " + res.status + " " + JSON.stringify(text));
-    return false;
-  } catch (e) { r.fail("fetch failed: " + e); return false; }
+// One JSON-RPC call over the socket (after the token was sent).
+function call(ws, id, method, params = []) {
+  return new Promise((res, rej) => {
+    const done = () => { clearTimeout(t); ws.removeEventListener("message", on); ws.removeEventListener("close", closed); };
+    const t = setTimeout(() => { done(); rej(new Error("no answer in 8 s")); }, 8000);
+    // The bridge closes the socket on a wrong token.
+    function closed() { done(); rej(new Error("the service closed the socket — wrong or stale token?")); }
+    ws.addEventListener("close", closed);
+    function on(e) {
+      let msg;
+      try { msg = JSON.parse(e.data); } catch { return; }
+      if (msg.id !== id) return;
+      done();
+      if (msg.error) rej(new Error(JSON.stringify(msg.error))); else res(msg.result);
+    }
+    ws.addEventListener("message", on);
+    ws.send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
+  });
 }
 
-async function testRpc() {
-  const r = row("HTTP POST /rpc — get_all_account_ids (full JSON-RPC round trip)");
+async function testRpc(ws) {
+  const token = localStorage.getItem("velta-bridge-token") || "";
+  const r = row("JSON-RPC over the socket — get_all_account_ids (token from velta-bridge-token)");
+  if (!token) { r.fail("no velta-bridge-token in this origin's localStorage — pair from the service app first"); return false; }
+  ws.send(token);
   try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 8000);
-    const res = await fetch(HTTP_URL + "/rpc", {
-      method: "POST",
-      body: JSON.stringify({ jsonrpc: "2.0", id: 999001, method: "get_all_account_ids", params: [] }),
-      signal: ctrl.signal,
-    });
-    clearTimeout(t);
-    const text = await res.text();
-    try {
-      const msg = JSON.parse(text);
-      if (msg.result !== undefined) { r.ok("core answered: " + text); return true; }
-      r.fail("core error: " + text);
-    } catch { r.fail("non-JSON response: " + text.slice(0, 200)); }
-    return false;
-  } catch (e) { r.fail("fetch failed: " + e); return false; }
-}
-
-async function testAccount() {
-  const r = row("HTTP POST /rpc — get_account_info (needs an account id)");
-  try {
-    const idsRes = await fetch(HTTP_URL + "/rpc", {
-      method: "POST",
-      body: JSON.stringify({ jsonrpc: "2.0", id: 999002, method: "get_all_account_ids", params: [] }),
-    });
-    const ids = (await idsRes.json()).result || [];
-    if (!ids.length) { r.ok("no accounts yet — normal on a fresh install; the PWA will offer onboarding"); return true; }
-    const res = await fetch(HTTP_URL + "/rpc", {
-      method: "POST",
-      body: JSON.stringify({ jsonrpc: "2.0", id: 999003, method: "get_account_info", params: [ids[0]] }),
-    });
-    const msg = await res.json();
-    r.ok(JSON.stringify(msg.result).slice(0, 200));
+    const ids = await call(ws, 999001, "get_all_account_ids");
+    r.ok("core answered: " + JSON.stringify(ids));
+    const a = row("get_account_info (needs an account id)");
+    if (!ids.length) { a.ok("no accounts yet — normal on a fresh install; the PWA will offer onboarding"); return true; }
+    a.ok(JSON.stringify(await call(ws, 999002, "get_account_info", [ids[0]])).slice(0, 200));
     return true;
-  } catch (e) { r.fail("failed: " + e); return false; }
+  } catch (e) { r.fail(String(e.message || e)); return false; }
 }
 
 async function main() {
@@ -114,13 +95,13 @@ async function main() {
   document.getElementById("ver").textContent =
     "app build: " + (await fetch("sw.js").then(r => r.text()).then(t => (t.match(/velta-v\d+/) || ["?"])[0]).catch(() => "?"))
     + " · served from: " + location.origin + " · " + navigator.userAgent;
-  await testWs();
-  const health = await testHealth();
-  if (health) { await testRpc(); await testAccount(); }
+  const ws = await openWs();
+  const ok = ws ? await testRpc(ws) : false;
+  try { ws?.close(); } catch {}
   const advice = document.createElement("p");
-  advice.innerHTML = health
+  advice.innerHTML = ok
     ? "The service is reachable. If the app still shows demo mode, it is running an <b>old cached version</b> — close the PWA completely and reopen it twice, or clear site data."
-    : "The HTTP bridge is not reachable from this browser. Check that the new APK is installed and the “Velta core running” notification is present.";
+    : "The service bridge is not usable from this page. Check that the service APK is installed, the “Velta core running” notification is present, and the pairing token is set.";
   log.appendChild(advice);
 }
 

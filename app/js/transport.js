@@ -3,20 +3,14 @@
 //      no network involved at all
 //   2. inside the Tauri shell         → in-process core via Tauri IPC
 //   3. background-service APK         → core via ws://127.0.0.1:20808
-//   4. background-service APK, PWA
-//      served from HTTPS             → core via http://127.0.0.1:20809/rpc
-//      (Chrome blocks plain ws:// to loopback from secure pages, but
-//      allows fetch() with Private-Network-Access headers)
-//   5. anything else (dev/demo)       → mock core
+//   4. anything else (dev/demo)       → mock core
 import { JsonRpcCore } from "./rpc-core.js";
 import { WorkerWasmTransport } from "./transport-worker-wasm.js";
 import { wsProxyUrl } from "./ws-relays.js";
 import { rustLog, tauriInvoke } from "./tauri.js";
 
 const WS_URL = "ws://127.0.0.1:20808";
-const HTTP_URL = "http://127.0.0.1:20809";
 const WS_PROBE_MS = 900;
-const HTTP_PROBE_MS = 1500;
 
 // Architecture C (PWA): opt-in wasm core hosted in a worker. Enabled by
 // ?wasm=1 (or localStorage velta-wasm=1), by window.VELTA_PWA.wasmCore (the
@@ -166,51 +160,6 @@ async function websocketTransport() {
   };
 }
 
-/* ---------------- HTTP bridge transport (HTTPS-hosted PWAs) ---------------- */
-
-async function probeHttp() {
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), HTTP_PROBE_MS);
-    const res = await fetch(HTTP_URL + "/health", { signal: ctrl.signal });
-    clearTimeout(timer);
-    return res.ok;
-  } catch { return false; }
-}
-
-function httpTransport() {
-  let receiver = null;
-  let alive = true;
-  return {
-    name: "http",
-    label: "local core (service)",
-    setReceiver(fn) { receiver = fn; },
-    send(line) {
-      if (!alive) throw new Error("http transport closed");
-      // fire-and-forget for the caller; the response arrives via receiver
-      const token = bridgeToken();
-      fetch(HTTP_URL + "/rpc", {
-        method: "POST",
-        body: line,
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      })
-        .then(r => r.text())
-        .then(text => receiver?.(text))
-        .catch(() => {
-          if (!alive) return;
-          alive = false;
-          statusEvent(false, "http");
-          dispatchEvent(new CustomEvent("velta-core-disconnected"));
-        });
-    },
-    async reconnect() {
-      const ok = await probeHttp();
-      if (ok) alive = true;
-      return ok;
-    },
-  };
-}
-
 export async function createCore({ onDiagnostic = () => {} } = {}) {
   const diagnostic = (level, message) => {
     rustLog(message);
@@ -244,7 +193,6 @@ export async function createCore({ onDiagnostic = () => {} } = {}) {
     }));
   }
   attempts.push(websocketTransport);
-  attempts.push(async () => (await probeHttp()) ? httpTransport() : null);
 
   // Global timeout: if no backend connects within 20s, bail to mock immediately.
   // This prevents the UI from being stuck on "connecting" for 30+ seconds.
