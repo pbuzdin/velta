@@ -167,3 +167,75 @@ cargo test -p deltachat --lib peer_channels
 cargo test -p deltachat --lib --features dc-compat peer_channels
 cargo build --release -p deltachat-rpc-server [--features deltachat/dc-compat]
 ```
+
+## 7. Experimental iroh-relay 1.x on a7.velta.cc (deployed 2026-10-17)
+
+**Relay URL: `https://a7.velta.cc:3343/`** (iroh clients append `/relay` themselves).
+
+| What | Value |
+|---|---|
+| Binary | official `iroh-relay-v1.3.0-x86_64-unknown-linux-musl.tar.gz` from github.com/n0-computer/iroh releases v1.3.0; tarball sha256 `677f4c62342a6ba8044459b5fd4302f2b1dcb8402542072e3a4ade5039bc0b9e` (verified against the GitHub asset digest); binary sha256 `6d5b32ba921cae5801c38a03682bb2dcc3e2efdf8a7c62fd8a00868b7aad4779` → `/usr/local/bin/iroh-relay-v1` |
+| Service | `iroh-relay-v1.service` (enabled), user/group `iroh-relay-v1` (system, nologin, no home), systemd hardening (ProtectSystem=strict, no capabilities, MemoryMax=512M) |
+| Config | `/etc/iroh-relay-v1/config.toml` |
+| HTTPS relay | TCP `[::]:3343` (relay's own TLS, `cert_mode = "Manual"`) |
+| QUIC address discovery | UDP `[::]:7842` |
+| HTTP (captive portal) | `127.0.0.1:3344` (loopback only) |
+| Metrics | `127.0.0.1:9093/metrics` (loopback only) |
+| Access control | open (`everyone`) for experiments |
+| Health | `GET /ping` → 200, `GET /healthz` → `{"status":"ok","version":"1.3.0"}` |
+
+Existing services were left alone: nginx (80/443/3341, 3341 proxies to chatmail's
+own planned `iroh-relay-1` on 127.0.0.1:3342), chatmail `iroh-relay` (0.35, :3340) and
+`iroh-relay-1` units (both were already *inactive/disabled*, untouched), postfix, dovecot,
+acmetool, `/var/www/html`. No nginx/postfix/dovecot config changed or restarted.
+Firewall: ufw is inactive and iptables/nft INPUT policy is ACCEPT, so no rules were added.
+
+Note: chatmail's nginx already prepares `https://a7.velta.cc:3341` → `127.0.0.1:3342` for an
+iroh-relay 1.x (`/etc/iroh-relay-1.toml`, binary staged as `/usr/local/bin/iroh-relay-1.new` —
+same sha256 as ours, but not installed/enabled). We deliberately did **not** take port 3342 so a
+later chatmail deploy can enable its own relay without conflicts. Long-term the chatmail one
+(advertised via `/shared/vendor/deltachat/irohrelay1`) is the "real" one; ours is for experiments.
+
+### TLS / renewal
+
+The Let's Encrypt cert is managed by **acmetool** (`/var/lib/acme/live/a7.velta.cc/`), which we
+do not modify. `/usr/local/sbin/iroh-relay-v1-certsync` copies `fullchain` + `privkey` (read-only
+source) into `/etc/iroh-relay-v1/tls/{cert,key}.pem` owned by `iroh-relay-v1` (key 0600):
+* runs as root as `ExecStartPre=+` on every relay start, and
+* daily via `iroh-relay-v1-certsync.timer`; restarts the relay only if the cert changed.
+Current cert: CN=a7.velta.cc, issuer Let's Encrypt YE1, notAfter 2027-01-06.
+
+### Access token (optional)
+
+iroh-relay 1.0+ supports bearer tokens without an external service:
+```toml
+[access]
+shared_token = ["<random-token>"]   # or env IROH_RELAY_ACCESS_TOKEN=<token> (single token)
+```
+Clients: `RelayConfig::new(url, quic).with_auth_token(token)` (native: `Authorization: Bearer`,
+wasm: `?token=` query). Other modes: `allowlist`/`denylist` of endpoint ids, `http` (POST check).
+
+### Verification (2026-10-17)
+
+* `systemctl is-active iroh-relay-v1` → active; nginx/postfix/dovecot still active.
+* From the box: `/ping` 200, `/healthz` 200 `{"status":"ok","version":"1.3.0"}`, `/relay` 400
+  "missing header: upgrade" (expected without websocket upgrade), cert verifies (ssl_verify_result=0).
+* iroh 1.3 end-to-end: `experimental/iroh-relay-probe` — two endpoints, IP transports disabled,
+  `RelayMode::custom([https://a7.velta.cc:3343/])`, both got the relay as home relay, bi-stream
+  echo succeeded, path = `relay:https://a7.velta.cc:3343/` only (3.5 s total). Relay metrics:
+  `accepts_total 2`, `unique_client_keys_total 2`, ~12 KB each way.
+  (`cargo run -- https://a7.velta.cc:3343/ 138.124.24.110` — the 2nd arg pins DNS because the box's
+  resolver hands out fake IPs.)
+* Not verified from the box: QUIC address discovery on UDP 7842 (box egress has no plain UDP).
+
+### Stop / remove
+
+```sh
+systemctl disable --now iroh-relay-v1.service iroh-relay-v1-certsync.timer
+rm -f /etc/systemd/system/iroh-relay-v1.service \
+      /etc/systemd/system/iroh-relay-v1-certsync.service \
+      /etc/systemd/system/iroh-relay-v1-certsync.timer
+systemctl daemon-reload
+rm -rf /etc/iroh-relay-v1 /usr/local/bin/iroh-relay-v1 /usr/local/sbin/iroh-relay-v1-certsync /root/iroh-relay-v1-dl
+userdel iroh-relay-v1
+```
