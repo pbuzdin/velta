@@ -238,7 +238,7 @@ impl Ws {
         let (host, port, path) = parse_server(server)?;
         let tcp = tcp_connect(&host, port, proxy)?;
         let mut io = tls(&host, tcp)?;
-        let key = data_encoding::BASE64.encode(&rand::random::<[u8; 16]>());
+        let key = data_encoding::BASE64.encode(&crate::random_bytes::<16>());
         let host_hdr = if port == 443 { host.clone() } else { format!("{host}:{port}") };
         let req = format!(
             "GET {path}/upload HTTP/1.1\r\nHost: {host_hdr}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\nOrigin: https://{host_hdr}\r\nUser-Agent: Velta\r\n\r\n"
@@ -263,7 +263,7 @@ impl Ws {
     }
 
     pub fn send_text(&mut self, text: &str) -> Result<(), String> {
-        let f = encode_frame(0x1, text.as_bytes(), rand::random());
+        let f = encode_frame(0x1, text.as_bytes(), crate::random_bytes());
         self.io.write_all(&f).map_err(|e| format!("send: {e}"))?;
         self.io.flush().map_err(|e| format!("send: {e}"))
     }
@@ -275,7 +275,7 @@ impl Ws {
             let (fin, op, p) = read_frame(&mut self.io)?;
             match op {
                 0x9 => {
-                    let f = encode_frame(0xA, &p, rand::random());
+                    let f = encode_frame(0xA, &p, crate::random_bytes());
                     self.io.write_all(&f).map_err(|e| e.to_string())?;
                     continue;
                 }
@@ -296,7 +296,7 @@ impl Ws {
     }
 
     pub fn close(&mut self) {
-        let f = encode_frame(0x8, &1000u16.to_be_bytes(), rand::random());
+        let f = encode_frame(0x8, &1000u16.to_be_bytes(), crate::random_bytes());
         let _ = self.io.write_all(&f);
         let _ = self.io.flush();
     }

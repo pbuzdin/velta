@@ -1203,10 +1203,14 @@ fn valid_chat_link_token(token: &str) -> bool {
 }
 
 fn mint_chat_link_token() -> String {
-    use rand::RngCore;
-    let mut bytes = [0u8; 16];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
-    data_encoding::HEXLOWER.encode(&bytes)
+    data_encoding::HEXLOWER.encode(&random_bytes::<16>())
+}
+
+/// N bytes from the OS random source; panics if it fails (as rand's OsRng did).
+pub(crate) fn random_bytes<const N: usize>() -> [u8; N] {
+    let mut bytes = [0u8; N];
+    getrandom::getrandom(&mut bytes).expect("OS random source unavailable");
+    bytes
 }
 
 /// Read a token file, or create one. A missing or corrupt file is replaced.
@@ -3616,10 +3620,7 @@ pub fn run() {
                 // this server can read, so it must not be derivable from the
                 // start time or the PID.
                 *MEDIA_TOKEN.lock().unwrap() = {
-                    use rand::RngCore;
-                    let mut bytes = [0u8; 16];
-                    rand::rngs::OsRng.fill_bytes(&mut bytes);
-                    data_encoding::HEXLOWER.encode(&bytes)
+                    data_encoding::HEXLOWER.encode(&random_bytes::<16>())
                 };
                 start_media_server(accounts_dir(app.handle()));
             }

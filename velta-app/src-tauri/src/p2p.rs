@@ -38,7 +38,6 @@ use anyhow::{anyhow, bail, Context as _, Result};
 use data_encoding::BASE64;
 use data_encoding::{BASE64URL_NOPAD, HEXLOWER};
 use iroh::{endpoint::{Connection, ConnectOptions, RecvStream, SendStream, TransportConfig}, Endpoint, NodeAddr, NodeId, RelayMode, SecretKey};
-use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
@@ -4091,9 +4090,7 @@ fn encode_ticket(node_id: NodeId, addrs: &[String], token: &str) -> String {
 }
 
 fn random_id() -> String {
-    let mut bytes = [0u8; 12];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
-    HEXLOWER.encode(&bytes)
+    HEXLOWER.encode(&crate::random_bytes::<12>())
 }
 
 fn now_ms() -> u64 {
@@ -4114,8 +4111,7 @@ fn load_or_create_identity(dir: &std::path::Path) -> Result<SecretKey> {
             .map_err(|_| anyhow!("identity key must be 32 bytes"))?;
         return Ok(SecretKey::from_bytes(&bytes));
     }
-    let mut bytes = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    let bytes: [u8; 32] = crate::random_bytes();
     let secret = SecretKey::from_bytes(&bytes);
     std::fs::write(&path, HEXLOWER.encode(&bytes))?;
     Ok(secret)
@@ -4689,9 +4685,7 @@ mod tests {
     }
 
     fn fake_node_id() -> NodeId {
-        let mut bytes = [0u8; 32];
-        rand::rngs::OsRng.fill_bytes(&mut bytes);
-        SecretKey::from_bytes(&bytes).public()
+        SecretKey::from_bytes(&crate::random_bytes()).public()
     }
 
     /// The transfer id is chosen by the sender, so two peers may use the same

@@ -13,7 +13,6 @@ use std::{collections::{BTreeMap, HashMap}, net::SocketAddr, path::Path, str::Fr
 use anyhow::{anyhow, bail, Context as _, Result};
 use data_encoding::HEXLOWER;
 use iroh::{NodeId, SecretKey};
-use rand::RngCore;
 use serde::{Deserialize, Serialize};
 
 /// A local group holds at most this many members, the creator included.
@@ -89,9 +88,7 @@ pub fn check_group_name(name: &str) -> Result<()> {
 
 /// Fresh group id.
 pub fn new_gid() -> String {
-    let mut b = [0u8; 16];
-    rand::rngs::OsRng.fill_bytes(&mut b);
-    HEXLOWER.encode(&b)
+    HEXLOWER.encode(&crate::random_bytes::<16>())
 }
 
 impl GroupState {
@@ -504,9 +501,7 @@ mod tests {
     use std::io::Write;
 
     fn key() -> SecretKey {
-        let mut b = [0u8; 32];
-        rand::rngs::OsRng.fill_bytes(&mut b);
-        SecretKey::from_bytes(&b)
+        SecretKey::from_bytes(&crate::random_bytes())
     }
 
     fn member(k: &SecretKey, name: &str) -> GroupMember {

@@ -45,7 +45,8 @@ serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs", "time"] }
 tokio-util = "0.7"
 anyhow = "1"
-rand = "0.8"
+# OS randomness for ids, tokens, keys and WebSocket masks (random_bytes).
+getrandom = "0.2"
 data-encoding = "2"
 # fetch_page_title: best-effort <title> for the in-app browser bar.
 # socks-proxy: link previews go through the account proxy / DNS tunnel (SOCKS5).
