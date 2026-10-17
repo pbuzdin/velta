@@ -1813,9 +1813,6 @@ function openContactProfile(contact) {
   });
 }
 
-function isGroupChat(chat) {
-  return chat.kind === "group" || chat.kind === "channel";
-}
 setAvatarProfileOpener(openContactProfile);
 
 // Drawer avatar tap: the user's own profile sheet. Contact 1 is the self

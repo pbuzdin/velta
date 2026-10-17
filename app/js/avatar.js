@@ -35,13 +35,6 @@ const COLOR_POOL = [
   ["Goldenrod", [218, 165, 32]],
 ];
 
-// Raw per-group color straight from the fingerprint value.
-export function colorForGroup(group) {
-  const clean = (group || "").replace(/[^0-9A-Fa-f]/g, "").slice(0, 4);
-  if (!clean) return COLOR_POOL[COLOR_POOL.length - 1];
-  return COLOR_POOL[parseInt(clean, 16) % COLOR_POOL.length];
-}
-
 // --- perceptual clash avoidance between neighboring cells ---
 function rgbToHsl([r, g, b]) {
   r /= 255; g /= 255; b /= 255;

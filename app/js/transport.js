@@ -217,13 +217,6 @@ function httpTransport() {
   };
 }
 
-// Light-weight check used by the status pill: is a background core reachable?
-export async function probeService() {
-  const ws = await probeWebSocket();
-  if (ws) { try { ws.close(); } catch {} return true; }
-  return probeHttp();
-}
-
 export async function createCore({ onDiagnostic = () => {} } = {}) {
   const diagnostic = (level, message) => {
     rustLog(message);

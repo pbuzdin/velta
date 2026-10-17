@@ -927,7 +927,7 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   switchAccount's epoch boundaries, #100; the `syncOnlyActive` flag funnels
   all IO through `_startIo`, #101), the
   relay surface (see docs/agents/relays.md), second-device backup transfer
-  (`provideBackup`/`getBackupQr`/`addAccountWithBackup`/`importBackup`),
+  (`provideBackup`/`getBackupQrSvg`/`addAccountWithBackup`/`importBackup`),
   backup export (`exportBackup` -> core `export_backup`, directory +
   optional passphrase, progress on `imex-progress`), autorelay onboarding
   (`initTransports` -> core `init_transports`; the core probes its built-in

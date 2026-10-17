@@ -128,13 +128,6 @@ export function decryptSlice(key, payload) {
   return sjcl.decrypt(key, enc);
 }
 
-export function base64ToBytes(b64) {
-  const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
 export class LufiCancelled extends Error {
   constructor() { super("Upload cancelled"); this.name = "LufiCancelled"; }
 }

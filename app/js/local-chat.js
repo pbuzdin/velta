@@ -650,11 +650,6 @@ export function findDuplicateGroup(status, memberIds) {
   return null;
 }
 
-export function lcGroupInfo(gid) {
-  const g = store.groups.get(gid);
-  return g ? mapGroupChat(g) : null;
-}
-
 function viewtypeFor(name, mime = "") {
   const ext = (name || "").split(".").pop().toLowerCase();
   if (["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"].includes(ext)) return "image";

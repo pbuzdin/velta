@@ -654,7 +654,6 @@ export class MockCore extends EventTarget {
 
   // Second-device backup transfer — demo no-ops (same contract as rpc-core).
   async provideBackup() {}
-  async getBackupQr() { return "DCBACKUP2:demo-second-device&demo"; }
   async getBackup() {}
   async stopOngoingProcess() {}
   async addAccountWithBackup() { return this.accountId; }
@@ -976,7 +975,3 @@ export class MockCore extends EventTarget {
     return id;
   }
 }
-
-// Pure helpers moved to format.js (#48): re-exported here so demo-mode
-// consumers and tests keep their import paths.
-export { pageBounds, formatBytes, formatTime, formatListTime, formatDay, timeAgo } from "./format.js";

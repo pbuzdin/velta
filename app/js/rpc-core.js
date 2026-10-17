@@ -2053,12 +2053,6 @@ export class JsonRpcCore extends EventTarget {
     tauriInvoke()?.("tunnel_reapply").catch(() => {});
   }
 
-  // QR text for a running provideBackup(). Blocks on the backend until the
-  // provider is up (fails after 60 s).
-  async getBackupQr() {
-    return this._call("get_backup_qr", this.accountId);
-  }
-
   // The backup QR as the 515x630 design card: reserves a clear center circle
   // instead of baking the Delta Chat logo into the modules, so the UI can
   // overlay its own badge (same geometry as the invite QR).
@@ -2127,22 +2121,6 @@ export class JsonRpcCore extends EventTarget {
   // Fresh unconfigured account to receive a restored identity; returns the id.
   async addAccount() {
     return this._call("add_account");
-  }
-
-  async batchSetConfig(accountId, map) {
-    const flat = Object.fromEntries(
-      Object.entries(map).map(([k, v]) => [k, v == null ? null : String(v)]),
-    );
-    return this._call("batch_set_config", accountId, flat);
-  }
-
-  // Full relay login — minutes, not milliseconds.
-  async configureAccount(accountId) {
-    return this._callWithTimeout(180_000, "configure", accountId);
-  }
-
-  async getAccountConfig(accountId, key) {
-    return (await this._call("get_config", accountId, key)) ?? null;
   }
 
   async exportSelfKeys(accountId, dir, passphrase) {

@@ -12,7 +12,7 @@ import { tauriInvoke } from "./tauri.js";
 import {
   lufiServer, setLufiServer, normalizeLufiServer, lufiDelayChoices, lufiDelayLabel,
   lufiUpload, lufiMessageText, rememberLufiUpload, lufiUploadFor, markLufiDeleted,
-  LufiCancelled, partCount,
+  LufiCancelled,
 } from "./lufi.js";
 
 export const largeFileAvailable = () => !!tauriInvoke();
@@ -190,5 +190,3 @@ export function wireLargeFileInfo(modal, accountId, msgId) {
     } catch (e) { toast("Could not delete: " + errText(e), 4000, { danger: true }); }
   });
 }
-
-export { partCount };

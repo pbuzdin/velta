@@ -405,10 +405,6 @@ export function isWebxdcInfoMsg(m) {
   return !!m && m.kind === "service" && m.systemType === "WebxdcInfoMessage" && Number(m.parentId) > 0;
 }
 
-export function isWebxdcOpen(msgId) {
-  return active?.msgId === Number(msgId);
-}
-
 // #138: apps opened as a bottom panel (the built-in Velta Beam) leave the
 // chat usable above them; the panel can expand to full screen and back.
 // Toggling only flips classes on the overlay — the iframe is never moved or

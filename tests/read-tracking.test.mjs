@@ -9,7 +9,8 @@ globalThis.localStorage = {
   setItem: (key, value) => store.set(key, String(value)),
 };
 
-const { pageBounds, MockCore } = await import("../app/js/mock-core.js");
+const { MockCore } = await import("../app/js/mock-core.js");
+const { pageBounds } = await import("../app/js/format.js");
 const { getReadMarker, setReadMarker, clearReadMarker } = await import("../app/js/read-markers.js");
 const { JsonRpcCore } = await import("../app/js/rpc-core.js");
 

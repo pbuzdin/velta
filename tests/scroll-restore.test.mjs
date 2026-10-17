@@ -114,7 +114,7 @@ globalThis.innerHeight = 800;
 globalThis.innerWidth = 1200;
 globalThis.localStorage = { _s: {}, getItem(k) { return this._s[k] ?? null; }, setItem(k, v) { this._s[k] = String(v); }, removeItem(k) { delete this._s[k]; } };
 const { ChatView, REMEMBER_SCROLL_KEY } = await import("../app/js/chat-view.js");
-const { pageBounds } = await import("../app/js/mock-core.js");
+const { pageBounds } = await import("../app/js/format.js");
 const { setReadMarker } = await import("../app/js/read-markers.js");
 const { closeAllPopups } = await import("../app/js/ui.js");
 
