@@ -89,10 +89,10 @@ fn broadcast_line(line: &str) {
 
 #[no_mangle]
 pub extern "system" fn Java_org_velta_coreservice_RpcService_nativeInit(
-    mut env: JNIEnv,
+    env: JNIEnv,
     _class: JClass,
 ) {
-    let _ = android_logger::init_once(
+    android_logger::init_once(
         android_logger::Config::default()
             .with_max_level(log::LevelFilter::Info)
             .with_tag("rpc_core"),
@@ -237,7 +237,7 @@ fn set_listener(lock: &std::sync::RwLock<Option<GlobalRef>>, value: Option<Globa
 /// register a Java object that implements `onRpcMessage(String)`
 #[no_mangle]
 pub extern "system" fn Java_org_velta_coreservice_RpcService_nativeSetRpcListener(
-    mut env: JNIEnv,
+    env: JNIEnv,
     _class: JClass,
     listener: JObject,
 ) {
