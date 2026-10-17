@@ -539,8 +539,6 @@ struct Nearby {
 
 /// A pending inbound pairing request: resolved through the UI.
 struct PairRequest {
-    #[allow(dead_code)] // kept for diagnostics; the decision rides `tx`
-    name: String,
     tx: tokio::sync::oneshot::Sender<bool>,
 }
 
@@ -1887,7 +1885,7 @@ impl P2p {
                 // its connection loses the race and times out on its own.
                 if let Some(old) = inner.pair_requests.insert(
                     node_id,
-                    PairRequest { name: peer_name.clone(), tx: decision_tx },
+                    PairRequest { tx: decision_tx },
                 ) {
                     let _ = old.tx.send(false);
                 }
@@ -2367,12 +2365,6 @@ impl P2p {
         })
     }
 
-    /// The signed state of a group (what a wire frame will carry).
-    #[allow(dead_code)] // wire phase (Phase 2); tests use it now
-    pub(crate) fn group_state(&self, gid: &str) -> Result<GroupState> {
-        let inner = self.inner.lock().unwrap();
-        inner.groups.get(gid).map(|g| g.state.clone()).ok_or_else(|| anyhow!("unknown group"))
-    }
 
     /// All groups, for the UI.
     pub fn groups(&self) -> Vec<Value> {
@@ -2665,12 +2657,6 @@ impl P2p {
     /// * A state with an epoch that is not newer is ignored (replays and
     ///   rollbacks are harmless).
     /// * At most [`MAX_GROUPS`] groups, at most 5 members per state.
-    #[allow(dead_code)] // the wire path uses apply_state_locked; tests call this
-    pub(crate) fn apply_group_state(&self, state: GroupState, from: NodeId) -> Result<Value> {
-        let mut inner = self.inner.lock().unwrap();
-        self.apply_state_locked(&mut inner, state, from)
-    }
-
     fn apply_state_locked(&self, inner: &mut Inner, state: GroupState, from: NodeId) -> Result<Value> {
         let me = self.node_id();
         let verdict = evaluate_incoming(inner.groups.get(&state.gid), &state, &me)?;
@@ -4597,6 +4583,21 @@ pub fn p2p_group_messages(
 mod tests {
     use super::*;
     use std::sync::mpsc as std_mpsc;
+
+    // Test-only engine accessors (the wire path goes through
+    // apply_state_locked directly).
+    impl P2p {
+        /// The signed state of a group (what a wire frame carries).
+        fn group_state(&self, gid: &str) -> Result<GroupState> {
+            let inner = self.inner.lock().unwrap();
+            inner.groups.get(gid).map(|g| g.state.clone()).ok_or_else(|| anyhow!("unknown group"))
+        }
+
+        fn apply_group_state(&self, state: GroupState, from: NodeId) -> Result<Value> {
+            let mut inner = self.inner.lock().unwrap();
+            self.apply_state_locked(&mut inner, state, from)
+        }
+    }
 
     /// Where `temp_dir(tag)` put (or will put) its directory, without wiping it.
     fn temp_dir_path(tag: &str) -> PathBuf {
