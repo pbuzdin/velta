@@ -6,6 +6,7 @@
 import { escapeHtml, escapeAttr } from "./components.js";
 import { parseInviteLink } from "./invites.js";
 import { LruCache } from "./lru.js";
+import { tauriInvoke } from "./tauri.js";
 
 // Bounded (lru.js): 100 URLs / 2 MB; size = JSON length*2 (image may be a data URL).
 const CACHE = new LruCache({ maxItems: 100, maxBytes: 2 * 1024 * 1024,
@@ -109,13 +110,11 @@ export function wrapLines(text, maxW, measure) {
   return lines;
 }
 
+// Like tauri.js invoke(), but resolves null outside the shell or on a sync throw.
 function invoke(cmd, args) {
-  try {
-    const tauri = window.__TAURI__;
-    const fn = tauri?.core?.invoke || tauri?.invoke;
-    if (!fn) return Promise.resolve(null);
-    return fn(cmd, args);
-  } catch { return Promise.resolve(null); }
+  const fn = tauriInvoke();
+  if (!fn) return Promise.resolve(null);
+  try { return fn(cmd, args); } catch { return Promise.resolve(null); }
 }
 
 const inFlight = new Map(); // url -> Promise (dedupe concurrent renders); removed when settled
