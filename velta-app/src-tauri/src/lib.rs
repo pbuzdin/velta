@@ -2995,7 +2995,7 @@ async fn init_android_core(
     accounts_dir: PathBuf,
 ) -> anyhow::Result<tokio::sync::mpsc::UnboundedSender<String>> {
     use deltachat_jsonrpc::api::{Accounts, CommandApi};
-    use futures_lite::stream::StreamExt;
+    use futures_util::StreamExt;
     use std::sync::Arc;
     use tokio::sync::RwLock;
     use yerpc::{RpcClient, RpcSession};
