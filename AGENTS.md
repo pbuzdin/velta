@@ -2551,6 +2551,16 @@ taps above). The vestigial-SW caveat below applies only to plain `app/`.
   (copy → paste into the client's localStorage `velta-bridge-token`).
   transport.js sends the token when configured — without it the bridge
   fails closed by design.
+- `POST /rpc` round-trips through the shared core session (10-17; before
+  that every call got an instant 504). Responses reach all clients over one
+  broadcast, so the bridge swaps the caller's id for `velta-http-N`, waits
+  for that id and restores the caller's (WS clients see the tagged reply
+  and ignore it). One task per request with a 600 s ceiling, above
+  rpc-core's 240 s long-poll backstop. Notifications get 204.
+- CI: `.github/workflows/core-service.yml` (host clippy -D warnings + tests,
+  aarch64-linux-android clippy) from the committed
+  `velta-core-service/rust/Cargo.lock`. The crate links upstream core by
+  git tag, not `core/`; the job warns when the tag and `core/` differ.
 - Boot receiver restarts the service after reboot.
 
 ### 9.4 UnifiedPush (Android, 1.4.27+ groundwork)

@@ -1,0 +1,82 @@
+# velta-core-service (headless Android APK: JNI core + loopback WS/HTTP
+# bridges). Not part of a release, so nothing else builds it — five compile
+# errors sat on master for two weeks (d4632e7 → d80dc01). This job keeps the
+# crate compiling and its tests passing, for the host and for the APK's
+# aarch64-linux-android target. Builds from the committed Cargo.lock.
+name: core-service
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - 'velta-core-service/**'
+      - 'core/**'
+      - '.github/workflows/core-service.yml'
+  pull_request:
+    paths:
+      - 'velta-core-service/**'
+      - 'core/**'
+      - '.github/workflows/core-service.yml'
+
+concurrency:
+  group: core-service-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_NET_RETRY: 10
+  RUST_BACKTRACE: 1
+
+jobs:
+  check:
+    name: clippy + test (host) and clippy (aarch64-linux-android)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: velta-core-service/rust
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable (moving branch, Dependabot updates)
+        with:
+          toolchain: 1.98
+          targets: aarch64-linux-android
+          components: clippy
+
+      - name: Cache Rust builds
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: ./velta-core-service/rust
+
+      # The service links upstream chatmail core by git tag, not core/: a
+      # core/ bump doesn't reach it on its own. Flag the drift, don't fail.
+      - name: Core tag vs core/ version
+        run: |
+          core=$(sed -n 's/^version = "\(.*\)"/\1/p' ../../core/Cargo.toml | head -1)
+          tag=$(sed -n 's/.*tag = "v\([^"]*\)".*/\1/p' Cargo.toml | head -1)
+          echo "core/ $core, velta-core-service deltachat-jsonrpc tag v$tag"
+          if [ "$core" != "$tag" ]; then
+            echo "::warning file=velta-core-service/rust/Cargo.toml::velta-core-service pins chatmail core v$tag but core/ is $core"
+          fi
+
+      - name: clippy (host)
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: test (host)
+        run: cargo test --locked
+
+      - name: clippy (aarch64-linux-android)
+        run: |
+          NDK="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64"
+          test -x "$NDK/bin/aarch64-linux-android24-clang"
+          export CC_aarch64_linux_android="$NDK/bin/aarch64-linux-android24-clang"
+          export CXX_aarch64_linux_android="$NDK/bin/aarch64-linux-android24-clang++"
+          export AR_aarch64_linux_android="$NDK/bin/llvm-ar"
+          export RANLIB_aarch64_linux_android="$NDK/bin/llvm-ranlib"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK/bin/aarch64-linux-android24-clang"
+          cargo clippy --locked --target aarch64-linux-android -- -D warnings
