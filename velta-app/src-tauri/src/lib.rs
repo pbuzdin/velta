@@ -531,26 +531,10 @@ async fn fetch_link_preview(url: String, proxy: Option<String>) -> Result<serde_
                     if mime.starts_with("image/") {
                         let mut ib = Vec::new();
                         if read_bounded(iresp, &mut ib) {
-                            const B64: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-                            let mut out = String::from("data:");
-                            out.push_str(&mime);
-                            out.push_str(";base64,");
-                            for chunk in ib.chunks(3) {
-                                let b = [
-                                    chunk[0],
-                                    *chunk.get(1).unwrap_or(&0),
-                                    *chunk.get(2).unwrap_or(&0),
-                                ];
-                                let n = (b[0] as u32) << 16 | (b[1] as u32) << 8 | b[2] as u32;
-                                for i in 0..4 {
-                                    if i <= chunk.len() {
-                                        out.push(B64[(n >> (18 - 6 * i)) as usize & 0x3F] as char);
-                                    } else {
-                                        out.push('=');
-                                    }
-                                }
-                            }
-                            image_data = Some(out);
+                            image_data = Some(format!(
+                                "data:{mime};base64,{}",
+                                data_encoding::BASE64.encode(&ib)
+                            ));
                         }
                     }
                 }
