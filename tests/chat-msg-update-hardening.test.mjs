@@ -380,7 +380,7 @@ test("image and video boxes are width-first with a px-only width (#27)", async t
   assert.doesNotMatch(imgHtml, /height:min\(/, "no height-first box");
 
   const vidHtml = view._buildItem({ type: "msg", msg: message(10, 7, { viewtype: "video", ...dims }) }).innerHTML;
-  assert.match(vidHtml, /width:min\(1080px, 480px, calc\(min\(45vh, 260px\) \* 0\.4500\)/);
+  assert.match(vidHtml, /width:min\(1080px, 480px, calc\(min\(var\(--vh\) \* \.45, 260px\) \* 0\.4500\)/);
   assert.doesNotMatch(vidHtml, /height:min\(/);
 });
 

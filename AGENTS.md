@@ -2140,6 +2140,14 @@ next push or the tainted commits come back.
 - **PWA webxdc host (7834065; KEEP rules in docs/agents/webxdc.md).** The SW serves a loader page for `<scope>webxdc-run/...` frame navigations with a CSP-header sandbox (no allow-same-origin → opaque origin, blob:/data: only). The iframe ATTRIBUTE must include `allow-same-origin`, or Chromium never routes the navigation through the SW; the response sandbox makes it opaque. Must-keep safeguards: frame.js refuses to run unless `self.origin === "null"` in a child frame; every other same-scope frame navigation and top-level app loads get 403 + sandbox; the host hands the `.xdc` only to the open app's own frame.
 - **Live PWA deploy is manual** (a7.velta.cc, nginx root `/var/www/html`, PWA in `app/`; never edit nginx/postfix/dovecot configs). Build `node scripts/build-pwa.mjs` (no `--ws-proxy`), `node scripts/verify-pwa-dist.mjs`, refresh `pwa-dist` (orphan commit, force-push, keep its README), then copy the tree (no `.git`) to `/var/www/html/app.new`, `chown -R www-data:www-data`, `mv app app.prev-<timestamp>`, `mv app.new app`. Verify over HTTPS: `sw.js` VERSION, JS served as `application/javascript`, fresh-profile boot to the splash version line. Rollback: `mv app app.bad-<ts> && mv app.prev-<ts> app`. An already-open old build needs a reload or two (the first load after a deploy can still run the old SW's cache).
 
+### 6.11 Narrow viewports and the interface scale (2026-10-18)
+
+- **CSS zoom multiplies viewport units.** The interface scale zooms `<html>` (`ui-scale.js`); under zoom, `100vw`/`100dvh` are multiplied too, so full-screen sheets were 414px wide on a 360px phone at "Large" and every modal (About, chat info, relays, profile, QR) was clipped on the right. main.css now sizes only with `--vw`/`--vh`/`--dvh` (= unit / `--ui-zoom`, written next to `zoom` by `ui-scale.js` and `applyUiScale`); `tests/narrow-viewport-css.test.mjs` forbids raw vw/vh/dvh. JS positions from rects/`clientX`/`innerWidth` must be divided by `uiZoom()` (ui.js) before writing `style.left/top` (`placeMenu`, attach menu, quote chip, local-chat queue pop). The crop overlay still mixes spaces at scale != 1.
+- **Fixed min-widths inside bubbles.** File/app/voice/audio/call/transfer cards had `min-width: 180–240px`, wider than a bubble on a 320px phone with avatars; cap them with `min(Npx, var(--bubble-inner-max))`. Flex text columns need `min-width: 0` + `overflow-wrap: anywhere`, and `.bubble` uses `overflow-wrap: anywhere` (not `break-word`, which leaves min-content wide).
+- **Key/value rows wrap.** `.info-row` is `flex-wrap: wrap` with shrinkable `.k`/`.v` (`min-width: 0`, `overflow-wrap: anywhere`); the value drops under the key instead of clipping.
+- **Audit:** `node scripts/e2e-narrow-overflow.mjs [--shots DIR]` (mock core, 320x640 and 360x740, UI scale 1 and 1.15; flags elements past the right edge or clipped by overflow hidden; intentional `overflow-x: auto` scrollers are skipped). Run it after any layout change.
+- **About → Show device info** (`app/js/device-info.js`, `tests/device-info.test.mjs`): native `<details>` + wrapping `<pre>`, Copy (clipboard + toast) and Share (`qr-actions.shareLink`: Android `share_text`, else Web Share; hidden when neither exists). Never add account identifiers to it.
+
 ### 6.10 Pitfalls found in 1.4.73
 
 - **Code without a CI build rots silently.** d4632e7 (bridge token gate) was committed without compiling `velta-core-service` and no workflow built it, so five compile errors sat on master (fixed d80dc01), and the sidecar's tokio misuse (blocking_read in the forwarder task, `tokio::spawn` on a JNI thread) crashed it on a device (a1cf215). `core-service.yml` now runs clippy + tests on host and aarch64-linux-android with the committed `Cargo.lock` (`--locked`). Every crate that ships needs a CI job; if you can't build locally, say so and don't merge until CI is green.
@@ -2164,7 +2172,7 @@ next push or the tainted commits come back.
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 106 files, 725 tests as of 2026-10-17 (1.4.74, +#140 push settings):
+whole set — 108 files, 735 tests as of 2026-10-18 (+narrow-viewport CSS guards, device info):
 
 ```bash
 node --test tests/

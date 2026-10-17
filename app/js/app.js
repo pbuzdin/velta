@@ -14,7 +14,7 @@ import { notePushDiagnostic, relaySupportsPush, pushMarkHtml } from "./relay-pus
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow, isSendFailureDiagnostic, createRelaySendErrorState } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal, isShortInviteLink, expandShortInvite } from "./invites.js";
 import { activeWsRelay, addWsRelay, listWsRelays, normalizeHost, probeC3Relay, probeDnsVia, showWsRelaysModal, useWsRelay } from "./ws-relays.js";
-import { openImageLightbox, openVideoLightbox, bindMenuToggle, buildDrawer, showModal, footButtons, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate, popoverSupported, fillSplashVersion } from "./ui.js";
+import { openImageLightbox, openVideoLightbox, bindMenuToggle, buildDrawer, showModal, footButtons, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate, popoverSupported, fillSplashVersion, uiZoom } from "./ui.js";
 import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact, showCreateGroupModal, showAddMembersModal } from "./p2p.js";
 import { withLocalChat, hubModel, renameDevice, removePeer, dismissLocalGroup, groupRename, groupRemoveMember, peerGroupImpact, groupActionsModel, groupMemberHint, removePeerImpactText, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
 import { timeAgo, formatBytes, timeTag } from "./format.js";
@@ -1100,8 +1100,9 @@ function toggleLcQueuePop(chatId) {
   const place = () => {
     const a = document.getElementById("lc-queue-chip");
     if (!a) return;
-    pop.style.right = Math.max(8, innerWidth - a.getBoundingClientRect().right) + "px";
-    pop.style.bottom = Math.round(innerHeight - a.getBoundingClientRect().top + 10) + "px";
+    const z = uiZoom();
+    pop.style.right = Math.max(8, innerWidth - a.getBoundingClientRect().right) / z + "px";
+    pop.style.bottom = Math.round(innerHeight - a.getBoundingClientRect().top + 10) / z + "px";
   };
   let popped = false;
   if (popoverSupported()) {
@@ -4506,6 +4507,7 @@ function rebuildDrawer() {
     onEditProfile: editProfileFlow,
     onInviteDomains: () => showInviteDomainsModal(),
     onDiagnostics: async () => { await modalHistorySettled(); openDiagnosticsChat(); },
+    backendKind: core?.backend?.kind || null,
     onTunnel: tunnelInstalled()
       ? () => openTunnelSettings({ showModal, confirmModal, toast, errToast, onChange: rebuildDrawer })
       : null,

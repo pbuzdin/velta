@@ -3,7 +3,7 @@ import { canEditMsg } from "./msg-edit.js";
 import { prepareBuiltinXdc } from "./builtin-xdc.js";
 import { formatTime, formatDay, formatDateTime, formatServerUrl, messageInfoState, messageInfoReactions, formatBytes, timeTag, stampTime, formatDuration, serviceChipsHtml } from "./format.js";
 import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener } from "./components.js";
-import { bindMenuToggle, showContextMenu, showMessageSheet, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG } from "./ui.js";
+import { bindMenuToggle, showContextMenu, showMessageSheet, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG, uiZoom } from "./ui.js";
 import { diagnosticRow } from "./diagnostics.js";
 import { attachRecentCommands, recordCommand } from "./recent-commands.js";
 import { audioPlayerHtml, mountAudioPlayer, decodeAudioDuration } from "./audio-player.js";
@@ -1732,7 +1732,7 @@ export class ChatView {
         // 260px band.
         const dw = m.dimensionsWidth > 0 ? m.dimensionsWidth : 0;
         const dh = m.dimensionsHeight > 0 ? m.dimensionsHeight : 0;
-        const vBox = dw && dh ? ` style="width:min(${dw}px, 480px, calc(min(45vh, 260px) * ${(dw / dh).toFixed(4)})); aspect-ratio:${dw} / ${dh}; max-width:100%"` : "";
+        const vBox = dw && dh ? ` style="width:min(${dw}px, 480px, calc(min(var(--vh) * .45, 260px) * ${(dw / dh).toFixed(4)})); aspect-ratio:${dw} / ${dh}; max-width:100%"` : "";
         bubble += `<div class="msg-video"${vBox}><velta-video src="${escapeAttr(fileUrl(m.filePath))}" file="${escapeAttr(m.filePath)}" size="${escapeAttr(size)}" duration="${m.duration || ""}" name="${escapeHtml(m.fileName || "Video")}"></velta-video></div>`;
       } else {
         const size = m.fileSize ? formatBytes(m.fileSize) : "";
@@ -3054,8 +3054,9 @@ export class ChatView {
     if (!fragment || !rect || (!rect.width && !rect.height)) { chip.hidden = true; return; }
     this._pendingQuoteSel = { msgId: Number(row.dataset.msgid), fragment, rect };
     chip.hidden = false;
-    chip.style.left = Math.max(8, Math.min(rect.left + rect.width / 2 - 36, innerWidth - 84)) + "px";
-    chip.style.top = Math.max(8, rect.top - 42) + "px";
+    const z = uiZoom();
+    chip.style.left = Math.max(8, Math.min(rect.left + rect.width / 2 - 36, innerWidth - 84)) / z + "px";
+    chip.style.top = Math.max(8, rect.top - 42) / z + "px";
   }
 
   /* ================= composer ================= */
@@ -3175,8 +3176,8 @@ export class ChatView {
       const menu = showContextMenu(attachItems.map(action => ({ ...action, onClick: () => { if (this._isCurrent(session)) return action.onClick(); } })), x, 8);
       menu.classList.add("attach-pop");
       menu.style.top = "auto";
-      menu.style.bottom = (window.innerHeight - r.top + 10) + "px";
-      menu.style.left = x + "px";
+      menu.style.bottom = (window.innerHeight - r.top + 10) / uiZoom() + "px";
+      menu.style.left = x / uiZoom() + "px";
       requestAnimationFrame(() => {
         if (!this._isCurrent(session)) return;
         if (menu.getBoundingClientRect().top < 8) {

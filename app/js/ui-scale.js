@@ -3,5 +3,9 @@
 // external so the CSP can forbid inline scripts.
 try {
   const s = localStorage.getItem("velta-ui-scale");
-  if (s && s !== "1") document.documentElement.style.zoom = s;
+  if (s && s !== "1") {
+    document.documentElement.style.zoom = s;
+    // CSS zoom multiplies vw/vh/dvh; main.css divides them back via --ui-zoom.
+    document.documentElement.style.setProperty("--ui-zoom", s);
+  }
 } catch {}

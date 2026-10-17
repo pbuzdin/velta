@@ -8,6 +8,8 @@ import { APP_VERSION } from "./version.gen.js";
 import { formatSplashVersion } from "./format.js";
 import { searchEmoji } from "./emoji.js";
 import { isAndroid, isTauri, tauriInvoke } from "./tauri.js";
+import { collectDeviceInfo, formatDeviceInfo, measureSafeArea } from "./device-info.js";
+import { canShareLink, shareLink } from "./qr-actions.js";
 
 const popups = () => document.getElementById("popups");
 
@@ -51,10 +53,17 @@ export function closeAllPopups() {
   activeDrawer?.close();
 }
 
+// Under the interface scale (zoom on <html>) rects, clientX and innerWidth
+// are viewport px but a px written to style is multiplied by the zoom, so
+// positions computed from them must be divided back (or menus land off-screen).
+export function uiZoom() {
+  return parseFloat(globalThis.document?.documentElement?.style?.zoom) || 1;
+}
+
 function placeMenu(menu, x, y) {
-  const r = menu.getBoundingClientRect();
-  menu.style.left = Math.max(8, Math.min(x, innerWidth - r.width - 10)) + "px";
-  menu.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 10)) + "px";
+  const r = menu.getBoundingClientRect(), z = uiZoom();
+  menu.style.left = Math.max(8, Math.min(x, innerWidth - r.width - 10)) / z + "px";
+  menu.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 10)) / z + "px";
 }
 
 // #136: a menu button that turns into a close (X) button while its menu is
@@ -741,8 +750,9 @@ export function uiScaleLabel() {
 export function applyUiScale() {
   let v = "1";
   try { v = localStorage.getItem("velta-ui-scale") || "1"; } catch {}
-  if (v === "1") document.documentElement.style.removeProperty("zoom");
-  else document.documentElement.style.zoom = v;
+  const root = document.documentElement.style;
+  if (v === "1") { root.removeProperty("zoom"); root.removeProperty("--ui-zoom"); }
+  else { root.zoom = v; root.setProperty("--ui-zoom", v); }
   // CSS zoom changes neither offset sizes nor the window size, so the virtual
   // scroller's ResizeObserver never fires and it keeps heights measured in the
   // old scale — re-layouts then mix coordinate spaces and blank the list.
@@ -831,7 +841,7 @@ function notifyChecked(storageKey) {
 
 const IS_ANDROID = isAndroid();
 
-export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, onWsRelays, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality, downloadLimit = "0", onDownloadLimit, onReadReceipts, onLowBatteryToggle, multiDevice = false, onMultiDevice, onDrawerOpen, identityBackupAvailable = false, onIdentityBackup, onTunnel = null, tunnelLabel = "", onDiagnostics = null, onPushSection = null }) {
+export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, onWsRelays, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality, downloadLimit = "0", onDownloadLimit, onReadReceipts, onLowBatteryToggle, multiDevice = false, onMultiDevice, onDrawerOpen, identityBackupAvailable = false, onIdentityBackup, onTunnel = null, tunnelLabel = "", onDiagnostics = null, onPushSection = null, backendKind = null }) {
   const inTauri = isTauri();
   const drawer = document.createElement("div");
   drawer.className = "drawer";
@@ -1244,7 +1254,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     if (act === "invite-domains") onInviteDomains?.();
     if (act === "tunnel") onTunnel?.();
     if (act === "identity-backup") onIdentityBackup?.();
-    if (act === "about") showAbout({ onDiagnostics });
+    if (act === "about") showAbout({ onDiagnostics, backendKind });
   });
 
   // Rebuilds (rebuildDrawer) discard this drawer: drop the document
@@ -1381,7 +1391,7 @@ export function showInvite(provider, { title = "Invite to Delta Chat", group = f
     });
 }
 
-async function showAbout({ onDiagnostics = null } = {}) {
+async function showAbout({ onDiagnostics = null, backendKind = null } = {}) {
   // Prefer the runtime version so the About dialog always matches the built
   // app; the core version is the pinned core/ workspace version.
   const version = await getAppVersion();
@@ -1406,7 +1416,48 @@ async function showAbout({ onDiagnostics = null } = {}) {
       <div class="info-row"><span class="k">Transport</span><span class="v">chatmail relays (IMAP/SMTP)</span></div>
       <div class="info-row"><span class="k">Encryption</span><span class="v">OpenPGP, end-to-end</span></div>
       <div class="info-row"><span class="k">UI stack</span><span class="v">Elena progressive web components</span></div>
-      <div class="enc-note"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 018 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>No phone number needed. No central servers. Your messages travel through email relays you choose, encrypted end to end.</span></div>`,
+      <div class="enc-note"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 018 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>No phone number needed. No central servers. Your messages travel through email relays you choose, encrypted end to end.</span></div>
+      <details class="device-info" data-device-info>
+        <summary>Show device info</summary>
+        <pre class="device-info-text" data-device-info-text></pre>
+        <div class="device-info-actions">
+          <button type="button" class="btn-text" data-device-copy>Copy</button>
+          <button type="button" class="btn-text" data-device-share hidden>Share</button>
+        </div>
+      </details>`,
+  });
+  // Device info for bug reports — collected when opened (viewport, orientation
+  // and insets are live values), no personal identifiers (device-info.js).
+  const det = about.modal.querySelector("[data-device-info]");
+  const pre = det.querySelector("[data-device-info-text]");
+  let tauriVersion = null;
+  const fill = () => {
+    pre.textContent = formatDeviceInfo(collectDeviceInfo({
+      window, navigator, screen,
+      appVersion: version, coreVersion: CORE_VERSION, tauriVersion,
+      tauri: isTauri(), android: isAndroid(), backendKind,
+      uiScale: uiScaleValue(), theme: document.documentElement.dataset.theme || "auto",
+      safeArea: measureSafeArea(document),
+    }));
+  };
+  det.addEventListener("toggle", () => {
+    if (!det.open) return;
+    fill();
+    getTauriVersion().then(v => { if (v && v !== tauriVersion) { tauriVersion = v; fill(); } }, () => {});
+  });
+  det.querySelector("[data-device-copy]").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(pre.textContent);
+      toast("Device info copied");
+    } catch (err) { toast("Couldn't copy: " + (err?.message || err)); }
+  });
+  const shareBtn = det.querySelector("[data-device-share]");
+  const webShare = typeof navigator.share === "function" ? o => navigator.share(o) : null;
+  shareBtn.hidden = !canShareLink({ ua: navigator.userAgent, hasInvoke: !!tauriInvoke(), hasWebShare: !!webShare });
+  shareBtn.addEventListener("click", async () => {
+    try {
+      await shareLink(pre.textContent, { ua: navigator.userAgent, invoke: tauriInvoke(), webShare, title: "Velta device info" });
+    } catch (err) { toast("Couldn't share: " + (err?.message || err)); }
   });
 }
 

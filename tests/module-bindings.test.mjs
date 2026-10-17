@@ -43,7 +43,7 @@ test("no app module uses a name it only re-exports", () => {
 
 test("About Velta offers the diagnostics log", () => {
   const ui = readFileSync(new URL("../app/js/ui.js", import.meta.url), "utf8");
-  assert.match(ui, /showAbout\(\{ onDiagnostics \}\)/);
+  assert.match(ui, /showAbout\(\{ onDiagnostics, backendKind \}\)/);
   assert.match(ui, /Open diagnostics log/);
   const app = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8");
   assert.match(app, /onDiagnostics: async \(\) => \{ await modalHistorySettled\(\); openDiagnosticsChat\(\); \}/);

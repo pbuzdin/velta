@@ -22,7 +22,7 @@ test("panel wiring: no reload, no history entry, accessible controls", () => {
   assert.match(mgr, /wrap\.setAttribute\("role", "region"\)/);
   assert.match(mgr, /if \(active\.panel\) \{ if \(isWebxdcExpanded\(\)\) applyExpanded\(false\); return; \}/);
   const css = src("app/css/main.css");
-  assert.match(css, /--webxdc-panel-h: min\(max\(220px, 30dvh\), 45%\)/);
+  assert.match(css, /--webxdc-panel-h: min\(max\(220px, calc\(var\(--dvh\) \* \.30\)\), 45%\)/);
   assert.match(css, /flex: 0 0 var\(--webxdc-panel-h\)/);
   assert.ok(!/webxdc-panel-open/.test(css + mgr), "no overlay shrink of the app shell any more");
   // in flow under the chat header, inserted once

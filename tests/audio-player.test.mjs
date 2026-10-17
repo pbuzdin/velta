@@ -95,6 +95,6 @@ test("outgoing and incoming bubbles share the player path, fixed width CSS", () 
   assert.doesNotMatch(branch, /<audio[^>]*\bcontrols\b/, "no native control (pill on header-less files)");
   assert.match(cv, /mountAudioPlayer\(mediaAudio\.closest\("\.msg-audio"\), mediaAudio, \{\s*duration: m\.duration,\s*decodeDuration:/);
   const css = src("app/css/main.css");
-  assert.match(css, /\.msg-audio \{\s*width: 100%; max-width: 320px; min-width: 240px;/);
+  assert.match(css, /\.msg-audio \{\s*width: 100%; max-width: 320px; min-width: min\(240px, var\(--bubble-inner-max\)\);/);
   assert.match(css, /\.vp \{ display: flex;[^}]*width: 100%; height: 40px;/);
 });

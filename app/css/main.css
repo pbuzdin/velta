@@ -1,6 +1,18 @@
 @charset "UTF-8";
 /* ===== Velta — Telegram-style theme ===== */
 :root {
+  /* Viewport units corrected for the interface scale ui-scale.js
+     zooms <html>, and under CSS zoom 100vw/100dvh are multiplied by the zoom
+     (414px on a 360px phone at "Large"), so full-width sheets overflowed.
+     Always size against --vw/--vh/--dvh, never raw vw/vh/dvh. */
+  --ui-zoom: 1;
+  --vw: calc(100vw / var(--ui-zoom));
+  --vh: calc(100vh / var(--ui-zoom));
+  --dvh: calc(100dvh / var(--ui-zoom));
+  /* Cap for fixed min-widths inside bubbles (file/app/voice cards): a bubble
+     on a 320px phone (avatar column, list padding, 90% max) is ~170px wide
+     inside, so a bare min-width: 220px pushed the card past the screen. */
+  --bubble-inner-max: calc(var(--vw) - 120px);
   --bg: #0f0f14;
   --bg-sidebar: #181820;
   --bg-chat: #0b0b10;
@@ -339,7 +351,7 @@ progress.chat-load-bar::-moz-progress-bar { background: transparent; }
 .pin-tray[open] .pin-tray-chevron svg { transform: rotate(180deg); }
 .pin-tray-list {
   display: flex; flex-direction: column;
-  max-height: 40vh; overflow-y: auto;
+  max-height: calc(var(--vh) * .40); overflow-y: auto;
   border-top: 1px solid var(--border);
 }
 .pin-tray-item {
@@ -480,7 +492,9 @@ html[data-theme="light"] .read-marker { color: #155a9e; border-color: #155a9e; }
   border-bottom-left-radius: 6px;
   padding: 7px 10px 6px;
   box-shadow: 0 1px 2px rgba(16,16,16,.25);
-  word-wrap: break-word;
+  /* anywhere (not break-word): it also lowers the min-content width, so a
+     long URL or token shrinks the bubble instead of widening it. */
+  overflow-wrap: anywhere;
   animation: msgIn .12s ease-out;
   /* No paint containment: the reply track hangs 4px past the right edge
      and would be clipped. Rows must also never get content-visibility:
@@ -848,7 +862,7 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
    missed/declined/canceled via .missed. */
 .call-card {
   display: flex; align-items: center; gap: 10px;
-  min-width: 190px; padding: 10px 12px;
+  min-width: min(190px, var(--bubble-inner-max)); padding: 10px 12px;
 }
 .call-card-ico {
   width: 34px; height: 34px; border-radius: 50%; flex: none;
@@ -963,7 +977,7 @@ html[data-theme="brutal"] .msg-fail-badge { color: #3d3405; background: rgba(229
    min(960px, 100%, 2.5532 * min(450px, 45vh)). */
 html[data-engine="chromium"] .bubble:has(.img-wrap.is-land) { width: min(480px, 100%); }
 html[data-engine="chromium"] .img-wrap.is-land.ready {
-  width: min(var(--img-w, 480px), 100%, calc(min(var(--img-cap, 450px), 45vh) * var(--img-r, 1))) !important;
+  width: min(var(--img-w, 480px), 100%, calc(min(var(--img-cap, 450px), calc(var(--vh) * .45)) * var(--img-r, 1))) !important;
 }
 .msg-image .img-wrap.ready img { opacity: 1; transform: none; }
 .img-ph {
@@ -1000,16 +1014,16 @@ body.native-scanning #app {
 /* Fingerprint block reused inside the chat-info profile rows. */
 .avatar-profile-fpr { font-size: 12.5px; color: var(--text-dim); text-align: center; line-height: 1.55; white-space: pre-line; }
 .msg-video video {
-  width: 100%; min-width: 200px; height: 260px; display: block;
+  width: 100%; min-width: min(200px, var(--bubble-inner-max)); height: 260px; display: block;
   /* JS overrides .msg-video to a true aspect box when the message carries
-     dimensions (style="width:min(Wpx,480px,calc(min(45vh,260px)*W/H));
+     dimensions (style="width:min(Wpx,480px,calc(min(var(--vh)*.45,260px)*W/H));
      aspect-ratio:W/H; max-width:100%") - then height:100% fills the box.
      Without it: the fixed 260px band. Either way the row height is
      deterministic (virtual-scroller safe). */
   object-fit: contain; background: #101010;
 }
 .msg-video[style] video { height: 100%; }
-.msg-video:not([style]) { min-width: 200px; height: 260px; } /* fixed band until metadata shapes it */
+.msg-video:not([style]) { min-width: min(200px, var(--bubble-inner-max)); height: 260px; } /* fixed band until metadata shapes it */
 velta-video { display: block; height: 100%; }
 /* Native-preload video card: the <video> IS the poster (first frame via
    preload=metadata + #t fragment). Badges overlay the playing frame. */
@@ -1047,7 +1061,7 @@ velta-video { display: block; height: 100%; }
 }
 /* Fixed width: the player never collapses (outgoing bubbles shrink-wrap). */
 .msg-audio {
-  width: 100%; max-width: 320px; min-width: 240px; margin: 2px -5px 5px; box-sizing: border-box;
+  width: 100%; max-width: 320px; min-width: min(240px, var(--bubble-inner-max)); margin: 2px -5px 5px; box-sizing: border-box;
 }
 .msg-audio audio { display: none; }
 .vp { display: flex; align-items: center; gap: 8px; width: 100%; height: 40px; padding: 0 10px 0 4px; box-sizing: border-box; border-radius: 20px; background: rgba(0,0,0,.18); }
@@ -1056,7 +1070,7 @@ velta-video { display: block; height: 100%; }
 .vp-seek { flex: 1; min-width: 0; margin: 0; accent-color: var(--accent, #5aa2e6); }
 .vp-time { flex: none; font-size: 12px; font-variant-numeric: tabular-nums; opacity: .85; white-space: nowrap; }
 .msg-file {
-  display: flex; align-items: center; gap: 10px; margin-bottom: 4px; min-width: 210px;
+  display: flex; align-items: center; gap: 10px; margin-bottom: 4px; min-width: min(210px, var(--bubble-inner-max));
 }
 .msg-file.download-btn { cursor: pointer; }
 .msg-file .file-ico {
@@ -1066,10 +1080,13 @@ velta-video { display: block; height: 100%; }
 }
 .msg-file .file-ico svg { width: var(--ico-4); height: var(--ico-4); }
 .msg-file .file-name { font-size: 14.5px; font-weight: 500; }
+/* The name/size column is a flex child: without min-width: 0 a long file or
+   app name (no spaces) sets the card's min-content and overflows the bubble. */
+.msg-file > div:not(.file-ico), .msg-webxdc > div:not(.webxdc-ico) { min-width: 0; overflow-wrap: anywhere; }
 .msg-file .file-size { font-size: 12.5px; color: var(--text-dim); }
 .msg-row.out .msg-file .file-size { color: var(--text-meta-out); }
 
-.msg-voice { display: flex; align-items: center; gap: 10px; min-width: 220px; margin-bottom: 2px; }
+.msg-voice { display: flex; align-items: center; gap: 10px; min-width: min(220px, var(--bubble-inner-max)); margin-bottom: 2px; }
 .msg-voice .play {
   width: 42px; height: 42px; border-radius: 50%; background: var(--accent);
   color: #f4f4f4; display: grid; place-items: center; flex: none;
@@ -1184,7 +1201,7 @@ button.reaction-chip { font: inherit; color: inherit; }
 #composer-input {
   flex: 1; border: 0; outline: 0; resize: none;
   background: none; padding: 13px 6px 13px 16px;
-  max-height: 40dvh; font-size: 15.5px; line-height: 1.3;
+  max-height: calc(var(--dvh) * .40); font-size: 15.5px; line-height: 1.3;
   min-width: 0; overflow-wrap: anywhere; /* break long URLs instead of growing (field-sizing: content) */
 }
 #composer-input::placeholder { color: var(--text-dim); }
@@ -1207,7 +1224,7 @@ button.reaction-chip { font: inherit; color: inherit; }
 .sticker-pop {
   position: fixed; z-index: 930;
   right: 10px; bottom: calc(78px + env(safe-area-inset-bottom));
-  width: min(320px, calc(100vw - 20px)); max-height: min(420px, 50dvh);
+  width: min(320px, calc(var(--vw) - 20px)); max-height: min(420px, calc(var(--dvh) * .50));
   overflow: auto;
   background: var(--bg-sidebar); border: 1px solid var(--border);
   border-radius: 14px; box-shadow: var(--shadow); padding: 10px;
@@ -1425,7 +1442,7 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 /* Phone message menu: bottom sheet, reactions, then two columns of pairs. */
 .ctx-menu.msg-sheet {
   left: 0; right: 0; top: auto; bottom: 0;
-  width: auto; min-width: 0; max-height: min(80vh, 640px);
+  width: auto; min-width: 0; max-height: min(calc(var(--vh) * .80), 640px);
   overflow: auto;
   border-radius: 18px 18px 0 0;
   border-bottom: 0;
@@ -1503,8 +1520,8 @@ fieldset.eph-set { border: 0; margin: 0; padding: 0; min-inline-size: 0; }
   background: var(--bg-sidebar);
   border: 1px solid var(--border);
   border-radius: 16px; box-shadow: var(--shadow);
-  width: min(420px, calc(100vw - 40px));
-  max-height: min(600px, calc(100dvh - 60px));
+  width: min(420px, calc(var(--vw) - 40px));
+  max-height: min(600px, calc(var(--dvh) - 60px));
   display: flex; flex-direction: column;
   animation: modalIn .16s ease-out;
   overflow: hidden;
@@ -1514,7 +1531,7 @@ fieldset.eph-set { border: 0; margin: 0; padding: 0; min-inline-size: 0; }
    like a dedicated page; compact confirmations keep the floating card. */
 @media (max-width: 600px) {
   .modal:not(.modal-compact) {
-    width: 100vw; height: 100dvh; max-height: none;
+    width: var(--vw); height: var(--dvh); max-height: none;
     border-radius: 0; border-left: none; border-right: none; border-top: none;
     animation: sheetIn .18s ease-out;
   }
@@ -1529,7 +1546,7 @@ fieldset.eph-set { border: 0; margin: 0; padding: 0; min-inline-size: 0; }
      drawer overlay) — the bar stays visible, dimmed under the scrim, and a
      tap there dismisses the modal. In a chat (search modal) stay full-screen. */
   body:not(:has(.app.chat-open)) .modal:not(.modal-compact) {
-    height: calc(100dvh - var(--list-bar-h));
+    height: calc(var(--dvh) - var(--list-bar-h));
     align-self: start;
   }
 }
@@ -1543,8 +1560,8 @@ fieldset.eph-set { border: 0; margin: 0; padding: 0; min-inline-size: 0; }
 @media (min-width: 601px) {
   .modal:not(.modal-compact) {
     position: fixed; left: 0; top: 0;
-    width: clamp(300px, 33vw, 420px);
-    height: calc(100dvh - var(--list-bar-h));
+    width: clamp(300px, calc(var(--vw) * .33), 420px);
+    height: calc(var(--dvh) - var(--list-bar-h));
     max-height: none;
     border-radius: 0;
     border-top: none; border-bottom: none; border-left: none;
@@ -1657,10 +1674,13 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 .info-reacts { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; }
 .info-react > summary { cursor: pointer; }
 .info-react-who { padding: 2px 4px 2px 12px; font-size: 14px; }
-.info-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14.5px; }
+/* Key/value rows wrap instead of clipping on narrow screens / big scales:
+   the value may shrink (min-width: 0), break long tokens and drops under the
+   key when the row is too narrow for both (flex-wrap). */
+.info-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; column-gap: 12px; row-gap: 2px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14.5px; }
 .info-row:last-child { border-bottom: 0; }
-.info-row .k { color: var(--text-dim); }
-.info-row .v { font-weight: 500; display: flex; align-items: center; gap: 6px; }
+.info-row .k { color: var(--text-dim); min-width: 0; overflow-wrap: anywhere; }
+.info-row .v { font-weight: 500; display: flex; align-items: center; gap: 6px; min-width: 0; margin-left: auto; text-align: right; overflow-wrap: anywhere; }
 .info-row.wrap { align-items: flex-start; gap: 12px; }
 .info-row.wrap .k { flex: none; }
 .info-row.wrap .v { display: block; margin-left: auto; max-width: 70%; text-align: right; overflow-wrap: anywhere; white-space: pre-line; }
@@ -1699,8 +1719,23 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
   background: rgba(79,174,79,.12); border: 1px solid rgba(79,174,79,.3);
   border-radius: 10px; padding: 10px 12px; margin: 10px 0;
   font-size: 13.5px; color: var(--green);
+  min-width: 0; overflow-wrap: anywhere;
 }
 .enc-note svg { width: var(--ico-3); height: var(--ico-3); flex: none; margin-top: 1px; }
+
+/* About → Show device info: native <details>; the <pre> wraps (pre-wrap +
+   anywhere) so a long user agent never widens the modal on a narrow phone. */
+.device-info { margin: 12px 0 0; }
+.device-info > summary { cursor: pointer; color: var(--accent); font-weight: 600; padding: 8px 0; }
+.device-info-text {
+  margin: 4px 0 0; padding: 10px 12px; max-width: 100%; box-sizing: border-box;
+  background: var(--bg-hover); border-radius: 10px;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;
+  -webkit-user-select: text; user-select: text;
+}
+.device-info-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.device-info-actions [hidden] { display: none; }
 
 /* settings drawer */
 .drawer {
@@ -1708,7 +1743,7 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
   position: fixed; inset: env(safe-area-inset-top) auto var(--list-bar-h) 0; z-index: 55;
 
   /* same width as the chat list (.sidebar) */
-  width: clamp(300px, 33vw, 420px);
+  width: clamp(300px, calc(var(--vw) * .33), 420px);
   background: var(--bg-sidebar);
   /* no box shadow: the drawer slides over the sidebar's own edge and any
      offset shadow bleeds past it; a right border does the separation */
@@ -1818,8 +1853,8 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
    composer. #toasts sits outside #app in the DOM, hence :has.
    Phones (<=820px, one pane) keep the full-width bar. */
 @media (min-width: 821px) {
-  .toasts { right: calc(100% - clamp(300px, 33vw, 420px)); }
-  body:has(.app.chat-open) .toasts { left: clamp(300px, 33vw, 420px); right: 0; }
+  .toasts { right: calc(100% - clamp(300px, calc(var(--vw) * .33), 420px)); }
+  body:has(.app.chat-open) .toasts { left: clamp(300px, calc(var(--vw) * .33), 420px); right: 0; }
 }
 .toast {
   pointer-events: auto;
@@ -1851,7 +1886,7 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
   margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--border);
   word-break: break-word;
 }
-.toast-more-text { flex: 1; max-height: 40vh; overflow-y: auto; }
+.toast-more-text { flex: 1; max-height: calc(var(--vh) * .40); overflow-y: auto; }
 .toast-chip, .toast-copy, .toast-undo {
   flex: none; cursor: pointer;
   font-size: 11px; padding: 3px 8px; border-radius: 999px;
@@ -1905,7 +1940,7 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 }
 .splash .ob-steps li { flex-direction: column; justify-content: center; gap: 8px; }
 .splash-log {
-  flex: none; max-height: 38vh;
+  flex: none; max-height: calc(var(--vh) * .38);
   border-top: 1px solid var(--border);
   background: var(--panel, #16161d);
   font-family: ui-monospace, monospace; font-size: 12px;
@@ -1914,7 +1949,7 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 .splash-log-bar { display: flex; justify-content: flex-end; padding: 0 12px; }
 .splash-log pre {
   margin: 0; padding: 4px 16px 14px;
-  max-height: 30vh; overflow-y: auto;
+  max-height: calc(var(--vh) * .30); overflow-y: auto;
   white-space: pre-wrap; word-break: break-all;
   color: var(--text-dim, #aaa); text-align: left;
 }
@@ -2010,7 +2045,7 @@ li.failed .step-ico::after { transform: rotate(-45deg); }
   background: var(--bg-sidebar); border: 1px solid var(--border);
   border-radius: 12px; box-shadow: var(--shadow);
   padding: 8px; display: flex; flex-direction: column; gap: 8px;
-  min-width: 220px; max-width: calc(100vw - 90px);
+  min-width: min(220px, calc(var(--vw) - 90px)); max-width: calc(var(--vw) - 90px);
 }
 /* list entries styled like the head's pill buttons. The pop lives inside
    .drawer-head, whose light text would vanish on a light sidebar. */
@@ -2256,7 +2291,7 @@ html[data-theme="brutal"] .msg-row.out .link-preview .lp-desc { color: #3d3405; 
   display: flex;
   gap: 10px;
   align-items: center;
-  min-width: 220px;
+  min-width: min(220px, var(--bubble-inner-max));
   padding: 8px;
   border-radius: 10px;
   background: var(--bg-hover); /* visible card surface on the bubble */
@@ -2389,7 +2424,7 @@ html[data-theme="light"] .webxdc-frame { color-scheme: light; background: #fff; 
 }
 #lc-queue-pop {
   position: fixed; z-index: 920;
-  min-width: 300px; max-width: calc(100vw - 24px);
+  min-width: min(300px, calc(var(--vw) - 24px)); max-width: calc(var(--vw) - 24px);
   background: var(--bg-sidebar); border: 1px solid var(--border);
   border-radius: 14px; box-shadow: var(--shadow); padding: 10px;
 }
@@ -2399,7 +2434,7 @@ html[data-theme="light"] .webxdc-frame { color-scheme: light; background: #fff; 
 .lq-name { flex: 1; font-size: 14px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Transfer-in-progress card inside a bubble (local chat media) */
-.msg-transfer { padding: 8px 6px; min-width: 180px; }
+.msg-transfer { padding: 8px 6px; min-width: min(180px, var(--bubble-inner-max)); }
 .mfp-name { font-size: 14px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 progress.mfp-bar, progress.pair-bar {
   appearance: none; -webkit-appearance: none;
@@ -2585,7 +2620,7 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 .recent-commands-pop {
   position: absolute; left: 14px; right: 14px; bottom: 100%;
   margin: 0 0 4px; padding: 4px 0; list-style: none;
-  max-height: min(50vh, 340px); overflow-y: auto; z-index: 30;
+  max-height: min(calc(var(--vh) * .50), 340px); overflow-y: auto; z-index: 30;
   background: var(--bg-sidebar); color: var(--text);
   border: 1px solid var(--border); border-radius: 12px;
   box-shadow: var(--shadow);
@@ -2604,7 +2639,7 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
    the chat header: the history shrinks between it and the composer, which
    stays fully visible (also with the Android keyboard open — the cap keeps
    the panel under half of the chat view). Expanded = full-screen overlay. */
-:root { --webxdc-panel-h: min(max(220px, 30dvh), 45%); }
+:root { --webxdc-panel-h: min(max(220px, calc(var(--dvh) * .30)), 45%); }
 #webxdc-overlay.webxdc-panel:not(.webxdc-expanded) {
   position: relative; inset: auto; z-index: 5;
   flex: 0 0 var(--webxdc-panel-h);
