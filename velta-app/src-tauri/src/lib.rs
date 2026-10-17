@@ -2040,60 +2040,24 @@ pub extern "system" fn Java_org_velta_MainActivity_setApplicationContext(
     };
     *APP_JAVA_VM.lock().unwrap() = Some(vm);
     *APP_CONTEXT.lock().unwrap() = Some(global);
-    match env.find_class("org/velta/InAppBrowser") {
-        Ok(class) => match env.new_global_ref(&class) {
-            Ok(g) => {
-                *APP_INAPP_BROWSER_CLASS.lock().unwrap() = Some(g);
-            }
-            Err(e) => log(&format!("setApplicationContext: InAppBrowser global ref failed: {e}")),
-        },
-        Err(e) => log(&format!("setApplicationContext: InAppBrowser find_class failed: {e}")),
-    }
-    match env.find_class("org/velta/Notifications") {
-        Ok(class) => match env.new_global_ref(&class) {
-            Ok(g) => {
-                *APP_NOTIFICATIONS_CLASS.lock().unwrap() = Some(g);
-            }
-            Err(e) => log(&format!("setApplicationContext: Notifications global ref failed: {e}")),
-        },
-        Err(e) => log(&format!("setApplicationContext: Notifications find_class failed: {e}")),
-    }
-    match env.find_class("org/velta/Battery") {
-        Ok(class) => match env.new_global_ref(&class) {
-            Ok(g) => {
-                *APP_BATTERY_CLASS.lock().unwrap() = Some(g);
-            }
-            Err(e) => log(&format!("setApplicationContext: Battery global ref failed: {e}")),
-        },
-        Err(e) => log(&format!("setApplicationContext: Battery find_class failed: {e}")),
-    }
-    // DNS tunnel (tunnel.rs): operator-assigned resolvers + SIM operator.
-    match env.find_class("org/velta/NetInfo") {
-        Ok(class) => match env.new_global_ref(&class) {
-            Ok(g) => {
-                *APP_NETINFO_CLASS.lock().unwrap() = Some(g);
-            }
-            Err(e) => log(&format!("setApplicationContext: NetInfo global ref failed: {e}")),
-        },
-        Err(e) => log(&format!("setApplicationContext: NetInfo find_class failed: {e}")),
-    }
-    match env.find_class("org/velta/UpdateInstall") {
-        Ok(class) => match env.new_global_ref(&class) {
-            Ok(g) => {
-                *APP_UPDATE_INSTALL_CLASS.lock().unwrap() = Some(g);
-            }
-            Err(e) => log(&format!("setApplicationContext: UpdateInstall global ref failed: {e}")),
-        },
-        Err(e) => log(&format!("setApplicationContext: UpdateInstall find_class failed: {e}")),
-    }
-    match env.find_class("org/velta/Share") {
-        Ok(class) => match env.new_global_ref(&class) {
-            Ok(g) => {
-                *APP_SHARE_CLASS.lock().unwrap() = Some(g);
-            }
-            Err(e) => log(&format!("setApplicationContext: Share global ref failed: {e}")),
-        },
-        Err(e) => log(&format!("setApplicationContext: Share find_class failed: {e}")),
+    // Global refs to the app's helper classes for later Rust commands
+    // (NetInfo: DNS tunnel, tunnel.rs — operator resolvers + SIM operator).
+    let classes: [(&str, &Mutex<Option<jni::objects::GlobalRef>>); 6] = [
+        ("InAppBrowser", &APP_INAPP_BROWSER_CLASS),
+        ("Notifications", &APP_NOTIFICATIONS_CLASS),
+        ("Battery", &APP_BATTERY_CLASS),
+        ("NetInfo", &APP_NETINFO_CLASS),
+        ("UpdateInstall", &APP_UPDATE_INSTALL_CLASS),
+        ("Share", &APP_SHARE_CLASS),
+    ];
+    for (name, slot) in classes {
+        match env.find_class(format!("org/velta/{name}")) {
+            Ok(class) => match env.new_global_ref(&class) {
+                Ok(g) => *slot.lock().unwrap() = Some(g),
+                Err(e) => log(&format!("setApplicationContext: {name} global ref failed: {e}")),
+            },
+            Err(e) => log(&format!("setApplicationContext: {name} find_class failed: {e}")),
+        }
     }
     log("application context stored for Rust commands");
 }

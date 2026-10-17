@@ -147,8 +147,8 @@ test("Android share: Share.kt, JNI class cache, command registered for android a
   assert.match(kt, /FLAG_ACTIVITY_NEW_TASK/);
   const rs = strip(read("../velta-app/src-tauri/src/lib.rs"));
   assert.equal((rs.match(/fn share_text\(/g) || []).length, 2, "android + stub");
-  assert.match(rs, /find_class\("org\/velta\/Share"\)/);
-  assert.match(rs, /APP_SHARE_CLASS/);
+  assert.match(rs, /\("Share", &APP_SHARE_CLASS\)/);
+  assert.match(rs, /find_class\(format!\("org\/velta\/\{name\}"\)\)/);
   assert.match(rs, /"\(Landroid\/content\/Context;Ljava\/lang\/String;Ljava\/lang\/String;\)Z"/);
   assert.match(rs, /generate_handler!\[[^\]]*\bshare_text\b/);
   assert.match(strip(read("../app/js/qr-actions.js")), /invoke\("share_text", \{ text: link, title \}\)/);
