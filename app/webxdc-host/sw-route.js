@@ -53,7 +53,8 @@
     } catch (e) { return false; }
   }
 
-  function isIcon(path) { return path === "icon.png" || path === "icon.jpg" || /^icon\.[a-z]+$/.test(path); }
+  // Same rule as ICON_PATH_RE in app/js/webxdc-manager.js.
+  function isIcon(path) { return /^icon\.[a-z]+$/.test(path); }
 
   // JSON for an inline script: no "<" (closing tag), no U+2028/9.
   function inlineJson(v) {
