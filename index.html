@@ -4,43 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Velta — a cross-platform Delta Chat client for Windows, macOS, Android and the browser.">
-  <title>Velta</title>
+  <title>Velta — a cross-platform Delta Chat client</title>
   <link rel="stylesheet" href="css/marx.min.css">
+  <link rel="stylesheet" href="css/site.css">
 </head>
-<body>
+<body data-page="home">
   <main class="container">
-    <header>
-      <h1>Velta</h1>
-      <p>
-        <a href="#/">Home</a> ·
-        <a href="#/developing">Developing</a> ·
-        <a href="#/comparison">Compare</a> ·
-        <a href="#/about">About</a> ·
-        <a href="https://github.com/pbuzdin/velta/releases">Download</a> ·
-        <a href="admin/">Edit</a>
-      </p>
-      <hr>
-    </header>
-    <article id="content" aria-live="polite"></article>
-    <footer>
-      <hr>
-      <p>© <span id="year"></span> Velta</p>
-    </footer>
+    <header id="site-header"></header>
+    <article id="content"></article>
+    <footer id="site-footer"></footer>
   </main>
-  <script>
-    const content = document.getElementById('content');
-    async function route() {
-      const page = (location.hash.replace(/^#\/?/, '').replace(/[^a-z0-9-]/gi, '')) || 'home';
-      try {
-        const res = await fetch('content/' + page + '.html');
-        content.innerHTML = res.ok ? await res.text() : '<h2>Not found</h2>';
-      } catch {
-        content.innerHTML = '<h2>Offline</h2>';
-      }
-    }
-    document.getElementById('year').textContent = new Date().getFullYear();
-    addEventListener('hashchange', route);
-    route();
-  </script>
+  <script src="site.js"></script>
 </body>
 </html>

@@ -265,7 +265,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
         <input id="new-name" placeholder="page-name" /> .html
         <button data-action="create">Create</button>
       </p>
-      <p><small>A new page is served at <code>/#/name</code>; add its nav link by editing index.html (this CMS only edits the page bodies).</small></p>
+      <p><small>Then serve it: copy about.html to <code>&lt;name&gt;.html</code> and set its <code>data-page</code> to the same name (this CMS edits the bodies in content/ only).</small></p>
     `;
   }
 
