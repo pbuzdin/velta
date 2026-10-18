@@ -546,9 +546,20 @@ class VeltaAdmin extends Elena(HTMLElement) {
         mainClass: "page",
       });
       await this.putFile(path, `Create ${path}`, newRaw, null);
+
+      // Add the post to the news index right away — newest first. A second
+      // manual step here was the most confusing part of the old flow.
+      const indexFile = await this.api(`/news/index.html?ref=${BRANCH}`);
+      const indexRaw = b64ToUtf8(indexFile.content);
+      const im = indexRaw.match(MARKERS);
+      if (!im) throw new Error("news/index.html has no body markers — cannot add the post to the list.");
+      const li = `<li><a href="/news/${slug}.html"><time>${esc(this.newPost.date.trim() || today())}</time><span><span class="kicker">${esc(this.newPost.kicker)}</span><h2>${esc(title)}</h2><p>${esc(summary)}</p><p>3 min read</p></span></a></li>`;
+      const newIndexRaw = spliceBody(indexRaw, im[1].replace(/<ul>/i, () => `<ul>\n  ${li}`));
+      await this.putFile("news/index.html", `Add ${path} to the news index`, newIndexRaw, indexFile.sha);
+
       await this.loadFiles();
       await this.open(path);
-      this.status = "Published as a draft on the site. Add a line for it to the news index (news/index.html) so it shows up in the lists.";
+      this.status = "Published and added to the news index — live at velta.cc in about a minute.";
     } catch (e) {
       this.error = String(e.message || e);
       this.busy = false;
@@ -700,7 +711,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
       </p>
       <p><input id="post-summary" placeholder="One-line summary (also the meta description)" /></p>
       <p><button data-action="create-post">Create post</button></p>
-      <p><small>The post is created from the news template (breadcrumb, kicker, date, summary, body, aside) with "News" marked current in the nav. Then add a line for it to the news index (news/index.html) — the home page mirrors that list automatically.</small></p>
+      <p><small>The post is created from the news template (breadcrumb, kicker, date, summary, body, aside), added to the top of the news index, and the home page list mirrors the index automatically.</small></p>
 
       <h3>Blocks</h3>
       ${blocks.length

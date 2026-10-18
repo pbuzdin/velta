@@ -81,11 +81,10 @@ as the existing posts.
 
 1. **New post** → fill in the name, title, type (Release / Guide / Note),
    date (pre-filled with today) and a one-line summary → **Create post**.
+   The post is created **and** added to the top of the news index in the
+   same go — the home page list mirrors the index automatically.
 2. The post opens in the editor — write the body inside `div.body`.
-   The preview shows it with the site's real styling.
-3. Publish it in the lists: add a line for the post to the top of
-   `news/index.html` (open it under Pages). The home page's news list
-   mirrors that index automatically — nothing else to touch.
+   The preview shows it with the site's real styling. Save when done.
 
 ## Limits and recovery
 
