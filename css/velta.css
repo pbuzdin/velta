@@ -637,6 +637,28 @@ main.page details { border: 1px solid var(--line); border-radius: 8px; padding: 
 main.page details summary { cursor: pointer; font-weight: 500; }
 main.page details[open] summary { margin-bottom: 0.5rem; }
 
+/* contribute section */
+#help ul {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  list-style: none;
+  margin: 2rem 0 0;
+  padding: 0;
+}
+#help li {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 1.25rem;
+  background: var(--surface);
+}
+#help h3 { margin: 0 0 0.5rem; font-size: 1.15rem; }
+#help p { margin: 0; color: var(--muted); }
+#help a { color: var(--link); }
+@media (max-width: 60rem) {
+  #help ul { grid-template-columns: 1fr; }
+}
+
 /* post aside: download call styled as a quiet button */
 main.page aside a {
   display: inline-block;

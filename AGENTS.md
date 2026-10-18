@@ -36,7 +36,7 @@ main checkout stays on master). Shell cwd resets between Bash calls — use
 ## 2. Layout
 
 ```
-index.html                       home: hero, product, features, privacy, platforms, download, news, support
+index.html                       home: hero, product, features, privacy, platforms, download, news, help, support
 about/developing/comparison.html secondary pages (.page)
 404.html                         not-found page
 news/                            news index + posts (release notes, guide)
