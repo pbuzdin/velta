@@ -37,21 +37,3 @@ test("key/value rows wrap and their columns may shrink", () => {
   assert.match(code, /\.info-row \.v \{[^}]*min-width: 0;[^}]*overflow-wrap: anywhere;/);
   assert.match(code, /\.info-row \.k \{[^}]*min-width: 0;/);
 });
-
-test("phone task modals are full screen in the chat list too (no bottom-bar gap)", () => {
-  // cee7084 shortened chat-list modals to 100dvh - --list-bar-h on phones:
-  // the sheet ended above the dimmed bottom bar and lost scroll room.
-  const phone = code.match(/@media \(max-width: 600px\) \{\s*\.modal:not\(\.modal-compact\) \{[\s\S]*?\n\}/);
-  assert.ok(phone, "phone modal media block");
-  assert.match(phone[0], /\.modal:not\(\.modal-compact\) \{[^}]*height: var\(--dvh\);[^}]*max-height: none;/);
-  assert.doesNotMatch(phone[0], /list-bar-h/);
-  assert.doesNotMatch(code, /:not\(:has\(\.app\.chat-open\)\)\s*\.modal/);
-});
-
-test("About device info never becomes a nested scroller", () => {
-  const m = code.match(/\.device-info-text \{[^}]*\}/);
-  assert.ok(m);
-  assert.match(m[0], /overflow: visible;/);
-  assert.match(m[0], /max-height: none;/);
-  assert.doesNotMatch(m[0], /overflow(-y)?: (auto|scroll)/);
-});

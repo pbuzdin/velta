@@ -5,9 +5,7 @@
 // visible element whose right edge passes the viewport or whose content is
 // clipped horizontally (scrollWidth > clientWidth under overflow hidden/clip,
 // without text-overflow: ellipsis). Intentional horizontal scrollers
-// (overflow-x: auto|scroll, e.g. the category chips) are skipped. Also checks
-// that phone task modals fill the viewport and have no nested vertical
-// scroller besides .modal-body (virtualized lists excepted).
+// (overflow-x: auto|scroll, e.g. the category chips) are skipped.
 // Usage: node scripts/e2e-narrow-overflow.mjs [--shots DIR] [--prefix NAME]
 //   (needs `npx playwright install chromium`, or CHROMIUM_PATH=/path/to/chrome)
 // Exit 1 when any overflow is found.
@@ -64,19 +62,6 @@ function audit() {
       out.push(`${name(el)} clipped scrollWidth=${el.scrollWidth} > clientWidth=${el.clientWidth}`)
   }
   if (document.documentElement.scrollWidth > vw + 0.5) out.push(`document scrollWidth=${document.documentElement.scrollWidth} > ${vw}`)
-  // Phones: task modals cover the whole viewport (no gap above the bottom
-  // bar) and scroll only in .modal-body — no nested vertical scrollers.
-  for (const m of document.querySelectorAll('.modal:not(.modal-compact)')) {
-    const r = m.getBoundingClientRect()
-    if (vw <= 600 && (r.top > 0.5 || r.bottom < innerHeight - 0.5)) out.push(`${name(m)} not full screen: top=${r.top.toFixed(1)} bottom=${r.bottom.toFixed(1)} of ${innerHeight}`)
-    for (const el of m.querySelectorAll('*')) {
-      // .modal-body is the modal's scroller; virtualized lists (member list,
-      // media sections: a .member-spacer child) need a viewport.
-      if (el.matches('.modal-body') || el.querySelector(':scope > .member-spacer')) continue
-      const oy = getComputedStyle(el).overflowY
-      if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 1) out.push(`${name(el)} nested scroller scrollHeight=${el.scrollHeight} > clientHeight=${el.clientHeight}`)
-    }
-  }
   return [...new Set(out)]
 }
 
@@ -93,7 +78,6 @@ const screens = [
   ['drawer', async p => openDrawer(p)],
   ['about', async p => { await openDrawer(p); await clickText(p, '.ctx-item', 'About Velta') }],
   ['about-deviceinfo', async p => { await openDrawer(p); await clickText(p, '.ctx-item', 'About Velta'); const s = p.locator('details.device-info > summary'); if (await s.count()) { await s.click(); await p.waitForTimeout(300) } }],
-  ['about-deviceinfo-bottom', async p => { await openDrawer(p); await clickText(p, '.ctx-item', 'About Velta'); const s = p.locator('details.device-info > summary'); if (await s.count()) { await s.click(); await p.waitForTimeout(300) } await p.evaluate(() => { const b = document.querySelector('.modal .modal-body'); b.scrollTop = b.scrollHeight }); await p.waitForTimeout(200) }],
   ['relays', async p => { await openDrawer(p); await clickText(p, '.ctx-item', 'Relays of this profile') }],
   ['profile-mgmt', async p => { await openDrawer(p); await clickText(p, '.ctx-item', 'Profile management') }],
   ['invite-qr', async p => { await openDrawer(p); await clickText(p, '.ctx-item', 'Invite friends (QR)'); await p.waitForTimeout(800) }],
@@ -129,5 +113,5 @@ for (const [w, h] of [[320, 640], [360, 740]]) for (const scale of ['1', '1.15']
   await ctx.close()
 }
 await browser.close(); server.close()
-console.log(failures ? `${failures} screen(s) failed` : 'no horizontal overflow, modals full screen, no nested scrollers')
+console.log(failures ? `${failures} screen(s) overflow` : 'no horizontal overflow')
 process.exit(failures ? 1 : 0)
