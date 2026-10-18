@@ -28,6 +28,9 @@ Page bodies start with a `<p class="kicker">…</p>` line and an `<h1>` title
 (the home page is one long page of sections instead).
 
 - **Save** commits the page. Around a minute later it is live.
+- **Live preview** — the editor is split: text left, the body rendered with
+  the site's real CSS right (includes expanded, debounced while you type,
+  follows the light/dark theme). "Hide/Show preview" toggles the split.
 - The commit message field is optional; a default is used otherwise.
 - The page title and description are *not* edited in the CMS — change them
   in the page's `<head>` via git, or ask a maintainer.

@@ -133,6 +133,10 @@ class VeltaAdmin extends Elena(HTMLElement) {
     this.raw = ""; // whole file on the server
     this.managed = true; // false = raw editing (no markers found)
     this.content = ""; // textarea text: collapsed body, or whole file in raw mode
+    this.showPreview = true; // split editor: textarea + live rendered preview
+    this.previewTimer = 0;
+    this.blocksCache = null; // name -> content, for include expansion in preview
+    this.mainClass = "page"; // class of <main id="content"> on the open page
     this.commitMsg = "";
     this.newName = "";
     this.newBlock = "";
@@ -156,6 +160,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
     // it as an attribute (which would clobber the caret).
     const ta = this.querySelector("#editor");
     if (ta && this.current && ta.value !== this.content) ta.value = this.content;
+    if (this.current && this.showPreview) this.schedulePreview();
   }
 
   async api(path, opts = {}) {
@@ -218,6 +223,10 @@ class VeltaAdmin extends Elena(HTMLElement) {
     else if (action === "create-block") this.createBlock();
     else if (action === "delete-block") this.deleteBlock(el.dataset.path);
     else if (action === "rebuild") this.rebuildPages();
+    else if (action === "toggle-preview") {
+      this.showPreview = !this.showPreview;
+      this.requestUpdate();
+    }
     else if (action === "login") this.login();
     else if (action === "logout") {
       this.token = "";
@@ -228,11 +237,36 @@ class VeltaAdmin extends Elena(HTMLElement) {
   }
 
   onInput(e) {
-    if (e.target.id === "editor") this.content = e.target.value;
+    if (e.target.id === "editor") { this.content = e.target.value; this.schedulePreview(); }
     else if (e.target.id === "commit-msg") this.commitMsg = e.target.value;
     else if (e.target.id === "new-name") this.newName = e.target.value;
     else if (e.target.id === "new-block") this.newBlock = e.target.value;
     else if (e.target.id === "token-draft") this.tokenDraft = e.target.value;
+  }
+
+  // Live preview: the body rendered with the site's real CSS in a sandboxed
+  // iframe, includes expanded, debounced while typing.
+  schedulePreview() {
+    clearTimeout(this.previewTimer);
+    this.previewTimer = setTimeout(() => this.renderPreview(), 400);
+  }
+
+  async renderPreview() {
+    const frame = this.querySelector("#preview");
+    if (!frame || !this.current) return;
+    let body = this.content;
+    const isPage = this.current.path.endsWith(".html") && !this.current.path.startsWith("_partials/");
+    if (this.managed && isPage) {
+      try {
+        if (!this.blocksCache) this.blocksCache = this.getBlockMap();
+        body = expandIncludes(body, await this.blocksCache);
+      } catch { /* preview without includes */ }
+    }
+    const theme = document.documentElement.getAttribute("data-theme");
+    frame.srcdoc =
+      `<!doctype html><html lang="en"${theme ? ` data-theme="${theme}"` : ""}><head><meta charset="utf-8">` +
+      `<link rel="stylesheet" href="/css/velta.css"><style>body{margin:0;padding:1.25rem}</style></head>` +
+      `<body><main id="content"${this.mainClass ? ` class="${this.mainClass}"` : ""}>${body}</main></body></html>`;
   }
 
   async loadFiles() {
@@ -282,6 +316,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
       this.current = { path: f.path, name: f.name, sha: f.sha };
       this.raw = raw;
       this.managed = !!m;
+      this.mainClass = isPage ? mainClassOf(raw) : "page";
       this.content = m && isPage ? collapseIncludes(m[1]) : raw;
       this.commitMsg = "";
       this.status = "";
@@ -328,6 +363,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
       const message = this.commitMsg.trim() || `Update ${this.current.path}`;
       this.current.sha = await this.putFile(this.current.path, message, newRaw, this.current.sha);
       this.raw = newRaw;
+      if (this.current.path.startsWith("_partials/")) this.blocksCache = null;
       this.status = "Saved. Live at velta.cc in about a minute.";
     } catch (e) {
       const m = String(e.message || e);
@@ -586,9 +622,13 @@ class VeltaAdmin extends Elena(HTMLElement) {
       <p class="admin-bar">
         <button data-action="save">Save</button>
         <button data-action="back">Back</button>
+        <button data-action="toggle-preview">${this.showPreview ? "Hide preview" : "Show preview"}</button>
         <input id="commit-msg" placeholder="Commit message (optional)" />
       </p>
-      <textarea id="editor" spellcheck="false"></textarea>
+      <div class="editor-grid${this.showPreview ? " split" : ""}">
+        <textarea id="editor" spellcheck="false"></textarea>
+        ${this.showPreview ? html`<iframe id="preview" sandbox="" title="Preview"></iframe>` : nothing}
+      </div>
     `;
   }
 }

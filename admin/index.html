@@ -13,6 +13,9 @@
     .admin-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .ok { color: #0a7d26; }
     .err { color: #b00020; }
+    .editor-grid { display: grid; grid-template-columns: 1fr; gap: 1rem; align-items: start; }
+    .editor-grid.split { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    #preview { width: 100%; min-height: 60vh; border: 1px solid #bbb; border-radius: 8px; background: #fff; }
   </style>
 </head>
 <body>
