@@ -37,7 +37,8 @@ whole-pixel step would snap the default to 16.
 ## CSS wiring
 
 Inline on `<html>`: `--msg-font-size` (sender, quote and forward labels
-scale by their stock ratio: `calc(var(--msg-font-size) * .871)` etc.),
+scale by their stock ratio: `calc(var(--msg-font-size) * .871)` etc.;
+reaction chips under bubbles use `* 16 / 15.5` with em spacing and wrap),
 `--radius-bubble`, `--radius-tail` = min(6, r), `--radius-quote` = min(6, r),
 `--radius-media` = max(0, r − 4) (photos, videos, link cards, invite cards).
 

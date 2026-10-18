@@ -2200,8 +2200,8 @@ next push or the tainted commits come back.
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 111 files, 768 tests as of 2026-10-18 (+narrow-viewport CSS guards, device info,
-chat appearance, hyphenation, settings export/apply):
+whole set — 112 files, 770 tests as of 2026-10-18 (+narrow-viewport CSS guards, device info,
+chat appearance, hyphenation, settings export/apply, reactions scale):
 
 ```bash
 node --test tests/
@@ -2744,7 +2744,8 @@ do-not-regress rules; dates mark when the lesson was learned.
   `velta-accent`, `velta-hyphens`) and applied pre-paint by the classic
   `js/chat-appearance.js` (also pins `data-theme` early). Rules: bubble
   sizes/radii go through `--msg-font-size` / `--radius-bubble|tail|quote|media`,
-  never new literals; accent-colored text/fills use `--accent`,
+  never new literals (reaction chips: `.msg-reactions` font-size
+  `calc(var(--msg-font-size) * 16 / 15.5)`, em spacing, `tests/reactions-scale.test.mjs`); accent-colored text/fills use `--accent`,
   `--on-accent`, `--accent-tint`, `--out-link`… (defaults = the old
   literals) so a custom accent reaches them — a new hard-coded
   `rgba(90,162,230,…)` is rejected by `tests/chat-appearance.test.mjs`.

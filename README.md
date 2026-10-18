@@ -186,7 +186,7 @@ default for fresh installs.
 **Chat appearance** (drawer → Chat appearance, modelled on Telegram's chat
 settings) changes how the chat looks without touching the rest of the UI:
 a **message text size** slider (10–22 px; default 15.5 px; sender names,
-quotes and forward labels scale with it), a **message corners** slider
+quotes, forward labels and reactions scale with it), a **message corners** slider
 (0–14 px; the bubble's tail corner, reply quotes, photos, videos and link
 cards follow it), an **accent color** (8 presets plus a custom color picker)
 and **hyphenation** for English and Russian. A live preview with an incoming

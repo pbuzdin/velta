@@ -1129,7 +1129,13 @@ velta-video { display: block; height: 100%; }
 .msg-voice .wave i { width: 3px; background: currentColor; opacity: .55; border-radius: 2px; }
 .msg-voice .vtime { font-size: 12px; color: var(--text-dim); align-self: flex-end; }
 
-.msg-reactions { display: flex; gap: 4px; margin-top: 5px; flex-wrap: wrap; }
+/* Reactions follow the message text size (Chat appearance): the chips
+   inherit 16px at the 15.5px default, so they keep that 16 : 15.5 ratio and
+   their spacing is in em (= the old 4/5/2/8/12px at the default size). */
+.msg-reactions {
+  display: flex; flex-wrap: wrap; gap: .25em; margin-top: .3125em;
+  font-size: calc(var(--msg-font-size) * 16 / 15.5); max-width: 100%;
+}
 .reaction-chip {
   display: inline-flex; align-items: center; gap: 4px;
   background: var(--bg-reply); border: 1px solid var(--border);
@@ -1138,6 +1144,7 @@ velta-video { display: block; height: 100%; }
 }
 button.reaction-chip { font: inherit; color: inherit; }
 .reaction-chip.mine { border-color: var(--accent); background: color-mix(in srgb, var(--accent-tint) 18%, transparent); }
+.msg-reactions .reaction-chip { gap: .25em; padding: .125em .5em; border-radius: .75em; max-width: 100%; min-width: 0; }
 
 .msg-checkbox {
   appearance: none; -webkit-appearance: none;
