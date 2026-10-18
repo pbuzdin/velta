@@ -12,10 +12,11 @@ shipped here:
   (admin UI only), `admin/elena.js` (@elenajs/core).
   No CDNs, no external fonts, no analytics.
 - **No required JavaScript.** Every page is a complete `.html` document
-  that renders fully without JS. The only page scripts are a 1-line theme
-  pre-paint snippet and `js/site.js` (~1.5 KB, progressive enhancement:
-  the light/dark toggle) — both optional. The CMS under `admin/` is a
-  tool, not a page.
+  that renders fully without JS. The only page script is `js/site.js`
+  (progressive enhancement: mirrors the news list onto the home page and
+  syncs the mobile browser-chrome color to the OS theme) — optional.
+  Theming is pure `prefers-color-scheme`; there is no theme UI by choice.
+  The CMS under `admin/` is a tool, not a page.
 - **Design provenance.** The look comes from a self-contained static
   scaffold (Grok app-builder output, 2026-10-18); the framework around it
   (React/Vite/Vercel/pglite) was discarded. The full original scaffold is
@@ -43,7 +44,7 @@ _partials/                       nav.html, footer.html (chrome) + reusable block
 css/velta.css                    the design (tokens, light/dark, layout) + generic content layer at the end
 css/marx.min.css                 vendored; styles the admin UI only
 fonts/                           self-hosted IBM Plex Sans + Newsreader (woff2)
-js/site.js                       light/dark toggle (progressive enhancement)
+js/site.js                       news mirror + theme-color sync (progressive enhancement)
 v-logo.svg beam-logo.svg favicon.svg
 admin/                           elena.js (vendored), admin.js (the CMS), admin.test.mjs
 design/                          untracked reference copy of the original design scaffold

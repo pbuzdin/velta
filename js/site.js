@@ -1,46 +1,13 @@
 (function () {
-  var key = "velta-theme";
-
-  function stored() {
-    try {
-      var value = localStorage.getItem(key);
-      if (value === "light" || value === "dark") return value;
-    } catch (error) {
-      /* private mode */
-    }
-    return "system";
+  // Mobile browser chrome color follows the OS theme; the page itself is
+  // themed purely by prefers-color-scheme (see css/velta.css).
+  var meta = document.querySelector('meta[name="theme-color"]');
+  var darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  function syncMeta() {
+    if (meta) meta.setAttribute("content", darkQuery.matches ? "#0f0f14" : "#f4f4f4");
   }
-
-  function darkNow(choice) {
-    if (choice === "dark") return true;
-    if (choice === "light") return false;
-    return window.matchMedia("(prefers-color-scheme: dark)").matches;
-  }
-
-  function apply(choice) {
-    var root = document.documentElement;
-    if (choice === "light" || choice === "dark") root.setAttribute("data-theme", choice);
-    else root.removeAttribute("data-theme");
-    try {
-      if (choice === "system") localStorage.removeItem(key);
-      else localStorage.setItem(key, choice);
-    } catch (error) {
-      /* ignore */
-    }
-    var inputs = document.querySelectorAll('input[name="theme"], input[name="theme-menu"]');
-    for (var i = 0; i < inputs.length; i++) inputs[i].checked = inputs[i].value === choice;
-    var meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute("content", darkNow(choice) ? "#0f0f14" : "#f4f4f4");
-  }
-
-  apply(stored());
-  document.addEventListener("change", function (event) {
-    var target = event.target;
-    if (target && (target.name === "theme" || target.name === "theme-menu")) apply(target.value);
-  });
-  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function () {
-    if (stored() === "system") apply("system");
-  });
+  syncMeta();
+  darkQuery.addEventListener("change", syncMeta);
 
   // Home page: mirror the news index list so publishing a post never
   // touches index.html. Progressive enhancement — without JS the section

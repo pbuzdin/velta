@@ -105,7 +105,6 @@ function assemble({ nav, footer, body, title, description, active, mainClass }) 
   <meta name="theme-color" content="#0f0f14">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/css/velta.css">
-  <script>try{var t=localStorage.getItem("velta-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);}catch(e){}</script>
 </head>
 <body>
   <a href="#content">Skip to content</a>
