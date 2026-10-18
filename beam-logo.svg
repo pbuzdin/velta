@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 1024 1024">
+  <title>Velta Beam</title>
+  <rect width="1024" height="1024" rx="208" fill="#0a1020"/>
+  <g fill="#fff">
+    <rect x="199" y="221" width="626" height="63"/>
+    <polygon points="236,314 395,314 590,688 515,834"/>
+    <polygon points="630,314 789,314 608,660 533,508"/>
+  </g>
+</svg>

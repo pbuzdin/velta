@@ -18,10 +18,14 @@ the repo is public. Saving, creating, deleting and rebuilding need it.
 
 ## Pages
 
-Each page is listed under **Pages** (`index.html` is the home page).
-Opening one shows only the editable body — the header, navigation and footer
-come from the shared blocks and are assembled around your text on every
-save.
+Everything under **Pages** is editable — the home page (`index.html`), the
+secondary pages (`about.html`, `developing.html`, `comparison.html`,
+`404.html`) and the news posts (`news/….html`). Opening one shows only the
+editable body — the header, navigation and footer come from the shared
+blocks and are assembled around your text on every save.
+
+Page bodies start with a `<p class="kicker">…</p>` line and an `<h1>` title
+(the home page is one long page of sections instead).
 
 - **Save** commits the page. Around a minute later it is live.
 - The commit message field is optional; a default is used otherwise.

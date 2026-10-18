@@ -8,11 +8,19 @@ website — the application code lives on `master`. Hard rules for anything
 shipped here:
 
 - **Zero third parties.** Every asset is vendored and served from velta.cc
-  itself: `css/marx.min.css` (marx-css@5), `admin/elena.js` (@elenajs/core).
+  itself: `css/velta.css` + `fonts/` (the design), `css/marx.min.css`
+  (admin UI only), `admin/elena.js` (@elenajs/core).
   No CDNs, no external fonts, no analytics.
-- **Zero page JavaScript.** Every page is a complete `.html` document that
-  renders without JS. The only script on the site is the CMS under `admin/`,
-  which is a tool, not a page.
+- **No required JavaScript.** Every page is a complete `.html` document
+  that renders fully without JS. The only page scripts are a 1-line theme
+  pre-paint snippet and `js/site.js` (~1.5 KB, progressive enhancement:
+  the light/dark toggle) — both optional. The CMS under `admin/` is a
+  tool, not a page.
+- **Design provenance.** The look comes from a self-contained static
+  scaffold (Grok app-builder output, 2026-10-18); the framework around it
+  (React/Vite/Vercel/pglite) was discarded. The full original scaffold is
+  kept untracked in `design/` (excluded via `.git/info/exclude`) — do not
+  commit or deploy it.
 - **Privacy sweep before every commit.** The private relay identifiers must
   never enter this (public) branch — run the identifier sweep described in
   the main repo's AGENTS (private relay host/IP/pattern list) and require
@@ -27,10 +35,18 @@ main checkout stays on master). Shell cwd resets between Bash calls — use
 ## 2. Layout
 
 ```
-index.html  about.html  developing.html  comparison.html  404.html   pages (assembled artifacts, see §3)
-_partials/      nav.html, footer.html + reusable blocks (source of truth)
-css/            marx.min.css (vendored), site.css (aria-current bold)
-admin/          elena.js (vendored), admin.js (the CMS), admin.test.mjs
+index.html                       home: hero, product, features, privacy, platforms, download, news, support
+about/developing/comparison.html secondary pages (.page)
+404.html                         not-found page
+news/                            news index + posts (release notes, guide)
+_partials/                       nav.html, footer.html (chrome) + reusable blocks — source of truth
+css/velta.css                    the design (tokens, light/dark, layout) + generic content layer at the end
+css/marx.min.css                 vendored; styles the admin UI only
+fonts/                           self-hosted IBM Plex Sans + Newsreader (woff2)
+js/site.js                       light/dark toggle (progressive enhancement)
+v-logo.svg beam-logo.svg favicon.svg
+admin/                           elena.js (vendored), admin.js (the CMS), admin.test.mjs
+design/                          untracked reference copy of the original design scaffold
 CNAME .nojekyll
 ```
 
@@ -55,9 +71,12 @@ Consequences:
   from partials" in the CMS regenerates the whole document from partials +
   body. Hand edits to a page's chrome are overwritten by the next assembly —
   chrome belongs to the partials; edit those, then rebuild.
-- `<title>`, meta description and the active nav key are extracted from the
-  existing page on assembly. To change them, hand-edit the page head (git) —
-  the CMS preserves but does not edit them.
+- `<title>`, meta description, the active nav key and the `<main>` class
+  (`page` on secondary pages, `news` on the news index, none on home) are
+  extracted from the existing page on assembly. To change them, hand-edit
+  the page (git) — the CMS preserves but does not edit them.
+- **Extensionless links do not work** on GitHub Pages (`/news/slug` 404s);
+  always link `news/slug.html`.
 - Assembly is one commit per file (the Contents API has no batch commit), so
   a rebuild of 5 pages = 5 commits.
 - Page `<head>` and head-only files: `404.html` also has body markers and is

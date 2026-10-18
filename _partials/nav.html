@@ -1,12 +1,39 @@
 <header>
-  <h1><a href="./" style="text-decoration:none;color:inherit">Velta</a></h1>
-  <p>
-    <a href="./" data-nav="home">Home</a> ·
-    <a href="developing.html" data-nav="developing">Developing</a> ·
-    <a href="comparison.html" data-nav="comparison">Compare</a> ·
-    <a href="about.html" data-nav="about">About</a> ·
-    <a href="https://github.com/pbuzdin/velta/releases">Download</a> ·
-    <a href="admin/">Edit</a>
-  </p>
-  <hr>
+  <a href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+  <nav aria-label="Sections">
+    <a href="/#product">Product</a>
+    <a href="/#features">Features</a>
+    <a href="/#privacy">Privacy</a>
+    <a href="/#platforms">Platforms</a>
+    <a href="/#support">Support</a>
+    <a href="/news" data-nav="news">News</a>
+  </nav>
+  <form>
+    <fieldset>
+      <legend>Color mode</legend>
+      <label><input type="radio" name="theme" value="system" checked> Auto</label>
+      <label><input type="radio" name="theme" value="light"> Light</label>
+      <label><input type="radio" name="theme" value="dark"> Dark</label>
+    </fieldset>
+  </form>
+  <a href="/#download"><span>Get</span><span>Download</span></a>
+  <details>
+    <summary>Menu</summary>
+    <nav aria-label="Mobile">
+      <a href="/#product">Product</a>
+      <a href="/#features">Features</a>
+      <a href="/#privacy">Privacy</a>
+      <a href="/#platforms">Platforms</a>
+      <a href="/#support">Support</a>
+      <a href="/news" data-nav="news">News</a>
+      <form>
+        <fieldset>
+          <legend>Color mode</legend>
+          <label><input type="radio" name="theme-menu" value="system"> Auto</label>
+          <label><input type="radio" name="theme-menu" value="light"> Light</label>
+          <label><input type="radio" name="theme-menu" value="dark"> Dark</label>
+        </fieldset>
+      </form>
+    </nav>
+  </details>
 </header>

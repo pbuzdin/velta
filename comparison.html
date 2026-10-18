@@ -5,26 +5,56 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Delta Chat vs Velta vs ArcaneChat — feature comparison of three clients on one protocol.">
   <title>Delta Chat vs Velta vs ArcaneChat — Velta</title>
-  <link rel="stylesheet" href="css/marx.min.css">
-  <link rel="stylesheet" href="css/site.css">
+  <meta name="theme-color" content="#0f0f14">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css">
+  <script>try{var t=localStorage.getItem("velta-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);}catch(e){}</script>
 </head>
 <body>
-  <main class="container">
-    <header>
-      <h1><a href="./" style="text-decoration:none;color:inherit">Velta</a></h1>
-      <p>
-        <a href="./">Home</a> ·
-        <a href="developing.html">Developing</a> ·
-        <a href="comparison.html" aria-current="page">Compare</a> ·
-        <a href="about.html">About</a> ·
-        <a href="https://github.com/pbuzdin/velta/releases">Download</a> ·
-        <a href="admin/">Edit</a>
-      </p>
-      <hr>
-    </header>
-    <article>
+  <a href="#content">Skip to content</a>
+<header>
+  <a href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+  <nav aria-label="Sections">
+    <a href="/#product">Product</a>
+    <a href="/#features">Features</a>
+    <a href="/#privacy">Privacy</a>
+    <a href="/#platforms">Platforms</a>
+    <a href="/#support">Support</a>
+    <a href="/news" data-nav="news">News</a>
+  </nav>
+  <form>
+    <fieldset>
+      <legend>Color mode</legend>
+      <label><input type="radio" name="theme" value="system" checked> Auto</label>
+      <label><input type="radio" name="theme" value="light"> Light</label>
+      <label><input type="radio" name="theme" value="dark"> Dark</label>
+    </fieldset>
+  </form>
+  <a href="/#download"><span>Get</span><span>Download</span></a>
+  <details>
+    <summary>Menu</summary>
+    <nav aria-label="Mobile">
+      <a href="/#product">Product</a>
+      <a href="/#features">Features</a>
+      <a href="/#privacy">Privacy</a>
+      <a href="/#platforms">Platforms</a>
+      <a href="/#support">Support</a>
+      <a href="/news" data-nav="news">News</a>
+      <form>
+        <fieldset>
+          <legend>Color mode</legend>
+          <label><input type="radio" name="theme-menu" value="system"> Auto</label>
+          <label><input type="radio" name="theme-menu" value="light"> Light</label>
+          <label><input type="radio" name="theme-menu" value="dark"> Dark</label>
+        </fieldset>
+      </form>
+    </nav>
+  </details>
+</header>
+  <main id="content" class="page">
 <!-- CMS:START -->
-<h2>Delta Chat vs Velta vs ArcaneChat</h2>
+<p class="kicker">Project</p>
+<h1>Delta Chat vs Velta vs ArcaneChat</h1>
 <p>All three speak the same protocol and interoperate fully — they are clients on one network, not competing platforms. The difference is platforms and product focus.</p>
 <table>
   <thead>
@@ -106,11 +136,38 @@
 </table>
 <p><strong>In short:</strong> pick Delta Chat for iOS or the reference experience, Velta to use one messenger across desktop, Android and the browser, ArcaneChat for a lightweight Android-only client.</p>
 <!-- CMS:END -->
-    </article>
-    <footer>
-      <hr>
-      <p>© 2026 Velta</p>
-    </footer>
   </main>
+<footer>
+  <div>
+    <div>
+      <a class="brand" href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+      <p>A Delta Chat client. Encrypted chat over mail, or a direct transfer when the file should not sit on a server.</p>
+    </div>
+    <div>
+      <h2>On this site</h2>
+      <ul>
+        <li><a href="/#download">Download</a></li>
+        <li><a href="/#privacy">Privacy</a></li>
+        <li><a href="/#support">Support</a></li>
+        <li><a href="/news">News</a></li>
+        <li><a href="/about.html">About</a></li>
+        <li><a href="/developing.html">Developing</a></li>
+        <li><a href="/comparison.html">Compare</a></li>
+      </ul>
+    </div>
+    <div>
+      <h2>Project</h2>
+      <ul>
+        <li><a href="https://github.com/pbuzdin/velta">GitHub</a></li>
+        <li><a href="https://github.com/pbuzdin/velta/releases">All releases</a></li>
+        <li><a href="https://github.com/pbuzdin/velta/blob/master/LICENSE">GPL-3.0</a></li>
+        <li><a href="https://github.com/pbuzdin/velta/blob/master/README.md">README</a></li>
+        <li><a href="/admin/">Edit site</a></li>
+      </ul>
+    </div>
+  </div>
+  <p><span>Independent client. Delta Chat and Chatmail are upstream projects.</span><span>Velta 1.4.74 · core 2.63.0</span></p>
+</footer>
+  <script src="/js/site.js"></script>
 </body>
 </html>

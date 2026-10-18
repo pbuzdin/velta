@@ -69,6 +69,8 @@ const activeOf = (raw) => {
   const href = (raw.match(/<a href="([^"]+)" aria-current="page"/) || [])[1];
   return href ? href.replace(".html", "").replace("./", "home").replace(/[^a-z0-9-]/g, "") : "";
 };
+const mainClassOf = (raw) =>
+  (raw.match(/<main id="content"(?: class="([^"]*)")?>/) || [])[1] || "";
 
 // The nav partial marks each link with data-nav="<key>"; the active page's
 // key becomes aria-current, the rest are stripped so the output stays clean.
@@ -91,7 +93,8 @@ const spliceBody = (raw, body) =>
   raw.replace(MARKERS, () => `${START}\n${body.replace(/^\n+|\n+$/g, "")}\n${END}`);
 
 // The assembler: full static page = partials + body (includes expanded).
-function assemble({ nav, footer, body, title, description, active }) {
+function assemble({ nav, footer, body, title, description, active, mainClass }) {
+  const cls = mainClass ? ` class="${mainClass}"` : "";
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -99,19 +102,21 @@ function assemble({ nav, footer, body, title, description, active }) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="${description}">
   <title>${title}</title>
-  <link rel="stylesheet" href="css/marx.min.css">
-  <link rel="stylesheet" href="css/site.css">
+  <meta name="theme-color" content="#0f0f14">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css">
+  <script>try{var t=localStorage.getItem("velta-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);}catch(e){}</script>
 </head>
 <body>
-  <main class="container">
-${indent(applyActive(nav, active).trimEnd())}
-    <article>
+  <a href="#content">Skip to content</a>
+${applyActive(nav, active).trimEnd()}
+  <main id="content"${cls}>
 ${START}
 ${body.replace(/^\n+|\n+$/g, "")}
 ${END}
-    </article>
-${indent(footer.trimEnd())}
   </main>
+${footer.trimEnd()}
+  <script src="/js/site.js"></script>
 </body>
 </html>
 `;
@@ -248,6 +253,15 @@ class VeltaAdmin extends Elena(HTMLElement) {
             .map((f) => ({ path: `_partials/${f.name}`, name: f.name, size: f.size, sha: f.sha, kind: "block" })),
         );
       }
+      const newsDir = list.find((d) => d.type === "dir" && d.name === "news");
+      if (newsDir) {
+        const sub = await this.api(`/news?ref=${BRANCH}`);
+        files.push(
+          ...sub
+            .filter((f) => f.type === "file" && f.name.endsWith(".html"))
+            .map((f) => ({ path: `news/${f.name}`, name: f.name, size: f.size, sha: f.sha, kind: "page" })),
+        );
+      }
       files.sort((a, b) => a.path.localeCompare(b.path));
       this.files = files;
     } catch (e) {
@@ -306,6 +320,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
           title: titleOf(this.raw),
           description: descriptionOf(this.raw),
           active: activeOf(this.raw),
+          mainClass: mainClassOf(this.raw),
         });
       } else {
         newRaw = this.content;
@@ -357,6 +372,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
           title: titleOf(raw),
           description: descriptionOf(raw),
           active: activeOf(raw),
+          mainClass: mainClassOf(raw),
         });
         f.sha = await this.putFile(f.path, `Rebuild ${f.path} from partials`, newRaw, f.sha);
         n++;
@@ -399,10 +415,11 @@ class VeltaAdmin extends Elena(HTMLElement) {
       const newRaw = assemble({
         nav,
         footer,
-        body: `<h2>${title}</h2>\n<p>Write something.</p>`,
+        body: `<p class="kicker">Project</p>\n<h1>${title}</h1>\n<p>Write something.</p>`,
         title: `${title} — Velta`,
         description: `${title} — Velta.`,
         active: "",
+        mainClass: "page",
       });
       await this.putFile(file, `Create ${file}`, newRaw, null);
       await this.loadFiles();

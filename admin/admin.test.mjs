@@ -35,6 +35,8 @@ const activeOf = (raw) => {
   const href = (raw.match(/<a href="([^"]+)" aria-current="page"/) || [])[1];
   return href ? href.replace(".html", "").replace("./", "home").replace(/[^a-z0-9-]/g, "") : "";
 };
+const mainClassOf = (raw) =>
+  (raw.match(/<main id="content"(?: class="([^"]*)")?>/) || [])[1] || "";
 
 function applyActive(nav, active) {
   if (active && nav.includes(` data-nav="${active}"`)) {
@@ -52,7 +54,8 @@ const indent = (block) =>
 const spliceBody = (raw, body) =>
   raw.replace(MARKERS, () => `${START}\n${body.replace(/^\n+|\n+$/g, "")}\n${END}`);
 
-function assemble({ nav, footer, body, title, description, active }) {
+function assemble({ nav, footer, body, title, description, active, mainClass }) {
+  const cls = mainClass ? ` class="${mainClass}"` : "";
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -60,19 +63,21 @@ function assemble({ nav, footer, body, title, description, active }) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="${description}">
   <title>${title}</title>
-  <link rel="stylesheet" href="css/marx.min.css">
-  <link rel="stylesheet" href="css/site.css">
+  <meta name="theme-color" content="#0f0f14">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css">
+  <script>try{var t=localStorage.getItem("velta-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);}catch(e){}</script>
 </head>
 <body>
-  <main class="container">
-${indent(applyActive(nav, active).trimEnd())}
-    <article>
+  <a href="#content">Skip to content</a>
+${applyActive(nav, active).trimEnd()}
+  <main id="content"${cls}>
 ${START}
 ${body.replace(/^\n+|\n+$/g, "")}
 ${END}
-    </article>
-${indent(footer.trimEnd())}
   </main>
+${footer.trimEnd()}
+  <script src="/js/site.js"></script>
 </body>
 </html>
 `;
@@ -82,7 +87,8 @@ ${indent(footer.trimEnd())}
 const nav = read("../_partials/nav.html");
 const footer = read("../_partials/footer.html");
 const about = read("../about.html");
-const body = about.match(MARKERS)[1];
+const newsIndex = read("../news/index.html");
+const aboutBody = about.match(MARKERS)[1];
 
 const blocks = {
   downloads: "<ul>\n  <li><a href=\"#\">Android</a></li>\n</ul>\n",
@@ -92,30 +98,48 @@ const blocks = {
 const cases = [];
 const check = (name, ok) => cases.push([name, ok]);
 
-// Assembly from the real partials (about.html as the active page).
+// Assembly of about.html (no active nav key, .page main).
 const out = assemble({
   nav,
   footer,
-  body,
+  body: aboutBody,
   title: titleOf(about),
   description: descriptionOf(about),
   active: activeOf(about),
+  mainClass: mainClassOf(about),
 });
-check("active link on about", out.includes('<a href="about.html" aria-current="page">About</a>'));
+check("no aria-current on about", !out.includes("aria-current"));
 check("no data-nav left", !out.includes("data-nav"));
 check("title preserved", out.includes("<title>About — Velta</title>"));
 check("desc preserved", out.includes("About Velta — one web frontend"));
-check("body between markers", out.includes(`${START}\n<h2>About</h2>`));
-check("one aria-current only", (out.match(/aria-current/g) || []).length === 1);
-check("footer present", out.includes("© 2026 Velta"));
+check("mainClass preserved", out.includes('<main id="content" class="page">'));
+check("body between markers", out.includes(`${START}\n<p class="kicker">Project</p>\n<h1>About</h1>`));
+check("footer present", out.includes("Independent client. Delta Chat and Chatmail are upstream projects."));
+check("theme script present", out.includes("velta-theme"));
+check("site.js present", out.includes('<script src="/js/site.js"></script>'));
 
-// Home as the active page.
-const homeOut = assemble({ nav, footer, body: "<p>x</p>", title: "T", description: "D", active: "home" });
-check("home active", homeOut.includes('<a href="./" aria-current="page">Home</a>'));
+// News page: active key lands on the News link.
+const newsOut = assemble({
+  nav,
+  footer,
+  body: "<p>x</p>",
+  title: "News — Velta",
+  description: "D",
+  active: "news",
+  mainClass: "news",
+});
+check("news active on News link", newsOut.includes('<a href="/news" aria-current="page">News</a>'));
+check("news: one aria-current only", (newsOut.match(/aria-current/g) || []).length === 1);
+check("news mainClass", newsOut.includes('<main id="content" class="news">'));
+
+// Extraction from real pages.
+check("activeOf news index", activeOf(newsIndex) === "news");
+check("mainClassOf news index", mainClassOf(newsIndex) === "news");
+check("mainClassOf about", mainClassOf(about) === "page");
 
 // Splice round trip; $& in content must survive (function replacement).
 const spliced = spliceBody(out, "a $& b <i>c</i>");
-check("dollar-safe splice", spliced.includes("a $& b <i>c</i>") && (spliced.match(/aria-current/g) || []).length === 1);
+check("dollar-safe splice", spliced.includes("a $& b <i>c</i>") && !spliced.includes("aria-current"));
 
 // Include system.
 const bare = expandIncludes("<p>x</p>\n<!-- include:downloads -->\n<p>y</p>", blocks);
