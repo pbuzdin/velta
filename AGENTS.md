@@ -2176,6 +2176,16 @@ next push or the tainted commits come back.
 - **Audit:** `node scripts/e2e-narrow-overflow.mjs [--shots DIR]` (mock core, 320x640 and 360x740, UI scale 1 and 1.15, plus the chats and the Chat appearance drawer section at 10 px and 22 px message text with 0 px corners; flags elements past the right edge or clipped by overflow hidden; intentional `overflow-x: auto` scrollers are skipped). Run it after any layout change.
 - **About → Show device info** (`app/js/device-info.js`, `tests/device-info.test.mjs`): native `<details>` + wrapping `<pre>`, Copy (clipboard + toast) and Share (`qr-actions.shareLink`: Android `share_text`, else Web Share; hidden when neither exists). Never add account identifiers to it.
 
+### 6.12 Release 1.4.75 (2026-10-18): issues and fixes
+
+- **Narrow-viewport overflow / zoom** (98fe557): the interface scale zooms `<html>`, and zoom multiplies vw/vh/dvh, so phone modals overflowed at "Large". The rules are in §6.11 (`--vw`/`--vh`/`--dvh`, `uiZoom()`, `min(Npx, var(--bubble-inner-max))`), with `scripts/e2e-narrow-overflow.mjs` as the audit. About → Show device info shipped with it.
+- **Phone modals keep the bottom bar** (2a54ffa): ec910ce made chat-list task modals full height. It was reverted in e34a1bb by Pavel's decision: modals opened from the chat list stop above the bottom action bar (cee7084), and inner scroll areas are fine. The e2e now fails if a phone modal covers the bar. See the §11 rule.
+- **Multi-device clarity** (bf450bc): a failed `bcc_self` read shows "unknown" and retries, never a false "off". Turning it off asks first. The core silently re-enables `bcc_self` (backup export, Add second device, sync message); Velta remembers the user's last choice per account (`velta-bcc-self-choice`), re-checks on drawer open, resume and imex end, and shows a note and toast with "Turn off again". Never revert it automatically. The auto-download-limit hint was corrected: oversized files stay on the relay, the limit does not only cap second-device history.
+- **Push notifications section, Android** (d571598, Refs #140): UnifiedPush distributor picker, Off, relay push support and last push time. `app/js/push-settings.js`, `tests/push-settings.test.mjs`, docs/agents/android-shell.md. #140 stays open; commits use "Refs #140", never Closes.
+- **Chat appearance and hyphenation** (add0045): per-device `--msg-font-size`, corners and accent applied pre-paint by `js/chat-appearance.js`. Per-message `lang` drives `hyphens: auto`; machine text stays manual. See §11 and `docs/chat-appearance.md`.
+- **Settings export / apply** (b2b95b0): one whitelisted `Velta settings v1` text in Saved Messages, with a strict parser and a diff confirm before apply. See §11 and `docs/settings-transfer.md`.
+- **Reactions scaling** (74c2d14): in-bubble reaction chips ignored the text size. They inherited 16px from `button { font: inherit }`, not the 13px in their own rule. They now use `calc(var(--msg-font-size) * 16 / 15.5)` with em spacing, which is unchanged at the default. Before scaling anything with the text size, measure the computed size first: a later `font: inherit` can override the declared one.
+
 ### 6.10 Pitfalls found in 1.4.73
 
 - **Code without a CI build rots silently.** d4632e7 (bridge token gate) was committed without compiling `velta-core-service` and no workflow built it, so five compile errors sat on master (fixed d80dc01), and the sidecar's tokio misuse (blocking_read in the forwarder task, `tokio::spawn` on a JNI thread) crashed it on a device (a1cf215). `core-service.yml` now runs clippy + tests on host and aarch64-linux-android with the committed `Cargo.lock` (`--locked`). Every crate that ships needs a CI job; if you can't build locally, say so and don't merge until CI is green.
@@ -2200,7 +2210,7 @@ next push or the tainted commits come back.
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 112 files, 770 tests as of 2026-10-18 (+narrow-viewport CSS guards, device info,
+whole set — 112 files, 770 tests as of 2026-10-18 (1.4.75; +narrow-viewport CSS guards, device info,
 chat appearance, hyphenation, settings export/apply, reactions scale):
 
 ```bash

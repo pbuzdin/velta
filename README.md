@@ -4,7 +4,7 @@ A cross-platform **Delta Chat** client built as a single PWA-ish web app wrapped
 
 ## Download
 
-**[Android](https://github.com/pbuzdin/velta/releases/download/v1.4.74/Velta-1.4.74-arm64.apk)** (~49 MB) · **[Windows](https://github.com/pbuzdin/velta/releases/download/v1.4.74/Velta_1.4.74_x64-setup.exe)** (~13 MB) · **[macOS](https://github.com/pbuzdin/velta/releases/download/v1.4.74/Velta_1.4.74_universal.dmg)** (~36 MB)
+**[Android](https://github.com/pbuzdin/velta/releases/download/v1.4.75/Velta-1.4.75-arm64.apk)** (~49 MB) · **[Windows](https://github.com/pbuzdin/velta/releases/download/v1.4.75/Velta_1.4.75_x64-setup.exe)** (~13 MB) · **[macOS](https://github.com/pbuzdin/velta/releases/download/v1.4.75/Velta_1.4.75_universal.dmg)** (~36 MB)
 
 Android needs an arm64 phone. Windows is the x64 installer. macOS is a universal test build that isn't notarized yet, so see [Install](#install) before the first launch. Other files and older versions are on the [releases page](https://github.com/pbuzdin/velta/releases).
 
@@ -181,7 +181,9 @@ factor) and instead offers coherent, in-app scaling: a drawer spoiler with
 Small / Normal / Large applied as a zoom on `<html>` before first paint.
 The theme spoiler adds **Auto**, which follows the system's
 `prefers-color-scheme` live (including the status-bar tint); it is the
-default for fresh installs.
+default for fresh installs. **About Velta → Show device info** lists the screen,
+viewport, scale, locale and versions for bug reports (Copy / Share; no
+account data).
 
 **Chat appearance** (drawer → Chat appearance, modelled on Telegram's chat
 settings) changes how the chat looks without touching the rest of the UI:
