@@ -22,14 +22,17 @@
       <a href="/#support">Support</a>
       <a href="/news" aria-current="page">News</a>
     </nav>
-    <form>
-      <fieldset>
-        <legend>Color mode</legend>
-        <label><input type="radio" name="theme" value="system" checked> Auto</label>
-        <label><input type="radio" name="theme" value="light"> Light</label>
-        <label><input type="radio" name="theme" value="dark"> Dark</label>
-      </fieldset>
-    </form>
+    <details class="theme">
+      <summary>Theme</summary>
+      <form>
+        <fieldset>
+          <legend>Color mode</legend>
+          <label><input type="radio" name="theme" value="system" checked> Auto</label>
+          <label><input type="radio" name="theme" value="light"> Light</label>
+          <label><input type="radio" name="theme" value="dark"> Dark</label>
+        </fieldset>
+      </form>
+    </details>
     <a href="/#download"><span>Get</span><span>Download</span></a>
     <details>
       <summary>Menu</summary>
@@ -69,9 +72,8 @@
     </div>
     <aside>
       <h2>Get the current build</h2>
-      <p>Velta 1.4.74 for Android, Windows, and macOS, plus notes for a self-hosted browser copy.</p>
+      <p>The current build for Android, Windows, and macOS, plus notes for a self-hosted browser copy.</p>
       <p><strong><a href="/#download">Download</a></strong></p>
-      <h2>Also</h2>
       <ul>
         <li><a href="/news/v1-4-74.html"><span class="kicker">Release</span><strong>Velta 1.4.74 closes a local door</strong></a></li>
 <li><a href="/news/large-files.html"><span class="kicker">Release</span><strong>Large files leave as an encrypted link</strong></a></li>
@@ -109,7 +111,7 @@
         </ul>
       </div>
     </div>
-    <p><span>Independent client. Delta Chat and Chatmail are upstream projects.</span><span>Velta 1.4.74 · core 2.63.0</span></p>
+    <p><span>Independent client. Delta Chat and Chatmail are upstream projects.</span><span>Built on the Delta Chat core</span></p>
   </footer>
   <script src="/js/site.js"></script>
 </body>

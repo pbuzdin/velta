@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Velta — private messenger</title>
-  <meta name="description" content="Velta 1.4.74 is a Delta Chat client. Encrypted chat through relays you choose, or a direct file transfer with Velta Beam. Android, Windows, macOS, and the browser. No analytics.">
+  <meta name="description" content="Velta is a Delta Chat client. Encrypted chat through relays you choose, or a direct file transfer with Velta Beam. Android, Windows, macOS, and the browser. No analytics.">
   <meta name="theme-color" content="#0f0f14">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/css/velta.css">
@@ -22,14 +22,17 @@
     <a href="/#support">Support</a>
     <a href="/news" data-nav="news">News</a>
   </nav>
-  <form>
-    <fieldset>
-      <legend>Color mode</legend>
-      <label><input type="radio" name="theme" value="system" checked> Auto</label>
-      <label><input type="radio" name="theme" value="light"> Light</label>
-      <label><input type="radio" name="theme" value="dark"> Dark</label>
-    </fieldset>
-  </form>
+  <details class="theme">
+    <summary>Theme</summary>
+    <form>
+      <fieldset>
+        <legend>Color mode</legend>
+        <label><input type="radio" name="theme" value="system" checked> Auto</label>
+        <label><input type="radio" name="theme" value="light"> Light</label>
+        <label><input type="radio" name="theme" value="dark"> Dark</label>
+      </fieldset>
+    </form>
+  </details>
   <a href="/#download"><span>Get</span><span>Download</span></a>
   <details>
     <summary>Menu</summary>
@@ -55,11 +58,11 @@
 <!-- CMS:START -->
 <section id="hero">
   <div>
-    <p>Delta Chat client · 1.4.74</p>
+    <p>Delta Chat client</p>
     <h1>Private messages. No company in the middle.</h1>
     <p>Velta is encrypted chat on the email network. Messages travel through chatmail relays you choose, or go straight across with Velta Beam. One interface on Android, Windows, macOS, and in the browser. No analytics.</p>
     <p>
-      <strong><a href="#download">Download 1.4.74</a></strong>
+      <strong><a href="#download">Download</a></strong>
       <a href="/news/two-paths.html">How a message moves</a>
     </p>
     <dl>
@@ -78,19 +81,19 @@
 <section id="product">
   <div>
     <p class="kicker">Product</p>
-    <h2>Two ways across. Neither one is us.</h2>
+    <h2>The app is the client. The network is not ours.</h2>
     <p>Velta does not run a messaging server and does not sell the directory. You bring a chatmail address. The app is the client.</p>
   </div>
   <div>
     <article class="card">
-      <img src="/v-logo.svg" alt="" width="48" height="48">
-      <h3>Relay</h3>
-      <p>A chatmail server stores ciphertext and hands it on. Keep more than one. Mark one as primary. Fail over when it drops. The relay sees timing and size, not the words.</p>
+      <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+      <h3>Messages go by relay</h3>
+      <p>Chat travels as encrypted mail through chatmail relays you choose. Keep more than one, mark one as primary, fail over when it drops. The relay stores ciphertext and sees timing and size — never the words.</p>
     </article>
     <article class="card">
-      <img src="/beam-logo.svg" alt="" width="48" height="48">
-      <h3>Direct</h3>
-      <p>Velta Beam sends a file to the people already in the chat, with a progress line per receiver. Local chat, in beta, is a whole conversation on the same network.</p>
+      <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="19" r="2"/><circle cx="19" cy="5" r="2"/><path d="M6.4 17.6 17.6 6.4"/><path d="M13.2 6.4h4.4v4.4"/></svg>
+      <h3>Files go direct with Beam</h3>
+      <p>Velta Beam moves a file peer to peer to the people already in the chat — a progress line for every receiver until the checksum matches. No relay in between, and no extra copy sitting on a server.</p>
     </article>
   </div>
 </section>
@@ -211,15 +214,15 @@
 
 <section id="download">
   <p class="kicker">Download</p>
-  <h2>Velta 1.4.74</h2>
-  <p>Published 17 October 2026. Older builds, signatures, and the update manifest are on the releases page.</p>
+  <h2>Get Velta</h2>
+  <p>Always the current build. Older versions, signatures, and the update manifest live on the releases page.</p>
   <ul>
-    <li><a href="https://github.com/pbuzdin/velta/releases/download/v1.4.74/Velta-1.4.74-arm64.apk"><span>Android</span><strong>Download APK</strong><span>Velta-1.4.74-arm64.apk</span></a></li>
-    <li><a href="https://github.com/pbuzdin/velta/releases/download/v1.4.74/Velta_1.4.74_x64-setup.exe"><span>Windows</span><strong>Download installer</strong><span>Velta_1.4.74_x64-setup.exe</span></a></li>
-    <li><a href="https://github.com/pbuzdin/velta/releases/download/v1.4.74/Velta_1.4.74_universal.dmg"><span>macOS</span><strong>Download DMG</strong><span>Velta_1.4.74_universal.dmg</span></a></li>
+    <li><a href="https://github.com/pbuzdin/velta/releases/latest"><span>Android</span><strong>Download APK</strong><span>arm64</span></a></li>
+    <li><a href="https://github.com/pbuzdin/velta/releases/latest"><span>Windows</span><strong>Download installer</strong><span>x64</span></a></li>
+    <li><a href="https://github.com/pbuzdin/velta/releases/latest"><span>macOS</span><strong>Download DMG</strong><span>universal</span></a></li>
     <li><a href="https://github.com/pbuzdin/velta/blob/master/docs/pwa-self-host.md"><span>Browser</span><strong>Hosting notes</strong><span>Docs</span></a></li>
   </ul>
-  <p><a href="https://github.com/pbuzdin/velta/releases/tag/v1.4.74">Notes for v1.4.74</a> · <a href="https://github.com/pbuzdin/velta/releases">All releases</a></p>
+  <p><a href="https://github.com/pbuzdin/velta/releases">All releases and release notes</a></p>
 </section>
 
 <section id="notes">
@@ -287,7 +290,7 @@
       </ul>
     </div>
   </div>
-  <p><span>Independent client. Delta Chat and Chatmail are upstream projects.</span><span>Velta 1.4.74 · core 2.63.0</span></p>
+  <p><span>Independent client. Delta Chat and Chatmail are upstream projects.</span><span>Built on the Delta Chat core</span></p>
 </footer>
   <script src="/js/site.js"></script>
 </body>

@@ -244,6 +244,29 @@ body > header label:has(input:checked) {
 }
 
 body > header details { display: none; }
+body > header details.theme { display: inline-flex; position: relative; }
+body > header details.theme summary {
+  height: 2.75rem;
+  align-items: center;
+  padding: 0 0.9rem;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+body > header details.theme summary:hover { color: var(--fg); }
+body > header details.theme[open] summary { color: var(--fg); background: var(--surface-2); }
+body > header details.theme[open] form {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  z-index: 20;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.35rem;
+  box-shadow: var(--shadow);
+}
 body > header summary {
   display: inline-flex;
   align-items: center;
@@ -338,6 +361,28 @@ figure.shot {
 figure.shot:hover { transform: rotate(0.5deg); }
 figure.shot img { display: block; width: 100%; height: auto; }
 body { overflow-x: clip; }
+
+/* brand lockup: logo and wordmark on one center line */
+body > footer .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-weight: 600;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+/* product card icons */
+article.card svg { width: 3rem; height: 3rem; color: var(--link); }
+
+/* mark external links */
+a[href^="http"]:not([href*="velta.cc"])::after {
+  content: "↗";
+  margin-left: 0.25em;
+  font-size: 0.75em;
+  color: var(--muted);
+  vertical-align: 0.15em;
+}
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
 main > section { padding-block: 5rem; border-top: 1px solid var(--line); }
