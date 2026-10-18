@@ -109,7 +109,8 @@ node admin/admin.test.mjs          # assembler + include engine (mirror of admin
 
 - **GitHub Pages serves `max-age: 600`.** After pushing `admin.js`, browsers
   (and the in-app browser) show the stale copy for up to 10 minutes.
-  In-page fix: `fetch('admin.js', {cache:'reload'})` then reload.
+  Bump the version query in `admin/index.html` (`admin.js?v=N`) when the
+  script changes — that busts every cache deterministically.
 - **String replacements must use functions** (`raw.replace(re, () => …)`):
   a string replacement interprets `$&` and friends inside user HTML.
 - **`_partials/` is publicly served** (a `.nojekyll` site does not hide
