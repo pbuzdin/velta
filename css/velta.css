@@ -324,63 +324,20 @@ p > strong + a:hover { background: var(--surface-2); }
 #hero dt { color: var(--muted); font-size: 0.875rem; }
 #hero dd { margin: 0; font-weight: 500; }
 
-figure {
+figure.shot {
   margin: 0;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--surface);
   box-shadow: var(--shadow);
+  transform: rotate(2deg);
+  transform-origin: 50% 60%;
+  transition: transform 0.35s ease;
 }
-figure header,
-figure footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--line);
-  background: transparent;
-}
-figure footer { border-bottom: 0; border-top: 1px solid var(--line); color: var(--muted); }
-figure header img { width: 1.25rem; height: 1.25rem; }
-figure header strong { display: inline-flex; align-items: center; gap: 0.5rem; }
-figure header span,
-figure time { color: var(--muted); font-size: 0.75rem; font-weight: 400; }
-figure ul { list-style: none; margin: 0; padding: 0; }
-figure li {
-  display: grid;
-  grid-template-columns: 2.25rem 1fr;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  border-top: 1px solid var(--line);
-}
-figure li:first-child { background: var(--surface-2); }
-figure li img { width: 2.25rem; height: 2.25rem; border-radius: 8px; }
-figure li p { margin: 0; color: var(--muted); font-size: 0.875rem; }
-figure li div { display: flex; justify-content: space-between; gap: 0.5rem; }
-figure .thread { padding: 1rem; }
-figure .thread p { margin: 0 0 0.75rem; }
-figure .in, figure .out {
-  max-width: 16rem;
-  padding: 0.5rem 0.75rem;
-  border-radius: 12px;
-}
-figure .in { background: var(--surface-2); }
-figure .out { margin-left: auto; background: var(--bubble); }
-figure .out time { display: block; text-align: right; }
-figure progress {
-  width: 100%;
-  height: 0.25rem;
-  border: 0;
-  border-radius: 999px;
-  overflow: hidden;
-  background: var(--surface-2);
-  color: var(--link);
-}
-figure progress::-webkit-progress-bar { background: var(--surface-2); }
-figure progress::-webkit-progress-value { background: var(--link); }
-figure progress::-moz-progress-bar { background: var(--link); }
+figure.shot:hover { transform: rotate(0.5deg); }
+figure.shot img { display: block; width: 100%; height: auto; }
+body { overflow-x: clip; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
 main > section { padding-block: 5rem; border-top: 1px solid var(--line); }
