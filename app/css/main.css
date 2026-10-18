@@ -272,6 +272,13 @@ svg { width: 24px; height: 24px; display: block; }
 }
 .call-row-ico svg { width: var(--ico-3); height: var(--ico-3); }
 .bar-opts-hint { font-size: 12px; color: var(--text-dim); padding: 2px 4px 4px; }
+/* Hint under a drawer ctx-item row (multi-device): aligned with the row's
+   label text (row padding + icon + gap). */
+.ctx-hint { padding: 0 12px 6px calc(12px + var(--ico-3) + 12px); margin-top: -4px; }
+.md-note { color: var(--text); }
+.md-note[hidden] { display: none; }
+.md-note-acts { display: inline-flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 2px; }
+.md-note-acts .btn-text { padding: 2px 0; font-size: 12px; }
 .side-search-input { margin-bottom: 10px; }
 .side-option { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .side-option-label { font-size: 14.5px; font-weight: 500; color: var(--text); }

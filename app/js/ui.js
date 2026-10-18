@@ -10,6 +10,7 @@ import { searchEmoji } from "./emoji.js";
 import { isAndroid, isTauri, tauriInvoke } from "./tauri.js";
 import { collectDeviceInfo, formatDeviceInfo, measureSafeArea } from "./device-info.js";
 import { canShareLink, shareLink } from "./qr-actions.js";
+import { MD_HINT, MD_REENABLED_NOTE, DL_LIMIT_HINT, mdLabel } from "./multidevice.js";
 
 const popups = () => document.getElementById("popups");
 
@@ -462,6 +463,20 @@ export function toast(text, ms = 2200, opts = {}) {
     });
     summary.insertBefore(undoBtn, closeBtn);
   }
+  // opts.action = { label, run }: one extra button (e.g. "Turn off again").
+  if (opts.action && typeof opts.action.run === "function") {
+    const actBtn = document.createElement("button");
+    actBtn.type = "button";
+    actBtn.className = "toast-undo toast-action";
+    actBtn.textContent = String(opts.action.label || "OK");
+    actBtn.addEventListener("click", e => {
+      e.preventDefault();
+      e.stopPropagation();
+      opts.action.run();
+      dismiss();
+    });
+    summary.insertBefore(actBtn, closeBtn);
+  }
   timerBar.style.animationDuration = duration + "ms";
   timerBar.addEventListener("animationend", dismiss);
   closeBtn.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); dismiss(); });
@@ -841,7 +856,7 @@ function notifyChecked(storageKey) {
 
 const IS_ANDROID = isAndroid();
 
-export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, onWsRelays, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality, downloadLimit = "0", onDownloadLimit, onReadReceipts, onLowBatteryToggle, multiDevice = false, onMultiDevice, onDrawerOpen, identityBackupAvailable = false, onIdentityBackup, onTunnel = null, tunnelLabel = "", onDiagnostics = null, onPushSection = null, backendKind = null }) {
+export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, onWsRelays, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality, downloadLimit = "0", onDownloadLimit, onReadReceipts, onLowBatteryToggle, multiDeviceState = "loading", multiDeviceReenabled = false, onMultiDevice, onMultiDeviceKeep, onDrawerOpen, identityBackupAvailable = false, onIdentityBackup, onTunnel = null, tunnelLabel = "", onDiagnostics = null, onPushSection = null, backendKind = null }) {
   const inTauri = isTauri();
   const drawer = document.createElement("div");
   drawer.className = "drawer";
@@ -939,7 +954,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
           <legend class="vh">Auto-download limit</legend>
           ${[["0", "No limit (default)"], ["655360", "640 KB"], ["5242880", "5 MB"], ["26214400", "25 MB"]].map(([value, label]) => `<label class="scale-opt"><input type="radio" name="download-limit" data-dl-value="${value}"${value === downloadLimit ? " checked" : ""}><span>${label}</span></label>`).join("")}
         </fieldset>
-        <div class="bar-opts-hint">Caps the chat history auto-downloaded from another device when you join as a second device. Regular messages are always downloaded.</div>
+        <div class="bar-opts-hint" data-dl-hint>${escapeHtml(DL_LIMIT_HINT)}</div>
       </details>
       <button type="button" class="ctx-item" data-act="profile-management"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 5v4M21 7h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Profile management…</span></button>
       <button type="button" class="ctx-item" data-act="relays"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Relays of this profile…</span></button>
@@ -958,7 +973,9 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
       <label class="ctx-item" title="Drops utm and click-id parameters when you paste or open a link. Undo brings them back."><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 20l5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Strip tracking from links: ${trackingStripEnabled() ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="strip-trackers"${trackingStripEnabled() ? " checked" : ""}></label>
       <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M20 5v6a2 2 0 01-2 2H5m0 0l4-4m-4 4l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Send on Enter: ${localStorage.getItem("velta-send-enter") === "0" ? "off" : "on"}</span><input type="checkbox" role="switch" data-toggle="send-enter"${localStorage.getItem("velta-send-enter") === "0" ? "" : " checked"}></label>
       <label class="ctx-item" title="Off also stops seen-status sync between your own devices"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 12a8 8 0 0114-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M20 12a8 8 0 01-14 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Show and send read receipts: ${localStorage.getItem("velta-mdns") === "0" ? "off" : "on"}</span><input type="checkbox" role="switch" data-toggle="read-receipts"${localStorage.getItem("velta-mdns") === "0" ? "" : " checked"}></label>
-      <label class="ctx-item" title="Copies messages you send to your other devices and syncs state between them"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="14" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><rect x="14" y="6" width="7" height="14" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Multi-device: ${multiDevice ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="multidevice"${multiDevice ? " checked" : ""}></label>
+      <label class="ctx-item" title="Copies messages you send to your other devices and syncs state between them"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="14" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><rect x="14" y="6" width="7" height="14" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Multi-device: ${mdLabel(multiDeviceState)}</span><input type="checkbox" role="switch" data-toggle="multidevice"${multiDeviceState === "on" ? " checked" : ""}${multiDeviceState === "on" || multiDeviceState === "off" ? "" : ' aria-checked="mixed"'}></label>
+      <div class="bar-opts-hint ctx-hint" data-md-hint>${escapeHtml(MD_HINT)}</div>
+      <div class="bar-opts-hint ctx-hint md-note" data-md-note${multiDeviceReenabled ? "" : " hidden"}><span>${escapeHtml(MD_REENABLED_NOTE)}</span> <span class="md-note-acts"><button type="button" class="btn-text" data-md-off>Turn off again</button><button type="button" class="btn-text" data-md-keep>Keep on</button></span></div>
       ${IS_ANDROID ? `<label class="ctx-item" title="While the phone is under 10% and off the charger, your latest message in each chat gets a 🪫 reaction so the other side knows replies may stop. Recipients see it as a normal reaction; other clients show the emoji only."><svg viewBox="0 0 24 24"><rect x="2.5" y="8" width="16.5" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M21.5 10.5v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><rect x="4.5" y="10" width="3.5" height="4" rx="0.5" fill="currentColor"/></svg><span>Low-battery marker: ${localStorage.getItem("velta-low-battery-react") === "1" ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="low-battery"${localStorage.getItem("velta-low-battery-react") === "1" ? " checked" : ""}></label>` : ""}
       <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 20h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Remember scroll position in chats: ${localStorage.getItem("velta-remember-scroll") === "0" ? "off" : "on"}</span><input type="checkbox" role="switch" data-toggle="remember-scroll"${localStorage.getItem("velta-remember-scroll") === "0" ? "" : " checked"}></label>
       <label class="ctx-item"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 9h6v6H9z" fill="currentColor"/></svg><span>Demo mode: ${localStorage.getItem("velta-mock") === "1" ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="demo"${localStorage.getItem("velta-mock") === "1" ? " checked" : ""}></label>
@@ -1116,12 +1133,30 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     onReadReceipts?.(on);
     toast(`Read receipts ${on ? "on" : "off"}`);
   });
-  drawer.querySelector('[data-toggle="multidevice"]')?.addEventListener("change", async e => {
+  // Indeterminate (loading / failed read) can't be expressed in markup;
+  // app.js repaints it via paintMultiDevice once the core answers.
+  const mdBox = drawer.querySelector('[data-toggle="multidevice"]');
+  if (mdBox && multiDeviceState !== "on" && multiDeviceState !== "off") mdBox.indeterminate = true;
+  mdBox?.addEventListener("change", async e => {
     const on = e.target.checked;
+    e.target.indeterminate = false;
+    e.target.removeAttribute("aria-checked");
     setToggleUi("multidevice", "Multi-device", on);
     const ok = await onMultiDevice?.(on);
     if (ok === false && e.target.isConnected) setToggleUi("multidevice", "Multi-device", !on);
-    else toast(`Multi-device ${on ? "on" : "off"}`);
+    else if (ok !== false) toast(`Multi-device ${on ? "on" : "off"}`);
+  });
+  drawer.querySelector("[data-md-off]")?.addEventListener("click", async e => {
+    e.preventDefault();
+    const ok = await onMultiDevice?.(false, { quick: true });
+    if (ok !== false) {
+      setToggleUi("multidevice", "Multi-device", false);
+      toast("Multi-device off");
+    }
+  });
+  drawer.querySelector("[data-md-keep]")?.addEventListener("click", e => {
+    e.preventDefault();
+    onMultiDeviceKeep?.();
   });
   drawer.querySelector('[data-toggle="low-battery"]')?.addEventListener("change", e => {
     const on = e.target.checked;

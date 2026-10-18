@@ -14,6 +14,7 @@ import { notePushDiagnostic, relaySupportsPush, pushMarkHtml } from "./relay-pus
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow, isSendFailureDiagnostic, createRelaySendErrorState } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal, isShortInviteLink, expandShortInvite } from "./invites.js";
 import { activeWsRelay, addWsRelay, listWsRelays, normalizeHost, probeC3Relay, probeDnsVia, showWsRelaysModal, useWsRelay } from "./ws-relays.js";
+import { getChoice as getMdChoice, recordChoice as recordMdChoice, markNotified as markMdNotified, classify as classifyMultiDevice, mdLabel, retryDelay as mdRetryDelay, offConfirmText as mdOffConfirmText, forgetAccount as forgetMdAccount, MD_REENABLED_NOTE } from "./multidevice.js";
 import { openImageLightbox, openVideoLightbox, bindMenuToggle, buildDrawer, showModal, footButtons, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate, popoverSupported, fillSplashVersion, uiZoom } from "./ui.js";
 import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact, showCreateGroupModal, showAddMembersModal } from "./p2p.js";
 import { withLocalChat, hubModel, renameDevice, removePeer, dismissLocalGroup, groupRename, groupRemoveMember, peerGroupImpact, groupActionsModel, groupMemberHint, removePeerImpactText, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
@@ -37,6 +38,15 @@ function errToast(text, ms = 3000) {
   toast(text, ms);
 }
 let core = null;
+// Multi-device switch state (see ensureMultiDevice). Declared up here, not
+// next to its functions: event callbacks (imex-progress, resume) can run
+// during the boot's top-level awaits, before later `let`s are initialized.
+let multiDeviceState = "loading"; // "loading" | "on" | "off" | "unknown"
+let multiDeviceReenabled = false;
+let multiDeviceFor = null;
+let multiDeviceGen = 0;
+let multiDeviceRetry = null;
+let multiDeviceAttempt = 0;
 let diagnosticsOpen = false;
 // Live-update gate for the open Diagnostics chat (pause button in its action
 // bar): events keep being recorded into the store while paused, only the
@@ -507,6 +517,13 @@ core.addEventListener("account-changing", () => {
   drawer?.el.remove();
   drawer?.overlayEl?.remove();
   drawer = null;
+});
+// A finished (1000) or aborted (0) backup export / second-device transfer
+// may have turned bcc_self on (core imex export_database): re-check so the
+// user is told and offered "Turn off again".
+core.addEventListener("imex-progress", e => {
+  const p = e.detail?.progress;
+  if (p === 1000 || p === 0) setTimeout(() => ensureMultiDevice(), 500);
 });
 core.addEventListener("account-changed", () => {
   state.accountChanging = false;
@@ -1032,6 +1049,9 @@ function refreshAfterBackground() {
   // reached the JS side — reconcile the sending-dash bookkeeping too.
   core.reconcileSending?.();
   if (state.activeChatId) chatView?.onMsgsChanged(state.activeChatId);
+  // A sync message from another device may have turned bcc_self back on
+  // while we were in the background.
+  ensureMultiDevice();
 }
 function reportUiVisible() {
   try {
@@ -3563,7 +3583,9 @@ function openProfileManagement() {
     delProgress.hidden = false;
     delProgress.textContent = "Deleting profile…";
     try {
-      const moved = await core.deleteAccount(core.accountId);
+      const deletedId = core.accountId;
+      const moved = await core.deleteAccount(deletedId);
+      forgetMdAccount(localStorage, deletedId);
       // account-changed refreshes chats and drawer for the reconciled
       // selection; the modal has nothing left to show either way.
       toast(moved ? `Profile deleted — switched to ${moved.displayName || moved.addr}` : "Profile deleted");
@@ -4350,30 +4372,114 @@ function openIdentityBackup({ restoreOnly = false } = {}) {
 // Core `bcc_self` is the multi-device switch (default 0). The core is the
 // source of truth — a localStorage copy would clobber the default and other
 // devices. Cached per account so rebuilding the drawer does not flicker.
-let multiDeviceOn = false;
-let multiDeviceFor = null;
-let multiDeviceGen = 0;
+// multidevice.js keeps only the user's LAST CHOICE per account (never
+// rendered) to notice the core turning bcc_self back on by itself (backup
+// export, Add second device, sync from another device). A failed read shows
+// "unknown" (indeterminate) and retries; it never pretends to be "off".
+// (state lives at the top of the module: see multiDeviceState)
 
-function paintMultiDevice(on) {
-  const box = drawer?.el?.querySelector('[data-toggle="multidevice"]');
-  if (!box?.isConnected) return;
-  box.checked = on;
-  const span = box.closest(".ctx-item")?.querySelector("span");
-  if (span) span.textContent = `Multi-device: ${on ? "on" : "off"}`;
+function paintMultiDevice() {
+  const root = drawer?.el;
+  const box = root?.querySelector('[data-toggle="multidevice"]');
+  if (box?.isConnected) {
+    const known = multiDeviceState === "on" || multiDeviceState === "off";
+    box.checked = multiDeviceState === "on";
+    box.indeterminate = !known;
+    if (known) box.removeAttribute("aria-checked"); else box.setAttribute("aria-checked", "mixed");
+    const span = box.closest(".ctx-item")?.querySelector("span");
+    if (span) span.textContent = `Multi-device: ${mdLabel(multiDeviceState)}`;
+  }
+  const note = root?.querySelector("[data-md-note]");
+  if (note) note.hidden = !multiDeviceReenabled;
 }
 
+function turnMultiDeviceOffAgain() {
+  setMultiDevice(false, { quick: true }).then(ok => {
+    if (ok) toast("Multi-device off");
+  });
+}
+
+// Reads bcc_self for the current account and repaints. Called on drawer
+// open/rebuild, app resume and after a backup/transfer finishes — the core
+// emits no event when it flips bcc_self (not a synced key).
 function ensureMultiDevice() {
-  const accountId = core.accountId;
+  const accountId = core?.accountId;
   const gen = ++multiDeviceGen;
+  clearTimeout(multiDeviceRetry);
+  multiDeviceRetry = null;
+  if (multiDeviceFor !== accountId) {
+    multiDeviceFor = accountId;
+    multiDeviceState = "loading";
+    multiDeviceReenabled = false;
+    multiDeviceAttempt = 0;
+    paintMultiDevice();
+  }
   Promise.resolve()
-    .then(() => core.getConfig?.("bcc_self"))
+    .then(() => {
+      if (!core?.getConfig) throw new Error("no core");
+      return core.getConfig("bcc_self");
+    })
     .then(v => {
       if (gen !== multiDeviceGen || core.accountId !== accountId) return;
-      multiDeviceFor = accountId;
-      multiDeviceOn = v === "1";
-      paintMultiDevice(multiDeviceOn);
+      multiDeviceAttempt = 0;
+      const rec = getMdChoice(localStorage, accountId);
+      const res = classifyMultiDevice(v, rec);
+      if (res.seed) recordMdChoice(localStorage, accountId, res.state === "on");
+      multiDeviceState = res.state;
+      multiDeviceReenabled = res.reenabled;
+      paintMultiDevice();
+      if (res.notify) {
+        markMdNotified(localStorage, accountId);
+        toast(`${MD_REENABLED_NOTE} Turn it off again if this is your only device.`, 12000,
+          { action: { label: "Turn off again", run: turnMultiDeviceOffAgain } });
+      }
     })
-    .catch(() => {});
+    .catch(err => {
+      if (gen !== multiDeviceGen || core?.accountId !== accountId) return;
+      multiDeviceState = "unknown";
+      paintMultiDevice();
+      if (multiDeviceAttempt === 0) diagnostics.append("warning", `multi-device read failed: ${err?.message || err}`);
+      const delay = mdRetryDelay(multiDeviceAttempt++);
+      multiDeviceRetry = setTimeout(() => {
+        if (gen === multiDeviceGen && core?.accountId === accountId) ensureMultiDevice();
+      }, delay);
+    });
+}
+
+// The single write path for the switch, "Turn off again" and the toast
+// action. Switching off asks first: off makes this device delete messages
+// from the relay, which starves other devices. `quick` (Turn off again)
+// skips the confirm — the user already read the note explaining it.
+async function setMultiDevice(on, { quick = false } = {}) {
+  if (!core?.setConfig) return false;
+  const accountId = core.accountId;
+  if (!on && !quick) {
+    const sure = await confirmModal("Turn off multi-device?", mdOffConfirmText(multiDeviceReenabled), "Turn off", true);
+    if (!sure || core.accountId !== accountId) {
+      paintMultiDevice();
+      return false;
+    }
+  }
+  const prevState = multiDeviceState;
+  const prevReenabled = multiDeviceReenabled;
+  multiDeviceGen++;
+  clearTimeout(multiDeviceRetry);
+  multiDeviceState = on ? "on" : "off";
+  multiDeviceReenabled = false;
+  multiDeviceFor = accountId;
+  paintMultiDevice();
+  try {
+    await core.setConfig("bcc_self", on ? "1" : "0");
+    recordMdChoice(localStorage, accountId, on);
+    return true;
+  } catch (err) {
+    multiDeviceState = prevState;
+    multiDeviceReenabled = prevReenabled;
+    paintMultiDevice();
+    errToast("Couldn't save multi-device: " + (err?.message || err));
+    ensureMultiDevice();
+    return false;
+  }
 }
 
 function rebuildDrawer() {
@@ -4440,25 +4546,16 @@ function rebuildDrawer() {
       core.setConfig?.("mdns_enabled", on ? "1" : "0").catch(err =>
         errToast("Couldn't save read receipts: " + (err?.message || err)));
     },
-    multiDevice: multiDeviceFor === core.accountId && multiDeviceOn,
+    multiDeviceState: multiDeviceFor === core.accountId ? multiDeviceState : "loading",
+    multiDeviceReenabled: multiDeviceFor === core.accountId && multiDeviceReenabled,
     onDrawerOpen: () => ensureMultiDevice(),
-    onMultiDevice: async (on) => {
-      if (!core.setConfig) return false;
-      const prev = multiDeviceOn;
-      multiDeviceGen++;
-      multiDeviceOn = on;
-      multiDeviceFor = core.accountId;
-      try {
-        await core.setConfig("bcc_self", on ? "1" : "0");
-        return true;
-      } catch (err) {
-        multiDeviceOn = prev;
-        multiDeviceFor = null;
-        errToast("Couldn't save multi-device: " + (err?.message || err));
-        ensureMultiDevice();
-        return false;
-      }
+    onMultiDeviceKeep: () => {
+      // "Keep on": the user accepts the core's flip as their choice.
+      recordMdChoice(localStorage, core.accountId, true);
+      multiDeviceReenabled = false;
+      paintMultiDevice();
     },
+    onMultiDevice: (on, opts) => setMultiDevice(on, opts),
     onLowBatteryToggle: (on) => {
       // Turning the marker off removes the current 🪫 immediately instead of
       // waiting for the next send to clean it up.

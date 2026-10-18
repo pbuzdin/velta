@@ -1490,12 +1490,38 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   (`data-mq-value` radios, `velta-media-quality` "0"=Standard/"1"=Compact
   (940 KB / 130 KB compression targets), Auto-download limit
   (`data-dl-value` radios, `velta-download-limit` "0"/bytes mirrored to the
-  core's per-account `download_limit` — caps the SECOND-DEVICE history
-  sync only; regular messages always auto-download), and a read-receipts
+  core's per-account `download_limit` — in core 2.63 attachments above it
+  (post-messages, >140 KB split) are NOT auto-downloaded: they wait for a
+  tap and stay on the relay until downloaded or purged by the relay
+  (chatmail `delete_large_after`, ~7 days), so a limit costs relay storage
+  even with multi-device off; the drawer hint `DL_LIMIT_HINT` in
+  `app/js/multidevice.js` says so), and a read-receipts
   ctx-item (`velta-mdns` "0"=off mirrored to core `mdns_enabled` — off
   also stops seen-status sync between own devices), a multi-device
   ctx-item (#117, core `bcc_self` "1"=on, default "0"; the core is the
-  source of truth — no localStorage copy),
+  source of truth — no localStorage copy of the value. With it off (and
+  `force_encryption` on, the default) core 2.63 deletes every downloaded
+  message from every transport's relay (`ephemeral.rs`
+  `should_delete_all_downloaded_messages`); there is no
+  `delete_server_after` any more. State + helpers: `ensureMultiDevice` /
+  `setMultiDevice` / `paintMultiDevice` in app.js, pure logic in
+  `app/js/multidevice.js`. States "loading" ("…") / "on" / "off" /
+  "unknown": a failed read paints the switch indeterminate
+  (`aria-checked="mixed"`) and retries with `MD_RETRY_DELAYS` backoff —
+  never a fake "off". `MD_HINT` sits under the row (`data-md-hint`,
+  `.ctx-hint`). Switching off goes through `confirmModal` (stronger text
+  when the core flipped it on since the user's last choice — the only
+  "other device" signal there is). The core turns `bcc_self` on by itself
+  on backup export / Add second device (imex `export_database`) and on an
+  incoming sync message (sync.rs) and emits NO event (not a synced key),
+  so `velta-bcc-self-choice` (localStorage JSON {accountId: {choice,
+  notified}}) records the user's last choice — seeded with the first
+  observed value, never rendered — and `ensureMultiDevice` (drawer open,
+  rebuild, `refreshAfterBackground` resume, imex-progress 1000/0) compares:
+  core "1" vs choice "0" shows the `data-md-note` note (Turn off again /
+  Keep on) and, once per flip, a 12s toast with a "Turn off again"
+  `opts.action`. Velta never reverts the flip itself; the state `let`s sit
+  at the top of app.js because events can fire during the boot awaits),
   mirrored to the core's per-account `media_quality` config — pushed from
   `rebuildDrawer` on boot/account switch; core `set_config` takes FLAT args
   `[accountId, key, value]`, NOT a nested [key,value] pair) follow it —
@@ -1800,7 +1826,8 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   errToast) whose animationend dismisses, one-line ellipsis,
   overflow-gated expand chip (re-measured after `document.fonts.ready`),
   copy button in the open pane, the house close icon in the summary. `opts.undo`
-  adds an Undo button in the summary; the click preventDefaults so the
+  adds an Undo button in the summary (`opts.action = { label, run }` adds one
+  generic action button the same way, e.g. multi-device "Turn off again"); the click preventDefaults so the
   `<summary>` does not toggle, then dismisses. Clicking pauses
   the dismissal timer — expandable toasts via the native open/close toggle,
   one-liners by toggling pause/resume directly (they used to vanish

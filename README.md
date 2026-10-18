@@ -468,7 +468,17 @@ quota sit in each chip's tooltip.
 **Multi-device** (drawer switch) copies the messages you send to your other
 devices and syncs state between them. It reads and writes the core's
 `bcc_self` setting directly (off by default), so it always shows what the
-profile really uses.
+profile really uses; if the value can't be read it shows "unknown" and
+retries. Off means this device deletes messages from the relay (on every
+relay of the profile) right after downloading them, so the switch asks
+before turning off. The core turns it back on by itself after a backup
+export, Add second device, or a sync message from another device; Velta
+then shows a note and a toast with **Turn off again** (it never switches
+it back on its own).
+
+**Auto-download limit**: files above the limit wait for a tap and stay on
+the relay until downloaded (or until the relay purges them, usually after
+about 7 days), so a limit uses relay storage.
 
 </details>
 
