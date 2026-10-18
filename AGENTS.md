@@ -78,10 +78,33 @@ Consequences:
   the page (git) — the CMS preserves but does not edit them.
 - **Extensionless links do not work** on GitHub Pages (`/news/slug` 404s);
   always link `news/slug.html`.
-- Assembly is one commit per file (the Contents API has no batch commit), so
-  a rebuild of 5 pages = 5 commits.
+- Assembly is one commit per file (the Contents API has no batch commit).
 - Page `<head>` and head-only files: `404.html` also has body markers and is
   assembled like the rest.
+
+### The CMS at a glance
+
+`/admin/` — sign in with a GitHub PAT (Contents read/write; kept in
+localStorage). Reads work signed-out. Four groups:
+
+- **Pages** — the root pages. The editor is a live split: body text left,
+  the page rendered with the real site CSS in a sandboxed iframe right
+  (debounced while typing, includes expanded, follows the OS theme).
+  "Hide/Show preview" toggles the split.
+- **News** — `news/index.html` + the posts. "New post" (name, title, type,
+  date, summary) creates `news/<name>.html` from the shared post template —
+  breadcrumb, kicker, title, date, summary, `div.body`, aside, mirroring the
+  existing posts — and inserts the index line at the top of
+  `news/index.html` itself, so publishing is one step.
+- **Media** — `assets/*`. The editor's "Upload image" button commits the
+  file (images only, ≤10 MB, name sanitized and date-stamped) and inserts
+  `<img src="/assets/…">` at the cursor. Listed under Media; deletable.
+- **Blocks** — `_partials/*`, edited raw; create and delete included
+  (nav/footer protected). After changing a block, "Rebuild pages from
+  partials" re-applies it to every page.
+
+Commit math: page save = 1 commit, post creation = 2 (the post + its index
+line), full rebuild = one per page.
 
 ## 4. Include semantics
 
