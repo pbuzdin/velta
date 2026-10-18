@@ -117,5 +117,7 @@ node admin/admin.test.mjs          # assembler + include engine (mirror of admin
 - **Last-write-wins.** No draft/PR workflow; a stale PUT 409/422s and the
   CMS reopens the saved version. Assume one editor at a time.
 - **Pushes over SSH fail intermittently** ("access rights") — retry works.
-- **No media uploads.** Screenshots etc. are committed by hand; an upload
-  feature would be a file input plus one more PUT.
+- **Media lives in `assets/`**, uploaded via the CMS (base64 Contents-API
+  PUT, one commit per image, ~10 MB practical cap). Reference as
+  `<img src="/assets/name">`. Git stores every version forever — compress
+  before uploading.

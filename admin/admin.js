@@ -176,6 +176,13 @@ class VeltaAdmin extends Elena(HTMLElement) {
     // async results call requestUpdate().
     this.addEventListener("click", (e) => this.onAction(e));
     this.addEventListener("input", (e) => this.onInput(e));
+    this.addEventListener("change", (e) => {
+      if (e.target.id === "image-input") {
+        const file = e.target.files && e.target.files[0];
+        e.target.value = "";
+        if (file) this.uploadImage(file);
+      }
+    });
     this.loadFiles();
   }
 
@@ -219,6 +226,18 @@ class VeltaAdmin extends Elena(HTMLElement) {
     return r.content.sha;
   }
 
+  // Binary upload (images) — content arrives already base64.
+  async putBlob(path, message, base64, sha) {
+    const body = { message, content: base64, branch: BRANCH };
+    if (sha) body.sha = sha;
+    const r = await this.api(`/${path}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return r.content.sha;
+  }
+
   async deleteFile(path, sha) {
     await this.api(`/${path}`, {
       method: "DELETE",
@@ -252,6 +271,8 @@ class VeltaAdmin extends Elena(HTMLElement) {
       this.showPreview = !this.showPreview;
       this.requestUpdate();
     }
+    else if (action === "upload-image") this.querySelector("#image-input").click();
+    else if (action === "delete-media") this.deleteMedia(el.dataset.path);
     else if (action === "login") this.login();
     else if (action === "logout") {
       this.token = "";
@@ -324,6 +345,15 @@ class VeltaAdmin extends Elena(HTMLElement) {
           ...sub
             .filter((f) => f.type === "file" && f.name.endsWith(".html"))
             .map((f) => ({ path: `news/${f.name}`, name: f.name, size: f.size, sha: f.sha, kind: "page" })),
+        );
+      }
+      const assetsDir = list.find((d) => d.type === "dir" && d.name === "assets");
+      if (assetsDir) {
+        const sub = await this.api(`/assets?ref=${BRANCH}`);
+        files.push(
+          ...sub
+            .filter((f) => f.type === "file")
+            .map((f) => ({ path: `assets/${f.name}`, name: f.name, size: f.size, sha: f.sha, kind: "media" })),
         );
       }
       files.sort((a, b) => a.path.localeCompare(b.path));
@@ -567,6 +597,90 @@ class VeltaAdmin extends Elena(HTMLElement) {
     }
   }
 
+  // Upload an image to assets/ and drop an <img> at the cursor.
+  async uploadImage(file) {
+    if (!this.current) return;
+    if (!/^image\//.test(file.type)) {
+      this.error = "Images only (PNG, JPEG, WebP, SVG).";
+      this.requestUpdate();
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      this.error = "Image is over 10 MB — compress it first (git stores every version forever).";
+      this.requestUpdate();
+      return;
+    }
+    if (!this.token) {
+      this.error = "Sign in first — uploading needs a token.";
+      this.requestUpdate();
+      return;
+    }
+    const dot = file.name.lastIndexOf(".");
+    const ext = dot >= 0 ? file.name.slice(dot).toLowerCase() : "";
+    const base = (dot >= 0 ? file.name.slice(0, dot) : file.name)
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "image";
+    const name = `assets/${base}-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}${ext}`;
+    if ((this.files || []).some((f) => f.path === name)) {
+      this.error = `${name} already exists — rename the file and try again.`;
+      this.requestUpdate();
+      return;
+    }
+    this.busy = true;
+    this.error = "";
+    this.status = "";
+    this.requestUpdate();
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(",")[1]);
+        reader.onerror = () => reject(new Error("Could not read the file."));
+        reader.readAsDataURL(file);
+      });
+      await this.putBlob(name, `Add ${name}`, base64, null);
+      await this.loadFiles();
+      const tag = `<img src="/${name}" alt="">`;
+      const ta = this.querySelector("#editor");
+      const at = ta ? (ta.selectionStart ?? this.content.length) : this.content.length;
+      this.content = this.content.slice(0, at) + tag + this.content.slice(ta ? (ta.selectionEnd ?? at) : at);
+      if (ta) {
+        ta.value = this.content;
+        ta.selectionStart = ta.selectionEnd = at + tag.length;
+        ta.focus();
+      }
+      this.status = `Uploaded ${name} — inserted at the cursor.`;
+      this.schedulePreview();
+    } catch (e) {
+      this.error = String(e.message || e);
+    }
+    this.busy = false;
+    this.requestUpdate();
+  }
+
+  async deleteMedia(path) {
+    const file = (this.files || []).find((f) => f.path === path);
+    if (!file) return;
+    if (!this.token) {
+      this.error = "Sign in first — deleting needs a token.";
+      this.requestUpdate();
+      return;
+    }
+    if (!confirm(`Delete ${path}? Pages keep their last published copy until edited; recoverable via git history.`)) return;
+    this.busy = true;
+    this.error = "";
+    this.requestUpdate();
+    try {
+      await this.deleteFile(path, file.sha);
+      await this.loadFiles();
+      this.status = `Deleted ${path}.`;
+    } catch (e) {
+      this.error = String(e.message || e);
+    }
+    this.busy = false;
+    this.requestUpdate();
+  }
+
   async createBlock() {
     const name = this.newBlock.trim().toLowerCase();
     if (!/^[a-z0-9-]+$/.test(name)) {
@@ -663,6 +777,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
     const rootPages = (this.files || []).filter((f) => f.kind === "page" && !f.path.startsWith("news/"));
     const newsPages = (this.files || []).filter((f) => f.kind === "page" && f.path.startsWith("news/"));
     const blocks = (this.files || []).filter((f) => f.kind === "block");
+    const media = (this.files || []).filter((f) => f.kind === "media");
     const row = (f, deletable) => html`
       <tr>
         <td><button data-action="open" data-path="${f.path}">${f.path}</button></td>
@@ -713,6 +828,26 @@ class VeltaAdmin extends Elena(HTMLElement) {
       <p><button data-action="create-post">Create post</button></p>
       <p><small>The post is created from the news template (breadcrumb, kicker, date, summary, body, aside), added to the top of the news index, and the home page list mirrors the index automatically.</small></p>
 
+      <h3>Media</h3>
+      ${media.length
+        ? html`
+            <table>
+              <tbody>
+                ${media.map(
+                  (f) => html`
+                    <tr>
+                      <td><a href="/${f.path}" target="_blank" rel="noopener">/${f.path}</a></td>
+                      <td>${Math.round(f.size / 1024)} KB</td>
+                      <td><button data-action="delete-media" data-path="${f.path}">Delete</button></td>
+                    </tr>
+                  `,
+                )}
+              </tbody>
+            </table>
+            <p><small>Uploaded images. Reference them anywhere with <code>&lt;img src="/assets/name"&gt;</code>; the Upload image button in the editor does both steps at the cursor.</small></p>
+          `
+        : html`<p><small>No images yet — the Upload image button in the editor stores them here.</small></p>`}
+
       <h3>Blocks</h3>
       ${blocks.length
         ? html`
@@ -737,6 +872,8 @@ class VeltaAdmin extends Elena(HTMLElement) {
         <button data-action="save">Save</button>
         <button data-action="back">Back</button>
         <button data-action="toggle-preview">${this.showPreview ? "Hide preview" : "Show preview"}</button>
+        <button data-action="upload-image">Upload image</button>
+        <input id="image-input" type="file" accept="image/*" hidden />
         <input id="commit-msg" placeholder="Commit message (optional)" />
       </p>
       <div class="editor-grid${this.showPreview ? " split" : ""}">

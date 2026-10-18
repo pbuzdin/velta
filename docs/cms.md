@@ -93,6 +93,9 @@ as the existing posts.
 - There is no draft mode: saving publishes (within ~1 minute). If two people
   save the same page at once, the second save is rejected and the editor
   reloads the stored version; re-apply your edit.
-- No image uploads yet — commit media by hand and reference it.
+- Images: the editor's **Upload image** button stores the file under
+  `assets/` and inserts an `<img>` at the cursor. Keep images under 10 MB
+  and compressed — git keeps every version forever. Uploaded files are
+  listed under **Media**, where they can also be deleted.
 - The CMS itself lives in `admin/admin.js` (see `AGENTS.md` for internals
   and `admin/admin.test.mjs` for its test suite).
