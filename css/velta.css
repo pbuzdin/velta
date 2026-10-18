@@ -660,3 +660,14 @@ main.page details { border: 1px solid var(--line); border-radius: 8px; padding: 
 main.page details summary { cursor: pointer; font-weight: 500; }
 main.page details[open] summary { margin-bottom: 0.5rem; }
 
+/* post aside: download call styled as a quiet button */
+main.page aside a {
+  display: inline-block;
+  padding: 0.55rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  text-decoration: none;
+}
+main.page aside a:hover { border-color: var(--accent); color: var(--fg); }
+
