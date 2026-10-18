@@ -22,7 +22,7 @@
         var links = doc.querySelectorAll("main.news ul a");
         if (!links.length) return;
         notes.innerHTML = "";
-        for (var i = 0; i < links.length; i++) {
+        for (var i = 0; i < links.length && i < 3; i++) {
           var li = document.createElement("li");
           li.appendChild(document.adoptNode(links[i].cloneNode(true)));
           notes.appendChild(li);
