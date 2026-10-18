@@ -10,12 +10,20 @@ on:
         description: Use org.velta.test and label the app Velta Test
         type: boolean
         default: false
+      debug:
+        description: Force VELTA_DEBUG = true (verbose console + js_log)
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       side_by_side:
         description: Install alongside the main Velta app (org.velta.test / Velta Test)
         type: boolean
         default: true
+      debug:
+        description: Debug build (export const VELTA_DEBUG = true)
+        type: boolean
+        default: false
 
 env:
   RUST_BACKTRACE: 1
@@ -44,6 +52,14 @@ jobs:
           grep -q 'Velta Test' "$STRINGS"
           echo "SIDE_BY_SIDE=1" >> "$GITHUB_ENV"
           echo "Patched applicationId=org.velta.test app_name=Velta Test"
+
+      - name: Debug build (VELTA_DEBUG = true)
+        if: ${{ inputs.debug }}
+        run: |
+          F=app/js/diagnostics.js
+          perl -0pi -e 's/export const VELTA_DEBUG = \(\(\) => \{.*?\n\}\)\(\);/export const VELTA_DEBUG = true;/s' "$F"
+          grep -q '^export const VELTA_DEBUG = true;$' "$F"
+          echo "Patched $F: VELTA_DEBUG = true"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable (moving branch, Dependabot updates)
