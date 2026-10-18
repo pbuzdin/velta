@@ -37,3 +37,11 @@ test("key/value rows wrap and their columns may shrink", () => {
   assert.match(code, /\.info-row \.v \{[^}]*min-width: 0;[^}]*overflow-wrap: anywhere;/);
   assert.match(code, /\.info-row \.k \{[^}]*min-width: 0;/);
 });
+
+test("phone modals from the chat list stop above the bottom action bar (cee7084, by design)", () => {
+  // Pavel's choice: the bar stays visible under the scrim. Do not remove.
+  const phone = code.match(/@media \(max-width: 600px\) \{\s*\.modal:not\(\.modal-compact\) \{[\s\S]*?\n\}/);
+  assert.ok(phone, "phone modal media block");
+  assert.match(phone[0], /body:not\(:has\(\.app\.chat-open\)\) \.modal:not\(\.modal-compact\) \{[^}]*height: calc\(var\(--dvh\) - var\(--list-bar-h\)\);/);
+  assert.match(code, /--list-bar-h: calc\(64px \+ env\(safe-area-inset-bottom\)\);/);
+});

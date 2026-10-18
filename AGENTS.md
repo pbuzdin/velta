@@ -1792,7 +1792,8 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   they fill the chat-list pane (width mirrors .sidebar via clamp, height
   stops above the list bar; in-chat modals stay full-screen via
   `:has(.app.chat-open)` gating — phones stop above the bottom bar in list
-  context). Modals ride a `{velta:'modal'}` history entry — Android BACK
+  context, by design: cee7084, Pavel's choice; see §11 "Phone modals keep
+  the bottom bar"). Inner scroll areas inside modals are fine. Modals ride a `{velta:'modal'}` history entry — Android BACK
   closes the top modal (lightbox pattern; replacement reuses the entry,
   `modalReplacing` guard). Toasts are `<details class=toast>` bars anchored
   above the composer/bottom bar: 3px shrinking timer bar (danger red for
@@ -2696,6 +2697,17 @@ Per-subsystem narratives live in `docs/agents/*.md` (webxdc, relays,
 onboarding, p2p/local chat, android-shell, media, read-receipts, dns-tunnel) — read the
 relevant one before touching that subsystem. The entries below are cross-cutting
 do-not-regress rules; dates mark when the lesson was learned.
+
+- **Phone modals keep the bottom bar; inner scroll is fine (2026-10-18,
+  Pavel's decision)** — below 600px, non-compact modals opened from the chat
+  list stop above the bottom action bar (`body:not(:has(.app.chat-open))
+  .modal:not(.modal-compact) { height: calc(var(--dvh) - var(--list-bar-h)) }`,
+  cee7084); the bar stays visible, dimmed under the scrim. Do NOT make them
+  cover the bar / go "truly full screen" (ec910ce did, reverted). Nested
+  scroll areas inside a modal (About's device-info `<pre>`, the chat-info
+  member list) are allowed — do not add rules or checks that forbid them.
+  Guarded by `tests/narrow-viewport-css.test.mjs` and
+  `scripts/e2e-narrow-overflow.mjs`.
 
 - **Read-receipt lifecycle (2026-10-02, #59 follow-up)** — a "stuck single
   tick" is almost always the peer never opening the chat on-screen: the only

@@ -5,7 +5,9 @@
 // visible element whose right edge passes the viewport or whose content is
 // clipped horizontally (scrollWidth > clientWidth under overflow hidden/clip,
 // without text-overflow: ellipsis). Intentional horizontal scrollers
-// (overflow-x: auto|scroll, e.g. the category chips) are skipped.
+// (overflow-x: auto|scroll, e.g. the category chips) are skipped. Also checks
+// that phone modals opened from the chat list leave the bottom action bar
+// visible (cee7084, by design).
 // Usage: node scripts/e2e-narrow-overflow.mjs [--shots DIR] [--prefix NAME]
 //   (needs `npx playwright install chromium`, or CHROMIUM_PATH=/path/to/chrome)
 // Exit 1 when any overflow is found.
@@ -62,6 +64,19 @@ function audit() {
       out.push(`${name(el)} clipped scrollWidth=${el.scrollWidth} > clientWidth=${el.clientWidth}`)
   }
   if (document.documentElement.scrollWidth > vw + 0.5) out.push(`document scrollWidth=${document.documentElement.scrollWidth} > ${vw}`)
+  // By design (cee7084, Pavel's choice): phone task modals opened from the
+  // chat list stop above the bottom action bar, which stays visible.
+  const bar = document.querySelector('.list-bar')
+  if (vw <= 600 && bar && !document.querySelector('.app.chat-open')) {
+    const b = bar.getBoundingClientRect()
+    for (const m of document.querySelectorAll('.modal:not(.modal-compact)')) {
+      const r = m.getBoundingClientRect()
+      // The bar's 1px top border may sit under the modal edge; its buttons must not.
+      const btnTop = Math.min(...[...bar.querySelectorAll('.bar-btn')].map(e => e.getBoundingClientRect().top))
+      if (r.bottom > btnTop + 0.5) out.push(`${name(m)} covers the bottom action bar: modal bottom=${r.bottom.toFixed(1)} > bar buttons top=${btnTop.toFixed(1)}`)
+      if (b.height < 40 || b.bottom < innerHeight - 0.5) out.push(`.list-bar not visible at the bottom under ${name(m)}`)
+    }
+  }
   return [...new Set(out)]
 }
 
@@ -78,6 +93,7 @@ const screens = [
   ['drawer', async p => openDrawer(p)],
   ['about', async p => { await openDrawer(p); await clickText(p, '.ctx-item', 'About Velta') }],
   ['about-deviceinfo', async p => { await openDrawer(p); await clickText(p, '.ctx-item', 'About Velta'); const s = p.locator('details.device-info > summary'); if (await s.count()) { await s.click(); await p.waitForTimeout(300) } }],
+  ['about-deviceinfo-bottom', async p => { await openDrawer(p); await clickText(p, '.ctx-item', 'About Velta'); const s = p.locator('details.device-info > summary'); if (await s.count()) { await s.click(); await p.waitForTimeout(300) } await p.evaluate(() => { const b = document.querySelector('.modal .modal-body'); b.scrollTop = b.scrollHeight }); await p.waitForTimeout(200) }],
   ['relays', async p => { await openDrawer(p); await clickText(p, '.ctx-item', 'Relays of this profile') }],
   ['profile-mgmt', async p => { await openDrawer(p); await clickText(p, '.ctx-item', 'Profile management') }],
   ['invite-qr', async p => { await openDrawer(p); await clickText(p, '.ctx-item', 'Invite friends (QR)'); await p.waitForTimeout(800) }],
@@ -113,5 +129,5 @@ for (const [w, h] of [[320, 640], [360, 740]]) for (const scale of ['1', '1.15']
   await ctx.close()
 }
 await browser.close(); server.close()
-console.log(failures ? `${failures} screen(s) overflow` : 'no horizontal overflow')
+console.log(failures ? `${failures} screen(s) failed` : 'no horizontal overflow, bottom bar visible under list modals')
 process.exit(failures ? 1 : 0)
