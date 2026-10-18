@@ -2200,8 +2200,8 @@ next push or the tainted commits come back.
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 110 files, 761 tests as of 2026-10-18 (+narrow-viewport CSS guards, device info,
-chat appearance, hyphenation):
+whole set — 111 files, 768 tests as of 2026-10-18 (+narrow-viewport CSS guards, device info,
+chat appearance, hyphenation, settings export/apply):
 
 ```bash
 node --test tests/
@@ -2753,6 +2753,26 @@ do-not-regress rules; dates mark when the lesson was learned.
   `hyphens: auto`; machine text (links, e-mail spans, hashtags, code) stays
   `hyphens: manual`. Detail + platform hyphenation matrix:
   `docs/chat-appearance.md`.
+
+- **Settings export / apply (2026-10-18)** — `js/settings-transfer.js` is the
+  single whitelist (`SETTINGS`: export key → localStorage key, parse,
+  write). Drawer "Export settings to Saved Messages" sends one
+  `Velta settings v1 (YYYY-MM-DD)` text to the self-chat (chat-list
+  `kind:"saved"`, else `createChatByContactId(1)`); manual only, never call it
+  from a timer or on settings change. The bubble gets "Apply these settings"
+  only in the saved chat, `from === 1`, not forwarded / not a saved copy, and
+  only if `parseSettings` accepts it. Apply = diff modal (settle before close)
+  → `applySettings` → `refreshAfterSettingsApply` (live: theme, scale,
+  appearance, bar, categories, core `media_quality` / `download_limit` /
+  `mdns_enabled`). Parser: no eval, header first, every line `key: value`,
+  `(note)` or blank, else the whole block is rejected; limits 4096 chars /
+  80 lines / 200 per line; unknown keys ignored, invalid values skipped,
+  numbers clamped. Accent is written without `#` (it would become a hashtag
+  button). A new pref is exported only if it is a UI choice that makes sense
+  on another device: add it to `SETTINGS`, otherwise to
+  `EXCLUDED_STORAGE_KEYS`; never relays, transports, push, proxy/tunnel,
+  keys, addresses, bcc_self or device info. Tests:
+  `tests/settings-transfer.test.mjs`; doc: `docs/settings-transfer.md`.
 
 - **Read-receipt lifecycle (2026-10-02, #59 follow-up)** — a "stuck single
   tick" is almost always the peer never opening the chat on-screen: the only

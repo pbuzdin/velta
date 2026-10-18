@@ -15,7 +15,8 @@ import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow, 
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal, isShortInviteLink, expandShortInvite } from "./invites.js";
 import { activeWsRelay, addWsRelay, listWsRelays, normalizeHost, probeC3Relay, probeDnsVia, showWsRelaysModal, useWsRelay } from "./ws-relays.js";
 import { getChoice as getMdChoice, recordChoice as recordMdChoice, markNotified as markMdNotified, classify as classifyMultiDevice, mdLabel, retryDelay as mdRetryDelay, offConfirmText as mdOffConfirmText, forgetAccount as forgetMdAccount, MD_REENABLED_NOTE } from "./multidevice.js";
-import { openImageLightbox, openVideoLightbox, bindMenuToggle, buildDrawer, showModal, footButtons, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate, popoverSupported, fillSplashVersion, uiZoom } from "./ui.js";
+import { openImageLightbox, openVideoLightbox, bindMenuToggle, buildDrawer, showModal, footButtons, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate, popoverSupported, fillSplashVersion, uiZoom, applyUiScale } from "./ui.js";
+import { serializeSettings, parseSettings, diffSettings, applySettings } from "./settings-transfer.js";
 import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact, showCreateGroupModal, showAddMembersModal } from "./p2p.js";
 import { withLocalChat, hubModel, renameDevice, removePeer, dismissLocalGroup, groupRename, groupRemoveMember, peerGroupImpact, groupActionsModel, groupMemberHint, removePeerImpactText, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
 import { timeAgo, formatBytes, timeTag } from "./format.js";
@@ -983,6 +984,92 @@ function applyTheme() {
   const themeColors = { dark: "#0f0f14", brutal: "#22222b" };
   document.querySelector('meta[name="theme-color"]').content = themeColors[effective] || "#f4f4f4";
   localStorage.setItem("dw-theme", state.theme);
+}
+
+/* ---------------- settings transfer (Saved Messages) ---------------- */
+// Manual only: the drawer's "Export settings" sends ONE plain text message
+// to this account's Saved Messages; "Apply these settings" on such a message
+// shows the diff and applies it live. Whitelist, format and exclusions live
+// in settings-transfer.js (docs/settings-transfer.md).
+async function savedMessagesChatId() {
+  const chats = await core.getChatList({ query: "" });
+  const saved = chats.find(c => c.kind === "saved");
+  if (saved) return saved.id;
+  // A fresh profile has no self-chat yet: the core creates it for contact 1
+  // (DC_CONTACT_ID_SELF), exactly like "Saved Messages" in other clients.
+  return core.createChatByContactId?.(1);
+}
+async function exportSettingsToSaved() {
+  if (state.accountChanging) return;
+  const epoch = core.accountEpoch;
+  try {
+    const text = serializeSettings(localStorage, new Date());
+    const chatId = await savedMessagesChatId();
+    if (!accountIsCurrent(epoch)) return;
+    if (chatId == null) throw new Error("no Saved Messages chat");
+    await core.sendMessage(chatId, { text });
+    if (!accountIsCurrent(epoch)) return;
+    toast("Settings sent to Saved Messages");
+    openChat(chatId);
+  } catch (err) {
+    errToast("Couldn't export settings: " + (err?.message || err));
+  }
+}
+function settingsDiffModal(changes, parsed) {
+  return new Promise(resolve => {
+    const body = document.createElement("div");
+    body.className = "settings-diff";
+    const when = parsed.date ? ` from ${parsed.date}` : "";
+    const notes = [];
+    if (parsed.invalid.length) notes.push(`Skipped (invalid value): ${parsed.invalid.join(", ")}`);
+    if (parsed.ignored.length) notes.push(`Skipped (unknown to this version): ${parsed.ignored.join(", ")}`);
+    body.innerHTML = `<p>Apply the settings${escapeHtml(when)} on this device? ${changes.length === 1 ? "1 setting changes" : `${changes.length} settings change`}:</p>
+      <ul class="settings-diff-list">${changes.map(c => `<li><span class="sd-label">${escapeHtml(c.label)}</span><span class="sd-vals"><span class="sd-from">${escapeHtml(c.from)}</span> → <b>${escapeHtml(c.to)}</b></span></li>`).join("")}</ul>
+      ${notes.map(n => `<p class="bar-opts-hint">${escapeHtml(n)}</p>`).join("")}`;
+    const { foot, cancel, ok } = footButtons("Apply", { okClass: "btn-text btn-primary" });
+    const { close } = showModal({ title: "Apply these settings", body, foot, compact: true, onClose: () => resolve(false) });
+    cancel.addEventListener("click", close);
+    // Settle before close (AGENTS.md §11): close() resolves false.
+    ok.addEventListener("click", () => { resolve(true); close(); });
+  });
+}
+async function applySettingsFromMessage(text) {
+  const parsed = parseSettings(text);
+  if (!parsed) { errToast("This message isn't a valid Velta settings block"); return; }
+  const changes = diffSettings(localStorage, parsed.values);
+  if (!changes.length) { toast("This device already uses these settings"); return; }
+  if (!(await settingsDiffModal(changes, parsed))) return;
+  const applied = applySettings(localStorage, parsed.values);
+  refreshAfterSettingsApply(applied.map(c => c.key));
+  toast(applied.length === 1 ? "1 setting applied" : `${applied.length} settings applied`);
+}
+// Everything a changed key needs to show live, no restart.
+function refreshAfterSettingsApply(keys) {
+  const has = k => keys.includes(k);
+  if (has("theme")) { state.theme = localStorage.getItem("dw-theme") || "auto"; applyTheme(); }
+  if (has("interface-scale")) applyUiScale();
+  if (["message-text-size", "message-corners", "accent-color", "hyphenation"].some(has)) {
+    globalThis.VeltaChatAppearance?.apply();
+    window.dispatchEvent(new Event("resize")); // virtual scroller re-measures bubbles
+  }
+  if (has("bottom-bar-buttons")) {
+    try { barHidden = JSON.parse(localStorage.getItem(BAR_HIDDEN_KEY)) || []; } catch { barHidden = []; }
+    applyBarVisibility();
+  }
+  if (has("chat-categories")) {
+    try { catsHidden = JSON.parse(localStorage.getItem(CATS_HIDDEN_KEY)) || []; } catch { catsHidden = []; }
+    syncChatCategoryBar();
+    renderChatList();
+  }
+  // Per-account core mirrors (same calls as the drawer handlers).
+  const cfg = [["image-quality", "media_quality", "velta-media-quality", "0"], ["auto-download-limit", "download_limit", "velta-download-limit", "0"], ["read-receipts", "mdns_enabled", "velta-mdns", null]];
+  for (const [k, coreKey, lsKey, dflt] of cfg) {
+    if (!has(k)) continue;
+    const v = lsKey === "velta-mdns" ? (localStorage.getItem(lsKey) === "0" ? "0" : "1") : (localStorage.getItem(lsKey) || dflt);
+    core.setConfig?.(coreKey, v).catch(err => errToast(`Couldn't save ${k}: ${err?.message || err}`));
+  }
+  // Drawer labels/radios/switches read storage at build time.
+  rebuildDrawer();
 }
 
 /* ---------------- chat list ---------------- */
@@ -3023,6 +3110,11 @@ function bindChatHeadMenu() {
   });
   $("btn-back").addEventListener("click", closeChat);
   $("btn-chat-search").addEventListener("click", () => openChatSearch());
+  // Settings transfer: "Apply these settings" on an export in Saved Messages.
+  window.addEventListener("velta-apply-settings", e => {
+    if (e.detail?.chatKind !== "saved") return;
+    applySettingsFromMessage(String(e.detail?.text || ""));
+  });
   // #134: a tapped #hashtag in message text opens the same search, prefilled.
   window.addEventListener("velta-hashtag", e => {
     const tag = String(e.detail?.tag || "");
@@ -4604,6 +4696,7 @@ function rebuildDrawer() {
     onEditProfile: editProfileFlow,
     onInviteDomains: () => showInviteDomainsModal(),
     onDiagnostics: async () => { await modalHistorySettled(); openDiagnosticsChat(); },
+    onExportSettings: () => exportSettingsToSaved(),
     backendKind: core?.backend?.kind || null,
     onTunnel: tunnelInstalled()
       ? () => openTunnelSettings({ showModal, confirmModal, toast, errToast, onChange: rebuildDrawer })

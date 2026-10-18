@@ -199,6 +199,18 @@ before first paint, like the interface scale. Message text is tagged `ru` or
 `en` per message so the engine hyphenates with the right dictionary; links,
 e-mail addresses and hashtags are never hyphenated.
 
+**Export settings** (drawer → Export settings to Saved Messages, last item
+before About) sends one plain-text message to your own Saved Messages: a
+`Velta settings v1 (date)` header and one `key: value` line per setting
+(theme, interface scale, chat appearance, bottom bar, chat categories,
+notification toggles, media and link-preview options, send on Enter, read
+receipts and a few chat options). Open that message on another device and tap
+**Apply these settings**; a confirm lists what would change (current → new)
+before anything is applied, live. It is manual only and never syncs
+automatically. Relays, transports, push, proxy/tunnel, keys, addresses,
+multi-device and device info are never included. Format and rules:
+[`docs/settings-transfer.md`](docs/settings-transfer.md).
+
 </details>
 
 <details>

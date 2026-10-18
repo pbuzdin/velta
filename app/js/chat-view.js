@@ -68,6 +68,7 @@ import { fileUrl, mediaFallbackUrl, redactMediaUrl } from "./media.js";
 import { openInAppBrowser } from "./inapp-browser.js";
 import { renderMarkdown, extractBotCommands } from "./markdown.js";
 import { detectTextLang, uiLang } from "./text-lang.js";
+import { looksLikeSettings, parseSettings } from "./settings-transfer.js";
 import { compressImage, compressEnabled } from "./image-compress.js";
 import { lcRetryTransfer } from "./local-chat.js";
 import { TypingSender } from "./typing.js";
@@ -1803,6 +1804,13 @@ export class ChatView {
         }
       }
       if (fullMsg) bubble += `<div style="margin-top:6px"><button type="button" class="btn-text" data-fullmsg style="padding:4px 8px;font-size:13px">Show Full Message…</button></div>`;
+      // Settings export (settings-transfer.js): only in Saved Messages, only
+      // our own original messages (no forwards, no saved copies of someone
+      // else's), and only when the strict parser accepts the block.
+      if (this.chat?.kind === "saved" && m.from === 1 && !m.fwdFrom && !m.originalMsgId
+        && looksLikeSettings(m.text) && parseSettings(m.text)) {
+        bubble += `<div class="msg-settings-act"><button type="button" class="btn-text" data-apply-settings>Apply these settings</button></div>`;
+      }
       // Plain text only. A baked sender preview is an image, and fetching
       // its caption would put the recipient's IP on that site (#88).
       if (receiveFetchesPreview(m.viewtype)) bubble += `<div class="msg-link-preview" data-lp hidden></div>`;
@@ -2215,6 +2223,12 @@ export class ChatView {
       }
       const vcardBtn = e.target.closest("[data-vcard-open]");
       if (vcardBtn) { e.stopPropagation(); this._openVcardContact(m); return; }
+      const applyBtn = e.target.closest("[data-apply-settings]");
+      if (applyBtn) {
+        e.stopPropagation();
+        window.dispatchEvent(new CustomEvent("velta-apply-settings", { detail: { text: m.text, msgId: m.id, chatKind: this.chat?.kind } }));
+        return;
+      }
       const readMore = e.target.closest("[data-fullmsg]");
       if (readMore) { e.stopPropagation(); this._showFullMessage(m); return; }
     });
