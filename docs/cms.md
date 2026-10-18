@@ -73,6 +73,20 @@ page bodies, save each page. Later edits: change the block, press
    `<a href="...">` lines for your page, save the block.
 3. **Rebuild pages from partials** so every page's navigation picks it up.
 
+## New news post
+
+News posts live in their own **News** group and use the shared post template
+(breadcrumb, kicker, title, date, summary, body, aside) — the same structure
+as the existing posts.
+
+1. **New post** → fill in the name, title, type (Release / Guide / Note),
+   date (pre-filled with today) and a one-line summary → **Create post**.
+2. The post opens in the editor — write the body inside `div.body`.
+   The preview shows it with the site's real styling.
+3. Publish it in the lists: add a line for the post to the top of
+   `news/index.html` (open it under Pages). The home page's news list
+   mirrors that index automatically — nothing else to touch.
+
 ## Limits and recovery
 
 - Everything is git — any mistake is recoverable from the `website` branch

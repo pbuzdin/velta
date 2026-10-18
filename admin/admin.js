@@ -61,6 +61,30 @@ const b64ToUtf8 = (s) =>
     Uint8Array.from(atob(s.replace(/\n/g, "")), (c) => c.charCodeAt(0)),
   );
 
+const esc = (s) =>
+  String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+const today = () =>
+  new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+
+// Body of a fresh news post — mirrors the structure of the existing posts
+// (breadcrumb, kicker, title, date, summary, div.body, aside).
+function postBody({ title, kicker, date, summary }) {
+  return `<p><a href="/news">News</a></p>
+<p class="kicker">${esc(kicker)}</p>
+<h1>${esc(title)}</h1>
+<p><time>${esc(date)}</time> · 3 min read</p>
+<p>${esc(summary)}</p>
+<div class="body">
+  <p>Write something.</p>
+</div>
+<aside>
+  <h2>Get the current build</h2>
+  <p>The current build for Android, Windows, and macOS, plus notes for a self-hosted browser copy.</p>
+  <p><strong><a href="/#download">Download</a></strong></p>
+</aside>`;
+}
+
 const titleOf = (raw) =>
   ((raw.match(/<title>([\s\S]*?)<\/title>/) || [])[1] || "Velta").trim();
 const descriptionOf = (raw) =>
@@ -139,6 +163,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
     this.commitMsg = "";
     this.newName = "";
     this.newBlock = "";
+    this.newPost = { slug: "", title: "", kicker: "Release", date: today(), summary: "" };
     this.tokenDraft = "";
     this.status = "";
     this.error = "";
@@ -219,6 +244,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
     else if (action === "back") { this.current = null; this.status = ""; this.error = ""; this.requestUpdate(); }
     else if (action === "save") this.save();
     else if (action === "create") this.create();
+    else if (action === "create-post") this.createPost();
     else if (action === "create-block") this.createBlock();
     else if (action === "delete-block") this.deleteBlock(el.dataset.path);
     else if (action === "rebuild") this.rebuildPages();
@@ -241,6 +267,11 @@ class VeltaAdmin extends Elena(HTMLElement) {
     else if (e.target.id === "new-name") this.newName = e.target.value;
     else if (e.target.id === "new-block") this.newBlock = e.target.value;
     else if (e.target.id === "token-draft") this.tokenDraft = e.target.value;
+    else if (e.target.id === "post-slug") this.newPost.slug = e.target.value;
+    else if (e.target.id === "post-title") this.newPost.title = e.target.value;
+    else if (e.target.id === "post-kicker") this.newPost.kicker = e.target.value;
+    else if (e.target.id === "post-date") this.newPost.date = e.target.value;
+    else if (e.target.id === "post-summary") this.newPost.summary = e.target.value;
   }
 
   // Live preview: the body rendered with the site's real CSS in a sandboxed
@@ -467,6 +498,64 @@ class VeltaAdmin extends Elena(HTMLElement) {
     }
   }
 
+  async createPost() {
+    const slug = this.newPost.slug.trim().toLowerCase();
+    const title = this.newPost.title.trim();
+    const summary = this.newPost.summary.trim() || "Short summary of the post.";
+    if (!/^[a-z0-9-]+$/.test(slug)) {
+      this.error = "Post name: lowercase letters, digits and dashes only.";
+      this.requestUpdate();
+      return;
+    }
+    if (!title) {
+      this.error = "A title is required.";
+      this.requestUpdate();
+      return;
+    }
+    const path = `news/${slug}.html`;
+    if ((this.files || []).some((f) => f.path === path)) {
+      this.error = `${path} already exists.`;
+      this.requestUpdate();
+      return;
+    }
+    if (!this.token) {
+      this.error = "Sign in first — publishing needs a token.";
+      this.requestUpdate();
+      return;
+    }
+    this.busy = true;
+    this.error = "";
+    this.requestUpdate();
+    try {
+      const [nav, footer] = await Promise.all([
+        this.getRaw(NAV_PARTIAL),
+        this.getRaw(FOOTER_PARTIAL),
+      ]);
+      const newRaw = assemble({
+        nav,
+        footer,
+        body: postBody({
+          title,
+          kicker: this.newPost.kicker,
+          date: this.newPost.date.trim() || today(),
+          summary,
+        }),
+        title: `${title} — Velta`,
+        description: summary,
+        active: "news",
+        mainClass: "page",
+      });
+      await this.putFile(path, `Create ${path}`, newRaw, null);
+      await this.loadFiles();
+      await this.open(path);
+      this.status = "Published as a draft on the site. Add a line for it to the news index (news/index.html) so it shows up in the lists.";
+    } catch (e) {
+      this.error = String(e.message || e);
+      this.busy = false;
+      this.requestUpdate();
+    }
+  }
+
   async createBlock() {
     const name = this.newBlock.trim().toLowerCase();
     if (!/^[a-z0-9-]+$/.test(name)) {
@@ -560,8 +649,15 @@ class VeltaAdmin extends Elena(HTMLElement) {
   }
 
   renderList() {
-    const pages = (this.files || []).filter((f) => f.kind === "page");
+    const rootPages = (this.files || []).filter((f) => f.kind === "page" && !f.path.startsWith("news/"));
+    const newsPages = (this.files || []).filter((f) => f.kind === "page" && f.path.startsWith("news/"));
     const blocks = (this.files || []).filter((f) => f.kind === "block");
+    const row = (f, deletable) => html`
+      <tr>
+        <td><button data-action="open" data-path="${f.path}">${f.path}</button></td>
+        <td>${deletable ? html`<button data-action="delete-block" data-path="${f.path}">Delete</button>` : html`${f.size} B`}</td>
+      </tr>
+    `;
     return html`
       <h2>Pages</h2>
       ${this.files === null
@@ -569,46 +665,54 @@ class VeltaAdmin extends Elena(HTMLElement) {
         : html`
             <table>
               <tbody>
-                ${pages.map(
-                  (f) => html`
-                    <tr>
-                      <td><button data-action="open" data-path="${f.path}">${f.name}</button></td>
-                      <td>${f.size} B</td>
-                    </tr>
-                  `,
-                )}
+                ${rootPages.map((f) => row(f, false))}
               </tbody>
             </table>
             <p><button data-action="rebuild">Rebuild pages from partials</button></p>
           `}
-      <h3>Blocks</h3>
-      ${blocks.length
-        ? html`
-            <table>
-              <tbody>
-                ${blocks.map(
-                  (f) => html`
-                    <tr>
-                      <td><button data-action="open" data-path="${f.path}">${f.path}</button></td>
-                      <td><button data-action="delete-block" data-path="${f.path}">Delete</button></td>
-                    </tr>
-                  `,
-                )}
-              </tbody>
-            </table>
-          `
-        : nothing}
-      <p>
-        <input id="new-block" placeholder="block-name" /> .html
-        <button data-action="create-block">Create block</button>
-      </p>
-      <p><small>Blocks are shared snippets. In a page body, write <code>&lt;!-- include:block-name --&gt;</code>; on save it expands to the block's content. Edit the block, then save/rebuild pages to refresh every use. nav.html and footer.html are the page chrome and cannot be deleted.</small></p>
       <h3>New page</h3>
       <p>
         <input id="new-name" placeholder="page-name" /> .html
         <button data-action="create">Create</button>
       </p>
       <p><small>A new page is assembled from the partials with an empty marked body. Add its nav link in the nav block, then rebuild.</small></p>
+
+      <h2>News</h2>
+      ${this.files === null
+        ? nothing
+        : html`
+            <table>
+              <tbody>
+                ${newsPages.map((f) => row(f, false))}
+              </tbody>
+            </table>
+          `}
+      <h3>New post</h3>
+      <p class="admin-bar">
+        <input id="post-slug" placeholder="post-name" /> .html
+        <input id="post-title" placeholder="Title" />
+        <select id="post-kicker">
+          <option>Release</option>
+          <option>Guide</option>
+          <option>Note</option>
+        </select>
+        <input id="post-date" value="${this.newPost.date}" />
+      </p>
+      <p><input id="post-summary" placeholder="One-line summary (also the meta description)" /></p>
+      <p><button data-action="create-post">Create post</button></p>
+      <p><small>The post is created from the news template (breadcrumb, kicker, date, summary, body, aside) with "News" marked current in the nav. Then add a line for it to the news index (news/index.html) — the home page mirrors that list automatically.</small></p>
+
+      <h3>Blocks</h3>
+      ${blocks.length
+        ? html`
+            <table>
+              <tbody>
+                ${blocks.map((f) => row(f, true))}
+              </tbody>
+            </table>
+            <p><small>Shared chrome and reusable snippets, edited raw. After changing a block, use "Rebuild pages from partials" to apply it to every page. In a body, <code>&lt;!-- include:block-name --&gt;</code> expands to the block's content on save. nav.html and footer.html cannot be deleted.</small></p>
+          `
+        : nothing}
     `;
   }
 
