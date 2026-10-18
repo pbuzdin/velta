@@ -183,6 +183,22 @@ The theme spoiler adds **Auto**, which follows the system's
 `prefers-color-scheme` live (including the status-bar tint); it is the
 default for fresh installs.
 
+**Chat appearance** (drawer → Chat appearance, modelled on Telegram's chat
+settings) changes how the chat looks without touching the rest of the UI:
+a **message text size** slider (10–22 px; default 15.5 px; sender names,
+quotes and forward labels scale with it), a **message corners** slider
+(0–14 px; the bubble's tail corner, reply quotes, photos, videos and link
+cards follow it), an **accent color** (8 presets plus a custom color picker)
+and **hyphenation** for English and Russian. A live preview with an incoming
+and an outgoing bubble sits on top, and Reset to defaults puts everything
+back. The accent drives links, buttons, switches, focus rings and your own
+bubbles; the hover/pressed shades and the text colors on top of it are
+derived automatically and held at WCAG AA (4.5 : 1) in both light and dark
+(the Brutal theme keeps its own palette). Settings are per device and apply
+before first paint, like the interface scale. Message text is tagged `ru` or
+`en` per message so the engine hyphenates with the right dictionary; links,
+e-mail addresses and hashtags are never hyphenated.
+
 </details>
 
 <details>
@@ -1226,8 +1242,8 @@ the Tauri shell injects it as a response header (`tauri.conf.json` /
 `tauri.android.conf.json`), and `app/index.html` carries the same policy as a
 meta tag for the browser/PWA path, where no Tauri header exists. Scripts are
 strictly same-origin — no inline scripts, no `unsafe-eval`; the pre-paint
-interface-scale snippet is an external file (`app/js/ui-scale.js`) for exactly
-that reason. `img-src`/`media-src`/`frame-src` open only the app's own media
+interface-scale and chat-appearance snippets are external files
+(`app/js/ui-scale.js`, `app/js/chat-appearance.js`) for exactly that reason. `img-src`/`media-src`/`frame-src` open only the app's own media
 surfaces: the `blobfile:` custom protocol, the loopback media server, and the
 opaque-origin `webxdc:` sandbox. The three policy copies must stay in sync
 when origins change. The standalone diagnostics page (`diag.html`) is a dev

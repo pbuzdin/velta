@@ -15,6 +15,7 @@ import { findHashtags } from "./hashtags.js";
 import { parseInviteLink, inviteCardHtml, isShortInviteLink, shortInviteCardHtml } from "./invites.js";
 
 const PLACEHOLDER_RE = /\x00(\d+)\x00/g;
+const EMAIL_RE = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+/gu;
 
 export function renderMarkdown(rawText) {
   const text = String(rawText ?? "");
@@ -97,7 +98,19 @@ function inline(raw) {
   // "https://x/#y" fragments are never tags. A native <button> is keyboard
   // focusable and Enter/Space-activatable; the tag is [\p{L}\p{N}_] only but
   // is escaped anyway.
-  const tags = seg => {
+  // E-mail addresses stay plain text but get a no-hyphenation span: a
+  // hyphen the engine inserts at a line end would be copied with the
+  // address (msg-text uses hyphens: auto).
+  const emails = seg => {
+    let out = "";
+    let at = 0;
+    for (const m of seg.matchAll(EMAIL_RE)) {
+      out += hashtagsOf(seg.slice(at, m.index)) + hold(`<span class="msg-nohyph">${escapeHtml(m[0])}</span>`);
+      at = m.index + m[0].length;
+    }
+    return out + hashtagsOf(seg.slice(at));
+  };
+  const hashtagsOf = seg => {
     let out = "";
     let at = 0;
     for (const h of findHashtags(seg)) {
@@ -112,10 +125,10 @@ function inline(raw) {
     let out = "";
     let at = 0;
     for (const b of findBareLinks(seg)) {
-      out += tags(seg.slice(at, b.start)) + hold(linkToken(b.url, b.text));
+      out += emails(seg.slice(at, b.start)) + hold(linkToken(b.url, b.text));
       at = b.end;
     }
-    return out + tags(seg.slice(at));
+    return out + emails(seg.slice(at));
   };
   let work = "";
   let last = 0;

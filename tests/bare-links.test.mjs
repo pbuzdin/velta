@@ -159,7 +159,9 @@ test("renderMarkdown links the issue example with an https href and the typed te
 });
 
 test("renderMarkdown leaves non-links untouched and escapes everything", () => {
-  assert.equal(renderMarkdown("readme.md v1.2.3 e.g. user@example.com"), "readme.md v1.2.3 e.g. user@example.com");
+  // An e-mail address stays plain text (no link); it only gets the
+  // no-hyphenation span (tests/hyphenation.test.mjs).
+  assert.equal(renderMarkdown("readme.md v1.2.3 e.g. user@example.com"), 'readme.md v1.2.3 e.g. <span class="msg-nohyph">user@example.com</span>');
   assert.equal(renderMarkdown("a <b>y</b>"), "a &lt;b&gt;y&lt;/b&gt;");
   assert.equal(renderMarkdown("a <b>x.com</b>"), "a &lt;b&gt;" + anchor("https://x.com", "x.com") + "&lt;/b&gt;");
   const out = renderMarkdown('x.com/"><script>alert(1)</script>');

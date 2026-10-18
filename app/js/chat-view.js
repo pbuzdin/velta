@@ -67,6 +67,7 @@ const ROW_CACHE_MAX = 300; // rendered-row LRU cap (see _rowCache)
 import { fileUrl, mediaFallbackUrl, redactMediaUrl } from "./media.js";
 import { openInAppBrowser } from "./inapp-browser.js";
 import { renderMarkdown, extractBotCommands } from "./markdown.js";
+import { detectTextLang, uiLang } from "./text-lang.js";
 import { compressImage, compressEnabled } from "./image-compress.js";
 import { lcRetryTransfer } from "./local-chat.js";
 import { TypingSender } from "./typing.js";
@@ -1793,7 +1794,8 @@ export class ChatView {
       // no stored original (hasHtml false): no button, because it could open
       // nothing.
       const fullMsg = m.hasHtml === true;
-      bubble += `<div class="msg-text">${renderMarkdown(m.text)}`;
+      // lang drives CSS hyphenation (hyphens: auto) per message, EN or RU.
+      bubble += `<div class="msg-text" lang="${detectTextLang(m.text, uiLang())}">${renderMarkdown(m.text)}`;
       if (m.fromContact?.bot) { // bot flag rides the sender contact (mock + core)
         const cmds = extractBotCommands(m.text);
         if (cmds.length) {

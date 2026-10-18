@@ -2173,7 +2173,7 @@ next push or the tainted commits come back.
 - **CSS zoom multiplies viewport units.** The interface scale zooms `<html>` (`ui-scale.js`); under zoom, `100vw`/`100dvh` are multiplied too, so full-screen sheets were 414px wide on a 360px phone at "Large" and every modal (About, chat info, relays, profile, QR) was clipped on the right. main.css now sizes only with `--vw`/`--vh`/`--dvh` (= unit / `--ui-zoom`, written next to `zoom` by `ui-scale.js` and `applyUiScale`); `tests/narrow-viewport-css.test.mjs` forbids raw vw/vh/dvh. JS positions from rects/`clientX`/`innerWidth` must be divided by `uiZoom()` (ui.js) before writing `style.left/top` (`placeMenu`, attach menu, quote chip, local-chat queue pop). The crop overlay still mixes spaces at scale != 1.
 - **Fixed min-widths inside bubbles.** File/app/voice/audio/call/transfer cards had `min-width: 180–240px`, wider than a bubble on a 320px phone with avatars; cap them with `min(Npx, var(--bubble-inner-max))`. Flex text columns need `min-width: 0` + `overflow-wrap: anywhere`, and `.bubble` uses `overflow-wrap: anywhere` (not `break-word`, which leaves min-content wide).
 - **Key/value rows wrap.** `.info-row` is `flex-wrap: wrap` with shrinkable `.k`/`.v` (`min-width: 0`, `overflow-wrap: anywhere`); the value drops under the key instead of clipping.
-- **Audit:** `node scripts/e2e-narrow-overflow.mjs [--shots DIR]` (mock core, 320x640 and 360x740, UI scale 1 and 1.15; flags elements past the right edge or clipped by overflow hidden; intentional `overflow-x: auto` scrollers are skipped). Run it after any layout change.
+- **Audit:** `node scripts/e2e-narrow-overflow.mjs [--shots DIR]` (mock core, 320x640 and 360x740, UI scale 1 and 1.15, plus the chats and the Chat appearance drawer section at 10 px and 22 px message text with 0 px corners; flags elements past the right edge or clipped by overflow hidden; intentional `overflow-x: auto` scrollers are skipped). Run it after any layout change.
 - **About → Show device info** (`app/js/device-info.js`, `tests/device-info.test.mjs`): native `<details>` + wrapping `<pre>`, Copy (clipboard + toast) and Share (`qr-actions.shareLink`: Android `share_text`, else Web Share; hidden when neither exists). Never add account identifiers to it.
 
 ### 6.10 Pitfalls found in 1.4.73
@@ -2200,7 +2200,8 @@ next push or the tainted commits come back.
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 108 files, 735 tests as of 2026-10-18 (+narrow-viewport CSS guards, device info):
+whole set — 110 files, 761 tests as of 2026-10-18 (+narrow-viewport CSS guards, device info,
+chat appearance, hyphenation):
 
 ```bash
 node --test tests/
@@ -2736,6 +2737,23 @@ do-not-regress rules; dates mark when the lesson was learned.
   Guarded by `tests/narrow-viewport-css.test.mjs` and
   `scripts/e2e-narrow-overflow.mjs`.
 
+- **Chat appearance (2026-10-18)** — drawer section after Theme: message
+  text size (10–22 px, step 0.5 because the stock size is 15.5), corners
+  (0–14), accent (8 presets + `<input type=color>`), hyphenation switch.
+  Stored per device (`velta-msg-font-size`, `velta-bubble-radius`,
+  `velta-accent`, `velta-hyphens`) and applied pre-paint by the classic
+  `js/chat-appearance.js` (also pins `data-theme` early). Rules: bubble
+  sizes/radii go through `--msg-font-size` / `--radius-bubble|tail|quote|media`,
+  never new literals; accent-colored text/fills use `--accent`,
+  `--on-accent`, `--accent-tint`, `--out-link`… (defaults = the old
+  literals) so a custom accent reaches them — a new hard-coded
+  `rgba(90,162,230,…)` is rejected by `tests/chat-appearance.test.mjs`.
+  `deriveAccent` holds every text pair at 4.5 : 1; brutal keeps its own
+  palette. Each `.msg-text` carries `lang` (`text-lang.js`) for
+  `hyphens: auto`; machine text (links, e-mail spans, hashtags, code) stays
+  `hyphens: manual`. Detail + platform hyphenation matrix:
+  `docs/chat-appearance.md`.
+
 - **Read-receipt lifecycle (2026-10-02, #59 follow-up)** — a "stuck single
   tick" is almost always the peer never opening the chat on-screen: the only
   MDN trigger is the watermark `markseen_msgs` in the open chat, and
@@ -2858,6 +2876,8 @@ do-not-regress rules; dates mark when the lesson was learned.
   vendored virtual-scroller carries the `__vsZoom` rect normalization
   patch, and `applyUiScale` dispatches `resize` so the scroller re-measures
   (1.4.14). `text-size-adjust: 100%` on html neutralizes font boosting.
+  Since 2026-10-18 `js/chat-appearance.js` also sets `data-theme` before
+  first paint (from `dw-theme`); app.js `applyTheme` owns it after boot.
   Theme radios (auto/dark/light; auto is the default for fresh installs)
   and scale radios apply in place — never `rebuildDrawer()` on a radio
   change, it would close the drawer. Keyboard vs header: see

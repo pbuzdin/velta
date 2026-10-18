@@ -7,7 +7,9 @@
 // without text-overflow: ellipsis). Intentional horizontal scrollers
 // (overflow-x: auto|scroll, e.g. the category chips) are skipped. Also checks
 // that phone modals opened from the chat list leave the bottom action bar
-// visible (cee7084, by design).
+// visible (cee7084, by design). Chat appearance: the chat screens and the
+// drawer section are re-run at the message-text extremes (10 px and 22 px)
+// with square (0 px) corners, scale 1.
 // Usage: node scripts/e2e-narrow-overflow.mjs [--shots DIR] [--prefix NAME]
 //   (needs `npx playwright install chromium`, or CHROMIUM_PATH=/path/to/chrome)
 // Exit 1 when any overflow is found.
@@ -91,6 +93,7 @@ const back = async page => { await page.keyboard.press('Escape'); await page.goB
 const screens = [
   ['chatlist', async () => {}],
   ['drawer', async p => openDrawer(p)],
+  ['drawer-appearance', async p => { await openDrawer(p); await p.locator('[data-chat-appearance] > summary').click(); await p.waitForTimeout(300); await p.evaluate(() => document.querySelector('[data-ca-reset]')?.scrollIntoView({ block: 'end' })); await p.waitForTimeout(200) }],
   ['about', async p => { await openDrawer(p); await clickText(p, '.ctx-item', 'About Velta') }],
   ['about-deviceinfo', async p => { await openDrawer(p); await clickText(p, '.ctx-item', 'About Velta'); const s = p.locator('details.device-info > summary'); if (await s.count()) { await s.click(); await p.waitForTimeout(300) } }],
   ['about-deviceinfo-bottom', async p => { await openDrawer(p); await clickText(p, '.ctx-item', 'About Velta'); const s = p.locator('details.device-info > summary'); if (await s.count()) { await s.click(); await p.waitForTimeout(300) } await p.evaluate(() => { const b = document.querySelector('.modal .modal-body'); b.scrollTop = b.scrollHeight }); await p.waitForTimeout(200) }],
@@ -110,20 +113,42 @@ const screens = [
   ['chatinfo-channel', async p => { await clickText(p, '.chat-item', 'News'); await p.locator('.chat-head-text').first().click(); await p.waitForTimeout(900) }],
 ]
 
+// Chat appearance extremes (drawer → Chat appearance, chat-appearance.js).
+const APPEARANCE_SCREENS = new Set(['drawer-appearance', 'chat-ada', 'chat-group', 'chat-devs', 'chatinfo-contact'])
+const variants = [
+  { scale: '1', tag: '', ls: {} },
+  { scale: '1.15', tag: '', ls: {} },
+  { scale: '1', tag: '-font10-r0', ls: { 'velta-msg-font-size': '10', 'velta-bubble-radius': '0' } },
+  { scale: '1', tag: '-font22-r0', ls: { 'velta-msg-font-size': '22', 'velta-bubble-radius': '0' } },
+]
+
 let failures = 0
-for (const [w, h] of [[320, 640], [360, 740]]) for (const scale of ['1', '1.15']) {
+for (const [w, h] of [[320, 640], [360, 740]]) for (const { scale, tag: vtag, ls } of variants) {
   const ctx = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 2, isMobile: true, hasTouch: true })
-  await ctx.addInitScript(s => { localStorage.setItem('velta-mock', '1'); if (s !== '1') localStorage.setItem('velta-ui-scale', s) }, scale)
+  await ctx.addInitScript(([s, extra]) => {
+    localStorage.setItem('velta-mock', '1'); if (s !== '1') localStorage.setItem('velta-ui-scale', s)
+    for (const [k, v] of Object.entries(extra)) localStorage.setItem(k, v)
+  }, [scale, ls])
   for (const [id, go] of screens) {
+    if (vtag && !APPEARANCE_SCREENS.has(id)) continue
     const page = await ctx.newPage()
     try {
       await page.goto(base); await page.waitForSelector('.chat-item', { timeout: 15000 }); await page.waitForTimeout(600)
       await go(page)
       const found = await page.evaluate(audit)
-      const tag = `${w}x${h}@${scale} ${id}`
+      // The stored values must really be live on :root (no silent no-op run).
+      if (vtag) {
+        const fs = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--msg-font-size').trim())
+        if (fs !== ls['velta-msg-font-size'] + 'px') throw new Error(`--msg-font-size is "${fs}"`)
+      }
+      const tag = `${w}x${h}@${scale}${vtag} ${id}`
       if (found.length) { failures++; console.log(`FAIL ${tag}\n  ${found.slice(0, 12).join('\n  ')}`) } else console.log(`ok   ${tag}`)
-      if (shots) await page.screenshot({ path: join(shots, `${prefix}-${w}x${h}${scale === "1" ? "" : "-scale" + scale}-${id}.png`) })
-    } catch (e) { console.log(`SKIP ${w}x${h}@${scale} ${id}: ${String(e.message).split('\n')[0]}`) }
+      if (shots) await page.screenshot({ path: join(shots, `${prefix}-${w}x${h}${scale === "1" ? "" : "-scale" + scale}${vtag}-${id}.png`) })
+    } catch (e) {
+      // A variant whose settings did not apply is a failure, not a skip.
+      if (/--msg-font-size/.test(e.message)) { failures++; console.log(`FAIL ${w}x${h}@${scale}${vtag} ${id}: ${e.message}`) }
+      else console.log(`SKIP ${w}x${h}@${scale}${vtag} ${id}: ${String(e.message).split('\n')[0]}`)
+    }
     await page.close()
   }
   await ctx.close()
