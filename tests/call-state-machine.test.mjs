@@ -16,6 +16,8 @@ class FakePC {
   }
   addEventListener() {}
   removeEventListener() {}
+  addTrack(track, stream) { (this.added ||= []).push({ track, stream }); return { track }; }
+  getSenders() { return (this.added || []).map(({ track }) => ({ track })); }
   async createOffer() { return { type: "offer", sdp: "offer-sdp" }; }
   async createAnswer() { return { type: "answer", sdp: "answer-sdp" }; }
   async setLocalDescription(d) { this.appliedLocal = d; this.localDescription = d; }
@@ -47,7 +49,8 @@ const makeManager = (t) => {
   const tracks = [{ enabled: true }];
   const mgr = new CallManager(core, (cfg) => new FakePC(cfg), async () => ({
     getAudioTracks: () => tracks,
-  }), (msg) => { mgr.notes = mgr.notes || []; mgr.notes.push(msg); });
+    getTracks: () => tracks,
+  }), (msg) => { mgr.notes = mgr.notes || []; mgr.notes.push(msg); }, undefined, () => {});
   mgr.endedVisibleMs = 5;
   mgr.bind();
   t.after(() => mgr.teardown(true)); // also stops the duration interval

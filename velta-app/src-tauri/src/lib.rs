@@ -1652,6 +1652,78 @@ fn get_battery_status() -> Result<String, String> {
     Err("battery status is only on Android".into())
 }
 
+/// #141: call audio route (CallAudio.kt). `call_audio_start` sets
+/// MODE_IN_COMMUNICATION + voice-call focus and routes to the loudspeaker
+/// (`speaker`) or the earpiece — a connected headset wins over the earpiece;
+/// `call_audio_speaker` switches; `call_audio_stop` restores MODE_NORMAL.
+/// start/speaker return the route in use ("earpiece", "speaker", "wired",
+/// "usb", "bluetooth", "none") for the page's debug log.
+#[cfg(target_os = "android")]
+fn call_audio_route(method: &str, speaker: bool) -> Result<String, String> {
+    with_android_class(&APP_CALL_AUDIO_CLASS, "CallAudio", |env, context, class_ref| {
+        let out = env
+            .call_static_method(
+                class_ref,
+                method,
+                "(Landroid/content/Context;Z)Ljava/lang/String;",
+                &[(&context).into(), jni::objects::JValue::Bool(speaker as u8)],
+            )
+            .map_err(|e| e.to_string())?;
+        let jstr = jni::objects::JString::from(out.l().map_err(|e| e.to_string())?);
+        let s = env.get_string(&jstr).map_err(|e| e.to_string())?.to_string_lossy().into_owned();
+        Ok(s)
+    })
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn call_audio_start(speaker: bool) -> Result<String, String> {
+    let r = call_audio_route("start", speaker);
+    log(&format!("[call] audio start speaker={speaker} -> {r:?}"));
+    r
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn call_audio_speaker(on: bool) -> Result<String, String> {
+    let r = call_audio_route("setSpeaker", on);
+    log(&format!("[call] audio speaker={on} -> {r:?}"));
+    r
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn call_audio_stop() -> Result<(), String> {
+    let r = with_android_class(&APP_CALL_AUDIO_CLASS, "CallAudio", |env, context, class_ref| {
+        env.call_static_method(class_ref, "stop", "(Landroid/content/Context;)V", &[(&context).into()])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    });
+    log(&format!("[call] audio stop -> {r:?}"));
+    r
+}
+
+// Desktop has no earpiece: the page hides the speaker button off Android.
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn call_audio_start(speaker: bool) -> Result<String, String> {
+    let _ = speaker;
+    Err("call audio routing is only on Android".into())
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn call_audio_speaker(on: bool) -> Result<String, String> {
+    let _ = on;
+    Err("call audio routing is only on Android".into())
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn call_audio_stop() -> Result<(), String> {
+    Err("call audio routing is only on Android".into())
+}
+
 /// #140: UnifiedPush state for Settings → Push notifications, as the JSON
 /// string UnifiedPushBridge.status builds (distributors with app labels,
 /// saved distributor, explicit Off, last push / endpoint time in ms).
@@ -2062,6 +2134,11 @@ static APP_SHARE_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None
 #[cfg(target_os = "android")]
 static APP_UNIFIEDPUSH_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
 
+// org.velta.CallAudio — #141 call audio route (earpiece / loudspeaker /
+// headset, MODE_IN_COMMUNICATION while a call is up).
+#[cfg(target_os = "android")]
+static APP_CALL_AUDIO_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
+
 // --- UnifiedPush (Android) ---
 // Handles for the JNI callbacks from UnifiedPushService.kt. The accounts
 // manager and the request channel are set once init_android_core finishes;
@@ -2106,7 +2183,7 @@ pub extern "system" fn Java_org_velta_MainActivity_setApplicationContext(
     *APP_CONTEXT.lock().unwrap() = Some(global);
     // Global refs to the app's helper classes for later Rust commands
     // (NetInfo: DNS tunnel, tunnel.rs — operator resolvers + SIM operator).
-    let classes: [(&str, &Mutex<Option<jni::objects::GlobalRef>>); 7] = [
+    let classes: [(&str, &Mutex<Option<jni::objects::GlobalRef>>); 8] = [
         ("InAppBrowser", &APP_INAPP_BROWSER_CLASS),
         ("Notifications", &APP_NOTIFICATIONS_CLASS),
         ("Battery", &APP_BATTERY_CLASS),
@@ -2114,6 +2191,7 @@ pub extern "system" fn Java_org_velta_MainActivity_setApplicationContext(
         ("UpdateInstall", &APP_UPDATE_INSTALL_CLASS),
         ("Share", &APP_SHARE_CLASS),
         ("UnifiedPushBridge", &APP_UNIFIEDPUSH_CLASS),
+        ("CallAudio", &APP_CALL_AUDIO_CLASS),
     ];
     for (name, slot) in classes {
         match env.find_class(format!("org/velta/{name}")) {
@@ -3808,7 +3886,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, allow_picked_path, webxdc_begin, set_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, push_status, push_select, push_off, share_text, tunnel::tunnel_preview, tunnel::tunnel_install, tunnel::tunnel_remove, tunnel::tunnel_status, tunnel::tunnel_set_mode, tunnel::tunnel_network_changed, tunnel::tunnel_backup_begin, tunnel::tunnel_backup_end, tunnel::tunnel_reapply, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, allow_picked_path, webxdc_begin, set_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, push_status, push_select, push_off, call_audio_start, call_audio_speaker, call_audio_stop, share_text, tunnel::tunnel_preview, tunnel::tunnel_install, tunnel::tunnel_remove, tunnel::tunnel_status, tunnel::tunnel_set_mode, tunnel::tunnel_network_changed, tunnel::tunnel_backup_begin, tunnel::tunnel_backup_end, tunnel::tunnel_reapply, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 

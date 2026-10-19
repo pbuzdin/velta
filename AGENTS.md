@@ -51,7 +51,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── avatar.js         # contact avatars: fingerprint color-grid identity tiles
 │   │   ├── boot-net.js       # pre-app.js error/unhandledrejection net: Diagnostics sink once app.js lives, #boot-error banner before
 │   │   ├── chat-view.js      # message history, composer, selection actions, webxdc cards, bot command chips
-│   │   ├── calls.js          # audio calls: WebRTC media + core signaling state machine (screen wake lock held from mic acquisition to releaseMedia)
+│   │   ├── calls.js          # audio calls: WebRTC media + core signaling state machine (screen wake lock held from mic acquisition to releaseMedia; mic track added before offer/answer; Android earpiece/speaker route via call_audio_* → CallAudio.kt — docs/agents/calls.md)
 │   │   ├── member-list.js    # chat info member list: <velta-avatar> + name + address, live search (diacritics-insensitive), fixed-height virtual window
 │   │   ├── chat-media.js     # chat info Apps/Photos/Videos/Audio/Files <details>: get_chat_media counts, lazy batched loads, virtual list/grid, search
 │   │   ├── tauri.js          # the one Tauri-shell bridge: tauriInvoke()/invoke(), isTauri(), isAndroid() (case-insensitive), rustLog(); lazy lookups
@@ -146,7 +146,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── design/                   # token snapshot of app/css/main.css (HTML + SVG); restamp header with APP_VERSION
 ├── docs/agents/              # per-subsystem agent notes (webxdc, relays,
 │                              p2p/local chat, android-shell, media,
-│                              onboarding, security-triage, large-file) — referenced from §5/§11
+│                              onboarding, security-triage, large-file, calls) — referenced from §5/§11
 ├── docs/as-built-architecture.md # product snapshot at cd59531 (2026-10-13); no implementation plan
 ├── docs/web-components-audit.md  # UI semantics/a11y/progressive-rendering audit (2026-10-06)
 ├── docs/web-components-plan.md   # phased fix plan for that audit (quick wins → tests)
@@ -2733,7 +2733,7 @@ talks to Google.
 
 Per-subsystem narratives live in `docs/agents/*.md` (webxdc, relays,
 onboarding, p2p/local chat, android-shell, media, read-receipts, dns-tunnel) — read the
-relevant one before touching that subsystem. The entries below are cross-cutting
+relevant one before touching that subsystem (calls: `docs/agents/calls.md`). The entries below are cross-cutting
 do-not-regress rules; dates mark when the lesson was learned.
 
 - **Phone modals keep the bottom bar; inner scroll is fine (2026-10-18,
@@ -2824,6 +2824,27 @@ do-not-regress rules; dates mark when the lesson was learned.
   permission requests by default — only clipboard is allowed); Android
   needs RECORD_AUDIO in the gen manifest, granted by wry's
   RustWebChromeClient. Video calls are not offered.
+- **Calls: mic track + Android audio route (2026-10-19, #141)** — the
+  "dead microphone" was never a permission problem: calls.js opened the mic
+  but never called `pc.addTrack`, so every offer was recvonly and no RTP
+  left the device on any platform. KEEP `addLocalTracks()` BEFORE
+  `createOffer` (caller) and AFTER `setRemoteDescription(offer)` / BEFORE
+  `createAnswer` (callee); mute = `track.enabled` only. Pinned by
+  `tests/call-audio-route.test.mjs` and `scripts/e2e-call-audio.mjs` (two
+  CallManagers over real WebRTC in headless Chromium, fake mic; fails on 0
+  packets or a non-sendrecv SDP — run it after touching calls.js). Android
+  route: `CallAudio.kt` via `call_audio_start/speaker/stop` (lib.rs, cached
+  class like Battery): MODE_IN_COMMUNICATION, earpiece by default (headset
+  wins), `setCommunicationDevice` on API 31+ / `setSpeakerphoneOn` below,
+  proximity screen-off lock on the earpiece, MODE_NORMAL on stop. The
+  WebView itself flips the mode to the loudspeaker when capture starts, so
+  the route call MUST follow getUserMedia, and stop MUST follow the track
+  stops (never "restore the saved mode" — it is already IN_COMMUNICATION).
+  The Speaker button (`aria-pressed`, fixed label) shows only where the
+  route adapter is supported (Tauri + Android); desktop/PWA hide it. Video
+  calls would default to the loudspeaker (`defaultSpeakerOn`). Call traces
+  (`[call] …`) go to the Diagnostics chat only with VELTA_DEBUG; native
+  lines are logcat tag `VeltaCallAudio`. Details: docs/agents/calls.md.
 - **Call cards (post-1.4.38, issue #8)** — call messages (core viewtype
   `Call`, mapped to "call" in `_mapViewtype`) render as a call card in the
   chat instead of the stock text string: direction + state + duration from

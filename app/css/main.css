@@ -2255,8 +2255,11 @@ html[data-theme="light"] .acct-pop .ctx-item {
 .call-name { font-size: 22px; font-weight: 600; }
 .call-status { opacity: 0.75; }
 .call-timer { font-variant-numeric: tabular-nums; font-size: 18px; opacity: 0.9; }
-.call-actions { display: flex; gap: 14px; margin-top: 10px; }
+.call-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; margin-top: 10px; max-width: 100%; }
 .call-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 10px 18px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.25);
@@ -2268,6 +2271,15 @@ html[data-theme="light"] .acct-pop .ctx-item {
 .call-btn.danger { background: #b3261e; border-color: #b3261e; color: #fff; }
 .call-btn.accept { background: #2e7d32; border-color: #2e7d32; color: #fff; }
 .call-btn.muted { background: rgba(255, 255, 255, 0.18); }
+/* #141 earpiece <-> loudspeaker toggle (Android); pressed = loudspeaker. */
+.call-btn-ico { width: 18px; height: 18px; flex: none; }
+.call-btn.call-speaker[aria-pressed="true"] { background: #eef2f7; border-color: #eef2f7; color: #0d1117; }
+.call-btn:focus-visible { outline: 2px solid #7db4ea; outline-offset: 2px; }
+@media (max-width: 360px) {
+  .call-box { padding: 16px; }
+  .call-actions { gap: 10px; }
+  .call-btn { padding: 10px 14px; }
+}
 #call-remote-audio { display: none; }
 
 /* ===== Bot command chips ===== */

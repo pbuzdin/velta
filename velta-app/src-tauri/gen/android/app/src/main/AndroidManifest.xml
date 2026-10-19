@@ -29,8 +29,15 @@
          declared; wry forwards the WebView's permission request to the OS
          when the user starts a scan. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Calls (app/js/calls.js): RECORD_AUDIO is asked at runtime by wry's
+         RustWebChromeClient when the page calls getUserMedia;
+         MODIFY_AUDIO_SETTINGS lets CallAudio.kt set MODE_IN_COMMUNICATION and
+         the earpiece/loudspeaker route (#141). BLUETOOTH (install-time,
+         Android 11 and older only) is what startBluetoothSco needs there to
+         route a call to a Bluetooth headset. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
 
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />

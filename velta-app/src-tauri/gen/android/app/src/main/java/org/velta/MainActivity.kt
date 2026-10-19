@@ -118,6 +118,12 @@ class MainActivity : TauriActivity() {
 
   override fun onDestroy() {
     InAppBrowser.detach()
+    // #141: a call cannot outlive its WebView; never leave the device in
+    // MODE_IN_COMMUNICATION (or holding the proximity lock) after exit.
+    try {
+      CallAudio.stop(applicationContext)
+    } catch (_: Throwable) {
+    }
     super.onDestroy()
   }
 

@@ -227,6 +227,11 @@ over a WebRTC peer connection inside the app's WebView.
 - The call button appears in single chats only; group calls are not offered yet.
 - Desktop (WebView2) grants the microphone through a launch argument; on
   Android the app asks for the record-audio permission on the first call.
+- On Android a call starts on the earpiece (or a connected wired/Bluetooth
+  headset), like a phone call; the **Speaker** button switches to the
+  loudspeaker and back. The screen turns off when the phone is at your ear.
+  Desktop and the browser use the system's audio output, so the button is
+  not shown there.
 - Missed, declined and ended calls appear in the chat as a compact **call
   card** (direction, state and duration, red-tinted for missed/declined),
   and calls ring only while the app is open — a backgrounded app shows the
