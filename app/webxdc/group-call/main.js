@@ -6,8 +6,17 @@
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
   var vc = window.webxdc && window.webxdc.veltaCall;
-  // Same name-derived avatar color as the host (app/js/name-color.js).
-  function color(name) { var h = 0; name = String(name || "?"); for (var i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0; return "hsl(" + (h % 360) + " 55% 55%)"; }
+  // Same name-derived avatar color as the host (app/js/name-color.js
+  // nameColor): hue from the name, lightness 55% unless the soft-white
+  // initials would drop under 3:1 (large text), then darker.
+  function hsl2rgb(h, s, l) { s /= 100; l /= 100; var a = s * Math.min(l, 1 - l); return [0, 8, 4].map(function (n) { var k = (n + h / 30) % 12; return Math.round(255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)))); }); }
+  function lum(c) { return c.map(function (v) { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }).reduce(function (s, v, i) { return s + v * [0.2126, 0.7152, 0.0722][i]; }, 0); }
+  function color(name) {
+    var h = 0; name = String(name || "?"); for (var i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+    h %= 360; var l = 55, ink = lum([244, 244, 244]);
+    while (l > 20 && (ink + 0.05) / (lum(hsl2rgb(h, 55, l)) + 0.05) < 3) l--;
+    return "hsl(" + h + " 55% " + l + "%)";
+  }
   // The host's live design tokens (theme + custom accent).
   function applyTheme(t) {
     if (!t || typeof t !== "object") return;

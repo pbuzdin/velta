@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="4000" viewBox="0 0 1440 4000" font-family="Segoe UI, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="4660" viewBox="0 0 1440 4660" font-family="Segoe UI, Arial, sans-serif">
   <defs>
     <style>
       .title { font-size: 32px; font-weight: 700; fill: #f2f2f5; }
@@ -15,7 +15,7 @@
   </defs>
 
   <!-- ======================== canvas ======================== -->
-  <rect width="1440" height="4000" fill="#0f0f14"/>
+  <rect width="1440" height="4660" fill="#0f0f14"/>
 
   <!-- ======================== header ======================== -->
   <g transform="translate(64,56)">
@@ -25,7 +25,7 @@
       <rect y="20" width="52" height="4" fill="#2b5278"/>
     </g>
     <text x="64" y="26" class="title">Velta Design System</text>
-    <text x="64" y="52" class="sub">Tokens from app/css/main.css · components from app/js · v1.4.69 · 2026-10-14 · dark is the primary theme · full token reference: design/velta-design-system.html</text>
+    <text x="64" y="52" class="sub">Tokens from app/css/main.css · components from app/js · v1.4.75 · 2026-10-20 · dark is the primary theme · full token reference: design/velta-design-system.html</text>
   </g>
 
   <!-- ======================== colors dark ======================== -->
@@ -138,12 +138,12 @@
       <text y="80" class="label" fill="#6f7480">--text</text><text y="96" class="mono" fill="#6f7480">#16181d</text>
     </g>
     <g transform="translate(876,24)">
-      <rect width="128" height="62" rx="8" fill="#656a76"/>
-      <text y="80" class="label" fill="#656a76">--text-dim</text><text y="96" class="mono" fill="#656a76">#656a76</text>
+      <rect width="128" height="62" rx="8" fill="#5d626d"/>
+      <text y="80" class="label" fill="#5d626d">--text-dim</text><text y="96" class="mono" fill="#5d626d">#5d626d</text>
     </g>
     <g transform="translate(1018,24)">
-      <rect width="128" height="62" rx="8" fill="#9aa0ab"/>
-      <text y="80" class="label" fill="#6f7480">--text-meta-in</text><text y="96" class="mono" fill="#6f7480">#9aa0ab</text>
+      <rect width="128" height="62" rx="8" fill="#676d7a"/>
+      <text y="80" class="label" fill="#6f7480">--text-meta-in</text><text y="96" class="mono" fill="#6f7480">#676d7a</text>
     </g>
     <g transform="translate(1160,24)">
       <rect width="128" height="62" rx="8" fill="#2a6ea6"/>
@@ -600,5 +600,250 @@
     <text x="460" y="120" class="small">Blue = 2px grid. Amber = documented exception (odd 1–15): bubble 7/10/6, composer 13 → 48px, ±5px media bleed, pin-tray 9. Do not snap.</text>
   </g>
 
-  <text x="64" y="3976" class="mono">Velta · Delta Chat client · regenerate alongside app/css/main.css</text>
+  <!-- ======================== tokens added 1.4.70–1.4.75 ======================== -->
+  <g transform="translate(64,4000)">
+    <text y="0" class="h2">Tokens added 1.4.70–1.4.75 (dark · light · brutal)</text>
+    <g transform="translate(0,24)">
+      <rect x="0" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <text y="62" class="label">--ui-zoom</text><text y="78" class="mono">1</text>
+    </g>
+    <g transform="translate(164,24)">
+      <rect x="0" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <text y="62" class="label">--vw</text><text y="78" class="mono">calc(100vw / var(--ui</text>
+    </g>
+    <g transform="translate(328,24)">
+      <rect x="0" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <text y="62" class="label">--vh</text><text y="78" class="mono">calc(100vh / var(--ui</text>
+    </g>
+    <g transform="translate(492,24)">
+      <rect x="0" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <text y="62" class="label">--dvh</text><text y="78" class="mono">calc(100dvh / var(--u</text>
+    </g>
+    <g transform="translate(656,24)">
+      <rect x="0" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <text y="62" class="label">--bubble-inner-max</text><text y="78" class="mono">calc(var(--vw) - 120p</text>
+    </g>
+    <g transform="translate(820,24)">
+      <rect x="0" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <text y="62" class="label">--msg-font-size</text><text y="78" class="mono">15.5px</text>
+    </g>
+    <g transform="translate(984,24)">
+      <rect x="0" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <text y="62" class="label">--radius-tail</text><text y="78" class="mono">6px</text>
+    </g>
+    <g transform="translate(1148,24)">
+      <rect x="0" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <text y="62" class="label">--radius-quote</text><text y="78" class="mono">6px</text>
+    </g>
+    <g transform="translate(0,136)">
+      <rect x="0" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <text y="62" class="label">--radius-media</text><text y="78" class="mono">10px</text>
+    </g>
+    <g transform="translate(164,136)">
+      <rect x="0" width="44" height="44" rx="6" fill="#5aa2e6" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#5aa2e6" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#5aa2e6" stroke="#2a2a35"/>
+      <text y="62" class="label">--accent-tint</text><text y="78" class="mono">#5aa2e6</text>
+    </g>
+    <g transform="translate(328,136)">
+      <rect x="0" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <text y="62" class="label">--accent-hover</text><text y="78" class="mono">color-mix(in srgb, va</text>
+    </g>
+    <g transform="translate(492,136)">
+      <rect x="0" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <text y="62" class="label">--accent-active</text><text y="78" class="mono">color-mix(in srgb, va</text>
+    </g>
+    <g transform="translate(656,136)">
+      <rect x="0" width="44" height="44" rx="6" fill="#10131a" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#10131a" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#10131a" stroke="#2a2a35"/>
+      <text y="62" class="label">--on-accent</text><text y="78" class="mono">#10131a</text>
+    </g>
+    <g transform="translate(820,136)">
+      <rect x="0" width="44" height="44" rx="6" fill="#dfeaf6" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#14507e" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#dfeaf6" stroke="#2a2a35"/>
+      <text y="62" class="label">--out-link</text><text y="78" class="mono">#dfeaf6</text>
+    </g>
+    <g transform="translate(984,136)">
+      <rect x="0" width="44" height="44" rx="6" fill="#6ec2ff" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#1d8bf1" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#6ec2ff" stroke="#2a2a35"/>
+      <text y="62" class="label">--ticks-read</text><text y="78" class="mono">#6ec2ff</text>
+    </g>
+    <g transform="translate(1148,136)">
+      <rect x="0" width="44" height="44" rx="6" fill="#10131a" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#10131a" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#10131a" stroke="#2a2a35"/>
+      <text y="62" class="label">--on-accent-chip</text><text y="78" class="mono">#10131a</text>
+    </g>
+    <g transform="translate(0,248)">
+      <rect x="0" width="44" height="44" rx="6" fill="#5aa2e6" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#1a68b8" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#4fd1c5" stroke="#2a2a35"/>
+      <text y="62" class="label">--accent-text-in</text><text y="78" class="mono">#5aa2e6</text>
+    </g>
+    <g transform="translate(164,248)">
+      <rect x="0" width="44" height="44" rx="6" fill="#5aa2e6" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#14507e" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#4fd1c5" stroke="#2a2a35"/>
+      <text y="62" class="label">--quote-name</text><text y="78" class="mono">#5aa2e6</text>
+    </g>
+    <g transform="translate(328,248)">
+      <rect x="0" width="44" height="44" rx="6" fill="#d9e9fa" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#14507e" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#2b2406" stroke="#2a2a35"/>
+      <text y="62" class="label">--quote-name-out</text><text y="78" class="mono">#d9e9fa</text>
+    </g>
+    <g transform="translate(492,248)">
+      <rect x="0" width="44" height="44" rx="6" fill="#5aa2e6" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#1a68b8" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#a99cf5" stroke="#2a2a35"/>
+      <text y="62" class="label">--accent-text</text><text y="78" class="mono">#5aa2e6</text>
+    </g>
+    <g transform="translate(656,248)">
+      <rect x="0" width="44" height="44" rx="6" fill="#5aa2e6" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#3390ec" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#8f7ff0" stroke="#2a2a35"/>
+      <text y="62" class="label">--accent-default</text><text y="78" class="mono">#5aa2e6</text>
+    </g>
+    <g transform="translate(820,248)">
+      <rect x="0" width="44" height="44" rx="6" fill="#10131a" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#10131a" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#10131a" stroke="#2a2a35"/>
+      <text y="62" class="label">--on-badge</text><text y="78" class="mono">#10131a</text>
+    </g>
+    <g transform="translate(984,248)">
+      <rect x="0" width="44" height="44" rx="6" fill="#1c1c26" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#e7ebf0" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#2d2d38" stroke="#2a2a35"/>
+      <text y="62" class="label">--bg-elev</text><text y="78" class="mono">#1c1c26</text>
+    </g>
+    <g transform="translate(1148,248)">
+      <rect x="0" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <text y="62" class="label">--font-mono</text><text y="78" class="mono">ui-monospace, SFMono-</text>
+    </g>
+    <g transform="translate(0,360)">
+      <rect x="0" width="44" height="44" rx="6" fill="#0b0b10" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#e7ebf0" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#1b1b22" stroke="#2a2a35"/>
+      <text y="62" class="label">--call-bg</text><text y="78" class="mono">#0b0b10</text>
+    </g>
+    <g transform="translate(164,360)">
+      <rect x="0" width="44" height="44" rx="6" fill="#f2f2f5" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#16181d" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#f2f0e9" stroke="#2a2a35"/>
+      <text y="62" class="label">--call-fg</text><text y="78" class="mono">#f2f2f5</text>
+    </g>
+    <g transform="translate(328,360)">
+      <rect x="0" width="44" height="44" rx="6" fill="#8b8b96" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#5d626d" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#a3a0ad" stroke="#2a2a35"/>
+      <text y="62" class="label">--call-fg-dim</text><text y="78" class="mono">#8b8b96</text>
+    </g>
+    <g transform="translate(492,360)">
+      <rect x="0" width="44" height="44" rx="6" fill="#f2f2f5" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#f2f2f5" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#f2f2f5" stroke="#2a2a35"/>
+      <text y="62" class="label">--call-video-fg</text><text y="78" class="mono">#f2f2f5</text>
+    </g>
+    <g transform="translate(656,360)">
+      <rect x="0" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <text y="62" class="label">--call-scrim</text><text y="78" class="mono">color-mix(in srgb, #0</text>
+    </g>
+    <g transform="translate(820,360)">
+      <rect x="0" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#2d2d38" stroke="#2a2a35"/>
+      <text y="62" class="label">--call-btn</text><text y="78" class="mono">color-mix(in srgb, va</text>
+    </g>
+    <g transform="translate(984,360)">
+      <rect x="0" width="44" height="44" rx="6" fill="#f2f2f5" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#16181d" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#f2f0e9" stroke="#2a2a35"/>
+      <text y="62" class="label">--call-btn-on</text><text y="78" class="mono">#f2f2f5</text>
+    </g>
+    <g transform="translate(1148,360)">
+      <rect x="0" width="44" height="44" rx="6" fill="#0b0b10" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#e7ebf0" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#1b1b22" stroke="#2a2a35"/>
+      <text y="62" class="label">--call-btn-on-fg</text><text y="78" class="mono">#0b0b10</text>
+    </g>
+    <g transform="translate(0,472)">
+      <rect x="0" width="44" height="44" rx="6" fill="#e05a5a" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#bf2a2a" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#f47c79" stroke="#2a2a35"/>
+      <text y="62" class="label">--call-danger</text><text y="78" class="mono">#e05a5a</text>
+    </g>
+    <g transform="translate(164,472)">
+      <rect x="0" width="44" height="44" rx="6" fill="#f4f4f4" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#f4f4f4" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#121017" stroke="#2a2a35"/>
+      <text y="62" class="label">--call-danger-fg</text><text y="78" class="mono">#f4f4f4</text>
+    </g>
+    <g transform="translate(328,472)">
+      <rect x="0" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#3ecf5a" stroke="#2a2a35"/>
+      <text y="62" class="label">--call-accept</text><text y="78" class="mono">color-mix(in srgb, va</text>
+    </g>
+    <g transform="translate(492,472)">
+      <rect x="0" width="44" height="44" rx="6" fill="#f4f4f4" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#f4f4f4" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#121017" stroke="#2a2a35"/>
+      <text y="62" class="label">--call-accept-fg</text><text y="78" class="mono">#f4f4f4</text>
+    </g>
+    <g transform="translate(656,472)">
+      <rect x="0" width="44" height="44" rx="6" fill="#5a6270" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#5a6270" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#5a6270" stroke="#2a2a35"/>
+      <text y="62" class="label">--call-avatar-bg</text><text y="78" class="mono">#5a6270</text>
+    </g>
+    <g transform="translate(820,472)">
+      <rect x="0" width="44" height="44" rx="6" fill="#f4f4f4" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#f4f4f4" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#f4f4f4" stroke="#2a2a35"/>
+      <text y="62" class="label">--call-avatar-fg</text><text y="78" class="mono">#f4f4f4</text>
+    </g>
+    <g transform="translate(984,472)">
+      <rect x="0" width="44" height="44" rx="6" fill="#1c1c26" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#f4f4f4" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#2d2d38" stroke="#2a2a35"/>
+      <text y="62" class="label">--call-pip-bg</text><text y="78" class="mono">#1c1c26</text>
+    </g>
+    <g transform="translate(1148,472)">
+      <rect x="0" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="48" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <rect x="96" width="44" height="44" rx="6" fill="#22222c" stroke="#2a2a35"/>
+      <text y="62" class="label">--call-btn-size</text><text y="78" class="mono">56px</text>
+    </g>
+  </g>
+
+  <text x="64" y="4636" class="mono">Velta · Delta Chat client · regenerate alongside app/css/main.css</text>
 </svg>

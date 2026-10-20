@@ -46,9 +46,41 @@
   --accent-tint: #5aa2e6; /* translucent selection/pressed fills */
   --accent-hover: color-mix(in srgb, var(--accent) 90%, #f4f4f4);
   --accent-active: color-mix(in srgb, var(--accent) 88%, #0b0b10);
-  --on-accent: #f4f4f4;
+  --on-accent: #10131a; /* ink on accent fills: #f4f4f4 on #5aa2e6 was 2.6:1, on #3390ec 3.1:1 */
+  --accent-text: var(--accent); /* accent-colored UI text (buttons, links, status) on app surfaces */
+  --on-badge: #10131a; /* unread badges on --accent-2 */
+  --on-badge-muted: #10131a; /* muted badge on --text-dim */
   --out-link: #dfeaf6;
   --ticks-read: #6ec2ff;
+  /* 1:1 call screen (#call-overlay). Dark full-screen surface in the soft
+     blacks; light and brutal re-map below. */
+  --call-bg: var(--bg-chat);
+  --call-fg: var(--text);
+  --call-fg-dim: var(--text-dim);
+  --call-video-fg: #f2f2f5; /* over the remote video scrim, every theme */
+  --call-scrim: color-mix(in srgb, #0b0b10 55%, transparent);
+  --call-btn: color-mix(in srgb, var(--text) 22%, var(--bg-chat));
+  --call-btn-on: var(--text);
+  --call-btn-on-fg: var(--bg-chat);
+  --call-danger: var(--danger);
+  --call-danger-fg: #f4f4f4;
+  --call-accept: color-mix(in srgb, var(--green) 80%, #0b0b10);
+  --call-accept-fg: #f4f4f4;
+  --call-avatar-bg: #5a6270; /* no peer color yet */
+  --call-avatar-fg: #f4f4f4;
+  --call-pip-bg: var(--bg-bubble-in);
+  --call-btn-size: 56px; /* display size: 2 x --ico-5 + padding */
+  /* Shared non-color tokens */
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* Theme default accent, kept separately so the Chat appearance "default"
+     swatch shows it even while a custom --accent is active. */
+  --accent-default: #5aa2e6;
+  /* Accent tokens a custom accent overrides (chat-appearance.js VAR_NAMES). */
+  --on-accent-chip: #10131a;
+  --accent-text-in: var(--accent); /* accent-colored text on incoming bubbles / sidebar */
+  --quote-name: var(--accent);
+  --quote-name-out: #d9e9fa;
+  --bg-elev: #1c1c26; /* raised placeholder tiles (media grid, splash card) */
   /* icon ladder: --ico-1 inline/meta · --ico-2 small ui · --ico-3 rows/buttons · --ico-4 bars · --ico-5 composer.
      The global svg fallback stays 24px; display graphics (30/56/168/280) are deliberately not tokens. */
   --ico-1: 14px; --ico-2: 16px; --ico-3: 20px; --ico-4: 22px; --ico-5: 26px;
@@ -67,12 +99,23 @@ html[data-theme="light"] {
   --bg-reply: rgba(16,16,16,.05);
   --accent: #3390ec;
   --text: #16181d;
-  --text-dim: #656a76;
-  --text-meta-in: #9aa0ab;
+  --text-dim: #5d626d; /* 5.0:1 on #e9e9e9 chips (was #656a76) */
+  --text-meta-in: #676d7a; /* 4.72:1 on #f4f4f4 (was #9aa0ab, 2.39) */
   --text-meta-out: #2a6ea6;
   --out-link: #14507e;
   --ticks-read: #1d8bf1;
-  --green: #3d9146;
+  --call-btn: color-mix(in srgb, var(--text) 12%, var(--bg-chat));
+  --call-accept: var(--green); /* #2a7032: 5.9:1 under the white icon */
+  --call-pip-bg: var(--bg-sidebar);
+  --accent-default: #3390ec;
+  --accent-text: #1a68b8; /* 4.65:1 on #e9e9e9, 5.1 on #f4f4f4 */
+  --on-badge-muted: #f4f4f4; /* 5.9:1 on #5d626d */
+  --accent-text-in: #1a68b8; /* raw #3390ec is 3.1:1 on #f4f4f4 */
+  --quote-name: #14507e;
+  --quote-name-out: #14507e;
+  --bg-elev: #e7ebf0;
+  --green: #2a7032; /* text on #f4f4f4 / the green note tint (was #3d9146, 3.6:1) */
+  --danger: #bf2a2a; /* was inherited #e05a5a, 3.5:1 on #f4f4f4 */
   --border: rgba(16,16,16,.08);
   --shadow: 0 4px 18px rgba(16,16,16,.18);
   color-scheme: light;
@@ -146,7 +189,7 @@ svg { width: 24px; height: 24px; display: block; }
   color: var(--text-dim); background: var(--bg-hover); border: none; border-radius: 999px;
   cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.chat-cats button.active { background: var(--accent); color: var(--on-accent-chip, #10131a); }
+.chat-cats button.active { background: var(--accent); color: var(--on-accent-chip); }
 @media (hover: hover) and (pointer: fine) {
   .chat-cats button:hover:not(.active) { color: var(--text); }
 }
@@ -296,8 +339,7 @@ svg { width: 24px; height: 24px; display: block; }
 .ctx-hint { padding: 0 12px 6px calc(12px + var(--ico-3) + 12px); margin-top: -4px; }
 .md-note { color: var(--text); }
 .md-note[hidden] { display: none; }
-.md-note-acts { display: inline-flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 2px; }
-.md-note-acts .btn-text { padding: 2px 0; font-size: 12px; }
+.md-note-acts { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; margin-left: -8px; }
 .side-search-input { margin-bottom: 10px; }
 .side-option { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .side-option-label { font-size: 14.5px; font-weight: 500; color: var(--text); }
@@ -344,7 +386,7 @@ progress.chat-load-bar::-moz-progress-bar { background: transparent; }
 .pinned-bar {
   display: flex; align-items: center; gap: 8px; width: 100%;
   padding: 7px 14px; border: 0; cursor: pointer; text-align: left;
-  background: var(--bg-elev, #14141c); color: var(--text-dim, #9a9aa8);
+  background: var(--bg-elev); color: var(--text-dim);
   border-bottom: 1px solid rgba(128, 128, 128, .18);
   font: inherit; font-size: 13px;
 }
@@ -384,7 +426,7 @@ progress.chat-load-bar::-moz-progress-bar { background: transparent; }
   display: flex; align-items: center; gap: 8px;
   padding: 8px 14px; cursor: pointer;
 }
-.pin-tray-item:hover { background: var(--bg-hover, rgba(255, 255, 255, .05)); }
+.pin-tray-item:hover { background: var(--bg-hover); }
 .pin-tray-item .pb-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pin-tray-item .pb-text b { color: var(--text); font-weight: 600; }
 .pin-unpin {
@@ -700,7 +742,7 @@ html[data-theme="light"] .service-msg { background: rgba(244,244,244,.8); color:
 .diag-copy {
   position: absolute; top: 5px; right: 7px;
   width: var(--ico-4); height: var(--ico-4); padding: 0; border: none; border-radius: 6px;
-  background: transparent; color: var(--text-dim, #8a8a93);
+  background: transparent; color: var(--text-dim);
   display: none; align-items: center; justify-content: center;
   cursor: pointer; font-size: 12px;
 }
@@ -709,12 +751,15 @@ html[data-theme="light"] .service-msg { background: rgba(244,244,244,.8); color:
   .msg-row.service:hover .diag-copy { display: flex; }
 }
 @media (hover: hover) and (pointer: fine) {
-  .diag-copy:hover { background: var(--bg-hover, rgba(127,127,127,.18)); color: var(--text, #f2f2f5); }
+  .diag-copy:hover { background: var(--bg-hover); color: var(--text); }
 }
 
 .msg-sender {
   font-size: calc(var(--msg-font-size) * .871); font-weight: 600; margin-bottom: 2px;
 }
+.msg-sender { color: var(--sender, var(--accent-text)); }
+html[data-theme="light"] .msg-sender { color: var(--sender-light, var(--sender, var(--accent-text))); }
+html[data-theme="brutal"] .msg-sender { color: var(--sender-brutal, var(--sender, var(--accent-text))); }
 .msg-fwd {
   /* Meta-dim colors, not --accent: accent blue is unreadable on the
      outgoing bubble's blue background. */
@@ -732,17 +777,15 @@ html[data-theme="light"] .service-msg { background: rgba(244,244,244,.8); color:
   padding: 4px 8px; margin-bottom: 5px;
   font-size: calc(var(--msg-font-size) * .871); cursor: pointer; /* 13.5px at 15.5 */
 }
-.msg-quote .q-name { font-weight: 600; color: var(--accent); display: block; }
+.msg-quote .q-name { font-weight: 600; color: var(--quote-name); display: block; }
 /* Quote text: measured WCAG ratios vs each bubble's quote background
    (accent-on-blue was 2.58:1, text-dim-on-blue 2.08:1 — below AA 4.5).
    Outgoing bubbles get a dedicated light-on-blue palette. */
 .msg-quote .q-text { color: #9aa3b5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; display: block; }
-.msg-row.out .msg-quote .q-name { color: #d9e9fa; }
+.msg-row.out .msg-quote .q-name { color: var(--quote-name-out); }
 .msg-row.out .msg-quote .q-text { color: #cfe0f2; }
-html[data-theme="light"] .msg-quote .q-name { color: var(--quote-name, #14507e); }
 html[data-theme="light"] .msg-quote .q-text { color: #4d5a68; }
 /* same specificity as the dark outgoing rules, declared later — wins in light */
-html[data-theme="light"] .msg-row.out .msg-quote .q-name { color: var(--quote-name, #14507e); }
 html[data-theme="light"] .msg-row.out .msg-quote .q-text { color: #4d5a68; }
 
 .msg-text {
@@ -955,7 +998,7 @@ html[data-theme="brutal"] .msg-fail-badge { color: #3d3405; background: rgba(229
   display: inline-flex; align-items: center; justify-content: center;
   width: 30px; height: 30px; padding: 5px;
   border: none; background: none; cursor: pointer; border-radius: 50%;
-  color: var(--danger, #e5484d); user-select: none;
+  color: var(--danger); user-select: none;
 }
 .msg-fail-actions svg { width: var(--ico-2); height: var(--ico-2); display: block; }
 @media (hover: hover) and (pointer: fine) {
@@ -1099,9 +1142,9 @@ velta-video { display: block; height: 100%; }
 }
 .msg-audio audio { display: none; }
 .vp { display: flex; align-items: center; gap: 8px; width: 100%; height: 40px; padding: 0 10px 0 4px; box-sizing: border-box; border-radius: 20px; background: rgba(0,0,0,.18); }
-.vp-play { flex: none; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--accent, #5aa2e6); color: var(--on-accent); }
+.vp-play { flex: none; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); }
 .vp-play svg { width: 20px; height: 20px; }
-.vp-seek { flex: 1; min-width: 0; margin: 0; accent-color: var(--accent, #5aa2e6); }
+.vp-seek { flex: 1; min-width: 0; margin: 0; accent-color: var(--accent); }
 .vp-time { flex: none; font-size: 12px; font-variant-numeric: tabular-nums; opacity: .85; white-space: nowrap; }
 .msg-file {
   display: flex; align-items: center; gap: 10px; margin-bottom: 4px; min-width: min(210px, var(--bubble-inner-max));
@@ -1286,7 +1329,7 @@ button.reaction-chip { font: inherit; color: inherit; }
 .sticker-note { grid-column: 1 / -1; color: var(--text-dim); font-size: 13px; padding: 8px; line-height: 1.4; }
 /* Demo (mock-core) stickers are emoji text, not files. */
 .sticker-emoji { font-size: 96px; line-height: 1; padding: 6px 10px; }
-.send-btn { color: var(--accent); margin-bottom: 4px; }
+.send-btn { color: var(--accent-text); margin-bottom: 4px; }
 .send-btn:disabled { color: var(--text-dim); cursor: default; }
 /* Composer buttons sized to the input line (bottom-aligned like the input,
    no extra offset — a 48px button centers its icon on the text line), with
@@ -1379,14 +1422,14 @@ velta-chat-item { display: block; }
 .ci-bottom { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
 .ci-last { flex: 1; min-width: 0; font-size: 14px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ci-last .draft { color: var(--danger); }
-.ci-last .typing { color: var(--accent, #3390ec); }
+.ci-last .typing { color: var(--accent); }
 .ci-badge {
-  background: var(--accent-2); color: #f4f4f4;
+  background: var(--accent-2); color: var(--on-badge);
   font-size: 12.5px; font-weight: 600;
   min-width: 23px; height: 23px; border-radius: 12px;
   display: grid; place-items: center; padding: 0 6px; flex: none;
 }
-.ci-badge.muted { background: var(--text-dim); }
+.ci-badge.muted { background: var(--text-dim); color: var(--on-badge-muted); }
 .ci-pin { width: var(--ico-2); height: var(--ico-2); color: var(--text-dim); flex: none; }
 .ci-mute { width: var(--ico-2); height: var(--ico-2); color: var(--text-dim); flex: none; }
 .ci-ticks { width: var(--ico-2); height: var(--ico-2); color: var(--text-dim); flex: none; }
@@ -1404,7 +1447,7 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .cht-name { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 6px; min-width: 0; }
 .cht-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cht-status { font-size: 13px; color: var(--text-dim); }
-.cht-status.online { color: var(--accent); }
+.cht-status.online { color: var(--accent-text); }
 
 /* ---------- Popups / menus / modals ---------- */
 .pop-overlay {
@@ -1486,10 +1529,9 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .ca-accent legend { font-size: 14px; padding: 0 0 8px; }
 .ca-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
 .ca-swatch {
-  --sw: #5aa2e6; position: relative; width: 32px; height: 32px; flex: none;
+  --sw: var(--accent-default); position: relative; width: 32px; height: 32px; flex: none;
   border-radius: 50%; background: var(--sw); cursor: pointer;
 }
-html[data-theme="light"] .ca-swatch[data-default] { --sw: #3390ec; }
 .ca-swatch input[type="radio"] {
   appearance: none; -webkit-appearance: none; position: absolute; inset: 0;
   width: 100%; height: 100%; margin: 0; border-radius: 50%; cursor: pointer;
@@ -1498,7 +1540,7 @@ html[data-theme="light"] .ca-swatch[data-default] { --sw: #3390ec; }
   box-shadow: 0 0 0 2px var(--bg-sidebar), 0 0 0 4px var(--text);
 }
 .ca-swatch input:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
-.ca-custom { background: conic-gradient(#e0516e, #ee8a1f, #c79a0f, #3fa34d, #1fa69a, #5aa2e6, #8774e1, #e0516e); }
+.ca-custom { background: var(--ca-rainbow); } /* set from PRESETS in ui.js */
 .ca-custom input[type="color"] {
   -webkit-appearance: none; appearance: none; position: absolute; inset: 4px;
   width: calc(100% - 8px); height: calc(100% - 8px); padding: 0; margin: 0;
@@ -1706,7 +1748,7 @@ fieldset.eph-set { border: 0; margin: 0; padding: 0; min-inline-size: 0; }
 @media (hover: hover) and (pointer: fine) {
   .btn-text.btn-primary:hover { background: var(--accent-hover); }
 }
-.btn-text { color: var(--accent); font-weight: 600; padding: 10px 14px; border-radius: 8px; }
+.btn-text { color: var(--accent-text); font-weight: 600; padding: 10px 14px; border-radius: 8px; }
 /* Diagnostics chat switches (Logging / DevTools): same size and tone as the
    .btn-text actions they share the #diagnostic-actions bar with. */
 .diag-switch { display: inline-flex; align-items: center; gap: 8px; color: var(--accent); font-weight: 600; padding: 10px 14px; border-radius: 8px; cursor: pointer; user-select: none; -webkit-user-select: none; }
@@ -1728,7 +1770,7 @@ fieldset.eph-set { border: 0; margin: 0; padding: 0; min-inline-size: 0; }
    token made for the out bubble (4.59–4.67:1 in every theme), light
    incoming takes a darkened accent (5.14:1), brutal its accent-2 (7.29:1). */
 .msg-row.out .btn-text { color: var(--text-meta-out); }
-html[data-theme="light"] .msg-row:not(.out) .btn-text { color: var(--accent-text-in, #1a68b8); }
+html[data-theme="light"] .msg-row:not(.out) .btn-text { color: var(--accent-text-in); }
 html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2); }
 @media (hover: hover) and (pointer: fine) {
   .btn-text:hover { background: var(--bg-hover); }
@@ -1737,6 +1779,7 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 /* Pairing request: Deny keeps its natural width, the primary Pair action
    stretches over the rest of the row. */
 .modal.pair-request .modal-foot .btn-primary { flex: 1; }
+.text-field::placeholder { color: var(--text-dim); opacity: 1; }
 .text-field {
   width: 100%; background: var(--bg-hover);
   border: 1px solid var(--border); border-radius: 10px;
@@ -1808,11 +1851,11 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 /* About → Show device info: native <details>; the <pre> wraps (pre-wrap +
    anywhere) so a long user agent never widens the modal on a narrow phone. */
 .device-info { margin: 12px 0 0; }
-.device-info > summary { cursor: pointer; color: var(--accent); font-weight: 600; padding: 8px 0; }
+.device-info > summary { cursor: pointer; color: var(--accent-text-in); font-weight: 600; padding: 8px 0; }
 .device-info-text {
   margin: 4px 0 0; padding: 10px 12px; max-width: 100%; box-sizing: border-box;
   background: var(--bg-hover); border-radius: 10px;
-  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 12px/1.45 var(--font-mono);
   white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;
   -webkit-user-select: text; user-select: text;
 }
@@ -1977,7 +2020,7 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 .toast-copy:hover, .toast-undo:hover { color: var(--text); }
 .toast-close {
   flex: none; cursor: pointer; background: none; border: 0;
-  color: var(--text-dim); line-height: 1; padding: 2px 3px;
+  color: inherit; line-height: 1; padding: 2px 3px; /* the toast surface differs from the page (light theme) */
 }
 .toast-close svg { width: var(--ico-2); height: var(--ico-2); }
 .toast-close:hover { color: var(--text); }
@@ -1985,7 +2028,7 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 /* Welcome splash (first boot, unconfigured account) */
 .splash {
   position: fixed; inset: 0; z-index: 40; /* above app UI (≤10), below modal overlays (50+) and toasts (80) */
-  background: var(--bg, #0f0f14);
+  background: var(--bg);
   display: flex; flex-direction: column;
   overflow: hidden;
 }
@@ -2004,11 +2047,11 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
    Left padding matches the log summary's 16px. */
 .splash-ver {
   flex: none; margin: 0; padding: 0 16px 6px;
-  font-size: 12px; line-height: 1.4; color: var(--text-dim, #999);
+  font-size: 12px; line-height: 1.4; color: var(--text-dim);
   text-align: left; overflow-wrap: anywhere;
 }
 .splash-title { font-size: 30px; font-weight: 700; margin: 0 0 10px; }
-.splash-tag { font-size: 14.5px; line-height: 1.55; color: var(--text-dim, #999); max-width: 420px; margin: 0 0 26px; }
+.splash-tag { font-size: 14.5px; line-height: 1.55; color: var(--text-dim); max-width: 420px; margin: 0 0 26px; }
 .splash-actions, .splash-form { width: min(420px, 100%); display: flex; flex-direction: column; gap: 10px; }
 /* display:flex above would defeat the hidden attribute (author style beats the UA rule) */
 .splash-actions[hidden], .splash-form[hidden] { display: none; }
@@ -2024,16 +2067,16 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 .splash-log {
   flex: none; max-height: calc(var(--vh) * .38);
   border-top: 1px solid var(--border);
-  background: var(--panel, #16161d);
-  font-family: ui-monospace, monospace; font-size: 12px;
+  background: var(--bg-sidebar);
+  font-family: var(--font-mono); font-size: 12px;
 }
-.splash-log summary { cursor: pointer; padding: 10px 16px; color: var(--text-dim, #999); user-select: none; }
+.splash-log summary { cursor: pointer; padding: 10px 16px; color: var(--text-dim); user-select: none; }
 .splash-log-bar { display: flex; justify-content: flex-end; padding: 0 12px; }
 .splash-log pre {
   margin: 0; padding: 4px 16px 14px;
   max-height: calc(var(--vh) * .30); overflow-y: auto;
   white-space: pre-wrap; word-break: break-all;
-  color: var(--text-dim, #aaa); text-align: left;
+  color: var(--text-dim); text-align: left;
 }
 
 /* QR invite */
@@ -2061,7 +2104,7 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 .qr-self.qr-self-center { top: 50%; width: 21%; }
 .qr-loading { color: #555; font-size: 13px; text-align: center; padding: 16px 8px; }
 .invite-link {
-  font-family: ui-monospace, monospace; font-size: 12.5px;
+  font-family: var(--font-mono); font-size: 12.5px;
   word-break: break-all; color: var(--accent);
   background: var(--bg-hover); border-radius: 8px; padding: 10px; margin-top: 8px;
 }
@@ -2206,7 +2249,7 @@ html[data-theme="light"] .acct-pop .ctx-item {
   max-width: 560px;
   margin: 0 auto;
   padding: 10px 12px;
-  border: 1px solid var(--danger, #c0392b);
+  border: 1px solid var(--danger);
   border-radius: 10px;
   background: #221416;
   color: #f2d7d5;
@@ -2224,7 +2267,7 @@ html[data-theme="light"] .acct-pop .ctx-item {
 #boot-error button {
   margin-top: 4px;
   padding: 4px 10px;
-  border: 1px solid var(--danger, #c0392b);
+  border: 1px solid var(--danger);
   border-radius: 8px;
   background: transparent;
   color: inherit;
@@ -2232,13 +2275,15 @@ html[data-theme="light"] .acct-pop .ctx-item {
 }
 #boot-error[hidden] { display: none; }
 
-/* ===== Calls (audio + video, Delta Chat-style screen) ===== */
+/* ===== Calls (audio + video, Delta Chat-style screen) =====
+   Every color comes from the --call-* tokens (defined per theme in :root,
+   light and brutal); sizes sit on the icon ladder. No pure black/white. */
 #call-overlay {
   position: fixed;
   inset: 0;
   z-index: 900;
-  background: #000;
-  color: #fff;
+  background: var(--call-bg);
+  color: var(--call-fg);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -2252,7 +2297,7 @@ html[data-theme="light"] .acct-pop .ctx-item {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  background: #000;
+  background: var(--call-bg);
 }
 .call-top {
   position: absolute;
@@ -2263,7 +2308,7 @@ html[data-theme="light"] .acct-pop .ctx-item {
   text-align: left;
   z-index: 2;
 }
-#call-overlay.video .call-top { background: linear-gradient(rgba(0, 0, 0, 0.55), transparent); }
+#call-overlay.video .call-top { background: linear-gradient(var(--call-scrim), transparent); color: var(--call-video-fg); }
 .call-name {
   font-size: 20px;
   font-weight: 700;
@@ -2271,7 +2316,8 @@ html[data-theme="light"] .acct-pop .ctx-item {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.call-status { margin-top: 4px; font-size: 15px; opacity: 0.75; font-variant-numeric: tabular-nums; }
+.call-status { margin-top: 4px; font-size: 15px; color: var(--call-fg-dim); font-variant-numeric: tabular-nums; }
+#call-overlay.video .call-status { color: inherit; opacity: .8; }
 .call-avatar {
   position: relative;
   width: min(168px, calc(var(--vw) * .46));
@@ -2282,8 +2328,9 @@ html[data-theme="light"] .acct-pop .ctx-item {
   align-items: center;
   justify-content: center;
   margin-bottom: 40px;
+  background: var(--call-avatar-bg);
 }
-.call-avatar-initial { font-size: min(72px, calc(var(--vw) * .2)); font-weight: 600; color: #fff; line-height: 1; }
+.call-avatar-initial { font-size: min(72px, calc(var(--vw) * .2)); font-weight: 600; color: var(--call-avatar-fg); line-height: 1; }
 .call-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .call-local-video {
   position: absolute;
@@ -2292,9 +2339,9 @@ html[data-theme="light"] .acct-pop .ctx-item {
   width: min(110px, calc(var(--vw) * .3));
   aspect-ratio: 3 / 4;
   object-fit: cover;
-  border-radius: 12px;
-  background: #222;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+  border-radius: var(--radius-media);
+  background: var(--call-pip-bg);
+  box-shadow: var(--shadow);
   z-index: 3;
   touch-action: none;
   cursor: grab;
@@ -2313,8 +2360,8 @@ html[data-theme="light"] .acct-pop .ctx-item {
   z-index: 3;
 }
 .call-btn {
-  width: 56px;
-  height: 56px;
+  width: var(--call-btn-size);
+  height: var(--call-btn-size);
   flex: none;
   border-radius: 50%;
   border: 0;
@@ -2322,20 +2369,24 @@ html[data-theme="light"] .acct-pop .ctx-item {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: #4a4a4a;
-  color: #fff;
+  background: var(--call-btn);
+  color: var(--call-fg);
   cursor: pointer;
 }
-.call-btn svg { width: 26px; height: 26px; }
-.call-btn.on { background: #f2f2f2; color: #111; }
-.call-btn.danger { background: #e5332a; color: #fff; }
-.call-btn.accept { background: #2e9d4a; color: #fff; }
-.call-btn:focus-visible { outline: 3px solid #7db4ea; outline-offset: 2px; }
+.call-btn svg { width: var(--ico-5); height: var(--ico-5); }
+.call-btn.on { background: var(--call-btn-on); color: var(--call-btn-on-fg); }
+.call-btn.danger { background: var(--call-danger); color: var(--call-danger-fg); }
+.call-btn.accept { background: var(--call-accept); color: var(--call-accept-fg); }
+.call-btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 @media (max-width: 360px) {
   .call-actions { gap: 8px; }
-  .call-btn { width: 50px; height: 50px; }
-  .call-btn svg { width: 24px; height: 24px; }
+  .call-btn { --call-btn-size: 50px; }
+  .call-btn svg { width: var(--ico-4); height: var(--ico-4); }
 }
+html[data-theme="brutal"] .call-btn { border: 2px solid var(--nb-ink); box-shadow: 3px 3px 0 var(--nb-ink); }
+html[data-theme="brutal"] .call-btn:active { transform: translate(3px, 3px); box-shadow: none; }
+html[data-theme="brutal"] .call-avatar { border-radius: var(--radius-bubble); border: 2px solid var(--nb-ink); box-shadow: var(--shadow); }
+html[data-theme="brutal"] .call-local-video { border: 2px solid var(--nb-ink); border-radius: var(--radius-bubble); }
 #call-remote-audio { display: none; }
 /* Header video-call icon only where the chat name keeps its room; phones
    start video calls from the chat menu (⋮ → Video call). */
@@ -2456,9 +2507,9 @@ html[data-theme="brutal"] .msg-row.out .link-preview .lp-desc { color: #3d3405; 
   padding: 3px 12px;
   border: none; border-radius: 999px;
   background: var(--accent);
-  /* Near-black, not #fff: white on accent blue was ~2.6:1 (dark) / ~3.1:1
-     (light) — both fail 4.5:1; near-black clears it on both accents. */
-  color: #10141c;
+  /* Ink on accent (--on-accent is near-black for the theme blues; a custom
+     accent derives its own) — white on accent blue was 2.6 / 3.1:1. */
+  color: var(--on-accent);
   font-size: 12.5px; font-weight: 600; cursor: pointer;
 }
 @media (hover: hover) and (pointer: fine) {
@@ -2509,7 +2560,7 @@ html[data-theme="light"] .html-view-frame { color-scheme: light; }
   width: 100%; height: 100%;
   display: grid; place-items: center;
   background: var(--accent);
-  color: #f4f4f4;
+  color: var(--on-accent);
   font-size: 20px; font-weight: 700; line-height: 1;
 }
 .file-sub { font-size: 12px; opacity: 0.7; margin-top: 2px; }
@@ -2519,7 +2570,7 @@ html[data-theme="light"] .html-view-frame { color-scheme: light; }
   z-index: 850;
   display: flex;
   flex-direction: column;
-  background: var(--bg, #10141a);
+  background: var(--bg);
 }
 .webxdc-bar {
   display: flex;
@@ -2536,7 +2587,7 @@ html[data-theme="light"] .html-view-frame { color-scheme: light; }
   background: var(--bg); /* no white flash before the app paints itself */
   color-scheme: dark; /* dark canvas + dark scrollbars; app can override */
 }
-html[data-theme="light"] .webxdc-frame { color-scheme: light; background: #fff; }
+html[data-theme="light"] .webxdc-frame { color-scheme: light; background: var(--bg-sidebar); }
 
 /* ---------- Local chat hub card (sidebar) ---------- */
 .lc-card {
@@ -2608,7 +2659,9 @@ progress.pair-bar.is-fail::-moz-progress-bar { background: #ff6b6b; }
 .update-progress { flex: 1 0 100%; height: 6px; }
 .mfp-pct { font-size: 12px; color: var(--text-dim); margin-top: 4px; text-align: right; }
 .mfp-fail { font-size: 12.5px; color: #e5484d; margin-top: 6px; }
-.msg-transfer.is-failed .btn-text { padding: 2px 8px; margin-top: 4px; font-size: 13px; }
+/* Inline in-bubble / hint actions share one size (AGENTS 6.4 in-bubble rules). */
+.msg-transfer.is-failed .btn-text, .msg-settings-act .btn-text, .md-note-acts .btn-text { padding: 2px 8px; font-size: 13px; }
+.msg-transfer.is-failed .btn-text { margin-top: 4px; }
 
 /* ---------- Neobrutalist dark theme ("brutal") ---------- */
 /* Neobrutalism (neobrutalism.dev) translated to Velta's token set: flat
@@ -2629,16 +2682,26 @@ html[data-theme="brutal"] {
   --accent-2: #4fd1c5;
   --text: #f2f0e9;
   --text-dim: #a3a0ad;
-  --text-meta-in: #918e9c;
+  --text-meta-in: #a19eab; /* 5.18:1 on #2d2d38 (was #918e9c, 4.24) */
   --text-meta-out: #55480a;
   --green: #3ecf5a;
-  --danger: #ef6461;
+  --danger: #f47c79; /* 4.9:1 on #313139 (was #ef6461, 4.1) */
   --border: #45434f;
   --shadow: 4px 4px 0 #121017;
   --radius-bubble: 6px;
   --nb-ink: #121017;      /* strong borders + hard shadow ink */
   --nb-main: #e0b52f;     /* the vivid main yellow */
   --nb-main-ink: #211d05; /* text on main yellow */
+  --accent-default: #8f7ff0;
+  --accent-text: #a99cf5; /* #8f7ff0 is 4.2:1 on #2a2a35 */
+  --accent-text-in: var(--accent-2); /* accent fails 4.5 on incoming */
+  --quote-name: var(--accent-2);
+  --quote-name-out: #2b2406;
+  --bg-elev: #2d2d38;
+  --call-btn: var(--bg-bubble-in);
+  --call-danger-fg: var(--nb-ink);
+  --call-accept: var(--green);
+  --call-accept-fg: var(--nb-ink);
   color-scheme: dark;
 }
 
@@ -2692,7 +2755,9 @@ html[data-theme="brutal"] .bubble {
 }
 html[data-theme="brutal"] .msg-row.out .bubble { background: var(--nb-main); }
 html[data-theme="brutal"] .msg-row.out .bubble .msg-text,
-html[data-theme="brutal"] .msg-row.out .msg-fwd { color: var(--nb-main-ink); }
+html[data-theme="brutal"] .msg-row.out .msg-fwd,
+html[data-theme="brutal"] .msg-row.out .reaction-chip,
+html[data-theme="brutal"] .msg-row.out .msg-file { color: var(--nb-main-ink); }
 html[data-theme="brutal"] .msg-row.out .msg-meta { color: var(--text-meta-out); }
 html[data-theme="brutal"] .msg-meta .ticks.read { color: var(--nb-main-ink); }
 html[data-theme="brutal"] .msg-row.out .msg-text a,
@@ -2703,7 +2768,6 @@ html[data-theme="brutal"] .msg-row.out .msg-text .hashtag {
 html[data-theme="brutal"] .msg-row.out .msg-quote {
   border-left-color: var(--nb-main-ink); background: rgba(18, 16, 22, .1);
 }
-html[data-theme="brutal"] .msg-row.out .msg-quote .q-name { color: #2b2406; }
 html[data-theme="brutal"] .msg-row.out .msg-quote .q-text { color: #3d3410; }
 html[data-theme="brutal"] .msg-row.out .msg-text blockquote {
   border-left-color: var(--nb-main-ink); color: #332b08;
@@ -2766,7 +2830,7 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 .side-view .qr-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 .side-view .qr-scan { width: 100%; max-width: 360px; aspect-ratio: 1; margin: 4px auto; border-radius: 12px; overflow: hidden; background: #0b0b10; }
 .side-view .qr-scan video { width: 100%; height: 100%; object-fit: cover; display: block; }
-.side-view .qr-scan-status { text-align: center; font-size: 13.5px; color: var(--text-dim, #777); }
+.side-view .qr-scan-status { text-align: center; font-size: 13.5px; color: var(--text-dim); }
 .side-view .qr-view > .side-tabs { margin-bottom: 4px; }
 
 /* #135 recent "/" commands: listbox anchored above #main-composer. */
@@ -2780,7 +2844,7 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
   box-shadow: var(--shadow);
 }
 .recent-commands-pop [role=option] {
-  padding: 10px 14px; cursor: pointer; font-family: ui-monospace, monospace;
+  padding: 10px 14px; cursor: pointer; font-family: var(--font-mono);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .recent-commands-pop [role=option]:hover,
@@ -2815,7 +2879,7 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 .member-search .text-field { flex: 1; min-width: 0; }
 .member-scroll { position: relative; }
 .member-row { display: flex; align-items: center; gap: 10px; padding: 0 6px; box-sizing: border-box; cursor: pointer; border-radius: 8px; }
-.member-row:hover { background: var(--hover, rgba(127,127,127,.08)); }
+.member-row:hover { background: var(--hover); }
 .member-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .member-row velta-avatar { flex: 0 0 auto; }
 .member-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
@@ -2830,16 +2894,16 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 .media-tile .media-goto { position: absolute; top: 4px; right: 4px; z-index: 2; width: 28px; height: 28px; min-width: 0; padding: 0; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; display: grid; place-items: center; }
 .media-tile .media-goto svg { width: 16px; height: 16px; }
 .media-row .media-goto { flex: none; }
-.media-tile .media-tile-inner { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 6px; background: var(--bg-elev, #2a2a2a); }
-.media-tile.media-loading::after { content: ""; display: block; width: 100%; height: 100%; border-radius: 6px; background: var(--bg-elev, #2a2a2a); opacity: .6; }
+.media-tile .media-tile-inner { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 6px; background: var(--bg-elev); }
+.media-tile.media-loading::after { content: ""; display: block; width: 100%; height: 100%; border-radius: 6px; background: var(--bg-elev); opacity: .6; }
 .media-tile .media-video { position: relative; display: grid; place-items: center; color: #fff; overflow: hidden; }
 .media-video .media-poster { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
 .media-video .media-play-glyph { position: relative; z-index: 1; display: grid; place-items: center; line-height: 0; }
 .media-video .media-play-glyph svg { width: 28px; height: 28px; }
 .media-video .media-dur { z-index: 1; line-height: 1.4; white-space: nowrap; position: absolute; right: 4px; bottom: 3px; font-size: 11px; background: rgba(0,0,0,.55); padding: 0 4px; border-radius: 4px; }
-.media-open:focus-visible, .media-goto:focus-visible, .media-row:focus-visible { outline: 2px solid var(--accent, #5aa2e6); outline-offset: -2px; }
+.media-open:focus-visible, .media-goto:focus-visible, .media-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .media-app-icon { width: 36px; height: 36px; flex: none; border-radius: 8px; object-fit: cover; }
-.media-app-letter { display: grid; place-items: center; background: var(--bg-elev, #444); font-weight: 600; }
+.media-app-letter { display: grid; place-items: center; background: var(--bg-elev); font-weight: 600; }
 .media-play { flex: none; }
 .media-audio { display: block; width: 100%; }
 .media-details summary[aria-disabled="true"] { opacity: .6; }
@@ -2855,7 +2919,6 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 /* "Apply these settings" inside a Saved Messages bubble: the scoped
    .msg-row.out .btn-text color keeps it at AA on the own bubble (6.4). */
 .msg-settings-act { margin-top: 6px; }
-.msg-settings-act .btn-text { padding: 4px 8px; font-size: 13px; }
 /* Apply confirm: what changes, current → new. Scrolls inside the modal body
    when long (inner scroll areas are fine, AGENTS.md §11). */
 .settings-diff p { font-size: 15px; line-height: 1.45; }

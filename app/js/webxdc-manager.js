@@ -212,7 +212,7 @@ async function activeTrust() {
 // Design-system tokens the call screen uses, with the live (theme + custom
 // accent) values, so the iframe matches the host without its own palette.
 export const CALL_THEME_TOKENS = ["--bg", "--bg-sidebar", "--bg-hover", "--bg-active", "--bg-bubble-in", "--accent", "--accent-hover",
-  "--on-accent", "--text", "--text-dim", "--green", "--danger", "--border", "--shadow", "--radius-bubble"];
+  "--on-accent", "--accent-text", "--text", "--text-dim", "--green", "--danger", "--border", "--shadow", "--radius-bubble"];
 function themeTokens() {
   const cs = getComputedStyle(document.documentElement);
   const out = {};

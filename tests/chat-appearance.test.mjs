@@ -150,7 +150,11 @@ test("apply(): inline :root properties + one per-theme accent <style>", () => {
   assert.ok(tag, "accent style element created at boot");
   assert.match(tag.textContent, /:root:not\(\[data-theme="light"\]\):not\(\[data-theme="brutal"\]\) \{[^}]*--accent: #/);
   assert.match(tag.textContent, /:root\[data-theme="light"\] \{[^}]*--bg-bubble-out: #/);
-  assert.doesNotMatch(tag.textContent, /brutal"\] \{/, "brutal keeps its palette");
+  // Brutal: the accent drives fills/accent text only; its yellow bubble stays.
+  const br = tag.textContent.match(/:root\[data-theme="brutal"\] \{([^}]*)\}/);
+  assert.ok(br, "brutal accent block");
+  assert.match(br[1], /--accent: #/);
+  assert.doesNotMatch(br[1], /--bg-bubble-out|--bg-active|--text-meta-out/, "brutal keeps its own-bubble palette");
   // Back to defaults: everything removed, stylesheet values return.
   A.apply(A.reset(), doc);
   assert.equal(doc.props.size, 0);
@@ -212,4 +216,19 @@ test("drawer section: native <details>, labelled ranges with px valuetext, swatc
   const { A } = load();
   assert.equal(A.PRESETS.length, 8);
   assert.equal(A.PRESETS[0][0], null, "first swatch = the theme's stock blue");
+});
+
+// The pre-paint mirrors of main.css tokens must not drift (design audit #4).
+test("SURF / THEME_BG mirror main.css tokens per theme", () => {
+  const { A } = load();
+  const block = sel => { const i = CSS.indexOf(sel + " {"); return CSS.slice(i, CSS.indexOf("\n}", i)); };
+  const tok = (b, n) => (b.match(new RegExp("--" + n + ":\\s*(#[0-9a-f]{6})", "i")) || [])[1];
+  const blocks = { dark: block(":root"), light: block('html[data-theme="light"]'), brutal: block('html[data-theme="brutal"]') };
+  for (const [th, b] of Object.entries(blocks)) {
+    assert.equal(A.THEME_BG[th], tok(b, "bg"), th + " --bg");
+    assert.equal(A.SURF[th].text, tok(b, "text"), th + " --text");
+    assert.equal(A.SURF[th].bubbleIn, tok(b, "bg-bubble-in"), th + " --bg-bubble-in");
+  }
+  assert.equal(A.SURF.dark.chat, tok(blocks.dark, "bg-chat"));
+  assert.equal(A.SURF.brutal.chat, tok(blocks.brutal, "bg-chat"));
 });

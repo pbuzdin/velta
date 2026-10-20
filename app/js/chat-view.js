@@ -80,6 +80,7 @@ import { stripTrackingUrl, stripTrackingText, trackingStripEnabled } from "./tra
 import { getReadMarker, clearReadMarker } from "./read-markers.js";
 import { shareStageKind, shareViewtype } from "./share-in.js";
 import { reactionToggle, myReaction } from "./reactions.js";
+import { senderColorVars } from "./name-color.js";
 import { sendLargeFile, largeFileAvailable, largeFileInfoHtml, wireLargeFileInfo } from "./large-file.js";
 import { lufiUploadFor } from "./lufi.js";
 import { isAndroid, rustLog, tauriInvoke } from "./tauri.js";
@@ -1670,7 +1671,7 @@ export class ChatView {
     if (m.originalMsgId) {
       bubble += `<button type="button" class="msg-show-in-chat" data-act="show-original" title="Show in chat" aria-label="Show in chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
     }
-    if (showAvatar) bubble += `<div class="msg-sender" style="color:${fc.color}">${escapeHtml(fc.name)}</div>`;
+    if (showAvatar) bubble += `<div class="msg-sender" style="${senderColorVars(fc.color)}">${escapeHtml(fc.name)}</div>`;
     if (m.fwdFrom) bubble += `<div class="msg-fwd">Forwarded ${FWD_ARTICLE(m.viewtype)}${FWD_NOUN(m.viewtype)}</div>`;
     if (m.quote) {
       bubble += `<div class="msg-quote" data-quote="${m.quote.id}">

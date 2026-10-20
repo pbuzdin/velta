@@ -948,7 +948,7 @@ export class CallManager extends EventTarget {
     if (av.dataset.key !== avKey) {
       av.dataset.key = avKey;
       av.replaceChildren();
-      av.style.background = this.peer.color || "#5a6270";
+      av.style.background = this.peer.color || "";
       const initial = document.createElement("span");
       initial.className = "call-avatar-initial";
       initial.textContent = avatarInitial(name);
