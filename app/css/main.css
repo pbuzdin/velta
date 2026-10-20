@@ -2890,8 +2890,7 @@ html.in-group-call .app { margin-top: calc(var(--gcb-h) + env(safe-area-inset-to
 #group-call-bar.speaking .gcb-dot { box-shadow: 0 0 0 4px color-mix(in srgb, var(--green) 35%, transparent); }
 #group-call-bar .btn-text { padding: 6px 12px; flex: none; }
 #group-call-bar .gcb-mute[aria-pressed="true"] { background: var(--bg-active); color: var(--on-accent); }
-#group-call-bar .btn-text.gcb-leave, .msg-groupcall .btn-text.gc-leave { color: var(--danger); }
-.msg-row .msg-groupcall .btn-text.gc-leave, html[data-theme] .msg-row:not(.out) .msg-groupcall .btn-text.gc-leave { color: var(--danger); }
+#group-call-bar .btn-text.gcb-leave { color: var(--danger); }
 @media (hover: hover) and (pointer: fine) { #group-call-bar .gcb-open:hover { background: var(--bg-hover); } }
 
 /* Group call card in the chat (group-call-card.js): bubble content, existing
@@ -2905,7 +2904,21 @@ html.in-group-call .app { margin-top: calc(var(--gcb-h) + env(safe-area-inset-to
 .msg-groupcall .gc-more { font-size: 12.5px; color: var(--text-dim); align-self: center; }
 .msg-groupcall .gc-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .msg-groupcall .btn-text { padding: 6px 14px; border-radius: 999px; }
-.msg-groupcall .btn-primary { width: auto; }
+/* Join / Start again: NOT an accent fill. On the own (accent-tinted) bubble
+   the scoped .msg-row.out .btn-text color (--text-meta-out) beat
+   .btn-text.btn-primary's --on-accent and the fill sat on an accent bubble:
+   blue on blue. The card's primary action is the in-bubble .btn-text (its
+   per-surface AA colors: --text-meta-out out, --accent-text-in light in,
+   --accent-2 brutal in, all recomputed for a custom accent) with a
+   currentColor ring to mark it primary. Contrast: e2e-group-call-contrast. */
+/* In a bubble, --danger / --green fail AA (2.2–4.3:1 across themes), so
+   Leave is a regular in-bubble .btn-text and "You're in" takes the bubble's
+   text color; dim text on the own bubble is --text-meta-out (as .msg-meta),
+   brutal's own bubble uses --nb-main-ink like .msg-text. */
+.msg-row .msg-groupcall .gc-in { color: inherit; }
+.msg-row.out .msg-groupcall .gc-sub, .msg-row.out .msg-groupcall .gc-more, .msg-row.out .msg-groupcall .gc-ended-label { color: var(--text-meta-out); }
+html[data-theme="brutal"] .msg-row.out .msg-groupcall { color: var(--nb-main-ink); }
+.msg-groupcall .btn-text.gc-primary { box-shadow: inset 0 0 0 1px currentColor; }
 .msg-groupcall .gc-in { color: var(--green); font-weight: 600; font-size: 13px; }
 .msg-groupcall .gc-ended-label { color: var(--text-dim); font-size: 13px; }
 .gc-name-label { display: block; font-size: 13px; color: var(--text-dim); margin-bottom: 6px; }

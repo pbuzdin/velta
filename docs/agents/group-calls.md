@@ -137,6 +137,14 @@ view shows the roster, leave from the bar.
   gets live token values via `getInfo().veltaTheme` / `veltaCall.getTheme()`;
   its CSS fallbacks are the dark snapshot (Delta Chat only). Linted by
   `tests/group-call-card.test.mjs` (no hex/rgb/hsl in gc/gcb rules).
+- **In-bubble colors** — the card lives in a bubble, so its buttons follow
+  the in-bubble `.btn-text` rules (AGENTS.md: `--text-meta-out` on the own
+  bubble, `--accent-text-in` light incoming, `--accent-2` brutal incoming).
+  Join / Start again are NOT `.btn-primary` accent fills (that was blue on
+  blue in outgoing bubbles): `.gc-primary` = in-bubble `.btn-text` + a
+  `currentColor` ring. Leave is not `--danger` and "You're in" not
+  `--green` inside bubbles (both < 4.5:1). `scripts/e2e-group-call-contrast.mjs`
+  checks every state, in/out, dark/light/brutal + yellow/red custom accents.
 - **Mock demo** — `velta-mock=1`: Weekend Crew has a seeded call
   ("Saturday hike plan" by Mara, 2 members); `velta-demo-end-call` window
   event ends it. e2e: `scripts/e2e-group-call-chat.mjs` (360 px).

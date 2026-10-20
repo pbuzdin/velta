@@ -75,7 +75,7 @@ export function cardHtml({ msgId, avatarHtml, esc }) {
   <div class="gc-head">${avatarHtml}<div class="gc-text"><div class="gc-title">${esc("Group call")}</div><div class="gc-sub">Loading…</div></div></div>
   <div class="gc-people" hidden></div>
   <div class="gc-actions">
-    <button type="button" class="gc-join btn-text btn-primary">Join</button>
+    <button type="button" class="gc-join btn-text gc-primary">Join</button>
     <span class="gc-in" hidden>✓ You're in</span>
     <button type="button" class="gc-open btn-text" title="Open the call screen">Open</button>
     <button type="button" class="gc-leave btn-text" hidden>Leave</button>
