@@ -172,3 +172,28 @@ Where to read them (CI APKs are release builds, so `run-as` does not work):
   mirrored to `/storage/emulated/0/Android/data/<id>/files/logs/velta.log`.
 - Diagnostics → DevTools + `chrome://inspect`: `pc.getStats()` —
   outbound-rtp audio `packetsSent` must grow during the call.
+
+## PWA (wasm core in the browser)
+
+- Same code path: `WorkerWasmTransport` → `worker-wasm.js` → wasm core →
+  `JsonRpcCore` → `calls.js`. The wrapper forwards the full `CommandApi`, so
+  `place_outgoing_call`, `accept_incoming_call`, `call_info`, `end_call` and
+  `ice_servers` all dispatch in wasm (probed 2026-10-20 on the v1.4.75 wasm).
+- `ice_servers` resolves TURN hostnames inside the core; on wasm that DNS
+  goes through the C3 tunnel (`/dns/<host>`). With no tunnel, or a failed
+  lookup, the core returns `[]`. `safeIceServers()` then uses
+  `FALLBACK_ICE_SERVERS` (turn.delta.chat by hostname, same public
+  credentials as the core's fallback): the browser resolves the name itself.
+- Speaker button: hidden (`shellAudioRoute().supported` is false outside the
+  Android shell); the browser/OS picks the output.
+- getUserMedia prompts are the browser's own; the page is HTTPS, so it is
+  allowed. A denied mic is caught by `startCallIfMicOk`.
+- Limits: incoming calls ring only while a tab runs the core (no push, no
+  service-worker IMAP); one tab holds the `velta-wasm-core` lock; no
+  proximity sensor or earpiece routing; mobile browsers may pause a
+  background tab and drop the call.
+- `scripts/e2e-call-wasm.mjs`: two contexts running the PWA backend, with
+  signaling over real IMAP/SMTP. Needs `WASM_DIST` plus `WS_TCP_PROXY`
+  (raw TCP 993/465 out) or `RELAY_WS_URL` (a C3 relay that tunnels to the
+  account's mail host). The agent box blocks raw TCP and a7's tunnel didn't
+  resolve nine.testrun.org, so it has not passed end to end yet.

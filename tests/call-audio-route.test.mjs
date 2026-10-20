@@ -441,3 +441,13 @@ test("shell wiring: call_audio_* commands with the auto flag, CallAudio cached, 
   const css = readFileSync(new URL("../app/css/main.css", import.meta.url), "utf8");
   assert.match(css, /@media \(max-width: 479px\) \{ #btn-video-call \{ display: none; \} \}/);
 });
+
+test("ice servers: core list wins; empty/failed list falls back to turn.delta.chat by hostname (PWA)", async () => {
+  const { CallManager, FALLBACK_ICE_SERVERS } = await import("../app/js/calls.js");
+  const mk = (fn) => new CallManager({ addEventListener() {}, iceServers: fn }, () => ({}), async () => ({}), () => {}, { supported: false }, () => {});
+  const relay = [{ urls: ["turn:192.0.2.1:3478"], username: "u", credential: "p" }];
+  assert.deepEqual(await mk(async () => relay).safeIceServers(), relay);
+  assert.deepEqual(await mk(async () => []).safeIceServers(), FALLBACK_ICE_SERVERS);
+  assert.deepEqual(await mk(async () => { throw new Error("x"); }).safeIceServers(), FALLBACK_ICE_SERVERS);
+  assert.match(FALLBACK_ICE_SERVERS[0].urls[0], /^turn:turn\.delta\.chat:3478$/);
+});

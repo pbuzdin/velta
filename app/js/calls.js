@@ -36,6 +36,13 @@ const ENDED_VISIBLE_MS = 2500; // how long the ended overlay stays readable
 
 // Voice capture: echo canceller and gain control matter most on a phone
 // held to the ear (earpiece) or on the loudspeaker.
+// Same server and public credentials as core create_fallback_ice_servers().
+export const FALLBACK_ICE_SERVERS = [{
+  urls: ["turn:turn.delta.chat:3478"],
+  username: "public",
+  credential: "o4tR7yG4rG2slhXqRUf9zgmHz",
+}];
+
 export const MIC_CONSTRAINTS = Object.freeze({
   audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
   video: false,
@@ -725,13 +732,22 @@ export class CallManager extends EventTarget {
     audio.play().catch((err) => this._log(`remote audio play() failed: ${err?.message || err}`));
   }
 
+  // The core resolves TURN hostnames to IPs itself (Delta Chat Desktop can't
+  // use DNS). In the PWA that lookup rides the wasm tunnel; when it fails the
+  // core returns [] and the call would only have host candidates. A browser
+  // RTCPeerConnection resolves names on its own, so fall back to the core's
+  // own public fallback server by hostname.
   async safeIceServers() {
+    let servers = [];
     try {
-      const servers = await this.core.iceServers();
-      return Array.isArray(servers) ? servers.filter((s) => s && s.urls) : [];
-    } catch {
-      return [];
+      const raw = await this.core.iceServers();
+      servers = Array.isArray(raw) ? raw.filter((s) => s && s.urls) : [];
+    } catch {}
+    if (!servers.length) {
+      this._log("ice_servers empty; using the turn.delta.chat fallback by hostname");
+      return FALLBACK_ICE_SERVERS;
     }
+    return servers;
   }
 
   startTimer() {

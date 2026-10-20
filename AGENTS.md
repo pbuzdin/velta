@@ -2863,6 +2863,7 @@ do-not-regress rules; dates mark when the lesson was learned.
   timed out); phones use ⋮ → Video call. The call screen is built once per
   call (the `<video>` elements must survive re-renders). Run
   `scripts/e2e-call-audio.mjs` after any calls.js change.
+- **PWA calls (2026-10-20, #141).** The wasm core dispatches every call RPC. An empty `ice_servers` (no tunnel DNS) falls back to turn.delta.chat by hostname in `safeIceServers()`. The speaker button is hidden. Calls ring only while a tab is open. `scripts/e2e-call-wasm.mjs` needs outbound IMAP/SMTP or a C3 tunnel (see docs/agents/calls.md).
 - **Call cards (post-1.4.38, issue #8)** — call messages (core viewtype
   `Call`, mapped to "call" in `_mapViewtype`) render as a call card in the
   chat instead of the stock text string: direction + state + duration from
