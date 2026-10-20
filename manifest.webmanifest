@@ -1,0 +1,23 @@
+{
+  "name": "Velta — Delta Chat client",
+  "short_name": "Velta",
+  "description": "End-to-end encrypted chat over chatmail relays",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f0f14",
+  "theme_color": "#0f0f14",
+  "protocol_handlers": [
+    {
+      "protocol": "web+dcaccount",
+      "url": "./index.html?qr=%s"
+    }
+  ],
+  "handle_links": "preferred",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
