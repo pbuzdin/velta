@@ -67,12 +67,13 @@ PATCHES = [
 """,
     ),
     dict(
-        # Upstream #8797 (2.63.0) already resets transport_id/from in
-        # disconnect(); this op only clears the shared handle.
+        # Upstream 2.64.0 (smtp::Connection refactor) drops the whole
+        # Connection in disconnect(); this op only clears the shared handle
+        # (anchored on the end of disconnect()).
         id="#10 disconnect clears the handle (smtp.rs)",
         file="core/src/smtp.rs",
         applied=".store(0, std::sync::atomic::Ordering::SeqCst);",
-        anchor="        self.last_success = None;\n    }\n",
+        anchor="    }\n\n    /// Return true if smtp was connected but is not known",
         where="before",
         text="""        self.sending_transport
             .store(0, std::sync::atomic::Ordering::SeqCst);
@@ -82,10 +83,15 @@ PATCHES = [
         id="#10 connect success sets the handle (smtp.rs)",
         file="core/src/smtp.rs",
         applied=".store(transport_id, std::sync::atomic::Ordering::SeqCst);",
-        anchor="                    self.transport_id = Some(transport_id);\n",
-        where="after",
-        text="""                    self.sending_transport
+        # 2.64.0: upstream's success arm is `Ok(()) => return Ok(()),`
+        # (transport_id now lives in smtp::Connection).
+        anchor="                Ok(()) => return Ok(()),\n",
+        where="replace",
+        text="""                Ok(()) => {
+                    self.sending_transport
                         .store(transport_id, std::sync::atomic::Ordering::SeqCst);
+                    return Ok(());
+                }
 """,
     ),
     dict(
@@ -210,7 +216,7 @@ async fn test_velta_disconnect_clears_sending_transport() -> Result<()> {
     handle.store(7, std::sync::atomic::Ordering::SeqCst);
     smtp.disconnect();
     assert_eq!(handle.load(std::sync::atomic::Ordering::SeqCst), 0);
-    assert!(smtp.transport_id.is_none());
+    assert!(smtp.connection.is_none());
     Ok(())
 }
 """,
@@ -280,6 +286,45 @@ fn velta_pin_backed_off(
         .is_some_and(|failed_at| time_elapsed(failed_at) < VELTA_PIN_BACKOFF)
 }
 
+/// Velta patch (#11, core 2.64+): the server rejected a send on this
+/// transport. Upstream records an `smtp_failure` row and disconnects so the
+/// next connect falls back to another transport; back the pin off for
+/// VELTA_PIN_BACKOFF too, so the pin does not override that fallback. The
+/// pin is retried once the backoff expires or after it connects again.
+fn velta_note_send_failure(
+    failed: &mut std::collections::BTreeMap<u32, tools::Time>,
+    transport_id: u32,
+) {
+    let now = tools::Time::now();
+    failed.insert(transport_id, now);
+}
+
+/// Velta patch (#11, core 2.64+): the in-memory backoff is lost on restart,
+/// but upstream's `smtp_failure` row survives until the transport sends
+/// successfully again. If the pin has an active failure row and no backoff
+/// entry yet, start the backoff now instead of letting the pin win.
+async fn velta_seed_send_failure(
+    context: &Context,
+    pin: Option<u32>,
+    failed: &mut std::collections::BTreeMap<u32, tools::Time>,
+) -> Result<()> {
+    let Some(pin) = pin else { return Ok(()) };
+    if failed.contains_key(&pin) {
+        return Ok(());
+    }
+    if context
+        .sql
+        .exists(
+            "SELECT COUNT(*) FROM smtp_failure WHERE transport_id=?",
+            (pin,),
+        )
+        .await?
+    {
+        failed.insert(pin, tools::Time::now());
+    }
+    Ok(())
+}
+
 /// Velta patch (#11): moves the pinned transport to the front of upstream's
 /// order — or to second place, behind the most recently successful
 /// transport, while it is backing off.
@@ -332,7 +377,9 @@ async fn upstream_sorted_transports(context: &Context) -> Result<Vec<(u32, Confi
         // backoff expired) — drop the live connection so the next connect
         // tries the pin first.
         let velta_pin = velta_pinned_transport(context).await?;
-        if let (Some(pin), Some(bound)) = (velta_pin, self.transport_id)
+        velta_seed_send_failure(context, velta_pin, &mut self.velta_connect_failed).await?;
+        let bound = self.connection.as_ref().map(|c| c.transport_id);
+        if let (Some(pin), Some(bound)) = (velta_pin, bound)
             && pin != bound
             && !velta_pin_backed_off(&self.velta_connect_failed, pin)
         {
@@ -361,7 +408,7 @@ async fn upstream_sorted_transports(context: &Context) -> Result<Vec<(u32, Confi
         id="#11 connect success clears the failure (smtp.rs)",
         file="core/src/smtp.rs",
         applied="self.velta_connect_failed.remove(&transport_id);",
-        anchor="                    self.transport_id = Some(transport_id);\n",
+        anchor="                        .store(transport_id, std::sync::atomic::Ordering::SeqCst);\n",
         where="after",
         text="""                    self.velta_connect_failed.remove(&transport_id);
 """,
@@ -480,6 +527,100 @@ async fn test_velta_pin_backoff() -> Result<()> {
     assert_eq!(only.len(), 1);
     Ok(())
 }
+
+// Velta patch (#11, core 2.64+): when the pinned transport rejects a send,
+// upstream's smtp_failure fallback wins; the pin is retried after the
+// backoff expires, and a successful send clears the failure for good.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_velta_pin_yields_to_send_failure() -> Result<()> {
+    let mut tcm = TestContextManager::new();
+    let t = &tcm.unconfigured().await;
+
+    transport::add_pseudo_transport(t, "foo@example.net").await?;
+    transport::add_pseudo_transport(t, "bar@example.net").await?;
+    transport::add_pseudo_transport(t, "baz@example.net").await?;
+    let transports = super::upstream_sorted_transports(t).await?;
+    let [(id_foo, _), (id_bar, _), (id_baz, _)] = transports[..] else {
+        panic!("Unexpected number of transports");
+    };
+    super::record_success(t, id_baz).await?;
+    t.set_ui_config(super::VELTA_SEND_TRANSPORT_KEY, Some("bar@example.net"))
+        .await?;
+    let pin = super::velta_pinned_transport(t).await?;
+    assert_eq!(pin, Some(id_bar));
+    let order = |upstream: Vec<(u32, crate::transport::ConfiguredLoginParam)>,
+                 failed: &std::collections::BTreeMap<u32, crate::tools::Time>| {
+        let mut v = upstream;
+        super::velta_pin_first(&mut v, pin, failed);
+        v.into_iter().map(|(id, _)| id).collect::<Vec<_>>()
+    };
+
+    // Pin rejected a send: upstream records the failure, the send path
+    // backs the pin off -> fallback (most recently successful) goes first.
+    super::record_failure(t, id_bar).await?;
+    let mut failed = std::collections::BTreeMap::new();
+    super::velta_note_send_failure(&mut failed, id_bar);
+    assert_eq!(
+        order(super::upstream_sorted_transports(t).await?, &failed),
+        [id_baz, id_bar, id_foo]
+    );
+
+    // After a restart the backoff map is empty, but the smtp_failure row is
+    // still active: the pin must not override it.
+    let mut fresh = std::collections::BTreeMap::new();
+    assert_eq!(
+        order(super::upstream_sorted_transports(t).await?, &fresh),
+        [id_bar, id_baz, id_foo],
+        "without seeding the pin would win"
+    );
+    super::velta_seed_send_failure(t, pin, &mut fresh).await?;
+    assert!(super::velta_pin_backed_off(&fresh, id_bar));
+    assert_eq!(
+        order(super::upstream_sorted_transports(t).await?, &fresh),
+        [id_baz, id_bar, id_foo]
+    );
+
+    // Backoff expired: the pin is retried first again.
+    let long_ago =
+        crate::tools::Time::now() - super::VELTA_PIN_BACKOFF - std::time::Duration::from_secs(1);
+    failed.insert(id_bar, long_ago);
+    assert_eq!(
+        order(super::upstream_sorted_transports(t).await?, &failed),
+        [id_bar, id_baz, id_foo]
+    );
+
+    // A successful send on the pin clears the failure row: nothing to seed.
+    super::record_success(t, id_bar).await?;
+    let mut after = std::collections::BTreeMap::new();
+    super::velta_seed_send_failure(t, pin, &mut after).await?;
+    assert!(after.is_empty());
+    assert_eq!(
+        order(super::upstream_sorted_transports(t).await?, &after),
+        [id_bar, id_baz, id_foo]
+    );
+    Ok(())
+}
+""",
+    ),
+
+    dict(
+        id="#11 send rejection backs the pin off (smtp.rs)",
+        file="core/src/smtp.rs",
+        applied="velta_note_send_failure(&mut smtp.velta_connect_failed, transport_id);",
+        anchor="""            let res = match err {
+                async_smtp::error::Error::Permanent(ref response) => {
+""",
+        where="before",
+        text="""            // Velta patch (#11): upstream just recorded an smtp_failure and
+            // will fall back to another transport; do not let the pin
+            // override that until its backoff expires.
+            if matches!(
+                err,
+                async_smtp::error::Error::Permanent(_) | async_smtp::error::Error::Transient(_)
+            ) {
+                velta_note_send_failure(&mut smtp.velta_connect_failed, transport_id);
+            }
+
 """,
     ),
 

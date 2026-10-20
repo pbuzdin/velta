@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::test_utils::TestContextManager;
+use crate::test_utils::{TestContext, TestContextManager};
 use crate::transport;
 
 // Velta patch (#11): "Use for sending" pins a transport via the ui config
@@ -99,6 +99,79 @@ async fn test_velta_pin_backoff() -> Result<()> {
     Ok(())
 }
 
+// Velta patch (#11, core 2.64+): when the pinned transport rejects a send,
+// upstream's smtp_failure fallback wins; the pin is retried after the
+// backoff expires, and a successful send clears the failure for good.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_velta_pin_yields_to_send_failure() -> Result<()> {
+    let mut tcm = TestContextManager::new();
+    let t = &tcm.unconfigured().await;
+
+    transport::add_pseudo_transport(t, "foo@example.net").await?;
+    transport::add_pseudo_transport(t, "bar@example.net").await?;
+    transport::add_pseudo_transport(t, "baz@example.net").await?;
+    let transports = super::upstream_sorted_transports(t).await?;
+    let [(id_foo, _), (id_bar, _), (id_baz, _)] = transports[..] else {
+        panic!("Unexpected number of transports");
+    };
+    super::record_success(t, id_baz).await?;
+    t.set_ui_config(super::VELTA_SEND_TRANSPORT_KEY, Some("bar@example.net"))
+        .await?;
+    let pin = super::velta_pinned_transport(t).await?;
+    assert_eq!(pin, Some(id_bar));
+    let order = |upstream: Vec<(u32, crate::transport::ConfiguredLoginParam)>,
+                 failed: &std::collections::BTreeMap<u32, crate::tools::Time>| {
+        let mut v = upstream;
+        super::velta_pin_first(&mut v, pin, failed);
+        v.into_iter().map(|(id, _)| id).collect::<Vec<_>>()
+    };
+
+    // Pin rejected a send: upstream records the failure, the send path
+    // backs the pin off -> fallback (most recently successful) goes first.
+    super::record_failure(t, id_bar).await?;
+    let mut failed = std::collections::BTreeMap::new();
+    super::velta_note_send_failure(&mut failed, id_bar);
+    assert_eq!(
+        order(super::upstream_sorted_transports(t).await?, &failed),
+        [id_baz, id_bar, id_foo]
+    );
+
+    // After a restart the backoff map is empty, but the smtp_failure row is
+    // still active: the pin must not override it.
+    let mut fresh = std::collections::BTreeMap::new();
+    assert_eq!(
+        order(super::upstream_sorted_transports(t).await?, &fresh),
+        [id_bar, id_baz, id_foo],
+        "without seeding the pin would win"
+    );
+    super::velta_seed_send_failure(t, pin, &mut fresh).await?;
+    assert!(super::velta_pin_backed_off(&fresh, id_bar));
+    assert_eq!(
+        order(super::upstream_sorted_transports(t).await?, &fresh),
+        [id_baz, id_bar, id_foo]
+    );
+
+    // Backoff expired: the pin is retried first again.
+    let long_ago =
+        crate::tools::Time::now() - super::VELTA_PIN_BACKOFF - std::time::Duration::from_secs(1);
+    failed.insert(id_bar, long_ago);
+    assert_eq!(
+        order(super::upstream_sorted_transports(t).await?, &failed),
+        [id_bar, id_baz, id_foo]
+    );
+
+    // A successful send on the pin clears the failure row: nothing to seed.
+    super::record_success(t, id_bar).await?;
+    let mut after = std::collections::BTreeMap::new();
+    super::velta_seed_send_failure(t, pin, &mut after).await?;
+    assert!(after.is_empty());
+    assert_eq!(
+        order(super::upstream_sorted_transports(t).await?, &after),
+        [id_bar, id_baz, id_foo]
+    );
+    Ok(())
+}
+
 // Velta patch (#10/#79): the connectivity HTML's smtp-via marker reads the
 // shared handle; a disconnected loop must report "not bound" (0).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -108,8 +181,25 @@ async fn test_velta_disconnect_clears_sending_transport() -> Result<()> {
     handle.store(7, std::sync::atomic::Ordering::SeqCst);
     smtp.disconnect();
     assert_eq!(handle.load(std::sync::atomic::Ordering::SeqCst), 0);
-    assert!(smtp.transport_id.is_none());
+    assert!(smtp.connection.is_none());
     Ok(())
+}
+
+async fn sorted_transport_addrs(t: &TestContext) -> Result<String> {
+    let transports = super::sorted_transports(t).await?;
+    let addrs: Vec<String> = transports
+        .into_iter()
+        .map(|(_transport_id, transport)| transport.addr)
+        .collect();
+    Ok(addrs.join(" "))
+}
+
+async fn sorted_transport_ids(t: &TestContext) -> Result<Vec<u32>> {
+    let transports = super::sorted_transports(t).await?;
+    Ok(transports
+        .into_iter()
+        .map(|(transport_id, _transport)| transport_id)
+        .collect())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -121,38 +211,42 @@ async fn test_smtp_candidates() -> Result<()> {
     transport::add_pseudo_transport(t, "bar@example.net").await?;
     transport::add_pseudo_transport(t, "baz@example.net").await?;
 
-    let transports = super::sorted_transports(t).await?;
-    let [
-        (transport_id1, ref transport1),
-        (transport_id2, ref transport2),
-        (transport_id3, ref transport3),
-    ] = transports[..]
-    else {
-        panic!("Unexpected number of transports");
-    };
-
     // By default first added transport is used first.
-    assert_eq!(transport1.addr, "foo@example.net");
-    assert_eq!(transport2.addr, "bar@example.net");
-    assert_eq!(transport3.addr, "baz@example.net");
+    assert_eq!(
+        sorted_transport_addrs(t).await?,
+        "foo@example.net bar@example.net baz@example.net"
+    );
+    assert_eq!(sorted_transport_ids(t).await?, [1, 2, 3]);
 
-    super::record_success(t, transport_id3).await?;
-    let transports2 = super::sorted_transports(t).await?;
-    assert_eq!(transports2[0].0, transport_id3);
-    assert_eq!(transports2[1].0, transport_id1);
-    assert_eq!(transports2[2].0, transport_id2);
+    super::record_success(t, 3).await?;
+    assert_eq!(sorted_transport_ids(t).await?, [3, 1, 2]);
 
-    super::record_success(t, transport_id2).await?;
-    let transports3 = super::sorted_transports(t).await?;
-    assert_eq!(transports3[0].0, transport_id2);
-    assert_eq!(transports3[1].0, transport_id3);
-    assert_eq!(transports3[2].0, transport_id1);
+    super::record_success(t, 2).await?;
+    assert_eq!(sorted_transport_ids(t).await?, [2, 3, 1]);
 
-    super::record_success(t, transport_id3).await?;
-    let transports4 = super::sorted_transports(t).await?;
-    assert_eq!(transports4[0].0, transport_id3);
-    assert_eq!(transports4[1].0, transport_id2);
-    assert_eq!(transports4[2].0, transport_id1);
+    super::record_success(t, 3).await?;
+    assert_eq!(sorted_transport_ids(t).await?, [3, 2, 1]);
+
+    super::record_failure(t, 3).await?;
+    assert_eq!(sorted_transport_ids(t).await?, [2, 1, 3]);
+
+    // New transport is added before all failing transports.
+    transport::add_pseudo_transport(t, "qux@example.net").await?;
+    assert_eq!(
+        sorted_transport_addrs(t).await?,
+        "bar@example.net foo@example.net qux@example.net baz@example.net"
+    );
+    assert_eq!(sorted_transport_ids(t).await?, [2, 1, 4, 3]);
+
+    super::record_success(t, 4).await?;
+    assert_eq!(sorted_transport_ids(t).await?, [4, 2, 1, 3]);
+
+    super::record_failure(t, 4).await?;
+    assert_eq!(sorted_transport_ids(t).await?, [2, 1, 3, 4]);
+    super::record_failure(t, 3).await?;
+    assert_eq!(sorted_transport_ids(t).await?, [2, 1, 4, 3]);
+    super::record_failure(t, 2).await?;
+    assert_eq!(sorted_transport_ids(t).await?, [1, 4, 3, 2]);
 
     Ok(())
 }
