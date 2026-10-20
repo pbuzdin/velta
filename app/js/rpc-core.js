@@ -292,6 +292,11 @@ export class JsonRpcCore extends EventTarget {
   // resumes — with a maybe_network nudge — when the network returns.
   // Optimistic link failures (interface up, router dead) still read online;
   // the core's own retry handling covers those.
+  // Cheap reconnect nudge (no IO restart) for network-changed signals.
+  async nudgeNetwork() {
+    try { await this._call("maybe_network"); return true; } catch { return false; }
+  }
+
   async setNetworkIo(on) {
     try {
       if (on) {

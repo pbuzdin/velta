@@ -2288,6 +2288,11 @@ pub extern "system" fn Java_org_velta_CoreService_networkAvailable(
     _this: jni::objects::JClass,
     available: jni::sys::jboolean,
 ) {
+    // Tell the page too: if its watcher paused core IO (stop_io), only a
+    // start_io from there brings it back — maybe_network alone is a no-op.
+    if let Some(app) = APP_HANDLE.lock().unwrap().clone() {
+        let _ = app.emit("velta-network", available != 0);
+    }
     if available != 0 {
         kick_maybe_network(false);
     } else {

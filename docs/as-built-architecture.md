@@ -498,3 +498,22 @@ Logo rasters, telemetry, the mail stack, local chat, and the theme system alread
 - `C:\Users\pave\Velta\velta\PLAN-UNIFIEDPUSH.MD` — why push is not FCM.
 - Delta Chat core: https://github.com/chatmail/core (vendored at `core/`, version 2.63.0). Autocrypt level 1 key data: https://autocrypt.org/level1.html#openpgp-based-key-data.
 - UnifiedPush: the connector artifact `org.unifiedpush.android:connector` used in `build.gradle.kts`.
+
+## Network watcher (core I/O pause/resume)
+
+`app/js/net-watch.js` owns the decision to pause core I/O. History: #28 paused
+IO (`stop_io_for_all_accounts`) on the webview `offline` event and resumed only
+on `online`; after a VPN on/off toggle Android WebView often never fires
+`online` (and the native `CoreService.networkAvailable` only sent
+`maybe_network`, a no-op while IO is stopped), so Velta stayed offline forever.
+
+Current policy:
+- A loss is acted on only after a 10 s grace period; meanwhile only
+  `maybe_network` is nudged. Brief drops/VPN switches never stop IO.
+- Any positive signal resumes (`start_io` + `maybe_network`): `online`,
+  `navigator.connection` change, native `velta-network` event (emitted from
+  `CoreService.networkAvailable`), `velta-foreground`, visibility, focus,
+  pageshow.
+- Safety net: a 30 s tick resumes when `navigator.onLine` is true, and after
+  120 s paused resumes regardless (stale `onLine`); a real `offline` re-pauses.
+Tests: `tests/net-watch-vpn.test.mjs`.
