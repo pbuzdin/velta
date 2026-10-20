@@ -112,7 +112,10 @@ view shows the roster, leave from the bar.
   Shows the sender's `<velta-avatar>` (authentic `m.fromContact`, photo or
   initial on profile color), the call name, "Started by X · N in call",
   up to 5 member avatars (+N), and Join / "✓ You're in" + Open + Leave /
-  "Call ended" + Start again. `cardModel(updates,{live})` derives state from
+  "Call ended" + Start again.
+  Ended (KEEP): creator avatar, name, "Call ended · <duration>" (first join
+  → last join/leave/hb ts; just "Call ended" if unknown) and Start again
+  only — no count, member avatars, Open, You're in or Leave. `cardModel(updates,{live})` derives state from
   the status updates (a `statusOnly` GroupCallSignal, TTL_UPDATE liveness);
   while we're in the call the live roster wins. Refresh: status-update
   events, `onCallChange`, 20 s timer; cached virtual-scroller rows re-run

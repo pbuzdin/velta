@@ -48,16 +48,16 @@ try {
       await page.locator('.chat-item', { hasText: 'Weekend Crew' }).first().click()
       await page.waitForTimeout(700); await toBottom(page)
       await page.waitForFunction(() => /in call/.test(document.querySelector('.msg-groupcall .gc-sub')?.textContent || ''), null, { timeout: 8000 })
-      const res = await page.evaluate((side) => {
+      const { out: res, endedCheck: e } = await page.evaluate(async (side) => {
+        const { renderCard } = await import('./js/group-call-card.js')
         const card = document.querySelector('.msg-groupcall')
         const row = card.closest('.msg-row')
         if (side === 'out') row.classList.add('out'); else row.classList.remove('out')
-        const show = (el, sel, on) => el.querySelectorAll(sel).forEach((e) => { e.hidden = !on })
-        const joined = card.cloneNode(true); joined.classList.add('gc-joined')
-        show(joined, '.gc-join, .gc-ended-label', false); show(joined, '.gc-in, .gc-open, .gc-leave', true)
-        const ended = card.cloneNode(true); ended.classList.add('gc-ended')
-        show(ended, '.gc-in, .gc-leave', false); show(ended, '.gc-join, .gc-ended-label', true)
-        ended.querySelector('.gc-join').textContent = 'Start again'
+        const base = { title: 'Saturday hike plan', creatorName: 'Mara Voss', started: true }
+        const joined = card.cloneNode(true); joined.classList.add('gc-clone')
+        renderCard(joined, { ...base, members: [{ id: 'me', name: 'Me' }, { id: 'm', name: 'Mara Voss' }, { id: 'k', name: 'Kenji' }], count: 3, joined: true, ended: false })
+        const ended = card.cloneNode(true); ended.classList.add('gc-clone', 'gc-ended-test')
+        renderCard(ended, { ...base, members: [], count: 0, joined: false, ended: true, duration: 12 * 60000 })
         card.after(joined); joined.after(ended)
         // contrast
         const parse = (s) => { const m = s.match(/[\d.]+/g).map(Number); if (s.startsWith('color(')) return [m[0] * 255, m[1] * 255, m[2] * 255, m[3] ?? 1]; return [m[0], m[1], m[2], m[3] ?? 1] }
@@ -67,18 +67,24 @@ try {
         const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05) }
         const out = []
         for (const [st, el] of [['join', card], ['joined', joined], ['ended', ended]]) {
-          for (const t of el.querySelectorAll('.gc-join, .gc-open, .gc-leave, .gc-in, .gc-ended-label, .gc-sub, .gc-title')) {
+          for (const t of el.querySelectorAll('.gc-join, .gc-open, .gc-leave, .gc-in, .gc-sub, .gc-title')) {
             if (t.hidden || !t.offsetParent) continue
             const bg = bgOf(t); const fg = over(parse(getComputedStyle(t).color), bg)
             out.push({ st, what: t.textContent.trim().slice(0, 14), r: Math.round(ratio(fg, bg) * 100) / 100 })
           }
         }
         card.scrollIntoView({ block: 'start' })
-        return out
+        const vis = (e) => e && !e.hidden && e.offsetParent && e.getBoundingClientRect().height > 0
+        const btns = [...ended.querySelectorAll('button, .gc-in')].filter(vis).map((b) => b.textContent.trim())
+        const endedCheck = { sub: ended.querySelector('.gc-sub').textContent, btns, people: vis(ended.querySelector('.gc-people')), creator: vis(ended.querySelector('.gc-head velta-avatar')) }
+        return { out, endedCheck }
       }, side)
+      check(e.sub === 'Call ended · 12 min' && JSON.stringify(e.btns) === '["Start again"]' && !e.people && e.creator, `${c.name}/${side} ended: avatar, name, "Call ended · 12 min", Start again only (${JSON.stringify(e)})`)
       const low = res.filter((x) => x.r < 4.5)
       check(res.length >= 12 && !low.length, `${c.name}/${side}: ${res.length} texts >= 4.5:1 (min ${Math.min(...res.map((x) => x.r))}${low.length ? '; LOW ' + JSON.stringify(low) : ''})`)
-      if (shots) { await page.evaluate(() => document.querySelectorAll('.toasts > *, .toast').forEach((t) => t.remove())); await page.waitForTimeout(150); await page.screenshot({ path: `${shots}/join-fix-${c.name}-${side}.png` }) }
+      if (shots) { await page.evaluate(() => document.querySelectorAll('.toasts > *, .toast').forEach((t) => t.remove())); await page.waitForTimeout(150); await page.screenshot({ path: `${shots}/join-fix-${c.name}-${side}.png` })
+        await page.evaluate(() => document.querySelector('.gc-ended-test').scrollIntoView({ block: 'center' })); await page.waitForTimeout(150)
+        await page.screenshot({ path: `${shots}/join-fix-${c.name}-${side}-ended.png` }) }
       await ctx.close()
     }
   }

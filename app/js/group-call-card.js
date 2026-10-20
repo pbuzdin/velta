@@ -28,13 +28,33 @@ export function cardModel(updates, { now = Date.now(), live = null } = {}) {
     // Our own view is fresher than the status updates: use the live roster.
     members = (live.participants || []).map((p) => ({ id: p.id, name: p.name || "" }));
   }
-  return { title: meta.title, creatorName: meta.creatorName, members, count: members.length, joined,
-    ended: started && !joined && members.length === 0, started };
+  const ended = started && !joined && members.length === 0;
+  let startedAt = 0, endedAt = 0;
+  for (const u of updates || []) {
+    const v = u?.payload?.veltaCall, ts = Number(v?.ts) || 0;
+    if (!ts || !v) continue;
+    if (v.t === "join" && (!startedAt || ts < startedAt)) startedAt = ts;
+    if (["join", "leave", "hb"].includes(v.t) && ts > endedAt) endedAt = ts;
+  }
+  // KEEP: the ended card shows nothing of the live state (no members/count).
+  return { title: meta.title, creatorName: meta.creatorName, members: ended ? [] : members, count: ended ? 0 : members.length, joined,
+    ended, started, duration: ended && startedAt && endedAt > startedAt ? endedAt - startedAt : 0 };
+}
+
+/** "45 s" / "12 min" / "1 h 5 min"; "" for unknown. */
+export function formatDuration(ms) {
+  const s = Math.round((Number(ms) || 0) / 1000);
+  if (s <= 0) return "";
+  if (s < 60) return `${s} s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60), r = m % 60;
+  return r ? `${h} h ${r} min` : `${h} h`;
 }
 
 export function subText(model, creator) {
+  if (model.ended) return ["Call ended", formatDuration(model.duration)].filter(Boolean).join(" · ");
   const by = creator ? `Started by ${creator}` : "";
-  if (model.ended) return [by, "Call ended"].filter(Boolean).join(" · ");
   if (model.count === 0) return [by, "Nobody in the call yet"].filter(Boolean).join(" · ");
   return [by, `${model.count} in call`].filter(Boolean).join(" · ");
 }
@@ -61,12 +81,13 @@ export function renderCard(el, model, { creatorName = "" } = {}) {
   }
   row.hidden = model.members.length === 0;
   row.setAttribute("aria-label", model.members.map((m) => m.name).filter(Boolean).join(", "));
-  const join = el.querySelector(".gc-join"), inn = el.querySelector(".gc-in"), leave = el.querySelector(".gc-leave"), ended = el.querySelector(".gc-ended-label");
-  join.hidden = model.joined || model.ended;
+  const join = el.querySelector(".gc-join"), inn = el.querySelector(".gc-in"), leave = el.querySelector(".gc-leave"), open = el.querySelector(".gc-open");
+  // Ended: creator avatar, name, "Call ended · <duration>", Start again only
+  // (restarts in the same room). Nothing of the live state.
+  join.hidden = model.joined;
+  join.textContent = model.ended ? "Start again" : "Join";
   inn.hidden = !model.joined; leave.hidden = !model.joined;
-  ended.hidden = !model.ended;
-  // An ended call can be restarted from the same card (same room).
-  if (model.ended) { join.hidden = false; join.textContent = "Start again"; } else join.textContent = "Join";
+  open.hidden = model.ended;
 }
 
 /** Card markup (static part; the creator avatar is a <velta-avatar>). */
@@ -79,7 +100,6 @@ export function cardHtml({ msgId, avatarHtml, esc }) {
     <span class="gc-in" hidden>✓ You're in</span>
     <button type="button" class="gc-open btn-text" title="Open the call screen">Open</button>
     <button type="button" class="gc-leave btn-text" hidden>Leave</button>
-    <span class="gc-ended-label" hidden>Ended</span>
   </div>
 </div>`;
 }

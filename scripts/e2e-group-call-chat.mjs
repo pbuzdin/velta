@@ -99,6 +99,14 @@ try {
   await page.waitForFunction(() => /Call ended/.test(document.querySelector('.msg-groupcall .gc-sub')?.textContent || ''), null, { timeout: 8000 }).catch(() => {})
   const ended = await page.locator('.msg-groupcall').first().innerText().catch(() => '')
   check(/Call ended/.test(ended) && /Start again/.test(ended), `card: ended state (${ended.replace(/\s+/g, ' ').slice(0, 80)})`)
+  const endedUi = await page.locator('.msg-groupcall').first().evaluate((c) => {
+    const vis = (e) => e && !e.hidden && e.offsetParent && e.getBoundingClientRect().height > 0
+    return { btns: [...c.querySelectorAll('button, .gc-in')].filter(vis).map((b) => b.textContent.trim()), people: vis(c.querySelector('.gc-people')),
+      creator: vis(c.querySelector('.gc-head velta-avatar')), sub: c.querySelector('.gc-sub').textContent,
+      gaps: [...c.children].filter(vis).length }
+  })
+  check(JSON.stringify(endedUi.btns) === '["Start again"]' && !endedUi.people && endedUi.creator && /^Call ended( · \d+ (s|min))?$/.test(endedUi.sub) && endedUi.gaps === 2,
+    `card ended: creator avatar + name + "Call ended[ · duration]" + Start again only, no count/avatars/Open/Leave, no empty rows (${JSON.stringify(endedUi)})`)
   await page.locator('.msg-groupcall').first().scrollIntoViewIfNeeded().catch(() => {})
   await shot(page, 'card-360-ended')
 } finally { await browser.close(); server.close() }
