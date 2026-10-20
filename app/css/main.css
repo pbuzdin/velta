@@ -2232,55 +2232,114 @@ html[data-theme="light"] .acct-pop .ctx-item {
 }
 #boot-error[hidden] { display: none; }
 
-/* ===== Audio calls ===== */
+/* ===== Calls (audio + video, Delta Chat-style screen) ===== */
 #call-overlay {
   position: fixed;
   inset: 0;
   z-index: 900;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(8, 10, 14, 0.92);
-}
-.call-box {
+  background: #000;
+  color: #fff;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
-  color: #eef2f7;
-  text-align: center;
-  padding: 24px;
+  justify-content: center;
 }
-.call-ico svg { width: 56px; height: 56px; color: #7db4ea; }
-.call-name { font-size: 22px; font-weight: 600; }
-.call-status { opacity: 0.75; }
-.call-timer { font-variant-numeric: tabular-nums; font-size: 18px; opacity: 0.9; }
-.call-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; margin-top: 10px; max-width: 100%; }
+#call-overlay [hidden] { display: none !important; }
+.call-remote-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+.call-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: calc(env(safe-area-inset-top, 0px) + 18px) 20px 28px;
+  text-align: left;
+  z-index: 2;
+}
+#call-overlay.video .call-top { background: linear-gradient(rgba(0, 0, 0, 0.55), transparent); }
+.call-name {
+  font-size: 20px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.call-status { margin-top: 4px; font-size: 15px; opacity: 0.75; font-variant-numeric: tabular-nums; }
+.call-avatar {
+  position: relative;
+  width: min(168px, calc(var(--vw) * .46));
+  height: min(168px, calc(var(--vw) * .46));
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 40px;
+}
+.call-avatar-initial { font-size: min(72px, calc(var(--vw) * .2)); font-weight: 600; color: #fff; line-height: 1; }
+.call-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.call-local-video {
+  position: absolute;
+  right: 12px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 104px);
+  width: min(110px, calc(var(--vw) * .3));
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border-radius: 12px;
+  background: #222;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+  z-index: 3;
+  touch-action: none;
+  cursor: grab;
+}
+.call-local-video.mirror { transform: scaleX(-1); }
+.call-actions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 24px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 14px;
+  padding: 0 8px;
+  z-index: 3;
+}
 .call-btn {
+  width: 56px;
+  height: 56px;
+  flex: none;
+  border-radius: 50%;
+  border: 0;
+  padding: 0;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 10px 18px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  background: rgba(255, 255, 255, 0.08);
-  color: #eef2f7;
-  font-size: 15px;
+  justify-content: center;
+  background: #4a4a4a;
+  color: #fff;
   cursor: pointer;
 }
-.call-btn.danger { background: #b3261e; border-color: #b3261e; color: #fff; }
-.call-btn.accept { background: #2e7d32; border-color: #2e7d32; color: #fff; }
-.call-btn.muted { background: rgba(255, 255, 255, 0.18); }
-/* #141 earpiece <-> loudspeaker toggle (Android); pressed = loudspeaker. */
-.call-btn-ico { width: 18px; height: 18px; flex: none; }
-.call-btn.call-speaker[aria-pressed="true"] { background: #eef2f7; border-color: #eef2f7; color: #0d1117; }
-.call-btn:focus-visible { outline: 2px solid #7db4ea; outline-offset: 2px; }
+.call-btn svg { width: 26px; height: 26px; }
+.call-btn.on { background: #f2f2f2; color: #111; }
+.call-btn.danger { background: #e5332a; color: #fff; }
+.call-btn.accept { background: #2e9d4a; color: #fff; }
+.call-btn:focus-visible { outline: 3px solid #7db4ea; outline-offset: 2px; }
 @media (max-width: 360px) {
-  .call-box { padding: 16px; }
-  .call-actions { gap: 10px; }
-  .call-btn { padding: 10px 14px; }
+  .call-actions { gap: 8px; }
+  .call-btn { width: 50px; height: 50px; }
+  .call-btn svg { width: 24px; height: 24px; }
 }
 #call-remote-audio { display: none; }
+/* Header video-call icon only where the chat name keeps its room; phones
+   start video calls from the chat menu (⋮ → Video call). */
+@media (max-width: 479px) { #btn-video-call { display: none; } }
 
 /* ===== Bot command chips ===== */
 .msg-cmds {

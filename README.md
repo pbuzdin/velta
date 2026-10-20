@@ -216,9 +216,12 @@ multi-device and device info are never included. Format and rules:
 </details>
 
 <details>
-<summary>Audio calls (beta)</summary>
+<summary>Audio and video calls (beta)</summary>
 
-Single chats have an audio-call button in the chat header (core 2.60+).
+Single chats have an audio-call button in the chat header (core 2.60+) and
+a video call (header icon on wide screens, ⋮ → **Video call** on phones).
+Calls work with Delta Chat: the camera can be turned on and off during any
+call, and on phones you can switch between the front and back cameras.
 Calls are end-to-end encrypted like everything else: the core carries the
 call signaling — the offer and answer SDP ride in encrypted messages — and
 hands the app the relay's STUN/TURN servers, while the audio itself flows
@@ -227,9 +230,9 @@ over a WebRTC peer connection inside the app's WebView.
 - The call button appears in single chats only; group calls are not offered yet.
 - Desktop (WebView2) grants the microphone through a launch argument; on
   Android the app asks for the record-audio permission on the first call.
-- On Android a call starts on the earpiece (or a connected wired/Bluetooth
-  headset), like a phone call; the **Speaker** button switches to the
-  loudspeaker and back. The screen turns off when the phone is at your ear.
+- On Android an audio call starts on the earpiece (or a connected
+  wired/Bluetooth headset), like a phone call, and a video call on the
+  loudspeaker; the **Speaker** button switches between them. The screen turns off when the phone is at your ear.
   Desktop and the browser use the system's audio output, so the button is
   not shown there.
 - Missed, declined and ended calls appear in the chat as a compact **call

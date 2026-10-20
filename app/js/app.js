@@ -2197,6 +2197,10 @@ async function openChat(chatId) {
   // frames, so the dial button would only end in "Call failed".
   callBtn.hidden = chat.kind !== "single" || chat.isP2p;
   callBtn.onclick = chat.kind === "single" && !chat.isP2p ? () => startCallIfMicOk(chat) : null;
+  // Video call next to the audio call, like Delta Chat's chat header.
+  const videoBtn = $("btn-video-call");
+  videoBtn.hidden = callBtn.hidden;
+  videoBtn.onclick = callBtn.onclick ? () => startCallIfMicOk(chat, { video: true }) : null;
   refreshChannelAuthorButton(chat, current);
   // Device messages are read-only system posts — no composer. Every open
   // sets it explicitly (closeChatUI restores it to visible). Channels need a
@@ -3059,6 +3063,9 @@ function bindChatHeadMenu() {
     const r = e.currentTarget.getBoundingClientRect();
     return showContextMenu([
       { label: "Chat info", onClick: () => showChatInfo(chat) },
+      // Phones have no room for a second header call icon (the name would
+      // shrink to nothing at 320px): the video call lives here too.
+      ...(chat.kind === "single" && !chat.isP2p ? [{ label: "Video call", onClick: () => startCallIfMicOk(chat, { video: true }) }] : []),
       ...(chat.kind === "group" && !chat.isP2pGroup ? [{ label: "Group invite QR", onClick: () =>
         showInvite(inviteQrProvider(chat.id), { title: chat.name, group: true }) }] : []),
       // Local P2P chats have no per-chat mute / pin (flags are relay-core state).
@@ -5608,7 +5615,7 @@ let uiLive = false; // set once the drawer + menu are wired and usable
 // the recurring case — issue #10), say so in a dialog instead of failing
 // inside the call overlay. 'prompt'/'granted'/unsupported API proceed as
 // before — the first getUserMedia still triggers the OS prompt when needed.
-async function startCallIfMicOk(chat) {
+async function startCallIfMicOk(chat, { video = false } = {}) {
   try {
     if (navigator.permissions?.query) {
       const st = await navigator.permissions.query({ name: "microphone" });
@@ -5618,14 +5625,31 @@ async function startCallIfMicOk(chat) {
       }
     }
   } catch { /* permissions API or name unsupported — let getUserMedia decide */ }
-  calls?.startOutgoing(chat.id, chat.name);
+  // A blocked camera does not stop a video call: it starts audio-only and
+  // the camera button stays available (calls.js toasts the failure).
+  calls?.startOutgoing(chat.id, chat.name, { video });
+}
+
+// Call screen identity: the chat's name, the contact's address, photo and
+// profile color (the same color the avatar tiles use).
+async function callPeerInfo(chatId) {
+  const chat = await core.getChat(chatId).catch(() => null);
+  let contact = null;
+  if (chat?.contactId) contact = await core.getContact?.(chat.contactId).catch(() => null);
+  const photo = chat?.avatar || contact?.avatar || "";
+  return {
+    name: chat?.name || contact?.name || "",
+    addr: contact?.addr || "",
+    color: chat?.avatarColor || contact?.color || "",
+    avatarUrl: photo ? fileUrl(photo) : "",
+  };
 }
 
 async function boot() {
   try {
     // Calls first: the incoming-call listener must exist as early as the
     // event stream is available, or a call arriving during boot is missed.
-    calls = initCalls(core, { notify: (msg) => toast(msg, 4500) });
+    calls = initCalls(core, { notify: (msg) => toast(msg, 4500), peerInfo: callPeerInfo });
     initWebxdc(core);
     reportUiVisible(); // visibilitychange won't fire for the initial load
 

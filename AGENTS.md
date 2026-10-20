@@ -51,7 +51,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── avatar.js         # contact avatars: fingerprint color-grid identity tiles
 │   │   ├── boot-net.js       # pre-app.js error/unhandledrejection net: Diagnostics sink once app.js lives, #boot-error banner before
 │   │   ├── chat-view.js      # message history, composer, selection actions, webxdc cards, bot command chips
-│   │   ├── calls.js          # audio calls: WebRTC media + core signaling state machine (screen wake lock held from mic acquisition to releaseMedia; mic track added before offer/answer; Android earpiece/speaker route via call_audio_* → CallAudio.kt — docs/agents/calls.md)
+│   │   ├── calls.js          # audio + video calls: WebRTC media + core signaling state machine, Delta Chat-style call screen (screen wake lock held from mic acquisition to releaseMedia; mic + video transceivers before offer/answer; DC data channels iceTrickling/mutedState; Android earpiece/speaker route via call_audio_* → CallAudio.kt — docs/agents/calls.md)
 │   │   ├── member-list.js    # chat info member list: <velta-avatar> + name + address, live search (diacritics-insensitive), fixed-height virtual window
 │   │   ├── chat-media.js     # chat info Apps/Photos/Videos/Audio/Files <details>: get_chat_media counts, lazy batched loads, virtual list/grid, search
 │   │   ├── tauri.js          # the one Tauri-shell bridge: tauriInvoke()/invoke(), isTauri(), isAndroid() (case-insensitive), rustLog(); lazy lookups
@@ -2823,7 +2823,8 @@ do-not-regress rules; dates mark when the lesson was learned.
   Desktop mic grant needs `--use-fake-ui-for-media-stream` (wry denies
   permission requests by default — only clipboard is allowed); Android
   needs RECORD_AUDIO in the gen manifest, granted by wry's
-  RustWebChromeClient. Video calls are not offered.
+  RustWebChromeClient (CAMERA likewise for video calls). Video calls since
+  2026-10-20 (next bullet + docs/agents/calls.md).
 - **Calls: mic track + Android audio route (2026-10-19, #141)** — the
   "dead microphone" was never a permission problem: calls.js opened the mic
   but never called `pc.addTrack`, so every offer was recvonly and no RTP
@@ -2845,6 +2846,23 @@ do-not-regress rules; dates mark when the lesson was learned.
   calls would default to the loudspeaker (`defaultSpeakerOn`). Call traces
   (`[call] …`) go to the Diagnostics chat only with VELTA_DEBUG; native
   lines are logcat tag `VeltaCallAudio`. Details: docs/agents/calls.md.
+- **Video calls + Delta Chat interop (2026-10-20, #141)** — the core
+  carries ONE offer and ONE answer (no renegotiation) and `has_video` is
+  only a label. So, like deltachat/calls-webapp: every offer (audio calls
+  too) has an audio AND a video transceiver, sendrecv; the camera toggles
+  mid-call with `replaceTrack` on that video sender; negotiated data
+  channels id 1 `iceTrickling` and id 3 `mutedState`
+  (`{audioEnabled, videoEnabled}`) are created on both sides before
+  offer/answer. KEEP all three — dropping the video transceiver makes the
+  camera impossible later in the call, dropping mutedState makes DC show
+  our frozen/black frames. Remote video shows only when its track is
+  unmuted AND mutedState did not say videoEnabled:false. Camera on →
+  loudspeaker, off → earpiece, as `auto` switches (a headset keeps the
+  audio). The header video icon is hidden below 480px (the chat name had 0px
+  at 320px @1.15 — `scripts/e2e-narrow-overflow.mjs` chatinfo-contact
+  timed out); phones use ⋮ → Video call. The call screen is built once per
+  call (the `<video>` elements must survive re-renders). Run
+  `scripts/e2e-call-audio.mjs` after any calls.js change.
 - **Call cards (post-1.4.38, issue #8)** — call messages (core viewtype
   `Call`, mapped to "call" in `_mapViewtype`) render as a call card in the
   chat instead of the stock text string: direction + state + duration from

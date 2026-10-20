@@ -17,6 +17,14 @@ class FakePC {
   addEventListener() {}
   removeEventListener() {}
   addTrack(track, stream) { (this.added ||= []).push({ track, stream }); return { track }; }
+  addTransceiver(trackOrKind, init) {
+    const track = typeof trackOrKind === "string" ? null : trackOrKind;
+    if (track) (this.added ||= []).push({ track, stream: init?.streams?.[0] });
+    const tx = { kind: track?.kind || trackOrKind, sender: { track, async replaceTrack(t) { this.track = t; } } };
+    (this.txs ||= []).push(tx);
+    return tx;
+  }
+  getTransceivers() { return []; }
   getSenders() { return (this.added || []).map(({ track }) => ({ track })); }
   async createOffer() { return { type: "offer", sdp: "offer-sdp" }; }
   async createAnswer() { return { type: "answer", sdp: "answer-sdp" }; }

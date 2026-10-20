@@ -1,10 +1,13 @@
-# Calls (audio, WebRTC in the WebView) — agent notes
+# Calls (audio + video, WebRTC in the WebView) — agent notes
 
 Code: `app/js/calls.js` (CallManager: signaling state machine + media),
 `velta-app/src-tauri/gen/android/app/src/main/java/org/velta/CallAudio.kt`
 (Android audio route), `call_audio_*` commands in `velta-app/src-tauri/src/lib.rs`.
 Tests: `tests/call-state-machine.test.mjs`, `tests/call-audio-route.test.mjs`,
-`scripts/e2e-call-audio.mjs` (real WebRTC in headless Chromium).
+`scripts/e2e-call-audio.mjs` (two Velta pages over real WebRTC in headless
+Chromium with a fake mic + camera: audio both ways, video frames both ways,
+camera off/on mid-call hides/shows the remote video via mutedState, buttons
+at 320px; `--shots DIR` writes the call screens).
 
 ## Media flow (#141 root cause)
 
@@ -28,6 +31,76 @@ single RTP packet left the device — "the microphone doesn't work" on every
 platform. `scripts/e2e-call-audio.mjs` shows it: old code sent 0 packets,
 offer recvonly; fixed code sends both ways, both SDPs sendrecv. Mute only
 flips `track.enabled`; never `replaceTrack(null)` or remove the sender.
+
+## Video calls and Delta Chat interop (2026-10-20, #141 follow-up)
+
+Studied: core 2.63 `src/calls.rs` + jsonrpc `place_outgoing_call(chat,
+sdp, has_video)`, `call_info` → `{sdpOffer, hasVideo, state}`, and
+deltachat/calls-webapp (`src/lib/calls.ts`, `src/App.tsx`), the webapp DC
+Android/Desktop/iOS embed. Findings:
+
+- `has_video` is only a header (`Param::WebrtcHasVideoInitially`): it
+  labels the call ("video call") and the incoming event; the media itself
+  is whatever the SDP carries.
+- The core carries ONE offer and ONE answer — no renegotiation. So DC adds
+  BOTH transceivers (video + audio, sendrecv) to every offer, audio calls
+  too (calls-webapp#90), and toggles the camera without renegotiation.
+  Velta does the same: caller `addTransceiver(mic)` +
+  `addTransceiver(camTrack || "video")`, both sendrecv with our stream id;
+  callee reuses the offer's transceivers (`addTrack(mic)` for audio, which
+  sets the stream id DC's `ontrack` reads as `e.streams[0]`; video:
+  direction sendrecv, `replaceTrack`, `setStreams`).
+- Camera on/off mid-call = `videoTx.sender.replaceTrack(track | null)`.
+  Velta releases the camera while off (DC keeps it open with
+  `track.enabled=false`, which sends black frames).
+- Two negotiated data channels, created before offer/answer on both sides:
+  id 1 `iceTrickling` (JSON `RTCIceCandidateInit`, or `null` = end) and id 3
+  `mutedState` (`{"audioEnabled":bool,"videoEnabled":bool}`). DC shows the
+  remote video only while the track is unmuted AND the last mutedState said
+  videoEnabled; Velta mirrors that rule (`updateRemoteVideo`) and sends its
+  own state on open, mute, and camera changes. Without mutedState DC would
+  show our black/frozen frames. Velta still gathers ICE before sending its
+  SDP (3 s cap) and trickles only later candidates; it applies DC's
+  trickled candidates.
+- `bundlePolicy: "max-bundle"` like DC.
+- An offer without a video m-line (port 0 or absent — an old Velta build
+  before this change, or a client with video disabled) means no camera in
+  that call: the Camera button is hidden.
+
+Entry points: chat header video icon (≥ 480px; at 320px the chat name had
+0px left, so phones use ⋮ → **Video call**), both via
+`startCallIfMicOk(chat, { video: true })`. A blocked camera does not stop a
+video call: it continues audio-only with a toast. Incoming video calls show
+Decline / Accept (audio only) / Accept with video.
+
+Routing: `defaultSpeakerOn(hasVideo)` — video starts on the loudspeaker,
+audio on the earpiece. Camera on mid-call → loudspeaker, off → earpiece;
+both are `auto` switches (a connected headset keeps the audio). Only a tap
+on Speaker forces the loudspeaker over a headset.
+
+Flip camera: shown while video is on and `enumerateDevices` lists > 1
+`videoinput`. Stops the old track first (phones cannot open two cameras),
+then `facingMode: {ideal: next}`, falling back to the next deviceId
+(desktop webcams); if no camera opens, video turns off and the peer is told.
+
+## Call screen (Delta Chat style)
+
+Built once per call (`ensureOverlay`, so the `<video>` elements keep
+playing); `render()` updates name, status, avatar, video visibility and
+the button row. Black background; top left the name in bold with the status
+under it (Calling… / Ringing… / Connecting… / Reconnecting… on ICE
+`disconnected` / the duration); a centered round avatar — the contact's
+photo (`callPeerInfo` in app.js: chat/contact `profileImage` via
+`fileUrl`) over its initial on the contact's core color (`avatarColor`, the
+color Velta uses for that contact elsewhere); remote video full screen
+replaces the avatar; the local preview is a draggable PiP (pointer events,
+mirrored for the front camera). Bottom row of round buttons, End call in the
+middle of the full row: Mute, Camera, End call (red, handset-down icon),
+Speaker (Android), Switch camera. Fixed `aria-label`s; toggles carry
+`aria-pressed` (Mute pressed = muted with a slashed mic, Camera pressed =
+on, Speaker pressed = loudspeaker). 56px buttons, 50px below 360px: five fit
+320px (checked by `scripts/e2e-call-audio.mjs`). The overlay is
+`role="dialog" aria-modal`.
 
 ## Android audio route (earpiece default, speaker toggle)
 
@@ -57,19 +130,16 @@ flips `track.enabled`; never `replaceTrack(null)` or remove the sender.
   after stopping the tracks (`releaseMedia`), and `MainActivity.onDestroy`
   calls it as a safety net.
 - Shell calls are serialized (`queueRoute`) so a stop never overtakes a start.
-- Video calls: `defaultSpeakerOn(hasVideo)` returns true for video (phone not
-  at the ear — the usual convention). Velta answers and places audio-only
-  calls today, so every call starts on the earpiece.
+- `auto` flag (`call_audio_start/speaker(…, auto)`, Kotlin `autoRoute`):
+  automatic switches (call start, camera on/off, headset plug) let a
+  connected headset win over the loudspeaker; a Speaker tap is not auto.
 
-## Speaker button
+## Buttons
 
-`callButtonsHtml()` (pure, node-tested): `<button type="button"
-data-call="speaker" class="call-btn call-speaker" aria-pressed="…">` with an
-inline speaker SVG (`aria-hidden`) and a FIXED label "Speaker" — the state
-is `aria-pressed` (pressed = loudspeaker), never a changing label. Shown
-while ringing and connected, only when the route adapter is supported.
-Re-render keeps keyboard focus on the same button. `.call-actions` wraps
-and tightens below 360px so Mute / Speaker / End call fit a 320px phone.
+`callButtonsHtml()` (pure, node-tested) renders every button; icons are
+`CALL_ICONS` (24-unit viewBox, currentColor, header-icon style). Speaker
+only when the route adapter is supported (Tauri + Android). Re-render keeps
+keyboard focus on the same button.
 
 ## Debugging on a device
 
@@ -78,8 +148,11 @@ Every step logs a `[call] …` line (`callDebugLog`, a no-op without
 VELTA_DEBUG) into the **Diagnostics chat** and, through the sink's `js_log`,
 into `velta.log`:
 
-- `mic: 1 track(s) [label enabled=true muted=false state=live]`
-- `addTrack: 1 audio track(s), 1 sender(s) with a track`
+- `mic: 1 track(s) [label enabled=true muted=false state=live]`,
+  `camera: [label facing=user state=live]`
+- `tracks: mic=true camera=… videoTx=true, N sender(s) with a track`
+- `remote mutedState audio=… video=…`, `remote video shown|hidden`,
+  `video=true|false`, `flip -> environment ok=true`
 - `offer audio=sendrecv` / `remote offer audio=…` / `answer audio=sendrecv`
   / `remote answer audio=…` (a `recvonly` here = the peer will not hear us)
 - `connection=…`, `ice=…`, `remote track kind=audio …`

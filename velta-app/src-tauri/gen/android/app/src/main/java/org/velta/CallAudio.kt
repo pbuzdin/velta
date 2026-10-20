@@ -27,6 +27,9 @@ import androidx.annotation.RequiresApi
  *   mode itself when the capture starts (Chromium's AudioManagerAndroid,
  *   which picks the loudspeaker), so the page calls this AFTER getUserMedia.
  * - setSpeaker(true) = loudspeaker; setSpeaker(false) = headset or earpiece.
+ * - `auto` (call start, camera on/off): a connected headset keeps the audio
+ *   even when the loudspeaker is asked for (video calls default to the
+ *   loudspeaker, but not over a headset). A tap on Speaker is not auto.
  * - stop: clear the device, speakerphone off, MODE_NORMAL, focus abandoned.
  *   Always MODE_NORMAL — not "the saved mode": by the time start runs the
  *   WebView has already put the mode into IN_COMMUNICATION.
@@ -41,6 +44,7 @@ object CallAudio {
 
     private var active = false
     private var speaker = false
+    private var auto = true
     private var route = "none"
     private var focusRequest: AudioFocusRequest? = null
     private var proximity: PowerManager.WakeLock? = null
@@ -51,9 +55,10 @@ object CallAudio {
 
     @JvmStatic
     @Synchronized
-    fun start(context: Context, speakerOn: Boolean): String {
+    fun start(context: Context, speakerOn: Boolean, autoRoute: Boolean): String {
         val am = am(context)
         speaker = speakerOn
+        auto = autoRoute
         if (!active) {
             active = true
             requestFocus(am)
@@ -71,16 +76,17 @@ object CallAudio {
 
     @JvmStatic
     @Synchronized
-    fun setSpeaker(context: Context, on: Boolean): String {
+    fun setSpeaker(context: Context, on: Boolean, autoRoute: Boolean): String {
         speaker = on
-        if (!active) return start(context, on)
+        auto = autoRoute
+        if (!active) return start(context, on, autoRoute)
         val am = am(context)
         // The WebView may have dropped the mode back meanwhile; re-assert.
         if (am.mode != AudioManager.MODE_IN_COMMUNICATION) {
             try { am.mode = AudioManager.MODE_IN_COMMUNICATION } catch (_: Throwable) {}
         }
         apply(context, am)
-        Log.i(TAG, "setSpeaker on=$on route=$route mode=${am.mode}")
+        Log.i(TAG, "setSpeaker on=$on auto=$autoRoute route=$route mode=${am.mode}")
         return route
     }
 
@@ -124,7 +130,10 @@ object CallAudio {
     @Suppress("DEPRECATION")
     private fun applyModern(am: AudioManager): String {
         val devices = try { am.availableCommunicationDevices } catch (e: Throwable) { emptyList() }
-        val pick: Pair<AudioDeviceInfo, String>? = if (speaker) {
+        val autoHeadset = if (speaker && auto) headsetPick(devices) else null
+        val pick: Pair<AudioDeviceInfo, String>? = if (autoHeadset != null) {
+            autoHeadset
+        } else if (speaker) {
             devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }?.let { it to "speaker" }
         } else {
             val headset = headsetPick(devices)
@@ -155,7 +164,11 @@ object CallAudio {
     @Suppress("DEPRECATION")
     private fun applyLegacy(am: AudioManager): String {
         val outs = try { am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList() } catch (_: Throwable) { emptyList() }
-        if (speaker) {
+        val headsetOut = outs.any {
+            it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET || it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+                it.type == AudioDeviceInfo.TYPE_USB_HEADSET || it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+        }
+        if (speaker && !(auto && headsetOut)) {
             stopSco(am)
             am.isSpeakerphoneOn = true
             return "speaker"
@@ -247,6 +260,7 @@ object CallAudio {
     @Synchronized
     private fun reapply(context: Context) {
         if (!active) return
+        auto = true // a plugged-in headset takes the audio
         apply(context, am(context))
         Log.i(TAG, "devices changed: route=$route")
     }

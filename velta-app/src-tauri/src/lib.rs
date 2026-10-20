@@ -1656,17 +1656,23 @@ fn get_battery_status() -> Result<String, String> {
 /// MODE_IN_COMMUNICATION + voice-call focus and routes to the loudspeaker
 /// (`speaker`) or the earpiece — a connected headset wins over the earpiece;
 /// `call_audio_speaker` switches; `call_audio_stop` restores MODE_NORMAL.
-/// start/speaker return the route in use ("earpiece", "speaker", "wired",
+/// `auto` (start: default true, speaker: default false) lets a connected
+/// headset keep the audio when the loudspeaker is asked for automatically
+/// (video calls, camera on). start/speaker return the route in use ("earpiece", "speaker", "wired",
 /// "usb", "bluetooth", "none") for the page's debug log.
 #[cfg(target_os = "android")]
-fn call_audio_route(method: &str, speaker: bool) -> Result<String, String> {
+fn call_audio_route(method: &str, speaker: bool, auto: bool) -> Result<String, String> {
     with_android_class(&APP_CALL_AUDIO_CLASS, "CallAudio", |env, context, class_ref| {
         let out = env
             .call_static_method(
                 class_ref,
                 method,
-                "(Landroid/content/Context;Z)Ljava/lang/String;",
-                &[(&context).into(), jni::objects::JValue::Bool(speaker as u8)],
+                "(Landroid/content/Context;ZZ)Ljava/lang/String;",
+                &[
+                    (&context).into(),
+                    jni::objects::JValue::Bool(speaker as u8),
+                    jni::objects::JValue::Bool(auto as u8),
+                ],
             )
             .map_err(|e| e.to_string())?;
         let jstr = jni::objects::JString::from(out.l().map_err(|e| e.to_string())?);
@@ -1677,17 +1683,19 @@ fn call_audio_route(method: &str, speaker: bool) -> Result<String, String> {
 
 #[cfg(target_os = "android")]
 #[tauri::command]
-fn call_audio_start(speaker: bool) -> Result<String, String> {
-    let r = call_audio_route("start", speaker);
-    log(&format!("[call] audio start speaker={speaker} -> {r:?}"));
+fn call_audio_start(speaker: bool, auto: Option<bool>) -> Result<String, String> {
+    let auto = auto.unwrap_or(true);
+    let r = call_audio_route("start", speaker, auto);
+    log(&format!("[call] audio start speaker={speaker} auto={auto} -> {r:?}"));
     r
 }
 
 #[cfg(target_os = "android")]
 #[tauri::command]
-fn call_audio_speaker(on: bool) -> Result<String, String> {
-    let r = call_audio_route("setSpeaker", on);
-    log(&format!("[call] audio speaker={on} -> {r:?}"));
+fn call_audio_speaker(on: bool, auto: Option<bool>) -> Result<String, String> {
+    let auto = auto.unwrap_or(false);
+    let r = call_audio_route("setSpeaker", on, auto);
+    log(&format!("[call] audio speaker={on} auto={auto} -> {r:?}"));
     r
 }
 
@@ -1706,15 +1714,15 @@ fn call_audio_stop() -> Result<(), String> {
 // Desktop has no earpiece: the page hides the speaker button off Android.
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
-fn call_audio_start(speaker: bool) -> Result<String, String> {
-    let _ = speaker;
+fn call_audio_start(speaker: bool, auto: Option<bool>) -> Result<String, String> {
+    let _ = (speaker, auto);
     Err("call audio routing is only on Android".into())
 }
 
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
-fn call_audio_speaker(on: bool) -> Result<String, String> {
-    let _ = on;
+fn call_audio_speaker(on: bool, auto: Option<bool>) -> Result<String, String> {
+    let _ = (on, auto);
     Err("call audio routing is only on Android".into())
 }
 
