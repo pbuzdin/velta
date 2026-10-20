@@ -33,3 +33,37 @@ real WebRTC, **relay-only through a local coturn** when `turnserver` is on
 PATH (else host candidates, printed): mesh connected with audio bytes both
 ways on every pair, selected candidates are `relay`, mute propagates,
 levels reported, leaver dropped, 6 connect, 7th is `full`.
+
+## Signaling — `app/js/group-call-signal.js` + host session `app/js/group-call-host.js` (Phase 2)
+
+- One webxdc instance (the group-call app message) = one call room.
+  Messages `{vgc:1, t: join|leave|hb|offer|answer, from, sid, ts, …}`.
+- **Status updates** (`payload.veltaCall`): roster (join/leave), the chat
+  info line (only "X started a group call" for the first joiner and
+  "Group call ended" for the last leaver), `summary` "Group call · N in
+  call", SDP for pairs where either side lacks realtime (the wasm PWA), and
+  every offer retry (`try >= 2`); an answer goes the way its offer came.
+  These rows stay in the chat history (accepted by Pavel).
+- **Realtime** (iroh gossip): SDP between realtime peers and 15 s
+  heartbeats; frames are `"VGC1" + JSON`. KEEP: webxdc-manager routes
+  every VGC1 frame to the host (`routeRealtime`) and never to the app
+  frame; closing the app frame or the app's own `realtimeLeave` does NOT
+  leave the channel while a call holds that instance.
+- Liveness: realtime members expire after 50 s of silence, status-update
+  members after 240 s (they heartbeat via status update every 90 s, only
+  when someone in the call lacks realtime); a member we have a connected
+  peer connection to never expires. History replay uses the sender's `ts`,
+  so a newcomer ignores an old call. Offers/answers in the history are
+  never replayed.
+- `from` is self-declared (core gives no sender on either transport);
+  the DTLS fingerprint in the SDP authenticates the media session.
+- `GroupCallSession` (one at a time, `joinGroupCall`/`leaveGroupCall`):
+  reads the history first (the cap needs it), advertises on realtime
+  (failure → status updates only), opens the mic, posts the join; owns
+  hidden `<audio>` elements per peer; Android audio route + wake lock via
+  injected env. The call outlives the app frame.
+
+Tests: `tests/group-call-signal.test.mjs`, `tests/group-call-host.test.mjs`;
+`scripts/e2e-group-call.mjs` second part: three `GroupCallSession`s
+(desktop + Android with realtime, PWA without) over a shared fake chat in
+Chromium, relay-only through coturn.

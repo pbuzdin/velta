@@ -30,7 +30,18 @@ const relayOnly = !!turn
 const iceServers = turn ? [{ urls: [`turn:127.0.0.1:${TURN_PORT}?transport=udp`], username: 'velta', credential: 'velta' }] : []
 
 const server = createServer((q, r) => {
-  if (q.url === '/js/group-call.js') { r.writeHead(200, { 'content-type': 'text/javascript' }); return r.end(readFileSync(root + 'app/js/group-call.js')) }
+  if (q.url.startsWith('/js/') && /^[\w./-]+\.js$/.test(q.url) && !q.url.includes('..')) { r.writeHead(200, { 'content-type': 'text/javascript' }); return r.end(readFileSync(root + 'app' + q.url)) }
+  if (q.url.startsWith('/session')) {
+    r.writeHead(200, { 'content-type': 'text/html' })
+    return r.end(`<!doctype html><body><script type="module">
+import { GroupCallSession } from '/js/group-call-host.js'
+const q = new URLSearchParams(location.search); const id = q.get('id')
+const core = new Proxy({}, { get: (_t, m) => (...a) => window.coreCall(m, a) })
+window.session = new GroupCallSession({ core, msgId: 7, chatId: 1, selfId: id, selfName: id, realtime: q.get('rt') === '1', relayOnly: ${relayOnly},
+  env: { iceServers: async () => ${JSON.stringify(iceServers)} } })
+window.ready = true
+</script></body>`)
+  }
   r.writeHead(200, { 'content-type': 'text/html' })
   r.end(`<!doctype html><body><script type="module">
 import { GroupCall } from '/js/group-call.js'
@@ -107,6 +118,45 @@ try {
   await joinOne('z9@velta.test')
   const st = await pages.get('z9@velta.test').evaluate(() => window.call.snapshot())
   check(st.state === 'full' && (await pages.get('z9@velta.test').evaluate(() => window.call.peers.size)) === 0, '7th joiner: state "full", no connections')
+  // --- Phase 2: GroupCallSession over a shared fake chat (status updates to
+  // everyone, realtime only between realtime clients; "pwa" has none).
+  for (const p of pages.values()) await p.context().close()
+  pages.clear()
+  const rows = []; const rtMembers = new Set(); const sp = new Map(); const stats = { rt: 0, upd: 0 }
+  async function sessionClient(id, rt) {
+    const ctx = await browser.newContext({ permissions: ['microphone'] })
+    const page = await ctx.newPage()
+    page.on('pageerror', (e) => console.log(`  [${id} pageerror]`, e.message))
+    await page.exposeFunction('coreCall', async (m, a) => {
+      if (m === 'getWebxdcStatusUpdates') return JSON.stringify(rows.filter((r) => r.serial > a[1]))
+      if (m === 'sendWebxdcStatusUpdate') { stats.upd++; const row = { ...JSON.parse(a[1]), serial: rows.length + 1 }; rows.push(row); for (const o of sp.values()) o.evaluate((n) => window.session.onStatusUpdate(n), row.serial).catch(() => {}); return null }
+      if (m === 'sendWebxdcRealtimeAdvertisement') { if (!rt) throw new Error('no realtime'); rtMembers.add(id); return null }
+      if (m === 'sendWebxdcRealtimeData') { stats.rt++; for (const [oid, o] of sp) if (oid !== id && rtMembers.has(oid)) o.evaluate((d) => window.session.onRealtime(d), a[1]).catch(() => {}); return null }
+      if (m === 'leaveWebxdcRealtime') { rtMembers.delete(id); return null }
+      if (m === 'iceServers') return []
+      throw new Error('unexpected core call ' + m)
+    })
+    await page.goto(`${BASE}/session?id=${id}&rt=${rt ? 1 : 0}`)
+    await page.waitForFunction(() => window.ready)
+    sp.set(id, page)
+    await page.evaluate(() => window.session.start())
+    return page
+  }
+  const sids = ['desk@velta.test', 'droid@velta.test', 'pwa@velta.test']
+  await sessionClient(sids[0], true); await sessionClient(sids[1], true); await sessionClient(sids[2], false)
+  let meshOk = false
+  for (let i = 0; i < 60 && !meshOk; i++) {
+    meshOk = true
+    for (const p of sp.values()) { const n = await p.evaluate(async () => { let c = 0; for (const x of window.session.call.peers.values()) { let b = 0; (await x.pc.getStats()).forEach((r) => { if (r.type === 'inbound-rtp' && r.kind === 'audio') b = r.bytesReceived }); if (x.state === 'connected' && b > 2000) c++ } return c }); if (n !== 2) meshOk = false }
+    if (!meshOk) await new Promise((r) => setTimeout(r, 500))
+  }
+  check(meshOk, 'sessions: desktop + Android (realtime) + PWA (status updates only) all hear each other')
+  check(stats.rt > 0, `sessions: realtime carried the realtime pair (${stats.rt} frames)`)
+  const sdpRows = rows.filter((r) => ['offer', 'answer'].includes(r.payload?.veltaCall?.t))
+  check(sdpRows.length > 0 && sdpRows.every((r) => [r.payload.veltaCall.from, r.payload.veltaCall.to].includes(sids[2]) || r.payload.veltaCall.try >= 2), `sessions: SDP in status updates only for the PWA pairs (${sdpRows.length} rows)`)
+  check(rows.filter((r) => r.info).length === 1 && /started a group call/.test(rows.find((r) => r.info).info), 'sessions: one "started a group call" info line')
+  for (const p of sp.values()) { await p.evaluate(() => window.session.leave()); await new Promise((r) => setTimeout(r, 200)) }
+  check(rows.at(-1).info === 'Group call ended', 'sessions: last leaver posts "Group call ended"')
 } finally {
   await browser.close(); server.close(); turn?.kill()
 }

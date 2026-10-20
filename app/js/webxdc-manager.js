@@ -9,6 +9,7 @@ import { LruCache } from "./lru.js";
 import { wantsPanel } from "./webxdc-panel.js";
 import { tauriInvoke } from "./tauri.js";
 import { base64ToBytes } from "./identity-backup.js";
+import { currentGroupCall, routeRealtime, routeStatusUpdate } from "./group-call-host.js";
 
 let core = null;
 export const WEBXDC_FRAME_ALLOW =
@@ -56,6 +57,7 @@ export function initWebxdc(coreInstance) {
   core.addEventListener("webxdc-status-update", (e) => {
     const d = e?.detail || {};
     handleStatusUpdate(Number(d.msgId), Number(d.serial) || 0);
+    routeStatusUpdate(d.msgId, d.serial); // a live group call in this instance (group-call-host.js)
   });
   core.addEventListener("webxdc-instance-deleted", (e) => {
     const d = e?.detail || {};
@@ -64,6 +66,8 @@ export function initWebxdc(coreInstance) {
   });
   core.addEventListener("webxdc-realtime-data", (e) => {
     const d = e?.detail || {};
+    // KEEP: group-call frames ("VGC1") go to the host's call, never to the app.
+    if (routeRealtime(d.msgId, d.data)) return;
     if (!active?.realtime || active.msgId !== Number(d.msgId)) return;
     post({ type: "velta-webxdc-realtime", data: Uint8Array.from(d.data || []) });
   });
@@ -157,7 +161,7 @@ async function handleCall(data) {
     case "realtimeLeave": {
       if (active?.realtime && active.msgId === msgId) {
         active.realtime = false;
-        await core.leaveWebxdcRealtime(msgId).catch(() => {});
+        if (currentGroupCall()?.msgId !== msgId) await core.leaveWebxdcRealtime(msgId).catch(() => {});
       }
       return {};
     }
@@ -564,7 +568,8 @@ export function setWebxdcExpanded(on) {
 
 function closeWebxdcFrame() {
   // Closing the app leaves its realtime channel (spec: leave() or unload).
-  if (active?.realtime) core?.leaveWebxdcRealtime?.(active.msgId)?.catch?.(() => {});
+  // A group call in this instance keeps the channel (the host owns it).
+  if (active?.realtime && currentGroupCall()?.msgId !== active.msgId) core?.leaveWebxdcRealtime?.(active.msgId)?.catch?.(() => {});
   document.getElementById("webxdc-overlay")?.remove();
   window.removeEventListener("message", onWindowMessage);
   active = null;
