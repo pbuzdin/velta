@@ -62,6 +62,7 @@
 
   function noVelta() {
     $("needs-velta").hidden = false;
+    $("velta-cta").hidden = false; // outside Velta only
     $("sub").textContent = "Velta Circle";
     listen(function (u) { readRoster(u); if (u.serial === u.max_serial) showDcRoster(); }).then(showDcRoster);
   }

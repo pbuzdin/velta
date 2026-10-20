@@ -12,4 +12,5 @@ export const TRUSTED_XDC = Object.freeze({
   "6b3e265a5defa3046d67aa038be0b53ba5192ec0ee1d6428776274bb1a4bb50b": "group-call",
   "49a3ee29ca2d4b1b8982dfcf89c88a69890d5a254974b5324635653f63f83a64": "group-call",
   "7fa430e3cf3a50ed64e8458ac652ceefb99fa6bf62fec7965d39a7a0e414908e": "group-call",
+  "f0ce9ab764ffd3bc6d4457efebba54209418de7225b5156d9de66ccb31962f27": "group-call",
 });

@@ -2493,8 +2493,8 @@ html[data-theme="brutal"] .msg-row.out .link-preview .lp-desc { color: #3d3405; 
 /* ===== Webxdc mini-apps ===== */
 .msg-webxdc {
   position: relative;
-  /* icon | name+summary; the Start button sits under the icon, same left
-     edge and width (it used to float bottom-right over the summary). */
+  /* icon | name+summary; the Start button gets its own row, bottom-right
+     (it used to float absolutely over the summary). */
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr);
   column-gap: 10px; row-gap: 6px;
@@ -2506,8 +2506,8 @@ html[data-theme="brutal"] .msg-row.out .link-preview .lp-desc { color: #3d3405; 
   cursor: pointer;
 }
 .webxdc-start {
-  grid-column: 1; width: 44px;
-  padding: 3px 0; text-align: center;
+  grid-column: 1 / -1; justify-self: end;
+  padding: 3px 12px;
   border: none; border-radius: 999px;
   background: var(--accent);
   /* Ink on accent (--on-accent is near-black for the theme blues; a custom

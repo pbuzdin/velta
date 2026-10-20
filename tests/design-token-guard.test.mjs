@@ -94,6 +94,7 @@ test("webxdc apps: velta.cc call-to-action only outside Velta, link + selectable
   }
   assert.match(read("app/webxdc/send-direct/index.html"), /id="velta-cta" hidden/);
   assert.match(read("app/webxdc/send-direct/ui.js"), /typeof wx\.veltaCall === "object"/);
-  // Circle: the line lives inside the "needs Velta" notice (hidden in Velta)
-  assert.match(read("app/webxdc/group-call/index.html"), /id="needs-velta" hidden>[\s\S]*id="velta-cta"[\s\S]*?<\/div>/);
+  // Circle: centered row right below the "needs Velta" notice, shown only with it
+  assert.match(read("app/webxdc/group-call/index.html"), /id="needs-velta" hidden>[^]*?<\/div>\s*<p class="cta" id="velta-cta" hidden>Get Velta · <a/);
+  assert.match(read("app/webxdc/group-call/main.js"), /\$\("velta-cta"\)\.hidden = false/);
 });

@@ -1769,7 +1769,7 @@ export class ChatView {
       const appName = builtin?.name || (m.fileName || "app.xdc").replace(/\.xdc$/i, "");
       bubble += `<div class="msg-webxdc" role="button" data-act="open-webxdc">
         <div class="webxdc-ico"><img data-webxdc-icon="${m.id}" alt="" decoding="async"${builtin ? ` src="${escapeAttr(builtin.iconUrl)}" style="display:block"` : ""}><span class="webxdc-ico-letter" hidden></span><span class="webxdc-ico-glyph"${builtin ? " hidden" : ""}>${ICO.webxdc || ICO.download}</span></div>
-        <div><div class="file-name">${escapeHtml(appName)}</div><div class="file-sub"><span class="webxdc-summary">Webxdc app</span> · tap to open</div></div>
+        <div><div class="file-name">${escapeHtml(appName)}</div><div class="file-sub"><span class="webxdc-summary">Webxdc app</span></div></div>
         <button type="button" class="webxdc-start" data-act="open-webxdc">Start</button>
       </div>`;
     } else if (m.viewtype === "file") {

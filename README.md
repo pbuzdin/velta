@@ -1069,7 +1069,7 @@ Local (nearby) chats keep the old behavior: opening marks them read.
 
 Messages containing a `.xdc` mini-app render as an app card — the app's
 icon (or a letter tile with the app initial when the app ships none), the
-app's name and summary from its manifest, and a Start button; tap to open
+app's name and summary from its manifest, and a Start button; tap the card to open
 the app in a full-screen overlay (opaque-origin sandbox, close button in the
 title bar). The iframe runs **without** `allow-same-origin`, so every app
 document gets a unique opaque origin: mini-apps can reach neither the host
