@@ -4,7 +4,7 @@ A cross-platform **Delta Chat** client built as a single PWA-ish web app wrapped
 
 ## Download
 
-**[Android](https://github.com/pbuzdin/velta/releases/download/v1.4.75/Velta-1.4.75-arm64.apk)** (~49 MB) · **[Windows](https://github.com/pbuzdin/velta/releases/download/v1.4.75/Velta_1.4.75_x64-setup.exe)** (~13 MB) · **[macOS](https://github.com/pbuzdin/velta/releases/download/v1.4.75/Velta_1.4.75_universal.dmg)** (~36 MB)
+**[Android](https://github.com/pbuzdin/velta/releases/download/v1.4.76/Velta-1.4.76-arm64.apk)** (~49 MB) · **[Windows](https://github.com/pbuzdin/velta/releases/download/v1.4.76/Velta_1.4.76_x64-setup.exe)** (~13 MB) · **[macOS](https://github.com/pbuzdin/velta/releases/download/v1.4.76/Velta_1.4.76_universal.dmg)** (~36 MB)
 
 Android needs an arm64 phone. Windows is the x64 installer. macOS is a universal test build that isn't notarized yet, so see [Install](#install) before the first launch. Other files and older versions are on the [releases page](https://github.com/pbuzdin/velta/releases).
 
@@ -15,7 +15,7 @@ Velta shares one web frontend (`app/`) between:
 - **Windows desktop** — a Tauri 2 app that bundles `deltachat-rpc-server.exe` as a sidecar.
 - **macOS desktop** (test build) — the same Tauri 2 app with `deltachat-rpc-server` bundled as an `externalBin` sidecar; universal (Apple Silicon + Intel), ad-hoc signed, not notarized yet — see [Install on macOS](#install).
 - **Android mobile** — the same Tauri 2 app, but the Delta Chat core runs in-process inside the APK. A foreground service keeps sync (and notifications) running after the app is backgrounded.
-- **Browser/PWA** — the same frontend as a static site with a WebAssembly Chatmail core in the tab. Mail goes out through a WebSocket proxy on a chatmail relay (the PWA origin and the proxy host can be different domains). A refresh keeps the signed-in account, database included: the browser copy is written when login or an identity restore finishes, when the page goes to the background, and every few seconds, and a copy cut off by a reload is ignored in favour of the previous one. A crash can drop the last few seconds until the next sync. A new deploy reaches an open PWA on its next load; a page that was already open shows an update notice. Serving `app/` without the wasm dist still falls back to a mock core (UI smoke test) or a loopback `velta-core-service`. How to host your own copy: [docs/pwa-self-host.md](docs/pwa-self-host.md).
+- **Browser/PWA** — the same frontend as a static site with a WebAssembly Chatmail core in the tab. Mail goes out through a WebSocket proxy on a chatmail relay (the PWA origin and the proxy host can be different domains). A refresh keeps the signed-in account, database included: the browser copy is written when login or an identity restore finishes, when the page goes to the background, and every few seconds, and a copy cut off by a reload is ignored in favour of the previous one. A crash can drop the last few seconds until the next sync. A new deploy reaches an open PWA on its next load; a page that was already open shows an update notice. A public build is published at [velta.cc/web](https://velta.cc/web) by CI (it mints new chatmail accounts through the configured relay even from another origin). Serving `app/` without the wasm dist still falls back to a mock core (UI smoke test). How to host your own copy: [docs/pwa-self-host.md](docs/pwa-self-host.md).
 
 The UI is plain HTML/CSS/ES modules (no bundler). The backend is the upstream [Delta Chat core](https://github.com/chatmail/core) at version `2.63.0`.
 
@@ -227,7 +227,10 @@ call signaling — the offer and answer SDP ride in encrypted messages — and
 hands the app the relay's STUN/TURN servers, while the audio itself flows
 over a WebRTC peer connection inside the app's WebView.
 
-- The call button appears in single chats only; group calls are not offered yet.
+- The call button appears in single chats; groups use **Velta Circle** (below).
+- Before the microphone or camera is used (accepting, accepting with video,
+  turning the camera on, flipping it), Velta checks the permission and asks
+  for it first, so a call no longer fails silently on a denied camera.
 - Desktop (WebView2) grants the microphone through a launch argument; on
   Android the app asks for the record-audio permission on the first call.
 - On Android an audio call starts on the earpiece (or a connected
@@ -239,6 +242,25 @@ over a WebRTC peer connection inside the app's WebView.
   card** (direction, state and duration, red-tinted for missed/declined),
   and calls ring only while the app is open — a backgrounded app shows the
   call as missed.
+
+</details>
+
+<details>
+<summary>Velta Circle — group audio calls (beta)</summary>
+
+In a group, attach menu → **Group call** posts **Velta Circle**, a built-in
+mini-app. The call shows up in the chat as a card (call name, who started
+it, who is in it, **Join** / **Open**; no ringing), and an in-call bar stays
+at the top while you use the rest of the app. Up to **6** people talk at
+once (later joiners wait until someone leaves); audio flows directly
+between participants (full mesh, no media server) and always through the
+relay's TURN servers, so nobody sees your IP address. When everyone has
+left the card shows "Call ended · duration" and **Start again**.
+
+Velta itself runs the call — the mini-app only gets Velta's call controls,
+and only when its exact bundle matches a built-in hash; any other app gets
+no microphone. Opened in Delta Chat or another webxdc client, Velta Circle
+shows "Open in Velta to join" with the names of the people in the call.
 
 </details>
 
@@ -1103,6 +1125,10 @@ underneath; ⤢ expands to full screen, ✕ closes), and the sender sees each
 receiver's progress ("N receivers", a percent bar per person, "done" once
 the checksum is verified).
 
+Velta Beam and Velta Circle follow the Velta design system (dark and light,
+WCAG AA contrast). Opened outside Velta (e.g. in Delta Chat) they show one
+quiet line pointing to velta.cc — never a popup.
+
 </details>
 
 <details>
@@ -1355,7 +1381,7 @@ is hand-rolled for Velta.
 | [Elena](https://github.com/arielsalminen/elena) (`@elenajs/core` v1.0.1) | Tiny progressive web-components library — powers `<velta-avatar>`, `<velta-chat-item>`, `<velta-chat-head>`, `<velta-video>` | [arielsalminen/elena](https://github.com/arielsalminen/elena) |
 | [virtual-scroller](https://github.com/catamphetamine/virtual-scroller) (`virtual-scroller-dom`) | Windowed rendering of the message history with variable-height rows, seamless prepends and scroll restoration | [catamphetamine/virtual-scroller](https://github.com/catamphetamine/virtual-scroller) |
 | [Tauri 2](https://github.com/tauri-apps/tauri) | Desktop/Android shell, deep links, sidecar process | [tauri-apps/tauri](https://github.com/tauri-apps/tauri) |
-| [Delta Chat core 2.63.0](https://github.com/chatmail/core) | The messaging engine (Rust): contacts, chats, e2e crypto, IMAP/SMTP | [chatmail/core](https://github.com/chatmail/core) |
+| [Delta Chat core 2.64.0](https://github.com/chatmail/core) | The messaging engine (Rust): contacts, chats, e2e crypto, IMAP/SMTP | [chatmail/core](https://github.com/chatmail/core) |
 | [soar](https://github.com/getlantern/soar) v0.2.0 (Go) | Optional Android DNS tunnel, built by CI into `libsoartunnel.so` | [getlantern/soar](https://github.com/getlantern/soar) |
 
 Both JS libraries are vendored under `app/vendor/` (no bundler, no `node_modules`

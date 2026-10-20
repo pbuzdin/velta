@@ -145,7 +145,9 @@ view shows the roster, leave from the bar.
   `--radius-bubble`, `--vw`) and existing components (`.btn-text`,
   `.btn-text.btn-primary`, `<velta-avatar>`, `showModal`). The trusted app
   gets live token values via `getInfo().veltaTheme` / `veltaCall.getTheme()`;
-  its CSS fallbacks are the dark snapshot (Delta Chat only). Linted by
+  its defaults come from the bundled `velta-tokens.css` (generated from
+  main.css by tools/build-builtin-xdc.mjs; dark/light via
+  `prefers-color-scheme`), so it is themed in Delta Chat too. Linted by
   `tests/group-call-card.test.mjs` (no hex/rgb/hsl in gc/gcb rules).
 - **In-bubble colors** — the card lives in a bubble, so its buttons follow
   the in-bubble `.btn-text` rules (AGENTS.md: `--text-meta-out` on the own
@@ -155,6 +157,13 @@ view shows the roster, leave from the bar.
   `currentColor` ring. Leave is not `--danger` and "You're in" not
   `--green` inside bubbles (both < 4.5:1). `scripts/e2e-group-call-contrast.mjs`
   checks every state, in/out, dark/light/brutal + yellow/red custom accents.
+- **Outside Velta** (no `webxdc.veltaCall` — the Velta shim always adds
+  it, even for untrusted apps): notice "Open in Velta to join" / "This call
+  runs in Velta." plus the roster by display name only (a nameless member
+  is counted as "N others", never shown as its 64-hex pseudonym id), then a
+  centered "Get Velta · velta.cc" row below the notice (link + selectable
+  text; Delta Chat may block links). Attach-menu icon: `ICO.circle`
+  (chat-view.js), the monochrome shapes of icon.svg.
 - **Mock demo** — `velta-mock=1`: Weekend Crew has a seeded call
   ("Saturday hike plan" by Mara, 2 members); `velta-demo-end-call` window
   event ends it. e2e: `scripts/e2e-group-call-chat.mjs` (360 px).
