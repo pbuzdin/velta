@@ -6,7 +6,7 @@ build/test commands, and conventions as they actually exist in this checkout.
 
 > **Scope note:** This repository is a Velta-specific workspace layered around a
 > copy of the upstream [Delta Chat core](https://github.com/chatmail/core)
-> (version `2.63.0`). The `core/` directory is effectively a vendored copy of
+> (version `2.64.0`). The `core/` directory is effectively a vendored copy of
 > that Rust project. Wrapper code for Velta's own clients lives in `app/`,
 > `velta-app/`, `velta-core-service/`, and `deltachat-backend/`.
 
@@ -114,7 +114,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   ├── fuzz/                 # Fuzz targets
 │   ├── scripts/              # CI helper scripts (clippy, deny, tests, wheels)
 │   ├── test-data/            # fixtures for Rust tests
-│   ├── Cargo.toml            # workspace manifest, version 2.63.0
+│   ├── Cargo.toml            # workspace manifest, version 2.64.0
 │   ├── CMakeLists.txt        # CMake install wrapper for libdeltachat
 │   └── deny.toml             # cargo-deny policy
 │
@@ -242,19 +242,26 @@ README's requirements section).
 cd core   # run from WSL — native Windows cargo fails in openssl-sys (SQLCipher)
 ```
 
+> **Core 2.64.0 (2026-10-20) — one-way DB migration 169** (`smtp_failure`
+> table). Once an account database has been opened by a 2.64 build it can no
+> longer be opened by an older Velta (≤ the last 2.63 build): there is no
+> downgrade. Tell testers to **make a backup (Settings → backup / identity
+> export) before installing the first 2.64 build**, and do not side-load an
+> older APK/desktop build over a 2.64 profile.
+
 KEEP (local patches) — **every change inside `core/` MUST be an op in the
 quilt `tools/apply-core-patches.py`** (anchor + marker ops; never hand-edit
 `core/`, never apply the wasm series in `docs/research/wasm-patches/` to
 production `core/`). The 2.63.0 re-vendor (2aac743) silently dropped two
 hand-made core edits that were never quilt ops (#12, #13 below); v1.4.64
-shipped without them. Restored 2026-10-10. Current quilt (21 ops, 6 files;
+shipped without them. Restored 2026-10-10. Current quilt at core 2.64.0 (23 ops, 6 files;
 intent in VENDORISSUES.MD):
 
 | # | What | Files |
 |---|------|-------|
 | #7 | animated WebP byte-exact — RETIRED at 2.63.0 (upstream #8777) | — |
 | #10 | SMTP loop's bound transport → `smtp-via` in the connectivity HTML (#79) | smtp.rs, scheduler.rs, scheduler/connectivity.rs, smtp_tests.rs |
-| #11 | "Use for sending" pin: `ui.velta.send_transport` first, upstream recency failover, 5-min dead-pin backoff | smtp.rs, smtp_tests.rs |
+| #11 | "Use for sending" pin: `ui.velta.send_transport` first, upstream recency failover, 5-min dead-pin backoff; since 2.64 a server-rejected send (upstream `smtp_failure`) backs the pin off too, so upstream's fallback wins until the backoff expires / the pin connects / a send on it succeeds | smtp.rs, smtp_tests.rs |
 | #12 | `background_fetch` 10 s bound + I/O restart for dead IDLE sockets (#42/#25 P8) | context.rs |
 | #13 | push-token accepted/rejected Info/Warning events (Diagnostics chat) | imap.rs |
 
@@ -719,7 +726,7 @@ Then copy `core/target/release/deltachat-rpc-server.exe` to
 `velta-app/src-tauri/binaries/deltachat-rpc-server-x86_64-pc-windows-msvc.exe`
 *and* `velta-app/src-tauri/binaries/deltachat-rpc-server.exe`, and verify the
 swap by piping a `get_system_info` JSON-RPC request into the exe's stdin —
-it must report the vendored core's version (v2.63.0 since 1.4.63; the
+it must report the vendored core's version (v2.64.0 once rebuilt after the 2026-10-20 re-vendor; v2.63.0 since 1.4.63; the
 previous prebuilt was silently v2.59.0, which the drawer footer exposed).
 `.github/workflows/build-windows.yml` does the same via
 chocolatey-installed StrawberryPerl + NASM.

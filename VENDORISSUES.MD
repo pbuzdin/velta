@@ -299,12 +299,26 @@ Patch:
   connect tries the pin first (also makes a fresh pin take effect on the
   next send).
 - From: 2.63 renders queued mail with the bound transport's addr
-  (`smtp.from`), so From follows the pin/failover. JS keeps writing
+  (2.64: `Connection.from`), so From follows the pin/failover. JS keeps writing
   `configured_addr` on cores that have it (self-contact/"primary" address,
   core-side validation) and ignores "unknown key" after #8711.
 
+Core 2.64.0 (2026-10-20): upstream switches transport when the server
+rejects a send (`record_failure` → `smtp_failure` row, disconnect; d766641ce)
+and moved `transport_id`/`from`/`last_success` into `smtp::Connection`.
+Decision (Pavel, 2026-10-20): **the pin must not override an active
+failure.** Op "#11 send rejection backs the pin off" puts the transport in
+`velta_connect_failed` on Permanent/Transient SMTP errors (same 5-min
+`VELTA_PIN_BACKOFF`), so the next connect uses upstream's fallback and the
+"live connection yields to the pin" step does not pull it back. The pin is
+retried when the backoff expires, or earlier if the fallback cannot
+connect; a successful send on it clears `smtp_failure`. After a restart the
+in-memory map is empty, so `velta_seed_send_failure()` starts a fresh
+backoff if the pin still has an `smtp_failure` row.
+
 Tests: `test_smtp_candidates` (upstream, unpinned order unchanged),
-`test_velta_pinned_send_transport`, `test_velta_pin_backoff` in
+`test_velta_pinned_send_transport`, `test_velta_pin_backoff`,
+`test_velta_pin_yields_to_send_failure` (2.64) in
 `smtp_tests.rs`; JS contract in `tests/send-relay-pin.test.mjs`. Drop when
 upstream grows a first-class preferred-transport API.
 

@@ -426,3 +426,19 @@ with `yerpc = "0.7"` and compiles clean.
   longer depends on it) and #8798 (client-facing sending-transport signal —
   the vendored #10 patch remains the substitute).
 - **Deps:** rPGP 0.20→0.21, mail-builder 1.0, async-imap 0.12, mailparse 0.17.
+
+## 7. Update 2.63.0 → 2.64.0 (2026-10-20)
+
+- **One-way DB migration 169** (`smtp_failure`): no downgrade after a 2.64
+  build opened the profile — back up first.
+- SMTP: switches to another transport after a server-rejected send
+  (CAPTCHA-style blocks); `smtp::Connection` refactor. Velta #11 yields to
+  that fallback (see VENDORISSUES #11).
+- JSON-RPC (additive): `get_message_summary_text`, `add_pseudo_transport`.
+  Not used by Velta yet (candidate for notifications/pinned previews).
+- Calls: internal refactor only (JSON-RPC unchanged). Push / iroh: unchanged.
+- Shutdown aborts IMAP/SMTP tasks after a 30 s timeout (#8832).
+- Key selection honours key flags/expiry; Chat-Version no longer copied into
+  unprotected headers; QR/invite links encode `@` as `%40` again (#8825).
+- Channels: reactions no longer spam/apply as channel summaries.
+- Fixes: IMAP busy loop with no candidates, image w×h overflow, summary races.

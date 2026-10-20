@@ -7,7 +7,7 @@ undocumented JSON-RPC/event surface, and because core behavior changes
 (e.g. event emission rates, IMAP idle loops) surface as *frontend* symptoms:
 re-render storms, log spam, and battery drain rather than clean errors.
 
-Last updated for core `2.63.0` (see `core/Cargo.toml` `version` and the
+Last updated for core `2.64.0` (see `core/Cargo.toml` `version` and the
 statement in `README.md`; feature-by-feature notes per release live in
 `CORE-CAPABILITIES.MD`). 2.63.0 notes: legacy `addr`/`mail_pw` configs are
 gone (identity backup + invite-claim now configure via `add_transport`;
@@ -17,6 +17,17 @@ patch #7 is retired (upstream #8777 = 81140d51). The 2.63.0 re-vendor
 (2aac743) silently lost two hand edits that were never quilt ops (#12,
 #13) — restored 2026-10-10; the quilt is now 21 ops and CI enforces it.
 
+2.64.0 notes (2026-10-20): **DB migration 169 (`smtp_failure`) is one-way —
+back up before the first 2.64 build, no downgrade**; upstream now switches
+SMTP transport after a server-rejected send (`smtp_failure`, d766641ce) and
+refactored `Smtp` into `smtp::Connection` — #10/#11 re-anchored, #11 gained
+"send rejection backs the pin off" (+ restart seeding from `smtp_failure`)
+and `test_velta_pin_yields_to_send_failure`; quilt is 23 ops. JSON-RPC is
+additive only (`get_message_summary_text`, `add_pseudo_transport`; Velta does
+not use them yet). wasm series: 0007 (Connection.last_success) and 0010
+(stop() timeout+abort, #8832; TaskTracker import cfg-gated) refreshed,
+locks re-pinned. velta-core-service still pins v2.62.0 (separate, unchanged).
+
 ## 0. Re-apply the Velta patches FIRST
 
 Velta carries local patches inside the vendored `core/` tree. Re-vendoring
@@ -24,14 +35,14 @@ upstream replaces the whole tree and wipes them. **The quilt
 `tools/apply-core-patches.py` is the single source of truth: every Velta
 change inside `core/` must be an op there** (anchor + marker); a hand edit
 that is not an op is lost on the next re-vendor — that is how #12 and #13
-vanished in 2.63.0. Current quilt at core 2.63.0 — **21 ops in 6 files**
+vanished in 2.63.0. Current quilt at core 2.64.0 — **23 ops in 6 files**
 (intent per patch in VENDORISSUES.MD):
 
 | Patch | Ops | Files | What |
 |---|---|---|---|
 | #7 | 0 | — | animated WebP byte-exact — RETIRED at 2.63.0 (upstream #8777) |
 | #10 | 12 | smtp.rs, scheduler.rs, scheduler/connectivity.rs, smtp/smtp_tests.rs | SMTP loop's bound transport → `smtp-via` in the connectivity HTML (#79) + test |
-| #11 | 7 | smtp.rs, smtp/smtp_tests.rs | "Use for sending" pin, re-keyed to `ui.velta.send_transport` (upstream #8711 removes ConfiguredAddr); pinned first, recency failover, 5-min dead-pin backoff + tests |
+| #11 | 8 | smtp.rs, smtp/smtp_tests.rs | "Use for sending" pin, re-keyed to `ui.velta.send_transport` (upstream #8711 removes ConfiguredAddr); pinned first, recency failover, 5-min dead-pin backoff + tests |
 | #12 | 1 | context.rs | `background_fetch` 10 s bound + I/O restart for dead IDLE sockets (restored) |
 | #13 | 1 | imap.rs | push-token accepted/rejected Info/Warning events (restored) |
 
@@ -42,7 +53,7 @@ Re-vendor steps:
 # 2. re-apply the quilt
 python3 tools/apply-core-patches.py apply                # CONFLICT = anchor moved; nothing is written
 # 3. prove it
-python3 tools/apply-core-patches.py verify               # must report 21/21 (any missing marker fails)
+python3 tools/apply-core-patches.py verify               # must report 23/23 (any missing marker fails)
 python3 tools/apply-core-patches.py tree-check --fetch   # pristine v<Cargo.toml version> + quilt == core/
 python3 tools/apply-core-patches.py self-test            # if you touched the tool
 # 4. build + targeted tests (WSL on Windows)
