@@ -69,6 +69,12 @@ export class WorkerWasmTransport {
     return this._fileRequest({ type: "remove-file", path }, "removed");
   }
 
+  // Web Push device token → core (all accounts). Rejects on a wasm without
+  // the binding so the UI can say so.
+  setPushDeviceToken(token) {
+    return this._fileRequest({ type: "set-push-token", token }, "push-token-set");
+  }
+
   _fileRequest(msg, okType) {
     if (!this._worker) return Promise.reject(new Error("worker not booted"));
     const id = ++this._fileSeq;

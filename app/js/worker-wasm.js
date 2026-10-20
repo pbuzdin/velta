@@ -214,6 +214,16 @@ self.onmessage = async (e) => {
     }
   } else if (d.type === "line" && dc) {
     dc.receive(d.line);
+  } else if (d.type === "set-push-token") {
+    // Web Push (docs/agents/web-push.md): the token is shared by every
+    // account; a wasm built before the binding answers a clear error.
+    try {
+      if (!dc || typeof dc.set_push_device_token !== "function") throw new Error("wasm core has no set_push_device_token (rebuild velta-wasm)");
+      await dc.set_push_device_token(String(d.token || ""));
+      self.postMessage({ type: "push-token-set", id: d.id });
+    } catch (err) {
+      self.postMessage({ type: "push-token-error", id: d.id, error: String(err?.message ?? err) });
+    }
   } else if (d.type === "checkpoint") {
     // Reply only after the rewrite finishes. A caller that does not wait
     // can reload during removeEntry and boot an empty account.

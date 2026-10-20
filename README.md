@@ -910,6 +910,16 @@ notifier must support `webpush:` push tokens (stock chatmail deployments
 with the notifier enabled do). The foreground service stays on for now, so
 this is currently an instant-fetch booster rather than a battery saver.
 
+**Web Push (browser PWA):** in the browser app, **Push notifications** in
+the drawer has a switch "Notify me when Velta is closed". Turning it on asks
+for notification permission and subscribes this browser; your relay then
+pings it through notifications.delta.chat when mail arrives, and you get a
+generic "New message" notification (no sender or text — the message is
+fetched when you open Velta). No notification is shown while Velta is open
+and focused. Turning it off unsubscribes the browser. On iPhone/iPad this
+needs iOS 16.4 or newer and Velta added to the Home Screen (open it from
+the icon, then turn the switch on). Needs a relay with push support.
+
 </details>
 
 <details>

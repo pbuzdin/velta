@@ -66,6 +66,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── audio-player.js   # plain-DOM audio player (play, seek, "current / total", full width from first render) for chat bubbles + chat-info Audio rows
 │   │   ├── media.js          # media URL helpers: blobfile:// protocol (boot-probed) → loopback server → asset protocol + per-element fallback
 │   │   ├── p2p.js            # Local chat UI: drawer toggle, pairing, group modals (Tauri only)
+│   │   ├── web-push.js       # PWA Web Push: drawer <details> switch, Notification permission, pushManager.subscribe(VAPID_KEY = notifier key, pinned to UnifiedPushService.kt), token webpush:<endpoint>|<p256dh>|<auth> → wasm set_push_device_token (all accounts), re-registered every boot; iOS 16.4+/home-screen hint (docs/agents/web-push.md)
 │   │   ├── push-settings.js  # #140 Android drawer <details> "Push notifications": distributor picker/Off, relay support, last push (shell push_status/push_select/push_off → UnifiedPushBridge.kt)
 │   │   ├── tunnel.js         # optional Android DNS tunnel UI: deep link, drawer row, settings sheet, diagnostics (#116/#119/#128)
 │   │   ├── recent-commands.js # #135 recent "/" bot commands popup + per-(account,chat) history, localStorage
@@ -146,7 +147,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── design/                   # token snapshot of app/css/main.css (HTML + SVG); restamp header with APP_VERSION
 ├── docs/agents/              # per-subsystem agent notes (webxdc, relays,
 │                              p2p/local chat, android-shell, media,
-│                              onboarding, security-triage, large-file, calls) — referenced from §5/§11
+│                              onboarding, security-triage, large-file, calls, web-push) — referenced from §5/§11
 ├── docs/as-built-architecture.md # product snapshot at cd59531 (2026-10-13); no implementation plan
 ├── docs/web-components-audit.md  # UI semantics/a11y/progressive-rendering audit (2026-10-06)
 ├── docs/web-components-plan.md   # phased fix plan for that audit (quick wins → tests)
@@ -440,6 +441,14 @@ Tauri still can't take over the transport. Gotchas (spike Day 19):
 - If a SW check shows a full precache cache but `getRegistrations()` = 0,
   something is UNREGISTERING the worker (that's how the #48 boot sweep bug
   surfaced) — don't chase fetch flakes first.
+
+Web Push in that dist (`tests/web-push.test.mjs`, docs/agents/web-push.md):
+the generated sw.js has `push` (generic "New message", tag `velta-push`,
+skipped while a window is focused+visible) and `pushsubscriptionchange`
+(re-subscribe, then `velta-push-subscription-changed` to pages). The token
+reaches the core via the velta-wasm export `set_push_device_token` (wrapper
+crate, not a core patch); the core holds it in memory, so app.js re-registers
+on every boot. Keep `VAPID_KEY` in web-push.js equal to UnifiedPushService.kt.
 
 Wasm mail in that dist (`tests/ws-relays.test.mjs`, `tests/wasm-blob-url.test.mjs`):
 

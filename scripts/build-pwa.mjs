@@ -248,6 +248,36 @@ self.addEventListener('notificationclick', (e) => {
     await self.clients.openWindow(scope.href);
   })());
 });
+// Web Push (docs/agents/web-push.md): the chatmail notifier sends only a
+// "ping", so the notification is generic and collapsed by tag. A focused,
+// visible Velta window already shows the message itself — stay quiet then
+// (Chrome exempts a visible page from the must-show rule).
+self.addEventListener('push', (e) => {
+  e.waitUntil((async () => {
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    if (clients.some((c) => c.focused && c.visibilityState === 'visible')) return;
+    await self.registration.showNotification('Velta', {
+      body: 'New message',
+      tag: 'velta-push',
+      renotify: true,
+      icon: 'icons/icon-192.png',
+      badge: 'icons/icon-192.png',
+      data: { push: true },
+    });
+  })());
+});
+// Browser rotated/expired the subscription: re-subscribe with the same key
+// and ask an open page to hand the new token to the core (it also does that
+// on every boot, so a change while no page is open is caught next launch).
+self.addEventListener('pushsubscriptionchange', (e) => {
+  e.waitUntil((async () => {
+    const key = e.oldSubscription && e.oldSubscription.options && e.oldSubscription.options.applicationServerKey;
+    if (key && !e.newSubscription) {
+      try { await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key }); } catch (_) { /* page retries on boot */ }
+    }
+    for (const c of await self.clients.matchAll({ type: 'window', includeUncontrolled: true })) c.postMessage({ type: 'velta-push-subscription-changed' });
+  })());
+});
 self.addEventListener('message', (e) => {
   if (e.data && e.data.type === 'velta-sw-version') {
     e.source.postMessage({ type: 'velta-sw-version', version: VERSION });

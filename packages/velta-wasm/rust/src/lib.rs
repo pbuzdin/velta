@@ -125,6 +125,7 @@ pub fn sqlite_import(name: String, data: &[u8]) -> Result<(), JsValue> {
 #[wasm_bindgen]
 pub struct DeltaChat {
     session: RpcSession<CommandApi>,
+    accounts: Arc<RwLock<Accounts>>,
 }
 
 /// Starts core with accounts at `/accounts` (in-memory memfs).
@@ -149,7 +150,7 @@ pub async fn init(
         .await
         .map_err(|e| JsValue::from_str(&format!("failed to create accounts: {e:#}")))?;
     let accounts = Arc::new(RwLock::new(accounts));
-    let state = CommandApi::from_arc(accounts).await;
+    let state = CommandApi::from_arc(accounts.clone()).await;
 
     let (client, out_receiver) = RpcClient::new();
     let session = RpcSession::new(client, state);
@@ -165,7 +166,7 @@ pub async fn init(
         }
     });
 
-    Ok(DeltaChat { session })
+    Ok(DeltaChat { session, accounts })
 }
 
 fn fs_err(err: std::io::Error) -> JsValue {
@@ -204,5 +205,20 @@ impl DeltaChat {
 
     pub async fn fs_list(&self, path: String) -> Result<js_sys::Array, JsValue> {
         vfs_list(path).await
+    }
+
+    /// Web Push: hand the core a device token (`webpush:<endpoint>|<p256dh>|<auth>`).
+    /// Shared by every account (`Accounts::set_push_device_token`); each
+    /// account's IMAP loop encrypts it for the notifier and stores it in
+    /// METADATA `/private/devicetoken` when its relay advertises XDELTAPUSH.
+    /// In-memory only: the page calls this again on every boot.
+    pub async fn set_push_device_token(&self, token: String) -> Result<(), JsValue> {
+        let accounts = self.accounts.read().await;
+        accounts
+            .set_push_device_token(&token)
+            .map_err(|e| JsValue::from_str(&format!("{e:#}")))?;
+        // Wake idle loops so the registration does not wait for the next IDLE timeout.
+        accounts.maybe_network().await;
+        Ok(())
     }
 }

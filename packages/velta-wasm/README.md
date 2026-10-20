@@ -25,7 +25,9 @@ the build fails with a version-mismatch error. Check with
 
 **Exports used by the PWA worker** (`app/js/worker-wasm.js`): `init`, the
 memfs `vfs_*` functions, and `sqlite_list` / `sqlite_export` /
-`sqlite_import`. SQLite runs in sqlite-wasm-rs's in-memory VFS, not the
+`sqlite_import`, and `DeltaChat.set_push_device_token(token)` (Web Push,
+`docs/agents/web-push.md`; the worker reports a clear error on an older
+build without it). SQLite runs in sqlite-wasm-rs's in-memory VFS, not the
 memfs, so the account databases are only saved through the `sqlite_*`
 calls (#123). Changing `Cargo.toml` makes the pinned locks stale: run
 `python3 tools/apply-wasm-core-patches.py refresh-lock --dest /tmp/velta-wasm-lock`

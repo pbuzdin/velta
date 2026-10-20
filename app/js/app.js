@@ -25,6 +25,7 @@ import { scanTabAvailable, canShareLink, copyLink, shareLink, classifyScannedCod
 import { parseSharePayload, shareTextIfUnconsumed, sharePlan, createShareInbox, buildSharePicker } from "./share-in.js";
 import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS, setLinkPreviewProxySource, activeProxyUrl } from "./link-preview.js";
 import { wirePushSection } from "./push-settings.js";
+import { wireWebPushSection, refreshWebPush } from "./web-push.js";
 import { openInAppBrowser } from "./inapp-browser.js";
 import { extractTunnelLink, acceptTunnelLink, openTunnelSettings, refreshTunnelStatus, tunnelInstalled, tunnelStatus, describeTunnel, bindTunnelNetworkEvents, initTunnelDiagnostics } from "./tunnel.js";
 import { wrapIdentityBundle, unwrapIdentityBundle, buildIdentityBundle, bytesToBase64, base64ToBytes, backupDownloadName, gzipBytes, mailLoginFromTransports, accountDirFromToml, mailLoginsFromDbText } from "./identity-backup.js";
@@ -3728,6 +3729,10 @@ async function askNotificationPermission() {
 if (navigator.serviceWorker) {
   navigator.serviceWorker.addEventListener("message", (ev) => {
     const d = ev.data;
+    if (d?.type === "velta-push-subscription-changed" && core?.backend?.kind === "worker-wasm") {
+      refreshWebPush(core, { log: (lvl, m) => diagnostics.append(lvl, m) }).catch(() => {});
+      return;
+    }
     if (d?.type === "velta-notification-click" && Number(d.chatId) > 0) {
       openChatFromLink({ accountId: d.accountId != null ? Number(d.accountId) : null, chatId: Number(d.chatId) });
     }
@@ -4720,6 +4725,9 @@ function rebuildDrawer() {
       openUrl: (url) => openInAppBrowser(url),
       toast, errToast,
     }),
+    onWebPushSection: (core?.backend?.kind === "worker-wasm" && typeof core.transport?.setPushDeviceToken === "function")
+      ? (el) => wireWebPushSection(el, { core, toast, errToast })
+      : null,
     onOpenChat: async kind => {
       if (state.accountChanging) return;
       const epoch = core.accountEpoch;
@@ -5714,6 +5722,12 @@ async function boot() {
         await askBatteryExemption();
       }
     } catch {}
+
+    // Web Push (PWA): the core keeps the device token in memory only, so
+    // hand it over again on every boot (docs/agents/web-push.md).
+    if (core.backend?.kind === "worker-wasm") {
+      refreshWebPush(core, { log: (lvl, m) => diagnostics.append(lvl, m) }).catch(() => {});
+    }
 
     // PWA relay auto-switch resume: the create-account gate reloaded the
     // page to point the worker's mail tunnel at the account's own relay;
