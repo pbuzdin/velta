@@ -5,6 +5,13 @@ Design: [`../research/webxdc-group-calls.md`](../research/webxdc-group-calls.md)
 `webxdc.veltaCall`; cap 6; full mesh, no media server; relay-only;
 trust = built-in hash list only; PWA via status-update signaling).
 
+Velta Circle is the user-facing name of the built-in group call app
+(`app/webxdc/group-call/`, `group-call.xdc`; path and file name kept — the
+file name picks trust candidates for already-sent calls). Old bundle hashes
+stay in `trusted-xdc.js`. Icon: `app/webxdc/group-call/icon.svg` (five dots
+in a ring around the Velta Beam V without its bar; light-theme accent
+#3390ec, white, 3.3:1) rendered to the 128px `icon.png` with cairosvg.
+
 ## Media — `app/js/group-call.js` (Phase 1)
 
 - `GroupCall`: one `RTCPeerConnection` per remote participant, audio only,

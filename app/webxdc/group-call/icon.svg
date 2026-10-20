@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 1024 1024">
+  <!-- Velta Circle icon: five people in a ring (top dot centered) around the
+       Velta Beam glyph (app/webxdc/send-direct/icon.svg) with its beam bar
+       removed; the V polygons are unchanged, only scaled. Colors: light-theme
+       accent token (light theme) #3390ec background, white glyph (3.1:1). Same rounded square
+       (rx 208) as Velta Beam. Source for icon.png (128px):
+       python3 -c "import cairosvg; cairosvg.svg2png(url='icon.svg', write_to='icon.png', output_width=128, output_height=128)" -->
+  <rect width="1024" height="1024" rx="208" fill="#3390ec"/>
+  <g fill="#fff">
+    <circle cx="512.0" cy="182.0" r="72"/><circle cx="825.8" cy="410.0" r="72"/><circle cx="706.0" cy="779.0" r="72"/><circle cx="318.0" cy="779.0" r="72"/><circle cx="198.2" cy="410.0" r="72"/>
+    <g transform="translate(512 512) scale(0.7) translate(-512.5 -574)">
+      <polygon points="236,314 395,314 590,688 515,834"/>
+      <polygon points="630,314 789,314 608,660 533,508"/>
+    </g>
+  </g>
+</svg>

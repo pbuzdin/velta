@@ -42,7 +42,7 @@ test("trust is the hash, nothing else: a renamed lookalike or a 1-byte change is
 
 test("card name/icon by file name is cosmetic only", () => {
   assert.ok(GROUP_CALL_FILE_RE.test("group-call-1712.xdc"));
-  assert.equal(builtinAppCard("group-call.xdc").name, "Velta Group Call");
+  assert.equal(builtinAppCard("group-call.xdc").name, "Velta Circle");
   const m = src("app/js/webxdc-manager.js").toString();
   // every veltaCall* method is gated on the bundle hash
   assert.match(m, /case "veltaCallState": \{\s*if \(\(await activeTrust\(\)\) !== "group-call"\) throw/);
@@ -56,7 +56,7 @@ test("the app never touches WebRTC or the mic; it drives webxdc.veltaCall and sh
   const js = src("app/webxdc/group-call/main.js").toString();
   assert.ok(!/RTCPeerConnection|getUserMedia|mediaDevices/.test(js));
   assert.match(js, /window\.webxdc && window\.webxdc\.veltaCall/);
-  assert.match(src("app/webxdc/group-call/index.html").toString(), /This group call needs Velta/);
+  assert.match(src("app/webxdc/group-call/index.html").toString(), /This Velta Circle call needs Velta/);
 });
 
 test("shim: veltaCall methods map to host calls; state pushes reach onState", () => {
@@ -75,4 +75,11 @@ test("chat entry point: group chats get 'Group call' in the attach menu", () => 
   const cv = src("app/js/chat-view.js").toString();
   assert.match(cv, /this\.chat\?\.kind === "group" && !this\.chat\?\.isP2p\) \{\s*attachItems\.push\(\{ label: "Group call"/);
   assert.match(cv, /prepareBuiltinXdc\("group-call"/);
+});
+
+test("Velta Circle rename keeps every earlier trusted bundle hash (already-sent calls)", async () => {
+  const { TRUSTED_XDC } = await import("../app/js/trusted-xdc.js");
+  for (const h of ["10e5bcf833148f408daf936d7c5b35d7209fd67a929840f62763a41c2735032c", "ad9a62e9750a62beef378461bc7ccdb8cb7c9cda6f8609472385e755086a54c5",
+    "9394b070f4a59ed1da9bc6c0577084ad8a101d3c25615f634866a3e3b8f95409", "504443a99d2db9a8d3742f0e18c6bb9086ad4a2d9150cf2584c232bbd1c71eab"]) assert.equal(TRUSTED_XDC[h], "group-call", h);
+  assert.match(src("app/webxdc/group-call/manifest.toml").toString(), /^name = "Velta Circle"$/m);
 });

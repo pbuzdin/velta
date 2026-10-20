@@ -1,4 +1,4 @@
-// Velta Group Call — UI only. Audio, the mic and the connections live in the
+// Velta Circle — UI only. Audio, the mic and the connections live in the
 // Velta host (webxdc.veltaCall, docs/agents/group-calls.md); this app never
 // touches WebRTC. In Delta Chat (no veltaCall) it shows "needs Velta" and the
 // roster it can read from status updates.
@@ -59,7 +59,7 @@
 
   function noVelta() {
     $("needs-velta").hidden = false;
-    $("sub").textContent = "Velta-only app";
+    $("sub").textContent = "Velta Circle · Velta-only app";
     listen(function (u) { readRoster(u); if (u.serial === u.max_serial) showDcRoster(); }).then(showDcRoster);
   }
 

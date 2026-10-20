@@ -3715,7 +3715,7 @@ export class ChatView {
 
   _wireGroupCallCard(card, m) {
     const fc = m.fromContact || {};
-    const open = () => openWebxdc(m.id, "Velta Group Call");
+    const open = () => openWebxdc(m.id, "Velta Circle");
     // One wiring per card node for its lifetime; drawing only while it is in
     // the document (cached rows re-attach, see _gcRefresh above).
     const w = wireCard(card, {
@@ -3752,7 +3752,7 @@ export class ChatView {
       await announceGroupCall(msg.id, title).catch(() => {});
       // The starter joins right away (consent prompt), then sees the call screen.
       try { await joinGroupCallFor(msg.id); } catch {}
-      openWebxdc(msg.id, "Velta Group Call");
+      openWebxdc(msg.id, "Velta Circle");
     } catch (err) {
       if (this._isCurrent(session)) errToast("Could not start a group call: " + (err?.message || err), 4000);
     }

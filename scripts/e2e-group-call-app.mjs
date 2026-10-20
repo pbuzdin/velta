@@ -52,7 +52,7 @@ onGroupCallChange((s) => { renderBar(s); if (trust === 'group-call') post({ type
 window.pushUpdates = async () => { const rows = JSON.parse(await core.getWebxdcStatusUpdates(7, serial)); for (const r of rows) serial = Math.max(serial, r.serial); if (rows.length) post({ type: 'velta-webxdc-status-updates', updates: rows }) }
 async function handle(d) {
   switch (d.method) {
-    case 'getInfo': return { name: 'Velta Group Call', selfAddr: id, selfName: name, veltaRealtime: rt, veltaCall: trust === 'group-call' }
+    case 'getInfo': return { name: 'Velta Circle', selfAddr: id, selfName: name, veltaRealtime: rt, veltaCall: trust === 'group-call' }
     case 'getAllUpdates': return { updates: JSON.parse(await core.getWebxdcStatusUpdates(7, 0)) }
     case 'getStatusUpdates': { const rows = JSON.parse(await core.getWebxdcStatusUpdates(7, d.params.serial || 0)); for (const r of rows) serial = Math.max(serial, r.serial); return { updates: rows } }
     case 'sendUpdate': await core.sendWebxdcStatusUpdate(7, JSON.stringify(d.params.update), ''); return {}
@@ -164,6 +164,7 @@ try {
   await dc.goto(`http://localhost:${PORT}/app/index.html?dc=1`)
   await dc.waitForSelector('#needs-velta:not([hidden])')
   check(/Anna/.test(await dc.textContent('#dc-roster')), `Delta Chat view: "needs Velta" + roster (${await dc.textContent('#dc-roster')})`)
+  check(/Velta Circle/.test(await dc.textContent('#sub')) && /Velta Circle/.test(await dc.textContent('#needs-velta')), 'Delta Chat view names the app "Velta Circle"')
   check(await dc.textContent('#title') === 'Saturday hike plan' && /Started by Anna/.test(await dc.textContent('#creator')), 'Delta Chat view: call name + creator')
   await shot(dc, 'delta-chat-view-360-needs-velta')
   // leave from the bar (shown once the call screen is closed)

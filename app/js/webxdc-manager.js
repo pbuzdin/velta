@@ -489,7 +489,7 @@ export const BEAM_FILE_RE = /^send-direct(-\d+)?\.xdc$/i;
 export const GROUP_CALL_FILE_RE = /^group-call(-\d+)?\.xdc$/i;
 export function builtinAppCard(fileName) {
   // Card cosmetics only — trust for group calls is the bundle hash (xdc-trust.js).
-  if (GROUP_CALL_FILE_RE.test(String(fileName || ""))) return { name: "Velta Group Call", iconUrl: new URL("../webxdc/group-call/icon.png", import.meta.url).href };
+  if (GROUP_CALL_FILE_RE.test(String(fileName || ""))) return { name: "Velta Circle", iconUrl: new URL("../webxdc/group-call/icon.png", import.meta.url).href };
   if (!BEAM_FILE_RE.test(String(fileName || ""))) return null;
   return { name: "Velta Beam", iconUrl: new URL("../webxdc/send-direct/icon.png", import.meta.url).href };
 }

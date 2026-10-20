@@ -5674,7 +5674,7 @@ async function boot() {
     calls = initCalls(core, { notify: (msg) => toast(msg, 4500), peerInfo: callPeerInfo });
     initWebxdc(core);
     // Group calls: in-call bar + "open the call" from it (group-call-ui.js).
-    initGroupCallUi({ open: (msgId) => openWebxdc(msgId, "Velta Group Call") });
+    initGroupCallUi({ open: (msgId) => openWebxdc(msgId, "Velta Circle") });
     window.addEventListener("velta-open-chat", (e) => { if (e.detail?.chatId) openChat(e.detail.chatId); });
     reportUiVisible(); // visibilitychange won't fire for the initial load
 
