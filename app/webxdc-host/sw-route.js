@@ -23,9 +23,12 @@
     "font-src blob: data:; connect-src blob: data:; worker-src blob:; " +
     "frame-src blob: data:; child-src blob: data:; object-src 'none'; manifest-src 'none'; " +
     "form-action 'none'; base-uri 'none'";
+  var WEBXDC_PERMISSIONS_POLICY = "camera=(), microphone=(), display-capture=(), geolocation=(), usb=(), serial=(), hid=(), bluetooth=(), midi=()";
   var FRAME_HEADERS = {
     "Content-Type": "text/html; charset=utf-8",
     "Content-Security-Policy": WEBXDC_FRAME_CSP,
+    // No mic/camera/screen/location for webxdc (docs/research/webxdc-group-calls.md Phase 0).
+    "Permissions-Policy": WEBXDC_PERMISSIONS_POLICY,
     "Cache-Control": "no-store",
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
@@ -105,5 +108,5 @@
   }
 
   root.veltaWebxdcSw = { route: route, parseRunUrl: parseRunUrl, frameHtml: frameHtml, inlineJson: inlineJson,
-    WEBXDC_FRAME_CSP: WEBXDC_FRAME_CSP, isIcon: isIcon };
+    WEBXDC_FRAME_CSP: WEBXDC_FRAME_CSP, WEBXDC_PERMISSIONS_POLICY: WEBXDC_PERMISSIONS_POLICY, isIcon: isIcon };
 })(typeof self !== "undefined" ? self : globalThis);

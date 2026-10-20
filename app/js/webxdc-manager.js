@@ -11,6 +11,8 @@ import { tauriInvoke } from "./tauri.js";
 import { base64ToBytes } from "./identity-backup.js";
 
 let core = null;
+export const WEBXDC_FRAME_ALLOW =
+  "autoplay; microphone 'none'; camera 'none'; display-capture 'none'; geolocation 'none'";
 let active = null; // { msgId, iframe, serial, realtime }
 // Spec limit for one realtime payload (webxdc.d.ts: 128 000 bytes); the
 // core's gossip caps a message at 128 KiB including its own trailer.
@@ -449,7 +451,9 @@ export async function openWebxdc(msgId, fallbackName = "Webxdc app", opts = {}) 
   iframe.setAttribute("sandbox", isPwaHost()
     ? "allow-scripts allow-same-origin allow-downloads allow-forms allow-modals"
     : "allow-scripts allow-downloads allow-forms allow-modals");
-  iframe.setAttribute("allow", "autoplay");
+  // KEEP: webxdc never gets capture/location (Phase 0, webxdc-group-calls.md);
+  // trusted call apps use the HOST's media via webxdc.veltaCall instead.
+  iframe.setAttribute("allow", WEBXDC_FRAME_ALLOW);
   iframe.setAttribute("referrerpolicy", "no-referrer");
   // Theme rides the query string for reference only; the app document's color-scheme is left alone
   // (see webxdc-shim.js).

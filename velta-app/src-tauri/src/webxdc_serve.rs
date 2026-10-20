@@ -28,6 +28,14 @@ pub const WEBXDC_SHIM: &str = include_str!("webxdc-shim.js");
 // 'webrtc'" for every webxdc app. WebRTC is instead disabled in the injected
 // shim, which stubs the RTCPeerConnection constructors before the app's
 // scripts run (see webxdc-shim.js).
+/// Phase 0 of docs/research/webxdc-group-calls.md: no webxdc document may
+/// use the mic, camera, screen capture or location. Chromium already refuses
+/// getUserMedia in the opaque origin ("Invalid security origin"); this header
+/// (+ the iframe `allow` list and the shim stub) is defence in depth for
+/// WebKit shells. KEEP on every webxdc response.
+pub const WEBXDC_PERMISSIONS_POLICY: &str = "camera=(), microphone=(), display-capture=(), geolocation=(), \
+    usb=(), serial=(), hid=(), bluetooth=(), midi=()";
+
 pub const WEBXDC_CSP: &str = "default-src 'self' http://webxdc.localhost https://webxdc.localhost webxdc://localhost; \
     style-src 'self' http://webxdc.localhost https://webxdc.localhost webxdc://localhost 'unsafe-inline' blob:; \
     font-src 'self' http://webxdc.localhost https://webxdc.localhost webxdc://localhost data: blob:; \
@@ -211,6 +219,7 @@ pub async fn webxdc_serve(
         .header("Content-Type", mime)
         .header("Cache-Control", "no-cache")
         .header("Content-Security-Policy", WEBXDC_CSP)
+        .header("Permissions-Policy", WEBXDC_PERMISSIONS_POLICY)
         .header("Access-Control-Allow-Origin", "*")
         .body(bytes)
         .unwrap()

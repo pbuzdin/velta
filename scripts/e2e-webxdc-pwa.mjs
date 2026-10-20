@@ -132,7 +132,7 @@ const BASE = `http://127.0.0.1:${server.address().port}`
 
 let failed = 0
 const check = (ok, what) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${what}`); if (!ok) failed++ }
-const browser = await chromium.launch()
+const browser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] })
 try {
   const ctx = await browser.newContext()
   const page = await ctx.newPage()
@@ -157,6 +157,9 @@ try {
   await fr.waitForFunction(() => document.querySelector('#list').textContent.includes('demo.bin'), null, { timeout: 10000 })
   check(true, 'Beam: status-update offer listed')
   check(await fr.evaluate(() => { try { return !!parent.document } catch { return false } }) === false, 'Beam: cannot touch the host DOM')
+  // Phase 0 (webxdc-group-calls.md): no capture in the PWA frame even with an auto-granting UI.
+  const gum = await fr.evaluate(() => navigator.mediaDevices.getUserMedia({ audio: true }).then(() => 'GRANTED', (e) => 'denied:' + e.name))
+  check(gum.startsWith('denied'), `Beam: getUserMedia denied in the PWA frame (${gum})`)
 
   // 2. module app
   await page.evaluate(() => window.openApp(11))

@@ -16,6 +16,19 @@
     };
     window.RTCPeerConnection = rtcBlocked;
     window.webkitRTCPeerConnection = rtcBlocked;
+    // No capture either (Phase 0, docs/research/webxdc-group-calls.md):
+    // the browser already refuses it in the opaque origin; this makes the
+    // refusal uniform (NotAllowedError) on every shell.
+    var md = navigator.mediaDevices;
+    if (md) {
+      var deny = function () {
+        return Promise.reject(new DOMException("Media capture is not available in webxdc apps", "NotAllowedError"));
+      };
+      ["getUserMedia", "getDisplayMedia"].forEach(function (k) {
+        try { Object.defineProperty(md, k, { value: deny, configurable: false, writable: false }); } catch (_e2) {}
+      });
+    }
+    if (navigator.getUserMedia) navigator.getUserMedia = function (_c, _ok, err) { if (err) err(new DOMException("denied", "NotAllowedError")); };
   } catch (_e) {
     // no window to guard — nothing to block
   }

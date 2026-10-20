@@ -36,6 +36,21 @@ import androidx.core.view.WindowInsetsControllerCompat
  * fullscreen, as before). The generated class is final, hence wrapping instead
  * of subclassing; the forwarded set must track wry's client when it changes.
  */
+/** Which origins may use mic/camera. Pure, so tests can mirror it. */
+object WebPermissionPolicy {
+  /** The Velta UI origin(s) on Android (Tauri serves the app from tauri.localhost). */
+  private val APP_HOSTS = setOf("tauri.localhost")
+
+  fun mayCapture(origin: String?): Boolean {
+    if (origin.isNullOrEmpty() || origin == "null") return false
+    val uri = try { Uri.parse(origin) } catch (e: Exception) { return false }
+    val scheme = uri.scheme ?: return false
+    if (scheme != "http" && scheme != "https" && scheme != "tauri") return false
+    val host = uri.host ?: return false
+    return host in APP_HOSTS
+  }
+}
+
 class VeltaWebChromeClient(
   private val inner: WebChromeClient,
   private val activity: Activity,
@@ -98,7 +113,16 @@ class VeltaWebChromeClient(
 
   // ---- forwarded to the stock wry client ----
 
+  // wry's stock client grants EVERY capture request (any origin, any frame)
+  // once the OS permission is there. Only the Velta UI itself may capture
+  // (1:1 and group calls run in the host page); webxdc frames
+  // (webxdc.localhost, opaque "null") and anything else are denied before
+  // the OS prompt. KEEP — Phase 0 of docs/research/webxdc-group-calls.md.
   override fun onPermissionRequest(request: PermissionRequest) {
+    if (!WebPermissionPolicy.mayCapture(request.origin?.toString())) {
+      request.deny()
+      return
+    }
     inner.onPermissionRequest(request)
   }
 

@@ -36,6 +36,31 @@ the standing read. Rules marked KEEP are do-not-regress.
   response used to find no waiter, and parallel requests collided on
   nanosecond ids.
 
+## No capture or location for webxdc (Phase 0 of research/webxdc-group-calls.md, 2026-10-20)
+
+Finding (Chromium 14x, fake devices + auto-granting UI, `scripts/e2e-webxdc-media-deny.mjs`
+and the PWA e2e): the opaque-origin webxdc frame was ALREADY refused by the
+browser (`getUserMedia` → `SecurityError: Invalid security origin`, nested
+about:blank too). But the Android shell had no origin check of its own:
+wry's stock `RustWebChromeClient.onPermissionRequest` grants every
+request from any frame once the OS permission exists, so the opaque-origin
+rule in the WebView renderer was the only barrier. WebKit shells (macOS
+WKWebView, Linux WebKitGTK) are not covered by these tests.
+
+KEEP, all layers:
+- Android `VeltaWebChromeClient.onPermissionRequest` denies unless
+  `WebPermissionPolicy.mayCapture(origin)` (only `tauri.localhost`, the Velta UI).
+  API 24/25 keep wry's client (no wrapper, `getWebChromeClient` needs 26) —
+  there only the renderer rule applies.
+- `Permissions-Policy: camera=(), microphone=(), display-capture=(), geolocation=(), …`
+  on every webxdc response (`WEBXDC_PERMISSIONS_POLICY`, webxdc_serve.rs) and the PWA
+  loader document (sw-route.js).
+- iframe `allow` = `WEBXDC_FRAME_ALLOW` (webxdc-manager.js): autoplay + `'none'` for
+  mic/camera/display-capture/geolocation.
+- The shim pins `mediaDevices.getUserMedia/getDisplayMedia` to a NotAllowedError reject.
+- Group calls never relax this: trusted apps get `webxdc.veltaCall`, the HOST captures.
+Tests: tests/webxdc-media-deny.test.mjs, scripts/e2e-webxdc-media-deny.mjs, scripts/e2e-webxdc-pwa.mjs.
+
 ## WebView2 crash workaround
 
 Tauri's core+plugin init scripts run in opaque-origin frames and throw
