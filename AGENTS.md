@@ -2121,6 +2121,32 @@ replies; applies regardless of which tools or modes are active.)
   rows (#39). Group/channel avatars are exempt (solid color + photo/initials).
 
 
+- **Contrast is a hard rule for every text (2026-10-20).** All text meets
+  WCAG AA: **4.5:1** for normal text, **3:1** for large text (>= 24px, or
+  >= 18.66px bold) and for meaningful icons and UI borders. It must hold in
+  **dark, light and brutal**, on **incoming and outgoing bubbles**, and with
+  **custom accents** (Chat appearance; test at least a dark, a mid and a
+  light accent such as yellow `#f2e14c`). Accent-colored text uses
+  `--accent-text` (UI) / `--accent-text-in` (inside bubbles); ink on accent
+  fills is `--on-accent`; sender names go through `senderColorVars`
+  (chat-view.js); a custom accent derives every one of them with
+  `deriveAccent` (chat-appearance.js), which must keep them >= 4.5:1.
+- **Tokens only in reworked areas.** Calls, the group call bar/app, Chat
+  appearance, device info, settings export, multi-device note, message
+  labels: colors come from custom properties; `var(--x, #hex)` fallbacks are
+  banned app-wide (every token is defined). `tests/design-token-guard.test.mjs`
+  enforces it; the 1:1 call screen uses the `--call-*` tokens.
+- **UI change checklist** (before committing any UI change):
+  1. Tokens, not raw colors/sizes; new tokens go into `:root`, light and
+     brutal as needed, and into `design/velta-design-system.html` + `.svg`
+     (restamp the header with APP_VERSION and the date).
+  2. `node --test tests/` (includes `bubble-label-contrast` and
+     `design-token-guard`).
+  3. `node scripts/e2e-contrast.mjs` (mock core; every theme × default,
+     dark, mid and yellow accent; lists each offending element with its
+     ratio; `--quick` = default + yellow, as in CI). Zero violations.
+  4. `node scripts/e2e-narrow-overflow.mjs` after layout changes.
+
 ### 6.5 Profiling (JS + Rust)
 
 Linters don't find runtime bottlenecks. Use:
@@ -2747,6 +2773,7 @@ talks to Google.
 | Run Python CFFI tests | `cd core/python && pytest` |
 | Run Python RPC tests | `cd core/deltachat-rpc-client && pytest` |
 | Upgrade the core | Follow `COREUPDATE.md` |
+| Contrast audit (UI changes) | `node scripts/e2e-contrast.mjs` (`--quick` in CI, `--shots DIR`, `--json FILE`) |
 
 ---
 

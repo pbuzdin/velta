@@ -1,0 +1,46 @@
+name: UI contrast (WCAG AA)
+
+# AGENTS.md 6.4: every text meets WCAG AA in dark, light and brutal, both
+# bubble sides, with custom accents. Mock core, headless Chromium.
+on:
+  push:
+    branches: [master]
+    paths: ['app/**', 'scripts/e2e-contrast.mjs', 'tests/bubble-label-contrast.test.mjs', 'tests/design-token-guard.test.mjs', '.github/workflows/ui-contrast.yml']
+  pull_request:
+    paths: ['app/**', 'scripts/e2e-contrast.mjs', 'tests/bubble-label-contrast.test.mjs', 'tests/design-token-guard.test.mjs', '.github/workflows/ui-contrast.yml']
+  workflow_dispatch:
+    inputs:
+      full:
+        description: 'All accents (dark, mid, yellow) instead of --quick'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  contrast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Token + bubble-label contrast tests
+        run: node --test tests/bubble-label-contrast.test.mjs tests/design-token-guard.test.mjs tests/chat-appearance.test.mjs
+      - name: Install Playwright Chromium
+        working-directory: scripts
+        run: |
+          npm install --no-fund --no-audit playwright@1.56.0
+          npx playwright install --with-deps chromium
+      - name: App-wide contrast audit
+        run: node scripts/e2e-contrast.mjs ${{ (github.event_name == 'workflow_dispatch' && inputs.full) && '' || '--quick' }} --json "$RUNNER_TEMP/contrast.json" --shots "$RUNNER_TEMP/contrast-shots"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contrast-report
+          path: |
+            ${{ runner.temp }}/contrast.json
+            ${{ runner.temp }}/contrast-shots
+          if-no-files-found: ignore

@@ -186,6 +186,13 @@ export class MockCore extends EventTarget {
     // message (marker copied, no stored body → button must NOT render).
     this.chats[2].messages.push(
       this._mkMsg(this.chats[2], { from: 1, text: "Trip plan: we take the morning train, and the long footer with the packing list got cut [...]", ts: now - 120e3, hasHtml: true }),
+      // Contrast fixtures (scripts/e2e-contrast.mjs): every dim in-bubble
+      // label on both sides — forwarded, quoted, edited, reactions.
+      this._mkMsg(this.chats[2], { from: 1, fwdFrom: "Ada Byron", text: "Forwarded from my side", ts: now - 110e3 }),
+      this._mkMsg(this.chats[2], { from: 2, edited: true, text: "Edited on her side", ts: now - 100e3, quote: { id: 0, text: "Trip plan: the morning train", fromContact: { name: "You" } } }),
+      this._mkMsg(this.chats[2], { from: 1, edited: true, text: "Edited reply on mine", ts: now - 90e3, quote: { id: 0, text: "Edited on her side", fromContact: { name: "Ada Byron" } },
+        reactions: [{ emoji: "👍", count: 2, mine: true }, { emoji: "🎉", count: 1, mine: false }] }),
+      this._mkMsg(this.chats[2], { from: 2, text: "Reactions on hers", ts: now - 80e3, reactions: [{ emoji: "❤️", count: 1, mine: false }, { emoji: "👍", count: 1, mine: true }] }),
       this._mkMsg(this.chats[2], { from: 2, fwdFrom: "Pavel", text: "Forwarded — the original mail this was cut from lives on another device [...]", ts: now - 60e3, hasHtml: false }),
       // An HTML mail: simplified text in the bubble, formatted original behind
       // "Show Full Message…" — exercises the srcdoc iframe path with real markup.
