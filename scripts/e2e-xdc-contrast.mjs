@@ -35,7 +35,8 @@ function mock({ velta, app }) {
   const offer = { id: '0123456789abcdef', name: 'holiday-photos.zip', size: 4200000, chunk: 60000, n: 70, sha256: 'a'.repeat(64) }
   const updates = app === 'send-direct' ? [{ serial: 1, max_serial: 1, payload: { offer, from: 'anna@example.org' } }]
     : [{ serial: 1, max_serial: 2, payload: { veltaCall: { t: 'meta', title: 'Team sync', creatorName: 'Anna' } } },
-       { serial: 2, max_serial: 2, payload: { veltaCall: { t: 'join', from: 'a', name: 'Anna', ts: Date.now() } } }]
+       { serial: 2, max_serial: 3, payload: { veltaCall: { t: 'join', from: 'a', name: 'Anna', ts: Date.now() } } },
+       { serial: 3, max_serial: 3, payload: { veltaCall: { t: 'join', from: 'f'.repeat(64), ts: Date.now() } } }]
   window.webxdc = {
     selfAddr: 'me@example.org', selfName: 'Me', sendUpdateInterval: 1000, sendUpdateMaxSize: 128000,
     getSelfInfo: async () => ({ addr: 'me@example.org' }),
@@ -92,9 +93,10 @@ for (const app of ['send-direct', 'group-call']) for (const scheme of ['dark', '
   const res = await page.evaluate(audit)
   const bad = res.filter(r => !r.ok); checked += res.length; fail += bad.length
   const min = Math.min(...res.map(r => r.ratio / r.need * (r.need)))
-  const label = `${app === 'send-direct' ? 'beam' : 'circle'}-${scheme}-${velta ? 'in-velta' : 'not-in-velta'}`
+  const label = (process.env.SHOT_PREFIX || '') + `${app === 'send-direct' ? 'beam' : 'circle'}-${scheme}-${velta ? 'in-velta' : 'not-in-velta'}`
   report.push(`${label}: ${res.length} text nodes, min ${Math.min(...res.map(r => r.ratio))}:1, cta ${cta ? 'shown' : 'hidden'}, ${bad.length} violations`)
   for (const b of bad) report.push(`  FAIL ${b.el} "${b.text}" ${b.ratio} < ${b.need}`)
+  if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth || /[0-9a-f]{32}/.test(document.body.innerText))) { fail++; report.push('  FAIL horizontal overflow or raw id in text') }
   if (cta === velta) { fail++; report.push(`  FAIL cta visibility wrong (in Velta: ${velta})`) }
   if (shots) await page.screenshot({ path: join(shots, label + '.png'), fullPage: true })
   await page.close()

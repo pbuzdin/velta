@@ -48,18 +48,21 @@
     var m = u && u.payload && u.payload.veltaCall;
     if (!m || typeof m.from !== "string" || m.t === "meta") return;
     var now = Date.now();
-    if (m.t === "join" || m.t === "hb") roster[m.from] = { name: m.name || (roster[m.from] || {}).name || m.from, ts: m.ts || now };
+    // display names only, never the per-app pseudonym id (64-hex) as text
+    var nm = typeof m.name === "string" ? m.name.trim().slice(0, 60) : "";
+    if (m.t === "join" || m.t === "hb") roster[m.from] = { name: nm || (roster[m.from] || {}).name || "", ts: m.ts || now };
     if (m.t === "leave") delete roster[m.from];
   }
   function showDcRoster() {
-    var now = Date.now(), names = [];
-    for (var k in roster) if (now - roster[k].ts < 240000) names.push(roster[k].name);
+    var now = Date.now(), names = [], unnamed = 0;
+    for (var k in roster) if (now - roster[k].ts < 240000) { if (roster[k].name) names.push(roster[k].name); else unnamed++; }
+    if (unnamed) names.push(names.length ? unnamed + (unnamed === 1 ? " other" : " others") : unnamed + (unnamed === 1 ? " person" : " people"));
     $("dc-roster").textContent = names.length ? "In the call now: " + names.join(", ") + "." : "Nobody is in the call right now.";
   }
 
   function noVelta() {
     $("needs-velta").hidden = false;
-    $("sub").textContent = "Velta Circle · Velta-only app";
+    $("sub").textContent = "Velta Circle";
     listen(function (u) { readRoster(u); if (u.serial === u.max_serial) showDcRoster(); }).then(showDcRoster);
   }
 

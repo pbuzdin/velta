@@ -56,7 +56,7 @@ test("the app never touches WebRTC or the mic; it drives webxdc.veltaCall and sh
   const js = src("app/webxdc/group-call/main.js").toString();
   assert.ok(!/RTCPeerConnection|getUserMedia|mediaDevices/.test(js));
   assert.match(js, /window\.webxdc && window\.webxdc\.veltaCall/);
-  assert.match(src("app/webxdc/group-call/index.html").toString(), /This Velta Circle call needs Velta/);
+  assert.match(src("app/webxdc/group-call/index.html").toString(), /<b>Open in Velta to join<\/b>/);
 });
 
 test("shim: veltaCall methods map to host calls; state pushes reach onState", () => {
@@ -82,4 +82,11 @@ test("Velta Circle rename keeps every earlier trusted bundle hash (already-sent 
   for (const h of ["10e5bcf833148f408daf936d7c5b35d7209fd67a929840f62763a41c2735032c", "ad9a62e9750a62beef378461bc7ccdb8cb7c9cda6f8609472385e755086a54c5",
     "9394b070f4a59ed1da9bc6c0577084ad8a101d3c25615f634866a3e3b8f95409", "504443a99d2db9a8d3742f0e18c6bb9086ad4a2d9150cf2584c232bbd1c71eab"]) assert.equal(TRUSTED_XDC[h], "group-call", h);
   assert.match(src("app/webxdc/group-call/manifest.toml").toString(), /^name = "Velta Circle"$/m);
+});
+
+test("needs-Velta roster shows display names only, never the pseudonym id", () => {
+  const js = src("app/webxdc/group-call/main.js").toString();
+  assert.doesNotMatch(js, /\|\| m\.from/);
+  assert.match(js, /" others"/);
+  assert.match(src("app/webxdc/group-call/index.html").toString(), /\.notice, \.notice \* \{[^}]*overflow-wrap: anywhere/);
 });

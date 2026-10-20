@@ -39,7 +39,9 @@
   .notice b { display: block; font-size: var(--fs-5); margin-bottom: var(--sp-1); }
   .note { color: var(--text-dim); font-size: var(--fs-1); text-align: center; padding: 0 var(--sp-4) var(--sp-1); }
   /* outside Velta only: selectable address + link (Delta Chat may block links) */
-  .cta { display: block; margin-top: var(--sp-3); color: var(--text-dim); user-select: text; -webkit-user-select: text; }
+  .notice, .notice * { min-width: 0; overflow-wrap: anywhere; }
+  .roster { display: block; margin-top: var(--sp-2); color: var(--text-dim); }
+  .cta { display: block; color: var(--text); user-select: text; -webkit-user-select: text; }
   .cta a { color: var(--accent-text); user-select: text; -webkit-user-select: text; }
   a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   [hidden] { display: none !important; }
@@ -53,10 +55,9 @@
 </header>
 <main>
   <div class="notice" id="needs-velta" hidden>
-    <b>This Velta Circle call needs Velta</b>
-    Velta Circle is a Velta-only app: audio runs in the Velta client, not in this app.
-    Open this chat in Velta to join. <span id="dc-roster"></span>
-    <span class="cta" id="velta-cta">Get Velta · <a href="https://velta.cc" target="_blank" rel="noopener">velta.cc</a></span>
+    <b>Open in Velta to join</b>
+    <span class="cta" id="velta-cta">This call runs in Velta. Get it · <a href="https://velta.cc" target="_blank" rel="noopener">velta.cc</a></span>
+    <span class="roster" id="dc-roster"></span>
   </div>
   <div class="notice" id="full" hidden><b>The call is full</b>Up to <span id="max">6</span> people can talk at once. You'll be connected when someone leaves.</div>
   <div class="notice" id="error" hidden></div>

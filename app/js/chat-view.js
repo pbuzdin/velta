@@ -286,6 +286,9 @@ const ICO = {
   // Velta Beam: beam bar over a split V, the shapes of app/webxdc/send-direct/icon.svg
   // (1024 grid) rescaled to 24: 16px wide (solid, so narrower than the outlined icons), centred like the other attach icons.
   beam: `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M4 4.17L20 4.17L20 5.78L4 5.78ZM4.95 6.54L9.01 6.54L13.99 16.1L12.08 19.83ZM15.02 6.54L19.08 6.54L14.45 15.39L12.54 11.5Z"/></svg>`,
+  // Velta Circle: five dots around the Beam V (no beam bar), the shapes of
+  // app/webxdc/group-call/icon.svg (1024 grid) rescaled to 24, solid like beam.
+  circle: `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M10.31 4.27a1.69 1.69 0 1 0 3.38 0a1.69 1.69 0 1 0 -3.38 0ZM17.67 9.61a1.69 1.69 0 1 0 3.38 0a1.69 1.69 0 1 0 -3.38 0ZM14.86 18.26a1.69 1.69 0 1 0 3.38 0a1.69 1.69 0 1 0 -3.38 0ZM5.77 18.26a1.69 1.69 0 1 0 3.38 0a1.69 1.69 0 1 0 -3.38 0ZM2.96 9.61a1.69 1.69 0 1 0 3.38 0a1.69 1.69 0 1 0 -3.38 0ZM7.46 7.73L10.07 7.73L13.27 13.87L12.04 16.27ZM13.93 7.73L16.54 7.73L13.57 13.41L12.34 10.92Z"/></svg>`,
   file: `<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 3v4h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`,
   webxdc: `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="3" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="3" y="13" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M17.5 13.5v6m-3-3h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
   mic: `<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 11a7 7 0 0014 0M12 18v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
@@ -3211,7 +3214,7 @@ export class ChatView {
       // Group audio calls (docs/agents/group-calls.md): group chats only, every
       // shell (the PWA signals over status updates).
       if (this.chat?.kind === "group" && !this.chat?.isP2p) {
-        attachItems.push({ label: "Group call", icon: ICO.mic, onClick: () => this._startGroupCall() });
+        attachItems.push({ label: "Group call", icon: ICO.circle, onClick: () => this._startGroupCall() });
       }
       // Voice messages are not supported in local chat — hide the item there.
       if (!this.chat?.isP2p) {
