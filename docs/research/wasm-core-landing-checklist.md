@@ -138,7 +138,7 @@ Native builds must not change behaviour because of the wasm patches.
   wasm-series copy (Day 13 run); no intentional golden changes.
 - ⬜ `python3 tools/apply-core-patches.py verify` → 13/13 **after** the
   wasm series is in `core/` (the two layers coexist).
-- ⬜ Android APK + Windows sidecar + `velta-core-service` build from the
+- ⬜ Android APK + Windows sidecar (`velta-core-service` archived 2026-10-20, out of scope) build from the
   landed tree; smoke per COREUPDATE.md §2 frontend contract (RPC/event
   surface unchanged). Sidecar done Day 12b. **Proposed waiver for the APK
   part (Pavel, pending):** aarch64 `cargo check` green (Day 12b) + Windows

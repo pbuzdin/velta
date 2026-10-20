@@ -1,3 +1,8 @@
+> **ARCHIVED (2026-10-20) — unmaintained.** This UI-less service APK is no longer
+> built, tested or updated. It links chatmail core **v2.62.0** by git tag and was
+> not moved to the vendored core (2.64+). Its CI (`core-service.yml`) was removed
+> and it is not part of the core-update checklist. Kept for history/reference only.
+
 # Velta Core Service — UI-less Android APK
 
 A headless Android app that runs the Delta Chat core (chatmail relay

@@ -10,13 +10,13 @@ const src = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8");
 test("the service is reached over the 20808 WebSocket only", () => {
   const transport = src("app/js/transport.js");
   assert.match(transport, /ws:\/\/127\.0\.0\.1:20808/);
-  const lib = src("velta-core-service/rust/src/lib.rs");
+  const lib = src("archive/velta-core-service/rust/src/lib.rs");
   assert.match(lib, /run_ws_bridge/);
-  assert.doesNotMatch(src("velta-core-service/rust/Cargo.toml"), /tiny_http/);
+  assert.doesNotMatch(src("archive/velta-core-service/rust/Cargo.toml"), /tiny_http/);
   for (const f of [
     "app/js/transport.js", "app/index.html", "app/diag.html",
     "velta-app/src-tauri/tauri.conf.json", "velta-app/src-tauri/tauri.android.conf.json",
-    "velta-core-service/rust/src/lib.rs",
+    "archive/velta-core-service/rust/src/lib.rs",
   ]) {
     assert.doesNotMatch(src(f), /20809/, f);
   }

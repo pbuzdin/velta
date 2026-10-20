@@ -392,7 +392,7 @@ in `_mapContact`; a future UI could dim "Old" contacts (not done — no demand).
 
 ### 5.5 Pre-existing drift fixed in the same pass
 
-`velta-core-service/rust` resolved the git dependency to a 2.58.0-dev rev and
+`velta-core-service/rust` (now `archive/velta-core-service/`, archived 2026-10-20) resolved the git dependency to a 2.58.0-dev rev and
 its code had latent build breaks (yerpc 0.6 vs 0.7 trait bounds, ambiguous
 `StreamExt::next`, JNI `JValue` borrow shape). Now pinned to tag `v2.61.0`
 with `yerpc = "0.7"` and compiles clean.

@@ -55,7 +55,7 @@ Pain that this document is not trying to redesign: chatmail is store-and-forward
 - A second cipher, a second mail protocol, or a Yggdrasil node inside the app.
 - A React, TypeScript, or bundler rewrite of `app/`.
 - Expanding local chat (new frame types, calls, voice, a relay). The beta limits below are the product.
-- Promoting the browser PWA or `velta-core-service` to a supported release shell.
+- Promoting the browser PWA to a supported release shell (`velta-core-service` is archived).
 - An iOS app. `capabilities/mobile.json` lists `"platforms": ["android", "iOS"]` because that is how the Tauri mobile capability file is scoped. There is no iOS shell in this checkout.
 - Regenerating icons, cropping the logo, a monochrome reduction, or putting the JPEG in the header, splash, or QR badge. Those chrome slots stay `app/icons/v-logo.svg`. The macOS bundle keeps the existing `icons/icon.icns`: do not extend `tools/generate-icons.py` and do not regenerate `.icns`. Both are closed decisions (Key Decisions 9 and 11).
 - A visual sweep of pre-existing CSS literals. Those are named under the design-system map and are not scheduled.
@@ -94,7 +94,7 @@ flowchart TB
   UI -->|"p2p_* commands, Tauri only"| Local
   Local -->|"QUIC, no iroh relay"| Peer
 
-  Svc["velta-core-service APK<br/>loopback :20808<br/>not a release shell"]
+  Svc["velta-core-service APK (ARCHIVED)<br/>loopback :20808<br/>not a release shell"]
   Wasm["PWA wasm worker<br/>work in progress, not a release target"]
   UI -.->|"probe if no shell"| Svc
   UI -.->|"wasm opt-in, no shell"| Wasm
@@ -111,7 +111,7 @@ Release sizes quoted by the README for `1.4.67`: Android arm64 APK about 49 MB, 
 1. `window.VeltaBridge` — an in-WebView bridge. No shipping shell sets it. Android boots through Tauri. `AGENTS.md` §4.3 already marks this probe as dead. Left as-is.
 2. `window.__TAURI__` — the supported path. The page sends JSON-RPC lines with the `rpc` command. Responses and core events come back on the `velta-rpc` event (`lib.rs`).
 3. Wasm worker, only when `wasmOptIn()` is true and neither `VeltaBridge` nor `__TAURI__` is set (`transport-worker-wasm.js`, `worker-wasm.js`). The C4 dist sets `window.VELTA_PWA.wasmCore`. This is the unfinished browser product.
-4. `ws://127.0.0.1:20808` — the headless `velta-core-service` APK (`velta-core-service/README.md`). Loopback only.
+4. `ws://127.0.0.1:20808` — the headless `velta-core-service` APK (`archive/velta-core-service/README.md`; ARCHIVED 2026-10-20, unmaintained, core 2.62). Loopback only.
 5. `MockCore` if nothing connects within 20 seconds.
 
 Desktop core process:
@@ -128,7 +128,7 @@ Android core process:
 - A partial wake lock and a foreground data-sync service keep IMAP idle while the user has allowed background work. The README describes the 15-minute scheduled fetch and the 90-second background poll. Doze still wins until the user grants unrestricted battery use; Velta asks via the platform battery-exemption intent, not via a Google library.
 - Share-in uses `ACTION_SEND` / `ACTION_SEND_MULTIPLE` on `MainActivity`. Export of a profile backup uses the platform create-document dialog (`plugin:dialog|save`), then `publish_backup` copies the core's `.tar` onto the returned content URI. `ContentResolver` (`jni` crate, `resolve_content_uri`) copies `content://` picks into app-local storage because the core cannot read those URIs. These are Android framework APIs.
 
-`velta-core-service` is a separate, UI-less APK: JNI `librpc_core.so`, foreground service, loopback WebSocket. Its Gradle file depends on `androidx.core` and `androidx.appcompat` only. It is the dev/PWA bridge, not the Play-less phone client users install from the README. The phone client is the Tauri APK, which already contains the core.
+`velta-core-service` (ARCHIVED 2026-10-20: unmaintained, pinned to core 2.62, no CI, not part of core updates; `archive/velta-core-service/`) was a separate, UI-less APK: JNI `librpc_core.so`, foreground service, loopback WebSocket. Its Gradle file depends on `androidx.core` and `androidx.appcompat` only. It is the dev/PWA bridge, not the Play-less phone client users install from the README. The phone client is the Tauri APK, which already contains the core.
 
 ### Frontend
 
@@ -305,7 +305,7 @@ The principles are binding for later UI work. This document schedules no PR and 
 | Windows `tauri-winrt-notification` | `Cargo.toml` `[target.'cfg(windows)']` | WinRT toasts. Not Apple, not Google. |
 | WebView2 bootstrapper | `tauri.conf.json` `webviewInstallMode: downloadBootstrapper` | Microsoft Edge WebView2 installer. The documented privacy exception in `AGENTS.md`. Not a Velta analytics channel. |
 | macOS ad-hoc signature, `Info.plist` microphone/camera strings, hardened-runtime entitlements | `AGENTS.md` §4.3.2 | OS packaging so Gatekeeper and TCC can show a prompt. No Apple Developer API, no StoreKit, no APNs entitlement in the Velta shell. |
-| `google()` in Gradle | `gen/android/build.gradle.kts`, `velta-core-service/android/settings.gradle` | Maven repository hostname used by the Android Gradle Plugin to download AndroidX. Not a runtime API. |
+| `google()` in Gradle | `gen/android/build.gradle.kts`, `archive/velta-core-service/android/settings.gradle` | Maven repository hostname used by the Android Gradle Plugin to download AndroidX. Not a runtime API. |
 | `com.google.android.material:material` | App line: `gen/android/app/build.gradle.kts` declares `1.12.0`, and both `themes.xml` files parent `Theme.MaterialComponents.DayNight.NoActionBar`. Transitive: `gen/android/app/tauri.build.gradle.kts` compiles `:tauri-plugin-dialog`, `:tauri-android`, `:tauri-plugin-fs`, and `:tauri-plugin-opener` from the cargo registry paths in `gen/android/tauri.settings.gradle`. `tauri-plugin-dialog` 2.7.2 declares `material:1.13.0`, and `DialogPlugin.kt` `showMessageDialog` constructs `MaterialAlertDialogBuilder`. tauri 2.11.5 (`mobile/android/build.gradle.kts`) and `tauri-plugin-fs` 2.5.1 declare `material:1.7.0` and do not import a Material type. `tauri-plugin-opener` 2.5.4 does not declare Material. The last `universalRelease` report `gen/android/app/build/outputs/sdk-dependencies/universalRelease/sdkDependencies.txt` resolves `com.google.android.material:material:1.13.0`. Release `isMinifyEnabled` and `isShrinkResources` are both false, so the AAR is packaged. | **This one is a Google library, and it is linked.** No `org.velta` Kotlin inflates a Material widget. Shipping JS calls `plugin:dialog|open` and `plugin:dialog|save` only (`app.js`, `chat-view.js`, `webxdc-manager.js`), not `showMessageDialog`. That does not keep the resolved `1.13.0` AAR off the runtime classpath. The library stays. See the gap list. |
 | Upstream `core/src/push.rs` APNs and FCM helpers | vendored core | Compiled into the core because the core is vendored whole. Velta's only caller passes a UnifiedPush `webpush:` token. Do not start calling the Apple or FCM setters. |
 | `androidTestImplementation` Espresso | `build.gradle.kts` | Test classpath only. Not in the release APK. Not scheduled for removal. |
@@ -460,7 +460,7 @@ Push, crypto, shells, and telemetry stay as decided in `AGENTS.md` and the READM
 ## Key Decisions
 
 1. **Mail identity, history, and encryption stay in the vendored Delta Chat core 2.63.0.** A Velta-specific cipher would break compatibility. The quilt is a handful of SMTP and fetch patches, not a new stack. (`AGENTS.md`, `core/Cargo.toml`, `core/src/pgp.rs`.)
-2. **Supported shells are Tauri desktop and Tauri Android.** The browser PWA and `velta-core-service` are loopback or wasm development paths. (`AGENTS.md` §1, README "What it is".)
+2. **Supported shells are Tauri desktop and Tauri Android.** The browser PWA is a wasm development path; `velta-core-service` is archived. (`AGENTS.md` §1, README "What it is".)
 3. **Windows and macOS run `deltachat-rpc-server` as a sidecar. Android links `deltachat-jsonrpc` in-process.** One UI, two process shapes, the same JSON-RPC. (`lib.rs` `find_sidecar`, `Cargo.toml` android target.)
 4. **The UI is unbundled JavaScript and Elena web components.** No React, no TypeScript rewrite, no bundler. (`app/js/components.js`, `AGENTS.md` §3.)
 5. **Local chat is an opt-in LAN transport beside the core, not instead of it.** iroh with `RelayMode::Disabled`, pairing token out of band, off until `velta-p2p` is set. (`p2p.rs`, `docs/agents/p2p.md`.)

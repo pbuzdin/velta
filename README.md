@@ -1330,7 +1330,7 @@ by value with their integration notes — lives in
 │           ├── tunnel.rs       # optional DNS tunnel: loads libsoartunnel.so (Android)
 │           ├── bin/p2p-hub.rs  # headless terminal hub (debug helper)
 │           └── main.rs         # Tauri entry point
-├── velta-core-service/         # Android background-service (JNI + WS bridge) APK
+├── archive/velta-core-service/ # ARCHIVED (unmaintained, core 2.62): Android background-service APK
 ├── deltachat-backend/          # Prebuilt deltachat-rpc-server binaries
 │   ├── windows-x86_64/
 │   └── android-arm64/
@@ -1566,7 +1566,6 @@ Pre-configured workflows live in `.github/workflows/`:
 | `build-android.yml` | arm64-v8a Android APK on `ubuntu-latest`. Manual runs default to `org.velta.test` / Velta Test so the APK installs beside the main app; release tags keep `org.velta`. Input `side_by_side=false` builds the normal id. |
 | `build-windows.yml` | Windows installer on `windows-latest`, compiling the sidecar natively (needs Perl + NASM) |
 | `build-macos.yml` | Universal macOS `.app` + DMG + updater tarball on `macos-14`, sidecars for both architectures merged with `lipo`; ad-hoc signed (Developer ID signing/notarization switch on via the `APPLE_*` secrets) |
-| `core-service.yml` | Checks `velta-core-service` (clippy -D warnings + tests on the host, clippy for aarch64-linux-android) on pushes touching the service or `core/` |
 | `wasm-core-opt-in.yml` | WebAssembly core for the PWA (`packages/velta-wasm`): artifacts `wasm-dist-no-opt` and `dist-pwa` |
 | `build-windows-cross.yml` | Windows installer where the sidecar is cross-compiled on Ubuntu to avoid installing Perl/NASM on Windows |
 

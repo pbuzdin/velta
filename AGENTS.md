@@ -8,7 +8,8 @@ build/test commands, and conventions as they actually exist in this checkout.
 > copy of the upstream [Delta Chat core](https://github.com/chatmail/core)
 > (version `2.64.0`). The `core/` directory is effectively a vendored copy of
 > that Rust project. Wrapper code for Velta's own clients lives in `app/`,
-> `velta-app/`, `velta-core-service/`, and `deltachat-backend/`.
+> `velta-app/`, and `deltachat-backend/` (plus the archived
+> `archive/velta-core-service/`).
 
 ---
 
@@ -19,7 +20,7 @@ build/test commands, and conventions as they actually exist in this checkout.
 
 - **Tauri desktop/Android app** (`velta-app/`) — the web UI is embedded in a
   system WebView and the Delta Chat Rust core is linked in-process.
-- **Background Android service** (`velta-core-service/`) — a headless APK that runs
+- **Background Android service** (`archive/velta-core-service/` (archived 2026-10-20, unmaintained, pinned to core 2.62)) — formerly a headless APK that ran
   the core as a foreground service and exposes it to the PWA over a loopback
   WebSocket bridge.
 - **Standalone browser** — the wasm PWA dist (`scripts/build-pwa.mjs`) is a
@@ -134,7 +135,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │       │   └── main.rs       # Tauri entry point
 │       └── build.rs
 │
-├── velta-core-service/       # Android foreground-service (JNI core + loopback WS bridge)
+├── archive/velta-core-service/ # ARCHIVED: Android foreground-service (JNI core + loopback WS bridge), core 2.62
 │   ├── rust/                 # JNI crate (librpc_core.so)
 │   ├── android/              # Gradle project; builds velta-core-service.apk
 │   └── README.md
@@ -187,7 +188,7 @@ build (cost: a cold rebuild):
 |--------|--------------|----------------|
 | `velta-app/src-tauri/target/` | 20–45 GB | `cargo tauri dev` / `cargo tauri build` in `velta-app/src-tauri/` |
 | `core/target/` | 10–25 GB | any `cargo build`/`test` in `core/` (WSL) |
-| `velta-core-service/rust/target/` | ~3 GB | `cargo build` in `velta-core-service/rust/` |
+| `archive/velta-core-service/rust/target/` | ~3 GB | `cargo build` in `velta-core-service/rust/` |
 | `core/target-win/` | ~2 GB | sidecar build (§4.3.3 recipe, `CARGO_TARGET_DIR=target-win`) |
 | `core/target-android/` | ~0.6 GB | android cross builds (§4.3.3) |
 
@@ -225,7 +226,7 @@ see §4.3), `deltachat-backend/` (prebuilt RPC servers), `core/test-data/`
 | Crypto | rPGP, Autocrypt, SecureJoin, TLS via rustls or native-tls |
 | Networking | async-imap, async-smtp, Iroh gossip, shadowsocks proxy support |
 | Core protocol | JSON-RPC 2.0 over Tauri IPC, WebSocket, HTTP, or stdio |
-| Android core bridge | JNI (`velta-core-service/rust`) + foreground service |
+| Android core bridge (archived) | JNI (`archive/velta-core-service/rust`) + foreground service |
 | Python bindings | CFFI (`core/python`) and JSON-RPC (`core/deltachat-rpc-client`) |
 
 The Rust toolchain required for the core is **1.89+** (see `core/Cargo.toml`).
@@ -811,7 +812,10 @@ tested `test/no-material` branch). In `gen/android/app/`:
 - These files are `cargo tauri android init` output: re-running init
   reverts all of this — re-apply after any re-init.
 
-### 4.4 Android background service (`velta-core-service/`)
+### 4.4 Android background service (`archive/velta-core-service/`, ARCHIVED)
+
+> Archived 2026-10-20 at Pavel's request: unmaintained, pinned to core
+> v2.62.0, no CI, not part of core updates. The notes below are historical.
 
 **Incoming-message notifications** have platform parity: Windows
 `notify_incoming` renders a three-line toast (chat name / sender / text +
@@ -906,7 +910,7 @@ The skeleton currently contains only Cargo/Gradle manifests. To rebuild when the
 source is added:
 
 ```bash
-cd velta-core-service/rust
+cd archive/velta-core-service/rust
 CC_aarch64_linux_android=$NDK/aarch64-linux-android24-clang \
 CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$NDK/aarch64-linux-android24-clang \
 cargo build --release --target aarch64-linux-android
@@ -2627,10 +2631,8 @@ taps above). The vestigial-SW caveat below applies only to plain `app/`.
 - No HTTP bridge (removed 10-17): the old `127.0.0.1:20809` `/health` +
   `POST /rpc` server dropped its client and answered every RPC with 504.
   The WebSocket on 20808 is the only service transport.
-- CI: `.github/workflows/core-service.yml` (host clippy -D warnings + cargo test,
-  aarch64-linux-android clippy) from the committed
-  `velta-core-service/rust/Cargo.lock`. The crate links upstream core by
-  git tag, not `core/`; the job warns when the tag and `core/` differ.
+- CI: none since the 2026-10-20 archive (`core-service.yml` removed). The
+  crate links upstream core v2.62.0 by git tag, not `core/`.
 - Boot receiver restarts the service after reboot.
 
 ### 9.4 UnifiedPush (Android, 1.4.27+ groundwork)
@@ -3003,7 +3005,7 @@ do-not-regress rules; dates mark when the lesson was learned.
   `velta-app/src-tauri/gen/android` is generated EXCEPT the hand-maintained
   `AndroidManifest.xml`, Kotlin sources and
   `res/xml/network_security_config.xml` — edit those by hand, regenerate
-  the rest. `velta-core-service/` is secondary — read its README first.
+  the rest. `archive/velta-core-service/` is archived — do not update it.
 - **Version bumps** are one command: `node tools/bump.mjs <version>` — it
   rewrites the `velta-app` package version in `velta-app/src-tauri/Cargo.toml`
   (+`Cargo.lock`), regenerates `app/js/version.gen.js` (the PWA/mock

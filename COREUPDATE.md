@@ -26,7 +26,9 @@ and `test_velta_pin_yields_to_send_failure`; quilt is 23 ops. JSON-RPC is
 additive only (`get_message_summary_text`, `add_pseudo_transport`; Velta does
 not use them yet). wasm series: 0007 (Connection.last_success) and 0010
 (stop() timeout+abort, #8832; TaskTracker import cfg-gated) refreshed,
-locks re-pinned. velta-core-service still pins v2.62.0 (separate, unchanged).
+locks re-pinned. velta-core-service was archived the same day
+(`archive/velta-core-service/`, pinned to v2.62.0, no CI) and is no longer
+part of core updates.
 
 ## 0. Re-apply the Velta patches FIRST
 
@@ -123,7 +125,6 @@ Every consumer must be rebuilt or swapped when the core changes:
 |---|---|---|
 | Windows desktop (Tauri) | sidecar process | `velta-app/src-tauri/binaries/deltachat-rpc-server-x86_64-pc-windows-msvc.exe` |
 | Android (Tauri) | in-process Rust library | `core` workspace built into the APK by the gradle/NDK build |
-| `velta-core-service` APK | JNI + WS bridge | separate APK, same core workspace |
 | Browser/PWA / test rig | remote sidecar over WS/HTTP | `deltachat-backend/windows-x86_64/` and `deltachat-backend/android-arm64/` prebuilts |
 
 ## 2. The frontend contract (what must keep working)
@@ -303,8 +304,6 @@ re-checking on every upgrade:
 
 - [ ] Android APK with the in-process core: boot, receive while foreground,
       notification shows sender + snippet, tap-through works.
-- [ ] `velta-core-service` APK still pairs and bridges (secondary, but same
-      core workspace).
 - [ ] Deep links (`velta://`, `dcaccount:`, `dclogin:`, `dcbackup:`) still
       route.
 - [ ] Local chat (P2P) still works with the upgraded core in the same APK
