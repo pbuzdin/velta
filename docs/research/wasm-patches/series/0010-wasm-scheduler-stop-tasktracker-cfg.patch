@@ -1,43 +1,80 @@
-wasm(0010) scheduler stop — WASM-CORE-0010
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: spike <spike@local>
+Date: Tue, 20 Oct 2026 16:35:14 +0300
+Subject: [PATCH] =?UTF-8?q?wasm(scheduler):=20stop()=20tasktracker=20cfg?=
+ =?UTF-8?q?=20=E2=80=94=20WASM-CORE-0010?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
 
 TaskTracker::spawn panics on wasm32 ("there is no reactor running"):
 tokio_util rides the real tokio, which has no runtime in the browser.
-Gate the tracker path to native; wasm32 spawns the shutdown waits
-directly onto the velta-tokio-wasm event loop.
+Gate the tracker path (and its import) to native; wasm32 spawns the
+shutdown waits directly onto the velta-tokio-wasm event loop, keeping
+upstream 2.64's timeout-then-abort semantics (#8832).
 
 Native impact: none — native keeps the original code path.
+---
+ src/scheduler.rs | 95 ++++++++++++++++++++++++++++++++++--------------
+ 1 file changed, 68 insertions(+), 27 deletions(-)
 
+diff --git a/src/scheduler.rs b/src/scheduler.rs
+index fc6a124..a29c057 100644
 --- a/src/scheduler.rs
 +++ b/src/scheduler.rs
-@@ -850,25 +850,56 @@
+@@ -11,6 +11,7 @@
+ use tokio::sync::{RwLock, oneshot};
+ use tokio::task::{self, JoinSet};
+ use tokio_util::sync::CancellationToken;
++#[cfg(not(target_arch = "wasm32"))]
+ use tokio_util::task::TaskTracker;
+ 
+ pub(crate) use self::connectivity::ConnectivityStore;
+@@ -850,36 +851,76 @@ pub(crate) async fn stop(self, context: &Context) {
          // Actually shutdown tasks.
          let timeout_duration = std::time::Duration::from_secs(30);
  
 -        let tracker = TaskTracker::new();
--        for b in self.inboxes {
+-        for mut b in self.inboxes {
 -            let context = context.clone();
 -            tracker.spawn(async move {
--                tokio::time::timeout(timeout_duration, b.handle)
+-                if tokio::time::timeout(timeout_duration, &mut b.handle)
 -                    .await
--                    .log_err(&context)
+-                    .is_err()
+-                {
+-                    warn!(context, "IMAP shutdown timed out; aborting task.");
+-                    b.handle.abort();
+-                    b.handle.await.ok();
+-                }
 -            });
 +        #[cfg(not(target_arch = "wasm32"))]
 +        {
 +            let tracker = TaskTracker::new();
-+            for b in self.inboxes {
++            for mut b in self.inboxes {
 +                let context = context.clone();
 +                tracker.spawn(async move {
-+                    tokio::time::timeout(timeout_duration, b.handle)
++                    if tokio::time::timeout(timeout_duration, &mut b.handle)
 +                        .await
-+                        .log_err(&context)
++                        .is_err()
++                    {
++                        warn!(context, "IMAP shutdown timed out; aborting task.");
++                        b.handle.abort();
++                        b.handle.await.ok();
++                    }
 +                });
 +            }
 +            {
 +                let context = context.clone();
 +                tracker.spawn(async move {
-+                    tokio::time::timeout(timeout_duration, self.smtp_handle)
++                    let mut handle = self.smtp_handle;
++                    if tokio::time::timeout(timeout_duration, &mut handle)
 +                        .await
-+                        .log_err(&context)
++                        .is_err()
++                    {
++                        warn!(context, "SMTP shutdown timed out; aborting task.");
++                        handle.abort();
++                        handle.await.ok();
++                    }
 +                });
 +            }
 +            tracker.close();
@@ -45,35 +82,51 @@ Native impact: none — native keeps the original code path.
          }
 +        // wasm32: tokio_util::TaskTracker rides the real tokio, which has no
 +        // runtime in the browser — spawn the shutdown waits onto the
-+        // velta-tokio-wasm event loop directly instead.
++        // velta-tokio-wasm event loop directly instead (same timeout + abort).
 +        #[cfg(target_arch = "wasm32")]
          {
 -            let context = context.clone();
 -            tracker.spawn(async move {
--                tokio::time::timeout(timeout_duration, self.smtp_handle)
+-                let mut handle = self.smtp_handle;
+-                if tokio::time::timeout(timeout_duration, &mut handle)
+-                    .await
+-                    .is_err()
+-                {
+-                    warn!(context, "SMTP shutdown timed out; aborting task.");
+-                    handle.abort();
+-                    handle.await.ok();
+-                }
+-            });
 +            let mut handles = Vec::new();
-+            for b in self.inboxes {
++            for mut b in self.inboxes {
 +                let context = context.clone();
 +                handles.push(tokio::spawn(async move {
-+                    tokio::time::timeout(timeout_duration, b.handle)
++                    if tokio::time::timeout(timeout_duration, &mut b.handle)
 +                        .await
-+                        .log_err(&context)
++                        .is_err()
++                    {
++                        warn!(context, "IMAP shutdown timed out; aborting task.");
++                        b.handle.abort();
++                        b.handle.await.ok();
++                    }
 +                }));
 +            }
 +            {
 +                let context = context.clone();
 +                handles.push(tokio::spawn(async move {
-+                    tokio::time::timeout(timeout_duration, self.smtp_handle)
++                    let mut handle = self.smtp_handle;
++                    if tokio::time::timeout(timeout_duration, &mut handle)
 +                        .await
-+                        .log_err(&context)
++                        .is_err()
++                    {
++                        warn!(context, "SMTP shutdown timed out; aborting task.");
++                        handle.abort();
++                        handle.await.ok();
++                    }
 +                }));
 +            }
 +            for h in handles {
-+                tokio::time::timeout(timeout_duration, h)
-                     .await
--                    .log_err(&context)
--            });
-+                    .log_err(&context);
++                h.await.ok();
 +            }
          }
 -        tracker.close();
@@ -81,3 +134,6 @@ Native impact: none — native keeps the original code path.
  
          // Abort tasks, then await them to ensure the `Future` is dropped.
          // Just aborting the task may keep resources such as `Context` clone
+-- 
+2.47.3
+

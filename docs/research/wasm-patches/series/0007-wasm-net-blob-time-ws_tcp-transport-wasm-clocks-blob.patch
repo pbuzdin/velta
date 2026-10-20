@@ -262,7 +262,7 @@ index 183ce2f..8320fef 100644
  
  fn exif_orientation(exif: &exif::Exif, context: &Context) -> Orientation {
 diff --git a/src/context.rs b/src/context.rs
-index 360b82d..4b6086b 100644
+index 7f7cdb5..40f3ef6 100644
 --- a/src/context.rs
 +++ b/src/context.rs
 @@ -498,7 +498,7 @@ pub(crate) fn with_blobdir(
@@ -283,7 +283,7 @@ index 360b82d..4b6086b 100644
          info!(self, "background_fetch started.");
  
          if self.scheduler.is_running().await {
-@@ -780,7 +780,7 @@ pub async fn stop_ongoing(&self) {
+@@ -800,7 +800,7 @@ pub async fn stop_ongoing(&self) {
                  }
                  info!(self, "Signaling the ongoing process to stop ASAP.",);
                  *s = RunningState::ShallStop {
@@ -293,10 +293,10 @@ index 360b82d..4b6086b 100644
              }
              RunningState::ShallStop { .. } | RunningState::Stopped => {
 diff --git a/src/imap.rs b/src/imap.rs
-index 86daa86..dc8ce2a 100644
+index d6aad8b..982d1f7 100644
 --- a/src/imap.rs
 +++ b/src/imap.rs
-@@ -259,7 +259,7 @@ pub fn transport_id(&self) -> u32 {
+@@ -258,7 +258,7 @@ pub fn transport_id(&self) -> u32 {
      /// instead if you are going to actually use connection rather than trying connection
      /// parameters.
      pub(crate) async fn connect(&mut self, context: &Context) -> Result<Session> {
@@ -305,7 +305,7 @@ index 86daa86..dc8ce2a 100644
          let until_can_send = max(
              min(self.conn_last_try, now)
                  .checked_add(Duration::from_millis(self.conn_backoff_ms))
-@@ -291,7 +291,7 @@ pub(crate) async fn connect(&mut self, context: &Context) -> Result<Session> {
+@@ -300,7 +300,7 @@ pub(crate) async fn connect(&mut self, context: &Context) -> Result<Session> {
          info!(context, "Connecting to IMAP server.");
          self.connectivity.set_connecting(context);
  
@@ -328,10 +328,10 @@ index ad1485f..f34488d 100644
          info!(context, "IMAP-fake-IDLEing folder={:?}", watch_folder);
  
 diff --git a/src/key.rs b/src/key.rs
-index 3a57a49..693c54b 100644
+index 0c7d23b..457f1db 100644
 --- a/src/key.rs
 +++ b/src/key.rs
-@@ -479,7 +479,7 @@ async fn generate_keypair(context: &Context) -> Result<SignedSecretKey> {
+@@ -476,7 +476,7 @@ async fn generate_keypair(context: &Context) -> Result<SignedSecretKey> {
      match load_keypair(context).await? {
          Some(key_pair) => Ok(key_pair),
          None => {
@@ -660,7 +660,7 @@ index 64fb971..6e3bbf7 100644
              );
              map
 diff --git a/src/scheduler.rs b/src/scheduler.rs
-index c059944..58f5b2a 100644
+index 64131ab..fc6a124 100644
 --- a/src/scheduler.rs
 +++ b/src/scheduler.rs
 @@ -672,7 +672,7 @@ async fn smtp_loop(
@@ -673,33 +673,33 @@ index c059944..58f5b2a 100644
                      ctx,
                      "SMTP has messages to retry, planning to retry {t} seconds later."
 diff --git a/src/smtp.rs b/src/smtp.rs
-index bb0550b..9e36a24 100644
+index e52f65d..35de4fb 100644
 --- a/src/smtp.rs
 +++ b/src/smtp.rs
-@@ -223,7 +223,7 @@ pub async fn connect(
-             };
- 
-             self.transport = Some(transport);
--            self.last_success = Some(tools::Time::now());
-+            self.last_success = Some(tools::time_now());
+@@ -389,7 +389,7 @@ pub async fn connect(
+                 transport,
+                 from,
+                 transport_id,
+-                last_success: tools::Time::now(),
++                last_success: tools::time_now(),
+             });
  
              context.emit_event(EventType::SmtpConnected(format!(
-                 "SMTP-LOGIN as {} ok",
 diff --git a/src/smtp/send.rs b/src/smtp/send.rs
-index bcdd103..a983667 100644
+index 9156648..ecc64c6 100644
 --- a/src/smtp/send.rs
 +++ b/src/smtp/send.rs
-@@ -52,7 +52,7 @@ pub async fn send(
+@@ -40,7 +40,7 @@ pub(super) async fn send(
  
-         transport.send(mail).await.map_err(Error::SmtpSend)?;
+         self.transport.send(mail).await.map_err(Error::SmtpSend)?;
  
--        self.last_success = Some(tools::Time::now());
-+        self.last_success = Some(tools::time_now());
+-        self.last_success = tools::Time::now();
++        self.last_success = tools::time_now();
          Ok(())
      }
  }
 diff --git a/src/sql/migrations.rs b/src/sql/migrations.rs
-index 4229b49..9df1e3c 100644
+index c341a65..26e22ff 100644
 --- a/src/sql/migrations.rs
 +++ b/src/sql/migrations.rs
 @@ -16,7 +16,7 @@
@@ -853,5 +853,5 @@ index 381e1b6..1856fe8 100644
  
  pub(crate) trait IsNoneOrEmpty<T> {
 -- 
-2.43.0
+2.47.3
 
