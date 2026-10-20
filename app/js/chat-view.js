@@ -7,7 +7,10 @@ import { bindMenuToggle, showContextMenu, showMessageSheet, showModal, showStick
 import { diagnosticRow } from "./diagnostics.js";
 import { attachRecentCommands, recordCommand } from "./recent-commands.js";
 import { audioPlayerHtml, mountAudioPlayer, decodeAudioDuration } from "./audio-player.js";
-import { openWebxdc, appIconUrl, loadInfoWithRetry, builtinAppCard, isWebxdcInfoMsg, infoFor } from "./webxdc-manager.js";
+import { openWebxdc, appIconUrl, loadInfoWithRetry, builtinAppCard, isWebxdcInfoMsg, infoFor, GROUP_CALL_FILE_RE, isGroupCallApp, joinGroupCallFor, announceGroupCall } from "./webxdc-manager.js";
+import { cardHtml, wireCard } from "./group-call-card.js";
+import { currentGroupCall, onGroupCallChange, leaveGroupCall } from "./group-call-host.js";
+import { askGroupCallName } from "./group-call-ui.js";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
 // Two rows of six on the phone sheet. The last cell is the emoji tray, not a reaction.
@@ -1903,6 +1906,10 @@ export class ChatView {
         notifyHeight();
       });
     }
+    // A cached row (virtual scroller / chat re-open) keeps its call card but
+    // the old wiring stopped with the previous chat session: wire it again.
+    const cachedCall = row.querySelector(".msg-groupcall");
+    if (cachedCall) cachedCall._gcRefresh?.();
     const webxdcCard = row.querySelector('.msg-webxdc[data-act="open-webxdc"]');
     if (webxdcCard && webxdcCard.dataset.wired !== "1") {
       webxdcCard.dataset.wired = "1";
@@ -1949,6 +1956,21 @@ export class ChatView {
       // a forwarded app card stayed "app" + placeholder glyph.
       loadInfoWithRetry(m.id, { alive: () => alive() })
         .then(hydrateWebxdcCard).catch(() => {});
+      // Group calls: the TRUSTED built-in app becomes a call card (creator,
+      // name, who's in, Join / You're in + Leave / ended). The file name only
+      // picks the candidates; trust is the bundle hash (isGroupCallApp).
+      if (GROUP_CALL_FILE_RE.test(m.fileName || "")) {
+        isGroupCallApp(m.id).then((ok) => {
+          if (!ok || !alive()) return;
+          const fc = m.fromContact || { name: "", color: "" };
+          const avatarHtml = `<velta-avatar name="${escapeAttr(fc.name || "?")}" color="${escapeAttr(fc.color || "")}" size="40" contact-id="${fc.id ?? ""}"${fc.avatar ? ` avatar="${escapeAttr(fileUrl(fc.avatar))}"` : ""}></velta-avatar>`;
+          const holder = document.createElement("div");
+          holder.innerHTML = cardHtml({ msgId: m.id, avatarHtml, esc: escapeHtml });
+          const card = holder.firstElementChild;
+          webxdcCard.replaceWith(card);
+          this._wireGroupCallCard(card, m);
+        }).catch(() => {});
+      }
     }
     if (m.fromContact?.bot) { // bot flag rides the sender contact (mock + core)
       row.querySelectorAll(".msg-cmd[data-cmd]").forEach((cmdBtn) => {
@@ -3690,11 +3712,30 @@ export class ChatView {
     }
   }
 
+  _wireGroupCallCard(card, m) {
+    const fc = m.fromContact || {};
+    const open = () => openWebxdc(m.id, "Velta Group Call");
+    // One wiring per card node for its lifetime; drawing only while it is in
+    // the document (cached rows re-attach, see _gcRefresh above).
+    const w = wireCard(card, {
+      core: this.core, msgId: m.id, alive: () => card.isConnected,
+      creatorName: fc.id === 1 ? "you" : fc.name,
+      live: () => { const s = currentGroupCall(); return s && s.msgId === m.id ? s.snapshot() : null; },
+      onCallChange: (cb) => onGroupCallChange(cb),
+      join: async () => { await joinGroupCallFor(m.id); open(); },
+      leave: () => leaveGroupCall(),
+      open,
+    });
+    card._gcRefresh = () => w.refresh();
+  }
+
   // Posts app/builtin/group-call.xdc (one message = one call room) and opens
   // it; the app's Join button asks for consent, the host runs the call.
   async _startGroupCall() {
     const session = this._session;
     if (!this._isCurrent(session) || !this.chat) return;
+    const title = await askGroupCallName();
+    if (title == null || !this._isCurrent(session)) return;
     try {
       const invoke = tauriInvoke();
       const path = await prepareBuiltinXdc("group-call", {
@@ -3706,7 +3747,11 @@ export class ChatView {
       if (!this._isCurrent(session)) return;
       this.appendOutgoing(msg);
       this.onChatsChanged();
-      if (msg?.id != null) openWebxdc(msg.id, "Velta Group Call");
+      if (msg?.id == null) return;
+      await announceGroupCall(msg.id, title).catch(() => {});
+      // The starter joins right away (consent prompt), then sees the call screen.
+      try { await joinGroupCallFor(msg.id); } catch {}
+      openWebxdc(msg.id, "Velta Group Call");
     } catch (err) {
       if (this._isCurrent(session)) errToast("Could not start a group call: " + (err?.message || err), 4000);
     }

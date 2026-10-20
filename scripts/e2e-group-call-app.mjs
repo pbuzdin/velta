@@ -33,7 +33,7 @@ const hostHtml = (q) => `<!doctype html><html data-theme="dark"><head><meta name
 <script type="module">
 import { joinGroupCall, leaveGroupCall, setGroupCallMuted, currentGroupCall, onGroupCallChange } from '/js/group-call-host.js'
 import { trustedAppName } from '/js/xdc-trust.js'
-import { renderBar } from '/js/group-call-ui.js'
+import { renderBar, setCallScreen } from '/js/group-call-ui.js'
 const q = new URLSearchParams(location.search); const id = q.get('id'); const name = q.get('name')
 const rt = q.get('rt') === '1'
 const bundle = new Uint8Array(await (await fetch(q.get('tampered') ? '/tampered.xdc' : '/builtin/group-call.xdc')).arrayBuffer())
@@ -44,6 +44,7 @@ f.setAttribute('sandbox', 'allow-scripts allow-forms allow-modals')
 f.setAttribute('allow', "autoplay; microphone 'none'; camera 'none'; display-capture 'none'; geolocation 'none'")
 f.src = 'http://localhost:' + location.port + '/app/index.html'
 document.body.append(f)
+setCallScreen(7) // this page IS the call screen (webxdc-manager does this when the app opens)
 const post = (m) => f.contentWindow.postMessage(m, '*')
 let serial = 0
 const state = () => { const s = currentGroupCall(); return s ? s.snapshot() : { state: 'idle', participants: [] } }
@@ -104,7 +105,7 @@ let failed = 0
 const check = (ok, what) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${what}`); if (!ok) failed++ }
 const browser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required'] })
 async function client(id, name, { rt = true, tampered = false } = {}) {
-  const ctx = await browser.newContext({ permissions: ['microphone'], viewport: { width: 390, height: 720 }, colorScheme: 'dark' })
+  const ctx = await browser.newContext({ permissions: ['microphone'], viewport: { width: 360, height: 720 }, colorScheme: 'dark' })
   const page = await ctx.newPage()
   page.on('pageerror', (e) => console.log(`  [${name} pageerror]`, e.message)); page.on('console', (m) => { if (m.type() === 'error') console.log(`  [${name} console]`, m.text()) })
   await page.exposeFunction('coreCall', async (m, a) => {
@@ -127,12 +128,13 @@ const shot = async (page, name) => { if (shots) { await page.screenshot({ path: 
 
 try {
   console.log(`  mode: ${turn ? 'relay-only via local coturn' : 'host candidates (no turnserver)'}`)
+  rows.push({ payload: { veltaCall: { vgc: 1, t: 'meta', from: 'anna@velta.test', sid: 'meta', ts: Date.now(), title: 'Saturday hike plan', creatorName: 'Anna' } }, document: 'Saturday hike plan', serial: rows.length + 1 })
   const A = await client('anna@velta.test', 'Anna'), B = await client('boris@velta.test', 'Boris'), P = await client('pavel@velta.test', 'Pavel', { rt: false })
   await A.frame().waitForSelector('#join:not([hidden])', { timeout: 10000 })
   check(await A.frame().evaluate(() => typeof window.RTCPeerConnection === 'function' && (() => { try { new RTCPeerConnection(); return false } catch { return true } })()), 'app frame: RTCPeerConnection is blocked')
   check(await A.frame().evaluate(() => navigator.mediaDevices.getUserMedia({ audio: true }).then(() => false, () => true)), 'app frame: getUserMedia is denied')
   check(await A.frame().evaluate(() => window.webxdc.veltaCall.available()), 'trusted bundle: veltaCall.available() is true')
-  await shot(A.page, '1-before-join')
+  await shot(A.page, 'call-screen-360-before-join')
   for (const c of [A, B, P]) { await c.frame().click('#join'); await c.page.waitForTimeout(300) }
   let ok = false
   for (let i = 0; i < 60 && !ok; i++) {
@@ -141,31 +143,35 @@ try {
     if (!ok) await A.page.waitForTimeout(500)
   }
   check(ok, 'three clients joined from the app UI (desktop, Android, PWA-style without realtime): 3 tiles, 2 connected peers each')
-  check(await A.page.evaluate(() => !!document.getElementById('group-call-bar')), 'host in-call bar is shown (outside the app frame)')
+  check(await A.page.evaluate(() => !document.getElementById('group-call-bar')), 'call screen open: no duplicate in-call bar')
+  check(await A.page.evaluate(async () => { (await import('/js/group-call-ui.js')).setCallScreen(null); const shown = !!document.getElementById('group-call-bar'); (await import('/js/group-call-ui.js')).setCallScreen(7); return shown && !document.getElementById('group-call-bar') }), 'call screen closed -> bar; reopened -> hidden again')
   await B.frame().click('#mute')
   await A.page.waitForTimeout(800)
   check(await A.frame().evaluate(() => [...document.querySelectorAll('.tile')].some((t) => /Boris/.test(t.textContent) && t.querySelector('.mute-ic'))), 'Boris muted -> Anna sees the muted icon')
   await A.page.waitForTimeout(1200)
-  await shot(A.page, '2-in-call-3-people')
+  check(await A.frame().evaluate(() => document.getElementById('title').textContent) === 'Saturday hike plan', 'call screen: call name')
+  await shot(A.page, 'call-screen-360-in-call-no-bar')
   check(await A.frame().evaluate(() => getComputedStyle(document.querySelector('#leave')).display !== 'none'), 'Leave button visible in call')
   // tampered bundle: same file name, one byte off -> no call API
   const T = await client('eve@velta.test', 'Eve', { tampered: true })
   await T.frame().waitForSelector('#needs-velta:not([hidden])', { timeout: 10000 })
   check(await T.frame().evaluate(() => window.webxdc.veltaCall.available()) === false, 'tampered bundle: veltaCall.available() is false')
   check(await T.frame().evaluate(() => window.webxdc.veltaCall.join().then(() => 'joined', (e) => e.message)) === 'not available for this app', 'tampered bundle: join is refused by the host')
-  await shot(T.page, '3-untrusted-bundle-needs-velta')
+  await shot(T.page, 'untrusted-copy-360-needs-velta')
   // Delta Chat view (no Velta API): roster from the call's status updates
-  dcRows = rows.filter((r) => r.payload?.veltaCall && ['join', 'leave', 'hb'].includes(r.payload.veltaCall.t)).map((r) => ({ payload: r.payload }))
-  const dc = await (await browser.newContext({ viewport: { width: 390, height: 720 }, colorScheme: 'light' })).newPage()
+  dcRows = rows.filter((r) => r.payload?.veltaCall && ['meta', 'join', 'leave', 'hb'].includes(r.payload.veltaCall.t)).map((r) => ({ payload: r.payload }))
+  const dc = await (await browser.newContext({ viewport: { width: 360, height: 720 }, colorScheme: 'light' })).newPage()
   await dc.goto(`http://localhost:${PORT}/app/index.html?dc=1`)
   await dc.waitForSelector('#needs-velta:not([hidden])')
   check(/Anna/.test(await dc.textContent('#dc-roster')), `Delta Chat view: "needs Velta" + roster (${await dc.textContent('#dc-roster')})`)
-  await shot(dc, '4-delta-chat-needs-velta')
-  // leave from the bar
+  check(await dc.textContent('#title') === 'Saturday hike plan' && /Started by Anna/.test(await dc.textContent('#creator')), 'Delta Chat view: call name + creator')
+  await shot(dc, 'delta-chat-view-360-needs-velta')
+  // leave from the bar (shown once the call screen is closed)
+  await P.page.evaluate(async () => (await import('/js/group-call-ui.js')).setCallScreen(null))
   await P.page.click('#group-call-bar .gcb-leave')
   await A.page.waitForTimeout(1500)
   check(await P.page.evaluate(() => !document.getElementById('group-call-bar')), 'leave from the host bar removes it')
-  await shot(P.page, '5-after-leave')
+  await shot(P.page, 'call-screen-360-after-leave')
   for (const c of [A, B]) await c.page.evaluate(async () => (await import('/js/group-call-host.js')).leaveGroupCall())
   await A.page.waitForTimeout(300)
   check(rows.filter((r) => r.info).map((r) => r.info).join(' | ').includes('started a group call'), 'chat info line "started a group call"')

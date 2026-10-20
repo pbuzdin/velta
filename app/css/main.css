@@ -2869,19 +2869,45 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 .settings-diff-list .sd-from { color: var(--text-dim); }
 
 /* Group call in-call bar (group-call-ui.js): host chrome, outside the app
-   iframe; stays across chat switches and app close. */
+   iframe; only while in a call AND the call screen is not visible. A
+   full-width strip ABOVE the app: .app (and the phone's fixed .main) move
+   down by its height, so it never covers a header (KEEP, small screens).
+   Design-system tokens only (design/velta-design-system.html). */
+:root { --gcb-h: 40px; } /* = icon-btn height */
 #group-call-bar {
-  position: fixed; left: 50%; transform: translateX(-50%);
-  top: calc(env(safe-area-inset-top, 0px) + 6px); z-index: 900;
-  display: flex; align-items: center; gap: 6px; max-width: calc(var(--vw) - 16px);
-  padding: 4px 4px 4px 6px; border-radius: 999px;
-  background: #1f6f4c; color: #fff; box-shadow: 0 4px 16px rgba(0,0,0,.3); font-size: 13px;
+  position: fixed; left: 0; right: 0; top: 0; z-index: 30; /* above app UI (≤10), below popups (40+) */
+  height: calc(var(--gcb-h) + env(safe-area-inset-top, 0px));
+  padding: env(safe-area-inset-top, 0px) 8px 0 4px; box-sizing: border-box;
+  display: flex; align-items: center; gap: 6px;
+  background: var(--bg-sidebar); color: var(--text); border-bottom: 1px solid var(--border); box-shadow: var(--shadow);
+  font-size: 13.5px;
 }
-#group-call-bar button { font: inherit; color: inherit; border: 0; border-radius: 999px; padding: 6px 12px; cursor: pointer; background: rgba(255,255,255,.14); white-space: nowrap; }
-#group-call-bar .gcb-open { background: transparent; display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; }
-#group-call-bar .gcb-text { overflow: hidden; text-overflow: ellipsis; }
-#group-call-bar .gcb-dot { width: 9px; height: 9px; border-radius: 50%; background: #9ff0c6; flex: none; }
-#group-call-bar.speaking .gcb-dot { box-shadow: 0 0 0 4px rgba(159,240,198,.35); }
-#group-call-bar .gcb-mute[aria-pressed="true"] { background: #e7b33c; color: #111; }
-#group-call-bar .gcb-leave { background: #c94343; }
-#group-call-bar button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+html.in-group-call .app { margin-top: calc(var(--gcb-h) + env(safe-area-inset-top, 0px)); height: calc(100% - var(--gcb-h) - env(safe-area-inset-top, 0px)); }
+@media (max-width: 820px) { html.in-group-call .main { top: calc(var(--gcb-h) + env(safe-area-inset-top, 0px)); } }
+#group-call-bar .gcb-open { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; overflow: hidden; padding: 6px 8px; border-radius: 8px; text-align: left; }
+#group-call-bar .gcb-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#group-call-bar .gcb-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); flex: none; }
+#group-call-bar.speaking .gcb-dot { box-shadow: 0 0 0 4px color-mix(in srgb, var(--green) 35%, transparent); }
+#group-call-bar .btn-text { padding: 6px 12px; flex: none; }
+#group-call-bar .gcb-mute[aria-pressed="true"] { background: var(--bg-active); color: var(--on-accent); }
+#group-call-bar .btn-text.gcb-leave, .msg-groupcall .btn-text.gc-leave { color: var(--danger); }
+.msg-row .msg-groupcall .btn-text.gc-leave, html[data-theme] .msg-row:not(.out) .msg-groupcall .btn-text.gc-leave { color: var(--danger); }
+@media (hover: hover) and (pointer: fine) { #group-call-bar .gcb-open:hover { background: var(--bg-hover); } }
+
+/* Group call card in the chat (group-call-card.js): bubble content, existing
+   .btn-text / .btn-primary buttons and <velta-avatar>s, tokens only. */
+.msg-groupcall { display: flex; flex-direction: column; gap: 8px; min-width: min(260px, calc(var(--vw) - 110px)); padding: 2px 0; }
+.msg-groupcall .gc-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.msg-groupcall .gc-text { min-width: 0; }
+.msg-groupcall .gc-title { font-weight: 600; font-size: 15px; overflow-wrap: anywhere; }
+.msg-groupcall .gc-sub { font-size: 12.5px; color: var(--text-dim); }
+.msg-groupcall .gc-people { display: flex; gap: 4px; }
+.msg-groupcall .gc-more { font-size: 12.5px; color: var(--text-dim); align-self: center; }
+.msg-groupcall .gc-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.msg-groupcall .btn-text { padding: 6px 14px; border-radius: 999px; }
+.msg-groupcall .btn-primary { width: auto; }
+.msg-groupcall .gc-in { color: var(--green); font-weight: 600; font-size: 13px; }
+.msg-groupcall .gc-ended-label { color: var(--text-dim); font-size: 13px; }
+.gc-name-label { display: block; font-size: 13px; color: var(--text-dim); margin-bottom: 6px; }
+.gc-name-input { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-hover); color: var(--text); }
+.gc-name-hint { font-size: 12.5px; color: var(--text-dim); margin: 8px 0 0; }

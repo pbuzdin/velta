@@ -11,7 +11,8 @@ import { tauriInvoke } from "./tauri.js";
 import { base64ToBytes } from "./identity-backup.js";
 import { currentGroupCall, routeRealtime, routeStatusUpdate, joinGroupCall, leaveGroupCall, setGroupCallMuted, onGroupCallChange } from "./group-call-host.js";
 import { trustedAppName } from "./xdc-trust.js";
-import { askGroupCallConsent, groupCallEnv, oneToOneCallActive } from "./group-call-ui.js";
+import { askGroupCallConsent, groupCallEnv, oneToOneCallActive, setCallScreen } from "./group-call-ui.js";
+import { cleanTitle } from "./group-call-signal.js";
 
 let core = null;
 export const WEBXDC_FRAME_ALLOW =
@@ -127,7 +128,7 @@ async function handleCall(data) {
         sourceCodeUrl: info.sourceCodeUrl || "", selfAddr: info.selfAddr || "",
         selfName: info.selfName || "", sendUpdateInterval: info.sendUpdateInterval ?? 1000,
         sendUpdateMaxSize: info.sendUpdateMaxSize ?? 0, veltaRealtime: realtimeAvailable(),
-        veltaCall: (await activeTrust()) === "group-call" };
+        ...((await activeTrust()) === "group-call" ? { veltaCall: true, veltaTheme: themeTokens() } : { veltaCall: false }) };
     }
     case "getAllUpdates": {
       const { updates } = await fetchUpdates(msgId, 0);
@@ -208,9 +209,43 @@ function trustFor(msgId) {
 async function activeTrust() {
   return active?.trust ? active.trust : null;
 }
+// Design-system tokens the call screen uses, with the live (theme + custom
+// accent) values, so the iframe matches the host without its own palette.
+export const CALL_THEME_TOKENS = ["--bg", "--bg-sidebar", "--bg-hover", "--bg-active", "--bg-bubble-in", "--accent", "--accent-hover",
+  "--on-accent", "--text", "--text-dim", "--green", "--danger", "--border", "--shadow", "--radius-bubble"];
+function themeTokens() {
+  const cs = getComputedStyle(document.documentElement);
+  const out = {};
+  for (const k of CALL_THEME_TOKENS) { const v = cs.getPropertyValue(k).trim(); if (v) out[k] = v; }
+  out["color-scheme"] = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+  return out;
+}
+/** Is this instance the trusted built-in group-call app? (chat cards) */
+export async function isGroupCallApp(msgId) {
+  return (await trustFor(Number(msgId))) === "group-call";
+}
+/** Join from the chat card (no app frame needed). */
+export async function joinGroupCallFor(msgId) {
+  msgId = Number(msgId);
+  if (!(await isGroupCallApp(msgId))) throw new Error("not a Velta group call");
+  await joinCallFromApp(msgId);
+}
+/**
+ * Right after "Group call" sent the app: the name + creator for the card
+ * and Delta Chat's view (status update, `document` = the name in DC).
+ */
+export async function announceGroupCall(msgId, title) {
+  const info = await getInfo(Number(msgId));
+  const t = cleanTitle(title);
+  await core.sendWebxdcStatusUpdate(Number(msgId), JSON.stringify({
+    payload: { veltaCall: { vgc: 1, t: "meta", from: info.selfAddr || "", sid: "meta", ts: Date.now(), title: t, creatorName: info.selfName || "" } },
+    document: t, summary: "Group call",
+  }), "");
+}
 // The .xdc bytes of an instance: PWA from the core's file store, Tauri via
 // read_media_bytes (scoped to the accounts dir, the core's blob path).
 async function readAppBytes(msgId) {
+  if (typeof core?.readWebxdcArchive === "function") return core.readWebxdcArchive(msgId); // mock core (demo/e2e)
   if (isPwaHost()) return readXdcArchive(msgId);
   const invoke = tauriInvoke();
   if (!invoke) throw new Error("no shell");
@@ -580,6 +615,7 @@ export async function openWebxdc(msgId, fallbackName = "Webxdc app", opts = {}) 
   if (panel) wrap.setAttribute("aria-label", title.textContent);
   active = { msgId: Number(msgId), iframe, serial: serials.get(Number(msgId)) || 0, panel, wrap };
   active.trust = trustFor(Number(msgId)); // group calls: bundle-hash check, before the app can ask
+  active.trust.then((t) => { if (t === "group-call" && active?.msgId === Number(msgId)) setCallScreen(Number(msgId)); });
   wrap.querySelector(".webxdc-close").addEventListener("click", () => closeWebxdc());
   wrap.querySelector(".webxdc-expand")?.addEventListener("click", () => setWebxdcExpanded(!isWebxdcExpanded()));
   if (panel) {
@@ -650,6 +686,7 @@ function closeWebxdcFrame() {
   document.getElementById("webxdc-overlay")?.remove();
   window.removeEventListener("message", onWindowMessage);
   active = null;
+  setCallScreen(null); // the in-call bar may show again
 }
 
 export function closeWebxdc() {

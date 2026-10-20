@@ -204,6 +204,7 @@
       join: function () { return call("veltaCallJoin", {}); },
       leave: function () { return call("veltaCallLeave", {}); },
       setMuted: function (on) { return call("veltaCallMute", { muted: !!on }); },
+      getTheme: function () { return call("getInfo", {}).then(function (i) { return (i && i.veltaTheme) || null; }); },
       getState: function () { return call("veltaCallState", {}).then(function (s) { callState = s || null; return callState; }); },
       onState: function (cb) { if (typeof cb === "function") { callListeners.push(cb); if (callState) { try { cb(callState); } catch (e) {} } } },
     },

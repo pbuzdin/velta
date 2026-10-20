@@ -105,12 +105,46 @@ sessions (one without realtime), joins via the app's button, mute icon
 propagation, host bar, a tampered bundle (1 byte off) gets no API, the DC
 view shows the roster, leave from the bar.
 
+## Chat card, call name, in-call bar (Pavel's feedback)
+- **Card** — `app/js/group-call-card.js`, wired by `chat-view.js`
+  `_wireGroupCallCard` for a `group-call*.xdc` message whose bundle passes
+  `isGroupCallApp(msgId)` (hash trust; the file name only picks candidates).
+  Shows the sender's `<velta-avatar>` (authentic `m.fromContact`, photo or
+  initial on profile color), the call name, "Started by X · N in call",
+  up to 5 member avatars (+N), and Join / "✓ You're in" + Open + Leave /
+  "Call ended" + Start again. `cardModel(updates,{live})` derives state from
+  the status updates (a `statusOnly` GroupCallSignal, TTL_UPDATE liveness);
+  while we're in the call the live roster wins. Refresh: status-update
+  events, `onCallChange`, 20 s timer; cached virtual-scroller rows re-run
+  `card._gcRefresh` (KEEP: never stop the wiring when off-screen).
+- **Call name** — "Group call" asks via `askGroupCallName()` (optional,
+  default "Group call", `cleanTitle`: ≤80 chars, no control chars). The
+  starter posts a `{vgc:1,t:"meta",title,creatorName}` status update
+  (`announceGroupCall`); `callMeta(updates)` = first meta. The app (Velta
+  and Delta Chat "needs Velta" view) shows the name + "Started by X".
+- **Heartbeat** — every member sends a status-update heartbeat every 90 s
+  (not only PWA peers) so cards of non-members see liveness.
+- **Bar** — `barVisible(s, screen)`: shown only while in a call AND the call
+  screen (`setCallScreen(msgId)` from webxdc-manager on open, `null` on
+  close) is not that call. It is a full-width strip that pushes `.app`
+  (and the fixed mobile `.main`) down by `--gcb-h` + safe-area — never
+  overlaps the chat header.
+- **Design tokens** — card, bar and call app use only main.css tokens
+  (`--bg-sidebar`, `--bg-hover`, `--bg-active`, `--accent`, `--on-accent`,
+  `--text`, `--text-dim`, `--green`, `--danger`, `--border`, `--shadow`,
+  `--radius-bubble`, `--vw`) and existing components (`.btn-text`,
+  `.btn-text.btn-primary`, `<velta-avatar>`, `showModal`). The trusted app
+  gets live token values via `getInfo().veltaTheme` / `veltaCall.getTheme()`;
+  its CSS fallbacks are the dark snapshot (Delta Chat only). Linted by
+  `tests/group-call-card.test.mjs` (no hex/rgb/hsl in gc/gcb rules).
+- **Mock demo** — `velta-mock=1`: Weekend Crew has a seeded call
+  ("Saturday hike plan" by Mara, 2 members); `velta-demo-end-call` window
+  event ends it. e2e: `scripts/e2e-group-call-chat.mjs` (360 px).
+
 ## Not done yet / device testing
 - Consent "remember for this chat" is not implemented (prompt every join).
-- No incoming-call notification for members (the info line + summary
-  only); no ringing.
-- The bar is fixed at the top and can cover the chat header on small
-  screens — check on devices.
+- No ringing by design: the chat card is the invite (plus the info line +
+  summary for notifications).
 - Android: audio route uses `call_audio_start(speaker=true)`; background
   behaviour (screen off, app in background) needs a device run. WebKit
   shells (macOS/Linux) untested.

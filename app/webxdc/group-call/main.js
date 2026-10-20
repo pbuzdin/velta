@@ -6,15 +6,38 @@
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
   var vc = window.webxdc && window.webxdc.veltaCall;
-  var COLORS = ["#2e7d5b", "#3d6bfd", "#a347d1", "#d1477a", "#d17a2e", "#2e9bb5", "#7a8b2e"];
-  function color(id) { var h = 0; for (var i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0; return COLORS[h % COLORS.length]; }
+  // Same name-derived avatar color as the host (app/js/name-color.js).
+  function color(name) { var h = 0; name = String(name || "?"); for (var i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0; return "hsl(" + (h % 360) + " 55% 55%)"; }
+  // The host's live design tokens (theme + custom accent).
+  function applyTheme(t) {
+    if (!t || typeof t !== "object") return;
+    for (var k in t) if (/^--[a-z0-9-]+$/.test(k) && typeof t[k] === "string" && t[k].length < 120) document.documentElement.style.setProperty(k, t[k]);
+    if (t["color-scheme"] === "light" || t["color-scheme"] === "dark") document.documentElement.style.colorScheme = t["color-scheme"];
+  }
   function initial(n) { n = String(n || "?").trim(); return (n[0] || "?").toUpperCase(); }
+
+  // --- name + creator (the starter's "meta" status update) ------------------
+  var meta = null;
+  function readMeta(u) {
+    var m = u && u.payload && u.payload.veltaCall;
+    if (meta || !m || m.t !== "meta") return;
+    meta = { title: String(m.title || "").trim().slice(0, 80) || "Group call", creator: String(m.creatorName || "").slice(0, 120) };
+    $("title").textContent = meta.title;
+    document.title = meta.title;
+    $("creator").textContent = meta.creator ? "Started by " + meta.creator : "";
+  }
+  function listen(extra) {
+    if (window.webxdc && window.webxdc.setUpdateListener) {
+      return window.webxdc.setUpdateListener(function (u) { readMeta(u); if (extra) extra(u); }, 0);
+    }
+    return Promise.resolve();
+  }
 
   // --- Delta Chat (or any client without Velta's call API) -----------------
   var roster = {};
   function readRoster(u) {
     var m = u && u.payload && u.payload.veltaCall;
-    if (!m || typeof m.from !== "string") return;
+    if (!m || typeof m.from !== "string" || m.t === "meta") return;
     var now = Date.now();
     if (m.t === "join" || m.t === "hb") roster[m.from] = { name: m.name || (roster[m.from] || {}).name || m.from, ts: m.ts || now };
     if (m.t === "leave") delete roster[m.from];
@@ -28,9 +51,7 @@
   function noVelta() {
     $("needs-velta").hidden = false;
     $("sub").textContent = "Velta-only app";
-    if (window.webxdc && window.webxdc.setUpdateListener) {
-      window.webxdc.setUpdateListener(function (u) { readRoster(u); if (u.serial === u.max_serial) showDcRoster(); }, 0).then(showDcRoster);
-    }
+    listen(function (u) { readRoster(u); if (u.serial === u.max_serial) showDcRoster(); }).then(showDcRoster);
   }
 
   // --- Velta ---------------------------------------------------------------
@@ -56,7 +77,7 @@
       var t = document.createElement("div");
       t.className = "tile" + (p.speaking ? " speaking" : "") + (s.activeSpeaker === p.id ? " active" : "");
       t.setAttribute("role", "listitem");
-      var av = document.createElement("div"); av.className = "av"; av.style.background = color(p.id); av.textContent = initial(p.name || p.id);
+      var av = document.createElement("div"); av.className = "av"; av.style.background = color(p.name || p.id); av.textContent = initial(p.name || p.id);
       var nm = document.createElement("div"); nm.className = "name"; nm.textContent = (p.name || p.id) + (p.self ? " (you)" : "");
       var st = document.createElement("div"); st.className = "st";
       st.textContent = p.self ? "" : p.state === "connected" ? (p.speaking ? "speaking" : "") : p.state === "failed" ? "connection lost" : "connecting…";
@@ -68,6 +89,7 @@
   }
 
   function velta() {
+    listen();
     vc.onState(render);
     $("join").onclick = function () { $("join").disabled = true; vc.join().catch(function () {}).then(function () { $("join").disabled = false; }); };
     $("mute").onclick = function () { vc.setMuted($("mute").getAttribute("aria-pressed") !== "true"); };
@@ -76,5 +98,5 @@
   }
 
   if (!vc) return noVelta();
-  vc.available().then(function (ok) { if (ok) velta(); else noVelta(); }, noVelta);
+  vc.available().then(function (ok) { if (ok) { vc.getTheme && vc.getTheme().then(applyTheme, function () {}); velta(); } else noVelta(); }, noVelta);
 })();

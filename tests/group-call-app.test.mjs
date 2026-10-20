@@ -46,7 +46,7 @@ test("card name/icon by file name is cosmetic only", () => {
   const m = src("app/js/webxdc-manager.js").toString();
   // every veltaCall* method is gated on the bundle hash
   assert.match(m, /case "veltaCallState": \{\s*if \(\(await activeTrust\(\)\) !== "group-call"\) throw/);
-  assert.match(m, /veltaCall: \(await activeTrust\(\)\) === "group-call"/);
+  assert.match(m, /\(await activeTrust\(\)\) === "group-call" \? \{ veltaCall: true, veltaTheme: themeTokens\(\) \} : \{ veltaCall: false \}/);
   assert.match(m, /active\.trust = trustFor\(Number\(msgId\)\)/);
   assert.match(m, /if \(!\(await askGroupCallConsent\(chatName\)\)\) throw new Error\("cancelled"\)/);
   assert.match(m, /relayOnly: true/);

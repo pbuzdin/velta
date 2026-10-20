@@ -15,10 +15,27 @@
 
 export const RT_MAGIC = "VGC1";
 export const HEARTBEAT_RT_MS = 15000;      // realtime heartbeat
-export const HEARTBEAT_UPDATE_MS = 90000;  // status-update heartbeat (fallback members only)
+export const HEARTBEAT_UPDATE_MS = 90000;  // status-update heartbeat (PWA members + chat cards)
 export const TTL_RT_MS = 50000;            // member considered gone after this silence
 export const TTL_UPDATE_MS = 240000;
-export const CALL_TYPES = new Set(["join", "leave", "hb", "offer", "answer"]);
+export const CALL_TYPES = new Set(["join", "leave", "hb", "offer", "answer", "meta"]);
+export const DEFAULT_CALL_TITLE = "Group call";
+export const MAX_TITLE = 80;
+
+/** Clean a user-entered call name; empty -> the default. */
+export function cleanTitle(t) {
+  const s = String(t ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_TITLE);
+  return s || DEFAULT_CALL_TITLE;
+}
+
+/** The call's name + creator from the first "meta" status update (sent by the starter). */
+export function callMeta(updates) {
+  for (const u of updates || []) {
+    const m = fromStatusUpdate(u);
+    if (m && m.t === "meta") return { title: cleanTitle(m.title), creatorName: String(m.creatorName || "").slice(0, 120), ts: Number(m.ts) || 0 };
+  }
+  return { title: DEFAULT_CALL_TITLE, creatorName: "", ts: 0 };
+}
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -63,6 +80,7 @@ export class GroupCallSignal {
     this.setInterval = opts.setInterval || ((f, ms) => setInterval(f, ms));
     this.clearInterval = opts.clearInterval || ((t) => clearInterval(t));
     this.log = opts.log || (() => {});
+    this.statusOnly = !!opts.statusOnly; // observers that see no realtime (chat cards)
     this.members = new Map();   // id -> {id, name, sid, at, seen, rt}
     this.seenSig = new Set();   // de-dup of offer/answer by (from,sid,t,try)
     this.joined = false;
@@ -89,7 +107,7 @@ export class GroupCallSignal {
     const now = this.now();
     const out = [];
     for (const m of this.members.values()) {
-      const ttl = m.rt ? TTL_RT_MS : TTL_UPDATE_MS;
+      const ttl = m.rt && !this.statusOnly ? TTL_RT_MS : TTL_UPDATE_MS;
       if (m.id === this.selfId || now - m.seen < ttl || this.isConnected(m.id)) out.push({ id: m.id, name: m.name, sid: m.sid, at: m.at });
     }
     return out.sort((a, b) => (a.at - b.at) || (a.id < b.id ? -1 : 1));
@@ -100,6 +118,7 @@ export class GroupCallSignal {
     const at = this.now();
     this.members.set(this.selfId, { id: this.selfId, name: this.selfName, sid: this.sid, at, seen: at, rt: this.rt });
     this.joined = true;
+    this.lastUpdateHb = at; // the join itself counts
     const msg = this._msg("join", { name: this.selfName, at, rt: this.rt });
     const first = others.length === 0;
     await this.sendUpdate({ payload: { veltaCall: msg }, summary: summaryText(others.length + 1),
@@ -139,9 +158,9 @@ export class GroupCallSignal {
     const now = this.now();
     const me = this.members.get(this.selfId); if (me) me.seen = now;
     if (this.rt) this._rt(this._msg("hb", { at: me?.at })).catch(() => {});
-    // Members without realtime only learn we're alive from status updates.
-    const needUpdate = !this.rt || [...this.members.values()].some((m) => m.id !== this.selfId && !m.rt);
-    if (needUpdate && now - this.lastUpdateHb >= HEARTBEAT_UPDATE_MS) {
+    // Status-update heartbeat for everyone: members without realtime and the
+    // chat cards (group-call-card.js) only see status updates.
+    if (now - this.lastUpdateHb >= HEARTBEAT_UPDATE_MS) {
       this.lastUpdateHb = now;
       this.sendUpdate({ payload: { veltaCall: this._msg("hb", { at: me?.at }) } }).catch(() => {});
     }
@@ -165,6 +184,7 @@ export class GroupCallSignal {
       Promise.resolve(this.onSignal(m)).catch(() => {});
       return false;
     }
+    if (m.t === "meta") return false; // name/creator: callMeta()
     const cur = this.members.get(m.from);
     if (m.t === "leave") {
       if (cur && cur.sid === m.sid) { this.members.delete(m.from); return true; }

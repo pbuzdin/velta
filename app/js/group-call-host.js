@@ -10,7 +10,7 @@
 // frame close while a call holds it.
 
 import { GroupCall, randomId } from "./group-call.js";
-import { GroupCallSignal, decodeRealtime } from "./group-call-signal.js";
+import { GroupCallSignal, decodeRealtime, fromStatusUpdate, cleanTitle } from "./group-call-signal.js";
 import { FALLBACK_ICE_SERVERS } from "./calls.js";
 
 let current = null;
@@ -67,7 +67,7 @@ export class GroupCallSession {
     });
   }
 
-  snapshot() { return { ...this.call.snapshot(), msgId: this.msgId, chatId: this.chatId, chatName: this.chatName, startedAt: this.startedAt, realtime: this.realtime }; }
+  snapshot() { return { ...this.call.snapshot(), title: this.title || "", msgId: this.msgId, chatId: this.chatId, chatName: this.chatName, startedAt: this.startedAt, realtime: this.realtime }; }
 
   async start() {
     // History first: who is already in the call (and how many: the cap).
@@ -88,7 +88,11 @@ export class GroupCallSession {
     const raw = await this.core.getWebxdcStatusUpdates(this.msgId, this.serial);
     let updates = [];
     try { updates = JSON.parse(raw) || []; } catch {}
-    for (const u of updates) this.serial = Math.max(this.serial, u.serial || 0);
+    for (const u of updates) {
+      this.serial = Math.max(this.serial, u.serial || 0);
+      const m = fromStatusUpdate(u);
+      if (m?.t === "meta" && !this.title) this.title = cleanTitle(m.title);
+    }
     this.signal.ingestUpdates(updates);
   }
 

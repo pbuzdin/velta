@@ -5,38 +5,51 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Velta Group Call</title>
 <style>
-  :root { color-scheme: light dark; --bg:#0f1714; --fg:#e8f2ee; --muted:#9fb3ab; --card:#1b2621; --accent:#2e7d5b; --danger:#c94343; --ring:#5be3a2; }
-  @media (prefers-color-scheme: light) { :root { --bg:#f4f8f6; --fg:#13201a; --muted:#5b6f66; --card:#fff; --ring:#1e9e63; } }
+  /* Velta design-system tokens (design/velta-design-system.html). The host
+     sends its live values (theme + custom accent) via getInfo().veltaTheme;
+     the fallbacks below are the design-system DARK snapshot, used only where
+     no Velta host exists (Delta Chat). No other colors or sizes. */
+  :root {
+    --bg: #0f0f14; --bg-sidebar: #181820; --bg-hover: rgba(244,244,244,.055); --bg-active: #2b5278;
+    --bg-bubble-in: #1c1c26; --accent: #5aa2e6; --accent-hover: #6aabe8; --on-accent: #f4f4f4;
+    --text: #f2f2f5; --text-dim: #8b8b96; --green: #4fae4f; --danger: #e05a5a;
+    --border: rgba(244,244,244,.07); --shadow: 0 4px 18px rgba(16,16,16,.45); --radius-bubble: 14px;
+    color-scheme: dark;
+  }
   * { box-sizing: border-box; }
-  body { margin:0; font:15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--fg); min-height:100vh; display:flex; flex-direction:column; }
-  header { padding:14px 16px 6px; }
-  h1 { font-size:18px; margin:0; }
-  .sub { color:var(--muted); font-size:13px; margin-top:2px; }
-  main { flex:1; padding:10px 12px; }
-  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:10px; }
-  .tile { background:var(--card); border-radius:16px; padding:14px 8px 10px; text-align:center; position:relative; }
-  .av { width:64px; height:64px; border-radius:50%; margin:0 auto 8px; display:flex; align-items:center; justify-content:center; font-size:26px; font-weight:600; color:#fff; box-shadow:0 0 0 3px transparent; transition:box-shadow .15s; }
-  .tile.speaking .av { box-shadow:0 0 0 4px var(--ring); }
-  .tile.active .name { color:var(--ring); }
-  .name { font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .st { font-size:11px; color:var(--muted); min-height:14px; }
-  .mute-ic { position:absolute; top:8px; right:10px; font-size:14px; }
-  .bar { display:flex; gap:10px; justify-content:center; padding:14px 12px calc(14px + env(safe-area-inset-bottom)); }
-  button { font:inherit; border:0; border-radius:999px; padding:12px 22px; cursor:pointer; background:var(--card); color:var(--fg); min-width:64px; }
-  button.primary { background:var(--accent); color:#fff; font-weight:600; }
-  button.danger { background:var(--danger); color:#fff; }
-  button[aria-pressed="true"] { background:#e7b33c; color:#111; }
-  button:focus-visible { outline:3px solid var(--ring); outline-offset:2px; }
-  .notice { background:var(--card); border-radius:16px; padding:18px; margin:8px 0 14px; }
-  .notice b { display:block; font-size:16px; margin-bottom:6px; }
-  .note { color:var(--muted); font-size:12px; text-align:center; padding:0 16px 6px; }
-  .list { margin:6px 0 0; padding-left:18px; color:var(--muted); }
-  [hidden] { display:none !important; }
+  body { margin: 0; font: 15.5px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+  header { padding: 14px 18px 6px; }
+  h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  .sub { color: var(--text-dim); font-size: 13px; margin-top: 2px; }
+  main { flex: 1; padding: 10px 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+  .tile { background: var(--bg-sidebar); border: 1px solid var(--border); border-radius: var(--radius-bubble); padding: 14px 8px 10px; text-align: center; position: relative; }
+  .av { width: 56px; height: 56px; border-radius: 22%; margin: 0 auto 8px; display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 600; color: var(--on-accent); outline: 3px solid transparent; outline-offset: 2px; transition: outline-color .15s; }
+  .tile.speaking .av { outline-color: var(--green); }
+  .tile.active .name { color: var(--green); }
+  .name { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .st { font-size: 12px; color: var(--text-dim); min-height: 14px; }
+  .mute-ic { position: absolute; top: 8px; right: 10px; font-size: 14px; }
+  .bar { display: flex; gap: 10px; justify-content: center; padding: 14px 12px calc(14px + env(safe-area-inset-bottom)); }
+  button { font: inherit; font-size: 15px; font-weight: 600; border: 0; border-radius: 999px; padding: 11px 22px; cursor: pointer;
+    background: var(--bg-hover); color: var(--accent); min-width: 64px; }
+  button.primary { background: var(--accent); color: var(--on-accent); }
+  button.danger { color: var(--danger); }
+  button[aria-pressed="true"] { background: var(--bg-active); color: var(--on-accent); }
+  @media (hover: hover) and (pointer: fine) { button.primary:hover { background: var(--accent-hover); } }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .notice { background: var(--bg-sidebar); border: 1px solid var(--border); border-radius: var(--radius-bubble); padding: 18px; margin: 8px 0 14px; font-size: 14.5px; }
+  .notice b { display: block; font-size: 17px; margin-bottom: 6px; }
+  .note { color: var(--text-dim); font-size: 12.5px; text-align: center; padding: 0 18px 6px; }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <header>
-  <h1>Group call</h1>
+  <h1 id="title">Group call</h1>
+  <div class="sub" id="creator"></div>
   <div class="sub" id="sub" aria-live="polite">Loading…</div>
 </header>
 <main>

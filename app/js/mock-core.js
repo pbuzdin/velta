@@ -76,6 +76,7 @@ function mulberry32(a) {
 export class MockCore extends EventTarget {
   constructor() {
     super();
+    this._wxdcUpdates = new Map(); // msgId -> status-update rows (demo group call)
     const rnd = mulberry32(20260808);
     this.rnd = rnd;
     // Delay before a 1:1 peer's MDN arrives (#59); tests shorten it.
@@ -197,6 +198,29 @@ export class MockCore extends EventTarget {
       this._mkMsg(this.chats[2], { from: 2, viewtype: "webxdc", fileName: "poll.xdc", text: "", ts: now - 15e3 }),
     );
     this.chats[2].messages.sort((a, b) => a.ts - b.ts);
+    // A live Velta group call (docs/agents/group-calls.md) in Weekend Crew:
+    // the trusted built-in app (readWebxdcArchive serves its real bytes, so
+    // the hash check passes), started by Mara, Kenji already in.
+    const crew = this.chats.find((c) => c.id === 13);
+    if (crew) {
+      const gc = this._mkMsg(crew, { from: 4, viewtype: "webxdc", fileName: "group-call.xdc", text: "", ts: now - 5e3 });
+      crew.messages.push(gc);
+      crew.messages.sort((a, b) => a.ts - b.ts);
+      const t = Date.now();
+      const vc = (x) => ({ payload: { veltaCall: { vgc: 1, ...x } } });
+      this._wxdcUpdates.set(gc.id, [
+        { ...vc({ t: "meta", from: "mara@demo", sid: "meta", ts: t - 60e3, title: "Saturday hike plan", creatorName: "Mara Voss" }), document: "Saturday hike plan", serial: 1 },
+        { ...vc({ t: "join", from: "mara@demo", sid: "m1", name: "Mara Voss", at: t - 55e3, ts: t - 55e3, rt: false }), serial: 2 },
+        { ...vc({ t: "join", from: "kenji@demo", sid: "k1", name: "Kenji Sato", at: t - 30e3, ts: t - 30e3, rt: false }), serial: 3 },
+      ]);
+      this.groupCallMsgId = gc.id;
+      // Demo/e2e: the others hang up (scripts/e2e-group-call-chat.mjs).
+      if (typeof window !== "undefined") window.addEventListener("velta-demo-end-call", () => {
+        for (const [from, sid] of [["mara@demo", "m1"], ["kenji@demo", "k1"]]) {
+          this.sendWebxdcStatusUpdate(gc.id, JSON.stringify(vc({ t: "leave", from, sid, ts: Date.now() })), "");
+        }
+      });
+    }
 
     // Bot chatter in Velta Devs (Delta Bot, contact 7 carries bot: true) —
     // showcases the bubble bot chip and the command chips together.
@@ -516,8 +540,23 @@ export class MockCore extends EventTarget {
       sourceCodeUrl: "", internetAccess: false, selfAddr: "demo@localhost", selfName: "Demo user",
       isAppSender: true, isBroadcast: false, sendUpdateInterval: 1000, sendUpdateMaxSize: 0 };
   }
-  async getWebxdcStatusUpdates(msgId, lastSerial) { return "[]"; }
-  async sendWebxdcStatusUpdate(msgId, updateStr, descr) {}
+  async getWebxdcStatusUpdates(msgId, lastSerial) {
+    return JSON.stringify((this._wxdcUpdates.get(Number(msgId)) || []).filter((u) => u.serial > (Number(lastSerial) || 0)));
+  }
+  async sendWebxdcStatusUpdate(msgId, updateStr, descr) {
+    const rows = this._wxdcUpdates.get(Number(msgId)) || [];
+    const serial = rows.length + 1;
+    rows.push({ ...JSON.parse(updateStr), serial });
+    this._wxdcUpdates.set(Number(msgId), rows);
+    setTimeout(() => this._emit("webxdc-status-update", { msgId: Number(msgId), serial }), 0);
+  }
+  // Demo: the bytes of a built-in app instance (group calls' trust check).
+  async readWebxdcArchive(msgId) {
+    const m = await this.getMessage(Number(msgId));
+    if (!/^group-call(-\d+)?\.xdc$/i.test(m?.fileName || "")) throw new Error("no archive in the demo");
+    const res = await fetch(new URL("builtin/group-call.xdc", document.baseURI));
+    return new Uint8Array(await res.arrayBuffer());
+  }
   async sendWebxdcRealtimeData(msgId, data) {}
   async sendWebxdcRealtimeAdvertisement(msgId) {}
   async leaveWebxdcRealtime(msgId) {}
