@@ -4,6 +4,11 @@
   const wx = window.webxdc;
   const $ = (s) => document.querySelector(s);
   const list = $("#list");
+  // Velta's webxdc shim always adds webxdc.veltaCall (an object, even for
+  // untrusted apps); Delta Chat and other hosts don't. Outside Velta show one
+  // quiet line pointing to Velta.
+  const inVelta = !!(wx && typeof wx.veltaCall === "object" && wx.veltaCall);
+  if (!inVelta) $("#velta-cta").hidden = false;
   const fmt = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : n < 1073741824 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`;
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   let me = "";
