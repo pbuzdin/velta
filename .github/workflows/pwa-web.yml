@@ -1,8 +1,9 @@
 # Publish the wasm PWA to the website branch at velta.cc/web/ (GitHub Pages).
 # Takes the wasm-opt'ed core from a wasm-core (opt-in) run's dist-pwa artifact,
-# rebuilds the dist from this commit's app/ with the mail relay baked in
-# (--ws-proxy from the PWA_WEB_WS_PROXY repo variable — the relay host stays
-# out of git on master), and commits it as web/ on the website branch
+# rebuilds the dist from this commit's app/ WITHOUT a baked relay (never pass
+# --ws-proxy here: velta.cc is public and the relay host must not appear on
+# it; users add their relay under WebSocket relays), and commits it as web/
+# on the website branch
 # (normal commit, never force). .br/.gz sidecars are skipped: Pages ignores
 # them and they are not precached. The relay must allowlist https://velta.cc
 # (ws_allowed_origins + nginx maps), see docs/pwa-self-host.md.
@@ -33,7 +34,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      WS_PROXY: ${{ vars.PWA_WEB_WS_PROXY }}
     steps:
       - name: Pick the wasm-core run
         id: run
@@ -49,7 +49,6 @@ jobs:
             echo "id=$id" >> "$GITHUB_OUTPUT"
             echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
           fi
-          [ -n "$WS_PROXY" ] || { echo "::error::repo variable PWA_WEB_WS_PROXY is not set"; exit 1; }
 
       - uses: actions/checkout@v4
         with:
@@ -72,8 +71,8 @@ jobs:
           rm -rf app/.mimosa app/js/.mimosa
           node scripts/build-pwa.mjs \
             --wasm-dist "$RUNNER_TEMP/dist-pwa-ci/wasm" \
-            --ws-proxy "$WS_PROXY" \
             --out "$RUNNER_TEMP/web"
+          grep -q 'wsProxyUrl: "",' "$RUNNER_TEMP/web/pwa-config.js" || { echo "::error::web/ must not bake a relay"; exit 1; }
           rm -f "$RUNNER_TEMP"/web/wasm/*.br "$RUNNER_TEMP"/web/wasm/*.gz
           grep -o "VERSION = '[^']*'" "$RUNNER_TEMP/web/sw.js" | tee -a "$GITHUB_STEP_SUMMARY"
           du -sh "$RUNNER_TEMP/web"
