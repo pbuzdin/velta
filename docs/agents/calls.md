@@ -4,6 +4,7 @@ Code: `app/js/calls.js` (CallManager: signaling state machine + media),
 `velta-app/src-tauri/gen/android/app/src/main/java/org/velta/CallAudio.kt`
 (Android audio route), `call_audio_*` commands in `velta-app/src-tauri/src/lib.rs`.
 Tests: `tests/call-state-machine.test.mjs`, `tests/call-audio-route.test.mjs`,
+`tests/call-permission.test.mjs`,
 `scripts/e2e-call-audio.mjs` (two Velta pages over real WebRTC in headless
 Chromium with a fake mic + camera: audio both ways, video frames both ways,
 camera off/on mid-call hides/shows the remote video via mutedState, buttons
@@ -72,6 +73,29 @@ Entry points: chat header video icon (≥ 480px; at 320px the chat name had
 `startCallIfMicOk(chat, { video: true })`. A blocked camera does not stop a
 video call: it continues audio-only with a toast. Incoming video calls show
 Decline / Accept (audio only) / Accept with video.
+
+## Mic / camera permission before getUserMedia (#141 follow-up)
+
+Every capture path asks first: outgoing (mic), accept and accept with video
+(mic, then camera), camera on mid-call, flip — via
+`ensureMediaPermission(kind)` in `calls.js` (`CallManager._permission`,
+injectable for tests). Android: Rust `call_permission(kind, request)` →
+`CallPermissions.kt` (`checkSelfPermission`, `ActivityCompat
+.requestPermissions` from MainActivity, result in
+`onRequestPermissionsResult`; status granted|pending|prompt|blocked, the
+page polls while "pending"). Then getUserMedia runs and wry's
+`onPermissionRequest` grants the WebView request because the OS permission
+is there. Desktop/PWA: `navigator.permissions.query` — "denied" short-circuits,
+otherwise the browser prompt at getUserMedia.
+
+**KEEP:** before this, only the outgoing path pre-checked the mic
+(`startCallIfMicOk`, Permissions API only — no Android answer); accepting a
+call and every camera path went straight to getUserMedia and relied on wry
+alone, which denies the WebView request without any UI once CAMERA was
+refused (e.g. at a QR scan) — the camera "just failed". Denied camera =
+toast `CAMERA_DENIED_MSG`, call stays audio-only, Camera button stays off.
+Denied mic on accept = toast `MIC_DENIED_MSG`, the call keeps ringing
+(decline, or allow and accept again). Tests: `tests/call-permission.test.mjs`.
 
 Routing: `defaultSpeakerOn(hasVideo)` — video starts on the loudspeaker,
 audio on the earpiece. Camera on mid-call → loudspeaker, off → earpiece;

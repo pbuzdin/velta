@@ -79,6 +79,8 @@ class MainActivity : TauriActivity() {
     // navigation. attach() registers its OnBackPressedCallback AFTER
     // WryActivity's, so it wins whenever the overlay is open.
     InAppBrowser.attach(this)
+    // Calls: mic/camera runtime permission asked before getUserMedia.
+    CallPermissions.attach(this)
     // Keep the process (and the in-process Delta Chat core) alive after the
     // user leaves the app: promote to a foreground service with a persistent
     // low-importance notification. Background notifications are posted by
@@ -98,6 +100,11 @@ class MainActivity : TauriActivity() {
     } catch (_: Exception) {
     }
     applyTextZoomFix()
+  }
+
+  override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+    super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    CallPermissions.onResult(requestCode)
   }
 
   override fun onStart() {
