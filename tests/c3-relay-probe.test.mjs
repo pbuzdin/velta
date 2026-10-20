@@ -83,3 +83,17 @@ test("worker rewrites stock chatmail POST /new onto this origin", () => {
   assert.equal(chatmailNewUrl("https://mail.example.org/other", { method: "POST" }, page), null);
   assert.equal(chatmailNewUrl("https://127.0.0.1/new", { method: "POST" }, page), null);
 });
+
+test("worker sends /new to the configured relay's /cm-new when the page is on another origin", () => {
+  const src = readFileSync(new URL("../app/js/worker-wasm.js", import.meta.url), "utf8");
+  const page = { href: "https://pwa.example.org/web/worker-wasm.js", origin: "https://pwa.example.org", hostname: "pwa.example.org" };
+  const self = { postMessage() {}, location: page };
+  const { chatmailNewUrl, relayBaseFromWsUrl } = new Function("self", "navigator", "setInterval", src + "\nreturn { chatmailNewUrl, relayBaseFromWsUrl };")(self, {}, () => ({}));
+  const relay = relayBaseFromWsUrl("wss://relay.example.org");
+  assert.deepEqual(relay, { origin: "https://relay.example.org", hostname: "relay.example.org" });
+  assert.equal(relayBaseFromWsUrl(""), null);
+  assert.equal(relayBaseFromWsUrl("https://relay.example.org"), null);
+  assert.equal(chatmailNewUrl("https://mail.example.org/new", { method: "POST" }, page, relay), "https://relay.example.org/cm-new/mail.example.org");
+  assert.equal(chatmailNewUrl("https://relay.example.org/new", { method: "POST" }, page, relay), null, "the relay's own /new goes direct");
+  assert.equal(chatmailNewUrl("https://mail.example.org/new", { method: "POST" }, page, null), "https://pwa.example.org/cm-new/mail.example.org", "no relay: page origin as before");
+});

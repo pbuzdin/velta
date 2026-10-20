@@ -8,17 +8,34 @@ let dc = null;
 let glue = null;
 
 // Stock chatmail POST /new has no CORS header, so the browser cannot read
-// the minted address. /cm-new/<host> on this origin is the relay proxy.
+// the minted address. /cm-new/<host> on the configured mail relay (the
+// wsProxyUrl host; the page origin when none is set) is the relay proxy, so
+// a PWA served from another origin (velta.cc/web/) still mints through it.
 // ponytail: pathname /new only; a /new_email QR still goes direct.
-function chatmailNewUrl(input, init, page) {
+let relayBase = null; // { origin, hostname } of the mail relay, set at init
+
+// wss://relay.example/… → { origin: "https://relay.example", hostname }.
+function relayBaseFromWsUrl(ws) {
+  try {
+    const u = new URL(String(ws || ""));
+    if (u.protocol !== "wss:" && u.protocol !== "ws:") return null;
+    const origin = (u.protocol === "wss:" ? "https://" : "http://") + u.host;
+    return { origin, hostname: u.hostname };
+  } catch {
+    return null;
+  }
+}
+
+function chatmailNewUrl(input, init, page, relay) {
   try {
     const raw = typeof input === "string" ? input : input?.url;
     if (!raw || !page?.origin) return null;
+    const base = relay?.origin ? relay : page;
     const url = new URL(raw, page.href);
     const method = String(init?.method || input?.method || "GET").toUpperCase();
-    if (method !== "POST" || url.pathname !== "/new" || url.port || url.hostname === page.hostname) return null;
+    if (method !== "POST" || url.pathname !== "/new" || url.port || url.hostname === page.hostname || url.hostname === base.hostname) return null;
     if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}$/.test(url.hostname)) return null;
-    return new URL("/cm-new/" + url.hostname + url.search, page.origin).href;
+    return new URL("/cm-new/" + url.hostname + url.search, base.origin).href;
   } catch {
     return null;
   }
@@ -27,7 +44,7 @@ function chatmailNewUrl(input, init, page) {
 const _fetch = typeof self.fetch === "function" ? self.fetch.bind(self) : null;
 if (_fetch) {
   self.fetch = (input, init) => {
-    const proxied = chatmailNewUrl(input, init, self.location);
+    const proxied = chatmailNewUrl(input, init, self.location, relayBase);
     if (!proxied) return _fetch(input, init);
     return _fetch(proxied, { method: "POST", redirect: init?.redirect, signal: init?.signal });
   };
@@ -202,6 +219,7 @@ self.onmessage = async (e) => {
         if (!root) throw new Error("OPFS unavailable — cannot restore accounts");
         await restore(root);
       }
+      relayBase = relayBaseFromWsUrl(d.wsProxyUrl);
       dc = await glue.init(
         (line) => self.postMessage({ type: "line", line }),
         d.wsProxyUrl ?? null,
