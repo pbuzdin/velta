@@ -58,7 +58,8 @@ KEEP, all layers:
 - iframe `allow` = `WEBXDC_FRAME_ALLOW` (webxdc-manager.js): autoplay + `'none'` for
   mic/camera/display-capture/geolocation.
 - The shim pins `mediaDevices.getUserMedia/getDisplayMedia` to a NotAllowedError reject.
-- Group calls never relax this: trusted apps get `webxdc.veltaCall`, the HOST captures.
+- Group calls never relax this: trusted apps get `webxdc.veltaCall`, the HOST captures
+  (docs/agents/group-calls.md; trust = bundle SHA-256 on app/js/trusted-xdc.js).
 Tests: tests/webxdc-media-deny.test.mjs, scripts/e2e-webxdc-media-deny.mjs, scripts/e2e-webxdc-pwa.mjs.
 
 ## WebView2 crash workaround

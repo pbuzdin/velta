@@ -3185,6 +3185,11 @@ export class ChatView {
       if (!window.__TAURI__ && isAndroid()) {
         attachItems.splice(1, 0, { label: "Camera", icon: ICO.photo, onClick: () => this._sendAttachment("camera") });
       }
+      // Group audio calls (docs/agents/group-calls.md): group chats only, every
+      // shell (the PWA signals over status updates).
+      if (this.chat?.kind === "group" && !this.chat?.isP2p) {
+        attachItems.push({ label: "Group call", icon: ICO.mic, onClick: () => this._startGroupCall() });
+      }
       // Voice messages are not supported in local chat — hide the item there.
       if (!this.chat?.isP2p) {
         attachItems.push({ label: "Voice message", icon: ICO.mic, onClick: () => this._sendAttachment("voice") });
@@ -3682,6 +3687,28 @@ export class ChatView {
       if (msg?.id != null) openWebxdc(msg.id, "Velta Beam", { panel: true });
     } catch (err) {
       if (this._isCurrent(session)) errToast("Could not start direct send: " + (err?.message || err), 4000);
+    }
+  }
+
+  // Posts app/builtin/group-call.xdc (one message = one call room) and opens
+  // it; the app's Join button asks for consent, the host runs the call.
+  async _startGroupCall() {
+    const session = this._session;
+    if (!this._isCurrent(session) || !this.chat) return;
+    try {
+      const invoke = tauriInvoke();
+      const path = await prepareBuiltinXdc("group-call", {
+        invoke, fetchImpl: (u) => fetch(u), baseURI: document.baseURI,
+        writeFile: (n, b) => this._writeBlobForSend(n, b),
+      });
+      if (!path || !this._isCurrent(session)) return;
+      const msg = await this._sendArchivedAware(session.chatId, { viewtype: "webxdc", file: path, filename: "group-call.xdc", text: "" });
+      if (!this._isCurrent(session)) return;
+      this.appendOutgoing(msg);
+      this.onChatsChanged();
+      if (msg?.id != null) openWebxdc(msg.id, "Velta Group Call");
+    } catch (err) {
+      if (this._isCurrent(session)) errToast("Could not start a group call: " + (err?.message || err), 4000);
     }
   }
 

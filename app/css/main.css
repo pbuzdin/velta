@@ -2867,3 +2867,21 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 .settings-diff-list .sd-label { min-width: 0; overflow-wrap: anywhere; }
 .settings-diff-list .sd-vals { min-width: 0; overflow-wrap: anywhere; color: var(--text); }
 .settings-diff-list .sd-from { color: var(--text-dim); }
+
+/* Group call in-call bar (group-call-ui.js): host chrome, outside the app
+   iframe; stays across chat switches and app close. */
+#group-call-bar {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  top: calc(env(safe-area-inset-top, 0px) + 6px); z-index: 900;
+  display: flex; align-items: center; gap: 6px; max-width: calc(var(--vw) - 16px);
+  padding: 4px 4px 4px 6px; border-radius: 999px;
+  background: #1f6f4c; color: #fff; box-shadow: 0 4px 16px rgba(0,0,0,.3); font-size: 13px;
+}
+#group-call-bar button { font: inherit; color: inherit; border: 0; border-radius: 999px; padding: 6px 12px; cursor: pointer; background: rgba(255,255,255,.14); white-space: nowrap; }
+#group-call-bar .gcb-open { background: transparent; display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; }
+#group-call-bar .gcb-text { overflow: hidden; text-overflow: ellipsis; }
+#group-call-bar .gcb-dot { width: 9px; height: 9px; border-radius: 50%; background: #9ff0c6; flex: none; }
+#group-call-bar.speaking .gcb-dot { box-shadow: 0 0 0 4px rgba(159,240,198,.35); }
+#group-call-bar .gcb-mute[aria-pressed="true"] { background: #e7b33c; color: #111; }
+#group-call-bar .gcb-leave { background: #c94343; }
+#group-call-bar button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }

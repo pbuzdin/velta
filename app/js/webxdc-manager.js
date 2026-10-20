@@ -9,7 +9,9 @@ import { LruCache } from "./lru.js";
 import { wantsPanel } from "./webxdc-panel.js";
 import { tauriInvoke } from "./tauri.js";
 import { base64ToBytes } from "./identity-backup.js";
-import { currentGroupCall, routeRealtime, routeStatusUpdate } from "./group-call-host.js";
+import { currentGroupCall, routeRealtime, routeStatusUpdate, joinGroupCall, leaveGroupCall, setGroupCallMuted, onGroupCallChange } from "./group-call-host.js";
+import { trustedAppName } from "./xdc-trust.js";
+import { askGroupCallConsent, groupCallEnv, oneToOneCallActive } from "./group-call-ui.js";
 
 let core = null;
 export const WEBXDC_FRAME_ALLOW =
@@ -124,7 +126,8 @@ async function handleCall(data) {
       return { name: info.name, document: info.document || "", summary: info.summary || "",
         sourceCodeUrl: info.sourceCodeUrl || "", selfAddr: info.selfAddr || "",
         selfName: info.selfName || "", sendUpdateInterval: info.sendUpdateInterval ?? 1000,
-        sendUpdateMaxSize: info.sendUpdateMaxSize ?? 0, veltaRealtime: realtimeAvailable() };
+        sendUpdateMaxSize: info.sendUpdateMaxSize ?? 0, veltaRealtime: realtimeAvailable(),
+        veltaCall: (await activeTrust()) === "group-call" };
     }
     case "getAllUpdates": {
       const { updates } = await fetchUpdates(msgId, 0);
@@ -168,6 +171,19 @@ async function handleCall(data) {
     // PWA loader (webxdc-host/frame.js) asks for the app archive once per
     // page load; only the open app's own frame gets an answer (onWindowMessage
     // checks the source), and only for the open instance.
+    // Group calls (docs/agents/group-calls.md): ONLY the trusted bundle may
+    // drive the host's call; the host asks for consent and owns the mic.
+    case "veltaCallJoin":
+    case "veltaCallLeave":
+    case "veltaCallMute":
+    case "veltaCallState": {
+      if ((await activeTrust()) !== "group-call") throw new Error("not available for this app");
+      if (data.method === "veltaCallState") return callStateFor(msgId);
+      if (data.method === "veltaCallMute") { if (currentGroupCall()?.msgId === msgId) setGroupCallMuted(!!data.params?.muted); return callStateFor(msgId); }
+      if (data.method === "veltaCallLeave") { if (currentGroupCall()?.msgId === msgId) await leaveGroupCall(); return callStateFor(msgId); }
+      await joinCallFromApp(msgId);
+      return callStateFor(msgId);
+    }
     case "veltaBundle":
       return { xdc: await readXdcArchive(msgId) };
     case "sendToChat":
@@ -178,6 +194,63 @@ async function handleCall(data) {
       throw new Error(`unknown webxdc method: ${data.method}`);
   }
 }
+
+// --- group calls -------------------------------------------------------
+const trustCache = new Map(); // msgId -> Promise<name|null>
+function trustFor(msgId) {
+  if (!trustCache.has(msgId)) {
+    const p = readAppBytes(msgId).then((b) => trustedAppName(b), () => null);
+    trustCache.set(msgId, p);
+    p.then((v) => { if (v === null) trustCache.delete(msgId); }); // retry later (file not there yet)
+  }
+  return trustCache.get(msgId);
+}
+async function activeTrust() {
+  return active?.trust ? active.trust : null;
+}
+// The .xdc bytes of an instance: PWA from the core's file store, Tauri via
+// read_media_bytes (scoped to the accounts dir, the core's blob path).
+async function readAppBytes(msgId) {
+  if (isPwaHost()) return readXdcArchive(msgId);
+  const invoke = tauriInvoke();
+  if (!invoke) throw new Error("no shell");
+  const msg = await core.getMessage(msgId);
+  if (!msg?.filePath) throw new Error("app archive not found");
+  const buf = await invoke("read_media_bytes", { src: msg.filePath });
+  return buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+}
+function callStateFor(msgId) {
+  const s = currentGroupCall();
+  if (s && s.msgId === msgId) return s.snapshot();
+  return { state: s ? "elsewhere" : "idle", participants: [] };
+}
+async function joinCallFromApp(msgId) {
+  const s = currentGroupCall();
+  if (s?.msgId === msgId) return;
+  if (s) throw new Error("You are already in another group call — leave it first");
+  if (oneToOneCallActive()) throw new Error("Finish the current call first");
+  const msg = await core.getMessage(msgId).catch(() => null);
+  let chatName = "";
+  try { chatName = (await core.getChat(msg?.chatId))?.name || ""; } catch {}
+  if (!(await askGroupCallConsent(chatName))) throw new Error("cancelled");
+  const info = await getInfo(msgId);
+  await joinGroupCall({
+    core, msgId, chatId: msg?.chatId, chatName,
+    selfId: info.selfAddr || `self-${core.accountId}`, selfName: info.selfName || "",
+    realtime: realtimeAvailable(), relayOnly: true, busy: oneToOneCallActive,
+    env: { ...groupCallEnv(), releaseRealtime: (m) => (active?.realtime && active.msgId === m) ? null : core.leaveWebxdcRealtime(m) },
+  });
+}
+// Push call state to the open trusted app.
+onGroupCallChange((snap) => {
+  if (!active?.trust) return;
+  active.trust.then((t) => {
+    if (t !== "group-call" || !active) return;
+    if (snap && snap.msgId !== active.msgId) return post({ type: "velta-call-state", state: callStateFor(active.msgId) });
+    post({ type: "velta-call-state", state: snap || callStateFor(active.msgId) });
+  });
+});
+export { trustFor as _trustForTests };
 
 // webxdc.sendToChat: the app hands us a composed file (e.g. an .eml from an
 // email-composer app); confirm, stage it under uploads/ via the same
@@ -378,7 +451,10 @@ export async function loadInfoWithRetry(msgId, { alive = () => true, delays = WE
 // manifest names/icons, so the card always shows the bundled name and icon
 // (a plain app asset: no webxdc scheme, loads on Android and the PWA).
 export const BEAM_FILE_RE = /^send-direct(-\d+)?\.xdc$/i;
+export const GROUP_CALL_FILE_RE = /^group-call(-\d+)?\.xdc$/i;
 export function builtinAppCard(fileName) {
+  // Card cosmetics only — trust for group calls is the bundle hash (xdc-trust.js).
+  if (GROUP_CALL_FILE_RE.test(String(fileName || ""))) return { name: "Velta Group Call", iconUrl: new URL("../webxdc/group-call/icon.png", import.meta.url).href };
   if (!BEAM_FILE_RE.test(String(fileName || ""))) return null;
   return { name: "Velta Beam", iconUrl: new URL("../webxdc/send-direct/icon.png", import.meta.url).href };
 }
@@ -503,6 +579,7 @@ export async function openWebxdc(msgId, fallbackName = "Webxdc app", opts = {}) 
 
   if (panel) wrap.setAttribute("aria-label", title.textContent);
   active = { msgId: Number(msgId), iframe, serial: serials.get(Number(msgId)) || 0, panel, wrap };
+  active.trust = trustFor(Number(msgId)); // group calls: bundle-hash check, before the app can ask
   wrap.querySelector(".webxdc-close").addEventListener("click", () => closeWebxdc());
   wrap.querySelector(".webxdc-expand")?.addEventListener("click", () => setWebxdcExpanded(!isWebxdcExpanded()));
   if (panel) {

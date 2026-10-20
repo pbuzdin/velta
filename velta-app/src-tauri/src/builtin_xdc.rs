@@ -9,10 +9,13 @@
 //! verified, before any message exists.
 
 const SEND_DIRECT: &[u8] = include_bytes!("../../../app/builtin/send-direct.xdc");
+/// Group calls (docs/agents/group-calls.md): its SHA-256 is on app/js/trusted-xdc.js.
+const GROUP_CALL: &[u8] = include_bytes!("../../../app/builtin/group-call.xdc");
 
 pub fn builtin_bytes(name: &str) -> Option<&'static [u8]> {
     match name {
         "send-direct" => Some(SEND_DIRECT),
+        "group-call" => Some(GROUP_CALL),
         _ => None,
     }
 }

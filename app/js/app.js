@@ -10,6 +10,7 @@ import { ChatView, setAvatarProfileOpener, saveAttachmentFile, openAttachmentFil
 import { mediaSectionsHtml, mountChatMedia } from "./chat-media.js";
 import { initCalls } from "./calls.js";
 import { initWebxdc, openWebxdc, prefetchInfo, appIconUrl } from "./webxdc-manager.js";
+import { initGroupCallUi } from "./group-call-ui.js";
 import { notePushDiagnostic, relaySupportsPush, pushMarkHtml } from "./relay-push.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow, isSendFailureDiagnostic, createRelaySendErrorState } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal, isShortInviteLink, expandShortInvite } from "./invites.js";
@@ -5659,6 +5660,9 @@ async function boot() {
     // event stream is available, or a call arriving during boot is missed.
     calls = initCalls(core, { notify: (msg) => toast(msg, 4500), peerInfo: callPeerInfo });
     initWebxdc(core);
+    // Group calls: in-call bar + "open the call" from it (group-call-ui.js).
+    initGroupCallUi({ open: (msgId) => openWebxdc(msgId, "Velta Group Call") });
+    window.addEventListener("velta-open-chat", (e) => { if (e.detail?.chatId) openChat(e.detail.chatId); });
     reportUiVisible(); // visibilitychange won't fire for the initial load
 
     // Live core version for the drawer footer / about modal — the running

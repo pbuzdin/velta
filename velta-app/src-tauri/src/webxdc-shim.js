@@ -45,6 +45,8 @@
   var pending = new Map();
   var reqId = 0;
   var rt = null; // the realtime channel (one per app, spec)
+  var callState = null; // webxdc.veltaCall (trusted group-call app only)
+  var callListeners = [];
   var info = {
     name: "", document: "", summary: "", sourceCodeUrl: "",
     internetAccess: false, selfAddr: "", selfName: "",
@@ -123,6 +125,11 @@
       if (rt && !rt.left && rt.cb) { try { rt.cb(d.data); } catch (e) {} }
       return;
     }
+    if (d.type === "velta-call-state") {
+      callState = d.state || null;
+      callListeners.forEach(function (cb) { try { cb(callState); } catch (e) {} });
+      return;
+    }
     if (d.type === "velta-webxdc-info" && d.info) {
       Object.assign(info, d.info);
     }
@@ -187,6 +194,19 @@
       return { addr: info.selfAddr, name: info.selfName, color: "#7d8a99" };
     },
     listRealtimeAdapters: function () { return []; },
+    // Velta extension, group calls (docs/agents/group-calls.md): the HOST
+    // owns the mic and the connections; the app only drives them. The host
+    // answers these calls only for the built-in group-call app (bundle hash
+    // on the trusted list); for every other app available() is false and
+    // the methods reject. Never a WebRTC/mic grant to the frame.
+    veltaCall: {
+      available: function () { return call("getInfo", {}).then(function (i) { return !!(i && i.veltaCall); }, function () { return false; }); },
+      join: function () { return call("veltaCallJoin", {}); },
+      leave: function () { return call("veltaCallLeave", {}); },
+      setMuted: function (on) { return call("veltaCallMute", { muted: !!on }); },
+      getState: function () { return call("veltaCallState", {}).then(function (s) { callState = s || null; return callState; }); },
+      onState: function (cb) { if (typeof cb === "function") { callListeners.push(cb); if (callState) { try { cb(callState); } catch (e) {} } } },
+    },
     // Spec (webxdc.d.ts): one channel per app; send(Uint8Array <= 128000),
     // setListener(cb(Uint8Array)), leave(). Backed by the core's iroh
     // gossip topic for this instance (host: webxdc-manager realtime*).
