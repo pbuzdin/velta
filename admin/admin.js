@@ -64,16 +64,30 @@ const b64ToUtf8 = (s) =>
 const esc = (s) =>
   String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-const today = () =>
-  new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+const isoToday = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+// "2026-10-21" from the date picker → "21 October 2026". Anything that is
+// not ISO (a hand-typed date) passes through untouched.
+const formatDate = (iso) => {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return iso;
+  return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString("en-GB", {
+    day: "numeric", month: "long", year: "numeric",
+  });
+};
+
+const readMinutes = (text) => Math.max(1, Math.round(text.trim().split(/\s+/).length / 200));
 
 // Body of a fresh news post — mirrors the structure of the existing posts
 // (breadcrumb, kicker, title, date, summary, div.body, aside).
-function postBody({ title, kicker, date, summary }) {
+function postBody({ title, kicker, date, summary, mins }) {
   return `<p><a href="/news">News</a></p>
 <p class="kicker">${esc(kicker)}</p>
 <h1>${esc(title)}</h1>
-<p><time>${esc(date)}</time> · 3 min read</p>
+<p><time>${esc(date)}</time> · ${mins} min read</p>
 <p>${esc(summary)}</p>
 <div class="body">
   <p>Write something.</p>
@@ -163,7 +177,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
     this.commitMsg = "";
     this.newName = "";
     this.newBlock = "";
-    this.newPost = { slug: "", title: "", kicker: "Release", date: today(), summary: "" };
+    this.newPost = { slug: "", title: "", kicker: "Release", date: isoToday(), summary: "" };
     this.tokenDraft = "";
     this.status = "";
     this.error = "";
@@ -215,20 +229,18 @@ class VeltaAdmin extends Elena(HTMLElement) {
     return b64ToUtf8(f.content);
   }
 
-  async putFile(path, message, content, sha) {
-    const body = { message, content: utf8ToB64(content), branch: BRANCH };
-    if (sha) body.sha = sha;
-    const r = await this.api(`/${path}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    return r.content.sha;
+  // Guard for every write action: returns true (and shows the error) when
+  // signed out.
+  needToken(verb) {
+    if (this.token) return false;
+    this.error = `Sign in first — ${verb} needs a token.`;
+    this.requestUpdate();
+    return true;
   }
 
-  // Binary upload (images) — content arrives already base64.
-  async putBlob(path, message, base64, sha) {
-    const body = { message, content: base64, branch: BRANCH };
+  async putFile(path, message, content, sha, blob = false) {
+    // blob: content arrives already base64 (binary upload, e.g. images).
+    const body = { message, content: blob ? content : utf8ToB64(content), branch: BRANCH };
     if (sha) body.sha = sha;
     const r = await this.api(`/${path}`, {
       method: "PUT",
@@ -313,9 +325,8 @@ class VeltaAdmin extends Elena(HTMLElement) {
         body = expandIncludes(body, await this.blocksCache);
       } catch { /* preview without includes */ }
     }
-    const theme = document.documentElement.getAttribute("data-theme");
     frame.srcdoc =
-      `<!doctype html><html lang="en"${theme ? ` data-theme="${theme}"` : ""}><head><meta charset="utf-8">` +
+      `<!doctype html><html lang="en"><head><meta charset="utf-8">` +
       `<link rel="stylesheet" href="/css/velta.css"><style>body{margin:0;padding:1.25rem}</style></head>` +
       `<body><main id="content"${this.mainClass ? ` class="${this.mainClass}"` : ""}>${body}</main></body></html>`;
   }
@@ -329,31 +340,17 @@ class VeltaAdmin extends Elena(HTMLElement) {
       const files = list
         .filter((f) => f.type === "file" && f.name.endsWith(".html"))
         .map((f) => ({ path: f.name, name: f.name, size: f.size, sha: f.sha, kind: "page" }));
-      const partialsDir = list.find((d) => d.type === "dir" && d.name === "_partials");
-      if (partialsDir) {
-        const sub = await this.api(`/_partials?ref=${BRANCH}`);
+      for (const [dir, kind, htmlOnly] of [
+        ["_partials", "block", false],
+        ["news", "page", true],
+        ["assets", "media", false],
+      ]) {
+        if (!list.some((d) => d.type === "dir" && d.name === dir)) continue;
+        const sub = await this.api(`/${dir}?ref=${BRANCH}`);
         files.push(
           ...sub
-            .filter((f) => f.type === "file")
-            .map((f) => ({ path: `_partials/${f.name}`, name: f.name, size: f.size, sha: f.sha, kind: "block" })),
-        );
-      }
-      const newsDir = list.find((d) => d.type === "dir" && d.name === "news");
-      if (newsDir) {
-        const sub = await this.api(`/news?ref=${BRANCH}`);
-        files.push(
-          ...sub
-            .filter((f) => f.type === "file" && f.name.endsWith(".html"))
-            .map((f) => ({ path: `news/${f.name}`, name: f.name, size: f.size, sha: f.sha, kind: "page" })),
-        );
-      }
-      const assetsDir = list.find((d) => d.type === "dir" && d.name === "assets");
-      if (assetsDir) {
-        const sub = await this.api(`/assets?ref=${BRANCH}`);
-        files.push(
-          ...sub
-            .filter((f) => f.type === "file")
-            .map((f) => ({ path: `assets/${f.name}`, name: f.name, size: f.size, sha: f.sha, kind: "media" })),
+            .filter((f) => f.type === "file" && (!htmlOnly || f.name.endsWith(".html")))
+            .map((f) => ({ path: `${dir}/${f.name}`, name: f.name, size: f.size, sha: f.sha, kind })),
         );
       }
       files.sort((a, b) => a.path.localeCompare(b.path));
@@ -388,11 +385,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
   }
 
   async save() {
-    if (!this.token) {
-      this.error = "Sign in first — saving needs a token.";
-      this.requestUpdate();
-      return;
-    }
+    if (this.needToken("saving")) return;
     if (!this.current) return;
     const isPage = this.current.path.endsWith(".html") && !this.current.path.startsWith("_partials/");
     this.busy = true;
@@ -441,11 +434,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
   // Regenerate every page from the current partials and blocks. One commit
   // per page — the Contents API has no multi-file commit.
   async rebuildPages() {
-    if (!this.token) {
-      this.error = "Sign in first — rebuilding needs a token.";
-      this.requestUpdate();
-      return;
-    }
+    if (this.needToken("rebuilding")) return;
     this.busy = true;
     this.error = "";
     this.status = "";
@@ -494,11 +483,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
       this.requestUpdate();
       return;
     }
-    if (!this.token) {
-      this.error = "Sign in first — creating a page needs a token.";
-      this.requestUpdate();
-      return;
-    }
+    if (this.needToken("creating a page")) return;
     this.busy = true;
     this.error = "";
     this.requestUpdate();
@@ -548,11 +533,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
       this.requestUpdate();
       return;
     }
-    if (!this.token) {
-      this.error = "Sign in first — publishing needs a token.";
-      this.requestUpdate();
-      return;
-    }
+    if (this.needToken("publishing")) return;
     this.busy = true;
     this.error = "";
     this.requestUpdate();
@@ -561,14 +542,17 @@ class VeltaAdmin extends Elena(HTMLElement) {
         this.getRaw(NAV_PARTIAL),
         this.getRaw(FOOTER_PARTIAL),
       ]);
+      const date = formatDate(this.newPost.date.trim() || isoToday());
+      const mins = readMinutes(`${title} ${summary}`);
       const newRaw = assemble({
         nav,
         footer,
         body: postBody({
           title,
           kicker: this.newPost.kicker,
-          date: this.newPost.date.trim() || today(),
+          date,
           summary,
+          mins,
         }),
         title: `${title} — Velta`,
         description: summary,
@@ -583,7 +567,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
       const indexRaw = b64ToUtf8(indexFile.content);
       const im = indexRaw.match(MARKERS);
       if (!im) throw new Error("news/index.html has no body markers — cannot add the post to the list.");
-      const li = `<li><a href="/news/${slug}.html"><time>${esc(this.newPost.date.trim() || today())}</time><span><span class="kicker">${esc(this.newPost.kicker)}</span><h2>${esc(title)}</h2><p>${esc(summary)}</p><p>3 min read</p></span></a></li>`;
+      const li = `<li><a href="/news/${slug}.html"><time>${esc(date)}</time><span><span class="kicker">${esc(this.newPost.kicker)}</span><h2>${esc(title)}</h2><p>${esc(summary)}</p><p>${mins} min read</p></span></a></li>`;
       const newIndexRaw = spliceBody(indexRaw, im[1].replace(/<ul>/i, () => `<ul>\n  ${li}`));
       await this.putFile("news/index.html", `Add ${path} to the news index`, newIndexRaw, indexFile.sha);
 
@@ -610,11 +594,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
       this.requestUpdate();
       return;
     }
-    if (!this.token) {
-      this.error = "Sign in first — uploading needs a token.";
-      this.requestUpdate();
-      return;
-    }
+    if (this.needToken("uploading")) return;
     const dot = file.name.lastIndexOf(".");
     const ext = dot >= 0 ? file.name.slice(dot).toLowerCase() : "";
     const base = (dot >= 0 ? file.name.slice(0, dot) : file.name)
@@ -638,7 +618,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
         reader.onerror = () => reject(new Error("Could not read the file."));
         reader.readAsDataURL(file);
       });
-      await this.putBlob(name, `Add ${name}`, base64, null);
+      await this.putFile(name, `Add ${name}`, base64, null, true);
       await this.loadFiles();
       const tag = `<img src="/${name}" alt="">`;
       const ta = this.querySelector("#editor");
@@ -661,11 +641,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
   async deleteMedia(path) {
     const file = (this.files || []).find((f) => f.path === path);
     if (!file) return;
-    if (!this.token) {
-      this.error = "Sign in first — deleting needs a token.";
-      this.requestUpdate();
-      return;
-    }
+    if (this.needToken("deleting")) return;
     if (!confirm(`Delete ${path}? Pages keep their last published copy until edited; recoverable via git history.`)) return;
     this.busy = true;
     this.error = "";
@@ -694,11 +670,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
       this.requestUpdate();
       return;
     }
-    if (!this.token) {
-      this.error = "Sign in first — creating a block needs a token.";
-      this.requestUpdate();
-      return;
-    }
+    if (this.needToken("creating a block")) return;
     this.busy = true;
     this.error = "";
     this.requestUpdate();
@@ -722,11 +694,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
     }
     const file = (this.files || []).find((f) => f.path === path);
     if (!file) return;
-    if (!this.token) {
-      this.error = "Sign in first — deleting needs a token.";
-      this.requestUpdate();
-      return;
-    }
+    if (this.needToken("deleting")) return;
     if (!confirm(`Delete ${path}? Pages keep their last expanded copy until rebuilt; recoverable via git history.`)) return;
     this.busy = true;
     this.error = "";
@@ -822,7 +790,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
           <option>Guide</option>
           <option>Note</option>
         </select>
-        <input id="post-date" value="${this.newPost.date}" />
+        <input id="post-date" type="date" value="${this.newPost.date}" />
       </p>
       <p><input id="post-summary" placeholder="One-line summary (also the meta description)" /></p>
       <p><button data-action="create-post">Create post</button></p>

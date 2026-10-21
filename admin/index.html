@@ -5,8 +5,23 @@
   <meta name="robots" content="noindex" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Velta CMS</title>
-  <link rel="stylesheet" href="../css/marx.min.css" />
   <style>
+    /* Minimal admin styles — replaced the vendored marx.min.css framework
+       (17 KB for one page) with the rules the CMS actually uses. */
+    body { margin: 0; font: 16px/1.5 system-ui, "Segoe UI", sans-serif; color: #1a1a1a; background: #fff; }
+    .container { max-width: 60rem; margin: 0 auto; padding: 0 1rem; }
+    h1 { font-size: 1.6rem; margin: 1rem 0 0.25rem; }
+    h2 { font-size: 1.25rem; margin: 2rem 0 0.5rem; }
+    h3 { font-size: 1.05rem; margin: 1.5rem 0 0.5rem; }
+    a { color: #1a6fbe; }
+    hr { border: 0; border-top: 1px solid #ddd; margin: 1rem 0; }
+    table { width: 100%; border-collapse: collapse; margin: 0.5rem 0; }
+    th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #e3e3e3; }
+    button { font: inherit; padding: 0.35rem 0.8rem; border: 1px solid #bbb; border-radius: 6px; background: #f2f2f2; cursor: pointer; }
+    button:hover { background: #e8e8e8; }
+    input, select { font: inherit; padding: 0.35rem 0.55rem; border: 1px solid #bbb; border-radius: 6px; background: #fff; }
+    small { color: #666; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #f2f2f2; padding: 0.05em 0.3em; border-radius: 4px; }
     #editor { width: 100%; min-height: 60vh; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; }
     #commit-msg { width: 320px; max-width: 100%; }
     #token-draft { width: 340px; max-width: 100%; }
@@ -15,6 +30,8 @@
     .err { color: #b00020; }
     .editor-grid { display: grid; grid-template-columns: 1fr; gap: 1rem; align-items: start; }
     .editor-grid.split { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    /* A phone cannot fit two editor columns — stack them. */
+    @media (max-width: 50rem) { .editor-grid.split { grid-template-columns: 1fr; } }
     #preview { width: 100%; min-height: 60vh; border: 1px solid #bbb; border-radius: 8px; background: #fff; }
   </style>
 </head>
@@ -27,6 +44,6 @@
     </header>
     <velta-admin></velta-admin>
   </main>
-  <script type="module" src="admin.js?v=2"></script>
+  <script type="module" src="admin.js?v=3"></script>
 </body>
 </html>

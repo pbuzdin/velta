@@ -54,24 +54,8 @@
   --header: 4rem;
 }
 
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --bg: #0f0f14;
-  --fg: #f2f2f5;
-  --muted: #8b8b96;
-  --accent: #5aa2e6;
-  --accent-fg: #0e141c;
-  --accent-hover: #7db4ec;
-  --link: #5aa2e6;
-  --surface: #181820;
-  --surface-2: #1c1c26;
-  --line: rgba(244, 244, 244, 0.1);
-  --bubble: #2b5278;
-  --shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
-}
-
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root {
     color-scheme: dark;
     --bg: #0f0f14;
     --fg: #f2f2f5;
@@ -206,42 +190,6 @@ body > header > a[href="#download"]:hover,
 body > header > a[href="/#download"]:hover { background: var(--accent-hover); }
 body > header > a[href="#download"] span:first-child,
 body > header > a[href="/#download"] span:first-child { display: none; }
-
-body > header form { margin: 0; }
-body > header fieldset {
-  display: flex;
-  margin: 0;
-  border: 0;
-  padding: 0.2rem;
-  border-radius: 12px;
-  background: var(--surface-2);
-}
-body > header legend {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-}
-body > header label {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  height: 2.25rem;
-  padding: 0 0.75rem;
-  border-radius: 8px;
-  color: var(--muted);
-  font-size: 0.75rem;
-  font-weight: 500;
-  cursor: pointer;
-}
-body > header input { position: absolute; opacity: 0; }
-body > header label:has(input:focus-visible) { outline: 2px solid var(--link); outline-offset: 2px; }
-body > header label:has(input:checked) {
-  background: var(--surface);
-  color: var(--fg);
-  box-shadow: var(--shadow);
-}
 
 body > header details { display: none; }
 body > header summary {
@@ -560,8 +508,7 @@ main.page aside a { display: block; padding: 0.9rem 0; color: inherit; text-deco
 main.page aside a strong { display: block; font-family: var(--display); font-size: 1.25rem; font-weight: 500; }
 
 @media (max-width: 64rem) {
-  body > header > nav,
-  body > header > form { display: none; }
+  body > header > nav { display: none; }
   body > header details { display: block; }
   body > header details nav {
     display: none;
@@ -576,7 +523,6 @@ main.page aside a strong { display: block; font-family: var(--display); font-siz
     background: var(--bg);
   }
   body > header details[open] nav { display: flex; }
-  body > header details form { margin-top: 0.5rem; }
   #hero, #privacy, #product > div:last-child, #platforms > div, #support, #download ul, #features ul, footer > div, #notes a, main.news a {
     grid-template-columns: 1fr;
   }

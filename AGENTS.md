@@ -8,8 +8,8 @@ website — the application code lives on `master`. Hard rules for anything
 shipped here:
 
 - **Zero third parties.** Every asset is vendored and served from velta.cc
-  itself: `css/velta.css` + `fonts/` (the design), `css/marx.min.css`
-  (admin UI only), `admin/elena.js` (@elenajs/core).
+  itself: `css/velta.css` + `fonts/` (the design), `admin/elena.js`
+  (@elenajs/core). The admin's styles are inline in `admin/index.html`.
   No CDNs, no external fonts, no analytics.
 - **No required JavaScript.** Every page is a complete `.html` document
   that renders fully without JS. The only page script is `js/site.js`
@@ -44,7 +44,6 @@ about/developing/comparison.html secondary pages (.page)
 news/                            news index + posts (release notes, guide)
 _partials/                       nav.html, footer.html (chrome) + reusable blocks — source of truth
 css/velta.css                    the design (tokens, light/dark, layout) + generic content layer at the end
-css/marx.min.css                 vendored; styles the admin UI only
 fonts/                           self-hosted IBM Plex Sans + Newsreader (woff2)
 js/site.js                       news mirror + theme-color sync (progressive enhancement)
 v-logo.svg beam-logo.svg favicon.svg
