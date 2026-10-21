@@ -45,7 +45,7 @@ news/                            news index + posts (release notes, guide)
 _partials/                       nav.html, footer.html (chrome) + reusable blocks — source of truth
 css/velta.css                    the design (tokens, light/dark, layout) + generic content layer at the end
 fonts/                           self-hosted IBM Plex Sans + Newsreader (woff2)
-js/site.js                       news mirror + theme-color sync (progressive enhancement)
+js/site.js                       news mirror — fills any empty .news-list (home, 404) (progressive enhancement)
 v-logo.svg beam-logo.svg favicon.svg
 admin/                           elena.js (vendored), backend-github.js (host adapter), admin.js (the CMS), admin.test.mjs
 cms/                             the CMS self-description: what it is + the four-operation backend contract
@@ -141,7 +141,11 @@ node admin/admin.test.mjs          # assembler + include engine (mirror of admin
   (and the in-app browser) show the stale copy for up to 10 minutes.
   Bump the version query in `admin/index.html` (`admin.js?v=N`) when the
   script changes — that busts every cache deterministically. Module imports
-  (`backend-github.js?v=N`) need their own bump when they change.
+  (`backend-github.js?v=N`) need their own bump when they change. Same for
+  `site.js`: it is referenced as `/js/site.js?v=N` in every page's chrome
+  and in the assembler template — bump N together everywhere on a change
+  (a normal reload serves the old script from memory cache, which is how
+  the 404 mirror first looked broken).
 - **String replacements must use functions** (`raw.replace(re, () => …)`):
   a string replacement interprets `$&` and friends inside user HTML.
 - **`_partials/` is publicly served** (a `.nojekyll` site does not hide
