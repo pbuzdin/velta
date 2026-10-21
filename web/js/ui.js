@@ -570,7 +570,7 @@ export function confirmDeleteMessagesModal(count, canForAll) {
 // Fallback only: the live core version is fetched via get_system_info in
 // app.js boot and pushed here with setCoreVersionDisplay (the running
 // sidecar/in-process core is the source of truth, not this constant).
-let CORE_VERSION = "2.63.0";
+let CORE_VERSION = "2.64.0";
 
 export function setCoreVersionDisplay(v) {
   if (!v) return;
@@ -863,12 +863,15 @@ export function chatAppearanceHtml() {
   const radius = st.radius == null ? themeRadius() : st.radius;
   const preset = A.PRESETS.find(([c]) => c === st.accent);
   const custom = st.accent && !preset ? st.accent : "";
+  // The custom-color ring is drawn from the same PRESETS (one source of hex).
+  const ringCols = A.PRESETS.map(([c]) => c).filter(Boolean);
+  const caRainbow = `conic-gradient(${[...ringCols, ringCols[0]].join(", ")})`;
   const swatches = A.PRESETS.map(([c, label]) => `<label class="ca-swatch"${c ? ` style="--sw: ${c}"` : " data-default"} title="${escapeAttr(label)}"><input type="radio" name="ca-accent" value="${c || ""}" aria-label="${escapeAttr(label)}"${(c || null) === (st.accent && preset ? st.accent : null) && !custom ? " checked" : ""}></label>`).join("");
   return `<details class="drawer-details" data-chat-appearance>
         <summary><svg viewBox="0 0 24 24"><path d="M4 5h16a1 1 0 011 1v9a1 1 0 01-1 1h-9l-5 4v-4H4a1 1 0 01-1-1V6a1 1 0 011-1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M7 9.5h7M7 12.5h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Chat appearance</span></summary>
         <div class="ca-panel">
           <div class="ca-preview" role="group" aria-label="Preview">
-            <div class="msg-row"><div class="bubble"><div class="msg-sender" style="color: var(--accent)">Ada</div><div class="msg-quote"><span class="q-name">You</span><span class="q-text">Are we still on for tonight?</span></div><div class="msg-text" lang="en">Yes! Bring the hyperparameter notes.</div><span class="msg-meta"><span>12:41</span></span></div></div>
+            <div class="msg-row"><div class="bubble"><div class="msg-sender">Ada</div><div class="msg-quote"><span class="q-name">You</span><span class="q-text">Are we still on for tonight?</span></div><div class="msg-text" lang="en">Yes! Bring the hyperparameter notes.</div><span class="msg-meta"><span>12:41</span></span></div></div>
             <div class="msg-row out"><div class="bubble"><div class="msg-text" lang="en">Great, see you at 8. Map: <a href="#" tabindex="-1">example.org</a></div><span class="msg-meta"><span>12:42</span><span class="ticks-slot">${ticksSvg("read", "ticks")}</span></span></div></div>
           </div>
           <div class="ca-field">
@@ -883,7 +886,7 @@ export function chatAppearanceHtml() {
           <input type="range" id="ca-radius" class="ca-range" data-ca-radius min="${A.RADIUS_MIN}" max="${A.RADIUS_MAX}" step="1" value="${radius}" aria-valuetext="${pxText(radius)}">
           <fieldset class="ca-accent" data-ca-accent>
             <legend>Accent color</legend>
-            <div class="ca-swatches">${swatches}<label class="ca-swatch ca-custom" title="Custom color"><input type="color" data-ca-custom aria-label="Custom accent color" value="${custom || "#3fa34d"}"${custom ? " data-active" : ""}></label></div>
+            <div class="ca-swatches">${swatches}<label class="ca-swatch ca-custom" title="Custom color" style="--ca-rainbow: ${caRainbow}"><input type="color" data-ca-custom aria-label="Custom accent color" value="${custom || "#3fa34d"}"${custom ? " data-active" : ""}></label></div>
           </fieldset>
           <div class="bar-opts-hint" data-ca-accent-hint>Links, buttons, switches and your own bubbles. Text colors adjust to stay readable in light and dark. Brutal keeps its own colors.</div>
           <label class="scale-opt"><input type="checkbox" role="switch" data-ca-hyphens${st.hyphens ? " checked" : ""}><span>Hyphenate long words (English, Russian)</span></label>

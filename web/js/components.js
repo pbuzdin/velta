@@ -4,6 +4,7 @@ import { formatListTime, timeAgo, timeTag, formatDuration } from "./format.js";
 import { fileUrl, mediaFallbackUrl } from "./media.js";
 import { diagnosticsSink } from "./diagnostics.js";
 import { avatarBackgroundUrl, fingerprintFor, cachedFingerprint, cachedFingerprintIsDerived, fingerprintGroups } from "./avatar.js";
+import { avatarFill } from "./name-color.js";
 
 const AVATAR_SVG = `<svg viewBox="0 0 24 24" style="width:55%;height:55%"><path d="M12 4l2.2 4.7 5 .6-3.7 3.4 1 4.9-4.5-2.6-4.5 2.6 1-4.9L4.8 9.3l5-.6z" fill="currentColor"/></svg>`;
 const DEVICE_SVG = `<svg viewBox="0 0 24 24" style="width:55%;height:55%"><rect x="5" y="3" width="14" height="18" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="17.5" r="1.2" fill="currentColor"/></svg>`;
@@ -111,7 +112,7 @@ class VeltaAvatar extends Elena(HTMLElement) {
     const s = Number(this.size) || 46;
     const special = specialKind(this.kind);
     const style = `width:${s}px;height:${s}px;font-size:${Math.round(s * 0.38)}px;` +
-      (special ? "" : `background:${this.color || "#777"};`);
+      (special ? "" : `background:${avatarFill(this.color || "#777")};`);
     const cls = "velta-avatar-tile" + (special ? " saved" : "") + (!special && this.kind === "single" ? " identity" : "");
     // The initials stay underneath as the loading/failure fallback; the img
     // is absolutely positioned and covers them once it decodes.

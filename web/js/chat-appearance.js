@@ -23,9 +23,15 @@
   ];
   // Surfaces the derivation measures against (main.css :root / light).
   const SURF = {
-    dark: { text: "#f2f2f5", bubbleIn: "#1c1c26", chat: "#0b0b10" },
-    light: { text: "#16181d", bubbleIn: "#f4f4f4", chat: "#f4f4f4" },
+    dark: { text: "#f2f2f5", bubbleIn: "#1c1c26", chat: "#0b0b10", quote: "#292932", sidebar: "#181820", raised: "#1d1d22" },
+    light: { text: "#16181d", bubbleIn: "#f4f4f4", chat: "#f4f4f4", quote: "#e9e9e9", sidebar: "#f4f4f4", raised: "#e9e9e9" },
+    brutal: { text: "#f2f0e9", bubbleIn: "#2d2d38", chat: "#1b1b22", quote: "#2b2b35", sidebar: "#2a2a35", raised: "#313139" },
   };
+  // raised = --bg-hover composited over --bg (buttons on the page, e.g. the
+  // group-call app bar).
+  // Mirrors of main.css tokens (no DOM before first paint); the
+  // chat-appearance test asserts they still match main.css.
+  const THEME_BG = { dark: "#0f0f14", light: "#f4f4f4", brutal: "#22222b" };
   const INK_LIGHT = "#f4f4f4", INK_DARK = "#10131a"; // never pure white/black (AGENTS 6.4)
 
   /* ---------- clamping / parsing ---------- */
@@ -108,7 +114,7 @@
   function deriveAccent(base, theme) {
     const c = normHex(base);
     if (!c) return null;
-    const s = SURF[theme === "light" ? "light" : "dark"];
+    const s = SURF[theme] || SURF.dark;
     const dark = theme !== "light";
     const dir = dark ? 1 : -1;
     let accent = ensureContrast(c, s.bubbleIn, 4.5, dir);
@@ -140,7 +146,12 @@
       out.ticksRead = ensureContrast(c, bubble, 3, -1);
     }
     out.accentTextIn = accent; // inline buttons in incoming bubbles (light)
-    out.quoteName = dark ? accent : out.outLink; // light quote names (default #14507e)
+    // Accent-colored UI text (.btn-text, status, send icon) on the app
+    // surfaces: sidebar and the incoming bubble, both >= 4.6:1.
+    out.accentText = [s.sidebar, s.bubbleIn, s.quote, s.raised].reduce((a, bg) => ensureContrast(a, bg, 4.6, dir), c);
+    // Quote sender sits on --bg-reply over the incoming bubble (SURF.quote =
+    // that composite); 4.6 leaves headroom over rounding.
+    out.quoteName = ensureContrast(dark ? accent : out.outLink, s.quote, 4.6, dir);
     out.onBubbleOut = s.text;
     return out;
   }
@@ -148,16 +159,21 @@
     accent: "--accent", accentHover: "--accent-hover", accentActive: "--accent-active", onAccent: "--on-accent",
     accentTint: "--accent-tint", bubbleOut: "--bg-bubble-out", bgActive: "--bg-active", metaOut: "--text-meta-out",
     outLink: "--out-link", ticksRead: "--ticks-read", onAccentChip: "--on-accent-chip",
-    accentTextIn: "--accent-text-in", quoteName: "--quote-name",
+    accentTextIn: "--accent-text-in", quoteName: "--quote-name", accentText: "--accent-text",
   };
+  const BRUTAL_KEYS = ["accent", "accentHover", "accentActive", "onAccent", "accentTint", "onAccentChip", "accentText"];
   // The <style> text for a custom accent. Dark covers the default (no
   // data-theme yet) and "dark"; brutal keeps its own yellow-on-ink palette.
   function accentCss(base) {
     const d = deriveAccent(base, "dark"), l = deriveAccent(base, "light");
-    if (!d || !l) return "";
-    const block = o => Object.entries(VAR_NAMES).map(([k, v]) => `${v}: ${o[k]};`).join(" ");
+    const br = deriveAccent(base, "brutal");
+    if (!d || !l || !br) return "";
+    const block = (o, keys = Object.keys(VAR_NAMES)) => keys.map(k => `${VAR_NAMES[k]}: ${o[k]};`).join(" ");
+    // Brutal keeps its yellow own-bubble/selection and ink quote/meta palette;
+    // the custom accent drives only the accent fills and accent text there.
     return `:root:not([data-theme="light"]):not([data-theme="brutal"]) { ${block(d)} }\n` +
-      `:root[data-theme="light"] { ${block(l)} }`;
+      `:root[data-theme="light"] { ${block(l)} }\n` +
+      `:root[data-theme="brutal"] { ${block(br, BRUTAL_KEYS)} }`;
   }
 
   /* ---------- storage ---------- */
@@ -229,14 +245,14 @@
       const eff = mode === "auto" ? (g.matchMedia && g.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark") : mode;
       root.dataset.theme = eff;
       const meta = doc.querySelector && doc.querySelector('meta[name="theme-color"]');
-      if (meta) meta.content = ({ dark: "#0f0f14", brutal: "#22222b" })[eff] || "#f4f4f4";
+      if (meta) meta.content = THEME_BG[eff] || THEME_BG.light;
     } catch {}
   }
 
   g.VeltaChatAppearance = {
     KEYS, DEFAULTS, PRESETS, FONT_MIN, FONT_MAX, RADIUS_MIN, RADIUS_MAX,
     clampFont, clampRadius, normHex, soften, contrast, luminance, ensureContrast, deriveAccent, accentCss, onColor, mix,
-    read, write, reset, apply, pinTheme, radiusVars, VAR_NAMES,
+    read, write, reset, apply, pinTheme, radiusVars, VAR_NAMES, SURF, THEME_BG, BRUTAL_KEYS,
   };
   try { pinTheme(); apply(); } catch {}
 })(typeof globalThis !== "undefined" ? globalThis : this);

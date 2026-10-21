@@ -7,6 +7,7 @@
 // Tauri shell (dev preview). Media over P2P is phase 2 — sendMessage rejects
 // it cleanly for now.
 
+import { nameColor } from "./name-color.js";
 import { typingText, SHOW_TTL_MS } from "./typing.js";
 import { tauriInvoke } from "./tauri.js";
 import { shareViewtype } from "./share-in.js";
@@ -31,11 +32,7 @@ export const typingEnabled = () => {
 const isTauri = () => !!tauriInvoke();
 const invoke = tauriInvoke;
 
-function colorFor(name) {
-  let h = 0;
-  for (const ch of String(name || "?")) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return `hsl(${h % 360} 55% 55%)`;
-}
+const colorFor = nameColor; // name-color.js (shared with group-call cards)
 
 // ---------------- peer/message store (adapter state) ----------------
 

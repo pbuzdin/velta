@@ -1,5 +1,6 @@
 // app.js — Velta bootstrap: chat list, navigation, modals, PWA
 import { createCore } from "./transport.js";
+import { createNetWatch, NET_DEFAULTS } from "./net-watch.js";
 import "./components.js";
 import { escapeHtml, escapeAttr } from "./components.js";
 import { chatCategoryOf, swipeCategoryStep, batteryReactionPlan } from "./rpc-core.js";
@@ -10,6 +11,7 @@ import { ChatView, setAvatarProfileOpener, saveAttachmentFile, openAttachmentFil
 import { mediaSectionsHtml, mountChatMedia } from "./chat-media.js";
 import { initCalls } from "./calls.js";
 import { initWebxdc, openWebxdc, prefetchInfo, appIconUrl } from "./webxdc-manager.js";
+import { initGroupCallUi } from "./group-call-ui.js";
 import { notePushDiagnostic, relaySupportsPush, pushMarkHtml } from "./relay-push.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow, isSendFailureDiagnostic, createRelaySendErrorState } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal, isShortInviteLink, expandShortInvite } from "./invites.js";
@@ -442,9 +444,21 @@ core.addEventListener?.("diagnostic", e => {
 // storms; resume with a maybe_network nudge when connectivity returns.
 // Boot-synced too, so starting Velta offline never arms the loops. Mock
 // cores have no setNetworkIo — optional call is a no-op there.
-addEventListener("online", () => core?.setNetworkIo?.(true));
-addEventListener("offline", () => core?.setNetworkIo?.(false));
-if (!navigator.onLine) core?.setNetworkIo?.(false);
+// VPN-toggle fix: see net-watch.js — grace period before pausing, resume on
+// any network/foreground signal, periodic safety net.
+const netWatch = createNetWatch({ core: () => core, isOnline: () => navigator.onLine });
+addEventListener("online", () => netWatch.onSignal("online"));
+addEventListener("offline", () => netWatch.onOffline());
+addEventListener("focus", () => netWatch.onSignal("focus"));
+addEventListener("pageshow", () => netWatch.onSignal("pageshow"));
+document.addEventListener("visibilitychange", () => { if (!document.hidden) netWatch.onSignal("visible"); });
+try { navigator.connection?.addEventListener?.("change", () => netWatch.onSignal("connection")); } catch { /* unsupported */ }
+try {
+  window.__TAURI__?.event?.listen?.("velta-network", e => (e?.payload === false ? netWatch.onOffline() : netWatch.onSignal("native")));
+  window.__TAURI__?.event?.listen?.("velta-foreground", () => netWatch.onSignal("foreground"));
+} catch { /* no shell */ }
+setInterval(() => netWatch.tick(), NET_DEFAULTS.tickMs);
+netWatch.boot();
 
 // #83: low-battery marker. When the drawer switch is on and the phone is
 // under 10% and off the charger, every outgoing message moves the 🪫
@@ -5659,6 +5673,9 @@ async function boot() {
     // event stream is available, or a call arriving during boot is missed.
     calls = initCalls(core, { notify: (msg) => toast(msg, 4500), peerInfo: callPeerInfo });
     initWebxdc(core);
+    // Group calls: in-call bar + "open the call" from it (group-call-ui.js).
+    initGroupCallUi({ open: (msgId) => openWebxdc(msgId, "Velta Circle") });
+    window.addEventListener("velta-open-chat", (e) => { if (e.detail?.chatId) openChat(e.detail.chatId); });
     reportUiVisible(); // visibilitychange won't fire for the initial load
 
     // Live core version for the drawer footer / about modal — the running

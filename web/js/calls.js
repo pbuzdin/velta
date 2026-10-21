@@ -126,6 +126,48 @@ function callDebugLog(msg) {
   try { diagnosticsSink.append("info", `[call] ${msg}`); } catch {}
 }
 
+// Mic/camera permission before getUserMedia (accept, accept with video,
+// camera on mid-call, flip, outgoing). Android: CallPermissions.kt checks
+// the runtime permission and shows the OS dialog itself (`call_permission`),
+// so a denied/never-asked CAMERA no longer surfaces as a bare getUserMedia
+// NotAllowedError; wry's onPermissionRequest then grants the WebView
+// request. Desktop/PWA: navigator.permissions (a "denied" short-circuits,
+// "prompt" lets getUserMedia raise the browser prompt).
+// Result: "granted" | "prompt" (let getUserMedia ask) | "denied".
+export async function ensureMediaPermission(kind, deps = {}) {
+  const native = deps.native === undefined ? shellPermission() : deps.native;
+  const sleep = deps.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const timeoutMs = deps.timeoutMs ?? 120000;
+  try {
+    if (native) {
+      let r = String(await native(kind, true));
+      // The OS dialog is up: poll until the user answers it.
+      for (let waited = 0; r === "pending" && waited < timeoutMs; waited += 250) {
+        await sleep(250);
+        r = String(await native(kind, false));
+      }
+      if (r === "granted") return "granted";
+      if (r === "denied" || r === "blocked") return "denied";
+      return "prompt";
+    }
+    const query = deps.query || globalThis.navigator?.permissions?.query?.bind(globalThis.navigator.permissions);
+    if (!query) return "prompt";
+    const st = await query({ name: kind === "camera" ? "camera" : "microphone" });
+    if (st?.state === "denied") return "denied";
+    return st?.state === "granted" ? "granted" : "prompt";
+  } catch {
+    return "prompt"; // API or name unsupported — let getUserMedia decide
+  }
+}
+
+function shellPermission() {
+  if (!(isTauri() && isAndroid())) return null;
+  return (kind, request) => invoke("call_permission", { kind, request });
+}
+
+export const CAMERA_DENIED_MSG = "Camera access is blocked — the call continues with audio only. Allow the camera for Velta in system settings (Android: App info → Permissions → Camera).";
+export const MIC_DENIED_MSG = "Microphone access is blocked — Velta can't take the call. Allow the microphone for Velta in system settings (Android: App info → Permissions → Microphone).";
+
 export function initCalls(core, opts = {}) {
   const mgr = new CallManager(core, opts.rtcpFactory, opts.getUserMedia, opts.notify, opts.audioRoute, opts.log, opts);
   mgr.bind();
@@ -147,6 +189,7 @@ export class CallManager extends EventTarget {
     });
     this._notify = notify || (() => {});
     this._route = audioRoute || shellAudioRoute();
+    this._permission = extra.permission || ((kind) => ensureMediaPermission(kind));
     this._log = log || callDebugLog;
     this._routeOps = Promise.resolve(); // shell route calls run in order
     this.reset();
@@ -216,6 +259,11 @@ export class CallManager extends EventTarget {
     this.speaker = defaultSpeakerOn(video);
     this.render();
     this.loadPeer(chatId, chatName);
+    if ((await this._permission("microphone")) === "denied") {
+      this._notify(MIC_DENIED_MSG);
+      this.finish("Mic unavailable");
+      return false;
+    }
     try {
       this.localStream = await this.openMic();
     } catch (err) {
@@ -274,6 +322,17 @@ export class CallManager extends EventTarget {
     if (this.state !== "incoming") return;
     const msgId = this.callMsgId;
     const video = withVideo === undefined ? this.hasVideo : !!withVideo;
+    // Mic first (the OS dialog may come up): a blocked mic keeps the call
+    // ringing so it can still be declined, or accepted after allowing it.
+    if (this._acceptBusy) return;
+    this._acceptBusy = true;
+    let mic;
+    try { mic = await this._permission("microphone"); } finally { this._acceptBusy = false; }
+    if (this.state !== "incoming" || this.callMsgId !== msgId) return;
+    if (mic === "denied") {
+      this._notify(MIC_DENIED_MSG);
+      return;
+    }
     this.speaker = defaultSpeakerOn(video);
     this.phase = "connecting";
     this.state = "accepting";
@@ -503,6 +562,13 @@ export class CallManager extends EventTarget {
   // Opens the camera into this.camTrack; false (and a toast unless quiet)
   // when it fails — the call goes on audio-only.
   async openCamera(facing = this.facing, deviceId = "", quiet = false) {
+    // Check / ask the camera permission first (Android runtime CAMERA).
+    // Denied: no getUserMedia, audio-only, camera button stays off.
+    if ((await this._permission("camera")) === "denied") {
+      this._log("camera permission denied");
+      if (!quiet) this._notify(CAMERA_DENIED_MSG);
+      return false;
+    }
     try {
       const s = await this._getUserMedia(cameraConstraints(facing, deviceId));
       const t = s?.getVideoTracks?.()[0];
@@ -882,7 +948,7 @@ export class CallManager extends EventTarget {
     if (av.dataset.key !== avKey) {
       av.dataset.key = avKey;
       av.replaceChildren();
-      av.style.background = this.peer.color || "#5a6270";
+      av.style.background = this.peer.color || "";
       const initial = document.createElement("span");
       initial.className = "call-avatar-initial";
       initial.textContent = avatarInitial(name);

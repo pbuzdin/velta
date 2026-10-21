@@ -7,7 +7,10 @@ import { bindMenuToggle, showContextMenu, showMessageSheet, showModal, showStick
 import { diagnosticRow } from "./diagnostics.js";
 import { attachRecentCommands, recordCommand } from "./recent-commands.js";
 import { audioPlayerHtml, mountAudioPlayer, decodeAudioDuration } from "./audio-player.js";
-import { openWebxdc, appIconUrl, loadInfoWithRetry, builtinAppCard, isWebxdcInfoMsg, infoFor } from "./webxdc-manager.js";
+import { openWebxdc, appIconUrl, loadInfoWithRetry, builtinAppCard, isWebxdcInfoMsg, infoFor, GROUP_CALL_FILE_RE, isGroupCallApp, joinGroupCallFor, announceGroupCall } from "./webxdc-manager.js";
+import { cardHtml, wireCard } from "./group-call-card.js";
+import { currentGroupCall, onGroupCallChange, leaveGroupCall } from "./group-call-host.js";
+import { askGroupCallName } from "./group-call-ui.js";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
 // Two rows of six on the phone sheet. The last cell is the emoji tray, not a reaction.
@@ -77,6 +80,7 @@ import { stripTrackingUrl, stripTrackingText, trackingStripEnabled } from "./tra
 import { getReadMarker, clearReadMarker } from "./read-markers.js";
 import { shareStageKind, shareViewtype } from "./share-in.js";
 import { reactionToggle, myReaction } from "./reactions.js";
+import { senderColorVars } from "./name-color.js";
 import { sendLargeFile, largeFileAvailable, largeFileInfoHtml, wireLargeFileInfo } from "./large-file.js";
 import { lufiUploadFor } from "./lufi.js";
 import { isAndroid, rustLog, tauriInvoke } from "./tauri.js";
@@ -282,6 +286,9 @@ const ICO = {
   // Velta Beam: beam bar over a split V, the shapes of app/webxdc/send-direct/icon.svg
   // (1024 grid) rescaled to 24: 16px wide (solid, so narrower than the outlined icons), centred like the other attach icons.
   beam: `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M4 4.17L20 4.17L20 5.78L4 5.78ZM4.95 6.54L9.01 6.54L13.99 16.1L12.08 19.83ZM15.02 6.54L19.08 6.54L14.45 15.39L12.54 11.5Z"/></svg>`,
+  // Velta Circle: five dots around the Beam V (no beam bar), the shapes of
+  // app/webxdc/group-call/icon.svg (1024 grid) rescaled to 24, solid like beam.
+  circle: `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M10.31 4.27a1.69 1.69 0 1 0 3.38 0a1.69 1.69 0 1 0 -3.38 0ZM17.67 9.61a1.69 1.69 0 1 0 3.38 0a1.69 1.69 0 1 0 -3.38 0ZM14.86 18.26a1.69 1.69 0 1 0 3.38 0a1.69 1.69 0 1 0 -3.38 0ZM5.77 18.26a1.69 1.69 0 1 0 3.38 0a1.69 1.69 0 1 0 -3.38 0ZM2.96 9.61a1.69 1.69 0 1 0 3.38 0a1.69 1.69 0 1 0 -3.38 0ZM7.46 7.73L10.07 7.73L13.27 13.87L12.04 16.27ZM13.93 7.73L16.54 7.73L13.57 13.41L12.34 10.92Z"/></svg>`,
   file: `<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 3v4h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`,
   webxdc: `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="3" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="3" y="13" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M17.5 13.5v6m-3-3h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
   mic: `<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 11a7 7 0 0014 0M12 18v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
@@ -1667,7 +1674,7 @@ export class ChatView {
     if (m.originalMsgId) {
       bubble += `<button type="button" class="msg-show-in-chat" data-act="show-original" title="Show in chat" aria-label="Show in chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
     }
-    if (showAvatar) bubble += `<div class="msg-sender" style="color:${fc.color}">${escapeHtml(fc.name)}</div>`;
+    if (showAvatar) bubble += `<div class="msg-sender" style="${senderColorVars(fc.color)}">${escapeHtml(fc.name)}</div>`;
     if (m.fwdFrom) bubble += `<div class="msg-fwd">Forwarded ${FWD_ARTICLE(m.viewtype)}${FWD_NOUN(m.viewtype)}</div>`;
     if (m.quote) {
       bubble += `<div class="msg-quote" data-quote="${m.quote.id}">
@@ -1762,7 +1769,7 @@ export class ChatView {
       const appName = builtin?.name || (m.fileName || "app.xdc").replace(/\.xdc$/i, "");
       bubble += `<div class="msg-webxdc" role="button" data-act="open-webxdc">
         <div class="webxdc-ico"><img data-webxdc-icon="${m.id}" alt="" decoding="async"${builtin ? ` src="${escapeAttr(builtin.iconUrl)}" style="display:block"` : ""}><span class="webxdc-ico-letter" hidden></span><span class="webxdc-ico-glyph"${builtin ? " hidden" : ""}>${ICO.webxdc || ICO.download}</span></div>
-        <div><div class="file-name">${escapeHtml(appName)}</div><div class="file-sub"><span class="webxdc-summary">Webxdc app</span> · tap to open</div></div>
+        <div><div class="file-name">${escapeHtml(appName)}</div><div class="file-sub"><span class="webxdc-summary">Webxdc app</span></div></div>
         <button type="button" class="webxdc-start" data-act="open-webxdc">Start</button>
       </div>`;
     } else if (m.viewtype === "file") {
@@ -1903,6 +1910,10 @@ export class ChatView {
         notifyHeight();
       });
     }
+    // A cached row (virtual scroller / chat re-open) keeps its call card but
+    // the old wiring stopped with the previous chat session: wire it again.
+    const cachedCall = row.querySelector(".msg-groupcall");
+    if (cachedCall) cachedCall._gcRefresh?.();
     const webxdcCard = row.querySelector('.msg-webxdc[data-act="open-webxdc"]');
     if (webxdcCard && webxdcCard.dataset.wired !== "1") {
       webxdcCard.dataset.wired = "1";
@@ -1949,6 +1960,21 @@ export class ChatView {
       // a forwarded app card stayed "app" + placeholder glyph.
       loadInfoWithRetry(m.id, { alive: () => alive() })
         .then(hydrateWebxdcCard).catch(() => {});
+      // Group calls: the TRUSTED built-in app becomes a call card (creator,
+      // name, who's in, Join / You're in + Leave / ended). The file name only
+      // picks the candidates; trust is the bundle hash (isGroupCallApp).
+      if (GROUP_CALL_FILE_RE.test(m.fileName || "")) {
+        isGroupCallApp(m.id).then((ok) => {
+          if (!ok || !alive()) return;
+          const fc = m.fromContact || { name: "", color: "" };
+          const avatarHtml = `<velta-avatar name="${escapeAttr(fc.name || "?")}" color="${escapeAttr(fc.color || "")}" size="40" contact-id="${fc.id ?? ""}"${fc.avatar ? ` avatar="${escapeAttr(fileUrl(fc.avatar))}"` : ""}></velta-avatar>`;
+          const holder = document.createElement("div");
+          holder.innerHTML = cardHtml({ msgId: m.id, avatarHtml, esc: escapeHtml });
+          const card = holder.firstElementChild;
+          webxdcCard.replaceWith(card);
+          this._wireGroupCallCard(card, m);
+        }).catch(() => {});
+      }
     }
     if (m.fromContact?.bot) { // bot flag rides the sender contact (mock + core)
       row.querySelectorAll(".msg-cmd[data-cmd]").forEach((cmdBtn) => {
@@ -3185,6 +3211,11 @@ export class ChatView {
       if (!window.__TAURI__ && isAndroid()) {
         attachItems.splice(1, 0, { label: "Camera", icon: ICO.photo, onClick: () => this._sendAttachment("camera") });
       }
+      // Group audio calls (docs/agents/group-calls.md): group chats only, every
+      // shell (the PWA signals over status updates).
+      if (this.chat?.kind === "group" && !this.chat?.isP2p) {
+        attachItems.push({ label: "Group call", icon: ICO.circle, onClick: () => this._startGroupCall() });
+      }
       // Voice messages are not supported in local chat — hide the item there.
       if (!this.chat?.isP2p) {
         attachItems.push({ label: "Voice message", icon: ICO.mic, onClick: () => this._sendAttachment("voice") });
@@ -3682,6 +3713,51 @@ export class ChatView {
       if (msg?.id != null) openWebxdc(msg.id, "Velta Beam", { panel: true });
     } catch (err) {
       if (this._isCurrent(session)) errToast("Could not start direct send: " + (err?.message || err), 4000);
+    }
+  }
+
+  _wireGroupCallCard(card, m) {
+    const fc = m.fromContact || {};
+    const open = () => openWebxdc(m.id, "Velta Circle");
+    // One wiring per card node for its lifetime; drawing only while it is in
+    // the document (cached rows re-attach, see _gcRefresh above).
+    const w = wireCard(card, {
+      core: this.core, msgId: m.id, alive: () => card.isConnected,
+      creatorName: fc.id === 1 ? "you" : fc.name,
+      live: () => { const s = currentGroupCall(); return s && s.msgId === m.id ? s.snapshot() : null; },
+      onCallChange: (cb) => onGroupCallChange(cb),
+      join: async () => { await joinGroupCallFor(m.id); open(); },
+      leave: () => leaveGroupCall(),
+      open,
+    });
+    card._gcRefresh = () => w.refresh();
+  }
+
+  // Posts app/builtin/group-call.xdc (one message = one call room) and opens
+  // it; the app's Join button asks for consent, the host runs the call.
+  async _startGroupCall() {
+    const session = this._session;
+    if (!this._isCurrent(session) || !this.chat) return;
+    const title = await askGroupCallName();
+    if (title == null || !this._isCurrent(session)) return;
+    try {
+      const invoke = tauriInvoke();
+      const path = await prepareBuiltinXdc("group-call", {
+        invoke, fetchImpl: (u) => fetch(u), baseURI: document.baseURI,
+        writeFile: (n, b) => this._writeBlobForSend(n, b),
+      });
+      if (!path || !this._isCurrent(session)) return;
+      const msg = await this._sendArchivedAware(session.chatId, { viewtype: "webxdc", file: path, filename: "group-call.xdc", text: "" });
+      if (!this._isCurrent(session)) return;
+      this.appendOutgoing(msg);
+      this.onChatsChanged();
+      if (msg?.id == null) return;
+      await announceGroupCall(msg.id, title).catch(() => {});
+      // The starter joins right away (consent prompt), then sees the call screen.
+      try { await joinGroupCallFor(msg.id); } catch {}
+      openWebxdc(msg.id, "Velta Circle");
+    } catch (err) {
+      if (this._isCurrent(session)) errToast("Could not start a group call: " + (err?.message || err), 4000);
     }
   }
 
