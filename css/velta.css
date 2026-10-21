@@ -217,8 +217,19 @@ body > header details[open] summary::before {
    show no highlight, same as text-wrap: balance. */
 @supports (animation-timeline: --x) {
   body {
-    timeline-scope: --sec-product, --sec-features, --sec-privacy,
+    timeline-scope: --sec-hero, --sec-product, --sec-features, --sec-privacy,
       --sec-platforms, --sec-help, --sec-support;
+  }
+  /* home only: the hero already carries a Download button, so the header
+     pill stays quiet until the hero scrolls out of view */
+  #hero { view-timeline: --sec-hero; }
+  body > header > a[href="/#download"] {
+    animation: cta linear both;
+    animation-timeline: --sec-hero;
+  }
+  @keyframes cta {
+    0%, 60% { background: transparent; color: var(--muted); }
+    100% { background: var(--accent); color: var(--accent-fg); }
   }
   #product { view-timeline: --sec-product; }
   #features { view-timeline: --sec-features; }
