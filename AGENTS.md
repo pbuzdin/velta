@@ -10,7 +10,11 @@ shipped here:
 - **Zero third parties.** Every asset is vendored and served from velta.cc
   itself: `css/velta.css` + `fonts/` (the design), `admin/elena.js`
   (@elenajs/core). The admin's styles are inline in `admin/index.html`.
-  No CDNs, no external fonts, no analytics.
+  No CDNs, no external fonts. One scoped exception: the Cloudflare Web
+  Analytics beacon (cookieless, no consent banner needed) measures site
+  traffic only — disclosed in the footer. The Velta apps themselves carry
+  no analytics or telemetry of any kind; the hero fact "Telemetry: None"
+  describes the app.
 - **No required JavaScript.** Every page is a complete `.html` document
   that renders fully without JS. The only page script is `js/site.js`
   (progressive enhancement: mirrors the news list onto the home page and
