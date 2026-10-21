@@ -422,10 +422,12 @@ article.card p, #platforms li, #features p { color: var(--muted); }
   justify-content: space-between;
   gap: 1rem;
 }
-#notes ul, main.news ul { list-style: none; margin: 2rem 0 0; padding: 0; border-block: 1px solid var(--line); }
-#notes li, main.news li { border-top: 1px solid var(--line); }
-#notes li:first-child, main.news li:first-child { border-top: 0; }
-#notes a, main.news a {
+/* shared by the home #notes mirror and the news index — both lists carry
+   class="news-list"; the home cards are JS-cloned from the index */
+.news-list { list-style: none; margin: 2rem 0 0; padding: 0; border-block: 1px solid var(--line); }
+.news-list li { border-top: 1px solid var(--line); }
+.news-list li:first-child { border-top: 0; }
+.news-list a {
   display: grid;
   grid-template-columns: 9rem 1fr;
   gap: 2rem;
@@ -433,10 +435,9 @@ article.card p, #platforms li, #features p { color: var(--muted); }
   color: inherit;
   text-decoration: none;
 }
-#notes time, main.news time { color: var(--muted); font-size: 0.875rem; }
-#notes h3, main.news h2 { margin: 0.25rem 0 0; font-size: 1.5rem; }
-main.news h2 { font-size: 1.8rem; }
-#notes a:hover h3, main.news a:hover h2 { color: var(--link); }
+.news-list time { color: var(--muted); font-size: 0.875rem; }
+.news-list h2 { margin: 0.25rem 0 0; font-size: 1.8rem; }
+.news-list a:hover h2 { color: var(--link); }
 
 #support { grid-template-columns: 1fr 1fr; align-items: start; }
 #support h2 { margin-top: 0.75rem; }
@@ -523,7 +524,7 @@ main.page aside a strong { display: block; font-family: var(--display); font-siz
     background: var(--bg);
   }
   body > header details[open] nav { display: flex; }
-  #hero, #privacy, #product > div:last-child, #platforms > div, #support, #download ul, #features ul, footer > div, #notes a, main.news a {
+  #hero, #privacy, #product > div:last-child, #platforms > div, #support, #download ul, #features ul, footer > div, .news-list a {
     grid-template-columns: 1fr;
   }
   #hero dl { grid-template-columns: 1fr 1fr; }
@@ -536,7 +537,7 @@ main.page aside a strong { display: block; font-family: var(--display); font-siz
   body > header > a[href="/#download"] span:first-child { display: inline; }
   body > header > a[href="#download"] span:last-child,
   body > header > a[href="/#download"] span:last-child { display: none; }
-  #features ul, #download ul, footer > p, #notes a, main.news a { grid-template-columns: 1fr; }
+  #features ul, #download ul, footer > p, .news-list a { grid-template-columns: 1fr; }
   footer > p { flex-direction: column; }
   #hero { padding-top: 2.5rem; }
 }
