@@ -80,6 +80,11 @@ Consequences:
   the page (git) — the CMS preserves but does not edit them.
 - **Extensionless links do not work** on GitHub Pages (`/news/slug` 404s);
   always link `news/slug.html`.
+- **Wide tables break mobile pages** (seen on `/cms/`, fixed at the content
+  layer 2026-10-21): `main.page table` is `display: block; overflow-x: auto`,
+  so an over-wide table scrolls in place instead of stretching the page —
+  but a phone still has to pan it. Prefer lists for host/option comparisons;
+  keep tables to short cells, and put long code paths in `<pre>` blocks.
 - Assembly is one commit per file (the Contents API has no batch commit).
 - Page `<head>` and head-only files: `404.html` also has body markers and is
   assembled like the rest.

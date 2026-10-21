@@ -618,7 +618,7 @@ main.page pre {
 }
 main.page pre code { background: none; padding: 0; font-size: 0.85rem; }
 
-main.page table { width: 100%; border-collapse: collapse; margin: 1.25rem 0; font-size: 0.95rem; }
+main.page table { display: block; overflow-x: auto; width: 100%; border-collapse: collapse; margin: 1.25rem 0; font-size: 0.95rem; }
 main.page th, main.page td { border: 1px solid var(--line); padding: 0.55rem 0.7rem; text-align: left; vertical-align: top; }
 main.page th { background: var(--surface-2); font-weight: 600; }
 
