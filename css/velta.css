@@ -302,17 +302,20 @@ p > strong + a {
   font-weight: 500;
   text-decoration: none;
 }
-p > strong > a {
+/* The :is(main, main.page) prefix is load-bearing: the generic
+   `main.page a { color: var(--link) }` rule outranks a bare
+   `p > strong > a`, leaving accent-on-accent pill text on secondary pages. */
+:is(main, main.page) p > strong > a {
   background: var(--accent);
   color: var(--accent-fg);
 }
-p > strong > a:hover { background: var(--accent-hover); }
-p > strong + a {
+:is(main, main.page) p > strong > a:hover { background: var(--accent-hover); }
+:is(main, main.page) p > strong + a {
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--fg);
 }
-p > strong + a:hover { background: var(--surface-2); }
+:is(main, main.page) p > strong + a:hover { background: var(--surface-2); }
 
 #hero dl {
   display: grid;
