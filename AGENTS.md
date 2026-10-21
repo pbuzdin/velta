@@ -21,7 +21,9 @@ shipped here:
   scaffold (Grok app-builder output, 2026-10-18); the framework around it
   (React/Vite/Vercel/pglite) was discarded. The full original scaffold is
   kept untracked in `design/` (excluded via `.git/info/exclude`) — do not
-  commit or deploy it.
+  commit or deploy it. One exception: `design/index.html` is the published
+  design-system page (self-contained snapshot from the main repo's
+  `design/velta-design-system.html`), served at https://velta.cc/design/.
 - **Privacy sweep before every commit.** The private relay identifiers must
   never enter this (public) branch — run the identifier sweep described in
   the main repo's AGENTS (private relay host/IP/pattern list) and require
@@ -47,7 +49,7 @@ fonts/                           self-hosted IBM Plex Sans + Newsreader (woff2)
 js/site.js                       news mirror + theme-color sync (progressive enhancement)
 v-logo.svg beam-logo.svg favicon.svg
 admin/                           elena.js (vendored), admin.js (the CMS), admin.test.mjs
-design/                          untracked reference copy of the original design scaffold
+design/                          untracked Grok scaffold + tracked index.html (published design system)
 CNAME .nojekyll
 ```
 
