@@ -1,17 +1,9 @@
 (function () {
-  // Mobile browser chrome color follows the OS theme; the page itself is
-  // themed purely by prefers-color-scheme (see css/velta.css).
-  var meta = document.querySelector('meta[name="theme-color"]');
-  var darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
-  function syncMeta() {
-    if (meta) meta.setAttribute("content", darkQuery.matches ? "#0f0f14" : "#f4f4f4");
-  }
-  syncMeta();
-  darkQuery.addEventListener("change", syncMeta);
-
   // Home page: mirror the news index list so publishing a post never
   // touches index.html. Progressive enhancement — without JS the section
   // shows just the heading and the "All notes" link.
+  // (Browser-chrome theming needs no script: the theme-color meta tags on
+  // each page carry media attributes for light/dark.)
   var notes = document.querySelector("#notes ul");
   if (notes && !notes.children.length) {
     fetch("/news/")

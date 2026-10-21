@@ -203,6 +203,39 @@ body > header summary {
 }
 body > header summary::-webkit-details-marker { display: none; }
 
+/* Scroll-spy: while a home section crosses the viewport, its nav link
+   lights up. Pure CSS — the sections' named view-timelines are hoisted to
+   body via timeline-scope so the header links (DOM siblings) can read
+   them. Chromium only; browsers without scroll-driven animations simply
+   show no highlight, same as text-wrap: balance. */
+@supports (animation-timeline: --x) {
+  body {
+    timeline-scope: --sec-product, --sec-features, --sec-privacy,
+      --sec-platforms, --sec-help, --sec-support;
+  }
+  #product { view-timeline: --sec-product; }
+  #features { view-timeline: --sec-features; }
+  #privacy { view-timeline: --sec-privacy; }
+  #platforms { view-timeline: --sec-platforms; }
+  #help { view-timeline: --sec-help; }
+  #support { view-timeline: --sec-support; }
+  /* the shorthand must come first — it resets animation-timeline */
+  body > header > nav a[href^="/#"] {
+    animation: spy linear both;
+  }
+  body > header > nav a[href="/#product"] { animation-timeline: --sec-product; }
+  body > header > nav a[href="/#features"] { animation-timeline: --sec-features; }
+  body > header > nav a[href="/#privacy"] { animation-timeline: --sec-privacy; }
+  body > header > nav a[href="/#platforms"] { animation-timeline: --sec-platforms; }
+  body > header > nav a[href="/#help"] { animation-timeline: --sec-help; }
+  body > header > nav a[href="/#support"] { animation-timeline: --sec-support; }
+  @keyframes spy {
+    0% { color: var(--muted); }
+    30%, 70% { color: var(--fg); }
+    100% { color: var(--muted); }
+  }
+}
+
 main { display: block; }
 
 main > section,
@@ -518,15 +551,18 @@ main.page aside a strong { display: block; font-family: var(--display); font-siz
     left: 0;
     right: 0;
     top: 100%;
-    flex-direction: column;
+    grid-template-columns: 1fr 1fr;
     padding: 0.5rem 0.75rem 1rem;
     border-bottom: 1px solid var(--line);
     background: var(--bg);
   }
-  body > header details[open] nav { display: flex; }
-  #hero, #privacy, #product > div:last-child, #platforms > div, #support, #download ul, #features ul, footer > div, .news-list a {
+  body > header details[open] nav { display: grid; }
+  #hero, #privacy, #product > div:last-child, #platforms > div, #support, #download ul, #features ul, .news-list a {
     grid-template-columns: 1fr;
   }
+  /* footer link groups side by side on mobile; the brand block spans both */
+  footer > div { grid-template-columns: 1fr 1fr; }
+  footer > div > div:first-child { grid-column: 1 / -1; }
   #hero dl { grid-template-columns: 1fr 1fr; }
   #features ul { grid-template-columns: 1fr 1fr; }
   #download ul { grid-template-columns: 1fr 1fr; }
