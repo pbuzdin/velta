@@ -47,7 +47,8 @@ css/velta.css                    the design (tokens, light/dark, layout) + gener
 fonts/                           self-hosted IBM Plex Sans + Newsreader (woff2)
 js/site.js                       news mirror + theme-color sync (progressive enhancement)
 v-logo.svg beam-logo.svg favicon.svg
-admin/                           elena.js (vendored), admin.js (the CMS), admin.test.mjs
+admin/                           elena.js (vendored), backend-github.js (host adapter), admin.js (the CMS), admin.test.mjs
+cms/                             the CMS self-description: what it is + the four-operation backend contract
 design/                          untracked Grok scaffold + tracked index.html (published design system)
 CNAME .nojekyll
 ```
@@ -134,15 +135,23 @@ node admin/admin.test.mjs          # assembler + include engine (mirror of admin
 - **GitHub Pages serves `max-age: 600`.** After pushing `admin.js`, browsers
   (and the in-app browser) show the stale copy for up to 10 minutes.
   Bump the version query in `admin/index.html` (`admin.js?v=N`) when the
-  script changes — that busts every cache deterministically.
+  script changes — that busts every cache deterministically. Module imports
+  (`backend-github.js?v=N`) need their own bump when they change.
 - **String replacements must use functions** (`raw.replace(re, () => …)`):
   a string replacement interprets `$&` and friends inside user HTML.
 - **`_partials/` is publicly served** (a `.nojekyll` site does not hide
   underscore dirs). Accepted — it contains only markup.
 - **Last-write-wins.** No draft/PR workflow; a stale PUT 409/422s and the
-  CMS reopens the saved version. Assume one editor at a time.
+  CMS reopens the saved version. Assume one editor at a time. Device-local
+  drafts are the exception: the editor body persists per path in
+  localStorage, is restored on reopen, and is dropped on save and on a
+  save conflict (the server version wins).
 - **Pushes over SSH fail intermittently** ("access rights") — retry works.
 - **Media lives in `assets/`**, uploaded via the CMS (base64 Contents-API
   PUT, one commit per image, ~10 MB practical cap). Reference as
-  `<img src="/assets/name">`. Git stores every version forever — compress
-  before uploading.
+  `<img src="/assets/name">`. Rasters over 1600 px are downscaled to WebP
+  automatically on upload; SVG and GIF pass through untouched. Git stores
+  every version forever either way.
+- **All host access goes through `admin/backend-github.js`** — the
+  four-operation contract documented at `/cms/`. Swap that module to run
+  the CMS on another git host; nothing else in `admin.js` knows GitHub.

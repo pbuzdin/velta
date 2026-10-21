@@ -22,10 +22,10 @@
 // the next save — the block file is the truth; that is the point.
 
 import { Elena, html, nothing } from "./elena.js";
+import { createGithubBackend } from "./backend-github.js";
 
 const REPO = "pbuzdin/velta";
 const BRANCH = "website";
-const API = `https://api.github.com/repos/${REPO}/contents`;
 const TOKEN_KEY = "velta-admin-token";
 const NAV_PARTIAL = "_partials/nav.html";
 const FOOTER_PARTIAL = "_partials/footer.html";
@@ -80,6 +80,40 @@ const formatDate = (iso) => {
 };
 
 const readMinutes = (text) => Math.max(1, Math.round(text.trim().split(/\s+/).length / 200));
+
+// Camera originals would sit in git forever at full size: downscale any
+// raster above 1600 px to a WebP before it becomes a commit. SVG and GIF
+// pass through untouched (canvas would rasterize / flatten them). Any
+// canvas failure falls back to the original bytes.
+const MAX_IMG = 1600;
+const fileToB64 = (blob, err) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1]);
+    reader.onerror = () => reject(new Error(err));
+    reader.readAsDataURL(blob);
+  });
+
+async function prepImage(file) {
+  const dot = file.name.lastIndexOf(".");
+  let ext = dot >= 0 ? file.name.slice(dot).toLowerCase() : "";
+  if (/^image\/(svg\+xml|gif)$/.test(file.type)) return { base64: await fileToB64(file, "Could not read the file."), ext, resized: false };
+  try {
+    const bmp = await createImageBitmap(file);
+    if (Math.max(bmp.width, bmp.height) > MAX_IMG) {
+      const scale = MAX_IMG / Math.max(bmp.width, bmp.height);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(bmp.width * scale);
+      canvas.height = Math.round(bmp.height * scale);
+      canvas.getContext("2d").drawImage(bmp, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise((r) => canvas.toBlob(r, "image/webp", 0.85));
+      if (blob && blob.size < file.size) {
+        return { base64: await fileToB64(blob, "Could not read the resized image."), ext: ".webp", resized: true };
+      }
+    }
+  } catch { /* no canvas support — upload the original */ }
+  return { base64: await fileToB64(file, "Could not read the file."), ext, resized: false };
+}
 
 // Body of a fresh news post — mirrors the structure of the existing posts
 // (breadcrumb, kicker, title, date, summary, div.body, aside).
@@ -164,6 +198,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
 
   constructor(...args) {
     super(...args);
+    this.backend = createGithubBackend({ repo: REPO, branch: BRANCH, getToken: () => this.token });
     this.token = localStorage.getItem(TOKEN_KEY) || "";
     this.files = null; // [{path, name, size, sha, kind: "page"|"block"}], null = loading
     this.current = null; // { path, name, sha }
@@ -208,24 +243,19 @@ class VeltaAdmin extends Elena(HTMLElement) {
     if (this.current && this.showPreview) this.schedulePreview();
   }
 
-  async api(path, opts = {}) {
-    const headers = { Accept: "application/vnd.github+json", ...opts.headers };
-    if (this.token) headers.Authorization = `Bearer ${this.token}`;
-    const res = await fetch(`${API}${path}`, { ...opts, headers });
-    if (!res.ok) {
-      let msg = `GitHub API ${res.status}`;
-      try {
-        const j = await res.json();
-        if (j.message) msg = j.message;
-      } catch {}
-      if (res.status === 401) msg = "Unauthorized — the token is missing or lacks Contents read/write.";
-      throw new Error(msg);
-    }
-    return res.json();
+  // Unsaved work survives tab discards (phone browsers do this constantly):
+  // the editor body persists per path and is restored on reopen. Cleared on
+  // save; on a save conflict the server version wins by design, so the
+  // draft goes with it.
+  get draftKey() {
+    return this.current ? `velta-draft:${this.current.path}` : "";
   }
 
+  // All host access goes through this.backend (the four-operation contract
+  // documented at velta.cc/cms/); only this file's wrappers know the CMS
+  // prefers text over base64.
   async getRaw(path) {
-    const f = await this.api(`/${path}?ref=${BRANCH}`);
+    const f = await this.backend.get(path);
     return b64ToUtf8(f.content);
   }
 
@@ -240,22 +270,11 @@ class VeltaAdmin extends Elena(HTMLElement) {
 
   async putFile(path, message, content, sha, blob = false) {
     // blob: content arrives already base64 (binary upload, e.g. images).
-    const body = { message, content: blob ? content : utf8ToB64(content), branch: BRANCH };
-    if (sha) body.sha = sha;
-    const r = await this.api(`/${path}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    return r.content.sha;
+    return this.backend.put(path, message, blob ? content : utf8ToB64(content), sha);
   }
 
   async deleteFile(path, sha) {
-    await this.api(`/${path}`, {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: `Delete ${path}`, sha, branch: BRANCH }),
-    });
+    await this.backend.del(path, `Delete ${path}`, sha);
   }
 
   // All block contents by name (filename without .html), for include expansion.
@@ -295,7 +314,11 @@ class VeltaAdmin extends Elena(HTMLElement) {
   }
 
   onInput(e) {
-    if (e.target.id === "editor") { this.content = e.target.value; this.schedulePreview(); }
+    if (e.target.id === "editor") {
+      this.content = e.target.value;
+      if (this.draftKey) localStorage.setItem(this.draftKey, this.content);
+      this.schedulePreview();
+    }
     else if (e.target.id === "commit-msg") this.commitMsg = e.target.value;
     else if (e.target.id === "new-name") this.newName = e.target.value;
     else if (e.target.id === "new-block") this.newBlock = e.target.value;
@@ -336,17 +359,18 @@ class VeltaAdmin extends Elena(HTMLElement) {
     this.files = null;
     this.requestUpdate();
     try {
-      const list = await this.api(`?ref=${BRANCH}`);
+      const list = await this.backend.list("");
       const files = list
         .filter((f) => f.type === "file" && f.name.endsWith(".html"))
         .map((f) => ({ path: f.name, name: f.name, size: f.size, sha: f.sha, kind: "page" }));
       for (const [dir, kind, htmlOnly] of [
         ["_partials", "block", false],
         ["news", "page", true],
+        ["cms", "page", true],
         ["assets", "media", false],
       ]) {
         if (!list.some((d) => d.type === "dir" && d.name === dir)) continue;
-        const sub = await this.api(`/${dir}?ref=${BRANCH}`);
+        const sub = await this.backend.list(dir);
         files.push(
           ...sub
             .filter((f) => f.type === "file" && (!htmlOnly || f.name.endsWith(".html")))
@@ -366,7 +390,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
     this.busy = true;
     this.requestUpdate();
     try {
-      const f = await this.api(`/${path}?ref=${BRANCH}`);
+      const f = await this.backend.get(path);
       const raw = b64ToUtf8(f.content);
       const m = raw.match(MARKERS);
       const isPage = path.endsWith(".html") && !path.startsWith("_partials/");
@@ -377,6 +401,11 @@ class VeltaAdmin extends Elena(HTMLElement) {
       this.content = m && isPage ? collapseIncludes(m[1]) : raw;
       this.commitMsg = "";
       this.status = "";
+      const draft = localStorage.getItem(this.draftKey);
+      if (draft != null && draft !== this.content) {
+        this.content = draft;
+        this.status = "Unsaved draft restored — save to keep it.";
+      }
     } catch (e) {
       this.error = String(e.message || e);
     }
@@ -417,11 +446,13 @@ class VeltaAdmin extends Elena(HTMLElement) {
       this.current.sha = await this.putFile(this.current.path, message, newRaw, this.current.sha);
       this.raw = newRaw;
       if (this.current.path.startsWith("_partials/")) this.blocksCache = null;
+      localStorage.removeItem(this.draftKey);
       this.status = "Saved. Live at velta.cc in about a minute.";
     } catch (e) {
       const m = String(e.message || e);
       if (/sha|conflict|409|422/i.test(m)) {
         this.error = "The file changed on the server since you opened it — reopened the saved version; re-apply your edit.";
+        localStorage.removeItem(this.draftKey);
         await this.open(this.current.path);
         return;
       }
@@ -563,7 +594,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
 
       // Add the post to the news index right away — newest first. A second
       // manual step here was the most confusing part of the old flow.
-      const indexFile = await this.api(`/news/index.html?ref=${BRANCH}`);
+      const indexFile = await this.backend.get("news/index.html");
       const indexRaw = b64ToUtf8(indexFile.content);
       const im = indexRaw.match(MARKERS);
       if (!im) throw new Error("news/index.html has no body markers — cannot add the post to the list.");
@@ -596,28 +627,23 @@ class VeltaAdmin extends Elena(HTMLElement) {
     }
     if (this.needToken("uploading")) return;
     const dot = file.name.lastIndexOf(".");
-    const ext = dot >= 0 ? file.name.slice(dot).toLowerCase() : "";
     const base = (dot >= 0 ? file.name.slice(0, dot) : file.name)
       .toLowerCase()
       .replace(/[^a-z0-9-]+/g, "-")
       .replace(/^-+|-+$/g, "") || "image";
-    const name = `assets/${base}-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}${ext}`;
-    if ((this.files || []).some((f) => f.path === name)) {
-      this.error = `${name} already exists — rename the file and try again.`;
-      this.requestUpdate();
-      return;
-    }
     this.busy = true;
     this.error = "";
     this.status = "";
     this.requestUpdate();
     try {
-      const base64 = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result).split(",")[1]);
-        reader.onerror = () => reject(new Error("Could not read the file."));
-        reader.readAsDataURL(file);
-      });
+      const { base64, ext, resized } = await prepImage(file);
+      const name = `assets/${base}-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}${ext}`;
+      if ((this.files || []).some((f) => f.path === name)) {
+        this.error = `${name} already exists — rename the file and try again.`;
+        this.busy = false;
+        this.requestUpdate();
+        return;
+      }
       await this.putFile(name, `Add ${name}`, base64, null, true);
       await this.loadFiles();
       const tag = `<img src="/${name}" alt="">`;
@@ -629,7 +655,8 @@ class VeltaAdmin extends Elena(HTMLElement) {
         ta.selectionStart = ta.selectionEnd = at + tag.length;
         ta.focus();
       }
-      this.status = `Uploaded ${name} — inserted at the cursor.`;
+      localStorage.setItem(this.draftKey, this.content);
+      this.status = `Uploaded ${name}${resized ? " (resized to fit 1600 px)" : ""} — inserted at the cursor.`;
       this.schedulePreview();
     } catch (e) {
       this.error = String(e.message || e);

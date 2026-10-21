@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Velta CMS: a git-backed assembler and the four-operation JSON contract that lets it run on any git host.">
+  <meta name="theme-color" content="#0f0f14">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css">
+</head>
+<body>
+  <a href="#content">Skip to content</a>
+  <header>
+    <a href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+    <nav aria-label="Sections">
+      <a href="/#product">Product</a>
+      <a href="/#features">Features</a>
+      <a href="/#privacy">Privacy</a>
+      <a href="/#platforms">Platforms</a>
+      <a href="/#help">Help</a>
+      <a href="/#support">Support</a>
+      <a href="/news" data-nav="news">News</a>
+      <a href="/web/">Web app</a>
+    </nav>
+    <a href="/#download"><span>Get</span><span>Download</span></a>
+    <details>
+      <summary>Menu</summary>
+      <nav aria-label="Mobile">
+        <a href="/#product">Product</a>
+        <a href="/#features">Features</a>
+        <a href="/#privacy">Privacy</a>
+        <a href="/#platforms">Platforms</a>
+        <a href="/#help">Help</a>
+        <a href="/#support">Support</a>
+        <a href="/news">News</a>
+        <a href="/web/">Web app</a>
+      </nav>
+    </details>
+  </header>
+
+  <main id="content" class="page">
+<!-- CMS:START -->
+    <p><a href="/">Home</a></p>
+    <p class="kicker">Project</p>
+    <h1>Velta CMS</h1>
+    <p><time>21 October 2026</time> · 4 min read</p>
+    <p>The site edits itself through four JSON operations against a git host. Any host that can answer them — including through hooks — can run this CMS.</p>
+    <div class="body">
+      <h2>What it is</h2>
+      <p><a href="/admin/">Velta CMS</a> is a single-page tool that edits this site straight in its repository. Every page is a complete HTML document that renders without JavaScript; shared chrome lives in <code>_partials/</code>; the CMS assembles pages from those parts and commits them. There is no server, no database, and no build step of its own — the git host is the backend, and git history is the undo.</p>
+      <p>The GitHub-specific code is one small module in the site repository: <code>admin/backend-github.js</code>. Everything else in the CMS talks to a four-operation contract, described below. Point a different module at a different host and the CMS does not notice.</p>
+      <h2>The contract</h2>
+      <p>Four operations, JSON over HTTPS, all content base64 in both directions. A reference implementation is <code>admin/backend-github.js</code> in the site source.</p>
+      <pre><code>list(dir)   →  GET  {base}/{dir}?ref={branch}
+            ←  [ { "path": "news/index.html", "type": "file",
+                   "size": 1234, "sha": "e69de…" } ]
+
+get(path)   →  GET  {base}/{path}?ref={branch}
+            ←  { "path": "news/index.html", "sha": "e69de…",
+                 "content": "PCFET0NUWVBF…" }
+
+put(path)   →  PUT  {base}/{path}
+               { "message": "Update news/index.html",
+                 "content": "PCFET0NUWVBF…",
+                 "branch": "website", "sha": "e69de…" }
+            ←  { "content": { "sha": "4b825d…" } }
+
+del(path)   →  DELETE  {base}/{path}
+               { "message": "Delete assets/photo.webp",
+                 "sha": "e69de…", "branch": "website" }</code></pre>
+      <p>Three rules give the contract its shape:</p>
+      <ul>
+        <li><strong>Every <code>put</code> and <code>del</code> is one commit</strong> on the pinned branch, with the caller's message. There is no staging area and no draft state — the branch is the document.</li>
+        <li><strong><code>sha</code> is optimistic concurrency.</strong> A <code>put</code> carrying the <code>sha</code> you read earlier must fail (HTTP 409/422) if someone else changed the file since. The editor treats that as "reopened the saved version", not as data loss.</li>
+        <li><strong>Reads may work without credentials</strong> on a public repository; writes need a token with contents read/write. The CMS keeps that token on the editor's device and nowhere else.</li>
+      </ul>
+      <h2>Other git hosts</h2>
+      <p>Implement the four operations against the host's files API and swap the module:</p>
+      <table>
+        <tr>
+          <th>Host</th>
+          <th>Files API</th>
+          <th>Notes</th>
+        </tr>
+        <tr>
+          <td>GitHub</td>
+          <td><code>/repos/{owner}/{repo}/contents</code></td>
+          <td>The reference implementation; everything above maps 1:1.</td>
+        </tr>
+        <tr>
+          <td>Gitea, Forgejo, Codeberg</td>
+          <td><code>/api/v1/repos/{owner}/{repo}/contents</code></td>
+          <td>Same request and response shapes as GitHub — mostly a base-URL swap.</td>
+        </tr>
+        <tr>
+          <td>GitLab</td>
+          <td><code>/api/v4/projects/{id}/repository/files</code></td>
+          <td>Different shape: per-file endpoints and a commits API for writes. Needs a small mapper that composes the four operations from it.</td>
+        </tr>
+      </table>
+      <p>A host with no files API at all can still qualify through <strong>hooks</strong>: if the platform can receive a webhook that carries (or triggers a fetch of) file content and can commit it — a CI job, a bot, a small receiver service — then that receiver implements <code>put</code> and <code>del</code>, and read-only hosts can serve <code>list</code> and <code>get</code> from a mirror. The contract only needs the four answers; it does not care what stands behind them.</p>
+      <h2>Publishing is the host's job</h2>
+      <p>The CMS only commits. Turning a commit into a live site belongs to the host's push hook: GitHub Pages rebuilds this site on every push to the <code>website</code> branch; on another host you point the equivalent webhook or CI job at your static builder. That separation is deliberate — the editing side never knows how publishing happens, and the publishing side never knows an editor exists.</p>
+      <p>The CMS itself is a few hundred lines of vanilla JavaScript in <code>admin/admin.js</code>, on the <a href="https://github.com/pbuzdin/velta/tree/website">website branch of the repository</a> alongside this page.</p>
+    </div>
+<!-- CMS:END -->
+  </main>
+
+  <footer>
+    <div>
+      <div>
+        <a class="brand" href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+        <p>A Delta Chat client. Encrypted chat over mail, or a direct transfer when the file should not sit on a server.</p>
+      </div>
+      <div>
+        <h2>On this site</h2>
+        <ul>
+          <li><a href="/#download">Download</a></li>
+          <li><a href="/#privacy">Privacy</a></li>
+          <li><a href="/#support">Support</a></li>
+          <li><a href="/#help">Help</a></li>
+          <li><a href="/news">News</a></li>
+          <li><a href="/about.html">About</a></li>
+          <li><a href="/developing.html">Developing</a></li>
+          <li><a href="/comparison.html">Compare</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Project</h2>
+        <ul>
+          <li><a href="https://github.com/pbuzdin/velta">GitHub</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/releases">All releases</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/LICENSE">GPL-3.0</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/README.md">README</a></li>
+          <li><a href="/admin/">Edit site</a></li>
+        </ul>
+      </div>
+    </div>
+    <p><span>Independent client. Delta Chat and Chatmail are upstream projects.</span><span>Built on the Delta Chat core</span></p>
+  </footer>
+  <script src="/js/site.js"></script>
+</body>
+</html>
