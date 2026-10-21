@@ -85,6 +85,14 @@ Consequences:
   so an over-wide table scrolls in place instead of stretching the page —
   but a phone still has to pan it. Prefer lists for host/option comparisons;
   keep tables to short cells, and put long code paths in `<pre>` blocks.
+- **Navigation speed comes from Speculation Rules, not JS routing.** Every
+  page head (and the assembler template) carries a
+  `<script type="speculationrules">` block that prerenders same-site links
+  on hover — Chromium navigations are effectively instant; Firefox/Safari
+  ignore the block and navigate normally. Do not add pjax/ajax page
+  swapping on top of it. `/web/` and `/admin/` are excluded from
+  prerendering (PWA, CMS tool). Keep the block in the pages and the
+  assembler template in sync.
 - Assembly is one commit per file (the Contents API has no batch commit).
 - Page `<head>` and head-only files: `404.html` also has body markers and is
   assembled like the rest.
