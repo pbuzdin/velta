@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A CMS made of four git calls — Velta</title>
+  <meta name="description" content="The tool that edits velta.cc is one page and four JSON operations against git. Its contract now has a home at velta.cc/cms.">
+  <meta name="theme-color" content="#0f0f14">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css">
+</head>
+<body>
+  <a href="#content">Skip to content</a>
+  <header>
+    <a href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+    <nav aria-label="Sections">
+      <a href="/#product">Product</a>
+      <a href="/#features">Features</a>
+      <a href="/#privacy">Privacy</a>
+      <a href="/#platforms">Platforms</a>
+      <a href="/#help">Help</a>
+      <a href="/#support">Support</a>
+      <a href="/news" aria-current="page">News</a>
+      <a href="/web/">Web app</a>
+    </nav>
+    <a href="/#download"><span>Get</span><span>Download</span></a>
+    <details>
+      <summary>Menu</summary>
+      <nav aria-label="Mobile">
+        <a href="/#product">Product</a>
+        <a href="/#features">Features</a>
+        <a href="/#privacy">Privacy</a>
+        <a href="/#platforms">Platforms</a>
+        <a href="/#help">Help</a>
+        <a href="/#support">Support</a>
+        <a href="/news">News</a>
+        <a href="/web/">Web app</a>
+      </nav>
+    </details>
+  </header>
+
+  <main id="content" class="page">
+<!-- CMS:START -->
+    <p><a href="/news">News</a></p>
+    <p class="kicker">Note</p>
+    <h1>A CMS made of four git calls</h1>
+    <p><time>21 October 2026</time> · 2 min read</p>
+    <p>The tool that edits velta.cc is one page and four JSON operations against git. Its contract now has a home at velta.cc/cms.</p>
+    <div class="body">
+      <p>Velta has no content-management system in the usual sense — no server process, no database, no admin accounts. What it has is <a href="/admin/">a single page</a> that edits this site directly in its git repository. Every save is an ordinary commit. Git history is the undo, and the published site is just the repository served as files.</p>
+      <p>That page has to talk to some git host. The interesting part is how little of it cares which one. All host access goes through four operations — list a directory, read a file, put a file, delete a file — JSON over HTTPS, content base64 in both directions, with the file's <code>sha</code> acting as the concurrency token: put with a stale <code>sha</code> must fail rather than overwrite.</p>
+      <p>As of today that contract is written down: <a href="/cms/">velta.cc/cms</a> documents the four operations and what each must return. The GitHub-specific code that implements them is one small module, <code>admin/backend-github.js</code>, in the site source. A host that can answer the same four calls — through its API, or through hooks — can run this CMS unchanged.</p>
+      <p>Two properties fall out of the shape, and both are load-bearing. Reads need no account: the repository is public, so the CMS opens signed-out and the whole site is browsable exactly as stored. Writes need only a token with contents access, kept on the device — there is no server anywhere holding credentials to a third-party service.</p>
+      <p>If you want to poke at it, open <a href="/admin/">the CMS</a> — reading works without signing in. The contract lives at <a href="/cms/">velta.cc/cms</a>, and the source is in the <a href="https://github.com/pbuzdin/velta/tree/website/admin">site repository</a>.</p>
+    </div>
+    <aside>
+      <h2>Get the current build</h2>
+      <p>The current build for Android, Windows, and macOS, plus notes for a self-hosted browser copy.</p>
+      <p><strong><a href="/#download">Download</a></strong></p>
+    </aside>
+<!-- CMS:END -->
+  </main>
+
+  <footer>
+    <div>
+      <div>
+        <a class="brand" href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+        <p>A Delta Chat client. Encrypted chat over mail, or a direct transfer when the file should not sit on a server.</p>
+      </div>
+      <div>
+        <h2>On this site</h2>
+        <ul>
+          <li><a href="/#download">Download</a></li>
+          <li><a href="/#privacy">Privacy</a></li>
+          <li><a href="/#support">Support</a></li>
+          <li><a href="/#help">Help</a></li>
+          <li><a href="/news">News</a></li>
+          <li><a href="/about.html">About</a></li>
+          <li><a href="/developing.html">Developing</a></li>
+          <li><a href="/comparison.html">Compare</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Project</h2>
+        <ul>
+          <li><a href="https://github.com/pbuzdin/velta">GitHub</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/releases">All releases</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/LICENSE">GPL-3.0</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/README.md">README</a></li>
+          <li><a href="/admin/">Edit site</a></li>
+        </ul>
+      </div>
+    </div>
+    <p><span>Independent client. Delta Chat and Chatmail are upstream projects.</span><span>Built on the Delta Chat core</span></p>
+  </footer>
+  <script src="/js/site.js"></script>
+</body>
+</html>
