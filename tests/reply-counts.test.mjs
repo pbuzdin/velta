@@ -86,7 +86,9 @@ test("menu Show replies opens the thread panel with the composer locked", async 
 
   assert.equal(view.thread.parentId, 11, "thread mode opened for the parent");
   assert.equal(view.threadPanel.hidden, false, "thread panel visible");
-  assert.equal(view.listEl.hidden, true, "history list hidden while the thread is open");
+  assert.notEqual(view.listEl.hidden, true, "history stays visible above the sheet");
+  assert.equal(view.threadPanel.getAttribute("role"), "dialog");
+  assert.ok(view.threadPanel.querySelector(".thread-close"), "header close button");
   assert.equal(view.replyTo?.id, 11, "composer locked: quote points at the parent");
   assert.equal(document.getElementById("btn-reply-close").hidden, true, "quote-bar X hidden while locked");
   const rows = view.threadPanel.querySelectorAll('[data-msgid="12"]');
@@ -170,7 +172,7 @@ test("thread panel opens, locks the composer, appends live replies, exits", asyn
 
   await view._showReplies(parent());
   assert.equal(view.threadPanel.hidden, false, "panel visible after Show replies");
-  assert.equal(view.listEl.hidden, true, "history hidden while the thread is open");
+  assert.notEqual(view.listEl.hidden, true, "history stays visible above the sheet");
   assert.equal(view.threadReplies.children.length, 2, "both loaded replies rendered");
   assert.equal(view.replyTo?.id, 11, "composer locked to the parent");
 
@@ -183,6 +185,34 @@ test("thread panel opens, locks the composer, appends live replies, exits", asyn
   view._closeThread();
   assert.equal(view.thread, null);
   assert.equal(view.threadPanel.hidden, true);
-  assert.equal(view.listEl.hidden, false);
+  assert.notEqual(view.listEl.hidden, true);
   assert.equal(view.replyTo, null);
+});
+
+test("side button: shown from THREAD_BUTTON_MIN_REPLIES, labelled, opens the thread; Escape closes", async (t) => {
+  const { THREAD_BUTTON_MIN_REPLIES } = await import("../app/js/chat-view.js");
+  assert.equal(THREAD_BUTTON_MIN_REPLIES, 1);
+  const base = Date.now();
+  const core = Object.assign(new EventTarget(), {
+    accountId: "A", accountEpoch: 0,
+    getChat: async () => ({ id: 7, kind: "single", unread: 0, encrypted: true }),
+    getMessages: async () => page([parent(), reply(12, 11, base + 500)]),
+    markRead: async () => {},
+  });
+  const { view } = setup(t, core);
+  await view.open(7);
+  const row = view._renderMsgItem(view.msgIndex.get(11));
+  assert.ok(row.innerHTML.includes('class="msg-thread-btn" data-act="thread" aria-label="Show 1 reply"'), "round button with aria-label");
+  assert.ok(row.className.includes("has-thread"));
+  assert.ok(row.innerHTML.includes('class="msg-replies-count">1 reply'), "passive meta count");
+  const inPanel = view._renderMsgItem(view.msgIndex.get(11), { inThread: true });
+  assert.ok(!inPanel.innerHTML.includes("msg-thread-btn"), "no side button inside the panel");
+  const plain = view._renderMsgItem(view.msgIndex.get(12));
+  assert.ok(!plain.innerHTML.includes("msg-thread-btn"));
+
+  await view._openThread(view.msgIndex.get(11).msg);
+  assert.equal(view.threadPanel.hidden, false);
+  await view.threadPanel.fire("keydown", { key: "Escape", preventDefault() {}, stopPropagation() {} });
+  assert.equal(view.thread, null);
+  assert.equal(view.threadPanel.hidden, true);
 });

@@ -272,6 +272,11 @@ const FWD_NOUNS = { image: "picture", gif: "picture", video: "video", audio: "au
 const FWD_NOUN = (viewtype) => FWD_NOUNS[viewtype] || "message";
 const FWD_ARTICLE = (viewtype) => (/^[aeiou]/.test(FWD_NOUN(viewtype)) ? "an " : "a ");
 
+// Round side button next to a bubble with replies (Telegram-comments style):
+// shown once a message has at least this many replies. One knob — raise it
+// to 2 to keep single replies chip-only.
+export const THREAD_BUTTON_MIN_REPLIES = 1;
+
 const ICO = {
   reply: `<svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5M4 9h9a7 7 0 017 7v2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   copy: `<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 15V5a2 2 0 012-2h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
@@ -620,10 +625,23 @@ export class ChatView {
 
     this.scrollEl = document.getElementById("history-scroll");
     this.listEl = document.getElementById("history");
-    this.threadPanel = document.createElement("div");
+    // Thread panel: a non-modal bottom sheet between the history and the
+    // composer (the composer stays usable, locked to the thread).
+    this.threadPanel = document.createElement("section");
     this.threadPanel.id = "thread-panel";
+    this.threadPanel.className = "thread-panel";
+    this.threadPanel.setAttribute("role", "dialog");
+    this.threadPanel.setAttribute("aria-modal", "false");
+    this.threadPanel.setAttribute("aria-labelledby", "thread-title");
     this.threadPanel.hidden = true;
-    this.listEl.after(this.threadPanel);
+    this.threadPanel.addEventListener("keydown", e => {
+      if (e.key === "Escape" && this.thread) { e.preventDefault(); e.stopPropagation(); this._closeThread(); }
+    });
+    this.scrollEl.after(this.threadPanel);
+    // Escape from the composer (locked to the thread) closes the thread too.
+    document.getElementById("composer-input")?.addEventListener?.("keydown", e => {
+      if (e.key === "Escape" && this.thread && !e.defaultPrevented) { e.preventDefault(); this._closeThread(); }
+    });
     this.goDownBtn = document.getElementById("btn-go-down");
     this.goDownBadge = document.getElementById("go-down-badge");
     this._newWhileAway = 0;
@@ -1432,28 +1450,28 @@ export class ChatView {
     }
   }
 
-  // "Show replies" (chip + context menu). With the #14 core patch this opens
-  // the thread overlay: the parent on top, every reply beneath (read-only
-  // rows); tapping a reply closes the overlay and jumps to it in the chat.
-  // Without the patch (counts from the loaded window only) it jumps to the
-  // newest reply instead.
-  // "Show replies" (context menu): opens the thread panel — parent on top,
-  // replies beneath, composer locked to the thread.
+  // "Show replies" (context menu or the round side button): opens the
+  // thread panel — a bottom sheet with the parent on top and the replies
+  // beneath; the composer stays visible and locked to the thread.
   async _showReplies(m) {
     await this._openThread(m);
   }
 
-  async _openThread(m) {
+  async _openThread(m, opener = null) {
     const parentId = m.id;
+    if (this.thread?.parentId !== parentId) {
+      const active = opener || document.activeElement;
+      this._threadReturnFocus = active && active !== document.body ? active : null;
+    }
     this.thread = { parentId };
-    this.listEl.hidden = true;
     this.threadPanel.hidden = false;
     this._renderThreadPanel();
     // Composer lock: while the thread is open every send quotes the parent
     // (re-locked after each send in appendOutgoing).
     const pit = this.msgIndex.get(parentId) || { type: "msg", key: "m" + parentId, msg: m };
     this._setReply(pit);
-    this.threadPanel.scrollTop = this.threadPanel.scrollHeight;
+    this.threadPanel.querySelector(".thread-close")?.focus?.();
+    this._threadScrollEnd();
     // Exact reply ids from the #14 core RPC when available; without it the
     // panel keeps the loaded-window replies it was rendered with.
     if (typeof this.core.getReplyIds === "function") {
@@ -1468,43 +1486,65 @@ export class ChatView {
         }
       } catch { /* panel keeps the loaded-window replies */ }
       this._updateThreadCount();
-      this.threadPanel.scrollTop = this.threadPanel.scrollHeight;
+      this._threadScrollEnd();
     }
   }
 
+  _threadScrollEnd() {
+    const body = this.threadPanel.querySelector(".thread-body");
+    if (body) body.scrollTop = body.scrollHeight;
+  }
+
   _appendThreadRow(item) {
-    this.threadReplies.appendChild(this._renderMsgItem(item));
+    this.threadReplies.appendChild(this._renderMsgItem(item, { inThread: true }));
     this._threadRendered.add(item.msg.id);
   }
 
   _renderThreadPanel() {
     const panel = this.threadPanel;
     panel.innerHTML = "";
-    const head = document.createElement("div");
+    const parentItem = this.msgIndex.get(this.thread.parentId);
+    const head = document.createElement("header");
     head.className = "thread-head";
-    const back = document.createElement("button");
-    back.type = "button";
-    back.className = "thread-back";
-    back.textContent = "← Back to chat";
-    back.addEventListener("click", () => this._closeThread());
+    const titles = document.createElement("div");
+    titles.className = "thread-titles";
+    const title = document.createElement("h2");
+    title.id = "thread-title";
+    title.className = "thread-title";
+    title.textContent = "Thread ";
     const count = document.createElement("span");
     count.className = "thread-count";
-    head.append(back, count);
+    title.appendChild(count);
+    const orig = document.createElement("div");
+    orig.className = "thread-orig";
+    const pm = parentItem?.msg;
+    orig.textContent = pm ? `${pm.fromContact?.name || ""}${pm.fromContact?.name ? ": " : ""}${(pm.text || pm.fileName || "").split("\n")[0]}` : "";
+    titles.append(title, orig);
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "icon-btn thread-close";
+    close.setAttribute("aria-label", "Close thread");
+    close.title = "Close thread";
+    close.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`;
+    close.addEventListener("click", () => this._closeThread());
+    head.append(titles, close);
     panel.appendChild(head);
-    const parentItem = this.msgIndex.get(this.thread.parentId);
-    if (parentItem) panel.appendChild(this._renderMsgItem(parentItem));
+    const body = document.createElement("div");
+    body.className = "thread-body";
+    panel.appendChild(body);
+    if (parentItem) body.appendChild(this._renderMsgItem(parentItem, { inThread: true }));
     const sep = document.createElement("div");
     sep.className = "thread-sep";
-    panel.appendChild(sep);
+    body.appendChild(sep);
     this.threadReplies = document.createElement("div");
     this.threadReplies.className = "thread-replies";
-    panel.appendChild(this.threadReplies);
+    body.appendChild(this.threadReplies);
     this._threadRendered = new Set([this.thread.parentId]);
     // replies currently in the loaded window; the core fetch tops it up
     for (const item of this.items) {
       if (item.type === "msg" && Number(item.msg.quote?.id || 0) === this.thread.parentId && !this._threadRendered.has(item.msg.id)) {
         this._threadRendered.add(item.msg.id);
-        this.threadReplies.appendChild(this._renderMsgItem(item));
+        this.threadReplies.appendChild(this._renderMsgItem(item, { inThread: true }));
       }
     }
     this._updateThreadCount();
@@ -1513,16 +1553,37 @@ export class ChatView {
   _updateThreadCount() {
     const n = this.threadReplies.children.length;
     const el = this.threadPanel.querySelector(".thread-count");
-    if (el) el.textContent = `${n} ${n === 1 ? "reply" : "replies"}`;
+    if (el) el.textContent = `· ${n} ${n === 1 ? "reply" : "replies"}`;
   }
 
   _closeThread() {
+    const parentId = this.thread?.parentId;
     this.thread = null;
     this.replyTo = null;
     this.replyFragment = null;
     this._renderReplyPreview();
     this.threadPanel.hidden = true;
-    this.listEl.hidden = false;
+    this.threadPanel.innerHTML = "";
+    // Focus returns to the opener (side button / bubble); when the row was
+    // re-rendered meanwhile, to the parent's side button or bubble.
+    // The sheet shrank the history, so the virtual scroller may have
+    // unmounted the parent row; it re-mounts after the resize settles.
+    const opener = this._threadReturnFocus;
+    this._threadReturnFocus = null;
+    const refocus = () => {
+      let back = opener?.isConnected ? opener : null;
+      if (!back && parentId != null) {
+        const row = this.listEl.querySelector?.(`[data-msgid="${parentId}"]`);
+        back = row?.querySelector(".msg-thread-btn") || null;
+      }
+      back?.focus?.({ preventScroll: true });
+      return !!back;
+    };
+    if (!refocus()) setTimeout(() => {
+      if (refocus() || parentId == null || !this._isCurrent()) return;
+      this._jumpToMessage(parentId); // brings the parent back, then focus its button
+      setTimeout(refocus, 600);
+    }, 120);
   }
 
   // Day chips ride INSIDE the first message row of each day (dayFirst flag)
@@ -1583,7 +1644,7 @@ export class ChatView {
         if (Number(item.msg.quote?.id || 0) !== this.thread.parentId) continue;
         this._appendThreadRow(item);
         this._updateThreadCount();
-        this.threadPanel.scrollTop = this.threadPanel.scrollHeight;
+        this._threadScrollEnd();
       }
     }
   }
@@ -1811,8 +1872,9 @@ export class ChatView {
     return el;
   }
 
-  _renderMsgItem(item) {
+  _renderMsgItem(item, { inThread = false } = {}) {
     const m = item.msg;
+    let threadBtn = "";
     const chatId = this.chat.id;
     // Handlers below live on cached rows that survive close()/open() — the
     // build-time session would be stale after any chat switch and silently
@@ -2070,14 +2132,23 @@ export class ChatView {
     const replyN = this._coreReplies
       ? (m.replies ?? 0)
       : this.hasMore ? 0 : (m.replies ?? (this._replyCounts.get(m.id)?.count || 0));
+    // Passive count next to the timestamp (phones; desktop has the side
+    // button). Not a tap target — the side button and the menu open threads.
     const repliesChip = replyN > 0
-      ? `<span class="replies-chip">${replyN} ${replyN === 1 ? "reply" : "replies"}</span>`
+      ? `<span class="msg-replies-count">${replyN} ${replyN === 1 ? "reply" : "replies"}</span>`
       : "";
+    if (replyN >= THREAD_BUTTON_MIN_REPLIES && replyN > 0 && !inThread) {
+      const label = `Show ${replyN} ${replyN === 1 ? "reply" : "replies"}`;
+      threadBtn = `<button type="button" class="msg-thread-btn" data-act="thread" aria-label="${label}" title="${label}">${ICO.reply}<span aria-hidden="true">${replyN}</span></button>`;
+    }
     bubble += `<span class="msg-meta">${edited}${star}${botChip}${repliesChip}${timeTag(m.ts, formatTime(m.ts))}${ticks}</span>${failBadge}</div>`;
     if (m.reactions?.length) {
       bubble += `<div class="msg-reactions">${reactionChipsHtml(m.reactions)}</div>`;
     }
-    inner += `<div class="bubble${m.viewtype === "sticker" ? " sticker" : ""}">${bubble}</div>`;
+    const bubbleHtml = `<div class="bubble${m.viewtype === "sticker" ? " sticker" : ""}">${bubble}</div>`;
+    // Side button sits on the open side: right of incoming, left of outgoing.
+    inner += threadBtn ? (out ? threadBtn + bubbleHtml : bubbleHtml + threadBtn) : bubbleHtml;
+    if (threadBtn) row.className += " has-thread";
     row.innerHTML = inner;
     if (item.readMarker) row.append(this._readMarkerEl());
     if (m.viewtype === "vcard" && m.filePath) this._hydrateVcardCard(row, m);
@@ -2469,6 +2540,7 @@ export class ChatView {
         else if (mediaAction.dataset.act === "fail-del") this._deleteFailed(m);
         else if (mediaAction.dataset.act === "lc-retry") this._lcRetryTransfer(m);
         else if (mediaAction.dataset.act === "show-original") this._showOriginal(m);
+        else if (mediaAction.dataset.act === "thread") this._openThread(m, mediaAction);
         return;
       }
       const vcardBtn = e.target.closest("[data-vcard-open]");

@@ -186,13 +186,18 @@ export class MockCore extends EventTarget {
     // Read-more demo pair in the pinned 1:1 chat: a truncated original
     // (stored body exists → button) and a forwarded copy of a truncated
     // message (marker copied, no stored body → button must NOT render).
+    // Reply-thread fixture: the trip plan (outgoing) and the edited one
+    // (incoming) carry real quote ids, so both sides show the "N replies"
+    // count and the round thread button (contrast + screenshots).
+    const tripPlan = this._mkMsg(this.chats[2], { from: 1, text: "Trip plan: we take the morning train, and the long footer with the packing list got cut [...]", ts: now - 120e3, hasHtml: true });
+    const editedHers = this._mkMsg(this.chats[2], { from: 2, edited: true, text: "Edited on her side", ts: now - 100e3, quote: { id: tripPlan.id, text: "Trip plan: the morning train", fromContact: { name: "You" } } });
     this.chats[2].messages.push(
-      this._mkMsg(this.chats[2], { from: 1, text: "Trip plan: we take the morning train, and the long footer with the packing list got cut [...]", ts: now - 120e3, hasHtml: true }),
+      tripPlan,
       // Contrast fixtures (scripts/e2e-contrast.mjs): every dim in-bubble
       // label on both sides — forwarded, quoted, edited, reactions.
       this._mkMsg(this.chats[2], { from: 1, fwdFrom: "Ada Byron", text: "Forwarded from my side", ts: now - 110e3 }),
-      this._mkMsg(this.chats[2], { from: 2, edited: true, text: "Edited on her side", ts: now - 100e3, quote: { id: 0, text: "Trip plan: the morning train", fromContact: { name: "You" } } }),
-      this._mkMsg(this.chats[2], { from: 1, edited: true, text: "Edited reply on mine", ts: now - 90e3, quote: { id: 0, text: "Edited on her side", fromContact: { name: "Ada Byron" } },
+      editedHers,
+      this._mkMsg(this.chats[2], { from: 1, edited: true, text: "Edited reply on mine", ts: now - 90e3, quote: { id: editedHers.id, text: "Edited on her side", fromContact: { name: "Ada Byron" } },
         reactions: [{ emoji: "👍", count: 2, mine: true }, { emoji: "🎉", count: 1, mine: false }] }),
       this._mkMsg(this.chats[2], { from: 2, text: "Reactions on hers", ts: now - 80e3, reactions: [{ emoji: "❤️", count: 1, mine: false }, { emoji: "👍", count: 1, mine: true }] }),
       this._mkMsg(this.chats[2], { from: 2, fwdFrom: "Pavel", text: "Forwarded — the original mail this was cut from lives on another device [...]", ts: now - 60e3, hasHtml: false }),
@@ -786,6 +791,22 @@ export class MockCore extends EventTarget {
   async getFirstUnreadMessageId(chatId) {
     const c = this.chats.find(x => x.id === chatId);
     return c?.messages.find(m => m.unread)?.id ?? null;
+  }
+
+  // Velta #14 reply-thread queries, mirrored over the mock store (quote.id).
+  async getReplyCounts(chatId) {
+    const chat = this.chats.find(c => c.id === chatId);
+    const out = {};
+    for (const m of chat?.messages || []) {
+      const q = Number(m.quote?.id || 0);
+      if (q && chat.messages.some(x => x.id === q)) out[q] = (out[q] || 0) + 1;
+    }
+    return out;
+  }
+
+  async getReplyIds(chatId, messageId) {
+    const chat = this.chats.find(c => c.id === chatId);
+    return (chat?.messages || []).filter(m => Number(m.quote?.id || 0) === messageId).sort((a, b) => a.ts - b.ts || a.id - b.id).map(m => m.id);
   }
 
   async getMessage(msgId) {

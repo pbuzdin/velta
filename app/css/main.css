@@ -914,19 +914,69 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
 }
 .msg-row.out .msg-meta { color: var(--text-meta-out); }
 .msg-meta .edited { font-style: normal; }
-/* Tiny "N replies" chip in the meta row: a button that jumps to the newest
-   reply. Inherits the meta color so it reads as part of the timestamp line;
-   hover lifts to the accent. Rendered only when the whole older history is
-   loaded, so the count is exact (ChatView._replyCounts). */
-.replies-chip {
-  border: 0; background: none; padding: 0; margin: 0 2px;
-  font: inherit; color: inherit;
-  cursor: pointer; user-select: none; -webkit-user-select: none;
+/* Reply threads (Velta #14). Passive "N replies" count next to the
+   timestamp: plain meta text (inherits --text-meta-in/-out, same contrast as
+   the time), not a tap target. Phones only — wider screens use the round
+   side button below. */
+.msg-replies-count { margin: 0 4px 0 0; white-space: nowrap; }
+@media (min-width: 601px) { .msg-replies-count { display: none; } }
+/* Round side button beside a bubble with replies (THREAD_BUTTON_MIN_REPLIES
+   in chat-view.js): 32px visual disc inside a 44px hit box, on the open
+   side (right of incoming, left of outgoing), bottom-aligned with the bubble. */
+.msg-row.has-thread { align-items: flex-end; }
+.msg-row.has-thread .bubble { max-width: min(480px, calc(90% - 48px)); }
+.msg-thread-btn {
+  flex: none; align-self: flex-end;
+  width: 44px; height: 44px; margin: 0 2px; padding: 0;
+  border: 0; background: none; cursor: pointer;
+  display: grid; place-items: center;
+  color: var(--text); font: inherit;
+  -webkit-tap-highlight-color: transparent;
 }
-.replies-chip:hover { color: var(--accent); text-decoration: underline; }
-/* Thread overlay (Velta #14): the quoted parent on top, every reply beneath
-   as read-only rows; tapping a reply closes the overlay and jumps to it. */
-.thread-overlay .thread-sep { border-top: 1px solid var(--line); margin: 10px 0; }
+.msg-thread-btn::before {
+  content: ""; grid-area: 1 / 1; width: 32px; height: 32px; border-radius: 50%;
+  background: var(--bg-bubble-in); box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+}
+.msg-thread-btn svg, .msg-thread-btn span { grid-area: 1 / 1; position: relative; }
+.msg-thread-btn svg { width: 14px; height: 14px; transform: translateY(-5px); }
+.msg-thread-btn span { font-size: 11px; font-weight: 600; line-height: 1; transform: translateY(7px); }
+.msg-thread-btn:focus-visible { outline: none; }
+.msg-thread-btn:focus-visible::before { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) {
+  .msg-thread-btn:hover::before { background: color-mix(in srgb, var(--text) 8%, var(--bg-bubble-in)); }
+}
+/* Thread panel: non-modal bottom sheet between the history and the
+   composer, 70% of the chat view, own scroll; the composer stays below. */
+.thread-panel {
+  flex: 0 0 70%; min-height: 0; max-height: 70%;
+  display: flex; flex-direction: column;
+  margin-top: -18px; position: relative; z-index: 4;
+  background: var(--bg-chat);
+  border: 1px solid var(--border); border-bottom: 0;
+  border-radius: 18px 18px 0 0;
+  box-shadow: var(--shadow);
+  animation: sheetIn .16s ease-out;
+}
+.thread-panel[hidden] { display: none; }
+/* The go-down pill would float over the sheet header. */
+#chat-view:has(#thread-panel:not([hidden])) #btn-go-down { display: none; }
+.thread-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 8px 10px 16px;
+  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border);
+  border-radius: 18px 18px 0 0;
+}
+.thread-titles { flex: 1; min-width: 0; }
+.thread-title { margin: 0; font-size: 16px; font-weight: 600; color: var(--text); }
+.thread-count { font-weight: 400; color: var(--text-dim); }
+.thread-orig {
+  font-size: 13px; color: var(--text-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.thread-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 6px 0; }
+.thread-sep { border-top: 1px solid var(--border); margin: 8px 12px; }
 /* Tiny "bot" badge next to the timestamp: bordered uppercase tag so it reads
    as a label, not text. Inherits the meta color — visible on every theme's
    incoming bubble (contrast held by the meta color, ≥4.5:1 like the time). */
@@ -1248,7 +1298,7 @@ button.reaction-chip { font: inherit; color: inherit; }
 }
 .reply-bar { width: 3px; align-self: stretch; background: var(--accent); border-radius: 2px; }
 .reply-body { flex: 1; min-width: 0; }
-.reply-name { color: var(--accent); font-weight: 600; font-size: 13.5px; }
+.reply-name { color: var(--accent-text); font-weight: 600; font-size: 13.5px; }
 .reply-text { color: var(--text-dim); font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---------- Composer ---------- */
