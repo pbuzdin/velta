@@ -4,7 +4,7 @@ A cross-platform **Delta Chat** client built as a single PWA-ish web app wrapped
 
 ## Download
 
-**[Android](https://github.com/pbuzdin/velta/releases/download/v1.4.77/Velta-1.4.77-arm64.apk)** (~49 MB) · **[Windows](https://github.com/pbuzdin/velta/releases/download/v1.4.77/Velta_1.4.77_x64-setup.exe)** (~13 MB) · **[macOS](https://github.com/pbuzdin/velta/releases/download/v1.4.77/Velta_1.4.77_universal.dmg)** (~36 MB)
+**[Android](https://github.com/pbuzdin/velta/releases/download/v1.4.78/Velta-1.4.78-arm64.apk)** (~49 MB) · **[Windows](https://github.com/pbuzdin/velta/releases/download/v1.4.78/Velta_1.4.78_x64-setup.exe)** (~13 MB) · **[macOS](https://github.com/pbuzdin/velta/releases/download/v1.4.78/Velta_1.4.78_universal.dmg)** (~36 MB)
 
 Android needs an arm64 phone. Windows is the x64 installer. macOS is a universal test build that isn't notarized yet, so see [Install](#install) before the first launch. Other files and older versions are on the [releases page](https://github.com/pbuzdin/velta/releases).
 
@@ -960,10 +960,10 @@ the same chat. Muted chats stay in the list and keep their unread badges;
 they just stop making noise — including in background notifications while
 the app is hidden (since 1.4.51 both mute paths also actually apply: a
 wire-format bug silently discarded them before).
-Since 1.4.77 one exception: an **@mention of you** in a muted chat still
+Since 1.4.78 one exception: an **@mention of you** in a muted chat still
 notifies (drawer → Notifications → "Notify me when mentioned in muted chats", default on).
 On desktop and in the browser app muted chats were not filtered from
-notifications before 1.4.77; they now stay quiet unless you are mentioned.
+notifications before 1.4.78; they now stay quiet unless you are mentioned.
 
 </details>
 
