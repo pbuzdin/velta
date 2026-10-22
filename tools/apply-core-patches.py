@@ -722,7 +722,7 @@ async fn velta_transport_addr(context: &Context, transport_id: u32) -> String {
         id="#14 reply-thread queries (chat.rs)",
         file="core/src/chat.rs",
         applied="Velta #14 reply-thread queries",
-        anchor="pub async fn was_device_msg_ever_added(context: &Context, label: &str) -> Result<bool> {\r\n",
+        anchor="pub async fn was_device_msg_ever_added(context: &Context, label: &str) -> Result<bool> {\n",
         where="before",
         text="""// Velta #14 reply-thread queries: the chat view's "N replies" chip and
 // thread overlay. Replies are messages whose mime_in_reply_to carries the
@@ -774,7 +774,7 @@ pub async fn get_reply_counts(context: &Context, chat_id: ChatId) -> Result<Vec<
         id="#14 reply-thread queries (api.rs)",
         file="core/deltachat-jsonrpc/src/api.rs",
         applied="Velta #14 reply-thread queries (see chat.rs get_reply_ids)",
-        anchor="    async fn get_message_html(&self, account_id: u32, message_id: u32) -> Result<Option<String>> {\r\n",
+        anchor="    async fn get_message_html(&self, account_id: u32, message_id: u32) -> Result<Option<String>> {\n",
         where="before",
         text="""    // Velta #14 reply-thread queries (see chat.rs get_reply_ids).
     async fn get_reply_ids(
