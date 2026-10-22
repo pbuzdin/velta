@@ -2312,7 +2312,7 @@ incoming-msg (`mutedChatAllows`) and Rust `bg_notify_incoming`
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 127 files, 888 tests as of 2026-10-22 (post-1.4.76: +reply threads / thread panel, Unread chip, Velta device messages; 1.4.76: +group calls, call permissions,
+whole set — 129 files, 904 tests as of 2026-10-22 (post-1.4.76: +reply threads / thread panel + live counts, Unread chip, Velta device messages, @mentions, msg-id cache race; 1.4.76: +group calls, call permissions,
 network resume, contrast/token guards, webxdc tokens; 1.4.75: narrow-viewport CSS guards, device info,
 chat appearance, hyphenation, settings export/apply, reactions scale):
 
@@ -2977,6 +2977,14 @@ do-not-regress rules; dates mark when the lesson was learned.
   switch) because rows re-mount on every scroll pass — a new per-call RPC
   per remount would multiply. Mock answers with Completed + the stored
   duration; a demo call message lives in the Ada chat.
+- **Message id cache race (2026-10-22).** `RpcCore.getMessageIds` caches a
+  chat's id list; an invalidation (IncomingMsg/MsgsChanged/…) bumps
+  `_msgIdGen`, and an answer whose fetch started before that bump is
+  returned but NOT cached. Caching it hid a new message from history, even
+  across reopen, while the chat list showed it. Test:
+  `tests/thread-counts-live.test.mjs`. The "row mNNN rebuilt" diagnostics
+  line now logs only real content flips (reply count, mention, transfer
+  changes go to debugLog).
 - **Reply threads (2026-10-22, VENDORISSUES #14) — docs/reply-threads.md.**
   Counts come from the core (`get_reply_counts`, exact even with unloaded
   pages); without the #14 core only when `hasMore` is false (window counts

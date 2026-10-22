@@ -19,7 +19,10 @@ message in the same chat whose `mime_in_reply_to` equals the parent's
 | `get_reply_counts(account_id, chat_id)` | `chat::get_reply_counts` | map quoted msg id → reply count |
 | `get_reply_ids(account_id, chat_id, message_id)` | `chat::get_reply_ids` | reply ids, oldest first |
 
-Both scope replies and the quoted message to `chat_id`, so a Message-ID
+A reply is a row with a quote param (`q`), not a forward (`a`), whose
+`TRIM(mime_in_reply_to, '<> ')` equals the parent's `rfc724_mid` (incoming
+rows keep the header's angle brackets; every message has In-Reply-To, so
+the quote param is what makes it a reply). Both scope replies and the quoted message to `chat_id`, so a Message-ID
 that also exists in another chat cannot add to a count. No index or
 migration is added: the scan runs over one chat's rows through the existing
 `chat_id` index, and a `dbversion` bump in the vendored core would collide
@@ -32,7 +35,12 @@ Edit the queries only in `tools/apply-core-patches.py` (op ids
 
 ## UI
 
-- **Counts.** With the #14 core the counts are exact for the whole chat.
+- **Counts.** `ChatView._replyCountFor(id)`: with the #14 core it is
+  max(core count, loaded-window count) — the core covers unloaded parents
+  and replies, the window covers a reply that landed before the debounced
+  core refresh. Every message object is stamped with its count
+  (`_withReplies`) so refetched copies do not look changed and rebuild.
+  With the #14 core the counts are exact for the whole chat.
   Without it (older desktop sidecar, wasm builds without the op) they are
   counted over the loaded window and shown only when no older page is
   missing, so they never under-count.
