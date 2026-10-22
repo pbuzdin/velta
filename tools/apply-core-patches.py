@@ -733,6 +733,8 @@ async fn velta_transport_addr(context: &Context, transport_id: u32) -> String {
 // param (`q`) that are not forwards (`a`) count; incoming headers keep their
 // <angle brackets>, hence the TRIM. Scoped to the chat on both sides so
 // cross-chat Message-ID collisions cannot bleed in.
+/// Returns the ids of the messages in `chat_id` that quote `message_id`
+/// (its replies), oldest first. Forwards are not counted as replies.
 pub async fn get_reply_ids(
     context: &Context,
     chat_id: ChatId,
@@ -761,6 +763,8 @@ pub async fn get_reply_ids(
         .await
 }
 
+/// Returns `(quoted message id, reply count)` for every message in `chat_id`
+/// that has at least one reply (a quoting, non-forwarded message in the same chat).
 pub async fn get_reply_counts(context: &Context, chat_id: ChatId) -> Result<Vec<(MsgId, u32)>> {
     context
         .sql
