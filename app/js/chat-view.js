@@ -1215,7 +1215,7 @@ export class ChatView {
     return JSON.stringify([
       m.viewtype, m.downloadState, m.text, m.state, m.edited, m.starred,
       m.reactions, m.filePath, m.fileName, m.duration, m.fwdFrom, m.quote, m.error,
-      m.originalMsgId, m.transfer?.pct, m.transfer?.failed,
+      m.originalMsgId, m.transfer?.pct, m.transfer?.failed, m.replies,
     ]);
   }
 
@@ -1360,6 +1360,16 @@ export class ChatView {
         cur.count += 1;
       }
     }
+    for (const item of this.items) {
+      if (item.type !== "msg") continue;
+      const c = counts.get(item.msg.id)?.count || 0;
+      if (item.msg.replies !== c && this.chat?.id != null) {
+        item.msg = { ...item.msg, replies: c };
+        this.onMsgUpdated(this.chat.id, item.msg);
+      } else {
+        item.msg.replies = c;
+      }
+    }
     this._replyCounts = counts;
   }
 
@@ -1388,10 +1398,17 @@ export class ChatView {
       const qid = Number(m.quote?.id || 0);
       if (qid) {
         const cur = this._replyCounts.get(qid);
-        if (!cur || m.ts >= cur.newestTs) {
-          this._replyCounts.set(qid, { count: (cur?.count || 0) + 1, newestId: m.id, newestTs: m.ts });
-        } else {
-          cur.count += 1;
+        const count = (cur?.count || 0) + 1;
+        const newestTs = !cur || m.ts >= cur.newestTs ? m.ts : cur.newestTs;
+        const newestId = !cur || m.ts >= cur.newestTs ? m.id : cur.newestId;
+        this._replyCounts.set(qid, { count, newestId, newestTs });
+        // Stamp the count on the parent message and refresh just that row:
+        // the keyed scroller ignores reference swaps, so a row-level update
+        // is the only way the chip appears without a full rebuild.
+        const pit = this.msgIndex.get(qid);
+        if (pit?.type === "msg" && this.chat?.id != null) {
+          pit.msg = { ...pit.msg, replies: count };
+          this.onMsgUpdated(this.chat.id, pit.msg);
         }
       }
       out.push(item);
@@ -1886,7 +1903,7 @@ export class ChatView {
     }
     // "N replies" chip: only when the whole older history is loaded, so the
     // count is exact (pages still ahead would silently under-count).
-    const replyN = this.hasMore ? 0 : (this._replyCounts.get(m.id)?.count || 0);
+    const replyN = this.hasMore ? 0 : (m.replies ?? (this._replyCounts.get(m.id)?.count || 0));
     const repliesChip = replyN > 0
       ? `<button type="button" class="replies-chip" data-act="show-replies">${replyN} ${replyN === 1 ? "reply" : "replies"}</button>`
       : "";
@@ -2607,7 +2624,7 @@ export class ChatView {
     const items = [];
     // No reply without a composer (read-only chats).
     if (!this.readOnly) items.push({ label: "Reply", pair: "send", icon: ICO.reply, onClick: () => this._setReply(item) });
-    const replyN = this.hasMore ? 0 : (this._replyCounts.get(m.id)?.count || 0);
+    const replyN = this.hasMore ? 0 : (m.replies ?? (this._replyCounts.get(m.id)?.count || 0));
     if (replyN > 0) items.push({ label: "Show replies", icon: ICO.reply, onClick: () => this._showReplies(m) });
     // Core mirrors these guards (own + plain text + non-empty); the menu just
     // hides the entry where the core would refuse. P2P chats keep a separate
