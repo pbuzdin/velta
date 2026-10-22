@@ -28,9 +28,9 @@ Velta is a private messenger built on the chatmail network, so you can chat with
 • Reply threads that show every reply to a message in one place
 • Your relay, your choice: pick which relay sends your messages, and see live whether each relay is sending fine or can't be reached
 • Chat categories: filter your chat list with quick chips, like Unread
-• Velta in your browser at velta.cc/web
+• Velta in your browser at https://velta.cc/web
 
-Tips, news and downloads are at velta.cc.
+Tips, news and downloads are at https://velta.cc.
 The Velta team`;
 
 export const UPDATE_REMINDER =

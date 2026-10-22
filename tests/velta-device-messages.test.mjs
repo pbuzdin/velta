@@ -74,3 +74,11 @@ test("init and reconnect apply the stock overrides before anything else", () => 
   const rc = src.slice(src.indexOf("async reconnect()"), src.indexOf("get syncOnlyActive"));
   assert.match(rc, /_applyVeltaStrings/);
 });
+
+test("every velta.cc mention is a full https:// link", () => {
+  for (const [id, text] of Object.entries(STOCK_OVERRIDES)) {
+    assert.doesNotMatch(text, /(?<!https:\/\/)velta\.cc/, `id ${id}`);
+  }
+  assert.match(VELTA_WELCOME, /https:\/\/velta\.cc\/web\n/);
+  assert.match(VELTA_WELCOME, /are at https:\/\/velta\.cc\.\n/);
+});
