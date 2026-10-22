@@ -3373,7 +3373,7 @@ async fn bg_rpc_with(
 // on the right, and consecutive messages of one chat grouped into a single
 // conversation. Falls back to plain title/body when the Kotlin side is not
 // reachable (application context not handed over yet).
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", test))]
 /// "@Name" mention of `name` in `text`: case-insensitive, "@" at a word
 /// start (not an e-mail "a@b"), word boundary after the name. Mirrors
 /// mentions.js findMentions for a single member (docs/mentions.md).
@@ -3412,6 +3412,7 @@ mod mention_tests {
     }
 }
 
+#[cfg(target_os = "android")]
 async fn bg_notify_incoming(
     app: &tauri::AppHandle,
     tx: &tokio::sync::mpsc::UnboundedSender<String>,
