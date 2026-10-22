@@ -67,6 +67,7 @@ test("#28 reconnect pauses IO again when the device is offline", async () => {
     await flush();
     assert.ok(await p);
     assert.deepEqual(methods(), [
+      "set_stock_strings",
       "select_account",
       "start_io_for_all_accounts",
       "stop_io_for_all_accounts",
@@ -86,7 +87,7 @@ test("#28 reconnect leaves IO armed when the device is online", async () => {
     const p = core.reconnect();
     await flush();
     assert.ok(await p);
-    assert.deepEqual(methods(), ["select_account", "start_io_for_all_accounts"]);
+    assert.deepEqual(methods(), ["set_stock_strings", "select_account", "start_io_for_all_accounts"]);
   } finally {
     if (saved === undefined) delete globalThis.navigator;
     else Object.defineProperty(globalThis, "navigator", { value: saved, configurable: true });

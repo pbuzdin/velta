@@ -7,6 +7,8 @@
 // Method names, parameter order and response shapes follow
 // deltachat-jsonrpc/src/api.rs and api/types/*.
 
+import { STOCK_OVERRIDES, SUPPRESSED_DEVICE_LABELS } from "./velta-strings.js";
+
 let nextId = 1;
 
 // Which category chip a chat belongs to in the chat-list bar (#57). "all" is
@@ -217,6 +219,7 @@ export class JsonRpcCore extends EventTarget {
     // answer RPC within a few seconds is a broken/stale service — better to
     // fall back quickly than to hang the whole app on 30s timeouts.
     const ids = await this._callWithTimeout(10000, "get_all_account_ids");
+    await this._applyVeltaStrings();
     if (ids.length === 0) {
       this.accountId = await this._callWithTimeout(4000, "add_account");
     } else {
@@ -246,6 +249,8 @@ export class JsonRpcCore extends EventTarget {
     for (const { reject } of this.pending.values()) reject(new Error("reconnecting"));
     this.pending.clear();
     await this.transport.setReceiver(this._onLine);
+    // A restarted service is a fresh core process: stock overrides are gone.
+    await this._applyVeltaStrings();
     if (!this._isCurrentAccount(accountEpoch)) return false;
     await this._call("select_account", accountId);
     await this._startIo();
@@ -981,6 +986,26 @@ export class JsonRpcCore extends EventTarget {
   // Account-scoped promises return entry-account data even after a switch.
   // Callers must check accountEpoch before using results in the UI; the core
   // suppresses stale cache writes/events, but does not cancel source-account RPCs.
+  // Velta wording for core's device-chat texts (velta-strings.js). Stock
+  // strings are process-wide and in-memory, so this runs on every boot and
+  // reconnect, before any configure can build the welcome message.
+  async _applyVeltaStrings() {
+    try { await this._call("set_stock_strings", STOCK_OVERRIDES); }
+    catch (e) { console.warn("set_stock_strings failed", e); }
+  }
+
+  // Before the first configure of an account: block core's Delta Chat
+  // welcome photo. Configured accounts are left alone (their device chat
+  // already has whatever it had; re-adding nothing is a no-op anyway).
+  async _prepareFirstConfigure(accountId) {
+    try {
+      if (await this._call("is_configured", accountId)) return;
+      for (const label of SUPPRESSED_DEVICE_LABELS) {
+        await this._call("add_device_message", accountId, label, null);
+      }
+    } catch (e) { console.warn("device label prep failed", e); }
+  }
+
   async getAccount() {
     const { accountId } = this;
     const acc = await this._call("get_account_info", accountId);
@@ -1136,6 +1161,7 @@ export class JsonRpcCore extends EventTarget {
   // Adds a relay from a dcaccount:/dclogin: code. Runs the core's configure
   // (ConfigureProgress events flow as "configure-progress") and restarts I/O.
   async addTransportFromQr(qr) {
+    await this._prepareFirstConfigure(this.accountId);
     return this._call("add_transport_from_qr", this.accountId, qr);
   }
 
@@ -1146,6 +1172,7 @@ export class JsonRpcCore extends EventTarget {
   // ConfigureProgress events flow as "configure-progress", same as
   // configureWithQr. No-op if the account is already configured.
   async initTransports(qr = null) {
+    await this._prepareFirstConfigure(this.accountId);
     // The core method itself ends with start_io() on success.
     await this._callWithTimeout(180000, "init_transports", this.accountId, qr);
   }
@@ -1903,6 +1930,7 @@ export class JsonRpcCore extends EventTarget {
     // at the top level; the nested imap/smtp object is the core's internal
     // struct and serde rejects it with "missing field `password`". Empty
     // server fields are omitted so chatmail autoconfig fills them in.
+    await this._prepareFirstConfigure(accountId);
     await this._call("add_transport", accountId, { addr, password });
     await this.transport.checkpoint?.().catch(() => {});
     this._emitAccount("chat-updated", { chatId: 0 }, accountEpoch);

@@ -801,7 +801,7 @@ html.no-hyphens .msg-text { -webkit-hyphens: manual; hyphens: manual; }
 .msg-text a, .msg-text code, .msg-text pre, .msg-text kbd, .msg-text samp,
 .msg-text .hashtag, .msg-text .msg-nohyph, .msg-cmd { -webkit-hyphens: manual; hyphens: manual; }
 .msg-text a {
-  color: var(--accent);
+  color: var(--accent-text-in);
   /* A swipe may start on an inline link (#35): no native link drag. Text
      selection / long-press are untouched (user-select is not changed). */
   -webkit-user-drag: none;

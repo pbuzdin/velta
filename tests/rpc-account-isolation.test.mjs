@@ -342,9 +342,13 @@ test("mock deleteChat removes the chat instead of clearing its messages", async 
 });
 
 test("configureWithCredentials sends a flat login with a top-level password", async () => {
-  const { core, calls } = fixture({ add_transport: () => {} });
+  const { core, calls } = fixture({ add_transport: () => {}, is_configured: () => false, add_device_message: () => null });
   await core.configureWithCredentials("source@example.org", "secret");
-  assert.deepEqual(calls, [["add_transport", A, { addr: "source@example.org", password: "secret" }]]);
+  assert.deepEqual(calls, [
+    ["is_configured", A],
+    ["add_device_message", A, "core-welcome-image", null], // no Delta Chat welcome photo
+    ["add_transport", A, { addr: "source@example.org", password: "secret" }],
+  ]);
 });
 
 test("getAllAccounts marks the selection captured before its first await", async () => {

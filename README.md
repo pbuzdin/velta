@@ -1147,6 +1147,14 @@ Enter/Tab insert one without sending it.
 
 </details>
 
+### Device messages in Velta's voice
+
+The device chat ("Device Messages") speaks as Velta, not Delta Chat: its
+description, the update reminder and the occasional "enjoying" note are
+Velta texts, and a new profile gets one Velta welcome message (what Velta
+adds on top of chatmail) instead of Delta Chat's welcome photo and text.
+Profiles that already existed are left as they are.
+
 ## UX (design decisions)
 
 <details>

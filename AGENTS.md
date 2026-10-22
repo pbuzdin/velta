@@ -78,6 +78,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── format.js         # time/size/pageBounds helpers; timeTag/stampTime emit <time datetime>; formatSplashVersion (#127)
 │   │   ├── mock-core.js      # in-memory demo core implementing the JSON-RPC surface (NOT in the prod import graph: transport imports it dynamically)
 │   │   ├── rpc-core.js       # JsonRpcCore wrapper over transports + event mapping
+│   │   ├── velta-strings.js  # Velta wording for core device-chat texts: set_stock_strings overrides (hint 70, welcome 71, update reminder 86, donation 193) applied in init()/reconnect(); "core-welcome-image" label claimed before an account's first configure (no Delta photo). No core/ change — see docs note in §6
 │   │   ├── transport.js      # backend auto-detection (Tauri, WebSocket, HTTP, mock)
 │   │   ├── transport-worker-wasm.js # wasm transport: hosts the core in a module worker; memfs file passthrough (readCoreFile/readCoreFileList/writeCoreFile), single-tab Web Locks gate
 │   │   ├── worker-wasm.js    # wasm worker: OPFS snapshot (memfs tree + SQLite dbs via sqlite_export/import) restored before core init (persist boot FAILS LOUDLY without OPFS — #106); numbered snap-<n> + `current` pointer written last (#123); serialized, awaited after login/restore; memfs file ops
@@ -2268,6 +2269,18 @@ next push or the tainted commits come back.
 - **The wasm rename needs a rebuilt wasm.** wasm-bindgen glue embeds its output name (`velta_wasm_bg.wasm`), so renaming old `deltachat_wasm*` artifacts doesn't work; `build-pwa.mjs` refuses them (f37ebdf). Use a `wasm-core (opt-in)` run on/after f92d41e, then `wasm-opt -Os`.
 - **velta.cc/web/ (GitHub Pages) is CI-published** by `.github/workflows/pwa-web.yml` after each successful master wasm-core run (or dispatch): it rebuilds the dist from the run's wasm with NO `--ws-proxy` (the workflow fails if `wsProxyUrl` is non-empty — the relay host must never appear on public velta.cc) and commits `web/` to the `website` branch (normal commit, no `.br/.gz`). A cross-origin page mints `/new` through the relay's `/cm-new/` (worker-wasm `relayBase`); a relay used from there must list `https://velta.cc` in `ws_allowed_origins` and both nginx origin maps. Separate origin = separate profiles/OPFS/push subscription from the relay-hosted PWA.
 - **Remove stale files from the host after a renaming deploy.** The deploy copies a fresh tree, but check that no `wasm/deltachat_wasm*` (or other renamed leftovers) remain in `/var/www/html/app`; the SW VERSION covers file names, so the new cache never references them.
+
+### Device-chat texts (Velta wording, no core change)
+
+Core writes its device messages from stock strings. `app/js/velta-strings.js`
+holds Velta's versions and `JsonRpcCore._applyVeltaStrings()` sends them with
+`set_stock_strings` on every boot/reconnect (they are in-memory, process-wide).
+The Velta welcome IS core's `core-welcome` message (StockMessage 71), so core
+adds it once, at the first configure only; already-configured accounts carry
+that label and never get it; imported backups are skipped by core.
+`_prepareFirstConfigure()` claims `core-welcome-image` (empty message) on
+unconfigured accounts so the Delta Chat photo never lands. Tests:
+`tests/velta-device-messages.test.mjs`.
 
 ## 7. Testing strategy
 

@@ -177,6 +177,7 @@ const screens = [
   ['chat-ada-top', async p => { await openChat(p, 'Ada Byron'); await p.evaluate(() => { for (const e of document.querySelectorAll('*')) if (e.scrollHeight > e.clientHeight + 50 && /auto|scroll/.test(getComputedStyle(e).overflowY)) e.scrollTop = 0 }); await p.waitForTimeout(400) }],
   ['chat-group-card', async p => { await openChat(p, 'Weekend Crew'); await toBottom(p); await p.locator('.msg-groupcall').first().evaluate(e => e.scrollIntoView({ block: 'center' })).catch(() => {}); await p.waitForTimeout(300) }],
   ['chat-devs', async p => { await openChat(p, 'Velta Devs'); await toBottom(p) }],
+  ['device-chat', async p => { await openChat(p, 'Device Messages') }],
   ['chatinfo-group', async p => { await openChat(p, 'Weekend Crew'); await p.locator('.chat-head-text').first().click(); await p.waitForTimeout(800) }],
   ['msg-sheet', async p => { await openChat(p, 'Ada Byron'); await toBottom(p); await p.locator('.msg-row .bubble').last().click({ button: 'right' }).catch(() => {}); await p.waitForTimeout(400) }],
   ['toast', async p => { await p.evaluate(async () => { const { toast } = await import('./js/ui.js'); toast('Camera access is blocked — the call continues with audio only.', 60000) }); await p.waitForTimeout(300) }],

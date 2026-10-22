@@ -145,7 +145,7 @@ test("reconnect fails parked and salvaged polls and the loop recovers", async t 
 
   transport.reconnect = async () => true;
   core._call = async method => {
-    if (method === "select_account" || method === "start_io_for_all_accounts") return;
+    if (method === "set_stock_strings" || method === "select_account" || method === "start_io_for_all_accounts") return;
     throw new Error(`unexpected RPC: ${method}`);
   };
   assert.equal(await core.reconnect(), true);

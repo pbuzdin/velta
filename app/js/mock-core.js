@@ -4,6 +4,7 @@
 // to run against the real core.
 
 import { pageBounds } from "./format.js";
+import { VELTA_WELCOME } from "./velta-strings.js";
 
 const CONTACTS = [
   { id: 2, name: "Ada Byron", addr: "ada@nine.testrun.org", color: "#c6853f", online: true, verified: true, avatar: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23c6853f'/%3E%3Cstop offset='1' stop-color='%23c65a8e'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23g)'/%3E%3Ccircle cx='32' cy='24' r='11' fill='%23fff' opacity='.92'/%3E%3Cpath d='M12 56c2-12 10-17 20-17s18 5 20 17z' fill='%23fff' opacity='.92'/%3E%3C/svg%3E" },
@@ -179,7 +180,8 @@ export class MockCore extends EventTarget {
     ];
     this.chats[1].messages = [
       this._mkMsg(this.chats[1], { kind: "service", text: "Messages are end-to-end encrypted.", ts: now - 86400e3 * 3 }),
-      this._mkMsg(this.chats[1], { from: 1, text: "Welcome to Velta 🎉 This account is connected through the chatmail relay nine.testrun.org.", ts: now - 86400e3 * 3 + 60e3 }),
+      // What a freshly configured account shows (velta-strings.js).
+      this._mkMsg(this.chats[1], { from: 2, text: VELTA_WELCOME, ts: now - 86400e3 * 3 + 60e3 }),
     ];
     // Read-more demo pair in the pinned 1:1 chat: a truncated original
     // (stored body exists → button) and a forwarded copy of a truncated
