@@ -353,3 +353,11 @@ message_id)` (reply ids, oldest first). jsonrpc-only for now — the wasm surfac
 needs the same two methods when the PWA picks the feature up. Until a core
 build ships them, the chat view falls back to exact counts over the loaded
 window only (chip hidden while older pages are unloaded).
+2026-10-22 follow-up: both the replies and the quoted message are scoped to
+`chat_id` (`AND quoted.chat_id=?`), the SQL is a Rust `\`-continued literal
+(no embedded whitespace runs), and the chat.rs op anchors on the
+`/// Returns true if device message…` doc line so that comment stays on
+`was_device_msg_ever_added`. `get_reply_ids` also takes `chat_id`. No index on
+`mime_in_reply_to`: it would need a migration/dbversion bump inside the
+vendored core (collides with upstream's numbering on re-vendor); the query is
+a per-chat scan through the existing chat_id index. UI: docs/reply-threads.md.

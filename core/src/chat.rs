@@ -4892,7 +4892,6 @@ pub async fn add_device_msg(
     add_device_msg_with_importance(context, label, msg, false, time()).await
 }
 
-/// Returns true if device message with a given label was ever added to the device chat.
 // Velta #14 reply-thread queries: the chat view's "N replies" chip and
 // thread overlay. Replies are messages whose mime_in_reply_to carries the
 // quoted message's rfc724_mid (set by Message::set_quote). Scoped to the
@@ -4926,8 +4925,13 @@ pub async fn get_reply_counts(context: &Context, chat_id: ChatId) -> Result<Vec<
     context
         .sql
         .query_map_vec(
-            "SELECT quoted.id, COUNT(replies.id) FROM msgs replies JOIN msgs quoted              ON replies.mime_in_reply_to = quoted.rfc724_mid              WHERE replies.chat_id=? AND replies.mime_in_reply_to IS NOT NULL              GROUP BY quoted.id",
-            (chat_id,),
+            "SELECT quoted.id, COUNT(replies.id) \
+             FROM msgs replies \
+             JOIN msgs quoted ON quoted.rfc724_mid = replies.mime_in_reply_to \
+             WHERE replies.chat_id=? AND quoted.chat_id=? \
+             AND replies.mime_in_reply_to IS NOT NULL AND replies.mime_in_reply_to != '' \
+             GROUP BY quoted.id",
+            (chat_id, chat_id),
             |row| {
                 let id: MsgId = row.get(0)?;
                 let n: u32 = row.get(1)?;
@@ -4937,6 +4941,7 @@ pub async fn get_reply_counts(context: &Context, chat_id: ChatId) -> Result<Vec<
         .await
 }
 
+/// Returns true if device message with a given label was ever added to the device chat.
 pub async fn was_device_msg_ever_added(context: &Context, label: &str) -> Result<bool> {
     ensure!(!label.is_empty(), "empty label");
     let exists = context

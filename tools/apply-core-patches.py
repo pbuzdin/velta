@@ -722,7 +722,9 @@ async fn velta_transport_addr(context: &Context, transport_id: u32) -> String {
         id="#14 reply-thread queries (chat.rs)",
         file="core/src/chat.rs",
         applied="Velta #14 reply-thread queries",
-        anchor="pub async fn was_device_msg_ever_added(context: &Context, label: &str) -> Result<bool> {\n",
+        # Anchored on the doc comment so `/// Returns true if device
+        # message…` stays attached to was_device_msg_ever_added.
+        anchor="/// Returns true if device message with a given label was ever added to the device chat.\n",
         where="before",
         text="""// Velta #14 reply-thread queries: the chat view's "N replies" chip and
 // thread overlay. Replies are messages whose mime_in_reply_to carries the
@@ -757,8 +759,13 @@ pub async fn get_reply_counts(context: &Context, chat_id: ChatId) -> Result<Vec<
     context
         .sql
         .query_map_vec(
-            "SELECT quoted.id, COUNT(replies.id) FROM msgs replies JOIN msgs quoted              ON replies.mime_in_reply_to = quoted.rfc724_mid              WHERE replies.chat_id=? AND replies.mime_in_reply_to IS NOT NULL              GROUP BY quoted.id",
-            (chat_id,),
+            "SELECT quoted.id, COUNT(replies.id) \\
+             FROM msgs replies \\
+             JOIN msgs quoted ON quoted.rfc724_mid = replies.mime_in_reply_to \\
+             WHERE replies.chat_id=? AND quoted.chat_id=? \\
+             AND replies.mime_in_reply_to IS NOT NULL AND replies.mime_in_reply_to != '' \\
+             GROUP BY quoted.id",
+            (chat_id, chat_id),
             |row| {
                 let id: MsgId = row.get(0)?;
                 let n: u32 = row.get(1)?;
