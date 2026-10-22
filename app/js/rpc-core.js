@@ -100,6 +100,7 @@ export class JsonRpcCore extends EventTarget {
     this._accountTransitionBusy = false;
     this.pending = new Map();     // rpc id -> {resolve, reject, onLate?}
     this.msgIdCache = newMsgIdCache();  // chatId -> [msgIds ascending]
+    this._msgIdGen = 0; // bumped by every id-cache invalidation (see getMessageIds)
     this._sendingIds = new Set(); // msgIds handed to the core, not yet delivered/failed
     this._sendingBackstopTimer = null;
     // Latest known delivery state per outgoing msgId (MsgDelivered/MsgRead/
@@ -701,6 +702,7 @@ export class JsonRpcCore extends EventTarget {
 
   _invalidateChat(chatId, epoch) {
     if (!this._isCurrentAccount(epoch)) return;
+    this._msgIdGen++;
     if (chatId) this.msgIdCache.delete(chatId);
     else this.msgIdCache.clear(); // 0 = unknown/any chat: drop all cached id lists
     this._emit("chat-updated", { chatId });
@@ -1546,8 +1548,14 @@ export class JsonRpcCore extends EventTarget {
     const { accountId, accountEpoch } = this;
     let ids = this.msgIdCache.get(chatId);
     if (!ids) {
+      // An invalidation (IncomingMsg/MsgsChanged…) that lands while this
+      // fetch is in flight means the answer may predate the new message:
+      // return it, but do not cache it — caching it pinned a stale id list
+      // that hid the new message from history (even across reopen) while
+      // the chat list already showed it.
+      const gen = this._msgIdGen;
       ids = await this._call("get_message_ids", accountId, chatId, false, false);
-      if (this._isCurrentAccount(accountEpoch)) this.msgIdCache.set(chatId, ids);
+      if (this._isCurrentAccount(accountEpoch) && gen === this._msgIdGen) this.msgIdCache.set(chatId, ids);
     }
     return ids;
   }

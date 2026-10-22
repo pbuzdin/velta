@@ -572,7 +572,8 @@ export class ChatView {
     // come from the core instead — exact for every chat — and "Show replies"
     // opens the thread overlay.
     this._replyCounts = new Map();
-    this._coreReplies = false;
+    this._coreReplies = false;      // the backend answered get_reply_counts
+    this._coreReplyCounts = new Map(); // parent id -> count, whole chat (core)
     this._coreReplyTimer = 0;
     this.thread = null;           // open thread panel: { parentId }
     this.threadPanel = null;      // built next to the history list
@@ -677,6 +678,7 @@ export class ChatView {
   // saves a second getChat per open (#25); fetched here when omitted.
   async open(chatId, chat = null) {
     if (this.thread) this._closeThread();
+    this._coreReplyCounts = new Map(); // per chat; refetched after the first page
     // Retire the old scroller, composer and pending work before yielding.
     this.close();
     // The row cache survives switches (keys are per-chat message ids), but
@@ -1291,7 +1293,7 @@ export class ChatView {
     return JSON.stringify([
       m.viewtype, m.downloadState, m.text, m.state, m.edited, m.starred,
       m.reactions, m.filePath, m.fileName, m.duration, m.fwdFrom, m.quote, m.error,
-      m.originalMsgId, m.transfer?.pct, m.transfer?.failed, m.replies,
+      m.originalMsgId, m.transfer?.pct, m.transfer?.failed, m.replies || 0,
       // @mention chips depend on the member list (names + codes).
       m.text?.includes("@") ? this._mentionKey || "" : "",
     ]);
@@ -1337,14 +1339,21 @@ export class ChatView {
   _logSignatureDiff(key, a, b) {
     try {
       const fa = JSON.parse(a), fb = JSON.parse(b);
-      const names = ["viewtype","downloadState","text","state","edited","starred","reactions","filePath","fileName","duration","fwdFrom","quote","error","originalMsgId"];
+      // Same order as _rowSignature.
+      const names = ["viewtype","downloadState","text","state","edited","starred","reactions","filePath","fileName","duration","fwdFrom","quote","error","originalMsgId","transferPct","transferFailed","replies","mentions"];
       const diffs = [];
       for (let i = 0; i < names.length; i++) {
         if (JSON.stringify(fa[i]) !== JSON.stringify(fb[i])) {
           diffs.push(`${names[i]}: ${JSON.stringify(fa[i])} -> ${JSON.stringify(fb[i])}`);
         }
       }
-      diagnosticsSink.append("warning", `row ${key} rebuilt: ${diffs.join("; ") || "no field diff"}`);
+      // Expected one-off rebuilds (reply count, mention names, transfer
+      // progress) and identical signatures are not news: log only a real
+      // content flip — that is what this line exists to catch.
+      const benign = /^(replies|mentions|transferPct|transferFailed): /;
+      const real = diffs.filter(d => !benign.test(d));
+      if (real.length) diagnosticsSink.append("warning", `row ${key} rebuilt: ${real.join("; ")}`);
+      else debugLog(`row ${key} rebuilt: ${diffs.join("; ") || "no field diff"}`);
     } catch (e) {
       diagnosticsSink.append("warning", `row ${key} rebuilt (diff failed: ${e})`);
     }
@@ -1354,6 +1363,7 @@ export class ChatView {
     if (!this._isCurrent() || !this.chat || chatId !== this.chat.id) return;
     const item = this.msgIndex.get(msg.id);
     if (!item) return;
+    msg = this._withReplies(msg); // refetched copies carry no reply count
     const sig = this._rowSignature(msg);
     const prevSig = this._rowSigCache.get(item.key);
     if (item.msg && prevSig === sig) {
@@ -1428,6 +1438,36 @@ export class ChatView {
     this._scheduleCoreReplyRefresh();
   }
 
+  // Effective reply count for a parent. Core counts cover the whole chat
+  // (parent and replies need not be loaded); the loaded-window count tops it
+  // up for replies the core has not indexed yet (a reply that just landed
+  // before the debounced core refresh). Without the core: window counts,
+  // only when no older page is missing (they would under-count).
+  _replyCountFor(id) {
+    const w = this._replyCounts.get(id)?.count || 0;
+    if (this._coreReplies) return Math.max(this._coreReplyCounts.get(id) || 0, w);
+    return this.hasMore ? 0 : w;
+  }
+
+  // Stamp the effective count on a message object (row signature input), so
+  // refetched copies (no `replies` field) do not look changed and rebuild.
+  _withReplies(msg) {
+    const c = this._replyCountFor(msg.id);
+    return msg.replies === c ? msg : { ...msg, replies: c };
+  }
+
+  _restampReplies() {
+    for (const item of this.items) {
+      if (item.type !== "msg") continue;
+      const c = this._replyCountFor(item.msg.id);
+      if ((item.msg.replies || 0) !== c && this.chat?.id != null) {
+        this.onMsgUpdated(this.chat.id, { ...item.msg, replies: c });
+      } else {
+        item.msg.replies = c;
+      }
+    }
+  }
+
   // Full recount after deletions (incremental counting lives in
   // _annotateMessages; deletion removes messages from the store directly).
   // Scans this.items only — must NOT re-annotate, or msgIndex entries would
@@ -1445,19 +1485,8 @@ export class ChatView {
         cur.count += 1;
       }
     }
-    for (const item of this.items) {
-      if (item.type !== "msg") continue;
-      const c = this._coreReplies
-        ? (this._replyCounts.get(item.msg.id)?.count ?? item.msg.replies ?? 0)
-        : counts.get(item.msg.id)?.count || 0;
-      if (item.msg.replies !== c && this.chat?.id != null) {
-        item.msg = { ...item.msg, replies: c };
-        this.onMsgUpdated(this.chat.id, item.msg);
-      } else {
-        item.msg.replies = c;
-      }
-    }
-    this._replyCounts = this._coreReplies ? this._replyCounts : counts;
+    this._replyCounts = counts;
+    this._restampReplies();
   }
 
   // Core-backed counts (Velta #14 patch): exact for every chat, no hasMore
@@ -1475,19 +1504,8 @@ export class ChatView {
     try { counts = await this.core.getReplyCounts(this.chat.id); } catch { return; }
     if (!counts || !this._isCurrent(session)) return;
     this._coreReplies = true;
-    this._replyCounts = new Map(
-      Object.entries(counts).map(([id, n]) => [Number(id), { count: n, newestId: 0, newestTs: 0 }]),
-    );
-    for (const item of this.items) {
-      if (item.type !== "msg") continue;
-      const c = this._replyCounts.get(item.msg.id)?.count || 0;
-      if (item.msg.replies !== c && this.chat?.id != null) {
-        item.msg = { ...item.msg, replies: c };
-        this.onMsgUpdated(this.chat.id, item.msg);
-      } else {
-        item.msg.replies = c;
-      }
-    }
+    this._coreReplyCounts = new Map(Object.entries(counts).map(([id, n]) => [Number(id), Number(n) || 0]));
+    this._restampReplies();
   }
 
   // "Show replies" (context menu or the round side button): opens the
@@ -1647,6 +1665,7 @@ export class ChatView {
         readMarker: m.id === this.readMarkerId,
       };
       this.msgIndex.set(m.id, item);
+      item.msg = this._withReplies(m);
       if (m.unread) this._unreadIds.add(m.id);
       const qid = Number(m.quote?.id || 0);
       if (qid) {
@@ -1659,9 +1678,9 @@ export class ChatView {
         // the keyed scroller ignores reference swaps, so a row-level update
         // is the only way the chip appears without a full rebuild.
         const pit = this.msgIndex.get(qid);
-        if (pit?.type === "msg" && this.chat?.id != null) {
-          pit.msg = { ...pit.msg, replies: count };
-          this.onMsgUpdated(this.chat.id, pit.msg);
+        const eff = this._replyCountFor(qid);
+        if (pit?.type === "msg" && this.chat?.id != null && (pit.msg.replies || 0) !== eff) {
+          this.onMsgUpdated(this.chat.id, { ...pit.msg, replies: eff });
         }
       }
       out.push(item);
@@ -2169,9 +2188,7 @@ export class ChatView {
     // "N replies" chip: with the #14 core patch the counts are core-exact;
     // otherwise only when the whole older history is loaded (pages still
     // ahead would silently under-count).
-    const replyN = this._coreReplies
-      ? (m.replies ?? 0)
-      : this.hasMore ? 0 : (m.replies ?? (this._replyCounts.get(m.id)?.count || 0));
+    const replyN = this._replyCountFor(m.id);
     // Passive count next to the timestamp (phones; desktop has the side
     // button). Not a tap target — the side button and the menu open threads.
     const repliesChip = replyN > 0
@@ -2901,9 +2918,7 @@ export class ChatView {
     const items = [];
     // No reply without a composer (read-only chats).
     if (!this.readOnly) items.push({ label: "Reply", pair: "send", icon: ICO.reply, onClick: () => this._setReply(item) });
-    const replyN = this._coreReplies
-      ? (m.replies ?? 0)
-      : this.hasMore ? 0 : (m.replies ?? (this._replyCounts.get(m.id)?.count || 0));
+    const replyN = this._replyCountFor(m.id);
     if (replyN > 0) items.push({ label: "Show replies", icon: ICO.reply, onClick: () => this._showReplies(m) });
     // Core mirrors these guards (own + plain text + non-empty); the menu just
     // hides the entry where the core would refuse. P2P chats keep a separate
