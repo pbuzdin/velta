@@ -256,7 +256,7 @@ quilt `tools/apply-core-patches.py`** (anchor + marker ops; never hand-edit
 `core/`, never apply the wasm series in `docs/research/wasm-patches/` to
 production `core/`). The 2.63.0 re-vendor (2aac743) silently dropped two
 hand-made core edits that were never quilt ops (#12, #13 below); v1.4.64
-shipped without them. Restored 2026-10-10. Current quilt at core 2.64.0 (23 ops, 6 files;
+shipped without them. Restored 2026-10-10. Current quilt at core 2.64.0 (25 ops, 8 files;
 intent in VENDORISSUES.MD):
 
 | # | What | Files |
@@ -266,6 +266,7 @@ intent in VENDORISSUES.MD):
 | #11 | "Use for sending" pin: `ui.velta.send_transport` first, upstream recency failover, 5-min dead-pin backoff; since 2.64 a server-rejected send (upstream `smtp_failure`) backs the pin off too, so upstream's fallback wins until the backoff expires / the pin connects / a send on it succeeds | smtp.rs, smtp_tests.rs |
 | #12 | `background_fetch` 10 s bound + I/O restart for dead IDLE sockets (#42/#25 P8) | context.rs |
 | #13 | push-token accepted/rejected Info/Warning events (Diagnostics chat) | imap.rs |
+| #14 | reply-thread queries: `chat::get_reply_counts(chat)` (quoted msg → count, both sides scoped to the chat) + `get_reply_ids(chat, msg)` over `msgs.mime_in_reply_to`; thin jsonrpc wrappers. 2 ops; the chat.rs op anchors on the `/// Returns true if device message…` doc line so that comment stays on `was_device_msg_ever_added`. No index/migration (per-chat scan via the chat_id index; a dbversion bump would collide with upstream migrations) | chat.rs, deltachat-jsonrpc/src/api.rs |
 
 ```bash
 python3 tools/apply-core-patches.py apply        # re-insert missing ops (fails, writes nothing, on a moved anchor)
@@ -2298,7 +2299,7 @@ unconfigured accounts so the Delta Chat photo never lands. Tests:
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 125 files, 874 tests as of 2026-10-20 (1.4.76; +group calls, call permissions,
+whole set — 127 files, 888 tests as of 2026-10-22 (post-1.4.76: +reply threads / thread panel, Unread chip, Velta device messages; 1.4.76: +group calls, call permissions,
 network resume, contrast/token guards, webxdc tokens; 1.4.75: narrow-viewport CSS guards, device info,
 chat appearance, hyphenation, settings export/apply, reactions scale):
 
@@ -2963,6 +2964,29 @@ do-not-regress rules; dates mark when the lesson was learned.
   switch) because rows re-mount on every scroll pass — a new per-call RPC
   per remount would multiply. Mock answers with Completed + the stored
   duration; a demo call message lives in the Ada chat.
+- **Reply threads (2026-10-22, VENDORISSUES #14) — docs/reply-threads.md.**
+  Counts come from the core (`get_reply_counts`, exact even with unloaded
+  pages); without the #14 core only when `hasMore` is false (window counts
+  would under-count). Each counted bubble shows a passive
+  `.msg-replies-count` in the meta row (phones, ≤600px; plain meta color,
+  never a tap target) and a round `.msg-thread-btn` beside the bubble
+  (right of incoming, left of outgoing; 32px disc in a 44px hit box,
+  `aria-label="Show N replies"`), shown from `THREAD_BUTTON_MIN_REPLIES`
+  (chat-view.js, one constant — set 2 to require >1). The button and the
+  menu's "Show replies" open the **thread panel**: a non-modal
+  `role=dialog` bottom sheet after `#history-scroll` (70% of the chat view,
+  own `.thread-body` scroll, header = "Thread · N replies" + the quoted
+  original + close). History stays visible above it, the composer stays
+  below, locked to the parent (quote re-locked after each send, quote-bar
+  X hidden). Escape (panel or composer) and the close button close it;
+  focus moves to the close button on open and back to the opener on close.
+  Closes on chat switch and parent deletion. Rows inside the panel render
+  with `{ inThread: true }` (no side button). Tests:
+  `tests/reply-counts.test.mjs`.
+- **Unread category chip (2026-10-22).** The chat list's category bar has
+  an Unread chip that cuts across the kind chips (any kind can be unread),
+  hideable like the others and part of the swipe cycle; its empty state
+  reuses "No chats in this category". Tests: `tests/categories-bar.test.mjs`.
 - **Chat open position + go-down (post-1.4.38, issue #14; read tracking
   1.4.40)** — open() lands on the manual read marker or the first unread
   message (`get_first_unread_message_of_chat`; the "Unread messages" line

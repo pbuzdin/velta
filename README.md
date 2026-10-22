@@ -1059,6 +1059,29 @@ chat header instead.
 </details>
 
 <details>
+<summary>Reply threads</summary>
+
+When messages quote a bubble, that bubble counts its replies. On a phone the
+count ("2 replies") sits next to the time; on every screen a small round
+button with a reply icon and the count sits beside the bubble. Tap it (or
+choose **Show replies** in the message menu) to open the thread panel: a
+sheet over the lower part of the chat with the original message on top and
+every reply beneath. The composer stays visible and replies into the
+thread. Close the panel with its X, Escape, or by switching chats. See
+[docs/reply-threads.md](docs/reply-threads.md).
+
+</details>
+
+<details>
+<summary>Chat list: Unread chip</summary>
+
+The category bar above the chat list has an **Unread** chip that shows
+unread chats of every kind. Hide it like the other chips; it is part of the
+swipe cycle between categories.
+
+</details>
+
+<details>
 <summary>Reading chats: unread position, read marker, go-down</summary>
 
 Opening a chat no longer marks everything read. The chat opens at a stored
@@ -1266,7 +1289,7 @@ Reply quotes use a dedicated palette per bubble and theme (the generic accent/di
 - Group creation, contact discovery, QR invites, and real-time message rendering all work in basic flows but have not been stress-tested.
 - Logging to `velta.log` is disabled in the stable branch; use the status pill and browser/Tauri dev tools to diagnose issues.
 - On Windows, the app needs the sidecar binary to talk to the real core. If the sidecar fails to start the frontend falls back to the mock core.
-- On Android, the in-process core rides a built-in foreground service (`CoreService`): messages keep syncing and arrive as conversation notifications while the app is backgrounded, including after Home — see [Notifications](#notifications). Screen-off delivery still needs the unrestricted-battery prompt. Since 1.4.50 a persisted 15-minute scheduled fetch also wakes the core when the OS freezes the backgrounded process (up to that cadence, deliveries wait for the next app open or a push wake-up; installing a UnifiedPush distributor restores instant delivery). A separate headless service APK (`velta-core-service/`) still exists for the PWA-in-browser mode.
+- On Android, the in-process core rides a built-in foreground service (`CoreService`): messages keep syncing and arrive as conversation notifications while the app is backgrounded, including after Home — see [Notifications](#notifications). Screen-off delivery still needs the unrestricted-battery prompt. Since 1.4.50 a persisted 15-minute scheduled fetch also wakes the core when the OS freezes the backgrounded process (up to that cadence, deliveries wait for the next app open or a push wake-up; installing a UnifiedPush distributor restores instant delivery). The former headless service APK for the PWA-in-browser mode was archived on 2026-10-20 (`archive/velta-core-service/`, unmaintained, pinned to core 2.62); the PWA no longer needs it.
 
 </details>
 
