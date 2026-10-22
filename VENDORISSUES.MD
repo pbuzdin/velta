@@ -361,3 +361,9 @@ window only (chip hidden while older pages are unloaded).
 `mime_in_reply_to`: it would need a migration/dbversion bump inside the
 vendored core (collides with upstream's numbering on re-vendor); the query is
 a per-chat scan through the existing chat_id index. UI: docs/reply-threads.md.
+2026-10-22 fix (Android report: no counts in a group): incoming replies store
+the raw `In-Reply-To` header (`<id@host>`) while `rfc724_mid` is bare, so the
+join matched none of them; and every message carries In-Reply-To (the chat's
+latest message), so plain messages after a parent would count as replies.
+Both queries now match `TRIM(mime_in_reply_to, '<> ')` and require a quote
+param (`q`) on a non-forward (no `a`) row.

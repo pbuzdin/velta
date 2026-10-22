@@ -4894,8 +4894,11 @@ pub async fn add_device_msg(
 
 // Velta #14 reply-thread queries: the chat view's "N replies" chip and
 // thread overlay. Replies are messages whose mime_in_reply_to carries the
-// quoted message's rfc724_mid (set by Message::set_quote). Scoped to the
-// chat so cross-chat Message-ID collisions cannot bleed in.
+// quoted message's rfc724_mid (set by Message::set_quote). Every message
+// carries In-Reply-To (the chat's latest message), so only rows with a quote
+// param (`q`) that are not forwards (`a`) count; incoming headers keep their
+// <angle brackets>, hence the TRIM. Scoped to the chat on both sides so
+// cross-chat Message-ID collisions cannot bleed in.
 pub async fn get_reply_ids(
     context: &Context,
     chat_id: ChatId,
@@ -4911,7 +4914,10 @@ pub async fn get_reply_ids(
     context
         .sql
         .query_map_vec(
-            "SELECT id FROM msgs WHERE chat_id=? AND mime_in_reply_to=? ORDER BY timestamp, id",
+            "SELECT id FROM msgs replies \
+             WHERE chat_id=? AND TRIM(mime_in_reply_to, '<> ')=? AND (char(10) || replies.param) LIKE '%' || char(10) || 'q=%' \
+             AND (char(10) || replies.param) NOT LIKE '%' || char(10) || 'a=%' \
+             ORDER BY timestamp, id",
             (chat_id, rfc724_mid),
             |row| {
                 let id: MsgId = row.get(0)?;
@@ -4927,8 +4933,9 @@ pub async fn get_reply_counts(context: &Context, chat_id: ChatId) -> Result<Vec<
         .query_map_vec(
             "SELECT quoted.id, COUNT(replies.id) \
              FROM msgs replies \
-             JOIN msgs quoted ON quoted.rfc724_mid = replies.mime_in_reply_to \
-             WHERE replies.chat_id=? AND quoted.chat_id=? \
+             JOIN msgs quoted ON quoted.rfc724_mid = TRIM(replies.mime_in_reply_to, '<> ') \
+             WHERE replies.chat_id=? AND quoted.chat_id=? AND (char(10) || replies.param) LIKE '%' || char(10) || 'q=%' \
+             AND (char(10) || replies.param) NOT LIKE '%' || char(10) || 'a=%' \
              AND replies.mime_in_reply_to IS NOT NULL AND replies.mime_in_reply_to != '' \
              GROUP BY quoted.id",
             (chat_id, chat_id),
