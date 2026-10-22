@@ -924,6 +924,9 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
   cursor: pointer; user-select: none; -webkit-user-select: none;
 }
 .replies-chip:hover { color: var(--accent); text-decoration: underline; }
+/* Thread overlay (Velta #14): the quoted parent on top, every reply beneath
+   as read-only rows; tapping a reply closes the overlay and jumps to it. */
+.thread-overlay .thread-sep { border-top: 1px solid var(--line); margin: 10px 0; }
 /* Tiny "bot" badge next to the timestamp: bordered uppercase tag so it reads
    as a label, not text. Inherits the meta color — visible on every theme's
    incoming bubble (contrast held by the meta color, ≥4.5:1 like the time). */

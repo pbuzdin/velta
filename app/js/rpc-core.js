@@ -1421,6 +1421,30 @@ export class JsonRpcCore extends EventTarget {
     return this._call("get_chatlist_entries", accountId, archived ? 1 : null, query || null, null);
   }
 
+  // Velta #14 reply-thread queries (core patch). Old cores reject the
+  // unknown method — that flips _replyRpcUnavailable and callers fall back
+  // to window-local counting (the chip then only shows for fully loaded
+  // history). Transient errors return null without the permanent flag.
+  async getReplyCounts(chatId) {
+    if (this._replyRpcUnavailable) return null;
+    try {
+      return (await this._call("get_reply_counts", this.accountId, chatId)) || {};
+    } catch (err) {
+      if (/32601|not found/i.test(String(err?.message || err))) this._replyRpcUnavailable = true;
+      return null;
+    }
+  }
+
+  async getReplyIds(chatId, messageId) {
+    if (this._replyRpcUnavailable) return null;
+    try {
+      return (await this._call("get_reply_ids", this.accountId, chatId, messageId)) || [];
+    } catch (err) {
+      if (/32601|not found/i.test(String(err?.message || err))) this._replyRpcUnavailable = true;
+      return null;
+    }
+  }
+
   // Mapped chatlist items for the given ids: Map id -> chat, or id -> null
   // for entries that are not a plain chat (archive link) or failed to load.
   // The core runs ~10 queries per item, so callers fetch only what changed.

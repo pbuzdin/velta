@@ -560,8 +560,13 @@ export class ChatView {
     this._unreadIds = new Set(); // loaded incoming messages not seen yet
     // quoted msg id -> { count, newestId, newestTs } over the LOADED window;
     // the "N replies" chip renders only when hasMore is false (whole older
-    // history in the window), which makes the count exact.
+    // history in the window), which makes the count exact. When the backend
+    // answers the #14 core RPCs (get_reply_counts / get_reply_ids), counts
+    // come from the core instead — exact for every chat — and "Show replies"
+    // opens the thread overlay.
     this._replyCounts = new Map();
+    this._coreReplies = false;
+    this._coreReplyTimer = 0;
     this._seenPending = [];
     this._seenTimer = null;
     this._seenFrame = 0;
@@ -1341,6 +1346,7 @@ export class ChatView {
     this._unreadIds.clear();
     this._replyCounts = new Map(); // the store restarts — counts recount via _annotateMessages
     this._insertItems(this._annotateMessages(messages));
+    this._scheduleCoreReplyRefresh();
   }
 
   // Full recount after deletions (incremental counting lives in
@@ -1362,7 +1368,9 @@ export class ChatView {
     }
     for (const item of this.items) {
       if (item.type !== "msg") continue;
-      const c = counts.get(item.msg.id)?.count || 0;
+      const c = this._coreReplies
+        ? (this._replyCounts.get(item.msg.id)?.count ?? item.msg.replies ?? 0)
+        : counts.get(item.msg.id)?.count || 0;
       if (item.msg.replies !== c && this.chat?.id != null) {
         item.msg = { ...item.msg, replies: c };
         this.onMsgUpdated(this.chat.id, item.msg);
@@ -1370,7 +1378,82 @@ export class ChatView {
         item.msg.replies = c;
       }
     }
-    this._replyCounts = counts;
+    this._replyCounts = this._coreReplies ? this._replyCounts : counts;
+  }
+
+  // Core-backed counts (Velta #14 patch): exact for every chat, no hasMore
+  // guard. Debounced — bursts of inserts must not spam the RPC.
+  _scheduleCoreReplyRefresh() {
+    if (typeof this.core.getReplyCounts !== "function") return;
+    clearTimeout(this._coreReplyTimer);
+    this._coreReplyTimer = setTimeout(() => { this._refreshCoreReplyCounts(); }, 300);
+  }
+
+  async _refreshCoreReplyCounts() {
+    const session = this._session;
+    if (!this._isCurrent(session) || !this.chat) return;
+    let counts = null;
+    try { counts = await this.core.getReplyCounts(this.chat.id); } catch { return; }
+    if (!counts || !this._isCurrent(session)) return;
+    this._coreReplies = true;
+    this._replyCounts = new Map(
+      Object.entries(counts).map(([id, n]) => [Number(id), { count: n, newestId: 0, newestTs: 0 }]),
+    );
+    for (const item of this.items) {
+      if (item.type !== "msg") continue;
+      const c = this._replyCounts.get(item.msg.id)?.count || 0;
+      if (item.msg.replies !== c && this.chat?.id != null) {
+        item.msg = { ...item.msg, replies: c };
+        this.onMsgUpdated(this.chat.id, item.msg);
+      } else {
+        item.msg.replies = c;
+      }
+    }
+  }
+
+  // "Show replies" (chip + context menu). With the #14 core patch this opens
+  // the thread overlay: the parent on top, every reply beneath (read-only
+  // rows); tapping a reply closes the overlay and jumps to it in the chat.
+  // Without the patch (counts from the loaded window only) it jumps to the
+  // newest reply instead.
+  async _showReplies(m) {
+    console.error("DBG _showReplies: coreReplies", this._coreReplies, "| getReplyIds:", typeof this.core.getReplyIds, "| this===view check n/a");
+    if (this._coreReplies && typeof this.core.getReplyIds === "function") {
+      await this._openThreadOverlay(m);
+      return;
+    }
+    const newest = this._replyCounts.get(m.id);
+    if (newest) this._jumpToMessage(newest.newestId);
+  }
+
+  async _openThreadOverlay(m) {
+    const session = this._session;
+    let ids = [];
+    try { ids = (await this.core.getReplyIds(this.chat.id, m.id)) || []; } catch { ids = []; }
+    if (!this._isCurrent(session)) return;
+    const replies = [];
+    for (const id of ids) {
+      const r = await this.core.getMessage(id).catch(() => null);
+      if (r && Number(r.chatId) === Number(this.chat?.id)) replies.push(r);
+    }
+    if (!this._isCurrent(session)) return;
+    const parentItem = this.msgIndex.get(m.id) || { type: "msg", key: "m" + m.id, msg: m };
+    const body = document.createElement("div");
+    body.className = "thread-overlay";
+    body.appendChild(this._renderMsgItem(parentItem));
+    const sep = document.createElement("div");
+    sep.className = "thread-sep";
+    body.appendChild(sep);
+    for (const r of replies) {
+      body.appendChild(this._renderMsgItem({ type: "msg", key: "m" + r.id, msg: r }));
+    }
+    body.addEventListener("click", (e) => {
+      const row = e.target.closest("[data-msgid]");
+      if (!row) return;
+      closeAllPopups();
+      this._jumpToMessage(Number(row.dataset.msgid));
+    });
+    showModal({ title: `Replies (${replies.length})`, body });
   }
 
   // Day chips ride INSIDE the first message row of each day (dayFirst flag)
@@ -1423,6 +1506,7 @@ export class ChatView {
     } else {
       this.items = [...this.items, ...newItems];
     }
+    this._scheduleCoreReplyRefresh(); // new messages change reply counts
   }
 
   async _loadOlder() {
@@ -1901,9 +1985,12 @@ export class ChatView {
       const reason = failReason(m.error);
       failBadge = `<span class="msg-fail-badge" title="${escapeAttr(m.error || "Not sent")}">${escapeHtml(reason)}</span>`;
     }
-    // "N replies" chip: only when the whole older history is loaded, so the
-    // count is exact (pages still ahead would silently under-count).
-    const replyN = this.hasMore ? 0 : (m.replies ?? (this._replyCounts.get(m.id)?.count || 0));
+    // "N replies" chip: with the #14 core patch the counts are core-exact;
+    // otherwise only when the whole older history is loaded (pages still
+    // ahead would silently under-count).
+    const replyN = this._coreReplies
+      ? (m.replies ?? 0)
+      : this.hasMore ? 0 : (m.replies ?? (this._replyCounts.get(m.id)?.count || 0));
     const repliesChip = replyN > 0
       ? `<button type="button" class="replies-chip" data-act="show-replies">${replyN} ${replyN === 1 ? "reply" : "replies"}</button>`
       : "";
@@ -2624,7 +2711,9 @@ export class ChatView {
     const items = [];
     // No reply without a composer (read-only chats).
     if (!this.readOnly) items.push({ label: "Reply", pair: "send", icon: ICO.reply, onClick: () => this._setReply(item) });
-    const replyN = this.hasMore ? 0 : (m.replies ?? (this._replyCounts.get(m.id)?.count || 0));
+    const replyN = this._coreReplies
+      ? (m.replies ?? 0)
+      : this.hasMore ? 0 : (m.replies ?? (this._replyCounts.get(m.id)?.count || 0));
     if (replyN > 0) items.push({ label: "Show replies", icon: ICO.reply, onClick: () => this._showReplies(m) });
     // Core mirrors these guards (own + plain text + non-empty); the menu just
     // hides the entry where the core would refuse. P2P chats keep a separate
@@ -4669,15 +4758,6 @@ export class ChatView {
     if (this.core.accountEpoch !== epoch) return;
     if (Number(this.chat?.id) !== Number(orig.chatId)) return;
     this._jumpToMessage(orig.id);
-  }
-
-  // "Show replies" (chip + context menu): jump to the newest reply — the end
-  // of the chain; reading the rest scans upward from there. Every reply is
-  // in the loaded window by construction (the chip only renders when hasMore
-  // is false), so this is an in-place jump.
-  _showReplies(m) {
-    const newest = this._replyCounts.get(m.id);
-    if (newest) this._jumpToMessage(newest.newestId);
   }
 
   _jumpToMessage(msgId) {

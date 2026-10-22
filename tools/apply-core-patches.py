@@ -716,82 +716,92 @@ async fn velta_transport_addr(context: &Context, transport_id: u32) -> String {
 
 """,
     ),
+    # ---- VENDORISSUES #14: reply-thread queries (chat view N-replies chip
+    # ---- + thread overlay). SQL lives in chat.rs; api.rs wraps it.
     dict(
-        id="#14 reply-thread queries (api.rs)",
-        file="core/deltachat-jsonrpc/src/api.rs",
+        id="#14 reply-thread queries (chat.rs)",
+        file="core/src/chat.rs",
         applied="Velta #14 reply-thread queries",
-        anchor="    async fn get_message_html(&self, account_id: u32, message_id: u32) -> Result<Option<String>> {\r\n",
+        anchor="pub async fn was_device_msg_ever_added(context: &Context, label: &str) -> Result<bool> {\r\n",
         where="before",
-        text="""    // Velta #14 reply-thread queries: the chat view shows an "N replies"
-    // chip on quoted bubbles and a thread overlay. Replies are messages whose
-    // mime_in_reply_to carries the quoted message's rfc724_mid (set by
-    // Message::set_quote). One query per chat returns every count; one per
-    // message returns the reply ids for the overlay.
-    async fn get_reply_ids(&self, account_id: u32, message_id: u32) -> Result<Vec<u32>> {
-        let ctx = self.get_context(account_id).await?;
-        let sql = ctx.sql();
-        let row: Option<(Option<String>, i64)> = sql
-            .query_row(
-                "SELECT rfc724_mid, chat_id FROM msgs WHERE id=?",
-                (message_id,),
-                |row| {
-                    let mid: Option<String> = row.get(0)?;
-                    let chat: i64 = row.get(1)?;
-                    Ok((mid, chat))
-                },
-            )
-            .await
-            .ok();
-        let Some((Some(rfc724_mid), chat_id)) = row else {
-            return Ok(Vec::new());
-        };
-        let mut out: Vec<u32> = Vec::new();
-        sql.query_map(
+        text="""// Velta #14 reply-thread queries: the chat view's "N replies" chip and
+// thread overlay. Replies are messages whose mime_in_reply_to carries the
+// quoted message's rfc724_mid (set by Message::set_quote). Scoped to the
+// chat so cross-chat Message-ID collisions cannot bleed in.
+pub async fn get_reply_ids(
+    context: &Context,
+    chat_id: ChatId,
+    message_id: MsgId,
+) -> Result<Vec<MsgId>> {
+    let Some(rfc724_mid) = context
+        .sql
+        .query_get_value::<String>("SELECT rfc724_mid FROM msgs WHERE id=?", (message_id,))
+        .await?
+    else {
+        return Ok(Vec::new());
+    };
+    context
+        .sql
+        .query_map_vec(
             "SELECT id FROM msgs WHERE chat_id=? AND mime_in_reply_to=? ORDER BY timestamp, id",
             (chat_id, rfc724_mid),
             |row| {
-                let id: i64 = row.get(0)?;
-                Ok(id as u32)
-            },
-            |rows| {
-                rows.for_each(|r| {
-                    if let Ok(id) = r {
-                        out.push(id);
-                    }
-                })
+                let id: MsgId = row.get(0)?;
+                Ok(id)
             },
         )
-        .await?;
-        Ok(out)
+        .await
+}
+
+pub async fn get_reply_counts(context: &Context, chat_id: ChatId) -> Result<Vec<(MsgId, u32)>> {
+    context
+        .sql
+        .query_map_vec(
+            "SELECT quoted.id, COUNT(replies.id) FROM msgs replies JOIN msgs quoted              ON replies.mime_in_reply_to = quoted.rfc724_mid              WHERE replies.chat_id=? AND replies.mime_in_reply_to IS NOT NULL              GROUP BY quoted.id",
+            (chat_id,),
+            |row| {
+                let id: MsgId = row.get(0)?;
+                let n: u32 = row.get(1)?;
+                Ok((id, n))
+            },
+        )
+        .await
+}
+
+""",
+    ),
+    dict(
+        id="#14 reply-thread queries (api.rs)",
+        file="core/deltachat-jsonrpc/src/api.rs",
+        applied="Velta #14 reply-thread queries (see chat.rs get_reply_ids)",
+        anchor="    async fn get_message_html(&self, account_id: u32, message_id: u32) -> Result<Option<String>> {\r\n",
+        where="before",
+        text="""    // Velta #14 reply-thread queries (see chat.rs get_reply_ids).
+    async fn get_reply_ids(
+        &self,
+        account_id: u32,
+        chat_id: u32,
+        message_id: u32,
+    ) -> Result<Vec<u32>> {
+        let ctx = self.get_context(account_id).await?;
+        let ids =
+            deltachat::chat::get_reply_ids(&ctx, ChatId::new(chat_id), MsgId::new(message_id))
+                .await?;
+        Ok(ids.iter().map(|id| id.to_u32()).collect())
     }
 
-    // Velta #14 reply-thread queries: quoted msg id -> reply count, one row
-    // per quoted message of the chat.
+    // Velta #14 reply-thread queries: quoted msg id -> reply count.
     async fn get_reply_counts(
         &self,
         account_id: u32,
         chat_id: u32,
     ) -> Result<std::collections::HashMap<u32, u32>> {
         let ctx = self.get_context(account_id).await?;
-        let sql = ctx.sql();
-        let mut out: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
-        sql.query_map(
-            "SELECT quoted.id, COUNT(replies.id) FROM msgs replies JOIN msgs quoted              ON replies.mime_in_reply_to = quoted.rfc724_mid              WHERE replies.chat_id=? AND replies.mime_in_reply_to IS NOT NULL              GROUP BY quoted.id",
-            (chat_id,),
-            |row| {
-                let id: u32 = row.get(0)?;
-                let n: u32 = row.get(1)?;
-                Ok((id, n))
-            },
-            |rows| {
-                rows.for_each(|r| {
-                    if let Ok((id, n)) = r {
-                        out.insert(id, n);
-                    }
-                })
-            },
-        )
-        .await?;
+        let pairs = deltachat::chat::get_reply_counts(&ctx, ChatId::new(chat_id)).await?;
+        let mut out = std::collections::HashMap::new();
+        for (id, n) in pairs {
+            out.insert(id.to_u32(), n);
+        }
         Ok(out)
     }
 

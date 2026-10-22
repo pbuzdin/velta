@@ -4893,6 +4893,50 @@ pub async fn add_device_msg(
 }
 
 /// Returns true if device message with a given label was ever added to the device chat.
+// Velta #14 reply-thread queries: the chat view's "N replies" chip and
+// thread overlay. Replies are messages whose mime_in_reply_to carries the
+// quoted message's rfc724_mid (set by Message::set_quote). Scoped to the
+// chat so cross-chat Message-ID collisions cannot bleed in.
+pub async fn get_reply_ids(
+    context: &Context,
+    chat_id: ChatId,
+    message_id: MsgId,
+) -> Result<Vec<MsgId>> {
+    let Some(rfc724_mid) = context
+        .sql
+        .query_get_value::<String>("SELECT rfc724_mid FROM msgs WHERE id=?", (message_id,))
+        .await?
+    else {
+        return Ok(Vec::new());
+    };
+    context
+        .sql
+        .query_map_vec(
+            "SELECT id FROM msgs WHERE chat_id=? AND mime_in_reply_to=? ORDER BY timestamp, id",
+            (chat_id, rfc724_mid),
+            |row| {
+                let id: MsgId = row.get(0)?;
+                Ok(id)
+            },
+        )
+        .await
+}
+
+pub async fn get_reply_counts(context: &Context, chat_id: ChatId) -> Result<Vec<(MsgId, u32)>> {
+    context
+        .sql
+        .query_map_vec(
+            "SELECT quoted.id, COUNT(replies.id) FROM msgs replies JOIN msgs quoted              ON replies.mime_in_reply_to = quoted.rfc724_mid              WHERE replies.chat_id=? AND replies.mime_in_reply_to IS NOT NULL              GROUP BY quoted.id",
+            (chat_id,),
+            |row| {
+                let id: MsgId = row.get(0)?;
+                let n: u32 = row.get(1)?;
+                Ok((id, n))
+            },
+        )
+        .await
+}
+
 pub async fn was_device_msg_ever_added(context: &Context, label: &str) -> Result<bool> {
     ensure!(!label.is_empty(), "empty label");
     let exists = context
