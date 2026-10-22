@@ -558,6 +558,10 @@ export class ChatView {
     this.readMarkerId = null;    // manual "read up to here" marker (read-markers.js)
     this._firstUnreadId = null;  // "Unread messages" line, fixed per open
     this._unreadIds = new Set(); // loaded incoming messages not seen yet
+    // quoted msg id -> { count, newestId, newestTs } over the LOADED window;
+    // the "N replies" chip renders only when hasMore is false (whole older
+    // history in the window), which makes the count exact.
+    this._replyCounts = new Map();
     this._seenPending = [];
     this._seenTimer = null;
     this._seenFrame = 0;
@@ -1325,6 +1329,7 @@ export class ChatView {
       this._rowCache.delete("m" + id);
       this._rowSigCache.delete("m" + id);
     }
+    this._recountReplies(); // a deleted reply must drop off the counter
     this.vs?.setItems(this.items);
   }
 
@@ -1334,7 +1339,28 @@ export class ChatView {
     this.items = [];
     this.msgIndex.clear();
     this._unreadIds.clear();
+    this._replyCounts = new Map(); // the store restarts — counts recount via _annotateMessages
     this._insertItems(this._annotateMessages(messages));
+  }
+
+  // Full recount after deletions (incremental counting lives in
+  // _annotateMessages; deletion removes messages from the store directly).
+  // Scans this.items only — must NOT re-annotate, or msgIndex entries would
+  // be replaced by fresh wrappers and the menu's live-item check would break.
+  _recountReplies() {
+    const counts = new Map();
+    for (const item of this.items) {
+      if (item.type !== "msg") continue;
+      const qid = Number(item.msg.quote?.id || 0);
+      if (!qid) continue;
+      const cur = counts.get(qid);
+      if (!cur || item.msg.ts >= cur.newestTs) {
+        counts.set(qid, { count: (cur?.count || 0) + 1, newestId: item.msg.id, newestTs: item.msg.ts });
+      } else {
+        cur.count += 1;
+      }
+    }
+    this._replyCounts = counts;
   }
 
   // Day chips ride INSIDE the first message row of each day (dayFirst flag)
@@ -1359,6 +1385,15 @@ export class ChatView {
       };
       this.msgIndex.set(m.id, item);
       if (m.unread) this._unreadIds.add(m.id);
+      const qid = Number(m.quote?.id || 0);
+      if (qid) {
+        const cur = this._replyCounts.get(qid);
+        if (!cur || m.ts >= cur.newestTs) {
+          this._replyCounts.set(qid, { count: (cur?.count || 0) + 1, newestId: m.id, newestTs: m.ts });
+        } else {
+          cur.count += 1;
+        }
+      }
       out.push(item);
       lastDay = dayKey;
     }
@@ -1849,7 +1884,13 @@ export class ChatView {
       const reason = failReason(m.error);
       failBadge = `<span class="msg-fail-badge" title="${escapeAttr(m.error || "Not sent")}">${escapeHtml(reason)}</span>`;
     }
-    bubble += `<span class="msg-meta">${edited}${star}${botChip}${timeTag(m.ts, formatTime(m.ts))}${ticks}</span>${failBadge}</div>`;
+    // "N replies" chip: only when the whole older history is loaded, so the
+    // count is exact (pages still ahead would silently under-count).
+    const replyN = this.hasMore ? 0 : (this._replyCounts.get(m.id)?.count || 0);
+    const repliesChip = replyN > 0
+      ? `<button type="button" class="replies-chip" data-act="show-replies">${replyN} ${replyN === 1 ? "reply" : "replies"}</button>`
+      : "";
+    bubble += `<span class="msg-meta">${edited}${star}${botChip}${repliesChip}${timeTag(m.ts, formatTime(m.ts))}${ticks}</span>${failBadge}</div>`;
     if (m.reactions?.length) {
       bubble += `<div class="msg-reactions">${reactionChipsHtml(m.reactions)}</div>`;
     }
@@ -2245,6 +2286,7 @@ export class ChatView {
         else if (mediaAction.dataset.act === "fail-del") this._deleteFailed(m);
         else if (mediaAction.dataset.act === "lc-retry") this._lcRetryTransfer(m);
         else if (mediaAction.dataset.act === "show-original") this._showOriginal(m);
+        else if (mediaAction.dataset.act === "show-replies") this._showReplies(m);
         return;
       }
       const vcardBtn = e.target.closest("[data-vcard-open]");
@@ -2565,6 +2607,8 @@ export class ChatView {
     const items = [];
     // No reply without a composer (read-only chats).
     if (!this.readOnly) items.push({ label: "Reply", pair: "send", icon: ICO.reply, onClick: () => this._setReply(item) });
+    const replyN = this.hasMore ? 0 : (this._replyCounts.get(m.id)?.count || 0);
+    if (replyN > 0) items.push({ label: "Show replies", icon: ICO.reply, onClick: () => this._showReplies(m) });
     // Core mirrors these guards (own + plain text + non-empty); the menu just
     // hides the entry where the core would refuse. P2P chats keep a separate
     // message store — no edit there yet.
@@ -4608,6 +4652,15 @@ export class ChatView {
     if (this.core.accountEpoch !== epoch) return;
     if (Number(this.chat?.id) !== Number(orig.chatId)) return;
     this._jumpToMessage(orig.id);
+  }
+
+  // "Show replies" (chip + context menu): jump to the newest reply — the end
+  // of the chain; reading the rest scans upward from there. Every reply is
+  // in the loaded window by construction (the chip only renders when hasMore
+  // is false), so this is an in-place jump.
+  _showReplies(m) {
+    const newest = this._replyCounts.get(m.id);
+    if (newest) this._jumpToMessage(newest.newestId);
   }
 
   _jumpToMessage(msgId) {
