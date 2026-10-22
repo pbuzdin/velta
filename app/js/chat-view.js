@@ -567,6 +567,10 @@ export class ChatView {
     this._replyCounts = new Map();
     this._coreReplies = false;
     this._coreReplyTimer = 0;
+    this.thread = null;           // open thread panel: { parentId }
+    this.threadPanel = null;      // built next to the history list
+    this.threadReplies = null;
+    this._threadRendered = new Set();
     this._seenPending = [];
     this._seenTimer = null;
     this._seenFrame = 0;
@@ -616,6 +620,10 @@ export class ChatView {
 
     this.scrollEl = document.getElementById("history-scroll");
     this.listEl = document.getElementById("history");
+    this.threadPanel = document.createElement("div");
+    this.threadPanel.id = "thread-panel";
+    this.threadPanel.hidden = true;
+    this.listEl.after(this.threadPanel);
     this.goDownBtn = document.getElementById("btn-go-down");
     this.goDownBadge = document.getElementById("go-down-badge");
     this._newWhileAway = 0;
@@ -648,6 +656,7 @@ export class ChatView {
   // chat: the caller's freshly fetched chat object (app.js openChat), which
   // saves a second getChat per open (#25); fetched here when omitted.
   async open(chatId, chat = null) {
+    if (this.thread) this._closeThread();
     // Retire the old scroller, composer and pending work before yielding.
     this.close();
     // The row cache survives switches (keys are per-chat message ids), but
@@ -956,6 +965,12 @@ export class ChatView {
       requestAnimationFrame(() => { if (this._isCurrent(session)) { this._scrollBottom(); this._scheduleSeenCheck(); } });
     } else {
       this._renderGoDown(true);
+    }
+    // Thread mode: re-lock the composer quote to the thread parent after
+    // each send (the normal reply flow clears it).
+    if (this.thread) {
+      const pit = this.msgIndex.get(this.thread.parentId);
+      if (pit) this._setReply(pit);
     }
   }
 
@@ -1335,7 +1350,13 @@ export class ChatView {
       this._rowSigCache.delete("m" + id);
     }
     this._recountReplies(); // a deleted reply must drop off the counter
-    this.vs?.setItems(this.items);
+    if (this.thread) {
+      if (ids.includes(this.thread.parentId)) this._closeThread();
+      else {
+        for (const id of ids) this.threadReplies.querySelector(`[data-msgid="${id}"]`)?.remove();
+        this._updateThreadCount();
+      }
+    }
   }
 
   /* ================= items & day chips ================= */
@@ -1416,44 +1437,92 @@ export class ChatView {
   // rows); tapping a reply closes the overlay and jumps to it in the chat.
   // Without the patch (counts from the loaded window only) it jumps to the
   // newest reply instead.
+  // "Show replies" (context menu): opens the thread panel — parent on top,
+  // replies beneath, composer locked to the thread.
   async _showReplies(m) {
-    console.error("DBG _showReplies: coreReplies", this._coreReplies, "| getReplyIds:", typeof this.core.getReplyIds, "| this===view check n/a");
-    if (this._coreReplies && typeof this.core.getReplyIds === "function") {
-      await this._openThreadOverlay(m);
-      return;
-    }
-    const newest = this._replyCounts.get(m.id);
-    if (newest) this._jumpToMessage(newest.newestId);
+    await this._openThread(m);
   }
 
-  async _openThreadOverlay(m) {
-    const session = this._session;
-    let ids = [];
-    try { ids = (await this.core.getReplyIds(this.chat.id, m.id)) || []; } catch { ids = []; }
-    if (!this._isCurrent(session)) return;
-    const replies = [];
-    for (const id of ids) {
-      const r = await this.core.getMessage(id).catch(() => null);
-      if (r && Number(r.chatId) === Number(this.chat?.id)) replies.push(r);
+  async _openThread(m) {
+    const parentId = m.id;
+    this.thread = { parentId };
+    this.listEl.hidden = true;
+    this.threadPanel.hidden = false;
+    this._renderThreadPanel();
+    // Composer lock: while the thread is open every send quotes the parent
+    // (re-locked after each send in appendOutgoing).
+    const pit = this.msgIndex.get(parentId) || { type: "msg", key: "m" + parentId, msg: m };
+    this._setReply(pit);
+    this.threadPanel.scrollTop = this.threadPanel.scrollHeight;
+    // Exact reply ids from the #14 core RPC when available; without it the
+    // panel keeps the loaded-window replies it was rendered with.
+    if (typeof this.core.getReplyIds === "function") {
+      try {
+        const ids = (await this.core.getReplyIds(this.chat.id, parentId)) || [];
+        if (!this._isCurrent() || this.thread?.parentId !== parentId) return;
+        for (const id of ids) {
+          if (this._threadRendered.has(id)) continue;
+          const r = await this.core.getMessage(id).catch(() => null);
+          if (!r || !this._isCurrent() || this.thread?.parentId !== parentId) return;
+          this._appendThreadRow({ type: "msg", key: "m" + id, msg: r });
+        }
+      } catch { /* panel keeps the loaded-window replies */ }
+      this._updateThreadCount();
+      this.threadPanel.scrollTop = this.threadPanel.scrollHeight;
     }
-    if (!this._isCurrent(session)) return;
-    const parentItem = this.msgIndex.get(m.id) || { type: "msg", key: "m" + m.id, msg: m };
-    const body = document.createElement("div");
-    body.className = "thread-overlay";
-    body.appendChild(this._renderMsgItem(parentItem));
+  }
+
+  _appendThreadRow(item) {
+    this.threadReplies.appendChild(this._renderMsgItem(item));
+    this._threadRendered.add(item.msg.id);
+  }
+
+  _renderThreadPanel() {
+    const panel = this.threadPanel;
+    panel.innerHTML = "";
+    const head = document.createElement("div");
+    head.className = "thread-head";
+    const back = document.createElement("button");
+    back.type = "button";
+    back.className = "thread-back";
+    back.textContent = "← Back to chat";
+    back.addEventListener("click", () => this._closeThread());
+    const count = document.createElement("span");
+    count.className = "thread-count";
+    head.append(back, count);
+    panel.appendChild(head);
+    const parentItem = this.msgIndex.get(this.thread.parentId);
+    if (parentItem) panel.appendChild(this._renderMsgItem(parentItem));
     const sep = document.createElement("div");
     sep.className = "thread-sep";
-    body.appendChild(sep);
-    for (const r of replies) {
-      body.appendChild(this._renderMsgItem({ type: "msg", key: "m" + r.id, msg: r }));
+    panel.appendChild(sep);
+    this.threadReplies = document.createElement("div");
+    this.threadReplies.className = "thread-replies";
+    panel.appendChild(this.threadReplies);
+    this._threadRendered = new Set([this.thread.parentId]);
+    // replies currently in the loaded window; the core fetch tops it up
+    for (const item of this.items) {
+      if (item.type === "msg" && Number(item.msg.quote?.id || 0) === this.thread.parentId && !this._threadRendered.has(item.msg.id)) {
+        this._threadRendered.add(item.msg.id);
+        this.threadReplies.appendChild(this._renderMsgItem(item));
+      }
     }
-    body.addEventListener("click", (e) => {
-      const row = e.target.closest("[data-msgid]");
-      if (!row) return;
-      closeAllPopups();
-      this._jumpToMessage(Number(row.dataset.msgid));
-    });
-    showModal({ title: `Replies (${replies.length})`, body });
+    this._updateThreadCount();
+  }
+
+  _updateThreadCount() {
+    const n = this.threadReplies.children.length;
+    const el = this.threadPanel.querySelector(".thread-count");
+    if (el) el.textContent = `${n} ${n === 1 ? "reply" : "replies"}`;
+  }
+
+  _closeThread() {
+    this.thread = null;
+    this.replyTo = null;
+    this.replyFragment = null;
+    this._renderReplyPreview();
+    this.threadPanel.hidden = true;
+    this.listEl.hidden = false;
   }
 
   // Day chips ride INSIDE the first message row of each day (dayFirst flag)
@@ -1507,6 +1576,16 @@ export class ChatView {
       this.items = [...this.items, ...newItems];
     }
     this._scheduleCoreReplyRefresh(); // new messages change reply counts
+    // Thread panel: live-append replies to the open thread.
+    if (this.thread && !this.threadPanel.hidden) {
+      for (const item of newItems) {
+        if (item.type !== "msg" || this._threadRendered.has(item.msg.id)) continue;
+        if (Number(item.msg.quote?.id || 0) !== this.thread.parentId) continue;
+        this._appendThreadRow(item);
+        this._updateThreadCount();
+        this.threadPanel.scrollTop = this.threadPanel.scrollHeight;
+      }
+    }
   }
 
   async _loadOlder() {
@@ -1992,7 +2071,7 @@ export class ChatView {
       ? (m.replies ?? 0)
       : this.hasMore ? 0 : (m.replies ?? (this._replyCounts.get(m.id)?.count || 0));
     const repliesChip = replyN > 0
-      ? `<button type="button" class="replies-chip" data-act="show-replies">${replyN} ${replyN === 1 ? "reply" : "replies"}</button>`
+      ? `<span class="replies-chip">${replyN} ${replyN === 1 ? "reply" : "replies"}</span>`
       : "";
     bubble += `<span class="msg-meta">${edited}${star}${botChip}${repliesChip}${timeTag(m.ts, formatTime(m.ts))}${ticks}</span>${failBadge}</div>`;
     if (m.reactions?.length) {
@@ -2390,7 +2469,6 @@ export class ChatView {
         else if (mediaAction.dataset.act === "fail-del") this._deleteFailed(m);
         else if (mediaAction.dataset.act === "lc-retry") this._lcRetryTransfer(m);
         else if (mediaAction.dataset.act === "show-original") this._showOriginal(m);
-        else if (mediaAction.dataset.act === "show-replies") this._showReplies(m);
         return;
       }
       const vcardBtn = e.target.closest("[data-vcard-open]");
@@ -3183,6 +3261,9 @@ export class ChatView {
     const bar = document.getElementById("reply-preview");
     if (!this.replyTo && !this.editingMsg) { bar.hidden = true; return; }
     bar.hidden = false;
+    // Thread mode locks the composer: the quote-bar X hides (the exit is the
+    // panel's "Back to chat", which clears the quote with it).
+    document.getElementById("btn-reply-close").hidden = !!this.thread;
     if (this.editingMsg) {
       document.getElementById("reply-name").textContent = "Editing message";
       document.getElementById("reply-text").textContent = this.editingMsg.text || "";

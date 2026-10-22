@@ -8,11 +8,10 @@ globalThis.localStorage = { _s: {}, getItem(k) { return this._s[k] ?? null; }, s
 const { ChatView } = await import("../app/js/chat-view.js");
 const { closeAllPopups } = await import("../app/js/ui.js");
 
-// Reply counts: messages quoting a bubble (quote.messageId = the quoted
-// message) are counted on the quoted bubble as "N replies", with a
-// "Show replies" context-menu item that jumps to the newest reply. The chip
-// renders only when hasMore is false — a partially loaded window would
-// silently under-count.
+// Reply threads: messages quoting a bubble (quote.messageId = the quoted
+// message) are counted on the quoted bubble as a passive "N replies" label,
+// the context menu offers "Show replies", and that opens the thread panel:
+// parent on top, replies beneath, composer locked to the thread.
 
 const message = (id, overrides = {}) => ({
   id, chatId: 7, ts: Date.now() + id, viewtype: "text", state: "sent",
@@ -37,8 +36,7 @@ function setup(t, core) {
   return { view, node };
 }
 
-test("quoted messages count on the parent bubble with a jump chip", async (t) => {
-  const jumps = [];
+test("quoted messages count on the parent bubble as a passive label", async (t) => {
   const base = Date.now();
   const core = Object.assign(new EventTarget(), {
     accountId: "A", accountEpoch: 0,
@@ -52,7 +50,6 @@ test("quoted messages count on the parent bubble with a jump chip", async (t) =>
     markRead: async () => {},
   });
   const { view } = setup(t, core);
-  view._jumpToMessage = (id) => jumps.push(id);
   await view.open(7);
 
   const counts = view._replyCounts.get(11);
@@ -60,17 +57,13 @@ test("quoted messages count on the parent bubble with a jump chip", async (t) =>
   assert.equal(counts.newestId, 13, "newest reply wins by ts");
 
   const parentRow = view._renderMsgItem(view.msgIndex.get(11));
-  assert.ok(parentRow.innerHTML.includes("2 replies"), "chip renders on the parent");
-  assert.ok(parentRow.innerHTML.includes('data-act="show-replies"'), "chip is wired to the jump action");
+  assert.ok(parentRow.innerHTML.includes("2 replies"), "count label renders on the parent");
+  assert.ok(!parentRow.innerHTML.includes('data-act="show-replies"'), "the label is passive — no tap target in the meta row");
   const plainRow = view._renderMsgItem(view.msgIndex.get(14));
-  assert.ok(!plainRow.innerHTML.includes("replies"), "no chip on non-quoted messages");
-
-  // The chip jumps to the NEWEST reply.
-  view._showReplies({ id: 11 });
-  assert.deepEqual(jumps, [13]);
+  assert.ok(!plainRow.innerHTML.includes("replies"), "no label on non-quoted messages");
 });
 
-test("menu carries Show replies only when replies exist", async (t) => {
+test("menu Show replies opens the thread panel with the composer locked", async (t) => {
   const base = Date.now();
   const core = Object.assign(new EventTarget(), {
     accountId: "A", accountEpoch: 0,
@@ -79,8 +72,6 @@ test("menu carries Show replies only when replies exist", async (t) => {
     markRead: async () => {},
   });
   const { view, node } = setup(t, core);
-  const jumps = [];
-  view._jumpToMessage = (id) => jumps.push(id);
   await view.open(7);
   const parentItem = view.msgIndex.get(11);
   const plainItem = view.msgIndex.get(14);
@@ -92,7 +83,14 @@ test("menu carries Show replies only when replies exist", async (t) => {
   const show = [...menu.querySelectorAll("button")].find(b => b.innerHTML.includes("Show replies"));
   assert.ok(show, "Show replies on a quoted parent");
   await show.fire("click");
-  assert.deepEqual(jumps, [12], "fires the jump to the newest reply");
+
+  assert.equal(view.thread.parentId, 11, "thread mode opened for the parent");
+  assert.equal(view.threadPanel.hidden, false, "thread panel visible");
+  assert.equal(view.listEl.hidden, true, "history list hidden while the thread is open");
+  assert.equal(view.replyTo?.id, 11, "composer locked: quote points at the parent");
+  assert.equal(document.getElementById("btn-reply-close").hidden, true, "quote-bar X hidden while locked");
+  const rows = view.threadPanel.querySelectorAll('[data-msgid="12"]');
+  assert.equal(rows.length, 1, "reply rendered in the panel");
   closeAllPopups();
 
   view._msgContextMenu(plainItem, 10, 10);
@@ -136,8 +134,7 @@ test("deleting a reply drops it off the count", async (t) => {
 });
 
 // Velta #14 backend present: counts come from get_reply_counts (exact for
-// every chat — no hasMore guard) and "Show replies" opens the thread overlay
-// (get_reply_ids + getMessage), tapping a reply jumping to it in the chat.
+// every chat — no hasMore guard).
 test("core reply counts drive chips even with unloaded pages", async (t) => {
   const base = Date.now();
   const core = Object.assign(new EventTarget(), {
@@ -158,44 +155,34 @@ test("core reply counts drive chips even with unloaded pages", async (t) => {
   assert.ok(row.innerHTML.includes("5 replies"), "core count wins over the loaded-window count");
 });
 
-test("Show replies opens the thread overlay with parent and replies", async (t) => {
+// Thread panel end-to-end: open, locked composer, live append, exit.
+test("thread panel opens, locks the composer, appends live replies, exits", async (t) => {
   const base = Date.now();
-  const idsCalled = [];
-  const messagesFetched = [];
   const core = Object.assign(new EventTarget(), {
     accountId: "A", accountEpoch: 0,
     getChat: async () => ({ id: 7, kind: "single", unread: 0, encrypted: true }),
     getMessages: async () => page([parent(), reply(12, 11, base + 500), reply(13, 11, base + 600)]),
     markRead: async () => {},
-    getReplyCounts: async () => ({ 11: 2 }),
-    getReplyIds: async (chatId, messageId) => { idsCalled.push([chatId, messageId]); return [12, 13]; },
-    getMessage: async (id) => { messagesFetched.push(id); return message(id, { text: `reply ${id}`, quote: { id: 11, text: "parent" } }); },
   });
   const { view } = setup(t, core);
   await view.open(7);
-  await view._refreshCoreReplyCounts();
-  console.error("DBG pre-show:", view._coreReplies, typeof view.core.getReplyIds, view.chat?.id, view._session && !!view._session);
+  assert.equal(view.threadPanel.hidden, true, "panel hidden before");
+
   await view._showReplies(parent());
-  console.error("DBG post-show: idsCalled", JSON.stringify(idsCalled), "messagesFetched", JSON.stringify(messagesFetched), "overlay", !!document.getElementById("popups").querySelector(".pop-overlay"));
+  assert.equal(view.threadPanel.hidden, false, "panel visible after Show replies");
+  assert.equal(view.listEl.hidden, true, "history hidden while the thread is open");
+  assert.equal(view.threadReplies.children.length, 2, "both loaded replies rendered");
+  assert.equal(view.replyTo?.id, 11, "composer locked to the parent");
 
-  // the overlay branch ran, both replies were fetched for the thread
-  assert.deepEqual(idsCalled, [[7, 11]], "reply ids fetched for the quoted message");
-  assert.deepEqual(messagesFetched.sort(), [12, 13], "each reply loaded");
-  const overlay = document.getElementById("popups").querySelector(".pop-overlay");
-  assert.ok(overlay, "overlay mounted");
-  assert.equal(overlay.querySelectorAll('[data-msgid="12"]').length, 1, "reply 12 rendered");
-  assert.equal(overlay.querySelectorAll('[data-msgid="13"]').length, 1, "reply 13 rendered");
+  // a late reply lands in the loaded window and appends live
+  const late = reply(14, 11, base + 900);
+  view._insertItems(view._annotateMessages([late]));
+  assert.equal(view.threadReplies.children.length, 3, "late reply appended to the panel");
 
-  // without the #14 core RPCs the same call falls back to the jump
-  const jumpView = new ChatView(core, { onChatsChanged() {}, onForward() {} });
-  jumpView._createScroller = function () { this.vs = { stop() {}, setItems() {}, onItemHeightDidChange() {} }; };
-  jumpView.startLive = () => {};
-  const jumps = [];
-  jumpView._jumpToMessage = (id) => jumps.push(id);
-  delete jumpView.core.getReplyIds;
-  delete jumpView.core.getReplyCounts;
-  t.after(() => jumpView.close());
-  await jumpView.open(7);
-  await jumpView._showReplies(parent());
-  assert.equal(jumps.length, 1, "fallback jumps to the newest loaded reply");
+  // exiting restores the history list and clears the composer lock
+  view._closeThread();
+  assert.equal(view.thread, null);
+  assert.equal(view.threadPanel.hidden, true);
+  assert.equal(view.listEl.hidden, false);
+  assert.equal(view.replyTo, null);
 });
