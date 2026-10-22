@@ -65,7 +65,7 @@
     <div class="body">
       <p>Velta is a client for Delta Chat. The core encrypts on your device with OpenPGP. Velta does not keep a copy of the keys, and the project does not run the mailbox.</p>
 <h2>The ring</h2>
-<p>The ordinary path is a chatmail relay: an email server that stores ciphertext and hands it on. You can keep more than one relay on a profile. One of them is primary for sending. If it fails, another can take the turn. The relay can see that a message existed, and roughly how large it was. It cannot read it.</p>
+<p>The ordinary path is a chatmail relay: an email server that stores ciphertext and hands it on. You can keep more than one relay on a profile. One of them is primary for sending. If it fails, another can take the turn. The relay can see that a message existed, and roughly how large it was. It cannot read it. It also accepts only encrypted messages — plain email is dropped on arrival, so there is no spam either.</p>
 <p>Your identity on that path is an email address. Not a phone number, and not an account you open with Velta. One profile can hold several addresses — aliases that all lead to the same key — and the key stays yours if an address changes.</p>
 <h2>The chord</h2>
 <p>Two features skip the mailbox when you ask them to. Velta Beam sends a file peer to peer to the people in the chat and shows each receiver’s progress until the checksum matches. Velta Loop — local chat, still in beta — is a whole conversation on the same network, over iroh QUIC — one to one, or a group of up to five devices. The media limits there are deliberate: 256 MB in a pair, 32 MB in a local group.</p>
@@ -91,7 +91,7 @@
     <div>
       <div>
         <a class="brand" href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
-        <p>A Delta Chat client. Encrypted chat over mail — or straight across, device to device, when it should not sit on a server.</p>
+        <p>A Delta Chat client. Encrypted chat through chatmail relays — or straight across, device to device, when it should not sit on a server.</p>
       </div>
       <div>
         <h2>On this site</h2>
