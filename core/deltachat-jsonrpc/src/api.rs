@@ -1455,6 +1455,79 @@ impl CommandApi {
         Ok(message_object)
     }
 
+    // Velta #14 reply-thread queries: the chat view shows an "N replies"
+    // chip on quoted bubbles and a thread overlay. Replies are messages whose
+    // mime_in_reply_to carries the quoted message's rfc724_mid (set by
+    // Message::set_quote). One query per chat returns every count; one per
+    // message returns the reply ids for the overlay.
+    async fn get_reply_ids(&self, account_id: u32, message_id: u32) -> Result<Vec<u32>> {
+        let ctx = self.get_context(account_id).await?;
+        let sql = ctx.sql();
+        let row: Option<(Option<String>, i64)> = sql
+            .query_row(
+                "SELECT rfc724_mid, chat_id FROM msgs WHERE id=?",
+                (message_id,),
+                |row| {
+                    let mid: Option<String> = row.get(0)?;
+                    let chat: i64 = row.get(1)?;
+                    Ok((mid, chat))
+                },
+            )
+            .await
+            .ok();
+        let Some((Some(rfc724_mid), chat_id)) = row else {
+            return Ok(Vec::new());
+        };
+        let mut out: Vec<u32> = Vec::new();
+        sql.query_map(
+            "SELECT id FROM msgs WHERE chat_id=? AND mime_in_reply_to=? ORDER BY timestamp, id",
+            (chat_id, rfc724_mid),
+            |row| {
+                let id: i64 = row.get(0)?;
+                Ok(id as u32)
+            },
+            |rows| {
+                rows.for_each(|r| {
+                    if let Ok(id) = r {
+                        out.push(id);
+                    }
+                })
+            },
+        )
+        .await?;
+        Ok(out)
+    }
+
+    // Velta #14 reply-thread queries: quoted msg id -> reply count, one row
+    // per quoted message of the chat.
+    async fn get_reply_counts(
+        &self,
+        account_id: u32,
+        chat_id: u32,
+    ) -> Result<std::collections::HashMap<u32, u32>> {
+        let ctx = self.get_context(account_id).await?;
+        let sql = ctx.sql();
+        let mut out: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+        sql.query_map(
+            "SELECT quoted.id, COUNT(replies.id) FROM msgs replies JOIN msgs quoted              ON replies.mime_in_reply_to = quoted.rfc724_mid              WHERE replies.chat_id=? AND replies.mime_in_reply_to IS NOT NULL              GROUP BY quoted.id",
+            (chat_id,),
+            |row| {
+                let id: u32 = row.get(0)?;
+                let n: u32 = row.get(1)?;
+                Ok((id, n))
+            },
+            |rows| {
+                rows.for_each(|r| {
+                    if let Ok((id, n)) = r {
+                        out.insert(id, n);
+                    }
+                })
+            },
+        )
+        .await?;
+        Ok(out)
+    }
+
     async fn get_message_html(&self, account_id: u32, message_id: u32) -> Result<Option<String>> {
         let ctx = self.get_context(account_id).await?;
         MsgId::new(message_id).get_html(&ctx).await

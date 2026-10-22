@@ -345,3 +345,11 @@ shows them. Upstream fix: a structured push-registration status API.
 
 #110 (2026-10-15): the event texts now carry the relay addr (`Transport N (addr): …`, via a `velta_transport_addr` SELECT on `transports`) so the Relays modal can show a "(U)" mark per relay.
 
+
+#14 (2026-10-22): reply-thread queries for the chat view's "N replies" chip and
+thread overlay: `get_reply_counts(account_id, chat_id)` (quoted msg id -> reply
+count, one GROUP BY over `mime_in_reply_to`) and `get_reply_ids(account_id,
+message_id)` (reply ids, oldest first). jsonrpc-only for now — the wasm surface
+needs the same two methods when the PWA picks the feature up. Until a core
+build ships them, the chat view falls back to exact counts over the loaded
+window only (chip hidden while older pages are unloaded).
