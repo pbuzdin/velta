@@ -21,6 +21,12 @@ export function chatCategoryOf(chat, isBot = () => false) {
   return "system";
 }
 
+// The Unread chip is orthogonal to the kind chips — any kind can be unread —
+// so it filters across chatCategoryOf's buckets instead of being one of them.
+export function chatIsUnread(chat) {
+  return (chat.unread || 0) > 0;
+}
+
 // #83: low-battery marker — pure decision for the auto 🪫 reaction. While
 // the phone reports low + unplugged, the marker lives on the latest outgoing
 // message (cleared from the previous one); when the state ends (charger,

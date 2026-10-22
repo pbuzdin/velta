@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chatCategoryOf, swipeCategoryStep } from "../app/js/rpc-core.js";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { chatCategoryOf, chatIsUnread, swipeCategoryStep } from "../app/js/rpc-core.js";
 
 // #57 chat list categories: every chat lands in exactly one chip; special
 // chats are "system"; the P/B split rides the contact's bot flag with a
@@ -36,4 +38,29 @@ test("swipeCategoryStep steps only on clearly horizontal drags", () => {
   assert.equal(swipeCategoryStep(0, -300), 0);  // pure vertical
   assert.equal(swipeCategoryStep(-47.9, 0), 0); // threshold is exclusive
   assert.equal(swipeCategoryStep(-48, 0), 1);
+});
+
+// Unread chip: orthogonal to the kind chips — any kind can be unread, so the
+// predicate filters on the fresh counter alone (missing counter = read).
+test("chatIsUnread cuts across chat kinds on the fresh counter", () => {
+  assert.equal(chatIsUnread({ kind: "group", unread: 3 }), true);
+  assert.equal(chatIsUnread({ kind: "single", unread: 1 }), true);
+  assert.equal(chatIsUnread({ kind: "single", unread: 0 }), false);
+  assert.equal(chatIsUnread({ kind: "group", unread: undefined }), false);
+  assert.equal(chatIsUnread({ kind: "channel" }), false);
+});
+
+const appIndex = readFileSync(
+  fileURLToPath(new URL("../app/index.html", import.meta.url)), "utf8");
+
+// The Unread chip sits directly after All so the swipe cycle reads
+// All → Unread → People → … — and the drawer can toggle it.
+test("unread chip is declared after All and hideable in the drawer", () => {
+  const all = appIndex.indexOf('data-cat="all"');
+  const unread = appIndex.indexOf('data-cat="unread"');
+  const people = appIndex.indexOf('data-cat="people"');
+  assert.ok(all >= 0 && unread > all && unread < people, "unread chip misplaced");
+  const drawer = readFileSync(
+    fileURLToPath(new URL("../app/js/ui.js", import.meta.url)), "utf8");
+  assert.ok(drawer.includes('["unread", "Unread"]'), "drawer hide-toggle missing");
 });

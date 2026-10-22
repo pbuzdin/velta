@@ -1024,7 +1024,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
         <summary><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Chat categories</span></summary>
         <fieldset class="scale-opts" data-cat-opts>
           <legend class="vh">Chat categories</legend>
-          ${[["people", "People"], ["groups", "Groups"], ["channels", "Channels"], ["bots", "Bots"], ["system", "System"]].map(([key, label]) => `<label class="scale-opt"><input type="checkbox" role="switch" data-cat-key="${key}"${catsHidden.includes(key) ? "" : " checked"}><span>${label}</span></label>`).join("")}
+          ${[["unread", "Unread"], ["people", "People"], ["groups", "Groups"], ["channels", "Channels"], ["bots", "Bots"], ["system", "System"]].map(([key, label]) => `<label class="scale-opt"><input type="checkbox" role="switch" data-cat-key="${key}"${catsHidden.includes(key) ? "" : " checked"}><span>${label}</span></label>`).join("")}
         </fieldset>
         <div class="bar-opts-hint">"All" is always visible.</div>
       </details>

@@ -3,7 +3,7 @@ import { createCore } from "./transport.js";
 import { createNetWatch, NET_DEFAULTS } from "./net-watch.js";
 import "./components.js";
 import { escapeHtml, escapeAttr } from "./components.js";
-import { chatCategoryOf, swipeCategoryStep, batteryReactionPlan } from "./rpc-core.js";
+import { chatCategoryOf, chatIsUnread, swipeCategoryStep, batteryReactionPlan } from "./rpc-core.js";
 import { fileUrl, setWasmBlobReader, redactMediaUrl } from "./media.js";
 import { mountMemberList } from "./member-list.js";
 import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintFromVcard, fingerprintGroups, cachedFingerprintIsDerived } from "./avatar.js";
@@ -1747,6 +1747,9 @@ const chatIsBot = (contactId) => state.contactBots?.get(contactId) === true;
 function visibleChats() {
   const cat = state.chatCategory;
   if (cat === "all") return state.chats;
+  // Unread cuts across the kind chips — a group and a person can both be
+  // unread, so this is an intersection, not a chatCategoryOf bucket.
+  if (cat === "unread") return state.chats.filter(chatIsUnread);
   // #77: a boot-restored People/Bots view renders before any chip click,
   // so it must kick the bot-flag fetch itself — otherwise contact bots
   // classify as "people" until the next chip interaction.
