@@ -1006,6 +1006,11 @@ export class JsonRpcCore extends EventTarget {
     } catch (e) { console.warn("device label prep failed", e); }
   }
 
+  // Our own display name ("" when unset) — @mention matching (mentions.js).
+  async getSelfDisplayName() {
+    return (await this._call("get_config", this.accountId, "displayname")) || "";
+  }
+
   async getAccount() {
     const { accountId } = this;
     const acc = await this._call("get_account_info", accountId);

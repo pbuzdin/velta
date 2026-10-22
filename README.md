@@ -90,6 +90,12 @@ Full steps: [docs/pwa-self-host.md](docs/pwa-self-host.md).
 
 ## Functions
 
+- **@mentions** — type `@` in a group to pick a member; the message carries
+  plain text `@Name (C0FE)` (first fingerprint group), so Delta Chat shows it
+  as typed. Velta highlights mentions, mentions of you stronger, and a muted
+  chat still notifies you when you are mentioned (switch in Notifications,
+  default on). Details: [docs/mentions.md](docs/mentions.md).
+
 <details>
 <summary>Local chat (beta)</summary>
 

@@ -1034,6 +1034,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
           <legend class="vh">Notifications</legend>
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="notifications"${notifyChecked("velta-notify") ? " checked" : ""}><span>Notifications</span></label>
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="mentions"${notifyChecked("velta-notify-mentions") ? " checked" : ""}><span>Replies only (skip the rest)</span></label>
+          <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="mutedmentions"${notifyChecked("velta-notify-muted-mentions") ? " checked" : ""}><span>Notify me when mentioned in muted chats</span></label>
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="text"${notifyChecked("velta-notify-text") ? " checked" : ""}><span>Show message content</span></label>
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="system"${notifyChecked("velta-notify-system") ? " checked" : ""}><span>System notification for new messages</span></label>
           ${IS_ANDROID ? `
@@ -1194,6 +1195,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     const storageKeys = {
       notifications: "velta-notify",
       mentions: "velta-notify-mentions",
+      mutedmentions: "velta-notify-muted-mentions",
       text: "velta-notify-text",
       system: "velta-notify-system",
       vibration: "velta-notify-vibration",
@@ -1227,6 +1229,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     const prefs = {
       enabled: localStorage.getItem("velta-notify") !== "0",
       mentions_only: localStorage.getItem("velta-notify-mentions") === "1",
+      mentions_in_muted: localStorage.getItem("velta-notify-muted-mentions") !== "0",
       show_content: localStorage.getItem("velta-notify-text") !== "0",
       system_new_msgs: localStorage.getItem("velta-notify-system") !== "0",
       vibration: localStorage.getItem("velta-notify-vibration") !== "0",

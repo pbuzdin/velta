@@ -180,6 +180,8 @@ const screens = [
   ['device-chat', async p => { await openChat(p, 'Device Messages') }],
   ['chatinfo-group', async p => { await openChat(p, 'Weekend Crew'); await p.locator('.chat-head-text').first().click(); await p.waitForTimeout(800) }],
   ['thread-panel', async p => { await openChat(p, 'Ada Byron'); await toBottom(p); await p.locator('.msg-thread-btn').first().click({ timeout: 4000 }); await p.waitForTimeout(500) }],
+  ['mentions', async p => { await openChat(p, 'Weekend Crew'); await toBottom(p) }],
+  ['mention-picker', async p => { await openChat(p, 'Weekend Crew'); await p.locator('#composer-input').fill(''); await p.locator('#composer-input').pressSequentially('hi @'); await p.waitForTimeout(400) }],
   ['msg-sheet', async p => { await openChat(p, 'Ada Byron'); await toBottom(p); await p.locator('.msg-row .bubble').last().click({ button: 'right' }).catch(() => {}); await p.waitForTimeout(400) }],
   ['toast', async p => { await p.evaluate(async () => { const { toast } = await import('./js/ui.js'); toast('Camera access is blocked — the call continues with audio only.', 60000) }); await p.waitForTimeout(300) }],
   ['call-incoming', callScreen('in')],

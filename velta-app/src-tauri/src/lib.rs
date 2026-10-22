@@ -1515,6 +1515,7 @@ fn battery_optimization_exempt() -> bool {
 struct NotifyPrefs {
     enabled: bool,          // master: any message notification at all
     mentions_only: bool,    // only messages that mention the user
+    mentions_in_muted: bool, // muted chats still notify on an @mention of me (default on)
     show_content: bool,     // message text in the preview
     system_new_msgs: bool,  // OS notification layer for new messages
     vibration: bool,        // Android channel
@@ -1529,6 +1530,7 @@ impl Default for NotifyPrefs {
         Self {
             enabled: true,
             mentions_only: false,
+            mentions_in_muted: true,
             show_content: true,
             system_new_msgs: true,
             vibration: true,
@@ -3372,6 +3374,44 @@ async fn bg_rpc_with(
 // conversation. Falls back to plain title/body when the Kotlin side is not
 // reachable (application context not handed over yet).
 #[cfg(target_os = "android")]
+/// "@Name" mention of `name` in `text`: case-insensitive, "@" at a word
+/// start (not an e-mail "a@b"), word boundary after the name. Mirrors
+/// mentions.js findMentions for a single member (docs/mentions.md).
+fn text_mentions_name(text: &str, name: &str) -> bool {
+    let name = name.trim().to_lowercase();
+    if name.is_empty() {
+        return false;
+    }
+    let lower = text.to_lowercase();
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    let bad_before = |c: char| word(c) || ".@+-%&/:#".contains(c);
+    for (i, _) in lower.match_indices('@') {
+        if lower[..i].chars().next_back().is_some_and(bad_before) {
+            continue;
+        }
+        let rest = &lower[i + 1..];
+        if rest.starts_with(&name) && !rest[name.len()..].chars().next().is_some_and(word) {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+mod mention_tests {
+    use super::text_mentions_name;
+    #[test]
+    fn mentions() {
+        assert!(text_mentions_name("hey @Pavel B (1A2B) look", "Pavel B"));
+        assert!(text_mentions_name("@pavel!", "Pavel"));
+        assert!(!text_mentions_name("mail pavel@x.org", "Pavel"));
+        assert!(!text_mentions_name("@Pavelka hi", "Pavel"));
+        assert!(!text_mentions_name("a@Pavel", "Pavel"));
+        assert!(!text_mentions_name("@Pavel", ""));
+        assert!(text_mentions_name("(@Пётр) ок", "пётр"));
+    }
+}
+
 async fn bg_notify_incoming(
     app: &tauri::AppHandle,
     tx: &tokio::sync::mpsc::UnboundedSender<String>,
@@ -3407,14 +3447,17 @@ async fn bg_notify_incoming(
         // is_chat_muted() readback the UI path is documented to gate on
         // (core api.rs); timed mutes resolve inside the core. A lookup
         // failure notifies — better a redundant card than a lost one.
-        if let Ok(serde_json::Value::Bool(true)) = bg_rpc(
-            tx,
-            state,
-            "is_chat_muted",
-            serde_json::json!([account, chat_id]),
-        )
-        .await
-        {
+        let muted = matches!(
+            bg_rpc(
+                tx,
+                state,
+                "is_chat_muted",
+                serde_json::json!([account, chat_id]),
+            )
+            .await,
+            Ok(serde_json::Value::Bool(true))
+        );
+        if muted && !prefs.mentions_in_muted {
             continue;
         }
         let Ok(msg) = bg_rpc(tx, state, "get_message", serde_json::json!([account, msg_id])).await
@@ -3429,6 +3472,19 @@ async fn bg_notify_incoming(
             .to_string();
         if text.is_empty() {
             continue;
+        }
+        // Muted chat: only an "@<my display name>" mention gets through
+        // (docs/mentions.md — name match only here; the fingerprint code
+        // check runs in the page).
+        if muted {
+            let me = bg_rpc(tx, state, "get_config", serde_json::json!([account, "displayname"]))
+                .await
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_string))
+                .unwrap_or_default();
+            if !text_mentions_name(&text, &me) {
+                continue;
+            }
         }
         // "Mentions only": skip messages that neither name the user nor
         // carry any @-mention.

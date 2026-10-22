@@ -3053,3 +3053,24 @@ html[data-theme="brutal"] .msg-row.out .msg-groupcall { color: var(--nb-main-ink
 .gc-name-label { display: block; font-size: 13px; color: var(--text-dim); margin-bottom: 6px; }
 .gc-name-input { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-hover); color: var(--text); }
 .gc-name-hint { font-size: 12.5px; color: var(--text-dim); margin: 8px 0 0; }
+
+/* @mentions (docs/mentions.md). Chip text uses the same per-surface AA link
+   tokens as message links (in: --accent-text-in, out: --out-link, brutal
+   out: ink). Mentions of me add an outline + underline + bolder weight;
+   the fingerprint code is smaller/regular weight but keeps the full colour
+   (no opacity) so it still meets 4.5:1. */
+.msg-text .mention { color: var(--accent-text-in); font-weight: 600; -webkit-hyphens: manual; hyphens: manual; white-space: nowrap; }
+.msg-row.out .msg-text .mention { color: var(--out-link); }
+html[data-theme="brutal"] .msg-row.out .msg-text .mention { color: var(--nb-main-ink); }
+.msg-text .mention-me {
+  font-weight: 700; border-radius: 6px; padding: 0 3px;
+  /* outline + underline, no background tint: a tint lowers the text
+     contrast under 4.5:1 on light bubbles. */
+  box-shadow: inset 0 0 0 1px currentColor, inset 0 -2px 0 currentColor;
+}
+.mention-code { font-family: var(--font-mono); font-size: .72em; font-weight: 400; margin-left: 3px; letter-spacing: .02em; }
+.mention-pop [role=option] {
+  display: flex; align-items: center; gap: 10px; font-family: inherit; padding: 6px 14px;
+}
+.mention-pop .mention-opt-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.mention-pop .mention-code { color: inherit; }

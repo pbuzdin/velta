@@ -70,6 +70,8 @@ const ROW_CACHE_MAX = 300; // rendered-row LRU cap (see _rowCache)
 import { fileUrl, mediaFallbackUrl, redactMediaUrl } from "./media.js";
 import { openInAppBrowser } from "./inapp-browser.js";
 import { renderMarkdown, extractBotCommands } from "./markdown.js";
+import { attachMentionPicker, fprCode } from "./mentions.js";
+import { fingerprintFor, cachedFingerprintIsDerived } from "./avatar.js";
 import { detectTextLang, uiLang } from "./text-lang.js";
 import { looksLikeSettings, parseSettings } from "./settings-transfer.js";
 import { compressImage, compressEnabled } from "./image-compress.js";
@@ -733,6 +735,10 @@ export class ChatView {
         page = await load(anchorId);
         if (!this._isCurrent(session)) return false;
       }
+      // @mentions: members (+ fingerprint codes) before the first paint, but
+      // never hold the chat open on slow lookups.
+      await Promise.race([this._loadMentionMembers(chat, session), new Promise(r => setTimeout(r, 600))]);
+      if (!this._isCurrent(session)) return false;
       const { messages, hasMore, hasNewer = false } = page;
       if (anchorId != null && !messages.some(m => m.id === anchorId)) anchorId = null;
       this.chat = chat;
@@ -876,6 +882,38 @@ export class ChatView {
   // history area (Diagnostics chat) and when the chat is closed.
   // Local P2P groups carry text, photos and files (no stickers, no voice):
   // hide the sticker button there, restore it everywhere else.
+  // @mentions (docs/mentions.md): the open group's members as
+  // { id, name, code, color, addr, avatar }. SELF (id 1) carries our own
+  // display name; code = first fingerprint group, "" when only derived.
+  async _loadMentionMembers(chat, session) {
+    this._mentionMembers = [];
+    this._mentionKey = "";
+    if (!chat || (chat.kind !== "group" && chat.kind !== "channel") || !this.core.getChatMembers) return;
+    try {
+      const [list, selfName] = await Promise.all([
+        this.core.getChatMembers(chat.id),
+        this.core.getSelfDisplayName?.().catch(() => "") ?? "",
+      ]);
+      if (!this._isCurrent(session)) return;
+      const members = (list || []).map(c => ({
+        id: c.id, name: c.id === 1 ? (selfName || "") : (c.name || ""), code: "",
+        color: c.color, addr: c.addr, avatar: c.avatar,
+      })).filter(m => m.name.trim());
+      this._mentionMembers = members;
+      this._mentionKey = members.map(m => `${m.id}:${m.name}`).join("|");
+      await Promise.all(members.map(m => fingerprintFor(m.id, m.addr).then(f => {
+        if (!cachedFingerprintIsDerived(m.id)) m.code = fprCode(f);
+      }).catch(() => {})));
+      if (!this._isCurrent(session)) return;
+      this._mentionKey = members.map(m => `${m.id}:${m.name}:${m.code}`).join("|");
+    } catch { /* no members → no chips, plain text stays */ }
+  }
+
+  _mentionAvatar(m) {
+    const contact = m.id > 0 ? ` contact-id="${m.id}"` : "";
+    return `<velta-avatar name="${escapeAttr(m.name || "?")}" color="${escapeAttr(m.color || "")}" kind="single" size="28"${contact}${m.addr ? ` addr="${escapeAttr(m.addr)}"` : ""}${m.avatar ? ` avatar="${escapeAttr(m.avatar)}"` : ""}></velta-avatar>`;
+  }
+
   _applyGroupComposer(chat) {
     const b = document.getElementById("btn-sticker");
     if (b) b.hidden = !!chat?.isP2pGroup;
@@ -1254,6 +1292,8 @@ export class ChatView {
       m.viewtype, m.downloadState, m.text, m.state, m.edited, m.starred,
       m.reactions, m.filePath, m.fileName, m.duration, m.fwdFrom, m.quote, m.error,
       m.originalMsgId, m.transfer?.pct, m.transfer?.failed, m.replies,
+      // @mention chips depend on the member list (names + codes).
+      m.text?.includes("@") ? this._mentionKey || "" : "",
     ]);
   }
 
@@ -2080,7 +2120,7 @@ export class ChatView {
       // nothing.
       const fullMsg = m.hasHtml === true;
       // lang drives CSS hyphenation (hyphens: auto) per message, EN or RU.
-      bubble += `<div class="msg-text" lang="${detectTextLang(m.text, uiLang())}">${renderMarkdown(m.text)}`;
+      bubble += `<div class="msg-text" lang="${detectTextLang(m.text, uiLang())}">${renderMarkdown(m.text, { mentions: this._mentionMembers })}`;
       if (m.fromContact?.bot) { // bot flag rides the sender contact (mock + core)
         const cmds = extractBotCommands(m.text);
         if (cmds.length) {
@@ -3424,7 +3464,11 @@ export class ChatView {
     // #135 recent "/" commands popup (anchored in #main-composer).
     this._recentCmds = attachRecentCommands(input, document.getElementById("main-composer"),
       () => (this.chat && this.core ? { accountId: this.core.accountId, chatId: this.chat.id } : null));
+    // @mention picker (groups/channels only: _mentionMembers is [] elsewhere).
+    this._mentions = attachMentionPicker(input, document.getElementById("main-composer"),
+      () => (this.chat && !this.chat.readOnly ? this._mentionMembers : null), m => this._mentionAvatar(m));
     input.addEventListener("keydown", e => {
+      if (this._mentions.handleKey(e)) return;
       if (this._recentCmds.handleKey(e)) return;
       // Send on Enter is a setting (drawer, default on). Off: Enter falls
       // through to the textarea's native newline insert, whose input event
@@ -3777,6 +3821,7 @@ export class ChatView {
     }
     if (!text) return;
     this._recentCmds?.hide();
+    this._mentions?.hide();
     if (!this.editingMsg) recordCommand(this.core.accountId, session.chatId, text);
     const url = senderPreviewUrl(text, {
       enabled: !!(this.chat && !this.editingMsg && linkPreviewMode(this.chat.id) === "picture"),

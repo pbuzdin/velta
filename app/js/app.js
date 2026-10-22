@@ -6,6 +6,8 @@ import { escapeHtml, escapeAttr } from "./components.js";
 import { chatCategoryOf, chatIsUnread, swipeCategoryStep, batteryReactionPlan } from "./rpc-core.js";
 import { fileUrl, setWasmBlobReader, redactMediaUrl } from "./media.js";
 import { mountMemberList } from "./member-list.js";
+import { mentionsMe, fprCode } from "./mentions.js";
+import { mutedChatAllows, mentionInMutedOn } from "./notify-policy.js";
 import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintFromVcard, fingerprintGroups, cachedFingerprintIsDerived } from "./avatar.js";
 import { ChatView, setAvatarProfileOpener, saveAttachmentFile, openAttachmentFile } from "./chat-view.js";
 import { mediaSectionsHtml, mountChatMedia } from "./chat-media.js";
@@ -5871,10 +5873,19 @@ async function boot() {
     // cores (mock) keep the full refresh on the coarse events.
     core.addEventListener("chatlist-changed", () => scheduleChatListUpdate({ order: true }));
     core.addEventListener("chatlist-item-changed", ev => scheduleChatListUpdate({ chatId: ev?.detail?.chatId || 0 }));
-    core.addEventListener("incoming-msg", ev => {
+    core.addEventListener("incoming-msg", async ev => {
       if (!incrementalChatList()) scheduleChatListRefresh();
       const msg = ev?.detail?.msg;
       const chat = state.chats.find(c => c.id === msg?.chatId);
+      // Muted chats stay quiet unless the message @mentions me (setting,
+      // default on; docs/mentions.md). Android posts from Rust instead.
+      if (chat?.muted) {
+        const epoch = core.accountEpoch;
+        const fpr = await fingerprintFor(1).catch(() => null);
+        if (epoch !== core.accountEpoch) return;
+        const self = { name: state.account?.displayName || "", code: cachedFingerprintIsDerived(1) ? "" : fprCode(fpr) };
+        if (!mutedChatAllows({ muted: true, mentionsMe: mentionsMe(msg?.text || "", self), mentionInMuted: mentionInMutedOn() })) return;
+      }
       notifyIncoming(
         msg?.fromContact?.name || msg?.fwdFrom || "New message",
         (msg?.text || "").replace(/\s+/g, " ").slice(0, 120) || "New message",

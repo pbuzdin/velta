@@ -6,6 +6,17 @@
 import { pageBounds } from "./format.js";
 import { VELTA_WELCOME } from "./velta-strings.js";
 
+// Demo OpenPGP-style fingerprint (40 hex) per address: stable, so the
+// @mention codes (docs/mentions.md) and avatar tiles are deterministic.
+export function mockFingerprint(addr) {
+  let h = 2166136261 >>> 0, out = "";
+  for (let r = 0; out.length < 40; r++) {
+    for (const ch of `${r}:${addr}`) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+    out += h.toString(16).toUpperCase().padStart(8, "0");
+  }
+  return out.slice(0, 40);
+}
+
 const CONTACTS = [
   { id: 2, name: "Ada Byron", addr: "ada@nine.testrun.org", color: "#c6853f", online: true, verified: true, avatar: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23c6853f'/%3E%3Cstop offset='1' stop-color='%23c65a8e'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23g)'/%3E%3Ccircle cx='32' cy='24' r='11' fill='%23fff' opacity='.92'/%3E%3Cpath d='M12 56c2-12 10-17 20-17s18 5 20 17z' fill='%23fff' opacity='.92'/%3E%3C/svg%3E" },
   { id: 3, name: "Kenji Sato", addr: "kenji@nine.testrun.org", color: "#3f8fc6", online: false, lastSeen: Date.now() - 32 * 60000, verified: false, avatar: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2311998e'/%3E%3Cstop offset='1' stop-color='%2338ef7d'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' fill='url(%23g)'/%3E%3Ccircle cx='32' cy='24' r='11' fill='%23fff' opacity='.92'/%3E%3Cpath d='M12 56c2-12 10-17 20-17s18 5 20 17z' fill='%23fff' opacity='.92'/%3E%3C/svg%3E" },
@@ -168,6 +179,15 @@ export class MockCore extends EventTarget {
         if (m.from !== 1 && m.kind !== "service") { m.unread = true; left--; }
       }
       chat.unread -= left;
+    }
+    // @mention demo (docs/mentions.md): coded mentions in and out, one of me.
+    {
+      const crew = this.chats.find(c => c.id === 13);
+      const code = id => mockFingerprint(this.contacts.find(c => c.id === id).addr).slice(0, 4);
+      crew.messages.push(
+        this._mkMsg(crew, { from: 2, text: `@Kenji Sato (${code(3)}) can you bring the tent? @You are you in for Saturday?`, ts: now - 50e3 }),
+        this._mkMsg(crew, { from: 1, text: `Count me in, @Ada Byron (${code(2)}) 🏕`, ts: now - 40e3 }),
+      );
     }
     // Weekend Crew ships with disappearing messages on, so the info sheet
     // shows the row populated in demo mode.
@@ -700,6 +720,16 @@ export class MockCore extends EventTarget {
   }
 
   // Demo vCard for contacts (same contract as rpc-core).
+  // Same text shape as core's get_contact_encryption_info.
+  async getContactEncryptionInfo(contactId) {
+    const c = this.contacts.find(x => x.id === Number(contactId));
+    if (!c) throw new Error("no such contact");
+    const g = f => f.match(/.{4}/g).join(" ");
+    return `End-to-end encryption available.\n\nYou (${this.account.addr}):\n${g(mockFingerprint(this.account.addr))}\n\n${c.name} (${c.addr}):\n${g(mockFingerprint(c.addr))}`;
+  }
+
+  async getSelfDisplayName() { return this.account.displayName || ""; }
+
   async makeVcard(contactIds) {
     const c = this.contacts.find(x => x.id === Number(contactIds[0]));
     return `BEGIN:VCARD\nVERSION:4.0\nFN:${c ? c.name : "Demo"}\nEMAIL;PREF=1:${c ? c.addr : "demo@example.org"}\nEND:VCARD`;

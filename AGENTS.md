@@ -63,6 +63,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── markdown.js       # escape-first message markdown: bold/italic/underline, links, lists + bot command extraction
 │   │   ├── image-compress.js # outgoing photo → lossy WebP when it clearly pays (size-gated, renderer-side canvas, #81)
 │   │   ├── bare-links.js     # scheme-less link detection (t.me/x, example.com) for markdown.js: TLD tiers, boundaries (#85)
+│   │   ├── mentions.js       # @mentions: "@Name (XXXX)" parser (fingerprint code, rename/duplicate-proof), mentionsMe, composer member picker (listbox) — docs/mentions.md
 │   │   ├── hashtags.js       # #hashtag detection for markdown.js (#134): Unicode/Cyrillic, ≥1 letter (#123 is not a tag), word-start only, ≤64 chars
 │   │   ├── audio-player.js   # plain-DOM audio player (play, seek, "current / total", full width from first render) for chat bubbles + chat-info Audio rows
 │   │   ├── media.js          # media URL helpers: blobfile:// protocol (boot-probed) → loopback server → asset protocol + per-element fallback
@@ -2282,6 +2283,18 @@ that label and never get it; imported backups are skipped by core.
 `_prepareFirstConfigure()` claims `core-welcome-image` (empty message) on
 unconfigured accounts so the Delta Chat photo never lands. Tests:
 `tests/velta-device-messages.test.mjs`.
+
+### @mentions (no core change)
+
+`app/js/mentions.js` + docs/mentions.md. Wire format is plain text
+`@Name (XXXX)` (XXXX = first fingerprint group, from `avatar.js
+fingerprintFor`). chat-view loads the open group's members + codes
+(`_loadMentionMembers`, ≤600 ms before first paint), passes them to
+`renderMarkdown(text, { mentions })` and the picker; `_mentionKey` is part
+of the row-cache signature. Muted-chat notify exception: `app.js`
+incoming-msg (`mutedChatAllows`) and Rust `bg_notify_incoming`
+(`mentions_in_muted`, `text_mentions_name`, name only). Tests:
+`tests/mentions.test.mjs`.
 
 ## 7. Testing strategy
 
