@@ -54,7 +54,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── chat-view.js      # message history, composer, selection actions, webxdc cards, bot command chips
 │   │   ├── calls.js          # audio + video calls: WebRTC media + core signaling state machine, Delta Chat-style call screen (screen wake lock held from mic acquisition to releaseMedia; mic + video transceivers before offer/answer; DC data channels iceTrickling/mutedState; Android earpiece/speaker route via call_audio_* → CallAudio.kt — docs/agents/calls.md)
 │   │   ├── member-list.js    # chat info member list: <velta-avatar> + name + address, live search (diacritics-insensitive), fixed-height virtual window
-│   │   ├── chat-media.js     # chat info Apps/Photos/Videos/Audio/Files <details>: get_chat_media counts, lazy batched loads, virtual list/grid, search
+│   │   ├── chat-media.js     # chat info Apps/Photos/Videos/Audio/Files <details>: get_chat_media counts, lazy batched loads, virtual list/grid, search; scoped by chatId — contact profiles resolve the 1:1 chat via getChatIdByContactId and a null chatId is refused (the core reads null as ALL chats, #159)
 │   │   ├── tauri.js          # the one Tauri-shell bridge: tauriInvoke()/invoke(), isTauri(), isAndroid() (case-insensitive), rustLog(); lazy lookups
 │   │   ├── components.js     # Elena-based web components (<velta-avatar>, <velta-chat-item>, <velta-chat-head>, <velta-video>)
 │   │   ├── diagnostics.js    # diagnostics chat store + event sink + shared console-style row renderer
@@ -1739,10 +1739,15 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   delete-confirmation dialog. Outside the native shells the footer
   "Service worker" line is the cache name from §4.2.1, and "WebSocket
   relays" opens the list there. The drawer head shows the avatar (self
-  profile sheet via `onProfile`), display name, Edit profile and Switch
-  account — a native `<details class="acct-switch">` whose `<summary>` is
+  profile sheet via `onProfile`), display name, Edit profile and **Accounts**
+  (#148) — a native `<details class="acct-switch">` whose `<summary>` is
   the pill and whose `.acct-pop` content lists the profiles (current one
-  checked + `aria-current`). It opens with no JS; `wireDisclosure()` adds
+  checked + `aria-current`) plus, behind a `.ctx-sep`, a "Profile
+  management…" row opening the tabbed lifecycle modal. The details ALWAYS
+  renders — single profile included, since the popover is the modal's
+  head-side door; the standalone mid-drawer "Profile management…" item is
+  the second door (both open the same modal; the test pins exactly two
+  `profile-management` actions). It opens with no JS; `wireDisclosure()` adds
   outside-tap/Escape close only while open (attached from the async
   `toggle` event, so the opening tap can't close it), a pick or drawer
   close sets `open = false`. Do NOT go back to `popover`/`popovertarget`

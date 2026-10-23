@@ -432,7 +432,9 @@ The drawer's **Profile management…** modal has four tabs, plus a
 **"Sync only active profile"** switch above them: when enabled, only the
 profile you are currently using syncs mail — other profiles won't receive
 messages until you switch to them (saves battery when you keep several
-profiles around).
+profiles around). It opens from two places: the **Accounts** popover in the
+drawer head (the row under your profile list) and the **Profile
+management…** row in the settings list.
 
 - **Add profile** — paste a chatmail invite link, a relay domain, or scan a
   QR; a new profile is created on the relay. No relay name? The splash's
