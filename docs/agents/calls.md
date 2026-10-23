@@ -219,5 +219,5 @@ Where to read them (CI APKs are release builds, so `run-as` does not work):
 - `scripts/e2e-call-wasm.mjs`: two contexts running the PWA backend, with
   signaling over real IMAP/SMTP. Needs `WASM_DIST` plus `WS_TCP_PROXY`
   (raw TCP 993/465 out) or `RELAY_WS_URL` (a C3 relay that tunnels to the
-  account's mail host). The agent box blocks raw TCP and a7's tunnel didn't
+  account's mail host). The agent box blocks raw TCP and the private relay's tunnel didn't
   resolve nine.testrun.org, so it has not passed end to end yet.
