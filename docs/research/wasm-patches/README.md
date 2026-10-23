@@ -29,7 +29,12 @@ meaning a **Velta-owned forward-port of chatmail/core 2.62+** targeting
 | [`../wasm-core-landing-checklist.md`](../wasm-core-landing-checklist.md) | What must be green before **any** merge into production `core/` |
 
 Master `core/` stays on Velta’s production quilt (`tools/apply-core-patches.py`;
-13 ops at the series’ 2.62 baseline, 21 ops at core 2.63.0, 23 ops at core 2.64.0).
+13 ops at the series’ 2.62 baseline, 21 ops at core 2.63.0, 23 ops at core 2.64.0, 25 ops at core 2.65.0).
+
+> **Refreshed for 2.65.0 (2026-10-23).** 0002/0004/0006/0008 regenerated
+> (Cargo.toml context only: upstream webpki-roots 1.0.10 bump shifted the
+> hunks; no content change); others unchanged; locks re-pinned via
+> `refresh-lock` (wasm-bindgen stays 0.2.129).
 
 > **Refreshed for 2.64.0 (2026-10-20).** 0007 (upstream `smtp::Connection`
 > moved `last_success`) and 0010 (upstream #8832 stop(): timeout then abort;

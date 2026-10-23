@@ -22,10 +22,10 @@ libsqlite3-sys 0.35 -> 0.38, bundled SQLCipher 4.6.1 (SQLite 3.46.1) ->
 
 WASM-CORE: prototype 0001 (MPL idea).
 ---
- .cargo/config.toml           |  3 +++
- Cargo.toml                   | 51 ++++++++++++++++++++++++++----------
+ .cargo/config.toml           |  3 ++
+ Cargo.toml                   | 54 ++++++++++++++++++++++++++----------
  deltachat-jsonrpc/Cargo.toml |  2 +-
- 3 files changed, 41 insertions(+), 15 deletions(-)
+ 3 files changed, 44 insertions(+), 15 deletions(-)
 
 diff --git a/.cargo/config.toml b/.cargo/config.toml
 index e2e5fa9..e443b86 100644
@@ -39,7 +39,7 @@ index e2e5fa9..e443b86 100644
 +[target.wasm32-unknown-unknown]
 +rustflags = ["--cfg", 'getrandom_backend="wasm_js"']
 diff --git a/Cargo.toml b/Cargo.toml
-index f3d93ca..8166f14 100644
+index 3764dc0..1d7549d 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -44,9 +44,7 @@ anyhow = { workspace = true }
@@ -102,7 +102,7 @@ index f3d93ca..8166f14 100644
  url = "2"
  uuid = { version = "1", features = ["serde", "v4"] }
  walkdir = "2.5.0"
- webpki-roots = "0.26.8"
+ webpki-roots = "1.0.10"
  
 +[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 +async-native-tls = { version = "0.6", default-features = false, features = ["runtime-tokio"] }
@@ -139,7 +139,7 @@ index f3d93ca..8166f14 100644
  [dev-dependencies]
  anyhow = { workspace = true, features = ["backtrace"] } # Enable `backtrace` feature in tests.
  criterion = { version = "0.8.1", features = ["async_tokio"] }
-@@ -192,7 +215,7 @@ nu-ansi-term = "0.50"
+@@ -192,7 +218,7 @@ nu-ansi-term = "0.50"
  num-traits = "0.2"
  rand = "0.9"
  regex = "1.12"
@@ -149,7 +149,7 @@ index f3d93ca..8166f14 100644
  serde = "1.0"
  serde_json = "1"
 diff --git a/deltachat-jsonrpc/Cargo.toml b/deltachat-jsonrpc/Cargo.toml
-index c9984bb..c99da15 100644
+index 88c5442..d3e0510 100644
 --- a/deltachat-jsonrpc/Cargo.toml
 +++ b/deltachat-jsonrpc/Cargo.toml
 @@ -17,7 +17,7 @@ async-channel = { workspace = true }

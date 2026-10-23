@@ -20,7 +20,7 @@ WASM-CORE: prototype 0001/0003 (MPL idea).
  1 file changed, 7 insertions(+), 1 deletion(-)
 
 diff --git a/Cargo.toml b/Cargo.toml
-index 5ef22df..9a4a789 100644
+index b4ecafb..717103a 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -95,7 +95,7 @@ tokio-io-timeout = "1.2.1"
@@ -32,7 +32,7 @@ index 5ef22df..9a4a789 100644
  
  toml = "0.9"
  url = "2"
-@@ -235,3 +235,9 @@ vendored = [
+@@ -238,3 +238,9 @@ vendored = [
  
  [lints.rust]
  unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
