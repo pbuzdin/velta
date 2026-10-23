@@ -12,12 +12,17 @@
 import { escapeHtml, escapeAttr } from "./components.js";
 import { findBareLinks, trimLinkEnd } from "./bare-links.js";
 import { findHashtags } from "./hashtags.js";
+import { findMentions } from "./mentions.js";
 import { parseInviteLink, inviteCardHtml, isShortInviteLink, shortInviteCardHtml } from "./invites.js";
 
 const PLACEHOLDER_RE = /\x00(\d+)\x00/g;
 const EMAIL_RE = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+/gu;
 
-export function renderMarkdown(rawText) {
+// opts.mentions: chat members [{ id, name, code }] → @mention chips
+// (mentions.js; SELF id 1 gets the stronger "mention-me" style).
+export function renderMarkdown(rawText, opts = {}) {
+  const members = opts?.mentions || null;
+  const inline = raw => inlineWith(raw, members);
   const text = String(rawText ?? "");
   if (!text) return "";
   // Block pass: consecutive "- "/"* "/"1." lines become lists; everything
@@ -82,7 +87,7 @@ export function renderMarkdown(rawText) {
 // the emphasis rules and emphasis can't leak into attributes. The text between
 // those matches is then scanned for scheme-less addresses (#85, bare-links.js),
 // which are turned into the very same https anchors / invite cards.
-function inline(raw) {
+function inlineWith(raw, members) {
   raw = raw.replace(/\x00/g, ""); // NUL delimits placeholders below
   const re = /\[([^\]\n]+)\]\((https?:\/\/[^)\s]*)\)|\bhttps?:\/\/[^\s<]+/gi;
   const anchors = [];
@@ -105,8 +110,28 @@ function inline(raw) {
     let out = "";
     let at = 0;
     for (const m of seg.matchAll(EMAIL_RE)) {
-      out += hashtagsOf(seg.slice(at, m.index)) + hold(`<span class="msg-nohyph">${escapeHtml(m[0])}</span>`);
+      out += mentionsOf(seg.slice(at, m.index)) + hold(`<span class="msg-nohyph">${escapeHtml(m[0])}</span>`);
       at = m.index + m[0].length;
+    }
+    return out + mentionsOf(seg.slice(at));
+  };
+  // @mentions (mentions.js) in text outside links and e-mail addresses.
+  const mentionsOf = seg => {
+    if (!members?.length) return hashtagsOf(seg);
+    let out = "";
+    let at = 0;
+    for (const x of findMentions(seg, members)) {
+      const name = x.member.name.trim();
+      const code = x.code || x.member.code || "";
+      const full = code ? `${name} (${code})` : name;
+      out += hashtagsOf(seg.slice(at, x.start)) + hold(
+        `<span class="mention${x.me ? " mention-me" : ""}" title="${escapeAttr(full + (x.me ? " — you" : ""))}">` +
+        `@${escapeHtml(name)}` +
+        // The parens are visually hidden: screen readers and copy/paste get
+        // "@Name (C0FE)", the bubble shows a small de-emphasised code.
+        (x.code ? `<span class="mention-code"><span class="vh"> (</span>${escapeHtml(x.code)}<span class="vh">)</span></span>` : "") +
+        `</span>`);
+      at = x.end;
     }
     return out + hashtagsOf(seg.slice(at));
   };

@@ -7,6 +7,8 @@
 // Method names, parameter order and response shapes follow
 // deltachat-jsonrpc/src/api.rs and api/types/*.
 
+import { STOCK_OVERRIDES, SUPPRESSED_DEVICE_LABELS } from "./velta-strings.js";
+
 let nextId = 1;
 
 // Which category chip a chat belongs to in the chat-list bar (#57). "all" is
@@ -19,6 +21,12 @@ export function chatCategoryOf(chat, isBot = () => false) {
   if (chat.kind === "channel") return "channels";
   if (chat.kind === "single") return isBot(chat.contactId) ? "bots" : "people";
   return "system";
+}
+
+// The Unread chip is orthogonal to the kind chips — any kind can be unread —
+// so it filters across chatCategoryOf's buckets instead of being one of them.
+export function chatIsUnread(chat) {
+  return (chat.unread || 0) > 0;
 }
 
 // #83: low-battery marker — pure decision for the auto 🪫 reaction. While
@@ -92,6 +100,7 @@ export class JsonRpcCore extends EventTarget {
     this._accountTransitionBusy = false;
     this.pending = new Map();     // rpc id -> {resolve, reject, onLate?}
     this.msgIdCache = newMsgIdCache();  // chatId -> [msgIds ascending]
+    this._msgIdGen = 0; // bumped by every id-cache invalidation (see getMessageIds)
     this._sendingIds = new Set(); // msgIds handed to the core, not yet delivered/failed
     this._sendingBackstopTimer = null;
     // Latest known delivery state per outgoing msgId (MsgDelivered/MsgRead/
@@ -211,6 +220,7 @@ export class JsonRpcCore extends EventTarget {
     // answer RPC within a few seconds is a broken/stale service — better to
     // fall back quickly than to hang the whole app on 30s timeouts.
     const ids = await this._callWithTimeout(10000, "get_all_account_ids");
+    await this._applyVeltaStrings();
     if (ids.length === 0) {
       this.accountId = await this._callWithTimeout(4000, "add_account");
     } else {
@@ -240,6 +250,8 @@ export class JsonRpcCore extends EventTarget {
     for (const { reject } of this.pending.values()) reject(new Error("reconnecting"));
     this.pending.clear();
     await this.transport.setReceiver(this._onLine);
+    // A restarted service is a fresh core process: stock overrides are gone.
+    await this._applyVeltaStrings();
     if (!this._isCurrentAccount(accountEpoch)) return false;
     await this._call("select_account", accountId);
     await this._startIo();
@@ -690,6 +702,7 @@ export class JsonRpcCore extends EventTarget {
 
   _invalidateChat(chatId, epoch) {
     if (!this._isCurrentAccount(epoch)) return;
+    this._msgIdGen++;
     if (chatId) this.msgIdCache.delete(chatId);
     else this.msgIdCache.clear(); // 0 = unknown/any chat: drop all cached id lists
     this._emit("chat-updated", { chatId });
@@ -975,6 +988,31 @@ export class JsonRpcCore extends EventTarget {
   // Account-scoped promises return entry-account data even after a switch.
   // Callers must check accountEpoch before using results in the UI; the core
   // suppresses stale cache writes/events, but does not cancel source-account RPCs.
+  // Velta wording for core's device-chat texts (velta-strings.js). Stock
+  // strings are process-wide and in-memory, so this runs on every boot and
+  // reconnect, before any configure can build the welcome message.
+  async _applyVeltaStrings() {
+    try { await this._call("set_stock_strings", STOCK_OVERRIDES); }
+    catch (e) { console.warn("set_stock_strings failed", e); }
+  }
+
+  // Before the first configure of an account: block core's Delta Chat
+  // welcome photo. Configured accounts are left alone (their device chat
+  // already has whatever it had; re-adding nothing is a no-op anyway).
+  async _prepareFirstConfigure(accountId) {
+    try {
+      if (await this._call("is_configured", accountId)) return;
+      for (const label of SUPPRESSED_DEVICE_LABELS) {
+        await this._call("add_device_message", accountId, label, null);
+      }
+    } catch (e) { console.warn("device label prep failed", e); }
+  }
+
+  // Our own display name ("" when unset) — @mention matching (mentions.js).
+  async getSelfDisplayName() {
+    return (await this._call("get_config", this.accountId, "displayname")) || "";
+  }
+
   async getAccount() {
     const { accountId } = this;
     const acc = await this._call("get_account_info", accountId);
@@ -1130,6 +1168,7 @@ export class JsonRpcCore extends EventTarget {
   // Adds a relay from a dcaccount:/dclogin: code. Runs the core's configure
   // (ConfigureProgress events flow as "configure-progress") and restarts I/O.
   async addTransportFromQr(qr) {
+    await this._prepareFirstConfigure(this.accountId);
     return this._call("add_transport_from_qr", this.accountId, qr);
   }
 
@@ -1140,6 +1179,7 @@ export class JsonRpcCore extends EventTarget {
   // ConfigureProgress events flow as "configure-progress", same as
   // configureWithQr. No-op if the account is already configured.
   async initTransports(qr = null) {
+    await this._prepareFirstConfigure(this.accountId);
     // The core method itself ends with start_io() on success.
     await this._callWithTimeout(180000, "init_transports", this.accountId, qr);
   }
@@ -1415,6 +1455,30 @@ export class JsonRpcCore extends EventTarget {
     return this._call("get_chatlist_entries", accountId, archived ? 1 : null, query || null, null);
   }
 
+  // Velta #14 reply-thread queries (core patch). Old cores reject the
+  // unknown method — that flips _replyRpcUnavailable and callers fall back
+  // to window-local counting (the chip then only shows for fully loaded
+  // history). Transient errors return null without the permanent flag.
+  async getReplyCounts(chatId) {
+    if (this._replyRpcUnavailable) return null;
+    try {
+      return (await this._call("get_reply_counts", this.accountId, chatId)) || {};
+    } catch (err) {
+      if (/32601|not found/i.test(String(err?.message || err))) this._replyRpcUnavailable = true;
+      return null;
+    }
+  }
+
+  async getReplyIds(chatId, messageId) {
+    if (this._replyRpcUnavailable) return null;
+    try {
+      return (await this._call("get_reply_ids", this.accountId, chatId, messageId)) || [];
+    } catch (err) {
+      if (/32601|not found/i.test(String(err?.message || err))) this._replyRpcUnavailable = true;
+      return null;
+    }
+  }
+
   // Mapped chatlist items for the given ids: Map id -> chat, or id -> null
   // for entries that are not a plain chat (archive link) or failed to load.
   // The core runs ~10 queries per item, so callers fetch only what changed.
@@ -1484,8 +1548,14 @@ export class JsonRpcCore extends EventTarget {
     const { accountId, accountEpoch } = this;
     let ids = this.msgIdCache.get(chatId);
     if (!ids) {
+      // An invalidation (IncomingMsg/MsgsChanged…) that lands while this
+      // fetch is in flight means the answer may predate the new message:
+      // return it, but do not cache it — caching it pinned a stale id list
+      // that hid the new message from history (even across reopen) while
+      // the chat list already showed it.
+      const gen = this._msgIdGen;
       ids = await this._call("get_message_ids", accountId, chatId, false, false);
-      if (this._isCurrentAccount(accountEpoch)) this.msgIdCache.set(chatId, ids);
+      if (this._isCurrentAccount(accountEpoch) && gen === this._msgIdGen) this.msgIdCache.set(chatId, ids);
     }
     return ids;
   }
@@ -1873,6 +1943,7 @@ export class JsonRpcCore extends EventTarget {
     // at the top level; the nested imap/smtp object is the core's internal
     // struct and serde rejects it with "missing field `password`". Empty
     // server fields are omitted so chatmail autoconfig fills them in.
+    await this._prepareFirstConfigure(accountId);
     await this._call("add_transport", accountId, { addr, password });
     await this.transport.checkpoint?.().catch(() => {});
     this._emitAccount("chat-updated", { chatId: 0 }, accountEpoch);

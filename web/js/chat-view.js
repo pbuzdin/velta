@@ -70,6 +70,8 @@ const ROW_CACHE_MAX = 300; // rendered-row LRU cap (see _rowCache)
 import { fileUrl, mediaFallbackUrl, redactMediaUrl } from "./media.js";
 import { openInAppBrowser } from "./inapp-browser.js";
 import { renderMarkdown, extractBotCommands } from "./markdown.js";
+import { attachMentionPicker, fprCode } from "./mentions.js";
+import { fingerprintFor, cachedFingerprintIsDerived } from "./avatar.js";
 import { detectTextLang, uiLang } from "./text-lang.js";
 import { looksLikeSettings, parseSettings } from "./settings-transfer.js";
 import { compressImage, compressEnabled } from "./image-compress.js";
@@ -271,6 +273,11 @@ function openHttp(href) {
 const FWD_NOUNS = { image: "picture", gif: "picture", video: "video", audio: "audio", voice: "audio" };
 const FWD_NOUN = (viewtype) => FWD_NOUNS[viewtype] || "message";
 const FWD_ARTICLE = (viewtype) => (/^[aeiou]/.test(FWD_NOUN(viewtype)) ? "an " : "a ");
+
+// Round side button next to a bubble with replies (Telegram-comments style):
+// shown once a message has at least this many replies. One knob — raise it
+// to 2 to keep single replies chip-only.
+export const THREAD_BUTTON_MIN_REPLIES = 1;
 
 const ICO = {
   reply: `<svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5M4 9h9a7 7 0 017 7v2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
@@ -558,6 +565,20 @@ export class ChatView {
     this.readMarkerId = null;    // manual "read up to here" marker (read-markers.js)
     this._firstUnreadId = null;  // "Unread messages" line, fixed per open
     this._unreadIds = new Set(); // loaded incoming messages not seen yet
+    // quoted msg id -> { count, newestId, newestTs } over the LOADED window;
+    // the "N replies" chip renders only when hasMore is false (whole older
+    // history in the window), which makes the count exact. When the backend
+    // answers the #14 core RPCs (get_reply_counts / get_reply_ids), counts
+    // come from the core instead — exact for every chat — and "Show replies"
+    // opens the thread overlay.
+    this._replyCounts = new Map();
+    this._coreReplies = false;      // the backend answered get_reply_counts
+    this._coreReplyCounts = new Map(); // parent id -> count, whole chat (core)
+    this._coreReplyTimer = 0;
+    this.thread = null;           // open thread panel: { parentId }
+    this.threadPanel = null;      // built next to the history list
+    this.threadReplies = null;
+    this._threadRendered = new Set();
     this._seenPending = [];
     this._seenTimer = null;
     this._seenFrame = 0;
@@ -607,6 +628,23 @@ export class ChatView {
 
     this.scrollEl = document.getElementById("history-scroll");
     this.listEl = document.getElementById("history");
+    // Thread panel: a non-modal bottom sheet between the history and the
+    // composer (the composer stays usable, locked to the thread).
+    this.threadPanel = document.createElement("section");
+    this.threadPanel.id = "thread-panel";
+    this.threadPanel.className = "thread-panel";
+    this.threadPanel.setAttribute("role", "dialog");
+    this.threadPanel.setAttribute("aria-modal", "false");
+    this.threadPanel.setAttribute("aria-labelledby", "thread-title");
+    this.threadPanel.hidden = true;
+    this.threadPanel.addEventListener("keydown", e => {
+      if (e.key === "Escape" && this.thread) { e.preventDefault(); e.stopPropagation(); this._closeThread(); }
+    });
+    this.scrollEl.after(this.threadPanel);
+    // Escape from the composer (locked to the thread) closes the thread too.
+    document.getElementById("composer-input")?.addEventListener?.("keydown", e => {
+      if (e.key === "Escape" && this.thread && !e.defaultPrevented) { e.preventDefault(); this._closeThread(); }
+    });
     this.goDownBtn = document.getElementById("btn-go-down");
     this.goDownBadge = document.getElementById("go-down-badge");
     this._newWhileAway = 0;
@@ -639,6 +677,8 @@ export class ChatView {
   // chat: the caller's freshly fetched chat object (app.js openChat), which
   // saves a second getChat per open (#25); fetched here when omitted.
   async open(chatId, chat = null) {
+    if (this.thread) this._closeThread();
+    this._coreReplyCounts = new Map(); // per chat; refetched after the first page
     // Retire the old scroller, composer and pending work before yielding.
     this.close();
     // The row cache survives switches (keys are per-chat message ids), but
@@ -697,6 +737,10 @@ export class ChatView {
         page = await load(anchorId);
         if (!this._isCurrent(session)) return false;
       }
+      // @mentions: members (+ fingerprint codes) before the first paint, but
+      // never hold the chat open on slow lookups.
+      await Promise.race([this._loadMentionMembers(chat, session), new Promise(r => setTimeout(r, 600))]);
+      if (!this._isCurrent(session)) return false;
       const { messages, hasMore, hasNewer = false } = page;
       if (anchorId != null && !messages.some(m => m.id === anchorId)) anchorId = null;
       this.chat = chat;
@@ -840,6 +884,38 @@ export class ChatView {
   // history area (Diagnostics chat) and when the chat is closed.
   // Local P2P groups carry text, photos and files (no stickers, no voice):
   // hide the sticker button there, restore it everywhere else.
+  // @mentions (docs/mentions.md): the open group's members as
+  // { id, name, code, color, addr, avatar }. SELF (id 1) carries our own
+  // display name; code = first fingerprint group, "" when only derived.
+  async _loadMentionMembers(chat, session) {
+    this._mentionMembers = [];
+    this._mentionKey = "";
+    if (!chat || (chat.kind !== "group" && chat.kind !== "channel") || !this.core.getChatMembers) return;
+    try {
+      const [list, selfName] = await Promise.all([
+        this.core.getChatMembers(chat.id),
+        this.core.getSelfDisplayName?.().catch(() => "") ?? "",
+      ]);
+      if (!this._isCurrent(session)) return;
+      const members = (list || []).map(c => ({
+        id: c.id, name: c.id === 1 ? (selfName || "") : (c.name || ""), code: "",
+        color: c.color, addr: c.addr, avatar: c.avatar,
+      })).filter(m => m.name.trim());
+      this._mentionMembers = members;
+      this._mentionKey = members.map(m => `${m.id}:${m.name}`).join("|");
+      await Promise.all(members.map(m => fingerprintFor(m.id, m.addr).then(f => {
+        if (!cachedFingerprintIsDerived(m.id)) m.code = fprCode(f);
+      }).catch(() => {})));
+      if (!this._isCurrent(session)) return;
+      this._mentionKey = members.map(m => `${m.id}:${m.name}:${m.code}`).join("|");
+    } catch { /* no members → no chips, plain text stays */ }
+  }
+
+  _mentionAvatar(m) {
+    const contact = m.id > 0 ? ` contact-id="${m.id}"` : "";
+    return `<velta-avatar name="${escapeAttr(m.name || "?")}" color="${escapeAttr(m.color || "")}" kind="single" size="28"${contact}${m.addr ? ` addr="${escapeAttr(m.addr)}"` : ""}${m.avatar ? ` avatar="${escapeAttr(m.avatar)}"` : ""}></velta-avatar>`;
+  }
+
   _applyGroupComposer(chat) {
     const b = document.getElementById("btn-sticker");
     if (b) b.hidden = !!chat?.isP2pGroup;
@@ -947,6 +1023,12 @@ export class ChatView {
       requestAnimationFrame(() => { if (this._isCurrent(session)) { this._scrollBottom(); this._scheduleSeenCheck(); } });
     } else {
       this._renderGoDown(true);
+    }
+    // Thread mode: re-lock the composer quote to the thread parent after
+    // each send (the normal reply flow clears it).
+    if (this.thread) {
+      const pit = this.msgIndex.get(this.thread.parentId);
+      if (pit) this._setReply(pit);
     }
   }
 
@@ -1211,7 +1293,9 @@ export class ChatView {
     return JSON.stringify([
       m.viewtype, m.downloadState, m.text, m.state, m.edited, m.starred,
       m.reactions, m.filePath, m.fileName, m.duration, m.fwdFrom, m.quote, m.error,
-      m.originalMsgId, m.transfer?.pct, m.transfer?.failed,
+      m.originalMsgId, m.transfer?.pct, m.transfer?.failed, m.replies || 0,
+      // @mention chips depend on the member list (names + codes).
+      m.text?.includes("@") ? this._mentionKey || "" : "",
     ]);
   }
 
@@ -1255,14 +1339,21 @@ export class ChatView {
   _logSignatureDiff(key, a, b) {
     try {
       const fa = JSON.parse(a), fb = JSON.parse(b);
-      const names = ["viewtype","downloadState","text","state","edited","starred","reactions","filePath","fileName","duration","fwdFrom","quote","error","originalMsgId"];
+      // Same order as _rowSignature.
+      const names = ["viewtype","downloadState","text","state","edited","starred","reactions","filePath","fileName","duration","fwdFrom","quote","error","originalMsgId","transferPct","transferFailed","replies","mentions"];
       const diffs = [];
       for (let i = 0; i < names.length; i++) {
         if (JSON.stringify(fa[i]) !== JSON.stringify(fb[i])) {
           diffs.push(`${names[i]}: ${JSON.stringify(fa[i])} -> ${JSON.stringify(fb[i])}`);
         }
       }
-      diagnosticsSink.append("warning", `row ${key} rebuilt: ${diffs.join("; ") || "no field diff"}`);
+      // Expected one-off rebuilds (reply count, mention names, transfer
+      // progress) and identical signatures are not news: log only a real
+      // content flip — that is what this line exists to catch.
+      const benign = /^(replies|mentions|transferPct|transferFailed): /;
+      const real = diffs.filter(d => !benign.test(d));
+      if (real.length) diagnosticsSink.append("warning", `row ${key} rebuilt: ${real.join("; ")}`);
+      else debugLog(`row ${key} rebuilt: ${diffs.join("; ") || "no field diff"}`);
     } catch (e) {
       diagnosticsSink.append("warning", `row ${key} rebuilt (diff failed: ${e})`);
     }
@@ -1272,6 +1363,7 @@ export class ChatView {
     if (!this._isCurrent() || !this.chat || chatId !== this.chat.id) return;
     const item = this.msgIndex.get(msg.id);
     if (!item) return;
+    msg = this._withReplies(msg); // refetched copies carry no reply count
     const sig = this._rowSignature(msg);
     const prevSig = this._rowSigCache.get(item.key);
     if (item.msg && prevSig === sig) {
@@ -1325,7 +1417,14 @@ export class ChatView {
       this._rowCache.delete("m" + id);
       this._rowSigCache.delete("m" + id);
     }
-    this.vs?.setItems(this.items);
+    this._recountReplies(); // a deleted reply must drop off the counter
+    if (this.thread) {
+      if (ids.includes(this.thread.parentId)) this._closeThread();
+      else {
+        for (const id of ids) this.threadReplies.querySelector(`[data-msgid="${id}"]`)?.remove();
+        this._updateThreadCount();
+      }
+    }
   }
 
   /* ================= items & day chips ================= */
@@ -1334,7 +1433,215 @@ export class ChatView {
     this.items = [];
     this.msgIndex.clear();
     this._unreadIds.clear();
+    this._replyCounts = new Map(); // the store restarts — counts recount via _annotateMessages
     this._insertItems(this._annotateMessages(messages));
+    this._scheduleCoreReplyRefresh();
+  }
+
+  // Effective reply count for a parent. Core counts cover the whole chat
+  // (parent and replies need not be loaded); the loaded-window count tops it
+  // up for replies the core has not indexed yet (a reply that just landed
+  // before the debounced core refresh). Without the core: window counts,
+  // only when no older page is missing (they would under-count).
+  _replyCountFor(id) {
+    const w = this._replyCounts.get(id)?.count || 0;
+    if (this._coreReplies) return Math.max(this._coreReplyCounts.get(id) || 0, w);
+    return this.hasMore ? 0 : w;
+  }
+
+  // Stamp the effective count on a message object (row signature input), so
+  // refetched copies (no `replies` field) do not look changed and rebuild.
+  _withReplies(msg) {
+    const c = this._replyCountFor(msg.id);
+    return msg.replies === c ? msg : { ...msg, replies: c };
+  }
+
+  _restampReplies() {
+    for (const item of this.items) {
+      if (item.type !== "msg") continue;
+      const c = this._replyCountFor(item.msg.id);
+      if ((item.msg.replies || 0) !== c && this.chat?.id != null) {
+        this.onMsgUpdated(this.chat.id, { ...item.msg, replies: c });
+      } else {
+        item.msg.replies = c;
+      }
+    }
+  }
+
+  // Full recount after deletions (incremental counting lives in
+  // _annotateMessages; deletion removes messages from the store directly).
+  // Scans this.items only — must NOT re-annotate, or msgIndex entries would
+  // be replaced by fresh wrappers and the menu's live-item check would break.
+  _recountReplies() {
+    const counts = new Map();
+    for (const item of this.items) {
+      if (item.type !== "msg") continue;
+      const qid = Number(item.msg.quote?.id || 0);
+      if (!qid) continue;
+      const cur = counts.get(qid);
+      if (!cur || item.msg.ts >= cur.newestTs) {
+        counts.set(qid, { count: (cur?.count || 0) + 1, newestId: item.msg.id, newestTs: item.msg.ts });
+      } else {
+        cur.count += 1;
+      }
+    }
+    this._replyCounts = counts;
+    this._restampReplies();
+  }
+
+  // Core-backed counts (Velta #14 patch): exact for every chat, no hasMore
+  // guard. Debounced — bursts of inserts must not spam the RPC.
+  _scheduleCoreReplyRefresh() {
+    if (typeof this.core.getReplyCounts !== "function") return;
+    clearTimeout(this._coreReplyTimer);
+    this._coreReplyTimer = setTimeout(() => { this._refreshCoreReplyCounts(); }, 300);
+  }
+
+  async _refreshCoreReplyCounts() {
+    const session = this._session;
+    if (!this._isCurrent(session) || !this.chat) return;
+    let counts = null;
+    try { counts = await this.core.getReplyCounts(this.chat.id); } catch { return; }
+    if (!counts || !this._isCurrent(session)) return;
+    this._coreReplies = true;
+    this._coreReplyCounts = new Map(Object.entries(counts).map(([id, n]) => [Number(id), Number(n) || 0]));
+    this._restampReplies();
+  }
+
+  // "Show replies" (context menu or the round side button): opens the
+  // thread panel — a bottom sheet with the parent on top and the replies
+  // beneath; the composer stays visible and locked to the thread.
+  async _showReplies(m) {
+    await this._openThread(m);
+  }
+
+  async _openThread(m, opener = null) {
+    const parentId = m.id;
+    if (this.thread?.parentId !== parentId) {
+      const active = opener || document.activeElement;
+      this._threadReturnFocus = active && active !== document.body ? active : null;
+    }
+    this.thread = { parentId };
+    this.threadPanel.hidden = false;
+    this._renderThreadPanel();
+    // Composer lock: while the thread is open every send quotes the parent
+    // (re-locked after each send in appendOutgoing).
+    const pit = this.msgIndex.get(parentId) || { type: "msg", key: "m" + parentId, msg: m };
+    this._setReply(pit);
+    this.threadPanel.querySelector(".thread-close")?.focus?.();
+    this._threadScrollEnd();
+    // Exact reply ids from the #14 core RPC when available; without it the
+    // panel keeps the loaded-window replies it was rendered with.
+    if (typeof this.core.getReplyIds === "function") {
+      try {
+        const ids = (await this.core.getReplyIds(this.chat.id, parentId)) || [];
+        if (!this._isCurrent() || this.thread?.parentId !== parentId) return;
+        for (const id of ids) {
+          if (this._threadRendered.has(id)) continue;
+          const r = await this.core.getMessage(id).catch(() => null);
+          if (!r || !this._isCurrent() || this.thread?.parentId !== parentId) return;
+          this._appendThreadRow({ type: "msg", key: "m" + id, msg: r });
+        }
+      } catch { /* panel keeps the loaded-window replies */ }
+      this._updateThreadCount();
+      this._threadScrollEnd();
+    }
+  }
+
+  _threadScrollEnd() {
+    const body = this.threadPanel.querySelector(".thread-body");
+    if (body) body.scrollTop = body.scrollHeight;
+  }
+
+  _appendThreadRow(item) {
+    this.threadReplies.appendChild(this._renderMsgItem(item, { inThread: true }));
+    this._threadRendered.add(item.msg.id);
+  }
+
+  _renderThreadPanel() {
+    const panel = this.threadPanel;
+    panel.innerHTML = "";
+    const parentItem = this.msgIndex.get(this.thread.parentId);
+    const head = document.createElement("header");
+    head.className = "thread-head";
+    const titles = document.createElement("div");
+    titles.className = "thread-titles";
+    const title = document.createElement("h2");
+    title.id = "thread-title";
+    title.className = "thread-title";
+    title.textContent = "Thread ";
+    const count = document.createElement("span");
+    count.className = "thread-count";
+    title.appendChild(count);
+    const orig = document.createElement("div");
+    orig.className = "thread-orig";
+    const pm = parentItem?.msg;
+    orig.textContent = pm ? `${pm.fromContact?.name || ""}${pm.fromContact?.name ? ": " : ""}${(pm.text || pm.fileName || "").split("\n")[0]}` : "";
+    titles.append(title, orig);
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "icon-btn thread-close";
+    close.setAttribute("aria-label", "Close thread");
+    close.title = "Close thread";
+    close.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`;
+    close.addEventListener("click", () => this._closeThread());
+    head.append(titles, close);
+    panel.appendChild(head);
+    const body = document.createElement("div");
+    body.className = "thread-body";
+    panel.appendChild(body);
+    if (parentItem) body.appendChild(this._renderMsgItem(parentItem, { inThread: true }));
+    const sep = document.createElement("div");
+    sep.className = "thread-sep";
+    body.appendChild(sep);
+    this.threadReplies = document.createElement("div");
+    this.threadReplies.className = "thread-replies";
+    body.appendChild(this.threadReplies);
+    this._threadRendered = new Set([this.thread.parentId]);
+    // replies currently in the loaded window; the core fetch tops it up
+    for (const item of this.items) {
+      if (item.type === "msg" && Number(item.msg.quote?.id || 0) === this.thread.parentId && !this._threadRendered.has(item.msg.id)) {
+        this._threadRendered.add(item.msg.id);
+        this.threadReplies.appendChild(this._renderMsgItem(item, { inThread: true }));
+      }
+    }
+    this._updateThreadCount();
+  }
+
+  _updateThreadCount() {
+    const n = this.threadReplies.children.length;
+    const el = this.threadPanel.querySelector(".thread-count");
+    if (el) el.textContent = `· ${n} ${n === 1 ? "reply" : "replies"}`;
+  }
+
+  _closeThread() {
+    const parentId = this.thread?.parentId;
+    this.thread = null;
+    this.replyTo = null;
+    this.replyFragment = null;
+    this._renderReplyPreview();
+    this.threadPanel.hidden = true;
+    this.threadPanel.innerHTML = "";
+    // Focus returns to the opener (side button / bubble); when the row was
+    // re-rendered meanwhile, to the parent's side button or bubble.
+    // The sheet shrank the history, so the virtual scroller may have
+    // unmounted the parent row; it re-mounts after the resize settles.
+    const opener = this._threadReturnFocus;
+    this._threadReturnFocus = null;
+    const refocus = () => {
+      let back = opener?.isConnected ? opener : null;
+      if (!back && parentId != null) {
+        const row = this.listEl.querySelector?.(`[data-msgid="${parentId}"]`);
+        back = row?.querySelector(".msg-thread-btn") || null;
+      }
+      back?.focus?.({ preventScroll: true });
+      return !!back;
+    };
+    if (!refocus()) setTimeout(() => {
+      if (refocus() || parentId == null || !this._isCurrent()) return;
+      this._jumpToMessage(parentId); // brings the parent back, then focus its button
+      setTimeout(refocus, 600);
+    }, 120);
   }
 
   // Day chips ride INSIDE the first message row of each day (dayFirst flag)
@@ -1358,7 +1665,24 @@ export class ChatView {
         readMarker: m.id === this.readMarkerId,
       };
       this.msgIndex.set(m.id, item);
+      item.msg = this._withReplies(m);
       if (m.unread) this._unreadIds.add(m.id);
+      const qid = Number(m.quote?.id || 0);
+      if (qid) {
+        const cur = this._replyCounts.get(qid);
+        const count = (cur?.count || 0) + 1;
+        const newestTs = !cur || m.ts >= cur.newestTs ? m.ts : cur.newestTs;
+        const newestId = !cur || m.ts >= cur.newestTs ? m.id : cur.newestId;
+        this._replyCounts.set(qid, { count, newestId, newestTs });
+        // Stamp the count on the parent message and refresh just that row:
+        // the keyed scroller ignores reference swaps, so a row-level update
+        // is the only way the chip appears without a full rebuild.
+        const pit = this.msgIndex.get(qid);
+        const eff = this._replyCountFor(qid);
+        if (pit?.type === "msg" && this.chat?.id != null && (pit.msg.replies || 0) !== eff) {
+          this.onMsgUpdated(this.chat.id, { ...pit.msg, replies: eff });
+        }
+      }
       out.push(item);
       lastDay = dayKey;
     }
@@ -1370,6 +1694,17 @@ export class ChatView {
       this.items = [...newItems.map(i => (delete i._prepend, i)), ...this.items];
     } else {
       this.items = [...this.items, ...newItems];
+    }
+    this._scheduleCoreReplyRefresh(); // new messages change reply counts
+    // Thread panel: live-append replies to the open thread.
+    if (this.thread && !this.threadPanel.hidden) {
+      for (const item of newItems) {
+        if (item.type !== "msg" || this._threadRendered.has(item.msg.id)) continue;
+        if (Number(item.msg.quote?.id || 0) !== this.thread.parentId) continue;
+        this._appendThreadRow(item);
+        this._updateThreadCount();
+        this._threadScrollEnd();
+      }
     }
   }
 
@@ -1596,8 +1931,9 @@ export class ChatView {
     return el;
   }
 
-  _renderMsgItem(item) {
+  _renderMsgItem(item, { inThread = false } = {}) {
     const m = item.msg;
+    let threadBtn = "";
     const chatId = this.chat.id;
     // Handlers below live on cached rows that survive close()/open() — the
     // build-time session would be stale after any chat switch and silently
@@ -1803,7 +2139,7 @@ export class ChatView {
       // nothing.
       const fullMsg = m.hasHtml === true;
       // lang drives CSS hyphenation (hyphens: auto) per message, EN or RU.
-      bubble += `<div class="msg-text" lang="${detectTextLang(m.text, uiLang())}">${renderMarkdown(m.text)}`;
+      bubble += `<div class="msg-text" lang="${detectTextLang(m.text, uiLang())}">${renderMarkdown(m.text, { mentions: this._mentionMembers })}`;
       if (m.fromContact?.bot) { // bot flag rides the sender contact (mock + core)
         const cmds = extractBotCommands(m.text);
         if (cmds.length) {
@@ -1849,11 +2185,27 @@ export class ChatView {
       const reason = failReason(m.error);
       failBadge = `<span class="msg-fail-badge" title="${escapeAttr(m.error || "Not sent")}">${escapeHtml(reason)}</span>`;
     }
-    bubble += `<span class="msg-meta">${edited}${star}${botChip}${timeTag(m.ts, formatTime(m.ts))}${ticks}</span>${failBadge}</div>`;
+    // "N replies" chip: with the #14 core patch the counts are core-exact;
+    // otherwise only when the whole older history is loaded (pages still
+    // ahead would silently under-count).
+    const replyN = this._replyCountFor(m.id);
+    // Passive count next to the timestamp (phones; desktop has the side
+    // button). Not a tap target — the side button and the menu open threads.
+    const repliesChip = replyN > 0
+      ? `<span class="msg-replies-count">${replyN} ${replyN === 1 ? "reply" : "replies"}</span>`
+      : "";
+    if (replyN >= THREAD_BUTTON_MIN_REPLIES && replyN > 0 && !inThread) {
+      const label = `Show ${replyN} ${replyN === 1 ? "reply" : "replies"}`;
+      threadBtn = `<button type="button" class="msg-thread-btn" data-act="thread" aria-label="${label}" title="${label}">${ICO.reply}<span aria-hidden="true">${replyN}</span></button>`;
+    }
+    bubble += `<span class="msg-meta">${edited}${star}${botChip}${repliesChip}${timeTag(m.ts, formatTime(m.ts))}${ticks}</span>${failBadge}</div>`;
     if (m.reactions?.length) {
       bubble += `<div class="msg-reactions">${reactionChipsHtml(m.reactions)}</div>`;
     }
-    inner += `<div class="bubble${m.viewtype === "sticker" ? " sticker" : ""}">${bubble}</div>`;
+    const bubbleHtml = `<div class="bubble${m.viewtype === "sticker" ? " sticker" : ""}">${bubble}</div>`;
+    // Side button sits on the open side: right of incoming, left of outgoing.
+    inner += threadBtn ? (out ? threadBtn + bubbleHtml : bubbleHtml + threadBtn) : bubbleHtml;
+    if (threadBtn) row.className += " has-thread";
     row.innerHTML = inner;
     if (item.readMarker) row.append(this._readMarkerEl());
     if (m.viewtype === "vcard" && m.filePath) this._hydrateVcardCard(row, m);
@@ -2245,6 +2597,7 @@ export class ChatView {
         else if (mediaAction.dataset.act === "fail-del") this._deleteFailed(m);
         else if (mediaAction.dataset.act === "lc-retry") this._lcRetryTransfer(m);
         else if (mediaAction.dataset.act === "show-original") this._showOriginal(m);
+        else if (mediaAction.dataset.act === "thread") this._openThread(m, mediaAction);
         return;
       }
       const vcardBtn = e.target.closest("[data-vcard-open]");
@@ -2565,6 +2918,8 @@ export class ChatView {
     const items = [];
     // No reply without a composer (read-only chats).
     if (!this.readOnly) items.push({ label: "Reply", pair: "send", icon: ICO.reply, onClick: () => this._setReply(item) });
+    const replyN = this._replyCountFor(m.id);
+    if (replyN > 0) items.push({ label: "Show replies", icon: ICO.reply, onClick: () => this._showReplies(m) });
     // Core mirrors these guards (own + plain text + non-empty); the menu just
     // hides the entry where the core would refuse. P2P chats keep a separate
     // message store — no edit there yet.
@@ -3033,6 +3388,9 @@ export class ChatView {
     const bar = document.getElementById("reply-preview");
     if (!this.replyTo && !this.editingMsg) { bar.hidden = true; return; }
     bar.hidden = false;
+    // Thread mode locks the composer: the quote-bar X hides (the exit is the
+    // panel's "Back to chat", which clears the quote with it).
+    document.getElementById("btn-reply-close").hidden = !!this.thread;
     if (this.editingMsg) {
       document.getElementById("reply-name").textContent = "Editing message";
       document.getElementById("reply-text").textContent = this.editingMsg.text || "";
@@ -3121,7 +3479,11 @@ export class ChatView {
     // #135 recent "/" commands popup (anchored in #main-composer).
     this._recentCmds = attachRecentCommands(input, document.getElementById("main-composer"),
       () => (this.chat && this.core ? { accountId: this.core.accountId, chatId: this.chat.id } : null));
+    // @mention picker (groups/channels only: _mentionMembers is [] elsewhere).
+    this._mentions = attachMentionPicker(input, document.getElementById("main-composer"),
+      () => (this.chat && !this.chat.readOnly ? this._mentionMembers : null), m => this._mentionAvatar(m));
     input.addEventListener("keydown", e => {
+      if (this._mentions.handleKey(e)) return;
       if (this._recentCmds.handleKey(e)) return;
       // Send on Enter is a setting (drawer, default on). Off: Enter falls
       // through to the textarea's native newline insert, whose input event
@@ -3474,6 +3836,7 @@ export class ChatView {
     }
     if (!text) return;
     this._recentCmds?.hide();
+    this._mentions?.hide();
     if (!this.editingMsg) recordCommand(this.core.accountId, session.chatId, text);
     const url = senderPreviewUrl(text, {
       enabled: !!(this.chat && !this.editingMsg && linkPreviewMode(this.chat.id) === "picture"),
