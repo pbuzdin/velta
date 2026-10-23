@@ -982,12 +982,14 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
         <div class="drawer-name">${escapeHtml(account.displayName)}</div>
         <div class="drawer-links">
           <button type="button" data-act="edit-profile">Edit profile</button>
-          ${accounts.length ? `<details class="acct-switch" data-acct-switch>
-            <summary data-act="switch-account">Switch account<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+          <details class="acct-switch" data-acct-switch>
+            <summary data-act="switch-account">Accounts<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
             <div class="acct-pop" role="group" aria-label="Accounts">
             ${accounts.map(a => `<button type="button" class="ctx-item" data-act="account" data-account="${escapeAttr(a.id)}"${a.id === currentAccountId ? ' aria-current="true"' : ""}><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>${a.id === currentAccountId ? `<path d="M8.5 12.5l2.5 2.5 5-5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>` : ""}</svg><span>${escapeHtml(a.name || a.addr)}${a.id === currentAccountId ? " · current" : ""}</span></button>`).join("")}
+            <div class="ctx-sep"></div>
+            <button type="button" class="ctx-item" data-act="profile-management"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 5v4M21 7h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Profile management…</span></button>
             </div>
-          </details>` : ""}
+          </details>
         </div>
       </div>
     </div>
@@ -1076,7 +1078,6 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
         </fieldset>
         <div class="bar-opts-hint" data-dl-hint>${escapeHtml(DL_LIMIT_HINT)}</div>
       </details>
-      <button type="button" class="ctx-item" data-act="profile-management"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 5v4M21 7h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Profile management…</span></button>
       <button type="button" class="ctx-item" data-act="relays"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Relays of this profile…</span></button>
       ${onTunnel ? `<button type="button" class="ctx-item" data-act="tunnel"><svg viewBox="0 0 24 24"><path d="M3 20V11a9 9 0 0118 0v9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M8 20v-7a4 4 0 018 0v7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>DNS tunnel: ${escapeHtml(tunnelLabel)}</span></button>` : ""}
       ${onWsRelays ? `<button type="button" class="ctx-item" data-act="ws-relays"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>WebSocket relays</span></button>` : ""}
