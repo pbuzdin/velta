@@ -2580,9 +2580,17 @@ async function showChatInfo(chat) {
   const modal = showModal({ title: "", body });
 
   // Apps / Photos / Videos / Audio / Files: counts now, contents on open.
-  if (body.querySelector("[data-media]")) {
+  // Contact profiles carry no chat id — scope their sections to the 1:1
+  // chat with the contact, or hide them when there is none (opening a
+  // profile must not create a chat). A null chatId would hit the core's
+  // "all chats" fallback (#159).
+  let mediaChatId = chat.id;
+  if (!mediaChatId && chat.contactId && core.getChatIdByContactId) {
+    try { mediaChatId = await core.getChatIdByContactId(chat.contactId) || null; } catch { mediaChatId = null; }
+  }
+  if (body.querySelector("[data-media]") && mediaChatId) {
     mountChatMedia(body, {
-      core, chatId: chat.id, fileUrl,
+      core, chatId: mediaChatId, fileUrl,
       isCurrent: () => accountIsCurrent(epoch) && body.isConnected,
       appInfo: (id) => prefetchInfo(id),
       appIconUrl: (id, icon) => appIconUrl(id, icon),

@@ -142,6 +142,7 @@ export function mountChatMedia(root, opts) {
   const ready = Promise.all(MEDIA_SECTIONS.map(async (section) => {
     const el = root.querySelector(`[data-media="${section.key}"]`);
     if (!el) return;
+    if (!chatId) return; // no chat scope → stay hidden (the core reads a null chatId as "all chats", #159)
     let ids;
     try { ids = await queryChatMedia(core, chatId, section); } catch { ids = null; }
     if (!isCurrent() || ids == null) return; // unsupported → stays hidden

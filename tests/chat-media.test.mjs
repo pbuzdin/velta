@@ -60,10 +60,26 @@ test("rpc-core forwards to get_chat_media with null padding; mock twin exists", 
   const { RpcCore } = await import("../app/js/rpc-core.js").catch(() => ({}));
   const src = readFileSync(new URL("../app/js/rpc-core.js", import.meta.url), "utf8");
   assert.match(src, /this\._call\("get_chat_media", this\.accountId, chatId, t1, t2, t3\)/);
+  // #159: contact profiles resolve the 1:1 chat so media is not queried
+  // account-wide (a null chatId reads as "all chats" in the core).
+  assert.match(src, /async getChatIdByContactId\(contactId\) \{/);
+  assert.match(src, /this\._call\("get_chat_id_by_contact_id", this\.accountId, contactId\)/);
   assert.match(src, /async getMessagesByIds\(ids = \[\]\)/);
   const mock = readFileSync(new URL("../app/js/mock-core.js", import.meta.url), "utf8");
   assert.match(mock, /async getChatMedia\(chatId, types = \[\]\)/);
+  assert.match(mock, /async getChatIdByContactId\(contactId\) \{/);
   void RpcCore;
+});
+
+test("no chatId: every section stays hidden and the core is never asked (#159)", async () => {
+  installChatViewGlobals();
+  installFakeDocument();
+  const core = fakeCore(sample);
+  const root = fakeRoot();
+  const { ready } = mountChatMedia(root, { core, chatId: undefined });
+  await ready;
+  assert.ok([...root.secs.values()].every(el => el.hidden), "sections hidden without a chat scope");
+  assert.deepEqual(core.mediaCalls, [], "the all-chats fallback must not be reachable");
 });
 
 test("search filtering: names, diacritics-insensitive, manifest name wins for apps", () => {

@@ -798,6 +798,12 @@ export class MockCore extends EventTarget {
     return c.messages.filter(m => m.kind !== "service" && want.has(m.viewtype)).map(m => m.id);
   }
 
+  // Demo twin of rpc-core.getChatIdByContactId: read-only, null when the
+  // profile has no 1:1 chat.
+  async getChatIdByContactId(contactId) {
+    return this.chats.find(c => c.contactId === contactId)?.id ?? null;
+  }
+
   async getMessagesByIds(ids = []) {
     const out = [];
     for (const id of ids) {

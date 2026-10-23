@@ -1586,6 +1586,12 @@ export class JsonRpcCore extends EventTarget {
     return await this._call("get_chat_media", this.accountId, chatId, t1, t2, t3);
   }
 
+  // ChatId of the 1:1 chat with the contact, or null when there is none.
+  // Read-only — unlike get_by_contact_id it never creates the chat.
+  async getChatIdByContactId(contactId) {
+    return await this._call("get_chat_id_by_contact_id", this.accountId, contactId);
+  }
+
   // Mapped messages for explicit ids (one get_messages round trip; callers
   // batch). Order follows `ids`; ids that failed to load are skipped.
   async getMessagesByIds(ids = []) {
