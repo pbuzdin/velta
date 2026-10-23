@@ -448,7 +448,7 @@ core.addEventListener?.("diagnostic", e => {
 // cores have no setNetworkIo — optional call is a no-op there.
 // VPN-toggle fix: see net-watch.js — grace period before pausing, resume on
 // any network/foreground signal, periodic safety net.
-const netWatch = createNetWatch({ core: () => core, isOnline: () => navigator.onLine });
+const netWatch = createNetWatch({ core: () => core, isOnline: () => navigator.onLine, opts: { pauseIo: !isAndroid() } });
 addEventListener("online", () => netWatch.onSignal("online"));
 addEventListener("offline", () => netWatch.onOffline());
 addEventListener("focus", () => netWatch.onSignal("focus"));

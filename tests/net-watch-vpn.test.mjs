@@ -74,3 +74,17 @@ test("app.js no longer wires offline straight to stop_io; native emits velta-net
   const rs = readFileSync(new URL("../velta-app/src-tauri/src/lib.rs", import.meta.url), "utf8");
   assert.ok(rs.includes('"velta-network"'));
 });
+
+test("pauseIo:false (Android) never stops IO on a long loss, only nudges", async () => {
+  const h = harness({ pauseIo: false });
+  h.set(false); h.w.onOffline(); await h.advance(60000);
+  await h.w.tick(); await h.advance(200000);
+  assert.ok(!h.calls.includes("pause"), h.calls.join(","));
+  assert.equal(h.w.paused, false);
+  assert.ok(h.calls.includes("nudge"));
+});
+
+test("app.js disables the IO pause on Android", () => {
+  const src = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8");
+  assert.ok(src.includes("opts: { pauseIo: !isAndroid() }"));
+});
