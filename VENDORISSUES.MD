@@ -193,7 +193,7 @@ the same way when updating; verified by decoding generated QR codes.
 ## Delta Chat core (vendored `core/`, upstream chatmail/core)
 
 Re-vendor note: every Velta core change is an op in the quilt
-`tools/apply-core-patches.py` (live: #10, #11, #12, #13, #14, #15; retired: #7) and
+`tools/apply-core-patches.py` (live: #10 -> velta#163, #11 -> velta#164, #12 -> velta#165, #13 -> velta#166, #14 -> velta#167, #15 -> velta#168; retired: #7) and
 re-applies mechanically — `apply`, then `verify` and `tree-check --fetch`
 must pass (COREUPDATE.md §0; CI `core-patches.yml` enforces both). Hand
 edits to `core/` that are not quilt ops are lost on re-vendor — exactly how
@@ -237,6 +237,8 @@ Upstream fix: handle animation (or at least skip recoding for formats the
 
 ### 10. The SMTP loop's bound transport is not exposed to clients (#79)
 
+**Tracker: pbuzdin/velta#163.**
+
 **Status: patched locally (`core/src/smtp.rs` + `core/src/scheduler.rs` +
 `core/src/scheduler/connectivity.rs` — all blocks carry the `Velta patch
 (#79)` marker; quilt ops "#10 …"). Since 2.63.0 upstream #8797 resets
@@ -271,6 +273,8 @@ for unpatched cores. Upstream fix: expose the bound transport properly
 > Velta's consumer (`relaySmtpVia`) to it and drop this patch.
 
 ### 11. "Use for sending" does not pin the sending transport (core/src/smtp.rs)
+
+**Tracker: pbuzdin/velta#164.**
 
 **Status: patched locally (quilt ops "#11 …", `core/src/smtp.rs` +
 `smtp_tests.rs`). Re-keyed 2026-10-10** from `configured_addr` to the
@@ -324,6 +328,8 @@ upstream grows a first-class preferred-transport API.
 
 ### 12. A push wake-up waits out a dead IDLE socket (core/src/context.rs)
 
+**Tracker: pbuzdin/velta#165.**
+
 **Status: patched locally (quilt op "#12 …"). Originally 78df479 (#42/#25
 P8); dropped by the 2.63.0 re-vendor (it was a hand edit), restored
 2026-10-10.** `Context::background_fetch` interrupts IDLE and waits for the
@@ -335,6 +341,8 @@ sockets. Upstream fix: a bounded fetch / stale-session detection in
 
 ### 13. Push-token registration is invisible to the UI (core/src/imap.rs)
 
+**Tracker: pbuzdin/velta#166.**
+
 **Status: patched locally (quilt op "#13 …"). Originally f133237 (1.4.29);
 dropped by the 2.63.0 re-vendor, restored 2026-10-10.**
 `Session::register_token` only logs. Patch: emit `EventType::Info`
@@ -345,6 +353,8 @@ shows them. Upstream fix: a structured push-registration status API.
 
 #110 (2026-10-15): the event texts now carry the relay addr (`Transport N (addr): …`, via a `velta_transport_addr` SELECT on `transports`) so the Relays modal can show a "(U)" mark per relay.
 
+
+**Tracker: pbuzdin/velta#167.**
 
 #14 (2026-10-22): reply-thread queries for the chat view's "N replies" chip and
 thread overlay: `get_reply_counts(account_id, chat_id)` (quoted msg id -> reply
@@ -369,6 +379,8 @@ Both queries now match `TRIM(mime_in_reply_to, '<> ')` and require a quote
 param (`q`) on a non-forward (no `a`) row.
 
 ### 15. Relay capabilities are invisible to clients (core/src/transport.rs)
+
+**Tracker: pbuzdin/velta#168.**
 
 **Status: patched locally (`core/src/transport.rs` +
 `core/deltachat-jsonrpc/src/api.rs` +

@@ -55,3 +55,16 @@ test("flags only claim what the relay advertised — no optimistic defaults", ()
   assert.match(app, /const relayFlagsHtml = \(addr, meta\) =>/);
   assert.doesNotMatch(app, /hasTurn \|\| true|irohRelay \|\| true|supportsPush \|\| true/);
 });
+
+test("failover hint: the pinned relay says where sends went, the carrier says failover", () => {
+  const app = read("app/js/app.js");
+  // smtpVia comes from the modal's own connectivity parse, not stale state.
+  assert.match(app, /statusByDomain = new Map\(parsed\.segs\.map\(s => \[s\.domain, s\]\)\)/);
+  assert.match(app, /smtpVia = parsed\.smtpVia/);
+  // The pin's row: "· sending — send failed, switched to X for now" only
+  // when the bound transport differs from the pin; the carrier row gets
+  // "(failover)". No failover → plain "· sending".
+  assert.match(app, /· sending\$\{failedOver \? ` — send failed, switched to \$\{escapeHtml\(smtpVia\)\} for now` : ""\}/);
+  assert.match(app, /· sending \(failover\)/);
+  assert.match(app, /const failedOver = !!viaDomain && viaDomain !== pinnedDomain;/);
+});

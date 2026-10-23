@@ -5403,11 +5403,15 @@ async function openRelaysModal() {
     if (!accountIsCurrent(epoch)) return;
     // Per-relay live status for the stale-transport hint (issue #11 slice 3):
     // parseConnectivityHtml gives one state per relay domain — best effort,
-    // the modal stays useful without it.
+    // the modal stays useful without it. smtpVia rides along: the transport
+    // the SMTP loop is actually bound to (failover hint below).
     let statusByDomain = null;
+    let smtpVia = null;
     try {
       if (core.getConnectivityHtml) {
-        statusByDomain = new Map(parseConnectivityHtml(await core.getConnectivityHtml()).map(s => [s.domain, s]));
+        const parsed = parseConnectivityHtml(await core.getConnectivityHtml());
+        statusByDomain = new Map(parsed.segs.map(s => [s.domain, s]));
+        smtpVia = parsed.smtpVia;
       }
     } catch { /* best effort */ }
     if (!accountIsCurrent(epoch)) return;
@@ -5431,10 +5435,24 @@ async function openRelaysModal() {
       const st = statusByDomain?.get((t.addr || "").split("@").pop());
       const hint = !st || st.state === "ok" ? "" : ` <span class="relay-row-status">${st.state === "down" ? "unreachable — messages queue until it's back" : "connecting…"}</span>`;
       const demote = primary && other ? `<button type="button" class="btn-text" data-demote>Stop using for sending</button>` : "";
+      // Failover (core patch smtp-via): smtpVia is the transport the SMTP
+      // loop is ACTUALLY bound to. When it is not the pinned one, the pin's
+      // relay failed a send and the core switched away — say so on both
+      // rows instead of silently showing the stale pin.
+      const domainOf = (a) => String(a || "").split("@")[1]?.toLowerCase() || null;
+      const viaDomain = domainOf(smtpVia);
+      const pinnedDomain = domainOf(state.account?.addr);
+      const isVia = !!viaDomain && domainOf(t.addr) === viaDomain;
+      const failedOver = !!viaDomain && viaDomain !== pinnedDomain;
+      const sendMark = primary
+        ? ` <span class="relay-sending">· sending${failedOver ? ` — send failed, switched to ${escapeHtml(smtpVia)} for now` : ""}</span>`
+        : isVia && failedOver
+          ? ` <span class="relay-sending">· sending (failover)</span>`
+          : "";
       row.className = "relay-card";
       row.innerHTML = `
         <div class="relay-line">
-          <span class="relay-addr">${escapeHtml(t.addr)}${primary ? ` <span class="relay-sending">· sending</span>` : ""}${hint}</span>
+          <span class="relay-addr">${escapeHtml(t.addr)}${sendMark}${hint}</span>
           <span class="relay-flags">${relayFlagsHtml(t.addr, metaByAddr?.[t.addr] || null)}</span>
         </div>
         <div class="relay-actions">${primary ? demote : `<button type="button" class="btn-text" data-sendvia>Use for sending</button>`}<button type="button" class="btn-text" data-remove style="color:var(--danger)">Remove</button></div>`;
