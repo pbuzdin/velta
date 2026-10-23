@@ -1157,6 +1157,12 @@ It opens as a panel directly below the chat header (the chat stays usable
 underneath; ⤢ expands to full screen, ✕ closes), and the sender sees each
 receiver's progress ("N receivers", a percent bar per person, "done" once
 the checksum is verified).
+In a group everyone who opens Beam can receive, and whoever already has the
+file passes it on: each piece is checked on arrival (per-piece SHA-256 for
+files up to ~96 MB), so even a partial download helps others, and someone
+who opens Beam after the sender closed it can still get the file from any
+member who has it open ("Shared by Ann, Bob"). Copies live in memory, so at
+least one holder must have Beam open.
 
 Velta Beam and Velta Circle follow the Velta design system (dark and light,
 WCAG AA contrast). Opened outside Velta (e.g. in Delta Chat) they show one

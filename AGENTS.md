@@ -1984,6 +1984,18 @@ done, ok}` every 1 s (and on completion); `ReceiverTracker` (transfer.js)
 gives the sender — and other receivers — a per-receiver list (percent bar,
 "done" after SHA-256) and the "N receivers" status. Silent >10 s: dropped
 if it had nothing, kept as "stale" if partway, done stays done.
+Group fan-out (docs/agents/large-file.md "Group fan-out"): `Seeder`
+(transfer.js) answers REQs from any verified piece; the source answers at
+once, other seeders after 0–250 ms jitter and drop a piece seen on the
+channel meanwhile (`noteChunk`), one send per piece per 1 s round, token
+bucket 40 pieces/s. OFFER may carry `ph` (per-piece SHA-256/128, ≤2048
+pieces) → partial seeding; without `ph` only a full verified copy seeds.
+Receivers back off exponentially (1.5 s → 12 s cap, + jitter). PROG adds
+`seed`/`src`; the sender broadcasts PROG `src` so it shows as a seeder.
+Seeders re-announce OFFER, so late joiners see "Available now" after the
+sender left. Beam is NOT on `trusted-xdc.js` (it needs no host powers).
+Tests: tests/beam-fanout.test.mjs (dedupe, jitter, rate, backoff, 1 sender
++ 3 receivers with 10% loss incl. a late joiner after the sender left).
 
 Attach menu item next to Large file: sends `app/builtin/send-direct.xdc`
 into the chat and opens it. Sources in `app/webxdc/send-direct/`

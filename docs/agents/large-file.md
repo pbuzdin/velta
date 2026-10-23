@@ -95,6 +95,39 @@ run of the built .xdc with a stub webxdc relay dropping 10 % of frames
 (300 kB, SHA-256 match after Save to chat). NOT verified here: the real
 core path (iroh gossip between two devices) — needs an on-device check.
 
-Ceilings: both peers must have the app open; the sender holds the whole
+## Group fan-out (2026-10-23)
+
+Every member who holds verified pieces serves them (`Seeder` in
+transfer.js; the original `Sender` is a Seeder with `source: true`).
+- REQ handling: the source answers immediately; other seeders schedule
+  the piece after a random 1–250 ms and cancel it if any CHUNK for it
+  crosses the channel first (`noteChunk`). Each seeder sends a piece at
+  most once per `ROUND_MS` (1 s) and at most `RATE` (40) pieces/s (token
+  bucket), so N receivers asking for the same piece cost one CHUNK.
+- Integrity: offers carry `ph` = first 128 bits of each piece's SHA-256
+  when n ≤ `PH_MAX` (2048 pieces ≈ 96 MB; the OFFER frame stays < 128 kB).
+  Receivers verify each piece on arrival (bad pieces counted in
+  `rejected`, never stored) and may seed partial downloads. Offers without
+  `ph` (older senders, huge files) seed only after the whole-file SHA-256.
+- Receivers re-ask with exponential backoff (1.5 s, 3 s, 6 s … cap 12 s,
+  + jitter) instead of a fixed 1.5 s.
+- Presence: PROG gains `seed` (serves pieces) and `src` (original sender,
+  broadcast by the sender too). The card shows "Shared by …" (seeders heard
+  in the last 10 s); the receiver list hides the sender.
+- Late joiners: the offer arrives with the status update; seeders that
+  finished re-announce OFFER (50 % per 2.5 s tick), so "Receive" enables
+  without the sender. Bytes live in memory only: the file is gone once no
+  holder has Beam open.
+- UI: offer cards repaint only when "online" flips (a rebuild under the
+  finger used to swallow the Receive tap).
+
+Verified: tests/beam-fanout.test.mjs (coalescing, jitter + cross-seeder
+dedupe, rate limit, partial seeding safety, backoff, lossy 1 sender + 3
+receivers with a late joiner after the sender left, partial seeders
+completing a newcomer); a 4-page Chromium run on a relayed stub channel
+(sender, two receivers, sender closes, late joiner finishes, SHA-256 OK),
+WCAG AA in dark/light. Not verified: real iroh gossip with 3+ devices.
+
+Ceilings: someone holding the file must have the app open; the sender holds the whole
 file in memory (`importFiles` reads it fully), so this is for files that
 fit in RAM; each chunk crosses JSON-RPC as a number array (~4× size).

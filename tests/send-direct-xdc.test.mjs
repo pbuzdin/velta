@@ -81,7 +81,8 @@ test("two receivers get the file over a lossy channel, sha256 verified", () => {
 test("a tampered chunk fails the checksum; wrong-size chunks are ignored", () => {
   const bytes = new Uint8Array(randomBytes(100));
   const s = new T.Sender({ name: "x", bytes, send() {}, chunk: 40 });
-  const r = new T.Receiver({ offer: s.offer, send() {} });
+  const { ph, ...noPh } = s.offer; // whole-file check (per-piece: beam-fanout.test.mjs)
+  const r = new T.Receiver({ offer: noPh, send() {} });
   const mk = (i, data) => T.decodeFrame(T.encodeFrame(T.T_CHUNK, { id: s.offer.id, i }, data));
   assert.equal(r.handle(mk(0, new Uint8Array(39))), false);
   r.handle(mk(0, bytes.subarray(0, 40)));
@@ -215,7 +216,7 @@ test("receiver progress: frames, tracker percent/done/stale/drop", () => {
 
 test("ui wires progress broadcast and the receiver list", () => {
   const ui = readFileSync(new URL("../app/webxdc/send-direct/ui.js", import.meta.url), "utf8");
-  for (const s of ["Transfer.T_PROG", "Transfer.progressFrame(o.rx, myPeer(), myName())", "Transfer.PROG_MS", "receiver${n === 1 ? \"\" : \"s\"}", 'aria-label="Receivers"']) assert.ok(ui.includes(s), s);
+  for (const s of ["Transfer.T_PROG", "Transfer.progressFrame(o.rx, myPeer(), myName()", "Transfer.PROG_MS", "receiver${n === 1 ? \"\" : \"s\"}", 'aria-label="Receivers"']) assert.ok(ui.includes(s), s);
   const main = classicTransfer(readFileSync(new URL("../app/webxdc/send-direct/transfer.js", import.meta.url), "utf8"));
   for (const n of ["T_PROG", "PROG_MS", "SILENT_MS", "ReceiverTracker", "progressFrame", "validProgress"]) assert.match(main, new RegExp(`window\\.Transfer = \\{[^}]*\\b${n}\\b`));
 });
