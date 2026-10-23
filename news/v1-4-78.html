@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Velta 1.4.78 adds reply threads and @mentions — Velta</title>
+  <meta name="description" content="Replies collect into threads, @mentions survive renames, the chat list gains an Unread chip, and muted chats stay quiet everywhere.">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css">
+  <script type="speculationrules">
+{
+  "prerender": [{
+    "source": "document",
+    "where": { "and": [
+      { "href_matches": "/*" },
+      { "not": { "href_matches": "/web/*" } },
+      { "not": { "href_matches": "/admin/*" } },
+      { "not": { "selector": "a[target]" } },
+      { "not": { "selector": "a[download]" } }
+    ] },
+    "eagerness": "moderate" }
+  ]
+}
+  </script>
+</head>
+<body>
+  <a href="#content">Skip to content</a>
+  <header>
+    <a href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+    <nav aria-label="Sections">
+      <a href="/#product">Product</a>
+      <a href="/#features">Features</a>
+      <a href="/#privacy">Privacy</a>
+      <a href="/#platforms">Platforms</a>
+      <a href="/#help">Help</a>
+      <a href="/#support">Support</a>
+      <a href="/news" aria-current="page">News</a>
+      <a href="/web/">Web app</a>
+    </nav>
+    <a href="/#download"><span>Get</span><span>Download</span></a>
+    <details>
+      <summary>Menu</summary>
+      <nav aria-label="Mobile">
+        <a href="/#product">Product</a>
+        <a href="/#features">Features</a>
+        <a href="/#privacy">Privacy</a>
+        <a href="/#platforms">Platforms</a>
+        <a href="/#help">Help</a>
+        <a href="/#support">Support</a>
+        <a href="/news">News</a>
+        <a href="/web/">Web app</a>
+      </nav>
+    </details>
+  </header>
+
+  <main id="content" class="page">
+<!-- CMS:START -->
+    <p><a href="/news">News</a></p>
+    <p class="kicker">Release</p>
+    <h1>Velta 1.4.78 adds reply threads and @mentions</h1>
+    <p><time>23 October 2026</time> · 3 min read</p>
+    <p>Replies collect into threads, @mentions survive renames, the chat list gains an Unread chip, and muted chats stay quiet everywhere.</p>
+    <div class="body">
+      <p>Version 1.4.78 is the release to jump to from 1.4.76: it changes how group conversations behave. (1.4.77 was skipped — its desktop builds failed, so it was never published. 1.4.78 carries the same changes with the macOS, Windows and Linux builds fixed.)</p>
+<h2>Replies collect into threads</h2>
+<p>When people quote a message, the quotes used to pile up flat in the chat. Now the quoted message shows a small round button with a reply icon and a count. Tap it — or pick <strong>Show replies</strong> in the message menu — and the thread opens as a sheet over the lower part of the chat: the original on top, every reply beneath, new replies arriving live. The composer stays visible and answers into the thread. Close with ✕ or Escape.</p>
+<p>Counts are honest across apps: they include replies sent from Delta Chat and other clients, and replies that have not reached your device yet.</p>
+<h2>@mentions</h2>
+<p>Type <strong>@</strong> in a group to pick a member. A mention carries a short fingerprint code along with the name, so it still points at the right person after a rename — and it reads as ordinary text in Delta Chat and other clients. Mentions are highlighted, mentions of you more strongly.</p>
+<p>A mention also reaches you from a muted chat. This is on by default and lives under Notifications → “Notify me when mentioned in muted chats”.</p>
+<h2>Unread chip, quieter muted chats</h2>
+<ul>
+<li>The chat list has an <strong>Unread</strong> chip that counts every unread chat, whatever its kind. Hide it like the other chips.</li>
+<li>Muted chats on desktop and in the browser app now stay quiet, as on Android: no notification unless you are mentioned.</li>
+<li>A new profile gets a one-time Velta welcome message.</li>
+</ul>
+<h2>Fixed</h2>
+<ul>
+<li>A new message could be missing from the chat history — while the chat list already showed it — even after reopening the chat, when it arrived during a history load.</li>
+<li>Chat rows no longer rebuild in a loop after refreshes.</li>
+<li>Links and mentions stay readable on light bubbles and the reply bar (WCAG AA in the dark, light and brutal themes, with custom accents too).</li>
+</ul>
+<ul>
+<li><a href="https://github.com/pbuzdin/velta/releases/tag/v1.4.78">Release notes</a></li>
+<li><a href="https://github.com/pbuzdin/velta/compare/v1.4.76...v1.4.78">Compare with 1.4.76</a></li>
+</ul>
+    </div>
+    <aside>
+      <h2>Get the current build</h2>
+      <p>The current build for Android, Windows, and macOS, plus notes for a self-hosted browser copy.</p>
+      <p><strong><a href="/#download">Download</a></strong></p>
+    </aside>
+<!-- CMS:END -->
+  </main>
+
+  <footer>
+    <div>
+      <div>
+        <a class="brand" href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+        <p>A Delta Chat client. Encrypted chat through chatmail relays — or straight across, device to device, when it should not sit on a server.</p>
+      </div>
+      <div>
+        <h2>On this site</h2>
+        <ul>
+          <li><a href="/#download">Download</a></li>
+          <li><a href="/#privacy">Privacy</a></li>
+          <li><a href="/#support">Support</a></li>
+          <li><a href="/#help">Help</a></li>
+          <li><a href="/news">News</a></li>
+          <li><a href="/about.html">About</a></li>
+          <li><a href="/developing.html">Developing</a></li>
+          <li><a href="/comparison.html">Compare</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Project</h2>
+        <ul>
+          <li><a href="https://github.com/pbuzdin/velta">GitHub</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/releases">All releases</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/LICENSE">GPL-3.0</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/README.md">README</a></li>
+          <li><a href="/admin/">Edit site</a></li>
+        </ul>
+      </div>
+    </div>
+    <p><span>Independent client. Delta Chat and Chatmail are upstream projects.</span><span>Built on the Delta Chat core</span><span>Site visits measured cookielessly — the app never phones home</span></p>
+  </footer>
+  <script src="/js/site.js?v=3"></script>
+</body>
+</html>
