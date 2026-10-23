@@ -924,7 +924,7 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
    in chat-view.js): 32px visual disc inside a 44px hit box, on the open
    side (right of incoming, left of outgoing), bottom-aligned with the bubble. */
 .msg-row.has-thread { align-items: flex-end; }
-.msg-row.has-thread .bubble { max-width: min(480px, calc(90% - 48px)); }
+.msg-row.has-thread .bubble { max-width: min(480px, calc(90% - 48px)); min-width: 0; }
 .msg-thread-btn {
   flex: none; align-self: flex-end;
   width: 44px; height: 44px; margin: 0 2px; padding: 0;

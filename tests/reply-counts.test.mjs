@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { installChatViewGlobals, installFakeDocument, installFakeFrames } from "./helpers/fake-dom.mjs";
+import { readFileSync } from "node:fs";
 
 // Stub DOM first: chat-view's module graph registers custom elements.
 installChatViewGlobals();
@@ -215,4 +216,13 @@ test("side button: shown from THREAD_BUTTON_MIN_REPLIES, labelled, opens the thr
   await view.threadPanel.fire("keydown", { key: "Escape", preventDefault() {}, stopPropagation() {} });
   assert.equal(view.thread, null);
   assert.equal(view.threadPanel.hidden, true);
+});
+
+// #159's neighbor: on narrow screens the has-thread bubble's flex min-content
+// width could push the 48px side button onto the next flex line (under the
+// avatar, on incoming rows). min-width: 0 lets the bubble shrink to the line
+// the button shares, so avatar + bubble + button always fit one row.
+test("has-thread bubble can shrink to keep the side button on its line", () => {
+  const css = readFileSync(new URL("../app/css/main.css", import.meta.url), "utf8");
+  assert.match(css, /\.msg-row\.has-thread \.bubble \{[^}]*min-width: 0;/);
 });
