@@ -3568,7 +3568,7 @@ export class ChatView {
         // #138 part 2: built-in webxdc that streams a file peer to peer over
         // the instance's realtime channel (iroh gossip) — webxdc runs in the
         // Tauri shell only.
-        attachItems.push({ label: "Velta Beam (both online)", icon: ICO.beam, onClick: () => this._sendDirectApp() });
+        attachItems.push({ label: "Velta Beam", icon: ICO.beam, onClick: () => this._sendDirectApp() });
       }
       if (!window.__TAURI__ && isAndroid()) {
         attachItems.splice(1, 0, { label: "Camera", icon: ICO.photo, onClick: () => this._sendAttachment("camera") });

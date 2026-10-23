@@ -181,7 +181,7 @@ test("host wiring: realtime methods, events and leave-on-close", () => {
   const mock = readFileSync(new URL("../app/js/mock-core.js", import.meta.url), "utf8");
   assert.match(mock, /async sendWebxdcRealtimeAdvertisement\(/);
   const cv = readFileSync(new URL("../app/js/chat-view.js", import.meta.url), "utf8");
-  assert.match(cv, /label: "Velta Beam \(both online\)"/);
+  assert.match(cv, /label: "Velta Beam"/);
 });
 
 test("receiver progress: frames, tracker percent/done/stale/drop", () => {

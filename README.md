@@ -1149,7 +1149,7 @@ frame a loader page under an opaque-origin sandbox, which unpacks the
 channels aren't available there yet, so Velta Beam shows "direct transfer
 is not available in the Velta web app yet".
 
-**Velta Beam** (formerly "Send directly"). The attach menu's **Velta Beam (both online)** posts a
+**Velta Beam** (formerly "Send directly"). The attach menu's **Velta Beam** posts a
 built-in mini-app that sends a file peer-to-peer over the realtime channel
 (chunked, re-requested on loss, SHA-256 checked) to everyone who opens it
 while the sender is online. The file never goes through the relay.

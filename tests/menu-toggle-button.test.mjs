@@ -61,7 +61,7 @@ test("bindMenuToggle logic (extracted) restores on any close", () => {
 test("wired to #btn-attach and #btn-chat-menu; Velta Beam has its own icon", () => {
   const cv = src("app/js/chat-view.js");
   assert.match(cv, /bindMenuToggle\(document\.getElementById\("btn-attach"\), e => \{/);
-  assert.match(cv, /label: "Velta Beam \(both online\)", icon: ICO\.beam/);
+  assert.match(cv, /label: "Velta Beam", icon: ICO\.beam/);
   assert.match(cv, /beam: `<svg viewBox="0 0 24 24"><path fill="currentColor"/);
   const app = src("app/js/app.js");
   assert.match(app, /bindMenuToggle\(\$\("btn-chat-menu"\), e => \{/);
