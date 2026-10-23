@@ -442,3 +442,19 @@ with `yerpc = "0.7"` and compiles clean.
   unprotected headers; QR/invite links encode `@` as `%40` again (#8825).
 - Channels: reactions no longer spam/apply as channel summaries.
 - Fixes: IMAP busy loop with no candidates, image w×h overflow, summary races.
+
+## 8. Update 2.64.0 → 2.65.0 (2026-10-23)
+
+- **No DB migration**, no JSON-RPC API change (only a doc line on
+  `secure_join`). Quilt: 25/25 ops apply unchanged; none upstreamed.
+- Pinning: unpinning now adds a **visible** info message
+  (`SystemMessageType::MessageUnpinned`, stock "You unpinned a message." /
+  "Message unpinned by %1$s.") — previously hidden. Velta renders it via the
+  generic service-message path; tray refresh still via the `MessageUnpinned` event.
+- `background_fetch_any()` no longer ignores `join_next()` errors (scheduler.rs;
+  only the I/O-stopped branch — Velta #12 bounds the I/O-running branch in
+  context.rs, so no double restart).
+- Internal: keyupdates created in one transaction; `insert_tombstone`,
+  `insert_into_smtp`, `non_chat_headers` made synchronous.
+- Deps: webpki-roots 1.0.10 / 0.26.11, rustls-webpki 0.103.16 (RUSTSEC-2026-0382
+  deny exception). Unused `assets/icon-broadcast.*` removed (Velta never used it).

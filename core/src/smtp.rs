@@ -592,17 +592,14 @@ async fn smtp_send(
 
 /// Inserts a tombstone for `rfc724_mid`
 /// and queues the message for SMTP sending.
-pub(crate) async fn insert_into_smtp(
-    context: &Context,
+pub(crate) fn insert_into_smtp(
+    tx: &mut rusqlite::Transaction<'_>,
     rfc724_mid: &str,
     queued_msg: &QueuedMail,
 ) -> Result<()> {
     let now = tools::time();
-    let msg_id = message::insert_tombstone(context, rfc724_mid, false).await?;
-    context
-        .sql
-        .transaction(|transaction| queue::enqueue_mail(transaction, now, msg_id, queued_msg, None))
-        .await?;
+    let msg_id = message::insert_tombstone(tx, rfc724_mid, false)?;
+    queue::enqueue_mail(tx, now, msg_id, queued_msg, None)?;
     Ok(())
 }
 
@@ -985,7 +982,10 @@ async fn send_mdn_rfc724_mid(
                 .ok()
         })
         .collect();
-    message::insert_tombstone(context, &rendered_msg.rfc724_mid, false).await?;
+    context
+        .sql
+        .transaction(|tx| message::insert_tombstone(tx, &rendered_msg.rfc724_mid, false))
+        .await?;
     match smtp_send(context, &recipients, &body, smtp, None).await {
         SendResult::Success => {
             if !recipients.is_empty() {

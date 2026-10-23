@@ -2173,10 +2173,7 @@ fn b_encode(value: &str) -> String {
 
 /// Returns the headers to place into the encrypted part
 /// of messages that are not part of a chat.
-async fn non_chat_headers(
-    context: &Context,
-    subject: &str,
-) -> Result<Vec<(&'static str, HeaderType<'static>)>> {
+fn non_chat_headers(is_bot: bool, subject: &str) -> Vec<(&'static str, HeaderType<'static>)> {
     let date = chrono::DateTime::<chrono::Utc>::from_timestamp(time(), 0)
         .unwrap()
         .to_rfc2822();
@@ -2186,10 +2183,10 @@ async fn non_chat_headers(
         ("Subject", Text::new(subject.to_string()).into()),
     ];
     // Automatic Response headers <https://www.rfc-editor.org/rfc/rfc3834>
-    if context.get_config_bool(Config::Bot).await? {
+    if is_bot {
         headers.push(("Auto-Submitted", Raw::new("auto-generated").into()));
     }
-    Ok(headers)
+    headers
 }
 
 pub(crate) async fn symm_encrypted_securejoin_message(
@@ -2205,7 +2202,8 @@ pub(crate) async fn symm_encrypted_securejoin_message(
 
     let message: MimePart<'static> = MimePart::new("text/plain", "Secure-Join");
 
-    let mut headers = non_chat_headers(context, "Secure-Join").await?;
+    let is_bot = context.get_config_bool(Config::Bot).await?;
+    let mut headers = non_chat_headers(is_bot, "Secure-Join");
     headers.push(("Secure-Join", Raw::new(step.to_string()).into()));
     headers.push(("Secure-Join-Auth", Text::new(auth.to_string()).into()));
 
@@ -2383,23 +2381,18 @@ fn keyupdate_body() -> MimePart<'static> {
 
 /// Returns a keyupdate message informing the owners of `recipient_keys`
 /// about the current key and relay list, see [`crate::keyupdate`].
-pub(crate) async fn keyupdate_message(
-    context: &Context,
+pub(crate) fn keyupdate_message(
+    is_bot: bool,
     rfc724_mid: &str,
     recipient_keys: Vec<SignedPublicKey>,
     recipients: Vec<String>,
-) -> Result<QueuedMail> {
-    info!(
-        context,
-        "Sending keyupdate message to {} recipients.",
-        recipient_keys.len()
-    );
+) -> QueuedMail {
     let message = keyupdate_body();
 
-    let headers = non_chat_headers(context, "Keyupdate").await?;
+    let headers = non_chat_headers(is_bot, "Keyupdate");
     let message = add_headers_to_encrypted_part(message, headers);
 
-    let queued_mail = QueuedMail {
+    QueuedMail {
         raw_message: part_to_bytes(message),
         display_name: String::new(),
         rfc724_mid: rfc724_mid.to_string(),
@@ -2419,8 +2412,7 @@ pub(crate) async fn keyupdate_message(
         recipients,
         sent_to: Vec::new(),
         bcc_self: false,
-    };
-    Ok(queued_mail)
+    }
 }
 
 /// Renders MIME part into a vector of bytes.
