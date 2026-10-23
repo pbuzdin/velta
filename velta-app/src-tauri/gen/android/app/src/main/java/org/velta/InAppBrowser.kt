@@ -161,11 +161,25 @@ object InAppBrowser {
                 settings.allowFileAccess = false
                 settings.allowContentAccess = false
                 webViewClient = object : WebViewClient() {
-                    // Keep http(s) inside; hand everything else (mailto:, market:,
-                    // intent:, file:) to the system instead of loading it here.
+                    // Keep http(s) inside. mailto:/tel:/market: go to the system
+                    // (mail, dialer, store) via ACTION_VIEW. Everything else
+                    // (intent:, file:, javascript:, app-private schemes) is
+                    // dropped on purpose: a remote page must not launch
+                    // arbitrary components or reach local files.
                     override fun shouldOverrideUrlLoading(view: WebView, request: android.webkit.WebResourceRequest): Boolean {
                         val scheme = request.url.scheme?.lowercase()
-                        return !(scheme == "http" || scheme == "https")
+                        if (scheme == "http" || scheme == "https") return false
+                        if (scheme == "mailto" || scheme == "tel" || scheme == "market") {
+                            try {
+                                act.startActivity(
+                                    Intent(Intent.ACTION_VIEW, request.url)
+                                        .addCategory(Intent.CATEGORY_BROWSABLE)
+                                )
+                            } catch (e: Exception) {
+                                // No app handles it (no mail client, tablet without dialer).
+                            }
+                        }
+                        return true
                     }
                 }
                 webChromeClient = WebChromeClient()

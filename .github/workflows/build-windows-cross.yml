@@ -52,6 +52,9 @@ jobs:
 
   build-installer:
     needs: build-sidecar
+    # Uploads release assets on a tag run (softprops/action-gh-release).
+    permissions:
+      contents: write
     runs-on: windows-latest
     steps:
       - name: Checkout
