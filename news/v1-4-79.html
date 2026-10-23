@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Velta 1.4.79 brings Velta Beam to groups — Velta</title>
+  <meta name="description" content="Velta Beam works in group chats now, the Accounts menu hosts Profile management, and a person's profile no longer lists everyone's files.">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css">
+  <script type="speculationrules">
+{
+  "prerender": [{
+    "source": "document",
+    "where": { "and": [
+      { "href_matches": "/*" },
+      { "not": { "href_matches": "/web/*" } },
+      { "not": { "href_matches": "/admin/*" } },
+      { "not": { "selector": "a[target]" } },
+      { "not": { "selector": "a[download]" } }
+    ] },
+    "eagerness": "moderate" }
+  ]
+}
+  </script>
+</head>
+<body>
+  <a href="#content">Skip to content</a>
+  <header>
+    <a href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+    <nav aria-label="Sections">
+      <a href="/#product">Product</a>
+      <a href="/#features">Features</a>
+      <a href="/#privacy">Privacy</a>
+      <a href="/#platforms">Platforms</a>
+      <a href="/#help">Help</a>
+      <a href="/#support">Support</a>
+      <a href="/news" aria-current="page">News</a>
+      <a href="/web/">Web app</a>
+    </nav>
+    <a href="/#download"><span>Get</span><span>Download</span></a>
+    <details>
+      <summary>Menu</summary>
+      <nav aria-label="Mobile">
+        <a href="/#product">Product</a>
+        <a href="/#features">Features</a>
+        <a href="/#privacy">Privacy</a>
+        <a href="/#platforms">Platforms</a>
+        <a href="/#help">Help</a>
+        <a href="/#support">Support</a>
+        <a href="/news">News</a>
+        <a href="/web/">Web app</a>
+      </nav>
+    </details>
+  </header>
+
+  <main id="content" class="page">
+<!-- CMS:START -->
+    <p><a href="/news">News</a></p>
+    <p class="kicker">Release</p>
+    <h1>Velta 1.4.79 brings Velta Beam to groups</h1>
+    <p><time>23 October 2026</time> · 3 min read</p>
+    <p>Velta Beam works in group chats now, the Accounts menu hosts Profile management, and a person’s profile no longer lists everyone’s files.</p>
+    <div class="body">
+      <p>Version 1.4.79 ships on a new core (2.65.0) and pays most of its attention to how files and profiles behave.</p>
+<h2>Velta Beam reaches groups</h2>
+<p>The attach menu’s <strong>Velta Beam</strong> used to be a two-device affair. In a group chat it now works the way a share should: everyone who opens Beam can receive the file, and everyone who already has it helps pass it on. Someone who opens Beam after the sender left still downloads the file from any holder — as long as one holder keeps Beam open, the file keeps flowing, device to device.</p>
+<p>The item is simply called <strong>Velta Beam</strong> now (it was “Send directly”), and the receiver count has moved onto the file card, right next to its list, where the receivers actually are.</p>
+<h2>Accounts, with Profile management inside</h2>
+<p>The drawer’s “Switch account” button is now <strong>Accounts</strong> and is always there — even when this device has a single profile, because the popover now holds <strong>Profile management…</strong> right under the profile list. Add a profile, set up a second device, export a backup, delete a profile: one tap from the top of the drawer. The Profile management row in the settings list stays, so the same modal opens from two doors.</p>
+<h2>A person’s profile shows their files, not everyone’s</h2>
+<p>Opening a member’s profile from a group used to list Apps, Photos, Videos, Audio and Files from <em>all</em> chats on your account. Those sections now show only the media you two share in your 1:1 chat — and stay out of the way when no such chat exists yet.</p>
+<h2>Also in this release</h2>
+<ul>
+<li>Android: uncaptioned photos and videos now notify in the background too, not only text.</li>
+<li>Android: a flaky network can no longer pause the message connection at the wrong moment.</li>
+<li>Links in the in-app browser hand off properly: <span>mailto:</span> opens your mail app, <span>tel:</span> dials, store links open the store.</li>
+</ul>
+<p>Under the hood: the vendored core moved to chatmail <strong>2.65.0</strong> with all 25 local patches carrying over unchanged — no database migration, nothing to do on your side. A retired local service fallback is gone, and shell commands for picked files are now gated on the Rust side (security audit V-07).</p>
+<ul>
+<li><a href="https://github.com/pbuzdin/velta/releases/tag/v1.4.79">Release notes</a></li>
+<li><a href="https://github.com/pbuzdin/velta/compare/v1.4.78...v1.4.79">Compare with 1.4.78</a></li>
+</ul>
+    </div>
+    <aside>
+      <h2>Get the current build</h2>
+      <p>The current build for Android, Windows, and macOS, plus notes for a self-hosted browser copy.</p>
+      <p><strong><a href="/#download">Download</a></strong></p>
+    </aside>
+<!-- CMS:END -->
+  </main>
+
+  <footer>
+    <div>
+      <div>
+        <a class="brand" href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+        <p>A Delta Chat client. Encrypted chat through chatmail relays — or straight across, device to device, when it should not sit on a server.</p>
+      </div>
+      <div>
+        <h2>On this site</h2>
+        <ul>
+          <li><a href="/#download">Download</a></li>
+          <li><a href="/#privacy">Privacy</a></li>
+          <li><a href="/#support">Support</a></li>
+          <li><a href="/#help">Help</a></li>
+          <li><a href="/news">News</a></li>
+          <li><a href="/about.html">About</a></li>
+          <li><a href="/developing.html">Developing</a></li>
+          <li><a href="/comparison.html">Compare</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Project</h2>
+        <ul>
+          <li><a href="https://github.com/pbuzdin/velta">GitHub</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/releases">All releases</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/LICENSE">GPL-3.0</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/README.md">README</a></li>
+          <li><a href="/admin/">Edit site</a></li>
+        </ul>
+      </div>
+    </div>
+    <p><span>Independent client. Delta Chat and Chatmail are upstream projects.</span><span>Built on the Delta Chat core</span><span>Site visits measured cookielessly — the app never phones home</span></p>
+  </footer>
+  <script src="/js/site.js?v=3"></script>
+</body>
+</html>
