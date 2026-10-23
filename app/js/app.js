@@ -3267,6 +3267,11 @@ function newChatOptions() {
       const epoch = core.accountEpoch;
       const picked = await pickContactModal("Add group members", true);
       if (!picked || !accountIsCurrent(epoch)) return;
+      // The picker's history entry must pop before the next modal opens:
+      // otherwise the name dialog's showModal skips its push (the modal
+      // state is still current) and the pending pop closes it instantly —
+      // Create appeared to do nothing (#151).
+      await modalHistorySettled();
       const name = await askGroupName();
       if (!name || !accountIsCurrent(epoch)) return;
       {

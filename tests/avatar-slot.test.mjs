@@ -75,3 +75,13 @@ test("CSS reserves a fixed, non-shrinking avatar slot", () => {
   assert.match(css, /velta-avatar \{[^}]*flex-shrink: 0/);
   assert.match(css, /velta-avatar\[size="48"\] \{ width: 48px; height: 48px; min-width: 48px; \}/);
 });
+
+test("initials cover non-Latin names: Cyrillic does not fall to the ? tile", () => {
+  assert.match(JSON.stringify(avatar({ name: "Привет мир" }).render()), /ПМ/);
+  assert.match(JSON.stringify(avatar({ name: "Велта" }).render()), /В/);
+  // Latin behavior unchanged; emoji-only still degrades to "?" (no letters).
+  assert.match(JSON.stringify(avatar({ name: "Ada Byron" }).render()), /AB/);
+  assert.match(JSON.stringify(avatar({ name: "🚀" }).render()), /\?/);
+  const src = readFileSync(new URL("../app/js/components.js", import.meta.url), "utf8");
+  assert.ok(src.includes("/[\\p{L}\\p{N}]/u"), "Unicode-letter initials filter");
+});

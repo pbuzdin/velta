@@ -48,3 +48,12 @@ test("About Velta offers the diagnostics log", () => {
   const app = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8");
   assert.match(app, /onDiagnostics: async \(\) => \{ await modalHistorySettled\(\); openDiagnosticsChat\(\); \}/);
 });
+
+// #151: "New group" must let the picker's history entry pop before the
+// group-name modal opens — otherwise the pending pop closes the new modal
+// instantly and Create appears to do nothing.
+test("new-group flow settles the picker's history entry before askGroupName", () => {
+  const app = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8");
+  assert.match(app,
+    /pickContactModal\("Add group members", true\);[\s\S]{0,400}?await modalHistorySettled\(\);[\s\S]{0,200}?askGroupName\(\)/);
+});

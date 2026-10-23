@@ -105,7 +105,9 @@ class VeltaAvatar extends Elena(HTMLElement) {
   }
 
   initials() {
-    return (this.name || "?").trim().split(/\s+/).filter(w => /[A-Za-z0-9]/.test(w[0] || "")).slice(0, 2).map(w => w[0].toUpperCase()).join("") || "?";
+    // \p{L}\p{N} with the u flag: any Unicode letter or digit — a Cyrillic
+    // (or CJK, etc.) name must not fall through to the "?" tile (#151).
+    return (this.name || "?").trim().split(/\s+/).filter(w => /[\p{L}\p{N}]/u.test(w[0] || "")).slice(0, 2).map(w => w[0].toUpperCase()).join("") || "?";
   }
 
   render() {
