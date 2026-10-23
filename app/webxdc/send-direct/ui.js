@@ -195,9 +195,8 @@
       if (o.rx && !o.rx.done) o.rx.pump();
       else if (!o.rx && o.shownOnline !== Date.now() - o.live < LIVE_MS) paintRx(o); // repaint on change only (keeps the button under the finger)
     }
-    let n = 0;
-    for (const t of trackers.values()) n += t.activeCount();
-    const line = noRealtime ? NO_RT : n ? `${n} receiver${n === 1 ? "" : "s"}` : lastHeard && Date.now() - lastHeard < 8000 ? "A peer is connected" : "";
+    // Receiver counts live on each file card (next to its list); this top line is only for channel state.
+    const line = noRealtime ? NO_RT : lastHeard && Date.now() - lastHeard < 8000 && !senders.size ? "A peer is connected" : "";
     if ($("#peers").textContent !== line) $("#peers").textContent = line; // aria-live: announce changes only
     for (const id of senders.keys()) paintSender(id);
     for (const o of offers.values()) paintPeers(o);
