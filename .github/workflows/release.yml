@@ -239,6 +239,37 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # velta.cc shows "Latest release: vX.Y.Z": copy this release's version.txt
+  # to the website branch and rewrite the static fallback text in index.html
+  # ([data-latest-version]). Normal commit; retried on a race with pwa-web.
+  website-version:
+    needs: [release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: website
+      - name: Commit version.txt + Latest release text
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          VER=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName | sed 's/^v//')
+          echo "$VER" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+' || { echo "bad version: $VER"; exit 1; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for i in 1 2 3; do
+            git fetch -q origin website && git reset -q --hard origin/website
+            printf '%s\n' "$VER" > version.txt
+            sed -i -E "s#(data-latest-version>)v[^<]*<#\1v$VER<#" index.html
+            git add version.txt index.html
+            git diff --cached --quiet && { echo "already $VER"; exit 0; }
+            git commit -q -m "web: latest release v$VER (version.txt)"
+            git push -q origin HEAD:website && exit 0
+            sleep 5
+          done
+          exit 1
+
   notify:
     needs: [android, windows, release]
     runs-on: ubuntu-latest

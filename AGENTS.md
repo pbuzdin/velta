@@ -3137,6 +3137,8 @@ do-not-regress rules; dates mark when the lesson was learned.
   `https://github.com/pbuzdin/velta/releases/latest/download/<name>`. The
   versioned assets, `.sig` files and `latest.json` (updater) are unchanged —
   never rename those.
+  After the release, job `website-version` copies `version.txt` to the
+  `website` branch and rewrites velta.cc's "Latest release: vX.Y.Z" text.
 - **README convention** — every `##` section below "Screenshots" is wrapped
   in `<details><summary>…</summary>` with a blank line after `</summary>`,
   so the front page stays short.
