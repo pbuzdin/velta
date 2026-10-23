@@ -871,8 +871,12 @@ def find_occ(text, anchor, occ):
 
 
 def read(core, relpath):
+    # Normalize CRLF → LF: a Windows checkout materialises core/ with CRLF
+    # (text=auto), and the quilt table's LF-only markers/anchors would
+    # false-MISS in verify (both #10 scheduler ops, 2026-10-23). Writes stay
+    # byte-exact via newline=""; on an LF tree this is a no-op.
     with io.open(os.path.join(core, relpath), encoding="utf-8", newline="") as f:
-        return f.read()
+        return f.read().replace("\r\n", "\n")
 
 
 def write(core, relpath, text):
