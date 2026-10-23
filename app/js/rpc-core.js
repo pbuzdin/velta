@@ -1,7 +1,6 @@
 // rpc-core.js — drop-in replacement for MockCore that talks to the real
 // deltachat core over a pluggable JSON-RPC transport:
 //   • Tauri IPC (inside the desktop/Android Tauri shell)
-//   • WebSocket to a local background core (the service APK on 127.0.0.1:20808)
 // Same interface + events as mock-core.js, so app.js doesn't care which one is active.
 //
 // Method names, parameter order and response shapes follow
@@ -87,7 +86,7 @@ function newMsgIdCache() {
 export class JsonRpcCore extends EventTarget {
   /**
    * transport: {
-   *   name: string,                  // "tauri" | "websocket"
+   *   name: string,                  // "tauri" | "android-webview" | "worker-wasm"
    *   send(line: string): void,      // deliver one JSON-RPC request line
    *   setReceiver(fn): Promise|void, // register handler for incoming lines
    * }

@@ -1345,9 +1345,7 @@ interface-scale and chat-appearance snippets are external files
 (`app/js/ui-scale.js`, `app/js/chat-appearance.js`) for exactly that reason. `img-src`/`media-src`/`frame-src` open only the app's own media
 surfaces: the `blobfile:` custom protocol, the loopback media server, and the
 opaque-origin `webxdc:` sandbox. The three policy copies must stay in sync
-when origins change. The standalone diagnostics page (`diag.html`) is a dev
-tool with its own looser policy (`unsafe-inline` for its single inline
-script).
+when origins change.
 
 </details>
 

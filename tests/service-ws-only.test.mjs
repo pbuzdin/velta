@@ -1,23 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 
 const src = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8");
 
-// The service's HTTP bridge (127.0.0.1:20809) was removed: the WebSocket
-// bridge on 20808 is the only service transport. Nothing may still probe
-// or allow the old port.
-test("the service is reached over the 20808 WebSocket only", () => {
-  const transport = src("app/js/transport.js");
-  assert.match(transport, /ws:\/\/127\.0\.0\.1:20808/);
-  const lib = src("archive/velta-core-service/rust/src/lib.rs");
-  assert.match(lib, /run_ws_bridge/);
-  assert.doesNotMatch(src("archive/velta-core-service/rust/Cargo.toml"), /tiny_http/);
+// Audit item 1: the retired background-service bridge (ws://127.0.0.1:20808,
+// and before it the HTTP bridge on 20809) is no longer probed or allowed by
+// any shipped surface. Nothing authenticated the listener, so after a core
+// startup failure any local app on that port could have posed as the core.
+test("no shipped surface probes or allows the retired service ports", () => {
   for (const f of [
-    "app/js/transport.js", "app/index.html", "app/diag.html",
+    "app/js/transport.js", "app/js/app.js", "app/index.html",
     "velta-app/src-tauri/tauri.conf.json", "velta-app/src-tauri/tauri.android.conf.json",
-    "archive/velta-core-service/rust/src/lib.rs",
   ]) {
-    assert.doesNotMatch(src(f), /20809/, f);
+    const s = src(f).split("\n").filter(l => !/^\s*\/\//.test(l)).join("\n");
+    assert.doesNotMatch(s, /2080[89]/, f);
   }
+  assert.doesNotMatch(src("app/js/transport.js"), /new WebSocket\(/);
+  assert.equal(existsSync(new URL("../app/diag.html", import.meta.url)), false);
 });

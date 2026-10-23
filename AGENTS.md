@@ -101,7 +101,6 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   ├── vendor/               # third-party frontend libraries
 │   │   ├── elena.js          # lightweight web-components library
 │   │   └── virtual-scroller.js
-│   ├── diag.html             # connection diagnostics page for the service bridge
 │   ├── index.html            # main app shell
 │   └── manifest.webmanifest  # PWA manifest (name: "Velta")
 │
@@ -949,7 +948,8 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
 - `app/js/transport.js` is the central adapter. It probes, in order:
   1. Android WebView native bridge (`window.VeltaBridge`)
   2. Tauri IPC (`window.__TAURI__`)
-  3. WebSocket to `ws://127.0.0.1:20808`
+  3. opt-in worker-wasm core (PWA only; the retired `ws://127.0.0.1:20808`
+     service probe was removed — unauthenticated listener)
   4. `MockCore` fallback
 - `app/js/rpc-core.js` wraps any transport with a JSON-RPC client, maps core
   events to UI events, and exposes the same API surface as `mock-core.js`:
@@ -2449,8 +2449,6 @@ Beyond that, the primary verification path is manual:
    media, and a 2400-message chat for scroller testing.
 2. Run a real backend (`deltachat-rpc-server`, the Tauri app, or the Android
    service) and confirm the transport switches from mock to real.
-3. Use `app/diag.html` to diagnose WebSocket connectivity to the service
-   (open, token from `velta-bridge-token`, one JSON-RPC round trip).
 
 For end-to-end verification against a **real core** (message delivery,
 deletion requests, SecureJoin), the setup used during development is:
@@ -2823,7 +2821,6 @@ talks to Google.
 | Run Tauri dev | `cd velta-app && cargo tauri dev` |
 | Serve PWA locally | `cd app && python -m http.server 8080` |
 | Self-host PWA (prebuilt) | `git clone --depth 1 --branch pwa-dist --single-branch https://github.com/pbuzdin/velta.git velta-pwa` — upload except `.git`; recipe `docs/pwa-self-host.md`. Refresh: orphan commit of `build/dist-pwa`, `git push --force origin HEAD:pwa-dist` (never merge) |
-| Diagnose service | Open `http://localhost:8080/diag.html` |
 | Run Python CFFI tests | `cd core/python && pytest` |
 | Run Python RPC tests | `cd core/deltachat-rpc-client && pytest` |
 | Upgrade the core | Follow `COREUPDATE.md` |

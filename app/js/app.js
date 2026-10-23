@@ -980,14 +980,6 @@ core.addEventListener?.("smtp-message-sent", () => {
 renderRelayLine();
 refreshRelayStatus();
 
-// Socket opened but the core never answered RPC → almost always an old or
-// crashed service build. Say so explicitly instead of silently demo-ing.
-addEventListener("velta-core-init-failed", e => {
-  if (e.detail.backend === "websocket") {
-    toast("Found the background service, but it didn't answer — restart the Velta Core service (or update it if it's an older build)", 6000);
-  }
-});
-
 /* ---------------- theme ---------------- */
 // theme: "auto" (follow the system, default) | "dark" | "light".
 const themeQuery = matchMedia("(prefers-color-scheme: light)");

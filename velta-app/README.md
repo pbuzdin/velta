@@ -142,7 +142,7 @@ to pick the right backend at runtime:
 
 1. `window.DcBridge` — Android WebView JS bridge (future option)
 2. `window.__TAURI__` — Tauri IPC (`invoke("rpc")` / `emit("dc-rpc")`)
-3. WebSocket loopback service (`ws://127.0.0.1:20808`)
+3. Opt-in worker-wasm core (PWA only)
 4. In-memory `MockCore` for browser development
 
 ## Repository layout
@@ -164,7 +164,6 @@ The actual frontend lives one level up:
 
 ../app/
 ├── index.html                # Main app shell
-├── diag.html                 # Connection diagnostics
 ├── css/main.css              # Single hand-written stylesheet
 ├── js/
 │   ├── app.js                # Bootstrap, chat list, modals, PWA lifecycle
