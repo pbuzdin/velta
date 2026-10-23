@@ -203,7 +203,7 @@ ${body.replace(/^\n+|\n+$/g, "")}
 ${END}
   </main>
 ${footer.trimEnd()}
-  <script src="/js/site.js?v=2"></script>
+  <script src="/js/site.js?v=3"></script>
 </body>
 </html>
 `;

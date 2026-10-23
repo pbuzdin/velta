@@ -92,7 +92,7 @@ ${body.replace(/^\n+|\n+$/g, "")}
 ${END}
   </main>
 ${footer.trimEnd()}
-  <script src="/js/site.js?v=2"></script>
+  <script src="/js/site.js?v=3"></script>
 </body>
 </html>
 `;
@@ -130,7 +130,7 @@ check("desc preserved", out.includes("About Velta — one web frontend"));
 check("mainClass preserved", out.includes('<main id="content" class="page">'));
 check("body between markers", out.includes(`${START}\n<p class="kicker">Project</p>\n<h1>About</h1>`));
 check("footer present", out.includes("Independent client. Delta Chat and Chatmail are upstream projects."));
-check("site.js present", out.includes('<script src="/js/site.js?v=2"></script>'));
+check("site.js present", out.includes('<script src="/js/site.js?v=3"></script>'));
 
 // News page: active key lands on the News link.
 const newsOut = assemble({

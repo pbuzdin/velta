@@ -54,8 +54,21 @@ v-logo.svg beam-logo.svg favicon.svg
 admin/                           elena.js (vendored), backend-github.js (host adapter), admin.js (the CMS), admin.test.mjs
 cms/                             the CMS self-description: what it is + the four-operation backend contract
 design/                          untracked Grok scaffold + tracked index.html (published design system)
+version.txt                      latest released version (bare "1.4.78"), copied here by master release.yml
 CNAME .nojekyll
 ```
+
+## 2a. Download links and "Latest release"
+
+- Download buttons use version-less URLs
+  `https://github.com/pbuzdin/velta/releases/latest/download/Velta-{android-arm64.apk,windows-x64-setup.exe,macos-universal.dmg}`
+  (stable-named copies uploaded by master `release.yml`); never put a version in them.
+- "Latest release: vX.Y.Z" in `index.html` `#download` (`[data-latest-version]`) is static
+  text so it never renders blank. After every release, master `release.yml` (job
+  `website-version`) commits `version.txt` and rewrites that text on this branch.
+  `js/site.js` also fetches same-origin `/version.txt` and updates the text (the GitHub
+  `releases/latest/download/version.txt` has no CORS headers, so it is not fetched directly).
+- Bump the `site.js?v=N` cache-buster on every page and in `admin/admin.js` when site.js changes.
 
 ## 3. The assembly model (read before editing)
 

@@ -1,4 +1,21 @@
 (function () {
+  // "Latest release: vX.Y.Z" — the markup carries the version as static
+  // text (release.yml rewrites it on the website branch); /version.txt is
+  // the same release's version.txt, copied here by release.yml, so a page
+  // served from cache still picks up the newest number. Same-origin: the
+  // GitHub download URL sends no CORS headers.
+  var el = document.querySelector("[data-latest-version]");
+  if (!el || !window.fetch) return;
+  fetch("/version.txt", { cache: "no-cache" })
+    .then(function (r) { return r.ok ? r.text() : ""; })
+    .then(function (t) {
+      t = t.trim().replace(/^v/, "");
+      if (/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(t)) el.textContent = "v" + t;
+    })
+    .catch(function () { /* keep the static text */ });
+})();
+
+(function () {
   // Any empty .news-list on the page (the home #notes mirror, the 404
   // recovery block) gets the latest 3 notes from the news index.
   // Progressive enhancement — without JS the lists stay empty and the
