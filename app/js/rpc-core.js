@@ -1592,6 +1592,14 @@ export class JsonRpcCore extends EventTarget {
     return await this._call("get_chat_id_by_contact_id", this.accountId, contactId);
   }
 
+  // Per-transport relay capabilities as advertised over IMAP METADATA
+  // (VENDORISSUES #15): { [addr]: { irohRelay, supportsPush, hasTurn,
+  // appVersions, comment, admin } }. Transports the core has not connected
+  // to yet are absent from the map; old cores lack the method entirely.
+  async getServerMetadata() {
+    return await this._call("get_server_metadata", this.accountId);
+  }
+
   // Mapped messages for explicit ids (one get_messages round trip; callers
   // batch). Order follows `ids`; ids that failed to load are skipped.
   async getMessagesByIds(ids = []) {

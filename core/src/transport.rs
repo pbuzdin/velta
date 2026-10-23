@@ -8,6 +8,7 @@
 //! The table stores both the login parameters entered by the user
 //! and configured list of connection candidates.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::atomic::Ordering;
 
@@ -16,6 +17,7 @@ use deltachat_contact_tools::{EmailAddress, addr_normalize};
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 
+use crate::calls::UnresolvedIceServer;
 use crate::config::Config;
 use crate::context::Context;
 use crate::ensure_and_debug_assert;
@@ -709,6 +711,65 @@ pub(crate) fn delete_transport_row(
 pub(crate) async fn purge_transport_caches(context: &Context, transport_id: u32) {
     context.quota.write().await.remove(&transport_id);
     context.metadata.write().await.remove(&transport_id);
+}
+
+/// Relay capabilities of one transport, as advertised over IMAP METADATA
+/// (Velta #15).
+#[derive(Debug, Serialize)]
+pub struct TransportServerMetadata {
+    /// iroh relay URL advertised by the relay, if any.
+    pub iroh_relay: Option<String>,
+
+    /// True if the relay accepts push device tokens.
+    pub supports_push: bool,
+
+    /// True if the relay handed out TURN credentials for calls.
+    pub has_turn: bool,
+
+    /// Relay app versions, raw JSON string, if advertised.
+    pub app_versions: Option<String>,
+
+    /// IMAP METADATA `/shared/comment`.
+    pub comment: Option<String>,
+
+    /// IMAP METADATA `/shared/admin`.
+    pub admin: Option<String>,
+}
+
+impl Context {
+    /// Returns relay capabilities per transport, keyed by the transport's
+    /// email address. Transports the scheduler has not connected to yet are
+    /// absent from the map. Velta #15.
+    pub async fn get_server_metadata(&self) -> Result<BTreeMap<String, TransportServerMetadata>> {
+        let rows: Vec<(u32, String)> = self
+            .sql
+            .query_map_vec("SELECT id, addr FROM transports", (), |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .await?;
+        let metadata = self.metadata.read().await;
+        let mut out = BTreeMap::new();
+        for (id, addr) in rows {
+            let Some(m) = metadata.get(&id) else {
+                continue;
+            };
+            out.insert(
+                addr,
+                TransportServerMetadata {
+                    iroh_relay: m.iroh_relay.as_ref().map(|url| url.to_string()),
+                    supports_push: m.supports_push,
+                    has_turn: m
+                        .ice_servers
+                        .iter()
+                        .any(|s| matches!(s, UnresolvedIceServer::Turn { .. })),
+                    app_versions: m.app_versions.clone(),
+                    comment: m.comment.clone(),
+                    admin: m.admin.clone(),
+                },
+            );
+        }
+        Ok(out)
+    }
 }
 
 /// Elects another transport for sending if the current one vanished.

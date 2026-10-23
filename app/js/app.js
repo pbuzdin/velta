@@ -14,7 +14,7 @@ import { mediaSectionsHtml, mountChatMedia } from "./chat-media.js";
 import { initCalls } from "./calls.js";
 import { initWebxdc, openWebxdc, prefetchInfo, appIconUrl } from "./webxdc-manager.js";
 import { initGroupCallUi } from "./group-call-ui.js";
-import { notePushDiagnostic, relaySupportsPush, pushMarkHtml } from "./relay-push.js";
+import { notePushDiagnostic, relaySupportsPush } from "./relay-push.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow, isSendFailureDiagnostic, createRelaySendErrorState } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal, isShortInviteLink, expandShortInvite } from "./invites.js";
 import { activeWsRelay, addWsRelay, listWsRelays, normalizeHost, probeC3Relay, probeDnsVia, showWsRelaysModal, useWsRelay } from "./ws-relays.js";
@@ -5352,6 +5352,25 @@ function showSplash() {
 // the core stops using the relay right away, refuses only to remove the last
 // one (re-electing the sending transport as needed) and sends keyupdate
 // messages so contacts converge on the new address set.
+// Capability flags for the relays modal (VENDORISSUES #15): C = calls (the
+// relay hands out TURN credentials), I = iroh relay, P = push (metadata,
+// falling back to the #110 diagnostic cache on cores without the RPC),
+// W = web/C3 endpoints (probed). Silver = not offered / not known yet,
+// green = the relay advertised it. The letters' titles carry the words.
+const relayFlagsHtml = (addr, meta) => {
+  const flag = (letter, label, on) =>
+    `<span class="relay-flag${on ? " on" : ""}" title="${escapeAttr(label + (on ? "" : meta ? " — not offered by this relay" : " — not known yet"))}" aria-label="${escapeAttr(label)}" role="img">${letter}</span>`;
+  return [
+    flag("C", "Calls: the relay hands out TURN credentials", !!meta?.hasTurn),
+    flag("I", "iroh relay: helps Beam and peer-to-peer transfers", !!meta?.irohRelay),
+    flag("P", "Push notifications: the relay accepts device tokens", !!meta?.supportsPush || relaySupportsPush(addr)),
+    `<span class="relay-flag" data-flag-w title="Web app endpoints (C3): the browser app can connect through this relay" aria-label="Web app endpoints (C3): the browser app can connect through this relay" role="img">W</span>`,
+  ].join("");
+};
+
+// One C3 probe per relay domain per app session (the flag cache).
+const relayC3Flags = new Map();
+
 async function openRelaysModal() {
   if (state.accountChanging) return;
   if (!core.listTransports) {
@@ -5387,6 +5406,12 @@ async function openRelaysModal() {
       }
     } catch { /* best effort */ }
     if (!accountIsCurrent(epoch)) return;
+    // Per-relay capabilities (VENDORISSUES #15): calls/TURN, iroh, push —
+    // as the relays themselves advertise over IMAP METADATA. Old cores lack
+    // the RPC; the flags then stay silver ("not known yet").
+    let metaByAddr = null;
+    try { metaByAddr = (await core.getServerMetadata?.()) || null; } catch { /* old core */ }
+    if (!accountIsCurrent(epoch)) return;
     listEl.replaceChildren();
     if (!transports.length) {
       const empty = document.createElement("div");
@@ -5396,15 +5421,31 @@ async function openRelaysModal() {
     }
     for (const t of transports) {
       const row = document.createElement("div");
-      row.className = "info-row";
       const primary = state.account && t.addr === state.account.addr;
       const other = transports.find(x => x.addr !== t.addr);
       const st = statusByDomain?.get((t.addr || "").split("@").pop());
       const hint = !st || st.state === "ok" ? "" : ` <span class="relay-row-status">${st.state === "down" ? "unreachable — messages queue until it's back" : "connecting…"}</span>`;
       const demote = primary && other ? `<button type="button" class="btn-text" data-demote>Stop using for sending</button>` : "";
-      const pushMark = relaySupportsPush(t.addr) ? pushMarkHtml() : "";
-      row.innerHTML = `<span class="k">${escapeHtml(t.addr)}${pushMark}${primary ? " · sending" : ""}${hint}</span>
-        <span class="v">${primary ? demote : `<button type="button" class="btn-text" data-sendvia>Use for sending</button>`}<button type="button" class="btn-text" data-remove style="color:var(--danger)">Remove</button></span>`;
+      row.className = "relay-card";
+      row.innerHTML = `
+        <div class="relay-line">
+          <span class="relay-addr">${escapeHtml(t.addr)}${primary ? ` <span class="relay-sending">· sending</span>` : ""}${hint}</span>
+          <span class="relay-flags">${relayFlagsHtml(t.addr, metaByAddr?.[t.addr] || null)}</span>
+        </div>
+        <div class="relay-actions">${primary ? demote : `<button type="button" class="btn-text" data-sendvia>Use for sending</button>`}<button type="button" class="btn-text" data-remove style="color:var(--danger)">Remove</button></div>`;
+      // W flag: probe the relay's C3 endpoints (WebSockets are not
+      // CORS-gated, so this works from the browser app too). Silver until
+      // the relay answers; one probe per relay per app session.
+      const wEl = row.querySelector("[data-flag-w]");
+      const wDomain = (t.addr || "").split("@").pop();
+      if (wEl && wDomain) {
+        const cached = relayC3Flags.get(wDomain);
+        const probe = cached || probeC3Relay(wDomain).catch(() => false);
+        relayC3Flags.set(wDomain, probe);
+        probe.then(ok => {
+          if (ok && wEl.isConnected && accountIsCurrent(epoch)) wEl.classList.add("on");
+        });
+      }
       row.querySelector("[data-sendvia]")?.addEventListener("click", async () => {
         const ok = await confirmModal(
           `Send via ${t.addr}?`,

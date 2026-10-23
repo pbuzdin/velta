@@ -2919,6 +2919,25 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 /* #110: relay confirmed UnifiedPush support (Relays modal). */
 .relay-push-mark { font-size: .85em; opacity: .7; margin-left: 4px; }
 
+/* Relays modal (#15): each relay is a two-line card — address + capability
+   flags on the first line, action buttons on the second. Flags are silver
+   (not offered / not known yet) and turn green when the relay advertised
+   the capability. C calls/TURN, I iroh, P push, W web/C3 endpoints. */
+.relay-card { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.relay-card:last-child { border-bottom: 0; }
+.relay-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.relay-addr { font-weight: 600; overflow-wrap: anywhere; }
+.relay-sending { font-weight: 400; opacity: .75; }
+.relay-flags { display: inline-flex; gap: 4px; flex: none; }
+.relay-flag {
+  font-size: 10.5px; font-weight: 700; line-height: 1;
+  padding: 3px 5px; border-radius: 5px;
+  color: #9aa0a6; border: 1px solid currentColor; background: none;
+  cursor: default; user-select: none;
+}
+.relay-flag.on { color: #2ecc71; }
+.relay-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
 /* #138: Velta Beam opens as a panel in the chat view's flow, directly below
    the chat header: the history shrinks between it and the composer, which
    stays fully visible (also with the Android keyboard open — the cap keeps

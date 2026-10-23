@@ -804,6 +804,21 @@ export class MockCore extends EventTarget {
     return this.chats.find(c => c.contactId === contactId)?.id ?? null;
   }
 
+  // Demo twin of rpc-core.getServerMetadata (VENDORISSUES #15): the sending
+  // relay is a modern chatmail (calls, push, iroh), the rest stay unknown so
+  // both flag states are visible in demo mode.
+  async getServerMetadata() {
+    const out = {};
+    const d = this.relayDomains[0];
+    if (d) {
+      out[`you@${d}`] = {
+        irohRelay: `https://iroh.${d}`, supportsPush: true, hasTurn: true,
+        appVersions: null, comment: null, admin: null,
+      };
+    }
+    return out;
+  }
+
   async getMessagesByIds(ids = []) {
     const out = [];
     for (const id of ids) {

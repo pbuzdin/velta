@@ -193,7 +193,7 @@ the same way when updating; verified by decoding generated QR codes.
 ## Delta Chat core (vendored `core/`, upstream chatmail/core)
 
 Re-vendor note: every Velta core change is an op in the quilt
-`tools/apply-core-patches.py` (live: #10, #11, #12, #13; retired: #7) and
+`tools/apply-core-patches.py` (live: #10, #11, #12, #13, #14, #15; retired: #7) and
 re-applies mechanically — `apply`, then `verify` and `tree-check --fetch`
 must pass (COREUPDATE.md §0; CI `core-patches.yml` enforces both). Hand
 edits to `core/` that are not quilt ops are lost on re-vendor — exactly how
@@ -367,3 +367,34 @@ join matched none of them; and every message carries In-Reply-To (the chat's
 latest message), so plain messages after a parent would count as replies.
 Both queries now match `TRIM(mime_in_reply_to, '<> ')` and require a quote
 param (`q`) on a non-forward (no `a`) row.
+
+### 15. Relay capabilities are invisible to clients (core/src/transport.rs)
+
+**Status: patched locally (`core/src/transport.rs` +
+`core/deltachat-jsonrpc/src/api.rs` +
+`core/deltachat-jsonrpc/src/api/types/login_param.rs` — quilt ops "#15
+…").**
+
+The scheduler already fetches per-transport IMAP METADATA on every connect
+(`/shared/vendor/deltachat/turn`, `/shared/vendor/deltachat/appversions`,
+the iroh relay URL) and caches it in `context.metadata`, keyed by transport
+id — that is how calls get their TURN credentials and push decides whether
+to write a device token. None of it is exposed: a UI cannot show which of
+the user's relays supports calls, push, iroh or (by probing) the C3 web
+endpoints. cmcall detects the same TURN signal behaviorally by placing a
+real call; a UI needs the static capability, not a measurement.
+
+Patch: `Context::get_server_metadata()` joins the `transports` table
+(id -> addr) with the metadata cache and returns, keyed by the transport's
+email address: `iroh_relay`, `supports_push`, `has_turn` (true only when
+the metadata carried a REAL `UnresolvedIceServer::Turn` — the core
+fabricates fallback STUN servers when metadata is missing, and those are
+not call support), `app_versions`, `comment`, `admin`. jsonrpc
+`get_server_metadata(account_id)` wraps it for the UIs (camelCase JSON);
+the Relays modal renders one-letter flags per relay row (C/I/P/W, silver =
+not offered / not known yet, green = advertised). Transports the scheduler
+has not connected to yet are absent — the UI shows "not known yet" rather
+than "not offered".
+
+Upstream fix: a public per-transport server-metadata accessor (or folding
+the fields into `list_transports`) — then drop the patch.

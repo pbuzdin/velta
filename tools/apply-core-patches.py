@@ -825,6 +825,205 @@ pub async fn get_reply_counts(context: &Context, chat_id: ChatId) -> Result<Vec<
 
 """,
     ),
+    # ---- VENDORISSUES #15: per-transport relay capabilities for the UI ----
+    # The scheduler already fetches per-transport IMAP METADATA
+    # (/shared/vendor/deltachat/turn + /appversions): TURN credentials for
+    # calls, the relay's iroh relay URL, supports_push, app_versions.
+    # Nothing exposed it — clients cannot show which relay does calls /
+    # push / iroh / web (cmcall detects the same TURN signal behaviorally).
+    # Exposes it keyed by the transport's email address (the key JS already
+    # holds from list_transports).
+    dict(
+        id="#15 BTreeMap import (transport.rs)",
+        file="core/src/transport.rs",
+        applied="use std::collections::BTreeMap;",
+        anchor="use std::fmt;\n",
+        where="before",
+        text="""use std::collections::BTreeMap;
+""",
+    ),
+    dict(
+        id="#15 UnresolvedIceServer import (transport.rs)",
+        file="core/src/transport.rs",
+        applied="use crate::calls::UnresolvedIceServer;",
+        anchor="use crate::config::Config;\n",
+        where="before",
+        text="""use crate::calls::UnresolvedIceServer;
+""",
+    ),
+    dict(
+        id="#15 TransportServerMetadata + Context::get_server_metadata (transport.rs)",
+        file="core/src/transport.rs",
+        applied="pub struct TransportServerMetadata {",
+        anchor=(
+            "pub(crate) async fn purge_transport_caches(context: &Context, transport_id: u32) {\n"
+            "    context.quota.write().await.remove(&transport_id);\n"
+            "    context.metadata.write().await.remove(&transport_id);\n"
+            "}\n"
+        ),
+        where="after",
+        text="""
+/// Relay capabilities of one transport, as advertised over IMAP METADATA
+/// (Velta #15).
+#[derive(Debug, Serialize)]
+pub struct TransportServerMetadata {
+    /// iroh relay URL advertised by the relay, if any.
+    pub iroh_relay: Option<String>,
+
+    /// True if the relay accepts push device tokens.
+    pub supports_push: bool,
+
+    /// True if the relay handed out TURN credentials for calls.
+    pub has_turn: bool,
+
+    /// Relay app versions, raw JSON string, if advertised.
+    pub app_versions: Option<String>,
+
+    /// IMAP METADATA `/shared/comment`.
+    pub comment: Option<String>,
+
+    /// IMAP METADATA `/shared/admin`.
+    pub admin: Option<String>,
+}
+
+impl Context {
+    /// Returns relay capabilities per transport, keyed by the transport's
+    /// email address. Transports the scheduler has not connected to yet are
+    /// absent from the map. Velta #15.
+    pub async fn get_server_metadata(&self) -> Result<BTreeMap<String, TransportServerMetadata>> {
+        let rows: Vec<(u32, String)> = self
+            .sql
+            .query_map_vec("SELECT id, addr FROM transports", (), |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .await?;
+        let metadata = self.metadata.read().await;
+        let mut out = BTreeMap::new();
+        for (id, addr) in rows {
+            let Some(m) = metadata.get(&id) else {
+                continue;
+            };
+            out.insert(
+                addr,
+                TransportServerMetadata {
+                    iroh_relay: m.iroh_relay.as_ref().map(|url| url.to_string()),
+                    supports_push: m.supports_push,
+                    has_turn: m
+                        .ice_servers
+                        .iter()
+                        .any(|s| matches!(s, UnresolvedIceServer::Turn { .. })),
+                    app_versions: m.app_versions.clone(),
+                    comment: m.comment.clone(),
+                    admin: m.admin.clone(),
+                },
+            );
+        }
+        Ok(out)
+    }
+}
+""",
+    ),
+    dict(
+        id="#15 JsonrpcTransportServerMetadata import (api.rs)",
+        file="core/deltachat-jsonrpc/src/api.rs",
+        applied="use types::login_param::JsonrpcTransportServerMetadata;",
+        anchor="use types::login_param::EnteredLoginParam;\n",
+        where="after",
+        text="""use types::login_param::JsonrpcTransportServerMetadata;
+""",
+    ),
+    dict(
+        id="#15 get_server_metadata (api.rs)",
+        file="core/deltachat-jsonrpc/src/api.rs",
+        applied="async fn get_server_metadata(",
+        anchor=(
+            "    async fn list_transports(&self, account_id: u32) -> Result<Vec<EnteredLoginParam>> {\n"
+            "        let ctx = self.get_context(account_id).await?;\n"
+            "        let res = ctx\n"
+            "            .list_transports()\n"
+            "            .await?\n"
+            "            .into_iter()\n"
+            "            .map(|t| t.into())\n"
+            "            .collect();\n"
+            "        Ok(res)\n"
+            "    }\n"
+        ),
+        where="after",
+        text="""
+    /// Returns relay capabilities per transport address, as advertised by the
+    /// relays over IMAP METADATA: the iroh relay URL, whether push device
+    /// tokens are accepted, whether TURN credentials for calls were handed
+    /// out, and the relay's app versions. Transports the scheduler has not
+    /// connected to yet are absent. Velta #15.
+    async fn get_server_metadata(
+        &self,
+        account_id: u32,
+    ) -> Result<BTreeMap<String, JsonrpcTransportServerMetadata>> {
+        let ctx = self.get_context(account_id).await?;
+        let meta = ctx.get_server_metadata().await?;
+        Ok(meta
+            .into_iter()
+            .map(|(addr, m)| {
+                (
+                    addr,
+                    JsonrpcTransportServerMetadata {
+                        iroh_relay: m.iroh_relay,
+                        supports_push: m.supports_push,
+                        has_turn: m.has_turn,
+                        app_versions: m.app_versions,
+                        comment: m.comment,
+                        admin: m.admin,
+                    },
+                )
+            })
+            .collect())
+    }
+""",
+    ),
+    dict(
+        id="#15 JsonrpcTransportServerMetadata (types/login_param.rs)",
+        file="core/deltachat-jsonrpc/src/api/types/login_param.rs",
+        applied="pub struct JsonrpcTransportServerMetadata {",
+        anchor=(
+            "impl<T> IntoOption<T> for T\n"
+            "where\n"
+            "    T: Default + std::cmp::PartialEq,\n"
+            "{\n"
+            "    fn into_option(self) -> Option<T> {\n"
+            "        if self == T::default() {\n"
+            "            None\n"
+            "        } else {\n"
+            "            Some(self)\n"
+            "        }\n"
+            "    }\n"
+            "}\n"
+        ),
+        where="after",
+        text="""
+/// Relay capabilities of one transport, as advertised over IMAP METADATA.
+#[derive(Serialize, Deserialize, TypeDef, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonrpcTransportServerMetadata {
+    /// iroh relay URL advertised by the relay, if any.
+    pub iroh_relay: Option<String>,
+
+    /// True if the relay accepts push device tokens.
+    pub supports_push: bool,
+
+    /// True if the relay handed out TURN credentials for calls.
+    pub has_turn: bool,
+
+    /// Relay app versions, raw JSON string, if advertised.
+    pub app_versions: Option<String>,
+
+    /// IMAP METADATA `/shared/comment`.
+    pub comment: Option<String>,
+
+    /// IMAP METADATA `/shared/admin`.
+    pub admin: Option<String>,
+}
+""",
+    ),
 ]
 
 

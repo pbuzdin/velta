@@ -203,3 +203,26 @@ where
         }
     }
 }
+
+/// Relay capabilities of one transport, as advertised over IMAP METADATA.
+#[derive(Serialize, Deserialize, TypeDef, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonrpcTransportServerMetadata {
+    /// iroh relay URL advertised by the relay, if any.
+    pub iroh_relay: Option<String>,
+
+    /// True if the relay accepts push device tokens.
+    pub supports_push: bool,
+
+    /// True if the relay handed out TURN credentials for calls.
+    pub has_turn: bool,
+
+    /// Relay app versions, raw JSON string, if advertised.
+    pub app_versions: Option<String>,
+
+    /// IMAP METADATA `/shared/comment`.
+    pub comment: Option<String>,
+
+    /// IMAP METADATA `/shared/admin`.
+    pub admin: Option<String>,
+}

@@ -28,7 +28,9 @@ test("mark is accessible and wired into the Relays modal", () => {
   assert.match(pushMarkHtml(), /aria-label="Supports UnifiedPush push notifications"/);
   assert.match(pushMarkHtml(), /title="Supports UnifiedPush push notifications"/);
   const app = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8");
-  assert.match(app, /relaySupportsPush\(t\.addr\) \? pushMarkHtml\(\)/);
+  // #15: the modal's P flag is the push consumer now — the diagnostic cache
+  // is the fallback for cores without get_server_metadata.
+  assert.match(app, /meta\?\.supportsPush \|\| relaySupportsPush\(addr\)/);
   assert.match(app, /notePushDiagnostic\(message\)/);
   const tool = readFileSync(new URL("../tools/apply-core-patches.py", import.meta.url), "utf8");
   assert.match(tool, /Transport \{transport_id\} \(\{addr\}\): push notifications registered/);

@@ -40,6 +40,7 @@ use sanitize_filename::is_sanitized;
 use tokio::fs;
 use tokio::sync::{Mutex, RwLock, watch};
 use types::login_param::EnteredLoginParam;
+use types::login_param::JsonrpcTransportServerMetadata;
 use yerpc::rpc;
 
 pub mod types;
@@ -579,6 +580,35 @@ impl CommandApi {
             .map(|t| t.into())
             .collect();
         Ok(res)
+    }
+
+    /// Returns relay capabilities per transport address, as advertised by the
+    /// relays over IMAP METADATA: the iroh relay URL, whether push device
+    /// tokens are accepted, whether TURN credentials for calls were handed
+    /// out, and the relay's app versions. Transports the scheduler has not
+    /// connected to yet are absent. Velta #15.
+    async fn get_server_metadata(
+        &self,
+        account_id: u32,
+    ) -> Result<BTreeMap<String, JsonrpcTransportServerMetadata>> {
+        let ctx = self.get_context(account_id).await?;
+        let meta = ctx.get_server_metadata().await?;
+        Ok(meta
+            .into_iter()
+            .map(|(addr, m)| {
+                (
+                    addr,
+                    JsonrpcTransportServerMetadata {
+                        iroh_relay: m.iroh_relay,
+                        supports_push: m.supports_push,
+                        has_turn: m.has_turn,
+                        app_versions: m.app_versions,
+                        comment: m.comment,
+                        admin: m.admin,
+                    },
+                )
+            })
+            .collect())
     }
 
     /// Removes a transport.

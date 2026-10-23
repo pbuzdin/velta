@@ -37,7 +37,7 @@ upstream replaces the whole tree and wipes them. **The quilt
 `tools/apply-core-patches.py` is the single source of truth: every Velta
 change inside `core/` must be an op there** (anchor + marker); a hand edit
 that is not an op is lost on the next re-vendor — that is how #12 and #13
-vanished in 2.63.0. Current quilt at core 2.65.0 — **25 ops in 8 files**
+vanished in 2.63.0. Current quilt at core 2.65.0 — **31 ops in 10 files**
 (intent per patch in VENDORISSUES.MD):
 
 | Patch | Ops | Files | What |
@@ -48,6 +48,7 @@ vanished in 2.63.0. Current quilt at core 2.65.0 — **25 ops in 8 files**
 | #12 | 1 | context.rs | `background_fetch` 10 s bound + I/O restart for dead IDLE sockets (restored) |
 | #13 | 2 | imap.rs | push-token accepted/rejected Info/Warning events (restored) |
 | #14 | 2 | chat.rs, deltachat-jsonrpc/src/api.rs | reply-thread queries (`get_reply_counts` / `get_reply_ids`) + jsonrpc wrappers |
+| #15 | 6 | transport.rs, deltachat-jsonrpc/src/api.rs, deltachat-jsonrpc/src/api/types/login_param.rs | `get_server_metadata` RPC: per-transport relay capabilities (TURN/calls, iroh relay, push, app versions) from the IMAP METADATA the scheduler already fetches |
 
 Re-vendor steps:
 
@@ -56,7 +57,7 @@ Re-vendor steps:
 # 2. re-apply the quilt
 python3 tools/apply-core-patches.py apply                # CONFLICT = anchor moved; nothing is written
 # 3. prove it
-python3 tools/apply-core-patches.py verify               # must report 25/25 (any missing marker fails)
+python3 tools/apply-core-patches.py verify               # must report 31/31 (any missing marker fails)
 python3 tools/apply-core-patches.py tree-check --fetch   # pristine v<Cargo.toml version> + quilt == core/
 python3 tools/apply-core-patches.py self-test            # if you touched the tool
 # 4. build + targeted tests (WSL on Windows)
