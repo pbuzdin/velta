@@ -4,7 +4,7 @@ A cross-platform **Delta Chat** client built as a single PWA-ish web app wrapped
 
 ## Download
 
-**[Android](https://github.com/pbuzdin/velta/releases/download/v1.4.78/Velta-1.4.78-arm64.apk)** (~49 MB) · **[Windows](https://github.com/pbuzdin/velta/releases/download/v1.4.78/Velta_1.4.78_x64-setup.exe)** (~13 MB) · **[macOS](https://github.com/pbuzdin/velta/releases/download/v1.4.78/Velta_1.4.78_universal.dmg)** (~36 MB)
+**[Android](https://github.com/pbuzdin/velta/releases/latest/download/Velta-android-arm64.apk)** (~55 MB) · **[Windows](https://github.com/pbuzdin/velta/releases/latest/download/Velta-windows-x64-setup.exe)** (~14 MB) · **[macOS](https://github.com/pbuzdin/velta/releases/latest/download/Velta-macos-universal.dmg)** (~38 MB) — always the latest release; sizes approximate
 
 Android needs an arm64 phone. Windows is the x64 installer. macOS is a universal test build that isn't notarized yet, so see [Install](#install) before the first launch. Other files and older versions are on the [releases page](https://github.com/pbuzdin/velta/releases).
 

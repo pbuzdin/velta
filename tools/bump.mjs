@@ -42,24 +42,9 @@ export function bumpVersion(v, readFile, writeFile) {
     ));
   }
 
-  // README one-click download links point at versioned release assets
-  // (releases/download/vX.Y.Z/Velta[-_]X.Y.Z…). Keep them on the new version;
-  // the approximate sizes next to them are left alone.
-  let readme = null;
-  try {
-    readme = readFile("README.md");
-  } catch {
-    readme = null; // test rigs / partial checkouts without a README
-  }
-  if (readme !== null) {
-    writeFile(
-      "README.md",
-      readme.replace(
-        /(releases\/download\/v)[0-9][^/\s)]*(\/Velta[-_])[0-9][^-_/\s)]*([-_])/g,
-        `$1${v}$2${v}$3`,
-      ),
-    );
-  }
+  // README.md / velta.cc download links are version-less
+  // (releases/latest/download/Velta-<os>-<arch>.<ext>, uploaded by
+  // release.yml), so the bump no longer touches README.md.
 
   writeFile(
     "app/js/version.gen.js",
@@ -79,7 +64,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       (p) => readFileSync(root + p, "utf8"),
       (p, c) => writeFileSync(root + p, c),
     );
-    console.log(`bumped ${from} -> ${to} (Cargo.toml, Cargo.lock, tauri.conf.json, app/js/version.gen.js, README download links)`);
+    console.log(`bumped ${from} -> ${to} (Cargo.toml, Cargo.lock, tauri.conf.json, app/js/version.gen.js)`);
     console.log(`next: commit, tag v${to}, push (release.yml reads Cargo.toml)`);
   } catch (e) {
     console.error("bump failed:", e.message);

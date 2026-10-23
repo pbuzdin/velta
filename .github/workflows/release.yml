@@ -206,6 +206,18 @@ jobs:
           name: velta-announce
           path: announce.md
 
+      # Version-less copies for "latest" download links (README, velta.cc):
+      # releases/latest/download/Velta-<os>-<arch>.<ext>. Plain copies — the
+      # updater keeps using the versioned installers + latest.json + .sig.
+      - name: Stable-named copies for latest/download links
+        run: |
+          set -e
+          mkdir -p release-assets/stable
+          cp "$(find release-assets -maxdepth 1 -name 'Velta-*-arm64.apk' | head -1)" release-assets/stable/Velta-android-arm64.apk
+          cp "$(find release-assets -path release-assets/stable -prune -o -name 'Velta_*_universal.dmg' -print | head -1)" release-assets/stable/Velta-macos-universal.dmg
+          cp "$(find release-assets -path release-assets/stable -prune -o -name 'Velta_*_x64-setup.exe' -print | head -1)" release-assets/stable/Velta-windows-x64-setup.exe
+          ls -l release-assets/stable
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
@@ -220,6 +232,9 @@ jobs:
             release-assets/**/Velta_*_universal.dmg
             release-assets/**/Velta_*_universal.app.tar.gz
             release-assets/**/Velta_*_universal.app.tar.gz.sig
+            release-assets/stable/Velta-android-arm64.apk
+            release-assets/stable/Velta-macos-universal.dmg
+            release-assets/stable/Velta-windows-x64-setup.exe
             release-assets/**/latest.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -3131,6 +3131,12 @@ do-not-regress rules; dates mark when the lesson was learned.
   fallback) — a missing conf version ships the APK as versionCode 1 /
   versionName "1.0" (the v1.4.58 regression). Desktop builds and
   `release.yml` use Cargo.toml. Each release commit notes both.
+  README/velta.cc download links are version-less and NOT bumped:
+  `release.yml` also uploads stable-named copies `Velta-android-arm64.apk`,
+  `Velta-macos-universal.dmg`, `Velta-windows-x64-setup.exe`, linked as
+  `https://github.com/pbuzdin/velta/releases/latest/download/<name>`. The
+  versioned assets, `.sig` files and `latest.json` (updater) are unchanged —
+  never rename those.
 - **README convention** — every `##` section below "Screenshots" is wrapped
   in `<details><summary>…</summary>` with a blank line after `</summary>`,
   so the front page stays short.
