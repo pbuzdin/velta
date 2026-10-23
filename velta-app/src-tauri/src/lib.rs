@@ -3397,6 +3397,43 @@ fn text_mentions_name(text: &str, name: &str) -> bool {
     false
 }
 
+/// Notification body for a background message: its text, or for an
+/// uncaptioned attachment a short label by view type (empty = skip).
+#[cfg(any(target_os = "android", test))]
+fn bg_notify_text(text: &str, view_type: &str, file_name: Option<&str>) -> String {
+    let text = text.trim();
+    if !text.is_empty() {
+        return text.to_string();
+    }
+    let file = file_name.map(str::trim).filter(|f| !f.is_empty());
+    match view_type {
+        "Image" => "Photo".into(),
+        "Gif" => "GIF".into(),
+        "Sticker" => "Sticker".into(),
+        "Video" => "Video".into(),
+        "Voice" => "Voice message".into(),
+        "Audio" => file.map_or("Audio".into(), |f| format!("Audio: {f}")),
+        "File" => file.map_or("File".into(), |f| format!("File: {f}")),
+        "Webxdc" => file.map_or("App".into(), |f| format!("App: {f}")),
+        "Vcard" => "Contact".into(),
+        _ => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod bg_notify_text_tests {
+    use super::bg_notify_text;
+    #[test]
+    fn labels() {
+        assert_eq!(bg_notify_text(" hi ", "Image", None), "hi");
+        assert_eq!(bg_notify_text("", "Image", Some("a.jpg")), "Photo");
+        assert_eq!(bg_notify_text("", "Voice", None), "Voice message");
+        assert_eq!(bg_notify_text("", "File", Some("doc.pdf")), "File: doc.pdf");
+        assert_eq!(bg_notify_text("", "File", None), "File");
+        assert_eq!(bg_notify_text("", "Text", None), "");
+    }
+}
+
 #[cfg(test)]
 mod mention_tests {
     use super::text_mentions_name;
@@ -3465,12 +3502,14 @@ async fn bg_notify_incoming(
         else {
             continue;
         };
-        let text = msg
-            .get("text")
-            .and_then(|t| t.as_str())
-            .unwrap_or("")
-            .trim()
-            .to_string();
+        let text = msg.get("text").and_then(|t| t.as_str()).unwrap_or("").trim().to_string();
+        // A photo / voice note / file without caption has empty text; it
+        // used to be skipped, so media never notified in the background.
+        let text = bg_notify_text(
+            &text,
+            msg.get("viewType").and_then(|v| v.as_str()).unwrap_or(""),
+            msg.get("fileName").and_then(|v| v.as_str()),
+        );
         if text.is_empty() {
             continue;
         }
