@@ -62,6 +62,23 @@ pub fn set_open_app(account: u32, msg: u32) {
     *OPEN_APP.lock().unwrap() = Some((account, msg));
 }
 
+/// Called by the manager (webxdc_end command) when the app frame closes:
+/// a closed instance's blobs stop being served. Only clears when the named
+/// instance is still the open one, so a late close cannot undo a newer open.
+pub fn clear_open_app(account: u32, msg: u32) {
+    let mut g = OPEN_APP.lock().unwrap();
+    if *g == Some((account, msg)) {
+        *g = None;
+    }
+}
+
+/// Icon files are readable for instances that are not open (the chat list
+/// card shows them). Only the real image icons the webxdc spec names —
+/// never any other `icon.*` file an app might ship.
+pub fn is_public_icon(path: &str) -> bool {
+    path == "icon.png" || path == "icon.jpg"
+}
+
 pub fn webxdc_resolve_line(app: &tauri::AppHandle, line: &str) {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else { return; };
     let Some(id) = value.get("id").and_then(|v| v.as_str()).map(str::to_string) else { return; };
@@ -159,7 +176,7 @@ pub async fn webxdc_serve(
     // to the open app below, unchanged. Icon files are exempt: the chat
     // list card loads them for apps that are NOT open (public by design —
     // the icon is visible to every chat member anyway).
-    let is_icon = path == "icon.png" || path.starts_with("icon.");
+    let is_icon = is_public_icon(&path);
     if !is_icon {
         match *OPEN_APP.lock().unwrap() {
             Some(open) if open == (account, msg) => {}
@@ -223,4 +240,27 @@ pub async fn webxdc_serve(
         .header("Access-Control-Allow-Origin", "*")
         .body(bytes)
         .unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn icon_exemption_is_images_only() {
+        assert!(is_public_icon("icon.png"));
+        assert!(is_public_icon("icon.jpg"));
+        assert!(!is_public_icon("icon.json"));
+        assert!(!is_public_icon("icon.js"));
+        assert!(!is_public_icon("icons/icon.png"));
+    }
+
+    #[test]
+    fn close_clears_only_the_open_instance() {
+        set_open_app(1, 10);
+        clear_open_app(1, 11);
+        assert_eq!(*OPEN_APP.lock().unwrap(), Some((1, 10)));
+        clear_open_app(1, 10);
+        assert_eq!(*OPEN_APP.lock().unwrap(), None);
+    }
 }

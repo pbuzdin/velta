@@ -358,8 +358,10 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Sen
 /// Register a user-picked file (dialog result / resolve_content_uri copy)
 /// for slice reads. Returns {handle, size, name}.
 #[tauri::command]
-pub async fn lufi_open_file(path: String) -> Result<serde_json::Value, String> {
+pub async fn lufi_open_file(app: tauri::AppHandle, path: String) -> Result<serde_json::Value, String> {
     let p = PathBuf::from(&path);
+    // V-07/#65: only user-picked files (or Velta's own copies) — see picked.rs.
+    crate::picked::check(&app, &p)?;
     let meta = std::fs::metadata(&p).map_err(|e| e.to_string())?;
     if !meta.is_file() {
         return Err("not a file".into());

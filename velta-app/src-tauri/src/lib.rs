@@ -620,25 +620,30 @@ fn webxdc_begin(account: u32, msg: u32) {
     webxdc_serve::set_open_app(account, msg);
 }
 
+/// Audit item 5: the manager closed this instance's frame — stop serving it.
+#[tauri::command]
+fn webxdc_end(account: u32, msg: u32) {
+    webxdc_serve::clear_open_app(account, msg);
+}
+
 /// V-07/#65: fs plugin file access is scoped — there is no fs:read-all
 /// capability any more. The only legitimate arbitrary-path reads are files
-/// the user JUST picked in a native dialog; this command adds exactly those
-/// to the plugin's runtime scope right after the pick (the renderer cannot
-/// reach this command with a path the user didn't pick — the pick itself is
-/// the user gesture).
+/// the user picked in a native dialog or opened Velta with. The renderer's
+/// word is not enough: picked::check requires Rust-side evidence (the
+/// dialog plugin already scoped the path, the OS handed it to us, or it is
+/// inside Velta's own data dirs) before the path is added to the scope.
 #[tauri::command]
 fn allow_picked_path(app: tauri::AppHandle, path: String) -> Result<(), String> {
     use tauri_plugin_fs::FsExt;
     let p = std::path::PathBuf::from(&path);
-    if p.as_os_str().is_empty() {
-        return Err("empty path".into());
-    }
+    picked::check(&app, &p)?;
     app.fs_scope()
         .allow_file(&p)
         .map_err(|e| e.to_string())
 }
 
 mod webxdc_serve;
+mod picked;
 pub mod builtin_xdc;
 pub mod lufi;
 use webxdc_serve::{webxdc_resolve_line, webxdc_serve};
@@ -2673,7 +2678,8 @@ fn prep_backup_blocking(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn prep_backup(path: String) -> Result<String, String> {
+async fn prep_backup(app: tauri::AppHandle, path: String) -> Result<String, String> {
+    picked::check(&app, std::path::Path::new(&path))?;
     tauri::async_runtime::spawn_blocking(move || prep_backup_blocking(path))
         .await
         .map_err(|e| e.to_string())?
@@ -2814,6 +2820,10 @@ fn resolve_content_uri_blocking(app: tauri::AppHandle, uri: String, filename: St
 fn queue_opened(url: String) {
     if url.is_empty() {
         return;
+    }
+    // V-07/#65: a file the OS opened Velta with counts as a user pick.
+    if let Some(p) = picked::opened_file_path(&url) {
+        picked::record(&p);
     }
     let mut q = OPENED_URLS.lock().unwrap();
     // argv and RunEvent::Opened can both report the same link.
@@ -4034,7 +4044,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, allow_picked_path, webxdc_begin, set_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, push_status, push_select, push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text, tunnel::tunnel_preview, tunnel::tunnel_install, tunnel::tunnel_remove, tunnel::tunnel_status, tunnel::tunnel_set_mode, tunnel::tunnel_network_changed, tunnel::tunnel_backup_begin, tunnel::tunnel_backup_end, tunnel::tunnel_reapply, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, allow_picked_path, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, push_status, push_select, push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text, tunnel::tunnel_preview, tunnel::tunnel_install, tunnel::tunnel_remove, tunnel::tunnel_status, tunnel::tunnel_set_mode, tunnel::tunnel_network_changed, tunnel::tunnel_backup_begin, tunnel::tunnel_backup_end, tunnel::tunnel_reapply, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 
