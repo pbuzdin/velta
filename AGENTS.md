@@ -1603,7 +1603,11 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   strict hostname check, true only for a non-empty JSON string array —
   the WebView's tauri origin is refused by origin-gated relays; the PWA
   keeps the browser socket), I/P
-  come from IMAP ServerMetadata.
+  come from IMAP ServerMetadata. Under the address, `relayDetailsHtml` adds the relay's
+  `/shared/comment` and `/shared/admin` (get_server_metadata, escaped text,
+  never links) and its quota from the connectivity HTML (bar + %, only when
+  reported). maxsmtprecipients, IDLE and COMPRESS are not exposed to the
+  client without a core patch, so they are not shown.
 - **History loading strip** (`#chat-load-bar`): 6px blue gradient sweep
   pinned under the chat header; turned on by `chat-view.open()`,
   `_loadOlder()`, `_loadNewer()` and `_jumpToLatest()` (paging is history

@@ -5461,6 +5461,28 @@ const relayFlagsHtml = (addr, meta) => {
   ].join("");
 };
 
+// Details under a relay's address, from data the client already reads (no
+// core patch): IMAP METADATA /shared/admin and /shared/comment (via
+// get_server_metadata) and the quota the core renders in its connectivity
+// page (quota-list, parsed per transport by parseConnectivityHtml). Quota
+// shows only when the relay reports it; the bar is the highest resource %.
+// Plain escaped text, never links: these strings come from the relay.
+const relayDetailsHtml = (meta, quotaText) => {
+  const lines = [];
+  const comment = String(meta?.comment || "").trim();
+  const admin = String(meta?.admin || "").trim();
+  if (comment) lines.push(`<div class="relay-detail">${escapeHtml(comment)}</div>`);
+  if (admin) lines.push(`<div class="relay-detail">Admin: ${escapeHtml(admin)}</div>`);
+  const q = String(quotaText || "").trim();
+  if (q) {
+    const pcts = [...q.matchAll(/(\d{1,3})\s*%/g)].map(m => Math.min(100, Number(m[1])));
+    const label = q.replace(/\s*\d{1,3}\s*%/g, "").trim();
+    const pct = pcts.length ? Math.max(...pcts) : null;
+    lines.push(`<div class="relay-detail relay-quota">${pct === null ? "" : `<span class="relay-quota-bar" role="img" aria-label="Storage ${pct}% used"><span style="width:${pct}%"${pct >= 80 ? ' class="high"' : ""}></span></span>`}<span>${escapeHtml(label)}${pct === null ? "" : ` (${pct}%)`}</span></div>`);
+  }
+  return lines.join("");
+};
+
 // One C3 probe per relay domain per app session (the flag cache).
 const relayC3Flags = new Map();
 
@@ -5544,6 +5566,7 @@ async function openRelaysModal() {
           <span class="relay-addr">${escapeHtml(t.addr)}${sendMark}${hint}</span>
           <span class="relay-flags">${relayFlagsHtml(t.addr, metaByAddr?.[t.addr] || null)}</span>
         </div>
+        ${relayDetailsHtml(metaByAddr?.[t.addr] || null, st?.quota)}
         <div class="relay-actions">${primary ? demote : `<button type="button" class="btn-text" data-sendvia>Use for sending</button>`}<button type="button" class="btn-text" data-remove style="color:var(--danger)">Remove</button></div>`;
       // W flag: probe the relay's C3 endpoints (probeC3Relay). In the Tauri
       // shells the probe runs in Rust without a browser Origin (relays gate
