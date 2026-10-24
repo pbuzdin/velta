@@ -125,3 +125,47 @@ test("Share link is touch-only; desktop keeps Copy + Open", async (t) => {
   assert.ok(menuLabels(node).some(l => l.includes("Share link")), "Share link on touch");
   closeAllPopups();
 });
+
+test("sheet lists every link in the message under Show links", async (t) => {
+  const core = Object.assign(new EventTarget(), {
+    accountId: "A", accountEpoch: 0,
+    getChat: async () => ({ id: 7, kind: "single", unread: 0, encrypted: true }),
+    getMessages: async () => page([message(11, "a " + LINK + " and https://velta.cc/y")]),
+    markRead: async () => {},
+  });
+  const { view, node } = setup(t, core);
+  await view.open(7);
+
+  view._msgContextMenu(view.msgIndex.get(11), 10, 10);
+  const sheet = node("popups").querySelector(".ctx-menu");
+  const det = sheet.querySelector(".msg-links");
+  assert.ok(det, "Show links details present");
+  const anchors = det.querySelectorAll("a");
+  assert.equal(anchors.length, 2, "one row per distinct link");
+  assert.equal(anchors[0].href, STRIPPED, "hrefs are tracker-stripped");
+  assert.equal(anchors[1].href, "https://velta.cc/y");
+  closeAllPopups();
+});
+
+test("the pressed single link skips the Show links list", async (t) => {
+  const core = Object.assign(new EventTarget(), {
+    accountId: "A", accountEpoch: 0,
+    getChat: async () => ({ id: 7, kind: "single", unread: 0, encrypted: true }),
+    getMessages: async () => page([message(11, "see " + LINK)]),
+    markRead: async () => {},
+  });
+  const { view, node } = setup(t, core);
+  await view.open(7);
+
+  // Long-press ON the link: Copy/Share/Open already target it.
+  view._msgContextMenu(view.msgIndex.get(11), 10, 10, LINK);
+  let sheet = node("popups").querySelector(".ctx-menu");
+  assert.ok(!sheet.querySelector(".msg-links"), "no duplicate list");
+  closeAllPopups();
+
+  // Same message, gesture on plain text: the list is the only access.
+  view._msgContextMenu(view.msgIndex.get(11), 10, 10);
+  sheet = node("popups").querySelector(".ctx-menu");
+  assert.ok(sheet.querySelector(".msg-links"), "list appears for a non-link gesture");
+  closeAllPopups();
+});

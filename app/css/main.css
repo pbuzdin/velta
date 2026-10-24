@@ -1718,6 +1718,22 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 }
 .msg-emoji { font-size: 24px; line-height: 1.2; padding: 4px; border-radius: 8px; }
 .msg-emoji-empty { grid-column: 1 / -1; color: var(--text-dim); font-size: 14px; padding: 8px; }
+/* "Show links" (#161 mobile): real anchors — the WebView's own long-press
+   menu (open / copy address / share) works on each. No user-select override:
+   link long-press is browser UI, not text selection. */
+.msg-links { margin-top: 10px; }
+.msg-links summary {
+  cursor: pointer; list-style: none; padding: 8px 12px; border-radius: 8px;
+  color: var(--text-dim); font-size: 14px;
+}
+.msg-links summary::-webkit-details-marker { display: none; }
+.msg-links summary::after { content: "\203A"; float: right; transition: transform .15s ease-out; }
+.msg-links[open] summary::after { transform: rotate(90deg); }
+.msg-links a {
+  display: block; padding: 9px 12px; border-radius: 8px;
+  color: var(--accent-text-in); font-size: 14px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 /* Popover UA sheet (inset:0, margin:auto, Canvas, border) leaks on unset
    properties. Do not set left/right here: the 821px toast query and the

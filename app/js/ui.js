@@ -352,7 +352,7 @@ export function buildReactionRow({ reactions, selected = null, onReact }) {
   return { reacts, tray };
 }
 
-export function showMessageSheet({ reactions = [], selected = null, onReact, items }) {
+export function showMessageSheet({ reactions = [], selected = null, onReact, items, links = [], onOpenLink }) {
   closeAllPopups();
   const menu = document.createElement("div");
   menu.className = "ctx-menu msg-sheet";
@@ -378,6 +378,31 @@ export function showMessageSheet({ reactions = [], selected = null, onReact, ite
     actions.append(wrap);
   }
   menu.append(actions);
+
+  // "Show links" (#161 mobile): every link in the message as real <a href>
+  // anchors, so the WebView's own long-press menu (open / copy address /
+  // share) works on each. Tap still opens through the app.
+  if (links.length) {
+    const det = document.createElement("details");
+    det.className = "msg-links";
+    const sum = document.createElement("summary");
+    sum.textContent = links.length > 1 ? `Show links (${links.length})` : "Show links";
+    const list = document.createElement("div");
+    list.className = "msg-links-list";
+    for (const url of links) {
+      const a = document.createElement("a");
+      a.href = url;
+      a.textContent = url.replace(/^https?:\/\//i, "");
+      a.addEventListener("click", (e) => {
+        e.preventDefault();
+        closeAllPopups();
+        onOpenLink?.(url);
+      });
+      list.append(a);
+    }
+    det.append(sum, list);
+    menu.append(det);
+  }
 
   const overlay = document.createElement("div");
   overlay.className = "pop-overlay";

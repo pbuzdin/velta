@@ -17,6 +17,12 @@ import { askGroupCallName } from "./group-call-ui.js";
 const SHEET_REACTIONS = ["👍", "👎", "❤️", "😂", "🎉", "😮", "🔥", "👀", "🙏", "😢", "💯"];
 const SHEET_PAIRS = ["send", "keep", "file", "own", "text", "meta"];
 
+// Inverse of format.js escapeHtml (its only consumer: pulling hrefs back out
+// of rendered markdown). &amp; goes last so "&amp;lt;" round-trips.
+const unescapeHtml = (s) => String(s)
+  .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
+  .replace(/&#39;/g, "'").replace(/&amp;/g, "&");
+
 // iOS Chrome/Edge/Firefox are WebKit, so they stay on the px-only image width.
 const ua = globalThis.navigator?.userAgent || "";
 if (!/CriOS|FxiOS|EdgiOS/.test(ua) && /Chrome\/|Chromium\/|Edg\//.test(ua)) {
@@ -3071,11 +3077,29 @@ export class ChatView {
       if (action === "-") continue;
       (action.pair && buckets.has(action.pair) ? buckets.get(action.pair) : tail).push(action);
     }
+    // Every link the bubble renders (markdown, bare domains), tracker-stripped
+    // and deduped, for the sheet's "Show links" list. renderMarkdown builds
+    // anchors as `<a href="…">`, so the hrefs come straight off that string —
+    // no DOM needed. The single pressed link skips the list: its items are
+    // already above.
+    const links = [];
+    if (m.text) {
+      for (const mm of renderMarkdown(m.text).matchAll(/<a href="([^"]*)"/g)) {
+        const raw = unescapeHtml(mm[1]);
+        if (!/^https?:/i.test(raw)) continue;
+        const clean = trackingStripEnabled() ? stripTrackingUrl(raw) : raw;
+        if (!links.includes(clean)) links.push(clean);
+      }
+    }
+    const pressedClean = /^https?:/i.test(linkHref || "")
+      ? (trackingStripEnabled() ? stripTrackingUrl(linkHref) : linkHref) : "";
     showMessageSheet({
       reactions: canReact ? SHEET_REACTIONS : [],
       selected: myReaction(m.reactions),
       onReact: (emoji) => { if (this._isCurrent(session)) return this._toggleReaction(session.chatId, m.id, emoji); },
       items: [...SHEET_PAIRS.flatMap(k => buckets.get(k)), ...tail],
+      links: links.length && !(links.length === 1 && links[0] === pressedClean) ? links : [],
+      onOpenLink: (url) => openHttp(url),
     });
   }
 
