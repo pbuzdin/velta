@@ -5457,7 +5457,7 @@ const relayFlagsHtml = (addr, meta) => {
     flag("C", "Calls: the relay hands out TURN credentials", !!meta?.hasTurn),
     flag("I", "iroh relay: helps Beam and peer-to-peer transfers", !!meta?.irohRelay),
     flag("P", "Push notifications: the relay accepts device tokens", !!meta?.supportsPush || relaySupportsPush(addr)),
-    `<span class="relay-flag" data-flag-w title="Web app endpoints (C3): the browser app can connect through this relay" aria-label="Web app endpoints (C3): the browser app can connect through this relay" role="img">W</span>`,
+    `<span class="relay-flag" data-flag-w title="Web app endpoints (C3): this relay offers the WebSocket mail tunnel the browser app uses" aria-label="Web app endpoints (C3): this relay offers the WebSocket mail tunnel the browser app uses" role="img">W</span>`,
   ].join("");
 };
 
@@ -5545,9 +5545,11 @@ async function openRelaysModal() {
           <span class="relay-flags">${relayFlagsHtml(t.addr, metaByAddr?.[t.addr] || null)}</span>
         </div>
         <div class="relay-actions">${primary ? demote : `<button type="button" class="btn-text" data-sendvia>Use for sending</button>`}<button type="button" class="btn-text" data-remove style="color:var(--danger)">Remove</button></div>`;
-      // W flag: probe the relay's C3 endpoints (WebSockets are not
-      // CORS-gated, so this works from the browser app too). Silver until
-      // the relay answers; one probe per relay per app session.
+      // W flag: probe the relay's C3 endpoints (probeC3Relay). In the Tauri
+      // shells the probe runs in Rust without a browser Origin (relays gate
+      // browser origins); in the PWA it is the browser's own WebSocket, i.e.
+      // "capable from this origin". Silver until the relay answers; one
+      // probe per relay per app session.
       const wEl = row.querySelector("[data-flag-w]");
       const wDomain = (t.addr || "").split("@").pop();
       if (wEl && wDomain) {

@@ -97,3 +97,33 @@ test("worker sends /new to the configured relay's /cm-new when the page is on an
   assert.equal(chatmailNewUrl("https://relay.example.org/new", { method: "POST" }, page, relay), null, "the relay's own /new goes direct");
   assert.equal(chatmailNewUrl("https://mail.example.org/new", { method: "POST" }, page, null), "https://pwa.example.org/cm-new/mail.example.org", "no relay: page origin as before");
 });
+
+// Tauri shells: the W probe goes to Rust (no browser Origin), never the
+// WebView's own WebSocket, which origin-gated relays refuse.
+test("probe: in the Tauri shell it invokes probe_c3_relay, not a browser WebSocket", () => withFakeWS(async () => {
+  const realWin = globalThis.window;
+  const calls = [];
+  globalThis.window = { __TAURI__: { core: { invoke: async (cmd, args) => { calls.push([cmd, args]); return args.host === "good.example"; } } } };
+  try {
+    assert.equal(await probeC3Relay("good.example"), true);
+    assert.equal(await probeC3Relay("bad.example"), false);
+    globalThis.window.__TAURI__.core.invoke = async () => { throw new Error("boom"); };
+    assert.equal(await probeC3Relay("err.example"), false);
+    assert.deepEqual(calls, [["probe_c3_relay", { host: "good.example" }], ["probe_c3_relay", { host: "bad.example" }]]);
+    assert.equal(FakeWS.instances.length, 0);
+  } finally {
+    globalThis.window = realWin;
+  }
+}));
+
+test("probe_c3_relay: Rust command exists, is registered and sends no Origin", () => {
+  const src = readFileSync(new URL("../velta-app/src-tauri/src/c3_probe.rs", import.meta.url), "utf8");
+  const lib = readFileSync(new URL("../velta-app/src-tauri/src/lib.rs", import.meta.url), "utf8");
+  assert.match(src, /pub async fn probe_c3_relay\(host: String\) -> bool/);
+  assert.match(src, /valid_host\(&host\)/);
+  assert.match(src, /Duration::from_secs\(5\)/);
+  const req = src.match(/"GET \/dns\/[^"]*"/)?.[0] || "";
+  assert.ok(req && !/Origin/i.test(req), "handshake must not carry an Origin header");
+  assert.match(lib, /pub mod c3_probe;/);
+  assert.match(lib, /generate_handler!\[[^\]]*c3_probe::probe_c3_relay/);
+});

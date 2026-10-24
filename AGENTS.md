@@ -1598,7 +1598,11 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   flags (1.4.81) are neutral key-caps (`--text-dim` on `--bg-hover`) with
   a `var(--green)` corner dot on `.on` chips marking offered capabilities —
   no colored letters (the hardcoded green/silver pair measured 1.91:1 in
-  light), no slash over small letters; W is probed via `probeC3Relay`, I/P
+  light), no slash over small letters; W is probed via `probeC3Relay` (in the Tauri shells it
+  invokes the Rust `probe_c3_relay`, c3_probe.rs: no Origin header, 5 s,
+  strict hostname check, true only for a non-empty JSON string array —
+  the WebView's tauri origin is refused by origin-gated relays; the PWA
+  keeps the browser socket), I/P
   come from IMAP ServerMetadata.
 - **History loading strip** (`#chat-load-bar`): 6px blue gradient sweep
   pinned under the chat header; turned on by `chat-view.open()`,

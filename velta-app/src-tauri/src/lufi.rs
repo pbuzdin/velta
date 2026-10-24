@@ -26,7 +26,7 @@ const IO_TIMEOUT: Duration = Duration::from_secs(180);
 /// Server replies are small JSON; refuse anything absurd.
 const MAX_REPLY: usize = 4 * 1024 * 1024;
 
-trait Stream: Read + Write + Send {}
+pub(crate) trait Stream: Read + Write + Send {}
 impl<T: Read + Write + Send> Stream for T {}
 
 pub struct Ws {
@@ -142,7 +142,7 @@ fn tcp_connect(host: &str, port: u16, proxy: Option<&str>) -> Result<TcpStream, 
 
 /// Read an HTTP response head (up to the blank line), byte by byte so no
 /// frame data after it is swallowed.
-fn read_head(s: &mut impl Read) -> Result<String, String> {
+pub(crate) fn read_head(s: &mut impl Read) -> Result<String, String> {
     let mut buf = Vec::new();
     let mut b = [0u8; 1];
     while !buf.ends_with(b"\r\n\r\n") {
@@ -158,7 +158,7 @@ fn read_head(s: &mut impl Read) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&buf).into_owned())
 }
 
-fn tls(host: &str, tcp: TcpStream) -> Result<Box<dyn Stream>, String> {
+pub(crate) fn tls(host: &str, tcp: TcpStream) -> Result<Box<dyn Stream>, String> {
     let mut roots = rustls::RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     let cfg = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
