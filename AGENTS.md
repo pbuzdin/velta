@@ -1584,7 +1584,22 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
 - **Header heights** are pinned by `--head-h` (56px): `.sidebar-head` and
   `.chat-head` are border-box
   `height: calc(var(--head-h) + env(safe-area-inset-top))`. Change the var,
-  not the paddings.
+  not the paddings. The sidebar head's top padding carries the relay-zone
+  gap below it (1.4.81) — the logo/search cluster reads its bottom
+  whitespace through to the strip, so top and zone pad as a pair.
+- **`.relay-line` is shared by two widgets** — the sidebar 6px sending
+  strip (`#relay-line` + `.relay-line` classes) AND the relays-modal card
+  rows (quilt op #15). Three properties have already leaked between them
+  (height, flex, align-items — the strip went invisible when the modal's
+  `align-items:center` landed): the meter block is scoped `#relay-line`
+  with `align-items:stretch` pinned, the modal rule owns the class — any
+  NEW property on either rule must be checked against both widgets, or
+  rename the strip class when next touching it. The modal's capability
+  flags (1.4.81) are neutral key-caps (`--text-dim` on `--bg-hover`) with
+  a `var(--green)` corner dot on `.on` chips marking offered capabilities —
+  no colored letters (the hardcoded green/silver pair measured 1.91:1 in
+  light), no slash over small letters; W is probed via `probeC3Relay`, I/P
+  come from IMAP ServerMetadata.
 - **History loading strip** (`#chat-load-bar`): 6px blue gradient sweep
   pinned under the chat header; turned on by `chat-view.open()`,
   `_loadOlder()`, `_loadNewer()` and `_jumpToLatest()` (paging is history

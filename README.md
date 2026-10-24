@@ -498,6 +498,13 @@ A relay marked **(U)** confirmed UnifiedPush push notifications: the core
 registered this device's push token there (Android with a UnifiedPush
 distributor). No mark means "not confirmed", never a guess.
 
+Each relay row also carries four small **capability flags** — **C** calls
+(TURN credentials), **I** iroh transfers, **P** push notifications, **W** web
+endpoints (the browser app can connect through this relay). A green corner
+dot marks capabilities the relay advertises (W is probed live); a flag
+without a dot means "not offered", never a guess. A legend at the bottom of
+the modal repeats the letters and the dot.
+
 - **Add relay** — paste a `dcaccount:`/`dclogin:` invite code or just the relay's domain (`nine.testrun.org`); the core
   configures it as a second transport (progress modal during setup).
 - **Use for sending** — makes that relay the primary (sending) transport.

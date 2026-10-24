@@ -3,7 +3,7 @@ import { canEditMsg } from "./msg-edit.js";
 import { prepareBuiltinXdc } from "./builtin-xdc.js";
 import { formatTime, formatDay, formatDateTime, formatServerUrl, messageInfoState, messageInfoReactions, formatBytes, timeTag, stampTime, formatDuration, serviceChipsHtml } from "./format.js";
 import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener } from "./components.js";
-import { bindMenuToggle, showActionBar, showMessageSheet, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG, uiZoom } from "./ui.js";
+import { bindMenuToggle, showActionBar, showContextMenu, showMessageSheet, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG, uiZoom } from "./ui.js";
 import { diagnosticRow } from "./diagnostics.js";
 import { attachRecentCommands, recordCommand } from "./recent-commands.js";
 import { audioPlayerHtml, mountAudioPlayer, decodeAudioDuration } from "./audio-player.js";
