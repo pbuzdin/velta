@@ -2996,17 +2996,21 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 .relay-addr { font-weight: 600; overflow-wrap: anywhere; }
 .relay-sending { font-weight: 400; opacity: .75; }
 .relay-flags { display: inline-flex; gap: 4px; flex: none; }
-/* Tinted chips, not colored-on-transparent: the bare letters were near
-   invisible in the light theme (1.91:1 green / 2.40:1 silver on #f4f4f4). */
+/* One chip style for every state: green = the letter's capability, and a
+   diagonal slash means "not offered" — shape carries the state, not color
+   (colorblind-safe, no per-theme tuning). */
 .relay-flag {
+  position: relative;
   font-size: 10.5px; font-weight: 700; line-height: 1;
   padding: 3px 5px; border-radius: 5px;
-  color: var(--text-dim); background: var(--bg-hover);
+  color: var(--green); background: color-mix(in srgb, var(--green) 10%, transparent);
   cursor: default; user-select: none;
 }
-.relay-flag.on {
-  color: var(--green);
-  background: color-mix(in srgb, var(--green) 10%, transparent);
+.relay-flag:not(.on)::after {
+  content: ""; position: absolute; left: 50%; top: 50%;
+  width: 141%; height: 1.5px; border-radius: 1px;
+  background: var(--text-dim);
+  transform: translate(-50%, -50%) rotate(-45deg);
 }
 .relay-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 /* Flag key: the letters mean the same on every relay, say so once. */

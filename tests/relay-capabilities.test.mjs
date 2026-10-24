@@ -43,9 +43,10 @@ test("modal: address + flags share the first row, actions sit on the second", ()
   // Old cores without the RPC degrade to silver, not a crash.
   assert.match(app, /await core\.getServerMetadata\?\.\(\)/);
   // Silver/green states in CSS via theme tokens — the hardcoded #9aa0a6/#2ecc71
-  // pair failed WCAG AA in the light theme (1.91/2.40:1 on #f4f4f4).
-  assert.match(css, /\.relay-flag \{[^}]*var\(--text-dim\)/);
-  assert.match(css, /\.relay-flag\.on \{[^}]*var\(--green\)/);
+  // pair failed WCAG AA in the light theme (1.91/2.40:1 on #f4f4f4). One chip
+  // style for every state; "not offered" is a diagonal slash, not a color.
+  assert.match(css, /\.relay-flag \{[^}]*var\(--green\)/);
+  assert.match(css, /\.relay-flag:not\(\.on\)::after/);
   assert.match(css, /\.relay-legend \{/);
   assert.match(css, /\.relay-card \{ display: flex; flex-direction: column/);
 });
