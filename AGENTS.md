@@ -3294,6 +3294,17 @@ do-not-regress rules; dates mark when the lesson was learned.
   dividers or moving top-level functions, run
   `node --test tests/app-source-integrity.test.mjs` — it comment-strips
   app.js and asserts the pinned definitions still exist outside comments.
+- **Removed imports can kill untested UI paths in release (1.4.80)** — the
+  action-bar rework removed `showContextMenu` from chat-view.js's ui.js
+  import believing the message menu was its only caller, but the ATTACH
+  menu still called it: every attach click died with "showContextMenu is
+  not defined", the suite stayed green (no test walks the attach path),
+  and it shipped. Two defenses since 1.4.81: the source-integrity suite
+  asserts every ui.js export referenced in chat-view.js/app.js appears in
+  that file's ui.js import (run the same file after ANY import pruning —
+  it catches referenced-but-not-imported names), and the rule of thumb:
+  grep the WHOLE consumer file for a name before deleting its import —
+  the reworked feature is never the only place a shared helper is used.
 - **Sending dashes can lose their terminal events (post-1.4.36)** — the
   relay line's send-activity bookkeeping (`rpc-core _trackSending/
   _untrackSending`) cleared only on MsgDelivered/MsgFailed, but the Android
