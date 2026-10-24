@@ -3239,7 +3239,9 @@ async function pickContactModal(title, multi = false) {
       });
       list.appendChild(item);
     }
-    const { foot, cancel, ok } = footButtons(multi ? "Create" : "OK");
+    // Multi-select confirms a choice, it creates nothing — the group itself
+    // is created in the following name dialog (#160).
+    const { foot, cancel, ok } = footButtons(multi ? "Add" : "OK");
     ok.disabled = true;
     const { close } = showModal({ title, body: list, foot, onClose: () => resolve(null) });
     cancel.addEventListener("click", () => { close(); resolve(null); });
