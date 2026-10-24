@@ -1606,8 +1606,10 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   come from IMAP ServerMetadata. Under the address, `relayDetailsHtml` adds the relay's
   `/shared/comment` and `/shared/admin` (get_server_metadata, escaped text,
   never links) and its quota from the connectivity HTML (bar + %, only when
-  reported). maxsmtprecipients, IDLE and COMPRESS are not exposed to the
-  client without a core patch, so they are not shown.
+  reported). Core patch #16 adds `canIdle` / `canCompress` /
+  `maxSmtpRcptTo` to get_server_metadata: D flag = instant delivery (IDLE;
+  null → "not known yet" until the relay connected), recipient limit and
+  "compressed connection" go in the details line (no flag).
 - **History loading strip** (`#chat-load-bar`): 6px blue gradient sweep
   pinned under the chat header; turned on by `chat-view.open()`,
   `_loadOlder()`, `_loadNewer()` and `_jumpToLatest()` (paging is history

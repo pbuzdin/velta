@@ -2999,7 +2999,7 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 /* Relays modal (#15): each relay is a two-line card — address + capability
    flags on the first line, action buttons on the second. Flags are silver
    (not offered / not known yet) and turn green when the relay advertised
-   the capability. C calls/TURN, I iroh, P push, W web/C3 endpoints. */
+   the capability. C calls/TURN, I iroh, P push, D instant delivery (IDLE), W web/C3 endpoints. */
 .relay-card { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .relay-card:last-child { border-bottom: 0; }
 .relay-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }

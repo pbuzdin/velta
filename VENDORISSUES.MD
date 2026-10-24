@@ -410,3 +410,17 @@ than "not offered".
 
 Upstream fix: a public per-transport server-metadata accessor (or folding
 the fields into `list_transports`) — then drop the patch.
+
+### 16. IDLE / COMPRESS / recipient limit per relay are invisible to clients (core/src/imap.rs, transport.rs)
+
+Extends #15. `update_metadata` (runs after every IMAP connect) records the
+session's IDLE and COMPRESS=DEFLATE capabilities into `ServerMetadata`
+(`velta_can_idle` / `velta_can_compress`, `None` until the first
+connection); `get_server_metadata` returns them as `canIdle` /
+`canCompress` plus the already-parsed `maxSmtpRcptTo`
+(`/shared/vendor/deltachat/maxsmtprecipients`). The relays modal shows D
+(instant delivery) as a flag and the limit/compression in the details
+line. Quilt ops `#16 …` in tools/apply-core-patches.py; must stay after the
+#15 ops (anchored on their inserted text). The wasm copy inherits it (the
+wasm series applies on top of the quilted core). Drop when upstream exposes
+per-transport capabilities.

@@ -5448,15 +5448,22 @@ function showSplash() {
 // Capability flags for the relays modal (VENDORISSUES #15): C = calls (the
 // relay hands out TURN credentials), I = iroh relay, P = push (metadata,
 // falling back to the #110 diagnostic cache on cores without the RPC),
-// W = web/C3 endpoints (probed). Silver = not offered / not known yet,
+// D = instant delivery (IMAP IDLE, core patch #16), W = web/C3 endpoints
+// (probed). Silver = not offered / not known yet,
 // green = the relay advertised it. The letters' titles carry the words.
 const relayFlagsHtml = (addr, meta) => {
+  // on: true / false / null (null = not known yet even with metadata —
+  // IMAP capabilities are only known after the relay's first connection).
   const flag = (letter, label, on) =>
-    `<span class="relay-flag${on ? " on" : ""}" title="${escapeAttr(label + (on ? "" : meta ? " — not offered by this relay" : " — not known yet"))}" aria-label="${escapeAttr(label)}" role="img">${letter}</span>`;
+    `<span class="relay-flag${on ? " on" : ""}" title="${escapeAttr(label + (on ? "" : meta && on !== null ? " — not offered by this relay" : " — not known yet"))}" aria-label="${escapeAttr(label)}" role="img">${letter}</span>`;
   return [
     flag("C", "Calls: the relay hands out TURN credentials", !!meta?.hasTurn),
     flag("I", "iroh relay: helps Beam and peer-to-peer transfers", !!meta?.irohRelay),
     flag("P", "Push notifications: the relay accepts device tokens", !!meta?.supportsPush || relaySupportsPush(addr)),
+    // D (core patch #16, IMAP IDLE): new mail arrives instantly instead of
+    // on a polling interval. Older cores / the wasm core without the field
+    // leave it "not known yet".
+    flag("D", "Instant delivery: the relay pushes new mail to the app as it arrives (IMAP IDLE)", typeof meta?.canIdle === "boolean" ? meta.canIdle : null),
     `<span class="relay-flag" data-flag-w title="Web app endpoints (C3): this relay offers the WebSocket mail tunnel the browser app uses" aria-label="Web app endpoints (C3): this relay offers the WebSocket mail tunnel the browser app uses" role="img">W</span>`,
   ].join("");
 };
@@ -5473,6 +5480,13 @@ const relayDetailsHtml = (meta, quotaText) => {
   const admin = String(meta?.admin || "").trim();
   if (comment) lines.push(`<div class="relay-detail">${escapeHtml(comment)}</div>`);
   if (admin) lines.push(`<div class="relay-detail">Admin: ${escapeHtml(admin)}</div>`);
+  // Core patch #16: recipient limit (maxsmtprecipients) and IMAP compression,
+  // shown only when the core reports them.
+  const facts = [];
+  const rcpt = Number(meta?.maxSmtpRcptTo);
+  if (Number.isInteger(rcpt) && rcpt > 0) facts.push(`Up to ${rcpt} recipients per message`);
+  if (meta?.canCompress === true) facts.push("compressed connection");
+  if (facts.length) lines.push(`<div class="relay-detail">${escapeHtml(facts.join(" · "))}</div>`);
   const q = String(quotaText || "").trim();
   if (q) {
     const pcts = [...q.matchAll(/(\d{1,3})\s*%/g)].map(m => Math.min(100, Number(m[1])));
@@ -5497,7 +5511,7 @@ async function openRelaysModal() {
   body.innerHTML = `
     <div data-list><div class="p2p-hint" style="opacity:.6">Loading…</div></div>
     <div style="margin-top:10px"><button type="button" class="btn-text" data-add>Add relay…</button></div>
-    <div class="relay-legend" aria-hidden="true"><span class="relay-pair"><span class="relay-flag">C</span><span>calls (TURN)</span></span><span class="relay-pair"><span class="relay-flag">I</span><span>iroh transfers</span></span><span class="relay-pair"><span class="relay-flag">P</span><span>push notifications</span></span><span class="relay-pair"><span class="relay-flag">W</span><span>web endpoints</span></span><span class="relay-pair"><span class="relay-dot"></span><span>offered by the relay</span></span></div>`;
+    <div class="relay-legend" aria-hidden="true"><span class="relay-pair"><span class="relay-flag">C</span><span>calls (TURN)</span></span><span class="relay-pair"><span class="relay-flag">I</span><span>iroh transfers</span></span><span class="relay-pair"><span class="relay-flag">P</span><span>push notifications</span></span><span class="relay-pair"><span class="relay-flag">D</span><span>instant delivery</span></span><span class="relay-pair"><span class="relay-flag">W</span><span>web endpoints</span></span><span class="relay-pair"><span class="relay-dot"></span><span>offered by the relay</span></span></div>`;
   showModal({ title: "Relays", body });
   const listEl = body.querySelector("[data-list]");
 

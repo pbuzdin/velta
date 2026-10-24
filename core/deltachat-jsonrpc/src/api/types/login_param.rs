@@ -225,4 +225,13 @@ pub struct JsonrpcTransportServerMetadata {
 
     /// IMAP METADATA `/shared/admin`.
     pub admin: Option<String>,
+
+    /// IMAP IDLE (instant delivery) support; null until connected.
+    pub can_idle: Option<bool>,
+
+    /// IMAP COMPRESS=DEFLATE support; null until connected.
+    pub can_compress: Option<bool>,
+
+    /// Max recipients per SMTP message (`maxsmtprecipients`), if advertised.
+    pub max_smtp_rcpt_to: Option<u32>,
 }

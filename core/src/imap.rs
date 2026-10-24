@@ -146,6 +146,14 @@ pub(crate) struct ServerMetadata {
     /// App versions, as raw JSON string.
     /// Consumed by get_app_versions().
     pub app_versions: Option<String>,
+
+    /// Velta #16: IMAP IDLE capability seen on the last connection;
+    /// None until the transport has connected.
+    pub velta_can_idle: Option<bool>,
+
+    /// Velta #16: IMAP COMPRESS=DEFLATE capability seen on the last
+    /// connection; None until the transport has connected.
+    pub velta_can_compress: Option<bool>,
 }
 
 struct UidGrouper<T: Iterator<Item = (i64, u32, String)>> {
@@ -1191,11 +1199,17 @@ impl Session {
     pub(crate) async fn update_metadata(&mut self, context: &Context) -> Result<()> {
         let mut lock = context.metadata.write().await;
         let transport_id = self.transport_id();
+        // Velta #16: capabilities of this session, recorded below.
+        let velta_caps = (
+            Some(self.capabilities.can_idle),
+            Some(self.capabilities.can_compress),
+        );
 
         if !self.can_metadata() {
             lock.entry(transport_id).or_default();
         }
         if let Some(old_metadata) = lock.get_mut(&transport_id) {
+            (old_metadata.velta_can_idle, old_metadata.velta_can_compress) = velta_caps;
             let now = time();
 
             // Refresh TURN server credentials if they expire in 12 hours.
@@ -1341,6 +1355,8 @@ impl Session {
                 ice_servers,
                 ice_servers_expiration_timestamp,
                 app_versions,
+                velta_can_idle: velta_caps.0,
+                velta_can_compress: velta_caps.1,
             },
         );
         Ok(())

@@ -734,6 +734,15 @@ pub struct TransportServerMetadata {
 
     /// IMAP METADATA `/shared/admin`.
     pub admin: Option<String>,
+
+    /// IMAP IDLE (instant delivery) support; None until connected (Velta #16).
+    pub can_idle: Option<bool>,
+
+    /// IMAP COMPRESS=DEFLATE support; None until connected (Velta #16).
+    pub can_compress: Option<bool>,
+
+    /// `/shared/vendor/deltachat/maxsmtprecipients`, if advertised (Velta #16).
+    pub max_smtp_rcpt_to: Option<u32>,
 }
 
 impl Context {
@@ -765,6 +774,9 @@ impl Context {
                     app_versions: m.app_versions.clone(),
                     comment: m.comment.clone(),
                     admin: m.admin.clone(),
+                    can_idle: m.velta_can_idle,
+                    can_compress: m.velta_can_compress,
+                    max_smtp_rcpt_to: m.max_smtp_rcpt_to,
                 },
             );
         }

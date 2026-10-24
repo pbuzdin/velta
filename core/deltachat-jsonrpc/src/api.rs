@@ -605,6 +605,9 @@ impl CommandApi {
                         app_versions: m.app_versions,
                         comment: m.comment,
                         admin: m.admin,
+                        can_idle: m.can_idle,
+                        can_compress: m.can_compress,
+                        max_smtp_rcpt_to: m.max_smtp_rcpt_to,
                     },
                 )
             })

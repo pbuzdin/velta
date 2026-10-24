@@ -814,6 +814,7 @@ export class MockCore extends EventTarget {
       out[`you@${d}`] = {
         irohRelay: `https://iroh.${d}`, supportsPush: true, hasTurn: true,
         appVersions: null, comment: null, admin: null,
+        canIdle: true, canCompress: true, maxSmtpRcptTo: 1000,
       };
     }
     return out;

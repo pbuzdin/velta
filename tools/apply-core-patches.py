@@ -1024,6 +1024,119 @@ pub struct JsonrpcTransportServerMetadata {
 }
 """,
     ),
+    # ---- VENDORISSUES #16: IDLE / COMPRESS / recipient limit per relay ----
+    # Extends #15 (must stay after its ops: the transport/api/login_param
+    # anchors are #15's own inserted text). The IMAP capabilities are only
+    # known per session, so update_metadata (runs after every IMAP connect)
+    # records them into ServerMetadata; None until the first connection.
+    # max_smtp_rcpt_to was already parsed by upstream, just never exposed.
+    dict(
+        id="#16 ServerMetadata IMAP capability fields (imap.rs)",
+        file="core/src/imap.rs",
+        applied="pub velta_can_idle: Option<bool>,",
+        anchor="    /// Consumed by get_app_versions().\n    pub app_versions: Option<String>,\n",
+        where="after",
+        text="""
+    /// Velta #16: IMAP IDLE capability seen on the last connection;
+    /// None until the transport has connected.
+    pub velta_can_idle: Option<bool>,
+
+    /// Velta #16: IMAP COMPRESS=DEFLATE capability seen on the last
+    /// connection; None until the transport has connected.
+    pub velta_can_compress: Option<bool>,
+""",
+    ),
+    dict(
+        id="#16 update_metadata reads the session capabilities (imap.rs)",
+        file="core/src/imap.rs",
+        applied="let velta_caps = (",
+        anchor="        let mut lock = context.metadata.write().await;\n        let transport_id = self.transport_id();\n",
+        where="after",
+        text="""        // Velta #16: capabilities of this session, recorded below.
+        let velta_caps = (
+            Some(self.capabilities.can_idle),
+            Some(self.capabilities.can_compress),
+        );
+""",
+    ),
+    dict(
+        id="#16 update_metadata refreshes known entries (imap.rs)",
+        file="core/src/imap.rs",
+        applied="(old_metadata.velta_can_idle, old_metadata.velta_can_compress) = velta_caps;",
+        anchor="        if let Some(old_metadata) = lock.get_mut(&transport_id) {\n",
+        where="after",
+        text="""            (old_metadata.velta_can_idle, old_metadata.velta_can_compress) = velta_caps;
+""",
+    ),
+    dict(
+        id="#16 update_metadata fills new entries (imap.rs)",
+        file="core/src/imap.rs",
+        applied="velta_can_idle: velta_caps.0,",
+        anchor="                ice_servers_expiration_timestamp,\n                app_versions,\n            },\n",
+        where="replace",
+        text="""                ice_servers_expiration_timestamp,
+                app_versions,
+                velta_can_idle: velta_caps.0,
+                velta_can_compress: velta_caps.1,
+            },
+""",
+    ),
+    dict(
+        id="#16 TransportServerMetadata fields (transport.rs)",
+        file="core/src/transport.rs",
+        applied="pub can_idle: Option<bool>,",
+        anchor="    /// IMAP METADATA `/shared/admin`.\n    pub admin: Option<String>,\n",
+        where="after",
+        text="""
+    /// IMAP IDLE (instant delivery) support; None until connected (Velta #16).
+    pub can_idle: Option<bool>,
+
+    /// IMAP COMPRESS=DEFLATE support; None until connected (Velta #16).
+    pub can_compress: Option<bool>,
+
+    /// `/shared/vendor/deltachat/maxsmtprecipients`, if advertised (Velta #16).
+    pub max_smtp_rcpt_to: Option<u32>,
+""",
+    ),
+    dict(
+        id="#16 get_server_metadata fills the fields (transport.rs)",
+        file="core/src/transport.rs",
+        applied="can_idle: m.velta_can_idle,",
+        anchor="                    admin: m.admin.clone(),\n",
+        where="after",
+        text="""                    can_idle: m.velta_can_idle,
+                    can_compress: m.velta_can_compress,
+                    max_smtp_rcpt_to: m.max_smtp_rcpt_to,
+""",
+    ),
+    dict(
+        id="#16 get_server_metadata maps the fields (api.rs)",
+        file="core/deltachat-jsonrpc/src/api.rs",
+        applied="can_idle: m.can_idle,",
+        anchor="                        admin: m.admin,\n",
+        where="after",
+        text="""                        can_idle: m.can_idle,
+                        can_compress: m.can_compress,
+                        max_smtp_rcpt_to: m.max_smtp_rcpt_to,
+""",
+    ),
+    dict(
+        id="#16 JsonrpcTransportServerMetadata fields (types/login_param.rs)",
+        file="core/deltachat-jsonrpc/src/api/types/login_param.rs",
+        applied="pub can_idle: Option<bool>,",
+        anchor="    /// IMAP METADATA `/shared/admin`.\n    pub admin: Option<String>,\n",
+        where="after",
+        text="""
+    /// IMAP IDLE (instant delivery) support; null until connected.
+    pub can_idle: Option<bool>,
+
+    /// IMAP COMPRESS=DEFLATE support; null until connected.
+    pub can_compress: Option<bool>,
+
+    /// Max recipients per SMTP message (`maxsmtprecipients`), if advertised.
+    pub max_smtp_rcpt_to: Option<u32>,
+""",
+    ),
 ]
 
 
