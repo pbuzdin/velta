@@ -42,9 +42,10 @@ test("modal: address + flags share the first row, actions sit on the second", ()
   assert.match(app, /relayC3Flags\.set\(wDomain, probe\)/);
   // Old cores without the RPC degrade to silver, not a crash.
   assert.match(app, /await core\.getServerMetadata\?\.\(\)/);
-  // Silver/green states in CSS with the established chip colors.
-  assert.match(css, /\.relay-flag \{[^}]*#9aa0a6/);
-  assert.match(css, /\.relay-flag\.on \{ color: #2ecc71; \}/);
+  // Silver/green states in CSS via theme tokens — the hardcoded #9aa0a6/#2ecc71
+  // pair failed WCAG AA in the light theme (1.91/2.40:1 on #f4f4f4).
+  assert.match(css, /\.relay-flag \{[^}]*var\(--text-dim\)/);
+  assert.match(css, /\.relay-flag\.on \{ color: var\(--green\); \}/);
   assert.match(css, /\.relay-card \{ display: flex; flex-direction: column/);
 });
 

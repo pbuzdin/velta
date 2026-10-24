@@ -2997,10 +2997,10 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 .relay-flag {
   font-size: 10.5px; font-weight: 700; line-height: 1;
   padding: 3px 5px; border-radius: 5px;
-  color: #9aa0a6; border: 1px solid currentColor; background: none;
+  color: var(--text-dim); border: 1px solid currentColor; background: none;
   cursor: default; user-select: none;
 }
-.relay-flag.on { color: #2ecc71; }
+.relay-flag.on { color: var(--green); }
 .relay-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 
 /* #138: Velta Beam opens as a panel in the chat view's flow, directly below
