@@ -1527,11 +1527,19 @@ function sideViewShell(title, subtitle) {
 async function renderContactsView() {
   stopSideScroller();
   const rows = sideViewShell("Contacts", "Tap a contact to open the chat");
+  // #169: the toggle lives above the scroller's host — the VirtualScroller
+  // owns rows' children, so the label must be a sibling, not a child.
+  rows.before(knownContactsToggleRow(() => renderContactsView()));
   let contacts = [];
   try { contacts = await core.getContacts(); } catch { /* demo mode */ }
   if (listView !== "contacts") return; // user switched away mid-fetch
+  const allCount = contacts.length;
+  if (knownContactsOnly()) {
+    const known = knownContactIds();
+    contacts = contacts.filter(c => known.has(c.id));
+  }
   if (!contacts.length) {
-    rows.innerHTML = `<div class="side-view-empty">No contacts yet</div>`;
+    rows.innerHTML = `<div class="side-view-empty">${allCount ? "No known contacts yet — untick “Show only known contacts” above to see everyone." : "No contacts yet"}</div>`;
     return;
   }
   const renderRow = (c) => {
@@ -3214,6 +3222,30 @@ function bindChatHeadMenu() {
 }
 
 /* ---------------- new chat / forward ---------------- */
+// "Show only known contacts" (#169): the contact surfaces default to people
+// and bots you have a 1:1 chat with — the raw contact DB (group-only and
+// key-update entries) is one checkbox away. Persisted, default ON.
+const KNOWN_CONTACTS_KEY = "velta-known-contacts-only";
+const knownContactsOnly = () => localStorage.getItem(KNOWN_CONTACTS_KEY) !== "0";
+// Contact ids with an existing 1:1 chat — state.chats singles carry
+// dmChatContact, so this is free (no per-contact RPCs).
+const knownContactIds = () => new Set(state.chats.filter(c => c.kind === "single" && c.contactId).map(c => c.contactId));
+
+// The shared checkbox row for the filtered surfaces; onChange refilters.
+function knownContactsToggleRow(onChange) {
+  const label = document.createElement("label");
+  label.className = "scale-opt";
+  label.style.margin = "0 2px 8px";
+  label.innerHTML = `<input type="checkbox" role="switch"${knownContactsOnly() ? " checked" : ""}><span>Show only known contacts</span>`;
+  const box = label.querySelector("input");
+  box.addEventListener("change", () => {
+    if (box.checked) localStorage.removeItem(KNOWN_CONTACTS_KEY);
+    else localStorage.setItem(KNOWN_CONTACTS_KEY, "0");
+    onChange?.();
+  });
+  return label;
+}
+
 async function pickContactModal(title, multi = false) {
   if (state.accountChanging) return null;
   const epoch = core.accountEpoch;
@@ -3223,6 +3255,7 @@ async function pickContactModal(title, multi = false) {
     const list = document.createElement("div");
     list.className = "modal-list";
     const selected = new Set();
+    const items = [];
     for (const c of contacts) {
       const item = document.createElement("velta-chat-item");
       item.setData({
@@ -3238,12 +3271,32 @@ async function pickContactModal(title, multi = false) {
         ok.disabled = !selected.size;
       });
       list.appendChild(item);
+      items.push([c, item]);
     }
+    // #169: default to people and bots you actually have a 1:1 chat with.
+    const known = knownContactIds();
+    let knownOnly = knownContactsOnly();
+    const empty = document.createElement("div");
+    empty.className = "p2p-hint"; empty.style.opacity = ".6";
+    empty.textContent = "Nobody here yet — untick “Show only known contacts” to see everyone.";
+    empty.hidden = true;
+    const applyKnownFilter = () => {
+      let shown = 0;
+      for (const [c, item] of items) {
+        const hit = !knownOnly || known.has(c.id);
+        item.hidden = !hit;
+        shown += hit;
+      }
+      empty.hidden = shown > 0;
+    };
+    applyKnownFilter();
+    const wrap = document.createElement("div");
+    wrap.append(knownContactsToggleRow(() => { knownOnly = knownContactsOnly(); applyKnownFilter(); }), list, empty);
     // Multi-select confirms a choice, it creates nothing — the group itself
     // is created in the following name dialog (#160).
     const { foot, cancel, ok } = footButtons(multi ? "Add" : "OK");
     ok.disabled = true;
-    const { close } = showModal({ title, body: list, foot, onClose: () => resolve(null) });
+    const { close } = showModal({ title, body: wrap, foot, onClose: () => resolve(null) });
     cancel.addEventListener("click", () => { close(); resolve(null); });
     ok.addEventListener("click", () => { resolve(contacts.filter(c => selected.has(c.id))); close(); });
   });
@@ -4284,7 +4337,7 @@ async function forwardFlow(msgIds) {
   empty.className = "p2p-hint"; empty.style.opacity = ".6";
   empty.textContent = "No chats match.";
   empty.hidden = true;
-  wrap.append(search, list, empty);
+  wrap.append(knownContactsToggleRow(applyFilter), search, list, empty);
   const targets = state.chats.filter(c => !["deaddrop", "device"].includes(c.kind) && !c.isP2pGroup);
   const items = [];
   for (const chat of targets) {
@@ -4302,16 +4355,20 @@ async function forwardFlow(msgIds) {
     list.appendChild(item);
     items.push([chat, item]);
   }
-  search.addEventListener("input", () => {
+  // #158 search × #169 known-contacts: one filter, both conditions.
+  function applyFilter() {
     const q = search.value.trim().toLowerCase();
     let shown = 0;
     for (const [chat, item] of items) {
-      const hit = !q || (chat.name || "").toLowerCase().includes(q);
+      const hit = (!knownContactsOnly() || chat.kind === "single")
+        && (!q || (chat.name || "").toLowerCase().includes(q));
       item.hidden = !hit;
       shown += hit;
     }
     empty.hidden = shown > 0;
-  });
+  }
+  applyFilter();
+  search.addEventListener("input", applyFilter);
   const { close } = showModal({ title: "Forward to…", body: wrap });
   // Phones: no keyboard over the list until the user taps the field.
   if (!/Android|iPhone|iPad/i.test(navigator.userAgent || "")) search.focus();
