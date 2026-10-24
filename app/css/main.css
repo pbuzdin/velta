@@ -955,10 +955,24 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
   background: var(--bg-chat);
   border: 1px solid var(--border); border-bottom: 0;
   border-radius: 18px 18px 0 0;
-  box-shadow: var(--shadow);
+  /* Top-cast shadow: the sheet reads as a layer floating OVER the chat. */
+  box-shadow: 0 -14px 28px rgba(16,16,16,.4), 0 2px 8px rgba(16,16,16,.2);
   animation: sheetIn .16s ease-out;
 }
 .thread-panel[hidden] { display: none; }
+/* Scrim over the covered history: a 0-height sticky pseudo-element pinned
+   to the scrollport bottom (its normal position is the content end, so it
+   travels the whole scroll range) whose outward shadow fills the visible
+   history. It is the scroller's LAST child, so it paints above the bubbles;
+   an inset shadow would paint beneath them. */
+#chat-view:has(#thread-panel:not([hidden])) #history-scroll::after {
+  content: ""; position: sticky; bottom: 0; display: block; height: 0;
+  box-shadow: 0 0 0 100vmax rgba(16,16,16,.22);
+  pointer-events: none;
+}
+html[data-theme="light"] #chat-view:has(#thread-panel:not([hidden])) #history-scroll::after {
+  box-shadow: 0 0 0 100vmax rgba(16,16,16,.12);
+}
 /* The go-down pill would float over the sheet header. */
 #chat-view:has(#thread-panel:not([hidden])) #btn-go-down { display: none; }
 .thread-head {

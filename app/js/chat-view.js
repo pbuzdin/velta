@@ -86,6 +86,7 @@ import { senderColorVars } from "./name-color.js";
 import { sendLargeFile, largeFileAvailable, largeFileInfoHtml, wireLargeFileInfo } from "./large-file.js";
 import { lufiUploadFor } from "./lufi.js";
 import { isAndroid, rustLog, tauriInvoke } from "./tauri.js";
+import { canShareLink, copyLink, shareLink } from "./qr-actions.js";
 
 function reactionChipsHtml(reactions) {
   return (reactions || []).map(r =>
@@ -304,6 +305,8 @@ const ICO = {
   edit: `<svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   resend: `<svg viewBox="0 0 24 24"><polyline points="2.5 5.5 2.5 11 8 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.2 14.5a8 8 0 1 0 1.5-8L2.5 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
   pin: `<svg viewBox="0 0 24 24"><path d="M9 4h6l1 7 3 3v2h-6v5l-1 1-1-1v-5H5v-2l3-3z" fill="currentColor"/></svg>`,
+  share: `<svg viewBox="0 0 24 24"><path d="M12 14V4m0 0L8.5 7.5M12 4l3.5 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 11v8a1 1 0 001 1h12a1 1 0 001-1v-8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
+  openLink: `<svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 14v4a2 2 0 01-2 2H6a2 2 0 01-2-2V7a2 2 0 012-2h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
 };
 
 // Short human reason from the core's raw error text, e.g.
@@ -1524,6 +1527,19 @@ export class ChatView {
     this.thread = { parentId };
     this.threadPanel.hidden = false;
     this._renderThreadPanel();
+    // Android BACK returns to the chat: the sheet rides a history entry
+    // (same contract as modals — showModal in ui.js). LIFO with modal
+    // entries for free: a modal opened over the sheet pops first.
+    this._onThreadPop = () => {
+      if (history.state?.velta !== "thread") this._closeThread({ fromPop: true });
+    };
+    if (history.state?.velta !== "thread") history.pushState({ velta: "thread" }, "");
+    window.addEventListener("popstate", this._onThreadPop);
+    // The chat's head buttons are covered by the sheet — hide them so the
+    // header reads as context only. Selection mode owns the same toggle;
+    // don't fight it.
+    const headActions = document.getElementById("chat-head-actions");
+    if (!this.selection?.size && headActions) headActions.style.visibility = "hidden";
     // Composer lock: while the thread is open every send quotes the parent
     // (re-locked after each send in appendOutgoing).
     const pit = this.msgIndex.get(parentId) || { type: "msg", key: "m" + parentId, msg: m };
@@ -1581,9 +1597,10 @@ export class ChatView {
     const close = document.createElement("button");
     close.type = "button";
     close.className = "icon-btn thread-close";
-    close.setAttribute("aria-label", "Close thread");
-    close.title = "Close thread";
-    close.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`;
+    // "Back", not "close": the sheet is a layer over the chat, not a dialog.
+    close.setAttribute("aria-label", "Back to chat");
+    close.title = "Back to chat";
+    close.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
     close.addEventListener("click", () => this._closeThread());
     head.append(titles, close);
     panel.appendChild(head);
@@ -1614,7 +1631,7 @@ export class ChatView {
     if (el) el.textContent = `· ${n} ${n === 1 ? "reply" : "replies"}`;
   }
 
-  _closeThread() {
+  _closeThread({ fromPop = false } = {}) {
     const parentId = this.thread?.parentId;
     this.thread = null;
     this.replyTo = null;
@@ -1622,6 +1639,15 @@ export class ChatView {
     this._renderReplyPreview();
     this.threadPanel.hidden = true;
     this.threadPanel.innerHTML = "";
+    // Consume the sheet's history entry — unless the BACK that fired this
+    // close already popped it (fromPop).
+    if (this._onThreadPop) {
+      window.removeEventListener("popstate", this._onThreadPop);
+      this._onThreadPop = null;
+      if (!fromPop && history.state?.velta === "thread") history.back();
+    }
+    const headActions = document.getElementById("chat-head-actions");
+    if (!this.selection?.size && headActions) headActions.style.visibility = "";
     // Focus returns to the opener (side button / bubble); when the row was
     // re-rendered meanwhile, to the parent's side button or bubble.
     // The sheet shrank the history, so the virtual scroller may have
@@ -2479,7 +2505,9 @@ export class ChatView {
       e.preventDefault();
       // Select-text mode owns the bubble: the menu stays closed until Close.
       if (this._textSelect) return;
-      this._msgContextMenu(it, e.clientX, e.clientY);
+      // #161: a right-click landing on a link targets that link's URL.
+      const href = e.target.closest?.("a[href]")?.getAttribute("href") || "";
+      this._msgContextMenu(it, e.clientX, e.clientY, href);
     });
     let pressTimer;
     let swipe = null;
@@ -2513,7 +2541,10 @@ export class ChatView {
         this._replySwipe = false;
         return;
       }
-      pressTimer = setTimeout(() => { const it = liveItem(); if (it) this._msgContextMenu(it, innerWidth / 2, innerHeight / 2); }, 500);
+      // #161: the anchor is read at touchstart (finger position), not at timer
+      // fire — long-press has no event target of its own.
+      const pressHref = e.target.closest?.("a[href]")?.getAttribute("href") || "";
+      pressTimer = setTimeout(() => { const it = liveItem(); if (it) this._msgContextMenu(it, innerWidth / 2, innerHeight / 2, pressHref); }, 500);
       swipe = null;
       if (!this._mobileGestures() || this.readOnly || this.selection.size || this._backSwipe) return;
       const bubble = e.target.closest?.(".bubble");
@@ -2907,7 +2938,7 @@ export class ChatView {
 
   /* ================= message actions ================= */
 
-  _msgContextMenu(item, x, y) {
+  _msgContextMenu(item, x, y, linkHref = "") {
     // The in-bubble select bar is up: long-press and right-click stay shut.
     if (this._textSelect) return;
     const session = this._session;
@@ -2916,6 +2947,24 @@ export class ChatView {
     if (m.kind === "service" || this._deleteByMsg.has(m.id)) return;
     const touch = this._offerSelectText();
     const items = [];
+    // #161: the gesture landed on a link — its URL gets the first actions.
+    // Copy/share use the same cleaned URL a click would open (#89); Open rides
+    // openHttp for strip + undo.
+    if (/^https?:/i.test(linkHref)) {
+      const href = trackingStripEnabled() ? stripTrackingUrl(linkHref) : linkHref;
+      const webShare = typeof navigator.share === "function" ? o => navigator.share(o) : null;
+      items.push({ label: "Copy link", pair: "text", icon: ICO.copy, onClick: async () => {
+        try { await copyLink(href, { clipboard: navigator.clipboard }); toast("Copied"); }
+        catch (err) { errToast("Couldn't copy: " + (err?.message || err)); }
+      } });
+      if (canShareLink({ ua: navigator.userAgent, hasInvoke: !!tauriInvoke(), hasWebShare: !!webShare })) {
+        items.push({ label: "Share link", pair: "text", icon: ICO.share, onClick: async () => {
+          try { await shareLink(href, { ua: navigator.userAgent, invoke: tauriInvoke(), webShare }); }
+          catch (err) { errToast("Couldn't share: " + (err?.message || err)); }
+        } });
+      }
+      items.push({ label: "Open link", pair: "text", icon: ICO.openLink, onClick: () => openHttp(linkHref) });
+    }
     // No reply without a composer (read-only chats).
     if (!this.readOnly) items.push({ label: "Reply", pair: "send", icon: ICO.reply, onClick: () => this._setReply(item) });
     const replyN = this._replyCountFor(m.id);

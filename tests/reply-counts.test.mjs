@@ -226,3 +226,22 @@ test("has-thread bubble can shrink to keep the side button on its line", () => {
   const css = readFileSync(new URL("../app/css/main.css", import.meta.url), "utf8");
   assert.match(css, /\.msg-row\.has-thread \.bubble \{[^}]*min-width: 0;/);
 });
+
+test("thread sheet reads as a layer over the chat: back chevron, history entry, scrim", () => {
+  const src = readFileSync(new URL("../app/js/chat-view.js", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../app/css/main.css", import.meta.url), "utf8");
+  // The sheet header says "Back to chat" (a chevron), not "close a dialog".
+  assert.match(src, /setAttribute\("aria-label", "Back to chat"\)/);
+  assert.match(src, /M15 6l-6 6 6 6/);
+  assert.doesNotMatch(src, /M6 6l12 12M18 6L6 18/);
+  // Android BACK closes the sheet first: it rides a history entry like the
+  // modals do — push on open, popstate closes, ✕/Escape consumes the entry.
+  assert.match(src, /history\.pushState\(\{ velta: "thread" \}, ""\)/);
+  assert.match(src, /window\.addEventListener\("popstate", this\._onThreadPop\)/);
+  assert.match(src, /if \(!fromPop && history\.state\?\.velta === "thread"\) history\.back\(\)/);
+  // Head action buttons are covered by the sheet — hidden while it is up.
+  assert.match(src, /headActions\.style\.visibility = "hidden"/);
+  // The covered history dims: top-cast shadow on the sheet, scrim above it.
+  assert.match(css, /\.thread-panel \{[^}]*0 -14px 28px rgba\(16,16,16,\.4\)/);
+  assert.match(css, /#chat-view:has\(#thread-panel:not\(\[hidden\]\)\) #history-scroll::after \{[^}]*position: sticky; bottom: 0;/);
+});
