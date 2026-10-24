@@ -5474,7 +5474,8 @@ async function openRelaysModal() {
   const body = document.createElement("div");
   body.innerHTML = `
     <div data-list><div class="p2p-hint" style="opacity:.6">Loading…</div></div>
-    <div style="margin-top:10px"><button type="button" class="btn-text" data-add>Add relay…</button></div>`;
+    <div style="margin-top:10px"><button type="button" class="btn-text" data-add>Add relay…</button></div>
+    <div class="relay-legend" aria-hidden="true"><span class="relay-flag">C</span><span>calls (TURN)</span><span class="relay-flag">I</span><span>iroh transfers</span><span class="relay-flag">P</span><span>push notifications</span><span class="relay-flag">W</span><span>web endpoints</span></div>`;
   showModal({ title: "Relays", body });
   const listEl = body.querySelector("[data-list]");
 

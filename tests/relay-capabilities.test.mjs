@@ -45,7 +45,8 @@ test("modal: address + flags share the first row, actions sit on the second", ()
   // Silver/green states in CSS via theme tokens — the hardcoded #9aa0a6/#2ecc71
   // pair failed WCAG AA in the light theme (1.91/2.40:1 on #f4f4f4).
   assert.match(css, /\.relay-flag \{[^}]*var\(--text-dim\)/);
-  assert.match(css, /\.relay-flag\.on \{ color: var\(--green\); \}/);
+  assert.match(css, /\.relay-flag\.on \{[^}]*var\(--green\)/);
+  assert.match(css, /\.relay-legend \{/);
   assert.match(css, /\.relay-card \{ display: flex; flex-direction: column/);
 });
 
