@@ -408,7 +408,7 @@ test("UI guards exist for p2pg: header line, hidden relay-only actions, gated en
   assert.match(view, /const p2pg = !!this\.chat\?\.isP2pGroup/);
   assert.match(view, /_applyGroupComposer/);
   assert.match(app, /chat\.kind === "group" && !chat\.isP2pGroup \? \[\{ label: "Group invite QR"/);
-  assert.match(app, /!c\.isP2pGroup\);\s*for \(const chat of targets\)/, "forward targets exclude local groups");
+  assert.match(app, /!c\.isP2pGroup\);[\s\S]{0,80}for \(const chat of targets\)/, "forward targets exclude local groups");
   // both "new group" entries only exist behind the local-chat switch
   assert.match(app, /p2pEnabled\(\) && p2pAvailable\(\) \? \[\{ label: "New local group/);
   assert.match(app, /async function newLocalGroupFlow\(\)[\s\S]{0,300}!p2pEnabled\(\)/);

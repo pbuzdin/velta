@@ -425,14 +425,13 @@ test("stale context and reaction callbacks cannot act on identical IDs", async t
   await view.open(7);
   core.starMessages = core.addReaction = core.deleteMessages = () => assert.fail("stale menu dispatched RPC");
   view._msgContextMenu(view.msgIndex.get(10), 20, 20);
+  // Reaction chip buttons (the quick emoji, not the tray toggle) plus the
+  // action chips all live in the one bar now.
   const actions = [...node("popups").querySelector(".ctx-menu").querySelectorAll("button")]
-    .filter(b => !b.className.includes("msg-react-more"));
-  view._reactionMenu(view.msgIndex.get(10), 20, 20);
-  const reaction = node("popups").querySelector(".ctx-menu").querySelector("button");
+    .filter(b => !b.className.includes("msg-react-more") && !b.className.includes("msg-bar-more"));
   switchTo("B");
   await view.open(7);
   for (const action of actions) await action.fire("click");
-  await reaction.fire("click");
   assert.equal(forwarded(), 0);
   assert.equal(view.replyTo, null);
   assert.equal(view.selection.size, 0);

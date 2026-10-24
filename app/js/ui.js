@@ -111,6 +111,9 @@ export function bindMenuToggle(btn, open, { closeLabel = "Close menu" } = {}) {
   return { isOpen: () => !!st.menu, restore };
 }
 
+// Monochrome smiley that expands the quick-reaction row into the tray.
+const SMILEY_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 14.2c1.2 1.1 2.5 1.6 4 1.6s2.8-.5 4-1.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="9" cy="10" r="1" fill="currentColor"/><circle cx="15" cy="10" r="1" fill="currentColor"/></svg>`;
+
 export function showContextMenu(items, x, y) {
   closeAllPopups();
   const menu = document.createElement("div");
@@ -134,6 +137,91 @@ export function showContextMenu(items, x, y) {
   openLightDismiss(menu);
   placeMenu(menu, x, y);
   return menu;
+}
+
+// Message action bar (desktop): the message menu as a wrapping chip row —
+// quick-reaction emoji chips (smiley opens the searchable tray) followed by
+// icon+label action chips. Light-dismiss like any popup, but positioned
+// against the message: right-aligned above the bubble's top edge, flipping
+// below when that would clip the viewport top. `anchor` is the bubble rect;
+// `scrollEl` closes the bar when the chat scrolls (it does not follow).
+// Returns a close() that also unwires the scroll listener.
+export function showActionBar({ items, reactions = [], selected = null, onReact, anchor = null, own = false, scrollEl = null }) {
+  closeAllPopups();
+  const bar = document.createElement("div");
+  bar.className = "ctx-menu msg-action-bar";
+  bar.setAttribute("role", "toolbar");
+  bar.setAttribute("aria-label", "Message actions");
+  // Two rows: quick-reaction emoji on top, action chips below. The smiley
+  // swaps both for the searchable tray; Back restores them.
+  const reacts = document.createElement("div");
+  reacts.className = "msg-bar-reacts";
+  const chips = document.createElement("div");
+  chips.className = "msg-bar-chips";
+  const shown = selected && !reactions.includes(selected) ? [selected, ...reactions.slice(0, -1)] : reactions;
+  for (const emoji of shown) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "msg-bar-react" + (emoji === selected ? " mine" : "");
+    b.textContent = emoji;
+    b.setAttribute("aria-pressed", emoji === selected ? "true" : "false");
+    b.setAttribute("aria-label", emoji === selected ? `Remove reaction ${emoji}` : emoji);
+    b.addEventListener("click", () => { close(); onReact?.(emoji); });
+    reacts.append(b);
+  }
+  let tray = null;
+  if (reactions.length) {
+    const more = document.createElement("button");
+    more.type = "button";
+    more.className = "msg-bar-react msg-bar-more";
+    more.setAttribute("aria-label", "More emoji");
+    more.innerHTML = SMILEY_SVG;
+    tray = buildEmojiTray({
+      onReact,
+      onBack: () => { tray.hidden = true; reacts.hidden = false; chips.hidden = false; },
+    });
+    more.addEventListener("click", () => {
+      reacts.hidden = true;
+      chips.hidden = true;
+      tray.hidden = false;
+      tray.open();
+    });
+    reacts.append(more);
+  }
+  for (const it of items) {
+    if (it === "-") continue;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "msg-bar-chip" + (it.danger ? " danger" : "");
+    if (it.ariaLabel) b.setAttribute("aria-label", it.ariaLabel);
+    b.title = it.label;
+    b.innerHTML = (it.icon || "") + "<span>" + escapeHtml(it.short || it.label) + "</span>";
+    b.addEventListener("click", () => { close(); it.onClick?.(); });
+    chips.append(b);
+  }
+  if (tray) bar.append(reacts, chips, tray);
+  else bar.append(chips);
+  const close = () => {
+    closeAllPopups();
+    scrollEl?.removeEventListener("scroll", close);
+  };
+  scrollEl?.addEventListener("scroll", close, { passive: true });
+  openLightDismiss(bar);
+  const r = bar.getBoundingClientRect();
+  const vw = globalThis.innerWidth || 1024;
+  // Own (.out) bubbles right-align the bar to their edge; received bubbles
+  // left-align it — the bar never swings over the chat list.
+  let left;
+  if (anchor && !own) left = Math.max(8, Math.min(anchor.left, vw - r.width - 8));
+  else {
+    left = anchor ? anchor.right - r.width : (vw - r.width) / 2;
+    left = Math.max(8, Math.min(left, vw - r.width - 8));
+  }
+  let top = anchor ? anchor.top - r.height - 6 : 120;
+  if (top < 8 && anchor) top = anchor.bottom + 6;
+  bar.style.left = Math.round(left) + "px";
+  bar.style.top = Math.round(top) + "px";
+  return close;
 }
 
 // Light-dismiss popup in #popups: a native auto popover (removed when it
@@ -181,6 +269,89 @@ function sheetAction(it) {
 
 // Mobile message menu: emoji grid, then related actions in two columns.
 // The last reaction cell opens a searchable tray and does not send a reaction.
+// Searchable emoji tray: Back + search field + grid of matches. Shared by the
+// reaction row (sheet / old-style menus) and the bubble action bar. `onBack`
+// hides nothing itself — the caller owns the toggle; Back clears the search
+// first. `tray.open()` paints the grid and focuses the field.
+export function buildEmojiTray({ onReact, onBack } = {}) {
+  const tray = document.createElement("div");
+  tray.className = "msg-emoji-tray";
+  tray.hidden = true;
+  const back = document.createElement("button");
+  back.type = "button";
+  back.className = "msg-emoji-back";
+  back.textContent = "Back";
+  const search = document.createElement("input");
+  search.type = "search";
+  search.className = "text-field";
+  search.placeholder = "Search emoji";
+  search.setAttribute("aria-label", "Search emoji");
+  search.autocomplete = "off";
+  const grid = document.createElement("div");
+  grid.className = "msg-emoji-grid";
+  const paint = () => {
+    const found = searchEmoji(search.value);
+    grid.replaceChildren();
+    if (!found.length) {
+      const empty = document.createElement("div");
+      empty.className = "msg-emoji-empty";
+      empty.textContent = "No emoji";
+      grid.append(empty);
+      return;
+    }
+    for (const e of found) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "msg-emoji";
+      b.textContent = e.emoji;
+      b.setAttribute("aria-label", e.name);
+      b.addEventListener("click", () => { closeAllPopups(); onReact?.(e.emoji); });
+      grid.append(b);
+    }
+  };
+  search.addEventListener("input", paint);
+  back.addEventListener("click", () => { search.value = ""; onBack?.(); });
+  tray.append(back, search, grid);
+  tray.open = () => { paint(); search.focus(); };
+  return tray;
+}
+
+// Reaction row + expandable searchable emoji tray, shared by the mobile
+// message sheet and the desktop context menu: one row of quick reactions
+// ending in a monochrome smiley that swaps the row for Back + search + grid.
+// Caller appends { reacts, tray } in that order (tray starts hidden).
+export function buildReactionRow({ reactions, selected = null, onReact }) {
+  const reacts = document.createElement("div");
+  reacts.className = "msg-reacts";
+  const shown = selected && !reactions.includes(selected) ? [selected, ...reactions.slice(0, -1)] : reactions;
+  for (const emoji of shown) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "msg-react" + (emoji === selected ? " mine" : "");
+    b.textContent = emoji;
+    b.setAttribute("aria-pressed", emoji === selected ? "true" : "false");
+    b.setAttribute("aria-label", emoji === selected ? `Remove reaction ${emoji}` : emoji);
+    b.addEventListener("click", () => { closeAllPopups(); onReact?.(emoji); });
+    reacts.append(b);
+  }
+  const more = document.createElement("button");
+  more.type = "button";
+  more.className = "msg-react msg-react-more";
+  more.setAttribute("aria-label", "More emoji");
+  more.innerHTML = SMILEY_SVG;
+  const tray = buildEmojiTray({
+    onReact,
+    onBack: () => { tray.hidden = true; reacts.hidden = false; },
+  });
+  more.addEventListener("click", () => {
+    reacts.hidden = true;
+    tray.hidden = false;
+    tray.open();
+  });
+  reacts.append(more);
+  return { reacts, tray };
+}
+
 export function showMessageSheet({ reactions = [], selected = null, onReact, items }) {
   closeAllPopups();
   const menu = document.createElement("div");
@@ -193,73 +364,7 @@ export function showMessageSheet({ reactions = [], selected = null, onReact, ite
   menu.append(grab);
 
   if (reactions.length) {
-    const reacts = document.createElement("div");
-    reacts.className = "msg-reacts";
-    const shown = selected && !reactions.includes(selected) ? [selected, ...reactions.slice(0, -1)] : reactions;
-    for (const emoji of shown) {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.className = "msg-react" + (emoji === selected ? " mine" : "");
-      b.textContent = emoji;
-      b.setAttribute("aria-pressed", emoji === selected ? "true" : "false");
-      b.setAttribute("aria-label", emoji === selected ? `Remove reaction ${emoji}` : emoji);
-      b.addEventListener("click", () => { closeAllPopups(); onReact?.(emoji); });
-      reacts.append(b);
-    }
-    const more = document.createElement("button");
-    more.type = "button";
-    more.className = "msg-react msg-react-more";
-    more.setAttribute("aria-label", "More emoji");
-    more.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 14.2c1.2 1.1 2.5 1.6 4 1.6s2.8-.5 4-1.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="9" cy="10" r="1" fill="currentColor"/><circle cx="15" cy="10" r="1" fill="currentColor"/></svg>`;
-    const tray = document.createElement("div");
-    tray.className = "msg-emoji-tray";
-    tray.hidden = true;
-    const back = document.createElement("button");
-    back.type = "button";
-    back.className = "msg-emoji-back";
-    back.textContent = "Back";
-    const search = document.createElement("input");
-    search.type = "search";
-    search.className = "text-field";
-    search.placeholder = "Search emoji";
-    search.setAttribute("aria-label", "Search emoji");
-    search.autocomplete = "off";
-    const grid = document.createElement("div");
-    grid.className = "msg-emoji-grid";
-    const paint = () => {
-      const found = searchEmoji(search.value);
-      grid.replaceChildren();
-      if (!found.length) {
-        const empty = document.createElement("div");
-        empty.className = "msg-emoji-empty";
-        empty.textContent = "No emoji";
-        grid.append(empty);
-        return;
-      }
-      for (const e of found) {
-        const b = document.createElement("button");
-        b.type = "button";
-        b.className = "msg-emoji";
-        b.textContent = e.emoji;
-        b.setAttribute("aria-label", e.name);
-        b.addEventListener("click", () => { closeAllPopups(); onReact?.(e.emoji); });
-        grid.append(b);
-      }
-    };
-    search.addEventListener("input", paint);
-    more.addEventListener("click", () => {
-      reacts.hidden = true;
-      tray.hidden = false;
-      paint();
-      search.focus();
-    });
-    back.addEventListener("click", () => {
-      search.value = "";
-      tray.hidden = true;
-      reacts.hidden = false;
-    });
-    tray.append(back, search, grid);
-    reacts.append(more);
+    const { reacts, tray } = buildReactionRow({ reactions, selected, onReact });
     menu.append(reacts, tray);
   }
 

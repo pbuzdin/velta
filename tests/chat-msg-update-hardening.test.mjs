@@ -659,7 +659,7 @@ test("Select text is hidden on a fine pointer and shown on a coarse one", async 
   let html = [...menu.querySelectorAll("button")].map(b => b.innerHTML);
   assert.equal(menu.className.includes("msg-sheet"), false, "a fine pointer keeps the vertical menu");
   assert.equal(html.some(h => h.includes(">Select text<")), false, "desktop menu has no Select text");
-  assert.ok(html.some(h => h.includes(">Copy text<")));
+  assert.ok(html.some(h => h.includes(">Copy<")));
 
   node("popups").replaceChildren();
   globalThis.matchMedia = () => ({ matches: false });

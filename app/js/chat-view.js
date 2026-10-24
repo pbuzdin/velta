@@ -3,7 +3,7 @@ import { canEditMsg } from "./msg-edit.js";
 import { prepareBuiltinXdc } from "./builtin-xdc.js";
 import { formatTime, formatDay, formatDateTime, formatServerUrl, messageInfoState, messageInfoReactions, formatBytes, timeTag, stampTime, formatDuration, serviceChipsHtml } from "./format.js";
 import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener } from "./components.js";
-import { bindMenuToggle, showContextMenu, showMessageSheet, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG, uiZoom } from "./ui.js";
+import { bindMenuToggle, showActionBar, showMessageSheet, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG, uiZoom } from "./ui.js";
 import { diagnosticRow } from "./diagnostics.js";
 import { attachRecentCommands, recordCommand } from "./recent-commands.js";
 import { audioPlayerHtml, mountAudioPlayer, decodeAudioDuration } from "./audio-player.js";
@@ -12,8 +12,8 @@ import { cardHtml, wireCard } from "./group-call-card.js";
 import { currentGroupCall, onGroupCallChange, leaveGroupCall } from "./group-call-host.js";
 import { askGroupCallName } from "./group-call-ui.js";
 
-const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
-// Two rows of six on the phone sheet. The last cell is the emoji tray, not a reaction.
+// Two rows of six on the phone sheet; the same row tops the desktop menu.
+// The last cell is the emoji tray, not a reaction.
 const SHEET_REACTIONS = ["👍", "👎", "❤️", "😂", "🎉", "😮", "🔥", "👀", "🙏", "😢", "💯"];
 const SHEET_PAIRS = ["send", "keep", "file", "own", "text", "meta"];
 
@@ -306,6 +306,7 @@ const ICO = {
   resend: `<svg viewBox="0 0 24 24"><polyline points="2.5 5.5 2.5 11 8 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.2 14.5a8 8 0 1 0 1.5-8L2.5 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
   pin: `<svg viewBox="0 0 24 24"><path d="M9 4h6l1 7 3 3v2h-6v5l-1 1-1-1v-5H5v-2l3-3z" fill="currentColor"/></svg>`,
   share: `<svg viewBox="0 0 24 24"><path d="M12 14V4m0 0L8.5 7.5M12 4l3.5 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 11v8a1 1 0 001 1h12a1 1 0 001-1v-8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
+  dots: `<svg viewBox="0 0 24 24"><circle cx="12" cy="5.5" r="1.7" fill="currentColor"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/><circle cx="12" cy="18.5" r="1.7" fill="currentColor"/></svg>`,
   openLink: `<svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 14v4a2 2 0 01-2 2H6a2 2 0 01-2-2V7a2 2 0 012-2h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
 };
 
@@ -945,6 +946,8 @@ export class ChatView {
   close() {
     this._flushPendingDeletes();
     this._typingStop();
+    this._barCleanup?.();
+    this._barFor = null;
     const input = document.getElementById("composer-input");
     // Rows the user already saw still count — unless the account changed
     // underneath (the ids would land in the wrong account).
@@ -2249,9 +2252,12 @@ export class ChatView {
     // so it sticks for the whole bubble (issue #26). Same _setReply the
     // context menu uses, plus composer focus. Read-only chats (no composer)
     // get no pill; the body class also hides any already-mounted ones.
+    // The ⋮ chip rides the same track in every chat (read-only included):
+    // it toggles the bubble action bar, the only mouse/keyboard path to the
+    // message menu (right-click needs a mouse).
+    const track = document.createElement("div");
+    track.className = "msg-hover-reply-track";
     if (!this.readOnly) {
-      const track = document.createElement("div");
-      track.className = "msg-hover-reply-track";
       const hoverReply = document.createElement("button");
       hoverReply.type = "button";
       hoverReply.className = "msg-hover-reply";
@@ -2265,8 +2271,22 @@ export class ChatView {
         document.getElementById("composer-input")?.focus();
       });
       track.appendChild(hoverReply);
-      row.querySelector(".bubble")?.appendChild(track);
     }
+    const hoverMore = document.createElement("button");
+    hoverMore.type = "button";
+    hoverMore.className = "msg-hover-reply msg-hover-more";
+    hoverMore.title = "Message actions";
+    hoverMore.setAttribute("aria-label", "Message actions");
+    hoverMore.innerHTML = ICO.dots;
+    hoverMore.addEventListener("click", e => {
+      e.stopPropagation();
+      const it = liveItem();
+      if (!it || this._textSelect) return;
+      if (this._barFor === it.msg.id && this._barCleanup) { this._barCleanup(); return; }
+      this._msgContextMenu(it, 0, 0, "");
+    });
+    track.appendChild(hoverMore);
+    row.querySelector(".bubble")?.appendChild(track);
 
     // Wire up real local file URLs for images / video / audio. When media
     // can't load, show a clear placeholder instead of a broken element.
@@ -2948,8 +2968,9 @@ export class ChatView {
     const touch = this._offerSelectText();
     const items = [];
     // #161: the gesture landed on a link — its URL gets the first actions.
-    // Copy/share use the same cleaned URL a click would open (#89); Open rides
-    // openHttp for strip + undo.
+    // Copy/open use the same cleaned URL a click would open (#89); Open rides
+    // openHttp for strip + undo. Share is a phone gesture (the sheet's row) —
+    // desktop copies.
     if (/^https?:/i.test(linkHref)) {
       const href = trackingStripEnabled() ? stripTrackingUrl(linkHref) : linkHref;
       const webShare = typeof navigator.share === "function" ? o => navigator.share(o) : null;
@@ -2957,7 +2978,7 @@ export class ChatView {
         try { await copyLink(href, { clipboard: navigator.clipboard }); toast("Copied"); }
         catch (err) { errToast("Couldn't copy: " + (err?.message || err)); }
       } });
-      if (canShareLink({ ua: navigator.userAgent, hasInvoke: !!tauriInvoke(), hasWebShare: !!webShare })) {
+      if (touch && canShareLink({ ua: navigator.userAgent, hasInvoke: !!tauriInvoke(), hasWebShare: !!webShare })) {
         items.push({ label: "Share link", pair: "text", icon: ICO.share, onClick: async () => {
           try { await shareLink(href, { ua: navigator.userAgent, invoke: tauriInvoke(), webShare }); }
           catch (err) { errToast("Couldn't share: " + (err?.message || err)); }
@@ -3031,21 +3052,23 @@ export class ChatView {
         }
       } },
     );
+    // Reactions live at the top of the desktop menu (the row the mobile
+    // sheet shows) and in the touch sheet's own row — no React item either way.
     const canReact = !this.chat?.isP2p; // local chats carry no reactions
-    if (canReact && !touch) items.push(
-      { label: "React", icon: QUICK_REACTIONS[0], onClick: () => this._reactionMenu(item, x, y) },
-    );
     items.push({ label: "Select", pair: "meta", icon: ICO.select, onClick: () => this._enterSelection(m.id) });
     items.push({ label: "Info", pair: "meta", icon: ICO.info, onClick: () => this._showInfo(item) });
     if (!p2pg) items.push("-", { label: "Delete", icon: ICO.trash, danger: true, onClick: () => this._delete([m.id]) });
     const guarded = items.map(action => action === "-" ? action : {
       ...action, onClick: () => { if (this._isCurrent(session)) return action.onClick(); },
     });
-    if (!touch) { showContextMenu(guarded, x, y); return; }
+    if (!touch) {
+      this._showActionBar(item, linkHref, guarded, canReact, session);
+      return;
+    }
     const buckets = new Map(SHEET_PAIRS.map(k => [k, []]));
     const tail = [];
     for (const action of guarded) {
-      if (action === "-" || action.label === "React") continue;
+      if (action === "-") continue;
       (action.pair && buckets.has(action.pair) ? buckets.get(action.pair) : tail).push(action);
     }
     showMessageSheet({
@@ -3056,15 +3079,29 @@ export class ChatView {
     });
   }
 
-  _reactionMenu(item, x, y) {
-    const session = this._session;
-    if (!this._isCurrent(session) || this.msgIndex.get(item.msg.id) !== item) return;
-    const mine = myReaction(item.msg.reactions);
-    const list = mine && !QUICK_REACTIONS.includes(mine) ? [...QUICK_REACTIONS, mine] : QUICK_REACTIONS;
-    showContextMenu(list.map(e => ({
-      label: e, pressed: e === mine, ariaLabel: e === mine ? `Remove reaction ${e}` : `React ${e}`,
-      onClick: () => { if (this._isCurrent(session)) return this._toggleReaction(session.chatId, item.msg.id, e); },
-    })), x, y - 10);
+  // Desktop message menu as the bubble action bar: chips anchored above the
+  // bubble (⋮ hover chip and right-click both land here). Touch keeps the
+  // sheet. The bar closes on any outside tap, another popup, chat switch, or
+  // scroll — it does not follow the bubble while scrolling.
+  _showActionBar(item, linkHref, guarded, canReact, session) {
+    const m = item.msg;
+    this._barCleanup?.();
+    this._barFor = m.id;
+    // Reply stays on the hover pill beside the ⋮ — a second one in the bar
+    // (visible whenever the bar is open) is noise.
+    const barItems = guarded.filter(a => a === "-" || a.label !== "Reply");
+    const rowEl = this.listEl?.querySelector(`[data-msgid="${m.id}"]`);
+    const anchor = rowEl?.querySelector(".bubble")?.getBoundingClientRect() || null;
+    const close = showActionBar({
+      items: barItems,
+      reactions: canReact ? SHEET_REACTIONS : [],
+      selected: myReaction(m.reactions),
+      onReact: (emoji) => { if (this._isCurrent(session)) return this._toggleReaction(session.chatId, m.id, emoji); },
+      anchor,
+      own: rowEl?.classList.contains("out") || false,
+      scrollEl: this.scrollEl,
+    });
+    this._barCleanup = () => { close(); this._barCleanup = null; };
   }
 
   // Own-reaction toggle with optimistic chips. Same emoji removes ours

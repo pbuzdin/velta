@@ -673,6 +673,7 @@ html[data-theme="light"] .msg-show-in-chat {
   position: absolute; top: 0; bottom: 0; right: -4px;
   width: max-content; z-index: 3;
   pointer-events: none;
+  display: flex; align-items: flex-start;
 }
 .msg-hover-reply {
   position: sticky; top: 8px;
@@ -718,6 +719,40 @@ html[data-theme="light"] .msg-hover-reply {
 @media (hover: hover) and (pointer: fine) {
   html[data-theme="light"] .msg-hover-reply:hover { background: #f0f2f6; }
 }
+/* The ⋮ chip rides the reply track in read-only chats too (message actions
+   still apply there) — un-hide it from the read-only rule above. */
+body.chat-read-only .msg-hover-more { display: flex; }
+
+/* Message action bar (desktop message menu as chips): opens on right-click
+   or the ⋮ hover chip, right-aligned above the bubble's top edge; ui.js
+   flips it below the bubble when the top would clip. Action chips keep the
+   ctx-item icon+span shape so existing menu tooling and tests see labels. */
+.msg-action-bar {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0;
+  max-width: min(720px, calc(var(--vw) - 16px));
+}
+.msg-bar-chips, .msg-bar-reacts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.msg-bar-chip {
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 10px; border-radius: 8px;
+  font-size: 13.5px; text-align: left;
+}
+.msg-bar-chip svg { width: var(--ico-3); height: var(--ico-3); color: var(--text-dim); }
+.msg-bar-chip.danger, .msg-bar-chip.danger svg { color: var(--danger); }
+.msg-bar-react {
+  display: grid; place-items: center; padding: 0;
+  width: 34px; height: 34px; border-radius: 50%;
+  background: var(--bg-hover); color: var(--text);
+  font-size: 19px; line-height: 1;
+}
+.msg-bar-react svg { width: 20px; height: 20px; color: var(--text-dim); }
+.msg-bar-react.mine { background: color-mix(in srgb, var(--accent-tint) 18%, transparent); box-shadow: inset 0 0 0 2px var(--accent); }
+@media (hover: hover) and (pointer: fine) {
+  .msg-bar-chip:hover, .msg-bar-react:hover { background: var(--bg-hover); }
+}
+.msg-action-bar:has(.msg-emoji-tray:not([hidden])) { width: 352px; }
+.msg-action-bar .msg-emoji-tray { margin: 0; }
+.msg-row.selectable .msg-action-bar { display: none; }
 
 /* Diagnostics entries render as console lines (Chrome DevTools look):
    monospace, left-aligned, in a soft pill, with a hover copy button
