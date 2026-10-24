@@ -155,7 +155,10 @@ svg { width: 24px; height: 24px; display: block; }
 .sidebar-head {
   position: relative; /* anchors the centered brand mark */
   display: flex; align-items: center; gap: 6px;
-  padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
+  /* Top padding carries the relay-zone's 10px gap below: the logo/search
+     cluster reads its bottom whitespace through to the strip, so the top
+     pads equally (8 + 10) or the header looks top-glued. */
+  padding: calc(18px + env(safe-area-inset-top)) 12px 8px;
   box-sizing: border-box;
   height: calc(var(--head-h) + env(safe-area-inset-top));
 }
@@ -163,7 +166,7 @@ svg { width: 24px; height: 24px; display: block; }
    covers only ~57% of the SVG viewBox, so the img is oversized to make the
    visible mark ~22px, matching the 40px icon buttons beside it. */
 .sidebar-logo {
-  position: absolute; left: 50%; top: calc(50% + env(safe-area-inset-top) / 2);
+  position: absolute; left: 50%; top: calc(50% + 5px + env(safe-area-inset-top) / 2);
   transform: translate(-50%, -50%);
   height: 38px; width: auto; opacity: .9;
   pointer-events: none;
