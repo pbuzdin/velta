@@ -1277,10 +1277,22 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   Select-text flow instead; `_bindSelectionQuote` gates itself, pinned by
   `tests/selection-quote.test.mjs`). The desktop menu does not offer Select text.
   A coarse pointer gets a bottom sheet (`showMessageSheet`) instead of the
-  vertical menu: two rows of reactions, the last cell opening a searchable
-  emoji tray, then actions in two columns of related pairs (Reply/Forward,
-  Pin/Save, Edit/Resend, Copy/Select text, Select/Info). Delete is a full-width
-  row. Desktop keeps the vertical menu and the six-emoji React submenu.
+  menu: two rows of reactions, the last cell opening a searchable emoji
+  tray, then actions in two columns of related pairs (Reply/Forward,
+  Pin/Save, Edit/Resend, Copy/Select text, Select/Info), Delete as a
+  full-width row, plus a "Show links" details listing every link in the
+  message as real anchors so the WebView's own long-press menu works per
+  link (#161, 1.4.80). Desktop replaced the vertical menu with the bubble
+  action bar (`showActionBar`, 1.4.80): a chip row anchored above the
+  bubble (right-aligned over own `.out` bubbles, left-aligned over
+  received ones, flipped below at the viewport top, closed by chat
+  scroll/outside tap) — quick-reaction emoji + smiley→tray over
+  short-label chips, opened by right-click or the ⋮ hover chip beside the
+  Reply pill (the track is a flex row; the ⋮ mounts in read-only chats
+  too). Link gestures pass the pressed anchor's href in: Copy link
+  (tracker-stripped, same URL as open) + Open link; Share link is
+  touch-only. The bar keeps the `ctx-menu` class and item icon+span shape,
+  so the fake-DOM menu tests keep working.
   Multi-touch still cancels the long-press timer (the guard above); it does
   not enter selection.
 - **Send/receive ticks** (1.4.20, semantics updated post-1.4.36): the tick
@@ -2329,7 +2341,9 @@ incoming-msg (`mutedChatAllows`) and Rust `bg_notify_incoming`
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 129 files, 904 tests as of 2026-10-22 (post-1.4.76: +reply threads / thread panel + live counts, Unread chip, Velta device messages, @mentions, msg-id cache race; 1.4.76: +group calls, call permissions,
+whole set — 135 files, 943 tests as of 2026-10-24 (1.4.80: +link actions
+(#161: menu Copy/Open, touch-only Share, mobile Show-links list), bubble
+action bar with reaction row + tray, known-contacts filter; post-1.4.76: +reply threads / thread panel + live counts, Unread chip, Velta device messages, @mentions, msg-id cache race; 1.4.76: +group calls, call permissions,
 network resume, contrast/token guards, webxdc tokens; 1.4.75: narrow-viewport CSS guards, device info,
 chat appearance, hyphenation, settings export/apply, reactions scale):
 
