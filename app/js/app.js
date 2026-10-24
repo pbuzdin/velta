@@ -4268,9 +4268,25 @@ function scheduleDrainOpened() {
 async function forwardFlow(msgIds) {
   if (state.accountChanging) return;
   const epoch = core.accountEpoch, fromChatId = state.activeChatId, navigation = chatNavigation;
+  const wrap = document.createElement("div");
+  // Search above the chat list (#158) — same matching as the search screen.
+  const search = document.createElement("input");
+  search.type = "search";
+  search.className = "text-field";
+  search.placeholder = "Search chats…";
+  search.enterKeyHint = "search";
+  search.autocomplete = "off";
+  search.setAttribute("aria-label", "Search chats");
+  search.style.marginBottom = "8px";
   const list = document.createElement("div");
   list.className = "modal-list";
+  const empty = document.createElement("div");
+  empty.className = "p2p-hint"; empty.style.opacity = ".6";
+  empty.textContent = "No chats match.";
+  empty.hidden = true;
+  wrap.append(search, list, empty);
   const targets = state.chats.filter(c => !["deaddrop", "device"].includes(c.kind) && !c.isP2pGroup);
+  const items = [];
   for (const chat of targets) {
     const item = document.createElement("velta-chat-item");
     item.setData(chat);
@@ -4284,8 +4300,21 @@ async function forwardFlow(msgIds) {
       refreshChatList();
     });
     list.appendChild(item);
+    items.push([chat, item]);
   }
-  const { close } = showModal({ title: "Forward to…", body: list });
+  search.addEventListener("input", () => {
+    const q = search.value.trim().toLowerCase();
+    let shown = 0;
+    for (const [chat, item] of items) {
+      const hit = !q || (chat.name || "").toLowerCase().includes(q);
+      item.hidden = !hit;
+      shown += hit;
+    }
+    empty.hidden = shown > 0;
+  });
+  const { close } = showModal({ title: "Forward to…", body: wrap });
+  // Phones: no keyboard over the list until the user taps the field.
+  if (!/Android|iPhone|iPad/i.test(navigator.userAgent || "")) search.focus();
 }
 
 /* ---------------- drawer ---------------- */

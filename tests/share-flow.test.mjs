@@ -150,3 +150,16 @@ test("several profiles: switching in the picker re-lists the other profile's cha
   assert.deepEqual(log.opened, [10]);
   assert.deepEqual(plain(log.received), [{ text: "photo caption", files: [] }]);
 });
+
+// #158: the Forward-to modal gets a search bar over its chat list — same
+// simple matching as the search screen (name, lowercase includes), an empty
+// hint when nothing matches, and no autofocus on phones.
+test("forward picker: search filters the chat list by name", () => {
+  const fwd = source.slice(source.indexOf("async function forwardFlow("), source.indexOf("/* ---------------- drawer"));
+  assert.ok(fwd.includes("Search chats…"), "search field present");
+  assert.match(fwd, /search\.addEventListener\("input"/);
+  assert.match(fwd, /\(chat\.name \|\| ""\)\.toLowerCase\(\)\.includes\(q\)/);
+  assert.match(fwd, /No chats match\./);
+  assert.match(fwd, /item\.hidden = !hit/);
+  assert.match(fwd, /\/Android\|iPhone\|iPad\/i\.test\(navigator\.userAgent \|\| ""\)\) search\.focus\(\)/);
+});
