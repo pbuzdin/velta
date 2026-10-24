@@ -200,8 +200,10 @@ svg { width: 24px; height: 24px; display: block; }
    state; a single relay fills the line. Lives on per-segment `color` so
    the sending-dash gradient can reuse it as currentColor. */
 /* Scoped to the strip's ID: the relays modal's card rows reuse the
-   .relay-line class name and must not inherit the 6px meter height. */
-#relay-line { display: flex; gap: 4px; height: 6px; flex: 1 1 auto; }
+   .relay-line class name and must not inherit the 6px meter height — nor
+   may their align-items:center reach here: an empty segment has no height,
+   and centering collapses it to 0px (the strip "died" exactly that way). */
+#relay-line { display: flex; gap: 4px; height: 6px; flex: 1 1 auto; align-items: stretch; }
 #relay-line .relay-seg { flex: 1 1 0; min-width: 0; background: currentColor; color: #e6a23c; transition: color .25s; }
 #relay-line .relay-seg[data-state="ok"]         { color: #2ecc71; }
 #relay-line .relay-seg[data-state="connecting"] { color: #e6a23c; }
