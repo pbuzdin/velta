@@ -678,7 +678,7 @@ html[data-theme="light"] .msg-show-in-chat {
   display: flex; align-items: flex-start;
 }
 .msg-hover-reply {
-  position: sticky; top: 8px;
+  position: sticky; top: 8px; height: 24px;
   display: flex; width: max-content; align-items: center; gap: 4px;
   padding: 3px 10px 3px 8px; border-radius: 999px;
   background: #262b38; color: var(--text);
@@ -699,6 +699,10 @@ html[data-theme="light"] .msg-show-in-chat {
   .msg-hover-reply:hover { background: #303648; }
 }
 .msg-row.selectable .msg-hover-reply { display: none; }
+/* The bubble action bar anchors above the bubble's top edge — right where
+   the sticky chips ride. Hide the row's track while ITS bar is open, or the
+   bar covers the ⋮ and clicks land on the bar instead. */
+.msg-row.bar-open .msg-hover-reply-track { display: none; }
 /* Read-only chats (device chats, channels without posting rights): no
    composer exists to reply into — hide the hover pill, the selection-quote
    chip and the selection bar's Reply button (flag set by chat-view.js). */

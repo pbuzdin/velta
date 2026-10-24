@@ -146,7 +146,7 @@ export function showContextMenu(items, x, y) {
 // below when that would clip the viewport top. `anchor` is the bubble rect;
 // `scrollEl` closes the bar when the chat scrolls (it does not follow).
 // Returns a close() that also unwires the scroll listener.
-export function showActionBar({ items, reactions = [], selected = null, onReact, anchor = null, own = false, scrollEl = null }) {
+export function showActionBar({ items, reactions = [], selected = null, onReact, anchor = null, own = false, scrollEl = null, onClosed = null }) {
   closeAllPopups();
   const bar = document.createElement("div");
   bar.className = "ctx-menu msg-action-bar";
@@ -201,11 +201,27 @@ export function showActionBar({ items, reactions = [], selected = null, onReact,
   }
   if (tray) bar.append(reacts, chips, tray);
   else bar.append(chips);
+  // Dismissal must not depend on the popover's own light dismiss: it has
+  // proven unreliable in occluded windows. Outside pointerdown (capture —
+  // ahead of any overlay), Escape and a chat scroll all close; close() is
+  // idempotent and also runs from chip clicks and the popover toggle.
   const close = () => {
     closeAllPopups();
-    scrollEl?.removeEventListener("scroll", close);
+    scrollEl?.removeEventListener("scroll", onScroll);
+    document.removeEventListener("pointerdown", onDocPointer, true);
+    document.removeEventListener("keydown", onDocKey, true);
+    onClosed?.();
   };
-  scrollEl?.addEventListener("scroll", close, { passive: true });
+  const onScroll = () => close();
+  const onDocPointer = (e) => {
+    if (bar.isConnected && !bar.contains(e.target) && !e.target.closest?.(".msg-hover-more")) close();
+  };
+  const onDocKey = (e) => { if (e.key === "Escape") close(); };
+  scrollEl?.addEventListener("scroll", onScroll, { passive: true });
+  document.addEventListener("pointerdown", onDocPointer, true);
+  document.addEventListener("keydown", onDocKey, true);
+  // The popover light-dismiss, when it fires, must also reach close().
+  bar.addEventListener("toggle", (e) => { if (e.newState === "closed") close(); });
   openLightDismiss(bar);
   const r = bar.getBoundingClientRect();
   const vw = globalThis.innerWidth || 1024;

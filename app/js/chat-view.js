@@ -2288,7 +2288,9 @@ export class ChatView {
       e.stopPropagation();
       const it = liveItem();
       if (!it || this._textSelect) return;
-      if (this._barFor === it.msg.id && this._barCleanup) { this._barCleanup(); return; }
+      // Already open for this message: the bar anchors right over this chip,
+      // so a click here means the user missed it — do nothing, not flicker.
+      if (this._barFor === it.msg.id && this._barCleanup) return;
       this._msgContextMenu(it, 0, 0, "");
     });
     track.appendChild(hoverMore);
@@ -3116,6 +3118,9 @@ export class ChatView {
     const barItems = guarded.filter(a => a === "-" || a.label !== "Reply");
     const rowEl = this.listEl?.querySelector(`[data-msgid="${m.id}"]`);
     const anchor = rowEl?.querySelector(".bubble")?.getBoundingClientRect() || null;
+    // The bar anchors right over this row's hover chips — hide them until
+    // it closes, or it swallows their clicks.
+    rowEl?.classList.add("bar-open");
     const close = showActionBar({
       items: barItems,
       reactions: canReact ? SHEET_REACTIONS : [],
@@ -3124,8 +3129,9 @@ export class ChatView {
       anchor,
       own: rowEl?.classList.contains("out") || false,
       scrollEl: this.scrollEl,
+      onClosed: () => { rowEl?.classList.remove("bar-open"); this._barCleanup = null; },
     });
-    this._barCleanup = () => { close(); this._barCleanup = null; };
+    this._barCleanup = close;
   }
 
   // Own-reaction toggle with optimistic chips. Same emoji removes ours
