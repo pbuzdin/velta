@@ -1577,8 +1577,10 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   RUST in lib.rs (v1.4.55: ureq `.header()` vs `.headers()`, JNI guard
   lifetimes killed the first android job) — BEFORE tagging a release
   that touched any Android-only code, run
-  `wsl -e bash -lc "cd /mnt/c/Users/pave/Velta/velta/velta-app/src-tauri && cargo check --target aarch64-linux-android"`
-  (~1.5 min; desktop `cargo check` compiles the Windows cfg only).
+  `wsl -e bash -lc "…NDK exports per §4.3.3 (RANLIB/AR → llvm-ranlib/llvm-ar + NDK bin on PATH)… && cd /mnt/c/Users/pave/Velta/velta/velta-app/src-tauri && cargo check --target aarch64-linux-android"`
+  (~8 min; the bare command without the §4.3.3 exports dies in
+  openssl-src's make — 1.4.80 hit exactly that; desktop `cargo check`
+  compiles the Windows cfg only).
 - **Header heights** are pinned by `--head-h` (56px): `.sidebar-head` and
   `.chat-head` are border-box
   `height: calc(var(--head-h) + env(safe-area-inset-top))`. Change the var,
