@@ -266,7 +266,7 @@ body > main > header.page {
 
 #hero {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(18rem, 0.85fr);
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 3.5rem;
   padding-block: 4rem 5rem;
@@ -329,17 +329,11 @@ p > strong + a {
 
 figure.shot {
   margin: 0;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-  transform: rotate(2deg);
-  transform-origin: 50% 60%;
-  transition: transform 0.35s ease;
+  justify-self: center;
+  max-width: 100%;
 }
-figure.shot:hover { transform: rotate(0.5deg); }
-figure.shot img { display: block; width: 100%; height: auto; }
+/* the image carries its own tilt; natural size, never upscaled */
+figure.shot img { display: block; width: auto; max-width: 100%; height: auto; }
 body { overflow-x: clip; }
 
 /* brand lockup: logo and wordmark on one center line */
