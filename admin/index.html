@@ -15,6 +15,7 @@
       --line: #e3e3e3; --line-strong: #bbb;
       --surface: #f2f2f2; --surface-2: #e8e8e8;
       --link: #1a6fbe; --ok: #0a7d26; --err: #b00020;
+      --accent: #3390ec; --accent-fg: #10141a; --accent-hover: #5aabf2;
     }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -22,6 +23,7 @@
         --line: #26262f; --line-strong: #44444f;
         --surface: #1c1c26; --surface-2: #26262f;
         --link: #5aa2e6; --ok: #6fdc8c; --err: #ff8a8a;
+        --accent: #5aa2e6; --accent-fg: #0e141c; --accent-hover: #7db4ec;
       }
     }
     body { margin: 0; font: 16px/1.5 system-ui, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); }
@@ -37,7 +39,7 @@
     button:hover { background: var(--surface-2); }
     input, select { font: inherit; padding: 0.35rem 0.55rem; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg); color: var(--fg); }
     textarea { color: var(--fg); background: var(--bg); }
-    small { color: var(--muted); }
+    small { color: var(--muted); font-size: 0.8125rem; }
     code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--surface); padding: 0.05em 0.3em; border-radius: 4px; }
     #editor { width: 100%; min-height: 60vh; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; }
     #commit-msg { width: 320px; max-width: 100%; }
@@ -52,17 +54,34 @@
     /* The iframe document themes itself (site CSS inside); the pane just
        stops flashing white in dark mode while it loads. */
     #preview { width: 100%; min-height: 60vh; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg); }
+    /* One primary action per view; destructive reads as destructive. */
+    button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+    button.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+    button.danger { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, transparent); background: none; }
+    button.danger:hover { background: color-mix(in srgb, var(--err) 12%, transparent); }
+    /* Opening a file is navigation, not a control — dress it as a link. */
+    button.path-btn { padding: 0; border: 0; background: none; color: var(--link); text-align: left; font: inherit; text-decoration: underline; text-underline-offset: 3px; }
+    button.path-btn:hover { background: none; text-decoration-thickness: 2px; }
+    table { font-variant-numeric: tabular-nums; }
+    td.num, th.num { text-align: right; }
+    /* Labels above fields — a placeholder is not a label. */
+    .field { display: grid; gap: 0.3rem; margin: 0 0 1rem; }
+    .field > label { font-size: 0.8125rem; font-weight: 500; color: var(--muted); }
+    .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 0.25rem 1rem; }
+    /* Busy/saved/error stay visible at the top while the editor fills the screen. */
+    .status-strip { position: sticky; top: 0; z-index: 3; display: flex; flex-wrap: wrap; gap: 0.25rem 1.5rem; margin: 0 -1rem 1rem; padding: 0.45rem 1rem; background: var(--bg); border-block: 1px solid var(--line); }
+    .top { display: flex; justify-content: space-between; align-items: baseline; }
   </style>
 </head>
 <body>
   <main class="container">
-    <header>
+    <header class="top">
       <h1>Velta CMS</h1>
-      <p><a href="../">← velta.cc</a></p>
-      <hr />
+      <a href="../">← velta.cc</a>
     </header>
+    <hr />
     <velta-admin></velta-admin>
   </main>
-  <script type="module" src="admin.js?v=4"></script>
+  <script type="module" src="admin.js?v=5"></script>
 </body>
 </html>

@@ -116,10 +116,9 @@ async function prepImage(file) {
 }
 
 // Body of a fresh news post — mirrors the structure of the existing posts
-// (breadcrumb, kicker, title, date, summary, div.body, aside).
-function postBody({ title, kicker, date, summary, mins }) {
+// (breadcrumb, title, date, summary, div.body, aside).
+function postBody({ title, date, summary, mins }) {
   return `<p><a href="/news">News</a></p>
-<p class="kicker">${esc(kicker)}</p>
 <h1>${esc(title)}</h1>
 <p><time>${esc(date)}</time> · ${mins} min read</p>
 <p>${esc(summary)}</p>
@@ -228,11 +227,12 @@ class VeltaAdmin extends Elena(HTMLElement) {
     this.commitMsg = "";
     this.newName = "";
     this.newBlock = "";
-    this.newPost = { slug: "", title: "", kicker: "Release", date: isoToday(), summary: "" };
+    this.newPost = { slug: "", title: "", date: isoToday(), summary: "" };
     this.tokenDraft = "";
     this.status = "";
     this.error = "";
     this.busy = false;
+    this.dirty = false; // editor holds edits not yet saved
   }
 
   firstUpdated() {
@@ -307,7 +307,10 @@ class VeltaAdmin extends Elena(HTMLElement) {
     if (!el || !this.contains(el)) return;
     const action = el.dataset.action;
     if (action === "open") this.open(el.dataset.path);
-    else if (action === "back") { this.current = null; this.status = ""; this.error = ""; this.requestUpdate(); }
+    else if (action === "back") {
+      if (this.dirty && !confirm("Leave with unsaved edits? The draft stays on this device and is restored when you reopen the page.")) return;
+      this.current = null; this.dirty = false; this.status = ""; this.error = ""; this.requestUpdate();
+    }
     else if (action === "save") this.save();
     else if (action === "create") this.create();
     else if (action === "create-post") this.createPost();
@@ -332,6 +335,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
   onInput(e) {
     if (e.target.id === "editor") {
       this.content = e.target.value;
+      this.dirty = true;
       if (this.draftKey) localStorage.setItem(this.draftKey, this.content);
       this.schedulePreview();
     }
@@ -341,7 +345,6 @@ class VeltaAdmin extends Elena(HTMLElement) {
     else if (e.target.id === "token-draft") this.tokenDraft = e.target.value;
     else if (e.target.id === "post-slug") this.newPost.slug = e.target.value;
     else if (e.target.id === "post-title") this.newPost.title = e.target.value;
-    else if (e.target.id === "post-kicker") this.newPost.kicker = e.target.value;
     else if (e.target.id === "post-date") this.newPost.date = e.target.value;
     else if (e.target.id === "post-summary") this.newPost.summary = e.target.value;
   }
@@ -415,11 +418,13 @@ class VeltaAdmin extends Elena(HTMLElement) {
       this.managed = !!m;
       this.mainClass = isPage ? mainClassOf(raw) : "page";
       this.content = m && isPage ? collapseIncludes(m[1]) : raw;
+      this.dirty = false;
       this.commitMsg = "";
       this.status = "";
       const draft = localStorage.getItem(this.draftKey);
       if (draft != null && draft !== this.content) {
         this.content = draft;
+        this.dirty = true;
         this.status = "Unsaved draft restored — save to keep it.";
       }
     } catch (e) {
@@ -463,6 +468,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
       this.raw = newRaw;
       if (this.current.path.startsWith("_partials/")) this.blocksCache = null;
       localStorage.removeItem(this.draftKey);
+      this.dirty = false;
       this.status = "Saved. Live at velta.cc in about a minute.";
     } catch (e) {
       const m = String(e.message || e);
@@ -543,7 +549,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
       const newRaw = assemble({
         nav,
         footer,
-        body: `<p class="kicker">Project</p>\n<h1>${title}</h1>\n<p>Write something.</p>`,
+        body: `<h1>${title}</h1>\n<p>Write something.</p>`,
         title: `${title} — Velta`,
         description: `${title} — Velta.`,
         active: "",
@@ -596,7 +602,6 @@ class VeltaAdmin extends Elena(HTMLElement) {
         footer,
         body: postBody({
           title,
-          kicker: this.newPost.kicker,
           date,
           summary,
           mins,
@@ -614,7 +619,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
       const indexRaw = b64ToUtf8(indexFile.content);
       const im = indexRaw.match(MARKERS);
       if (!im) throw new Error("news/index.html has no body markers — cannot add the post to the list.");
-      const li = `<li><a href="/news/${slug}.html"><time>${esc(date)}</time><span><span class="kicker">${esc(this.newPost.kicker)}</span><h2>${esc(title)}</h2><p>${esc(summary)}</p><p>${mins} min read</p></span></a></li>`;
+      const li = `<li><a href="/news/${slug}.html"><time>${esc(date)}</time><span><h2>${esc(title)}</h2><p>${esc(summary)}</p><p>${mins} min read</p></span></a></li>`;
       const newIndexRaw = spliceBody(indexRaw, im[1].replace(/<ul>/i, () => `<ul>\n  ${li}`));
       await this.putFile("news/index.html", `Add ${path} to the news index`, newIndexRaw, indexFile.sha);
 
@@ -771,16 +776,23 @@ class VeltaAdmin extends Elena(HTMLElement) {
   render() {
     const signedIn = !!this.token;
     return html`
-      <p class="admin-bar">
-        ${signedIn
-          ? html`<button data-action="logout">Sign out</button><span class="ok">token stored on this device</span>`
-          : html`<input id="token-draft" type="password" autocomplete="off"
-                placeholder="GitHub token (Contents: read &amp; write)" /><button data-action="login">Sign in</button>`}
-      </p>
-      ${this.busy ? html`<p class="ok">Working…</p>` : nothing}
+      ${signedIn
+        ? html`<p class="admin-bar"><button data-action="logout">Sign out</button><span class="ok">token stored on this device</span></p>`
+        : html`<div class="field">
+            <label for="token-draft">GitHub token — Contents: read &amp; write, stored on this device</label>
+            <p class="admin-bar">
+              <input id="token-draft" type="password" autocomplete="off" placeholder="ghp_…" />
+              <button class="primary" data-action="login">Sign in</button>
+            </p>
+          </div>`}
+      ${this.busy || this.status || this.error
+        ? html`<div class="status-strip" role="status">
+            ${this.busy ? html`<span class="ok">Working…</span>` : nothing}
+            ${this.status ? html`<span class="ok">${this.status}</span>` : nothing}
+            ${this.error ? html`<span class="err">${this.error}</span>` : nothing}
+          </div>`
+        : nothing}
       ${this.current ? this.renderEditor() : this.renderList()}
-      ${this.status ? html`<p class="ok">${this.status}</p>` : nothing}
-      ${this.error ? html`<p class="err">${this.error}</p>` : nothing}
     `;
   }
 
@@ -791,8 +803,8 @@ class VeltaAdmin extends Elena(HTMLElement) {
     const media = (this.files || []).filter((f) => f.kind === "media");
     const row = (f, deletable) => html`
       <tr>
-        <td><button data-action="open" data-path="${f.path}">${f.path}</button></td>
-        <td>${deletable ? html`<button data-action="delete-block" data-path="${f.path}">Delete</button>` : html`${f.size} B`}</td>
+        <td><button class="path-btn" data-action="open" data-path="${f.path}">${f.path}</button></td>
+        <td class="num">${deletable ? html`<button class="danger" data-action="delete-block" data-path="${f.path}">Delete</button>` : html`${f.size} B`}</td>
       </tr>
     `;
     return html`
@@ -808,10 +820,13 @@ class VeltaAdmin extends Elena(HTMLElement) {
             <p><button data-action="rebuild">Rebuild pages from partials</button></p>
           `}
       <h3>New page</h3>
-      <p>
-        <input id="new-name" placeholder="page-name" /> .html
-        <button data-action="create">Create</button>
-      </p>
+      <div class="field">
+        <label for="new-name">Page name — created as name.html</label>
+        <p class="admin-bar">
+          <input id="new-name" placeholder="page-name" />
+          <button class="primary" data-action="create">Create</button>
+        </p>
+      </div>
       <p><small>A new page is assembled from the partials with an empty marked body. Add its nav link in the nav block, then rebuild.</small></p>
 
       <h2>News</h2>
@@ -825,18 +840,25 @@ class VeltaAdmin extends Elena(HTMLElement) {
             </table>
           `}
       <h3>New post</h3>
-      <p class="admin-bar">
-        <input id="post-slug" placeholder="post-name" /> .html
-        <input id="post-title" placeholder="Title" />
-        <select id="post-kicker">
-          <option>Release</option>
-          <option>Guide</option>
-          <option>Note</option>
-        </select>
-        <input id="post-date" type="date" value="${this.newPost.date}" />
-      </p>
-      <p><input id="post-summary" placeholder="One-line summary (also the meta description)" /></p>
-      <p><button data-action="create-post">Create post</button></p>
+      <div class="form-grid">
+        <div class="field">
+          <label for="post-title">Title</label>
+          <input id="post-title" placeholder="Velta 1.4.82 …" />
+        </div>
+        <div class="field">
+          <label for="post-slug">Post name — created as news/name.html</label>
+          <input id="post-slug" placeholder="post-name" />
+        </div>
+        <div class="field">
+          <label for="post-date">Date</label>
+          <input id="post-date" type="date" value="${this.newPost.date}" />
+        </div>
+      </div>
+      <div class="field">
+        <label for="post-summary">One-line summary — also the meta description</label>
+        <input id="post-summary" placeholder="What changed, in one line" />
+      </div>
+      <p><button class="primary" data-action="create-post">Create post</button></p>
       <p><small>The post is created from the news template (breadcrumb, kicker, date, summary, body, aside), added to the top of the news index, and the home page list mirrors the index automatically.</small></p>
 
       <h3>Media</h3>
@@ -848,8 +870,8 @@ class VeltaAdmin extends Elena(HTMLElement) {
                   (f) => html`
                     <tr>
                       <td><a href="/${f.path}" target="_blank" rel="noopener">/${f.path}</a></td>
-                      <td>${Math.round(f.size / 1024)} KB</td>
-                      <td><button data-action="delete-media" data-path="${f.path}">Delete</button></td>
+                      <td class="num">${Math.round(f.size / 1024)} KB</td>
+                      <td class="num"><button class="danger" data-action="delete-media" data-path="${f.path}">Delete</button></td>
                     </tr>
                   `,
                 )}
@@ -880,7 +902,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
         ? "Editing the marked body section — chrome comes from the partials; <!-- include:name --> lines expand to Blocks on save."
         : "Raw file — no body markers in this file."}</small></p>
       <p class="admin-bar">
-        <button data-action="save">Save</button>
+        <button class="primary" data-action="save">Save</button>
         <button data-action="back">Back</button>
         <button data-action="toggle-preview">${this.showPreview ? "Hide preview" : "Show preview"}</button>
         <button data-action="upload-image">Upload image</button>
