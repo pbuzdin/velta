@@ -301,11 +301,10 @@ const ICO = {
   // (file going across, checksum tail) over the split-V struts — scaled to
   // fill the 24 grid so the solid icon matches the outlined icons' weight.
   beam: `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M1.00,1.23L12.60,1.23L12.60,3.44L1.00,3.44ZM14.32,1.23L19.59,1.23L19.59,3.44L14.32,3.44ZM21.40,1.23L23.60,1.23L23.60,3.44L21.40,3.44ZM2.30,4.50L7.89,4.50L14.74,17.64L12.11,22.77ZM16.15,4.50L21.73,4.50L15.37,16.66L12.74,11.31Z"/></svg>`,
-  // Velta Circle at menu scale: five dots in a ring, struts dropped — at 20px
-  // the two thin struts (one ending mid-air) read as broken specks; the dots
-  // alone carry the "circle of people" story (full glyph lives in the webxdc
-  // icon, where 128px resolves it).
-  circle: `<svg viewBox="0 0 24 24"><g fill="currentColor"><circle cx="12.00" cy="3.9" r="2.3"/><circle cx="20.5" cy="10.4" r="2.3"/><circle cx="17.4" cy="20.3" r="2.3"/><circle cx="6.6" cy="20.3" r="2.3"/><circle cx="3.5" cy="10.4" r="2.3"/></g></svg>`,
+  // Velta Circle: the exact site mark (velta.cc/circle-logo.svg) — same
+  // viewBox, same numbers, currentColor instead of the theme style — so the
+  // 20px menu render matches the site render pixel for pixel.
+  circle: `<svg viewBox="126 95 772 772"><g fill="currentColor"><circle cx="512" cy="182" r="72"/><circle cx="825.8" cy="410" r="72"/><circle cx="706" cy="779" r="72"/><circle cx="318" cy="779" r="72"/><circle cx="198.2" cy="410" r="72"/><g transform="translate(512 512) scale(0.7) translate(-512.5 -574)"><polygon points="236,314 395,314 590,688 515,834"/><polygon points="630,314 789,314 608,660 533,508"/></g></g></svg>`,
   file: `<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 3v4h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`,
   // Large file (#138, Lufi upload): the file outline carrying an L.
   fileL: `<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 3v4h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 10v6.5h4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
