@@ -412,9 +412,10 @@ article.card p, #platforms li, #features p { color: var(--muted); }
   font-weight: 500;
 }
 /* brand logos sit on a small app-icon-style tile; only Velta-original
-   features carry one (Beam in #product and #features, Circle) */
-#features li img,
-#product article.card img {
+   features carry one (Beam in #product and #features, Circle).
+   #features tiles float to the corner; the #product card keeps the
+   mark in flow, top-left, where the card icon sat */
+#features li img {
   width: 2.5rem;
   height: 2.5rem;
   padding: 0.4rem;
@@ -422,6 +423,14 @@ article.card p, #platforms li, #features p { color: var(--muted); }
   background: var(--surface-2);
   float: right;
   margin: 0 0 0.5rem 0.75rem;
+}
+#product article.card img {
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0.4rem;
+  border-radius: 10px;
+  background: var(--surface-2);
+  display: block;
 }
 #features > div:first-child {
   display: flex;
