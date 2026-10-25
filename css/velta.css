@@ -476,6 +476,9 @@ article.card p, #platforms li, #features p { color: var(--muted); }
 /* shared by the home #notes mirror and the news index — both lists carry
    class="news-list"; the home cards are JS-cloned from the index */
 .news-list { list-style: none; margin: 2rem 0 0; padding: 0; border-block: 1px solid var(--line); }
+/* home mirror only: the section borders already separate #notes from its
+   neighbours — the list's own border-block doubled the line above #help */
+#notes .news-list { border-block: 0; }
 .news-list li { border-top: 1px solid var(--line); }
 .news-list li:first-child { border-top: 0; }
 .news-list a {
