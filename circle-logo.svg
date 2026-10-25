@@ -1,21 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="126 95 772 772" role="img" aria-label="Velta Circles">
-  <title>Velta Circles</title>
-  <!-- Mono website mark: five people in a ring around the Velta Beam glyph
-       with its bar removed — same construction as the group-call webxdc
-       icon, without the app-icon tile. Fill follows the page theme. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="Velta Circle">
+  <title>Velta Circle</title>
+  <!-- Mono website mark, same as the app's attach-menu glyph: the Velta V
+       drawn as a line, six dots (six people) on its six corners joined by
+       interrupted strokes. Colour follows the page theme. -->
   <style>
-    .g { fill: #1a1a1a; }
-    @media (prefers-color-scheme: dark) { .g { fill: #f2f2f5; } }
+    svg { color: #1a1a1a; }
+    @media (prefers-color-scheme: dark) { svg { color: #f2f2f5; } }
   </style>
-  <g class="g">
-    <circle cx="512" cy="182" r="72"/>
-    <circle cx="825.8" cy="410" r="72"/>
-    <circle cx="706" cy="779" r="72"/>
-    <circle cx="318" cy="779" r="72"/>
-    <circle cx="198.2" cy="410" r="72"/>
-    <g transform="translate(512 512) scale(0.7) translate(-512.5 -574)">
-      <polygon points="236,314 395,314 590,688 515,834"/>
-      <polygon points="630,314 789,314 608,660 533,508"/>
-    </g>
-  </g>
+  <path d="M4.70 2.60L5.05 2.60" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M9.14 5.26L10.70 8.26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M13.43 8.23L14.91 5.28" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M18.95 2.60L19.30 2.60" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M20.60 5.25L13.49 18.75" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M10.67 18.76L3.42 5.24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="2.00" cy="2.60" r="1.6" fill="currentColor"/><circle cx="7.75" cy="2.60" r="1.6" fill="currentColor"/><circle cx="12.09" cy="10.92" r="1.6" fill="currentColor"/><circle cx="16.25" cy="2.60" r="1.6" fill="currentColor"/><circle cx="22.00" cy="2.60" r="1.6" fill="currentColor"/><circle cx="12.09" cy="21.40" r="1.6" fill="currentColor"/>
 </svg>
