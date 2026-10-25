@@ -411,9 +411,17 @@ article.card p, #platforms li, #features p { color: var(--muted); }
   font-size: 1rem;
   font-weight: 500;
 }
-/* brand logos float to the tile's top-right; only Velta-original
-   features carry one (Beam, Circle) */
-#features li img { width: 2rem; height: 2rem; border-radius: 8px; float: right; margin: 0 0 0.5rem 0.75rem; }
+/* brand logos sit on a small app-icon-style tile at the top-right of the
+   card; only Velta-original features carry one (Beam, Circle) */
+#features li img {
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0.4rem;
+  border-radius: 10px;
+  background: var(--surface-2);
+  float: right;
+  margin: 0 0 0.5rem 0.75rem;
+}
 #features > div:first-child {
   display: flex;
   flex-wrap: wrap;
