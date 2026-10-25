@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 624 590" role="img" aria-label="Velta Loop">
   <title>Velta Loop</title>
-  <!-- Mono website mark: the brand V woven through a closed ring. The arc
-       interrupts with clear air on each side of every crossing (knockout
-       dilated 14 units past the V's edges); full circle keeps it symmetric
-       and centered; the caps reach outside the ring. Fill follows the page
-       theme. -->
+  <!-- Mono website mark: the brand V breaks a full ring at three symmetric
+       points — both arms and the apex — so the mark sits optically centered.
+       The knockout carries an 18px margin: every arc segment stops short of
+       the V's edges with clear air, never touching them. Fill follows the
+       page theme. -->
   <style>
     svg { color: #1a1a1a; }
     @media (prefers-color-scheme: dark) { svg { color: #f2f2f5; } }
@@ -12,13 +12,13 @@
   <defs>
     <mask id="loopCut">
       <rect x="-100" y="-100" width="900" height="800" fill="#fff"/>
-      <g fill="#000" stroke="#000" stroke-width="28" transform="translate(99.8 94.4) scale(0.68)">
+      <g fill="#000" stroke="#000" stroke-width="36" stroke-linejoin="round" transform="translate(68.6 64.9) scale(0.78)">
         <path d="M0 0H191L152 98L0 0Z"/><path d="M0 0L152 98L314 424V590L0 0Z"/><path d="M152 98L191 0L402 420L314 424L152 98Z"/><path d="M314 424L402 420L314 590V424Z"/><path d="M434 0H624L483 91L434 0Z"/><path d="M434 0L483 91L407 258L341 225L434 0Z"/><path d="M483 91L624 0L420 385L407 258L483 91Z"/><path d="M341 225L407 258L420 385L341 225Z"/>
       </g>
     </mask>
   </defs>
-  <g fill="currentColor" transform="translate(99.8 94.4) scale(0.68)">
+  <g fill="currentColor" transform="translate(68.6 64.9) scale(0.78)">
     <path d="M0 0H191L152 98L0 0Z"/><path d="M0 0L152 98L314 424V590L0 0Z"/><path d="M152 98L191 0L402 420L314 424L152 98Z"/><path d="M314 424L402 420L314 590V424Z"/><path d="M434 0H624L483 91L434 0Z"/><path d="M434 0L483 91L407 258L341 225L434 0Z"/><path d="M483 91L624 0L420 385L407 258L483 91Z"/><path d="M341 225L407 258L420 385L341 225Z"/>
   </g>
-  <circle cx="312" cy="295" r="240" fill="none" stroke="currentColor" stroke-width="40" mask="url(#loopCut)"/>
+  <path d="M112,295 a200,200 0 1,0 400,0 a200,200 0 1,0 -400,0" fill="none" stroke="currentColor" stroke-width="40" mask="url(#loopCut)"/>
 </svg>
