@@ -1,9 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 1024 1024">
-  <!-- Velta Beam icon (Pavel's 2026-10 design): a beam bar over a split V; ground #1F5593 (family tile, matches group-call). Source for icon.png
+  <!-- Velta Beam icon (Pavel's 2026-10 design): the velta.cc Beam mark: a bar broken into three segments over a split V; ground #1F5593 (family tile, matches group-call). Source for icon.png
        (render: python3 -c "import cairosvg; cairosvg.svg2png(url='icon.svg', write_to='icon.png', output_width=512, output_height=512)") -->
   <rect width="1024" height="1024" rx="208" fill="#1F5593"/>
   <g fill="#fff">
-    <rect x="199" y="221" width="626" height="63"/>
+    <rect x="199" y="221" width="330" height="63"/>
+    <rect x="578" y="221" width="150" height="63"/>
+    <rect x="799" y="221" width="26" height="63"/>
     <polygon points="236,314 395,314 590,688 515,834"/>
     <polygon points="630,314 789,314 608,660 533,508"/>
   </g>
