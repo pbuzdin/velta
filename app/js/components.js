@@ -5,9 +5,10 @@ import { fileUrl, mediaFallbackUrl } from "./media.js";
 import { diagnosticsSink } from "./diagnostics.js";
 import { avatarBackgroundUrl, fingerprintFor, cachedFingerprint, cachedFingerprintIsDerived, fingerprintGroups } from "./avatar.js";
 import { avatarFill } from "./name-color.js";
+import { P, svg, labelled } from "./icons.js";
 
-const AVATAR_SVG = `<svg viewBox="0 0 24 24" style="width:55%;height:55%"><path d="M12 4l2.2 4.7 5 .6-3.7 3.4 1 4.9-4.5-2.6-4.5 2.6 1-4.9L4.8 9.3l5-.6z" fill="currentColor"/></svg>`;
-const DEVICE_SVG = `<svg viewBox="0 0 24 24" style="width:55%;height:55%"><rect x="5" y="3" width="14" height="18" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="17.5" r="1.2" fill="currentColor"/></svg>`;
+const AVATAR_SVG = `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" style="width:55%;height:55%"><path d="M12 4l2.2 4.7 5 .6-3.7 3.4 1 4.9-4.5-2.6-4.5 2.6 1-4.9L4.8 9.3l5-.6z" fill="currentColor"/></svg>`;
+const DEVICE_SVG = `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" style="width:55%;height:55%"><rect x="5" y="3" width="14" height="18" rx="2.5" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-linecap="round" stroke-width="2"/><circle cx="12" cy="17.5" r="1.2" fill="currentColor"/></svg>`;
 
 /* ---------- <velta-avatar> ---------- */
 function specialKind(kind) { return kind === "saved" || kind === "device"; }
@@ -164,8 +165,8 @@ export function gestureSwipeRecent(now = Date.now()) { return now - gestureSwipe
 // know can fail. Rows render a static placeholder instead; the real
 // <video> element is created on tap and dropped again when the virtual
 // scroller unmounts the row.
-const PLAY_SVG = `<svg viewBox="0 0 24 24" style="width:100%;height:100%;display:block"><path d="M6.5 5.5v13l11-6.5z" fill="currentColor"/></svg>`;
-const VIDEO_FAIL_SVG = `<svg viewBox="0 0 24 24" style="width:100%;height:100%;display:block"><path d="M4 7h16M9 7V5h6v2m-8 0l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`;
+const PLAY_SVG = `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" style="width:100%;height:100%;display:block"><path d="M6.5 5.5v13l11-6.5z" fill="currentColor"/></svg>`;
+const VIDEO_FAIL_SVG = `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" style="width:100%;height:100%;display:block"><path d="M4 7h16M9 7V5h6v2m-8 0l1 13h8l1-13" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" stroke-linejoin="round"/></svg>`;
 
 class VeltaVideo extends Elena(HTMLElement) {
   static tagName = "velta-video";
@@ -298,20 +299,19 @@ VeltaVideo.define();
 // Open-shackle lock, shown only on chats that can carry unencrypted mail
 // (classic-email contacts), i.e. chat.isEncrypted === false. Encrypted chats
 // show no lock at all — e2e is the default there, not something to celebrate.
-const OPEN_LOCK_SVG = `<svg class="ci-lock open" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 11V7a4 4 0 017.6-1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+const OPEN_LOCK_SVG = `<svg focusable="false" role="img" aria-label="Not encrypted" class="ci-lock open" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-linecap="round" stroke-width="2"/><path d="M8 11V7a4 4 0 017.6-1.7" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/></svg>`;
 // Local (P2P) chats ride QUIC/TLS with the peer identity pinned by pairing —
 // encrypted, so instead of the open lock they carry this wifi mark.
-export const WIFI_SVG = `<svg class="ci-wifi" viewBox="0 0 24 24"><path d="M2.5 9.5a14 14 0 0119 0M5.5 13a9.5 9.5 0 0113 0M8.5 16.5a5 5 0 017 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="19.5" r="1.4" fill="currentColor"/></svg>`;
+export const WIFI_SVG = `<svg aria-hidden="true" focusable="false" class="ci-wifi" viewBox="0 0 24 24"><path d="M2.5 9.5a14 14 0 0119 0M5.5 13a9.5 9.5 0 0113 0M8.5 16.5a5 5 0 017 0" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="19.5" r="1.4" fill="currentColor"/></svg>`;
 // Chat-name badge: p2p wifi replaces the open lock. (Core 2.61.0 stopped
 // tracking contact verification — the old verified rosette is gone.)
 const nameBadgesFor = c =>
   c.isP2p ? WIFI_SVG : c.kind === "single" && !c.encrypted ? OPEN_LOCK_SVG : "";
-const PIN_SVG = `<svg class="ci-pin" viewBox="0 0 24 24"><path d="M9 4h6l1 7 3 3v2h-6v5l-1 1-1-1v-5H5v-2l3-3z" fill="currentColor"/></svg>`;
-const MUTE_SVG = `<svg class="ci-mute" viewBox="0 0 24 24"><path d="M12 3a5 5 0 00-5 5v3l-2 4h14l-2-4V8a5 5 0 00-5-5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M4 4l16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
-const TICK1 = `<svg class="ci-ticks" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-// Double check from Delta Chat desktop — fill-based, airier than the old
-// stroked pair. 735×490 aspect; CSS boxes keep it centered via default meet.
-const TICK2 = `<svg class="ci-ticks" viewBox="0 0 735 490"><g fill="currentColor"><path d="m143 340-92-92-51 50 122 122 22 23L489 98l-52-52z" transform="translate(0 1)"/><path d="M51 248 0 298l122 122 22 23L489 98l-52-52-294 294z" transform="translate(246 2)"/></g></svg>`;
+const PIN_SVG = labelled(svg(P.pin, "ci-pin"), "Pinned");
+const MUTE_SVG = labelled(svg(P.mute, "ci-mute"), "Muted");
+const TICK1 = labelled(svg(P.tick1, "ci-ticks"), "Sent");
+// Double check on the 24 grid, same stroke as the single tick.
+const TICK2 = labelled(svg(P.tick2, "ci-ticks"), "Seen");
 
 // Dotted ring for in-flight sends — spins via the .ticks-spin CSS rule.
 const SENDING_RING = [["12", "4"], ["17.7", "6.3"], ["20", "12"], ["17.7", "17.7"], ["12", "20"], ["6.3", "17.7"], ["4", "12"], ["6.3", "6.3"]]
@@ -319,10 +319,10 @@ const SENDING_RING = [["12", "4"], ["17.7", "6.3"], ["20", "12"], ["17.7", "17.7
   .join("");
 
 export function ticksSvg(state, cls = "ci-ticks") {
-  if (state === "pending") return `<svg class="${cls} ticks-spin" viewBox="0 0 24 24">${SENDING_RING}</svg>`;
+  if (state === "pending") return `<svg role="img" aria-label="Sending" focusable="false" class="${cls} ticks-spin" viewBox="0 0 24 24">${SENDING_RING}</svg>`;
   // Failed: a bold exclamation — squash-tolerant in the chat list's 3:2 tick
   // box (a circled icon would render as an ellipse). Colored red via CSS.
-  if (state === "failed") return `<svg class="${cls} failed" viewBox="0 0 24 24"><path d="M12 4v9" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/><circle cx="12" cy="18.8" r="2" fill="currentColor"/></svg>`;
+  if (state === "failed") return `<svg role="img" aria-label="Failed to send" focusable="false" class="${cls} failed" viewBox="0 0 24 24"><path d="M12 4v9" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="18.8" r="2" fill="currentColor"/></svg>`;
   // Core semantics: OutDelivered = the RELAY accepted it (one check);
   // OutMdnRcvd = the recipient's client confirmed seen (two checks).
   if (state === "sent" || state === "delivered") return TICK1.replace('ci-ticks', cls);

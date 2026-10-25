@@ -95,6 +95,7 @@ import { sendLargeFile, largeFileAvailable, largeFileInfoHtml, wireLargeFileInfo
 import { lufiUploadFor } from "./lufi.js";
 import { isAndroid, rustLog, tauriInvoke } from "./tauri.js";
 import { canShareLink, copyLink, shareLink } from "./qr-actions.js";
+import { ICON, P, svg, labelled } from "./icons.js";
 
 function reactionChipsHtml(reactions) {
   return (reactions || []).map(r =>
@@ -289,16 +290,18 @@ const FWD_ARTICLE = (viewtype) => (/^[aeiou]/.test(FWD_NOUN(viewtype)) ? "an " :
 export const THREAD_BUTTON_MIN_REPLIES = 1;
 
 const ICO = {
-  reply: `<svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5M4 9h9a7 7 0 017 7v2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-  copy: `<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 15V5a2 2 0 012-2h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
-  selectText: `<svg viewBox="0 0 24 24"><path d="M4 8.5h5.5M4 12h3.5M4 15.5h5.5M18 4.5v15M16 4.5h4M16 19.5h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
-  forward: `<svg viewBox="0 0 24 24"><path d="M15 14l5-5-5-5M20 9h-9a7 7 0 00-7 7v2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-  star: `<svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.8 6.3.7-4.7 4.3 1.3 6.2-5.6-3.2-5.6 3.2 1.3-6.2L3 9.5l6.3-.7z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>`,
-  select: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8.5 12.5l2.5 2.5 5-5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-  trash: `<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2m-8 0l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-  info: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 10v6M12 7v.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`,
-  download: `<svg viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M4 19h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-  photo: `<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="10" r="1.6" fill="currentColor"/><path d="M4 17l5-5 3.5 3.5L16 12l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`,
+  reply: ICON.reply,
+  copy: ICON.copy,
+  selectText: `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M4 8.5h5.5M4 12h3.5M4 15.5h5.5M18 4.5v15M16 4.5h4M16 19.5h4" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/></svg>`,
+  forward: ICON.forward,
+  star: ICON.star,
+  select: `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-linecap="round" stroke-width="2"/><path d="M8.5 12.5l2.5 2.5 5-5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  trash: ICON.trash,
+  info: ICON.info,
+  download: ICON.download,
+  photo: ICON.photo,
+  video: ICON.video,
+  camera: ICON.camera,
   // Velta Beam: the site mark — bar broken into three progress segments
   // (file going across, checksum tail) over the split-V struts — scaled to
   // fill the 24 grid so the solid icon matches the outlined icons' weight.
@@ -306,20 +309,20 @@ const ICO = {
   // Velta Circle: the Velta V drawn as a line glyph — six dots (six people)
   // on the V's six corners, joined by interrupted strokes. Same 24 grid,
   // stroke and currentColor as the outlined attach icons so it reads at 20px.
-  circle: `<svg viewBox="0 0 24 24"><path d="M4.70 2.60L5.05 2.60" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M9.14 5.26L10.70 8.26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M13.43 8.23L14.91 5.28" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M18.95 2.60L19.30 2.60" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M20.60 5.25L13.49 18.75" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M10.67 18.76L3.42 5.24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="2.00" cy="2.60" r="1.6" fill="currentColor"/><circle cx="7.75" cy="2.60" r="1.6" fill="currentColor"/><circle cx="12.09" cy="10.92" r="1.6" fill="currentColor"/><circle cx="16.25" cy="2.60" r="1.6" fill="currentColor"/><circle cx="22.00" cy="2.60" r="1.6" fill="currentColor"/><circle cx="12.09" cy="21.40" r="1.6" fill="currentColor"/></svg>`,
-  file: `<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 3v4h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`,
+  circle: `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M4.70 2.60L5.05 2.60" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/><path d="M9.14 5.26L10.70 8.26" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/><path d="M13.43 8.23L14.91 5.28" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/><path d="M18.95 2.60L19.30 2.60" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/><path d="M20.60 5.25L13.49 18.75" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/><path d="M10.67 18.76L3.42 5.24" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/><circle cx="2.00" cy="2.60" r="1.8" fill="currentColor"/><circle cx="7.75" cy="2.60" r="1.8" fill="currentColor"/><circle cx="12.09" cy="10.92" r="1.8" fill="currentColor"/><circle cx="16.25" cy="2.60" r="1.8" fill="currentColor"/><circle cx="22.00" cy="2.60" r="1.8" fill="currentColor"/><circle cx="12.09" cy="21.40" r="1.8" fill="currentColor"/></svg>`,
+  file: `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" stroke-linejoin="round"/><path d="M14 3v4h4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" stroke-linejoin="round"/></svg>`,
   // Large file (#138, Lufi upload): the file outline carrying an L.
-  fileL: `<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 3v4h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 10v6.5h4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-  webxdc: `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="3" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="3" y="13" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M17.5 13.5v6m-3-3h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
-  mic: `<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 11a7 7 0 0014 0M12 18v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
-  lock: `<svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 018 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>`,
-  check: `<svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-  edit: `<svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-  resend: `<svg viewBox="0 0 24 24"><polyline points="2.5 5.5 2.5 11 8 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.2 14.5a8 8 0 1 0 1.5-8L2.5 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
-  pin: `<svg viewBox="0 0 24 24"><path d="M9 4h6l1 7 3 3v2h-6v5l-1 1-1-1v-5H5v-2l3-3z" fill="currentColor"/></svg>`,
-  share: `<svg viewBox="0 0 24 24"><path d="M12 14V4m0 0L8.5 7.5M12 4l3.5 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 11v8a1 1 0 001 1h12a1 1 0 001-1v-8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
-  dots: `<svg viewBox="0 0 24 24"><circle cx="12" cy="5.5" r="1.7" fill="currentColor"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/><circle cx="12" cy="18.5" r="1.7" fill="currentColor"/></svg>`,
-  openLink: `<svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 14v4a2 2 0 01-2 2H6a2 2 0 01-2-2V7a2 2 0 012-2h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  fileL: `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" stroke-linejoin="round"/><path d="M14 3v4h4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" stroke-linejoin="round"/><path d="M10 10v6.5h4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  webxdc: `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-linecap="round" stroke-width="2"/><rect x="13" y="3" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-linecap="round" stroke-width="2"/><rect x="3" y="13" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-linecap="round" stroke-width="2"/><path d="M17.5 13.5v6m-3-3h6" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/></svg>`,
+  mic: `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-linecap="round" stroke-width="2"/><path d="M5 11a7 7 0 0014 0M12 18v3" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/></svg>`,
+  lock: ICON.lock,
+  check: ICON.check,
+  edit: `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  resend: `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><polyline points="2.5 5.5 2.5 11 8 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.2 14.5a8 8 0 1 0 1.5-8L2.5 10" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/></svg>`,
+  pin: ICON.pin,
+  share: `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M12 14V4m0 0L8.5 7.5M12 4l3.5 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 11v8a1 1 0 001 1h12a1 1 0 001-1v-8" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/></svg>`,
+  dots: `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><circle cx="12" cy="5.5" r="1.7" fill="currentColor"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/><circle cx="12" cy="18.5" r="1.7" fill="currentColor"/></svg>`,
+  openLink: `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 14v4a2 2 0 01-2 2H6a2 2 0 01-2-2V7a2 2 0 012-2h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
 };
 
 // Short human reason from the core's raw error text, e.g.
@@ -887,13 +890,13 @@ export class ChatView {
     const item = (m) => `
       <div class="pin-tray-item" data-pin-id="${m.id}">
         <span class="pb-text"><b>${escapeHtml(m.fromContact?.name || "")}</b> ${escapeHtml(snippet(m))}</span>
-        ${canUnpin ? `<button type="button" class="pin-unpin" data-unpin="${m.id}" title="Unpin" aria-label="Unpin">✕</button>` : ""}
+        ${canUnpin ? `<button type="button" class="pin-unpin" data-unpin="${m.id}" title="Unpin" aria-label="Unpin">${ICON.close}</button>` : ""}
       </div>`;
     bar.innerHTML = `
       <summary class="pin-tray-summary">
         ${ICO.pin}<span class="pb-text"><b>${escapeHtml(newest?.fromContact?.name || "")}</b> ${escapeHtml(snippet(newest))}</span>
         ${msgs.length > 1 ? `<span class="pin-tray-count">${msgs.length}</span>` : ""}
-        <span class="pin-tray-chevron"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="pin-tray-chevron">${ICON.chevronDown}</span>
       </summary>
       <div class="pin-tray-list">${msgs.slice().reverse().map(item).join("")}</div>`;
     bar.hidden = false;
@@ -1653,7 +1656,7 @@ export class ChatView {
     // "Back", not "close": the sheet is a layer over the chat, not a dialog.
     close.setAttribute("aria-label", "Back to chat");
     close.title = "Back to chat";
-    close.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    close.innerHTML = ICON.chevronLeft;
     close.addEventListener("click", () => this._closeThread());
     head.append(titles, close);
     panel.appendChild(head);
@@ -2094,7 +2097,7 @@ export class ChatView {
     // Same control as the desktop shortcut menu, kept visible so a touch
     // can hit it. Hangs off the bubble into the gap .has-original reserves.
     if (m.originalMsgId) {
-      bubble += `<button type="button" class="msg-show-in-chat" data-act="show-original" title="Show in chat" aria-label="Show in chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
+      bubble += `<button type="button" class="msg-show-in-chat" data-act="show-original" title="Show in chat" aria-label="Show in chat">${ICON.chevronRight}</button>`;
     }
     if (showAvatar) bubble += `<div class="msg-sender" style="${senderColorVars(fc.color)}">${escapeHtml(fc.name)}</div>`;
     if (m.fwdFrom) bubble += `<div class="msg-fwd">Forwarded ${FWD_ARTICLE(m.viewtype)}${FWD_NOUN(m.viewtype)}</div>`;
@@ -2248,7 +2251,7 @@ export class ChatView {
       // state and duration come from core call_info (hydrated below); the
       // message text is just a stock string used as the fallback label.
       const callOut = m.from === 1;
-      bubble += `<div class="call-card${callOut ? " call-out" : " call-in"}" data-call-card><span class="call-card-ico"><svg viewBox="0 0 24 24"><path d="M6.6 10.8a15.1 15.1 0 006.6 6.6l2.2-2.2a1 1 0 011-.24 11.4 11.4 0 003.6.58 1 1 0 011 1V20a1 1 0 01-1 1A17 17 0 013 4a1 1 0 011-1h3.5a1 1 0 011 1 11.4 11.4 0 00.57 3.6 1 1 0 01-.25 1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></span><span class="call-card-main"><span class="call-card-label" data-call-label>${escapeHtml(m.text || (callOut ? "Outgoing call" : "Incoming call"))}</span><span class="call-card-sub" data-call-sub></span></span></div>`;
+      bubble += `<div class="call-card${callOut ? " call-out" : " call-in"}" data-call-card><span class="call-card-ico">${ICON.phone}</span><span class="call-card-main"><span class="call-card-label" data-call-label>${escapeHtml(m.text || (callOut ? "Outgoing call" : "Incoming call"))}</span><span class="call-card-sub" data-call-sub></span></span></div>`;
     } else bubble += `<div class="msg-text">`;
     const edited = m.edited ? `<span class="edited">edited</span>` : "";
     // Bot chip in the meta row's right corner (same slot as "edited"): the
@@ -2257,7 +2260,7 @@ export class ChatView {
     // chip stays in the meta row where it never fights it. Sticker bubbles carry no meta.
     const botChip = m.kind === "msg" && !out && m.viewtype !== "sticker" && m.fromContact?.bot
       ? `<span class="bot-chip" title="Sent by a bot">bot</span>` : "";
-    const star = m.starred ? `<svg class="star-ico" viewBox="0 0 24 24"><path d="M12 3l2.7 5.8 6.3.7-4.7 4.3 1.3 6.2-5.6-3.2-5.6 3.2 1.3-6.2L3 9.5l6.3-.7z" fill="currentColor"/></svg>` : "";
+    const star = m.starred ? labelled(svg(P.star, "star-ico"), "Starred").replace("<path ", '<path fill="currentColor" ') : "";
     const ticks = out ? `<span class="ticks-slot">${ticksSvg(m.state, "ticks")}</span>` : "";
     // Failed sends: a small red reason badge in the meta row (floats left,
     // against the right-floating timestamp) plus retry/remove buttons to the
@@ -3242,7 +3245,7 @@ export class ChatView {
     // Local groups: who has it, per member ("Bob ✓  Cal ✗").
     const deliveryRows = Array.isArray(m.delivery) && m.delivery.length
       ? `<div class="info-row"><span class="k">Delivered</span><span class="v">${m.delivery.filter(d => d.delivered).length} of ${m.delivery.length}</span></div>`
-        + m.delivery.map(d => `<div class="info-row"><span class="k" style="padding-left:12px">${escapeHtml(d.name)}</span><span class="v">${d.delivered ? "✓ received" : d.sending ? "… sending" : "✗ not yet"}${d.retryable ? ` <button type="button" class="btn-text" data-retry-member="${escapeAttr(d.id)}">Retry</button>` : ""}</span></div>`).join("")
+        + m.delivery.map(d => `<div class="info-row"><span class="k" style="padding-left:12px">${escapeHtml(d.name)}</span><span class="v">${d.delivered ? `${ICON.check} received` : d.sending ? "… sending" : `${ICON.close} not yet`}${d.retryable ? ` <button type="button" class="btn-text" data-retry-member="${escapeAttr(d.id)}">Retry</button>` : ""}</span></div>`).join("")
         + (m.delivery.some(d => d.retryable) ? `<div class="info-row"><span class="k">Files</span><span class="v">go only to members who are online when you send. Retry sends it again to that member.</span></div>` : "")
       : "";
     const info = showModal({
@@ -3746,7 +3749,7 @@ export class ChatView {
       const x = Math.min(e.currentTarget.getBoundingClientRect().left, window.innerWidth - 220);
       const attachItems = [
         { label: "Photo", icon: ICO.photo, onClick: () => this._sendAttachment("image") },
-        { label: "Video", icon: ICO.photo, onClick: () => this._sendAttachment("video") },
+        { label: "Video", icon: ICO.video, onClick: () => this._sendAttachment("video") },
         { label: "File", icon: ICO.file, onClick: () => this._sendAttachment("file") },
       ];
       // #138: encrypted upload to a Lufi server, the chat gets the link.
@@ -3759,7 +3762,7 @@ export class ChatView {
         attachItems.push({ label: "Velta Beam", icon: ICO.beam, onClick: () => this._sendDirectApp() });
       }
       if (!window.__TAURI__ && isAndroid()) {
-        attachItems.splice(1, 0, { label: "Camera", icon: ICO.photo, onClick: () => this._sendAttachment("camera") });
+        attachItems.splice(1, 0, { label: "Camera", icon: ICO.camera, onClick: () => this._sendAttachment("camera") });
       }
       // Group audio calls (docs/agents/group-calls.md): group chats only, every
       // shell (the PWA signals over status updates).

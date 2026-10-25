@@ -234,7 +234,7 @@ test("thread sheet reads as a layer over the chat: back chevron, history entry, 
   const css = readFileSync(new URL("../app/css/main.css", import.meta.url), "utf8");
   // The sheet header says "Back to chat" (a chevron), not "close a dialog".
   assert.match(src, /setAttribute\("aria-label", "Back to chat"\)/);
-  assert.match(src, /M15 6l-6 6 6 6/);
+  assert.match(src, /M15 6l-6 6 6 6|ICON\.chevronLeft/);
   assert.doesNotMatch(src, /M6 6l12 12M18 6L6 18/);
   // Android BACK closes the sheet first: it rides a history entry like the
   // modals do — push on open, popstate closes, ✕/Escape consumes the entry.
