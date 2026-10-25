@@ -246,6 +246,11 @@ const multiStepCases = [
     results: [CHAT, null, null],
   },
   {
+    name: "channel creation", run: core => core.createChat("News", [], "channel"),
+    steps: [["create_broadcast", A, "News"]],
+    results: [CHAT],
+  },
+  {
     name: "QR configuration and IO", run: core => core.configureWithQr(QR),
     steps: [["set_config_from_qr", A, QR], ["start_io", A]],
     results: [null, null],
@@ -339,6 +344,18 @@ test("mock deleteChat removes the chat instead of clearing its messages", async 
   await mock.deleteChat(chat.id);
   assert.equal(mock.chats.length, before - 1);
   assert.equal(mock.chats.some(c => c.id === chat.id), false);
+});
+
+test("mock createChat channel is outgoing; seeded channels stay read-only", async () => {
+  const mock = new MockCore();
+  mock._simTimer?.unref();
+  const seeded = mock.chats.find(c => c.kind === "channel");
+  assert.equal(await mock.canSend(seeded.id), false);
+  const id = await mock.createChat("Town", [], "channel");
+  const created = mock.chats.find(c => c.id === id);
+  assert.equal(created.kind, "channel");
+  assert.equal(created.chatType, "OutBroadcast");
+  assert.equal(await mock.canSend(id), true);
 });
 
 test("configureWithCredentials sends a flat login with a top-level password", async () => {

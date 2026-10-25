@@ -3338,6 +3338,16 @@ function newChatOptions() {
         openChat(id);
       }
     } },
+    { label: "New channel", onClick: async () => {
+      const epoch = core.accountEpoch;
+      const raw = await askText("New channel", "New channel", "Create channel");
+      if (raw == null || !accountIsCurrent(epoch)) return;
+      const id = await core.createChat(raw || "New channel", [], "channel");
+      if (!accountIsCurrent(epoch)) return;
+      await refreshChatList();
+      if (!accountIsCurrent(epoch)) return;
+      openChat(id);
+    } },
     ...(p2pEnabled() && p2pAvailable() ? [{ label: "New local group (no relay)", onClick: newLocalGroupFlow }] : []),
     { label: "Join chat via invite link", onClick: joinFlow },
     { label: "Add account via invite link", onClick: () => openProfileManagement() },

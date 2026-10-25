@@ -1921,6 +1921,9 @@ export class JsonRpcCore extends EventTarget {
     let chatId;
     if (kind === "single") {
       chatId = await this._call("create_chat_by_contact_id", accountId, contactIds[0]);
+    } else if (kind === "channel") {
+      // Outgoing broadcast. Recipients join later via the invite QR.
+      chatId = await this._call("create_broadcast", accountId, name);
     } else {
       chatId = await this._call("create_group_chat", accountId, name, false);
       for (const cid of contactIds) {

@@ -57,3 +57,11 @@ test("new-group flow settles the picker's history entry before askGroupName", ()
   assert.match(app,
     /pickContactModal\("Add group members", true\);[\s\S]{0,400}?await modalHistorySettled\(\);[\s\S]{0,200}?askGroupName\(\)/);
 });
+
+// #155: "+" list offers New channel and it creates an outgoing broadcast.
+test("new-channel action creates a broadcast channel", () => {
+  const app = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8");
+  const rpc = readFileSync(new URL("../app/js/rpc-core.js", import.meta.url), "utf8");
+  assert.match(app, /label: "New channel"[\s\S]{0,400}?createChat\([^)]*"channel"\)/);
+  assert.match(rpc, /kind === "channel"[\s\S]{0,200}create_broadcast/);
+});
