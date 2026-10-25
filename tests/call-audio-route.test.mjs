@@ -210,7 +210,7 @@ test("incoming: tracks after the remote offer and before createAnswer (answer se
   assert.equal(sdpAudioDirection(core.accepted[0]), "sendrecv");
   assert.equal(sdpDirection(core.accepted[0], "video"), "sendrecv");
   assert.ok(mgr.videoTx, "video transceiver from the offer");
-  assert.deepEqual(mgr.controls(), ["mute", "camera", "hangup", "speaker"]);
+  assert.deepEqual(mgr.controls(), ["mute", "camera", "hangup", "speaker", "earpiece"]);
 });
 
 test("incoming video call: Accept with video opens the camera; plain Accept stays audio-only", async (t) => {
@@ -252,7 +252,7 @@ test("camera mid-call: replaceTrack on the video sender, mutedState, speaker fol
   assert.ok(order.includes("replaceTrack:video:track"));
   assert.deepEqual(JSON.parse(ch.sent.at(-1)), { audioEnabled: true, videoEnabled: true });
   assert.deepEqual(route.calls.at(-1), ["speaker", true, true]); // auto: a headset keeps it
-  assert.deepEqual(mgr.controls(), ["mute", "camera", "hangup", "speaker", "flip"]);
+  assert.deepEqual(mgr.controls(), ["mute", "camera", "hangup", "speaker", "earpiece", "flip"]);
   const cam = mgr.camTrack;
   assert.equal(await mgr.toggleVideo(), false);
   assert.ok(order.includes("replaceTrack:video:null"));
@@ -311,13 +311,17 @@ test("Android: earpiece after getUserMedia, toggles, stops after the tracks", as
   await settle();
   assert.deepEqual(route.calls[0], ["start", false, true]);
   assert.equal(mgr.route, "earpiece");
-  assert.deepEqual(mgr.controls(), ["mute", "camera", "hangup", "speaker"]);
+  assert.deepEqual(mgr.controls(), ["mute", "camera", "hangup", "speaker", "earpiece"]);
   emit("outgoing-call-accepted", { msgId: 77, acceptCallInfo: sdpFor("sendrecv", "sendrecv") });
   await settle();
-  assert.equal(await mgr.toggleSpeaker(), true);
+  assert.equal(await mgr.setSpeaker(true), true);
   assert.deepEqual(route.calls.at(-1), ["speaker", true, false]); // a tap forces the loudspeaker
   assert.equal(mgr.route, "speaker");
-  assert.equal(await mgr.toggleSpeaker(), false);
+  assert.equal(await mgr.setSpeaker(false), false);
+  assert.deepEqual(route.calls.at(-1), ["speaker", false, false]);
+  const n = route.calls.length;
+  assert.equal(await mgr.setSpeaker(false), false); // repeat tap re-asserts (headset override)
+  assert.equal(route.calls.length, n + 1);
   mgr.hangUp();
   await settle();
   assert.deepEqual(route.calls.at(-1), ["stop"]);
@@ -341,7 +345,8 @@ test("no route on desktop / PWA: no speaker button, no shell calls", async (t) =
   emit("outgoing-call-accepted", { msgId: 77, acceptCallInfo: "v=0\r\n" });
   await settle();
   assert.deepEqual(mgr.controls(), ["mute", "camera", "hangup"]);
-  assert.equal(await mgr.toggleSpeaker(), false);
+  assert.equal(await mgr.setSpeaker(true), false);
+  assert.equal(mgr.controls().includes("earpiece"), false);
   mgr.hangUp();
   await settle();
   assert.deepEqual(route.calls, []);
@@ -388,19 +393,23 @@ test("avatar initial: first letter (also non-Latin), ? when empty", () => {
 });
 
 test("buttons: round icon buttons, labels, aria-pressed toggles, slashed icons when off", () => {
-  const html = callButtonsHtml(["mute", "camera", "hangup", "speaker", "flip"], { muted: false, speaker: false, video: false });
-  for (const [call, label] of [["mute", "Mute"], ["camera", "Camera"], ["hangup", "End call"], ["speaker", "Speaker"], ["flip", "Switch camera"]]) {
+  const html = callButtonsHtml(["mute", "camera", "hangup", "speaker", "earpiece", "flip"], { muted: false, speaker: false, video: false });
+  for (const [call, label] of [["mute", "Mute"], ["camera", "Camera"], ["hangup", "End call"], ["speaker", "Speaker"], ["earpiece", "Earpiece"], ["flip", "Switch camera"]]) {
     assert.match(html, new RegExp(`data-call="${call}"[^>]*aria-label="${label}"`));
   }
   assert.match(html, /data-call="mute"[^>]*aria-pressed="false"/);
   assert.match(html, /data-call="camera"[^>]*aria-pressed="false"/);
   assert.match(html, /data-call="speaker"[^>]*aria-pressed="false"/);
+  assert.match(html, /data-call="earpiece" class="call-btn call-earpiece on"[^>]*aria-pressed="true"/);
   assert.doesNotMatch(html, /data-call="hangup"[^>]*aria-pressed/);
   assert.ok(html.includes(CALL_ICONS.mic) && html.includes(CALL_ICONS.cameraOff) && html.includes(CALL_ICONS.hangup));
-  const on = callButtonsHtml(["mute", "camera", "speaker"], { muted: true, speaker: true, video: true });
+  assert.ok(html.includes(CALL_ICONS.speaker) && html.includes(CALL_ICONS.earpiece));
+  const on = callButtonsHtml(["mute", "camera", "speaker", "earpiece"], { muted: true, speaker: true, video: true });
   assert.match(on, /data-call="mute" class="call-btn call-mute on"[^>]*aria-pressed="true"/);
   assert.match(on, /data-call="camera"[^>]*aria-pressed="true"/);
-  assert.match(on, /data-call="speaker"[^>]*aria-pressed="true"/);
+  assert.match(on, /data-call="speaker" class="call-btn call-speaker on"[^>]*aria-pressed="true"/);
+  assert.match(on, /data-call="earpiece"[^>]*aria-pressed="false"/);
+  assert.doesNotMatch(on, /call-earpiece on/);
   assert.ok(on.includes(CALL_ICONS.micOff) && on.includes(CALL_ICONS.camera));
   assert.ok(CALL_ICONS.micOff.includes("M4 4l16 16"), "muted mic is slashed");
   assert.ok(/<svg viewBox="0 0 24 24" aria-hidden="true"/.test(CALL_ICONS.hangup));

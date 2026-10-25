@@ -3016,8 +3016,9 @@ do-not-regress rules; dates mark when the lesson was learned.
   WebView itself flips the mode to the loudspeaker when capture starts, so
   the route call MUST follow getUserMedia, and stop MUST follow the track
   stops (never "restore the saved mode" — it is already IN_COMMUNICATION).
-  The Speaker button (`aria-pressed`, fixed label) shows only where the
-  route adapter is supported (Tauri + Android); desktop/PWA hide it. Video
+  Speaker and Earpiece (`aria-pressed`, fixed labels, only the active one
+  highlighted) show only where the route adapter is supported (Tauri +
+  Android); desktop/PWA hide both. Video
   calls would default to the loudspeaker (`defaultSpeakerOn`). Call traces
   (`[call] …`) go to the Diagnostics chat only with VELTA_DEBUG; native
   lines are logcat tag `VeltaCallAudio`. Details: docs/agents/calls.md.

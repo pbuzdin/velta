@@ -2532,9 +2532,10 @@ html[data-theme="light"] .acct-pop .ctx-item {
 .call-btn.danger { background: var(--call-danger); color: var(--call-danger-fg); }
 .call-btn.accept { background: var(--call-accept); color: var(--call-accept-fg); }
 .call-btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
-@media (max-width: 360px) {
-  .call-actions { gap: 8px; }
-  .call-btn { --call-btn-size: 50px; }
+@media (max-width: 430px) {
+  /* Six buttons (mute, camera, end, speaker, earpiece, flip) fit 320px. */
+  .call-actions { gap: 6px; }
+  .call-btn { --call-btn-size: 44px; }
   .call-btn svg { width: var(--ico-4); height: var(--ico-4); }
 }
 html[data-theme="brutal"] .call-btn { border: 2px solid var(--nb-ink); box-shadow: 3px 3px 0 var(--nb-ink); }

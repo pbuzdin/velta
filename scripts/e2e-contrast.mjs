@@ -157,7 +157,7 @@ const callScreen = state => async page => {
     const box = document.createElement('div'); box.id = 'call-overlay'
     box.innerHTML = `<div class="call-top"><div class="call-name">Ada Byron</div><div class="call-status" role="status">${st === 'in' ? 'Incoming call…' : '03:42'}</div></div><div class="call-avatar"><span class="call-avatar-initial">A</span></div><div class="call-actions"></div>`
     document.body.appendChild(box)
-    box.querySelector('.call-actions').innerHTML = callButtonsHtml(st === 'in' ? ['decline', 'accept-video', 'accept'] : ['mute', 'speaker', 'camera', 'hangup'], { muted: true })
+    box.querySelector('.call-actions').innerHTML = callButtonsHtml(st === 'in' ? ['decline', 'accept-video', 'accept'] : ['mute', 'speaker', 'earpiece', 'camera', 'hangup'], { muted: true })
   }, state)
   await page.waitForTimeout(150)
 }

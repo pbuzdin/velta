@@ -100,7 +100,7 @@ Denied mic on accept = toast `MIC_DENIED_MSG`, the call keeps ringing
 Routing: `defaultSpeakerOn(hasVideo)` — video starts on the loudspeaker,
 audio on the earpiece. Camera on mid-call → loudspeaker, off → earpiece;
 both are `auto` switches (a connected headset keeps the audio). Only a tap
-on Speaker forces the loudspeaker over a headset.
+on Speaker or Earpiece forces that side over a headset.
 
 Flip camera: shown while video is on and `enumerateDevices` lists > 1
 `videoinput`. Stops the old track first (phones cannot open two cameras),
@@ -118,12 +118,13 @@ photo (`callPeerInfo` in app.js: chat/contact `profileImage` via
 `fileUrl`) over its initial on the contact's core color (`avatarColor`, the
 color Velta uses for that contact elsewhere); remote video full screen
 replaces the avatar; the local preview is a draggable PiP (pointer events,
-mirrored for the front camera). Bottom row of round buttons, End call in the
-middle of the full row: Mute, Camera, End call (red, handset-down icon),
-Speaker (Android), Switch camera. Fixed `aria-label`s; toggles carry
-`aria-pressed` (Mute pressed = muted with a slashed mic, Camera pressed =
-on, Speaker pressed = loudspeaker). 56px buttons, 50px below 360px: five fit
-320px (checked by `scripts/e2e-call-audio.mjs`). The overlay is
+mirrored for the front camera). Bottom row of round buttons: Mute, Camera,
+End call (red, handset-down icon), Speaker and
+Earpiece (Android, only the active one highlighted), Switch camera. Fixed
+`aria-label`s; toggles carry `aria-pressed` (Mute pressed = muted with a
+slashed mic, Camera pressed = on, Speaker pressed = loudspeaker, Earpiece
+pressed = earpiece). 56px buttons, 44px below 430px: six fit 320px (checked
+by `scripts/e2e-call-audio.mjs`). The overlay is
 `role="dialog" aria-modal`.
 
 ## Android audio route (earpiece default, speaker toggle)
@@ -131,7 +132,7 @@ on, Speaker pressed = loudspeaker). 56px buttons, 50px below 360px: five fit
 - `CallManager` gets an injected route adapter; the default
   `shellAudioRoute()` is supported only in the Tauri shell on Android
   (`isTauri() && isAndroid()`). Desktop and the PWA report unsupported and
-  the Speaker button is hidden there (a desktop has no earpiece; `setSinkId`
+  the Speaker and Earpiece buttons are hidden there (a desktop has no earpiece; `setSinkId`
   output pickers are a separate feature, not this toggle).
 - `startRoute()` runs right AFTER getUserMedia: Chromium's WebView switches
   the audio mode itself when capture starts (AudioManagerAndroid, which picks
@@ -156,13 +157,13 @@ on, Speaker pressed = loudspeaker). 56px buttons, 50px below 360px: five fit
 - Shell calls are serialized (`queueRoute`) so a stop never overtakes a start.
 - `auto` flag (`call_audio_start/speaker(…, auto)`, Kotlin `autoRoute`):
   automatic switches (call start, camera on/off, headset plug) let a
-  connected headset win over the loudspeaker; a Speaker tap is not auto.
+  connected headset win over the loudspeaker; a Speaker or Earpiece tap is not auto.
 
 ## Buttons
 
 `callButtonsHtml()` (pure, node-tested) renders every button; icons are
-`CALL_ICONS` (24-unit viewBox, currentColor, header-icon style). Speaker
-only when the route adapter is supported (Tauri + Android). Re-render keeps
+`CALL_ICONS` (24-unit viewBox, currentColor, header-icon style). Speaker and
+Earpiece only when the route adapter is supported (Tauri + Android). Re-render keeps
 keyboard focus on the same button.
 
 ## Debugging on a device
@@ -208,7 +209,7 @@ Where to read them (CI APKs are release builds, so `run-as` does not work):
   lookup, the core returns `[]`. `safeIceServers()` then uses
   `FALLBACK_ICE_SERVERS` (turn.delta.chat by hostname, same public
   credentials as the core's fallback): the browser resolves the name itself.
-- Speaker button: hidden (`shellAudioRoute().supported` is false outside the
+- Speaker and Earpiece buttons: hidden (`shellAudioRoute().supported` is false outside the
   Android shell); the browser/OS picks the output.
 - getUserMedia prompts are the browser's own; the page is HTTPS, so it is
   allowed. A denied mic is caught by `startCallIfMicOk`.

@@ -200,7 +200,7 @@ try {
     await A.evaluate(() => { window.mgr.cameraCount = 2; window.mgr.render() })
     await sleep(200)
     const u320 = await ui(A)
-    check(!u320.overflow && u320.buttons.length === 5, `buttons fit 320px: ${u320.buttons.join(', ')}`)
+    check(!u320.overflow && u320.buttons.length === 6, `buttons fit 320px: ${u320.buttons.join(', ')}`)
     if (shots) await A.screenshot({ path: join(shots, 'call-buttons-320.png') })
     for (const l of await A.evaluate(() => window.__logs.slice(0, 40))) console.log('  A log:', l)
     await hangup(A, B)
