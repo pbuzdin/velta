@@ -1336,7 +1336,7 @@ async function renderLocalChatCard() {
   if (sig === lcCardSig) { el.hidden = false; return; }
   lcCardSig = sig;
   el.hidden = false;
-  const wifiSvg = `<svg viewBox="0 0 24 24" width="18" height="18"><path d="M2.5 9.5a14 14 0 0119 0M5.5 13a9.5 9.5 0 0113 0M8.5 16.5a5 5 0 017 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="19.5" r="1.4" fill="currentColor"/></svg>`;
+  const loopSvg = `<svg viewBox="0 0 624 590" width="21" height="20" aria-hidden="true"><g fill="currentColor" transform="translate(68.6 64.9) scale(0.78)"><polygon points="0,0 191,0 402,420 314,590"/><polygon points="434,0 624,0 420,385 341,225"/></g><path d="M510,267.1 A200,200 0 0 1 386.9,480.4" fill="none" stroke="currentColor" stroke-width="40"/><path d="M114,267.1 A200,200 0 0 0 237.1,480.4" fill="none" stroke="currentColor" stroke-width="40"/></svg>`;
   const short = (model.device.nodeId || "").slice(0, 8);
   const peerRows = model.peers.map(p => `
     <div class="lc-row" data-open="${escapeAttr(p.id)}">
@@ -1361,10 +1361,11 @@ async function renderLocalChatCard() {
     </div>`).join("");
   el.innerHTML = `
     <div class="lc-card-head${lcCardOpen ? " open" : ""}" data-toggle>
-      ${wifiSvg}
-      <span class="lc-card-title">Local chat</span>
+      ${loopSvg}
+      <span class="lc-card-title">Velta Loop</span>
       <span class="lc-card-chevron"><svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
     </div>
+    <div class="bar-opts-hint ctx-hint">Local chat — serverless rooms with people on this network</div>
     <div class="lc-card-body">
       <div class="lc-device">This device: <b>${escapeHtml(model.device.name)}</b>${short ? ` <span class="lc-nodeid">(${escapeHtml(short)})</span>` : ""} <button type="button" class="btn-text" data-rename>Edit name</button></div>
       <div class="lc-actions">

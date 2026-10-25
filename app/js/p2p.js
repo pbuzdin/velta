@@ -76,7 +76,7 @@ async function handleEvent(ev) {
     const peer = ev.peerId ? ` (${shortId(ev.peerId)})` : "";
     diagnosticsSink.append("warning", `Local chat${peer}: ${ev.message || "error"}`);
   }
-  if (ev.kind === "message") notifyIncoming(ev.name || "Local chat", (ev.text || "").slice(0, 120));
+  if (ev.kind === "message") notifyIncoming(ev.name || "Velta Loop", (ev.text || "").slice(0, 120));
   // Group text: "<group> · <sender>" as the title, like a relay group.
   if (ev.kind === "group-message") {
     notifyIncoming(`${lcGroupName(ev.gid)} · ${ev.name || "member"}`, (ev.text || "").slice(0, 120));
