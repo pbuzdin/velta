@@ -297,13 +297,16 @@ const ICO = {
   info: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 10v6M12 7v.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`,
   download: `<svg viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M4 19h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   photo: `<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="10" r="1.6" fill="currentColor"/><path d="M4 17l5-5 3.5 3.5L16 12l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`,
-  // Velta Beam: beam bar over a split V, the shapes of app/webxdc/send-direct/icon.svg
-  // (1024 grid) rescaled to 24: 16px wide (solid, so narrower than the outlined icons), centred like the other attach icons.
-  beam: `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M4 4.17L20 4.17L20 5.78L4 5.78ZM4.95 6.54L9.01 6.54L13.99 16.1L12.08 19.83ZM15.02 6.54L19.08 6.54L14.45 15.39L12.54 11.5Z"/></svg>`,
-  // Velta Circle: five dots around the Beam V (no beam bar), the shapes of
-  // app/webxdc/group-call/icon.svg (1024 grid) rescaled to 24, solid like beam.
-  circle: `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M10.31 4.27a1.69 1.69 0 1 0 3.38 0a1.69 1.69 0 1 0 -3.38 0ZM17.67 9.61a1.69 1.69 0 1 0 3.38 0a1.69 1.69 0 1 0 -3.38 0ZM14.86 18.26a1.69 1.69 0 1 0 3.38 0a1.69 1.69 0 1 0 -3.38 0ZM5.77 18.26a1.69 1.69 0 1 0 3.38 0a1.69 1.69 0 1 0 -3.38 0ZM2.96 9.61a1.69 1.69 0 1 0 3.38 0a1.69 1.69 0 1 0 -3.38 0ZM7.46 7.73L10.07 7.73L13.27 13.87L12.04 16.27ZM13.93 7.73L16.54 7.73L13.57 13.41L12.34 10.92Z"/></svg>`,
+  // Velta Beam: the site mark — bar broken into three progress segments
+  // (file going across, checksum tail) over the split-V struts — scaled to
+  // fill the 24 grid so the solid icon matches the outlined icons' weight.
+  beam: `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M1.00,1.23L12.60,1.23L12.60,3.44L1.00,3.44ZM14.32,1.23L19.59,1.23L19.59,3.44L14.32,3.44ZM21.40,1.23L23.60,1.23L23.60,3.44L21.40,3.44ZM2.30,4.50L7.89,4.50L14.74,17.64L12.11,22.77ZM16.15,4.50L21.73,4.50L15.37,16.66L12.74,11.31Z"/></svg>`,
+  // Velta Circle: five dots around the Beam V, rescaled to fill the grid
+  // (was drawn at 16px inside 24 — the "small icon" complaint).
+  circle: `<svg viewBox="0 0 24 24"><g fill="currentColor"><circle cx="12.00" cy="3.49" r="2.05"/><circle cx="20.94" cy="9.99" r="2.05"/><circle cx="17.53" cy="20.51" r="2.05"/><circle cx="6.47" cy="20.51" r="2.05"/><circle cx="3.06" cy="9.99" r="2.05"/><path d="M4.13,7.26L8.67,7.26L14.22,17.91L12.09,22.07ZM15.36,7.26L19.89,7.26L14.74,17.12L12.60,12.78Z"/></g></svg>`,
   file: `<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 3v4h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`,
+  // Large file (#138, Lufi upload): the file outline carrying an L.
+  fileL: `<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 3v4h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 10v6.5h4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   webxdc: `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="3" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="3" y="13" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M17.5 13.5v6m-3-3h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
   mic: `<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 11a7 7 0 0014 0M12 18v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
   lock: `<svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 018 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>`,
@@ -3680,7 +3683,7 @@ export class ChatView {
       // #138: encrypted upload to a Lufi server, the chat gets the link.
       // Shell-only (proxy-aware sockets); local chats send files directly.
       if (largeFileAvailable() && !this.chat?.isP2p) {
-        attachItems.push({ label: "Large file", icon: ICO.file, onClick: () => this._sendLargeFile() });
+        attachItems.push({ label: "Large file", icon: ICO.fileL, onClick: () => this._sendLargeFile() });
         // #138 part 2: built-in webxdc that streams a file peer to peer over
         // the instance's realtime channel (iroh gossip) — webxdc runs in the
         // Tauri shell only.
@@ -3692,7 +3695,7 @@ export class ChatView {
       // Group audio calls (docs/agents/group-calls.md): group chats only, every
       // shell (the PWA signals over status updates).
       if (this.chat?.kind === "group" && !this.chat?.isP2p) {
-        attachItems.push({ label: "Group call", icon: ICO.circle, onClick: () => this._startGroupCall() });
+        attachItems.push({ label: "Velta Circle", icon: ICO.circle, onClick: () => this._startGroupCall() });
       }
       // Voice messages are not supported in local chat — hide the item there.
       if (!this.chat?.isP2p) {
