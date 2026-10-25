@@ -38,7 +38,7 @@
   color-scheme: light;
   --bg: #f4f4f4;
   --fg: #16181d;
-  --muted: #656a76;
+  --muted: #4d525a;
   --accent: #3390ec;
   --accent-fg: #10141a;
   --accent-hover: #5aabf2;
@@ -59,7 +59,7 @@
     color-scheme: dark;
     --bg: #0f0f14;
     --fg: #f2f2f5;
-    --muted: #8b8b96;
+    --muted: #a6a6b0;
     --accent: #5aa2e6;
     --accent-fg: #0e141c;
     --accent-hover: #7db4ec;
@@ -87,6 +87,7 @@ html {
 body {
   margin: 0;
   min-height: 100vh;
+  min-height: 100svh;
   background: var(--bg);
   color: var(--fg);
   font-family: var(--sans);
@@ -98,6 +99,7 @@ h1, h2, h3 {
   font-family: var(--display);
   font-weight: 500;
   line-height: 1.15;
+  letter-spacing: -0.02em;
   text-wrap: balance;
 }
 
@@ -271,11 +273,10 @@ body > main > header.page {
   border-top: 0;
 }
 #hero h1 {
-  max-width: 16ch;
+  max-width: 12ch;
   margin: 0.75rem 0 0;
-  font-size: clamp(2.6rem, 5vw, 3.75rem);
+  font-size: clamp(3.2rem, 7vw, 6rem);
 }
-#hero > div > p:first-child,
 .kicker {
   margin: 0;
   color: var(--muted);
@@ -284,7 +285,7 @@ body > main > header.page {
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
-#hero > div > p:nth-of-type(2) {
+#hero > div > p:nth-of-type(1) {
   max-width: 38rem;
   color: var(--muted);
   font-size: 1.125rem;
@@ -427,12 +428,11 @@ article.card p, #platforms li, #features p { color: var(--muted); }
 #privacy ol { margin: 0; padding: 0; list-style: none; }
 #privacy li {
   display: grid;
-  grid-template-columns: 2rem 1fr;
+  grid-template-columns: 1fr;
   gap: 0.75rem;
   padding: 1.1rem 0;
   border-top: 1px solid var(--line);
 }
-#privacy li span { color: var(--muted); font-variant-numeric: tabular-nums; }
 #privacy h3 { margin: 0; font-family: var(--sans); font-size: 1rem; font-weight: 500; }
 #privacy li p { margin: 0.25rem 0 0; }
 
@@ -529,7 +529,7 @@ footer > p {
   padding-top: 1.25rem;
   border-top: 1px solid var(--line);
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
 }
 footer img { width: 2rem; height: 2rem; vertical-align: middle; }
 footer .brand {
@@ -581,6 +581,8 @@ main.page aside a strong { display: block; font-family: var(--display); font-siz
   /* footer link groups side by side on mobile; the brand block spans both */
   footer > div { grid-template-columns: 1fr 1fr; }
   footer > div > div:first-child { grid-column: 1 / -1; }
+  /* mobile: date drops under the headline so it doesn't read as an eyebrow */
+  .news-list time { order: 2; }
   #hero dl { grid-template-columns: 1fr 1fr; }
   #features ul { grid-template-columns: 1fr 1fr; }
   #download ul { grid-template-columns: 1fr 1fr; }
