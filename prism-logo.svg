@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 624 590" role="img" aria-label="Velta Prism">
+  <title>Velta Prism</title>
+  <!-- Mono website mark: the brand V's left arm solid, the right arm cut
+       into five bands with the even ones left open (true transparency) —
+       three people's colors showing through the V. Fill follows the page
+       theme. -->
+  <style>
+    svg { color: #1a1a1a; }
+    @media (prefers-color-scheme: dark) { svg { color: #f2f2f5; } }
+  </style>
+  <g fill="currentColor">
+    <polygon points="0,0 191,0 402,420 314,590"/>
+    <polygon points="434.0,0 472.0,0 356.8,257.0 341.0,225.0"/>
+    <polygon points="510.0,0 548.0,0 388.4,321.0 372.6,289.0"/>
+    <polygon points="586.0,0 624.0,0 420.0,385.0 404.2,353.0"/>
+  </g>
+</svg>
