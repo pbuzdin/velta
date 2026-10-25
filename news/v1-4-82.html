@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Velta 1.4.82 adds French, Russian, and an app catalog — Velta</title>
+  <meta name="description" content="The interface can be French or Russian, the attach menu browses mini-apps, and opening someone's profile no longer stalls on a large account.">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css?v=8">
+  <script type="speculationrules">
+{
+  "prerender": [{
+    "source": "document",
+    "where": { "and": [
+      { "href_matches": "/*" },
+      { "not": { "href_matches": "/web/*" } },
+      { "not": { "href_matches": "/admin/*" } },
+      { "not": { "selector": "a[target]" } },
+      { "not": { "selector": "a[download]" } }
+    ] },
+    "eagerness": "moderate" }
+  ]
+}
+  </script>
+</head>
+<body>
+  <a href="#content">Skip to content</a>
+  <header>
+    <a href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+    <nav aria-label="Sections">
+      <a href="/#product">Product</a>
+      <a href="/#features">Features</a>
+      <a href="/#privacy">Privacy</a>
+      <a href="/#platforms">Platforms</a>
+      <a href="/#help">Help</a>
+      <a href="/#support">Support</a>
+      <a href="/news" aria-current="page">News</a>
+      <a href="/web/">Web app</a>
+    </nav>
+    <a href="/#download"><span>Get</span><span>Download</span></a>
+    <details>
+      <summary>Menu</summary>
+      <nav aria-label="Mobile">
+        <a href="/#product">Product</a>
+        <a href="/#features">Features</a>
+        <a href="/#privacy">Privacy</a>
+        <a href="/#platforms">Platforms</a>
+        <a href="/#help">Help</a>
+        <a href="/#support">Support</a>
+        <a href="/news">News</a>
+        <a href="/web/">Web app</a>
+      </nav>
+    </details>
+  </header>
+
+  <main id="content" class="page">
+<!-- CMS:START -->
+    <p><a href="/news">News</a></p>
+    <p class="kicker">Release</p>
+    <h1>Velta 1.4.82 adds French, Russian, and an app catalog</h1>
+    <p><time>25 October 2026</time> · 3 min read</p>
+    <p>The interface can be French or Russian, the attach menu browses mini-apps, and opening someone’s profile no longer stalls on a large account.</p>
+    <div class="body">
+      <p>Version 1.4.82 keeps the same core. The release is the language picker, a catalog of mini-apps, and a profile that opens straight away.</p>
+<h2>Français and Русский</h2>
+<p>Settings → Language now lists <strong>English</strong>, <strong>Français</strong>, and <strong>Русский</strong>. The choice is per device and reloads the app. Text that has no translation yet stays English, so a half-finished language file still leaves a usable screen. An exported settings message includes the choice.</p>
+<h2>Apps and Commands in the attach menu</h2>
+<p><strong>Apps</strong> lists mini-apps you recently sent or opened. <strong>Browse apps…</strong> loads a webxdc catalog. Extra catalog addresses are tried in turn when one does not answer. <strong>Commands</strong> inserts a recent command into the composer. It does not send the message.</p>
+<h2>A profile opens without walking every chat</h2>
+<p>Tapping a group avatar used to walk every chat before the profile appeared, which stalled on a large account. <strong>Chats in common</strong> now loads when you open that section.</p>
+<h2>Also in this release</h2>
+<ul>
+<li>A swipe on a video poster or an invite card replies or goes back. The tap that follows does not play the video or join the invite.</li>
+<li>The video player resumes where you left off, fills the screen, and keeps the playback speed you last chose. The reply button stays beside the bubble on a phone.</li>
+<li>Android calls show <strong>Speaker</strong> and <strong>Earpiece</strong>. Only the active route is highlighted, and a second tap can still override a headset.</li>
+</ul>
+<p>Under the hood: no core bump, chatmail core <strong>2.65.0</strong> carries over. Receiving a profile on a second device starts mail when the transfer finishes, so the relay line does not stay on “no relay configured”. Switching chats releases video and audio decoders that have left the screen. The release notes also cover the 1 MB download floor, leaving a group or broadcast before it is deleted, <strong>Add a relay to this account</strong>, a named new channel, click-to-copy text, and the relay flags.</p>
+<ul>
+<li><a href="https://github.com/pbuzdin/velta/releases/tag/v1.4.82">Release notes</a></li>
+<li><a href="https://github.com/pbuzdin/velta/compare/v1.4.81...v1.4.82">Compare with 1.4.81</a></li>
+</ul>
+    </div>
+    <aside>
+      <h2>Get the current build</h2>
+      <p>The current build for Android, Windows, and macOS, plus notes for a self-hosted browser copy.</p>
+      <p><strong><a href="/#download">Download</a></strong></p>
+    </aside>
+<!-- CMS:END -->
+  </main>
+
+  <footer>
+    <div>
+      <div>
+        <a class="brand" href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+        <p>A Delta Chat client. Encrypted chat through chatmail relays — or straight across, device to device, when it should not sit on a server.</p>
+      </div>
+      <div>
+        <h2>On this site</h2>
+        <ul>
+          <li><a href="/#download">Download</a></li>
+          <li><a href="/#privacy">Privacy</a></li>
+          <li><a href="/#support">Support</a></li>
+          <li><a href="/#help">Help</a></li>
+          <li><a href="/news">News</a></li>
+          <li><a href="/about.html">About</a></li>
+          <li><a href="/developing.html">Developing</a></li>
+          <li><a href="/comparison.html">Compare</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Project</h2>
+        <ul>
+          <li><a href="https://github.com/pbuzdin/velta">GitHub</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/releases">All releases</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/LICENSE">GPL-3.0</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/README.md">README</a></li>
+          <li><a href="/admin/">Edit site</a></li>
+        </ul>
+      </div>
+    </div>
+    <p><span>Independent client. Delta Chat and Chatmail are upstream projects.</span><span>Built on the Delta Chat core</span><span>Site visits measured cookielessly — the app never phones home</span></p>
+  </footer>
+  <script src="/js/site.js?v=3"></script>
+</body>
+</html>
