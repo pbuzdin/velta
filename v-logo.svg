@@ -1,45 +1,14 @@
 <svg width="624" height="590" viewBox="0 0 624 590" fill="none" xmlns="http://www.w3.org/2000/svg">
   <title>Velta V logo</title>
-<path d="M0 0H191L152 98L0 0Z" fill="url(#paint0_linear_1_11)"/>
-<path d="M0 0L152 98L314 424V590L0 0Z" fill="url(#paint1_linear_1_11)"/>
-<path d="M152 98L191 0L402 420L314 424L152 98Z" fill="url(#paint2_linear_1_11)"/>
-<path d="M314 424L402 420L314 590V424Z" fill="url(#paint3_linear_1_11)"/>
-<path d="M434 0H624L483 91L434 0Z" fill="url(#paint4_linear_1_11)"/>
-<path d="M434 0L483 91L407 258L341 225L434 0Z" fill="url(#paint5_linear_1_11)"/>
-<path d="M483 91L624 0L420 385L407 258L483 91Z" fill="url(#paint6_linear_1_11)"/>
-<path d="M341 225L407 258L420 385L341 225Z" fill="url(#paint7_linear_1_11)"/>
-<defs>
-<linearGradient id="paint0_linear_1_11" x1="96" y1="0" x2="96" y2="98" gradientUnits="userSpaceOnUse">
-<stop stop-color="#C3EAFE"/>
-<stop offset="1" stop-color="#92DBFB"/>
-</linearGradient>
-<linearGradient id="paint1_linear_1_11" x1="102" y1="30" x2="252" y2="570" gradientUnits="userSpaceOnUse">
-<stop stop-color="#57ACDF"/>
-<stop offset="1" stop-color="#1F5593"/>
-</linearGradient>
-<linearGradient id="paint2_linear_1_11" x1="232" y1="30" x2="362" y2="415" gradientUnits="userSpaceOnUse">
-<stop stop-color="#6FB6E5"/>
-<stop offset="1" stop-color="#3A80C2"/>
-</linearGradient>
-<linearGradient id="paint3_linear_1_11" x1="358" y1="422" x2="330" y2="590" gradientUnits="userSpaceOnUse">
-<stop stop-color="#58B4EC"/>
-<stop offset="1" stop-color="#4A90C4"/>
-</linearGradient>
-<linearGradient id="paint4_linear_1_11" x1="529" y1="0" x2="529" y2="91" gradientUnits="userSpaceOnUse">
-<stop stop-color="#C3EAFE"/>
-<stop offset="1" stop-color="#92DBFB"/>
-</linearGradient>
-<linearGradient id="paint5_linear_1_11" x1="462" y1="50" x2="382" y2="250" gradientUnits="userSpaceOnUse">
-<stop stop-color="#57BAEE"/>
-<stop offset="1" stop-color="#3F8FCC"/>
-</linearGradient>
-<linearGradient id="paint6_linear_1_11" x1="542" y1="40" x2="442" y2="370" gradientUnits="userSpaceOnUse">
-<stop stop-color="#4E9AD2"/>
-<stop offset="1" stop-color="#2F6DAD"/>
-</linearGradient>
-<linearGradient id="paint7_linear_1_11" x1="377" y1="240" x2="414" y2="380" gradientUnits="userSpaceOnUse">
-<stop stop-color="#2E6FAE"/>
-<stop offset="1" stop-color="#19447D"/>
-</linearGradient>
-</defs>
+  <!-- Flat faceted: same facets as ever, flat fills instead of the glossy
+       8-gradient bevel. Left arm deep, right arm one step lighter (the lit
+       crossover); caps lightest. -->
+<path d="M0 0H191L152 98L0 0Z" fill="#92DBFB"/>
+<path d="M0 0L152 98L314 424V590L0 0Z" fill="#1F5593"/>
+<path d="M152 98L191 0L402 420L314 424L152 98Z" fill="#3A80C2"/>
+<path d="M314 424L402 420L314 590V424Z" fill="#2E6FAF"/>
+<path d="M434 0H624L483 91L434 0Z" fill="#C3EAFE"/>
+<path d="M434 0L483 91L407 258L341 225L434 0Z" fill="#57BAEE"/>
+<path d="M483 91L624 0L420 385L407 258L483 91Z" fill="#3F8FCC"/>
+<path d="M341 225L407 258L420 385L341 225Z" fill="#4FA6E3"/>
 </svg>
