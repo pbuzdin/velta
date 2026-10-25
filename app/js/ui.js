@@ -11,6 +11,7 @@ import { isAndroid, isTauri, tauriInvoke } from "./tauri.js";
 import { collectDeviceInfo, formatDeviceInfo, measureSafeArea } from "./device-info.js";
 import { canShareLink, shareLink } from "./qr-actions.js";
 import { MD_HINT, MD_REENABLED_NOTE, DL_LIMIT_HINT, mdLabel } from "./multidevice.js";
+import { videoPosKey, videoResumeSeconds, rememberVideoPos } from "./video-pos.js";
 
 const popups = () => document.getElementById("popups");
 
@@ -1889,19 +1890,54 @@ export function openImageLightbox(src, caption = "") {
   });
 }
 
+const VIDEO_POS_KEY = "velta-video-pos";
+const VIDEO_RATE_KEY = "velta-video-rate";
+const VIDEO_RATES = [0.5, 1, 1.25, 1.5, 2];
+
+function loadVideoPos(src) {
+  try {
+    const all = JSON.parse(localStorage.getItem(VIDEO_POS_KEY) || "{}");
+    return all && typeof all === "object" ? all[videoPosKey(src)] : 0;
+  } catch { return 0; }
+}
+
+function saveVideoPos(src, seconds) {
+  const key = videoPosKey(src);
+  if (!key) return;
+  try {
+    const all = JSON.parse(localStorage.getItem(VIDEO_POS_KEY) || "{}");
+    localStorage.setItem(VIDEO_POS_KEY, JSON.stringify(rememberVideoPos(all, key, seconds)));
+  } catch {}
+}
+
+function savedVideoRate() {
+  try {
+    const n = Number(localStorage.getItem(VIDEO_RATE_KEY));
+    if (VIDEO_RATES.includes(n)) return n;
+  } catch {}
+  return 1;
+}
+
 // Video lightbox: same shell as the image lightbox (bar + close + history
 // entry), stage hosts a <video controls autoplay>. No pinch-zoom - the
 // player's own controls cover it. Click on the video does NOT close
 // (it toggles play/pause natively); close = button/Esc/BACK.
+// Stretch fills the screen (cover, aspect kept). Speed is the last choice.
+// Position is saved per file and restored on the next open.
 export function openVideoLightbox(src, caption = "") {
   closeAllPopups();
   teardownLightbox(false);
+  const rate = savedVideoRate();
   const overlay = document.createElement("div");
   overlay.className = "lightbox lightbox-video";
   overlay.innerHTML = `
     <div class="lightbox-bar">
       <span class="lightbox-cap"></span>
-      <button type="button" class="lightbox-close" aria-label="Close" title="Close"></button>
+      <span class="lightbox-tools">
+        <button type="button" class="lightbox-stretch" aria-pressed="false" aria-label="Stretch" title="Stretch">Stretch</button>
+        <select class="lightbox-speed" aria-label="Playback speed">${VIDEO_RATES.map((r) => `<option value="${r}"${r === rate ? " selected" : ""}>${r}×</option>`).join("")}</select>
+        <button type="button" class="lightbox-close" aria-label="Close" title="Close"></button>
+      </span>
     </div>
     <div class="lightbox-stage"><video class="lightbox-video" controls autoplay playsinline></video></div>`;
   overlay.querySelector(".lightbox-close").innerHTML = CLOSE_SVG;
@@ -1909,14 +1945,47 @@ export function openVideoLightbox(src, caption = "") {
   raiseToasts();
   overlay.querySelector(".lightbox-cap").textContent = caption;
   const video = overlay.querySelector("video");
+  video.playbackRate = rate;
   video.src = src;
   lightboxEl = overlay;
   if (history.state?.velta !== "lightbox") history.pushState({ velta: "lightbox" }, "");
+
+  // Ignore a currentTime under 1s. A pause before the resume seek would
+  // otherwise wipe the bookmark. 0 is written only once playback is past that.
+  const commit = () => {
+    if (!(video.duration > 0)) return;
+    const t = video.currentTime;
+    const keep = videoResumeSeconds(t, video.duration);
+    if (keep) saveVideoPos(src, keep);
+    else if (t >= 1) saveVideoPos(src, 0);
+  };
+  video.addEventListener("loadedmetadata", () => {
+    const t = videoResumeSeconds(loadVideoPos(src), video.duration);
+    if (t) video.currentTime = t;
+  });
+  let savedAt = 0;
+  video.addEventListener("timeupdate", () => {
+    const now = Date.now();
+    if (now - savedAt < 2000) return;
+    savedAt = now;
+    commit();
+  });
+  video.addEventListener("pause", commit);
 
   const close = () => teardownLightbox(true);
   lightboxOnKey = e => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
   document.addEventListener("keydown", lightboxOnKey, true);
   overlay.querySelector(".lightbox-close").addEventListener("click", close);
+  overlay.querySelector(".lightbox-stretch").addEventListener("click", () => {
+    const on = overlay.classList.toggle("is-stretch");
+    overlay.querySelector(".lightbox-stretch").setAttribute("aria-pressed", on ? "true" : "false");
+  });
+  overlay.querySelector(".lightbox-speed").addEventListener("change", (e) => {
+    const n = Number(e.target.value);
+    if (!VIDEO_RATES.includes(n)) return;
+    video.playbackRate = n;
+    try { localStorage.setItem(VIDEO_RATE_KEY, String(n)); } catch {}
+  });
   // the video's own clicks toggle play/pause - never bubble into stage close
   video.addEventListener("click", e => e.stopPropagation());
 }

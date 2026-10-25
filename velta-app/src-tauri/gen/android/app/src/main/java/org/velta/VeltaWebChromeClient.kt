@@ -14,6 +14,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebView
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.ComponentActivity
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -101,8 +102,14 @@ class VeltaWebChromeClient(
     customView = null
     backCallback?.remove()
     backCallback = null
+    // Transient-bars behavior is window state. Left set, show() brings the
+    // status bar back as an overlay and env(safe-area-inset-top) stays 0, so
+    // the header draws under it (#152).
+    insetsController?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
     insetsController?.show(WindowInsetsCompat.Type.systemBars())
     insetsController = null
+    val decor = activity.window.decorView
+    decor.post { ViewCompat.requestApplyInsets(decor) }
     if (!fromWebView) {
       // We initiated the exit (BACK): tell the WebView its fullscreen attempt
       // is over so it restores the video element inline.
