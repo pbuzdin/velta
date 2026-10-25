@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="126 95 772 772" role="img" aria-label="Velta Circles">
+  <title>Velta Circles</title>
+  <!-- Mono website mark: five people in a ring around the Velta Beam glyph
+       with its bar removed — same construction as the group-call webxdc
+       icon, without the app-icon tile. Fill follows the page theme. -->
+  <style>
+    .g { fill: #1a1a1a; }
+    @media (prefers-color-scheme: dark) { .g { fill: #f2f2f5; } }
+  </style>
+  <g class="g">
+    <circle cx="512" cy="182" r="72"/>
+    <circle cx="825.8" cy="410" r="72"/>
+    <circle cx="706" cy="779" r="72"/>
+    <circle cx="318" cy="779" r="72"/>
+    <circle cx="198.2" cy="410" r="72"/>
+    <g transform="translate(512 512) scale(0.7) translate(-512.5 -574)">
+      <polygon points="236,314 395,314 590,688 515,834"/>
+      <polygon points="630,314 789,314 608,660 533,508"/>
+    </g>
+  </g>
+</svg>

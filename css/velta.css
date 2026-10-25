@@ -411,7 +411,9 @@ article.card p, #platforms li, #features p { color: var(--muted); }
   font-size: 1rem;
   font-weight: 500;
 }
-#features li img { width: 2rem; height: 2rem; border-radius: 8px; }
+/* brand logos float to the tile's top-right; only Velta-original
+   features carry one (Beam, Circle) */
+#features li img { width: 2rem; height: 2rem; border-radius: 8px; float: right; margin: 0 0 0.5rem 0.75rem; }
 #features > div:first-child {
   display: flex;
   flex-wrap: wrap;
