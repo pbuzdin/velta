@@ -71,9 +71,9 @@ test("Tauri bundles the app (prepare_builtin_xdc group-call)", () => {
   assert.match(rs, /include_bytes!\("\.\.\/\.\.\/\.\.\/app\/builtin\/group-call\.xdc"\)/);
 });
 
-test("chat entry point: group chats get 'Group call' in the attach menu", () => {
+test("chat entry point: group chats get 'Velta Circle' in the attach menu", () => {
   const cv = src("app/js/chat-view.js").toString();
-  assert.match(cv, /this\.chat\?\.kind === "group" && !this\.chat\?\.isP2p\) \{\s*attachItems\.push\(\{ label: "Group call"/);
+  assert.match(cv, /this\.chat\?\.kind === "group" && !this\.chat\?\.isP2p\) \{\s*attachItems\.push\(\{ label: "Velta Circle"/);
   assert.match(cv, /prepareBuiltinXdc\("group-call"/);
 });
 
