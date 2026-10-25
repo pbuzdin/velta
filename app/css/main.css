@@ -2251,6 +2251,10 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 
 /* scrollbars */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
+/* styled webkit scrollbars paint unstyled track/corner light even under
+   color-scheme: dark (the white strip on Windows); transparent tracks both themes */
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-corner { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(128,128,128,.35); border-radius: 4px; }
 @media (hover: hover) and (pointer: fine) {
   ::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,.55); }
