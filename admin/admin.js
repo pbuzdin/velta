@@ -176,7 +176,7 @@ function assemble({ nav, footer, body, title, description, active, mainClass }) 
   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/css/velta.css?v=7">
+  <link rel="stylesheet" href="/css/velta.css?v=8">
   <script type="speculationrules">
 {
   "prerender": [{
@@ -369,7 +369,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
     }
     frame.srcdoc =
       `<!doctype html><html lang="en"><head><meta charset="utf-8">` +
-      `<link rel="stylesheet" href="/css/velta.css?v=7"><style>body{margin:0;padding:1.25rem}</style></head>` +
+      `<link rel="stylesheet" href="/css/velta.css?v=8"><style>body{margin:0;padding:1.25rem}</style></head>` +
       `<body><main id="content"${this.mainClass ? ` class="${this.mainClass}"` : ""}>${body}</main></body></html>`;
   }
 
