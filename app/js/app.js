@@ -36,6 +36,7 @@ import { wrapIdentityBundle, unwrapIdentityBundle, buildIdentityBundle, bytesToB
 import { isAndroid, tauriInvoke } from "./tauri.js";
 import { recordApp } from "./app-browser.js";
 import { applyDocumentLang, translateTree, t } from "./i18n.js";
+import { ICON, P, svg } from "./icons.js";
 
 applyDocumentLang();
 translateTree(document);
@@ -63,8 +64,8 @@ let diagnosticsOpen = false;
 // bar): events keep being recorded into the store while paused, only the
 // rendering freezes; resuming re-renders to catch up.
 let diagnosticsPaused = false;
-const DIAG_ICON_PAUSE = '<svg viewBox="0 0 24 24"><path d="M9 5.5v13M15 5.5v13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>';
-const DIAG_ICON_PLAY = '<svg viewBox="0 0 24 24"><path d="M8 5.2l11 6.8-11 6.8z" fill="currentColor"/></svg>';
+const DIAG_ICON_PAUSE = ICON.pause;
+const DIAG_ICON_PLAY = '<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M8 5.2l11 6.8-11 6.8z" fill="currentColor"/></svg>';
 let chatView = null;
 let calls = null;
 let coreStartupPromise = null;
@@ -770,7 +771,7 @@ async function refreshRelayStatusInner() {
 // configured transport, = state.account.addr's domain) — persistent, not an
 // activity marker: the relay line's animated dashes stay the "messages in
 // flight" signal. Static glyph on purpose; a pulse would read as activity.
-const RELAY_SEND_SVG = '<svg viewBox="0 0 24 24"><rect x="2.5" y="9.5" width="19" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 11.5l8 5.5 8-5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12V2.6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M8.7 5.6L12 2.2l3.3 3.4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const RELAY_SEND_SVG = '<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><rect x="2.5" y="9.5" width="19" height="11" rx="2" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-linecap="round" stroke-width="2"/><path d="M4 11.5l8 5.5 8-5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12V2.6" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/><path d="M8.7 5.6L12 2.2l3.3 3.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 // "cha*.uk" from "chat.example.uk": first 3 chars, one asterisk for the
 // rest, TLD visible — enough to recognize the relay without printing it.
@@ -1208,7 +1209,7 @@ function toggleLcQueuePop(chatId) {
     <div class="lq-row" data-id="${escapeAttr(it.id)}">
       <span class="lq-name">${escapeHtml(it.name || "file")}${it.size ? ` · ${formatBytes(it.size)}` : ""}</span>
       <button type="button" class="btn-text" data-lq-retry="${escapeAttr(it.id)}">Send now</button>
-      <button type="button" class="btn-text" data-lq-cancel="${escapeAttr(it.id)}" aria-label="Remove from queue">✕</button>
+      <button type="button" class="btn-text" data-lq-cancel="${escapeAttr(it.id)}" aria-label="Remove from queue">${ICON.close}</button>
     </div>`).join("");
   document.body.appendChild(pop);
   pop.addEventListener("click", async e => {
@@ -1344,7 +1345,7 @@ async function renderLocalChatCard() {
   if (sig === lcCardSig) { el.hidden = false; return; }
   lcCardSig = sig;
   el.hidden = false;
-  const loopSvg = `<svg viewBox="0 0 624 590" width="21" height="20" aria-hidden="true"><g fill="currentColor" transform="translate(68.6 64.9) scale(0.78)"><polygon points="0,0 191,0 402,420 314,590"/><polygon points="434,0 624,0 420,385 341,225"/></g><path d="M510,267.1 A200,200 0 0 1 386.9,480.4" fill="none" stroke="currentColor" stroke-width="40"/><path d="M114,267.1 A200,200 0 0 0 237.1,480.4" fill="none" stroke="currentColor" stroke-width="40"/></svg>`;
+  const loopSvg = svg(P.loop).replace("<svg ", '<svg width="20" height="20" ');
   const short = (model.device.nodeId || "").slice(0, 8);
   const peerRows = model.peers.map(p => `
     <div class="lc-row" data-open="${escapeAttr(p.id)}">
@@ -1352,7 +1353,7 @@ async function renderLocalChatCard() {
       <span class="lc-row-name">${escapeHtml(p.name)}</span>
       ${p.queued ? `<span class="lc-row-queued">${p.queued} queued</span>` : ""}
       <button type="button" class="btn-text lc-chat" data-chat="${escapeAttr(p.id)}" title="Open chat" aria-label="Open chat with ${escapeAttr(p.name)}">Chat</button>
-      <button type="button" class="btn-text lc-remove" data-remove="${escapeAttr(p.rawId || p.id)}" title="Remove device" aria-label="Remove ${escapeAttr(p.name)}">✕</button>
+      <button type="button" class="btn-text lc-remove" data-remove="${escapeAttr(p.rawId || p.id)}" title="Remove device" aria-label="Remove ${escapeAttr(p.name)}">${ICON.close}</button>
     </div>`).join("");
   const nearbyRows = model.nearby.map(n => `
     <div class="lc-row" data-pair="${escapeAttr(n.id)}">
@@ -1371,7 +1372,7 @@ async function renderLocalChatCard() {
     <div class="lc-card-head${lcCardOpen ? " open" : ""}" data-toggle>
       ${loopSvg}
       <span class="lc-card-title">Velta Loop</span>
-      <span class="lc-card-chevron"><svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <span class="lc-card-chevron"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
     </div>
     <div class="bar-opts-hint ctx-hint">Local chat — serverless rooms with people on this network</div>
     <div class="lc-card-body">
@@ -1515,8 +1516,8 @@ function syncHeaderButtons() {
   const btn = document.getElementById("btn-search");
   if (btn) {
     btn.innerHTML = searchOn
-      ? `<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`
-      : `<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+      ? ICON.close
+      : ICON.search;
     btn.title = searchOn ? "Close search" : "Search chats";
   }
   const plus = document.getElementById("btn-new-chat");
@@ -1617,7 +1618,7 @@ function renderCallsView() {
     b.type = "button";
     b.className = "chat-item call-row";
     b.innerHTML = `
-      <span class="call-row-ico"><svg viewBox="0 0 24 24"><path d="M6.6 10.8a15.1 15.1 0 006.6 6.6l2.2-2.2a1 1 0 011-.24 11.4 11.4 0 003.6.58 1 1 0 011 1V20a1 1 0 01-1 1A17 17 0 013 4a1 1 0 011-1h3.5a1 1 0 011 1 11.4 11.4 0 00.57 3.6 1 1 0 01-.25 1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></span>
+      <span class="call-row-ico">${ICON.phone}</span>
       <div class="ci-name">${escapeHtml(chat ? chat.name : "Unknown chat")}</div>
       <div class="ci-time">${timeTag(e.ts, timeAgo(e.ts))}</div>`;
     b.addEventListener("click", () => { setListView("chats"); openChat(e.chatId); });
@@ -1992,12 +1993,12 @@ function chatContextMenu(chat, x, y) {
   const epoch = core.accountEpoch;
   if (chat.id === DIAGNOSTICS_CHAT_ID) return;
   const icons = {
-    pin: `<svg viewBox="0 0 24 24"><path d="M9 4h6l1 7 3 3v2h-6v5l-1 1-1-1v-5H5v-2l3-3z" fill="currentColor"/></svg>`,
-    mute: `<svg viewBox="0 0 24 24"><path d="M12 3a5 5 0 00-5 5v3l-2 4h14l-2-4V8a5 5 0 00-5-5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>`,
-    archive: `<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 9v11h14V9M10 13h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
-    read: `<svg viewBox="0 0 24 24"><path d="M3 13l4 4L17 7M10 15l2 2 8-8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-    link: `<svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-    trash: `<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2m-8 0l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    pin: ICON.pin,
+    mute: `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M12 3a5 5 0 00-5 5v3l-2 4h14l-2-4V8a5 5 0 00-5-5z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" stroke-linejoin="round"/></svg>`,
+    archive: `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-linecap="round" stroke-width="2"/><path d="M5 9v11h14V9M10 13h4" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/></svg>`,
+    read: `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M3 13l4 4L17 7M10 15l2 2 8-8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    link: ICON.link,
+    trash: ICON.trash,
   };
   // Local P2P groups: only read state, link previews and delete (leave /
   // disband) apply — pin, mute, archive and old-message cleanup are relay-core.
@@ -3408,7 +3409,7 @@ function renderNewChatView() {
     b.type = "button";
     b.className = "chat-item side-option";
     b.innerHTML = `<span class="side-option-label">${escapeHtml(opt.label)}</span>
-      <svg viewBox="0 0 24 24" class="side-option-arrow"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+      ${svg(P.chevronRight, "side-option-arrow")}`;
     b.addEventListener("click", () => { setListView("chats"); opt.onClick(); });
     rows.append(b);
   }
@@ -3471,7 +3472,7 @@ function renderSearchView() {
       b.type = "button";
       b.className = "chat-item side-option";
       b.innerHTML = `<span class="side-option-label">${escapeHtml(c.name)}</span>
-        <svg viewBox="0 0 24 24" class="side-option-arrow"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+        ${svg(P.chevronRight, "side-option-arrow")}`;
       b.addEventListener("click", () => openChat(c.id));
       results.appendChild(b);
     }
@@ -6094,8 +6095,8 @@ async function boot() {
       });
       // The Menu button doubles as the drawer toggle: cross while open.
       const BAR_MENU_ICONS = {
-        open: `<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`,
-        closed: `<svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
+        open: ICON.close,
+        closed: ICON.menu,
       };
       document.addEventListener("velta-drawer", e => {
         const btn = document.getElementById("bar-menu");

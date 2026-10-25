@@ -1,3 +1,4 @@
+import { ICON } from "./icons.js";
 // inapp-browser.js — Telegram-style internal browser for message links.
 //
 // Opens https links in a fullscreen overlay: Telegram-like bar (close,
@@ -70,14 +71,14 @@ function openIframeOverlay(url) {
   wrap.innerHTML = `
     <div class="iab-bar">
       <button type="button" class="icon-btn" data-close title="Close" aria-label="Close">
-        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+        ${ICON.close}
       </button>
       <div class="iab-meta">
         <div class="iab-title" data-title></div>
         <div class="iab-domain" data-domain></div>
       </div>
       <button type="button" class="icon-btn" data-external title="Open in system browser" aria-label="Open in system browser">
-        <svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 13v6a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 13v6a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
     </div>
     <progress class="iab-progress" data-progress aria-label="Loading page"></progress>

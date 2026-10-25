@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { Script, createContext } from "node:vm";
 import { setImmediate as nextTurn } from "node:timers/promises";
+import * as icons from "../app/js/icons.js";
 
 const source = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8");
 
@@ -108,6 +109,7 @@ function setup(t) {
   const timers = new Map();
   let timerId = 0;
   const context = createContext({
+    ...icons,
     core,
     localStorage: { getItem: () => null },
     $: node,

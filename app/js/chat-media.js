@@ -28,12 +28,12 @@ export const MEDIA_SECTIONS = [
 ];
 
 export const MEDIA_ROW_H = 56;
-const GOTO_SVG = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 10.5h6m-2.5-2.5 2.5 2.5-2.5 2.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-const ROW_PLAY_SVG = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>`;
+const GOTO_SVG = `<svg focusable="false" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" stroke-linejoin="round"/><path d="M9 10.5h6m-2.5-2.5 2.5 2.5-2.5 2.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const ROW_PLAY_SVG = `<svg focusable="false" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>`;
 export function gotoButtonHtml(name) {
   return `<button type="button" class="icon-btn media-goto" data-media-goto aria-label="Show ${name} in chat" title="Show in chat">${GOTO_SVG}</button>`;
 }
-const PLAY_SVG = `<svg viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="12" r="11" fill="rgba(0,0,0,.5)"/><path d="M9.5 7.5v9l7-4.5z" fill="#fff"/></svg>`;
+const PLAY_SVG = `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="12" r="11" fill="rgba(0,0,0,.5)"/><path d="M9.5 7.5v9l7-4.5z" fill="#fff"/></svg>`;
 // Square grid tiles: width of one column of the scroll box (minus scrollbar).
 export function gridTileSize(boxWidth, cols = MEDIA_GRID_COLS) {
   const w = Number(boxWidth) > 0 ? Number(boxWidth) : 320;

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { ICON } from "../app/js/icons.js";
 
 const src = (f) => readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
 
@@ -31,7 +32,7 @@ test("bindMenuToggle logic (extracted) restores on any close", () => {
   const { root, mkMenu, btn } = setup();
   let menu = null;
   const closeAllPopups = () => { closed++; menu?.remove(); };
-  const { bindMenuToggle, MENU_CLOSE_SVG } = new Function("closeAllPopups", code + "; return { bindMenuToggle, MENU_CLOSE_SVG };")(closeAllPopups);
+  const { bindMenuToggle, MENU_CLOSE_SVG } = new Function("closeAllPopups", "ICON", code + "; return { bindMenuToggle, MENU_CLOSE_SVG };")(closeAllPopups, ICON);
   const ctl = bindMenuToggle(btn, () => (menu = mkMenu()));
   assert.equal(btn.getAttribute("aria-expanded"), "false");
   btn.tap();

@@ -4,6 +4,7 @@
 import { showModal, toast } from "./ui.js";
 import { escapeHtml, escapeAttr, gestureSwipeRecent } from "./components.js";
 import { tauriInvoke } from "./tauri.js";
+import { ICON } from "./icons.js";
 
 // Mirror the AndroidManifest.xml intent filters: OS-level interception of a
 // domain is compiled into the app, this list controls what Velta recognizes
@@ -144,7 +145,7 @@ export function inviteCardHtml(parsed) {
       `<span class="invite-line">${line}</span>${sub}` +
     `</button>` +
     `<button type="button" class="invite-copy" data-invite-copy="${escapeAttr(parsed.raw)}" title="Copy invite link" aria-label="Copy invite link">` +
-      `<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 15V5a2 2 0 012-2h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>` +
+      ICON.copy +
     `</button>` +
   `</span>`;
 }
@@ -261,7 +262,7 @@ export function shortInviteCardHtml(shortUrl) {
       `<span class="invite-sub">${escapeHtml(shortUrl)}</span>` +
     `</span>` +
     `<button type="button" class="invite-copy" data-invite-copy="${escapeAttr(shortUrl)}" title="Copy short link" aria-label="Copy short link">` +
-      `<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 15V5a2 2 0 012-2h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>` +
+      ICON.copy +
     `</button>` +
   `</span>`;
 }
