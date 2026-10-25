@@ -41,6 +41,9 @@ test("renamed to Velta Beam; ids and filenames kept", () => {
   assert.equal(icon.readUInt32BE(20), 512);
   const svg = src("app/webxdc/send-direct/icon.svg");
   assert.match(svg, /<rect width="1024" height="1024" rx="208" fill="#1F5593"\/>/);
-  assert.match(svg, /<rect x="199" y="221" width="626" height="63"\/>/);
+  // velta.cc mark: the bar is broken into three segments
+  assert.match(svg, /<rect x="199" y="221" width="330" height="63"\/>/);
+  assert.match(svg, /<rect x="578" y="221" width="150" height="63"\/>/);
+  assert.match(svg, /<rect x="799" y="221" width="26" height="63"\/>/);
   assert.match(src("app/js/chat-view.js"), /beam: `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M1\.00,1\.23L12\.60,1\.23/);
 });
