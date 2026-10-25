@@ -2649,6 +2649,16 @@ export class ChatView {
         window.dispatchEvent(new CustomEvent("velta-hashtag", { detail: { tag: tagBtn.dataset.hashtag } }));
         return;
       }
+      // #156: tap a `code` span to copy its text.
+      const copyBtn = e.target.closest("button[data-copy-code]");
+      if (copyBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (Date.now() - (this._swipedAt || 0) < 400) return;
+        navigator.clipboard?.writeText(copyBtn.textContent)
+          .then(() => toast("Copied")).catch(() => errToast("Couldn't copy"));
+        return;
+      }
       const chip = e.target.closest("[data-react]");
       if (chip) { e.stopPropagation(); if (!this.chat?.isP2p) this._toggleReaction(this.chat.id, m.id, chip.dataset.react); return; }
       const quote = e.target.closest("[data-quote]");
