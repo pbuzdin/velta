@@ -1,17 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 624 590" role="img" aria-label="Velta Loop">
   <title>Velta Loop</title>
-  <!-- Mono website mark: the brand V as two solid arm polygons (facets
+  <!-- Mono website mark: the brand V as two solid arm wedges (facets
        merged, Beam-style) with two side arcs — no saddle over the top, the
-       apex breaks the bottom, and every arc end sits in clear air off the
-       V's edges. Fill follows the page theme. -->
+       apex breaks the bottom, and every arc end sits well clear of the V.
+       Fill follows the page theme. -->
   <style>
     svg { color: #1a1a1a; }
     @media (prefers-color-scheme: dark) { svg { color: #f2f2f5; } }
   </style>
   <g fill="currentColor" transform="translate(68.6 64.9) scale(0.78)">
-    <polygon points="0,0 191,0 402,420 314,590 314,424 152,98"/>
+    <polygon points="0,0 191,0 402,420 314,590"/>
     <polygon points="434,0 624,0 420,385 341,225"/>
   </g>
-  <path d="M494.7,213.7 A200,200 0 0 1 367.1,487.0" fill="none" stroke="currentColor" stroke-width="40"/>
-  <path d="M129,212.9 A200,200 0 0 0 256.9,487.0" fill="none" stroke="currentColor" stroke-width="40"/>
+  <path d="M510,267.1 A200,200 0 0 1 386.9,480.4" fill="none" stroke="currentColor" stroke-width="40"/>
+  <path d="M114,267.1 A200,200 0 0 0 237.1,480.4" fill="none" stroke="currentColor" stroke-width="40"/>
 </svg>
