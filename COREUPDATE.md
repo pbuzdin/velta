@@ -7,9 +7,13 @@ undocumented JSON-RPC/event surface, and because core behavior changes
 (e.g. event emission rates, IMAP idle loops) surface as *frontend* symptoms:
 re-render storms, log spam, and battery drain rather than clean errors.
 
-Last updated for core `2.64.0` (see `core/Cargo.toml` `version` and the
+Last updated for core `2.65.0` (see `core/Cargo.toml` `version` and the
 statement in `README.md`; feature-by-feature notes per release live in
-`CORE-CAPABILITIES.MD`). 2.63.0 notes: legacy `addr`/`mail_pw` configs are
+`CORE-CAPABILITIES.MD`). 2.65.0 notes (2026-10-23, c280e05): no DB
+migration, no JSON-RPC API change — upstream adds a visible unpin info
+message (`MessageUnpinned`), stops ignoring `background_fetch_any` join
+errors, bumps webpki; the re-vendor applied every quilt op unchanged.
+2.63.0 notes: legacy `addr`/`mail_pw` configs are
 gone (identity backup + invite-claim now configure via `add_transport`;
 the JSON-RPC `EnteredLoginParam` is flat camelCase with a required
 top-level `password`, not the nested imap/smtp struct), the animated-WebP vendored
@@ -37,7 +41,7 @@ upstream replaces the whole tree and wipes them. **The quilt
 `tools/apply-core-patches.py` is the single source of truth: every Velta
 change inside `core/` must be an op there** (anchor + marker); a hand edit
 that is not an op is lost on the next re-vendor — that is how #12 and #13
-vanished in 2.63.0. Current quilt at core 2.65.0 — **31 ops in 10 files**
+vanished in 2.63.0. Current quilt at core 2.65.0 — **39 ops in 10 files**
 (intent per patch in VENDORISSUES.MD):
 
 | Patch | Ops | Files | What |
@@ -49,6 +53,7 @@ vanished in 2.63.0. Current quilt at core 2.65.0 — **31 ops in 10 files**
 | #13 | 2 | imap.rs | push-token accepted/rejected Info/Warning events (restored) |
 | #14 | 2 | chat.rs, deltachat-jsonrpc/src/api.rs | reply-thread queries (`get_reply_counts` / `get_reply_ids`) + jsonrpc wrappers |
 | #15 | 6 | transport.rs, deltachat-jsonrpc/src/api.rs, deltachat-jsonrpc/src/api/types/login_param.rs | `get_server_metadata` RPC: per-transport relay capabilities (TURN/calls, iroh relay, push, app versions) from the IMAP METADATA the scheduler already fetches |
+| #16 | 8 | imap.rs, transport.rs, deltachat-jsonrpc/src/api.rs, deltachat-jsonrpc/src/api/types/login_param.rs | extends #15: `update_metadata` records the session's IMAP IDLE + COMPRESS=DEFLATE and the `/shared/vendor/deltachat/maxsmtprecipients` limit into `ServerMetadata`; `get_server_metadata` returns `canIdle`/`canCompress`/`maxSmtpRcptTo` (`null` until the relay connected). Must apply after the #15 ops |
 
 Re-vendor steps:
 
@@ -57,7 +62,7 @@ Re-vendor steps:
 # 2. re-apply the quilt
 python3 tools/apply-core-patches.py apply                # CONFLICT = anchor moved; nothing is written
 # 3. prove it
-python3 tools/apply-core-patches.py verify               # must report 31/31 (any missing marker fails)
+python3 tools/apply-core-patches.py verify               # must report 39/39 (any missing marker fails)
 python3 tools/apply-core-patches.py tree-check --fetch   # pristine v<Cargo.toml version> + quilt == core/
 python3 tools/apply-core-patches.py self-test            # if you touched the tool
 # 4. build + targeted tests (WSL on Windows)

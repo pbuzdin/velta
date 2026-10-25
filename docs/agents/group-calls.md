@@ -101,7 +101,7 @@ Chromium, relay-only through coturn.
   outside the iframe, survives chat switches/app close: "Velta group call ·
   <chat> · N · <who> speaking", Mute, Leave; tapping it opens the chat and
   the app (`velta-open-chat` event → app.js `openChat`).
-- Entry: attach menu "Group call" in group chats (not local chats) →
+- Entry: attach menu "Velta Circle" in group chats (not local chats) →
   sends group-call.xdc, opens it; the app shows Join.
 - Delta Chat (no `veltaCall`): "This group call needs Velta" + who is in the
   call, read from the `veltaCall` status updates.

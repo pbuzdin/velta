@@ -17,7 +17,7 @@ Velta shares one web frontend (`app/`) between:
 - **Android mobile** — the same Tauri 2 app, but the Delta Chat core runs in-process inside the APK. A foreground service keeps sync (and notifications) running after the app is backgrounded.
 - **Browser/PWA** — the same frontend as a static site with a WebAssembly Chatmail core in the tab. Mail goes out through a WebSocket proxy on a chatmail relay (the PWA origin and the proxy host can be different domains). A refresh keeps the signed-in account, database included: the browser copy is written when login or an identity restore finishes, when the page goes to the background, and every few seconds, and a copy cut off by a reload is ignored in favour of the previous one. A crash can drop the last few seconds until the next sync. A new deploy reaches an open PWA on its next load; a page that was already open shows an update notice. A public build is published at [velta.cc/web](https://velta.cc/web) by CI (it mints new chatmail accounts through the configured relay even from another origin). Serving `app/` without the wasm dist still falls back to a mock core (UI smoke test). How to host your own copy: [docs/pwa-self-host.md](docs/pwa-self-host.md).
 
-The UI is plain HTML/CSS/ES modules (no bundler). The backend is the upstream [Delta Chat core](https://github.com/chatmail/core) at version `2.63.0`.
+The UI is plain HTML/CSS/ES modules (no bundler). The backend is the upstream [Delta Chat core](https://github.com/chatmail/core) at version `2.65.0`.
 
 ## Screenshots
 
@@ -133,7 +133,7 @@ any file up to 256 MB) are supported: files transfer as base64-chunked frames
 over the same encrypted session, land in `p2p-blobs/<peer>/` under the
 accounts directory and render through the regular media pipeline. Peer names
 arrive only from pairing. The hub — device identity, invite QR, add contact,
-nearby-device pairing — is a collapsible card pinned above the chat list
+nearby-device pairing — is a collapsible **Velta Loop** card pinned above the chat list
 while local chat is on; peers must be online to receive media (text queues
 offline). Voice messages are not offered in local chats (the attach menu hides
 the item) and the audio-call button is hidden there — the P2P engine carries
@@ -142,7 +142,8 @@ no call signaling.
 **Local groups.** Up to 5 devices (you and up to 4 paired ones) can chat in a group (no server, no
 relay): the creator signs the member list, every message goes straight between
 the members' devices and is replayed to whoever was offline. Groups appear in
-the chat list like any chat (create one from the Local chat card or the new-chat
+the chat list like any chat (create one from the **Velta Loop** card at the
+top of the chat list, or from the new-chat
 menu; only online devices that run a group-capable version can be added). The
 creator renames the group and adds or removes members from the info sheet;
 anyone can leave and the creator can disband. A tick turns double only when
@@ -254,7 +255,7 @@ over a WebRTC peer connection inside the app's WebView.
 <details>
 <summary>Velta Circle — group audio calls (beta)</summary>
 
-In a group, attach menu → **Group call** posts **Velta Circle**, a built-in
+In a group, attach menu → **Velta Circle** posts the call, a built-in
 mini-app. The call shows up in the chat as a card (call name, who started
 it, who is in it, **Join** / **Open**; no ringing), and an in-call bar stays
 at the top while you use the rest of the app. Up to **6** people talk at
@@ -498,12 +499,18 @@ A relay marked **(U)** confirmed UnifiedPush push notifications: the core
 registered this device's push token there (Android with a UnifiedPush
 distributor). No mark means "not confirmed", never a guess.
 
-Each relay row also carries four small **capability flags** — **C** calls
-(TURN credentials), **I** iroh transfers, **P** push notifications, **W** web
+Each relay row also carries five small **capability flags** — **C** calls
+(TURN credentials), **I** iroh transfers, **P** push notifications, **D**
+instant delivery (IMAP IDLE; "not known yet" until that relay has connected),
+**W** web
 endpoints (the browser app can connect through this relay). A green corner
 dot marks capabilities the relay advertises (W is probed live); a flag
-without a dot means "not offered", never a guess. A legend at the bottom of
-the modal repeats the letters and the dot.
+without a dot means "not offered", or for D before the first connection
+"not known yet" — never a guess. A legend at the bottom of
+the modal repeats the letters and the dot. Under the address the row shows
+the relay's comment and admin contact as plain text, a storage bar when the
+relay reports a quota, and, when the core knows them, the recipient limit
+and whether the connection is compressed.
 
 - **Add relay** — paste a `dcaccount:`/`dclogin:` invite code or just the relay's domain (`nine.testrun.org`); the core
   configures it as a second transport (progress modal during setup).
@@ -795,6 +802,7 @@ Message text renders a simple, escape-first markdown subset (`app/js/markdown.js
 | `[label](https://…)` | clickable link (bare URLs linkify too) |
 | `- item` / `* item` / `+ item` | bulleted list |
 | `1. item` / `1) item` | numbered list (a start value like `3.` is honored) |
+| `` `code` `` | click-to-copy button (not a link, not emphasis, not a tag) |
 
 **Enter sends** by default (Shift+Enter makes a newline; IME composition is
 never swallowed). Turn the drawer's **Send on Enter** setting off and Enter
@@ -823,7 +831,7 @@ On a phone, swipe a bubble to the right to reply. The bubble slides a short way 
 
 On a phone, long-press a bubble to open the message menu. That hold does not start the system's text selection. Choose **Select text** when you want the handles. The whole message starts selected, and the native handles shrink that span. **Reply**, **Copy**, and **Close** sit inside the bubble: Reply quotes just the selected text, Copy copies that span, and Close leaves the mode and dismisses the handles. While that bar is open, a long-press does not open the message menu. The desktop message menu has no Select text. Select with the mouse as usual; on desktop a small Reply chip quotes the selection (the floating chip is desktop-only — touch quotes through this Select-text flow). **Download** on an image, video, or file saves it. Android asks where to put the file. Desktop and the browser save it from the page.
 
-Note: other Delta Chat clients render only the core's markdown subset (bold, italic, strikethrough, code). Underline and lists are Velta-side rendering niceties — other clients show those markers literally.
+Note: other Delta Chat clients render the core's markdown subset (bold, italic, strikethrough, code). Velta's backticks are a click-to-copy button, and the text inside is not parsed as a link, emphasis, or tag. Underline and lists are Velta-side rendering niceties — other clients show those markers literally.
 
 </details>
 
@@ -995,6 +1003,10 @@ does not count down.
 
 <details>
 <summary>Groups and channels: members, invites, leave</summary>
+
+Create a channel from the chat list's **+** menu (**New channel**): name it
+and it opens. People subscribe with **Invite via link/QR**; members are not
+picked when you create it.
 
 The chat info sheet carries the per-chat actions:
 
@@ -1261,8 +1273,8 @@ never participates in the Auto (system) switch.
 list shows: **Chats** (default), **Contacts** (tap to open the chat),
 **Calls** (recent calls on this device), **QR** (your invite code rendered
 in place of the list, with **Copy a link** and **Share a link**; on phones a second
-**Scan a QR code** tab scans other people's codes), **+** (new chat / group /
-join-via-link menu) and **Menu** (settings drawer). The header search button
+**Scan a QR code** tab scans other people's codes), **+** (new chat, group,
+channel, or join-via-link) and **Menu** (settings drawer). The header search button
 works the same way — it opens a live chat-name search in place of the list
 and flips to a cross to close. The search screen has two tabs — **Search**
 and **Archived (n)** — and the button always lands on Search. The Archived

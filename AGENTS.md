@@ -6,7 +6,7 @@ build/test commands, and conventions as they actually exist in this checkout.
 
 > **Scope note:** This repository is a Velta-specific workspace layered around a
 > copy of the upstream [Delta Chat core](https://github.com/chatmail/core)
-> (version `2.64.0`). The `core/` directory is effectively a vendored copy of
+> (version `2.65.0`). The `core/` directory is effectively a vendored copy of
 > that Rust project. Wrapper code for Velta's own clients lives in `app/`,
 > `velta-app/`, and `deltachat-backend/` (plus the archived
 > `archive/velta-core-service/`).
@@ -116,7 +116,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   ├── fuzz/                 # Fuzz targets
 │   ├── scripts/              # CI helper scripts (clippy, deny, tests, wheels)
 │   ├── test-data/            # fixtures for Rust tests
-│   ├── Cargo.toml            # workspace manifest, version 2.64.0
+│   ├── Cargo.toml            # workspace manifest, version 2.65.0
 │   ├── CMakeLists.txt        # CMake install wrapper for libdeltachat
 │   └── deny.toml             # cargo-deny policy
 │
@@ -256,7 +256,7 @@ quilt `tools/apply-core-patches.py`** (anchor + marker ops; never hand-edit
 `core/`, never apply the wasm series in `docs/research/wasm-patches/` to
 production `core/`). The 2.63.0 re-vendor (2aac743) silently dropped two
 hand-made core edits that were never quilt ops (#12, #13 below); v1.4.64
-shipped without them. Restored 2026-10-10. Current quilt at core 2.65.0 (31 ops, 10 files;
+shipped without them. Restored 2026-10-10. Current quilt at core 2.65.0 (39 ops, 10 files;
 intent in VENDORISSUES.MD):
 
 | # | What | Files |
@@ -267,6 +267,8 @@ intent in VENDORISSUES.MD):
 | #12 | `background_fetch` 10 s bound + I/O restart for dead IDLE sockets (#42/#25 P8) | context.rs |
 | #13 | push-token accepted/rejected Info/Warning events (Diagnostics chat) | imap.rs |
 | #14 | reply-thread queries: `chat::get_reply_counts(chat)` (quoted msg → count, both sides scoped to the chat) + `get_reply_ids(chat, msg)` over `msgs.mime_in_reply_to`; thin jsonrpc wrappers. 2 ops; the chat.rs op anchors on the `/// Returns true if device message…` doc line so that comment stays on `was_device_msg_ever_added`. No index/migration (per-chat scan via the chat_id index; a dbversion bump would collide with upstream migrations) | chat.rs, deltachat-jsonrpc/src/api.rs |
+| #15 | `get_server_metadata` RPC: per-transport relay capabilities (TURN/calls, iroh relay, push, app versions) from IMAP METADATA the scheduler already fetches. 6 ops | transport.rs, deltachat-jsonrpc api.rs + types/login_param.rs |
+| #16 | extends #15 (ops must stay after it): IMAP IDLE, COMPRESS=DEFLATE, and max SMTP recipients on that metadata. UI: D flag ("not known yet" until the relay has connected), recipient limit and "compressed connection" in the details line. 8 ops | imap.rs, transport.rs, api.rs, login_param.rs |
 
 ```bash
 python3 tools/apply-core-patches.py apply        # re-insert missing ops (fails, writes nothing, on a moved anchor)
@@ -1050,7 +1052,7 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   the relay-pull region (~line 620) is invisible to the harness. Pinned by
   `tests/categories-bar.test.mjs`.
 - `app/js/chat-view.js` owns the conversation history (virtualized via
-  virtual-scroller), composer, selection mode and the delete dialog, plus the pinned-message tray under the chat head (`_refreshPinnedBar`, fed by `pinned-changed` events AND — #69 — debounced re-checks on `msgs-changed`/`msgs-deleted`: the core's tombstone REPLACE clears a pin WITHOUT a `MessageUnpinned` event, and core `MsgDeleted` (explicit/remote/ephemeral deletions) maps to `msgs-deleted`+`msgs-changed` in rpc-core — unmapped, remote deletions never reached the UI at all). Composer send keys (1.4.52, #56): Enter sends while the `velta-send-enter` drawer setting is on (default); with it OFF, Ctrl/Cmd+Enter sends instead and plain Enter inserts a newline; Shift+Enter is always a newline and IME composition never sends. KEEP:
+  virtual-scroller), composer, selection mode and the delete dialog, plus the pinned-message tray under the chat head (`_refreshPinnedBar`, fed by `pinned-changed` events AND — #69 — debounced re-checks on `msgs-changed`/`msgs-deleted`: the core's tombstone REPLACE clears a pin WITHOUT a `MessageUnpinned` event, and core `MsgDeleted` (explicit/remote/ephemeral deletions) maps to `msgs-deleted`+`msgs-changed` in rpc-core — unmapped, remote deletions never reached the UI at all). #157: a chat you cannot post in (`can_send` false — someone else's channel) still shows the tray, without the ✕ unpin buttons and without a Pin/Unpin menu chip. Composer send keys (1.4.52, #56): Enter sends while the `velta-send-enter` drawer setting is on (default); with it OFF, Ctrl/Cmd+Enter sends instead and plain Enter inserts a newline; Shift+Enter is always a newline and IME composition never sends. KEEP:
   rows must NOT get `content-visibility` (the scroller measures mounted rows
   itself; collapsing desyncs its height cache — scroll jumps on remount);
   day chips render inside the first message row of each day (`dayFirst`) —
@@ -1497,6 +1499,14 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `border-radius: 8px` on all four (#109). Do not set `box-shadow` on that
   rule — it would beat the brutal theme's shadow. Pinned by
   `tests/native-elements.test.mjs`.
+  The new view's rows (`newChatOptions`): New chat, New group, New channel
+  (#155 — name via `askText`, then `createChat(name, [], "channel")` →
+  `create_broadcast`; no member pick, people join with the channel invite
+  QR; a channel you create is postable, seeded demo channels stay
+  read-only), New local group when local chat is on, Join via invite
+  link, Add account via invite link. Pinned by
+  `tests/module-bindings.test.mjs` and the channel-creation case in
+  `tests/rpc-account-isolation.test.mjs`.
   The old `.fab`/`.sidebar-foot` and the sidebar-head Menu button are gone —
   do not resurrect them.
 - **Drawer contract** (ui.js `buildDrawer`): no close button, no offset
@@ -2368,7 +2378,8 @@ incoming-msg (`mutedChatAllows`) and Rust `bg_notify_incoming`
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 135 files, 943 tests as of 2026-10-24 (1.4.80: +link actions
+whole set — 138 files, 959 tests as of 2026-10-25 (New channel #155,
+click-to-copy `` `code` `` spans #156, pin-tray permissions #157; 1.4.80: +link actions
 (#161: menu Copy/Open, touch-only Share, mobile Show-links list), bubble
 action bar with reaction row + tray, known-contacts filter; post-1.4.76: +reply threads / thread panel + live counts, Unread chip, Velta device messages, @mentions, msg-id cache race; 1.4.76: +group calls, call permissions,
 network resume, contrast/token guards, webxdc tokens; 1.4.75: narrow-viewport CSS guards, device info,
@@ -2429,8 +2440,12 @@ and renders `<button type="button" class="hashtag" data-hashtag="#tag">`
 (native focus + Enter/Space). chat-view's row click dispatches
 `velta-hashtag`; app.js `openChatSearch(prefill)` opens the existing
 "Search in chat" modal prefilled (core `search_messages` scoped to the
-chat; P2P chats filter loaded rows). Velta markdown has no code
-spans/blocks, so there is no code exclusion to apply.
+chat; P2P chats filter loaded rows). `` `code` `` spans (#156,
+`tests/code-span.test.mjs`) are taken out before links, emphasis,
+hashtags and mentions: a paired same-line backtick span renders
+`<button type="button" class="msg-code" data-copy-code>` and chat-view
+copies its text on click. Unpaired, empty, or cross-line backticks stay
+literal. There is no fenced code block.
 
 The suites pin renderer logic without a browser: account isolation
 (rpc/chat/app), event polling, message-update hardening, read tracking,
