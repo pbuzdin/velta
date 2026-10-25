@@ -490,7 +490,9 @@ article.card p, #platforms li, #features p { color: var(--muted); }
   text-decoration: none;
 }
 .news-list time { color: var(--muted); font-size: 0.875rem; }
-.news-list h2 { margin: 0.25rem 0 0; font-size: 1.8rem; }
+/* ul+li: without them `main.page h2` ties on specificity (main is an
+   element too) and wins on the 404, shrinking titles below the home size */
+ul.news-list li h2 { margin: 0.25rem 0 0; font-size: 1.8rem; }
 .news-list a:hover h2 { color: var(--link); }
 
 #support { grid-template-columns: 1fr 1fr; align-items: start; }
