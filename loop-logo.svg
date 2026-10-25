@@ -1,14 +1,24 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-60 -10 744 620" role="img" aria-label="Velta Loop">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 624 590" role="img" aria-label="Velta Loop">
   <title>Velta Loop</title>
-  <!-- Mono website mark: the brand V inside one sweeping orbit — the local,
-       serverless room around the identity. Scaled so the V's two top corners
-       and its apex sit equally far from the ring. Fill follows the page theme. -->
+  <!-- Mono website mark: the brand V inside a near-full orbit ring. The arc
+       passes behind both arms and is knocked out exactly there (masked by
+       the V silhouettes, true transparency), ends trimmed by the arm
+       diagonals, opening upper-right; the caps poke outside the ring.
+       Fill follows the page theme. -->
   <style>
     svg { color: #1a1a1a; }
     @media (prefers-color-scheme: dark) { svg { color: #f2f2f5; } }
   </style>
-  <g fill="currentColor" transform="translate(159.1 190.45) scale(0.49)">
+  <defs>
+    <mask id="loopCut">
+      <rect x="-100" y="-100" width="900" height="800" fill="#fff"/>
+      <g fill="#000" transform="translate(99.8 94.4) scale(0.68)">
+        <path d="M0 0H191L152 98L0 0Z"/><path d="M0 0L152 98L314 424V590L0 0Z"/><path d="M152 98L191 0L402 420L314 424L152 98Z"/><path d="M314 424L402 420L314 590V424Z"/><path d="M434 0H624L483 91L434 0Z"/><path d="M434 0L483 91L407 258L341 225L434 0Z"/><path d="M483 91L624 0L420 385L407 258L483 91Z"/><path d="M341 225L407 258L420 385L341 225Z"/>
+      </g>
+    </mask>
+  </defs>
+  <g fill="currentColor" transform="translate(99.8 94.4) scale(0.68)">
     <path d="M0 0H191L152 98L0 0Z"/><path d="M0 0L152 98L314 424V590L0 0Z"/><path d="M152 98L191 0L402 420L314 424L152 98Z"/><path d="M314 424L402 420L314 590V424Z"/><path d="M434 0H624L483 91L434 0Z"/><path d="M434 0L483 91L407 258L341 225L434 0Z"/><path d="M483 91L624 0L420 385L407 258L483 91Z"/><path d="M341 225L407 258L420 385L341 225Z"/>
   </g>
-  <path d="M355.4,48.8 A250,250 0 1 0 437,511.5" fill="none" stroke="currentColor" stroke-width="40"/>
+  <path d="M508.6,157.3 A240,240 0 1 0 529.5,396.4" fill="none" stroke="currentColor" stroke-width="40" mask="url(#loopCut)"/>
 </svg>
