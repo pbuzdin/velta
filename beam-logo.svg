@@ -1,13 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="186 201 653 653" role="img" aria-label="Velta Beam">
   <title>Velta Beam</title>
-  <!-- Mono website mark: the Beam glyph (bar + split V struts) without the
-       app-icon tile. Fill follows the page theme when embedded as an image. -->
+  <!-- Mono website mark: the Beam trestle under a bar broken into three
+       segments with air gaps — the transfer itself: the file going across,
+       the short tail the checksum moment. Fill follows the page theme. -->
   <style>
-    .g { fill: #1a1a1a; }
-    @media (prefers-color-scheme: dark) { .g { fill: #f2f2f5; } }
+    svg { color: #1a1a1a; }
+    @media (prefers-color-scheme: dark) { svg { color: #f2f2f5; } }
   </style>
-  <g class="g">
-    <rect x="199" y="221" width="626" height="63"/>
+  <g fill="currentColor">
+    <rect x="199" y="221" width="330" height="63"/>
+    <rect x="578" y="221" width="150" height="63"/>
+    <rect x="799" y="221" width="26" height="63"/>
     <polygon points="236,314 395,314 590,688 515,834"/>
     <polygon points="630,314 789,314 608,660 533,508"/>
   </g>
