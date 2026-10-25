@@ -1,16 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 1024 1024">
-  <!-- Velta Circle icon: five people in a ring (top dot centered) around the
-       Velta Beam glyph (app/webxdc/send-direct/icon.svg) with its beam bar
-       removed; the V polygons are unchanged, only scaled. Colors: light-theme
-       accent token (light theme) #1F5593 background (family tile, matches send-direct), white glyph (3.1:1). Same rounded square
-       (rx 208) as Velta Beam. Source for icon.png (128px):
+  <!-- Velta Circle icon: the Velta V drawn as a line, six dots (six people, up to
+       six on a call) on its six corners joined by interrupted strokes; same
+       geometry as the attach-menu glyph, bolder for tile size (stroke 2.1, dot 2.0
+       on the 24 grid). Ground #1F5593, same rounded square (rx 208) as Velta Beam. Source for icon.png (128px):
        python3 -c "import cairosvg; cairosvg.svg2png(url='icon.svg', write_to='icon.png', output_width=128, output_height=128)" -->
-  <rect width="1024" height="1024" rx="208" fill="#1F5593"/>
-  <g fill="#fff">
-    <circle cx="512.0" cy="182.0" r="72"/><circle cx="825.8" cy="410.0" r="72"/><circle cx="706.0" cy="779.0" r="72"/><circle cx="318.0" cy="779.0" r="72"/><circle cx="198.2" cy="410.0" r="72"/>
-    <g transform="translate(512 512) scale(0.7) translate(-512.5 -574)">
-      <polygon points="236,314 395,314 590,688 515,834"/>
-      <polygon points="630,314 789,314 608,660 533,508"/>
-    </g>
-  </g>
-</svg>
+  <rect width="1024" height="1024" rx="208" fill="#1F5593"/><g color="#fff" transform="translate(512 512) scale(26) translate(-12 -12)"><path d="" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.42 5.79L10.43 7.72" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.70 7.70L14.64 5.82" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/><path d="" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/><path d="M20.32 5.78L13.77 18.22" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.39 18.23L3.71 5.77" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/><circle cx="2.00" cy="2.60" r="2.0" fill="currentColor"/><circle cx="7.75" cy="2.60" r="2.0" fill="currentColor"/><circle cx="12.09" cy="10.92" r="2.0" fill="currentColor"/><circle cx="16.25" cy="2.60" r="2.0" fill="currentColor"/><circle cx="22.00" cy="2.60" r="2.0" fill="currentColor"/><circle cx="12.09" cy="21.40" r="2.0" fill="currentColor"/></g></svg>
