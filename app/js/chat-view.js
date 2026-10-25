@@ -860,10 +860,13 @@ export class ChatView {
     const wasOpen = bar.open;
     const snippet = (m) => (m.text || "").slice(0, 60) || (m.viewtype && m.viewtype !== "text" ? m.viewtype : "message");
     const newest = msgs[msgs.length - 1];
+    // Unpin is for chats you can write in: members of someone else's channel
+    // see the pins but no ✕ (#157). readOnly resolves via canSend.
+    const canUnpin = !this.readOnly;
     const item = (m) => `
       <div class="pin-tray-item" data-pin-id="${m.id}">
         <span class="pb-text"><b>${escapeHtml(m.fromContact?.name || "")}</b> ${escapeHtml(snippet(m))}</span>
-        <button type="button" class="pin-unpin" data-unpin="${m.id}" title="Unpin" aria-label="Unpin">✕</button>
+        ${canUnpin ? `<button type="button" class="pin-unpin" data-unpin="${m.id}" title="Unpin" aria-label="Unpin">✕</button>` : ""}
       </div>`;
     bar.innerHTML = `
       <summary class="pin-tray-summary">
@@ -3025,7 +3028,7 @@ export class ChatView {
     // Local P2P groups: no pin / forward / save / react / delete (relay-core
     // features the mesh engine has no equivalent for).
     const p2pg = !!this.chat?.isP2pGroup;
-    if (this.core.pinMessage && !p2pg) {
+    if (this.core.pinMessage && !p2pg && !this.readOnly) {
       items.push({
         label: m.pinned ? "Unpin" : "Pin",
         pair: "keep",
