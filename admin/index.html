@@ -5,6 +5,7 @@
   <meta name="robots" content="noindex" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Velta CMS</title>
+  <link rel="icon" href="cms-logo.svg" type="image/svg+xml" />
   <style>
     /* Minimal admin styles — replaced the vendored marx.min.css framework
        (17 KB for one page) with the rules the CMS actually uses. Auto
@@ -71,12 +72,14 @@
     /* Busy/saved/error stay visible at the top while the editor fills the screen. */
     .status-strip { position: sticky; top: 0; z-index: 3; display: flex; flex-wrap: wrap; gap: 0.25rem 1.5rem; margin: 0 -1rem 1rem; padding: 0.45rem 1rem; background: var(--bg); border-block: 1px solid var(--line); }
     .top { display: flex; justify-content: space-between; align-items: baseline; }
+    .top h1 { display: inline-flex; align-items: center; gap: 0.55rem; }
+    .top h1 img { width: 24px; height: 24px; }
   </style>
 </head>
 <body>
   <main class="container">
     <header class="top">
-      <h1>Velta CMS</h1>
+      <h1><img src="cms-logo.svg" alt="" width="24" height="24" /> Velta CMS</h1>
       <a href="../">← velta.cc</a>
     </header>
     <hr />

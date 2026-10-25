@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <title>Velta CMS</title>
+  <!-- Tile split at 62° (the V's own cut angle): deep #1f5593 in from the lower left,
+       #2e6faf above; both blues come from the flat V's own facet ramp. -->
+  <defs>
+    <clipPath id="tile"><rect x="2" y="2" width="60" height="60" rx="14"/></clipPath>
+  </defs>
+  <g clip-path="url(#tile)">
+    <rect x="2" y="2" width="60" height="60" fill="#2E6FAF"/>
+    <polygon points="2,2 34,62 2,62" fill="#1F5593"/>
+  </g>
+  <!-- The site's flat faceted V, its eight facets re-rendered as an ivory ramp
+       so every facet stays readable on the tile. -->
+  <g transform="translate(8,9) scale(0.077)">
+    <path d="M0 0H191L152 98Z" fill="#F4FBFF"/>
+    <path d="M0 0L152 98L314 424V590Z" fill="#B2DDF9"/>
+    <path d="M152 98L191 0L402 420L314 424Z" fill="#BDE2FA"/>
+    <path d="M314 424L402 420L314 590Z" fill="#C8E7FB"/>
+    <path d="M434 0H624L483 91Z" fill="#FFFFFF"/>
+    <path d="M434 0L483 91L407 258L341 225Z" fill="#E9F6FE"/>
+    <path d="M483 91L624 0L420 385L407 258Z" fill="#D3ECFC"/>
+    <path d="M341 225L407 258L420 385Z" fill="#DEF1FD"/>
+  </g>
+</svg>
