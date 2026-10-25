@@ -3175,11 +3175,6 @@ export class ChatView {
   _showInfo(item) {
     const m = item.msg;
     const grp = !!this.chat?.isP2pGroup;
-    const encNote = grp
-      ? "This message travels directly between the members' devices, with no relay. A tick turns double only when every current member has received it."
-      : m.encrypted === false
-        ? "This message was not end-to-end encrypted."
-        : "This message is end-to-end encrypted with OpenPGP. Only you and the recipient can read it — the chatmail relay cannot.";
     // Seen is the recipient MDN (outgoing) or this device having opened it (incoming).
     let state = messageInfoState(m);
     if (m.state === "failed" && m.error) state += `: ${failReason(m.error)}`;
@@ -3192,7 +3187,6 @@ export class ChatView {
     const info = showModal({
       title: "Message info",
       body: `
-      <div class="enc-note">${ICO.lock}<span>${encNote}</span></div>
       <div class="info-row"><span class="k">Type</span><span class="v">${escapeHtml(m.viewtype)}</span></div>
       <div class="info-row"><span class="k">From</span><span class="v">${escapeHtml(m.fromContact?.name || "")}</span></div>
       <div class="info-row"><span class="k">Sent</span><span class="v">${escapeHtml(formatDateTime(m.sentTs || m.ts))}</span></div>
