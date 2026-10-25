@@ -1,6 +1,7 @@
 // PWA websocket relays. The wasm core has one tunnel base, set once at boot
 // (wss://<domain>, C3 websockify on that relay). The baked
 // window.VELTA_PWA.wsProxyUrl stays the default until a domain is chosen here.
+import { invoke, tauriInvoke } from "./tauri.js";
 import { escapeHtml } from "./format.js";
 const LIST_KEY = "velta-ws-relays";
 const ACTIVE_KEY = "velta-ws-relay";
@@ -147,7 +148,15 @@ function probeDns(url) {
 }
 
 // The relay's own /dns/<itself>. A capable relay answers with a JSON IP array.
+// In the Tauri shells (desktop + Android) the probe runs in Rust
+// (probe_c3_relay, c3_probe.rs) with no browser Origin: relays gate browser
+// origins, so the WebView's own socket (tauri origin) is refused even by
+// capable relays. The PWA keeps the browser probe — there "capable from this
+// origin" is exactly the question.
 export function probeC3Relay(host) {
+  if (tauriInvoke()) {
+    return invoke("probe_c3_relay", { host }).then((v) => v === true, () => false);
+  }
   return probeDns(`wss://${host}/dns/${host}`);
 }
 

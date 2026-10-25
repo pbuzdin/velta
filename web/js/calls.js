@@ -65,9 +65,9 @@ export function defaultSpeakerOn(hasVideo) {
 
 // Android audio route (earpiece / loudspeaker / headset) through the Tauri
 // shell -> Kotlin CallAudio.kt. `auto` = an automatic switch (call start,
-// camera on/off): a connected headset keeps the audio. A tap on Speaker is
-// not auto: it forces the loudspeaker. Desktop and the PWA have no
-// earpiece: supported=false and the speaker button stays hidden.
+// camera on/off): a connected headset keeps the audio. A tap on Speaker or
+// Earpiece is not auto: it forces that side. Desktop and the PWA have no
+// earpiece: supported=false and both buttons stay hidden.
 export function shellAudioRoute() {
   const supported = isTauri() && isAndroid();
   return {
@@ -412,8 +412,9 @@ export class CallManager extends EventTarget {
 
   /* ---------------- call controls ---------------- */
 
-  // Buttons for the current state, in screen order (End call in the middle
-  // of the full row: mic, camera, end, speaker, flip).
+  // Buttons for the current state, in screen order: mic, camera, end,
+  // speaker, earpiece, flip. Both audio buttons show on Android; .on marks
+  // the active one.
   controls() {
     const s = this.state;
     if (s === "incoming") return this.hasVideo ? ["decline", "accept", "accept-video"] : ["decline", "accept"];
@@ -422,7 +423,7 @@ export class CallManager extends EventTarget {
     const out = ["mute"];
     if (this.videoTx) out.push("camera");
     out.push("hangup");
-    if (this._route?.supported) out.push("speaker");
+    if (this._route?.supported) out.push("speaker", "earpiece");
     if (this.videoOn && this.cameraCount > 1) out.push("flip");
     return out;
   }
@@ -447,11 +448,12 @@ export class CallManager extends EventTarget {
     return this.muted;
   }
 
-  // Earpiece <-> loudspeaker (Android). Optimistic: the button flips at once;
+  // Speaker or earpiece (Android). A tap forces that side (not auto), so a
+  // repeat tap can pull audio off a headset. The highlight flips at once;
   // the shell's answer (the actual route, e.g. "wired") lands in this.route.
-  async toggleSpeaker() {
+  async setSpeaker(on) {
     if (!this._route?.supported || this.state === "idle" || this.state === "ended") return this.speaker;
-    this.speaker = !this.speaker;
+    this.speaker = !!on;
     this.render();
     await this.applySpeaker(false);
     return this.speaker;
@@ -913,7 +915,7 @@ export class CallManager extends EventTarget {
       else if (a === "accept-video") this.acceptIncoming(true);
       else if (a === "decline") this.declineIncoming();
       else if (a === "mute") this.toggleMute();
-      else if (a === "speaker") this.toggleSpeaker();
+      else if (a === "speaker" || a === "earpiece") this.setSpeaker(a === "speaker");
       else if (a === "camera") this.toggleVideo();
       else if (a === "flip") this.flipCamera();
     });
@@ -1029,7 +1031,8 @@ export const CALL_ICONS = Object.freeze({
 
 // Overlay buttons, as markup. Pure (node-testable). Round icon buttons with
 // a fixed accessible name; toggles carry their state in aria-pressed
-// (Mute pressed = muted, Camera pressed = on, Speaker pressed = loudspeaker).
+// (Mute pressed = muted, Camera pressed = on, Speaker pressed = loudspeaker,
+// Earpiece pressed = earpiece). Exactly one of Speaker / Earpiece is .on.
 export function callButtonsHtml(actions, { muted = false, speaker = false, video = false } = {}) {
   const b = (call, cls, label, icon, pressed) =>
     `<button type="button" data-call="${call}" class="call-btn ${cls}" aria-label="${label}" title="${label}"` +
@@ -1038,7 +1041,8 @@ export function callButtonsHtml(actions, { muted = false, speaker = false, video
     mute: () => b("mute", "call-mute" + (muted ? " on" : ""), "Mute", muted ? CALL_ICONS.micOff : CALL_ICONS.mic, muted),
     camera: () => b("camera", "call-camera" + (video ? " on" : ""), "Camera", video ? CALL_ICONS.camera : CALL_ICONS.cameraOff, video),
     hangup: () => b("hangup", "danger", "End call", CALL_ICONS.hangup),
-    speaker: () => b("speaker", "call-speaker" + (speaker ? " on" : ""), "Speaker", speaker ? CALL_ICONS.speaker : CALL_ICONS.earpiece, speaker),
+    speaker: () => b("speaker", "call-speaker" + (speaker ? " on" : ""), "Speaker", CALL_ICONS.speaker, !!speaker),
+    earpiece: () => b("earpiece", "call-earpiece" + (speaker ? "" : " on"), "Earpiece", CALL_ICONS.earpiece, !speaker),
     flip: () => b("flip", "call-flip", "Switch camera", CALL_ICONS.flip),
     accept: () => b("accept", "accept", "Accept", CALL_ICONS.phone),
     "accept-video": () => b("accept-video", "accept", "Accept with video", CALL_ICONS.video),

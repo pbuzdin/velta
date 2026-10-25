@@ -1,9 +1,9 @@
 // velta-strings.js — Velta's own wording for texts the chatmail core writes
-// into the device chat. One place for these strings (the app has no i18n
-// catalog yet). Applied at boot via the core's stock-string override
-// (jsonrpc set_stock_strings → Accounts::set_stock_translation), so no
-// core/ change is needed and it works the same on Tauri desktop/Android
-// and the wasm PWA. Never mention relay hostnames here.
+// into the device chat. English here is the source; app/js/i18n.js translates
+// these four strings at init when the UI language is French or Russian
+// (jsonrpc set_stock_strings → Accounts::set_stock_translation). No core/
+// change. Works the same on Tauri desktop/Android and the wasm PWA.
+// Never mention relay hostnames here.
 
 // StockMessage ids from core/src/stock_str.rs.
 export const STOCK = Object.freeze({

@@ -5,10 +5,11 @@
 //   invites.js
 //   #hashtags (hashtags.js, #134) → <button class="hashtag" data-hashtag>,
 //   scanned only in text outside links, so URL #fragments are never tags
+//   `code` spans (#156) → click-to-copy <button class="msg-code">
 //   "- item" / "* item" bullets and "1." / "1)" numbered lists
 // All text is HTML-escaped before any tag is produced; only http(s) URLs
 // become links, so message content can never inject markup. There is no code
-// span/block syntax, so nothing is excluded from linking on that account.
+// block syntax, so nothing is excluded from linking on that account.
 import { escapeHtml, escapeAttr } from "./components.js";
 import { findBareLinks, trimLinkEnd } from "./bare-links.js";
 import { findHashtags } from "./hashtags.js";
@@ -92,6 +93,10 @@ function inlineWith(raw, members) {
   const re = /\[([^\]\n]+)\]\((https?:\/\/[^)\s]*)\)|\bhttps?:\/\/[^\s<]+/gi;
   const anchors = [];
   const hold = token => { anchors.push(token); return `\x00${anchors.length - 1}\x00`; };
+  // #156: `code` spans are extracted FIRST so their content is opaque to the
+  // link scan below (and to emphasis/hashtags/mentions — CommonMark semantics).
+  raw = raw.replace(/`([^`\n]+)`/g, (_, txt) => hold(
+    `<button type="button" class="msg-code" data-copy-code title="Click to copy">${escapeHtml(txt)}</button>`));
   const linkToken = (url, label) => {
     const invite = parseInviteLink(url);
     return invite ? inviteCardHtml(invite)

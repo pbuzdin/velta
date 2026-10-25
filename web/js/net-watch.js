@@ -20,6 +20,13 @@ export const NET_DEFAULTS = Object.freeze({
   offlineGraceMs: 10000,
   tickMs: 30000,
   pausedCeilingMs: 120000,
+  // false: never stop core IO on a loss, only nudge. Android sets this: the
+  // page's JS is throttled/frozen while the app is in the background (Doze
+  // cuts the network, `offline` fires, the grace timer pauses IO), and only
+  // the page can resume it — native maybe_network is a no-op while IO is
+  // stopped, so IMAP IDLE stayed dead until the app was reopened and
+  // notifications waited for a push or the 15-min job.
+  pauseIo: true,
 });
 
 export function createNetWatch({ core, isOnline, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout, opts = {} } = {}) {
@@ -47,7 +54,7 @@ export function createNetWatch({ core, isOnline, now = Date.now, setTimer = setT
 
   function pause() {
     return run(async () => {
-      if (paused || online()) return;
+      if (!o.pauseIo || paused || online()) return;
       const ok = await getCore()?.setNetworkIo?.(false);
       if (ok !== false) { paused = true; pausedAt = now(); }
     });

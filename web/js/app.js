@@ -3,7 +3,7 @@ import { createCore } from "./transport.js";
 import { createNetWatch, NET_DEFAULTS } from "./net-watch.js";
 import "./components.js";
 import { escapeHtml, escapeAttr } from "./components.js";
-import { chatCategoryOf, chatIsUnread, swipeCategoryStep, batteryReactionPlan } from "./rpc-core.js";
+import { chatCategoryOf, chatIsUnread, swipeCategoryStep, batteryReactionPlan, chatsInCommon } from "./rpc-core.js";
 import { fileUrl, setWasmBlobReader, redactMediaUrl } from "./media.js";
 import { mountMemberList } from "./member-list.js";
 import { mentionsMe, fprCode } from "./mentions.js";
@@ -14,13 +14,13 @@ import { mediaSectionsHtml, mountChatMedia } from "./chat-media.js";
 import { initCalls } from "./calls.js";
 import { initWebxdc, openWebxdc, prefetchInfo, appIconUrl } from "./webxdc-manager.js";
 import { initGroupCallUi } from "./group-call-ui.js";
-import { notePushDiagnostic, relaySupportsPush, pushMarkHtml } from "./relay-push.js";
+import { notePushDiagnostic, relaySupportsPush } from "./relay-push.js";
 import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow, isSendFailureDiagnostic, createRelaySendErrorState } from "./diagnostics.js";
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal, isShortInviteLink, expandShortInvite } from "./invites.js";
 import { activeWsRelay, addWsRelay, listWsRelays, normalizeHost, probeC3Relay, probeDnsVia, showWsRelaysModal, useWsRelay } from "./ws-relays.js";
 import { getChoice as getMdChoice, recordChoice as recordMdChoice, markNotified as markMdNotified, classify as classifyMultiDevice, mdLabel, retryDelay as mdRetryDelay, offConfirmText as mdOffConfirmText, forgetAccount as forgetMdAccount, MD_REENABLED_NOTE } from "./multidevice.js";
 import { openImageLightbox, openVideoLightbox, bindMenuToggle, buildDrawer, showModal, footButtons, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate, popoverSupported, fillSplashVersion, uiZoom, applyUiScale } from "./ui.js";
-import { serializeSettings, parseSettings, diffSettings, applySettings } from "./settings-transfer.js";
+import { serializeSettings, parseSettings, diffSettings, applySettings, normalizeDownloadLimit } from "./settings-transfer.js";
 import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact, showCreateGroupModal, showAddMembersModal } from "./p2p.js";
 import { withLocalChat, hubModel, renameDevice, removePeer, dismissLocalGroup, groupRename, groupRemoveMember, peerGroupImpact, groupActionsModel, groupMemberHint, removePeerImpactText, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
 import { timeAgo, formatBytes, timeTag } from "./format.js";
@@ -34,6 +34,11 @@ import { openInAppBrowser } from "./inapp-browser.js";
 import { extractTunnelLink, acceptTunnelLink, openTunnelSettings, refreshTunnelStatus, tunnelInstalled, tunnelStatus, describeTunnel, bindTunnelNetworkEvents, initTunnelDiagnostics } from "./tunnel.js";
 import { wrapIdentityBundle, unwrapIdentityBundle, buildIdentityBundle, bytesToBase64, base64ToBytes, backupDownloadName, gzipBytes, mailLoginFromTransports, accountDirFromToml, mailLoginsFromDbText } from "./identity-backup.js";
 import { isAndroid, tauriInvoke } from "./tauri.js";
+import { recordApp } from "./app-browser.js";
+import { applyDocumentLang, translateTree, t } from "./i18n.js";
+
+applyDocumentLang();
+translateTree(document);
 
 const diagnostics = new DiagnosticsStore();
 window.__veltaDiagnostics = diagnostics;
@@ -106,6 +111,7 @@ const state = {
   accounts: [],  // all core profiles, for the drawer account switcher
   chats: [],
   activeChatId: null,
+  pendingChatId: null, // clicked chat, highlighted before its history is ready
   query: "",
   theme: localStorage.getItem("dw-theme") || "auto",
   // #57 category bar: active chip + lazy contact bot flags (P/B split).
@@ -448,7 +454,7 @@ core.addEventListener?.("diagnostic", e => {
 // cores have no setNetworkIo — optional call is a no-op there.
 // VPN-toggle fix: see net-watch.js — grace period before pausing, resume on
 // any network/foreground signal, periodic safety net.
-const netWatch = createNetWatch({ core: () => core, isOnline: () => navigator.onLine });
+const netWatch = createNetWatch({ core: () => core, isOnline: () => navigator.onLine, opts: { pauseIo: !isAndroid() } });
 addEventListener("online", () => netWatch.onSignal("online"));
 addEventListener("offline", () => netWatch.onOffline());
 addEventListener("focus", () => netWatch.onSignal("focus"));
@@ -980,14 +986,6 @@ core.addEventListener?.("smtp-message-sent", () => {
 renderRelayLine();
 refreshRelayStatus();
 
-// Socket opened but the core never answered RPC → almost always an old or
-// crashed service build. Say so explicitly instead of silently demo-ing.
-addEventListener("velta-core-init-failed", e => {
-  if (e.detail.backend === "websocket") {
-    toast("Found the background service, but it didn't answer — restart the Velta Core service (or update it if it's an older build)", 6000);
-  }
-});
-
 /* ---------------- theme ---------------- */
 // theme: "auto" (follow the system, default) | "dark" | "light".
 const themeQuery = matchMedia("(prefers-color-scheme: light)");
@@ -1041,7 +1039,7 @@ function settingsDiffModal(changes, parsed) {
     if (parsed.invalid.length) notes.push(`Skipped (invalid value): ${parsed.invalid.join(", ")}`);
     if (parsed.ignored.length) notes.push(`Skipped (unknown to this version): ${parsed.ignored.join(", ")}`);
     body.innerHTML = `<p>Apply the settings${escapeHtml(when)} on this device? ${changes.length === 1 ? "1 setting changes" : `${changes.length} settings change`}:</p>
-      <ul class="settings-diff-list">${changes.map(c => `<li><span class="sd-label">${escapeHtml(c.label)}</span><span class="sd-vals"><span class="sd-from">${escapeHtml(c.from)}</span> → <b>${escapeHtml(c.to)}</b></span></li>`).join("")}</ul>
+      <ul class="settings-diff-list">${changes.map(c => `<li><span class="sd-label">${escapeHtml(t(c.label))}</span><span class="sd-vals"><span class="sd-from">${escapeHtml(c.from)}</span> → <b>${escapeHtml(c.to)}</b></span></li>`).join("")}</ul>
       ${notes.map(n => `<p class="bar-opts-hint">${escapeHtml(n)}</p>`).join("")}`;
     const { foot, cancel, ok } = footButtons("Apply", { okClass: "btn-text btn-primary" });
     const { close } = showModal({ title: "Apply these settings", body, foot, compact: true, onClose: () => resolve(false) });
@@ -1063,6 +1061,8 @@ async function applySettingsFromMessage(text) {
 // Everything a changed key needs to show live, no restart.
 function refreshAfterSettingsApply(keys) {
   const has = k => keys.includes(k);
+  // Strings are baked at render. Boot reapplies theme, scale and core copies.
+  if (has("language")) { location.reload(); return; }
   if (has("theme")) { state.theme = localStorage.getItem("dw-theme") || "auto"; applyTheme(); }
   if (has("interface-scale")) applyUiScale();
   if (["message-text-size", "message-corners", "accent-color", "hyphenation"].some(has)) {
@@ -1344,7 +1344,7 @@ async function renderLocalChatCard() {
   if (sig === lcCardSig) { el.hidden = false; return; }
   lcCardSig = sig;
   el.hidden = false;
-  const wifiSvg = `<svg viewBox="0 0 24 24" width="18" height="18"><path d="M2.5 9.5a14 14 0 0119 0M5.5 13a9.5 9.5 0 0113 0M8.5 16.5a5 5 0 017 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="19.5" r="1.4" fill="currentColor"/></svg>`;
+  const loopSvg = `<svg viewBox="0 0 624 590" width="21" height="20" aria-hidden="true"><g fill="currentColor" transform="translate(68.6 64.9) scale(0.78)"><polygon points="0,0 191,0 402,420 314,590"/><polygon points="434,0 624,0 420,385 341,225"/></g><path d="M510,267.1 A200,200 0 0 1 386.9,480.4" fill="none" stroke="currentColor" stroke-width="40"/><path d="M114,267.1 A200,200 0 0 0 237.1,480.4" fill="none" stroke="currentColor" stroke-width="40"/></svg>`;
   const short = (model.device.nodeId || "").slice(0, 8);
   const peerRows = model.peers.map(p => `
     <div class="lc-row" data-open="${escapeAttr(p.id)}">
@@ -1369,10 +1369,11 @@ async function renderLocalChatCard() {
     </div>`).join("");
   el.innerHTML = `
     <div class="lc-card-head${lcCardOpen ? " open" : ""}" data-toggle>
-      ${wifiSvg}
-      <span class="lc-card-title">Local chat</span>
+      ${loopSvg}
+      <span class="lc-card-title">Velta Loop</span>
       <span class="lc-card-chevron"><svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
     </div>
+    <div class="bar-opts-hint ctx-hint">Local chat — serverless rooms with people on this network</div>
     <div class="lc-card-body">
       <div class="lc-device">This device: <b>${escapeHtml(model.device.name)}</b>${short ? ` <span class="lc-nodeid">(${escapeHtml(short)})</span>` : ""} <button type="button" class="btn-text" data-rename>Edit name</button></div>
       <div class="lc-actions">
@@ -1535,11 +1536,19 @@ function sideViewShell(title, subtitle) {
 async function renderContactsView() {
   stopSideScroller();
   const rows = sideViewShell("Contacts", "Tap a contact to open the chat");
+  // #169: the toggle lives above the scroller's host — the VirtualScroller
+  // owns rows' children, so the label must be a sibling, not a child.
+  rows.before(knownContactsToggleRow(() => renderContactsView()));
   let contacts = [];
   try { contacts = await core.getContacts(); } catch { /* demo mode */ }
   if (listView !== "contacts") return; // user switched away mid-fetch
+  const allCount = contacts.length;
+  if (knownContactsOnly()) {
+    const known = knownContactIds();
+    contacts = contacts.filter(c => known.has(c.id));
+  }
   if (!contacts.length) {
-    rows.innerHTML = `<div class="side-view-empty">No contacts yet</div>`;
+    rows.innerHTML = `<div class="side-view-empty">${allCount ? "No known contacts yet — untick “Show only known contacts” above to see everyone." : "No contacts yet"}</div>`;
     return;
   }
   const renderRow = (c) => {
@@ -1827,7 +1836,7 @@ function renderChatList() {
   // DOM work. Environments without IntersectionObserver (headless harness)
   // keep mounting everything, as before.
   for (const [index, chat] of chats.entries()) {
-    const active = chat.id === state.activeChatId;
+    const active = chat.id === (state.pendingChatId ?? state.activeChatId);
     let item = existing.get(chat.id);
     if (item) {
       if (!chatItemUpToDate(item, chat, active)) {
@@ -2044,13 +2053,26 @@ function chatContextMenu(chat, x, y) {
     : { label: "Delete chat", icon: icons.trash, danger: true, onClick: async () => {
       // deleteMessages only clears history and leaves the chat in the list (#34).
       const p2p = chat.isP2p || String(chat.id).startsWith("p2p:");
+      // #145: delete_chat does not leave. A group or in/out broadcast must
+      // send the member-removed notice first. Mailing lists cannot (the core
+      // rejects self-removal); an already-left chat errors and is ignored.
+      const membership = !p2p && (chat.kind === "group" || chat.chatType === "OutBroadcast" || chat.chatType === "InBroadcast");
       const ok = p2p
         ? await confirmRemovePeer(String(chat.id).slice("p2p:".length), chat.name, "Delete chat")
-        : await confirmModal("Delete chat", `Delete "${chat.name}" and all its messages?`);
+        : await confirmModal(
+          "Delete chat",
+          membership
+            ? `Leave "${chat.name}" and delete it with all its messages?`
+            : `Delete "${chat.name}" and all its messages?`,
+          membership ? "Leave and delete" : "Delete");
       if (!ok || !accountIsCurrent(epoch)) return;
       try {
         if (p2p) await removePeer(String(chat.id).slice("p2p:".length));
-        else await core.deleteChat(chat.id);
+        else {
+          if (membership) await core.leaveGroup(chat.id).catch(() => {});
+          if (!accountIsCurrent(epoch)) return;
+          await core.deleteChat(chat.id);
+        }
         if (!accountIsCurrent(epoch)) return;
         if (state.activeChatId === chat.id) closeChat();
         if (p2p) { renderLocalChatCard(); closeVanishedGroupChat(); }
@@ -2082,7 +2104,7 @@ async function closeVanishedGroupChat() {
 // The action buttons of a local group's info sheet (see groupActionsModel).
 function p2pGroupActionsHtml(chat) {
   const btns = groupActionsModel(chat).map(a =>
-    `<button type="button" class="btn-text" data-pg="${a.key}"${a.danger ? ` style="color:var(--danger)"` : ""}${a.disabled ? " disabled" : ""}>${escapeHtml(a.label)}</button>`);
+    `<button type="button" class="btn-text" data-pg="${a.key}"${a.danger ? ` style="color:var(--danger)"` : ""}${a.disabled ? " disabled" : ""}>${escapeHtml(t(a.label))}</button>`);
   return `<div class="profile-actions">${btns.join("")}</div>`;
 }
 
@@ -2184,10 +2206,16 @@ async function openChat(chatId) {
   if (!chatView) return;
   // Already showing this chat → keep the live view (and its <video> elements)
   // instead of tearing everything down and rebuilding media from scratch.
-  if (state.activeChatId === chatId) return;
-  closeChatUI();
-  const navigation = chatNavigation, epoch = core.accountEpoch;
+  // A click that is already the one loading is the same wait, not a new one.
+  if (state.pendingChatId === chatId || (state.pendingChatId == null && state.activeChatId === chatId)) return;
+  // Do not close the visible history before the next page is in hand. A send
+  // plus a few quick switches otherwise clears the pane and leaves it black
+  // until the core finishes the queued reads, and further clicks only re-clear it.
+  const navigation = ++chatNavigation, epoch = core.accountEpoch;
   const current = () => navigation === chatNavigation && accountIsCurrent(epoch);
+  state.pendingChatId = chatId;
+  chatView.cancelOpen?.();
+  renderChatList();
   try {
   const chat = await core.getChat(chatId);
   if (!current() || !chat) return;
@@ -2252,12 +2280,15 @@ async function openChat(chatId) {
   // History entry per open chat: Android BACK pops it (chat -> chat list)
   // via WryActivity's WebView-history navigation instead of exiting.
   if (history.state?.velta !== "chat") history.pushState({ velta: "chat", chatId }, "");
+  state.pendingChatId = null;
   renderChatList();
   renderLcQueueTray();
   } catch (error) {
     if (!current()) return;
     closeChatUI();
     errToast("Couldn't open chat: " + (error.message || error));
+  } finally {
+    if (state.pendingChatId === chatId && navigation === chatNavigation) state.pendingChatId = null;
   }
 }
 
@@ -2269,6 +2300,7 @@ function closeChat() {
 
 function closeChatUI() {
   chatNavigation++;
+  state.pendingChatId = null;
   diagnosticsOpen = false;
   // A throw inside the view's teardown must not skip the UI teardown below —
   // the swipe-back parks the column off-screen and relies on .chat-open being
@@ -2588,9 +2620,17 @@ async function showChatInfo(chat) {
   const modal = showModal({ title: "", body });
 
   // Apps / Photos / Videos / Audio / Files: counts now, contents on open.
-  if (body.querySelector("[data-media]")) {
+  // Contact profiles carry no chat id — scope their sections to the 1:1
+  // chat with the contact, or hide them when there is none (opening a
+  // profile must not create a chat). A null chatId would hit the core's
+  // "all chats" fallback (#159).
+  let mediaChatId = chat.id;
+  if (!mediaChatId && chat.contactId && core.getChatIdByContactId) {
+    try { mediaChatId = await core.getChatIdByContactId(chat.contactId) || null; } catch { mediaChatId = null; }
+  }
+  if (body.querySelector("[data-media]") && mediaChatId) {
     mountChatMedia(body, {
-      core, chatId: chat.id, fileUrl,
+      core, chatId: mediaChatId, fileUrl,
       isCurrent: () => accountIsCurrent(epoch) && body.isConnected,
       appInfo: (id) => prefetchInfo(id),
       appIconUrl: (id, icon) => appIconUrl(id, icon),
@@ -2922,35 +2962,39 @@ async function showChatInfo(chat) {
       .catch(() => {});
   }
 
-  // Chats in common: group chats the contact is also a member of. Each row
-  // opens that chat; the section disappears entirely if there are none.
-  if (!isGroup && chat.contactId && core.getChatMembers) {
-    core.getChatList({}).then(async chats => {
-      if (!accountIsCurrent(epoch)) return;
-      const common = [];
-      for (const c of chats) {
-        if (c.kind !== "group" && c.kind !== "channel") continue;
-        try {
-          const members = await core.getChatMembers(c.id);
-          if (!accountIsCurrent(epoch)) return;
-          if (members.some(m => m.id === chat.contactId)) common.push(c);
-        } catch { /* skip chats whose members can't be listed */ }
-      }
-      const details = body.querySelector("[data-common]");
-      const list = body.querySelector("[data-common-list]");
-      if (!details || !list || !document.contains(details)) return;
-      if (!common.length) return; // no chats in common — details stays hidden
-      const count = details.querySelector("[data-common-count]");
-      if (count) count.textContent = `(${common.length})`;
-      for (const c of common) {
-        const row = document.createElement("div");
-        row.className = "info-row clickable";
-        row.innerHTML = `<span class="k">${escapeHtml(c.name)}</span><span class="v">${c.unread ? c.unread + " unread" : ""}</span>`;
-        row.addEventListener("click", () => { modal.close(); openChat(c.id); });
-        list.appendChild(row);
-      }
-      details.hidden = false;
-    }).catch(() => {});
+  // Chats in common. An open used to reload every chat, then every group's
+  // full member list. That queue is the long stall after an avatar tap.
+  // Ids only, and only once the section is opened (#171).
+  // ponytail: state.chats is search-narrowed while a query is active;
+  // reloading the chat list here is the stall.
+  const commonDetails = body.querySelector("[data-common]");
+  if (commonDetails && core.getChatContactIds) {
+    commonDetails.hidden = false;
+    const countEl = commonDetails.querySelector("[data-common-count]");
+    if (countEl) countEl.textContent = "…";
+    let started = false;
+    commonDetails.addEventListener("toggle", () => {
+      if (!commonDetails.open || started) return;
+      started = true;
+      const list = commonDetails.querySelector("[data-common-list]");
+      const idsOf = (id) => typeof id === "number"
+        ? core.getChatContactIds(id)
+        : core.getChatMembers(id).then(ms => (ms || []).map(m => m.id));
+      chatsInCommon(state.chats, chat.contactId, idsOf, () => accountIsCurrent(epoch) && commonDetails.isConnected)
+        .then(common => {
+          if (!commonDetails.isConnected || !accountIsCurrent(epoch)) return;
+          if (countEl) countEl.textContent = `(${common.length})`;
+          if (!list) return;
+          for (const c of common) {
+            const row = document.createElement("div");
+            row.className = "info-row clickable";
+            row.innerHTML = `<span class="k">${escapeHtml(c.name)}</span><span class="v">${c.unread ? c.unread + " unread" : ""}</span>`;
+            row.addEventListener("click", () => { modal.close(); openChat(c.id); });
+            list.appendChild(row);
+          }
+        })
+        .catch(() => { if (countEl && commonDetails.isConnected) countEl.textContent = "—"; });
+    });
   }
 
   if (chat.isP2pGroup) {
@@ -3054,7 +3098,16 @@ async function openChatMediaItem(kind, m) {
   }
   closeAllPopups();
   await modalHistorySettled();
-  if (kind === "apps") openWebxdc(m.id, (m.fileName || "Webxdc app").replace(/\.xdc$/i, ""));
+  if (kind === "apps") {
+    if (m.filePath && (!m.downloadState || m.downloadState === "Done")) {
+      recordApp(core.accountId, {
+        name: (m.fileName || "App").replace(/\.xdc$/i, ""),
+        file: m.filePath,
+        filename: m.fileName || "app.xdc",
+      });
+    }
+    openWebxdc(m.id, (m.fileName || "Webxdc app").replace(/\.xdc$/i, ""));
+  }
   else if (kind === "photos") openImageLightbox(fileUrl(m.filePath), m.fileName || "photo");
   else if (kind === "videos") openVideoLightbox(fileUrl(m.filePath), m.fileName || "video");
 }
@@ -3097,7 +3150,7 @@ function bindChatHeadMenu() {
         label: "Delete chat", danger: true,
         onClick: () => deleteLocalGroupChat(chat, epoch),
       }] : []),
-      ...((chat.kind === "group" || chat.kind === "channel") && !(chat.isP2pGroup && chat.readOnly) ? [{
+      ...((chat.kind === "group" || (chat.kind === "channel" && chat.chatType !== "Mailinglist")) && !(chat.isP2pGroup && chat.readOnly) ? [{
         label: chat.kind === "channel" ? "Leave channel" : chat.isP2pGroup && chat.canManage ? "Disband group" : "Leave group",
         onClick: async () => {
           if (chat.isP2pGroup) return leaveLocalGroupFlow(chat, epoch);
@@ -3214,6 +3267,30 @@ function bindChatHeadMenu() {
 }
 
 /* ---------------- new chat / forward ---------------- */
+// "Show only known contacts" (#169): the contact surfaces default to people
+// and bots you have a 1:1 chat with — the raw contact DB (group-only and
+// key-update entries) is one checkbox away. Persisted, default ON.
+const KNOWN_CONTACTS_KEY = "velta-known-contacts-only";
+const knownContactsOnly = () => localStorage.getItem(KNOWN_CONTACTS_KEY) !== "0";
+// Contact ids with an existing 1:1 chat — state.chats singles carry
+// dmChatContact, so this is free (no per-contact RPCs).
+const knownContactIds = () => new Set(state.chats.filter(c => c.kind === "single" && c.contactId).map(c => c.contactId));
+
+// The shared checkbox row for the filtered surfaces; onChange refilters.
+function knownContactsToggleRow(onChange) {
+  const label = document.createElement("label");
+  label.className = "scale-opt";
+  label.style.margin = "0 2px 8px";
+  label.innerHTML = `<input type="checkbox" role="switch"${knownContactsOnly() ? " checked" : ""}><span>Show only known contacts</span>`;
+  const box = label.querySelector("input");
+  box.addEventListener("change", () => {
+    if (box.checked) localStorage.removeItem(KNOWN_CONTACTS_KEY);
+    else localStorage.setItem(KNOWN_CONTACTS_KEY, "0");
+    onChange?.();
+  });
+  return label;
+}
+
 async function pickContactModal(title, multi = false) {
   if (state.accountChanging) return null;
   const epoch = core.accountEpoch;
@@ -3223,6 +3300,7 @@ async function pickContactModal(title, multi = false) {
     const list = document.createElement("div");
     list.className = "modal-list";
     const selected = new Set();
+    const items = [];
     for (const c of contacts) {
       const item = document.createElement("velta-chat-item");
       item.setData({
@@ -3238,10 +3316,32 @@ async function pickContactModal(title, multi = false) {
         ok.disabled = !selected.size;
       });
       list.appendChild(item);
+      items.push([c, item]);
     }
-    const { foot, cancel, ok } = footButtons(multi ? "Create" : "OK");
+    // #169: default to people and bots you actually have a 1:1 chat with.
+    const known = knownContactIds();
+    let knownOnly = knownContactsOnly();
+    const empty = document.createElement("div");
+    empty.className = "p2p-hint"; empty.style.opacity = ".6";
+    empty.textContent = "Nobody here yet — untick “Show only known contacts” to see everyone.";
+    empty.hidden = true;
+    const applyKnownFilter = () => {
+      let shown = 0;
+      for (const [c, item] of items) {
+        const hit = !knownOnly || known.has(c.id);
+        item.hidden = !hit;
+        shown += hit;
+      }
+      empty.hidden = shown > 0;
+    };
+    applyKnownFilter();
+    const wrap = document.createElement("div");
+    wrap.append(knownContactsToggleRow(() => { knownOnly = knownContactsOnly(); applyKnownFilter(); }), list, empty);
+    // Multi-select confirms a choice, it creates nothing — the group itself
+    // is created in the following name dialog (#160).
+    const { foot, cancel, ok } = footButtons(multi ? "Add" : "OK");
     ok.disabled = true;
-    const { close } = showModal({ title, body: list, foot, onClose: () => resolve(null) });
+    const { close } = showModal({ title, body: wrap, foot, onClose: () => resolve(null) });
     cancel.addEventListener("click", () => { close(); resolve(null); });
     ok.addEventListener("click", () => { resolve(contacts.filter(c => selected.has(c.id))); close(); });
   });
@@ -3267,6 +3367,11 @@ function newChatOptions() {
       const epoch = core.accountEpoch;
       const picked = await pickContactModal("Add group members", true);
       if (!picked || !accountIsCurrent(epoch)) return;
+      // The picker's history entry must pop before the next modal opens:
+      // otherwise the name dialog's showModal skips its push (the modal
+      // state is still current) and the pending pop closes it instantly —
+      // Create appeared to do nothing (#151).
+      await modalHistorySettled();
       const name = await askGroupName();
       if (!name || !accountIsCurrent(epoch)) return;
       {
@@ -3277,8 +3382,21 @@ function newChatOptions() {
         openChat(id);
       }
     } },
+    { label: "New channel", onClick: async () => {
+      const epoch = core.accountEpoch;
+      const raw = await askText("New channel", "New channel", "Create channel");
+      if (raw == null || !accountIsCurrent(epoch)) return;
+      const id = await core.createChat(raw || "New channel", [], "channel");
+      if (!accountIsCurrent(epoch)) return;
+      await refreshChatList();
+      if (!accountIsCurrent(epoch)) return;
+      openChat(id);
+    } },
     ...(p2pEnabled() && p2pAvailable() ? [{ label: "New local group (no relay)", onClick: newLocalGroupFlow }] : []),
     { label: "Join chat via invite link", onClick: joinFlow },
+    // #149: second transport on this profile. No list refresh — that arg
+    // reopens the Relays modal, which this row did not open.
+    { label: "Add a relay to this account", onClick: () => addRelayFlow(core.accountEpoch) },
     { label: "Add account via invite link", onClick: () => openProfileManagement() },
   ];
 }
@@ -4261,9 +4379,25 @@ function scheduleDrainOpened() {
 async function forwardFlow(msgIds) {
   if (state.accountChanging) return;
   const epoch = core.accountEpoch, fromChatId = state.activeChatId, navigation = chatNavigation;
+  const wrap = document.createElement("div");
+  // Search above the chat list (#158) — same matching as the search screen.
+  const search = document.createElement("input");
+  search.type = "search";
+  search.className = "text-field";
+  search.placeholder = "Search chats…";
+  search.enterKeyHint = "search";
+  search.autocomplete = "off";
+  search.setAttribute("aria-label", "Search chats");
+  search.style.marginBottom = "8px";
   const list = document.createElement("div");
   list.className = "modal-list";
+  const empty = document.createElement("div");
+  empty.className = "p2p-hint"; empty.style.opacity = ".6";
+  empty.textContent = "No chats match.";
+  empty.hidden = true;
+  wrap.append(knownContactsToggleRow(applyFilter), search, list, empty);
   const targets = state.chats.filter(c => !["deaddrop", "device"].includes(c.kind) && !c.isP2pGroup);
+  const items = [];
   for (const chat of targets) {
     const item = document.createElement("velta-chat-item");
     item.setData(chat);
@@ -4277,8 +4411,25 @@ async function forwardFlow(msgIds) {
       refreshChatList();
     });
     list.appendChild(item);
+    items.push([chat, item]);
   }
-  const { close } = showModal({ title: "Forward to…", body: list });
+  // #158 search × #169 known-contacts: one filter, both conditions.
+  function applyFilter() {
+    const q = search.value.trim().toLowerCase();
+    let shown = 0;
+    for (const [chat, item] of items) {
+      const hit = (!knownContactsOnly() || chat.kind === "single")
+        && (!q || (chat.name || "").toLowerCase().includes(q));
+      item.hidden = !hit;
+      shown += hit;
+    }
+    empty.hidden = shown > 0;
+  }
+  applyFilter();
+  search.addEventListener("input", applyFilter);
+  const { close } = showModal({ title: "Forward to…", body: wrap });
+  // Phones: no keyboard over the list until the user taps the field.
+  if (!/Android|iPhone|iPad/i.test(navigator.userAgent || "")) search.focus();
 }
 
 /* ---------------- drawer ---------------- */
@@ -4605,6 +4756,13 @@ async function setMultiDevice(on, { quick = false } = {}) {
   }
 }
 
+function savedDownloadLimit() {
+  const raw = localStorage.getItem("velta-download-limit");
+  const v = normalizeDownloadLimit(raw);
+  if (raw != null && raw !== v) localStorage.setItem("velta-download-limit", v);
+  return v;
+}
+
 function rebuildDrawer() {
   if (state.accountChanging) return;
   // Rebuilds land from async paths (boot, refreshAccounts, tunnel status,
@@ -4621,7 +4779,9 @@ function rebuildDrawer() {
   // too). localStorage is the source of truth for the UI; the core copies
   // keep the account config honest for other consumers.
   const savedMq = localStorage.getItem("velta-media-quality") || "0";
-  const savedDl = localStorage.getItem("velta-download-limit") || "0";
+  // Device-global: core keeps download_limit on the account but does not
+  // multi-device-sync it, so this one value is copied into the open account.
+  const savedDl = savedDownloadLimit();
   const savedMdns = localStorage.getItem("velta-mdns") ?? "1";
   core.setConfig?.("media_quality", savedMq)
     .then(() => core.setConfig?.("download_limit", savedDl))
@@ -4655,7 +4815,7 @@ function rebuildDrawer() {
         errToast("Couldn't save image quality: " + (err?.message || err)));
       toast(value === "1" ? "Image quality: Compact" : "Image quality: Standard");
     },
-    downloadLimit: localStorage.getItem("velta-download-limit") || "0",
+    downloadLimit: savedDl,
     onDownloadLimit: (value) => {
       localStorage.setItem("velta-download-limit", value);
       core.setConfig?.("download_limit", value).catch(err =>
@@ -5352,6 +5512,61 @@ function showSplash() {
 // the core stops using the relay right away, refuses only to remove the last
 // one (re-electing the sending transport as needed) and sends keyupdate
 // messages so contacts converge on the new address set.
+// Capability flags for the relays modal (VENDORISSUES #15): C = calls (the
+// relay hands out TURN credentials), I = iroh relay, P = push (metadata,
+// falling back to the #110 diagnostic cache on cores without the RPC),
+// D = instant delivery (IMAP IDLE, core patch #16), W = web/C3 endpoints
+// (probed). Silver = not offered / not known yet,
+// green = the relay advertised it. The letters' titles carry the words.
+const relayFlagsHtml = (addr, meta) => {
+  // on: true / false / null (null = not known yet even with metadata —
+  // IMAP capabilities are only known after the relay's first connection).
+  const flag = (letter, label, on) =>
+    `<span class="relay-flag${on ? " on" : ""}" title="${escapeAttr(label + (on ? "" : meta && on !== null ? " — not offered by this relay" : " — not known yet"))}" aria-label="${escapeAttr(label)}" role="img">${letter}</span>`;
+  return [
+    flag("C", "Calls: the relay hands out TURN credentials", !!meta?.hasTurn),
+    flag("I", "iroh relay: helps Beam and peer-to-peer transfers", !!meta?.irohRelay),
+    flag("P", "Push notifications: the relay accepts device tokens", !!meta?.supportsPush || relaySupportsPush(addr)),
+    // D (core patch #16, IMAP IDLE): new mail arrives instantly instead of
+    // on a polling interval. Older cores / the wasm core without the field
+    // leave it "not known yet".
+    flag("D", "Instant delivery: the relay pushes new mail to the app as it arrives (IMAP IDLE)", typeof meta?.canIdle === "boolean" ? meta.canIdle : null),
+    `<span class="relay-flag" data-flag-w title="Web app endpoints (C3): this relay offers the WebSocket mail tunnel the browser app uses" aria-label="Web app endpoints (C3): this relay offers the WebSocket mail tunnel the browser app uses" role="img">W</span>`,
+  ].join("");
+};
+
+// Details under a relay's address, from data the client already reads (no
+// core patch): IMAP METADATA /shared/admin and /shared/comment (via
+// get_server_metadata) and the quota the core renders in its connectivity
+// page (quota-list, parsed per transport by parseConnectivityHtml). Quota
+// shows only when the relay reports it; the bar is the highest resource %.
+// Plain escaped text, never links: these strings come from the relay.
+const relayDetailsHtml = (meta, quotaText) => {
+  const lines = [];
+  const comment = String(meta?.comment || "").trim();
+  const admin = String(meta?.admin || "").trim();
+  if (comment) lines.push(`<div class="relay-detail">${escapeHtml(comment)}</div>`);
+  if (admin) lines.push(`<div class="relay-detail">Admin: ${escapeHtml(admin)}</div>`);
+  // Core patch #16: recipient limit (maxsmtprecipients) and IMAP compression,
+  // shown only when the core reports them.
+  const facts = [];
+  const rcpt = Number(meta?.maxSmtpRcptTo);
+  if (Number.isInteger(rcpt) && rcpt > 0) facts.push(`Up to ${rcpt} recipients per message`);
+  if (meta?.canCompress === true) facts.push("compressed connection");
+  if (facts.length) lines.push(`<div class="relay-detail">${escapeHtml(facts.join(" · "))}</div>`);
+  const q = String(quotaText || "").trim();
+  if (q) {
+    const pcts = [...q.matchAll(/(\d{1,3})\s*%/g)].map(m => Math.min(100, Number(m[1])));
+    const label = q.replace(/\s*\d{1,3}\s*%/g, "").trim();
+    const pct = pcts.length ? Math.max(...pcts) : null;
+    lines.push(`<div class="relay-detail relay-quota">${pct === null ? "" : `<span class="relay-quota-bar" role="img" aria-label="Storage ${pct}% used"><span style="width:${pct}%"${pct >= 80 ? ' class="high"' : ""}></span></span>`}<span>${escapeHtml(label)}${pct === null ? "" : ` (${pct}%)`}</span></div>`);
+  }
+  return lines.join("");
+};
+
+// One C3 probe per relay domain per app session (the flag cache).
+const relayC3Flags = new Map();
+
 async function openRelaysModal() {
   if (state.accountChanging) return;
   if (!core.listTransports) {
@@ -5362,7 +5577,8 @@ async function openRelaysModal() {
   const body = document.createElement("div");
   body.innerHTML = `
     <div data-list><div class="p2p-hint" style="opacity:.6">Loading…</div></div>
-    <div style="margin-top:10px"><button type="button" class="btn-text" data-add>Add relay…</button></div>`;
+    <div style="margin-top:10px"><button type="button" class="btn-text" data-add>Add relay…</button></div>
+    <div class="relay-legend" aria-hidden="true"><span class="relay-pair"><span class="relay-flag">C</span><span>calls (TURN)</span></span><span class="relay-pair"><span class="relay-flag">I</span><span>iroh transfers</span></span><span class="relay-pair"><span class="relay-flag">P</span><span>push notifications</span></span><span class="relay-pair"><span class="relay-flag">D</span><span>instant delivery</span></span><span class="relay-pair"><span class="relay-flag">W</span><span>web endpoints</span></span><span class="relay-pair"><span class="relay-dot"></span><span>offered by the relay</span></span></div>`;
   showModal({ title: "Relays", body });
   const listEl = body.querySelector("[data-list]");
 
@@ -5379,13 +5595,23 @@ async function openRelaysModal() {
     if (!accountIsCurrent(epoch)) return;
     // Per-relay live status for the stale-transport hint (issue #11 slice 3):
     // parseConnectivityHtml gives one state per relay domain — best effort,
-    // the modal stays useful without it.
+    // the modal stays useful without it. smtpVia rides along: the transport
+    // the SMTP loop is actually bound to (failover hint below).
     let statusByDomain = null;
+    let smtpVia = null;
     try {
       if (core.getConnectivityHtml) {
-        statusByDomain = new Map(parseConnectivityHtml(await core.getConnectivityHtml()).map(s => [s.domain, s]));
+        const parsed = parseConnectivityHtml(await core.getConnectivityHtml());
+        statusByDomain = new Map(parsed.segs.map(s => [s.domain, s]));
+        smtpVia = parsed.smtpVia;
       }
     } catch { /* best effort */ }
+    if (!accountIsCurrent(epoch)) return;
+    // Per-relay capabilities (VENDORISSUES #15): calls/TURN, iroh, push —
+    // as the relays themselves advertise over IMAP METADATA. Old cores lack
+    // the RPC; the flags then stay silver ("not known yet").
+    let metaByAddr = null;
+    try { metaByAddr = (await core.getServerMetadata?.()) || null; } catch { /* old core */ }
     if (!accountIsCurrent(epoch)) return;
     listEl.replaceChildren();
     if (!transports.length) {
@@ -5396,15 +5622,48 @@ async function openRelaysModal() {
     }
     for (const t of transports) {
       const row = document.createElement("div");
-      row.className = "info-row";
       const primary = state.account && t.addr === state.account.addr;
       const other = transports.find(x => x.addr !== t.addr);
       const st = statusByDomain?.get((t.addr || "").split("@").pop());
       const hint = !st || st.state === "ok" ? "" : ` <span class="relay-row-status">${st.state === "down" ? "unreachable — messages queue until it's back" : "connecting…"}</span>`;
       const demote = primary && other ? `<button type="button" class="btn-text" data-demote>Stop using for sending</button>` : "";
-      const pushMark = relaySupportsPush(t.addr) ? pushMarkHtml() : "";
-      row.innerHTML = `<span class="k">${escapeHtml(t.addr)}${pushMark}${primary ? " · sending" : ""}${hint}</span>
-        <span class="v">${primary ? demote : `<button type="button" class="btn-text" data-sendvia>Use for sending</button>`}<button type="button" class="btn-text" data-remove style="color:var(--danger)">Remove</button></span>`;
+      // Failover (core patch smtp-via): smtpVia is the transport the SMTP
+      // loop is ACTUALLY bound to. When it is not the pinned one, the pin's
+      // relay failed a send and the core switched away — say so on both
+      // rows instead of silently showing the stale pin.
+      const domainOf = (a) => String(a || "").split("@")[1]?.toLowerCase() || null;
+      const viaDomain = domainOf(smtpVia);
+      const pinnedDomain = domainOf(state.account?.addr);
+      const isVia = !!viaDomain && domainOf(t.addr) === viaDomain;
+      const failedOver = !!viaDomain && viaDomain !== pinnedDomain;
+      const sendMark = primary
+        ? ` <span class="relay-sending">· sending${failedOver ? ` — send failed, switched to ${escapeHtml(smtpVia)} for now` : ""}</span>`
+        : isVia && failedOver
+          ? ` <span class="relay-sending">· sending (failover)</span>`
+          : "";
+      row.className = "relay-card";
+      row.innerHTML = `
+        <div class="relay-line">
+          <span class="relay-addr">${escapeHtml(t.addr)}${sendMark}${hint}</span>
+          <span class="relay-flags">${relayFlagsHtml(t.addr, metaByAddr?.[t.addr] || null)}</span>
+        </div>
+        ${relayDetailsHtml(metaByAddr?.[t.addr] || null, st?.quota)}
+        <div class="relay-actions">${primary ? demote : `<button type="button" class="btn-text" data-sendvia>Use for sending</button>`}<button type="button" class="btn-text" data-remove style="color:var(--danger)">Remove</button></div>`;
+      // W flag: probe the relay's C3 endpoints (probeC3Relay). In the Tauri
+      // shells the probe runs in Rust without a browser Origin (relays gate
+      // browser origins); in the PWA it is the browser's own WebSocket, i.e.
+      // "capable from this origin". Silver until the relay answers; one
+      // probe per relay per app session.
+      const wEl = row.querySelector("[data-flag-w]");
+      const wDomain = (t.addr || "").split("@").pop();
+      if (wEl && wDomain) {
+        const cached = relayC3Flags.get(wDomain);
+        const probe = cached || probeC3Relay(wDomain).catch(() => false);
+        relayC3Flags.set(wDomain, probe);
+        probe.then(ok => {
+          if (ok && wEl.isConnected && accountIsCurrent(epoch)) wEl.classList.add("on");
+        });
+      }
       row.querySelector("[data-sendvia]")?.addEventListener("click", async () => {
         const ok = await confirmModal(
           `Send via ${t.addr}?`,
@@ -5521,7 +5780,7 @@ async function addRelayFlow(epoch, refresh, presetCode) {
       finishSteps(true);
       addStep("Relay added — messages are received on both relays");
       toast("Relay added");
-      refresh();
+      refresh?.();
       // Success must not leave the steps modal open — close it and, if the
       // flow was started from the Relays modal, show the updated list again.
       setTimeout(async () => {

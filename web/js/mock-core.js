@@ -646,7 +646,10 @@ export class MockCore extends EventTarget {
   async canSend(chatId) {
     if (this._leftChats.has(chatId)) return false; // left groups read-only
     const chat = this.chats.find(c => c.id === chatId);
-    return chat ? chat.kind !== "channel" : true;
+    if (!chat) return true;
+    // Seeded channels are incoming (read-only). One we created is ours.
+    if (chat.kind === "channel") return !!chat.canPost;
+    return true;
   }
 
   // Demo twins of rpc-core.getConfig/setConfig: the real core persists
@@ -659,6 +662,10 @@ export class MockCore extends EventTarget {
     this._config = this._config || {};
     if (value === null) delete this._config[key];
     else this._config[key] = String(value);
+  }
+
+  async getChatContactIds(chatId) {
+    return (await this.getChatMembers(chatId)).map(m => m.id);
   }
 
   async getChatMembers(chatId) {
@@ -796,6 +803,28 @@ export class MockCore extends EventTarget {
     const want = new Set(types.map(t => String(t).toLowerCase()));
     if (want.has("gif")) want.add("image");
     return c.messages.filter(m => m.kind !== "service" && want.has(m.viewtype)).map(m => m.id);
+  }
+
+  // Demo twin of rpc-core.getChatIdByContactId: read-only, null when the
+  // profile has no 1:1 chat.
+  async getChatIdByContactId(contactId) {
+    return this.chats.find(c => c.contactId === contactId)?.id ?? null;
+  }
+
+  // Demo twin of rpc-core.getServerMetadata (VENDORISSUES #15): the sending
+  // relay is a modern chatmail (calls, push, iroh), the rest stay unknown so
+  // both flag states are visible in demo mode.
+  async getServerMetadata() {
+    const out = {};
+    const d = this.relayDomains[0];
+    if (d) {
+      out[`you@${d}`] = {
+        irohRelay: `https://iroh.${d}`, supportsPush: true, hasTurn: true,
+        appVersions: null, comment: null, admin: null,
+        canIdle: true, canCompress: true, maxSmtpRcptTo: 1000,
+      };
+    }
+    return out;
   }
 
   async getMessagesByIds(ids = []) {
@@ -1076,9 +1105,11 @@ export class MockCore extends EventTarget {
     const id = 100 + this.chats.length;
     const chat = {
       id, name, kind, contactId: kind === "single" ? contactIds[0] : null,
-      memberCount: contactIds.length + 1, pinned: false, muted: false,
+      chatType: kind === "channel" ? "OutBroadcast" : null,
+      canPost: kind === "channel",
+      memberCount: (contactIds?.length || 0) + 1, pinned: false, muted: false,
       archived: false, verified: false, unread: 0, draft: null, encrypted: true,
-      messages: [this._mkMsg({ id }, { kind: "service", text: kind === "group" ? `Group "${name}" created` : "Messages are end-to-end encrypted.", ts: Date.now() })],
+      messages: [this._mkMsg({ id }, { kind: "service", text: kind === "group" ? `Group "${name}" created` : kind === "channel" ? `Channel "${name}" created` : "Messages are end-to-end encrypted.", ts: Date.now() })],
     };
     this.chats.push(chat);
     this._emit("chat-updated", { chatId: id });

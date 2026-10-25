@@ -2,20 +2,27 @@
 import { canEditMsg } from "./msg-edit.js";
 import { prepareBuiltinXdc } from "./builtin-xdc.js";
 import { formatTime, formatDay, formatDateTime, formatServerUrl, messageInfoState, messageInfoReactions, formatBytes, timeTag, stampTime, formatDuration, serviceChipsHtml } from "./format.js";
-import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener } from "./components.js";
-import { bindMenuToggle, showContextMenu, showMessageSheet, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG, uiZoom } from "./ui.js";
+import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener, noteGestureSwipe } from "./components.js";
+import { bindMenuToggle, showActionBar, showContextMenu, showMessageSheet, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG, uiZoom } from "./ui.js";
 import { diagnosticRow } from "./diagnostics.js";
-import { attachRecentCommands, recordCommand } from "./recent-commands.js";
+import { attachRecentCommands, recordCommand, recentCommands } from "./recent-commands.js";
+import { recentApps, recordApp, appendAttachLists, openAppBrowser } from "./app-browser.js";
 import { audioPlayerHtml, mountAudioPlayer, decodeAudioDuration } from "./audio-player.js";
 import { openWebxdc, appIconUrl, loadInfoWithRetry, builtinAppCard, isWebxdcInfoMsg, infoFor, GROUP_CALL_FILE_RE, isGroupCallApp, joinGroupCallFor, announceGroupCall } from "./webxdc-manager.js";
 import { cardHtml, wireCard } from "./group-call-card.js";
 import { currentGroupCall, onGroupCallChange, leaveGroupCall } from "./group-call-host.js";
 import { askGroupCallName } from "./group-call-ui.js";
 
-const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🎉", "👏"];
-// Two rows of six on the phone sheet. The last cell is the emoji tray, not a reaction.
+// Two rows of six on the phone sheet; the same row tops the desktop menu.
+// The last cell is the emoji tray, not a reaction.
 const SHEET_REACTIONS = ["👍", "👎", "❤️", "😂", "🎉", "😮", "🔥", "👀", "🙏", "😢", "💯"];
 const SHEET_PAIRS = ["send", "keep", "file", "own", "text", "meta"];
+
+// Inverse of format.js escapeHtml (its only consumer: pulling hrefs back out
+// of rendered markdown). &amp; goes last so "&amp;lt;" round-trips.
+const unescapeHtml = (s) => String(s)
+  .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
+  .replace(/&#39;/g, "'").replace(/&amp;/g, "&");
 
 // iOS Chrome/Edge/Firefox are WebKit, so they stay on the px-only image width.
 const ua = globalThis.navigator?.userAgent || "";
@@ -68,6 +75,7 @@ import { diagnosticsSink, debugLog } from "./diagnostics.js";
 import { LruCache } from "./lru.js";
 const ROW_CACHE_MAX = 300; // rendered-row LRU cap (see _rowCache)
 import { fileUrl, mediaFallbackUrl, redactMediaUrl } from "./media.js";
+import { parkMedia, unparkMedia } from "./media-park.js";
 import { openInAppBrowser } from "./inapp-browser.js";
 import { renderMarkdown, extractBotCommands } from "./markdown.js";
 import { attachMentionPicker, fprCode } from "./mentions.js";
@@ -86,6 +94,7 @@ import { senderColorVars } from "./name-color.js";
 import { sendLargeFile, largeFileAvailable, largeFileInfoHtml, wireLargeFileInfo } from "./large-file.js";
 import { lufiUploadFor } from "./lufi.js";
 import { isAndroid, rustLog, tauriInvoke } from "./tauri.js";
+import { canShareLink, copyLink, shareLink } from "./qr-actions.js";
 
 function reactionChipsHtml(reactions) {
   return (reactions || []).map(r =>
@@ -290,13 +299,17 @@ const ICO = {
   info: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 10v6M12 7v.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`,
   download: `<svg viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M4 19h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   photo: `<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="10" r="1.6" fill="currentColor"/><path d="M4 17l5-5 3.5 3.5L16 12l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`,
-  // Velta Beam: beam bar over a split V, the shapes of app/webxdc/send-direct/icon.svg
-  // (1024 grid) rescaled to 24: 16px wide (solid, so narrower than the outlined icons), centred like the other attach icons.
-  beam: `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M4 4.17L20 4.17L20 5.78L4 5.78ZM4.95 6.54L9.01 6.54L13.99 16.1L12.08 19.83ZM15.02 6.54L19.08 6.54L14.45 15.39L12.54 11.5Z"/></svg>`,
-  // Velta Circle: five dots around the Beam V (no beam bar), the shapes of
-  // app/webxdc/group-call/icon.svg (1024 grid) rescaled to 24, solid like beam.
-  circle: `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M10.31 4.27a1.69 1.69 0 1 0 3.38 0a1.69 1.69 0 1 0 -3.38 0ZM17.67 9.61a1.69 1.69 0 1 0 3.38 0a1.69 1.69 0 1 0 -3.38 0ZM14.86 18.26a1.69 1.69 0 1 0 3.38 0a1.69 1.69 0 1 0 -3.38 0ZM5.77 18.26a1.69 1.69 0 1 0 3.38 0a1.69 1.69 0 1 0 -3.38 0ZM2.96 9.61a1.69 1.69 0 1 0 3.38 0a1.69 1.69 0 1 0 -3.38 0ZM7.46 7.73L10.07 7.73L13.27 13.87L12.04 16.27ZM13.93 7.73L16.54 7.73L13.57 13.41L12.34 10.92Z"/></svg>`,
+  // Velta Beam: the site mark — bar broken into three progress segments
+  // (file going across, checksum tail) over the split-V struts — scaled to
+  // fill the 24 grid so the solid icon matches the outlined icons' weight.
+  beam: `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M1.00,1.23L12.60,1.23L12.60,3.44L1.00,3.44ZM14.32,1.23L19.59,1.23L19.59,3.44L14.32,3.44ZM21.40,1.23L23.60,1.23L23.60,3.44L21.40,3.44ZM2.30,4.50L7.89,4.50L14.74,17.64L12.11,22.77ZM16.15,4.50L21.73,4.50L15.37,16.66L12.74,11.31Z"/></svg>`,
+  // Velta Circle: the exact site mark (velta.cc/circle-logo.svg) — same
+  // viewBox, same numbers, currentColor instead of the theme style — so the
+  // 20px menu render matches the site render pixel for pixel.
+  circle: `<svg viewBox="126 95 772 772"><g fill="currentColor"><circle cx="512" cy="182" r="72"/><circle cx="825.8" cy="410" r="72"/><circle cx="706" cy="779" r="72"/><circle cx="318" cy="779" r="72"/><circle cx="198.2" cy="410" r="72"/><g transform="translate(512 512) scale(0.7) translate(-512.5 -574)"><polygon points="236,314 395,314 590,688 515,834"/><polygon points="630,314 789,314 608,660 533,508"/></g></g></svg>`,
   file: `<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 3v4h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`,
+  // Large file (#138, Lufi upload): the file outline carrying an L.
+  fileL: `<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 3v4h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 10v6.5h4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   webxdc: `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="3" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="3" y="13" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M17.5 13.5v6m-3-3h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
   mic: `<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 11a7 7 0 0014 0M12 18v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
   lock: `<svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 018 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>`,
@@ -304,6 +317,9 @@ const ICO = {
   edit: `<svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   resend: `<svg viewBox="0 0 24 24"><polyline points="2.5 5.5 2.5 11 8 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.2 14.5a8 8 0 1 0 1.5-8L2.5 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
   pin: `<svg viewBox="0 0 24 24"><path d="M9 4h6l1 7 3 3v2h-6v5l-1 1-1-1v-5H5v-2l3-3z" fill="currentColor"/></svg>`,
+  share: `<svg viewBox="0 0 24 24"><path d="M12 14V4m0 0L8.5 7.5M12 4l3.5 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 11v8a1 1 0 001 1h12a1 1 0 001-1v-8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
+  dots: `<svg viewBox="0 0 24 24"><circle cx="12" cy="5.5" r="1.7" fill="currentColor"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/><circle cx="12" cy="18.5" r="1.7" fill="currentColor"/></svg>`,
+  openLink: `<svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 14v4a2 2 0 01-2 2H6a2 2 0 01-2-2V7a2 2 0 012-2h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
 };
 
 // Short human reason from the core's raw error text, e.g.
@@ -519,8 +535,13 @@ function cssZoom() {
 // their own drag or tap behaviour. Links (inline text links and the link
 // preview card) are NOT in the list (#35): a swipe may start on them, and the
 // tap-to-open click path swallows the click that follows a recognised swipe.
-export const GESTURE_SKIP_SELECTOR = "button, input, textarea, audio, video";
+// A video poster is the same (#139). Native controls still scrub, so a
+// <video controls> keeps opting out. An invite card is buttons, but a swipe
+// still starts on it (#87); the join/copy click after the swipe is swallowed.
+export const GESTURE_SKIP_SELECTOR = "button, input, textarea, audio";
 export function gestureSkipTarget(target) {
+  if (target?.closest?.(".invite-card")) return false;
+  if (target?.closest?.("video")?.controls) return true;
   return !!target?.closest?.(GESTURE_SKIP_SELECTOR);
 }
 
@@ -549,7 +570,7 @@ export class ChatView {
     // drops its signature too so the two stay in sync.
     this._rowCache = new LruCache({ maxItems: ROW_CACHE_MAX, maxBytes: Infinity, sizeOf: () => 0,
       canEvict: (el) => !el?.isConnected,
-      onEvict: (key) => this._rowSigCache.delete(key) });  // item.key → rendered element (reused across setItems)
+      onEvict: (key, el) => { parkMedia(el); this._rowSigCache.delete(key); } });  // item.key → rendered element (reused across setItems)
     // Signatures can outlive their row briefly (a row dropped for rebuild);
     // those orphans go first, a signature of a cached row is never evicted.
     this._rowSigCache = new LruCache({ maxItems: ROW_CACHE_MAX, maxBytes: Infinity, sizeOf: () => 0,
@@ -679,17 +700,23 @@ export class ChatView {
   async open(chatId, chat = null) {
     if (this.thread) this._closeThread();
     this._coreReplyCounts = new Map(); // per chat; refetched after the first page
-    // Retire the old scroller, composer and pending work before yielding.
-    this.close();
+    // Drop the previous open's right to paint, but leave its rows on screen.
+    // The history is cleared only once this page is in hand, in the same
+    // turn the new scroller is built — a switch must not flash a black pane.
+    this._openGen = (this._openGen || 0) + 1;
+    const openGen = this._openGen;
     // The row cache survives switches (keys are per-chat message ids), but
     // ids are per-account — drop it when the account changed since the last
     // chat was open.
     if (this._rowCacheAccount !== this.core.accountId) {
+      for (const el of this._rowCache.values()) parkMedia(el);
       this._rowCache.clear();
       this._rowSigCache.clear();
       this._rowCacheAccount = this.core.accountId;
     }
-    const session = this._session = {
+    // Not installed yet: the chat on screen keeps its session until the page
+    // arrives, so a cancelled switch does not blank it.
+    const session = {
       accountEpoch: this.core.accountEpoch,
       accountId: this.core.accountId,
       draftKey: JSON.stringify([String(this.core.accountId), String(chatId)]),
@@ -699,7 +726,7 @@ export class ChatView {
     this._loadBar(true);
     try {
       if (chat?.id !== chatId) chat = await this.core.getChat(chatId);
-      if (!this._isCurrent(session)) return false;
+      if (this._openGen !== openGen) return false;
       // Opening position: while the chat has unread messages it opens at
       // the manual read marker, else at the first unread message; a fully
       // read chat opens at the bottom. Local chats keep open = read.
@@ -708,7 +735,7 @@ export class ChatView {
       let firstUnread = null;
       if (tracked && chat.unread > 0) {
         firstUnread = await this.core.getFirstUnreadMessageId(chatId).catch(() => null);
-        if (!this._isCurrent(session)) return false;
+        if (this._openGen !== openGen) return false;
       }
       let anchorId = firstUnread != null ? (marker ?? firstUnread) : null;
       // Remembered position (setting, issue #18): only for a fully read
@@ -721,13 +748,13 @@ export class ChatView {
       }
       const load = (aroundId) => this.core.getMessages(chatId, aroundId != null ? { aroundId, before: 10, limit: 60 } : { limit: 40 });
       let page = await load(anchorId ?? restore?.anchorId);
-      if (!this._isCurrent(session)) return false;
+      if (this._openGen !== openGen) return false;
       if (restore && !page.messages.some(m => m.id === restore.anchorId)) {
         // The anchor message is gone (deleted) — forget it, open at the bottom.
         this._scrollAnchors.delete(session.draftKey);
         restore = null;
         page = await load(null);
-        if (!this._isCurrent(session)) return false;
+        if (this._openGen !== openGen) return false;
       }
       if (anchorId != null && anchorId === marker && !page.messages.some(m => m.id === marker)) {
         // The marked message is gone (deleted) — drop the stale marker.
@@ -735,12 +762,19 @@ export class ChatView {
         marker = null;
         anchorId = firstUnread;
         page = await load(anchorId);
-        if (!this._isCurrent(session)) return false;
+        if (this._openGen !== openGen) return false;
       }
+      // The page is in hand. Retire the chat on screen, then paint without
+      // another await so the pane is never empty.
+      this._endSession();
+      if (this._openGen !== openGen) return false;
+      this._session = session;
       // @mentions: members (+ fingerprint codes) before the first paint, but
       // never hold the chat open on slow lookups.
       await Promise.race([this._loadMentionMembers(chat, session), new Promise(r => setTimeout(r, 600))]);
-      if (!this._isCurrent(session)) return false;
+      if (this._openGen !== openGen || !this._isCurrent(session)) return false;
+      this._clearHistory();
+      if (this._openGen !== openGen || !this._isCurrent(session)) return false;
       const { messages, hasMore, hasNewer = false } = page;
       if (anchorId != null && !messages.some(m => m.id === anchorId)) anchorId = null;
       this.chat = chat;
@@ -767,7 +801,7 @@ export class ChatView {
       this._refreshPinnedBar();
       if (!tracked) {
         await this.core.markRead(chatId);
-        if (!this._isCurrent(session)) return false;
+        if (this._openGen !== openGen || !this._isCurrent(session)) return false;
       }
       if (anchorId != null) {
         this._scrollToMessageSettling(anchorId, { marker: anchorId === marker });
@@ -782,7 +816,7 @@ export class ChatView {
       this.startLive();
       return true;
     } catch (err) {
-      if (!this._isCurrent(session)) return false;
+      if (this._openGen !== openGen) return false;
       this.close();
       throw err;
     } finally {
@@ -847,10 +881,13 @@ export class ChatView {
     const wasOpen = bar.open;
     const snippet = (m) => (m.text || "").slice(0, 60) || (m.viewtype && m.viewtype !== "text" ? m.viewtype : "message");
     const newest = msgs[msgs.length - 1];
+    // Unpin is for chats you can write in: members of someone else's channel
+    // see the pins but no ✕ (#157). readOnly resolves via canSend.
+    const canUnpin = !this.readOnly;
     const item = (m) => `
       <div class="pin-tray-item" data-pin-id="${m.id}">
         <span class="pb-text"><b>${escapeHtml(m.fromContact?.name || "")}</b> ${escapeHtml(snippet(m))}</span>
-        <button type="button" class="pin-unpin" data-unpin="${m.id}" title="Unpin" aria-label="Unpin">✕</button>
+        ${canUnpin ? `<button type="button" class="pin-unpin" data-unpin="${m.id}" title="Unpin" aria-label="Unpin">✕</button>` : ""}
       </div>`;
     bar.innerHTML = `
       <summary class="pin-tray-summary">
@@ -939,9 +976,22 @@ export class ChatView {
     try { typing?.sender.stop(); } catch { /* ignore */ }
   }
 
+  // The click landed on a different chat before this open finished.
+  cancelOpen() { this._openGen = (this._openGen || 0) + 1; }
+
   close() {
+    this._openGen = (this._openGen || 0) + 1;
+    this._endSession();
+    this._clearHistory();
+  }
+
+  // Bookkeeping for the chat that is leaving. The rows stay put so a slow
+  // getMessages cannot turn the pane black.
+  _endSession() {
     this._flushPendingDeletes();
     this._typingStop();
+    this._barCleanup?.();
+    this._barFor = null;
     const input = document.getElementById("composer-input");
     // Rows the user already saw still count — unless the account changed
     // underneath (the ids would land in the wrong account).
@@ -986,13 +1036,19 @@ export class ChatView {
     this._hideGoDown();
     this._leaveTextSelection();
     this._cancelHistorySwipe?.();
+  }
+
+  _clearHistory() {
     this.vs?.stop();
     this.vs = null;
     this.items = [];
     this.msgIndex.clear();
     // The rendered-row LRU survives close() — reopening a chat reuses the
     // rows instead of rebuilding them; open() clears it on account change
-    // (message ids are per-account).
+    // (message ids are per-account). The elements stay detached, so release
+    // their decoders or WebView2 eventually stops taking chat clicks.
+    parkMedia(this.listEl);
+    for (const el of this._rowCache.values()) parkMedia(el);
     this.replyTo = null;
     this.replyFragment = null;
     this.editingMsg = null;
@@ -1524,6 +1580,19 @@ export class ChatView {
     this.thread = { parentId };
     this.threadPanel.hidden = false;
     this._renderThreadPanel();
+    // Android BACK returns to the chat: the sheet rides a history entry
+    // (same contract as modals — showModal in ui.js). LIFO with modal
+    // entries for free: a modal opened over the sheet pops first.
+    this._onThreadPop = () => {
+      if (history.state?.velta !== "thread") this._closeThread({ fromPop: true });
+    };
+    if (history.state?.velta !== "thread") history.pushState({ velta: "thread" }, "");
+    window.addEventListener("popstate", this._onThreadPop);
+    // The chat's head buttons are covered by the sheet — hide them so the
+    // header reads as context only. Selection mode owns the same toggle;
+    // don't fight it.
+    const headActions = document.getElementById("chat-head-actions");
+    if (!this.selection?.size && headActions) headActions.style.visibility = "hidden";
     // Composer lock: while the thread is open every send quotes the parent
     // (re-locked after each send in appendOutgoing).
     const pit = this.msgIndex.get(parentId) || { type: "msg", key: "m" + parentId, msg: m };
@@ -1581,9 +1650,10 @@ export class ChatView {
     const close = document.createElement("button");
     close.type = "button";
     close.className = "icon-btn thread-close";
-    close.setAttribute("aria-label", "Close thread");
-    close.title = "Close thread";
-    close.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`;
+    // "Back", not "close": the sheet is a layer over the chat, not a dialog.
+    close.setAttribute("aria-label", "Back to chat");
+    close.title = "Back to chat";
+    close.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
     close.addEventListener("click", () => this._closeThread());
     head.append(titles, close);
     panel.appendChild(head);
@@ -1614,7 +1684,7 @@ export class ChatView {
     if (el) el.textContent = `· ${n} ${n === 1 ? "reply" : "replies"}`;
   }
 
-  _closeThread() {
+  _closeThread({ fromPop = false } = {}) {
     const parentId = this.thread?.parentId;
     this.thread = null;
     this.replyTo = null;
@@ -1622,6 +1692,15 @@ export class ChatView {
     this._renderReplyPreview();
     this.threadPanel.hidden = true;
     this.threadPanel.innerHTML = "";
+    // Consume the sheet's history entry — unless the BACK that fired this
+    // close already popped it (fromPop).
+    if (this._onThreadPop) {
+      window.removeEventListener("popstate", this._onThreadPop);
+      this._onThreadPop = null;
+      if (!fromPop && history.state?.velta === "thread") history.back();
+    }
+    const headActions = document.getElementById("chat-head-actions");
+    if (!this.selection?.size && headActions) headActions.style.visibility = "";
     // Focus returns to the opener (side button / bubble); when the row was
     // re-rendered meanwhile, to the parent's side button or bubble.
     // The sheet shrank the history, so the virtual scroller may have
@@ -1762,6 +1841,9 @@ export class ChatView {
       // Default 1 prerenders one viewport of rows (~10 messages) past the
       // visible area; 3 gives ~30 for smoother fast-scroll reach-back.
       getPrerenderMarginRatio: () => 3,
+      // Same-turn unmount+remount (setItems) keeps playing. A row still
+      // detached after this turn drops its decoder; the LRU keeps the element.
+      onItemUnmount: (el) => { queueMicrotask(() => { if (!el?.isConnected) parkMedia(el); }); },
     });
     // Media components (velta-video poster reservation) report row height
     // changes that happened after mount — keep the scroller's math fresh.
@@ -1811,6 +1893,7 @@ export class ChatView {
     const sig = item.type === "msg" ? this._rowCacheSig(item) : null;
     if (cached && cached._veltaFlags === this._itemFlags(item)
         && (sig == null || this._rowSigCache.get(item.key) === sig)) {
+      unparkMedia(cached);
       if (cached.querySelector?.("video")) {
         debugLog(`render: CACHED video row ${item.key} t=${Date.now() % 100000}`);
       }
@@ -1915,7 +1998,10 @@ export class ChatView {
     const open = e => {
       if (e.target?.closest?.(".svc-chip, .diag-copy") || !alive()) return;
       e.stopPropagation();
-      openWebxdc(parentId, infoFor(parentId)?.name || "Webxdc app", { href: m.webxdcHref || "" });
+      const name = infoFor(parentId)?.name || "Webxdc app";
+      const parent = this.msgIndex?.get(parentId)?.msg;
+      this._rememberApp(name, parent?.filePath, parent?.fileName);
+      openWebxdc(parentId, name, { href: m.webxdcHref || "" });
     };
     bubble.addEventListener("click", open);
     bubble.addEventListener("keydown", e => {
@@ -2177,9 +2263,10 @@ export class ChatView {
     // against the right-floating timestamp) plus retry/remove buttons to the
     // LEFT of the bubble — the old in-bubble resend icon was too small a
     // target for the primary action.
+    let failActions = "";
     let failBadge = "";
     if (out && m.state === "failed") {
-      inner += `<div class="msg-fail-actions">`
+      failActions = `<div class="msg-fail-actions">`
         + `<button type="button" data-act="resend" title="Retry" aria-label="Retry sending">${ICO.resend}</button>`
         + `<button type="button" data-act="fail-del" title="Remove" aria-label="Remove message">${ICO.trash}</button></div>`;
       const reason = failReason(m.error);
@@ -2204,7 +2291,13 @@ export class ChatView {
     }
     const bubbleHtml = `<div class="bubble${m.viewtype === "sticker" ? " sticker" : ""}">${bubble}</div>`;
     // Side button sits on the open side: right of incoming, left of outgoing.
-    inner += threadBtn ? (out ? threadBtn + bubbleHtml : bubbleHtml + threadBtn) : bubbleHtml;
+    // The row itself wraps (day chip, unread line). A nowrap pair is what
+    // keeps the button on the bubble's line; min-width:0 on the bubble does
+    // not, because the wrap is decided before the bubble can shrink.
+    if (!threadBtn) inner += failActions;
+    inner += threadBtn
+      ? `<div class="msg-thread-line">${out ? failActions + threadBtn + bubbleHtml : bubbleHtml + threadBtn}</div>`
+      : bubbleHtml;
     if (threadBtn) row.className += " has-thread";
     row.innerHTML = inner;
     if (item.readMarker) row.append(this._readMarkerEl());
@@ -2223,9 +2316,12 @@ export class ChatView {
     // so it sticks for the whole bubble (issue #26). Same _setReply the
     // context menu uses, plus composer focus. Read-only chats (no composer)
     // get no pill; the body class also hides any already-mounted ones.
+    // The ⋮ chip rides the same track in every chat (read-only included):
+    // it toggles the bubble action bar, the only mouse/keyboard path to the
+    // message menu (right-click needs a mouse).
+    const track = document.createElement("div");
+    track.className = "msg-hover-reply-track";
     if (!this.readOnly) {
-      const track = document.createElement("div");
-      track.className = "msg-hover-reply-track";
       const hoverReply = document.createElement("button");
       hoverReply.type = "button";
       hoverReply.className = "msg-hover-reply";
@@ -2239,8 +2335,24 @@ export class ChatView {
         document.getElementById("composer-input")?.focus();
       });
       track.appendChild(hoverReply);
-      row.querySelector(".bubble")?.appendChild(track);
     }
+    const hoverMore = document.createElement("button");
+    hoverMore.type = "button";
+    hoverMore.className = "msg-hover-reply msg-hover-more";
+    hoverMore.title = "Message actions";
+    hoverMore.setAttribute("aria-label", "Message actions");
+    hoverMore.innerHTML = ICO.dots;
+    hoverMore.addEventListener("click", e => {
+      e.stopPropagation();
+      const it = liveItem();
+      if (!it || this._textSelect) return;
+      // Already open for this message: the bar anchors right over this chip,
+      // so a click here means the user missed it — do nothing, not flicker.
+      if (this._barFor === it.msg.id && this._barCleanup) return;
+      this._msgContextMenu(it, 0, 0, "");
+    });
+    track.appendChild(hoverMore);
+    row.querySelector(".bubble")?.appendChild(track);
 
     // Wire up real local file URLs for images / video / audio. When media
     // can't load, show a clear placeholder instead of a broken element.
@@ -2271,7 +2383,9 @@ export class ChatView {
       webxdcCard.dataset.wired = "1";
       webxdcCard.addEventListener("click", () => {
         if (!alive()) return;
-        openWebxdc(m.id, webxdcCard.querySelector(".file-name")?.textContent || "Webxdc app",
+        const name = webxdcCard.querySelector(".file-name")?.textContent || "Webxdc app";
+        this._rememberApp(name, m.filePath, m.fileName);
+        openWebxdc(m.id, name,
           { panel: /^send-direct(-\d+)?\.xdc$/i.test(m.fileName || "") });
       });
       const builtin = builtinAppCard(m.fileName);
@@ -2448,6 +2562,8 @@ export class ChatView {
       });
       mediaAudio.src = fileUrl(m.filePath);
       mediaAudio.onerror = () => {
+        // parkMedia clears src and load()s; that fires error. Not a failure.
+        if (mediaAudio.dataset.parkedSrc || !mediaAudio.getAttribute("src")) return;
         if (!alive()) return;
         rustLog(`media audio error src=${redactMediaUrl(mediaAudio.src)} original=${m.filePath}`);
         const fb = mediaFallbackUrl(m.filePath);
@@ -2479,7 +2595,9 @@ export class ChatView {
       e.preventDefault();
       // Select-text mode owns the bubble: the menu stays closed until Close.
       if (this._textSelect) return;
-      this._msgContextMenu(it, e.clientX, e.clientY);
+      // #161: a right-click landing on a link targets that link's URL.
+      const href = e.target.closest?.("a[href]")?.getAttribute("href") || "";
+      this._msgContextMenu(it, e.clientX, e.clientY, href);
     });
     let pressTimer;
     let swipe = null;
@@ -2490,6 +2608,7 @@ export class ChatView {
       this._replySwipe = false;
       if (!s?.on) return;
       this._swipedAt = Date.now();
+      noteGestureSwipe();
       s.bubble.style.transition = "transform .16s ease-out";
       s.bubble.style.transform = "";
       const tidy = () => { s.bubble.style.transition = ""; };
@@ -2513,7 +2632,10 @@ export class ChatView {
         this._replySwipe = false;
         return;
       }
-      pressTimer = setTimeout(() => { const it = liveItem(); if (it) this._msgContextMenu(it, innerWidth / 2, innerHeight / 2); }, 500);
+      // #161: the anchor is read at touchstart (finger position), not at timer
+      // fire — long-press has no event target of its own.
+      const pressHref = e.target.closest?.("a[href]")?.getAttribute("href") || "";
+      pressTimer = setTimeout(() => { const it = liveItem(); if (it) this._msgContextMenu(it, innerWidth / 2, innerHeight / 2, pressHref); }, 500);
       swipe = null;
       if (!this._mobileGestures() || this.readOnly || this.selection.size || this._backSwipe) return;
       const bubble = e.target.closest?.(".bubble");
@@ -2584,6 +2706,16 @@ export class ChatView {
         window.dispatchEvent(new CustomEvent("velta-hashtag", { detail: { tag: tagBtn.dataset.hashtag } }));
         return;
       }
+      // #156: tap a `code` span to copy its text.
+      const copyBtn = e.target.closest("button[data-copy-code]");
+      if (copyBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (Date.now() - (this._swipedAt || 0) < 400) return;
+        navigator.clipboard?.writeText(copyBtn.textContent)
+          .then(() => toast("Copied")).catch(() => errToast("Couldn't copy"));
+        return;
+      }
       const chip = e.target.closest("[data-react]");
       if (chip) { e.stopPropagation(); if (!this.chat?.isP2p) this._toggleReaction(this.chat.id, m.id, chip.dataset.react); return; }
       const quote = e.target.closest("[data-quote]");
@@ -2601,7 +2733,12 @@ export class ChatView {
         return;
       }
       const vcardBtn = e.target.closest("[data-vcard-open]");
-      if (vcardBtn) { e.stopPropagation(); this._openVcardContact(m); return; }
+      if (vcardBtn) {
+        e.stopPropagation();
+        if (Date.now() - (this._swipedAt || 0) < 400) return;
+        this._openVcardContact(m);
+        return;
+      }
       const applyBtn = e.target.closest("[data-apply-settings]");
       if (applyBtn) {
         e.stopPropagation();
@@ -2907,7 +3044,7 @@ export class ChatView {
 
   /* ================= message actions ================= */
 
-  _msgContextMenu(item, x, y) {
+  _msgContextMenu(item, x, y, linkHref = "") {
     // The in-bubble select bar is up: long-press and right-click stay shut.
     if (this._textSelect) return;
     const session = this._session;
@@ -2916,6 +3053,25 @@ export class ChatView {
     if (m.kind === "service" || this._deleteByMsg.has(m.id)) return;
     const touch = this._offerSelectText();
     const items = [];
+    // #161: the gesture landed on a link — its URL gets the first actions.
+    // Copy/open use the same cleaned URL a click would open (#89); Open rides
+    // openHttp for strip + undo. Share is a phone gesture (the sheet's row) —
+    // desktop copies.
+    if (/^https?:/i.test(linkHref)) {
+      const href = trackingStripEnabled() ? stripTrackingUrl(linkHref) : linkHref;
+      const webShare = typeof navigator.share === "function" ? o => navigator.share(o) : null;
+      items.push({ label: "Copy link", pair: "text", icon: ICO.copy, onClick: async () => {
+        try { await copyLink(href, { clipboard: navigator.clipboard }); toast("Copied"); }
+        catch (err) { errToast("Couldn't copy: " + (err?.message || err)); }
+      } });
+      if (touch && canShareLink({ ua: navigator.userAgent, hasInvoke: !!tauriInvoke(), hasWebShare: !!webShare })) {
+        items.push({ label: "Share link", pair: "text", icon: ICO.share, onClick: async () => {
+          try { await shareLink(href, { ua: navigator.userAgent, invoke: tauriInvoke(), webShare }); }
+          catch (err) { errToast("Couldn't share: " + (err?.message || err)); }
+        } });
+      }
+      items.push({ label: "Open link", pair: "text", icon: ICO.openLink, onClick: () => openHttp(linkHref) });
+    }
     // No reply without a composer (read-only chats).
     if (!this.readOnly) items.push({ label: "Reply", pair: "send", icon: ICO.reply, onClick: () => this._setReply(item) });
     const replyN = this._replyCountFor(m.id);
@@ -2944,7 +3100,7 @@ export class ChatView {
     // Local P2P groups: no pin / forward / save / react / delete (relay-core
     // features the mesh engine has no equivalent for).
     const p2pg = !!this.chat?.isP2pGroup;
-    if (this.core.pinMessage && !p2pg) {
+    if (this.core.pinMessage && !p2pg && !this.readOnly) {
       items.push({
         label: m.pinned ? "Unpin" : "Pin",
         pair: "keep",
@@ -2982,40 +3138,78 @@ export class ChatView {
         }
       } },
     );
+    // Reactions live at the top of the desktop menu (the row the mobile
+    // sheet shows) and in the touch sheet's own row — no React item either way.
     const canReact = !this.chat?.isP2p; // local chats carry no reactions
-    if (canReact && !touch) items.push(
-      { label: "React", icon: QUICK_REACTIONS[0], onClick: () => this._reactionMenu(item, x, y) },
-    );
     items.push({ label: "Select", pair: "meta", icon: ICO.select, onClick: () => this._enterSelection(m.id) });
     items.push({ label: "Info", pair: "meta", icon: ICO.info, onClick: () => this._showInfo(item) });
     if (!p2pg) items.push("-", { label: "Delete", icon: ICO.trash, danger: true, onClick: () => this._delete([m.id]) });
     const guarded = items.map(action => action === "-" ? action : {
       ...action, onClick: () => { if (this._isCurrent(session)) return action.onClick(); },
     });
-    if (!touch) { showContextMenu(guarded, x, y); return; }
+    if (!touch) {
+      this._showActionBar(item, linkHref, guarded, canReact, session);
+      return;
+    }
     const buckets = new Map(SHEET_PAIRS.map(k => [k, []]));
     const tail = [];
     for (const action of guarded) {
-      if (action === "-" || action.label === "React") continue;
+      if (action === "-") continue;
       (action.pair && buckets.has(action.pair) ? buckets.get(action.pair) : tail).push(action);
     }
+    // Every link the bubble renders (markdown, bare domains), tracker-stripped
+    // and deduped, for the sheet's "Show links" list. renderMarkdown builds
+    // anchors as `<a href="…">`, so the hrefs come straight off that string —
+    // no DOM needed. The single pressed link skips the list: its items are
+    // already above.
+    const links = [];
+    if (m.text) {
+      for (const mm of renderMarkdown(m.text).matchAll(/<a href="([^"]*)"/g)) {
+        const raw = unescapeHtml(mm[1]);
+        if (!/^https?:/i.test(raw)) continue;
+        const clean = trackingStripEnabled() ? stripTrackingUrl(raw) : raw;
+        if (!links.includes(clean)) links.push(clean);
+      }
+    }
+    const pressedClean = /^https?:/i.test(linkHref || "")
+      ? (trackingStripEnabled() ? stripTrackingUrl(linkHref) : linkHref) : "";
     showMessageSheet({
       reactions: canReact ? SHEET_REACTIONS : [],
       selected: myReaction(m.reactions),
       onReact: (emoji) => { if (this._isCurrent(session)) return this._toggleReaction(session.chatId, m.id, emoji); },
       items: [...SHEET_PAIRS.flatMap(k => buckets.get(k)), ...tail],
+      links: links.length && !(links.length === 1 && links[0] === pressedClean) ? links : [],
+      onOpenLink: (url) => openHttp(url),
     });
   }
 
-  _reactionMenu(item, x, y) {
-    const session = this._session;
-    if (!this._isCurrent(session) || this.msgIndex.get(item.msg.id) !== item) return;
-    const mine = myReaction(item.msg.reactions);
-    const list = mine && !QUICK_REACTIONS.includes(mine) ? [...QUICK_REACTIONS, mine] : QUICK_REACTIONS;
-    showContextMenu(list.map(e => ({
-      label: e, pressed: e === mine, ariaLabel: e === mine ? `Remove reaction ${e}` : `React ${e}`,
-      onClick: () => { if (this._isCurrent(session)) return this._toggleReaction(session.chatId, item.msg.id, e); },
-    })), x, y - 10);
+  // Desktop message menu as the bubble action bar: chips anchored above the
+  // bubble (⋮ hover chip and right-click both land here). Touch keeps the
+  // sheet. The bar closes on any outside tap, another popup, chat switch, or
+  // scroll — it does not follow the bubble while scrolling.
+  _showActionBar(item, linkHref, guarded, canReact, session) {
+    const m = item.msg;
+    this._barCleanup?.();
+    this._barFor = m.id;
+    // Reply stays on the hover pill beside the ⋮ — a second one in the bar
+    // (visible whenever the bar is open) is noise.
+    const barItems = guarded.filter(a => a === "-" || a.label !== "Reply");
+    const rowEl = this.listEl?.querySelector(`[data-msgid="${m.id}"]`);
+    const anchor = rowEl?.querySelector(".bubble")?.getBoundingClientRect() || null;
+    // The bar anchors right over this row's hover chips — hide them until
+    // it closes, or it swallows their clicks.
+    rowEl?.classList.add("bar-open");
+    const close = showActionBar({
+      items: barItems,
+      reactions: canReact ? SHEET_REACTIONS : [],
+      selected: myReaction(m.reactions),
+      onReact: (emoji) => { if (this._isCurrent(session)) return this._toggleReaction(session.chatId, m.id, emoji); },
+      anchor,
+      own: rowEl?.classList.contains("out") || false,
+      scrollEl: this.scrollEl,
+      onClosed: () => { rowEl?.classList.remove("bar-open"); this._barCleanup = null; },
+    });
+    this._barCleanup = close;
   }
 
   // Own-reaction toggle with optimistic chips. Same emoji removes ours
@@ -3042,11 +3236,6 @@ export class ChatView {
   _showInfo(item) {
     const m = item.msg;
     const grp = !!this.chat?.isP2pGroup;
-    const encNote = grp
-      ? "This message travels directly between the members' devices, with no relay. A tick turns double only when every current member has received it."
-      : m.encrypted === false
-        ? "This message was not end-to-end encrypted."
-        : "This message is end-to-end encrypted with OpenPGP. Only you and the recipient can read it — the chatmail relay cannot.";
     // Seen is the recipient MDN (outgoing) or this device having opened it (incoming).
     let state = messageInfoState(m);
     if (m.state === "failed" && m.error) state += `: ${failReason(m.error)}`;
@@ -3059,7 +3248,6 @@ export class ChatView {
     const info = showModal({
       title: "Message info",
       body: `
-      <div class="enc-note">${ICO.lock}<span>${encNote}</span></div>
       <div class="info-row"><span class="k">Type</span><span class="v">${escapeHtml(m.viewtype)}</span></div>
       <div class="info-row"><span class="k">From</span><span class="v">${escapeHtml(m.fromContact?.name || "")}</span></div>
       <div class="info-row"><span class="k">Sent</span><span class="v">${escapeHtml(formatDateTime(m.sentTs || m.ts))}</span></div>
@@ -3564,11 +3752,11 @@ export class ChatView {
       // #138: encrypted upload to a Lufi server, the chat gets the link.
       // Shell-only (proxy-aware sockets); local chats send files directly.
       if (largeFileAvailable() && !this.chat?.isP2p) {
-        attachItems.push({ label: "Large file", icon: ICO.file, onClick: () => this._sendLargeFile() });
+        attachItems.push({ label: "Large file", icon: ICO.fileL, onClick: () => this._sendLargeFile() });
         // #138 part 2: built-in webxdc that streams a file peer to peer over
         // the instance's realtime channel (iroh gossip) — webxdc runs in the
         // Tauri shell only.
-        attachItems.push({ label: "Velta Beam (both online)", icon: ICO.beam, onClick: () => this._sendDirectApp() });
+        attachItems.push({ label: "Velta Beam", icon: ICO.beam, onClick: () => this._sendDirectApp() });
       }
       if (!window.__TAURI__ && isAndroid()) {
         attachItems.splice(1, 0, { label: "Camera", icon: ICO.photo, onClick: () => this._sendAttachment("camera") });
@@ -3576,13 +3764,32 @@ export class ChatView {
       // Group audio calls (docs/agents/group-calls.md): group chats only, every
       // shell (the PWA signals over status updates).
       if (this.chat?.kind === "group" && !this.chat?.isP2p) {
-        attachItems.push({ label: "Group call", icon: ICO.circle, onClick: () => this._startGroupCall() });
+        attachItems.push({ label: "Velta Circle", icon: ICO.circle, onClick: () => this._startGroupCall() });
       }
       // Voice messages are not supported in local chat — hide the item there.
       if (!this.chat?.isP2p) {
         attachItems.push({ label: "Voice message", icon: ICO.mic, onClick: () => this._sendAttachment("voice") });
       }
       const menu = showContextMenu(attachItems.map(action => ({ ...action, onClick: () => { if (this._isCurrent(session)) return action.onClick(); } })), x, 8);
+      appendAttachLists(menu, {
+        apps: recentApps(this.core.accountId),
+        commands: recentCommands(this.core.accountId, session.chatId),
+        onApp: (app) => { closeAllPopups(); this._resendStoredApp(session, app); },
+        onCommand: (cmd) => {
+          closeAllPopups();
+          if (!input) return;
+          input.value = cmd + " ";
+          try { input.selectionStart = input.selectionEnd = input.value.length; } catch {}
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          input.focus();
+        },
+        onBrowse: () => openAppBrowser({
+          showModal, toast,
+          alive: () => this._isCurrent(session) && !!this.chat,
+          getBytes: (url, ms) => this.core.getHttpResponse(url, ms).then(r => r.bytes),
+          sendApp: (app, bytes) => this._sendCatalogApp(session, app, bytes),
+        }),
+      });
       menu.classList.add("attach-pop");
       menu.style.top = "auto";
       menu.style.bottom = (window.innerHeight - r.top + 10) / uiZoom() + "px";
@@ -4055,6 +4262,41 @@ export class ChatView {
     }
   }
 
+  // Sending or opening an app records it for the attach menu (#137).
+  _rememberApp(name, file, filename) {
+    if (!file) return;
+    recordApp(this.core?.accountId, { name, file, filename });
+  }
+
+  async _resendStoredApp(session, app) {
+    if (!this._isCurrent(session) || !this.chat || !app?.file) return;
+    try {
+      const msg = await this._sendArchivedAware(session.chatId, {
+        viewtype: "webxdc", file: app.file, filename: app.filename || "app.xdc", text: "",
+      });
+      if (!this._isCurrent(session)) return;
+      this.appendOutgoing(msg);
+      this.onChatsChanged();
+      this._rememberApp(app.name, msg?.filePath || app.file, msg?.fileName || app.filename);
+    } catch (err) {
+      if (this._isCurrent(session)) errToast("Could not send app: " + (err?.message || err));
+    }
+  }
+
+  async _sendCatalogApp(session, app, bytes) {
+    if (!this._isCurrent(session) || !this.chat) throw new Error("Chat closed");
+    const filename = app.filename || "app.xdc";
+    const path = await this._writeBlobForSend(filename, bytes);
+    if (!this._isCurrent(session)) throw new Error("Chat closed");
+    const msg = await this._sendArchivedAware(session.chatId, {
+      viewtype: "webxdc", file: path, filename, text: "",
+    });
+    if (!this._isCurrent(session)) return;
+    this.appendOutgoing(msg);
+    this.onChatsChanged();
+    this._rememberApp(app.name, msg?.filePath || path, msg?.fileName || filename);
+  }
+
   // Posts app/builtin/send-direct.xdc (built by tools/build-builtin-xdc.mjs)
   // into the chat and opens it so the sender can pick the file right away.
   async _sendDirectApp() {
@@ -4073,6 +4315,7 @@ export class ChatView {
       if (!this._isCurrent(session)) return;
       this.appendOutgoing(msg);
       this.onChatsChanged();
+      this._rememberApp("Velta Beam", msg?.filePath || path, msg?.fileName || "send-direct.xdc");
       if (msg?.id != null) openWebxdc(msg.id, "Velta Beam", { panel: true });
     } catch (err) {
       if (this._isCurrent(session)) errToast("Could not start direct send: " + (err?.message || err), 4000);
@@ -4081,7 +4324,10 @@ export class ChatView {
 
   _wireGroupCallCard(card, m) {
     const fc = m.fromContact || {};
-    const open = () => openWebxdc(m.id, "Velta Circle");
+    const open = () => {
+      this._rememberApp("Velta Circle", m.filePath, m.fileName || "group-call.xdc");
+      openWebxdc(m.id, "Velta Circle");
+    };
     // One wiring per card node for its lifetime; drawing only while it is in
     // the document (cached rows re-attach, see _gcRefresh above).
     const w = wireCard(card, {
@@ -4114,6 +4360,7 @@ export class ChatView {
       if (!this._isCurrent(session)) return;
       this.appendOutgoing(msg);
       this.onChatsChanged();
+      this._rememberApp("Velta Circle", msg?.filePath || path, msg?.fileName || "group-call.xdc");
       if (msg?.id == null) return;
       await announceGroupCall(msg.id, title).catch(() => {});
       // The starter joins right away (consent prompt), then sees the call screen.
@@ -4587,7 +4834,7 @@ export class ChatView {
       const drag = g;
       g = null;
       this._backSwipe = false;
-      if (drag?.on) this._swipedAt = Date.now();
+      if (drag?.on) { this._swipedAt = Date.now(); noteGestureSwipe(); }
       if (!drag?.on || drag.settled) return;
       const main = mainOf();
       if (!main) return;

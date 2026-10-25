@@ -1,13 +1,14 @@
 // rpc-core.js — drop-in replacement for MockCore that talks to the real
 // deltachat core over a pluggable JSON-RPC transport:
 //   • Tauri IPC (inside the desktop/Android Tauri shell)
-//   • WebSocket to a local background core (the service APK on 127.0.0.1:20808)
 // Same interface + events as mock-core.js, so app.js doesn't care which one is active.
 //
 // Method names, parameter order and response shapes follow
 // deltachat-jsonrpc/src/api.rs and api/types/*.
 
 import { STOCK_OVERRIDES, SUPPRESSED_DEVICE_LABELS } from "./velta-strings.js";
+import { t } from "./i18n.js";
+import { bytesFromBase64 } from "./app-browser.js";
 
 let nextId = 1;
 
@@ -52,6 +53,26 @@ export function swipeCategoryStep(dx, dy, threshold = 48) {
   return dx < 0 ? 1 : -1;
 }
 
+// Groups and channels `contactId` is a member of. `contactIdsOf(chatId)`
+// returns that chat's contact ids. `alive() === false` stops the walk so a
+// closed sheet does not keep issuing RPCs. Callers must not pass
+// getChatMembers: that loads the full chat and every contact.
+export async function chatsInCommon(chats, contactId, contactIdsOf, alive = () => true) {
+  const common = [];
+  const want = Number(contactId);
+  for (const c of chats || []) {
+    if (!alive()) break;
+    if (c?.kind !== "group" && c?.kind !== "channel") continue;
+    if (c.id == null || c.id === "") continue;
+    let ids;
+    try { ids = await contactIdsOf(c.id); }
+    catch { continue; }
+    if (!alive()) break;
+    if (Number.isFinite(want) && (ids || []).some(id => Number(id) === want)) common.push(c);
+  }
+  return common;
+}
+
 // Backstop for the event long-poll. The backend parks get_next_event until an
 // event exists (no server-side timeout), so the ordinary 30 s RPC timeout must
 // not apply — see _callEventPoll. Long enough that healthy polls rarely hit it
@@ -87,7 +108,7 @@ function newMsgIdCache() {
 export class JsonRpcCore extends EventTarget {
   /**
    * transport: {
-   *   name: string,                  // "tauri" | "websocket"
+   *   name: string,                  // "tauri" | "android-webview" | "worker-wasm"
    *   send(line: string): void,      // deliver one JSON-RPC request line
    *   setReceiver(fn): Promise|void, // register handler for incoming lines
    * }
@@ -992,7 +1013,9 @@ export class JsonRpcCore extends EventTarget {
   // strings are process-wide and in-memory, so this runs on every boot and
   // reconnect, before any configure can build the welcome message.
   async _applyVeltaStrings() {
-    try { await this._call("set_stock_strings", STOCK_OVERRIDES); }
+    const stock = {};
+    for (const [id, text] of Object.entries(STOCK_OVERRIDES)) stock[id] = t(text);
+    try { await this._call("set_stock_strings", stock); }
     catch (e) { console.warn("set_stock_strings failed", e); }
   }
 
@@ -1587,6 +1610,20 @@ export class JsonRpcCore extends EventTarget {
     return await this._call("get_chat_media", this.accountId, chatId, t1, t2, t3);
   }
 
+  // ChatId of the 1:1 chat with the contact, or null when there is none.
+  // Read-only — unlike get_by_contact_id it never creates the chat.
+  async getChatIdByContactId(contactId) {
+    return await this._call("get_chat_id_by_contact_id", this.accountId, contactId);
+  }
+
+  // Per-transport relay capabilities as advertised over IMAP METADATA
+  // (VENDORISSUES #15): { [addr]: { irohRelay, supportsPush, hasTurn,
+  // appVersions, comment, admin } }. Transports the core has not connected
+  // to yet are absent from the map; old cores lack the method entirely.
+  async getServerMetadata() {
+    return await this._call("get_server_metadata", this.accountId);
+  }
+
   // Mapped messages for explicit ids (one get_messages round trip; callers
   // batch). Order follows `ids`; ids that failed to load are skipped.
   async getMessagesByIds(ids = []) {
@@ -1702,6 +1739,13 @@ export class JsonRpcCore extends EventTarget {
 
   async downloadFullMessage(msgId) {
     await this._call("download_full_message", this.accountId, msgId);
+  }
+
+  // HTTP GET through the core (account proxy + cache). Body is standard
+  // base64 without padding. Page fetch cannot reach https: under the CSP.
+  async getHttpResponse(url, timeoutMs = 30000) {
+    const res = await this._callWithTimeout(timeoutMs, "get_http_response", this.accountId, String(url));
+    return { bytes: bytesFromBase64(res?.blob), mimetype: res?.mimetype || "" };
   }
 
   // Accept a contact request — unblocks the chat so it becomes a normal
@@ -1908,6 +1952,9 @@ export class JsonRpcCore extends EventTarget {
     let chatId;
     if (kind === "single") {
       chatId = await this._call("create_chat_by_contact_id", accountId, contactIds[0]);
+    } else if (kind === "channel") {
+      // Outgoing broadcast. Recipients join later via the invite QR.
+      chatId = await this._call("create_broadcast", accountId, name);
     } else {
       chatId = await this._call("create_group_chat", accountId, name, false);
       for (const cid of contactIds) {
@@ -1959,6 +2006,12 @@ export class JsonRpcCore extends EventTarget {
 
   async startIo() {
     await this._call("start_io", this.accountId);
+  }
+
+  // Membership ids only. The profile's common-chats walk uses this;
+  // getChatMembers loads the full chat and every contact.
+  async getChatContactIds(chatId) {
+    return (await this._call("get_chat_contacts", this.accountId, chatId)) || [];
   }
 
   // Group members as mapped contacts (empty list for 1:1 chats).
@@ -2115,7 +2168,7 @@ export class JsonRpcCore extends EventTarget {
   // profile's proxy now (a stale tunnel proxy from the source device would
   // otherwise block its mail until the shell's next periodic pass).
   _tunnelReapply() {
-    tauriInvoke()?.("tunnel_reapply").catch(() => {});
+    return tauriInvoke()?.("tunnel_reapply")?.catch(() => {});
   }
 
   // The backup QR as the 515x630 design card: reserves a clear center circle
@@ -2149,7 +2202,17 @@ export class JsonRpcCore extends EventTarget {
         await this._call("select_account", targetId);
         this.accountId = targetId;
       }
-      this._call("get_backup", targetId, qrContent).then(() => this._tunnelReapply()).catch(() => {});
+      // get_backup does not start IO (core api.rs). Do it once the import
+      // lands, then refresh so the relay line leaves "no relay configured" (#118).
+      this._call("get_backup", targetId, qrContent).then(async () => {
+        await this._tunnelReapply();
+        if (!this.syncOnlyActive || String(this.accountId) === String(targetId)) {
+          await this._call("start_io", targetId).catch(() => {});
+        }
+        if (String(this.accountId) === String(targetId)) {
+          this._emit("account-changed", { accountId: this.accountId, accountEpoch: this.accountEpoch });
+        }
+      }).catch(() => {});
       failed = false;
       return targetId;
     } catch (err) {

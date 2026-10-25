@@ -2,7 +2,7 @@
 // configurable domain registry, URL parsing/normalization, invite cards in
 // chat messages, and the "Invite link domains" settings modal.
 import { showModal, toast } from "./ui.js";
-import { escapeHtml, escapeAttr } from "./components.js";
+import { escapeHtml, escapeAttr, gestureSwipeRecent } from "./components.js";
 import { tauriInvoke } from "./tauri.js";
 
 // Mirror the AndroidManifest.xml intent filters: OS-level interception of a
@@ -158,6 +158,12 @@ export function inviteCardHtml(parsed) {
 export function bindInviteInterception(onJoin) {
   watchShortCards();
   document.addEventListener("click", async e => {
+    // A swipe that started on the card still synthesises a click (#87).
+    if (gestureSwipeRecent() && e.target.closest?.(".invite-card")) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     const copyBtn = e.target.closest?.("[data-invite-copy]");
     if (copyBtn) {
       e.preventDefault();

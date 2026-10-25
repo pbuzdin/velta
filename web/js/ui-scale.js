@@ -8,4 +8,7 @@ try {
     // CSS zoom multiplies vw/vh/dvh; main.css divides them back via --ui-zoom.
     document.documentElement.style.setProperty("--ui-zoom", s);
   }
+  // Same values setLang writes. Missing key stays the HTML default lang="en".
+  const lang = localStorage.getItem("velta-lang");
+  if (lang === "fr" || lang === "ru") document.documentElement.lang = lang;
 } catch {}

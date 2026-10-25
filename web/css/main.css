@@ -155,7 +155,10 @@ svg { width: 24px; height: 24px; display: block; }
 .sidebar-head {
   position: relative; /* anchors the centered brand mark */
   display: flex; align-items: center; gap: 6px;
-  padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
+  /* Top padding carries the relay-zone's 10px gap below: the logo/search
+     cluster reads its bottom whitespace through to the strip, so the top
+     pads equally (8 + 10) or the header looks top-glued. */
+  padding: calc(18px + env(safe-area-inset-top)) 12px 8px;
   box-sizing: border-box;
   height: calc(var(--head-h) + env(safe-area-inset-top));
 }
@@ -163,7 +166,7 @@ svg { width: 24px; height: 24px; display: block; }
    covers only ~57% of the SVG viewBox, so the img is oversized to make the
    visible mark ~22px, matching the 40px icon buttons beside it. */
 .sidebar-logo {
-  position: absolute; left: 50%; top: calc(50% + env(safe-area-inset-top) / 2);
+  position: absolute; left: 50%; top: calc(50% + 5px + env(safe-area-inset-top) / 2);
   transform: translate(-50%, -50%);
   height: 38px; width: auto; opacity: .9;
   pointer-events: none;
@@ -199,27 +202,31 @@ svg { width: 24px; height: 24px; display: block; }
    (up to MAX_RELAYS=5 in the core), each colored by that relay's own
    state; a single relay fills the line. Lives on per-segment `color` so
    the sending-dash gradient can reuse it as currentColor. */
-.relay-line { display: flex; gap: 4px; height: 6px; flex: 1 1 auto; }
-.relay-line .relay-seg { flex: 1 1 0; min-width: 0; background: currentColor; color: #e6a23c; transition: color .25s; }
-.relay-line .relay-seg[data-state="ok"]         { color: #2ecc71; }
-.relay-line .relay-seg[data-state="connecting"] { color: #e6a23c; }
-.relay-line .relay-seg[data-state="unreachable"] { color: #e6a23c; }
+/* Scoped to the strip's ID: the relays modal's card rows reuse the
+   .relay-line class name and must not inherit the 6px meter height — nor
+   may their align-items:center reach here: an empty segment has no height,
+   and centering collapses it to 0px (the strip "died" exactly that way). */
+#relay-line { display: flex; gap: 4px; height: 6px; flex: 1 1 auto; align-items: stretch; }
+#relay-line .relay-seg { flex: 1 1 0; min-width: 0; background: currentColor; color: #e6a23c; transition: color .25s; }
+#relay-line .relay-seg[data-state="ok"]         { color: #2ecc71; }
+#relay-line .relay-seg[data-state="connecting"] { color: #e6a23c; }
+#relay-line .relay-seg[data-state="unreachable"] { color: #e6a23c; }
 /* #108 sustained offline (probe failing > 10 min): calm grey, not amber —
    a relay down for days is a fact, not an active problem. */
-.relay-line .relay-seg[data-state="offline"]     { color: #9aa0a6; }
+#relay-line .relay-seg[data-state="offline"]     { color: #9aa0a6; }
 /* #102 sending delayed: relay up, SMTP retrying — amber like connecting;
    the difference lives in the line title and the detail chip text. */
-.relay-line .relay-seg[data-state="delayed"]    { color: #e6a23c; }
-.relay-line .relay-seg[data-state="down"]       { color: #e05252; }
-.relay-line .relay-seg[data-state="local"]      { color: #4c8dff; }
+#relay-line .relay-seg[data-state="delayed"]    { color: #e6a23c; }
+#relay-line .relay-seg[data-state="down"]       { color: #e05252; }
+#relay-line .relay-seg[data-state="local"]      { color: #4c8dff; }
 /* Sending dashes on the sending relay's segment only (marked per-segment
    in renderRelayLine — the primary transport, i.e. state.account.addr). */
-.relay-line .relay-seg[data-sending] {
+#relay-line .relay-seg[data-sending] {
   background: repeating-linear-gradient(90deg, currentColor 0 7px, transparent 7px 12px);
   animation: relay-dashes .45s linear infinite;
 }
 @keyframes relay-dashes { to { background-position: 12px 0; } }
-@media (prefers-reduced-motion: reduce) { .relay-line .relay-seg[data-sending] { animation: none; } }
+@media (prefers-reduced-motion: reduce) { #relay-line .relay-seg[data-sending] { animation: none; } }
 
 /* Relay detail chips — per-relay info, fed by renderRelayLine. One chip per
    relay-line segment (same flex template, so each chip sits on its own
@@ -233,9 +240,10 @@ svg { width: 24px; height: 24px; display: block; }
 .relay-zone {
   position: relative; flex: none; z-index: 6;
   height: 26px; display: flex;
-  /* 6px line sits 6px under the header (search-icon gap) and 14px above
-     the category row — equal 14px visual gaps on both sides. */
-  padding: 6px 0 14px;
+  /* Equal 10px gaps above and below the 6px line (measured: the header
+     contributes no extra gap, so symmetric padding is symmetric). The zone
+     height is fixed at 26px — 10 + 6 + 10 fills it exactly. */
+  padding: 10px 0;
 }
 .relay-detail {
   position: absolute; inset: 0; z-index: 7;
@@ -367,7 +375,7 @@ svg { width: 24px; height: 24px; display: block; }
 .chat-load-bar {
   position: absolute;
   top: calc(var(--head-h) + env(safe-area-inset-top));
-  left: 0; right: 0; height: 6px; /* same as .relay-line */
+  left: 0; right: 0; height: 6px; /* same as #relay-line */
   overflow: hidden; z-index: 4; pointer-events: none;
   background: rgba(76, 141, 255, .18);
   opacity: 0; transition: opacity .25s;
@@ -673,9 +681,10 @@ html[data-theme="light"] .msg-show-in-chat {
   position: absolute; top: 0; bottom: 0; right: -4px;
   width: max-content; z-index: 3;
   pointer-events: none;
+  display: flex; align-items: flex-start;
 }
 .msg-hover-reply {
-  position: sticky; top: 8px;
+  position: sticky; top: 8px; height: 24px;
   display: flex; width: max-content; align-items: center; gap: 4px;
   padding: 3px 10px 3px 8px; border-radius: 999px;
   background: #262b38; color: var(--text);
@@ -696,6 +705,10 @@ html[data-theme="light"] .msg-show-in-chat {
   .msg-hover-reply:hover { background: #303648; }
 }
 .msg-row.selectable .msg-hover-reply { display: none; }
+/* The bubble action bar anchors above the bubble's top edge — right where
+   the sticky chips ride. Hide the row's track while ITS bar is open, or the
+   bar covers the ⋮ and clicks land on the bar instead. */
+.msg-row.bar-open .msg-hover-reply-track { display: none; }
 /* Read-only chats (device chats, channels without posting rights): no
    composer exists to reply into — hide the hover pill, the selection-quote
    chip and the selection bar's Reply button (flag set by chat-view.js). */
@@ -718,6 +731,40 @@ html[data-theme="light"] .msg-hover-reply {
 @media (hover: hover) and (pointer: fine) {
   html[data-theme="light"] .msg-hover-reply:hover { background: #f0f2f6; }
 }
+/* The ⋮ chip rides the reply track in read-only chats too (message actions
+   still apply there) — un-hide it from the read-only rule above. */
+body.chat-read-only .msg-hover-more { display: flex; }
+
+/* Message action bar (desktop message menu as chips): opens on right-click
+   or the ⋮ hover chip, right-aligned above the bubble's top edge; ui.js
+   flips it below the bubble when the top would clip. Action chips keep the
+   ctx-item icon+span shape so existing menu tooling and tests see labels. */
+.msg-action-bar {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0;
+  max-width: min(720px, calc(var(--vw) - 16px));
+}
+.msg-bar-chips, .msg-bar-reacts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.msg-bar-chip {
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 10px; border-radius: 8px;
+  font-size: 13.5px; text-align: left;
+}
+.msg-bar-chip svg { width: var(--ico-3); height: var(--ico-3); color: var(--text-dim); }
+.msg-bar-chip.danger, .msg-bar-chip.danger svg { color: var(--danger); }
+.msg-bar-react {
+  display: grid; place-items: center; padding: 0;
+  width: 34px; height: 34px; border-radius: 50%;
+  background: var(--bg-hover); color: var(--text);
+  font-size: 19px; line-height: 1;
+}
+.msg-bar-react svg { width: 20px; height: 20px; color: var(--text-dim); }
+.msg-bar-react.mine { background: color-mix(in srgb, var(--accent-tint) 18%, transparent); box-shadow: inset 0 0 0 2px var(--accent); }
+@media (hover: hover) and (pointer: fine) {
+  .msg-bar-chip:hover, .msg-bar-react:hover { background: var(--bg-hover); }
+}
+.msg-action-bar:has(.msg-emoji-tray:not([hidden])) { width: 352px; }
+.msg-action-bar .msg-emoji-tray { margin: 0; }
+.msg-row.selectable .msg-action-bar { display: none; }
 
 /* Diagnostics entries render as console lines (Chrome DevTools look):
    monospace, left-aligned, in a soft pill, with a hover copy button
@@ -799,7 +846,7 @@ html.no-hyphens .msg-text { -webkit-hyphens: manual; hyphens: manual; }
 /* Never hyphenate machine text: a hyphen inside a URL, address, command or
    code changes what gets copied. */
 .msg-text a, .msg-text code, .msg-text pre, .msg-text kbd, .msg-text samp,
-.msg-text .hashtag, .msg-text .msg-nohyph, .msg-cmd { -webkit-hyphens: manual; hyphens: manual; }
+.msg-text .hashtag, .msg-text .msg-nohyph, .msg-text .msg-code, .msg-cmd { -webkit-hyphens: manual; hyphens: manual; }
 .msg-text a {
   color: var(--accent-text-in);
   /* A swipe may start on an inline link (#35): no native link drag. Text
@@ -821,6 +868,16 @@ html.no-hyphens .msg-text { -webkit-hyphens: manual; hyphens: manual; }
   text-underline-offset: 2px; white-space: inherit;
 }
 .msg-text .hashtag:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; border-radius: 2px; }
+/* #156: `code` spans are native <button>s (focusable, Enter/Space) in a mono
+   pill; tap = copy the text. */
+.msg-text .msg-code {
+  font-family: var(--font-mono); font-size: .92em;
+  color: var(--text); background: var(--bg-hover);
+  border: 0; border-radius: 4px; padding: 0 4px; margin: 0;
+  display: inline; cursor: copy; white-space: inherit;
+  -webkit-touch-callout: none;
+}
+.msg-text .msg-code:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; border-radius: 4px; }
 /* Markdown lists (markdown.js emits <ul>/<ol> as block units; the surrounding
    msg-text keeps pre-wrap for plain paragraphs) */
 .msg-text ul, .msg-text ol { margin: 2px 0; padding-left: 20px; }
@@ -922,9 +979,18 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
 @media (min-width: 601px) { .msg-replies-count { display: none; } }
 /* Round side button beside a bubble with replies (THREAD_BUTTON_MIN_REPLIES
    in chat-view.js): 32px visual disc inside a 44px hit box, on the open
-   side (right of incoming, left of outgoing), bottom-aligned with the bubble. */
+   side (right of incoming, left of outgoing), bottom-aligned with the bubble.
+   .msg-row wraps, and that wrap is chosen from the bubble's full width, so
+   min-width:0 never stopped the button falling under the bubble on a phone.
+   The pair is its own nowrap line; flex-basis 0 lets that line share the
+   row with the avatar instead of wrapping under it. */
 .msg-row.has-thread { align-items: flex-end; }
-.msg-row.has-thread .bubble { max-width: min(480px, calc(90% - 48px)); }
+.msg-thread-line {
+  display: flex; flex-wrap: nowrap; align-items: flex-end;
+  min-width: 0; max-width: 100%; flex: 1 1 0;
+}
+.msg-row.out .msg-thread-line { justify-content: flex-end; }
+.msg-row.has-thread .bubble { max-width: min(480px, calc(100% - 48px)); min-width: 0; }
 .msg-thread-btn {
   flex: none; align-self: flex-end;
   width: 44px; height: 44px; margin: 0 2px; padding: 0;
@@ -955,10 +1021,24 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
   background: var(--bg-chat);
   border: 1px solid var(--border); border-bottom: 0;
   border-radius: 18px 18px 0 0;
-  box-shadow: var(--shadow);
+  /* Top-cast shadow: the sheet reads as a layer floating OVER the chat. */
+  box-shadow: 0 -14px 28px rgba(16,16,16,.4), 0 2px 8px rgba(16,16,16,.2);
   animation: sheetIn .16s ease-out;
 }
 .thread-panel[hidden] { display: none; }
+/* Scrim over the covered history: a 0-height sticky pseudo-element pinned
+   to the scrollport bottom (its normal position is the content end, so it
+   travels the whole scroll range) whose outward shadow fills the visible
+   history. It is the scroller's LAST child, so it paints above the bubbles;
+   an inset shadow would paint beneath them. */
+#chat-view:has(#thread-panel:not([hidden])) #history-scroll::after {
+  content: ""; position: sticky; bottom: 0; display: block; height: 0;
+  box-shadow: 0 0 0 100vmax rgba(16,16,16,.22);
+  pointer-events: none;
+}
+html[data-theme="light"] #chat-view:has(#thread-panel:not([hidden])) #history-scroll::after {
+  box-shadow: 0 0 0 100vmax rgba(16,16,16,.12);
+}
 /* The go-down pill would float over the sheet header. */
 #chat-view:has(#thread-panel:not([hidden])) #btn-go-down { display: none; }
 .thread-head {
@@ -1171,6 +1251,8 @@ velta-video { display: block; height: 100%; }
 .velta-video-card video {
   display: block; width: 100%; height: 100%;
   background: #101010;
+  /* A swipe may start on the poster (#139): no native video drag. */
+  -webkit-user-drag: none;
   /* min-width: 200px from the band rules must NOT reach inside a styled
      box: on portrait videos it inflates the element past the host
      (200×355 under a 146×260 clipped box) and the play button centers on
@@ -1669,6 +1751,22 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 }
 .msg-emoji { font-size: 24px; line-height: 1.2; padding: 4px; border-radius: 8px; }
 .msg-emoji-empty { grid-column: 1 / -1; color: var(--text-dim); font-size: 14px; padding: 8px; }
+/* "Show links" (#161 mobile): real anchors — the WebView's own long-press
+   menu (open / copy address / share) works on each. No user-select override:
+   link long-press is browser UI, not text selection. */
+.msg-links { margin-top: 10px; }
+.msg-links summary {
+  cursor: pointer; list-style: none; padding: 8px 12px; border-radius: 8px;
+  color: var(--text-dim); font-size: 14px;
+}
+.msg-links summary::-webkit-details-marker { display: none; }
+.msg-links summary::after { content: "\203A"; float: right; transition: transform .15s ease-out; }
+.msg-links[open] summary::after { transform: rotate(90deg); }
+.msg-links a {
+  display: block; padding: 9px 12px; border-radius: 8px;
+  color: var(--accent-text-in); font-size: 14px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 /* Popover UA sheet (inset:0, margin:auto, Canvas, border) leaks on unset
    properties. Do not set left/right here: the 821px toast query and the
@@ -2022,8 +2120,24 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 }
 @media (prefers-reduced-motion: reduce) { #bar-menu.update { animation: none; } }
 
-/* attach pop reuses ctx-menu */
-.attach-pop { min-width: 190px; }
+/* attach pop reuses ctx-menu; Apps / Commands disclosures (#137) */
+.attach-pop { min-width: 190px; max-width: 280px; max-height: calc(var(--dvh) * .70); overflow: auto; }
+.attach-sub { max-height: 220px; overflow: auto; }
+.attach-sub .ctx-item { min-width: 0; }
+.attach-sub .ctx-item span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attach-empty { padding: 2px 12px 8px; color: var(--text-dim); font-size: 13px; }
+.app-browser { display: flex; flex-direction: column; gap: 8px; }
+.app-browser .text-field { margin: 0; }
+.app-row {
+  display: block; width: 100%; text-align: left;
+  padding: 8px 2px; border-bottom: 1px solid var(--border);
+  background: none; color: inherit; font: inherit; cursor: pointer;
+}
+.app-row small { display: block; color: var(--text-dim); font-size: 13px; margin-top: 2px; }
+.mirror-row { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+.mirror-row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
+.mirror-add { display: flex; gap: 8px; align-items: center; }
+.mirror-add .text-field { flex: 1; }
 
 /* toasts — bar anchored above the composer / bottom action bar
    (same edge the modals respect); z-index 80 keeps it visible over
@@ -2174,6 +2288,10 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 
 /* scrollbars */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
+/* styled webkit scrollbars paint unstyled track/corner light even under
+   color-scheme: dark (the white strip on Windows); transparent tracks both themes */
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-corner { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(128,128,128,.35); border-radius: 4px; }
 @media (hover: hover) and (pointer: fine) {
   ::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,.55); }
@@ -2270,7 +2388,13 @@ html[data-theme="light"] .acct-pop .ctx-item {
   padding: max(env(safe-area-inset-top), 10px) 14px 10px;
   color: #f4f4f4; flex: 0 0 auto;
 }
-.lightbox-cap { font-size: 14px; opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 80%; }
+.lightbox-cap { flex: 1; min-width: 0; font-size: 14px; opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lightbox-tools { display: flex; align-items: center; gap: 4px; flex: none; }
+.lightbox-stretch, .lightbox-speed {
+  background: none; border: 0; color: #f4f4f4; font: inherit; font-size: 13px;
+  padding: 4px 6px; cursor: pointer;
+}
+.lightbox-speed { color-scheme: dark; }
 .lightbox-close {
   background: none; border: none; color: #f4f4f4; font-size: 22px;
   padding: 4px 10px; cursor: pointer;
@@ -2291,6 +2415,15 @@ html[data-theme="light"] .acct-pop .ctx-item {
 .lightbox-video .lightbox-video {
   max-width: 100%; max-height: 100%;
   background: #101010; outline: none;
+}
+/* Stretch: the picture covers the overlay, bar stays tappable on top. */
+.lightbox.is-stretch .lightbox-stage { position: absolute; inset: 0; }
+.lightbox.is-stretch .lightbox-video {
+  width: 100%; height: 100%; max-width: none; max-height: none; object-fit: cover;
+}
+.lightbox.is-stretch .lightbox-bar {
+  position: relative; z-index: 1;
+  background: linear-gradient(rgba(0, 0, 0, .55), transparent);
 }
 
 /* ---------- failed media placeholder ---------- */
@@ -2441,9 +2574,10 @@ html[data-theme="light"] .acct-pop .ctx-item {
 .call-btn.danger { background: var(--call-danger); color: var(--call-danger-fg); }
 .call-btn.accept { background: var(--call-accept); color: var(--call-accept-fg); }
 .call-btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
-@media (max-width: 360px) {
-  .call-actions { gap: 8px; }
-  .call-btn { --call-btn-size: 50px; }
+@media (max-width: 430px) {
+  /* Six buttons (mute, camera, end, speaker, earpiece, flip) fit 320px. */
+  .call-actions { gap: 6px; }
+  .call-btn { --call-btn-size: 44px; }
   .call-btn svg { width: var(--ico-4); height: var(--ico-4); }
 }
 html[data-theme="brutal"] .call-btn { border: 2px solid var(--nb-ink); box-shadow: 3px 3px 0 var(--nb-ink); }
@@ -2918,6 +3052,50 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
 
 /* #110: relay confirmed UnifiedPush support (Relays modal). */
 .relay-push-mark { font-size: .85em; opacity: .7; margin-left: 4px; }
+
+/* Relays modal (#15): each relay is a two-line card — address + capability
+   flags on the first line, action buttons on the second. Flags are silver
+   (not offered / not known yet) and turn green when the relay advertised
+   the capability. C calls/TURN, I iroh, P push, D instant delivery (IDLE), W web/C3 endpoints. */
+.relay-card { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.relay-card:last-child { border-bottom: 0; }
+.relay-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.relay-addr { font-weight: 600; overflow-wrap: anywhere; }
+.relay-sending { font-weight: 400; opacity: .75; }
+.relay-flags { display: inline-flex; gap: 4px; flex: none; }
+/* Neutral key-caps: the letter never carries color, and a green dot pinned
+   to the corner marks capabilities the relay advertises — presence/absence
+   of the dot is the state, so no green/grey pairs to tune per theme. */
+.relay-flag {
+  position: relative;
+  font-size: 10.5px; font-weight: 700; line-height: 1;
+  padding: 3px 5px; border-radius: 5px;
+  color: var(--text-dim); background: var(--bg-hover);
+  cursor: default; user-select: none;
+}
+.relay-flag.on::before {
+  content: ""; position: absolute; top: -2px; left: -2px;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--green);
+}
+/* Relay details (admin/comment METADATA, quota): dim small text; the quota
+   bar fill is --text-dim on --bg-hover (same pair as the key-caps, AA as
+   text), --danger from 80% — the % is always printed too, so color is
+   never the only signal. */
+.relay-detail { font-size: 12px; color: var(--text-dim); overflow-wrap: anywhere; }
+.relay-quota { display: flex; align-items: center; gap: 6px; }
+.relay-quota-bar { flex: none; width: 56px; height: 6px; border-radius: 3px; background: var(--bg-hover); overflow: hidden; }
+.relay-quota-bar > span { display: block; height: 100%; background: var(--text-dim); }
+.relay-quota-bar > span.high { background: var(--danger); }
+.relay-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+/* Flag key: the letters mean the same on every relay, say so once. Chip and
+   label travel as a pair (tight); the legend gap separates the pairs. */
+.relay-legend {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px;
+  margin-top: 12px; font-size: 12px; color: var(--text-dim);
+}
+.relay-pair { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+.relay-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex: none; }
 
 /* #138: Velta Beam opens as a panel in the chat view's flow, directly below
    the chat header: the history shrinks between it and the composer, which

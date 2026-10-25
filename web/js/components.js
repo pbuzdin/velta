@@ -105,7 +105,9 @@ class VeltaAvatar extends Elena(HTMLElement) {
   }
 
   initials() {
-    return (this.name || "?").trim().split(/\s+/).filter(w => /[A-Za-z0-9]/.test(w[0] || "")).slice(0, 2).map(w => w[0].toUpperCase()).join("") || "?";
+    // \p{L}\p{N} with the u flag: any Unicode letter or digit — a Cyrillic
+    // (or CJK, etc.) name must not fall through to the "?" tile (#151).
+    return (this.name || "?").trim().split(/\s+/).filter(w => /[\p{L}\p{N}]/u.test(w[0] || "")).slice(0, 2).map(w => w[0].toUpperCase()).join("") || "?";
   }
 
   render() {
@@ -149,6 +151,11 @@ VeltaAvatar.define();
 // unwired, <velta-video> falls back to inline bubble playback.
 let videoLightboxOpener = null;
 export function setVideoLightboxOpener(fn) { videoLightboxOpener = fn; }
+// Chat swipes set this so the click a WebView still fires on finger-up
+// does not also open the lightbox (#139).
+let gestureSwipeAt = 0;
+export function noteGestureSwipe() { gestureSwipeAt = Date.now(); }
+export function gestureSwipeRecent(now = Date.now()) { return now - gestureSwipeAt < 400; }
 
 /* ---------- <velta-video> — click-to-load video player ---------- */
 // Every mounted <video> starts a decoder pipeline and issues media range
@@ -188,6 +195,7 @@ class VeltaVideo extends Elena(HTMLElement) {
         // In selection mode the row owns the tap (toggle selection) — don't
         // hijack it for playback.
         if (this.closest(".msg-row")?.classList.contains("selectable")) return;
+        if (gestureSwipeRecent()) { e.preventDefault(); e.stopPropagation(); return; }
         if (!this.#failed && this.src) {
           e.stopPropagation(); // play - don't bubble into row selection/menu
           // Playback happens in the fullscreen video lightbox (wired via
@@ -224,6 +232,9 @@ class VeltaVideo extends Elena(HTMLElement) {
       v.addEventListener("play", () => card?.classList.add("playing"));
       v.addEventListener("pause", () => card?.classList.remove("playing"));
       v.addEventListener("error", () => {
+        // parkMedia clears src and load()s so an off-screen row drops its
+        // decoder; that fires error. Not a load failure.
+        if (v.dataset.parkedSrc || !v.getAttribute("src")) return;
         // WebView2's media stack bypasses custom-protocol interception even
         // when images through the same scheme load, so a blobfile src can
         // fail here on an otherwise healthy setup — swap to the legacy chain

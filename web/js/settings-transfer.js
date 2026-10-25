@@ -37,7 +37,12 @@ const NOTE_RE = /^\(.{0,180}\)$/;
 const BAR_KEYS = ["chats", "contacts", "calls", "qr"];
 const CAT_KEYS = ["people", "groups", "channels", "bots", "system"];
 const SCALES = [["small", "0.85"], ["normal", "1"], ["large", "1.15"]];
-const DL = [["none", "0"], ["640KB", "655360"], ["5MB", "5242880"], ["25MB", "26214400"]];
+// #147: smallest cap is 1 MiB. 655360 is the retired 640 KB preset.
+export function normalizeDownloadLimit(raw) {
+  if (raw == null || raw === "") return "0";
+  return raw === "655360" ? "1048576" : String(raw);
+}
+const DL = [["none", "0"], ["1MB", "1048576"], ["5MB", "5242880"], ["25MB", "26214400"]];
 
 const get = (ls, k) => { try { return ls.getItem(k); } catch { return null; } };
 const put = (ls, k, v) => { try { v == null ? ls.removeItem(k) : ls.setItem(k, String(v)); } catch {} };
@@ -99,6 +104,7 @@ const fmtNum = n => String(n);
 
 export const SETTINGS = [
   oneOf("theme", "Theme", "dw-theme", [["auto", "auto"], ["dark", "dark"], ["light", "light"], ["brutal", "brutal"]], "auto"),
+  oneOf("language", "Language", "velta-lang", [["english", "en"], ["french", "fr"], ["russian", "ru"]], "en", { removeAt: "en" }),
   oneOf("interface-scale", "Interface scale", "velta-ui-scale", SCALES, "1", { removeAt: "1" }),
   {
     key: "message-text-size", label: "Message text size", lsKeys: ["velta-msg-font-size"],
@@ -131,7 +137,18 @@ export const SETTINGS = [
   onByDefault("notify-calls", "Call notifications", "velta-notify-calls"),
   oneOf("image-quality", "Image quality", "velta-media-quality", [["standard", "0"], ["compact", "1"]], "0"),
   onByDefault("compress-photos", "Compress photos", "velta-compress-photos"),
-  oneOf("auto-download-limit", "Auto-download limit", "velta-download-limit", DL, "0"),
+  (() => {
+    const dl = oneOf("auto-download-limit", "Auto-download limit", "velta-download-limit", DL, "0");
+    const read = dl.read, parse = dl.parse;
+    dl.read = ls => {
+      const raw = get(ls, "velta-download-limit");
+      const v = normalizeDownloadLimit(raw);
+      if (raw != null && raw !== v) put(ls, "velta-download-limit", v);
+      return read(ls);
+    };
+    dl.parse = raw => parse(raw.toLowerCase() === "640kb" ? "1MB" : raw);
+    return dl;
+  })(),
   oneOf("link-previews", "Link previews", "velta-link-preview", [["off", "off"], ["picture", "picture"], ["fetch", "fetch"]], "off", { removeAt: "off" }),
   onByDefault("strip-tracking", "Strip tracking from links", "velta-strip-trackers"),
   onByDefault("send-on-enter", "Send on Enter", "velta-send-enter"),
@@ -149,7 +166,7 @@ export const EXCLUDED_STORAGE_KEYS = [
   "velta-lufi-server", "velta-lufi-files", "velta-p2p", "velta-p2pg-hidden", "velta-notify-bg",
   "velta-notify-bgforce", "velta-low-battery-react", "velta-battery-opt-asked", "velta-sync-only-active",
   "velta-logging", "velta-debug", "velta-mock", "velta-mock-fresh", "velta-wasm", "velta-tunnel-log",
-  "velta-tunnel-diag-seen", "velta-read-markers", "velta-recent-commands", "velta-link-preview-chats",
+  "velta-tunnel-diag-seen", "velta-read-markers", "velta-recent-commands", "velta-recent-apps", "velta-xdc-mirrors", "velta-xdc-mirror-ok", "velta-link-preview-chats",
   "velta-chat-category", "velta-ask-notifications", "velta-pending-invite", "velta-pending-add",
   "velta-call-log",
 ];

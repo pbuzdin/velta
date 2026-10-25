@@ -4,15 +4,23 @@
 // Everything rides the webxdc realtime channel (iroh gossip, broadcast to
 // every peer that joined this app instance, lossy, ≤128 000 B/message):
 //   frame = [type u8][header length u32 BE][header JSON][payload bytes]
-//   OFFER  {id, name, size, sha256, chunk, n}      sender, every few seconds
+//   OFFER  {id, name, size, sha256, chunk, n, ph?} sender + every seeder,
+//                                                  every few seconds
 //   REQ    {id, idx:[chunk indices]}               receiver asks for missing
-//   CHUNK  {id, i} + bytes                         sender answers (broadcast:
+//   CHUNK  {id, i} + bytes                         any holder answers (broadcast:
 //                                                  every receiver may use it)
-//   PROG   {id, peer, name, have, n, done, ok}     receiver, every ~1 s and on
-//                                                  completion (progress list)
-// Receivers keep a small window of requested chunks and re-ask after a
-// timeout, so a lost gossip message only costs a retry. Integrity: the
-// assembled file must match the offer's sha256 before it can be saved.
+//   PROG   {id, peer, name, have, n, done, ok,     everyone, every ~1 s
+//           seed?, src?}                           (receiver + seeder lists)
+// Group fan-out: every member who holds a piece can answer a REQ (Seeder).
+// The original sender answers at once; other seeders wait a random jitter
+// and drop a piece they saw on the channel meanwhile, so one REQ costs one
+// CHUNK however many seeders listen, and a piece goes out at most once per
+// ROUND_MS. A token bucket caps each seeder's send rate. Receivers keep a
+// small window and re-ask with exponential backoff + jitter.
+// Integrity: `ph` (per-piece SHA-256, first 128 bits, files up to PH_MAX
+// pieces) lets a receiver verify each piece on arrival, so a partial
+// download can already seed; without `ph` only a full, SHA-256-verified
+// copy seeds. The assembled file must match `sha256` before it is saved.
 
 export const T_OFFER = 1, T_REQ = 2, T_CHUNK = 3, T_PROG = 4;
 export const PROG_MS = 1000;   // receiver progress broadcast period
@@ -20,6 +28,11 @@ export const SILENT_MS = 10000; // receiver considered gone/stale after this
 export const CHUNK = 48 * 1024; // + header, and the RPC carries it as a JSON number array
 export const WINDOW = 8;
 export const RETRY_MS = 1500;
+export const ROUND_MS = 1000;     // a piece is sent at most once per round, per seeder
+export const JITTER_MS = 250;     // non-source seeders answer after 0..JITTER_MS
+export const RATE = 40;           // pieces/s per seeder (~1.9 MB/s), burst = RATE
+export const MAX_BACKOFF_MS = 12000;
+export const PH_MAX = 2048;       // per-piece hashes up to ~96 MB (offer frame stays < 128 kB)
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -100,59 +113,119 @@ export function newId(rand = (n) => crypto.getRandomValues(new Uint8Array(n))) {
   return Array.from(rand(8), b => b.toString(16).padStart(2, "0")).join("");
 }
 
-// ---- sender ----
-export class Sender {
-  constructor({ name, bytes, send, id = newId(), chunk = CHUNK, now = () => Date.now() }) {
-    this.bytes = bytes;
-    this.chunk = chunk;
-    this.now = now;
-    this.send = send;
-    this.offer = { id, name, size: bytes.length, sha256: sha256Hex(bytes), chunk, n: Math.max(1, Math.ceil(bytes.length / chunk)) };
-    this.recent = new Map(); // chunk index -> last sent ms (several receivers ask at once)
+// ---- per-piece hashes ----
+export function pieceHash(bytes) { return sha256Hex(bytes).slice(0, 32); }
+export function pieceHashes(bytes, chunk) {
+  const n = Math.max(1, Math.ceil(bytes.length / chunk));
+  if (n > PH_MAX) return null;
+  const out = [];
+  for (let i = 0; i < n; i++) out.push(pieceHash(bytes.subarray(i * chunk, (i + 1) * chunk)));
+  return out;
+}
+
+// ---- seeder: answers REQs from pieces it holds ----
+// piece(i) returns verified bytes or null. source=true (original sender)
+// answers immediately; others after a random jitter, and only if nobody
+// else sent that piece meanwhile (noteChunk).
+export class Seeder {
+  constructor({ offer, piece, send, source = false, now = () => Date.now(), rand = Math.random,
+    jitterMs = JITTER_MS, roundMs = ROUND_MS, rate = RATE }) {
+    Object.assign(this, { offer, piece, send, source, now, rand, jitterMs, roundMs, rate });
+    this.recent = new Map();  // index -> last time sent or seen on the channel
+    this.pending = new Map(); // index -> due time
+    this.tokens = rate;
+    this.refill = now();
     this.served = 0;
   }
-  announce() { this.send(encodeFrame(T_OFFER, this.offer)); }
+  fresh(i) { const t = this.recent.get(i); return t != null && this.now() - t < this.roundMs; }
   handle(frame) {
-    if (!frame || frame.type !== T_REQ || frame.header.id !== this.offer.id) return;
+    if (!frame || frame.type !== T_REQ || !frame.header || frame.header.id !== this.offer.id) return;
     const idx = Array.isArray(frame.header.idx) ? frame.header.idx.slice(0, 64) : [];
+    const t = this.now();
     for (const i of idx) {
       if (!Number.isInteger(i) || i < 0 || i >= this.offer.n) continue;
-      const t = this.recent.get(i);
-      if (t != null && this.now() - t < 300) continue;
-      this.recent.set(i, this.now());
-      this.send(encodeFrame(T_CHUNK, { id: this.offer.id, i }, this.bytes.subarray(i * this.chunk, (i + 1) * this.chunk)));
+      if (this.pending.has(i) || this.fresh(i) || !this.piece(i)) continue;
+      this.pending.set(i, t + (this.source ? 0 : Math.floor(this.rand() * this.jitterMs) + 1));
+    }
+    this.flush();
+  }
+  // Someone sent piece i: it reached every listener, drop our duplicate.
+  noteChunk(i) { this.recent.set(i, this.now()); this.pending.delete(i); }
+  flush() {
+    const t = this.now();
+    this.tokens = Math.min(this.rate, this.tokens + ((t - this.refill) / 1000) * this.rate);
+    this.refill = t;
+    for (const [i, due] of [...this.pending].sort((a, b) => a[1] - b[1])) {
+      if (due > t) break;
+      if (this.tokens < 1) break; // rate limit: the rest waits for the next flush
+      this.pending.delete(i);
+      if (this.fresh(i)) continue;
+      const b = this.piece(i);
+      if (!b) continue;
+      this.tokens -= 1;
+      this.recent.set(i, t);
+      this.send(encodeFrame(T_CHUNK, { id: this.offer.id, i }, b));
       this.served++;
     }
+  }
+  announce() { this.send(encodeFrame(T_OFFER, this.offer)); }
+}
+
+// ---- sender (original source) ----
+export class Sender extends Seeder {
+  constructor({ name, bytes, send, id = newId(), chunk = CHUNK, now = () => Date.now(), rand, rate }) {
+    const n = Math.max(1, Math.ceil(bytes.length / chunk));
+    const offer = { id, name, size: bytes.length, sha256: sha256Hex(bytes), chunk, n };
+    const ph = pieceHashes(bytes, chunk);
+    if (ph) offer.ph = ph;
+    super({ offer, send, now, rand, rate, source: true, piece: (i) => bytes.subarray(i * chunk, (i + 1) * chunk) });
+    this.bytes = bytes;
+    this.chunk = chunk;
   }
 }
 
 // ---- receiver ----
 export class Receiver {
-  constructor({ offer, send, now = () => Date.now(), window = WINDOW, retryMs = RETRY_MS }) {
+  constructor({ offer, send, now = () => Date.now(), window = WINDOW, retryMs = RETRY_MS, rand = Math.random }) {
     this.offer = offer;
     this.send = send;
     this.now = now;
+    this.rand = rand;
     this.window = window;
     this.retryMs = retryMs;
     this.parts = new Array(offer.n);
     this.got = 0;
-    this.asked = new Map(); // index -> ms asked
+    this.asked = new Map(); // index -> due time for a re-ask
+    this.tries = new Map(); // index -> attempts (exponential backoff)
     this.done = false;
     this.ok = null; // sha256 verdict once complete
+    this.rejected = 0; // pieces failing their per-piece hash
   }
   get progress() { return this.got / this.offer.n; }
   get receivedBytes() { return Math.min(this.offer.size, this.got * this.offer.chunk); }
-  // Ask for missing chunks: fill the window, re-ask timed-out ones.
+  // Verified bytes of piece i for seeding, or null. With per-piece hashes a
+  // piece is verified on arrival; without them only a SHA-256-good file seeds.
+  piece(i) {
+    if (this.done) return this.ok ? this.bytes.subarray(i * this.offer.chunk, (i + 1) * this.offer.chunk) : null;
+    return Array.isArray(this.offer.ph) ? this.parts[i] || null : null;
+  }
+  get canSeed() { return this.done ? !!this.ok : Array.isArray(this.offer.ph) && this.got > 0; }
+  // Ask for missing chunks: fill the window; re-ask timed-out ones with backoff.
   pump() {
     if (this.done) return;
     const t = this.now();
-    for (const [i, at] of this.asked) if (t - at > this.retryMs) this.asked.delete(i);
+    for (const [i, due] of this.asked) if (t >= due) this.asked.delete(i);
     const want = [];
     for (let i = 0; i < this.offer.n && this.asked.size + want.length < this.window; i++) {
       if (!this.parts[i] && !this.asked.has(i)) want.push(i);
     }
     if (!want.length) return;
-    for (const i of want) this.asked.set(i, t);
+    for (const i of want) {
+      const k = this.tries.get(i) || 0;
+      this.tries.set(i, k + 1);
+      const wait = Math.min(MAX_BACKOFF_MS, this.retryMs * 2 ** Math.min(k, 4));
+      this.asked.set(i, t + wait + Math.floor(this.rand() * this.retryMs / 2));
+    }
     this.send(encodeFrame(T_REQ, { id: this.offer.id, idx: want }));
   }
   handle(frame) {
@@ -161,8 +234,10 @@ export class Receiver {
     if (!Number.isInteger(i) || i < 0 || i >= this.offer.n || this.parts[i]) return false;
     const want = i === this.offer.n - 1 ? this.offer.size - i * this.offer.chunk : this.offer.chunk;
     if (frame.payload.length !== want) return false;
+    if (Array.isArray(this.offer.ph) && pieceHash(frame.payload) !== this.offer.ph[i]) { this.rejected++; return false; }
     this.parts[i] = new Uint8Array(frame.payload); // own copy
     this.asked.delete(i);
+    this.tries.delete(i);
     this.got++;
     if (this.got === this.offer.n) this.finish();
     else this.pump();
@@ -174,6 +249,7 @@ export class Receiver {
     let o = 0;
     for (const p of this.parts) { out.set(p, o); o += p.length; }
     this.bytes = out;
+    this.parts = null;
     this.ok = sha256Hex(out) === this.offer.sha256;
   }
 }
@@ -184,15 +260,21 @@ export function validOffer(o) {
     && Number.isInteger(o.size) && o.size >= 0
     && Number.isInteger(o.chunk) && o.chunk > 0 && o.chunk <= 100000
     && Number.isInteger(o.n) && o.n === Math.max(1, Math.ceil(o.size / o.chunk))
-    && /^[0-9a-f]{64}$/.test(String(o.sha256));
+    && /^[0-9a-f]{64}$/.test(String(o.sha256))
+    && (o.ph === undefined || (Array.isArray(o.ph) && o.ph.length === o.n && o.n <= PH_MAX
+      && o.ph.every((h) => typeof h === "string" && /^[0-9a-f]{32}$/.test(h))));
 }
 
-// ---- receiver progress (T_PROG) ----
-export function progressFrame(rx, peer, name) {
-  return encodeFrame(T_PROG, {
-    id: rx.offer.id, peer: String(peer || "").slice(0, 128), name: String(name || "").slice(0, 64),
-    have: rx.got, n: rx.offer.n, done: !!rx.done, ok: rx.done ? !!rx.ok : null,
-  });
+// ---- progress / presence (T_PROG) ----
+// rx: a Receiver, or null for the original sender (src: has everything).
+export function progressFrame(rx, peer, name, { seed = false, src = false, n = 0, id = "" } = {}) {
+  const h = rx
+    ? { id: rx.offer.id, peer: String(peer || "").slice(0, 128), name: String(name || "").slice(0, 64),
+        have: rx.got, n: rx.offer.n, done: !!rx.done, ok: rx.done ? !!rx.ok : null }
+    : { id, peer: String(peer || "").slice(0, 128), name: String(name || "").slice(0, 64), have: n, n, done: true, ok: true };
+  if (seed) h.seed = true;
+  if (src) h.src = true;
+  return encodeFrame(T_PROG, h);
 }
 
 export function validProgress(h) {
@@ -202,13 +284,13 @@ export function validProgress(h) {
     && Number.isInteger(h.n) && h.n > 0 && Number.isInteger(h.have) && h.have >= 0 && h.have <= h.n;
 }
 
-// Per-offer receiver list: who is downloading, how far, and who is done.
-// A receiver silent for SILENT_MS is dropped, unless it was partway through
+// Per-offer peer list: who is downloading, how far, who is done, who seeds.
+// A peer silent for SILENT_MS is dropped, unless it was partway through
 // (then it stays, marked stale) or finished (stays done).
 export class ReceiverTracker {
   constructor({ id, now = () => Date.now(), silentMs = SILENT_MS } = {}) {
     this.id = id; this.now = now; this.silentMs = silentMs;
-    this.peers = new Map(); // peer -> {peer, name, have, n, done, ok, seen}
+    this.peers = new Map(); // peer -> {peer, name, have, n, done, ok, seed, src, seen}
   }
   handle(frame) {
     if (!frame || frame.type !== T_PROG || frame.header.id !== this.id || !validProgress(frame.header)) return false;
@@ -218,6 +300,7 @@ export class ReceiverTracker {
       peer: h.peer, name: h.name || h.peer, n: h.n, seen: this.now(),
       have: Math.max(h.have, prev?.have || 0), done: !!h.done || !!prev?.done,
       ok: h.done ? h.ok === true : prev?.ok ?? null,
+      seed: h.seed === true, src: h.src === true,
     });
     return true;
   }
@@ -227,10 +310,14 @@ export class ReceiverTracker {
     for (const [k, p] of this.peers) {
       const silent = t - p.seen > this.silentMs;
       if (silent && !p.done && p.have === 0) { this.peers.delete(k); continue; }
-      out.push({ ...p, percent: Math.floor((p.have / p.n) * 100), stale: silent && !p.done });
+      out.push({ ...p, percent: Math.floor((p.have / p.n) * 100), stale: silent && !p.done, live: !silent });
     }
     return out;
   }
+  /** Receivers (not the original sender) for the progress list. */
+  receivers() { return this.list().filter((p) => !p.src); }
+  /** Peers heard recently that serve pieces (sender included). */
+  seeders() { return this.list().filter((p) => p.live && p.seed); }
   /** Receivers currently connected (heard recently) — the status-line count. */
-  activeCount() { return this.list().filter(p => !p.stale && !(p.done && this.now() - p.seen > this.silentMs)).length; }
+  activeCount() { return this.receivers().filter(p => !p.stale && !(p.done && this.now() - p.seen > this.silentMs)).length; }
 }

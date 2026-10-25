@@ -2,15 +2,16 @@
 //   1. inside the Android WebView app → direct JS bridge (window.VeltaBridge),
 //      no network involved at all
 //   2. inside the Tauri shell         → in-process core via Tauri IPC
-//   3. background-service APK         → core via ws://127.0.0.1:20808
+//   3. PWA (no native shell)          → wasm core in a worker (opt-in)
 //   4. anything else (dev/demo)       → mock core
+// The retired background-service APK (ws://127.0.0.1:20808, archive/) is
+// no longer probed: nothing authenticated the listener, so any local app
+// on that port could have posed as the core after a startup failure.
 import { JsonRpcCore } from "./rpc-core.js";
 import { WorkerWasmTransport } from "./transport-worker-wasm.js";
 import { wsProxyUrl } from "./ws-relays.js";
 import { rustLog, tauriInvoke } from "./tauri.js";
 
-const WS_URL = "ws://127.0.0.1:20808";
-const WS_PROBE_MS = 900;
 
 // Architecture C (PWA): opt-in wasm core hosted in a worker. Enabled by
 // ?wasm=1 (or localStorage velta-wasm=1), by window.VELTA_PWA.wasmCore (the
@@ -91,73 +92,8 @@ function tauriTransport() {
   };
 }
 
-// V-01/#61: loopback bridges authenticate with a per-service-start token.
-// PWA pairing: run the service APK once, copy the token from its dialog,
-// paste into this key (once per service restart).
-function bridgeToken() {
-  try { return localStorage.getItem("velta-bridge-token") || ""; } catch { return ""; }
-}
-
-function probeWebSocket() {
-  return new Promise(resolve => {
-    let done = false;
-    const finish = ws => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      resolve(ws);
-    };
-    let ws;
-    try { ws = new WebSocket(WS_URL); } catch { return resolve(null); }
-    const timer = setTimeout(() => { try { ws.close(); } catch {} finish(null); }, WS_PROBE_MS);
-    // The service gates the bridge on the client's FIRST message — send the
-    // token the moment the socket opens, before any RPC rides the wire.
-    ws.onopen = () => {
-      const token = bridgeToken();
-      if (token) { try { ws.send(token); } catch {} }
-      finish(ws);
-    };
-    ws.onerror = () => finish(null);
-    ws.onclose = () => finish(null);
-  });
-}
-
 function statusEvent(connected, backend) {
   dispatchEvent(new CustomEvent("velta-core-status", { detail: { connected, backend } }));
-}
-
-async function websocketTransport() {
-  let ws = await probeWebSocket();
-  if (!ws) return null;
-  let receiver = null;
-  const wire = socket => {
-    socket.onmessage = ev => receiver?.(ev.data);
-    socket.onclose = () => {
-      if (socket !== ws) return; // stale socket from an old connection
-      statusEvent(false, "websocket");
-      dispatchEvent(new CustomEvent("velta-core-disconnected"));
-    };
-  };
-  wire(ws);
-  return {
-    name: "websocket",
-    label: "local core (service)",
-    setReceiver(fn) { receiver = fn; },
-    send(line) {
-      if (ws.readyState !== WebSocket.OPEN) throw new Error("websocket closed");
-      ws.send(line);
-    },
-    // re-probe the service and swap in a fresh socket; resolves false if the
-    // service is still unreachable
-    async reconnect() {
-      const fresh = await probeWebSocket();
-      if (!fresh) return false;
-      try { ws.close(); } catch {}
-      ws = fresh;
-      wire(ws);
-      return true;
-    },
-  };
 }
 
 export async function createCore({ onDiagnostic = () => {} } = {}) {
@@ -192,7 +128,6 @@ export async function createCore({ onDiagnostic = () => {} } = {}) {
       wsProxyUrl: wsProxyUrl(),
     }));
   }
-  attempts.push(websocketTransport);
 
   // Global timeout: if no backend connects within 20s, bail to mock immediately.
   // This prevents the UI from being stuck on "connecting" for 30+ seconds.
@@ -243,4 +178,4 @@ export async function createCore({ onDiagnostic = () => {} } = {}) {
   const mock = new MockCore();
   mock.backend = { kind: "mock", label: "demo mode (no local core)", connected: false };
   return mock;
-}
+}

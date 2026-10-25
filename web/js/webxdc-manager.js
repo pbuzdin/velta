@@ -577,6 +577,7 @@ export async function openWebxdc(msgId, fallbackName = "Webxdc app", opts = {}) 
   // loads — the server refuses non-icon blobs for any other prefix, so an
   // open app cannot read another instance's files.
   const invoke = tauriInvoke();
+  await webxdcEndPending; // a just-closed frame's webxdc_end must land first
   await invoke?.("webxdc_begin", { account, msg: Number(msgId) }).catch(() => {});
   const start = webxdcStartPath(opts.href);
   const q = start.indexOf("?"), h = start.indexOf("#");
@@ -613,7 +614,7 @@ export async function openWebxdc(msgId, fallbackName = "Webxdc app", opts = {}) 
   title.textContent = info?.name || fallbackName || "Webxdc app";
 
   if (panel) wrap.setAttribute("aria-label", title.textContent);
-  active = { msgId: Number(msgId), iframe, serial: serials.get(Number(msgId)) || 0, panel, wrap };
+  active = { account, msgId: Number(msgId), iframe, serial: serials.get(Number(msgId)) || 0, panel, wrap };
   active.trust = trustFor(Number(msgId)); // group calls: bundle-hash check, before the app can ask
   active.trust.then((t) => { if (t === "group-call" && active?.msgId === Number(msgId)) setCallScreen(Number(msgId)); });
   wrap.querySelector(".webxdc-close").addEventListener("click", () => closeWebxdc());
@@ -679,7 +680,17 @@ export function setWebxdcExpanded(on) {
   }
 }
 
+// Audit item 5: the server gate (OPEN_APP) is cleared when the frame
+// closes, so a closed instance's blobs stop being served. openWebxdc awaits
+// this before its webxdc_begin so a reopen can never be cleared afterwards.
+let webxdcEndPending = Promise.resolve();
+
 function closeWebxdcFrame() {
+  if (active) {
+    const invoke = tauriInvoke();
+    const ended = invoke?.("webxdc_end", { account: active.account, msg: Number(active.msgId) });
+    webxdcEndPending = Promise.resolve(ended).catch(() => {});
+  }
   // Closing the app leaves its realtime channel (spec: leave() or unload).
   // A group call in this instance keeps the channel (the host owns it).
   if (active?.realtime && currentGroupCall()?.msgId !== active.msgId) core?.leaveWebxdcRealtime?.(active.msgId)?.catch?.(() => {});
