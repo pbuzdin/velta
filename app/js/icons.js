@@ -49,6 +49,8 @@ export const P = {
   tick2: '<path d="M2 13l4 4L16 7M11.5 16.5l.5.5L22 7"/>',
   warn: '<path d="M12 4L2.5 20h19z"/><path d="M12 10v4.5M12 17.5v.01"/>',
   reply: '<path d="M9 14L4 9l5-5M4 9h9a7 7 0 017 7v2"/>',
+  // thread: two overlapping speech bubbles (opens a message's replies)
+  thread: '<path d="M14 9a2 2 0 012 2v6a2 2 0 01-2 2H7l-4 3V11a2 2 0 012-2z"/><path d="M8 9V5a2 2 0 012-2h9a2 2 0 012 2v11l-3-3h-2"/>',
   forward: '<path d="M15 14l5-5-5-5M20 9h-9a7 7 0 00-7 7v2"/>',
   pause: '<path d="M9 5.5v13M15 5.5v13"/>',
   menu: '<path d="M3 6h18M3 12h18M3 18h18"/>',

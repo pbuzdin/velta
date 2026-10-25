@@ -291,6 +291,7 @@ export const THREAD_BUTTON_MIN_REPLIES = 1;
 
 const ICO = {
   reply: ICON.reply,
+  thread: ICON.thread,
   copy: ICON.copy,
   selectText: `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M4 8.5h5.5M4 12h3.5M4 15.5h5.5M18 4.5v15M16 4.5h4M16 19.5h4" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/></svg>`,
   forward: ICON.forward,
@@ -2286,7 +2287,7 @@ export class ChatView {
       : "";
     if (replyN >= THREAD_BUTTON_MIN_REPLIES && replyN > 0 && !inThread) {
       const label = `Show ${replyN} ${replyN === 1 ? "reply" : "replies"}`;
-      threadBtn = `<button type="button" class="msg-thread-btn" data-act="thread" aria-label="${label}" title="${label}">${ICO.reply}<span aria-hidden="true">${replyN}</span></button>`;
+      threadBtn = `<button type="button" class="msg-thread-btn" data-act="thread" aria-label="${label}" title="${label}">${ICO.thread}<span aria-hidden="true">${replyN}</span></button>`;
     }
     bubble += `<span class="msg-meta">${edited}${star}${botChip}${repliesChip}${timeTag(m.ts, formatTime(m.ts))}${ticks}</span>${failBadge}</div>`;
     if (m.reactions?.length) {
@@ -3078,7 +3079,7 @@ export class ChatView {
     // No reply without a composer (read-only chats).
     if (!this.readOnly) items.push({ label: "Reply", pair: "send", icon: ICO.reply, onClick: () => this._setReply(item) });
     const replyN = this._replyCountFor(m.id);
-    if (replyN > 0) items.push({ label: "Show replies", icon: ICO.reply, onClick: () => this._showReplies(m) });
+    if (replyN > 0) items.push({ label: "Show replies", icon: ICO.thread, onClick: () => this._showReplies(m) });
     // Core mirrors these guards (own + plain text + non-empty); the menu just
     // hides the entry where the core would refuse. P2P chats keep a separate
     // message store — no edit there yet.
