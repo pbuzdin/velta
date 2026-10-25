@@ -226,6 +226,9 @@ class VeltaVideo extends Elena(HTMLElement) {
       v.addEventListener("play", () => card?.classList.add("playing"));
       v.addEventListener("pause", () => card?.classList.remove("playing"));
       v.addEventListener("error", () => {
+        // parkMedia clears src and load()s so an off-screen row drops its
+        // decoder; that fires error. Not a load failure.
+        if (v.dataset.parkedSrc || !v.getAttribute("src")) return;
         // WebView2's media stack bypasses custom-protocol interception even
         // when images through the same scheme load, so a blobfile src can
         // fail here on an otherwise healthy setup — swap to the legacy chain

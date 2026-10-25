@@ -74,6 +74,7 @@ import { diagnosticsSink, debugLog } from "./diagnostics.js";
 import { LruCache } from "./lru.js";
 const ROW_CACHE_MAX = 300; // rendered-row LRU cap (see _rowCache)
 import { fileUrl, mediaFallbackUrl, redactMediaUrl } from "./media.js";
+import { parkMedia, unparkMedia } from "./media-park.js";
 import { openInAppBrowser } from "./inapp-browser.js";
 import { renderMarkdown, extractBotCommands } from "./markdown.js";
 import { attachMentionPicker, fprCode } from "./mentions.js";
@@ -563,7 +564,7 @@ export class ChatView {
     // drops its signature too so the two stay in sync.
     this._rowCache = new LruCache({ maxItems: ROW_CACHE_MAX, maxBytes: Infinity, sizeOf: () => 0,
       canEvict: (el) => !el?.isConnected,
-      onEvict: (key) => this._rowSigCache.delete(key) });  // item.key → rendered element (reused across setItems)
+      onEvict: (key, el) => { parkMedia(el); this._rowSigCache.delete(key); } });  // item.key → rendered element (reused across setItems)
     // Signatures can outlive their row briefly (a row dropped for rebuild);
     // those orphans go first, a signature of a cached row is never evicted.
     this._rowSigCache = new LruCache({ maxItems: ROW_CACHE_MAX, maxBytes: Infinity, sizeOf: () => 0,
@@ -699,6 +700,7 @@ export class ChatView {
     // ids are per-account — drop it when the account changed since the last
     // chat was open.
     if (this._rowCacheAccount !== this.core.accountId) {
+      for (const el of this._rowCache.values()) parkMedia(el);
       this._rowCache.clear();
       this._rowSigCache.clear();
       this._rowCacheAccount = this.core.accountId;
@@ -1011,7 +1013,10 @@ export class ChatView {
     this.msgIndex.clear();
     // The rendered-row LRU survives close() — reopening a chat reuses the
     // rows instead of rebuilding them; open() clears it on account change
-    // (message ids are per-account).
+    // (message ids are per-account). The elements stay detached, so release
+    // their decoders or WebView2 eventually stops taking chat clicks.
+    parkMedia(this.listEl);
+    for (const el of this._rowCache.values()) parkMedia(el);
     this.replyTo = null;
     this.replyFragment = null;
     this.editingMsg = null;
@@ -1804,6 +1809,9 @@ export class ChatView {
       // Default 1 prerenders one viewport of rows (~10 messages) past the
       // visible area; 3 gives ~30 for smoother fast-scroll reach-back.
       getPrerenderMarginRatio: () => 3,
+      // Same-turn unmount+remount (setItems) keeps playing. A row still
+      // detached after this turn drops its decoder; the LRU keeps the element.
+      onItemUnmount: (el) => { queueMicrotask(() => { if (!el?.isConnected) parkMedia(el); }); },
     });
     // Media components (velta-video poster reservation) report row height
     // changes that happened after mount — keep the scroller's math fresh.
@@ -1853,6 +1861,7 @@ export class ChatView {
     const sig = item.type === "msg" ? this._rowCacheSig(item) : null;
     if (cached && cached._veltaFlags === this._itemFlags(item)
         && (sig == null || this._rowSigCache.get(item.key) === sig)) {
+      unparkMedia(cached);
       if (cached.querySelector?.("video")) {
         debugLog(`render: CACHED video row ${item.key} t=${Date.now() % 100000}`);
       }
@@ -2509,6 +2518,8 @@ export class ChatView {
       });
       mediaAudio.src = fileUrl(m.filePath);
       mediaAudio.onerror = () => {
+        // parkMedia clears src and load()s; that fires error. Not a failure.
+        if (mediaAudio.dataset.parkedSrc || !mediaAudio.getAttribute("src")) return;
         if (!alive()) return;
         rustLog(`media audio error src=${redactMediaUrl(mediaAudio.src)} original=${m.filePath}`);
         const fb = mediaFallbackUrl(m.filePath);
