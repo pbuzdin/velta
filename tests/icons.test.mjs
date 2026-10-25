@@ -1,0 +1,63 @@
+// Shared icon module (icon cleanup 2026-10): one source per glyph, house style.
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync, readdirSync } from "node:fs";
+import { ICON, P, svg, labelled } from "../app/js/icons.js";
+
+const src = f => readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
+const jsFiles = readdirSync(new URL("../app/js/", import.meta.url)).filter(f => f.endsWith(".js") && f !== "icons.js" && f !== "mock-core.js");
+
+test("every shared icon uses the house style", () => {
+  for (const [k, s] of Object.entries(ICON)) {
+    assert.match(s, /^<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">/, k);
+    assert.doesNotMatch(s, /stroke-width="(?!2")/, k);
+  }
+});
+
+test("labelled() turns a decorative icon into a labelled status image", () => {
+  const s = labelled(svg(P.pin, "ci-pin"), "Pinned");
+  assert.match(s, /role="img" aria-label="Pinned"/);
+  assert.doesNotMatch(s, /aria-hidden/);
+});
+
+test("ICO-style duplicates come from icons.js, not inline copies", () => {
+  const sigs = { close: "M6 6l12 12M18 6L6 18", copy: "M5 15V5a2 2 0 012-2h10", globe: "M3 12h18M12 3a14", phone: "M6.6 10.8a15.1", oldPin: "M9 4h6l1 7", oldTick2: "735 490" };
+  for (const f of jsFiles) {
+    const s = src(`app/js/${f}`);
+    for (const [k, sig] of Object.entries(sigs)) {
+      // calls.js: the full-screen call controls keep their filled glyphs on round discs.
+      if (k === "phone" && f === "calls.js") continue;
+      assert.ok(!s.includes(sig), `${f} inlines ${k}`);
+    }
+  }
+  assert.ok(!src("app/index.html").includes("M9 4h6l1 7"));
+});
+
+test("attach menu: Video and Camera have their own icons; Beam keeps the velta.cc mark", () => {
+  const cv = src("app/js/chat-view.js");
+  assert.match(cv, /label: "Video", icon: ICO\.video/);
+  assert.match(cv, /label: "Camera", icon: ICO\.camera/);
+  assert.match(cv, /video: ICON\.video,/);
+  assert.match(cv, /camera: ICON\.camera,/);
+  assert.notEqual(ICON.video, ICON.photo);
+  assert.notEqual(ICON.camera, ICON.photo);
+});
+
+test("chat header call/video buttons are outline", () => {
+  const html = src("app/index.html");
+  assert.ok(!/<svg[^>]*><path d="M6\.6 10\.8[^"]*" fill="currentColor"/.test(html));
+  assert.ok(!html.includes('rx="2.2" fill="currentColor"'));
+});
+
+test("no text glyph icons in UI buttons", () => {
+  for (const f of jsFiles) {
+    const code = src(`app/js/${f}`).split("\n").filter(l => !/^\s*\/\//.test(l)).join("\n");
+    assert.doesNotMatch(code, />✕<|"✓|"✗|`✗/, f);
+  }
+});
+
+test("no stray non-house stroke widths in app icons", () => {
+  for (const f of [...jsFiles.map(f => `app/js/${f}`), "app/index.html"]) {
+    assert.doesNotMatch(src(f), /viewBox="0 0 24 24"[^`'\n]*stroke-width="(1\.6|1\.9|2\.2|2\.4|2\.6|3\.2)"/, f);
+  }
+});

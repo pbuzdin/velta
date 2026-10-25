@@ -3252,3 +3252,8 @@ html[data-theme="brutal"] .msg-row.out .msg-text .mention { color: var(--nb-main
 }
 .mention-pop .mention-opt-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .mention-pop .mention-code { color: inherit; }
+
+/* Inline house icons that replaced text glyphs (✕/✓/✗): size to the text. */
+.btn-text > svg, .pin-unpin > svg, .gc-in > svg, .info-row .v > svg {
+  width: 1.1em; height: 1.1em; vertical-align: -0.2em; flex: none;
+}

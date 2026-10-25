@@ -6,6 +6,7 @@
 // message stays a plain webxdc card whose app shows "needs Velta".
 import { GroupCallSignal, callMeta } from "./group-call-signal.js";
 import { nameColor } from "./name-color.js";
+import { ICON } from "./icons.js";
 
 export const CARD_REFRESH_MS = 20000; // members expire by TTL, re-evaluate
 export const CARD_AVATARS = 5;
@@ -97,7 +98,7 @@ export function cardHtml({ msgId, avatarHtml, esc }) {
   <div class="gc-people" hidden></div>
   <div class="gc-actions">
     <button type="button" class="gc-join btn-text gc-primary">Join</button>
-    <span class="gc-in" hidden>✓ You're in</span>
+    <span class="gc-in" hidden>${ICON.check} You're in</span>
     <button type="button" class="gc-open btn-text" title="Open the call screen">Open</button>
     <button type="button" class="gc-leave btn-text" hidden>Leave</button>
   </div>

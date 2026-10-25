@@ -204,7 +204,7 @@ function openPairingModal() {
     close,
     fail: err => {
       if (bar) bar.classList.add("is-fail");
-      setStep(`✗ Pairing failed — ${err}`);
+      setStep(`Pairing failed — ${err}`);
       const hints = document.createElement("div");
       hints.className = "p2p-hint";
       hints.style.marginTop = "10px";
