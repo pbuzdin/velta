@@ -13,6 +13,7 @@
 // <img> src is cleared first so the decoder releases them; if an opener ever
 // hands us a blob: URL it is revoked only when its tile scrolls off-screen.
 import { escapeHtml, escapeAttr, formatBytes, formatDuration, formatDateTime } from "./format.js";
+import { t } from "./i18n.js";
 import { foldText, virtualWindow, buildSearchRow, buildVirtualScroller } from "./member-list.js";
 import { LruCache } from "./lru.js";
 import { audioPlayerHtml, mountAudioPlayer, decodeAudioDuration } from "./audio-player.js";
@@ -126,7 +127,7 @@ export async function loadMessages(core, ids, cache, onLoaded = null) {
 
 export function mediaSectionsHtml() {
   return MEDIA_SECTIONS.map((s) => `<details class="info-details media-details" data-media="${s.key}" hidden>
-      <summary class="info-row"><span class="k">${s.label}</span><span class="v" data-media-count aria-label="${s.label} count">…</span></summary>
+      <summary class="info-row"><span class="k">${t(s.label)}</span><span class="v" data-media-count aria-label="${t(s.label)} count">…</span></summary>
       <div class="media-body" data-media-body></div>
     </details>`).join("");
 }
@@ -178,15 +179,15 @@ function mountSection(host, section, ids, cache, opts) {
 
   let input = null, clear = null;
   if (section.search) {
-    const row = buildSearchRow(doc, { placeholder: section.search, clearLabel: `Clear ${section.label.toLowerCase()} search` });
+    const row = buildSearchRow(doc, { placeholder: t(section.search), clearLabel: section.key === "apps" ? t("Clear apps search") : t("Clear files search") });
     ({ input, clear } = row);
     host.append(row.search);
   }
   const { scroller, spacer, empty } = buildVirtualScroller(doc, {
     className: `member-scroll media-scroll${grid ? " media-grid" : ""}`,
     viewportH,
-    label: section.label,
-    emptyText: section.empty || `No ${section.label.toLowerCase()}`,
+    label: t(section.label),
+    emptyText: section.empty ? t(section.empty) : section.key === "photos" ? t("No photos") : section.key === "videos" ? t("No videos") : section.key === "audio" ? t("No audio") : t("No files found"),
   });
   host.append(scroller, empty);
 

@@ -204,6 +204,7 @@ test("side button: shown from THREAD_BUTTON_MIN_REPLIES, labelled, opens the thr
   await view.open(7);
   const row = view._renderMsgItem(view.msgIndex.get(11));
   assert.ok(row.innerHTML.includes('class="msg-thread-btn" data-act="thread" aria-label="Show 1 reply"'), "round button with aria-label");
+  assert.ok(row.innerHTML.includes('class="msg-thread-line"'), "button shares a nowrap line with the bubble");
   assert.ok(row.className.includes("has-thread"));
   assert.ok(row.innerHTML.includes('class="msg-replies-count">1 reply'), "passive meta count");
   const inPanel = view._renderMsgItem(view.msgIndex.get(11), { inThread: true });
@@ -218,12 +219,13 @@ test("side button: shown from THREAD_BUTTON_MIN_REPLIES, labelled, opens the thr
   assert.equal(view.threadPanel.hidden, true);
 });
 
-// #159's neighbor: on narrow screens the has-thread bubble's flex min-content
-// width could push the 48px side button onto the next flex line (under the
-// avatar, on incoming rows). min-width: 0 lets the bubble shrink to the line
-// the button shares, so avatar + bubble + button always fit one row.
-test("has-thread bubble can shrink to keep the side button on its line", () => {
+// The row is flex-wrap. Line breaking uses the bubble's full width, so
+// min-width:0 never kept the 44px button on that line (it fell under the
+// bubble on a phone). The button and bubble share a nowrap line whose
+// flex-basis is 0, so the line stays beside the avatar and then grows.
+test("thread button stays on the bubble's line", () => {
   const css = readFileSync(new URL("../app/css/main.css", import.meta.url), "utf8");
+  assert.match(css, /\.msg-thread-line \{[^}]*flex-wrap: nowrap;[^}]*flex: 1 1 0;/);
   assert.match(css, /\.msg-row\.has-thread \.bubble \{[^}]*min-width: 0;/);
 });
 

@@ -108,7 +108,7 @@ test("click on option inserts it", () => {
 
 test("chat-view wiring: records on send, hides, keydown consults popup first", () => {
   const src = readFileSync(new URL("../app/js/chat-view.js", import.meta.url), "utf8");
-  assert.match(src, /import \{ attachRecentCommands, recordCommand \} from "\.\/recent-commands\.js"/);
+  assert.match(src, /import \{ attachRecentCommands, recordCommand, recentCommands \} from "\.\/recent-commands\.js"/);
   assert.match(src, /if \(this\._recentCmds\.handleKey\(e\)\) return;\s*\/\/ Send on Enter/);
   assert.match(src, /this\._recentCmds\?\.hide\(\);\s*(this\._mentions\?\.hide\(\);\s*)?if \(!this\.editingMsg\) recordCommand\(/);
 });

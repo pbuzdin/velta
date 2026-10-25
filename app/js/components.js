@@ -151,6 +151,11 @@ VeltaAvatar.define();
 // unwired, <velta-video> falls back to inline bubble playback.
 let videoLightboxOpener = null;
 export function setVideoLightboxOpener(fn) { videoLightboxOpener = fn; }
+// Chat swipes set this so the click a WebView still fires on finger-up
+// does not also open the lightbox (#139).
+let gestureSwipeAt = 0;
+export function noteGestureSwipe() { gestureSwipeAt = Date.now(); }
+export function gestureSwipeRecent(now = Date.now()) { return now - gestureSwipeAt < 400; }
 
 /* ---------- <velta-video> — click-to-load video player ---------- */
 // Every mounted <video> starts a decoder pipeline and issues media range
@@ -190,6 +195,7 @@ class VeltaVideo extends Elena(HTMLElement) {
         // In selection mode the row owns the tap (toggle selection) — don't
         // hijack it for playback.
         if (this.closest(".msg-row")?.classList.contains("selectable")) return;
+        if (gestureSwipeRecent()) { e.preventDefault(); e.stopPropagation(); return; }
         if (!this.#failed && this.src) {
           e.stopPropagation(); // play - don't bubble into row selection/menu
           // Playback happens in the fullscreen video lightbox (wired via

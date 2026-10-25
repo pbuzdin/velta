@@ -2,10 +2,11 @@
 import { canEditMsg } from "./msg-edit.js";
 import { prepareBuiltinXdc } from "./builtin-xdc.js";
 import { formatTime, formatDay, formatDateTime, formatServerUrl, messageInfoState, messageInfoReactions, formatBytes, timeTag, stampTime, formatDuration, serviceChipsHtml } from "./format.js";
-import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener } from "./components.js";
+import { escapeHtml, escapeAttr, ticksSvg, setVideoLightboxOpener, noteGestureSwipe } from "./components.js";
 import { bindMenuToggle, showActionBar, showContextMenu, showMessageSheet, showModal, showStickerPicker, closeAllPopups, confirmDeleteMessagesModal, confirmModal, toast, openImageLightbox, openVideoLightbox, CLOSE_SVG, uiZoom } from "./ui.js";
 import { diagnosticRow } from "./diagnostics.js";
-import { attachRecentCommands, recordCommand } from "./recent-commands.js";
+import { attachRecentCommands, recordCommand, recentCommands } from "./recent-commands.js";
+import { recentApps, recordApp, appendAttachLists, openAppBrowser } from "./app-browser.js";
 import { audioPlayerHtml, mountAudioPlayer, decodeAudioDuration } from "./audio-player.js";
 import { openWebxdc, appIconUrl, loadInfoWithRetry, builtinAppCard, isWebxdcInfoMsg, infoFor, GROUP_CALL_FILE_RE, isGroupCallApp, joinGroupCallFor, announceGroupCall } from "./webxdc-manager.js";
 import { cardHtml, wireCard } from "./group-call-card.js";
@@ -534,8 +535,13 @@ function cssZoom() {
 // their own drag or tap behaviour. Links (inline text links and the link
 // preview card) are NOT in the list (#35): a swipe may start on them, and the
 // tap-to-open click path swallows the click that follows a recognised swipe.
-export const GESTURE_SKIP_SELECTOR = "button, input, textarea, audio, video";
+// A video poster is the same (#139). Native controls still scrub, so a
+// <video controls> keeps opting out. An invite card is buttons, but a swipe
+// still starts on it (#87); the join/copy click after the swipe is swallowed.
+export const GESTURE_SKIP_SELECTOR = "button, input, textarea, audio";
 export function gestureSkipTarget(target) {
+  if (target?.closest?.(".invite-card")) return false;
+  if (target?.closest?.("video")?.controls) return true;
   return !!target?.closest?.(GESTURE_SKIP_SELECTOR);
 }
 
@@ -694,8 +700,11 @@ export class ChatView {
   async open(chatId, chat = null) {
     if (this.thread) this._closeThread();
     this._coreReplyCounts = new Map(); // per chat; refetched after the first page
-    // Retire the old scroller, composer and pending work before yielding.
-    this.close();
+    // Drop the previous open's right to paint, but leave its rows on screen.
+    // The history is cleared only once this page is in hand, in the same
+    // turn the new scroller is built — a switch must not flash a black pane.
+    this._openGen = (this._openGen || 0) + 1;
+    const openGen = this._openGen;
     // The row cache survives switches (keys are per-chat message ids), but
     // ids are per-account — drop it when the account changed since the last
     // chat was open.
@@ -705,7 +714,9 @@ export class ChatView {
       this._rowSigCache.clear();
       this._rowCacheAccount = this.core.accountId;
     }
-    const session = this._session = {
+    // Not installed yet: the chat on screen keeps its session until the page
+    // arrives, so a cancelled switch does not blank it.
+    const session = {
       accountEpoch: this.core.accountEpoch,
       accountId: this.core.accountId,
       draftKey: JSON.stringify([String(this.core.accountId), String(chatId)]),
@@ -715,7 +726,7 @@ export class ChatView {
     this._loadBar(true);
     try {
       if (chat?.id !== chatId) chat = await this.core.getChat(chatId);
-      if (!this._isCurrent(session)) return false;
+      if (this._openGen !== openGen) return false;
       // Opening position: while the chat has unread messages it opens at
       // the manual read marker, else at the first unread message; a fully
       // read chat opens at the bottom. Local chats keep open = read.
@@ -724,7 +735,7 @@ export class ChatView {
       let firstUnread = null;
       if (tracked && chat.unread > 0) {
         firstUnread = await this.core.getFirstUnreadMessageId(chatId).catch(() => null);
-        if (!this._isCurrent(session)) return false;
+        if (this._openGen !== openGen) return false;
       }
       let anchorId = firstUnread != null ? (marker ?? firstUnread) : null;
       // Remembered position (setting, issue #18): only for a fully read
@@ -737,13 +748,13 @@ export class ChatView {
       }
       const load = (aroundId) => this.core.getMessages(chatId, aroundId != null ? { aroundId, before: 10, limit: 60 } : { limit: 40 });
       let page = await load(anchorId ?? restore?.anchorId);
-      if (!this._isCurrent(session)) return false;
+      if (this._openGen !== openGen) return false;
       if (restore && !page.messages.some(m => m.id === restore.anchorId)) {
         // The anchor message is gone (deleted) — forget it, open at the bottom.
         this._scrollAnchors.delete(session.draftKey);
         restore = null;
         page = await load(null);
-        if (!this._isCurrent(session)) return false;
+        if (this._openGen !== openGen) return false;
       }
       if (anchorId != null && anchorId === marker && !page.messages.some(m => m.id === marker)) {
         // The marked message is gone (deleted) — drop the stale marker.
@@ -751,12 +762,19 @@ export class ChatView {
         marker = null;
         anchorId = firstUnread;
         page = await load(anchorId);
-        if (!this._isCurrent(session)) return false;
+        if (this._openGen !== openGen) return false;
       }
+      // The page is in hand. Retire the chat on screen, then paint without
+      // another await so the pane is never empty.
+      this._endSession();
+      if (this._openGen !== openGen) return false;
+      this._session = session;
       // @mentions: members (+ fingerprint codes) before the first paint, but
       // never hold the chat open on slow lookups.
       await Promise.race([this._loadMentionMembers(chat, session), new Promise(r => setTimeout(r, 600))]);
-      if (!this._isCurrent(session)) return false;
+      if (this._openGen !== openGen || !this._isCurrent(session)) return false;
+      this._clearHistory();
+      if (this._openGen !== openGen || !this._isCurrent(session)) return false;
       const { messages, hasMore, hasNewer = false } = page;
       if (anchorId != null && !messages.some(m => m.id === anchorId)) anchorId = null;
       this.chat = chat;
@@ -783,7 +801,7 @@ export class ChatView {
       this._refreshPinnedBar();
       if (!tracked) {
         await this.core.markRead(chatId);
-        if (!this._isCurrent(session)) return false;
+        if (this._openGen !== openGen || !this._isCurrent(session)) return false;
       }
       if (anchorId != null) {
         this._scrollToMessageSettling(anchorId, { marker: anchorId === marker });
@@ -798,7 +816,7 @@ export class ChatView {
       this.startLive();
       return true;
     } catch (err) {
-      if (!this._isCurrent(session)) return false;
+      if (this._openGen !== openGen) return false;
       this.close();
       throw err;
     } finally {
@@ -958,7 +976,18 @@ export class ChatView {
     try { typing?.sender.stop(); } catch { /* ignore */ }
   }
 
+  // The click landed on a different chat before this open finished.
+  cancelOpen() { this._openGen = (this._openGen || 0) + 1; }
+
   close() {
+    this._openGen = (this._openGen || 0) + 1;
+    this._endSession();
+    this._clearHistory();
+  }
+
+  // Bookkeeping for the chat that is leaving. The rows stay put so a slow
+  // getMessages cannot turn the pane black.
+  _endSession() {
     this._flushPendingDeletes();
     this._typingStop();
     this._barCleanup?.();
@@ -1007,6 +1036,9 @@ export class ChatView {
     this._hideGoDown();
     this._leaveTextSelection();
     this._cancelHistorySwipe?.();
+  }
+
+  _clearHistory() {
     this.vs?.stop();
     this.vs = null;
     this.items = [];
@@ -1966,7 +1998,10 @@ export class ChatView {
     const open = e => {
       if (e.target?.closest?.(".svc-chip, .diag-copy") || !alive()) return;
       e.stopPropagation();
-      openWebxdc(parentId, infoFor(parentId)?.name || "Webxdc app", { href: m.webxdcHref || "" });
+      const name = infoFor(parentId)?.name || "Webxdc app";
+      const parent = this.msgIndex?.get(parentId)?.msg;
+      this._rememberApp(name, parent?.filePath, parent?.fileName);
+      openWebxdc(parentId, name, { href: m.webxdcHref || "" });
     };
     bubble.addEventListener("click", open);
     bubble.addEventListener("keydown", e => {
@@ -2228,9 +2263,10 @@ export class ChatView {
     // against the right-floating timestamp) plus retry/remove buttons to the
     // LEFT of the bubble — the old in-bubble resend icon was too small a
     // target for the primary action.
+    let failActions = "";
     let failBadge = "";
     if (out && m.state === "failed") {
-      inner += `<div class="msg-fail-actions">`
+      failActions = `<div class="msg-fail-actions">`
         + `<button type="button" data-act="resend" title="Retry" aria-label="Retry sending">${ICO.resend}</button>`
         + `<button type="button" data-act="fail-del" title="Remove" aria-label="Remove message">${ICO.trash}</button></div>`;
       const reason = failReason(m.error);
@@ -2255,7 +2291,13 @@ export class ChatView {
     }
     const bubbleHtml = `<div class="bubble${m.viewtype === "sticker" ? " sticker" : ""}">${bubble}</div>`;
     // Side button sits on the open side: right of incoming, left of outgoing.
-    inner += threadBtn ? (out ? threadBtn + bubbleHtml : bubbleHtml + threadBtn) : bubbleHtml;
+    // The row itself wraps (day chip, unread line). A nowrap pair is what
+    // keeps the button on the bubble's line; min-width:0 on the bubble does
+    // not, because the wrap is decided before the bubble can shrink.
+    if (!threadBtn) inner += failActions;
+    inner += threadBtn
+      ? `<div class="msg-thread-line">${out ? failActions + threadBtn + bubbleHtml : bubbleHtml + threadBtn}</div>`
+      : bubbleHtml;
     if (threadBtn) row.className += " has-thread";
     row.innerHTML = inner;
     if (item.readMarker) row.append(this._readMarkerEl());
@@ -2341,7 +2383,9 @@ export class ChatView {
       webxdcCard.dataset.wired = "1";
       webxdcCard.addEventListener("click", () => {
         if (!alive()) return;
-        openWebxdc(m.id, webxdcCard.querySelector(".file-name")?.textContent || "Webxdc app",
+        const name = webxdcCard.querySelector(".file-name")?.textContent || "Webxdc app";
+        this._rememberApp(name, m.filePath, m.fileName);
+        openWebxdc(m.id, name,
           { panel: /^send-direct(-\d+)?\.xdc$/i.test(m.fileName || "") });
       });
       const builtin = builtinAppCard(m.fileName);
@@ -2564,6 +2608,7 @@ export class ChatView {
       this._replySwipe = false;
       if (!s?.on) return;
       this._swipedAt = Date.now();
+      noteGestureSwipe();
       s.bubble.style.transition = "transform .16s ease-out";
       s.bubble.style.transform = "";
       const tidy = () => { s.bubble.style.transition = ""; };
@@ -2688,7 +2733,12 @@ export class ChatView {
         return;
       }
       const vcardBtn = e.target.closest("[data-vcard-open]");
-      if (vcardBtn) { e.stopPropagation(); this._openVcardContact(m); return; }
+      if (vcardBtn) {
+        e.stopPropagation();
+        if (Date.now() - (this._swipedAt || 0) < 400) return;
+        this._openVcardContact(m);
+        return;
+      }
       const applyBtn = e.target.closest("[data-apply-settings]");
       if (applyBtn) {
         e.stopPropagation();
@@ -3721,6 +3771,25 @@ export class ChatView {
         attachItems.push({ label: "Voice message", icon: ICO.mic, onClick: () => this._sendAttachment("voice") });
       }
       const menu = showContextMenu(attachItems.map(action => ({ ...action, onClick: () => { if (this._isCurrent(session)) return action.onClick(); } })), x, 8);
+      appendAttachLists(menu, {
+        apps: recentApps(this.core.accountId),
+        commands: recentCommands(this.core.accountId, session.chatId),
+        onApp: (app) => { closeAllPopups(); this._resendStoredApp(session, app); },
+        onCommand: (cmd) => {
+          closeAllPopups();
+          if (!input) return;
+          input.value = cmd + " ";
+          try { input.selectionStart = input.selectionEnd = input.value.length; } catch {}
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          input.focus();
+        },
+        onBrowse: () => openAppBrowser({
+          showModal, toast,
+          alive: () => this._isCurrent(session) && !!this.chat,
+          getBytes: (url, ms) => this.core.getHttpResponse(url, ms).then(r => r.bytes),
+          sendApp: (app, bytes) => this._sendCatalogApp(session, app, bytes),
+        }),
+      });
       menu.classList.add("attach-pop");
       menu.style.top = "auto";
       menu.style.bottom = (window.innerHeight - r.top + 10) / uiZoom() + "px";
@@ -4193,6 +4262,41 @@ export class ChatView {
     }
   }
 
+  // Sending or opening an app records it for the attach menu (#137).
+  _rememberApp(name, file, filename) {
+    if (!file) return;
+    recordApp(this.core?.accountId, { name, file, filename });
+  }
+
+  async _resendStoredApp(session, app) {
+    if (!this._isCurrent(session) || !this.chat || !app?.file) return;
+    try {
+      const msg = await this._sendArchivedAware(session.chatId, {
+        viewtype: "webxdc", file: app.file, filename: app.filename || "app.xdc", text: "",
+      });
+      if (!this._isCurrent(session)) return;
+      this.appendOutgoing(msg);
+      this.onChatsChanged();
+      this._rememberApp(app.name, msg?.filePath || app.file, msg?.fileName || app.filename);
+    } catch (err) {
+      if (this._isCurrent(session)) errToast("Could not send app: " + (err?.message || err));
+    }
+  }
+
+  async _sendCatalogApp(session, app, bytes) {
+    if (!this._isCurrent(session) || !this.chat) throw new Error("Chat closed");
+    const filename = app.filename || "app.xdc";
+    const path = await this._writeBlobForSend(filename, bytes);
+    if (!this._isCurrent(session)) throw new Error("Chat closed");
+    const msg = await this._sendArchivedAware(session.chatId, {
+      viewtype: "webxdc", file: path, filename, text: "",
+    });
+    if (!this._isCurrent(session)) return;
+    this.appendOutgoing(msg);
+    this.onChatsChanged();
+    this._rememberApp(app.name, msg?.filePath || path, msg?.fileName || filename);
+  }
+
   // Posts app/builtin/send-direct.xdc (built by tools/build-builtin-xdc.mjs)
   // into the chat and opens it so the sender can pick the file right away.
   async _sendDirectApp() {
@@ -4211,6 +4315,7 @@ export class ChatView {
       if (!this._isCurrent(session)) return;
       this.appendOutgoing(msg);
       this.onChatsChanged();
+      this._rememberApp("Velta Beam", msg?.filePath || path, msg?.fileName || "send-direct.xdc");
       if (msg?.id != null) openWebxdc(msg.id, "Velta Beam", { panel: true });
     } catch (err) {
       if (this._isCurrent(session)) errToast("Could not start direct send: " + (err?.message || err), 4000);
@@ -4219,7 +4324,10 @@ export class ChatView {
 
   _wireGroupCallCard(card, m) {
     const fc = m.fromContact || {};
-    const open = () => openWebxdc(m.id, "Velta Circle");
+    const open = () => {
+      this._rememberApp("Velta Circle", m.filePath, m.fileName || "group-call.xdc");
+      openWebxdc(m.id, "Velta Circle");
+    };
     // One wiring per card node for its lifetime; drawing only while it is in
     // the document (cached rows re-attach, see _gcRefresh above).
     const w = wireCard(card, {
@@ -4252,6 +4360,7 @@ export class ChatView {
       if (!this._isCurrent(session)) return;
       this.appendOutgoing(msg);
       this.onChatsChanged();
+      this._rememberApp("Velta Circle", msg?.filePath || path, msg?.fileName || "group-call.xdc");
       if (msg?.id == null) return;
       await announceGroupCall(msg.id, title).catch(() => {});
       // The starter joins right away (consent prompt), then sees the call screen.
@@ -4725,7 +4834,7 @@ export class ChatView {
       const drag = g;
       g = null;
       this._backSwipe = false;
-      if (drag?.on) this._swipedAt = Date.now();
+      if (drag?.on) { this._swipedAt = Date.now(); noteGestureSwipe(); }
       if (!drag?.on || drag.settled) return;
       const main = mainOf();
       if (!main) return;

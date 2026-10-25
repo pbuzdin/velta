@@ -62,6 +62,32 @@ for (const stage of ["getChat", "getMessages", "markRead"]) {
   });
 }
 
+test("a chat switch keeps the open history until the next page arrives", async t => {
+  const { view, core } = setup(t);
+  await view.open(7);
+  const kept = view.items.length;
+  assert.ok(kept > 0);
+  const pending = deferred(), entered = deferred();
+  core.getMessages = () => { entered.resolve(view.items.length); return pending.promise; };
+  const opening = view.open(8);
+  assert.equal(await entered.promise, kept);
+  assert.equal(view.chat.id, 7);
+  pending.resolve(page(message(11, 8)));
+  assert.equal(await opening, true);
+  assert.equal(view.chat.id, 8);
+  assert.ok(view.items.some(i => i.msg?.id === 11));
+
+  const again = deferred(), started = deferred();
+  core.getMessages = () => { started.resolve(); return again.promise; };
+  const abandoned = view.open(9);
+  await started.promise;
+  view.close();
+  again.resolve(page(message(12, 9)));
+  assert.equal(await abandoned, false);
+  assert.equal(view.chat, null);
+  assert.deepEqual(view.items, []);
+});
+
 test("old open cannot replace a newer chat or reopen after an account round trip", async t => {
   const { view, core, switchTo } = setup(t);
   const pending = deferred();

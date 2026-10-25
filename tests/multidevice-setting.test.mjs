@@ -50,7 +50,7 @@ test("(a) state lives above the boot awaits (no TDZ from early events)", () => {
 
 test("(b) hint under the switch; switching off confirms, stronger after a core flip", () => {
   assert.equal(MD_HINT, "Off: messages are deleted from the relay after this device downloads them. Turn on if you use this profile on other devices.");
-  assert.match(ui, /data-md-hint>\$\{escapeHtml\(MD_HINT\)\}/);
+  assert.match(ui, /data-md-hint>\$\{escapeHtml\(t\(MD_HINT\)\)\}/);
   assert.match(app, /confirmModal\("Turn off multi-device\?", mdOffConfirmText\(multiDeviceReenabled\), "Turn off", true\)/);
   assert.match(offConfirmText(false), /Keep it on if you use this profile anywhere else/);
   assert.match(offConfirmText(true), /another device may still be using this profile/);
@@ -61,7 +61,7 @@ test("(b) hint under the switch; switching off confirms, stronger after a core f
 test("(c) download-limit note: skipped files stay on the relay; AGENTS.md fixed", () => {
   assert.match(DL_LIMIT_HINT, /stay on the relay/);
   assert.match(DL_LIMIT_HINT, /about 7 days/);
-  assert.match(ui, /data-dl-hint>\$\{escapeHtml\(DL_LIMIT_HINT\)\}/);
+  assert.match(ui, /data-dl-hint>\$\{escapeHtml\(t\(DL_LIMIT_HINT\)\)\}/);
   assert.doesNotMatch(ui, /Regular messages are always downloaded/);
   assert.doesNotMatch(agents, /caps the SECOND-DEVICE history\s+sync only; regular messages always auto-download/);
 });
@@ -102,8 +102,8 @@ test("(d) choice storage is per account and survives junk", () => {
 test("(d) the app notices and offers Turn off again, never reverts on its own", () => {
   assert.match(MD_REENABLED_NOTE, /backup export, Add second device, or a sync from another device/);
   assert.match(ui, /data-md-note\$\{multiDeviceReenabled \? "" : " hidden"\}/);
-  assert.match(ui, /data-md-off>Turn off again</);
-  assert.match(ui, /data-md-keep>Keep on</);
+  assert.match(ui, /data-md-off>\$\{t\("Turn off again"\)\}</);
+  assert.match(ui, /data-md-keep>\$\{t\("Keep on"\)\}</);
   assert.match(app, /action: \{ label: "Turn off again", run: turnMultiDeviceOffAgain \}/);
   assert.match(app, /markMdNotified\(localStorage, accountId\)/);
   // checked on resume and when a backup/transfer finishes

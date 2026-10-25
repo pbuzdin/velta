@@ -51,7 +51,7 @@ test("a per-chat override wins, and the warning names the IP leak", () => {
   assert.match(LINK_PREVIEW_IP_WARNING, /edit the page/);
   const ui = readFileSync(new URL("../app/js/ui.js", import.meta.url), "utf8");
   const app = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8");
-  assert.match(ui, /\$\{LINK_PREVIEW_IP_WARNING\}/);
+  assert.match(ui, /\$\{t\(LINK_PREVIEW_IP_WARNING\)\}/);
   assert.doesNotMatch(ui, /confirmModal\("Link previews"/);
   assert.doesNotMatch(app, /confirmModal\("Link previews"/);
 });

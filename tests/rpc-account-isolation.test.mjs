@@ -546,6 +546,51 @@ for (const configured of [false, true]) {
   }
 }
 
+test("received backup starts IO only after the import, and refreshes that account (#118)", async () => {
+  const gate = deferred();
+  const { core, calls, events } = fixture({
+    get_account_info: () => ({ kind: "Configured" }),
+    add_account: () => B,
+    get_backup: () => gate.promise,
+    start_io: () => {},
+  });
+  assert.equal(await core.addAccountWithBackup("DCBACKUP2:x"), B);
+  assert.equal(calls.some(([method]) => method === "start_io"), false);
+  const epoch = core.accountEpoch;
+  const changed = events.filter(event => event.name === "account-changed").length;
+  gate.resolve();
+  await new Promise(r => setImmediate(r));
+  assert.deepEqual(calls.filter(([method]) => method === "start_io"), [["start_io", B]]);
+  assert.equal(core.accountEpoch, epoch);
+  assert.equal(events.filter(event => event.name === "account-changed").length, changed + 1);
+  assert.equal(events.at(-1).detail.accountId, B);
+
+  const failed = deferred();
+  const again = fixture({
+    get_account_info: () => ({ kind: "Unconfigured" }),
+    get_backup: () => failed.promise,
+    start_io: () => {},
+  });
+  await again.core.addAccountWithBackup("DCBACKUP2:x");
+  failed.reject(new Error("transfer failed"));
+  await new Promise(r => setImmediate(r));
+  assert.equal(again.calls.some(([method]) => method === "start_io"), false);
+
+  const left = deferred();
+  const quiet = fixture({
+    get_account_info: () => ({ kind: "Configured" }),
+    add_account: () => B,
+    get_backup: () => left.promise,
+    start_io: () => {},
+  });
+  quiet.core.syncOnlyActive = true;
+  await quiet.core.addAccountWithBackup("DCBACKUP2:x");
+  quiet.core.accountId = A;
+  left.resolve();
+  await new Promise(r => setImmediate(r));
+  assert.equal(quiet.calls.some(([method]) => method === "start_io"), false);
+});
+
 test("invalid invite rejection does not start an account transition", async () => {
   const { core, calls, events } = fixture();
   await assert.rejects(core.addAccountWithQr("not-an-invite"), /not a relay invite link/);

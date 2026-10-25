@@ -860,7 +860,7 @@ function node(tag, cls = "", parent = null) {
     closest(sel) {
       for (let cur = n; cur; cur = cur.parent) {
         for (const part of sel.split(",").map(p => p.trim())) {
-          if (part === ".bubble" && cur.cls.includes("bubble")) return cur;
+          if (part.startsWith(".") && cur.cls.includes(part.slice(1))) return cur;
           if (part === "a[href]" && cur.tag === "a") return cur;
           if (part === "a:not(.link-preview)" && cur.tag === "a" && !cur.cls.includes("link-preview")) return cur;
           if (part === cur.tag && part !== "a") return cur;
@@ -886,9 +886,20 @@ test("gestureSkipTarget lets links and cards swipe but not buttons, inputs or me
   assert.equal(gestureSkipTarget(title), false, "text inside the card swipes too");
   assert.equal(gestureSkipTarget(bubble), false);
   assert.equal(gestureSkipTarget(inline), false, "inline text links swipe too");
-  for (const tag of ["button", "input", "textarea", "audio", "video"]) {
+  for (const tag of ["button", "input", "textarea", "audio"]) {
     assert.equal(gestureSkipTarget(node(tag, "", bubble)), true, `${tag} still opts out`);
   }
+  const cardSpan = node("span", "invite-card", bubble);
+  const join = node("button", "invite-main", cardSpan);
+  const line = node("span", "invite-line", join);
+  assert.equal(gestureSkipTarget(join), false, "an invite card swipes");
+  assert.equal(gestureSkipTarget(line), false, "text inside the invite card swipes too");
+  const poster = node("video", "", bubble);
+  poster.controls = false;
+  assert.equal(gestureSkipTarget(poster), false, "a video poster swipes");
+  const scrub = node("video", "", bubble);
+  scrub.controls = true;
+  assert.equal(gestureSkipTarget(scrub), true, "native video controls still opt out");
   assert.equal(gestureSkipTarget(null), false);
   assert.equal(/\ba\b/.test(GESTURE_SKIP_SELECTOR.replace(/[^a-z,]/g, "").split(",").join(" ")), false);
 });
@@ -981,6 +992,103 @@ test("link preview card markup and CSS do not invite a native drag", async () =>
   const js = readFileSync(new URL("../app/js/link-preview.js", import.meta.url), "utf8");
   assert.match(js, /class="link-preview"[^`]*draggable="false"/);
   assert.match(js, /class="lp-img"[^`]*draggable="false"/);
+});
+
+test("swipe on a video poster replies and goes back; native controls still do not", async t => {
+  const { gestureSwipeRecent } = await import("../app/js/components.js");
+  const { view, node: byId } = setup(t);
+  let backs = 0;
+  view.onBack = () => { backs++; };
+  await view.open(7);
+  mobileGestures(t, true);
+  const row = view._buildItem(view.msgIndex.get(10));
+  const bubble = node("div", "bubble");
+  const video = node("video", "", bubble);
+  video.controls = false;
+  const touches = (x, y) => [{ clientX: x, clientY: y }];
+
+  await row.fire("touchstart", { touches: touches(10, 40), target: video });
+  await row.fire("touchmove", { touches: touches(200, 42), target: video, cancelable: true, preventDefault() {} });
+  assert.equal(bubble.style.transform, "translateX(64px)");
+  await row.fire("touchend", { touches: [] });
+  assert.equal(view.replyTo.id, 10);
+  assert.equal(gestureSwipeRecent(), true, "the follow-up click must not open the lightbox");
+
+  const scrub = node("video", "", bubble);
+  scrub.controls = true;
+  view.replyTo = null;
+  await row.fire("touchstart", { touches: touches(10, 40), target: scrub });
+  await row.fire("touchmove", { touches: touches(200, 42), target: scrub, cancelable: true, preventDefault() {} });
+  assert.equal(bubble.style.transform, "", "controls keep the finger");
+  await row.fire("touchend", { touches: [] });
+  assert.equal(view.replyTo, null);
+
+  const scroller = byId("history-scroll");
+  const main = byId("main");
+  await scroller.fire("touchstart", { touches: touches(200, 80), target: video });
+  await scroller.fire("touchmove", { touches: touches(120, 84), target: video, cancelable: true, preventDefault() {} });
+  assert.equal(main.style.transform, "translateX(-80px)");
+  await scroller.fire("touchend", { touches: [] });
+  await main.fire("transitionend");
+  assert.equal(backs, 1);
+  assert.equal(gestureSwipeRecent(), true);
+});
+
+test("swipe on an invite card replies and goes back; the follow-up click does not join", async t => {
+  const { view, node: byId } = setup(t);
+  let backs = 0;
+  view.onBack = () => { backs++; };
+  await view.open(7);
+  mobileGestures(t, true);
+  const row = view._buildItem(view.msgIndex.get(10));
+  const bubble = node("div", "bubble");
+  const card = node("span", "invite-card", bubble);
+  const join = node("button", "invite-main", card);
+  const touches = (x, y) => [{ clientX: x, clientY: y }];
+
+  await row.fire("touchstart", { touches: touches(10, 40), target: join });
+  await row.fire("touchmove", { touches: touches(200, 42), target: join, cancelable: true, preventDefault() {} });
+  assert.equal(bubble.style.transform, "translateX(64px)");
+  await row.fire("touchend", { touches: [] });
+  assert.equal(view.replyTo.id, 10);
+
+  const scroller = byId("history-scroll");
+  const main = byId("main");
+  await scroller.fire("touchstart", { touches: touches(200, 80), target: join });
+  await scroller.fire("touchmove", { touches: touches(120, 84), target: join, cancelable: true, preventDefault() {} });
+  assert.equal(main.style.transform, "translateX(-80px)");
+  await scroller.fire("touchend", { touches: [] });
+  await main.fire("transitionend");
+  assert.equal(backs, 1);
+
+  const prevMO = globalThis.MutationObserver;
+  globalThis.MutationObserver = class { observe() {} disconnect() {} };
+  const doc = globalThis.document;
+  let handler;
+  globalThis.document = {
+    addEventListener(type, fn) { if (type === "click") handler = fn; },
+    removeEventListener() {},
+    body: doc.body,
+    querySelector() { return null; },
+    hidden: false,
+  };
+  try {
+    const { bindInviteInterception } = await import("../app/js/invites.js");
+    const joins = [];
+    bindInviteInterception(raw => joins.push(raw));
+    const ev = {
+      target: join,
+      preventDefault() { ev.defaultPrevented = true; },
+      stopPropagation() { ev.stopped = true; },
+    };
+    await handler(ev);
+    assert.equal(joins.length, 0);
+    assert.equal(ev.defaultPrevented, true);
+    assert.equal(ev.stopped, true);
+  } finally {
+    globalThis.MutationObserver = prevMO;
+    globalThis.document = doc;
+  }
 });
 
 test("swipe right starting on an inline link replies and does not open it; a tap still opens it", async t => {

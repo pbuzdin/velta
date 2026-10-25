@@ -27,6 +27,7 @@ it.
 ```
 Velta settings v1 (2026-10-18)
 theme: auto
+language: english
 interface-scale: normal
 message-text-size: 15.5
 message-corners: default
@@ -65,6 +66,7 @@ local-chat-typing: on
 | Key | Values | Storage |
 | --- | --- | --- |
 | `theme` | `auto`, `dark`, `light`, `brutal` | `dw-theme` |
+| `language` | `english`, `french`, `russian` | `velta-lang` |
 | `interface-scale` | `small`, `normal`, `large` | `velta-ui-scale` |
 | `message-text-size` | 10–22 (step 0.5, `px` optional; clamped) | `velta-msg-font-size` |
 | `message-corners` | `default` or 0–14 (clamped) | `velta-bubble-radius` |
@@ -81,7 +83,7 @@ local-chat-typing: on
 | `notify-calls` | on/off | `velta-notify-calls` |
 | `image-quality` | `standard`, `compact` | `velta-media-quality` (+ core `media_quality`) |
 | `compress-photos` | on/off | `velta-compress-photos` |
-| `auto-download-limit` | `none`, `640KB`, `5MB`, `25MB` | `velta-download-limit` (+ core `download_limit`) |
+| `auto-download-limit` | `none`, `1MB`, `5MB`, `25MB` (`640KB` applies as `1MB`) | `velta-download-limit` (+ core `download_limit`) |
 | `link-previews` | `off`, `picture`, `fetch` | `velta-link-preview` |
 | `strip-tracking` | on/off | `velta-strip-trackers` |
 | `send-on-enter` | on/off | `velta-send-enter` |
@@ -112,7 +114,8 @@ fails if any of them shows up in the whitelist:
 `velta-notify-bgforce`, `velta-low-battery-react`, `velta-battery-opt-asked`,
 `velta-sync-only-active`, `velta-logging`, `velta-debug`, `velta-mock`,
 `velta-mock-fresh`, `velta-wasm`, `velta-tunnel-log`, `velta-tunnel-diag-seen`,
-`velta-read-markers`, `velta-recent-commands`, `velta-link-preview-chats`,
+`velta-read-markers`, `velta-recent-commands`, `velta-recent-apps`,
+`velta-xdc-mirrors`, `velta-xdc-mirror-ok`, `velta-link-preview-chats`,
 `velta-chat-category`, `velta-ask-notifications`, `velta-pending-invite`,
 `velta-pending-add`, `velta-call-log`.
 

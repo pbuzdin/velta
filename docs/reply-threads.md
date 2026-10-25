@@ -49,7 +49,10 @@ Edit the queries only in `tools/apply-core-patches.py` (op ids
   Not a tap target.
 - **Side button** `.msg-thread-btn`: round 32px disc (reply icon + count)
   in a 44px hit box beside the bubble — right of incoming, left of
-  outgoing — on desktop and mobile. `aria-label="Show N replies"`,
+  outgoing — on desktop and mobile. The button and the bubble share
+  `.msg-thread-line` (`flex-wrap: nowrap`, `flex: 1 1 0`) so a wrapping
+  row cannot drop the button under the bubble on a phone.
+  `aria-label="Show N replies"`,
   keyboard focusable. Shown when the count reaches
   `THREAD_BUTTON_MIN_REPLIES` (chat-view.js; default 1).
 - **Thread panel** `#thread-panel`: non-modal `role="dialog"` bottom sheet

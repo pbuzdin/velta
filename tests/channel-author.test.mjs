@@ -49,7 +49,7 @@ test("chat items carry the core chatType so the header can tell in/out channels 
 
 test("header button: accessible, hidden by default, wired to the author lookup", () => {
   const html = readFileSync(new URL("../app/index.html", import.meta.url), "utf8");
-  assert.match(html, /<button type="button" id="btn-channel-author" class="icon-btn" title="Message author" aria-label="Message author" hidden>/);
+  assert.match(html, /id="btn-channel-author"[^>]*title="Message author"[^>]*aria-label="Message author"[^>]*\bhidden\b/);
   const app = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8");
   assert.match(app, /refreshChannelAuthorButton\(chat, current\);/);
   assert.match(app, /core\.getChannelAuthorId\(chatId\)/);

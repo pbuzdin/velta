@@ -47,6 +47,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── app/                      # Velta PWA frontend (vanilla JS, no build step)
 │   ├── css/main.css          # single stylesheet
 │   ├── icons/                # PWA/Tauri icons, including source asset
+│   ├── locales/              # #129 UI packs (fr.json, ru.json): key is the English source; blank keeps English
 │   ├── js/                   # application logic
 │   │   ├── app.js            # bootstrap, chat list, navigation, account switcher, relay status line, multi-relay manager, modals, PWA lifecycle
 │   │   ├── avatar.js         # contact avatars: fingerprint color-grid identity tiles
@@ -72,6 +73,8 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── push-settings.js  # #140 Android drawer <details> "Push notifications": distributor picker/Off, relay support, last push (shell push_status/push_select/push_off → UnifiedPushBridge.kt)
 │   │   ├── tunnel.js         # optional Android DNS tunnel UI: deep link, drawer row, settings sheet, diagnostics (#116/#119/#128)
 │   │   ├── recent-commands.js # #135 recent "/" bot commands popup + per-(account,chat) history, localStorage
+│   │   ├── app-browser.js    # #137 attach-menu recent apps/commands + webxdc catalog mirrors (localStorage)
+│   │   ├── i18n.js           # #129 UI language: English source, fr/ru packs, localStorage velta-lang
 │   │   ├── read-markers.js   # manual "read up to here" markers per (account, chat), localStorage-only
 │   │   ├── qr-actions.js     # QR screen logic: scan-tab/share availability, copy/share link, scanned-code classification (#37)
 │   │   ├── share-in.js       # inbound share (#97): text/file payloads; invite and chat links stay on the deeplink router
@@ -962,7 +965,10 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   switchAccount's epoch boundaries, #100; the `syncOnlyActive` flag funnels
   all IO through `_startIo`, #101), the
   relay surface (see docs/agents/relays.md), second-device backup transfer
-  (`provideBackup`/`getBackupQrSvg`/`addAccountWithBackup`/`importBackup`),
+  (`provideBackup`/`getBackupQrSvg`/`addAccountWithBackup`/`importBackup`;
+  `get_backup` does not start IO — `addAccountWithBackup` calls `start_io`
+  only after the import resolves, then emits `account-changed` without
+  bumping the epoch, #118),
   backup export (`exportBackup` -> core `export_backup`, directory +
   optional passphrase, progress on `imex-progress`), autorelay onboarding
   (`initTransports` -> core `init_transports`; the core probes its built-in
@@ -1018,7 +1024,10 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   re-render when `fingerprintFor` resolves). Subsystem notes:
   docs/agents/relays.md (relay line/detail/manager), onboarding (splash,
   second device). Chat-list **Delete chat** calls `deleteChat` → core
-  `delete_chat` and the chat leaves the list (#34). `deleteMessages` only
+  `delete_chat` and the chat leaves the list (#34). A group or an in/out
+  broadcast leaves first (`leaveGroup` → `leave_group`, error swallowed)
+  so the member-removed notice goes out; mailing lists and 1:1 chats do
+  not (#145). `deleteMessages` only
   clears rows; the in-chat **Clear history** action feeds it `getMessageIds`
   (ids only, #47 — it never loads the full messages). A
   `p2p:` chat is forgotten with `removePeer` — do not send that string id
@@ -1078,7 +1087,10 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   the px-only inline width. Do not put `%` inside `min()` on that inline width.
   `.chat-item` cards use full
   `contain: layout paint style`. The rendered-row LRU (`_rowCache`) survives
-  `close()`; `open()` clears it when the account changed.
+  `close()`; `open()` clears it when the account changed. A row that is
+  off screen releases its video and audio decoder and restores the same
+  source when it is shown again — live players left in the cache stalled
+  Windows WebView2 until chat-list clicks stopped landing.
 - **Bubble contrast (main.css)**: the outgoing bubble is blue
   (`--bg-bubble-out`) in BOTH themes, so links/inline elements inside
   `.msg-row.out .bubble` must never ride `var(--accent)` — blue-on-blue,
@@ -1231,7 +1243,12 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   translates `#main` with the finger; past 72px (or 28% of the width) it
   calls `onBack` (`closeChat`). `.swipe-back` on `.app` shows the sidebar
   while `.chat-open` would keep it `visibility: hidden`. A vertical move
-  wins and stays a scroll. Reply-right and back-left do not run together
+  wins and stays a scroll. A video poster (no `controls`) starts both
+  swipes (#139); the click that follows does not open the lightbox.
+  A `<video controls>` still opts out so its scrubber keeps the finger.
+  An invite card starts both swipes (#87); the click that follows does
+  not join, copy, or open the card. Other buttons still opt out.
+  Reply-right and back-left do not run together
   (`_replySwipe` / `_backSwipe`). `close()` cancels a back drag so the
   column is not left translated. A committed swipe parks `#main` at
   `translateX(100%)` with no transition before `.chat-open` drops, then
@@ -1447,9 +1464,14 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   rows at all: the account transports are identical on every group and
   relay management is account-scoped (the drawer's "Relays of this
   profile…" is the single entry point) — do not resurrect them there.
-  "Chats in common" and the group member list live in the same
-  collapsed-details pattern with a (n) count (members collapsed by
-  default since 1.4.41). Member rows carry the member's RELAY DOMAIN as
+  "Chats in common" (#171) is a collapsed details row, but the membership
+  walk does not run when the sheet opens. Opening the section calls
+  `chatsInCommon` over the chats already listed, with `getChatContactIds`
+  (`get_chat_contacts` only). `getChatMembers` is only for non-numeric
+  local-group ids. While a search is narrowing the chat list, the section
+  sees that narrower list. The group member list keeps the (n) count
+  (members collapsed by default since 1.4.41). Member rows carry the
+  member's RELAY DOMAIN as
   the subtitle with the full address in the tooltip (#72). A Storage row
   (all non-P2P sheets) sums attachment `fileBytes` over the whole chat —
   paged newest→oldest, 500/page, computed lazily on sheet open; the core
@@ -1505,7 +1527,9 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `create_broadcast`; no member pick, people join with the channel invite
   QR; a channel you create is postable, seeded demo channels stay
   read-only), New local group when local chat is on, Join via invite
-  link, Add account via invite link. Pinned by
+  link, Add a relay to this account (#149 — `addRelayFlow` with no list
+  refresh, so it does not reopen the Relays modal; a second transport on
+  this profile, not a new one), Add account via invite link. Pinned by
   `tests/module-bindings.test.mjs` and the channel-creation case in
   `tests/rpc-account-isolation.test.mjs`.
   The old `.fab`/`.sidebar-foot` and the sidebar-head Menu button are gone —
@@ -1535,8 +1559,13 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   in notifyIncoming: master/system/replies (heuristic)/content) and Image quality
   (`data-mq-value` radios, `velta-media-quality` "0"=Standard/"1"=Compact
   (940 KB / 130 KB compression targets), Auto-download limit
-  (`data-dl-value` radios, `velta-download-limit` "0"/bytes mirrored to the
-  core's per-account `download_limit` — in core 2.63 attachments above it
+  (`data-dl-value` radios, `velta-download-limit` "0" / 1 MB `1048576` /
+  5 MB / 25 MB, mirrored to the
+  core's per-account `download_limit`. Core 2.65 does not multi-device-sync
+  that key — `DownloadLimit` is not in `Config::is_synced` — so the
+  localStorage value is device-global and is copied into whichever account
+  is open. A stored `655360` (the old 640 KB preset) is rewritten to 1 MB.
+  In core 2.63 attachments above it
   (post-messages, >140 KB split) are NOT auto-downloaded: they wait for a
   tap and stay on the relay until downloaded or purged by the relay
   (chatmail `delete_large_after`, ~7 days), so a limit costs relay storage
@@ -1857,7 +1886,8 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   history entry, so every close path must `await modalHistorySettled()`
   and reopen the sheet — skipping that tears the sheet down with the
   dialog. The ⋮ chat menu carries Leave group/channel
-  (`leaveGroup` → core `leave_group`) behind a danger confirmation; the
+  (`leaveGroup` → core `leave_group`; not offered for mailing lists, which
+  reject self-removal) behind a danger confirmation; the
   left chat turns read-only in place (composer hidden, history stays).
 
 - **Post-1.4.34 UI surface** — settings are checkbox rows in the drawer
@@ -2379,7 +2409,8 @@ incoming-msg (`mutedChatAllows`) and Rust `bg_notify_incoming`
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 138 files, 959 tests as of 2026-10-25 (New channel #155,
+whole set — 143 files, 988 tests as of 2026-10-25 (1.4.82: languages #129,
+app catalog #137, chats in common #171, invite-card swipes #87; New channel #155,
 click-to-copy `` `code` `` spans #156, pin-tray permissions #157; 1.4.80: +link actions
 (#161: menu Copy/Open, touch-only Share, mobile Show-links list), bubble
 action bar with reaction row + tray, known-contacts filter; post-1.4.76: +reply threads / thread panel + live counts, Unread chip, Velta device messages, @mentions, msg-id cache race; 1.4.76: +group calls, call permissions,
@@ -2431,6 +2462,29 @@ active option still sends. Selection inserts `cmd + " "`, never auto-sends.
 Option taps `preventDefault` on pointerdown/mousedown so the Android soft
 keyboard stays up. `_bindComposer` keydown calls `handleKey` FIRST. There was
 no @-mention autocomplete to reuse; styles mirror `.ctx-menu`.
+
+Attach menu apps and commands (#137, `tests/app-browser.test.mjs`):
+the attach menu adds two `<details>` — Apps (10 most recent webxdc apps
+this account sent or opened, plus Browse apps…) and Commands (the same
+per-chat list; a tap inserts `cmd + " "`, never sends). Recent apps are
+localStorage `velta-recent-apps`. Browse loads `{mirror}/xdcget-lock.json`
+through core `get_http_response` (the page CSP has no https connect-src).
+The default mirror is `https://apps.testrun.org`; extras are
+`velta-xdc-mirrors` (≤8). The last mirror that returned a non-empty catalog
+(`velta-xdc-mirror-ok`) is tried first; a throw or an empty index skips to
+the next. A download is sent only when `isValidXdc` accepts it, from that
+mirror's `cache_relname`.
+
+UI language (#129, `tests/i18n.test.mjs`): English in the source is the
+key. `app/locales/fr.json` and `ru.json` map that key to a translation; a
+blank or missing value stays English. Settings → Language (also the
+`language` line in a settings export) stores `velta-lang` as `fr` or `ru`
+and reloads; English removes the key. `documentElement.lang` follows it
+(`ui-scale.js` before first paint). `t()` runs in menus, toasts, modals
+and footer buttons, and `translateTree` fills `data-i18n*` in `index.html`.
+Drawer rows whose label is `Something: on/off` stay English. Picker names
+are English, Français, Русский and are not translated. Velta, Velta Circle,
+Velta Beam, QR, Delta Chat and chatmail stay as written.
 
 Hashtags (#134, `tests/hashtags.test.mjs`): `app/js/hashtags.js` finds
 `#tag` (Unicode letters/marks/digits/`_`, at least one letter, ≤64 chars,
@@ -3064,7 +3118,10 @@ do-not-regress rules; dates mark when the lesson was learned.
   `.msg-replies-count` in the meta row (phones, ≤600px; plain meta color,
   never a tap target) and a round `.msg-thread-btn` beside the bubble
   (right of incoming, left of outgoing; 32px disc in a 44px hit box,
-  `aria-label="Show N replies"`), shown from `THREAD_BUTTON_MIN_REPLIES`
+  `aria-label="Show N replies"`). The button and the bubble share
+  `.msg-thread-line` (`flex-wrap: nowrap`, `flex: 1 1 0`) so a wrapping
+  `.msg-row` cannot drop the button under the bubble on a phone. Shown
+  from `THREAD_BUTTON_MIN_REPLIES`
   (chat-view.js, one constant — set 2 to require >1). The button and the
   menu's "Show replies" open the **thread panel**: a non-modal
   `role=dialog` bottom sheet after `#history-scroll` (70% of the chat view,

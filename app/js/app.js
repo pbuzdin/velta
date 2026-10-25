@@ -3,7 +3,7 @@ import { createCore } from "./transport.js";
 import { createNetWatch, NET_DEFAULTS } from "./net-watch.js";
 import "./components.js";
 import { escapeHtml, escapeAttr } from "./components.js";
-import { chatCategoryOf, chatIsUnread, swipeCategoryStep, batteryReactionPlan } from "./rpc-core.js";
+import { chatCategoryOf, chatIsUnread, swipeCategoryStep, batteryReactionPlan, chatsInCommon } from "./rpc-core.js";
 import { fileUrl, setWasmBlobReader, redactMediaUrl } from "./media.js";
 import { mountMemberList } from "./member-list.js";
 import { mentionsMe, fprCode } from "./mentions.js";
@@ -20,7 +20,7 @@ import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomains
 import { activeWsRelay, addWsRelay, listWsRelays, normalizeHost, probeC3Relay, probeDnsVia, showWsRelaysModal, useWsRelay } from "./ws-relays.js";
 import { getChoice as getMdChoice, recordChoice as recordMdChoice, markNotified as markMdNotified, classify as classifyMultiDevice, mdLabel, retryDelay as mdRetryDelay, offConfirmText as mdOffConfirmText, forgetAccount as forgetMdAccount, MD_REENABLED_NOTE } from "./multidevice.js";
 import { openImageLightbox, openVideoLightbox, bindMenuToggle, buildDrawer, showModal, footButtons, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate, popoverSupported, fillSplashVersion, uiZoom, applyUiScale } from "./ui.js";
-import { serializeSettings, parseSettings, diffSettings, applySettings } from "./settings-transfer.js";
+import { serializeSettings, parseSettings, diffSettings, applySettings, normalizeDownloadLimit } from "./settings-transfer.js";
 import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact, showCreateGroupModal, showAddMembersModal } from "./p2p.js";
 import { withLocalChat, hubModel, renameDevice, removePeer, dismissLocalGroup, groupRename, groupRemoveMember, peerGroupImpact, groupActionsModel, groupMemberHint, removePeerImpactText, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
 import { timeAgo, formatBytes, timeTag } from "./format.js";
@@ -34,6 +34,11 @@ import { openInAppBrowser } from "./inapp-browser.js";
 import { extractTunnelLink, acceptTunnelLink, openTunnelSettings, refreshTunnelStatus, tunnelInstalled, tunnelStatus, describeTunnel, bindTunnelNetworkEvents, initTunnelDiagnostics } from "./tunnel.js";
 import { wrapIdentityBundle, unwrapIdentityBundle, buildIdentityBundle, bytesToBase64, base64ToBytes, backupDownloadName, gzipBytes, mailLoginFromTransports, accountDirFromToml, mailLoginsFromDbText } from "./identity-backup.js";
 import { isAndroid, tauriInvoke } from "./tauri.js";
+import { recordApp } from "./app-browser.js";
+import { applyDocumentLang, translateTree, t } from "./i18n.js";
+
+applyDocumentLang();
+translateTree(document);
 
 const diagnostics = new DiagnosticsStore();
 window.__veltaDiagnostics = diagnostics;
@@ -106,6 +111,7 @@ const state = {
   accounts: [],  // all core profiles, for the drawer account switcher
   chats: [],
   activeChatId: null,
+  pendingChatId: null, // clicked chat, highlighted before its history is ready
   query: "",
   theme: localStorage.getItem("dw-theme") || "auto",
   // #57 category bar: active chip + lazy contact bot flags (P/B split).
@@ -1033,7 +1039,7 @@ function settingsDiffModal(changes, parsed) {
     if (parsed.invalid.length) notes.push(`Skipped (invalid value): ${parsed.invalid.join(", ")}`);
     if (parsed.ignored.length) notes.push(`Skipped (unknown to this version): ${parsed.ignored.join(", ")}`);
     body.innerHTML = `<p>Apply the settings${escapeHtml(when)} on this device? ${changes.length === 1 ? "1 setting changes" : `${changes.length} settings change`}:</p>
-      <ul class="settings-diff-list">${changes.map(c => `<li><span class="sd-label">${escapeHtml(c.label)}</span><span class="sd-vals"><span class="sd-from">${escapeHtml(c.from)}</span> → <b>${escapeHtml(c.to)}</b></span></li>`).join("")}</ul>
+      <ul class="settings-diff-list">${changes.map(c => `<li><span class="sd-label">${escapeHtml(t(c.label))}</span><span class="sd-vals"><span class="sd-from">${escapeHtml(c.from)}</span> → <b>${escapeHtml(c.to)}</b></span></li>`).join("")}</ul>
       ${notes.map(n => `<p class="bar-opts-hint">${escapeHtml(n)}</p>`).join("")}`;
     const { foot, cancel, ok } = footButtons("Apply", { okClass: "btn-text btn-primary" });
     const { close } = showModal({ title: "Apply these settings", body, foot, compact: true, onClose: () => resolve(false) });
@@ -1055,6 +1061,8 @@ async function applySettingsFromMessage(text) {
 // Everything a changed key needs to show live, no restart.
 function refreshAfterSettingsApply(keys) {
   const has = k => keys.includes(k);
+  // Strings are baked at render. Boot reapplies theme, scale and core copies.
+  if (has("language")) { location.reload(); return; }
   if (has("theme")) { state.theme = localStorage.getItem("dw-theme") || "auto"; applyTheme(); }
   if (has("interface-scale")) applyUiScale();
   if (["message-text-size", "message-corners", "accent-color", "hyphenation"].some(has)) {
@@ -1828,7 +1836,7 @@ function renderChatList() {
   // DOM work. Environments without IntersectionObserver (headless harness)
   // keep mounting everything, as before.
   for (const [index, chat] of chats.entries()) {
-    const active = chat.id === state.activeChatId;
+    const active = chat.id === (state.pendingChatId ?? state.activeChatId);
     let item = existing.get(chat.id);
     if (item) {
       if (!chatItemUpToDate(item, chat, active)) {
@@ -2045,13 +2053,26 @@ function chatContextMenu(chat, x, y) {
     : { label: "Delete chat", icon: icons.trash, danger: true, onClick: async () => {
       // deleteMessages only clears history and leaves the chat in the list (#34).
       const p2p = chat.isP2p || String(chat.id).startsWith("p2p:");
+      // #145: delete_chat does not leave. A group or in/out broadcast must
+      // send the member-removed notice first. Mailing lists cannot (the core
+      // rejects self-removal); an already-left chat errors and is ignored.
+      const membership = !p2p && (chat.kind === "group" || chat.chatType === "OutBroadcast" || chat.chatType === "InBroadcast");
       const ok = p2p
         ? await confirmRemovePeer(String(chat.id).slice("p2p:".length), chat.name, "Delete chat")
-        : await confirmModal("Delete chat", `Delete "${chat.name}" and all its messages?`);
+        : await confirmModal(
+          "Delete chat",
+          membership
+            ? `Leave "${chat.name}" and delete it with all its messages?`
+            : `Delete "${chat.name}" and all its messages?`,
+          membership ? "Leave and delete" : "Delete");
       if (!ok || !accountIsCurrent(epoch)) return;
       try {
         if (p2p) await removePeer(String(chat.id).slice("p2p:".length));
-        else await core.deleteChat(chat.id);
+        else {
+          if (membership) await core.leaveGroup(chat.id).catch(() => {});
+          if (!accountIsCurrent(epoch)) return;
+          await core.deleteChat(chat.id);
+        }
         if (!accountIsCurrent(epoch)) return;
         if (state.activeChatId === chat.id) closeChat();
         if (p2p) { renderLocalChatCard(); closeVanishedGroupChat(); }
@@ -2083,7 +2104,7 @@ async function closeVanishedGroupChat() {
 // The action buttons of a local group's info sheet (see groupActionsModel).
 function p2pGroupActionsHtml(chat) {
   const btns = groupActionsModel(chat).map(a =>
-    `<button type="button" class="btn-text" data-pg="${a.key}"${a.danger ? ` style="color:var(--danger)"` : ""}${a.disabled ? " disabled" : ""}>${escapeHtml(a.label)}</button>`);
+    `<button type="button" class="btn-text" data-pg="${a.key}"${a.danger ? ` style="color:var(--danger)"` : ""}${a.disabled ? " disabled" : ""}>${escapeHtml(t(a.label))}</button>`);
   return `<div class="profile-actions">${btns.join("")}</div>`;
 }
 
@@ -2185,10 +2206,16 @@ async function openChat(chatId) {
   if (!chatView) return;
   // Already showing this chat → keep the live view (and its <video> elements)
   // instead of tearing everything down and rebuilding media from scratch.
-  if (state.activeChatId === chatId) return;
-  closeChatUI();
-  const navigation = chatNavigation, epoch = core.accountEpoch;
+  // A click that is already the one loading is the same wait, not a new one.
+  if (state.pendingChatId === chatId || (state.pendingChatId == null && state.activeChatId === chatId)) return;
+  // Do not close the visible history before the next page is in hand. A send
+  // plus a few quick switches otherwise clears the pane and leaves it black
+  // until the core finishes the queued reads, and further clicks only re-clear it.
+  const navigation = ++chatNavigation, epoch = core.accountEpoch;
   const current = () => navigation === chatNavigation && accountIsCurrent(epoch);
+  state.pendingChatId = chatId;
+  chatView.cancelOpen?.();
+  renderChatList();
   try {
   const chat = await core.getChat(chatId);
   if (!current() || !chat) return;
@@ -2253,12 +2280,15 @@ async function openChat(chatId) {
   // History entry per open chat: Android BACK pops it (chat -> chat list)
   // via WryActivity's WebView-history navigation instead of exiting.
   if (history.state?.velta !== "chat") history.pushState({ velta: "chat", chatId }, "");
+  state.pendingChatId = null;
   renderChatList();
   renderLcQueueTray();
   } catch (error) {
     if (!current()) return;
     closeChatUI();
     errToast("Couldn't open chat: " + (error.message || error));
+  } finally {
+    if (state.pendingChatId === chatId && navigation === chatNavigation) state.pendingChatId = null;
   }
 }
 
@@ -2270,6 +2300,7 @@ function closeChat() {
 
 function closeChatUI() {
   chatNavigation++;
+  state.pendingChatId = null;
   diagnosticsOpen = false;
   // A throw inside the view's teardown must not skip the UI teardown below —
   // the swipe-back parks the column off-screen and relies on .chat-open being
@@ -2931,35 +2962,39 @@ async function showChatInfo(chat) {
       .catch(() => {});
   }
 
-  // Chats in common: group chats the contact is also a member of. Each row
-  // opens that chat; the section disappears entirely if there are none.
-  if (!isGroup && chat.contactId && core.getChatMembers) {
-    core.getChatList({}).then(async chats => {
-      if (!accountIsCurrent(epoch)) return;
-      const common = [];
-      for (const c of chats) {
-        if (c.kind !== "group" && c.kind !== "channel") continue;
-        try {
-          const members = await core.getChatMembers(c.id);
-          if (!accountIsCurrent(epoch)) return;
-          if (members.some(m => m.id === chat.contactId)) common.push(c);
-        } catch { /* skip chats whose members can't be listed */ }
-      }
-      const details = body.querySelector("[data-common]");
-      const list = body.querySelector("[data-common-list]");
-      if (!details || !list || !document.contains(details)) return;
-      if (!common.length) return; // no chats in common — details stays hidden
-      const count = details.querySelector("[data-common-count]");
-      if (count) count.textContent = `(${common.length})`;
-      for (const c of common) {
-        const row = document.createElement("div");
-        row.className = "info-row clickable";
-        row.innerHTML = `<span class="k">${escapeHtml(c.name)}</span><span class="v">${c.unread ? c.unread + " unread" : ""}</span>`;
-        row.addEventListener("click", () => { modal.close(); openChat(c.id); });
-        list.appendChild(row);
-      }
-      details.hidden = false;
-    }).catch(() => {});
+  // Chats in common. An open used to reload every chat, then every group's
+  // full member list. That queue is the long stall after an avatar tap.
+  // Ids only, and only once the section is opened (#171).
+  // ponytail: state.chats is search-narrowed while a query is active;
+  // reloading the chat list here is the stall.
+  const commonDetails = body.querySelector("[data-common]");
+  if (commonDetails && core.getChatContactIds) {
+    commonDetails.hidden = false;
+    const countEl = commonDetails.querySelector("[data-common-count]");
+    if (countEl) countEl.textContent = "…";
+    let started = false;
+    commonDetails.addEventListener("toggle", () => {
+      if (!commonDetails.open || started) return;
+      started = true;
+      const list = commonDetails.querySelector("[data-common-list]");
+      const idsOf = (id) => typeof id === "number"
+        ? core.getChatContactIds(id)
+        : core.getChatMembers(id).then(ms => (ms || []).map(m => m.id));
+      chatsInCommon(state.chats, chat.contactId, idsOf, () => accountIsCurrent(epoch) && commonDetails.isConnected)
+        .then(common => {
+          if (!commonDetails.isConnected || !accountIsCurrent(epoch)) return;
+          if (countEl) countEl.textContent = `(${common.length})`;
+          if (!list) return;
+          for (const c of common) {
+            const row = document.createElement("div");
+            row.className = "info-row clickable";
+            row.innerHTML = `<span class="k">${escapeHtml(c.name)}</span><span class="v">${c.unread ? c.unread + " unread" : ""}</span>`;
+            row.addEventListener("click", () => { modal.close(); openChat(c.id); });
+            list.appendChild(row);
+          }
+        })
+        .catch(() => { if (countEl && commonDetails.isConnected) countEl.textContent = "—"; });
+    });
   }
 
   if (chat.isP2pGroup) {
@@ -3063,7 +3098,16 @@ async function openChatMediaItem(kind, m) {
   }
   closeAllPopups();
   await modalHistorySettled();
-  if (kind === "apps") openWebxdc(m.id, (m.fileName || "Webxdc app").replace(/\.xdc$/i, ""));
+  if (kind === "apps") {
+    if (m.filePath && (!m.downloadState || m.downloadState === "Done")) {
+      recordApp(core.accountId, {
+        name: (m.fileName || "App").replace(/\.xdc$/i, ""),
+        file: m.filePath,
+        filename: m.fileName || "app.xdc",
+      });
+    }
+    openWebxdc(m.id, (m.fileName || "Webxdc app").replace(/\.xdc$/i, ""));
+  }
   else if (kind === "photos") openImageLightbox(fileUrl(m.filePath), m.fileName || "photo");
   else if (kind === "videos") openVideoLightbox(fileUrl(m.filePath), m.fileName || "video");
 }
@@ -3106,7 +3150,7 @@ function bindChatHeadMenu() {
         label: "Delete chat", danger: true,
         onClick: () => deleteLocalGroupChat(chat, epoch),
       }] : []),
-      ...((chat.kind === "group" || chat.kind === "channel") && !(chat.isP2pGroup && chat.readOnly) ? [{
+      ...((chat.kind === "group" || (chat.kind === "channel" && chat.chatType !== "Mailinglist")) && !(chat.isP2pGroup && chat.readOnly) ? [{
         label: chat.kind === "channel" ? "Leave channel" : chat.isP2pGroup && chat.canManage ? "Disband group" : "Leave group",
         onClick: async () => {
           if (chat.isP2pGroup) return leaveLocalGroupFlow(chat, epoch);
@@ -3350,6 +3394,9 @@ function newChatOptions() {
     } },
     ...(p2pEnabled() && p2pAvailable() ? [{ label: "New local group (no relay)", onClick: newLocalGroupFlow }] : []),
     { label: "Join chat via invite link", onClick: joinFlow },
+    // #149: second transport on this profile. No list refresh — that arg
+    // reopens the Relays modal, which this row did not open.
+    { label: "Add a relay to this account", onClick: () => addRelayFlow(core.accountEpoch) },
     { label: "Add account via invite link", onClick: () => openProfileManagement() },
   ];
 }
@@ -4709,6 +4756,13 @@ async function setMultiDevice(on, { quick = false } = {}) {
   }
 }
 
+function savedDownloadLimit() {
+  const raw = localStorage.getItem("velta-download-limit");
+  const v = normalizeDownloadLimit(raw);
+  if (raw != null && raw !== v) localStorage.setItem("velta-download-limit", v);
+  return v;
+}
+
 function rebuildDrawer() {
   if (state.accountChanging) return;
   // Rebuilds land from async paths (boot, refreshAccounts, tunnel status,
@@ -4725,7 +4779,9 @@ function rebuildDrawer() {
   // too). localStorage is the source of truth for the UI; the core copies
   // keep the account config honest for other consumers.
   const savedMq = localStorage.getItem("velta-media-quality") || "0";
-  const savedDl = localStorage.getItem("velta-download-limit") || "0";
+  // Device-global: core keeps download_limit on the account but does not
+  // multi-device-sync it, so this one value is copied into the open account.
+  const savedDl = savedDownloadLimit();
   const savedMdns = localStorage.getItem("velta-mdns") ?? "1";
   core.setConfig?.("media_quality", savedMq)
     .then(() => core.setConfig?.("download_limit", savedDl))
@@ -4759,7 +4815,7 @@ function rebuildDrawer() {
         errToast("Couldn't save image quality: " + (err?.message || err)));
       toast(value === "1" ? "Image quality: Compact" : "Image quality: Standard");
     },
-    downloadLimit: localStorage.getItem("velta-download-limit") || "0",
+    downloadLimit: savedDl,
     onDownloadLimit: (value) => {
       localStorage.setItem("velta-download-limit", value);
       core.setConfig?.("download_limit", value).catch(err =>
@@ -5724,7 +5780,7 @@ async function addRelayFlow(epoch, refresh, presetCode) {
       finishSteps(true);
       addStep("Relay added — messages are received on both relays");
       toast("Relay added");
-      refresh();
+      refresh?.();
       // Success must not leave the steps modal open — close it and, if the
       // flow was started from the Relays modal, show the updated list again.
       setTimeout(async () => {

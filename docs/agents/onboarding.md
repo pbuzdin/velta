@@ -55,8 +55,15 @@ QR (the `get_backup_qr_svg` design card with the `.qr-self` v-logo badge on
 the reserved circle) and waits, completion detected via `imex-progress`;
 the new device scans/pastes a `DCBACKUP<n>:…` code (the core's format —
 validate with `/^dcbackup\d*:/i`, not a bare `dcbackup:`), and
-`addAccountWithBackup` imports it into a fresh account. The receive path
-is `receiveSecondDeviceProfile`, shared with the splash.
+`addAccountWithBackup` imports it into a fresh account and returns before
+the transfer finishes. `get_backup` does not start IO. When the import
+resolves, the new device reapplies the tunnel proxy, calls `start_io`
+(unless Sync only active and the user has already left that account), and
+emits `account-changed` without bumping the epoch so the relay line leaves
+"no relay configured" (#118). A rejected import does not start IO. A file
+import still relies on the reload at imex progress 1000, which boots into
+`_startIo`. The receive path is `receiveSecondDeviceProfile`, shared with
+the splash.
 
 ## Notification permission hang (do not regress)
 

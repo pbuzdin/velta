@@ -979,9 +979,18 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
 @media (min-width: 601px) { .msg-replies-count { display: none; } }
 /* Round side button beside a bubble with replies (THREAD_BUTTON_MIN_REPLIES
    in chat-view.js): 32px visual disc inside a 44px hit box, on the open
-   side (right of incoming, left of outgoing), bottom-aligned with the bubble. */
+   side (right of incoming, left of outgoing), bottom-aligned with the bubble.
+   .msg-row wraps, and that wrap is chosen from the bubble's full width, so
+   min-width:0 never stopped the button falling under the bubble on a phone.
+   The pair is its own nowrap line; flex-basis 0 lets that line share the
+   row with the avatar instead of wrapping under it. */
 .msg-row.has-thread { align-items: flex-end; }
-.msg-row.has-thread .bubble { max-width: min(480px, calc(90% - 48px)); min-width: 0; }
+.msg-thread-line {
+  display: flex; flex-wrap: nowrap; align-items: flex-end;
+  min-width: 0; max-width: 100%; flex: 1 1 0;
+}
+.msg-row.out .msg-thread-line { justify-content: flex-end; }
+.msg-row.has-thread .bubble { max-width: min(480px, calc(100% - 48px)); min-width: 0; }
 .msg-thread-btn {
   flex: none; align-self: flex-end;
   width: 44px; height: 44px; margin: 0 2px; padding: 0;
@@ -1242,6 +1251,8 @@ velta-video { display: block; height: 100%; }
 .velta-video-card video {
   display: block; width: 100%; height: 100%;
   background: #101010;
+  /* A swipe may start on the poster (#139): no native video drag. */
+  -webkit-user-drag: none;
   /* min-width: 200px from the band rules must NOT reach inside a styled
      box: on portrait videos it inflates the element past the host
      (200×355 under a 146×260 clipped box) and the play button centers on
@@ -2109,8 +2120,24 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 }
 @media (prefers-reduced-motion: reduce) { #bar-menu.update { animation: none; } }
 
-/* attach pop reuses ctx-menu */
-.attach-pop { min-width: 190px; }
+/* attach pop reuses ctx-menu; Apps / Commands disclosures (#137) */
+.attach-pop { min-width: 190px; max-width: 280px; max-height: calc(var(--dvh) * .70); overflow: auto; }
+.attach-sub { max-height: 220px; overflow: auto; }
+.attach-sub .ctx-item { min-width: 0; }
+.attach-sub .ctx-item span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attach-empty { padding: 2px 12px 8px; color: var(--text-dim); font-size: 13px; }
+.app-browser { display: flex; flex-direction: column; gap: 8px; }
+.app-browser .text-field { margin: 0; }
+.app-row {
+  display: block; width: 100%; text-align: left;
+  padding: 8px 2px; border-bottom: 1px solid var(--border);
+  background: none; color: inherit; font: inherit; cursor: pointer;
+}
+.app-row small { display: block; color: var(--text-dim); font-size: 13px; margin-top: 2px; }
+.mirror-row { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+.mirror-row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
+.mirror-add { display: flex; gap: 8px; align-items: center; }
+.mirror-add .text-field { flex: 1; }
 
 /* toasts — bar anchored above the composer / bottom action bar
    (same edge the modals respect); z-index 80 keeps it visible over

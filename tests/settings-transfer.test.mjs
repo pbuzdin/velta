@@ -32,6 +32,8 @@ test("serialize: header with date, one key: value line per setting, stable order
   assert.match(text, /^accent-color: default$/m);
   assert.match(text, /^bottom-bar-buttons: chats, contacts, calls, qr$/m);
   assert.match(text, /^auto-download-limit: none$/m);
+  assert.match(UI, /"1048576", "1 MB"/);
+  assert.doesNotMatch(UI, /655360|640 KB/);
   assert.doesNotMatch(text, /#/, "no '#': it would render as a hashtag button");
 });
 
@@ -103,6 +105,18 @@ test("parser is strict: header, key lines, notes and blanks only", () => {
   assert.deepEqual(p.ignored, ["constructor", "has-own-property"]);
   assert.ok(!Object.hasOwn(p.values, "constructor"));
   assert.deepEqual(Object.keys(p.values), ["theme"]);
+});
+
+test("the retired 640 KB auto-download preset is kept as 1 MB", () => {
+  const stored = store({ "velta-download-limit": "655360" });
+  assert.equal(readSettings(stored)["auto-download-limit"], "1MB");
+  assert.equal(stored.getItem("velta-download-limit"), "1048576");
+  const parsed = parseSettings(`${HEADER}\nauto-download-limit: 640KB`);
+  assert.deepEqual(parsed.invalid, []);
+  assert.equal(parsed.values["auto-download-limit"], "1MB");
+  const dst = store();
+  applySettings(dst, parsed.values);
+  assert.equal(dst.getItem("velta-download-limit"), "1048576");
 });
 
 test("invalid values are skipped, numbers clamped, duplicates: first wins", () => {

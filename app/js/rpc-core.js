@@ -7,6 +7,8 @@
 // deltachat-jsonrpc/src/api.rs and api/types/*.
 
 import { STOCK_OVERRIDES, SUPPRESSED_DEVICE_LABELS } from "./velta-strings.js";
+import { t } from "./i18n.js";
+import { bytesFromBase64 } from "./app-browser.js";
 
 let nextId = 1;
 
@@ -49,6 +51,26 @@ export function batteryReactionPlan(sentMsgId, prevReactedId, lowActive) {
 export function swipeCategoryStep(dx, dy, threshold = 48) {
   if (Math.abs(dx) < threshold || Math.abs(dx) < Math.abs(dy) * 1.4) return 0;
   return dx < 0 ? 1 : -1;
+}
+
+// Groups and channels `contactId` is a member of. `contactIdsOf(chatId)`
+// returns that chat's contact ids. `alive() === false` stops the walk so a
+// closed sheet does not keep issuing RPCs. Callers must not pass
+// getChatMembers: that loads the full chat and every contact.
+export async function chatsInCommon(chats, contactId, contactIdsOf, alive = () => true) {
+  const common = [];
+  const want = Number(contactId);
+  for (const c of chats || []) {
+    if (!alive()) break;
+    if (c?.kind !== "group" && c?.kind !== "channel") continue;
+    if (c.id == null || c.id === "") continue;
+    let ids;
+    try { ids = await contactIdsOf(c.id); }
+    catch { continue; }
+    if (!alive()) break;
+    if (Number.isFinite(want) && (ids || []).some(id => Number(id) === want)) common.push(c);
+  }
+  return common;
 }
 
 // Backstop for the event long-poll. The backend parks get_next_event until an
@@ -991,7 +1013,9 @@ export class JsonRpcCore extends EventTarget {
   // strings are process-wide and in-memory, so this runs on every boot and
   // reconnect, before any configure can build the welcome message.
   async _applyVeltaStrings() {
-    try { await this._call("set_stock_strings", STOCK_OVERRIDES); }
+    const stock = {};
+    for (const [id, text] of Object.entries(STOCK_OVERRIDES)) stock[id] = t(text);
+    try { await this._call("set_stock_strings", stock); }
     catch (e) { console.warn("set_stock_strings failed", e); }
   }
 
@@ -1717,6 +1741,13 @@ export class JsonRpcCore extends EventTarget {
     await this._call("download_full_message", this.accountId, msgId);
   }
 
+  // HTTP GET through the core (account proxy + cache). Body is standard
+  // base64 without padding. Page fetch cannot reach https: under the CSP.
+  async getHttpResponse(url, timeoutMs = 30000) {
+    const res = await this._callWithTimeout(timeoutMs, "get_http_response", this.accountId, String(url));
+    return { bytes: bytesFromBase64(res?.blob), mimetype: res?.mimetype || "" };
+  }
+
   // Accept a contact request — unblocks the chat so it becomes a normal
   // conversation and the contact can be replied to.
   async acceptChat(chatId) {
@@ -1977,6 +2008,12 @@ export class JsonRpcCore extends EventTarget {
     await this._call("start_io", this.accountId);
   }
 
+  // Membership ids only. The profile's common-chats walk uses this;
+  // getChatMembers loads the full chat and every contact.
+  async getChatContactIds(chatId) {
+    return (await this._call("get_chat_contacts", this.accountId, chatId)) || [];
+  }
+
   // Group members as mapped contacts (empty list for 1:1 chats).
   async getChatMembers(chatId) {
     const { accountId } = this;
@@ -2131,7 +2168,7 @@ export class JsonRpcCore extends EventTarget {
   // profile's proxy now (a stale tunnel proxy from the source device would
   // otherwise block its mail until the shell's next periodic pass).
   _tunnelReapply() {
-    tauriInvoke()?.("tunnel_reapply").catch(() => {});
+    return tauriInvoke()?.("tunnel_reapply")?.catch(() => {});
   }
 
   // The backup QR as the 515x630 design card: reserves a clear center circle
@@ -2165,7 +2202,17 @@ export class JsonRpcCore extends EventTarget {
         await this._call("select_account", targetId);
         this.accountId = targetId;
       }
-      this._call("get_backup", targetId, qrContent).then(() => this._tunnelReapply()).catch(() => {});
+      // get_backup does not start IO (core api.rs). Do it once the import
+      // lands, then refresh so the relay line leaves "no relay configured" (#118).
+      this._call("get_backup", targetId, qrContent).then(async () => {
+        await this._tunnelReapply();
+        if (!this.syncOnlyActive || String(this.accountId) === String(targetId)) {
+          await this._call("start_io", targetId).catch(() => {});
+        }
+        if (String(this.accountId) === String(targetId)) {
+          this._emit("account-changed", { accountId: this.accountId, accountEpoch: this.accountEpoch });
+        }
+      }).catch(() => {});
       failed = false;
       return targetId;
     } catch (err) {

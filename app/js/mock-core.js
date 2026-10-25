@@ -664,6 +664,10 @@ export class MockCore extends EventTarget {
     else this._config[key] = String(value);
   }
 
+  async getChatContactIds(chatId) {
+    return (await this.getChatMembers(chatId)).map(m => m.id);
+  }
+
   async getChatMembers(chatId) {
     const GROUP_MEMBERS = { 13: [2, 3, 4, 5, 6], 15: [2, 4, 6, 7], 17: [2], 20: [3, 6] };
     const chat = this.chats.find(c => c.id === chatId);

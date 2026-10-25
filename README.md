@@ -188,7 +188,10 @@ factor) and instead offers coherent, in-app scaling: a drawer spoiler with
 Small / Normal / Large applied as a zoom on `<html>` before first paint.
 The theme spoiler adds **Auto**, which follows the system's
 `prefers-color-scheme` live (including the status-bar tint); it is the
-default for fresh installs. **About Velta → Show device info** lists the screen,
+default for fresh installs. **Language**, directly under Theme, is English,
+Français, or Русский. The choice is per device and reloads the app.
+Untranslated text stays English. Product names stay as written.
+**About Velta → Show device info** lists the screen,
 viewport, scale, locale and versions for bug reports (Copy / Share; no
 account data).
 
@@ -211,7 +214,7 @@ e-mail addresses and hashtags are never hyphenated.
 **Export settings** (drawer → Export settings to Saved Messages, last item
 before About) sends one plain-text message to your own Saved Messages: a
 `Velta settings v1 (date)` header and one `key: value` line per setting
-(theme, interface scale, chat appearance, bottom bar, chat categories,
+(theme, language, interface scale, chat appearance, bottom bar, chat categories,
 notification toggles, media and link-preview options, send on Enter, read
 receipts and a few chat options). Open that message on another device and tap
 **Apply these settings**; a confirm lists what would change (current → new)
@@ -242,9 +245,12 @@ over a WebRTC peer connection inside the app's WebView.
   Android the app asks for the record-audio permission on the first call.
 - On Android an audio call starts on the earpiece (or a connected
   wired/Bluetooth headset), like a phone call, and a video call on the
-  loudspeaker; the **Speaker** button switches between them. The screen turns off when the phone is at your ear.
-  Desktop and the browser use the system's audio output, so the button is
-  not shown there.
+  loudspeaker. **Speaker** and **Earpiece** are both shown, and only the
+  active route is highlighted. A tap forces that route, including a second
+  tap on the same button so a headset can still be overridden. The screen
+  turns off when the phone is at your ear.
+  Desktop and the browser use the system's audio output, so neither button
+  is shown there.
 - Missed, declined and ended calls appear in the chat as a compact **call
   card** (direction, state and duration, red-tinted for missed/declined),
   and calls ring only while the app is open — a backgrounded app shows the
@@ -376,7 +382,9 @@ back. Invite links and non-web links are left alone.
 Videos show a thumbnail (a frame extracted from the file) with a play
 button, size and duration. Tapping plays the video fullscreen in a
 lightbox overlay with the player's own controls; close it with the X
-button, Esc, or the system back button.
+button, Esc, or the system back button. It resumes that video where you
+left it, stretches the picture to fill, and keeps the playback speed you
+last chose.
 
 - Thumbnails are extracted by the app itself and cached on disk, so they
   appear instantly on later opens.
@@ -453,8 +461,10 @@ management…** row in the settings list.
   where the platform provides it, a built-in decoder fallback where it
   doesn't), and a fresh account is created and filled
   from the transfer — progress is reported live, and the other device stays
-  signed in. The **Auto-download limit** drawer setting caps how much of
-  that chat history is pulled in automatically (No limit / 640 KB / 5 MB /
+  signed in. When the transfer finishes, this device starts mail for that
+  profile, so the relay line leaves "no relay configured" without a restart.
+  The **Auto-download limit** drawer setting caps how much of
+  that chat history is pulled in automatically (No limit / 1 MB / 5 MB /
   25 MB).
 - **Export backup** — writes the whole profile (messages, contacts, keys)
   into a timestamped `.tar` in a folder you choose, with an optional
@@ -494,7 +504,9 @@ the core automatically sends through another configured one. Pick which one
 is primary under
 **Relays of this profile…** → **"Use for sending"** on any relay (messages
 currently waiting to be sent are dropped, since they carry the old sender
-address; the change syncs to your other devices). The status bar shows one
+address; the change syncs to your other devices). The chat list **+** menu's
+**Add a relay to this account** adds another relay to the profile you are
+in, without opening that modal. The status bar shows one
 segment per relay, each colored by that relay's own status, with the sending
 animation on the sending relay's segment only.
 A relay marked **(U)** confirmed UnifiedPush push notifications: the core
@@ -776,7 +788,10 @@ offered in local chats.
 Switching chats is tuned to avoid redundant work: the rendered-message LRU
 (`_rowCache` in `app/js/chat-view.js`) survives chat switches — reopening a
 chat reuses its rendered rows instead of rebuilding them (it is only dropped
-when the account changes, since message ids are per-account). Media responses
+when the account changes, since message ids are per-account). A row that
+is off screen releases its video and audio decoder and restores the same
+source when it scrolls back, so a long session does not pile up players.
+Media responses
 are served `Cache-Control: max-age=31536000, immutable`: core blob names are
 content-deduplicated, so the same URL always means the same bytes and the
 WebView serves images from its cache instead of re-reading and re-decoding
@@ -829,7 +844,7 @@ Hovering a message on desktop shows a small **Reply** pill along the bubble's ri
 
 Right-clicking a bubble (desktop) or long-pressing one (phone) opens the message menu. On desktop it is a compact bar of chips anchored to the bubble — a row of quick-reaction emoji (the round smiley at its end opens the full searchable emoji tray) over labeled action chips — instead of a long vertical list. On a phone it stays the bottom sheet. Right-clicking or long-pressing **a link** targets that link: **Copy link** copies it with tracking parameters stripped (the same URL a click would open) and **Open link** opens it; on a phone there is also **Share link**. The phone sheet additionally offers **Show links**, listing every link in the message as real anchors — the WebView's own long-press menu (open / copy / share) works on each.
 
-On a phone, swipe a bubble to the right to reply. The bubble slides a short way with your finger, and letting go far enough sets the reply and focuses the composer, the same as Reply in the menu. A short swipe snaps the bubble back. Swipe left on the message history to go back to the chat list: the chat screen follows your finger, the list shows underneath, and letting go far enough leaves the chat, the same as the back button. A short swipe snaps back. Scrolling up and down stays a scroll. A read-only chat can swipe back, and it does not swipe to reply. Neither swipe runs on desktop.
+On a phone, swipe a bubble to the right to reply. The bubble slides a short way with your finger, and letting go far enough sets the reply and focuses the composer, the same as Reply in the menu. A short swipe snaps the bubble back. Swipe left on the message history to go back to the chat list: the chat screen follows your finger, the list shows underneath, and letting go far enough leaves the chat, the same as the back button. A short swipe snaps back. Scrolling up and down stays a scroll. A swipe that starts on a video poster or an invite card still replies or goes back, and the tap the phone fires afterwards does not play the video or join the invite. A video that is already showing its controls keeps the finger for scrubbing. A read-only chat can swipe back, and it does not swipe to reply. Neither swipe runs on desktop.
 
 On a phone, long-press a bubble to open the message menu. That hold does not start the system's text selection. Choose **Select text** when you want the handles. The whole message starts selected, and the native handles shrink that span. **Reply**, **Copy**, and **Close** sit inside the bubble: Reply quotes just the selected text, Copy copies that span, and Close leaves the mode and dismisses the handles. While that bar is open, a long-press does not open the message menu. The desktop message menu has no Select text. Select with the mouse as usual; on desktop a small Reply chip quotes the selection (the floating chip is desktop-only — touch quotes through this Select-text flow). **Download** on an image, video, or file saves it. Android asks where to put the file. Desktop and the browser save it from the page.
 
@@ -1025,9 +1040,12 @@ The chat info sheet carries the per-chat actions:
   which jumps to and highlights that message. Audio rows (and audio
   bubbles in the chat) use Velta's own player: play, seek and
   "current / total", full width from the first render.
-- **Leave group / Leave channel** — in the chat's ⋮ menu. The chat turns
+- **Leave group / Leave channel** — in the chat's ⋮ menu. Mailing lists
+  have no Leave. The chat turns
   read-only and stops receiving messages; the history stays on this
-  device until you delete or archive the chat.
+  device until you delete or archive the chat. Deleting a group or a
+  broadcast channel from the chat list leaves it first, so the other
+  members are told.
 
 </details>
 
@@ -1098,7 +1116,8 @@ chat header instead.
 
 When messages quote a bubble, that bubble counts its replies. On a phone the
 count ("2 replies") sits next to the time; on every screen a small round
-button with a reply icon and the count sits beside the bubble. Tap it (or
+button with a reply icon and the count sits beside the bubble, including
+on a phone where the row would otherwise wrap it underneath. Tap it (or
 choose **Show replies** in the message menu) to open the thread panel: a
 sheet over the lower part of the chat with the original message on top and
 every reply beneath. The composer stays visible and replies into the
@@ -1207,7 +1226,12 @@ messages are distinguishable at a glance.
 
 Typing `/` in the composer opens a popup of the commands you sent recently in
 that chat (or across the profile when the chat has none yet); arrow keys and
-Enter/Tab insert one without sending it.
+Enter/Tab insert one without sending it. The attach menu's **Commands**
+lists the same commands and inserts one the same way. **Apps** lists
+mini-apps you sent or opened recently on this profile, and **Browse apps…**
+loads a webxdc catalog. You can add more catalog addresses; if one does not
+answer, the next is tried. A download is sent into the chat only when it
+is a real `.xdc`.
 
 </details>
 
@@ -1245,7 +1269,9 @@ Tapping any avatar in a chat opens the **contact profile** modal: the large
 photo avatar beside the captioned identity tile (color names included), the
 contact's address and profile key (OpenPGP fingerprint), last-seen info, plus
 **Send message**, **Edit name** and **Block** actions. Group chats also show a
-**Chats in common** section listing the groups you share with that contact.
+**Chats in common** section. Open it to list the groups you share with that
+contact. The list is not built when the profile opens, so a large account
+does not stall on the avatar tap.
 
 Group avatars intentionally keep a solid color with a full-bleed photo or
 initials — the identity matrix is a per-contact feature.

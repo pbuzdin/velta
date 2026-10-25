@@ -114,7 +114,13 @@ and do not swipe.
   (`closeChat`, the same path as the header back button). `.swipe-back` on
   `.app` shows the sidebar while `.chat-open` would keep it
   `visibility: hidden`.
-- A vertical move wins and stays a scroll. Reply-right and back-left do not
+- A vertical move wins and stays a scroll. A video poster (no `controls`)
+  starts both swipes (#139). The click the WebView still fires on finger-up
+  does not open the lightbox. A `<video controls>` still opts out so its
+  scrubber keeps the finger. An invite card starts both swipes (#87). The
+  click that follows does not join, copy, or open the card. Other buttons
+  still opt out.
+- Reply-right and back-left do not
   run on the same finger (`_replySwipe` / `_backSwipe`). Any `touchmove`
   still cancels the long-press timer.
 - `close()` cancels a back drag. A committed swipe parks `#main` at
