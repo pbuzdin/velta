@@ -491,7 +491,9 @@ article.card p, #platforms li, #features p { color: var(--muted); }
 #notes .news-list { border-block: 0; }
 .news-list li { border-top: 1px solid var(--line); }
 .news-list li:first-child { border-top: 0; }
-.news-list a {
+/* ul+li: `main.page a` (404, posts) outranks a bare .news-list a and
+   turned whole items blue there — titles stay ink, like home and /news */
+ul.news-list li a {
   display: grid;
   grid-template-columns: 9rem 1fr;
   gap: 2rem;
