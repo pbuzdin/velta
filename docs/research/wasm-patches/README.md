@@ -49,7 +49,7 @@ Master `core/` stays on Velta’s production quilt (`tools/apply-core-patches.py
 > rebased onto upstream 81140d51 (native WebP `has_animation()`), vendored
 > async-imap 0.12.0 + mail-builder 1.0.0, locks re-pinned (wasm-bindgen
 > stays 0.2.129). wasm32 check + wasm-pack + opt-in CI smoke/e2e green;
-> the relay PWA ships the 2.63 wasm. Never apply the series to production
+> the relay PWA shipped that 2.63 wasm with the 1.4.64 redeploy. Never apply the series to production
 > `core/` — **it stays stock until the
 > [landing checklist](../wasm-core-landing-checklist.md) is green.**
 
