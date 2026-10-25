@@ -52,8 +52,6 @@ export const P = {
   forward: '<path d="M15 14l5-5-5-5M20 9h-9a7 7 0 00-7 7v2"/>',
   pause: '<path d="M9 5.5v13M15 5.5v13"/>',
   menu: '<path d="M3 6h18M3 12h18M3 18h18"/>',
-  // Velta loop (local chat): V over an open ring, redrawn on the 24 grid
-  loop: '<path d="M7 5.5l5 10 5-10"/><path d="M19.5 10a8 8 0 01-4.5 9.4M4.5 10a8 8 0 004.5 9.4"/>',
 };
 
 export const ICON = Object.fromEntries(Object.entries(P).map(([k, v]) => [k, svg(v)]));
