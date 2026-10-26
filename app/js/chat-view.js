@@ -95,13 +95,11 @@ export function wireRowDelegation(container) {
 }
 import { fileUrl, mediaFallbackUrl, redactMediaUrl } from "./media.js";
 import { parkMedia, unparkMedia } from "./media-park.js";
-import { openInAppBrowser } from "./inapp-browser.js";
 import { renderMarkdown, extractBotCommands } from "./markdown.js";
 import { attachMentionPicker, fprCode } from "./mentions.js";
 import { fingerprintFor, cachedFingerprintIsDerived } from "./avatar.js";
 import { detectTextLang, uiLang } from "./text-lang.js";
 import { looksLikeSettings, parseSettings } from "./settings-transfer.js";
-import { compressImage, compressEnabled } from "./image-compress.js";
 import { lcRetryTransfer } from "./local-chat.js";
 import { TypingSender } from "./typing.js";
 import { linkPreview, linkPreviewCardHtml, linkPreviewMode, firstLink as firstLinkOf, senderPreviewUrl, receiveFetchesPreview, renderPreviewImage } from "./link-preview.js";
@@ -110,8 +108,11 @@ import { getReadMarker, clearReadMarker } from "./read-markers.js";
 import { shareStageKind, shareViewtype } from "./share-in.js";
 import { reactionToggle, myReaction } from "./reactions.js";
 import { senderColorVars } from "./name-color.js";
-import { sendLargeFile, largeFileAvailable, largeFileInfoHtml, wireLargeFileInfo } from "./large-file.js";
-import { lufiUploadFor } from "./lufi.js";
+// Fix 5: image compression and large-file/Lufi upload (with sjcl) load on
+// first use; largeFileAvailable() is just "running in the Tauri shell".
+const largeFileAvailable = () => !!tauriInvoke();
+import { openInAppBrowser } from "./inapp-browser.js";
+import { lufiUploadFor } from "./lufi-store.js";
 import { isAndroid, rustLog, tauriInvoke } from "./tauri.js";
 import { canShareLink, copyLink, shareLink } from "./qr-actions.js";
 import { ICON, P, svg, labelled } from "./icons.js";
@@ -3365,12 +3366,20 @@ export class ChatView {
       <div class="info-row"><span class="k">State</span><span class="v">${escapeHtml(state)}</span></div>
       <div class="info-reacts" data-reacts hidden></div>
       ${deliveryRows}
-      ${largeFileInfoHtml(lufiUploadFor(this.core.accountId, m.id))}
+      ${lufiUploadFor(this.core.accountId, m.id) ? `<div data-largefile hidden></div>` : ""}
       <div class="info-row"><span class="k">Database ID</span><span class="v">#${escapeHtml(m.id)}</span></div>
       <div class="info-row wrap"><span class="k">Message-ID</span><span class="v" data-mid>…</span></div>
       <div class="info-row wrap"><span class="k">Server URL</span><span class="v" data-servers>…</span></div>`,
     });
-    wireLargeFileInfo(info.modal, this.core.accountId, m.id);
+    // Lazy (fix 5): large-file.js (+ lufi.js, sjcl) only when this message
+    // carries one of our uploads.
+    if (lufiUploadFor(this.core.accountId, m.id)) import("./large-file.js").then((lf) => {
+      const slot = info.modal.querySelector("[data-largefile]");
+      if (!slot || !info.modal.isConnected) return;
+      slot.insertAdjacentHTML("afterend", lf.largeFileInfoHtml(lufiUploadFor(this.core.accountId, m.id)));
+      slot.remove();
+      lf.wireLargeFileInfo(info.modal, this.core.accountId, m.id);
+    }).catch(() => {});
     const reactBox = info.modal.querySelector("[data-reacts]");
     const paintReactions = (payload) => {
       if (!reactBox || !info.modal.isConnected) return;
@@ -4019,8 +4028,9 @@ export class ChatView {
       // bytes/path on any skip or failure; a transcoded blob has no core path,
       // so it takes the write-to-uploads branch below.
       let sendBlob = pm.blob;
-      if (pm.kind === "image" && pm.blob && compressEnabled()) {
-        const r = await compressImage(pm.blob, {
+      const ic = pm.kind === "image" && pm.blob ? await import("./image-compress.js") : null; // lazy (fix 5)
+      if (ic?.compressEnabled()) {
+        const r = await ic.compressImage(pm.blob, {
           name: pm.name, quality: mediaQualitySetting(),
         });
         diagnosticsSink.append("info", r.transcoded
@@ -4484,6 +4494,8 @@ export class ChatView {
   async _sendLargeFile() {
     const session = this._session;
     if (!this._isCurrent(session) || !this.chat) return;
+    const { sendLargeFile } = await import("./large-file.js"); // lazy (fix 5)
+    if (!this._isCurrent(session)) return;
     await sendLargeFile({
       accountId: this.core.accountId,
       isCurrent: () => this._isCurrent(session),

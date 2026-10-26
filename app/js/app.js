@@ -25,13 +25,33 @@ import { serializeSettings, parseSettings, diffSettings, applySettings, normaliz
 import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact, showCreateGroupModal, showAddMembersModal } from "./p2p.js";
 import { withLocalChat, hubModel, renameDevice, removePeer, dismissLocalGroup, groupRename, groupRemoveMember, peerGroupImpact, groupActionsModel, groupMemberHint, removePeerImpactText, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
 import { timeAgo, formatBytes, timeTag } from "./format.js";
-import { acquireCode, mountScanner } from "./qr-scan.js";
+import { openInAppBrowser } from "./inapp-browser.js";
+// Fix 5 (startup): rarely used features load on first use via import().
+// The PWA build precaches the whole dist and Tauri/Android serve app/ as is,
+// so the lazily imported files ship everywhere (tests/lazy-modules.test.mjs).
+const loadQrScan = () => import("./qr-scan.js");
+const acquireCode = async (opts) => (await loadQrScan()).acquireCode(opts);
+// Same handle as qr-scan.js mountScanner; calls made before the module
+// arrives are replayed (start) or cancel the mount (destroy).
+function mountScanner(opts) {
+  let real = null, dead = false, want = false;
+  loadQrScan().then((m) => {
+    if (dead) return;
+    real = m.mountScanner(opts);
+    if (want) real.start();
+  }).catch((err) => { if (!dead) opts.onState?.("error", String(err?.message || err)); });
+  return {
+    start() { if (real) return real.start(); want = true; },
+    stop() { want = false; return real?.stop(); },
+    destroy() { dead = true; want = false; return real?.destroy(); },
+    get running() { return !!real?.running; },
+  };
+}
 import { scanTabAvailable, canShareLink, copyLink, shareLink, classifyScannedCode } from "./qr-actions.js";
 import { parseSharePayload, shareTextIfUnconsumed, sharePlan, createShareInbox, buildSharePicker } from "./share-in.js";
 import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS, setLinkPreviewProxySource, activeProxyUrl } from "./link-preview.js";
 import { wirePushSection } from "./push-settings.js";
 import { wireWebPushSection, refreshWebPush } from "./web-push.js";
-import { openInAppBrowser } from "./inapp-browser.js";
 import { extractTunnelLink, acceptTunnelLink, makeChooser, openTunnelSettings, refreshTunnelStatus, tunnelInstalled, tunnelStatus, describeTunnel, bindTunnelNetworkEvents, initTunnelDiagnostics } from "./tunnel.js";
 import { wrapIdentityBundle, unwrapIdentityBundle, buildIdentityBundle, bytesToBase64, base64ToBytes, backupDownloadName, gzipBytes, mailLoginFromTransports, accountDirFromToml, mailLoginsFromDbText } from "./identity-backup.js";
 import { isAndroid, tauriInvoke } from "./tauri.js";

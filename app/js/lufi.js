@@ -30,7 +30,6 @@ import sjcl from "../vendor/sjcl.js";
 export const LUFI_SLICE = 750000;
 export const DEFAULT_LUFI_SERVER = "https://upload.disroot.org";
 const SERVER_KEY = "velta-lufi-server";
-const FILES_KEY = "velta-lufi-files";
 
 function store() {
   try { return globalThis.localStorage || null; } catch { return null; }
@@ -198,25 +197,6 @@ export function parseLufiLink(text) {
   return { server, short: m[1], key: m[2] };
 }
 
-// Deletion tokens stay on this device only (never in the chat message).
-// Keyed by account + message id.
-function readFiles() {
-  try { return JSON.parse(store()?.getItem(FILES_KEY) || "{}") || {}; } catch { return {}; }
-}
-export function rememberLufiUpload(accountId, msgId, rec) {
-  const all = readFiles();
-  all[`${accountId}:${msgId}`] = {
-    server: rec.server, short: rec.short, token: rec.token, url: rec.url,
-    deleteUrl: rec.deleteUrl, name: rec.name, size: rec.size,
-    expiresAt: rec.expiresAt || 0, deleted: false,
-  };
-  store()?.setItem(FILES_KEY, JSON.stringify(all));
-}
-export function lufiUploadFor(accountId, msgId) {
-  return readFiles()[`${accountId}:${msgId}`] || null;
-}
-export function markLufiDeleted(accountId, msgId) {
-  const all = readFiles();
-  const k = `${accountId}:${msgId}`;
-  if (all[k]) { all[k].deleted = true; store()?.setItem(FILES_KEY, JSON.stringify(all)); }
-}
+// Deletion tokens: lufi-store.js (tiny, so message info can check for an
+// upload without loading this module and sjcl).
+export { rememberLufiUpload, lufiUploadFor, markLufiDeleted } from "./lufi-store.js";

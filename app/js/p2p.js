@@ -4,7 +4,6 @@
 
 import { showModal, footButtons, toast, notifyIncoming } from "./ui.js";
 import { escapeHtml } from "./format.js";
-import { acquireCode } from "./qr-scan.js";
 import { diagnosticsSink } from "./diagnostics.js";
 import { createLocalGroup, groupAddMember, groupPickerModel, findDuplicateGroup, lcGroupName, GROUP_MAX_OTHERS, GROUP_NAME_MAX } from "./local-chat.js";
 
@@ -158,6 +157,7 @@ export async function showInviteModal(invoke, renderQr) {
 }
 
 export async function addContact(invoke) {
+  const { acquireCode } = await import("./qr-scan.js"); // lazy: camera + decoder on first use
   const code = await acquireCode({
     title: "Add contact",
     hint: "Paste the invite code shown on the other device (Local chat → Show invite → Copy code).",
