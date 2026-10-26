@@ -2938,7 +2938,12 @@ talks to Google.
   (`android_core_tx`). The service notification says "Not syncing…" when
   the core did not start (or is not up 30 s later). Rust's state files
   live in `Context.getDataDir()` (Tauri app-local data), which Kotlin reads
-  via `AppFiles.read` (dataDir, then filesDir).
+  via `AppFiles.read` (dataDir, then filesDir). Init order: DNS tunnel boot,
+  WS transport `boot_now` (awaited), `tunnel::reapply_proxy`, THEN the
+  request channel is published (the page cannot start_io earlier) and a
+  headless start_io runs. Health checks every minute restart a proxy whose
+  local listener stopped answering (`tunnel::check_alive`,
+  `ws_transport` keeper).
 - ** ceilings:** (1) `CoreService` is NOT stopped when push registers —
   a push-only mode is possible now that a push can cold-start the core,
   but not built. A headless start ignores the page's "sync only the

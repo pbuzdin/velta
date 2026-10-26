@@ -834,7 +834,41 @@ mod app {
         Ok(())
     }
 
+    /// Health check every minute: the local server must accept connections;
+    /// one that died in the background is restarted (audit item 5).
+    fn start_keeper(app: crate::Host) {
+        static KEEPER: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        KEEPER.get_or_init(|| {
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    health(&app).await;
+                }
+            });
+        });
+    }
+
+    async fn health(app: &crate::Host) {
+        let addr = SERVER.lock().unwrap().as_ref().map(|s| s.addr);
+        let Some(addr) = addr else { return };
+        let alive = tokio::time::timeout(std::time::Duration::from_secs(2), tokio::net::TcpStream::connect(addr))
+            .await
+            .is_ok_and(|r| r.is_ok());
+        if alive {
+            return;
+        }
+        log(&format!("local server not answering on {addr}; restarting it"));
+        let _g = OP.lock().await;
+        let mut st = load(app);
+        if store::active_id(&st).is_some() {
+            if let Err(e) = start_active(app, &mut st).await {
+                log(&format!("restart failed: {e}"));
+            }
+        }
+    }
+
     pub async fn boot(app: &crate::Host) {
+        start_keeper(app.clone());
         let _g = OP.lock().await;
         let mut st = load(app);
         if store::active_id(&st).is_none() {
@@ -919,12 +953,24 @@ mod app {
 pub use app::deactivate_for_tunnel;
 
 #[cfg(any(target_os = "android", windows))]
+#[cfg_attr(target_os = "android", allow(dead_code))]
 pub fn boot(app: &crate::Host) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move { app::boot(&app).await });
 }
 #[cfg(not(any(target_os = "android", windows)))]
 pub fn boot(_app: &crate::Host) {}
+
+/// boot, awaited: the server listens (and the profiles' proxy is set) when
+/// this returns, so IO can start behind it.
+#[cfg(any(target_os = "android", windows))]
+#[cfg_attr(windows, allow(dead_code))]
+pub async fn boot_now(app: &crate::Host) {
+    app::boot(app).await;
+}
+#[cfg(not(any(target_os = "android", windows)))]
+#[allow(dead_code)]
+pub async fn boot_now(_app: &crate::Host) {}
 
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]

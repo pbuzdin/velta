@@ -319,6 +319,24 @@ mod imp {
         }
     }
 
+    /// Health check (audit item 5): the tunnel's local SOCKS listener must
+    /// accept connections. A library whose proxy died in the background
+    /// otherwise leaves every account failing silently; restart it.
+    fn check_alive(app: &crate::Host) {
+        let _g = OP.lock().unwrap();
+        let url = PROXY_URL.lock().unwrap().clone();
+        let Some(addr) = url.as_deref().and_then(super::proxy_listen_addr) else { return };
+        if std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(2)).is_ok() {
+            return;
+        }
+        tlog("warning", &format!("tunnel proxy not answering on {addr}; restarting it"));
+        if let Some(cfg) = load_config(app) {
+            if let Err(e) = start(app, cfg) {
+                tlog("error", &format!("restart failed: {e}"));
+            }
+        }
+    }
+
     /// Keeps every profile's proxy_url in line with the tunnel (on install,
     /// on removal, and every minute so profiles added later pick it up) and
     /// follows network changes even while the WebView sleeps.
@@ -328,6 +346,7 @@ mod imp {
                 loop {
                     apply_proxy().await;
                     check_network(&app);
+                    check_alive(&app);
                     tokio::time::sleep(std::time::Duration::from_secs(60)).await;
                 }
             });
@@ -667,6 +686,32 @@ pub async fn tunnel_backup_begin(account_id: u32) -> Result<(), String> {
 pub async fn tunnel_backup_end(account_id: u32) -> Result<(), String> {
     imp::backup_end(account_id).await;
     Ok(())
+}
+
+/// Points every profile at the running proxy now (boot: before IO starts).
+#[cfg(any(target_os = "android", windows))]
+#[cfg_attr(windows, allow(dead_code))]
+pub async fn reapply_proxy() {
+    imp::reapply().await;
+}
+#[cfg(not(any(target_os = "android", windows)))]
+#[allow(dead_code)]
+pub async fn reapply_proxy() {}
+
+/// host:port of a proxy URL this app wrote ("socks5://user:pass@127.0.0.1:N").
+#[cfg_attr(not(any(target_os = "android", windows)), allow(dead_code))]
+pub(crate) fn proxy_listen_addr(url: &str) -> Option<std::net::SocketAddr> {
+    url.rsplit('@').next()?.trim_end_matches('/').parse().ok()
+}
+
+#[cfg(test)]
+mod health_tests {
+    #[test]
+    fn listen_addr_from_our_proxy_urls() {
+        assert_eq!(super::proxy_listen_addr("socks5://u:p@127.0.0.1:4242"), Some("127.0.0.1:4242".parse().unwrap()));
+        assert_eq!(super::proxy_listen_addr("socks5://velta-ws:secret@127.0.0.1:9/"), Some("127.0.0.1:9".parse().unwrap()));
+        assert_eq!(super::proxy_listen_addr("socks5://no-port"), None);
+    }
 }
 
 #[cfg(any(target_os = "android", windows))]

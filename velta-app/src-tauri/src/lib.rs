@@ -3408,13 +3408,18 @@ fn ensure_android_core(accounts_dir: PathBuf) -> &'static RpcState {
             match init_android_core(accounts_dir, bg_pending).await {
                 Ok(tx) => {
                     log("android core RPC session ready");
+                    // Proxies first (audit item 5): the DNS tunnel / WS
+                    // transport listen and every profile points at them
+                    // BEFORE anything can start IO — the page cannot call
+                    // start_io until tx is published below, and the
+                    // headless start_io comes last. No-ops when neither is set up.
+                    tunnel::boot(&Host::current());
+                    ws_transport::boot_now(&Host::current()).await;
+                    tunnel::reapply_proxy().await;
                     start_bg_event_poller(tx.clone());
                     start_bg_fetch_kicker(tx.clone());
                     *tx_holder.lock().unwrap() = Some(tx);
                     android_core_status(serde_json::json!({"running": true, "stage": "ready"}));
-                    // Optional DNS tunnel: a no-op unless a velta://tunnel link was accepted.
-                    tunnel::boot(&Host::current());
-                    ws_transport::boot(&Host::current());
                     // Headless (no activity in this process): nobody else
                     // starts IO. With the page up, rpc-core starts it.
                     if !ACTIVITY_LAUNCHED.load(std::sync::atomic::Ordering::SeqCst) {
