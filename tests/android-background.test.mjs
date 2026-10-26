@@ -48,7 +48,7 @@ test("cold start: VeltaApp loads the library; every entry point starts the core"
   assert.match(read("BackgroundFetchJob.kt"), /VeltaCore\.ensureStarted\(this\)/);
   const alarm = read("ScheduledAlarm.kt");
   const recv = alarm.slice(alarm.indexOf("class ScheduledAlarmReceiver"));
-  assert.ok(recv.indexOf("VeltaCore.ensureStarted") < recv.lastIndexOf("scheduledWakeup()"), "core before the send");
+  assert.ok(recv.indexOf("VeltaCore.ensureStarted") < recv.lastIndexOf("scheduledRunBlocking("), "core before the send");
   assert.match(recv, /ACTION_BOOT_COMPLETED[\s\S]*CoreService\.start/);
 });
 
@@ -190,4 +190,14 @@ test("battery prompt link meets WCAG AA in dark, light and brutal", () => {
     assert.match(bg, /^#[0-9a-f]{6}$/i, `${name} bg ${bg}`);
     assert.ok(contrast(fg, bg) >= 4.5, `${name}: ${fg} on ${bg} = ${contrast(fg, bg).toFixed(2)}`);
   }
+});
+
+test("scheduled alarm: the send does not need the foreground service (goAsync)", () => {
+  const alarm = read("ScheduledAlarm.kt");
+  const recv = alarm.slice(alarm.indexOf("class ScheduledAlarmReceiver"));
+  assert.match(recv, /val pending = goAsync\(\)/);
+  assert.match(recv, /scheduledRunBlocking\(SEND_MAX_SECS\)[\s\S]*finally \{\s*pending\.finish\(\)/);
+  const m = recv.match(/SEND_MAX_SECS = (\d+)/);
+  assert.ok(m && Number(m[1]) < 60, "under the background broadcast limit");
+  assert.match(rs("scheduled.rs"), /fn Java_org_velta_ScheduledAlarmReceiver_scheduledRunBlocking/);
 });

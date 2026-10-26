@@ -202,26 +202,36 @@ pub async fn scheduled_run_due(wake: bool) -> Result<usize, String> {
     Err("the page sends scheduled messages on this platform".into())
 }
 
-/// Alarm receiver entry (ScheduledAlarmReceiver.kt). false = the core is not
-/// up in this process (cold start by the alarm): Kotlin then posts a
-/// "open Velta to send" notification instead.
+/// Alarm receiver entry (ScheduledAlarmReceiver.kt, on a goAsync worker
+/// thread): sends the due items, blocking up to `max_secs` so the receiver
+/// keeps the process alive — an inexact alarm cannot start the foreground
+/// service on Android 12+. false = no core in this process (Kotlin then
+/// posts an "open Velta to send" notification) or the run failed. A run
+/// still going at the deadline counts as taken: the core finishes it.
 #[cfg(target_os = "android")]
 #[no_mangle]
-pub extern "system" fn Java_org_velta_ScheduledAlarmReceiver_scheduledWakeup(
+pub extern "system" fn Java_org_velta_ScheduledAlarmReceiver_scheduledRunBlocking(
     _env: jni::JNIEnv,
     _this: jni::objects::JObject,
+    max_secs: jni::sys::jint,
 ) -> jni::sys::jboolean {
-    // Kotlin started the core (VeltaCore.ensureStarted) right before; a
-    // cold one may still be initializing — run_due waits for it.
     if crate::android_core().is_none() {
         println!("scheduled wakeup: core not initialized");
         return 0;
     }
     let app = crate::ui_app();
-    tauri::async_runtime::spawn(async move {
-        if let Err(e) = run_due(app, true).await {
-            crate::log(&format!("scheduled wakeup: {e}"));
+    let max = std::time::Duration::from_secs(max_secs.max(1) as u64);
+    let handle = tauri::async_runtime::spawn(async move { run_due(app, true).await });
+    let ok = tauri::async_runtime::block_on(async move {
+        match tokio::time::timeout(max, handle).await {
+            Ok(Ok(Ok(_))) => true,
+            Ok(Ok(Err(e))) => {
+                crate::log(&format!("scheduled wakeup: {e}"));
+                false
+            }
+            Ok(Err(_)) => false,
+            Err(_) => true,
         }
     });
-    1
+    ok as jni::sys::jboolean
 }

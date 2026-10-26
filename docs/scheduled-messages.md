@@ -34,7 +34,7 @@ One JSON document, `{version: 1, items: [...]}`. Item fields: `id`,
 | Shell | Where | Code |
 |---|---|---|
 | Tauri desktop | `scheduled.json` in the app local data dir | `scheduled.rs` command `scheduled_op` |
-| Tauri Android | `scheduled.json` in `filesDir` (AppData), readable by Kotlin without the WebView | same |
+| Tauri Android | `scheduled.json` in Tauri AppData = `Context.getDataDir()` (Kotlin `AppFiles.read` tries it, then `filesDir`), readable without the WebView | same |
 | PWA / browser | `localStorage["velta-scheduled"]` | `localStore()` in `scheduled.js` |
 
 All mutations are ops (`add`, `update`, `remove`, `claim`, `done`, `fail`,
@@ -93,17 +93,16 @@ sends while a tab is open (the UI says so).
 - `ScheduledAlarmReceiver` handles the alarm plus `BOOT_COMPLETED`,
   `MY_PACKAGE_REPLACED`, `TIME_SET`, `TIMEZONE_CHANGED` (dueAt is UTC, so
   these only need a re-arm).
-- On the alarm: start `CoreService` (the app's existing foreground service;
-  starting it is allowed from an exact alarm, may be refused for an inexact
-  one on 12+ — caught), then JNI `scheduledWakeup()` → `run_due` on the
-  in-process core, the same pattern as `pushWakeup` / `BackgroundFetchJob`.
-  No WebView is needed.
-- **Cold process** (the OS killed Velta, the alarm restarts the process but
-  nobody initialized the core): `scheduledWakeup` returns false and a
-  notification "Scheduled message is due — open Velta to send it" is posted;
-  opening the app sends it (catch-up on start). Starting the full core
-  without the activity is not supported by the shell today (see AGENTS.md
-  §9.4, same ceiling as push wakeups).
+- On the alarm: try `CoreService` (allowed from an exact alarm, refused for
+  an inexact one on 12+ — caught), `VeltaCore.ensureStarted` (starts the
+  core headless in a cold process, AGENTS.md §9.4), then `goAsync()` and a
+  worker thread calling JNI `scheduledRunBlocking(45)` → `run_due`. The
+  pending broadcast keeps the process alive for the send, so an inexact
+  alarm no longer depends on the foreground service. No WebView is needed.
+- **No core** ("Use background connection" off, or the library failed to
+  load): `scheduledRunBlocking` returns false and a notification
+  "Scheduled message is due — open Velta to send it" is posted; opening the
+  app sends it (catch-up on start).
 - Catch-up on app start and on every resume (`velta-foreground`).
 
 ### Doze behaviour

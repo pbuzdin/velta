@@ -111,8 +111,15 @@ object ScheduledAlarm {
 
 // Alarm + re-registration triggers (boot, app update, clock/time-zone change).
 class ScheduledAlarmReceiver : BroadcastReceiver() {
-    // scheduled.rs: true when the in-process core took the job.
-    private external fun scheduledWakeup(): Boolean
+    companion object {
+        // Under the 60 s background-broadcast limit; a cold core takes up to
+        // 20 s to come up, then the sends.
+        private const val SEND_MAX_SECS = 45
+    }
+
+    // scheduled.rs: sends the due items, blocking up to maxSecs; false when
+    // no core runs in this process.
+    private external fun scheduledRunBlocking(maxSecs: Int): Boolean
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ScheduledAlarm.ACTION_FIRE) {
@@ -129,17 +136,25 @@ class ScheduledAlarmReceiver : BroadcastReceiver() {
             }
             return
         }
-        // Keep the process (and its core) up for the send: same foreground
-        // service the app already runs. Allowed from an exact alarm; an
-        // inexact one may be refused on Android 12+ — the send still runs
-        // if the core is up.
+        // Try the foreground service too (keeps the connection afterwards).
+        // Allowed from an exact alarm; an inexact one is refused on Android
+        // 12+ (ForegroundServiceStartNotAllowedException), which is why the
+        // send itself does not depend on it: goAsync keeps this receiver,
+        // and so the process, alive until the send finished.
         try { CoreService.start(context) } catch (e: Exception) { Log.w("ScheduledAlarm", "CoreService: $e") }
         // Cold process (killed since the alarm was armed): start the core
         // here so the send does not depend on the activity.
         VeltaCore.ensureStarted(context)
-        val taken = try { scheduledWakeup() } catch (_: UnsatisfiedLinkError) { false }
-        if (!taken) ScheduledAlarm.notifyOpenApp(context)
-        // The native run re-arms after each item; this covers "not taken".
-        ScheduledAlarm.rearm(context)
+        val pending = goAsync()
+        Thread({
+            try {
+                val taken = try { scheduledRunBlocking(SEND_MAX_SECS) } catch (_: UnsatisfiedLinkError) { false }
+                if (!taken) ScheduledAlarm.notifyOpenApp(context)
+                // The native run re-arms after each item; this covers "not taken".
+                ScheduledAlarm.rearm(context)
+            } finally {
+                pending.finish()
+            }
+        }, "velta-scheduled-send").start()
     }
 }
