@@ -2587,7 +2587,11 @@ fn push_wakeup_impl() {
     });
 }
 
-/// One bounded background_fetch (30 s core-side). Returns when the core
+/// Core-side bound of one background fetch (was 30 s).
+#[cfg(target_os = "android")]
+const BG_FETCH_TIMEOUT_SECS: f64 = 15.0;
+
+/// One bounded background_fetch (BG_FETCH_TIMEOUT_SECS core-side). Returns when the core
 /// reports the fetch finished (the JSON-RPC call resolves after
 /// AccountsBackgroundFetchDone), or Err when it could not run.
 #[cfg(target_os = "android")]
@@ -2605,6 +2609,13 @@ async fn background_fetch_once() -> Result<(), String> {
     // log may never flush — logcat is the reliable trace (#52).
     // Kotlin started the core (VeltaCore.ensureStarted) just before; on a
     // cold start it may still be initializing, so wait for it a while.
+    // Foreground: the page runs IO itself and a fetch only adds an IO
+    // restart (Velta core patch #12 after 10 s) that holds the scheduler
+    // while tasks stuck on a dead proxy wind down. Never compete with the UI.
+    if android_ui_visible() {
+        log("push wakeup: skipped (app in foreground)");
+        return Err("app in foreground".into());
+    }
     if android_core().is_none() {
         println!("push wakeup: core not initialized");
         log("push wakeup: core not initialized");
@@ -2616,7 +2627,7 @@ async fn background_fetch_once() -> Result<(), String> {
         log("push wakeup: rpc channel not ready");
         return Err("rpc channel not ready".into());
     };
-    match bg_rpc(&tx, state, "background_fetch", serde_json::json!([30.0])).await {
+    match bg_rpc(&tx, state, "background_fetch", serde_json::json!([BG_FETCH_TIMEOUT_SECS])).await {
         Ok(_) => {
             println!("push wakeup: background fetch done");
             log("push wakeup: background fetch done");

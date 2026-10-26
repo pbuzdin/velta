@@ -63,6 +63,15 @@ pub async fn restart_io(id: u32) {
 /// Tells the core the network changed; false when it is not up yet.
 pub async fn maybe_network() -> bool {
     let Some(a) = accounts() else { return false };
-    a.read().await.maybe_network().await;
+    // Never hold the account manager lock across the interrupts: they can
+    // wait out an IO restart, and a queued writer would then block every
+    // UI RPC (chat switching hung behind it).
+    let contexts: Vec<_> = {
+        let accounts = a.read().await;
+        accounts.get_all().into_iter().filter_map(|id| accounts.get_account(id)).collect()
+    };
+    for ctx in contexts {
+        ctx.maybe_network().await;
+    }
     true
 }

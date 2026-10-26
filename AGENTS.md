@@ -276,7 +276,7 @@ quilt `tools/apply-core-patches.py`** (anchor + marker ops; never hand-edit
 `core/`, never apply the wasm series in `docs/research/wasm-patches/` to
 production `core/`). The 2.63.0 re-vendor (2aac743) silently dropped two
 hand-made core edits that were never quilt ops (#12, #13 below); v1.4.64
-shipped without them. Restored 2026-10-10. Current quilt at core 2.65.0 (39 ops, 10 files;
+shipped without them. Restored 2026-10-10. Current quilt at core 2.65.0 (40 ops, 10 files;
 intent in VENDORISSUES.MD):
 
 | # | What | Files |

@@ -239,9 +239,18 @@ mod imp {
     }
 
     /// The active tunnel's run config, if one is selected.
+    /// Mode "off" = mail connects directly: the library must not run as the
+    /// profiles' proxy at all (it used to keep running, so "off" still sent
+    /// all mail through its local SOCKS port, and the 60 s health probe
+    /// logged "socks: EOF").
+    fn mode_off(cfg: &Value) -> bool {
+        cfg["mode"].as_str() == Some("off")
+    }
+
+    /// None also when the active tunnel is set to "off" (nothing to run).
     fn load_config(app: &crate::Host) -> Option<Value> {
         let st = load_store(app);
-        store::run_config(&st, store::active_id(&st)?)
+        store::run_config(&st, store::active_id(&st)?).filter(|c| !mode_off(c))
     }
 
     /// Stops the library and takes our proxy off every profile.
@@ -259,6 +268,11 @@ mod imp {
     /// the saved port so the accounts' proxy_url stays valid across restarts.
     fn start(app: &crate::Host, mut cfg: Value) -> Result<(), String> {
         *HOST.lock().unwrap() = Some(app.clone());
+        if mode_off(&cfg) {
+            tlog("info", "mode off; not starting (mail connects directly)");
+            stop_running();
+            return Ok(());
+        }
         // One at a time: the DNS tunnel and the WebSocket transport both
         // set the profiles' proxy.
         crate::ws_transport::deactivate_for_tunnel(app);
@@ -545,6 +559,10 @@ mod imp {
         v["count"] = Value::from(store::tunnels(&st).len());
         v["active"] = active.as_ref().map_or(Value::Null, |t| t["id"].clone());
         v["active_label"] = active.as_ref().map_or(Value::Null, |t| t["label"].clone());
+        // A stopped library ("off") reports no mode of its own.
+        if let Some(m) = active.as_ref().and_then(|t| t["mode"].as_str()).filter(|m| *m == "off") {
+            v["mode"] = Value::from(m);
+        }
         if v["zone"].is_null() {
             if let Some(t) = &active {
                 v["zone"] = t["zone"].clone();
@@ -562,12 +580,30 @@ mod imp {
 
     pub fn set_mode(app: &crate::Host, mode: &str) -> Result<(), String> {
         let _g = OP.lock().unwrap();
-        call(|l| l.set_mode, mode)?;
         let mut st = load_store(app);
-        if let Some(id) = store::active_id(&st).map(str::to_string) {
-            store::set_mode(&mut st, &id, mode)?;
+        let id = store::active_id(&st).map(str::to_string);
+        if let Some(id) = &id {
+            store::set_mode(&mut st, id, mode)?;
             save_store(app, &st)?;
         }
+        let running = PROXY_URL.lock().unwrap().is_some();
+        if mode == "off" {
+            // Stop the library and take its proxy off every profile
+            // (apply_proxy restarts their IO on direct connections).
+            if running {
+                tlog("info", "mode off; stopping the tunnel, mail connects directly");
+                stop_running();
+            }
+            return Ok(());
+        }
+        if !running {
+            if let Some(cfg) = id.as_deref().and_then(|id| store::run_config(&st, id)) {
+                start(app, cfg)?;
+                tauri::async_runtime::spawn(apply_proxy());
+                return Ok(());
+            }
+        }
+        call(|l| l.set_mode, mode)?;
         Ok(())
     }
 

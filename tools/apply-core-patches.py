@@ -1138,6 +1138,38 @@ pub struct JsonrpcTransportServerMetadata {
     pub max_smtp_rcpt_to: Option<u32>,
 """,
     ),
+    dict(
+        id="#17 maybe_network releases the account lock (api.rs)",
+        file="core/deltachat-jsonrpc/src/api.rs",
+        applied="Velta #17: do not hold the account manager lock",
+        anchor=(
+            "    async fn maybe_network(&self) -> Result<()> {\n"
+            "        self.accounts.read().await.maybe_network().await;\n"
+            "        Ok(())\n"
+            "    }\n"
+        ),
+        where="replace",
+        text="""    async fn maybe_network(&self) -> Result<()> {
+        // Velta #17: do not hold the account manager lock while interrupting.
+        // The interrupts wait on each scheduler's lock, which an IO restart
+        // holds while tasks stuck on a dead proxy wind down (up to 30 s per
+        // task); a start_io/stop_io writer queued meanwhile then blocked
+        // every other RPC (get_chat, get_messages: chat switching hung).
+        let contexts: Vec<_> = {
+            let accounts = self.accounts.read().await;
+            accounts
+                .get_all()
+                .into_iter()
+                .filter_map(|id| accounts.get_account(id))
+                .collect()
+        };
+        for ctx in contexts {
+            ctx.maybe_network().await;
+        }
+        Ok(())
+    }
+""",
+    ),
 ]
 
 

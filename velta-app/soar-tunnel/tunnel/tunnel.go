@@ -353,7 +353,10 @@ func (t *Tunnel) handle(c net.Conn) {
 	c.SetDeadline(time.Now().Add(handshakeTimeout))
 	addr, err := socksHandshake(c, t.cfg.User, t.cfg.Pass)
 	if err != nil {
-		t.log.add("socks: %v", err)
+		// A bare connect-and-close (the shell's liveness probe) is not an error.
+		if !errors.Is(err, io.EOF) {
+			t.log.add("socks: %v", err)
+		}
 		return
 	}
 	if host, _, err := net.SplitHostPort(addr); err == nil && net.ParseIP(host) == nil {

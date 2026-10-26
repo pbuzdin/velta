@@ -424,3 +424,14 @@ line. Quilt ops `#16 …` in tools/apply-core-patches.py; must stay after the
 #15 ops (anchored on their inserted text). The wasm copy inherits it (the
 wasm series applies on top of the quilted core). Drop when upstream exposes
 per-transport capabilities.
+
+### 17. `maybe_network` holds the account manager lock across interrupts (deltachat-jsonrpc/src/api.rs)
+
+`maybe_network` awaited every scheduler interrupt while holding
+`accounts.read()`. An IO restart (push/background fetch patch #12, proxy
+change) holds the scheduler lock while tasks stuck on a dead proxy wind down
+(`Scheduler::stop` waits up to 30 s per task). A `start_io`/`stop_io` writer
+queued behind that reader then blocked every other RPC (tokio's RwLock is
+fair), so `get_chat`/`get_messages` stalled until the UI's 30 s RPC timeout:
+chat switching "did nothing" on Android after a send. The op clones the
+contexts under the lock and interrupts after releasing it.
