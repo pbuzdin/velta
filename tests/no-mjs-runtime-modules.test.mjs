@@ -1,4 +1,4 @@
-// #127 regression: the live PWA (nginx, a7.velta.cc) served app/vendor/sjcl.mjs
+// #127 regression: the live PWA (nginx) served app/vendor/sjcl.mjs
 // as application/octet-stream, so Chromium's strict module MIME check refused
 // it, the whole app.js module graph (lufi.js -> sjcl) failed to load, and the
 // welcome splash with its version line never rendered from the fresh build.
