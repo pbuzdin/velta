@@ -5,8 +5,10 @@
 // server zone and key are never part of this code. Until then nothing here
 // shows up and the app behaves exactly as upstream Velta.
 //
-// Shell commands: tunnel_preview, tunnel_install, tunnel_remove,
-// tunnel_status, tunnel_set_mode, tunnel_network_changed, share_text.
+// Several tunnels can be saved (tunnels.json in the shell); one or none is
+// active. Shell commands: tunnel_preview, tunnel_install, tunnel_list,
+// tunnel_select, tunnel_rename, tunnel_delete, tunnel_link, tunnel_status,
+// tunnel_set_mode, tunnel_network_changed, share_text.
 import { escapeHtml } from "./format.js";
 import { tauriInvoke } from "./tauri.js";
 import { t } from "./i18n.js";
@@ -179,15 +181,38 @@ export async function refreshTunnelStatus(events = 0, invoke = tauriInvoke()) {
   if (!invoke) return (cached = { installed: false, available: false });
   try {
     cached = await invoke("tunnel_status", { events });
+    await migrateLegacyLabel(cached, invoke);
   } catch (e) {
     cached = { installed: false, available: false, error: errMsg(e) };
   }
   return cached;
 }
 
+/** Upgrade from the single-tunnel version: its label lived in this
+ * WebView's storage, the shell moved the tunnel itself into the list. Give
+ * that (active, unnamed) entry the label once, then drop the old key. */
+export async function migrateLegacyLabel(s, invoke) {
+  const label = storedLabel();
+  if (!label || !s?.installed || typeof s.count !== "number") return;
+  if (s.active && !s.active_label) {
+    try {
+      await invoke("tunnel_rename", { id: s.active, label });
+      s.active_label = label;
+    } catch { return; }
+  }
+  storeLabel("");
+}
+
+/** Name shown for a saved tunnel: its label, else its server. */
+export function tunnelName(tn) {
+  return (tn?.label || "").trim() || tn?.zone || t("unknown server");
+}
+
 /** One-line state for the drawer and the settings sheet. */
 export function describeTunnel(s) {
   if (!s?.installed) return { headline: "Not set up", detail: "" };
+  // Tunnels are saved but none is in use (current shells send active: null).
+  if (s.active === null) return { headline: "Off", detail: t("No tunnel is in use. Pick one of your saved tunnels to use it.") };
   if (s.available === false || s.running === false) {
     return { headline: "Not running", detail: s.error || "The tunnel library did not start." };
   }
@@ -255,12 +280,13 @@ export function tunnelReport(s, { app = "", now = new Date() } = {}) {
 }
 
 /** Confirmation text for a parsed link: what it is, where traffic goes, and
- * whether it replaces the current tunnel. Exported for tests. */
-export function tunnelConfirmText(link, { replacing = null, resolvers } = {}) {
+ * which tunnel "Add and use" switches away from. Exported for tests. */
+export function tunnelConfirmText(link, { current = null, replacing = null, resolvers } = {}) {
   const lines = [];
   if (link.label) lines.push(t("Name: {label}", { label: link.label }));
   lines.push(t("Tunnel server: {zone}", { zone: link.zone }));
-  if (replacing) lines.push(t("This replaces your current DNS tunnel ({zone}).", { zone: replacing }));
+  const now = current || replacing;
+  if (now) lines.push(t("“Add and use” switches from the tunnel in use ({name}); it stays saved.", { name: now }));
   lines.push(
     t("All chat traffic will go through this tunnel's server whenever the tunnel is in use. Your messages stay end-to-end encrypted, but the server operator sees which relays you connect to and when."),
     t("It uses {n} DNS resolvers. Only accept tunnel links from someone you trust.", { n: resolvers ?? "?" }),
@@ -269,10 +295,44 @@ export function tunnelConfirmText(link, { replacing = null, resolvers } = {}) {
 }
 
 /**
+ * Dialog with several actions, built on ui.js showModal (focus starts on
+ * the primary action; Back/overlay/close = cancel). Resolves the chosen
+ * action's id, or null. actions: [{ id, label, primary? }].
+ */
+export function makeChooser(showModal) {
+  return (title, text, actions) => new Promise(resolve => {
+    const doc = globalThis.document;
+    const body = doc.createElement("div");
+    body.innerHTML = `<p style="font-size:15px;line-height:1.45;white-space:pre-line">${escapeHtml(text)}</p>`;
+    const foot = doc.createElement("div");
+    foot.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end";
+    let done = false;
+    const finish = (v, close) => { if (done) return; done = true; resolve(v); close?.(); };
+    const btns = [...actions, { id: null, label: t("Cancel") }].map(a => {
+      const b = doc.createElement("button");
+      b.type = "button";
+      b.className = a.primary ? "btn-text btn-primary" : "btn-text";
+      if (a.primary) b.style.width = "auto";
+      b.textContent = a.label;
+      b.dataset.choice = a.id ?? "cancel";
+      return [b, a.id];
+    });
+    // Cancel first in the row, like confirmModal; actions after it.
+    foot.append(btns.at(-1)[0], ...btns.slice(0, -1).map(x => x[0]));
+    const { close } = showModal({ title, body, foot, compact: true, onClose: () => finish(null) });
+    for (const [b, id] of btns) b.addEventListener("click", () => finish(id, close));
+    setTimeout(() => (btns.find(([, id]) => actions.find(a => a.id === id)?.primary) || btns[0])[0].focus?.(), 60);
+  });
+}
+
+/**
  * A velta://tunnel link was opened (deep link, QR, paste). Links can come from
  * any web page or app, so nothing changes without the user's confirmation.
+ * New tunnel: "Add and use" / "Add" / "Cancel". Already saved (same zone and
+ * key): offer to switch to it. Older shells without a list fall back to the
+ * single-tunnel confirm.
  */
-export async function acceptTunnelLink(link, { confirmModal, toast, errToast, onChange, invoke = tauriInvoke() }) {
+export async function acceptTunnelLink(link, { confirmModal, choose = null, toast, errToast, onChange, invoke = tauriInvoke() }) {
   let parsed;
   try {
     parsed = parseTunnelLink(link);
@@ -296,33 +356,66 @@ export async function acceptTunnelLink(link, { confirmModal, toast, errToast, on
     errToast(t("This tunnel link can't be used: {why}", { why: errMsg(e) }), 6000);
     return false;
   }
-  const replacing = current.installed ? (current.zone || t("unknown server")) : null;
-  const ok = await confirmModal(
-    replacing ? t("Replace DNS tunnel?") : t("Add DNS tunnel?"),
-    tunnelConfirmText({ ...parsed, zone: preview.zone || parsed.zone }, { replacing, resolvers: preview.resolvers }),
-    replacing ? t("Replace") : t("Enable"),
-    !!replacing,
-  );
-  if (!ok) return false;
+  const zone = preview.zone || parsed.zone;
+  const existing = preview.existing;
+  if (existing?.id) {
+    const name = tunnelName({ label: existing.label, zone });
+    if (existing.active) {
+      toast(t("This DNS tunnel is already saved and in use ({name}).", { name }), 4000);
+      return true;
+    }
+    const ok = await confirmModal(
+      t("Use saved DNS tunnel?"),
+      t("This tunnel is already saved as “{name}”. Use it now?", { name }),
+      t("Use it"),
+      false,
+    );
+    if (!ok) return false;
+    try {
+      await invoke("tunnel_select", { id: existing.id });
+    } catch (e) {
+      errToast(t("Couldn't switch the tunnel: {why}", { why: errMsg(e) }), 6000);
+      return false;
+    }
+    await refreshTunnelStatus(0, invoke);
+    toast(t("Now using {name}", { name }));
+    onChange?.();
+    return true;
+  }
+  const inUse = current.installed && current.active !== null
+    ? (current.active_label || current.zone || t("unknown server")) : null;
+  const text = tunnelConfirmText({ ...parsed, zone }, { current: inUse, resolvers: preview.resolvers });
+  let activate;
+  if (choose) {
+    const pick = await choose(t("Add DNS tunnel?"), text, [
+      { id: "add", label: t("Add") },
+      { id: "use", label: t("Add and use"), primary: true },
+    ]);
+    if (!pick) return false;
+    activate = pick === "use";
+  } else {
+    if (!(await confirmModal(t("Add DNS tunnel?"), text, t("Add and use"), false))) return false;
+    activate = true;
+  }
   try {
-    await invoke("tunnel_install", { link });
+    await invoke("tunnel_install", { link, label: parsed.label, activate });
   } catch (e) {
     errToast(t("Couldn't enable the tunnel: {why}", { why: errMsg(e) }), 6000);
     return false;
   }
-  storeLabel(parsed.label);
   await refreshTunnelStatus(0, invoke);
-  toast(replacing ? t("DNS tunnel replaced") : t("DNS tunnel enabled"));
+  toast(activate ? t("DNS tunnel added and in use") : t("DNS tunnel added"));
   onChange?.();
   return true;
 }
 
-/** Share sheet for the installed tunnel: QR, the link, Copy and Share. */
-export async function openTunnelShare({ showModal, toast, errToast, renderQr, invoke = tauriInvoke() }) {
+/** Share sheet for a saved tunnel (default: the active one): QR, the link,
+ * Copy and Share. */
+export async function openTunnelShare({ showModal, toast, errToast, renderQr, id = null, invoke = tauriInvoke() }) {
   let link;
   try {
-    const cfg = await invoke("tunnel_link");
-    link = buildTunnelLink({ ...cfg, label: storedLabel() });
+    const cfg = await invoke("tunnel_link", id ? { id } : {});
+    link = buildTunnelLink({ ...cfg, label: cfg.label ?? storedLabel() });
     parseTunnelLink(link);
   } catch (e) {
     errToast(t("Couldn't build the tunnel link: {why}", { why: errMsg(e) }));
@@ -467,13 +560,54 @@ export function interceptionWarning(s) {
   return `<p class="p2p-hint" style="color:var(--danger)">This network intercepts DNS${via}: every plain-DNS resolver path goes through one resolver, so the tunnel relies on DNS-over-TLS here and may be slow. Check the router's DNS settings.</p>`;
 }
 
-/** Settings sheet: state, mode, diagnostics, removal. */
-export async function openTunnelSettings({ showModal, confirmModal, toast, errToast, onChange, renderQr, appVersion = "", invoke = tauriInvoke() }) {
+function addedDate(sec) {
+  if (!sec) return "";
+  try { return new Date(sec * 1000).toLocaleDateString(); } catch { return ""; }
+}
+
+/** Saved-tunnel rows for the settings sheet. The active one is marked with
+ * a check AND the words "In use" (never by colour alone); every action is a
+ * real <button> whose accessible name carries the tunnel's name. */
+export function tunnelListHtml(list) {
+  const rows = list?.tunnels || [];
+  if (!rows.length) return `<li class="tunnel-row"><span class="tunnel-sub">${escapeHtml(t("No saved tunnels."))}</span></li>`;
+  return rows.map(tn => {
+    const name = tunnelName(tn);
+    const on = !!tn.active;
+    const sub = [tn.label ? tn.zone : "", addedDate(tn.added) ? t("Added {date}", { date: addedDate(tn.added) }) : ""].filter(Boolean).join(" · ");
+    const btn = (act, icon, label, extra = "") =>
+      `<button type="button" class="icon-btn" data-act="${act}" aria-label="${escapeHtml(t(label, { name }))}" title="${escapeHtml(t(label, { name }))}"${extra}>${icon}</button>`;
+    return `<li class="tunnel-row${on ? " is-active" : ""}" data-id="${escapeHtml(tn.id)}"${on ? ' aria-current="true"' : ""}>
+      <span class="tunnel-mark" aria-hidden="true">${on ? ICON.check : ""}</span>
+      <span class="tunnel-text"><span class="tunnel-name">${escapeHtml(name)}</span>${on ? ` <span class="tunnel-badge">${escapeHtml(t("In use"))}</span>` : ""}${sub ? `<span class="tunnel-sub">${escapeHtml(sub)}</span>` : ""}</span>
+      <span class="tunnel-acts">
+        ${on
+          ? `<button type="button" class="btn-text" data-act="off" aria-label="${escapeHtml(t("Stop using {name}", { name }))}">${escapeHtml(t("Stop"))}</button>`
+          : `<button type="button" class="btn-text" data-act="use" aria-label="${escapeHtml(t("Use {name}", { name }))}">${escapeHtml(t("Use"))}</button>`}
+        ${btn("rename", ICON.edit, "Rename {name}")}
+        ${btn("share", ICON.qr, "Share {name}")}
+        ${btn("delete", ICON.trash, "Delete {name}", ' style="color:var(--danger)"')}
+      </span>
+    </li>`;
+  }).join("");
+}
+
+/** Settings sheet: saved tunnels (use / stop / rename / share / delete),
+ * then the active tunnel's state, mode and diagnostics. */
+export async function openTunnelSettings(deps) {
+  const { showModal, confirmModal, askText, toast, errToast, onChange, renderQr, appVersion = "", invoke = tauriInvoke() } = deps;
   if (!invoke) return;
   const s = await refreshTunnelStatus(200, invoke);
+  let list;
+  try { list = await invoke("tunnel_list"); } catch { list = null; }
   const body = document.createElement("div");
+  const hasActive = !list || !!list.active;
   body.innerHTML = `
-    <p class="p2p-hint" data-tunnel-state>${stateHtml(s)}</p>
+    <h3 class="tunnel-list-h" id="tunnel-list-h">${escapeHtml(t("Saved tunnels"))}</h3>
+    ${list ? `<ul class="tunnel-list" role="list" aria-labelledby="tunnel-list-h" data-tunnel-list>${tunnelListHtml(list)}</ul>
+    <p class="bar-opts-hint">${escapeHtml(t("To add another tunnel, open its link or scan its QR code."))}</p>` : ""}
+    <div data-tunnel-active${hasActive ? "" : " hidden"}>
+    <p class="p2p-hint" data-tunnel-state aria-live="polite">${stateHtml(s)}</p>
     ${privateDnsWarning(s)}
     ${interceptionWarning(s)}
     <fieldset class="scale-opts" data-tunnel-modes>
@@ -482,10 +616,11 @@ export async function openTunnelSettings({ showModal, confirmModal, toast, errTo
     </fieldset>
     <div class="bar-opts-hint" data-tunnel-hint>${escapeHtml((MODES.find(m => m[0] === s.mode) || MODES[0])[2])}</div>
     <p class="p2p-hint" data-tunnel-paths>${pathsHtml(s)}</p>
+    </div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
-      <button type="button" class="btn-text" data-tunnel-share-open>${ICON.qr}<span>${escapeHtml(t("Share tunnel link"))}</span></button>
+      ${list ? "" : `<button type="button" class="btn-text" data-tunnel-share-open>${ICON.qr}<span>${escapeHtml(t("Share tunnel link"))}</span></button>`}
       <button type="button" class="btn-text" data-tunnel-share>Share diagnostics…</button>
-      <button type="button" class="btn-text" data-tunnel-remove style="color:var(--danger)">Remove the tunnel</button>
+      ${list ? "" : `<button type="button" class="btn-text" data-tunnel-remove style="color:var(--danger)">Remove the tunnel</button>`}
     </div>`;
   // Live while open: a mode switch or an allowlist flip shows up within
   // seconds instead of only after reopening the sheet.
@@ -499,6 +634,21 @@ export async function openTunnelSettings({ showModal, confirmModal, toast, errTo
     if (ps) ps.innerHTML = pathsHtml(fresh);
   }, 2000);
 
+  const reopen = focusId => { clearInterval(live); return openTunnelSettings({ ...deps, focusId }); };
+  // Back from a rename/delete/switch: keyboard focus returns to that row.
+  if (deps.focusId) {
+    setTimeout(() => body.querySelector(`li[data-id="${String(deps.focusId).replace(/[^a-z0-9]/gi, "")}"] button`)?.focus?.(), 80);
+  }
+  const ul = body.querySelector("[data-tunnel-list]");
+  ul?.addEventListener("click", async ev => {
+    const b = ev.target?.closest?.("button[data-act]");
+    const id = b?.closest?.("li[data-id]")?.dataset.id;
+    if (!b || !id) return;
+    const tn = list.tunnels.find(x => x.id === id);
+    if (!tn) return;
+    await tunnelAction(b.dataset.act, tn, { ...deps, invoke, close, reopen });
+  });
+
   body.querySelectorAll('input[name="tunnel-mode"]').forEach(input =>
     input.addEventListener("change", async () => {
       try {
@@ -511,7 +661,7 @@ export async function openTunnelSettings({ showModal, confirmModal, toast, errTo
       }
     }));
 
-  body.querySelector("[data-tunnel-share-open]").addEventListener("click", () => {
+  body.querySelector("[data-tunnel-share-open]")?.addEventListener("click", () => {
     clearInterval(live);
     openTunnelShare({ showModal, toast, errToast, renderQr, invoke });
   });
@@ -531,7 +681,8 @@ export async function openTunnelSettings({ showModal, confirmModal, toast, errTo
     }
   });
 
-  body.querySelector("[data-tunnel-remove]").addEventListener("click", async () => {
+  // Older shells (no tunnel_list): the single tunnel's Remove.
+  body.querySelector("[data-tunnel-remove]")?.addEventListener("click", async () => {
     const ok = await confirmModal("Remove the DNS tunnel?", "Mail will only connect directly. You need the tunnel link again to set it up.", "Remove", true);
     if (!ok) return;
     try {
@@ -545,4 +696,66 @@ export async function openTunnelSettings({ showModal, confirmModal, toast, errTo
       errToast("Couldn't remove the tunnel: " + errMsg(e));
     }
   });
+  return { body, close };
+}
+
+/** One saved-tunnel action from the settings sheet. Exported for tests.
+ * Dialogs (rename, delete, share) replace the sheet; it reopens after. */
+export async function tunnelAction(act, tn, { invoke, confirmModal, askText, toast, errToast, onChange, showModal, renderQr, close, reopen }) {
+  const name = tunnelName(tn);
+  const fail = (what, e) => { errToast(t(what, { why: errMsg(e) }), 6000); };
+  switch (act) {
+    case "use":
+    case "off":
+      try {
+        await invoke("tunnel_select", { id: act === "use" ? tn.id : null });
+      } catch (e) {
+        fail("Couldn't switch the tunnel: {why}", e);
+        return false;
+      }
+      await refreshTunnelStatus(0, invoke);
+      toast(act === "use" ? t("Now using {name}", { name }) : t("DNS tunnel turned off"));
+      onChange?.();
+      await reopen?.(tn.id);
+      return true;
+    case "rename": {
+      const label = await askText?.(t("Rename tunnel"), tn.label || "", t("Save"));
+      if (label == null) { await reopen?.(tn.id); return false; }
+      try {
+        await invoke("tunnel_rename", { id: tn.id, label });
+      } catch (e) {
+        fail("Couldn't rename the tunnel: {why}", e);
+      }
+      await refreshTunnelStatus(0, invoke);
+      onChange?.();
+      await reopen?.(tn.id);
+      return true;
+    }
+    case "share":
+      return !!(await openTunnelShare({ showModal, toast, errToast, renderQr, id: tn.id, invoke }));
+    case "delete": {
+      const ok = await confirmModal(
+        t("Delete DNS tunnel?"),
+        tn.active
+          ? t("“{name}” is in use. Deleting it stops the tunnel and mail connects directly. You need its link to add it again.", { name })
+          : t("Delete “{name}”? You need its link to add it again.", { name }),
+        t("Delete"),
+        true,
+      );
+      if (!ok) { await reopen?.(tn.id); return false; }
+      try {
+        await invoke("tunnel_delete", { id: tn.id });
+      } catch (e) {
+        fail("Couldn't delete the tunnel: {why}", e);
+        await reopen?.(tn.id);
+        return false;
+      }
+      const fresh = await refreshTunnelStatus(0, invoke);
+      toast(t("DNS tunnel deleted"));
+      onChange?.();
+      if (fresh.installed) await reopen?.(); else close?.();
+      return true;
+    }
+  }
+  return false;
 }

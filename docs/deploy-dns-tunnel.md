@@ -89,7 +89,9 @@ Send the printed link privately (QR code or message to yourself):
 velta://tunnel?v=1&zone=t.example.com&key=<url-encoded public key>
 ```
 
-Open it on the phone or Windows PC (or paste it in Velta) → confirm. The drawer then shows **DNS tunnel**;
+Open it on the phone or Windows PC (or paste it in Velta) → **Add and use**
+(or **Add** to keep it saved for later; DNS tunnel → Saved tunnels switches
+between several servers). The drawer then shows **DNS tunnel**;
 the default mode **Auto** uses the tunnel only when relays are blocked.
 Optional link parameters: `r=<ip:port,…>` extra resolvers (IP literals,
 port 853 = DoT), `c=<host:port,…>` replacement canaries. Velta
@@ -119,4 +121,4 @@ sudo rm -rf /etc/soar-server                  # destroys the key (old links stop
 ```
 
 Then remove the NS and A records, and the tunnel in Velta (DNS tunnel →
-Remove).
+Saved tunnels → Delete).

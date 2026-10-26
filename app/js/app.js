@@ -32,7 +32,7 @@ import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS, setLinkPrevie
 import { wirePushSection } from "./push-settings.js";
 import { wireWebPushSection, refreshWebPush } from "./web-push.js";
 import { openInAppBrowser } from "./inapp-browser.js";
-import { extractTunnelLink, acceptTunnelLink, openTunnelSettings, refreshTunnelStatus, tunnelInstalled, tunnelStatus, describeTunnel, bindTunnelNetworkEvents, initTunnelDiagnostics } from "./tunnel.js";
+import { extractTunnelLink, acceptTunnelLink, makeChooser, openTunnelSettings, refreshTunnelStatus, tunnelInstalled, tunnelStatus, describeTunnel, bindTunnelNetworkEvents, initTunnelDiagnostics } from "./tunnel.js";
 import { wrapIdentityBundle, unwrapIdentityBundle, buildIdentityBundle, bytesToBase64, base64ToBytes, backupDownloadName, gzipBytes, mailLoginFromTransports, accountDirFromToml, mailLoginsFromDbText } from "./identity-backup.js";
 import { isAndroid, tauriInvoke } from "./tauri.js";
 import { recordApp } from "./app-browser.js";
@@ -4245,7 +4245,7 @@ async function handleDeeplinkFromUrl(rawUrl, { clearUrl = false } = {}) {
   const tunnelLink = extractTunnelLink(rawUrl);
   if (tunnelLink) {
     if (clearUrl) history.replaceState(null, "", location.pathname + location.search);
-    await acceptTunnelLink(tunnelLink, { confirmModal, toast, errToast, onChange: rebuildDrawer });
+    await acceptTunnelLink(tunnelLink, { confirmModal, choose: makeChooser(showModal), toast, errToast, onChange: rebuildDrawer });
     return true;
   }
   const velta = extractVeltaLink(rawUrl);
@@ -4963,7 +4963,7 @@ function rebuildDrawer() {
     onExportSettings: () => exportSettingsToSaved(),
     backendKind: core?.backend?.kind || null,
     onTunnel: tunnelInstalled()
-      ? () => openTunnelSettings({ showModal, confirmModal, toast, errToast, onChange: rebuildDrawer, renderQr: text => core.createQrSvg(text) })
+      ? () => openTunnelSettings({ showModal, confirmModal, askText, toast, errToast, onChange: rebuildDrawer, renderQr: text => core.createQrSvg(text) })
       : null,
     tunnelLabel: describeTunnel(tunnelStatus()).headline,
     onPushSection: (el) => wirePushSection(el, {

@@ -14,10 +14,10 @@ tunnel link.
 | `velta-app/soar-tunnel/cmd/libsoartunnel` | C ABI (`-buildmode=c-shared`) the shell dlopens |
 | `velta-app/soar-tunnel/cmd/soar-socks` | Same router as a standalone SOCKS5 proxy (Linux/macOS/Termux): `-link-file`, machine DNS from resolv.conf as first paths (`-system-dns`), `-operator`, `-paths` |
 | `gen/android/.../org/velta/NetInfo.kt` | Network-assigned DNS servers, SIM MCC+MNC, transport, Private DNS state |
-| `velta-app/src-tauri/src/tunnel.rs` | Loads the library, stores the config in app-local data, sets `proxy_url` on every profile, Tauri commands (Android + Windows; macOS/Linux stubs report `unsupported`) |
+| `velta-app/src-tauri/src/tunnel.rs` | Loads the library, keeps the saved tunnels in `tunnels.json` (list logic + `tunnel.json` migration in `tunnel_store.rs`, unit-tested), sets `proxy_url` on every profile, Tauri commands (Android + Windows; macOS/Linux stubs report `unsupported`) |
 | `velta-app/src-tauri/src/tunnel_android.rs` | Android platform: `libsoartunnel.so`, NetInfo.kt, in-process accounts |
 | `velta-app/src-tauri/src/tunnel_windows.rs` | Windows platform: `soartunnel.dll` from the bundle resources, adapters' DNS (`GetAdaptersAddresses`), accounts via JSON-RPC to the sidecar (`sidecar_call` in lib.rs). A macOS port = one more such module + a dylib build |
-| `app/js/tunnel.js` | Deep link confirm, drawer row + settings sheet, diagnostics share |
+| `app/js/tunnel.js` | Deep link confirm (Add and use / Add / Cancel, duplicate → use), drawer row + settings sheet with the saved-tunnel list, diagnostics share |
 | `.github/workflows/build-android.yml` | Builds `libsoartunnel.so` into `gen/android/app/src/main/soarLibs` (gradle `jniLibs.srcDir`) |
 | `.github/workflows/build-windows*.yml` | `tunnel-dll` job: cross-compiles `soartunnel.dll` on Ubuntu (cgo + mingw-w64, `-extldflags=-static`), the installer job bundles it as a resource (`tauri.conf.json`) |
 

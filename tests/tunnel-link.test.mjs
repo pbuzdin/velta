@@ -96,20 +96,19 @@ test("confirmation shows label, domain and the traffic warning; cancel applies n
   assert.match(seen[1], /Name: Office/);
   assert.match(seen[1], /Tunnel server: t\.example\.org/);
   assert.match(seen[1], /All chat traffic will go through this tunnel's server/);
-  assert.equal(seen[2], "Enable");
+  assert.equal(seen[2], "Add and use");
   assert.ok(!calls.some(c => c[0] === "tunnel_install"));
 });
 
-test("an existing tunnel: offered replace or cancel", async () => {
-  const calls = []; let seen; let toastMsg = "";
-  const ok = await acceptTunnelLink(base(), { ...ui({ confirmModal: async (...a) => { seen = a; return true; }, toast: m => { toastMsg = m; } }), invoke: shell(calls, { installed: true }) });
+test("with a tunnel in use: Add and use names the tunnel it switches from", async () => {
+  const calls = []; let seen;
+  const ok = await acceptTunnelLink(base(), { ...ui({ confirmModal: async (...a) => { seen = a; return true; } }), invoke: shell(calls, { installed: true }) });
   assert.equal(ok, true);
-  assert.equal(seen[0], "Replace DNS tunnel?");
-  assert.match(seen[1], /replaces your current DNS tunnel \(old\.example\.net\)/);
-  assert.equal(seen[2], "Replace");
-  assert.equal(seen[3], true);
-  assert.ok(calls.some(c => c[0] === "tunnel_install"));
-  assert.equal(toastMsg, "DNS tunnel replaced");
+  assert.equal(seen[0], "Add DNS tunnel?");
+  assert.match(seen[1], /switches from the tunnel in use \(old\.example\.net\)/);
+  assert.equal(seen[2], "Add and use");
+  assert.equal(seen[3], false);
+  assert.deepEqual(calls.find(c => c[0] === "tunnel_install")[1].activate, true);
 });
 
 test("unsupported platforms get a clear message, no dialog", async () => {

@@ -20,6 +20,11 @@
 
 use serde_json::Value;
 
+/// The saved tunnels (pure list logic, unit-tested on any host).
+#[cfg(any(target_os = "android", windows, test))]
+#[path = "tunnel_store.rs"]
+pub mod store;
+
 #[cfg(target_os = "android")]
 #[path = "tunnel_android.rs"]
 mod platform;
@@ -37,6 +42,7 @@ mod imp {
     use std::sync::{Mutex, OnceLock};
     use tauri::{Emitter, Manager};
     use super::platform;
+    use super::store;
 
     type StrFn = unsafe extern "C" fn(*const c_char) -> *mut c_char;
     type StatusFn = unsafe extern "C" fn(c_int) -> *mut c_char;
@@ -163,21 +169,64 @@ mod imp {
         (info["dns"].clone(), op.to_string())
     }
 
-    fn config_path(app: &tauri::AppHandle) -> Option<PathBuf> {
-        Some(app.path().app_local_data_dir().ok()?.join("tunnel.json"))
+    fn data_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
+        app.path().app_local_data_dir().ok()
     }
 
-    fn load_config(app: &tauri::AppHandle) -> Option<Value> {
-        let s = std::fs::read_to_string(config_path(app)?).ok()?;
-        serde_json::from_str(&s).ok()
+    fn now() -> u64 {
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
     }
 
-    fn save_config(app: &tauri::AppHandle, cfg: &Value) -> Result<(), String> {
-        let path = config_path(app).ok_or("no app data dir")?;
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
+    /// The saved tunnels. On the first run after an upgrade the old
+    /// single-tunnel `tunnel.json` becomes the list's only (active) entry;
+    /// it is deleted only once `tunnels.json` is written.
+    fn load_store(app: &tauri::AppHandle) -> Value {
+        let Some(dir) = data_dir(app) else { return store::empty() };
+        if let Ok(s) = std::fs::read_to_string(dir.join(store::FILE)) {
+            if let Ok(v) = serde_json::from_str::<Value>(&s) {
+                if v.is_object() {
+                    return v;
+                }
+            }
         }
-        std::fs::write(&path, serde_json::to_string(cfg).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+        let legacy = dir.join(store::LEGACY_FILE);
+        let Some(old) = std::fs::read_to_string(&legacy).ok().and_then(|s| serde_json::from_str::<Value>(&s).ok()) else {
+            return store::empty();
+        };
+        let migrated = store::migrate(&old, "", now());
+        match save_store(app, &migrated) {
+            Ok(()) => {
+                let _ = std::fs::remove_file(&legacy);
+                tlog("info", "saved tunnel moved into the tunnel list");
+            }
+            Err(e) => tlog("warning", &format!("couldn't save the tunnel list: {e}")),
+        }
+        migrated
+    }
+
+    fn save_store(app: &tauri::AppHandle, st: &Value) -> Result<(), String> {
+        let dir = data_dir(app).ok_or("no app data dir")?;
+        let _ = std::fs::create_dir_all(&dir);
+        // Write-then-rename: a crash mid-write never loses the list.
+        let tmp = dir.join(format!("{}.tmp", store::FILE));
+        std::fs::write(&tmp, serde_json::to_string(st).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, dir.join(store::FILE)).map_err(|e| e.to_string())
+    }
+
+    /// The active tunnel's run config, if one is selected.
+    fn load_config(app: &tauri::AppHandle) -> Option<Value> {
+        let st = load_store(app);
+        store::run_config(&st, store::active_id(&st)?)
+    }
+
+    /// Stops the library and takes our proxy off every profile.
+    fn stop_running() {
+        if let Ok(lib) = lib() {
+            unsafe { (lib.stop)() };
+        }
+        *PROXY_URL.lock().unwrap() = None;
+        *LAST_NET.lock().unwrap() = None;
+        tauri::async_runtime::spawn(apply_proxy());
     }
 
     /// Starts (or restarts) the library from a stored config, adding the
@@ -202,7 +251,10 @@ mod imp {
         })?;
         let addr = res["addr"].as_str().ok_or("no listen address")?.to_string();
         cfg["listen"] = Value::from(addr.clone());
-        save_config(app, &cfg)?;
+        // The port belongs to the list, not the tunnel: switching keeps it.
+        let mut st = load_store(app);
+        st["listen"] = Value::from(addr.clone());
+        save_store(app, &st)?;
         *LAST_NET.lock().unwrap() = net.as_ref().map(network_key);
         let user = cfg["user"].as_str().unwrap_or_default();
         let pass = cfg["pass"].as_str().unwrap_or_default();
@@ -330,60 +382,127 @@ mod imp {
         }
     }
 
-    pub fn preview(link: &str) -> Result<Value, String> {
+    /// What the confirmation shows; `existing` is the saved tunnel with
+    /// the same zone+key ({"id", "label", "active"}) or null.
+    pub fn preview(app: &tauri::AppHandle, link: &str) -> Result<Value, String> {
         let cfg = call(|l| l.parse, link)?;
+        let st = load_store(app);
+        let existing = store::find_duplicate(&st, cfg["zone"].as_str().unwrap_or(""), cfg["key"].as_str().unwrap_or(""))
+            .map_or(Value::Null, |t| serde_json::json!({
+                "id": t["id"], "label": t["label"],
+                "active": store::active_id(&st) == t["id"].as_str(),
+            }));
         Ok(serde_json::json!({
             "zone": cfg["zone"],
             "resolvers": cfg["effective_resolvers"],
             "canaries": cfg["canaries"],
+            "existing": existing,
+            "count": store::tunnels(&st).len(),
         }))
     }
 
-    pub fn install(app: &tauri::AppHandle, link: &str) -> Result<(), String> {
+    /// Saves the link's tunnel (same zone+key: the saved one) and, with
+    /// `activate`, switches to it. Returns {"id", "existing"}.
+    pub fn install(app: &tauri::AppHandle, link: &str, label: &str, activate: bool) -> Result<Value, String> {
         let _g = OP.lock().unwrap();
-        let mut cfg = call(|l| l.parse, link)?;
-        if let Some(o) = cfg.as_object_mut() {
-            o.remove("effective_resolvers");
+        let cfg = call(|l| l.parse, link)?;
+        let mut st = load_store(app);
+        let (id, existing) = store::add(&mut st, &cfg, label, now());
+        if activate {
+            store::select(&mut st, Some(&id))?;
         }
-        start(app, cfg)?;
-        tauri::async_runtime::spawn(apply_proxy());
+        save_store(app, &st)?;
+        tlog("info", &format!("tunnel {id} {}", if existing { "already saved" } else { "saved" }));
+        if activate {
+            start(app, store::run_config(&st, &id).ok_or("No such tunnel")?)?;
+            tauri::async_runtime::spawn(apply_proxy());
+        }
+        Ok(serde_json::json!({"id": id, "existing": existing}))
+    }
+
+    /// Saved tunnels for the settings sheet (no keys).
+    pub fn list(app: &tauri::AppHandle) -> Value {
+        store::public_list(&load_store(app))
+    }
+
+    /// Activates a saved tunnel, or none (stops it).
+    pub fn select(app: &tauri::AppHandle, id: Option<&str>) -> Result<(), String> {
+        let _g = OP.lock().unwrap();
+        let mut st = load_store(app);
+        store::select(&mut st, id)?;
+        save_store(app, &st)?;
+        match id {
+            Some(id) => {
+                tlog("info", &format!("switching to tunnel {id}"));
+                start(app, store::run_config(&st, id).ok_or("No such tunnel")?)?;
+                tauri::async_runtime::spawn(async {
+                    apply_proxy().await;
+                    // Same proxy URL, new tunnel: reconnect now.
+                    platform::maybe_network().await;
+                });
+            }
+            None => {
+                stop_running();
+                tlog("info", "no tunnel selected; stopped");
+            }
+        }
         Ok(())
     }
 
-    /// What a share link needs from the stored config: only the values the
-    /// original link carried (zone, key, extra resolvers, canaries).
-    pub fn link(app: &tauri::AppHandle) -> Result<Value, String> {
-        let cfg = load_config(app).ok_or("No DNS tunnel is set up")?;
-        Ok(serde_json::json!({
-            "zone": cfg["zone"],
-            "key": cfg["key"],
-            "resolvers": cfg.get("resolvers").cloned().unwrap_or(Value::Null),
-            "canaries": cfg.get("canaries").cloned().unwrap_or(Value::Null),
-        }))
+    pub fn rename(app: &tauri::AppHandle, id: &str, label: &str) -> Result<(), String> {
+        let _g = OP.lock().unwrap();
+        let mut st = load_store(app);
+        store::rename(&mut st, id, label)?;
+        save_store(app, &st)
     }
 
+    /// Deletes a saved tunnel; deleting the active one stops it.
+    pub fn delete(app: &tauri::AppHandle, id: &str) -> Result<(), String> {
+        let _g = OP.lock().unwrap();
+        let mut st = load_store(app);
+        let was_active = store::delete(&mut st, id)?;
+        save_store(app, &st)?;
+        if was_active {
+            stop_running();
+        }
+        tlog("info", &format!("tunnel {id} deleted{}", if was_active { "; stopped" } else { "" }));
+        Ok(())
+    }
+
+    /// What a share link needs: only the values the original link carried
+    /// (zone, key, extra resolvers, canaries) and the label. Default: active.
+    pub fn link(app: &tauri::AppHandle, id: Option<&str>) -> Result<Value, String> {
+        let st = load_store(app);
+        let id = id.or(store::active_id(&st)).ok_or("No DNS tunnel is set up")?;
+        store::link(&st, id).ok_or_else(|| "No such tunnel".into())
+    }
+
+    /// Older pages' "Remove the tunnel": deletes the active one.
     pub fn remove(app: &tauri::AppHandle) -> Result<(), String> {
-        let _g = OP.lock().unwrap();
-        if let Ok(lib) = lib() {
-            unsafe { (lib.stop)() };
+        let st = load_store(app);
+        match store::active_id(&st) {
+            Some(id) => delete(app, &id.to_string()),
+            None => Ok(()),
         }
-        *PROXY_URL.lock().unwrap() = None;
-        *LAST_NET.lock().unwrap() = None;
-        if let Some(path) = config_path(app) {
-            let _ = std::fs::remove_file(path);
-        }
-        tlog("info", "removed");
-        tauri::async_runtime::spawn(apply_proxy());
-        Ok(())
     }
 
     pub fn status(app: &tauri::AppHandle, events: i32) -> Value {
-        let installed = load_config(app).is_some();
+        let st = load_store(app);
+        let active = store::active_id(&st).and_then(|id| store::find(&st, id)).cloned();
         let mut v = match lib() {
             Ok(lib) => take(lib, unsafe { (lib.status)(events) }).unwrap_or_else(|e| serde_json::json!({"error": e})),
             Err(e) => serde_json::json!({"available": false, "error": e}),
         };
-        v["installed"] = Value::from(installed);
+        // installed: at least one tunnel is saved (the drawer row shows).
+        v["installed"] = Value::from(!store::tunnels(&st).is_empty());
+        v["count"] = Value::from(store::tunnels(&st).len());
+        v["active"] = active.as_ref().map_or(Value::Null, |t| t["id"].clone());
+        v["active_label"] = active.as_ref().map_or(Value::Null, |t| t["label"].clone());
+        if v["zone"].is_null() {
+            if let Some(t) = &active {
+                v["zone"] = t["zone"].clone();
+            }
+        }
         if v.get("available").is_none() {
             v["available"] = Value::from(true);
         }
@@ -397,9 +516,10 @@ mod imp {
     pub fn set_mode(app: &tauri::AppHandle, mode: &str) -> Result<(), String> {
         let _g = OP.lock().unwrap();
         call(|l| l.set_mode, mode)?;
-        if let Some(mut cfg) = load_config(app) {
-            cfg["mode"] = Value::from(mode);
-            save_config(app, &cfg)?;
+        let mut st = load_store(app);
+        if let Some(id) = store::active_id(&st).map(str::to_string) {
+            store::set_mode(&mut st, &id, mode)?;
+            save_store(app, &st)?;
         }
         Ok(())
     }
@@ -441,20 +561,46 @@ pub fn boot(_app: &tauri::AppHandle) {}
 
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
-pub fn tunnel_preview(link: String) -> Result<Value, String> {
-    imp::preview(&link)
+pub fn tunnel_preview(app: tauri::AppHandle, link: String) -> Result<Value, String> {
+    imp::preview(&app, &link)
+}
+
+/// Saves the link's tunnel; `activate` (default true) also switches to it.
+#[cfg(any(target_os = "android", windows))]
+#[tauri::command]
+pub fn tunnel_install(app: tauri::AppHandle, link: String, label: Option<String>, activate: Option<bool>) -> Result<Value, String> {
+    imp::install(&app, &link, label.as_deref().unwrap_or(""), activate.unwrap_or(true))
 }
 
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
-pub fn tunnel_install(app: tauri::AppHandle, link: String) -> Result<(), String> {
-    imp::install(&app, &link)
+pub fn tunnel_link(app: tauri::AppHandle, id: Option<String>) -> Result<Value, String> {
+    imp::link(&app, id.as_deref())
 }
 
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
-pub fn tunnel_link(app: tauri::AppHandle) -> Result<Value, String> {
-    imp::link(&app)
+pub fn tunnel_list(app: tauri::AppHandle) -> Value {
+    imp::list(&app)
+}
+
+/// id null: no tunnel (stops the running one).
+#[cfg(any(target_os = "android", windows))]
+#[tauri::command]
+pub fn tunnel_select(app: tauri::AppHandle, id: Option<String>) -> Result<(), String> {
+    imp::select(&app, id.as_deref())
+}
+
+#[cfg(any(target_os = "android", windows))]
+#[tauri::command]
+pub fn tunnel_rename(app: tauri::AppHandle, id: String, label: String) -> Result<(), String> {
+    imp::rename(&app, &id, &label)
+}
+
+#[cfg(any(target_os = "android", windows))]
+#[tauri::command]
+pub fn tunnel_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    imp::delete(&app, &id)
 }
 
 #[cfg(any(target_os = "android", windows))]
@@ -516,14 +662,42 @@ pub fn tunnel_preview(link: String) -> Result<Value, String> {
 
 #[cfg(not(any(target_os = "android", windows)))]
 #[tauri::command]
-pub fn tunnel_install(link: String) -> Result<(), String> {
-    let _ = link;
+pub fn tunnel_install(link: String, label: Option<String>, activate: Option<bool>) -> Result<Value, String> {
+    let _ = (link, label, activate);
     Err(UNAVAILABLE.into())
 }
 
 #[cfg(not(any(target_os = "android", windows)))]
 #[tauri::command]
-pub fn tunnel_link() -> Result<Value, String> {
+pub fn tunnel_link(id: Option<String>) -> Result<Value, String> {
+    let _ = id;
+    Err(UNAVAILABLE.into())
+}
+
+#[cfg(not(any(target_os = "android", windows)))]
+#[tauri::command]
+pub fn tunnel_list() -> Value {
+    serde_json::json!({"active": null, "tunnels": []})
+}
+
+#[cfg(not(any(target_os = "android", windows)))]
+#[tauri::command]
+pub fn tunnel_select(id: Option<String>) -> Result<(), String> {
+    let _ = id;
+    Err(UNAVAILABLE.into())
+}
+
+#[cfg(not(any(target_os = "android", windows)))]
+#[tauri::command]
+pub fn tunnel_rename(id: String, label: String) -> Result<(), String> {
+    let _ = (id, label);
+    Err(UNAVAILABLE.into())
+}
+
+#[cfg(not(any(target_os = "android", windows)))]
+#[tauri::command]
+pub fn tunnel_delete(id: String) -> Result<(), String> {
+    let _ = id;
     Err(UNAVAILABLE.into())
 }
 

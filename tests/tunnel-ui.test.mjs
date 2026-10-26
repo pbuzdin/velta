@@ -82,7 +82,7 @@ test("an accepted link installs, refreshes and notifies", async () => {
   });
   assert.equal(ok, true);
   assert.deepEqual(calls.map(c => c[0]), ["tunnel_status", "tunnel_preview", "tunnel_install", "tunnel_status"]);
-  assert.deepEqual(calls[2][1], { link: LINK });
+  assert.deepEqual(calls[2][1], { link: LINK, label: "", activate: true });
   assert.equal(tunnelInstalled(), true);
   assert.equal(changed, true);
 });

@@ -3270,3 +3270,20 @@ html[data-theme="brutal"] .msg-row.out .msg-text .mention { color: var(--nb-main
 .btn-text > svg, .pin-unpin > svg, .gc-in > svg, .info-row .v > svg {
   width: 1.1em; height: 1.1em; vertical-align: -0.2em; flex: none;
 }
+
+/* DNS tunnel settings: saved tunnels (tunnel.js tunnelListHtml). The
+   active row is marked by a check AND an "In use" badge, not colour alone. */
+.tunnel-list-h { font-size: 13px; font-weight: 600; color: var(--text-dim); margin: 0 0 6px; }
+.tunnel-list { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.tunnel-row { display: flex; align-items: center; gap: 8px; padding: 6px 4px 6px 6px; border-radius: 10px; border: 1px solid var(--border); }
+.tunnel-row.is-active { border-color: var(--accent); }
+.tunnel-mark { width: 22px; flex: none; display: grid; place-items: center; color: var(--accent); }
+.tunnel-mark svg { width: 20px; height: 20px; }
+.tunnel-text { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
+.tunnel-name { font-weight: 600; overflow-wrap: anywhere; }
+.tunnel-badge { font-size: 12px; font-weight: 600; padding: 1px 6px; border-radius: 6px; border: 1px solid currentColor; }
+.tunnel-sub { flex-basis: 100%; font-size: 12px; color: var(--text-dim); overflow-wrap: anywhere; }
+.tunnel-acts { display: flex; align-items: center; flex: none; }
+.tunnel-acts .btn-text { min-height: 40px; padding: 0 10px; }
+.tunnel-acts .icon-btn { width: 40px; height: 40px; }
+.tunnel-acts button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
