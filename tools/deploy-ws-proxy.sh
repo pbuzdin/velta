@@ -72,8 +72,10 @@ if [ "${1:-}" = "invite" ]; then
       exec python3 "$LIB/bridge.py" --reset "$REVOKE" $JSON --uses-file "$STATE/uses.json" ;;
     revoke)
       case "$REVOKE" in ''|*[!A-Za-z0-9]*) echo "--revoke needs an invite id (see --list)" >&2; exit 2 ;; esac
+      # Append only: keep the file's owner/group/mode (e.g. a group-writable
+      # revoked list shared with a bot) instead of resetting it.
+      [ -f "$ETC/revoked" ] || install -m 644 /dev/null "$ETC/revoked"
       grep -qx "$REVOKE" "$ETC/revoked" 2>/dev/null || echo "$REVOKE" >> "$ETC/revoked"
-      chmod 644 "$ETC/revoked"
       echo "Revoked $REVOKE. New connections with it are refused within a few seconds; tunnels already open stay up until they reconnect."
       exit 0 ;;
   esac
@@ -565,9 +567,11 @@ def cli_invites():
     iid = secrets.token_hex(6)
     tok = mint(key, iid, name, exp, uses)
     if log:
+        new = not os.path.exists(log)
         with open(log, "a") as f:
             f.write(f"{iid}\t{name}\t{exp}" + (f"\t{uses}" if uses else "") + "\n")
-        os.chmod(log, 0o600)
+        if new:  # an existing log keeps its group/mode (shared with a bot)
+            os.chmod(log, 0o600)
     url = arg("--url")
     link = "velta://ws?u=" + quote(url, safe="") + ("&n=" + quote(name, safe="") if name else "") + "&t=" + tok
     if as_json:
