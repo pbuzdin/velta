@@ -2085,14 +2085,6 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 /* Captioned identity tile beside the velta-avatar in the chat-info modal
    (the global 24px svg rule would otherwise shrink it). */
 .chat-info-tile svg { width: 168px; height: 168px; display: block; border-radius: 22%; }
-.enc-note {
-  display: flex; gap: 10px; align-items: flex-start;
-  background: rgba(79,174,79,.12); border: 1px solid rgba(79,174,79,.3);
-  border-radius: 10px; padding: 10px 12px; margin: 10px 0;
-  font-size: 13.5px; color: var(--green);
-  min-width: 0; overflow-wrap: anywhere;
-}
-.enc-note svg { width: var(--ico-3); height: var(--ico-3); flex: none; margin-top: 1px; }
 
 /* About → Show device info: native <details>; the <pre> wraps (pre-wrap +
    anywhere) so a long user agent never widens the modal on a narrow phone. */

@@ -1764,7 +1764,6 @@ async function showAbout({ onDiagnostics = null, backendKind = null } = {}) {
       <div class="info-row"><span class="k">Transport</span><span class="v">chatmail relays (IMAP/SMTP)</span></div>
       <div class="info-row"><span class="k">Encryption</span><span class="v">OpenPGP, end-to-end</span></div>
       <div class="info-row"><span class="k">UI stack</span><span class="v">Elena progressive web components</span></div>
-      <div class="enc-note">${ICON.lock}<span>No phone number needed. No central servers. Your messages travel through email relays you choose, encrypted end to end.</span></div>
       <details class="device-info" data-device-info>
         <summary>Show device info</summary>
         <pre class="device-info-text" data-device-info-text></pre>
