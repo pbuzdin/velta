@@ -65,7 +65,7 @@ let diagnosticsOpen = false;
 // rendering freezes; resuming re-renders to catch up.
 let diagnosticsPaused = false;
 const DIAG_ICON_PAUSE = ICON.pause;
-const DIAG_ICON_PLAY = '<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M8 5.2l11 6.8-11 6.8z" fill="currentColor"/></svg>';
+const DIAG_ICON_PLAY = ICON.playDiag;
 let chatView = null;
 let calls = null;
 let coreStartupPromise = null;
@@ -771,7 +771,7 @@ async function refreshRelayStatusInner() {
 // configured transport, = state.account.addr's domain) — persistent, not an
 // activity marker: the relay line's animated dashes stay the "messages in
 // flight" signal. Static glyph on purpose; a pulse would read as activity.
-const RELAY_SEND_SVG = '<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><rect x="2.5" y="9.5" width="19" height="11" rx="2" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-linecap="round" stroke-width="2"/><path d="M4 11.5l8 5.5 8-5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12V2.6" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/><path d="M8.7 5.6L12 2.2l3.3 3.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const RELAY_SEND_SVG = ICON.relaySend;
 
 // "cha*.uk" from "chat.example.uk": first 3 chars, one asterisk for the
 // rest, TLD visible — enough to recognize the relay without printing it.
@@ -1372,7 +1372,7 @@ async function renderLocalChatCard() {
     <div class="lc-card-head${lcCardOpen ? " open" : ""}" data-toggle>
       ${loopSvg}
       <span class="lc-card-title">Velta Loop</span>
-      <span class="lc-card-chevron"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <span class="lc-card-chevron">${svg(P.chevronDown, "", 'width="16" height="16"')}</span>
     </div>
     <div class="bar-opts-hint ctx-hint">Local chat — serverless rooms with people on this network</div>
     <div class="lc-card-body">
@@ -1994,9 +1994,9 @@ function chatContextMenu(chat, x, y) {
   if (chat.id === DIAGNOSTICS_CHAT_ID) return;
   const icons = {
     pin: ICON.pin,
-    mute: `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M12 3a5 5 0 00-5 5v3l-2 4h14l-2-4V8a5 5 0 00-5-5z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" stroke-linejoin="round"/></svg>`,
-    archive: `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-linecap="round" stroke-width="2"/><path d="M5 9v11h14V9M10 13h4" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/></svg>`,
-    read: `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M3 13l4 4L17 7M10 15l2 2 8-8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    mute: ICON.bell,
+    archive: ICON.archive,
+    read: ICON.markRead,
     link: ICON.link,
     trash: ICON.trash,
   };

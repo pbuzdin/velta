@@ -17,6 +17,7 @@ import { t } from "./i18n.js";
 import { foldText, virtualWindow, buildSearchRow, buildVirtualScroller } from "./member-list.js";
 import { LruCache } from "./lru.js";
 import { audioPlayerHtml, mountAudioPlayer, decodeAudioDuration } from "./audio-player.js";
+import { P, svg } from "./icons.js";
 
 export const MEDIA_SECTIONS = [
   { key: "apps", label: "Apps", types: ["Webxdc"], layout: "list", search: "Search apps", empty: "No apps found" },
@@ -28,8 +29,8 @@ export const MEDIA_SECTIONS = [
 ];
 
 export const MEDIA_ROW_H = 56;
-const GOTO_SVG = `<svg focusable="false" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" stroke-linejoin="round"/><path d="M9 10.5h6m-2.5-2.5 2.5 2.5-2.5 2.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-const ROW_PLAY_SVG = `<svg focusable="false" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>`;
+const GOTO_SVG = svg(P.gotoMessage, "", 'width="20" height="20"');
+const ROW_PLAY_SVG = svg(P.playFilled, "", 'width="20" height="20"');
 export function gotoButtonHtml(name) {
   return `<button type="button" class="icon-btn media-goto" data-media-goto aria-label="Show ${name} in chat" title="Show in chat">${GOTO_SVG}</button>`;
 }

@@ -7,8 +7,8 @@ import { avatarBackgroundUrl, fingerprintFor, cachedFingerprint, cachedFingerpri
 import { avatarFill } from "./name-color.js";
 import { P, svg, labelled } from "./icons.js";
 
-const AVATAR_SVG = `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" style="width:55%;height:55%"><path d="M12 4l2.2 4.7 5 .6-3.7 3.4 1 4.9-4.5-2.6-4.5 2.6 1-4.9L4.8 9.3l5-.6z" fill="currentColor"/></svg>`;
-const DEVICE_SVG = `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" style="width:55%;height:55%"><rect x="5" y="3" width="14" height="18" rx="2.5" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-linecap="round" stroke-width="2"/><circle cx="12" cy="17.5" r="1.2" fill="currentColor"/></svg>`;
+const AVATAR_SVG = svg(P.avatarStar, "", 'style="width:55%;height:55%"');
+const DEVICE_SVG = svg(P.device, "", 'style="width:55%;height:55%"');
 
 /* ---------- <velta-avatar> ---------- */
 function specialKind(kind) { return kind === "saved" || kind === "device"; }
@@ -165,8 +165,8 @@ export function gestureSwipeRecent(now = Date.now()) { return now - gestureSwipe
 // know can fail. Rows render a static placeholder instead; the real
 // <video> element is created on tap and dropped again when the virtual
 // scroller unmounts the row.
-const PLAY_SVG = `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" style="width:100%;height:100%;display:block"><path d="M6.5 5.5v13l11-6.5z" fill="currentColor"/></svg>`;
-const VIDEO_FAIL_SVG = `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" style="width:100%;height:100%;display:block"><path d="M4 7h16M9 7V5h6v2m-8 0l1 13h8l1-13" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2" stroke-linejoin="round"/></svg>`;
+const PLAY_SVG = svg(P.videoPlay, "", 'style="width:100%;height:100%;display:block"');
+const VIDEO_FAIL_SVG = svg(P.trash, "", 'style="width:100%;height:100%;display:block"');
 
 class VeltaVideo extends Elena(HTMLElement) {
   static tagName = "velta-video";
@@ -299,10 +299,10 @@ VeltaVideo.define();
 // Open-shackle lock, shown only on chats that can carry unencrypted mail
 // (classic-email contacts), i.e. chat.isEncrypted === false. Encrypted chats
 // show no lock at all — e2e is the default there, not something to celebrate.
-const OPEN_LOCK_SVG = `<svg focusable="false" role="img" aria-label="Not encrypted" class="ci-lock open" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-linecap="round" stroke-width="2"/><path d="M8 11V7a4 4 0 017.6-1.7" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/></svg>`;
+const OPEN_LOCK_SVG = labelled(svg(P.lockOpen, "ci-lock open"), "Not encrypted");
 // Local (P2P) chats ride QUIC/TLS with the peer identity pinned by pairing —
 // encrypted, so instead of the open lock they carry this wifi mark.
-export const WIFI_SVG = `<svg aria-hidden="true" focusable="false" class="ci-wifi" viewBox="0 0 24 24"><path d="M2.5 9.5a14 14 0 0119 0M5.5 13a9.5 9.5 0 0113 0M8.5 16.5a5 5 0 017 0" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="19.5" r="1.4" fill="currentColor"/></svg>`;
+export const WIFI_SVG = svg(P.wifi, "ci-wifi");
 // Chat-name badge: p2p wifi replaces the open lock. (Core 2.61.0 stopped
 // tracking contact verification — the old verified rosette is gone.)
 const nameBadgesFor = c =>
@@ -322,7 +322,7 @@ export function ticksSvg(state, cls = "ci-ticks") {
   if (state === "pending") return `<svg role="img" aria-label="Sending" focusable="false" class="${cls} ticks-spin" viewBox="0 0 24 24">${SENDING_RING}</svg>`;
   // Failed: a bold exclamation — squash-tolerant in the chat list's 3:2 tick
   // box (a circled icon would render as an ellipse). Colored red via CSS.
-  if (state === "failed") return `<svg role="img" aria-label="Failed to send" focusable="false" class="${cls} failed" viewBox="0 0 24 24"><path d="M12 4v9" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="18.8" r="2" fill="currentColor"/></svg>`;
+  if (state === "failed") return labelled(svg(P.failedMark, `${cls} failed`), "Failed to send");
   // Core semantics: OutDelivered = the RELAY accepted it (one check);
   // OutMdnRcvd = the recipient's client confirmed seen (two checks).
   if (state === "sent" || state === "delivered") return TICK1.replace('ci-ticks', cls);

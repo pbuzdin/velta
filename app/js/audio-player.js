@@ -10,10 +10,11 @@
 // comes from the element when finite, else from decoding the (small) file
 // once, else from the core's duration when it has one.
 import { formatDuration } from "./format.js";
+import { P, svg } from "./icons.js";
 
 export const DECODE_MAX_BYTES = 4 * 1024 * 1024;
-const PLAY = `<svg focusable="false" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>`;
-const PAUSE = `<svg focusable="false" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z" fill="currentColor"/></svg>`;
+const PLAY = svg(P.playFilled, "", 'width="20" height="20"');
+const PAUSE = svg(P.pauseFilled, "", 'width="20" height="20"');
 
 export function finiteDuration(d) {
   return Number.isFinite(d) && d > 0 ? d : 0;

@@ -61,3 +61,16 @@ test("no stray non-house stroke widths in app icons", () => {
     assert.doesNotMatch(src(f), /viewBox="0 0 24 24"[^`'\n]*stroke-width="(1\.6|1\.9|2\.2|2\.4|2\.6|3\.2)"/, f);
   }
 });
+
+test("no inline 24-grid icons outside icons.js (except deliberate exceptions)", () => {
+  // Left inline on purpose: brand marks (Beam, Circle), the dynamic sending ring,
+  // the call-control helper, the white-on-dim video play disc, avatars/QR.
+  const allowed = { "chat-view.js": 2, "components.js": 1, "calls.js": 1, "chat-media.js": 1 };
+  for (const f of jsFiles) {
+    const n = (src(`app/js/${f}`).match(/<svg[^>]*viewBox="0 0 24 24"/g) || []).length;
+    assert.ok(n <= (allowed[f] || 0), `${f} has ${n} inline 24-grid <svg>`);
+  }
+  const html = src("app/index.html");
+  assert.doesNotMatch(html, /<svg(?! data-icon=)/);
+  for (const [, k] of html.matchAll(/<svg data-icon="(\w+)"/g)) assert.ok(P[k], `index.html icon ${k}`);
+});

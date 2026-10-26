@@ -78,7 +78,7 @@ function openIframeOverlay(url) {
         <div class="iab-domain" data-domain></div>
       </div>
       <button type="button" class="icon-btn" data-external title="Open in system browser" aria-label="Open in system browser">
-        <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 13v6a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        ${ICON.openExternal}
       </button>
     </div>
     <progress class="iab-progress" data-progress aria-label="Loading page"></progress>
