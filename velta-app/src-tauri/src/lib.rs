@@ -2508,13 +2508,23 @@ pub extern "system" fn Java_org_velta_CoreService_networkAvailable(
 // or the process was frozen between pushes.
 #[cfg(target_os = "android")]
 fn push_wakeup_impl() {
+    tauri::async_runtime::spawn(async move {
+        let _ = background_fetch_once().await;
+    });
+}
+
+/// One bounded background_fetch (30 s core-side). Returns when the core
+/// reports the fetch finished (the JSON-RPC call resolves after
+/// AccountsBackgroundFetchDone), or Err when it could not run.
+#[cfg(target_os = "android")]
+async fn background_fetch_once() -> Result<(), String> {
     // Drawer "Use background connection" OFF: the scheduled fetch and any
     // non-push wake are skipped entirely (push distributor wakes still
     // arrive but the gates below decide what they may post).
     if !notify_prefs_snapshot().use_bg_connection {
         println!("push wakeup: skipped (background connection off)");
         log("push wakeup: skipped (background connection off)");
-        return;
+        return Err("background connection off".into());
     }
     // Mirrored to logcat (println → RustStdoutStderr): a wake can happen
     // while the process is half-frozen by an OEM, where the buffered file
@@ -2524,26 +2534,26 @@ fn push_wakeup_impl() {
     if android_core().is_none() {
         println!("push wakeup: core not initialized");
         log("push wakeup: core not initialized");
-        return;
+        return Err("core not initialized".into());
     }
     println!("push wakeup: running background fetch");
-    tauri::async_runtime::spawn(async move {
-        let Some((state, tx)) = android_core_tx(std::time::Duration::from_secs(20)).await else {
-            println!("push wakeup: rpc channel not ready");
-            log("push wakeup: rpc channel not ready");
-            return;
-        };
-        match bg_rpc(&tx, state, "background_fetch", serde_json::json!([30.0])).await {
-            Ok(_) => {
-                println!("push wakeup: background fetch done");
-                log("push wakeup: background fetch done");
-            }
-            Err(e) => {
-                println!("push wakeup: {e}");
-                log(&format!("push wakeup: {e}"));
-            }
+    let Some((state, tx)) = android_core_tx(std::time::Duration::from_secs(20)).await else {
+        println!("push wakeup: rpc channel not ready");
+        log("push wakeup: rpc channel not ready");
+        return Err("rpc channel not ready".into());
+    };
+    match bg_rpc(&tx, state, "background_fetch", serde_json::json!([30.0])).await {
+        Ok(_) => {
+            println!("push wakeup: background fetch done");
+            log("push wakeup: background fetch done");
+            Ok(())
         }
-    });
+        Err(e) => {
+            println!("push wakeup: {e}");
+            log(&format!("push wakeup: {e}"));
+            Err(e)
+        }
+    }
 }
 
 #[cfg(target_os = "android")]
@@ -2568,16 +2578,47 @@ pub extern "system" fn Java_org_velta_UnifiedPushService_pushUnregistered(
     LAST_PUSH_SECS.store(0, std::sync::atomic::Ordering::SeqCst);
 }
 
-// Scheduled-fetch fallback (#52 L3): BackgroundFetchJob.onStartJob calls
-// this so the core fetches even without a push distributor and after the
-// OS froze the process (a JobScheduler job unfreezes it for the duration).
+// Scheduled-fetch fallback (#52 L3): BackgroundFetchJob runs this on a
+// worker thread so the core fetches even without a push distributor and
+// after the OS froze the process (a job unfreezes it for its duration).
+// Blocks until the fetch is done (or `max_secs`), then gives the event
+// poller a moment to post the notifications for what it fetched. true =
+// the fetch completed.
 #[cfg(target_os = "android")]
 #[no_mangle]
-pub extern "system" fn Java_org_velta_BackgroundFetchJob_pushWakeup(
+pub extern "system" fn Java_org_velta_BackgroundFetchJob_fetchBlocking(
     _env: jni::JNIEnv,
-    _class: jni::objects::JClass,
+    _this: jni::objects::JObject,
+    max_secs: jni::sys::jint,
+) -> jni::sys::jboolean {
+    let max = std::time::Duration::from_secs(max_secs.max(1) as u64);
+    let done = tauri::async_runtime::block_on(async move {
+        match tokio::time::timeout(max, background_fetch_once()).await {
+            Ok(Ok(())) => {
+                tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                true
+            }
+            _ => false,
+        }
+    });
+    done as jni::sys::jboolean
+}
+
+// onStopJob: the system took the slot back early — interrupt the fetch so
+// the core does not keep working in a process about to be frozen.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_org_velta_BackgroundFetchJob_stopFetch(
+    _env: jni::JNIEnv,
+    _this: jni::objects::JObject,
 ) {
-    push_wakeup_impl();
+    let accounts = ANDROID_ACCOUNTS.lock().unwrap().clone();
+    if let Some(accounts) = accounts {
+        tauri::async_runtime::spawn(async move {
+            accounts.read().await.stop_background_fetch();
+            log("scheduled fetch: stopped early by the system");
+        });
+    }
 }
 
 // Desktop has no ContentResolver; the command exists on every platform so the

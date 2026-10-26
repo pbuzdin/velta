@@ -2902,9 +2902,12 @@ talks to Google.
   `push_wakeup_impl`), covering devices without a UnifiedPush distributor
   and OEM freezers that cut a backgrounded process's sockets — a job
   unfreezes the process for its duration (the official client delivers
-  through the same pattern). `onStartJob` keeps the slot for 28 s so the
-  OS does not refreeze the process during the async fetch (bounded to 30 s
-  shell-side), then calls `jobFinished(reschedule=false)`. Scheduled
+  through the same pattern). `onStartJob` runs JNI `fetchBlocking` on a
+  worker thread: it returns once the core's `background_fetch` resolved
+  (after AccountsBackgroundFetchDone; 30 s core bound, 55 s overall) plus
+  1.5 s for the poller to notify, then `jobFinished(reschedule=false)`.
+  `onStopJob` calls JNI `stopFetch` (`Accounts::stop_background_fetch`),
+  skips the late jobFinished and returns true (reschedule). Scheduled
   idempotently from `MainActivity.onCreate`.
 - **Wake vs dead IDLE (#42/#25 P8, core quilt op #12)** — `Context::
   background_fetch` now bounds its `wait_for_work_done` at 10 s: if the

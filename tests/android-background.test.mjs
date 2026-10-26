@@ -93,3 +93,15 @@ test("'Use background connection' off stops CoreService; on starts it", () => {
   assert.match(cmd, /stopSelf\(\)[\s\S]*START_NOT_STICKY/);
   assert.match(read("MainActivity.kt"), /if \(BgPrefs\.backgroundConnectionEnabled\(this\)\) \{\s*try \{\s*CoreService\.start\(this\)/);
 });
+
+test("background job finishes when the fetch is done and honours onStopJob", () => {
+  const s = read("BackgroundFetchJob.kt");
+  assert.doesNotMatch(s, /postDelayed|FETCH_GRACE_MS/, "no fixed 28 s hold");
+  assert.match(s, /fetchBlocking\(FETCH_MAX_SECS\)[\s\S]*jobFinished\(params, false\)/);
+  const stop = s.slice(s.indexOf("override fun onStopJob"), s.indexOf("companion object"));
+  assert.match(stop, /stopFetch\(\)/);
+  assert.match(stop, /return true/);
+  const lib = rs("lib.rs");
+  assert.match(lib, /fn Java_org_velta_BackgroundFetchJob_fetchBlocking/);
+  assert.match(lib, /fn Java_org_velta_BackgroundFetchJob_stopFetch[\s\S]{0,600}stop_background_fetch\(\)/);
+});
