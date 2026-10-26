@@ -10,10 +10,10 @@
          leaves the app. remoteMessaging has no Android 15 time cap. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
-    <!-- CoreService holds a partial wake lock so the CPU (and the IMAP
-         loop) keeps running after the screen turns off. Doze ignores wake
-         locks; REQUEST_IGNORE_BATTERY_OPTIMIZATIONS is the exemption that
-         keeps the network up, asked from the page once an account exists. -->
+    <!-- WAKE_LOCK: CallAudio's proximity lock during calls. CoreService
+         holds no wake lock (it kept the CPU awake all day). Doze ignores wake locks;
+         REQUEST_IGNORE_BATTERY_OPTIMIZATIONS is the exemption that keeps
+         the network up, asked from the page once an account exists. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />

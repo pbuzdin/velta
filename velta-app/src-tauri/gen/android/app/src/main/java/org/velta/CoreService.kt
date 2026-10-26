@@ -11,7 +11,6 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.os.Build
 import android.os.IBinder
-import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 
 // Foreground service that keeps the Velta process alive while the activity
@@ -20,7 +19,6 @@ import androidx.core.app.NotificationCompat
 // posts incoming-message notifications) keep working in the background.
 // remoteMessaging (not dataSync) avoids Android 15's 6-hour daily FGS cap.
 class CoreService : Service() {
-    private var wakeLock: PowerManager.WakeLock? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     // Instance JNI (lib.rs). A sticky restart can come up before the activity
@@ -35,17 +33,10 @@ class CoreService : Service() {
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_ID, "Message sync", NotificationManager.IMPORTANCE_MIN)
         )
-        // Screen-off would otherwise freeze every thread in this process,
-        // including the IMAP IDLE loop, while this notification stays up.
-        // Doze still ignores wake locks; the battery exemption covers that.
-        try {
-            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "velta:core").apply {
-                setReferenceCounted(false)
-                acquire()
-            }
-        } catch (_: Exception) {
-        }
+        // No wake lock: a permanent PARTIAL_WAKE_LOCK kept the CPU awake all
+        // day (Play vitals "excessive wake locks") and Doze ignores it anyway.
+        // An IMAP IDLE socket wakes the CPU when data arrives, like upstream
+        // Delta Chat's KeepAliveService; the battery exemption covers Doze.
         registerNetworkCallback()
     }
 
@@ -58,8 +49,6 @@ class CoreService : Service() {
             }
         }
         networkCallback = null
-        wakeLock?.let { if (it.isHeld) it.release() }
-        wakeLock = null
         super.onDestroy()
     }
 

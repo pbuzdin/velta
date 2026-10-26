@@ -2792,9 +2792,11 @@ taps above). The vestigial-SW caveat below applies only to plain `app/`.
   notification — that second card doubled once the WebView kept running
   after Home. `onStart` calls
   `maybe_network` and emits `velta-foreground` so the page refetches.
-  `CoreService` holds a partial wake lock and the default-network callback.
+  `CoreService` holds the default-network callback and NO wake lock (a
+  permanent PARTIAL_WAKE_LOCK kept the CPU up all day; the IDLE socket wakes
+  the CPU on incoming data, as in upstream's KeepAliveService).
   A 90s kick while the activity is stopped interrupts a half-open IDLE.
-  Doze ignores the wake lock; the page asks for the battery-optimization
+  The page asks for the battery-optimization
   exemption once per cold start until it is granted.
   Event-batch requests (ids `bg-ev-`, `src/bg_events.rs`) are never timed
   out: a parked request cannot be cancelled in the core, and the old 60 s
