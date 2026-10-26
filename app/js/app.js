@@ -145,6 +145,7 @@ const state = {
   // #57 category bar: active chip + lazy contact bot flags (P/B split).
   chatCategory: localStorage.getItem("velta-chat-category") || "all",
   contactBots: null, // null = not loaded; Map contactId -> bool once fetched
+  contactBotsAcct: null, // account the contactBots map belongs to
 };
 
 function appLog(msg) {
@@ -1815,15 +1816,22 @@ function renderQrView() {
 // #57 category bar. Bot flags come from one get_contacts call, fetched the
 // first time a People/Bots filter actually needs them — no boot RPC cost.
 const chatCatsEl = document.getElementById("chat-categories");
-async function ensureContactBots() {
-  if (state.contactBots || !core?.getContacts) return;
+// Bot flags are per account (contact ids are account-local) and change when
+// a contact's first auto-generated message arrives, so the map is keyed by
+// account and re-fetched whenever the People/Bots chip is chosen.
+async function ensureContactBots(force = false) {
+  if (!core?.getContacts) return;
+  const acct = core.accountId;
+  if (!force && state.contactBots && state.contactBotsAcct === acct) return;
   try {
     const contacts = await core.getContacts();
+    if (core.accountId !== acct) return;
     state.contactBots = new Map(contacts.map(c => [c.id, !!c.bot]));
-    if (state.chatCategory === "people" || state.chatCategory === "bots") renderChatList();
   } catch { state.contactBots = new Map(); }
+  state.contactBotsAcct = acct;
+  if (state.chatCategory === "people" || state.chatCategory === "bots") renderChatList();
 }
-const chatIsBot = (contactId) => state.contactBots?.get(contactId) === true;
+const chatIsBot = (contactId) => state.contactBotsAcct === core?.accountId && state.contactBots?.get(contactId) === true;
 function visibleChats() {
   const cat = state.chatCategory;
   if (cat === "all") return state.chats;
@@ -1833,7 +1841,7 @@ function visibleChats() {
   // #77: a boot-restored People/Bots view renders before any chip click,
   // so it must kick the bot-flag fetch itself — otherwise contact bots
   // classify as "people" until the next chip interaction.
-  if (!state.contactBots && (cat === "people" || cat === "bots")) ensureContactBots();
+  if ((!state.contactBots || state.contactBotsAcct !== core?.accountId) && (cat === "people" || cat === "bots")) ensureContactBots();
   return state.chats.filter(c => chatCategoryOf(c, chatIsBot) === cat);
 }
 // One entry point for every category change (chip click, swipe): renderChatList
@@ -1841,7 +1849,7 @@ function visibleChats() {
 function setChatCategory(cat) {
   state.chatCategory = cat;
   localStorage.setItem("velta-chat-category", cat);
-  if (cat === "people" || cat === "bots") ensureContactBots();
+  if (cat === "people" || cat === "bots") ensureContactBots(true);
   renderChatList();
 }
 if (chatCatsEl) {

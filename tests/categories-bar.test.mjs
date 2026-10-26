@@ -64,3 +64,10 @@ test("unread chip is declared after All and hideable in the drawer", () => {
     fileURLToPath(new URL("../app/js/ui.js", import.meta.url)), "utf8");
   assert.ok(drawer.includes('["unread", "Unread"]'), "drawer hide-toggle missing");
 });
+
+test("bot flags are per account and refreshed when People/Bots is chosen", () => {
+  const app = readFileSync(fileURLToPath(new URL("../app/js/app.js", import.meta.url)), "utf8");
+  assert.match(app, /const chatIsBot = \(contactId\) => state\.contactBotsAcct === core\?\.accountId &&/);
+  assert.match(app, /if \(cat === "people" \|\| cat === "bots"\) ensureContactBots\(true\);/);
+  assert.match(app, /if \(core\.accountId !== acct\) return;/);
+});
