@@ -447,5 +447,5 @@
   "Create an account on {host}?": "Создать аккаунт на {host}?",
   "A new profile is created on {host} with this invite. The invite works once. Only continue if you trust the sender.": "С этим приглашением на {host} будет создан новый профиль. Приглашение одноразовое. Продолжайте, только если доверяете отправителю.",
   "Velta Loop": "Velta Loop",
-  "Local chat on this network": "Локальный чат в этой сети"
+  "Local chat on the same network": "Локальный чат в одной сети"
 }

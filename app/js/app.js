@@ -1442,7 +1442,7 @@ async function renderLocalChatCard() {
       <span class="lc-card-title">Velta Loop</span>
       <span class="lc-card-chevron">${svg(P.chevronDown, "", 'width="16" height="16"')}</span>
     </div>
-    <div class="bar-opts-hint ctx-hint">${t("Local chat on this network")}</div>
+    <div class="bar-opts-hint ctx-hint">${t("Local chat on the same network")}</div>
     <div class="lc-card-body">
       <div class="lc-device">This device: <b>${escapeHtml(model.device.name)}</b>${short ? ` <span class="lc-nodeid">(${escapeHtml(short)})</span>` : ""} <button type="button" class="btn-text" data-rename>Edit name</button></div>
       <div class="lc-actions">
