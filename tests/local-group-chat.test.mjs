@@ -400,7 +400,7 @@ test("UI guards exist for p2pg: header line, hidden relay-only actions, gated en
   const { readFileSync } = await import("node:fs");
   const read = f => readFileSync(new URL("../app/js/" + f, import.meta.url), "utf8");
   const comp = read("components.js"), view = read("chat-view.js"), app = read("app.js"), ui = read("ui.js");
-  assert.match(ui, /p2pAvailable \|\| p2pOn \? `<label class="ctx-item">[\s\S]{0,500}Local chat:/, "the off switch stays when local chat is on without an engine");
+  assert.match(ui, /p2pAvailable \|\| p2pOn \? `<label class="ctx-item">[\s\S]{0,500}Velta Loop"\)}:/, "the off switch stays when local chat is on without an engine");
   assert.match(comp, /isP2pGroup[\s\S]{0,200}members[\s\S]{0,40}online/, "header shows N members · M online");
   for (const label of ["Forward", "Save to Saved Messages", "Delete"]) {
     assert.ok(view.includes(label), label);

@@ -445,5 +445,6 @@
   "Join {relay}?": "Присоединиться к {relay}?",
   "The WebSocket transport isn't available here; creating the account directly": "WebSocket-транспорт здесь недоступен; аккаунт создаётся напрямую",
   "Create an account on {host}?": "Создать аккаунт на {host}?",
-  "A new profile is created on {host} with this invite. The invite works once. Only continue if you trust the sender.": "С этим приглашением на {host} будет создан новый профиль. Приглашение одноразовое. Продолжайте, только если доверяете отправителю."
+  "A new profile is created on {host} with this invite. The invite works once. Only continue if you trust the sender.": "С этим приглашением на {host} будет создан новый профиль. Приглашение одноразовое. Продолжайте, только если доверяете отправителю.",
+  "Velta Loop": "Velta Loop"
 }

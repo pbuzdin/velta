@@ -13,7 +13,7 @@ import { canShareLink, shareLink } from "./qr-actions.js";
 import { MD_HINT, MD_REENABLED_NOTE, DL_LIMIT_HINT, mdLabel } from "./multidevice.js";
 import { videoPosKey, videoResumeSeconds, rememberVideoPos } from "./video-pos.js";
 import { t, currentLang, setLang, LANGS, translateTree } from "./i18n.js";
-import { ICON, P, svg } from "./icons.js";
+import { ICON, LOOP_SVG, P, svg } from "./icons.js";
 
 const popups = () => document.getElementById("popups");
 
@@ -1148,7 +1148,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     <div class="drawer-items">
       <button type="button" class="ctx-item" data-act="saved">${ICON.bookmark}<span>${t("Saved Messages")}</span></button>
       <button type="button" class="ctx-item" data-act="invite">${ICON.invite}<span>${t("Invite friends (QR)")}</span></button>
-      ${p2pAvailable || p2pOn ? `<label class="ctx-item">${ICON.wifi}<span>Local chat: ${p2pOn ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="p2p"${p2pOn ? " checked" : ""}></label>` : ""}
+      ${p2pAvailable || p2pOn ? `<label class="ctx-item">${LOOP_SVG}<span>${t("Velta Loop")}: ${p2pOn ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="p2p"${p2pOn ? " checked" : ""}></label>` : ""}
       ${p2pAvailable && p2pOn ? `<label class="ctx-item" title="Show when someone in a local chat is typing, and let them see when you are. Hints are live only and never stored.">${ICON.typing}<span>Typing indicator: ${localStorage.getItem("velta-p2p-typing") !== "0" ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="p2p-typing"${localStorage.getItem("velta-p2p-typing") !== "0" ? " checked" : ""}></label>` : ""}
       <div class="drawer-sec">${t("Settings")}</div>
       <details class="drawer-details">
@@ -1530,7 +1530,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
   };
 
   drawer.querySelector('[data-toggle="p2p"]')?.addEventListener("change", e => {
-    setToggleUi("p2p", "Local chat", e.target.checked);
+    setToggleUi("p2p", t("Velta Loop"), e.target.checked);
     onP2pToggle?.(); // flips the real state and rebuilds the drawer
   });
   drawer.querySelector('[data-toggle="p2p-typing"]')?.addEventListener("change", e => {

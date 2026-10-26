@@ -124,6 +124,9 @@ export const P = {
 
 export const ICON = Object.fromEntries(Object.entries(P).map(([k, v]) => [k, svg(v)]));
 export const CLOSE_SVG = ICON.close;
+// Velta Loop mark (two arm wedges + two side arcs, the site's loop-logo.svg
+// geometry). The original card icon — shared by the hub card and the drawer.
+export const LOOP_SVG = `<svg viewBox="0 0 624 590" width="21" height="20" aria-hidden="true"><g fill="currentColor" transform="translate(68.6 64.9) scale(0.78)"><polygon points="0,0 191,0 402,420 314,590"/><polygon points="434,0 624,0 420,385 341,225"/></g><path d="M510,267.1 A200,200 0 0 1 386.9,480.4" fill="none" stroke="currentColor" stroke-width="40"/><path d="M114,267.1 A200,200 0 0 0 237.1,480.4" fill="none" stroke="currentColor" stroke-width="40"/></svg>`;
 
 /** index.html is static: its icons are `<svg data-icon="name"></svg>`
  *  placeholders, filled from P here (keeps any class). */
