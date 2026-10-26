@@ -7,15 +7,17 @@
 #        --origin https://pwa.example.org --allow mail.example.org,relay.example.net \
 #        [--ports 443,465,993] [--conn-limit 10] [--no-tls] [--no-auth]
 #   sudo ./deploy-ws-proxy.sh --uninstall
-#   sudo ./deploy-ws-proxy.sh invite [NAME] [--expires 30d|2027-01-31]
-#   sudo ./deploy-ws-proxy.sh invite --list | --revoke ID
+#   sudo ./deploy-ws-proxy.sh invite [NAME] [--expires 30d|2027-01-31] [--uses N] [--json]
+#   sudo ./deploy-ws-proxy.sh invite --list [--json] | --revoke ID | --reset ID
 #
 # Invite links (on by default for new installs): every WebSocket must carry a
 # token signed with the proxy's secret (/etc/velta-ws-proxy/secret), sent as
 # the subprotocol "tok.<token>" next to "velta.v1". `invite` prints a
 # velta://ws link with &t=<token> (and a QR when qrencode is installed);
 # --revoke adds the invite id to /etc/velta-ws-proxy/revoked, which the bridge
-# re-reads within seconds. --no-auth keeps the old open-to-allowed-origins
+# re-reads within seconds. --uses N caps the invite at N devices (each app
+# install sends a random device id; the ids are kept in
+# /var/lib/velta-ws-proxy/uses.json, --reset ID forgets them). --no-auth keeps the old open-to-allowed-origins
 # mode; re-running over an install that predates invites keeps it open until
 # you pass --auth.
 #
@@ -33,8 +35,10 @@ ETC=/etc/velta-ws-proxy
 UNIT=/etc/systemd/system/velta-ws-proxy.service
 SITE=/etc/nginx/sites-available/velta-ws-proxy.conf
 LISTEN_PORT=8153
+# StateDirectory of the DynamicUser unit (systemd keeps it in /var/lib/private).
+STATE=/var/lib/velta-ws-proxy
 
-usage() { sed -n '2,27p' "$0"; exit 2; }
+usage() { sed -n '2,30p' "$0"; exit 2; }
 
 # ---- invite subcommand: needs an installed proxy, touches only $ETC ----
 if [ "${1:-}" = "invite" ]; then
@@ -42,11 +46,14 @@ if [ "${1:-}" = "invite" ]; then
   [ "$(id -u)" -eq 0 ] || { echo "run as root" >&2; exit 1; }
   [ -f "$ETC/config" ] && [ -f "$LIB/bridge.py" ] || { echo "proxy not installed; run the deploy first" >&2; exit 1; }
   [ -s "$ETC/secret" ] || { echo "invite links are off on this proxy (installed with --no-auth); re-run the deploy with --auth" >&2; exit 1; }
-  NAME="" EXPIRES="" MODE=mint REVOKE=""
+  NAME="" EXPIRES="" USES="" MODE=mint REVOKE="" JSON=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --expires) EXPIRES="${2:-}"; shift 2 ;;
+      --uses) USES="${2:-}"; shift 2 ;;
+      --json) JSON=--json; shift ;;
       --list) MODE=list; shift ;;
+      --reset) MODE=reset; REVOKE="${2:-}"; shift 2 ;;
       --revoke) MODE=revoke; REVOKE="${2:-}"; shift 2 ;;
       -h|--help) usage ;;
       -*) echo "unknown argument: $1" >&2; usage ;;
@@ -58,7 +65,11 @@ if [ "${1:-}" = "invite" ]; then
   . "$ETC/config"
   set +a
   case "$MODE" in
-    list) exec python3 "$LIB/bridge.py" --list-invites --secret "$ETC/secret" --log "$ETC/invites.tsv" --revoked "$ETC/revoked" ;;
+    list) exec python3 "$LIB/bridge.py" --list-invites $JSON --secret "$ETC/secret" --log "$ETC/invites.tsv" --revoked "$ETC/revoked" --uses-file "$STATE/uses.json" ;;
+    reset)
+      case "$REVOKE" in ''|*[!A-Za-z0-9]*) echo "--reset needs an invite id (see --list)" >&2; exit 2 ;; esac
+      [ -d "$STATE" ] || { echo "no device has used an invite yet"; exit 0; }
+      exec python3 "$LIB/bridge.py" --reset "$REVOKE" $JSON --uses-file "$STATE/uses.json" ;;
     revoke)
       case "$REVOKE" in ''|*[!A-Za-z0-9]*) echo "--revoke needs an invite id (see --list)" >&2; exit 2 ;; esac
       grep -qx "$REVOKE" "$ETC/revoked" 2>/dev/null || echo "$REVOKE" >> "$ETC/revoked"
@@ -66,7 +77,11 @@ if [ "${1:-}" = "invite" ]; then
       echo "Revoked $REVOKE. New connections with it are refused within a few seconds; tunnels already open stay up until they reconnect."
       exit 0 ;;
   esac
-  link=$(python3 "$LIB/bridge.py" --mint --secret "$ETC/secret" --log "$ETC/invites.tsv" --name "$NAME" --expires "$EXPIRES" --url "$PUBLIC_URL")
+  case "$USES" in ''|*[!0-9]*) [ -z "$USES" ] || { echo "--uses must be a number of devices" >&2; exit 2; } ;; esac
+  if [ -n "$JSON" ]; then
+    exec python3 "$LIB/bridge.py" --mint --json --secret "$ETC/secret" --log "$ETC/invites.tsv" --name "$NAME" --expires "$EXPIRES" --uses "$USES" --url "$PUBLIC_URL"
+  fi
+  link=$(python3 "$LIB/bridge.py" --mint --secret "$ETC/secret" --log "$ETC/invites.tsv" --name "$NAME" --expires "$EXPIRES" --uses "$USES" --url "$PUBLIC_URL")
   echo "$link"
   if command -v qrencode >/dev/null 2>&1; then qrencode -t ansiutf8 "$link"; fi
   echo "Anyone with this link can use the proxy. Revoke with: $0 invite --revoke <id> (ids: $0 invite --list)" >&2
@@ -95,7 +110,7 @@ if [ "$UNINSTALL" -eq 1 ]; then
   rm -f /etc/nginx/sites-enabled/velta-ws-proxy.conf "$SITE" /etc/nginx/conf.d/velta-ws-proxy-maps.conf
   if command -v nginx >/dev/null 2>&1 && nginx -t 2>/dev/null; then systemctl reload nginx || true; fi
   systemctl disable --now velta-ws-proxy 2>/dev/null || true
-  rm -rf "$UNIT" "$LIB" "$ETC"
+  rm -rf "$UNIT" "$LIB" "$ETC" "$STATE" /var/lib/private/velta-ws-proxy
   systemctl daemon-reload
   echo "Removed. nginx, certbot and the certificate are left in place."
   exit 0
@@ -145,8 +160,11 @@ cat > "$LIB/bridge.py" <<'PY'
 /dns/<host> answers only allowlisted hosts, /tcp/<ip>/<port> dials only
 addresses those hosts resolve to, on allowlisted ports, never private ones.
 With AUTH=1 every handshake must offer the subprotocol tok.<invite token>
-(next to velta.v1); it is checked before anything is resolved or dialed."""
-import asyncio, base64, hashlib, hmac, ipaddress, json, os, secrets, socket, sys, time
+(next to velta.v1); it is checked before anything is resolved or dialed.
+An invite minted with --uses N ("u":N in the signed payload) admits at most
+N distinct devices: each client offers dev.<random per-install id>, and the
+ids seen per invite persist in $STATE_DIRECTORY/uses.json."""
+import asyncio, base64, fcntl, hashlib, hmac, ipaddress, json, os, secrets, socket, sys, time
 from http import HTTPStatus
 import websockets
 
@@ -156,6 +174,8 @@ MAX_CONNS = int(os.environ.get("MAX_CONNS", "500"))
 IDLE = int(os.environ.get("IDLE_TIMEOUT", "900"))
 AUTH = os.environ.get("AUTH", "0") == "1"
 REVOKED_FILE = os.environ.get("REVOKED_FILE", "")
+USES_FILE = os.path.join(os.environ.get("STATE_DIRECTORY", "/var/lib/velta-ws-proxy").split(":")[0], "uses.json")
+USES_MAX = 10000
 SUBPROTOCOL = "velta.v1"
 TOKEN_MAX = 1024
 active = 0
@@ -179,12 +199,14 @@ def load_secret(path=None):
     return key
 
 
-def mint(key, invite_id, name="", exp=0):
+def mint(key, invite_id, name="", exp=0, uses=0):
     payload = {"v": 1, "i": invite_id}
     if name:
         payload["n"] = name
     if exp:
         payload["e"] = int(exp)
+    if uses:
+        payload["u"] = int(uses)
     body = b64e(json.dumps(payload, separators=(",", ":")).encode())
     return body + "." + b64e(hmac.new(key, body.encode(), hashlib.sha256).digest())
 
@@ -203,6 +225,9 @@ def verify(key, token, revoked=(), now=None):
     if not ok:
         raise ValueError("bad signature")
     if not isinstance(payload, dict) or payload.get("v") != 1 or not isinstance(payload.get("i"), str):
+        raise ValueError("malformed")
+    u = payload.get("u")
+    if u is not None and (type(u) is not int or not 1 <= u <= USES_MAX):
         raise ValueError("malformed")
     exp = payload.get("e")
     if exp and (time.time() if now is None else now) >= exp:
@@ -231,23 +256,117 @@ def revoked_ids():
     return _revoked["ids"]
 
 
-def offered_token(header):
+def offered(header, prefix):
     for p in (header or "").split(","):
         p = p.strip()
-        if p.startswith("tok."):
-            return p[4:]
+        if p.startswith(prefix):
+            return p[len(prefix):]
     return ""
+
+
+def offered_token(header):
+    return offered(header, "tok.")
+
+
+def valid_device(d):
+    return 16 <= len(d) <= 64 and all(c.isascii() and (c.isalnum() or c in "-_") for c in d)
+
+
+# ---- device caps: {"v":1,"invites":{id:{"devices":{dev:first_seen}}}} ----
+class Uses:
+    """uses.json under an flock (shared with `invite --list/--reset`, which
+    run as root), re-read when its mtime changes, replaced atomically."""
+
+    def __init__(self, path):
+        self.path, self.mtime, self.data = path, None, {"v": 1, "invites": {}}
+
+    def __enter__(self):
+        d = os.path.dirname(self.path)
+        self.lock = open(os.path.join(d, "uses.lock"), "a")
+        st = os.stat(d)
+        if os.geteuid() == 0 and st.st_uid != 0:
+            os.fchown(self.lock.fileno(), st.st_uid, st.st_gid)
+        fcntl.flock(self.lock, fcntl.LOCK_EX)
+        try:
+            m = os.stat(self.path).st_mtime_ns
+            if m != self.mtime:
+                with open(self.path) as f:
+                    v = json.load(f)
+                if isinstance(v, dict) and isinstance(v.get("invites"), dict):
+                    self.data = v
+                self.mtime = m
+        except FileNotFoundError:
+            self.data, self.mtime = {"v": 1, "invites": {}}, None
+        except (OSError, ValueError):
+            pass  # keep the last good copy; never admit beyond it
+        return self
+
+    def save(self):
+        d = os.path.dirname(self.path)
+        st = os.stat(d)
+        tmp = self.path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(self.data, f, separators=(",", ":"))
+            f.flush()
+            os.fsync(f.fileno())
+        if os.geteuid() == 0 and st.st_uid != 0:
+            os.chown(tmp, st.st_uid, st.st_gid)  # root CLI: keep it the service's
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, self.path)
+        self.mtime = os.stat(self.path).st_mtime_ns
+
+    def __exit__(self, *a):
+        fcntl.flock(self.lock, fcntl.LOCK_UN)
+        self.lock.close()
+
+    def devices(self, iid):
+        e = self.data["invites"].get(iid)
+        return e.get("devices", {}) if isinstance(e, dict) and isinstance(e.get("devices"), dict) else {}
+
+    def admit(self, iid, dev, cap, now=None):
+        devs = self.devices(iid)
+        if dev in devs:
+            return True
+        if len(devs) >= cap:
+            return False
+        devs = dict(devs)
+        devs[dev] = int(time.time() if now is None else now)
+        self.data["invites"][iid] = {"devices": devs}
+        self.save()
+        return True
+
+
+USES = None
+LIMIT = "invite device limit reached"
 
 
 def check_auth(headers):
     """None when allowed, else the refusal text. Never logs the token."""
     if not AUTH:
         return None
+    proto = headers.get("Sec-WebSocket-Protocol")
     try:
-        verify(KEY, offered_token(headers.get("Sec-WebSocket-Protocol")), revoked_ids())
-        return None
+        payload = verify(KEY, offered_token(proto), revoked_ids())
     except ValueError as e:
         return "invite " + str(e)
+    cap = payload.get("u")
+    if not cap:
+        return None
+    dev = offered(proto, "dev.")
+    if not valid_device(dev):
+        return "invite needs a device id (update the app)"
+    try:
+        with USES as u:
+            return None if u.admit(payload["i"], dev, cap) else LIMIT
+    except OSError:
+        return "invite state unavailable"
+
+
+def refusal(why):
+    """(status, extra headers) for a refusal text."""
+    if why == LIMIT:
+        return HTTPStatus.FORBIDDEN, [("X-Velta-Refusal", "device-limit")]
+    return HTTPStatus.UNAUTHORIZED, []
 
 
 def process_request(*args):
@@ -255,9 +374,18 @@ def process_request(*args):
     if len(args) == 2 and hasattr(args[1], "headers"):
         conn, req = args
         why = check_auth(req.headers)
-        return conn.respond(HTTPStatus.UNAUTHORIZED, why + "\n") if why else None
+        if not why:
+            return None
+        status, extra = refusal(why)
+        resp = conn.respond(status, why + "\n")
+        for k, v in extra:
+            resp.headers[k] = v
+        return resp
     why = check_auth(args[1])
-    return (HTTPStatus.UNAUTHORIZED, [("Content-Type", "text/plain")], (why + "\n").encode()) if why else None
+    if not why:
+        return None
+    status, extra = refusal(why)
+    return (status, [("Content-Type", "text/plain")] + extra, (why + "\n").encode())
 
 
 def select_subprotocol(a, b):
@@ -378,48 +506,85 @@ def arg(name, default=""):
 
 def cli_invites():
     from urllib.parse import quote
-    key = load_secret(arg("--secret"))
+    as_json = "--json" in sys.argv
+    uses_file = arg("--uses-file", USES_FILE)
     log = arg("--log")
+    if "--reset" in sys.argv:
+        iid = arg("--reset")
+        if not iid or not iid.isalnum():
+            raise SystemExit("--reset needs an invite id")
+        with Uses(uses_file) as u:
+            n = len(u.devices(iid))
+            u.data["invites"].pop(iid, None)
+            u.save()
+        print(json.dumps({"id": iid, "cleared": n}) if as_json else f"Reset {iid}: forgot {n} device(s).")
+        return
+    key = load_secret(arg("--secret"))
     if "--list-invites" in sys.argv:
         rev = set()
         try:
             rev = {l.strip() for l in open(arg("--revoked")) if l.strip()}
         except OSError:
             pass
-        print("id\tname\texpires (UTC)\tstatus")
         try:
             rows = [l.rstrip("\n").split("\t") for l in open(log) if l.strip()]
         except OSError:
             rows = []
+        try:
+            with Uses(uses_file) as u:
+                seen = {i: dict(u.devices(i)) for i in u.data["invites"]}
+        except OSError:
+            seen = {}
+        out = []
         for r in rows:
-            iid, name, exp = (r + ["", "", "0"])[:3]
-            exp = int(exp or 0)
+            iid, name, exp, cap = (r + ["", "", "0", "0"])[:4]
+            exp, cap = int(exp or 0), int(cap or 0)
             st = "revoked" if iid in rev else ("expired" if exp and exp <= time.time() else "active")
-            when = time.strftime("%Y-%m-%d %H:%M", time.gmtime(exp)) if exp else "never"
-            print(f"{iid}\t{name}\t{when}\t{st}")
+            devs = seen.get(iid, {})
+            out.append({"id": iid, "name": name, "expires": exp or None, "status": st, "uses": cap or None,
+                        "used": len(devs), "devices": [{"id": d[:8], "first_seen": t} for d, t in sorted(devs.items(), key=lambda x: x[1])]})
+        if as_json:
+            print(json.dumps(out))
+            return
+        print("id\tname\texpires (UTC)\tstatus\tdevices")
+        for o in out:
+            when = time.strftime("%Y-%m-%d %H:%M", time.gmtime(o["expires"])) if o["expires"] else "never"
+            used = f"{o['used']}/{o['uses']}" if o["uses"] else f"{o['used']}/unlimited"
+            print(f"{o['id']}\t{o['name']}\t{when}\t{o['status']}\t{used}")
+            for d in o["devices"]:
+                print(f"  device {d['id']}…  first seen {time.strftime('%Y-%m-%d %H:%M', time.gmtime(d['first_seen']))} UTC")
         return
     name = "".join(c for c in arg("--name") if c.isprintable() and c not in "\t")[:64].strip()
     exp = parse_expiry(arg("--expires"))
     if exp and exp <= time.time():
         raise SystemExit("--expires is in the past")
+    uses = arg("--uses")
+    if uses and (not uses.isdigit() or not 1 <= int(uses) <= USES_MAX):
+        raise SystemExit(f"--uses must be a number of devices, 1..{USES_MAX}")
+    uses = int(uses or 0)
     iid = secrets.token_hex(6)
-    tok = mint(key, iid, name, exp)
+    tok = mint(key, iid, name, exp, uses)
     if log:
         with open(log, "a") as f:
-            f.write(f"{iid}\t{name}\t{exp}\n")
+            f.write(f"{iid}\t{name}\t{exp}" + (f"\t{uses}" if uses else "") + "\n")
         os.chmod(log, 0o600)
     url = arg("--url")
     link = "velta://ws?u=" + quote(url, safe="") + ("&n=" + quote(name, safe="") if name else "") + "&t=" + tok
+    if as_json:
+        print(json.dumps({"id": iid, "link": link, "token": tok, "name": name, "expires": exp or None, "uses": uses or None}))
+        return
     print(link)
     print(f"invite id: {iid}", file=sys.stderr)
 
 
 async def main():
     global KEY
-    if "--mint" in sys.argv or "--list-invites" in sys.argv:
+    global USES
+    if "--mint" in sys.argv or "--list-invites" in sys.argv or "--reset" in sys.argv:
         return cli_invites()
     if AUTH:
         KEY = load_secret()
+        USES = Uses(USES_FILE)
     if "--check" in sys.argv:
         print("allow hosts:", sorted(ALLOW_HOSTS), "ports:", sorted(ALLOW_PORTS), "invites:", "required" if AUTH else "off")
         print("allowed IPs:", sorted(await allowed_ips()))
@@ -455,6 +620,8 @@ ExecStart=/usr/bin/python3 $LIB/bridge.py
 Restart=always
 RestartSec=2
 DynamicUser=yes
+StateDirectory=velta-ws-proxy
+StateDirectoryMode=0700
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

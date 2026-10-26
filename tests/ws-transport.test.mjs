@@ -168,6 +168,8 @@ test("invite tokens in velta://ws links", () => {
 
 test("401 reads as a refused invite; list marks proxies with an invite", () => {
   assert.ok(m.isInviteRefusal("invite refused (401): invalid, expired or revoked"));
+  assert.ok(m.isDeviceLimit("invite device limit (403): this invite has reached its device limit"));
+  assert.equal(m.isDeviceLimit("invite refused (401): invalid, expired or revoked"), false);
   assert.ok(m.isInviteRefusal(new Error("proxy refused the WebSocket: HTTP/1.1 401 Unauthorized")));
   assert.equal(m.isInviteRefusal("proxy timed out"), false);
   const html = m.wsListHtml({ active: null, proxies: [{ id: "a1", url: "wss://p.example.org", label: "Home", token: TOK }, { id: "a2", url: "wss://q.example.org", label: "", token: TOK }] });
@@ -211,7 +213,12 @@ test("PWA: an invite link adds the relay with its token and reloads", async () =
   assert.equal(r.activeWsRelay(), "ws.example.org");
   assert.equal(r.wsProxyUrl(), "wss://ws.example.org");
   assert.equal(r.wsProxyToken(), TOK);
-  assert.deepEqual(r.wsProtocolsFor("wss://ws.example.org/dns/x.example.org"), ["velta.v1", `tok.${TOK}`]);
+  const dev = r.wsProxyDevice();
+  assert.ok(r.validWsDevice(dev) && dev.length === 22, dev);
+  assert.equal(r.wsProxyDevice(), dev, "stable per browser and proxy");
+  assert.equal(r.wsRelayDevice("other.example.org") === dev, false, "a different id for another proxy");
+  assert.deepEqual(r.wsProtocolsFor("wss://ws.example.org/dns/x.example.org"), ["velta.v1", `tok.${TOK}`, `dev.${dev}`]);
+  assert.equal(r.wsProxyDevice("wss://other.example.org"), "", "no device id without an invite");
   assert.equal(r.wsProtocolsFor("wss://other.example.org/dns/x"), undefined);
   await new Promise(res => setTimeout(res, 450));
   assert.equal(reloaded, 1);
@@ -234,6 +241,13 @@ test("worker offers the invite as a subprotocol only to the proxy", async () => 
   Native.OPEN = 1;
   const scope = { WebSocket: Native };
   assert.equal(installWsInvite(scope, "wss://ws.example.org/", "bad token!"), false);
+  const scope2 = { WebSocket: Native };
+  installWsInvite(scope2, "wss://ws.example.org", TOK, "D".repeat(22));
+  new scope2.WebSocket("wss://ws.example.org/tcp/192.0.2.1/993");
+  assert.deepEqual(made.pop(), ["wss://ws.example.org/tcp/192.0.2.1/993", ["velta.v1", `tok.${TOK}`, `dev.${"D".repeat(22)}`]]);
+  installWsInvite(scope2, "wss://ws.example.org", TOK, "bad, dev.x");
+  new scope2.WebSocket("wss://ws.example.org/dns/x");
+  assert.deepEqual(made.pop()[1], ["velta.v1", `tok.${TOK}`], "a malformed device id is dropped");
   assert.equal(installWsInvite(scope, "wss://ws.example.org/", TOK), true);
   const a = new scope.WebSocket("wss://ws.example.org/tcp/192.0.2.1/993");
   new scope.WebSocket("wss://ws.example.org.evil.example/dns/x");
@@ -245,5 +259,5 @@ test("worker offers the invite as a subprotocol only to the proxy", async () => 
     ["wss://ws.example.org.evil.example/dns/x", undefined],
     ["wss://ws.example.org/dns/x", ["chat"]],
   ]);
-  assert.match(src, /if \(d\.wsProxyToken\) installWsInvite\(self, d\.wsProxyUrl, d\.wsProxyToken\)/);
+  assert.match(src, /if \(d\.wsProxyToken\) installWsInvite\(self, d\.wsProxyUrl, d\.wsProxyToken, d\.wsProxyDevice\)/);
 });

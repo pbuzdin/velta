@@ -9,6 +9,9 @@ const ACTIVE_KEY = "velta-ws-relay";
 // Sent as the WebSocket subprotocol "tok.<token>" (browsers cannot set
 // headers on a WebSocket, and a query string would land in access logs).
 const TOKENS_KEY = "velta-ws-relay-tokens";
+// This browser's device id per proxy host (invites minted with --uses N
+// count devices, not sockets). Random, never derived from anything else.
+const DEVICES_KEY = "velta-ws-devices";
 export const WS_SUBPROTOCOL = "velta.v1";
 
 export function normalizeHost(raw) {
@@ -108,10 +111,37 @@ export function wsProxyToken(url = wsProxyUrl()) {
   catch { return ""; }
 }
 
-/** Subprotocols for a WebSocket to `url`: the invite when we hold one. */
+/** Mirrors valid_device in ws_transport.rs and the bridge. */
+export function validWsDevice(d) {
+  return typeof d === "string" && /^[A-Za-z0-9_-]{16,64}$/.test(d);
+}
+
+/** This browser's stable device id for a proxy host (created on first use). */
+export function wsRelayDevice(host) {
+  const h = normalizeHost(host);
+  if (!h) return "";
+  let all = {};
+  try {
+    const v = JSON.parse(localStorage.getItem(DEVICES_KEY) || "{}");
+    if (v && typeof v === "object" && !Array.isArray(v)) all = v;
+  } catch { /* rewritten below */ }
+  if (validWsDevice(all[h])) return all[h];
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  all[h] = btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  localStorage.setItem(DEVICES_KEY, JSON.stringify(all));
+  return all[h];
+}
+
+/** The device id for the proxy wsProxyUrl() points at ("" without an invite). */
+export function wsProxyDevice(url = wsProxyUrl()) {
+  try { return url && wsProxyToken(url) ? wsRelayDevice(new URL(url).hostname) : ""; }
+  catch { return ""; }
+}
+
+/** Subprotocols for a WebSocket to `url`: the invite (and device id) when we hold one. */
 export function wsProtocolsFor(url) {
   const tok = wsProxyToken(url);
-  return tok ? [WS_SUBPROTOCOL, `tok.${tok}`] : undefined;
+  return tok ? [WS_SUBPROTOCOL, `tok.${tok}`, `dev.${wsProxyDevice(url)}`] : undefined;
 }
 
 function write(list, active) {

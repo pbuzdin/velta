@@ -204,12 +204,14 @@ async function digestOf(files, dbs) {
 // `new WebSocket(url)` sockets. When the proxy needs an invite, sockets to
 // that proxy offer the subprotocols ["velta.v1", "tok.<token>"]: the only
 // thing a browser can attach to a WebSocket handshake, and unlike a query
-// string it stays out of access logs.
-function installWsInvite(scope, base, token) {
+// string it stays out of access logs. "dev.<id>" (this browser's random
+// device id for the proxy) lets invites minted with --uses N count devices.
+function installWsInvite(scope, base, token, device) {
   const Native = scope.WebSocket;
   if (!Native || !base || !/^[A-Za-z0-9_.-]{1,1024}$/.test(String(token || ""))) return false;
   const prefix = String(base).replace(/\/+$/, "") + "/";
   const protos = ["velta.v1", `tok.${token}`];
+  if (/^[A-Za-z0-9_-]{16,64}$/.test(String(device || ""))) protos.push(`dev.${device}`);
   function WebSocket(url, protocols) {
     const u = String(url);
     return protocols === undefined && u.startsWith(prefix) ? new Native(u, protos) : new Native(u, protocols);
@@ -240,7 +242,7 @@ self.onmessage = async (e) => {
         await restore(root);
       }
       relayBase = relayBaseFromWsUrl(d.wsProxyUrl);
-      if (d.wsProxyToken) installWsInvite(self, d.wsProxyUrl, d.wsProxyToken);
+      if (d.wsProxyToken) installWsInvite(self, d.wsProxyUrl, d.wsProxyToken, d.wsProxyDevice);
       dc = await glue.init(
         (line) => self.postMessage({ type: "line", line }),
         d.wsProxyUrl ?? null,

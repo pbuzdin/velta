@@ -78,13 +78,15 @@ device:
 sudo tools/deploy-ws-proxy.sh invite "Mum's phone" --expires 90d
 # velta://ws?u=wss%3A%2F%2Fws.example.org&n=Mum's%20phone&t=eyJ2Ijox….Qk3x…
 # (+ a terminal QR code when qrencode is installed: apt install qrencode)
-sudo tools/deploy-ws-proxy.sh invite --list             # id, name, expiry, active/expired/revoked
+sudo tools/deploy-ws-proxy.sh invite "Family" --uses 4  # at most 4 devices
+sudo tools/deploy-ws-proxy.sh invite --list             # id, name, expiry, status, devices used/limit
 sudo tools/deploy-ws-proxy.sh invite --revoke 3f9c0a1b2d4e
+sudo tools/deploy-ws-proxy.sh invite --reset 3f9c0a1b2d4e  # forget its devices (frees the slots)
 ```
 
 - The token is `base64url(payload) "." base64url(HMAC-SHA256(secret, payload))`;
-  the payload is `{"v":1,"i":<invite id>,"n":<name>,"e":<expiry, unix s>}`
-  (`n`, `e` optional). `--expires` takes `30d`, `12h` or `2027-01-31` (UTC);
+  the payload is `{"v":1,"i":<invite id>,"n":<name>,"e":<expiry, unix s>,"u":<max devices>}`
+  (`n`, `e`, `u` optional; `u` is an integer 1..10000). `--expires` takes `30d`, `12h` or `2027-01-31` (UTC);
   without it the invite never expires.
 - The bridge checks it during the WebSocket handshake, before it resolves
   or dials anything, and answers **401** for a missing, malformed, forged,
@@ -95,18 +97,67 @@ sudo tools/deploy-ws-proxy.sh invite --revoke 3f9c0a1b2d4e
 - `--revoke` appends the id to `/etc/velta-ws-proxy/revoked`; the bridge
   re-reads that file within ~2 s, so new connections are refused at once.
   Tunnels that are already open stay up until they reconnect.
+- `--uses N` signs `"u":N` into the payload, so the cap can't be raised
+  without the secret. A *use* is a **device** (an app install or a
+  browser profile), not a connection: apps open many sockets and
+  reconnect all the time. See [Device caps](#device-caps-uses-n).
 - `invites.tsv` is a local log of minted ids for `--list`; tokens can't be
   recovered from it. Rotating `secret` (delete it, re-run the deploy)
   invalidates every invite at once.
-- No per-invite usage cap: counting uses would need writable state shared
-  across restarts; expiry + revocation cover the same need.
 - With invites on, nginx also admits requests **without** an `Origin`
   header (the Android/Windows apps send none); the token is what admits
   them. Browsers always send `Origin`, so the origin allowlist still gates
   web pages.
 
-Anyone holding a link can use the proxy until it expires or is revoked:
-send it privately.
+Anyone holding a link can use the proxy until it expires or is revoked
+(or, with `--uses`, until its device slots are taken): send it privately.
+
+### Device caps (`--uses N`)
+
+- Clients offer a third subprotocol, `dev.<id>`: a random per-install id
+  (16–64 chars of `A-Za-z0-9_-`; the apps use 22, i.e. 128 bits) that is
+  different for every proxy. The Android/Windows app keeps it in
+  `ws_transport.json` (`devices`, keyed by proxy URL, so deleting and
+  re-adding the proxy is the same device); the PWA in `localStorage`
+  (`velta-ws-devices`, keyed by host). It is only sent together with a token.
+- For a capped invite the bridge admits a device id it has already seen for
+  that invite, admits a new one while fewer than N are recorded, and
+  otherwise answers **403** with header `X-Velta-Refusal: device-limit`
+  (the app says "This invite has reached its device limit"). A capped
+  invite offered **without** a device id (an app from before device caps)
+  gets **401**: counting connections instead would lock real users out,
+  and admitting them would make the cap meaningless. Uncapped invites
+  ignore device ids, so old links and old apps keep working as before.
+- State: `/var/lib/velta-ws-proxy/uses.json` (systemd `StateDirectory`,
+  owned by the service's dynamic user, 0700), shape
+  `{"v":1,"invites":{"<id>":{"devices":{"<device id>":<first seen, unix s>}}}}`.
+  Read-modify-write runs under `flock` on `uses.lock`, the file is replaced
+  atomically (write + fsync + rename) and survives restarts; the bridge
+  re-reads it when its mtime changes, so `--reset` applies at once.
+  Revoking an invite doesn't clear its devices (`--reset` does).
+- A browser's site-data wipe or an app reinstall is a new device; use
+  `--reset ID` (forgets all devices of that invite) or mint a new link.
+- Old proxies ignore `dev.` and `u`, so new apps work against them unchanged.
+
+### Scripting (Veltar bot and other tools)
+
+`invite` takes `--json` for machine-readable output (one JSON document on
+stdout, nothing else); the same calls work on `bridge.py` directly:
+
+```sh
+sudo tools/deploy-ws-proxy.sh invite "Ann" --expires 30d --uses 2 --json
+# {"id":"3f9c0a1b2d4e","link":"velta://ws?u=…&n=Ann&t=…","token":"…","name":"Ann","expires":1798761600,"uses":2}
+sudo tools/deploy-ws-proxy.sh invite --list --json
+# [{"id":"3f9c0a1b2d4e","name":"Ann","expires":1798761600,"status":"active","uses":2,"used":1,
+#   "devices":[{"id":"Q2xvdWRz","first_seen":1796200000}]}]     (uses null = unlimited; device ids shortened to 8 chars)
+sudo tools/deploy-ws-proxy.sh invite --reset 3f9c0a1b2d4e --json   # {"id":"3f9c0a1b2d4e","cleared":1}
+sudo tools/deploy-ws-proxy.sh invite --revoke 3f9c0a1b2d4e
+```
+
+Compatibility rules for anything that mints or parses tokens: keep `v` at
+1, add only optional keys, ignore unknown ones; a verifier that doesn't know
+`u` must not be used with capped invites (it would admit unlimited devices).
+`invites.tsv` lines are `id<TAB>name<TAB>expiry[<TAB>uses]`.
 
 ## 4. Point the PWA at it
 

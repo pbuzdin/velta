@@ -9,7 +9,7 @@
 // on that port could have posed as the core after a startup failure.
 import { JsonRpcCore } from "./rpc-core.js";
 import { WorkerWasmTransport } from "./transport-worker-wasm.js";
-import { wsProxyToken, wsProxyUrl } from "./ws-relays.js";
+import { wsProxyDevice, wsProxyToken, wsProxyUrl } from "./ws-relays.js";
 import { rustLog, tauriInvoke } from "./tauri.js";
 
 
@@ -127,6 +127,7 @@ export async function createCore({ onDiagnostic = () => {} } = {}) {
       glueUrl: wasmGlueUrl(),
       wsProxyUrl: wsProxyUrl(),
       wsProxyToken: wsProxyToken(),
+      wsProxyDevice: wsProxyDevice(),
     }));
   }
 

@@ -30,7 +30,11 @@ core (IMAP/SMTP) ──SOCKS5──▶ 127.0.0.1:<random port>  (ws_transport.rs
   sent on every handshake as `Sec-WebSocket-Protocol: velta.v1,
   tok.<token>`; the app only checks its shape (it has no key). A 401 shows
   "the proxy refused the invite. It is invalid, expired or revoked…" in
-  Test and add errors. See [deploy guide § Invite links](deploy-pwa-websocket-proxy.md#3-invite-links).
+  Test and add errors. Invites minted with `--uses N` count devices: the
+  app also offers `dev.<id>` (random, per proxy URL, kept in
+  `ws_transport.json` → `devices`), and a full invite (403
+  `X-Velta-Refusal: device-limit`) shows "This invite has reached its device
+  limit". See [deploy guide § Invite links](deploy-pwa-websocket-proxy.md#3-invite-links).
 * Nothing about credentials, tokens or payload is logged; the log names only the
   proxy host and the local port. `velta://ws?…` links are logged redacted.
 * Android and Windows share the module; the profile proxy is written by the

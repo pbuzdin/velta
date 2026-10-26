@@ -115,3 +115,118 @@ test("--no-auth bridge still serves clients with and without a subprotocol", { s
   assert.deepEqual(out.plain, { ok: true, proto: null, msg: ["127.0.0.1"] });
   assert.deepEqual(out.offered, { ok: true, proto: "velta.v1", msg: ["127.0.0.1"] });
 });
+
+// --uses N: at most N distinct device ids per invite, persisted across
+// restarts in $STATE_DIRECTORY/uses.json; known devices reconnect freely.
+const CAP_DRIVER = String.raw`
+import asyncio, json, os, subprocess, sys, time, socket
+import websockets
+bridge, secret, state = sys.argv[1:4]
+import importlib.util
+spec = importlib.util.spec_from_file_location("bridge", bridge); b = importlib.util.module_from_spec(spec); spec.loader.exec_module(b)
+key = b.load_secret(secret)
+A, B, C = "a" * 22, "b" * 22, "c" * 22
+capped = b.mint(key, "cap222", "Two", 0, 2)
+free = b.mint(key, "free11")
+def start():
+    s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
+    env = dict(os.environ, AUTH="1", SECRET_FILE=secret, STATE_DIRECTORY=state, ALLOW_HOSTS="localhost.example.org", LISTEN_PORT=str(port))
+    return subprocess.Popen([sys.executable, bridge], env=env), port
+async def up(port):
+    for _ in range(100):
+        try:
+            socket.create_connection(("127.0.0.1", port), 0.2).close(); return
+        except OSError:
+            await asyncio.sleep(0.05)
+async def go(port, tok, dev=None):
+    protos = ["velta.v1", "tok." + tok] + (["dev." + dev] if dev else [])
+    try:
+        async with websockets.connect(f"ws://127.0.0.1:{port}/dns/localhost.example.org", subprotocols=protos, open_timeout=5) as ws:
+            await ws.recv(); return "ok"
+    except Exception as e:
+        r = getattr(e, "response", None)
+        return f"{r.status_code} {r.headers.get('X-Velta-Refusal', '')}".strip() if r else repr(e)
+out = {}
+async def phase1(port):
+    await up(port)
+    out["a1"] = await go(port, capped, A)
+    out["a_again"] = [await go(port, capped, A) for _ in range(5)]
+    out["b"] = await go(port, capped, B)
+    out["c"] = await go(port, capped, C)
+    out["nodev"] = await go(port, capped)
+    out["baddev"] = await go(port, capped, "short")
+    out["free_nodev"] = await go(port, free)
+    out["free_dev"] = await go(port, free, C)
+    forged = b.b64e(b'{"v":1,"i":"cap222","u":3}') + "." + capped.split(".")[1]
+    out["raised"] = await go(port, forged, C)
+async def phase2(port):
+    await up(port)
+    out["restart_a"] = await go(port, capped, A)
+    out["restart_c"] = await go(port, capped, C)
+async def phase3(port):
+    await asyncio.sleep(0.05)
+    out["after_reset_c"] = await go(port, capped, C)
+    out["after_reset_a"] = await go(port, capped, A)
+    out["after_reset_b"] = await go(port, capped, B)
+p, port = start()
+try: asyncio.run(phase1(port))
+finally: p.kill(); p.wait()
+out["state"] = json.load(open(os.path.join(state, "uses.json")))
+p, port = start()
+try:
+    asyncio.run(phase2(port))
+    r = subprocess.run([sys.executable, bridge, "--reset", "cap222", "--uses-file", os.path.join(state, "uses.json")], capture_output=True, text=True)
+    out["reset"] = r.stdout.strip()
+    asyncio.run(phase3(port))
+finally: p.kill()
+print(json.dumps(out))
+`;
+
+test("--uses caps an invite at N devices, persistently", { skip: !hasWs && "python3 websockets missing" }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "velta-wsauth-"));
+  writeFileSync(join(dir, "bridge.py"), bridge);
+  writeFileSync(join(dir, "secret"), "ab".repeat(32));
+  const state = mkdtempSync(join(dir, "state-"));
+  const r = spawnSync("python3", ["-c", CAP_DRIVER, join(dir, "bridge.py"), join(dir, "secret"), state], { encoding: "utf8", timeout: 60000 });
+  assert.equal(r.status, 0, r.stderr);
+  const out = JSON.parse(r.stdout.trim().split("\n").pop());
+  assert.equal(out.a1, "ok");
+  assert.deepEqual(out.a_again, ["ok", "ok", "ok", "ok", "ok"], "reconnects of a known device are not uses");
+  assert.equal(out.b, "ok");
+  assert.equal(out.c, "403 device-limit");
+  assert.equal(out.nodev, "401", "capped invite without a device id");
+  assert.equal(out.baddev, "401");
+  assert.equal(out.free_nodev, "ok", "uncapped invites need no device id");
+  assert.equal(out.free_dev, "ok");
+  assert.equal(out.raised, "401", "the cap is signed");
+  assert.deepEqual(Object.keys(out.state.invites.cap222.devices).sort(), ["a".repeat(22), "b".repeat(22)]);
+  assert.equal(out.state.invites.free11, undefined);
+  assert.equal(out.restart_a, "ok");
+  assert.equal(out.restart_c, "403 device-limit", "the count survives a restart");
+  assert.equal(out.reset, "Reset cap222: forgot 2 device(s).");
+  assert.equal(out.after_reset_c, "ok", "the running bridge sees --reset");
+  assert.equal(out.after_reset_a, "ok");
+  assert.equal(out.after_reset_b, "403 device-limit");
+});
+
+test("--mint --uses / --list --json for scripts (Veltar)", { skip: !hasWs && "python3 websockets missing" }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "velta-wsauth-"));
+  writeFileSync(join(dir, "bridge.py"), bridge);
+  writeFileSync(join(dir, "secret"), "cd".repeat(32));
+  const base = ["--secret", join(dir, "secret"), "--log", join(dir, "inv.tsv"), "--uses-file", join(dir, "uses.json")];
+  const m = spawnSync("python3", [join(dir, "bridge.py"), "--mint", "--json", ...base, "--name", "Kids", "--uses", "3", "--url", "wss://proxy.example.org"], { encoding: "utf8" });
+  assert.equal(m.status, 0, m.stderr);
+  const j = JSON.parse(m.stdout);
+  assert.equal(j.uses, 3);
+  assert.ok(j.link.endsWith("&t=" + j.token));
+  const payload = JSON.parse(Buffer.from(j.token.split(".")[0], "base64url"));
+  assert.deepEqual(payload, { v: 1, i: j.id, n: "Kids", u: 3 });
+  for (const bad of ["0", "-1", "x", "10001"]) {
+    assert.notEqual(spawnSync("python3", [join(dir, "bridge.py"), "--mint", ...base, "--uses", bad, "--url", "wss://p.example.org"]).status, 0, bad);
+  }
+  const l = spawnSync("python3", [join(dir, "bridge.py"), "--list-invites", "--json", ...base, "--revoked", join(dir, "nope")], { encoding: "utf8" });
+  assert.equal(l.status, 0, l.stderr);
+  assert.deepEqual(JSON.parse(l.stdout), [{ id: j.id, name: "Kids", expires: null, status: "active", uses: 3, used: 0, devices: [] }]);
+  const t = spawnSync("python3", [join(dir, "bridge.py"), "--list-invites", ...base, "--revoked", join(dir, "nope")], { encoding: "utf8" });
+  assert.match(t.stdout, new RegExp(`${j.id}\tKids\tnever\tactive\t0/3`));
+});

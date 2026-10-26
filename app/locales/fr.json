@@ -385,6 +385,7 @@
   "Velta WebSocket proxy": "Proxy WebSocket Velta",
   "Link copied": "Lien copié",
   "the proxy refused the invite. It is invalid, expired or revoked: ask the proxy owner for a new link.": "le proxy a refusé l’invitation. Elle est invalide, expirée ou révoquée : demandez un nouveau lien au propriétaire du proxy.",
+  "This invite has reached its device limit. Ask the proxy owner for a new link, or to free a device.": "Cette invitation a atteint sa limite d’appareils. Demandez un nouveau lien au propriétaire du proxy, ou de libérer un appareil.",
   "The invite in the link is damaged": "L’invitation dans le lien est endommagée",
   "The link includes an invite that lets you use this proxy. Keep it private.": "Le lien contient une invitation qui vous permet d’utiliser ce proxy. Gardez-le privé.",
   "{host} · with invite": "{host} · avec invitation",

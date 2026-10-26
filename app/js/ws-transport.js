@@ -31,7 +31,13 @@ export function isInviteRefusal(e) {
   return /\b401\b|invite (refused|invalid|expired|revoked|bad signature|malformed)/i.test(String(e?.message || e || ""));
 }
 
+/** The invite is valid but already used by its maximum number of devices (403). */
+export function isDeviceLimit(e) {
+  return /invite device limit|device-limit/i.test(String(e?.message || e || ""));
+}
+
 function errMsg(e) {
+  if (isDeviceLimit(e)) return t("This invite has reached its device limit. Ask the proxy owner for a new link, or to free a device.");
   if (isInviteRefusal(e)) return t("the proxy refused the invite. It is invalid, expired or revoked: ask the proxy owner for a new link.");
   return String(e?.message || e || "unknown error").slice(0, 200);
 }

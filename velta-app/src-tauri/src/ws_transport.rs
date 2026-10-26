@@ -19,6 +19,12 @@
 //! not verify tokens (it has no key); it checks their shape only. A 401 at
 //! the handshake surfaces as "invite refused".
 //!
+//! Device caps: an invite minted with `--uses N` admits N devices. Next to
+//! the token the app offers `dev.<id>`, a random id kept per proxy URL in
+//! the store's `devices` map (stable across restarts, reconnects and a
+//! delete + re-add, different for each proxy). A full invite answers 403
+//! with `X-Velta-Refusal: device-limit`.
+//!
 //! Nothing is logged about credentials, tokens, hosts beyond the proxy's own name,
 //! or payload bytes.
 
@@ -43,18 +49,36 @@ pub fn valid_token(t: &str) -> bool {
     t.len() <= TOKEN_MAX && t.split_once('.').is_some_and(|(p, sig)| p.len() >= 4 && b64(p) && sig.len() == 43 && b64(sig))
 }
 
-/// The handshake's extra header line ("" without a token).
-pub fn auth_header(token: Option<&str>) -> String {
+/// Device id shape (mirrors validWsDevice in ws-relays.js and the bridge).
+pub fn valid_device(d: &str) -> bool {
+    (16..=64).contains(&d.len()) && d.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+}
+
+/// The handshake's extra header line ("" without a token). The device id
+/// rides along only with a token: proxies without invites never see it.
+pub fn auth_header(token: Option<&str>, device: Option<&str>) -> String {
     match token.filter(|t| valid_token(t)) {
-        Some(t) => format!("Sec-WebSocket-Protocol: {SUBPROTOCOL}, tok.{t}\r\n"),
+        Some(t) => match device.filter(|d| valid_device(d)) {
+            Some(d) => format!("Sec-WebSocket-Protocol: {SUBPROTOCOL}, tok.{t}, dev.{d}\r\n"),
+            None => format!("Sec-WebSocket-Protocol: {SUBPROTOCOL}, tok.{t}\r\n"),
+        },
         None => String::new(),
     }
 }
 
-/// Error text for a refused upgrade; 401 means the invite.
-pub fn refusal_text(status_line: &str) -> String {
-    if status_line.split_whitespace().nth(1) == Some("401") {
+pub const DEVICE_LIMIT: &str = "invite device limit (403): this invite has reached its device limit";
+
+/// Error text for a refused upgrade (`head`: status line and headers);
+/// 401 means the invite, 403 + X-Velta-Refusal: device-limit a full one.
+pub fn refusal_text(head: &str) -> String {
+    let status_line = head.lines().next().unwrap_or("");
+    let code = status_line.split_whitespace().nth(1);
+    if code == Some("401") {
         return "invite refused (401): invalid, expired or revoked".into();
+    }
+    let limit = head.lines().any(|l| l.split_once(':').is_some_and(|(k, v)| k.trim().eq_ignore_ascii_case("x-velta-refusal") && v.trim() == "device-limit"));
+    if code == Some("403") && limit {
+        return DEVICE_LIMIT.into();
     }
     format!("proxy refused the WebSocket: {}", status_line.chars().take(60).collect::<String>())
 }
@@ -362,6 +386,21 @@ pub mod store {
         }
         Ok(was)
     }
+    /// This install's device id for a proxy URL (canonical form), created
+    /// with `fresh` on first use. Kept outside the proxy entries so that a
+    /// delete + re-add of the same proxy does not count as a new device.
+    pub fn device(st: &mut Value, url: &str, fresh: impl FnOnce() -> String) -> Result<String, String> {
+        let canon = super::parse_proxy_url(url)?.to_url();
+        if !st["devices"].is_object() {
+            st["devices"] = json!({});
+        }
+        if let Some(d) = st["devices"][&canon].as_str().filter(|d| super::valid_device(d)) {
+            return Ok(d.to_string());
+        }
+        let d = fresh();
+        st["devices"][&canon] = Value::from(d.clone());
+        Ok(d)
+    }
     /// The saved invite token of a proxy, if any.
     pub fn token<'a>(st: &'a Value, id: &str) -> Option<&'a str> {
         find(st, id)?["token"].as_str().filter(|t| super::valid_token(t))
@@ -409,7 +448,7 @@ mod imp {
 
     /// Opens a WebSocket to `path` on the proxy (TLS for wss) and completes
     /// the upgrade. Times out after CONNECT_TIMEOUT.
-    pub async fn ws_connect(p: &ProxyUrl, path: &str, token: Option<&str>) -> Result<Box<dyn Io>, String> {
+    pub async fn ws_connect(p: &ProxyUrl, path: &str, token: Option<&str>, device: Option<&str>) -> Result<Box<dyn Io>, String> {
         tokio::time::timeout(CONNECT_TIMEOUT, async {
             let tcp = TcpStream::connect((p.host.as_str(), p.port)).await.map_err(|e| format!("can't reach the proxy: {}", e.kind()))?;
             let _ = tcp.set_nodelay(true);
@@ -422,7 +461,7 @@ mod imp {
             };
             let key = data_encoding::BASE64.encode(&crate::random_bytes::<16>());
             let host = p.host_header();
-            let auth = auth_header(token);
+            let auth = auth_header(token, device);
             let req = format!(
                 "GET {path} HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n{auth}User-Agent: Velta\r\n\r\n"
             );
@@ -439,7 +478,7 @@ mod imp {
             let head = String::from_utf8_lossy(&head);
             let first = head.lines().next().unwrap_or("");
             if first.split_whitespace().nth(1) != Some("101") {
-                return Err(refusal_text(first));
+                return Err(refusal_text(&head));
             }
             let want = ws_accept_key(&key);
             let ok = head.lines().any(|l| l.split_once(':').is_some_and(|(k, v)| k.trim().eq_ignore_ascii_case("sec-websocket-accept") && v.trim() == want));
@@ -478,8 +517,8 @@ mod imp {
     }
 
     /// `/dns/<host>` on the proxy → IPs.
-    pub async fn resolve(p: &ProxyUrl, host: &str, token: Option<&str>) -> Result<Vec<IpAddr>, String> {
-        let mut ws = ws_connect(p, &p.dns_path(host), token).await?;
+    pub async fn resolve(p: &ProxyUrl, host: &str, token: Option<&str>, device: Option<&str>) -> Result<Vec<IpAddr>, String> {
+        let mut ws = ws_connect(p, &p.dns_path(host), token, device).await?;
         let mut msg = Vec::new();
         let r = tokio::time::timeout(CONNECT_TIMEOUT, async {
             loop {
@@ -560,6 +599,7 @@ mod imp {
     struct Ctx {
         proxy: ProxyUrl,
         token: Option<String>,
+        device: Option<String>,
         user: String,
         pass: String,
         cache: Mutex<std::collections::HashMap<String, (std::time::Instant, Vec<IpAddr>)>>,
@@ -622,7 +662,7 @@ mod imp {
                 let cached = ctx.cache.lock().unwrap().get(&name).filter(|(t, _)| t.elapsed() < DNS_CACHE).map(|(_, v)| v.clone());
                 let ips = match cached {
                     Some(v) => v,
-                    None => match resolve(&ctx.proxy, &name, ctx.token.as_deref()).await {
+                    None => match resolve(&ctx.proxy, &name, ctx.token.as_deref(), ctx.device.as_deref()).await {
                         Ok(v) if !v.is_empty() => {
                             ctx.cache.lock().unwrap().insert(name, (std::time::Instant::now(), v.clone()));
                             v
@@ -635,7 +675,7 @@ mod imp {
         };
         let mut ws = None;
         for ip in ips.iter().take(4) {
-            if let Ok(w) = ws_connect(&ctx.proxy, &ctx.proxy.tcp_path(*ip, port), ctx.token.as_deref()).await {
+            if let Ok(w) = ws_connect(&ctx.proxy, &ctx.proxy.tcp_path(*ip, port), ctx.token.as_deref(), ctx.device.as_deref()).await {
                 ws = Some(w);
                 break;
             }
@@ -655,7 +695,7 @@ mod imp {
     }
 
     /// Starts the SOCKS5 server on `listen` ("127.0.0.1:0" for a random port).
-    pub async fn start(proxy: ProxyUrl, token: Option<String>, user: String, pass: String, listen: &str) -> Result<Server, String> {
+    pub async fn start(proxy: ProxyUrl, token: Option<String>, device: Option<String>, user: String, pass: String, listen: &str) -> Result<Server, String> {
         let l = match TcpListener::bind(listen).await {
             Ok(l) => l,
             Err(_) => TcpListener::bind("127.0.0.1:0").await.map_err(|e| e.to_string())?,
@@ -665,7 +705,7 @@ mod imp {
             return Err("listen address must be loopback".into());
         }
         let stop = CancellationToken::new();
-        let ctx = Arc::new(Ctx { proxy, token, user, pass, cache: Mutex::new(Default::default()), sem: Arc::new(tokio::sync::Semaphore::new(MAX_CONNS)) });
+        let ctx = Arc::new(Ctx { proxy, token, device, user, pass, cache: Mutex::new(Default::default()), sem: Arc::new(tokio::sync::Semaphore::new(MAX_CONNS)) });
         let st = stop.clone();
         let fut = async move {
             loop {
@@ -744,6 +784,21 @@ mod app {
     fn hex(b: &[u8]) -> String {
         b.iter().map(|x| format!("{x:02x}")).collect()
     }
+    /// 128 random bits, base64url (22 chars).
+    fn new_device() -> String {
+        data_encoding::BASE64URL_NOPAD.encode(&crate::random_bytes::<16>())
+    }
+    /// The device id for `url`, saving a new one (for the Test button).
+    pub async fn device_for(app: &tauri::AppHandle, url: &str) -> Result<String, String> {
+        let _g = OP.lock().await;
+        let mut st = load(app);
+        let had = st["devices"].clone();
+        let d = store::device(&mut st, url, new_device)?;
+        if st["devices"] != had {
+            save(app, &st)?;
+        }
+        Ok(d)
+    }
 
     fn stop_server() {
         if let Some(s) = SERVER.lock().unwrap().take() {
@@ -758,9 +813,11 @@ mod app {
             crate::tunnel::set_ws_proxy(None);
             return Ok(());
         };
-        let url = store::find(st, &id).and_then(|p| p["url"].as_str()).unwrap_or_default();
+        let url = store::find(st, &id).and_then(|p| p["url"].as_str()).unwrap_or_default().to_string();
+        let url = url.as_str();
         let proxy = parse_proxy_url(url)?;
         let token = store::token(st, &id).map(str::to_string);
+        let device = store::device(st, url, new_device)?;
         // Port and password belong to the list: switching proxies keeps
         // the profiles' proxy_url unchanged.
         if st["pass"].as_str().is_none_or(|p| p.len() < 16) {
@@ -768,7 +825,7 @@ mod app {
         }
         let pass = st["pass"].as_str().unwrap_or_default().to_string();
         let listen = st["listen"].as_str().unwrap_or("127.0.0.1:0").to_string();
-        let server = imp::start(proxy.clone(), token, "velta-ws".into(), pass.clone(), &listen).await?;
+        let server = imp::start(proxy.clone(), token, Some(device), "velta-ws".into(), pass.clone(), &listen).await?;
         let addr = server.addr;
         st["listen"] = Value::from(addr.to_string());
         save(app, st)?;
@@ -893,14 +950,20 @@ pub async fn ws_transport_delete(app: tauri::AppHandle, id: String) -> Result<()
 /// Test button: asks the proxy's /dns/ for `host` (the account's IMAP host).
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
-pub async fn ws_transport_test(url: String, host: String, token: Option<String>) -> Result<Value, String> {
+pub async fn ws_transport_test(app: tauri::AppHandle, url: String, host: String, token: Option<String>) -> Result<Value, String> {
     let p = parse_proxy_url(&url)?;
     let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
     if !valid_dns_name(&host) {
         return Err("Bad host name".into());
     }
     let t0 = std::time::Instant::now();
-    let ips = imp::resolve(&p, &host, token.as_deref()).await?;
+    // Same device id as the transport itself, so a Test of a capped invite
+    // takes the slot this install will use anyway.
+    let device = match token.as_deref() {
+        Some(_) => Some(app::device_for(&app, &url).await?),
+        None => None,
+    };
+    let ips = imp::resolve(&p, &host, token.as_deref(), device.as_deref()).await?;
     Ok(serde_json::json!({"ips": ips.len(), "ms": t0.elapsed().as_millis() as u64}))
 }
 
@@ -1012,9 +1075,15 @@ mod tests {
             assert!(!valid_token(bad), "{bad}");
         }
         assert!(!valid_token(&format!("{}.{}", "a".repeat(1000), "A".repeat(43))));
-        assert_eq!(auth_header(Some(TOK)), format!("Sec-WebSocket-Protocol: velta.v1, tok.{TOK}\r\n"));
-        assert_eq!(auth_header(Some("x\r\nEvil: 1")), "");
-        assert_eq!(auth_header(None), "");
+        assert_eq!(auth_header(Some(TOK), None), format!("Sec-WebSocket-Protocol: velta.v1, tok.{TOK}\r\n"));
+        let dev = "AAAAAAAAAAAAAAAAAAAAAA";
+        assert_eq!(auth_header(Some(TOK), Some(dev)), format!("Sec-WebSocket-Protocol: velta.v1, tok.{TOK}, dev.{dev}\r\n"));
+        assert_eq!(auth_header(Some(TOK), Some("bad\r\nX: 1aaaaaaaaaaaa")), format!("Sec-WebSocket-Protocol: velta.v1, tok.{TOK}\r\n"));
+        assert_eq!(auth_header(Some("x\r\nEvil: 1"), Some(dev)), "");
+        assert_eq!(auth_header(None, Some(dev)), "", "no device id without an invite");
+        assert!(!valid_device("short") && !valid_device(&"a".repeat(65)) && valid_device(dev));
+        assert_eq!(refusal_text("HTTP/1.1 403 Forbidden\r\nX-Velta-Refusal: device-limit\r\n\r\n"), DEVICE_LIMIT);
+        assert!(refusal_text("HTTP/1.1 403 Forbidden\r\nServer: nginx\r\n\r\n").starts_with("proxy refused"));
         assert!(refusal_text("HTTP/1.1 401 Unauthorized").starts_with("invite refused (401)"));
         assert!(refusal_text("HTTP/1.1 403 Forbidden").contains("403"));
 
@@ -1029,6 +1098,13 @@ mod tests {
         store::add(&mut st, "proxy.example.org", "", None, "a3".into(), 3).unwrap();
         assert_eq!(store::token(&st, "a1"), Some(TOK));
         assert!(store::public_list(&st).to_string().contains(TOK));
+        // Device ids: one per canonical proxy URL, stable, survive a delete.
+        let d1 = store::device(&mut st, "proxy.example.org", || "d".repeat(22)).unwrap();
+        assert_eq!(store::device(&mut st, "wss://proxy.example.org/", || unreachable!()).unwrap(), d1);
+        store::delete(&mut st, "a1").unwrap();
+        assert_eq!(store::device(&mut st, "proxy.example.org", || unreachable!()).unwrap(), d1);
+        assert_eq!(store::device(&mut st, "other.example.org", || "e".repeat(22)).unwrap(), "e".repeat(22));
+        assert!(!store::public_list(&st).to_string().contains(&d1));
     }
 
     #[test]
@@ -1078,9 +1154,9 @@ mod tests {
         let bridge = bridge.with_echo_port(echo_port);
         let proxy = parse_proxy_url(&format!("ws://127.0.0.1:{}", bridge.port)).unwrap();
         // /dns/ answer for the allowlisted name.
-        let ips = resolve(&proxy, "localhost.example.org", None).await.unwrap();
+        let ips = resolve(&proxy, "localhost.example.org", None, None).await.unwrap();
         assert_eq!(ips, vec!["127.0.0.1".parse::<IpAddr>().unwrap()]);
-        let server = start(proxy, None, "velta-ws".into(), "pw".into(), "127.0.0.1:0").await.unwrap();
+        let server = start(proxy, None, None, "velta-ws".into(), "pw".into(), "127.0.0.1:0").await.unwrap();
 
         // Wrong password is refused.
         let mut s = tokio::net::TcpStream::connect(server.addr).await.unwrap();
@@ -1182,17 +1258,17 @@ mod tests {
         let bridge = bridge.with_env(echo_port, &[("AUTH", "1"), ("SECRET_FILE", secret_s), ("REVOKED_FILE", revoked_s), ("ALLOW_PORTS", &port_s)]);
         let proxy = parse_proxy_url(&format!("ws://127.0.0.1:{}", bridge.port)).unwrap();
         let host = "localhost.example.org";
-        assert_eq!(resolve(&proxy, host, Some(&valid)).await.unwrap(), vec!["127.0.0.1".parse::<IpAddr>().unwrap()]);
+        assert_eq!(resolve(&proxy, host, Some(&valid), None).await.unwrap(), vec!["127.0.0.1".parse::<IpAddr>().unwrap()]);
         for (why, tok) in [("missing", None), ("forged", Some(forged.as_str())), ("expired", Some(expired.as_str()))] {
-            let e = resolve(&proxy, host, tok).await.unwrap_err();
+            let e = resolve(&proxy, host, tok, None).await.unwrap_err();
             assert!(e.starts_with("invite refused (401)"), "{why}: {e}");
         }
         // A /tcp/ tunnel without the token is refused before any dial.
-        let e = imp::ws_connect(&proxy, &proxy.tcp_path("127.0.0.1".parse().unwrap(), echo_port), None).await.err().unwrap();
+        let e = imp::ws_connect(&proxy, &proxy.tcp_path("127.0.0.1".parse().unwrap(), echo_port), None, None).await.err().unwrap();
         assert!(e.starts_with("invite refused"), "{e}");
 
         // SOCKS CONNECT through the bridge with the token.
-        let server = start(proxy.clone(), Some(valid.clone()), "velta-ws".into(), "pw".into(), "127.0.0.1:0").await.unwrap();
+        let server = start(proxy.clone(), Some(valid.clone()), None, "velta-ws".into(), "pw".into(), "127.0.0.1:0").await.unwrap();
         let mut s = tokio::net::TcpStream::connect(server.addr).await.unwrap();
         let mut r = [0u8; 2];
         s.write_all(&[5, 1, 2]).await.unwrap();
@@ -1214,9 +1290,46 @@ mod tests {
         // Revocation: the bridge re-reads the list within ~2 s.
         std::fs::write(&revoked, "id1\n").unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(2600)).await;
-        let e = resolve(&proxy, host, Some(&valid)).await.unwrap_err();
+        let e = resolve(&proxy, host, Some(&valid), None).await.unwrap_err();
         assert!(e.starts_with("invite refused"), "revoked: {e}");
-        assert!(resolve(&proxy, host, Some(&other)).await.is_ok(), "other invites keep working");
+        assert!(resolve(&proxy, host, Some(&other), None).await.is_ok(), "other invites keep working");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `--uses 1` end to end with the real bridge: the first device takes the
+    /// slot and reconnects freely (also after a bridge restart), a second
+    /// one gets the device-limit refusal, an app without a device id 401.
+    #[tokio::test]
+    async fn invite_device_cap_through_local_bridge() {
+        let Some(b1) = local_bridge::start() else {
+            eprintln!("skipped: python3 + websockets not available");
+            return;
+        };
+        let dir = std::env::temp_dir().join(format!("velta-wscap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("state")).unwrap();
+        let secret = dir.join("secret");
+        std::fs::write(&secret, "ef".repeat(32)).unwrap();
+        let (secret_s, state_s) = (secret.to_str().unwrap().to_string(), dir.join("state").to_str().unwrap().to_string());
+        const MINT: &str = "import importlib.util,sys\nspec=importlib.util.spec_from_file_location('b',sys.argv[1]);b=importlib.util.module_from_spec(spec);spec.loader.exec_module(b)\nprint(b.mint(b.load_secret(sys.argv[2]),'cap1','',0,1))";
+        let tok = b1.py(MINT, &[&secret_s]);
+        let env = [("AUTH", "1"), ("SECRET_FILE", secret_s.as_str()), ("STATE_DIRECTORY", state_s.as_str())];
+        let host = "localhost.example.org";
+        let (a, c) = ("A".repeat(22), "C".repeat(22));
+        let b1 = b1.with_env(1, &env);
+        let proxy = parse_proxy_url(&format!("ws://127.0.0.1:{}", b1.port)).unwrap();
+        for _ in 0..3 {
+            resolve(&proxy, host, Some(&tok), Some(&a)).await.unwrap();
+        }
+        assert_eq!(resolve(&proxy, host, Some(&tok), Some(&c)).await.unwrap_err(), DEVICE_LIMIT);
+        let e = resolve(&proxy, host, Some(&tok), None).await.unwrap_err();
+        assert!(e.starts_with("invite refused (401)"), "{e}");
+        drop(b1);
+        let b2 = local_bridge::start().unwrap().with_env(1, &env);
+        let proxy = parse_proxy_url(&format!("ws://127.0.0.1:{}", b2.port)).unwrap();
+        resolve(&proxy, host, Some(&tok), Some(&a)).await.expect("known device after restart");
+        assert_eq!(resolve(&proxy, host, Some(&tok), Some(&c)).await.unwrap_err(), DEVICE_LIMIT);
+        drop(b2);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
