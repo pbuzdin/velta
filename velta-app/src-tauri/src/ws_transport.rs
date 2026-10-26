@@ -750,7 +750,6 @@ pub use imp::{resolve, start};
 mod app {
     use super::*;
     use std::sync::Mutex;
-    use tauri::Manager;
 
     static SERVER: Mutex<Option<imp::Server>> = Mutex::new(None);
     /// Serializes start/stop/select. Never held while calling into tunnel.rs.
@@ -759,17 +758,17 @@ mod app {
     fn log(msg: &str) {
         crate::log(&format!("ws transport: {msg}"));
     }
-    fn path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
-        app.path().app_local_data_dir().ok().map(|d| d.join(FILE))
+    fn path(app: &crate::Host) -> Option<std::path::PathBuf> {
+        app.data_dir().map(|d| d.join(FILE))
     }
-    pub fn load(app: &tauri::AppHandle) -> Value {
+    pub fn load(app: &crate::Host) -> Value {
         path(app)
             .and_then(|p| std::fs::read_to_string(p).ok())
             .and_then(|s| serde_json::from_str::<Value>(&s).ok())
             .filter(Value::is_object)
             .unwrap_or_else(store::empty)
     }
-    fn save(app: &tauri::AppHandle, st: &Value) -> Result<(), String> {
+    fn save(app: &crate::Host, st: &Value) -> Result<(), String> {
         let p = path(app).ok_or("no app data dir")?;
         if let Some(d) = p.parent() {
             let _ = std::fs::create_dir_all(d);
@@ -789,7 +788,7 @@ mod app {
         data_encoding::BASE64URL_NOPAD.encode(&crate::random_bytes::<16>())
     }
     /// The device id for `url`, saving a new one (for the Test button).
-    pub async fn device_for(app: &tauri::AppHandle, url: &str) -> Result<String, String> {
+    pub async fn device_for(app: &crate::Host, url: &str) -> Result<String, String> {
         let _g = OP.lock().await;
         let mut st = load(app);
         let had = st["devices"].clone();
@@ -807,7 +806,7 @@ mod app {
     }
 
     /// Starts the active proxy's server and points the profiles at it.
-    async fn start_active(app: &tauri::AppHandle, st: &mut Value) -> Result<(), String> {
+    async fn start_active(app: &crate::Host, st: &mut Value) -> Result<(), String> {
         stop_server();
         let Some(id) = store::active_id(st).map(str::to_string) else {
             crate::tunnel::set_ws_proxy(None);
@@ -835,7 +834,7 @@ mod app {
         Ok(())
     }
 
-    pub async fn boot(app: &tauri::AppHandle) {
+    pub async fn boot(app: &crate::Host) {
         let _g = OP.lock().await;
         let mut st = load(app);
         if store::active_id(&st).is_none() {
@@ -854,7 +853,7 @@ mod app {
     }
 
     /// The DNS tunnel just started: turn this off (one at a time).
-    pub fn deactivate_for_tunnel(app: &tauri::AppHandle) {
+    pub fn deactivate_for_tunnel(app: &crate::Host) {
         let mut st = load(app);
         if store::active_id(&st).is_some() || SERVER.lock().unwrap().is_some() {
             let _ = store::select(&mut st, None);
@@ -865,7 +864,7 @@ mod app {
         }
     }
 
-    pub async fn add(app: &tauri::AppHandle, url: &str, label: &str, token: Option<&str>, activate: bool) -> Result<Value, String> {
+    pub async fn add(app: &crate::Host, url: &str, label: &str, token: Option<&str>, activate: bool) -> Result<Value, String> {
         if activate {
             crate::tunnel::deactivate_for_ws(app);
         }
@@ -884,7 +883,7 @@ mod app {
         Ok(serde_json::json!({"id": id, "existing": existing}))
     }
 
-    pub async fn select(app: &tauri::AppHandle, id: Option<&str>) -> Result<(), String> {
+    pub async fn select(app: &crate::Host, id: Option<&str>) -> Result<(), String> {
         if id.is_some() {
             crate::tunnel::deactivate_for_ws(app);
         }
@@ -895,7 +894,7 @@ mod app {
         start_active(app, &mut st).await
     }
 
-    pub async fn delete(app: &tauri::AppHandle, id: &str) -> Result<(), String> {
+    pub async fn delete(app: &crate::Host, id: &str) -> Result<(), String> {
         let _g = OP.lock().await;
         let mut st = load(app);
         let was = store::delete(&mut st, id)?;
@@ -906,7 +905,7 @@ mod app {
         Ok(())
     }
 
-    pub fn status(app: &tauri::AppHandle) -> Value {
+    pub fn status(app: &crate::Host) -> Value {
         let st = load(app);
         let mut v = store::public_list(&st);
         v["supported"] = Value::from(true);
@@ -920,32 +919,32 @@ mod app {
 pub use app::deactivate_for_tunnel;
 
 #[cfg(any(target_os = "android", windows))]
-pub fn boot(app: &tauri::AppHandle) {
+pub fn boot(app: &crate::Host) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move { app::boot(&app).await });
 }
 #[cfg(not(any(target_os = "android", windows)))]
-pub fn boot(_app: &tauri::AppHandle) {}
+pub fn boot(_app: &crate::Host) {}
 
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
 pub fn ws_transport_status(app: tauri::AppHandle) -> Value {
-    app::status(&app)
+    app::status(&crate::Host::from_app(&app))
 }
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
 pub async fn ws_transport_add(app: tauri::AppHandle, url: String, label: Option<String>, token: Option<String>, activate: Option<bool>) -> Result<Value, String> {
-    app::add(&app, &url, label.as_deref().unwrap_or(""), token.as_deref(), activate.unwrap_or(false)).await
+    app::add(&crate::Host::from_app(&app), &url, label.as_deref().unwrap_or(""), token.as_deref(), activate.unwrap_or(false)).await
 }
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
 pub async fn ws_transport_select(app: tauri::AppHandle, id: Option<String>) -> Result<(), String> {
-    app::select(&app, id.as_deref()).await
+    app::select(&crate::Host::from_app(&app), id.as_deref()).await
 }
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
 pub async fn ws_transport_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    app::delete(&app, &id).await
+    app::delete(&crate::Host::from_app(&app), &id).await
 }
 /// Test button: asks the proxy's /dns/ for `host` (the account's IMAP host).
 #[cfg(any(target_os = "android", windows))]
@@ -960,7 +959,7 @@ pub async fn ws_transport_test(app: tauri::AppHandle, url: String, host: String,
     // Same device id as the transport itself, so a Test of a capped invite
     // takes the slot this install will use anyway.
     let device = match token.as_deref() {
-        Some(_) => Some(app::device_for(&app, &url).await?),
+        Some(_) => Some(app::device_for(&crate::Host::from_app(&app), &url).await?),
         None => None,
     };
     let ips = imp::resolve(&p, &host, token.as_deref(), device.as_deref()).await?;

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bg_channel_name">Synchronisation des messages</string>
+    <string name="bg_syncing">Vos messages restent à jour</string>
+    <string name="bg_not_syncing">Pas de synchronisation en arrière-plan. Touchez pour ouvrir Velta</string>
+</resources>

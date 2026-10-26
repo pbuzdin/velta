@@ -40,7 +40,6 @@ mod imp {
     use std::path::PathBuf;
     use std::collections::{HashSet, VecDeque};
     use std::sync::{Mutex, OnceLock};
-    use tauri::{Emitter, Manager};
     use super::platform;
     use super::store;
 
@@ -74,14 +73,14 @@ mod imp {
     static APPLIER: OnceLock<()> = OnceLock::new();
     /// Serializes start/stop/install/remove.
     static OP: Mutex<()> = Mutex::new(());
-    static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
+    static HOST: Mutex<Option<crate::Host>> = Mutex::new(None);
     /// Accounts being exported or transferred: our proxy is kept off them so
     /// a backup never carries this device's 127.0.0.1 tunnel port.
     static DETACHED: Mutex<Option<HashSet<u32>>> = Mutex::new(None);
 
     #[cfg_attr(not(windows), allow(dead_code))]
     pub(super) fn app_handle() -> Option<tauri::AppHandle> {
-        APP.get().cloned()
+        HOST.lock().unwrap().as_ref().and_then(|h| h.app().cloned())
     }
 
     fn is_detached(id: u32) -> bool {
@@ -106,8 +105,9 @@ mod imp {
                 ring.pop_front();
             }
         }
-        if let Some(app) = APP.get() {
-            let _ = app.emit("velta-tunnel-log", ());
+        let host = HOST.lock().unwrap().clone();
+        if let Some(host) = host {
+            host.emit("velta-tunnel-log", ());
         }
     }
 
@@ -125,12 +125,12 @@ mod imp {
     }
 
     /// A DNS tunnel is selected in the saved list.
-    pub fn dns_tunnel_active(app: &tauri::AppHandle) -> bool {
+    pub fn dns_tunnel_active(app: &crate::Host) -> bool {
         store::active_id(&load_store(app)).is_some()
     }
 
     /// The WebSocket transport is being turned on: stop the DNS tunnel.
-    pub fn deactivate_for_ws(app: &tauri::AppHandle) {
+    pub fn deactivate_for_ws(app: &crate::Host) {
         if dns_tunnel_active(app) {
             let _ = select(app, None);
             tlog("info", "stopped: the WebSocket transport is in use now");
@@ -139,7 +139,7 @@ mod imp {
 
     fn lib() -> Result<&'static Lib, String> {
         LIB.get_or_init(|| unsafe {
-            let l = libloading::Library::new(platform::lib_path(APP.get()))
+            let l = libloading::Library::new(platform::lib_path(app_handle().as_ref()))
                 .map_err(|e| format!("DNS tunnel library not available: {e}"))?;
             macro_rules! sym {
                 ($name:literal, $t:ty) => {
@@ -194,8 +194,8 @@ mod imp {
         (info["dns"].clone(), op.to_string())
     }
 
-    fn data_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
-        app.path().app_local_data_dir().ok()
+    fn data_dir(app: &crate::Host) -> Option<PathBuf> {
+        app.data_dir()
     }
 
     fn now() -> u64 {
@@ -205,7 +205,7 @@ mod imp {
     /// The saved tunnels. On the first run after an upgrade the old
     /// single-tunnel `tunnel.json` becomes the list's only (active) entry;
     /// it is deleted only once `tunnels.json` is written.
-    fn load_store(app: &tauri::AppHandle) -> Value {
+    fn load_store(app: &crate::Host) -> Value {
         let Some(dir) = data_dir(app) else { return store::empty() };
         if let Ok(s) = std::fs::read_to_string(dir.join(store::FILE)) {
             if let Ok(v) = serde_json::from_str::<Value>(&s) {
@@ -229,7 +229,7 @@ mod imp {
         migrated
     }
 
-    fn save_store(app: &tauri::AppHandle, st: &Value) -> Result<(), String> {
+    fn save_store(app: &crate::Host, st: &Value) -> Result<(), String> {
         let dir = data_dir(app).ok_or("no app data dir")?;
         let _ = std::fs::create_dir_all(&dir);
         // Write-then-rename: a crash mid-write never loses the list.
@@ -239,7 +239,7 @@ mod imp {
     }
 
     /// The active tunnel's run config, if one is selected.
-    fn load_config(app: &tauri::AppHandle) -> Option<Value> {
+    fn load_config(app: &crate::Host) -> Option<Value> {
         let st = load_store(app);
         store::run_config(&st, store::active_id(&st)?)
     }
@@ -257,8 +257,8 @@ mod imp {
     /// Starts (or restarts) the library from a stored config, adding the
     /// current network's resolvers and operator (never persisted). Reuses
     /// the saved port so the accounts' proxy_url stays valid across restarts.
-    fn start(app: &tauri::AppHandle, mut cfg: Value) -> Result<(), String> {
-        let _ = APP.set(app.clone());
+    fn start(app: &crate::Host, mut cfg: Value) -> Result<(), String> {
+        *HOST.lock().unwrap() = Some(app.clone());
         // One at a time: the DNS tunnel and the WebSocket transport both
         // set the profiles' proxy.
         crate::ws_transport::deactivate_for_tunnel(app);
@@ -300,7 +300,7 @@ mod imp {
     /// Restarts the tunnel when the network's resolvers or the operator
     /// changed (Wi-Fi <-> mobile, SIM swap): soar's path set is fixed per
     /// client, and the restart re-probes the network from scratch.
-    fn check_network(app: &tauri::AppHandle) {
+    fn check_network(app: &crate::Host) {
         let _g = OP.lock().unwrap();
         if PROXY_URL.lock().unwrap().is_none() {
             return;
@@ -322,7 +322,7 @@ mod imp {
     /// Keeps every profile's proxy_url in line with the tunnel (on install,
     /// on removal, and every minute so profiles added later pick it up) and
     /// follows network changes even while the WebView sleeps.
-    fn start_applier(app: tauri::AppHandle) {
+    fn start_applier(app: crate::Host) {
         APPLIER.get_or_init(|| {
             tauri::async_runtime::spawn(async move {
                 loop {
@@ -396,8 +396,8 @@ mod imp {
     }
 
     /// Called once the core is up: restart the tunnel if one is installed.
-    pub fn boot(app: &tauri::AppHandle) {
-        let _ = APP.set(app.clone());
+    pub fn boot(app: &crate::Host) {
+        *HOST.lock().unwrap() = Some(app.clone());
         // Always run the proxy keeper, tunnel or not: a profile restored from
         // a backup (or received from another device) can carry a stale
         // tunnel proxy pointing at a local port nothing listens on, which
@@ -412,7 +412,7 @@ mod imp {
 
     /// What the confirmation shows; `existing` is the saved tunnel with
     /// the same zone+key ({"id", "label", "active"}) or null.
-    pub fn preview(app: &tauri::AppHandle, link: &str) -> Result<Value, String> {
+    pub fn preview(app: &crate::Host, link: &str) -> Result<Value, String> {
         let cfg = call(|l| l.parse, link)?;
         let st = load_store(app);
         let existing = store::find_duplicate(&st, cfg["zone"].as_str().unwrap_or(""), cfg["key"].as_str().unwrap_or(""))
@@ -431,7 +431,7 @@ mod imp {
 
     /// Saves the link's tunnel (same zone+key: the saved one) and, with
     /// `activate`, switches to it. Returns {"id", "existing"}.
-    pub fn install(app: &tauri::AppHandle, link: &str, label: &str, activate: bool) -> Result<Value, String> {
+    pub fn install(app: &crate::Host, link: &str, label: &str, activate: bool) -> Result<Value, String> {
         let _g = OP.lock().unwrap();
         let cfg = call(|l| l.parse, link)?;
         let mut st = load_store(app);
@@ -449,12 +449,12 @@ mod imp {
     }
 
     /// Saved tunnels for the settings sheet (no keys).
-    pub fn list(app: &tauri::AppHandle) -> Value {
+    pub fn list(app: &crate::Host) -> Value {
         store::public_list(&load_store(app))
     }
 
     /// Activates a saved tunnel, or none (stops it).
-    pub fn select(app: &tauri::AppHandle, id: Option<&str>) -> Result<(), String> {
+    pub fn select(app: &crate::Host, id: Option<&str>) -> Result<(), String> {
         let _g = OP.lock().unwrap();
         let mut st = load_store(app);
         store::select(&mut st, id)?;
@@ -477,7 +477,7 @@ mod imp {
         Ok(())
     }
 
-    pub fn rename(app: &tauri::AppHandle, id: &str, label: &str) -> Result<(), String> {
+    pub fn rename(app: &crate::Host, id: &str, label: &str) -> Result<(), String> {
         let _g = OP.lock().unwrap();
         let mut st = load_store(app);
         store::rename(&mut st, id, label)?;
@@ -485,7 +485,7 @@ mod imp {
     }
 
     /// Deletes a saved tunnel; deleting the active one stops it.
-    pub fn delete(app: &tauri::AppHandle, id: &str) -> Result<(), String> {
+    pub fn delete(app: &crate::Host, id: &str) -> Result<(), String> {
         let _g = OP.lock().unwrap();
         let mut st = load_store(app);
         let was_active = store::delete(&mut st, id)?;
@@ -499,14 +499,14 @@ mod imp {
 
     /// What a share link needs: only the values the original link carried
     /// (zone, key, extra resolvers, canaries) and the label. Default: active.
-    pub fn link(app: &tauri::AppHandle, id: Option<&str>) -> Result<Value, String> {
+    pub fn link(app: &crate::Host, id: Option<&str>) -> Result<Value, String> {
         let st = load_store(app);
         let id = id.or(store::active_id(&st)).ok_or("No DNS tunnel is set up")?;
         store::link(&st, id).ok_or_else(|| "No such tunnel".into())
     }
 
     /// Older pages' "Remove the tunnel": deletes the active one.
-    pub fn remove(app: &tauri::AppHandle) -> Result<(), String> {
+    pub fn remove(app: &crate::Host) -> Result<(), String> {
         let st = load_store(app);
         match store::active_id(&st) {
             Some(id) => delete(app, &id.to_string()),
@@ -514,7 +514,7 @@ mod imp {
         }
     }
 
-    pub fn status(app: &tauri::AppHandle, events: i32) -> Value {
+    pub fn status(app: &crate::Host, events: i32) -> Value {
         let st = load_store(app);
         let active = store::active_id(&st).and_then(|id| store::find(&st, id)).cloned();
         let mut v = match lib() {
@@ -541,7 +541,7 @@ mod imp {
         v
     }
 
-    pub fn set_mode(app: &tauri::AppHandle, mode: &str) -> Result<(), String> {
+    pub fn set_mode(app: &crate::Host, mode: &str) -> Result<(), String> {
         let _g = OP.lock().unwrap();
         call(|l| l.set_mode, mode)?;
         let mut st = load_store(app);
@@ -575,7 +575,7 @@ mod imp {
         apply_proxy().await;
     }
 
-    pub fn network_changed(app: &tauri::AppHandle) {
+    pub fn network_changed(app: &crate::Host) {
         check_network(app);
     }
 }
@@ -585,74 +585,74 @@ pub use imp::{boot, deactivate_for_ws, dns_tunnel_active, set_ws_proxy};
 
 /// No tunnel on this platform: nothing to start.
 #[cfg(not(any(target_os = "android", windows)))]
-pub fn boot(_app: &tauri::AppHandle) {}
+pub fn boot(_app: &crate::Host) {}
 
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
 pub fn tunnel_preview(app: tauri::AppHandle, link: String) -> Result<Value, String> {
-    imp::preview(&app, &link)
+    imp::preview(&crate::Host::from_app(&app), &link)
 }
 
 /// Saves the link's tunnel; `activate` (default true) also switches to it.
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
 pub fn tunnel_install(app: tauri::AppHandle, link: String, label: Option<String>, activate: Option<bool>) -> Result<Value, String> {
-    imp::install(&app, &link, label.as_deref().unwrap_or(""), activate.unwrap_or(true))
+    imp::install(&crate::Host::from_app(&app), &link, label.as_deref().unwrap_or(""), activate.unwrap_or(true))
 }
 
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
 pub fn tunnel_link(app: tauri::AppHandle, id: Option<String>) -> Result<Value, String> {
-    imp::link(&app, id.as_deref())
+    imp::link(&crate::Host::from_app(&app), id.as_deref())
 }
 
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
 pub fn tunnel_list(app: tauri::AppHandle) -> Value {
-    imp::list(&app)
+    imp::list(&crate::Host::from_app(&app))
 }
 
 /// id null: no tunnel (stops the running one).
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
 pub fn tunnel_select(app: tauri::AppHandle, id: Option<String>) -> Result<(), String> {
-    imp::select(&app, id.as_deref())
+    imp::select(&crate::Host::from_app(&app), id.as_deref())
 }
 
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
 pub fn tunnel_rename(app: tauri::AppHandle, id: String, label: String) -> Result<(), String> {
-    imp::rename(&app, &id, &label)
+    imp::rename(&crate::Host::from_app(&app), &id, &label)
 }
 
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
 pub fn tunnel_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    imp::delete(&app, &id)
+    imp::delete(&crate::Host::from_app(&app), &id)
 }
 
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
 pub fn tunnel_remove(app: tauri::AppHandle) -> Result<(), String> {
-    imp::remove(&app)
+    imp::remove(&crate::Host::from_app(&app))
 }
 
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
 pub fn tunnel_status(app: tauri::AppHandle, events: Option<i32>) -> Value {
-    imp::status(&app, events.unwrap_or(0))
+    imp::status(&crate::Host::from_app(&app), events.unwrap_or(0))
 }
 
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
 pub fn tunnel_set_mode(app: tauri::AppHandle, mode: String) -> Result<(), String> {
-    imp::set_mode(&app, &mode)
+    imp::set_mode(&crate::Host::from_app(&app), &mode)
 }
 
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
 pub fn tunnel_network_changed(app: tauri::AppHandle) {
-    imp::network_changed(&app)
+    imp::network_changed(&crate::Host::from_app(&app))
 }
 
 #[cfg(any(target_os = "android", windows))]

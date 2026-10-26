@@ -71,7 +71,10 @@
          run-as log access keeps working there.
          allowBackup/fullBackupContent off: the app data holds private keys
          and must not be copied into OS or cloud backups. -->
+    <!-- VeltaApp loads the native library in every process (service, push,
+         job and alarm entry points start the core without the activity). -->
     <application
+        android:name=".VeltaApp"
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -170,7 +173,8 @@
         </activity>
 
         <!-- Keeps the core running in the background; started from
-             MainActivity.onCreate. -->
+             MainActivity.onCreate and after boot / app update
+             (ScheduledAlarmReceiver); a sticky restart starts the core. -->
         <service
             android:name=".CoreService"
             android:exported="false"

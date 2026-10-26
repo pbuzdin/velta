@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bg_channel_name">Message sync</string>
+    <string name="bg_syncing">Keeping your messages up to date</string>
+    <string name="bg_not_syncing">Not syncing in the background. Tap to open Velta</string>
+</resources>

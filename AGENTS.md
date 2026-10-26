@@ -2915,12 +2915,31 @@ talks to Google.
   cut the socket and nothing noticed until resume.
   NOTE: the 2.63.0 re-vendor dropped this (it was a hand edit, not a quilt
   op); v1.4.64 shipped without it. Restored as quilt op #12 on 2026-10-10.
+- **Cold start without the activity (2026-10-26).** `VeltaApp`
+  (Application) loads `velta_app.so` in every process and hands Rust the
+  context (`VeltaCore.setContext`). Every background entry point —
+  `CoreService.onStartCommand` (incl. the START_STICKY restart),
+  `UnifiedPushService.onNewEndpoint/onMessage`, `BackgroundFetchJob`,
+  `ScheduledAlarmReceiver` (alarm; boot/update also start CoreService when
+  "Use background connection" is on) — calls `VeltaCore.ensureStarted`,
+  i.e. JNI `startHeadless` (lib.rs): loads notify prefs from
+  `dataDir/notify-prefs.json`, refuses when background connection is off,
+  then `ensure_android_core` creates THE single core (`ANDROID_CORE`
+  OnceLock: RpcState + runtime) and, when no MainActivity ran in this
+  process (`ACTIVITY_LAUNCHED`), starts IO for all accounts itself. Tauri
+  setup calls the same `ensure_android_core`, so the UI reuses a core a
+  service already started (`app.manage(state.clone())`, `APP_HANDLE` set);
+  nothing in the core path needs an AppHandle any more (emits go through
+  `ui_app()`/`Host::emit`, tunnel/ws state through `crate::Host`). Push and
+  alarm wake-ups wait up to 20 s for a still-initializing core
+  (`android_core_tx`). The service notification says "Not syncing…" when
+  the core did not start (or is not up 30 s later). Rust's state files
+  live in `Context.getDataDir()` (Tauri app-local data), which Kotlin reads
+  via `AppFiles.read` (dataDir, then filesDir).
 - ** ceilings:** (1) `CoreService` is NOT stopped when push registers —
-  stopping it requires cold-start-by-push support, which needs the Rust core
-  to initialize from a Service (there is no `Application` class; `run()`
-  only fires from the Activity), plus a notification fallback for pushes
-  that arrive before core init. Until then the foreground service stays the
-  reliability guarantee and push adds instant-fetch on top. (2) The VAPID
+  a push-only mode is possible now that a push can cold-start the core,
+  but not built. A headless start ignores the page's "sync only the
+  active account" (localStorage) and starts every account. (2) The VAPID
   key in `UnifiedPushService.kt` is the upstream chatmail notifier key — a
   self-hosted relay with its own notifier keypair needs it updated. (3) The
   relay must run a chatmail version whose notifier understands `webpush:`

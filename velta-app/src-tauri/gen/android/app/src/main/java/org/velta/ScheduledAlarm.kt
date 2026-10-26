@@ -13,7 +13,6 @@ import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import org.json.JSONObject
-import java.io.File
 
 // Scheduled messages ("Send later", docs/scheduled-messages.md). ONE alarm
 // for the next due item, computed from scheduled.json in filesDir (written
@@ -73,8 +72,8 @@ object ScheduledAlarm {
     @JvmStatic
     fun rearm(context: Context) {
         val am = context.getSystemService(AlarmManager::class.java) ?: return
-        val file = File(context.filesDir, FILE)
-        val next = try { if (file.exists()) nextWake(file.readText()) else null } catch (_: Exception) { null }
+        // Rust writes scheduled.json into Tauri's app-local dir (dataDir).
+        val next = try { AppFiles.read(context, FILE)?.let { nextWake(it) } } catch (_: Exception) { null }
         val pi = pending(context)
         if (next == null) { am.cancel(pi); return }
         val at = maxOf(next, System.currentTimeMillis() + 1000)
@@ -120,6 +119,14 @@ class ScheduledAlarmReceiver : BroadcastReceiver() {
             // BOOT_COMPLETED / MY_PACKAGE_REPLACED / TIME_SET / TIMEZONE_CHANGED /
             // exact-alarm permission granted: dueAt is UTC, just re-arm.
             ScheduledAlarm.rearm(context)
+            // After boot or an update nothing else brings the background
+            // connection back until the app is opened: start the service
+            // (allowed from these broadcasts), which starts the core.
+            if (intent.action == Intent.ACTION_BOOT_COMPLETED || intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+                if (BgPrefs.backgroundConnectionEnabled(context)) {
+                    try { CoreService.start(context) } catch (e: Exception) { Log.w("ScheduledAlarm", "CoreService at boot: $e") }
+                }
+            }
             return
         }
         // Keep the process (and its core) up for the send: same foreground
@@ -127,6 +134,9 @@ class ScheduledAlarmReceiver : BroadcastReceiver() {
         // inexact one may be refused on Android 12+ — the send still runs
         // if the core is up.
         try { CoreService.start(context) } catch (e: Exception) { Log.w("ScheduledAlarm", "CoreService: $e") }
+        // Cold process (killed since the alarm was armed): start the core
+        // here so the send does not depend on the activity.
+        VeltaCore.ensureStarted(context)
         val taken = try { scheduledWakeup() } catch (_: UnsatisfiedLinkError) { false }
         if (!taken) ScheduledAlarm.notifyOpenApp(context)
         // The native run re-arms after each item; this covers "not taken".

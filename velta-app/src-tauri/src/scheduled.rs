@@ -31,16 +31,27 @@ fn new_id(now: i64) -> String {
 
 // Android: AppData resolves to the app's filesDir root — the same place
 // ScheduledAlarm.kt reads (like notify-prefs.json). Desktop: local data dir.
+// Android: no AppHandle needed (a headless core sends due items too);
+// Host::data_dir is the same Context.getDataDir() that AppData resolves to.
 fn path(app: &tauri::AppHandle) -> Option<PathBuf> {
-    use tauri::Manager;
     #[cfg(target_os = "android")]
     {
-        app.path().resolve(store::FILE, tauri::path::BaseDirectory::AppData).ok()
+        path_android_or(Some(app))
     }
     #[cfg(not(target_os = "android"))]
     {
+        use tauri::Manager;
         app.path().app_local_data_dir().ok().map(|d| d.join(store::FILE))
     }
+}
+
+#[cfg(target_os = "android")]
+fn path_android_or(app: Option<&tauri::AppHandle>) -> Option<PathBuf> {
+    use tauri::Manager;
+    if let Some(p) = app.and_then(|a| a.path().resolve(store::FILE, tauri::path::BaseDirectory::AppData).ok()) {
+        return Some(p);
+    }
+    crate::Host::current().data_dir().map(|d| d.join(store::FILE))
 }
 
 fn read(p: &PathBuf) -> Value {
@@ -64,6 +75,11 @@ fn write(p: &PathBuf, doc: &Value) -> Result<(), String> {
 /// One op under the file lock; returns (doc, result).
 pub fn op(app: &tauri::AppHandle, op: &Value) -> Result<(Value, Value), String> {
     let p = path(app).ok_or("no app data dir")?;
+    op_at(&p, op)
+}
+
+fn op_at(p: &PathBuf, op: &Value) -> Result<(Value, Value), String> {
+    let p = p.clone();
     let out = {
         let _g = FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut doc = read(&p);
@@ -141,40 +157,42 @@ pub fn scheduled_exact_request() -> Result<(), String> {
 /// (the same JSON-RPC call rpc-core.js sendMessage makes). Returns how
 /// many went out.
 #[cfg(target_os = "android")]
-pub async fn run_due(app: tauri::AppHandle, wake: bool) -> Result<usize, String> {
-    use tauri::{Emitter, Manager};
+pub async fn run_due(app: Option<tauri::AppHandle>, wake: bool) -> Result<usize, String> {
     static RUN: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     let _run = RUN.lock().await;
-    let tx = crate::ANDROID_RPC_TX.lock().unwrap().clone().ok_or("core rpc channel not ready")?;
-    let state = app.state::<crate::RpcState>();
-    let (doc, _) = op(&app, &json!({"op": "recover"}))?;
+    let (state, tx) = crate::android_core_tx(std::time::Duration::from_secs(20))
+        .await
+        .ok_or("core rpc channel not ready")?;
+    let file = path_android_or(app.as_ref()).ok_or("no app data dir")?;
+    let op = |o: &Value| op_at(&file, o);
+    let (doc, _) = op(&json!({"op": "recover"}))?;
     let mut sent = 0;
     for it in store::due(&doc, now_ms(), wake) {
         let id = it["id"].as_str().unwrap_or_default().to_string();
-        let (_, won) = op(&app, &json!({"op": "claim", "id": id}))?;
+        let (_, won) = op(&json!({"op": "claim", "id": id}))?;
         if won != json!(true) {
             continue;
         }
-        match crate::bg_rpc(&tx, &state, "send_msg", store::send_params(&it)).await {
+        match crate::bg_rpc(&tx, state, "send_msg", store::send_params(&it)).await {
             Ok(_) => {
-                op(&app, &json!({"op": "done", "id": id}))?;
+                op(&json!({"op": "done", "id": id}))?;
                 sent += 1;
             }
             Err(e) => {
                 crate::log(&format!("scheduled: send {id} failed: {e}"));
-                op(&app, &json!({"op": "fail", "id": id, "error": e, "uncertain": store::is_uncertain_error(&e)}))?;
+                op(&json!({"op": "fail", "id": id, "error": e, "uncertain": store::is_uncertain_error(&e)}))?;
             }
         }
     }
     crate::log(&format!("scheduled: run_due wake={wake} sent={sent}"));
-    let _ = app.emit("velta-scheduled-changed", ());
+    crate::Host::current().emit("velta-scheduled-changed", ());
     Ok(sent)
 }
 
 #[cfg(target_os = "android")]
 #[tauri::command]
 pub async fn scheduled_run_due(app: tauri::AppHandle, wake: bool) -> Result<usize, String> {
-    run_due(app, wake).await
+    run_due(Some(app), wake).await
 }
 
 #[cfg(not(target_os = "android"))]
@@ -193,14 +211,13 @@ pub extern "system" fn Java_org_velta_ScheduledAlarmReceiver_scheduledWakeup(
     _env: jni::JNIEnv,
     _this: jni::objects::JObject,
 ) -> jni::sys::jboolean {
-    let Some(app) = crate::APP_HANDLE.lock().unwrap().clone() else {
+    // Kotlin started the core (VeltaCore.ensureStarted) right before; a
+    // cold one may still be initializing — run_due waits for it.
+    if crate::android_core().is_none() {
         println!("scheduled wakeup: core not initialized");
         return 0;
-    };
-    if crate::ANDROID_RPC_TX.lock().unwrap().is_none() {
-        println!("scheduled wakeup: rpc channel not ready");
-        return 0;
     }
+    let app = crate::ui_app();
     tauri::async_runtime::spawn(async move {
         if let Err(e) = run_due(app, true).await {
             crate::log(&format!("scheduled wakeup: {e}"));

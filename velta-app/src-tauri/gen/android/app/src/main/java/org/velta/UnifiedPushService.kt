@@ -19,10 +19,10 @@ import org.unifiedpush.android.connector.data.ResolvedDistributor
 // org.unifiedpush.android.connector.PUSH_EVENT intent filter.
 class UnifiedPushService : PushService() {
     // JNI exports implemented in lib.rs
-    // (Java_org_velta_UnifiedPushService_*). The velta_app native library is
-    // loaded by MainActivity's companion on process start; a cold
-    // service-only start throws UnsatisfiedLinkError, which the callers
-    // catch.
+    // (Java_org_velta_UnifiedPushService_*). VeltaApp loads velta_app.so in
+    // every process and VeltaCore.ensureStarted brings the core up on a
+    // cold start (process killed, push arrives); callers still catch
+    // UnsatisfiedLinkError.
     private external fun pushEndpointReceived(token: String)
     private external fun pushWakeup()
     private external fun pushUnregistered()
@@ -40,6 +40,7 @@ class UnifiedPushService : PushService() {
         UnifiedPushBridge.prefs(this).edit()
             .putLong(UnifiedPushBridge.KEY_LAST_ENDPOINT, System.currentTimeMillis()).apply()
         val token = "webpush:${endpoint.url}|${key.pubKey}|${key.auth}"
+        VeltaCore.ensureStarted(this)
         try {
             pushEndpointReceived(token)
         } catch (e: UnsatisfiedLinkError) {
@@ -52,6 +53,10 @@ class UnifiedPushService : PushService() {
         // #140: last push time for Settings → Push notifications.
         UnifiedPushBridge.prefs(this).edit()
             .putLong(UnifiedPushBridge.KEY_LAST_PUSH, System.currentTimeMillis()).apply()
+        // Cold process: start the core first, the wake-up waits for it.
+        if (!VeltaCore.ensureStarted(this)) {
+            Log.w(TAG, "push received but the core is not running (background connection off?)")
+        }
         try {
             pushWakeup()
         } catch (e: UnsatisfiedLinkError) {

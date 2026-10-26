@@ -28,6 +28,70 @@ static LOG_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
 static OPENED_URLS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 static SIDECAR_STATUS: Mutex<Option<serde_json::Value>> = Mutex::new(None);
 
+/// Where shell-side state files live (DNS tunnel, WebSocket transport) and
+/// who hears their events: the Tauri app while it runs, or on Android the
+/// headless core a service, push, job or alarm started in a process whose
+/// activity never ran (`Java_org_velta_VeltaCore_startHeadless`).
+#[derive(Clone)]
+pub struct Host {
+    app: Option<tauri::AppHandle>,
+}
+
+impl Host {
+    pub fn from_app(app: &tauri::AppHandle) -> Self {
+        Self { app: Some(app.clone()) }
+    }
+    /// The Tauri app once it is attached (Android: after setup ran).
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub fn current() -> Self {
+        Self { app: ui_app() }
+    }
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub fn app(&self) -> Option<&tauri::AppHandle> {
+        self.app.as_ref()
+    }
+    /// Tauri's app-local data dir; on Android the same directory comes from
+    /// the Context when no app is attached (both are Context.getDataDir()).
+    #[cfg_attr(not(any(target_os = "android", windows)), allow(dead_code))]
+    pub fn data_dir(&self) -> Option<PathBuf> {
+        if let Some(dir) = self.app.as_ref().and_then(|a| a.path().app_local_data_dir().ok()) {
+            return Some(dir);
+        }
+        #[cfg(target_os = "android")]
+        {
+            ANDROID_DATA_DIR.lock().unwrap().clone()
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            None
+        }
+    }
+    /// Emits to the page when there is one; a headless core has nobody to tell.
+    #[cfg_attr(not(any(target_os = "android", windows)), allow(dead_code))]
+    pub fn emit<S: serde::Serialize + Clone>(&self, event: &str, payload: S) {
+        if let Some(app) = self.app.clone().or_else(ui_app) {
+            let _ = app.emit(event, payload);
+        }
+    }
+}
+
+/// The attached Tauri app (Android only: desktop always has one at hand).
+fn ui_app() -> Option<tauri::AppHandle> {
+    #[cfg(target_os = "android")]
+    {
+        APP_HANDLE.lock().unwrap().clone()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        None
+    }
+}
+
+// Context.getDataDir() — what Tauri's app_local_data_dir() resolves to on
+// Android. Set by setup and by the headless start, whichever runs first.
+#[cfg(target_os = "android")]
+static ANDROID_DATA_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
+
 // Non-blocking logger: messages are pushed onto an unbounded mpsc channel and
 // written from a dedicated background thread, so log() never blocks the IPC /
 // RPC hot path. On Android this is critical -- the WebView event bridge and the
@@ -1256,6 +1320,19 @@ fn chat_link_token_path(app: &tauri::AppHandle) -> PathBuf {
         .unwrap_or_else(|_| log_dir().join("..").join(CHAT_LINK_TOKEN_NAME))
 }
 
+// Same file as chat_link_token_path (app-local data = Context.getDataDir()),
+// without an AppHandle: background notifications of a headless core.
+#[cfg(target_os = "android")]
+fn android_chat_link_token() -> Result<String, String> {
+    if let Some(token) = CHAT_LINK_TOKEN.lock().unwrap().clone() {
+        return Ok(token);
+    }
+    let dir = ANDROID_DATA_DIR.lock().unwrap().clone().ok_or("no data dir yet")?;
+    let token = load_or_create_chat_link_token(&dir.join(CHAT_LINK_TOKEN_NAME))?;
+    *CHAT_LINK_TOKEN.lock().unwrap() = Some(token.clone());
+    Ok(token)
+}
+
 fn chat_link_token_for(app: &tauri::AppHandle) -> Result<String, String> {
     if let Some(token) = CHAT_LINK_TOKEN.lock().unwrap().clone() {
         return Ok(token);
@@ -1568,6 +1645,17 @@ fn notify_prefs_files_dir_copy(app: &tauri::AppHandle, json: &str) {
     }
     #[cfg(not(target_os = "android"))]
     let _ = (app, json);
+}
+
+// Headless Android start: no AppHandle, same file (dataDir/notify-prefs.json).
+#[cfg(target_os = "android")]
+fn notify_prefs_load_path(path: &Path) {
+    if let Ok(json) = std::fs::read_to_string(path) {
+        match serde_json::from_str::<NotifyPrefs>(&json) {
+            Ok(prefs) => *NOTIFY_PREFS.lock().unwrap() = Some(prefs),
+            Err(e) => log(&format!("notify prefs parse failed ({e}); using defaults")),
+        }
+    }
 }
 
 fn notify_prefs_load(app: &tauri::AppHandle) {
@@ -2227,6 +2315,31 @@ pub extern "system" fn Java_org_velta_MainActivity_setApplicationContext(
     _class: jni::objects::JClass,
     context: jni::objects::JObject,
 ) {
+    // The page runs in this process from now on: it starts IO itself (and
+    // honours "sync only the active account"), so a core started headless
+    // a moment later must not.
+    ACTIVITY_LAUNCHED.store(true, std::sync::atomic::Ordering::SeqCst);
+    store_app_context(&mut env, &context);
+}
+
+// MainActivity.onCreate was called in this process.
+#[cfg(target_os = "android")]
+static ACTIVITY_LAUNCHED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+// VeltaApp.onCreate (Application): every process start, before any service,
+// receiver or job runs, so the JNI helpers have a context and the classes.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_org_velta_VeltaCore_setContext(
+    mut env: jni::JNIEnv,
+    _this: jni::objects::JObject,
+    context: jni::objects::JObject,
+) {
+    store_app_context(&mut env, &context);
+}
+
+#[cfg(target_os = "android")]
+fn store_app_context(env: &mut jni::JNIEnv, context: &jni::objects::JObject) {
     let vm = match env.get_java_vm() {
         Ok(vm) => vm,
         Err(e) => {
@@ -2234,7 +2347,7 @@ pub extern "system" fn Java_org_velta_MainActivity_setApplicationContext(
             return;
         }
     };
-    let global = match env.new_global_ref(&context) {
+    let global = match env.new_global_ref(context) {
         Ok(g) => g,
         Err(e) => {
             log(&format!("setApplicationContext: new_global_ref failed: {e}"));
@@ -2378,20 +2491,21 @@ fn push_wakeup_impl() {
     // Mirrored to logcat (println → RustStdoutStderr): a wake can happen
     // while the process is half-frozen by an OEM, where the buffered file
     // log may never flush — logcat is the reliable trace (#52).
-    let Some(app) = APP_HANDLE.lock().unwrap().clone() else {
+    // Kotlin started the core (VeltaCore.ensureStarted) just before; on a
+    // cold start it may still be initializing, so wait for it a while.
+    if android_core().is_none() {
         println!("push wakeup: core not initialized");
         log("push wakeup: core not initialized");
         return;
-    };
-    let Some(tx) = ANDROID_RPC_TX.lock().unwrap().clone() else {
-        println!("push wakeup: rpc channel not ready");
-        log("push wakeup: rpc channel not ready");
-        return;
-    };
+    }
     println!("push wakeup: running background fetch");
     tauri::async_runtime::spawn(async move {
-        let state = app.state::<RpcState>();
-        match bg_rpc(&tx, &state, "background_fetch", serde_json::json!([30.0])).await {
+        let Some((state, tx)) = android_core_tx(std::time::Duration::from_secs(20)).await else {
+            println!("push wakeup: rpc channel not ready");
+            log("push wakeup: rpc channel not ready");
+            return;
+        };
+        match bg_rpc(&tx, state, "background_fetch", serde_json::json!([30.0])).await {
             Ok(_) => {
                 println!("push wakeup: background fetch done");
                 log("push wakeup: background fetch done");
@@ -2952,6 +3066,7 @@ fn take_opened_urls() -> Vec<String> {
     std::mem::take(&mut *OPENED_URLS.lock().unwrap())
 }
 
+#[derive(Clone)]
 struct RpcState {
     // webxdc asset serving does request/response round-trips from Rust-side
     // protocol handlers (the WebView cannot relay its own asset fetches).
@@ -2968,8 +3083,6 @@ struct RpcState {
     // listener. Keyed by the id as a string (number ids via Value::to_string).
     #[cfg_attr(target_os = "android", allow(dead_code))]
     web_pending: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
-    #[cfg(target_os = "android")]
-    _rt: tokio::runtime::Runtime,
     // Shared with the background init task: setup() stores None immediately
     // and the async core-init task fills it in once the RPC session is ready.
     #[cfg(target_os = "android")]
@@ -3179,9 +3292,159 @@ fn accounts_dir(app: &tauri::AppHandle) -> PathBuf {
 }
 
 #[cfg(target_os = "android")]
+fn android_core_status(status: serde_json::Value) {
+    *SIDECAR_STATUS.lock().unwrap() = Some(status.clone());
+    Host::current().emit("velta-sidecar-status", status);
+}
+
+#[cfg(target_os = "android")]
+fn ui_emit_rpc(line: &str) {
+    if let Some(app) = ui_app() {
+        if let Err(e) = app.emit("velta-rpc", line) {
+            log(&format!("android emit error: {e}"));
+        }
+    }
+}
+
+// The one in-process core (Android). Created by whichever comes first: the
+// Tauri setup (activity) or a headless start (CoreService restart, push,
+// periodic job, scheduled-send alarm, boot). The other one reuses it, so
+// there is never a second Accounts on the same directory.
+#[cfg(target_os = "android")]
+static ANDROID_CORE: std::sync::OnceLock<RpcState> = std::sync::OnceLock::new();
+#[cfg(target_os = "android")]
+static ANDROID_RT: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+
+#[cfg(target_os = "android")]
+fn android_core() -> Option<&'static RpcState> {
+    ANDROID_CORE.get()
+}
+
+/// Starts the core once (non-blocking: init continues on its runtime).
+#[cfg(target_os = "android")]
+fn ensure_android_core(accounts_dir: PathBuf) -> &'static RpcState {
+    ANDROID_CORE.get_or_init(|| {
+        let rt = ANDROID_RT.get_or_init(|| tokio::runtime::Runtime::new().expect("tokio runtime"));
+        log("initializing embedded Android core (non-blocking)");
+        let _ = std::fs::create_dir_all(&accounts_dir);
+        let state = RpcState {
+            wxdc_pending: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            bg_pending: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            web_pending: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            tx: std::sync::Arc::new(std::sync::Mutex::new(None)),
+        };
+        let tx_holder = state.tx.clone();
+        let bg_pending = state.bg_pending.clone();
+        rt.spawn(async move {
+            match init_android_core(accounts_dir, bg_pending).await {
+                Ok(tx) => {
+                    log("android core RPC session ready");
+                    start_bg_event_poller(tx.clone());
+                    start_bg_fetch_kicker(tx.clone());
+                    *tx_holder.lock().unwrap() = Some(tx);
+                    android_core_status(serde_json::json!({"running": true, "stage": "ready"}));
+                    // Optional DNS tunnel: a no-op unless a velta://tunnel link was accepted.
+                    tunnel::boot(&Host::current());
+                    ws_transport::boot(&Host::current());
+                    // Headless (no activity in this process): nobody else
+                    // starts IO. With the page up, rpc-core starts it.
+                    if !ACTIVITY_LAUNCHED.load(std::sync::atomic::Ordering::SeqCst) {
+                        let accounts = ANDROID_ACCOUNTS.lock().unwrap().clone();
+                        if let Some(accounts) = accounts {
+                            accounts.write().await.start_io().await;
+                            log("headless core: IO started for all accounts");
+                        }
+                    }
+                }
+                Err(e) => {
+                    log(&format!("embedded Android core initialization failed: {e}"));
+                    android_core_status(serde_json::json!({"running": false, "stage": "error", "message": e.to_string()}));
+                }
+            }
+        });
+        state
+    })
+}
+
+/// The core's request channel, waiting up to `max` for a core that is still
+/// initializing (a cold start by a push or job races Accounts::new).
+#[cfg(target_os = "android")]
+async fn android_core_tx(max: std::time::Duration) -> Option<(&'static RpcState, tokio::sync::mpsc::UnboundedSender<String>)> {
+    let start = std::time::Instant::now();
+    loop {
+        if let Some(state) = android_core() {
+            if let Some(tx) = state.tx.lock().unwrap().clone() {
+                return Some((state, tx));
+            }
+        }
+        if start.elapsed() >= max {
+            return None;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+}
+
+// Kotlin VeltaCore.ensureStarted (CoreService, UnifiedPushService,
+// BackgroundFetchJob, ScheduledAlarmReceiver): start the core without the
+// activity. dataDir = Context.getDataDir() (Tauri's app_local_data_dir),
+// extDir = getExternalFilesDir(null) for the adb-readable log mirror (may be
+// empty). Returns false when "Use background connection" is off and the
+// core is not already running; true when it runs or is starting.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_org_velta_VeltaCore_startHeadless(
+    mut env: jni::JNIEnv,
+    _this: jni::objects::JObject,
+    data_dir: jni::objects::JString,
+    ext_dir: jni::objects::JString,
+) -> jni::sys::jboolean {
+    if android_core().is_some() {
+        return 1;
+    }
+    let Ok(data) = env.get_string(&data_dir).map(|s| PathBuf::from(s.to_string_lossy().into_owned())) else { return 0 };
+    let ext = env.get_string(&ext_dir).map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    {
+        let mut dir = ANDROID_DATA_DIR.lock().unwrap();
+        if dir.is_none() {
+            *dir = Some(data.clone());
+        }
+    }
+    if LOG_DIR.lock().unwrap().is_none() {
+        set_log_dir(data.join("logs"));
+        if !ext.is_empty() {
+            set_mirror_log_dir(PathBuf::from(ext).join("logs"));
+        }
+    }
+    if NOTIFY_PREFS.lock().unwrap().is_none() {
+        notify_prefs_load_path(&data.join("notify-prefs.json"));
+    }
+    if !notify_prefs_snapshot().use_bg_connection {
+        log("headless start: skipped (background connection off)");
+        return 0;
+    }
+    if !ACTIVITY_LAUNCHED.load(std::sync::atomic::Ordering::SeqCst) {
+        // No activity in this process: the app is not in the foreground.
+        ACTIVITY_FOREGROUND.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+    log("headless start: no activity, starting the core from a background entry point");
+    ensure_android_core(data.join("accounts"));
+    1
+}
+
+// Kotlin VeltaCore.isRunning: the core finished initializing.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_org_velta_VeltaCore_isRunning(
+    _env: jni::JNIEnv,
+    _this: jni::objects::JObject,
+) -> jni::sys::jboolean {
+    android_core().is_some_and(|s| s.tx.lock().unwrap().is_some()) as jni::sys::jboolean
+}
+
+#[cfg(target_os = "android")]
 async fn init_android_core(
-    app_handle: tauri::AppHandle,
     accounts_dir: PathBuf,
+    bg_pending: bg_events::PendingMap,
 ) -> anyhow::Result<tokio::sync::mpsc::UnboundedSender<String>> {
     use deltachat_jsonrpc::api::{Accounts, CommandApi};
     use futures_util::StreamExt;
@@ -3192,14 +3455,13 @@ async fn init_android_core(
     log(&format!("android accounts directory: {}", accounts_dir.display()));
     // Tell the frontend we're past the "starting" stage so the status pill
     // shows progress instead of looking stuck during Accounts::new().
-    let _ = app_handle.emit("velta-sidecar-status", serde_json::json!({"running": true, "stage": "initializing"}));
+    android_core_status(serde_json::json!({"running": true, "stage": "initializing"}));
 
     let accounts = Accounts::new(accounts_dir, true).await?;
     let accounts = Arc::new(RwLock::new(accounts));
     // UnifiedPush: expose the accounts manager to the JNI callbacks
     // (UnifiedPushService.kt) and apply an endpoint that arrived before the
     // core was ready.
-    *APP_HANDLE.lock().unwrap() = Some(app_handle.clone());
     *ANDROID_ACCOUNTS.lock().unwrap() = Some(accounts.clone());
     // Take the token out of the mutex BEFORE awaiting — the if-let scrutinee
     // temporary (a non-Send MutexGuard) would otherwise be held across the
@@ -3210,10 +3472,10 @@ async fn init_android_core(
             log(&format!("parked push endpoint apply failed: {e}"));
         } else {
             log("parked push endpoint applied to the accounts manager");
-            let _ = app_handle.emit("velta-push", serde_json::json!({"stage": "endpoint"}));
+            Host::current().emit("velta-push", serde_json::json!({"stage": "endpoint"}));
         }
     }
-    let _ = app_handle.emit("velta-sidecar-status", serde_json::json!({"running": true, "stage": "configuring"}));
+    android_core_status(serde_json::json!({"running": true, "stage": "configuring"}));
 
     let state = CommandApi::from_arc(accounts.clone()).await;
 
@@ -3223,8 +3485,8 @@ async fn init_android_core(
     // UnifiedPush: the push wake-up uses this channel for background_fetch.
     *ANDROID_RPC_TX.lock().unwrap() = Some(req_tx.clone());
 
-    // Forward JSON-RPC responses and events to the WebView.
-    let app = app_handle.clone();
+    // Forward JSON-RPC responses and events to the WebView (when one is
+    // attached: a headless core only has the "bg-" round-trips).
     tokio::spawn(async move {
         while let Some(message) = out_receiver.next().await {
             let is_wxdc = match &message {
@@ -3235,7 +3497,7 @@ async fn init_android_core(
                 _ => false,
             };
             if is_wxdc {
-                if let Ok(line) = serde_json::to_string(&message) {
+                if let (Ok(line), Some(app)) = (serde_json::to_string(&message), ui_app()) {
                     webxdc_resolve_line(&app, &line);
                 }
                 continue;
@@ -3249,16 +3511,14 @@ async fn init_android_core(
             };
             if let Some(id) = bg_id {
                 if let Ok(line) = serde_json::to_string(&message) {
-                    let pending = app.state::<RpcState>().bg_pending.clone();
+                    let pending = bg_pending.clone();
                     // A batch arriving while the UI is visible (the request
                     // was parked before the app came back) is the WebView's.
                     let line = if bg_events::is_event_batch_id(&id) {
                         let visible = android_ui_visible();
                         let (fwd, to_poller) = bg_events::route_event_batch(&id, line, visible);
                         if let Some(fwd) = fwd {
-                            if let Err(e) = app.emit("velta-rpc", &fwd) {
-                                log(&format!("android emit error: {e}"));
-                            }
+                            ui_emit_rpc(&fwd);
                         }
                         to_poller
                     } else {
@@ -3271,9 +3531,7 @@ async fn init_android_core(
                         if bg_events::is_event_batch_id(&id) {
                             if let Some(fwd) = bg_events::forwarded_events_line(&orphan) {
                                 log(&format!("bg event batch {id} had no waiter: forwarded to the WebView"));
-                                if let Err(e) = app.emit("velta-rpc", &fwd) {
-                                    log(&format!("android emit error: {e}"));
-                                }
+                                ui_emit_rpc(&fwd);
                             }
                         } else {
                             log(&format!("bg rpc response {id} arrived after its caller gave up"));
@@ -3298,20 +3556,17 @@ async fn init_android_core(
             if !android_ui_visible() {
                 let hits = bg_events::incoming_hits(&line);
                 if !hits.is_empty() {
-                    if let Some(tx) = ANDROID_RPC_TX.lock().unwrap().clone() {
-                        let app2 = app.clone();
+                    let tx = ANDROID_RPC_TX.lock().unwrap().clone();
+                    if let (Some(tx), Some(state)) = (tx, android_core()) {
                         tauri::async_runtime::spawn(async move {
-                            let state = app2.state::<RpcState>();
-                            bg_notify_incoming(&app2, &tx, &state, hits).await;
+                            bg_notify_incoming(&tx, state, hits).await;
                         });
                     }
                 }
             }
             // NOTE: do not log every response -- it's the hot path and would
             // grow velta.log unbounded. Errors are still logged below.
-            if let Err(e) = app.emit("velta-rpc", &line) {
-                log(&format!("android emit error: {e}"));
-            }
+            ui_emit_rpc(&line);
         }
     });
 
@@ -3353,7 +3608,7 @@ fn kick_maybe_network(force: bool) {
 
 #[cfg(target_os = "android")]
 fn spawn_core_rpc(method: &'static str, log_ok: bool) {
-    let Some(app) = APP_HANDLE.lock().unwrap().clone() else {
+    let Some(state) = android_core() else {
         log(&format!("{method}: core not initialized"));
         return;
     };
@@ -3362,8 +3617,7 @@ fn spawn_core_rpc(method: &'static str, log_ok: bool) {
         return;
     };
     tauri::async_runtime::spawn(async move {
-        let state = app.state::<RpcState>();
-        match bg_rpc(&tx, &state, method, serde_json::json!([])).await {
+        match bg_rpc(&tx, state, method, serde_json::json!([])).await {
             Ok(_) => {
                 if log_ok {
                     log(&format!("{method}: done"));
@@ -3404,15 +3658,15 @@ fn bg_kick_due_now() -> bool {
 }
 
 #[cfg(target_os = "android")]
-fn start_bg_fetch_kicker(app: tauri::AppHandle, tx: tokio::sync::mpsc::UnboundedSender<String>) {
+fn start_bg_fetch_kicker(tx: tokio::sync::mpsc::UnboundedSender<String>) {
     tauri::async_runtime::spawn(async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(bg_events::BG_KICK_INTERVAL_SECS)).await;
             if !bg_kick_due_now() {
                 continue;
             }
-            let state = app.state::<RpcState>();
-            if let Err(e) = bg_rpc(&tx, &state, "maybe_network", serde_json::json!([])).await {
+            let Some(state) = android_core() else { continue };
+            if let Err(e) = bg_rpc(&tx, state, "maybe_network", serde_json::json!([])).await {
                 log(&format!("background maybe_network: {e}"));
             }
         }
@@ -3552,7 +3806,6 @@ mod mention_tests {
 
 #[cfg(target_os = "android")]
 async fn bg_notify_incoming(
-    app: &tauri::AppHandle,
     tx: &tokio::sync::mpsc::UnboundedSender<String>,
     state: &RpcState,
     hits: Vec<(u32, u32, u32)>, // (account, chatId, msgId)
@@ -3683,7 +3936,6 @@ async fn bg_notify_incoming(
             };
 
         if kotlin_notify_incoming(
-            app,
             account,
             chat_id,
             is_group,
@@ -3701,7 +3953,9 @@ async fn bg_notify_incoming(
 
         // Fallback: plain title/body (no "Group:" prefix — that was the bug).
         let title = if is_group { chat_name.clone() } else { sender_name.clone() };
-        let _ = app.notification().builder().title(title).body(text).show();
+        if let Some(app) = ui_app() {
+            let _ = app.notification().builder().title(title).body(text).show();
+        }
     }
 }
 
@@ -3711,7 +3965,6 @@ async fn bg_notify_incoming(
 #[cfg(target_os = "android")]
 #[allow(clippy::too_many_arguments)]
 fn kotlin_notify_incoming(
-    app: &tauri::AppHandle,
     account: u32,
     chat_id: u32,
     is_group: bool,
@@ -3723,7 +3976,7 @@ fn kotlin_notify_incoming(
     timestamp_ms: i64,
 ) -> Result<(), String> {
     with_android_class(&APP_NOTIFICATIONS_CLASS, "Notifications", |env, context, class_ref| {
-        let token = chat_link_token_for(app)?;
+        let token = android_chat_link_token()?;
         let chat_key = env.new_string(format!("{account}:{chat_id}")).map_err(|e| e.to_string())?;
         let chat_name_j = env.new_string(chat_name).map_err(|e| e.to_string())?;
         let chat_avatar_j = opt_jstring(env, chat_avatar)?;
@@ -3813,7 +4066,7 @@ fn opt_jstring<'local>(
 // activity is stopped. Events it consumes never reach the frontend; resume
 // refetches via visibilitychange and the velta-foreground event.
 #[cfg(target_os = "android")]
-fn start_bg_event_poller(app: tauri::AppHandle, tx: tokio::sync::mpsc::UnboundedSender<String>) {
+fn start_bg_event_poller(tx: tokio::sync::mpsc::UnboundedSender<String>) {
     tauri::async_runtime::spawn(async move {
         log("background event poller started");
         loop {
@@ -3823,15 +4076,20 @@ fn start_bg_event_poller(app: tauri::AppHandle, tx: tokio::sync::mpsc::Unbounded
             // visibility (forward while visible, notify while hidden). It
             // only waits for the page's listener handshake so no batch is
             // forwarded into a receiver the page has not installed yet.
-            if !EVENTS_LISTENER_READY.load(std::sync::atomic::Ordering::SeqCst) {
+            // A headless core (no page in this process) has no listener
+            // to wait for: it reads and notifies right away.
+            if ui_app().is_some() && !EVENTS_LISTENER_READY.load(std::sync::atomic::Ordering::SeqCst) {
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                 continue;
             }
-            let state = app.state::<RpcState>();
+            let Some(state) = android_core() else {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                continue;
+            };
             // One parked request at a time, never timed out (see bg_rpc_with).
             match bg_rpc_with(
                 &tx,
-                &state,
+                state,
                 bg_events::EVENT_BATCH_ID_PREFIX,
                 "get_next_event_batch",
                 serde_json::json!([]),
@@ -3847,9 +4105,7 @@ fn start_bg_event_poller(app: tauri::AppHandle, tx: tokio::sync::mpsc::Unbounded
                         // UI came back between the forwarder and here: hand
                         // the batch over instead of dropping it.
                         if let Some(fwd) = bg_events::forwarded_events_from_result(&result) {
-                            if let Err(e) = app.emit("velta-rpc", &fwd) {
-                                log(&format!("android emit error: {e}"));
-                            }
+                            ui_emit_rpc(&fwd);
                         }
                         continue;
                     }
@@ -3866,7 +4122,7 @@ fn start_bg_event_poller(app: tauri::AppHandle, tx: tokio::sync::mpsc::Unbounded
                         ));
                     }
                     if !hits.is_empty() {
-                        bg_notify_incoming(&app, &tx, &state, hits).await;
+                        bg_notify_incoming(&tx, state, hits).await;
                     }
                 }
                 Err(_) => {
@@ -3970,50 +4226,29 @@ pub fn run() {
 
             #[cfg(target_os = "android")]
             {
-                let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-                log("initializing embedded Android core (non-blocking)");
-
-                // Share the sender handle with the background init task.
                 // Setup must return immediately so WebView creation is not
-                // delayed, and core initialization continues asynchronously.
-                // Until tx is set, rpc() calls report "not running", which
-                // lets the frontend retry instead of dead-ending on startup.
-                let tx_holder: std::sync::Arc<std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<String>>>> = std::sync::Arc::new(std::sync::Mutex::new(None));
-
-                // Spawn the init task through a cloned handle: rt itself is
-                // moved into RpcState below to keep the runtime alive for the
-                // whole session.
-                let spawn_handle = rt.handle().clone();
-
-                app.manage(RpcState {
-                    wxdc_pending: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-                    bg_pending: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-                    web_pending: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-                    _rt: rt,
-                    tx: tx_holder.clone(),
-                });
-
-                let handle = app.handle().clone();
-                let status_handle = app.handle().clone();
-                let bg_handle = app.handle().clone();
-                spawn_handle.spawn(async move {
-                    match init_android_core(handle, accounts).await {
-                        Ok(tx) => {
-                            log("android core RPC session ready");
-                            start_bg_event_poller(bg_handle.clone(), tx.clone());
-                            start_bg_fetch_kicker(bg_handle, tx.clone());
-                            *tx_holder.lock().unwrap() = Some(tx);
-                            set_sidecar_status(&status_handle, serde_json::json!({"running": true, "stage": "ready"}));
-                            // Optional DNS tunnel: a no-op unless a velta://tunnel link was accepted.
-                            tunnel::boot(&status_handle);
-                            ws_transport::boot(&status_handle);
-                        }
-                        Err(e) => {
-                            log(&format!("embedded Android core initialization failed: {e}"));
-                            set_sidecar_status(&status_handle, serde_json::json!({"running": false, "stage": "error", "message": e.to_string()}));
-                        }
+                // delayed; core init continues on its own runtime. Until
+                // tx is set, rpc() calls report "not running", which lets
+                // the frontend retry instead of dead-ending on startup.
+                // A core a service/push/job/alarm already started headless
+                // in this process is reused, not created twice; the app
+                // handle is attached so its events reach the page now.
+                if let Ok(dir) = app.path().app_local_data_dir() {
+                    ANDROID_DATA_DIR.lock().unwrap().get_or_insert(dir);
+                }
+                let reused = android_core().is_some();
+                *APP_HANDLE.lock().unwrap() = Some(app.handle().clone());
+                let state = ensure_android_core(accounts);
+                app.manage(state.clone());
+                if reused {
+                    log("android core already running (started headless): attached the UI");
+                    let st = SIDECAR_STATUS.lock().unwrap().clone();
+                    if let Some(st) = st {
+                        set_sidecar_status(app.handle(), st);
                     }
-                });
+                    // Tunnel/proxy events reach the page through
+                    // Host::emit's fallback to the attached app.
+                }
             }
 
             #[cfg(not(target_os = "android"))]
@@ -4056,8 +4291,8 @@ pub fn run() {
                             });
                             set_sidecar_status(&app_handle, serde_json::json!({"running": true, "stage": "ready"}));
                             // Optional DNS tunnel (Windows): a no-op unless a velta://tunnel link was accepted.
-                            tunnel::boot(&app_handle);
-                            ws_transport::boot(&app_handle);
+                            tunnel::boot(&Host::from_app(&app_handle));
+                            ws_transport::boot(&Host::from_app(&app_handle));
 
                             std::thread::spawn(move || {
                                 log("sidecar reader thread started");

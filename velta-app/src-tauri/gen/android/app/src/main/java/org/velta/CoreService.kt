@@ -10,7 +10,9 @@ import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.Network
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 
 // Foreground service that keeps the Velta process alive while the activity
@@ -21,8 +23,8 @@ import androidx.core.app.NotificationCompat
 class CoreService : Service() {
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
-    // Instance JNI (lib.rs). A sticky restart can come up before the activity
-    // has loaded velta_app.so; callers catch UnsatisfiedLinkError.
+    // Instance JNI (lib.rs). VeltaApp loads velta_app.so in every process;
+    // callers still catch UnsatisfiedLinkError in case that failed.
     private external fun networkAvailable(available: Boolean)
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -31,7 +33,7 @@ class CoreService : Service() {
         super.onCreate()
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Message sync", NotificationManager.IMPORTANCE_MIN)
+            NotificationChannel(CHANNEL_ID, getString(R.string.bg_channel_name), NotificationManager.IMPORTANCE_MIN)
         )
         // No wake lock: a permanent PARTIAL_WAKE_LOCK kept the CPU awake all
         // day (Play vitals "excessive wake locks") and Doze ignores it anyway.
@@ -91,28 +93,50 @@ class CoreService : Service() {
         )
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+    private fun buildNotification(syncing: Boolean) =
+        NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(applicationInfo.icon)
             .setContentTitle("Velta")
-            .setContentText("Keeping your messages up to date")
+            .setContentText(getString(if (syncing) R.string.bg_syncing else R.string.bg_not_syncing))
             .setContentIntent(openAppIntent())
             .setOngoing(true)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // A sticky restart after the process died has no activity: start the
+        // core here so the service really syncs (audit item 1). With the UI
+        // up this reuses the core Tauri setup created.
+        val starting = VeltaCore.ensureStarted(this)
+        val notification = buildNotification(starting)
         if (Build.VERSION.SDK_INT >= 34) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING)
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
-        // STICKY: restart the (empty) service if the system kills it; the
-        // core itself is re-initialized by the activity on next open.
+        // Never claim to sync while no core runs: re-check once init had
+        // time to finish (Accounts::new on a cold start).
+        if (starting) {
+            Handler(Looper.getMainLooper()).postDelayed({ refreshNotification() }, CORE_CHECK_MS)
+        }
+        // STICKY: the system restarts the service after a kill, and the
+        // restart starts the core again (above).
         return START_STICKY
+    }
+
+    private fun refreshNotification() {
+        if (VeltaCore.running()) return
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        try {
+            manager.notify(NOTIFICATION_ID, buildNotification(false))
+        } catch (_: SecurityException) {
+        }
     }
 
     companion object {
         const val CHANNEL_ID = "velta-core"
         const val NOTIFICATION_ID = 1
+        private const val CORE_CHECK_MS = 30_000L
 
         fun start(context: Context) {
             androidx.core.content.ContextCompat.startForegroundService(context, Intent(context, CoreService::class.java))

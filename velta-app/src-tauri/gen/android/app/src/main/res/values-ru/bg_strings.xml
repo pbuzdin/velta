@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bg_channel_name">Синхронизация сообщений</string>
+    <string name="bg_syncing">Сообщения обновляются</string>
+    <string name="bg_not_syncing">Фоновая синхронизация не работает. Нажмите, чтобы открыть Velta</string>
+</resources>
