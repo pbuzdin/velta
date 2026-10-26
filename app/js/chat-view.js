@@ -1013,6 +1013,7 @@ export class ChatView {
       this._saveScrollAnchor(this._session.draftKey); // measures the live DOM — before teardown
     }
     this._flushMarkRead(); // messages were on screen — mark them before the session dies
+    this._dropArrivals(); // queued arrivals belong to the chat being left
     this._session = null;
     input.value = "";
     sizeComposer(input);
@@ -1067,26 +1068,110 @@ export class ChatView {
     this.scrollEl.scrollTop = 0;
   }
 
-  async appendOutgoing(msg) {
+  appendOutgoing(msg) {
+    if (!this._isCurrent() || !this.chat || !msg || msg.chatId !== this.chat.id) return Promise.resolve();
+    // An own send is applied at once (callers rely on the row existing
+    // right after), together with any incoming arrivals still queued ahead
+    // of it so ordering holds — still a single insert/measure.
+    const done = this._queueArrival(msg, true);
+    this.flushArrivals();
+    return done;
+  }
+
+  // Arrivals (incoming and own sends) for the open chat are queued and
+  // flushed once per frame: one annotate/insert, one scroller setItems
+  // (re-measure) and one near-bottom read per batch instead of per message.
+  // A timer backs up rAF, which never fires in hidden/occluded windows.
+  // The returned promise resolves once the batch holding msg is applied.
+  _queueArrival(msg, outgoing) {
     const session = this._session;
-    if (!this._isCurrent(session) || !this.chat || !msg || msg.chatId !== this.chat.id) return;
-    // The loaded window stops short of the tail: the own message belongs
-    // after messages that are not loaded yet — jump to the real tail.
-    if (this.hasNewer) { this._jumpToLatest(); return; }
-    this._insertItems(this._annotateMessages([msg], this.items[this.items.length - 1]?.dayKey ?? null));
+    const chatId = this.chat.id;
+    if (!this._arrivals || this._arrivals.session !== session || this._arrivals.chatId !== chatId) {
+      let resolve;
+      const done = new Promise(r => { resolve = r; });
+      const batch = { session, chatId, list: [], done, resolve, raf: 0, timer: null };
+      this._arrivals = batch;
+      const run = () => this._flushArrivals(batch);
+      if (typeof requestAnimationFrame === "function") batch.raf = requestAnimationFrame(run);
+      batch.timer = setTimeout(run, 50);
+    }
+    this._arrivals.list.push({ msg, outgoing });
+    return this._arrivals.done;
+  }
+
+  // Apply queued arrivals now (tests; callers needing the rows in place).
+  flushArrivals() {
+    if (this._arrivals) this._flushArrivals(this._arrivals);
+  }
+
+  _dropArrivals() {
+    const batch = this._arrivals;
+    if (!batch) return;
+    this._arrivals = null;
+    batch.flushed = true;
+    if (batch.raf && typeof cancelAnimationFrame === "function") cancelAnimationFrame(batch.raf);
+    clearTimeout(batch.timer);
+    batch.resolve();
+  }
+
+  _flushArrivals(batch) {
+    if (batch.flushed) return;
+    batch.flushed = true;
+    if (batch.raf && typeof cancelAnimationFrame === "function") cancelAnimationFrame(batch.raf);
+    clearTimeout(batch.timer);
+    if (this._arrivals === batch) this._arrivals = null;
+    try { this._applyArrivals(batch); } finally { batch.resolve(); }
+  }
+
+  _applyArrivals(batch) {
+    const { session, chatId } = batch;
+    // Chat (or account) switched mid-batch: the queue belongs to the old chat.
+    if (!this._isCurrent(session) || !this.chat || this.chat.id !== chatId) return;
+    // Dedupe by id in arrival order; a later copy (e.g. a download
+    // placeholder re-notified with full content) replaces the earlier one.
+    const order = [];
+    const byId = new Map();
+    for (const entry of batch.list) {
+      const id = entry.msg.id;
+      if (this.msgIndex.has(id)) { this.onMsgUpdated(chatId, entry.msg); continue; }
+      if (byId.has(id)) { const prev = byId.get(id); prev.msg = entry.msg; prev.outgoing ||= entry.outgoing; continue; }
+      const e = { msg: entry.msg, outgoing: entry.outgoing };
+      byId.set(id, e);
+      order.push(e);
+    }
+    if (!order.length) return;
+    const anyOut = order.some(e => e.outgoing);
+    const incoming = order.filter(e => !e.outgoing).length;
+    if (this.hasNewer) {
+      // Lands past the loaded window: an own send jumps to the real tail.
+      if (anyOut) { this._jumpToLatest(); return; }
+      for (let i = 0; i < incoming; i++) this._bumpGoDown(chatId);
+      return;
+    }
+    // Stick-to-bottom is decided by where the user was before the batch
+    // landed (per-message, each arrival kept the view near the tail; a
+    // whole batch at once would push it past the threshold). Read before
+    // the insert so the scroller re-measure is the only layout write.
+    const wasNearBottom = this._nearBottom();
+    this._insertItems(this._annotateMessages(order.map(e => e.msg), this.items[this.items.length - 1]?.dayKey ?? null));
     this.vs?.setItems(this.items);
-    // Follow an own message down only when the user is already near the tail
-    // (#71): reading older history must survive sending a reply from the
-    // composer. Far from the tail the row still lands in the loaded window;
-    // the go-down badge offers the way back.
-    if (this._nearBottom()) {
-      requestAnimationFrame(() => { if (this._isCurrent(session)) { this._scrollBottom(); this._scheduleSeenCheck(); } });
+    // Follow down only when already near the tail (#71).
+    if (wasNearBottom) {
+      if (this._tracked || !incoming) {
+        // Seen once actually on screen (_checkSeen), not on arrival —
+        // a backgrounded app must not send read receipts.
+        requestAnimationFrame(() => { if (this._isCurrent(session)) { this._scrollBottom(); this._scheduleSeenCheck(); } });
+      } else {
+        requestAnimationFrame(() => { if (this._isCurrent(session)) { this._scrollBottom(); if (anyOut) this._scheduleSeenCheck(); } });
+        this.markReadSoon(chatId);
+      }
+    } else if (incoming) {
+      for (let i = 0; i < incoming; i++) this._bumpGoDown(chatId);
     } else {
       this._renderGoDown(true);
     }
-    // Thread mode: re-lock the composer quote to the thread parent after
-    // each send (the normal reply flow clears it).
-    if (this.thread) {
+    // Thread mode: re-lock the composer quote to the thread parent after a send.
+    if (anyOut && this.thread) {
       const pit = this.msgIndex.get(this.thread.parentId);
       if (pit) this._setReply(pit);
     }
@@ -1120,30 +1205,11 @@ export class ChatView {
     if (chatId != null && this._isCurrent()) this.core.markRead(chatId);
   }
 
-  async onIncoming(chatId, msg) {
-    const session = this._session;
-    if (!this._isCurrent(session)) return;
+  onIncoming(chatId, msg) {
+    if (!this._isCurrent()) return Promise.resolve();
     rustLog(`chat-view onIncoming chatId=${chatId} current=${this.chat?.id}`);
-    if (!this.chat || chatId !== this.chat.id) { this._bumpGoDown(chatId, true); return; }
-    // The same message id can arrive twice (e.g. appended as a download
-    // placeholder first, then re-notified once the full content merged).
-    // Update the existing row in place instead of appending a duplicate.
-    if (this.msgIndex.has(msg.id)) { this.onMsgUpdated(chatId, msg); return; }
-    if (this.hasNewer) { this._bumpGoDown(chatId); return; } // lands past the loaded window
-    this._insertItems(this._annotateMessages([msg], this.items[this.items.length - 1]?.dayKey ?? null));
-    this.vs?.setItems(this.items);
-    if (this._nearBottom()) {
-      if (this._tracked) {
-        // Seen once it is actually on screen (_checkSeen), not on arrival —
-        // a backgrounded app must not send read receipts.
-        requestAnimationFrame(() => { if (this._isCurrent(session)) { this._scrollBottom(); this._scheduleSeenCheck(); } });
-      } else {
-        requestAnimationFrame(() => { if (this._isCurrent(session)) this._scrollBottom(); });
-        this.markReadSoon(chatId);
-      }
-    } else {
-      this._bumpGoDown(chatId);
-    }
+    if (!this.chat || chatId !== this.chat.id) { this._bumpGoDown(chatId, true); return Promise.resolve(); }
+    return this._queueArrival(msg, false);
   }
 
   // Fallback refresh: the core signals "messages changed" (IncomingMsgBunch

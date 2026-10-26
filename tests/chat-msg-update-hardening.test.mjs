@@ -243,8 +243,8 @@ test("incoming bursts near the bottom collapse to one markRead after the debounc
   // Sit "near the bottom" so onIncoming takes the read path.
   view.scrollEl.scrollTop = 520; // 1000 - 520 - 500 < 220
 
-  await view.onIncoming(7, message(11, 7));
-  await view.onIncoming(7, message(12, 7));
+  view.onIncoming(7, message(11, 7)); view.flushArrivals(); // batched per frame
+  view.onIncoming(7, message(12, 7)); view.flushArrivals(); // batched per frame
   assert.equal(reads, 0, "no markRead while the debounce window is open");
 
   await wait(30);
@@ -259,7 +259,7 @@ test("a pending debounced read is flushed on close", async t => {
   core.markRead = async () => { reads++; };
   view.scrollEl.scrollTop = 520;
 
-  await view.onIncoming(7, message(11, 7));
+  view.onIncoming(7, message(11, 7)); view.flushArrivals(); // batched per frame
   assert.equal(reads, 0, "scheduled, not fired");
   view.close();
   assert.equal(reads, 1, "close must flush the pending markRead");

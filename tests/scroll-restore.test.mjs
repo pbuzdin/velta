@@ -344,7 +344,7 @@ test("setting on: leaving with unseen messages loaded does not save an anchor", 
   const h = setup(t, { remember: true });
   await scrolledUp(h);
   // An incoming message lands while scrolled up (not seen yet).
-  await h.view.onIncoming(7, msg(201, 7, true));
+  h.view.onIncoming(7, msg(201, 7, true)); h.view.flushArrivals(); // batched per frame
   await h.open(8);
   assert.equal(h.view._scrollAnchors.size, 0);
 });
