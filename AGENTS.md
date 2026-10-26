@@ -72,6 +72,8 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── web-push.js       # PWA Web Push: drawer <details> switch, Notification permission, pushManager.subscribe(VAPID_KEY = notifier key, pinned to UnifiedPushService.kt), token webpush:<endpoint>|<p256dh>|<auth> → wasm set_push_device_token (all accounts), re-registered every boot; iOS 16.4+/home-screen hint (docs/agents/web-push.md)
 │   │   ├── push-settings.js  # #140 Android drawer <details> "Push notifications": distributor picker/Off, relay support, last push (shell push_status/push_select/push_off → UnifiedPushBridge.kt)
 │   │   ├── tunnel.js         # optional Android DNS tunnel UI: deep link, drawer row, settings sheet, diagnostics (#116/#119/#128)
+│   │   ├── scheduled.js      # scheduled messages ("Send later"): document ops (mirrored in src-tauri scheduled_store.rs), presets, ScheduledRunner (claim → send → done; no double send) — docs/scheduled-messages.md
+│   │   ├── scheduled-ui.js   # Send later sheet (presets + datetime-local), per-chat / global scheduled list, Android exact-alarm prompt
 │   │   ├── recent-commands.js # #135 recent "/" bot commands popup + per-(account,chat) history, localStorage
 │   │   ├── app-browser.js    # #137 attach-menu recent apps/commands + webxdc catalog mirrors (localStorage)
 │   │   ├── i18n.js           # #129 UI language: English source, fr/ru packs, localStorage velta-lang
