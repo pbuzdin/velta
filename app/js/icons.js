@@ -110,7 +110,7 @@ export const P = {
   bookmarkExport: '<path d="M6 3h12v18l-6-4.5L6 21z"/><path d="M12 7v6m0-6l-2.5 2.5M12 7l2.5 2.5"/>',
   chats: '<path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>',
   contacts: '<circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0114 0M16 3.5a4 4 0 010 9M15.5 14a7 7 0 016.5 7"/>',
-  qr: '<rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><path d="M6 6h2v2H6zM16 6h2v2h-2zM6 16h2v2H6z" fill="currentColor" stroke="none"/>',
+  qr: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M6.5 6.5h0M17.5 6.5h0M6.5 17.5h0M14 14h3M20 14v0M14 17.5v3.5M17.5 21h3.5M20.5 17.5h0"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   chatLines: '<path d="M4 5h16v11H8l-4 4z"/><path d="M8 9.5h8M8 12.5h5"/>',
   dotsVerticalLg: '<circle cx="12" cy="5" r="1.8" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.8" fill="currentColor" stroke="none"/>',
