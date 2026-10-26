@@ -60,6 +60,9 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── components.js     # Elena-based web components (<velta-avatar>, <velta-chat-item>, <velta-chat-head>, <velta-video>)
 │   │   ├── diagnostics.js    # diagnostics chat store + event sink + shared console-style row renderer
 │   │   ├── invites.js        # invite-link registry (mirror domains), parsing, short-link expansion, invite cards, settings modal
+│   │   ├── invite-cards.js   # in-chat invite cards (chat/group/relay/WS-proxy links) + native relay-invite signup in Add account — docs/invite-cards.md
+│   │   ├── icons.js          # shared inline SVG icon set (outline, stroke 2, round caps, aria-hidden); every UI icon comes from here — tests/icons.test.mjs
+│   │   ├── qr-encode.js      # QR encoder with optimal numeric/alphanumeric/byte segmentation (smaller codes for every QR shown)
 │   │   ├── local-chat.js     # local chat core adapter: Proxy interceptor for p2p:<peerId> chats, media transfers/progress, offline queue + auto-flush (see 5.4 / conventions)
 │   │   ├── markdown.js       # escape-first message markdown: bold/italic/underline, links, lists + bot command extraction
 │   │   ├── image-compress.js # outgoing photo → lossy WebP when it clearly pays (size-gated, renderer-side canvas, #81)
@@ -72,6 +75,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── web-push.js       # PWA Web Push: drawer <details> switch, Notification permission, pushManager.subscribe(VAPID_KEY = notifier key, pinned to UnifiedPushService.kt), token webpush:<endpoint>|<p256dh>|<auth> → wasm set_push_device_token (all accounts), re-registered every boot; iOS 16.4+/home-screen hint (docs/agents/web-push.md)
 │   │   ├── push-settings.js  # #140 Android drawer <details> "Push notifications": distributor picker/Off, relay support, last push (shell push_status/push_select/push_off → UnifiedPushBridge.kt)
 │   │   ├── tunnel.js         # optional Android DNS tunnel UI: deep link, drawer row, settings sheet, diagnostics (#116/#119/#128)
+│   │   ├── ws-transport.js   # WebSocket transport (Android/Windows): saved proxies, velta://ws links with signed invite tokens, settings sheet — docs/websocket-transport.md
 │   │   ├── scheduled.js      # scheduled messages ("Send later"): document ops (mirrored in src-tauri scheduled_store.rs), presets, ScheduledRunner (claim → send → done; no double send) — docs/scheduled-messages.md
 │   │   ├── scheduled-ui.js   # Send later sheet (presets + datetime-local), per-chat / global scheduled list, Android exact-alarm prompt
 │   │   ├── recent-commands.js # #135 recent "/" bot commands popup + per-(account,chat) history, localStorage
@@ -136,6 +140,9 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │       │   ├── lib.rs        # Windows sidecar bridge + Android in-process core
 │       │   ├── p2p.rs        # Local chat engine: iroh (relay-less) QUIC pairing + 1:1 chat
 │       │   ├── tunnel.rs     # Optional DNS tunnel (Android): loads libsoartunnel.so, keeps proxy_url
+│       │   ├── tunnel_android.rs / tunnel_windows.rs / tunnel_store.rs # platform layers (Windows: soartunnel.dll) + several saved tunnels, one or none active
+│       │   ├── ws_transport.rs # WebSocket transport: local SOCKS5 listener tunnelled over the PWA's WS proxy (invite token at the handshake), health-checked, started before IO
+│       │   ├── scheduled.rs / scheduled_store.rs # scheduled messages: native store + send runner (Android alarm via ScheduledAlarm.kt)
 │       │   ├── lufi.rs       # #138 Large file: proxy-aware (fail-closed) minimal WebSocket client for Lufi /upload, slice reads, config/delete
 │       │   ├── bin/          # p2p-hub.rs — headless terminal hub (debug helper)
 │       │   └── main.rs       # Tauri entry point
@@ -170,6 +177,12 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── docs/research/wasm-core-lock-landing-plan.md   # ordered review/merge steps for the core/Cargo.lock diff at landing
 ├── docs/pwa-self-host.md          # host your own wasm PWA; Quick start = clone branch pwa-dist; origin A + WS proxy on B
 ├── docs/relay-modules.md          # install / configure / uninstall: invite-only signup and the WebSocket proxy
+├── docs/websocket-transport.md    # WebSocket transport for Android/Windows: velta://ws links, saved proxies, signed invites
+├── docs/deploy-pwa-websocket-proxy.md / docs/deploy-dns-tunnel.md # one-command server deploy guides (tools/deploy-*.sh)
+├── docs/dns-tunnel-link.md        # tunnel link v2 (QR-alphanumeric path form) + confirmation
+├── docs/scheduled-messages.md     # Send later: design, Android exact/inexact alarms, Doze limits
+├── docs/invite-cards.md           # invite cards in chat + relay-invite signup
+├── docs/mentions.md / reply-threads.md / chat-appearance.md / settings-transfer.md # feature notes
 ├── docs/research/websockify-c3-deploy.md          # C3 runbook: deploy the websockify-c3 relay, verify, RELAY_WS_URL e2e
 ├── docs/research/ws-relay-endpoints-probe.md      # external WS endpoints vs the C3 contract — chatmail.uk /ygg-ws = Yggdrasil peering, not a mail tunnel (10-09)
 ├── docs/research/wasm-patches/   # 10-patch wasm series (series.txt, VENDORED.md, pinned locks + PROVENANCE)
@@ -179,6 +192,8 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── scripts/verify-pwa-dist.mjs   # PWA dist rig: 10 checks (boot, OPFS persist incl. sqlite/, SW, identity-backup surface)
 └── tools/                    # build-builtin-xdc.mjs (app/builtin/*.xdc from app/webxdc/*), icon generation, WSL APK build/sign helpers,
                               serve-dev.py (no-cache static server for app/)
+                              bump.mjs (the one version bump), deploy-dns-tunnel.sh / deploy-ws-proxy.sh (one-command server deploys:
+                              docs/deploy-dns-tunnel.md, docs/deploy-pwa-websocket-proxy.md; WS proxy has `invite NAME --uses N`, revoke)
 ```
 
 Not tracked (local runtime/build artifacts): `accounts/` (local core account

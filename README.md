@@ -95,6 +95,32 @@ Full steps: [docs/pwa-self-host.md](docs/pwa-self-host.md).
   as typed. Velta highlights mentions, mentions of you stronger, and a muted
   chat still notifies you when you are mentioned (switch in Notifications,
   default on). Details: [docs/mentions.md](docs/mentions.md).
+- **Send later** — long-press or right-click Send, press Ctrl+Shift+Enter, or pick it in the attach menu to schedule a
+  message: presets or a date and time. Scheduled messages show as a chip in
+  the chat and in a per-chat and global list, where you can edit, send now,
+  or delete them. Android uses exact alarms when allowed and still sends on
+  an inexact one. Details: [docs/scheduled-messages.md](docs/scheduled-messages.md).
+- **WebSocket transport (Android/Windows, opt-in)** — mail can ride a
+  WebSocket proxy (the same kind the PWA uses) through a local SOCKS5
+  listener. Proxies are saved and switchable; a `velta://ws` link or QR
+  adds one after a confirmation. Proxy operators can hand out signed invite
+  links with an expiry, a device limit, and revocation. Invite links of all
+  kinds show as **invite cards** in chat, and a relay invite can sign you up
+  straight from **Add account**. Details:
+  [docs/websocket-transport.md](docs/websocket-transport.md),
+  [docs/invite-cards.md](docs/invite-cards.md); server side:
+  [docs/deploy-pwa-websocket-proxy.md](docs/deploy-pwa-websocket-proxy.md).
+- **Smaller QR codes** — every QR the app shows picks the optimal
+  numeric/alphanumeric/byte segments, so codes have fewer modules and scan
+  more easily.
+- **Speed** — incoming messages are batched per frame, notification and
+  chat-list work is coalesced, message-row gestures use one delegated
+  listener, and the QR scanner, large-file upload and image compression
+  load on demand. On a busy account the longest UI freeze dropped from
+  about 600 ms to under 50 ms, and opening a chat from about 140 ms to 114 ms.
+- **Archived chats row** — when you have archived chats, an **Archived (n)**
+  row sits at the bottom of the chat list; archived chats keep their menu
+  and in-chat search.
 
 <details>
 <summary>Local chat (beta)</summary>
@@ -117,7 +143,7 @@ UI: `app/js/p2p.js`. A headless terminal hub for debugging lives in
 (behind a feature so release bundles never ship it).
 
 Local chat is **disabled by default**. Switch it on/off in the drawer
-("Local chat: on/off"): when off, the engine never starts (no endpoint
+(**Velta Loop**, subtitle "Local chat on the same network"): when off, the engine never starts (no endpoint
 socket, no LAN beacons) and the card and drawer rows disappear. The
 browser shows that switch after **Enter local chat…**, so the preview
 can be turned off. The
@@ -942,11 +968,10 @@ layout on both mobile platforms:
   15-minute scheduled fetch (`BackgroundFetchJob`) covers the frozen
   stretches even without a push distributor, and a push wake-up no longer
   waits out a half-open IDLE connection before fetching. The sync service
-  holds a partial wake
-  lock, reconnects when the network changes, and fetches again when you
-  return and every 90 seconds in the background. With the screen off,
+  holds no permanent wake lock (since 1.4.83), reconnects when the network changes, and fetches again when you
+  return, nudges a reconnect every 10 minutes in the background unless push is delivering, and can start the core without the app's window (a push, job or alarm cold-starts it). With the screen off,
   Android Doze still suspends that network until you allow unrestricted
-  battery use; Velta asks on each cold start until you allow it.
+  battery use; Velta asks once, with a link to dontkillmyapp.com for your phone's maker.
 - **Windows** — a toast with three text lines (chat name / sender / text)
   and the sender's avatar cropped circular, rendered via the same
   notification identity the installer registers. The toast is shown when
