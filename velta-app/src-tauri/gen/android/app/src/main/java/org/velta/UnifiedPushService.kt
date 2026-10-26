@@ -25,6 +25,7 @@ class UnifiedPushService : PushService() {
     // catch.
     private external fun pushEndpointReceived(token: String)
     private external fun pushWakeup()
+    private external fun pushUnregistered()
 
     override fun onNewEndpoint(endpoint: PushEndpoint, instance: String) {
         val key = endpoint.pubKeySet
@@ -64,6 +65,10 @@ class UnifiedPushService : PushService() {
 
     override fun onUnregistered(instance: String) {
         Log.w(TAG, "UnifiedPush unregistered")
+        try {
+            pushUnregistered()
+        } catch (_: UnsatisfiedLinkError) {
+        }
     }
 
     companion object {

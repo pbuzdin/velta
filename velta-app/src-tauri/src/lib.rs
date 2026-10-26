@@ -2285,6 +2285,7 @@ pub extern "system" fn Java_org_velta_UnifiedPushService_pushEndpointReceived(
 ) {
     let Ok(jtoken) = env.get_string(&token) else { return };
     let token: String = jtoken.to_string_lossy().into_owned();
+    PUSH_ENDPOINT_SET.store(true, std::sync::atomic::Ordering::SeqCst);
     // Log the scheme only — the endpoint URL is a capability URL.
     log(&format!(
         "push endpoint received ({})",
@@ -2349,10 +2350,11 @@ pub extern "system" fn Java_org_velta_CoreService_networkAvailable(
     if let Some(app) = APP_HANDLE.lock().unwrap().clone() {
         let _ = app.emit("velta-network", available != 0);
     }
+    // Lost: nothing to do. The core notices dead sockets itself and the
+    // next onAvailable kicks it (there is no maybe_network_lost JSON-RPC
+    // method; the old call always failed with "method not found").
     if available != 0 {
         kick_maybe_network(false);
-    } else {
-        spawn_core_rpc("maybe_network_lost", false);
     }
 }
 
@@ -2408,7 +2410,20 @@ pub extern "system" fn Java_org_velta_UnifiedPushService_pushWakeup(
     _env: jni::JNIEnv,
     _class: jni::objects::JClass,
 ) {
+    LAST_PUSH_SECS.store(unix_secs(), std::sync::atomic::Ordering::SeqCst);
     push_wakeup_impl();
+}
+
+// onUnregistered (distributor removed, user picked Off): the reconnect
+// nudge is needed again.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_org_velta_UnifiedPushService_pushUnregistered(
+    _env: jni::JNIEnv,
+    _class: jni::objects::JClass,
+) {
+    PUSH_ENDPOINT_SET.store(false, std::sync::atomic::Ordering::SeqCst);
+    LAST_PUSH_SECS.store(0, std::sync::atomic::Ordering::SeqCst);
 }
 
 // Scheduled-fetch fallback (#52 L3): BackgroundFetchJob.onStartJob calls
@@ -3359,15 +3374,41 @@ fn spawn_core_rpc(method: &'static str, log_ok: bool) {
     });
 }
 
-// While the activity is stopped, break a half-open IDLE every 90s. A healthy
-// connection is interrupted and goes straight back to IDLE; a dead one
-// fetches. The poller does not do this — it only reads events.
+// While the activity is stopped, break a half-open IDLE every 10 min
+// (bg_events::BG_KICK_INTERVAL_SECS; was 90 s). A healthy connection is
+// interrupted and goes straight back to IDLE; a dead one fetches. Skipped
+// while UnifiedPush is delivering (bg_events::bg_kick_due). The poller does
+// not do this — it only reads events.
+#[cfg(target_os = "android")]
+static PUSH_ENDPOINT_SET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+// Unix seconds of the last push received in this process; 0 = none.
+#[cfg(target_os = "android")]
+static LAST_PUSH_SECS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(target_os = "android")]
+fn unix_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
+#[cfg(target_os = "android")]
+fn bg_kick_due_now() -> bool {
+    let last = LAST_PUSH_SECS.load(std::sync::atomic::Ordering::SeqCst);
+    let age = (last != 0).then(|| unix_secs().saturating_sub(last));
+    bg_events::bg_kick_due(
+        android_ui_visible(),
+        PUSH_ENDPOINT_SET.load(std::sync::atomic::Ordering::SeqCst),
+        age,
+    )
+}
+
 #[cfg(target_os = "android")]
 fn start_bg_fetch_kicker(app: tauri::AppHandle, tx: tokio::sync::mpsc::UnboundedSender<String>) {
     tauri::async_runtime::spawn(async move {
         loop {
-            tokio::time::sleep(std::time::Duration::from_secs(90)).await;
-            if android_ui_visible() {
+            tokio::time::sleep(std::time::Duration::from_secs(bg_events::BG_KICK_INTERVAL_SECS)).await;
+            if !bg_kick_due_now() {
                 continue;
             }
             let state = app.state::<RpcState>();

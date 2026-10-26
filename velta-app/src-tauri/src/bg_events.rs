@@ -157,8 +157,41 @@ pub fn route_event_batch(id: &str, response_line: String, ui_visible: bool) -> (
     }
 }
 
+/// Background reconnect nudge (`maybe_network` while the activity is
+/// stopped): breaks a half-open IDLE socket. Every 90 s it cost ~960 IDLE
+/// round-trips a day; 10 min still bounds a silently dead socket.
+pub const BG_KICK_INTERVAL_SECS: u64 = 600;
+
+/// A push received within this window means UnifiedPush is delivering, so
+/// the relay wakes us for new mail and the nudge is not needed.
+pub const PUSH_FRESH_SECS: u64 = 6 * 3600;
+
+/// Whether the reconnect nudge should run now. Skipped while the UI is up
+/// (the page drives IO) and while push is active: an endpoint is registered
+/// and a push arrived recently (`last_push_age_secs`). An endpoint without
+/// any recent push may be a relay that never pushes, so the nudge stays on.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub fn bg_kick_due(ui_visible: bool, push_endpoint: bool, last_push_age_secs: Option<u64>) -> bool {
+    if ui_visible {
+        return false;
+    }
+    let push_active = push_endpoint && last_push_age_secs.is_some_and(|a| a < PUSH_FRESH_SECS);
+    !push_active
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn bg_kick_skips_visible_ui_and_active_push() {
+        assert!(!bg_kick_due(true, false, None), "UI up: no nudge");
+        assert!(bg_kick_due(false, false, None), "no push: nudge");
+        assert!(bg_kick_due(false, true, None), "endpoint but never a push: nudge");
+        assert!(!bg_kick_due(false, true, Some(60)), "push delivering: skip");
+        assert!(bg_kick_due(false, true, Some(PUSH_FRESH_SECS)), "push gone quiet: nudge again");
+        assert!(bg_kick_due(false, false, Some(60)), "push without endpoint (unregistered): nudge");
+        assert!(BG_KICK_INTERVAL_SECS >= 300, "not the old 90 s");
+    }
+
     use super::*;
 
     fn map() -> PendingMap {

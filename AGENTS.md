@@ -2795,7 +2795,9 @@ taps above). The vestigial-SW caveat below applies only to plain `app/`.
   `CoreService` holds the default-network callback and NO wake lock (a
   permanent PARTIAL_WAKE_LOCK kept the CPU up all day; the IDLE socket wakes
   the CPU on incoming data, as in upstream's KeepAliveService).
-  A 90s kick while the activity is stopped interrupts a half-open IDLE.
+  A `maybe_network` kick every 10 min (`bg_events::BG_KICK_INTERVAL_SECS`,
+  was 90 s) while the activity is stopped interrupts a half-open IDLE; it is
+  skipped while UnifiedPush delivers (endpoint set and a push within 6 h).
   The page asks for the battery-optimization
   exemption once per cold start until it is granted.
   Event-batch requests (ids `bg-ev-`, `src/bg_events.rs`) are never timed
