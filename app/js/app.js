@@ -1307,6 +1307,7 @@ async function refreshChatList({ fromDirty = false } = {}) {
         if (!accountIsCurrent(epoch)) return;
         archivedCount = n;
         syncHeaderButtons();
+        syncArchivedLink();
       }).catch(() => {});
     }
   } catch (err) {
@@ -1819,6 +1820,8 @@ function renderChatList() {
       const id = Number(child.getAttribute("chat-id"));
       if (chats.some(c => c.id === id)) existing.set(id, child);
       else child.remove();
+    } else if (child.id === "archived-link") {
+      // kept; syncArchivedLink re-appends it last
     } else if (child.classList?.contains?.("chat-item-ghost")) {
       const id = Number(child.getAttribute("chat-id"));
       if (chats.some(c => c.id === id)) ghosts.set(id, child);
@@ -1854,10 +1857,11 @@ function renderChatList() {
   }
   // Only touch the DOM when the row set/order actually changed; moving
   // existing nodes preserves them (no custom-element re-init).
-  const sameOrder = items.length === list.children.length &&
+  const link = document.getElementById("archived-link");
+  const sameOrder = items.length === list.children.length - (link?.parentNode === list ? 1 : 0) &&
     items.every((el, i) => list.children[i] === el);
   if (!sameOrder) list.replaceChildren(...items);
-  if (!chats.length) {
+  if (!chats.length && !(archivedCount && state.chatCategory === "all" && !state.query)) {
     const empty = document.createElement("div");
     empty.style.cssText = "text-align:center;color:var(--text-dim);padding:30px 16px;font-size:14.5px";
     empty.textContent = state.query ? "No chats found"
@@ -1865,7 +1869,34 @@ function renderChatList() {
       : "No chats yet — start a new one";
     list.appendChild(empty);
   }
+  syncArchivedLink();
   watchChatItemGhosts(list);
+}
+
+// Delta Chat's "Archived chats (N)" row, last in the main list. Only the
+// label/visibility change — never triggers a list rebuild. Same target as
+// the search screen's Archived tab.
+function syncArchivedLink() {
+  const list = $("chat-list");
+  if (!list) return;
+  let link = document.getElementById("archived-link");
+  const show = listView === "chats" && archivedCount > 0 && !state.query && state.chatCategory === "all";
+  if (!show) { link?.remove(); return; }
+  if (!link) {
+    link = document.createElement("button");
+    link.type = "button";
+    link.id = "archived-link";
+    link.className = "archived-link";
+    link.addEventListener("click", () => { searchScreenTab = "archived"; setListView("search"); });
+  }
+  const label = t("Archived chats ({n})", { n: archivedCount });
+  const key = archivedCount + "|" + label;
+  if (link._velKey !== key) {
+    link._velKey = key;
+    link.setAttribute("aria-label", label);
+    link.innerHTML = `<span class="archived-link-icon" aria-hidden="true">${ICON.archive}</span><span>${escapeHtml(label)}</span>`;
+  }
+  if (list.lastElementChild !== link) list.appendChild(link);
 }
 
 // Fixed-height stand-in for an off-screen chat row: matches one real row

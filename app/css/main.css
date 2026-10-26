@@ -1557,6 +1557,17 @@ velta-chat-item { display: block; }
    height (48px avatar + 2×10px padding); the IntersectionObserver swaps in
    the real element before it scrolls into view. */
 .chat-item-ghost { height: 68px; margin: 0 6px; }
+/* "Archived chats (N)" row at the bottom of the chat list. */
+.archived-link {
+  display: flex; align-items: center; gap: 10px; width: calc(100% - 12px);
+  margin: 4px 6px 8px; padding: 10px 12px; border: none; border-radius: 10px;
+  background: none; color: var(--text-dim); font: inherit; font-size: 14px;
+  text-align: left; cursor: pointer;
+}
+.archived-link-icon { display: inline-flex; width: 48px; justify-content: center; }
+.archived-link-icon svg { width: 22px; height: 22px; }
+@media (hover: hover) and (pointer: fine) { .archived-link:hover { background: var(--bg-hover); color: var(--text); } }
+.archived-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .ci-main { flex: 1; min-width: 0; }
 .ci-top { display: flex; align-items: baseline; gap: 6px; }
 .ci-name { flex: 1; min-width: 0; font-size: 15.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 4px; }

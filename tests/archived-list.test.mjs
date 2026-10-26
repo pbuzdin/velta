@@ -32,3 +32,20 @@ test("mock getChatList filters archived chats", async () => {
   const all = await mock.getChatList();
   assert.ok(all.every(c => !c.archived));
 });
+
+// Delta Chat pattern: an "Archived chats (N)" row closes the main list and
+// opens the search screen's Archived tab. Updated in place, no list rebuild.
+test("chat list ends with an archived-chats row bound to the archived tab", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8");
+  const fn = src.slice(src.indexOf("function syncArchivedLink()"));
+  const body = fn.slice(0, fn.indexOf("\n}\n"));
+  assert.match(body, /archivedCount > 0/);
+  assert.match(body, /createElement\("button"\)/);
+  assert.match(body, /t\("Archived chats \(\{n\}\)"/);
+  assert.match(body, /setAttribute\("aria-label", label\)/);
+  assert.match(body, /searchScreenTab = "archived"; setListView\("search"\)/);
+  assert.match(body, /ICON\.archive/);
+  assert.match(src, /archivedCount = n;\s*syncHeaderButtons\(\);\s*syncArchivedLink\(\);/);
+  assert.match(src, /child\.id === "archived-link"/, "renderChatList keeps the row");
+});

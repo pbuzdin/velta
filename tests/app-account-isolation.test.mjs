@@ -112,6 +112,8 @@ function setup(t) {
     ...icons,
     core,
     localStorage: { getItem: () => null },
+    t: (s, vars) => vars ? s.replace(/\{(\w+)\}/g, (_, k) => vars[k]) : s,
+    escapeHtml: s => String(s),
     $: node,
     document: { createElement: tag => new Element(tag), querySelector: node, getElementById: id => nodes.get(id) ?? null, querySelectorAll: () => [], body: new Element("body"), addEventListener() {}, removeEventListener() {} },
     window: {},
