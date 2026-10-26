@@ -33,3 +33,11 @@ test("relay #16: D flag from canIdle (null = not known yet), limit + compression
   const quilt = readFileSync(new URL("../tools/apply-core-patches.py", import.meta.url), "utf8");
   for (const f of ["pub can_idle: Option<bool>,", "pub can_compress: Option<bool>,", "pub max_smtp_rcpt_to: Option<u32>,"]) assert.ok(quilt.includes(f), f);
 });
+
+test("relay details in the modal never reuse the relay line's absolutely positioned .relay-detail", () => {
+  const fn = app.slice(app.indexOf("const relayDetailsHtml"), app.indexOf("// One C3 probe per relay domain"));
+  assert.doesNotMatch(fn, /class="relay-detail[" ]/, ".relay-detail is position:absolute (chat-list relay chips); it stacked the quota over 'Add relay'");
+  assert.match(fn, /class="relay-meta relay-quota"/);
+  assert.match(css, /\.relay-meta \{[^}]*var\(--text-dim\)/);
+  assert.doesNotMatch(css, /\.relay-meta[^{]*\{[^}]*position:\s*absolute/);
+});

@@ -5719,21 +5719,21 @@ const relayDetailsHtml = (meta, quotaText) => {
   const lines = [];
   const comment = String(meta?.comment || "").trim();
   const admin = String(meta?.admin || "").trim();
-  if (comment) lines.push(`<div class="relay-detail">${escapeHtml(comment)}</div>`);
-  if (admin) lines.push(`<div class="relay-detail">${escapeHtml(t("Admin: {admin}", { admin }))}</div>`);
+  if (comment) lines.push(`<div class="relay-meta">${escapeHtml(comment)}</div>`);
+  if (admin) lines.push(`<div class="relay-meta">${escapeHtml(t("Admin: {admin}", { admin }))}</div>`);
   // Core patch #16: recipient limit (maxsmtprecipients) and IMAP compression,
   // shown only when the core reports them.
   const facts = [];
   const rcpt = Number(meta?.maxSmtpRcptTo);
   if (Number.isInteger(rcpt) && rcpt > 0) facts.push(t("Up to {rcpt} recipients per message", { rcpt }));
   if (meta?.canCompress === true) facts.push(t("compressed connection"));
-  if (facts.length) lines.push(`<div class="relay-detail">${escapeHtml(facts.join(" · "))}</div>`);
+  if (facts.length) lines.push(`<div class="relay-meta">${escapeHtml(facts.join(" · "))}</div>`);
   const q = String(quotaText || "").trim();
   if (q) {
     const pcts = [...q.matchAll(/(\d{1,3})\s*%/g)].map(m => Math.min(100, Number(m[1])));
     const label = q.replace(/\s*\d{1,3}\s*%/g, "").trim();
     const pct = pcts.length ? Math.max(...pcts) : null;
-    lines.push(`<div class="relay-detail relay-quota">${pct === null ? "" : `<span class="relay-quota-bar" role="img" aria-label="${escapeAttr(t("Storage {n}% used", { n: pct }))}"><span style="width:${pct}%"${pct >= 80 ? ' class="high"' : ""}></span></span>`}<span>${escapeHtml(label)}${pct === null ? "" : ` (${pct}%)`}</span></div>`);
+    lines.push(`<div class="relay-meta relay-quota">${pct === null ? "" : `<span class="relay-quota-bar" role="img" aria-label="${escapeAttr(t("Storage {n}% used", { n: pct }))}"><span style="width:${pct}%"${pct >= 80 ? ' class="high"' : ""}></span></span>`}<span>${escapeHtml(label)}${pct === null ? "" : ` (${pct}%)`}</span></div>`);
   }
   return lines.join("");
 };
