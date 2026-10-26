@@ -284,6 +284,10 @@ struct persisted to `notify-prefs.json` in app local data, plus a copy in
   / show_content / system_new_msgs.
 - `push_wakeup_impl` skips the scheduled fetch when `use_bg_connection`
   is off; `BackgroundFetchJob` checks the same file.
+- Since 1.4.85 (#175) a scheduled/push fetch is skipped while the app is
+  in the foreground (the live IO loop already fetches; a fetch there could
+  restart IO under a send and block chat switching), and the core's
+  `background_fetch` bound is 15 s (was 30 s).
 - `Notifications.kt` picks the channel id from vibration/sound prefs
   (Android freezes channel settings; id-switch = fresh channel).
 

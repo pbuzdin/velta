@@ -72,7 +72,14 @@ used when it starts with TLS (993, 465, 443) and on 443 for STARTTLS ports. All 
   `relays-down`, rechecked every minute. Without a live session the
   check proves nothing and the switch goes ahead. A route switch closes the old route's connections so
   the core reconnects at once.
-- **always** / **off**: fixed route.
+- **always**: fixed route through the tunnel.
+- **off** (1.4.85, #175): really off. The tunnel library is stopped and our
+  local SOCKS proxy is removed from every profile, so the core dials
+  directly. Before, Off only switched routing: the local proxy stayed on
+  every profile, and once it died a send stalled ~60 s and the IO restart
+  that followed blocked chat switching. Boot skips a tunnel whose mode is
+  Off, and the 60 s proxy keeper removes a stale `socks5://velta-tunnel:`
+  value, which repairs already-affected installs on the next start.
 
 Switching `proxy_enabled` in the core instead was rejected: it restarts the
 IO scheduler on every flip and can't fall back per connection.
@@ -80,7 +87,8 @@ IO scheduler on every flip and can't fall back per connection.
 `tunnel.rs` writes `proxy_url` only when a profile has none or has ours
 (prefix `socks5://velta-tunnel:`); a proxy the user set wins. A 60 s loop
 re-applies it so profiles added later pick it up. Removing the tunnel clears
-only our value.
+only our value. A bare connect-and-close (the liveness probe) no longer logs
+`socks: EOF` in the Go tunnel.
 
 ## DNS interception
 

@@ -427,6 +427,10 @@ per-transport capabilities.
 
 ### 17. `maybe_network` holds the account manager lock across interrupts (deltachat-jsonrpc/src/api.rs)
 
+**Tracker: pbuzdin/velta#175.**
+
+**Status: patched locally (quilt op "#17 …", 1.4.85).** Upstream fix: interrupt outside the accounts lock in `maybe_network`.
+
 `maybe_network` awaited every scheduler interrupt while holding
 `accounts.read()`. An IO restart (push/background fetch patch #12, proxy
 change) holds the scheduler lock while tasks stuck on a dead proxy wind down

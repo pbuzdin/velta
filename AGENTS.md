@@ -288,6 +288,7 @@ intent in VENDORISSUES.MD):
 | #13 | push-token accepted/rejected Info/Warning events (Diagnostics chat) | imap.rs |
 | #14 | reply-thread queries: `chat::get_reply_counts(chat)` (quoted msg → count, both sides scoped to the chat) + `get_reply_ids(chat, msg)` over `msgs.mime_in_reply_to`, hidden rows excluded (`replies.hidden=0`, 1.4.84: send_edit_request's own hidden copy quotes the original, so an edited caption counted as a reply); thin jsonrpc wrappers. 2 ops; the chat.rs op anchors on the `/// Returns true if device message…` doc line so that comment stays on `was_device_msg_ever_added`. No index/migration (per-chat scan via the chat_id index; a dbversion bump would collide with upstream migrations) | chat.rs, deltachat-jsonrpc/src/api.rs |
 | #15 | `get_server_metadata` RPC: per-transport relay capabilities (TURN/calls, iroh relay, push, app versions) from IMAP METADATA the scheduler already fetches. 6 ops | transport.rs, deltachat-jsonrpc api.rs + types/login_param.rs |
+| #17 | jsonrpc `maybe_network` clones the contexts under `accounts.read()` and awaits scheduler interrupts AFTER releasing it (#175, 1.4.85): a queued `start_io`/`stop_io` writer behind a stuck IO restart (dead proxy, up to 30 s per task) blocked every UI RPC, so chat switching "did nothing" on Android after a send. `tunnel_android::maybe_network` does the same | deltachat-jsonrpc/src/api.rs |
 | #16 | extends #15 (ops must stay after it): IMAP IDLE, COMPRESS=DEFLATE, and max SMTP recipients on that metadata. UI: D flag ("not known yet" until the relay has connected), recipient limit and "compressed connection" in the details line. 8 ops | imap.rs, transport.rs, api.rs, login_param.rs |
 
 ```bash
@@ -2926,7 +2927,7 @@ talks to Google.
   unfreezes the process for its duration (the official client delivers
   through the same pattern). `onStartJob` runs JNI `fetchBlocking` on a
   worker thread: it returns once the core's `background_fetch` resolved
-  (after AccountsBackgroundFetchDone; 30 s core bound, 55 s overall) plus
+  (after AccountsBackgroundFetchDone; 15 s core bound since 1.4.85, was 30 s; 55 s overall; skipped while the app is in the foreground — the live IO loop already fetches, and a fetch there restarted IO under a send) plus
   1.5 s for the poller to notify, then `jobFinished(reschedule=false)`.
   `onStopJob` calls JNI `stopFetch` (`Accounts::stop_background_fetch`),
   skips the late jobFinished and returns true (reschedule). Scheduled
@@ -3464,7 +3465,7 @@ do-not-regress rules; dates mark when the lesson was learned.
   relay, not a plugin slot. Local chat wraps the booted core and does not
   replace it. The opt-in Android DNS tunnel (#116/#119/#128) is not a Proxies
   drawer either: it reuses that one `proxy_url` and never overrides a
-  proxy the user set; Auto stays direct when the relays are down, not
+  proxy the user set; mode Off stops the tunnel library and removes our local proxy from every profile (before 1.4.85 Off only switched routing and the proxy stayed, so sends stalled ~60 s on a dead proxy, #175); Auto stays direct when the relays are down, not
   blocked (docs/agents/dns-tunnel.md). A profile with no relay is the welcome splash's "Enter local
   chat…". Detail: docs/agents/relays.md, docs/agents/p2p.md.
 - **Encoding (2026-09-23)** — every text file is UTF-8 without BOM; no
