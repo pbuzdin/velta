@@ -385,3 +385,44 @@ export async function openWsTransportSettings(deps) {
   });
   return { body, close };
 }
+
+/** "Save" on a proxy invite card: keeps the proxy (and its invite) without
+ *  switching to it. Native: ws_transport_add activate=false; PWA: added to
+ *  the WebSocket relays list with its token, the active relay unchanged. */
+export async function saveWsLink(link, { toast, errToast, onChange, invoke = tauriInvoke() }) {
+  let parsed;
+  try { parsed = parseWsLink(link); }
+  catch (e) { errToast(t("This WebSocket link can't be used: {why}", { why: errMsg(e) }), 6000); return false; }
+  if (invoke) return !!(await addWsProxy({ ...parsed, activate: false }, { invoke, toast, errToast, onChange }));
+  const host = wsProxyHost(parsed.url);
+  if (!parsed.token || parsed.url !== `wss://${normalizeHost(host)}`) { errToast(wsTransportPlatform({ tauri: false }).text, 6000); return false; }
+  const added = addWsRelay(host);
+  if (!added) { errToast(t("Bad host name"), 5000); return false; }
+  setWsRelayToken(added, parsed.token);
+  toast(t("WebSocket proxy saved"));
+  return true;
+}
+
+/** Combined invite card, step 1 (native): one confirmation for proxy + account,
+ *  then the proxy is saved and switched on. Returns true to continue with the
+ *  account. PWA: the proxy is only saved (the join flow picks the route). */
+export async function joinWithWsLink(link, relayHost, { confirmModal, toast, errToast, onChange, invoke = tauriInvoke() }) {
+  let parsed;
+  try { parsed = parseWsLink(link); }
+  catch (e) { errToast(t("This WebSocket link can't be used: {why}", { why: errMsg(e) }), 6000); return false; }
+  const text = [
+    t("This sets up the proxy {name} ({host}), then creates a new account on {relay} through it.", { name: parsed.label || wsProxyHost(parsed.url), host: wsProxyHost(parsed.url), relay: relayHost }),
+    t("All chat traffic will go through this WebSocket proxy while it is in use. Your messages stay end-to-end encrypted, but the server operator sees which relays you connect to and when."),
+    t("The account invite works once. Only continue if you trust the sender."),
+  ].join("\n\n");
+  if (!(await confirmModal(t("Join {relay}?", { relay: relayHost }), text, t("Join"), false))) return false;
+  if (!invoke) return saveWsLink(link, { toast, errToast, onChange, invoke });
+  let status = null;
+  try { status = await invoke("ws_transport_status"); } catch { /* old shell */ }
+  if (!status?.supported) {
+    // Desktop Linux/macOS: no WebSocket transport — the account is created directly.
+    toast(t("The WebSocket transport isn't available here; creating the account directly"), 4000);
+    return true;
+  }
+  return !!(await addWsProxy({ ...parsed, activate: true }, { invoke, toast, errToast, onChange }));
+}

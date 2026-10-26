@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { parseRelayInviteInput } from "../app/js/invite-cards.js";
 
 // Relay signup invites (PLAN-PWA-WEBSOCKET R1/V2, invite-only account
 // creation). parseRelayInvite is exercised via a tiny import shim: app.js
@@ -12,7 +13,8 @@ test("parseRelayInvite: bare /i/ link shapes parse to host + token", () => {
   const src = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8");
   const body = src.slice(src.indexOf("function parseRelayInvite"), src.indexOf("function extractRelayInviteJoin"));
   const normalizeHost = (h) => (/^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/.test(h) ? h : null);
-  const parse = new Function("normalizeHost", body + "\nreturn parseRelayInvite;")(normalizeHost);
+  // The strict grammar lives in invite-cards.js (shared with the chat cards).
+  const parse = new Function("normalizeHost", "parseRelayInviteInput", body + "\nreturn parseRelayInvite;")(normalizeHost, parseRelayInviteInput);
 
   assert.deepEqual(parse("https://relay.example.org/i/Abcdef123-_"), { host: "relay.example.org", token: "Abcdef123-_" });
   assert.deepEqual(parse("https://relay.example.org/i/Abcdef123-_/?x=1".split("?")[0]), { host: "relay.example.org", token: "Abcdef123-_" });

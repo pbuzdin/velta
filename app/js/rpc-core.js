@@ -2144,6 +2144,40 @@ export class JsonRpcCore extends EventTarget {
     }
   }
 
+  // Relay invite (/i/claim credentials, invite-cards.js): same account
+  // handling as addAccountWithQr — the empty current profile is reused,
+  // otherwise a new one is added and selected back on failure (#99). The
+  // shell's tunnel/WebSocket proxy is applied to the new profile before
+  // its first connection (tunnel_reapply; no-op where unsupported).
+  async addAccountWithCredentials(addr, password) {
+    const prevId = this.accountId;
+    let { accountId } = this;
+    this._beginAccountChange();
+    let failed = true;
+    try {
+      const acc = await this._call("get_account_info", accountId);
+      if (acc.kind !== "Unconfigured") {
+        accountId = await this._call("add_account");
+        await this._call("select_account", accountId);
+        this.accountId = accountId;
+      }
+      await this._tunnelReapply();
+      await this._prepareFirstConfigure(accountId);
+      await this._callWithTimeout(180000, "add_transport", accountId, { addr, password });
+      await this._call("start_io", accountId);
+      await this.transport.checkpoint?.().catch(() => {});
+      failed = false;
+      return accountId;
+    } catch (err) {
+      if (accountId !== prevId) {
+        try { await this._call("select_account", prevId); } catch { /* reconcile below */ }
+      }
+      throw err;
+    } finally {
+      await this._finishAccountChange(failed);
+    }
+  }
+
   // ---- second-device setup (backup transfer over the LAN) ----
 
   // Old device: offer this account's backup until a remote device retrieves

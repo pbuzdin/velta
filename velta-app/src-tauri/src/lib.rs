@@ -518,6 +518,59 @@ fn link_preview_agent(proxy: Option<&str>) -> Result<ureq::Agent, String> {
     Ok(builder.build())
 }
 
+/// Relay signup invite claim (docs/invite-cards.md): GET
+/// https://<host>/i/claim?t=<token> on the relay's invite.py, which consumes
+/// one use and answers {"email","password"} (or {"error"} with 400/403/409/
+/// 410/503). Shell-side because the renderer is CORS-bound. Goes through the
+/// profile's proxy when one is set (the WebSocket transport / DNS tunnel
+/// SOCKS port) and never falls back to a direct fetch. Returns
+/// {"status": u16, "body": JSON|null}; the page maps codes to messages.
+/// Credentials are never logged.
+#[tauri::command]
+async fn relay_invite_claim(host: String, token: String, proxy: Option<String>) -> Result<serde_json::Value, String> {
+    let url = relay_claim_url(&host, &token)?;
+    let mut builder = ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(45));
+    if let Some(p) = link_preview_proxy(proxy.as_deref())? {
+        builder = builder.proxy(ureq::Proxy::new(&p).map_err(|_| "unsupported proxy".to_string())?);
+    }
+    let agent = builder.build();
+    tauri::async_runtime::spawn_blocking(move || {
+        use std::io::Read;
+        let resp = match agent.get(&url).set("Cache-Control", "no-store").call() {
+            Ok(r) => r,
+            Err(ureq::Error::Status(_, r)) => r,
+            Err(e) => return Err(format!("network error: {}", e.kind())),
+        };
+        let status = resp.status();
+        let mut body = Vec::new();
+        let _ = resp.into_reader().take(16 * 1024).read_to_end(&mut body);
+        let json = serde_json::from_slice::<serde_json::Value>(&body).unwrap_or(serde_json::Value::Null);
+        Ok(serde_json::json!({ "status": status, "body": json }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Strict claim URL: DNS host (no port, userinfo or IP), token of 8..=128
+/// base64url chars. Anything else is refused before any network I/O.
+fn relay_claim_url(host: &str, token: &str) -> Result<String, String> {
+    let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
+    let labels: Vec<&str> = host.split('.').collect();
+    let label_ok = |l: &&str| {
+        !l.is_empty() && l.len() <= 63 && !l.starts_with('-') && !l.ends_with('-')
+            && l.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    };
+    let tld_ok = labels.last().is_some_and(|t| t.len() >= 2 && t.bytes().all(|b| b.is_ascii_lowercase()));
+    if host.len() > 253 || labels.len() < 2 || !labels.iter().all(label_ok) || !tld_ok {
+        return Err("bad relay host".into());
+    }
+    if !(8..=128).contains(&token.len()) || token == "claim"
+        || !token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
+        return Err("bad invite token".into());
+    }
+    Ok(format!("https://{host}/i/claim?t={token}"))
+}
+
 /// Open Graph preview for the first link in a message. Same trust model as
 /// expand_invite_link: shell-side fetch of a message-derived https URL
 /// (renderer fetch is CORS-blocked and CSP-bound), bounded reads + hard
@@ -4469,7 +4522,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, allow_picked_path, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, push_status, push_select, push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text, tunnel::tunnel_preview, tunnel::tunnel_install, tunnel::tunnel_link, tunnel::tunnel_list, tunnel::tunnel_select, tunnel::tunnel_rename, tunnel::tunnel_delete, tunnel::tunnel_remove, tunnel::tunnel_status, tunnel::tunnel_set_mode, tunnel::tunnel_network_changed, tunnel::tunnel_backup_begin, tunnel::tunnel_backup_end, tunnel::tunnel_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, allow_picked_path, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_accounts_dir, resolve_upload_path, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, push_status, push_select, push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text, tunnel::tunnel_preview, tunnel::tunnel_install, tunnel::tunnel_link, tunnel::tunnel_list, tunnel::tunnel_select, tunnel::tunnel_rename, tunnel::tunnel_delete, tunnel::tunnel_remove, tunnel::tunnel_status, tunnel::tunnel_set_mode, tunnel::tunnel_network_changed, tunnel::tunnel_backup_begin, tunnel::tunnel_backup_end, tunnel::tunnel_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 
@@ -4918,5 +4971,27 @@ mod link_preview_proxy_tests {
         let agent = link_preview_agent(Some(&format!("socks5://127.0.0.1:{port}"))).unwrap();
         assert!(agent.get("https://example.com/").call().is_err());
         assert_eq!(seen.join().unwrap(), 5, "SOCKS version byte");
+    }
+}
+
+#[cfg(test)]
+mod relay_claim_tests {
+    use super::relay_claim_url;
+
+    #[test]
+    fn accepts_plain_invites() {
+        assert_eq!(relay_claim_url("Relay.Example.", "AbCdEf12_-xy").unwrap(), "https://relay.example/i/claim?t=AbCdEf12_-xy");
+    }
+
+    #[test]
+    fn rejects_malformed() {
+        for (h, t) in [
+            ("relay.example:8443", "AbCdEf12"), ("user@relay.example", "AbCdEf12"), ("10.0.0.1", "AbCdEf12"),
+            ("localhost", "AbCdEf12"), ("relay.example/x", "AbCdEf12"), ("-a.example", "AbCdEf12"),
+            ("relay.example", "short"), ("relay.example", "claim"), ("relay.example", "AbCd&x=1234"),
+            ("relay.example", "AbCdEf12%2F"), ("relay.example", &"a".repeat(129)),
+        ] {
+            assert!(relay_claim_url(h, t).is_err(), "{h} {t}");
+        }
     }
 }

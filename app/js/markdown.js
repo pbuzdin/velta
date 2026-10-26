@@ -15,6 +15,7 @@ import { findBareLinks, trimLinkEnd } from "./bare-links.js";
 import { findHashtags } from "./hashtags.js";
 import { findMentions } from "./mentions.js";
 import { parseInviteLink, inviteCardHtml, isShortInviteLink, shortInviteCardHtml } from "./invites.js";
+import { inviteLinkChipHtml } from "./invite-cards.js";
 
 const PLACEHOLDER_RE = /\x00(\d+)\x00/g;
 const EMAIL_RE = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+/gu;
@@ -90,7 +91,10 @@ export function renderMarkdown(rawText, opts = {}) {
 // which are turned into the very same https anchors / invite cards.
 function inlineWith(raw, members) {
   raw = raw.replace(/\x00/g, ""); // NUL delimits placeholders below
-  const re = /\[([^\]\n]+)\]\((https?:\/\/[^)\s]*)\)|\bhttps?:\/\/[^\s<]+/gi;
+  // velta://ws and velta://tunnel invites (invite-cards.js) are matched too:
+  // a valid one becomes a token-free chip (the card below the text carries
+  // the actions), a malformed one stays plain text.
+  const re = /\[([^\]\n]+)\]\((https?:\/\/[^)\s]*)\)|\bhttps?:\/\/[^\s<]+|\bvelta:\/\/(?:ws|tunnel)\b[^\s<]*/gi;
   const anchors = [];
   const hold = token => { anchors.push(token); return `\x00${anchors.length - 1}\x00`; };
   // #156: `code` spans are extracted FIRST so their content is opaque to the
@@ -98,6 +102,9 @@ function inlineWith(raw, members) {
   raw = raw.replace(/`([^`\n]+)`/g, (_, txt) => hold(
     `<button type="button" class="msg-code" data-copy-code title="Click to copy">${escapeHtml(txt)}</button>`));
   const linkToken = (url, label) => {
+    const chip = inviteLinkChipHtml(url);
+    if (chip) return chip;
+    if (/^velta:/i.test(url)) return escapeHtml(label);
     const invite = parseInviteLink(url);
     return invite ? inviteCardHtml(invite)
       : isShortInviteLink(url) ? shortInviteCardHtml(url)

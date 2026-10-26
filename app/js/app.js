@@ -48,6 +48,8 @@ function mountScanner(opts) {
     get running() { return !!real?.running; },
   };
 }
+import { saveWsLink, joinWithWsLink } from "./ws-transport.js";
+import { bindInviteCards, parseRelayInviteInput, relayClaimResult } from "./invite-cards.js";
 import { extractWsLink, acceptWsLink, openWsTransportSettings, refreshWsTransportStatus, wsTransportStatus, wsDrawerLabel, testHostFor } from "./ws-transport.js";
 import { scanTabAvailable, canShareLink, copyLink, shareLink, classifyScannedCode } from "./qr-actions.js";
 import { parseSharePayload, shareTextIfUnconsumed, sharePlan, createShareInbox, buildSharePicker } from "./share-in.js";
@@ -3730,7 +3732,7 @@ function openProfileManagement() {
     const code = await acquireCode({
       title: "Add account",
       hint: "Paste a chatmail invite link (<code>dcaccount:…</code>), just a relay domain like <code>nine.testrun.org</code>, or scan a QR code in the Delta Chat app to add another profile.",
-      validate: c => (normalizeRelayLink(c) ? null : "That doesn't look like a chatmail relay or dcaccount: link"),
+      validate: c => (normalizeRelayLink(c) || parseRelayInvite(c) ? null : "That doesn't look like a chatmail relay, relay invite or dcaccount: link"),
     });
     if (!code) return;
     relayInput.value = code;
@@ -4087,10 +4089,9 @@ async function ensureMailTunnelForLink(link) {
 // bearer secret; the relay's /i/claim endpoint swaps it for one-time
 // credentials. PWA-only for now (native clients use dclogin: links).
 function parseRelayInvite(raw) {
-  const m = /^(?:https?:\/\/)?([a-z0-9][a-z0-9.-]*\.[a-z]{2,})\/i\/([A-Za-z0-9_-]{8,})\/?$/i.exec((raw || "").trim());
-  if (!m) return null;
-  const host = normalizeHost(m[1]);
-  return host ? { host, token: m[2] } : null;
+  const inv = parseRelayInviteInput(raw);
+  const host = inv && normalizeHost(inv.host);
+  return host ? { host, token: inv.token } : null;
 }
 
 function extractRelayInviteJoin(rawUrl = location.href) {
@@ -4112,27 +4113,44 @@ async function claimAndConfigure(host, token) {
   } catch {}
   if (!creds) {
     toast("Claiming invite…");
-    let res;
-    try {
-      // GET, not POST — fcgiwrap on the relay 502s request bodies; the
-      // token already rides URLs by design, credentials never do.
-      res = await fetch(`https://${host}/i/claim?t=${encodeURIComponent(token)}`, { cache: "no-store" });
-    } catch (err) {
-      throw new Error(`Invite claim failed: ${err.message || err}`);
+    const invoke = tauriInvoke();
+    let status, body;
+    if (invoke) {
+      // Native: the shell fetches (the renderer is CORS-bound) through the
+      // profile's proxy — the WebSocket transport / DNS tunnel when in use.
+      await invoke("tunnel_reapply").catch(() => {});
+      let proxy = null;
+      try {
+        const [en, url] = await Promise.all([core.getConfig("proxy_enabled"), core.getConfig("proxy_url")]);
+        proxy = activeProxyUrl(en, url);
+      } catch { /* no profile config: direct */ }
+      try { ({ status, body } = await invoke("relay_invite_claim", { host, token, proxy })); }
+      catch (err) { throw new Error(`Couldn't reach ${host}: ${err?.message || err}`); }
+    } else {
+      let res;
+      try {
+        // GET, not POST — fcgiwrap on the relay 502s request bodies; the
+        // token already rides URLs by design, credentials never do.
+        res = await fetch(`https://${host}/i/claim?t=${encodeURIComponent(token)}`, { cache: "no-store" });
+      } catch (err) {
+        throw new Error(`Couldn't reach ${host}: ${err.message || err}`);
+      }
+      status = res.status;
+      body = await res.json().catch(() => null);
     }
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      throw new Error(j.error || `Invite rejected (${res.status})`);
-    }
-    creds = await res.json();
-    if (!creds?.email || !creds?.password) throw new Error("Invite answer was missing credentials");
+    creds = relayClaimResult(status, body);
     // The invite is consumed at claim time — park the credentials so a
     // configure failure can retry without burning a second invite.
     sessionStorage.setItem(parkKey, JSON.stringify({ host, token, creds, exp: Date.now() + 30 * 60_000 }));
   }
   toast("Setting up your profile…");
-  await core.configureWithCredentials(creds.email, creds.password);
-  if (core.startIo) await core.startIo();
+  if (tauriInvoke() && core.addAccountWithCredentials) {
+    // Native: a new profile (or the empty current one), selected on success.
+    await core.addAccountWithCredentials(creds.email, creds.password);
+  } else {
+    await core.configureWithCredentials(creds.email, creds.password);
+    if (core.startIo) await core.startIo();
+  }
   sessionStorage.removeItem(parkKey);
   const epoch = core.accountEpoch;
   await accountRefreshPromise;
@@ -4140,9 +4158,17 @@ async function claimAndConfigure(host, token) {
   if (accountIsCurrent(epoch)) toast(`Account ready: ${state.account?.addr || creds.email}`, 3500);
 }
 
+// "Create account" on a relay invite card: the invite is single-use, so ask.
+async function confirmRelayInvite({ host, token }) {
+  const ok = await confirmModal(t("Create an account on {host}?", { host }),
+    t("A new profile is created on {host} with this invite. The invite works once. Only continue if you trust the sender.", { host }),
+    t("Create account"), false);
+  if (ok) await createAccountFromRelayInvite(normalizeHost(host), token);
+}
+
 async function createAccountFromRelayInvite(host, token) {
   if (state.accountChanging) return;
-  if (!window.VELTA_PWA?.wasmCore) { toast("Invite links work in the Velta PWA — use the app or a dclogin link", 5000); return; }
+  if (!window.VELTA_PWA?.wasmCore && !tauriInvoke()) { toast("Relay invites work in the Velta app and the Velta PWA", 5000); return; }
   if (!core.configureWithCredentials) { toast("This backend cannot create relay accounts"); return; }
   // A tunnel switch reloads the page — park the invite so boot resumes it.
   if (activeWsRelay() !== host) sessionStorage.setItem("velta-pending-invite", JSON.stringify({ host, token }));
@@ -4150,8 +4176,10 @@ async function createAccountFromRelayInvite(host, token) {
   sessionStorage.removeItem("velta-pending-invite");
   try {
     await claimAndConfigure(host, token);
+    return true;
   } catch (err) {
     errToast(err.message || String(err), 6000);
+    return false;
   }
 }
 
@@ -5361,7 +5389,7 @@ function showSplash() {
     const code = await acquireCode({
       title: "Scan relay QR",
       hint: "Point the camera at the relay's QR code — or paste the code below.",
-      validate: c => normalizeRelayLink(c) ? null : "That QR code is not a relay invite",
+      validate: c => normalizeRelayLink(c) || parseRelayInvite(c) ? null : "That QR code is not a relay invite",
       autoScan: true,
     });
     if (!code) return;
@@ -6256,6 +6284,20 @@ async function boot() {
       bindChatHeadMenu();
       // Invite cards in messages + any invite-host link tap → join flow
       bindInviteInterception(link => joinFromInvite(link));
+      // Velta invite cards (proxy / relay / combined / tunnel): every action
+      // is a tap, and each goes through its usual confirmation.
+      bindInviteCards({
+        useProxy: link => acceptWsLink(link, { confirmModal, toast, errToast, onChange: rebuildDrawer }),
+        saveProxy: link => saveWsLink(link, { toast, errToast, onChange: rebuildDrawer }),
+        createAccount: inv => confirmRelayInvite(inv),
+        join: async ({ proxy, relay }) => {
+          if (state.accountChanging) return;
+          if (!(await joinWithWsLink(proxy, relay.host, { confirmModal, toast, errToast, onChange: rebuildDrawer }))) return;
+          await createAccountFromRelayInvite(normalizeHost(relay.host), relay.token);
+        },
+        tunnel: link => acceptTunnelLink(link, { confirmModal, choose: makeChooser(showModal), toast, errToast, onChange: rebuildDrawer }),
+        copy: async text => { try { await copyLink(text, { clipboard: navigator.clipboard }); toast("Link copied"); } catch { errToast("Couldn't copy the link"); } },
+      });
 
       $("btn-search").addEventListener("click", () => {
         if (listView === "search") setListView("chats");

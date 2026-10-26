@@ -952,6 +952,67 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
   .invite-copy:hover { color: #f2f2f5; background: rgba(244, 244, 244, .10); }
 }
 .invite-copy svg { width: var(--ico-2); height: var(--ico-2); }
+/* Velta invite cards (invite-cards.js, docs/invite-cards.md): proxy, relay,
+   combined and DNS-tunnel invites. Same fixed dark panel as .invite-card in
+   every theme, but near-opaque (.88) so text keeps AA on any bubble:
+   #f2f2f5 on the darkest composite (~#16191f over the light/brutal yellow
+   bubbles) is >= 14:1, the .82-alpha secondary text >= 9:1, the primary
+   button #f2f2f5 on #1a68b8 5.3:1. Expired cards stay readable (no opacity):
+   only the colors switch to neutral greys (#c4c4cc, >= 9:1). */
+.ivc {
+  display: flex; flex-direction: column; gap: 6px;
+  margin: 8px 0 2px; padding: 10px 12px; max-width: 360px;
+  white-space: normal; text-align: left;
+  background: rgba(14, 17, 23, .88); color: #f2f2f5;
+  border: 1px solid rgba(244, 244, 244, .22);
+  border-radius: var(--radius-media);
+  font-size: 14px; line-height: 1.35;
+}
+.ivc svg { width: 18px; height: 18px; flex: none; }
+.ivc-head { display: flex; align-items: center; gap: 8px; }
+.ivc-head svg { width: 22px; height: 22px; color: #8cc4ff; }
+.ivc-title { flex: 1; min-width: 0; font-weight: 700; overflow-wrap: anywhere; }
+.ivc-badge {
+  flex: none; padding: 1px 8px; border-radius: 999px;
+  font-size: 12px; font-weight: 700; color: #16181d; background: #c4c4cc;
+}
+.ivc-from { margin: 0; font-size: 12.5px; color: rgba(244, 244, 244, .82); }
+.ivc .ivc-meta { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.ivc .ivc-meta li { display: flex; margin: 0; align-items: center; gap: 7px; color: rgba(244, 244, 244, .9); overflow-wrap: anywhere; }
+.ivc-meta li svg { color: rgba(244, 244, 244, .75); }
+.ivc-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.ivc-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 36px; min-width: 36px; padding: 6px 12px;
+  border-radius: 8px; border: 1px solid rgba(244, 244, 244, .35);
+  background: transparent; color: #f2f2f5; font: inherit; font-weight: 600; cursor: pointer;
+}
+.ivc-btn span:empty { display: none; }
+.ivc-btn.ivc-primary { background: #1a68b8; border-color: #1a68b8; }
+.ivc-btn:active { background: rgba(244, 244, 244, .14); }
+.ivc-btn.ivc-primary:active { background: #155a9e; }
+@media (hover: hover) and (pointer: fine) {
+  .ivc-btn:hover { background: rgba(244, 244, 244, .12); }
+  .ivc-btn.ivc-primary:hover { background: #155a9e; }
+}
+.ivc-btn:focus-visible { outline: 2px solid #8cc4ff; outline-offset: 2px; }
+.ivc-btn[disabled] { cursor: not-allowed; background: transparent; border-color: rgba(244, 244, 244, .2); color: rgba(244, 244, 244, .55); }
+.ivc-link {
+  display: block; padding: 6px 8px; border-radius: 6px;
+  background: rgba(0, 0, 0, .35); color: #e6e6ec;
+  font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: all;
+}
+.ivc-link[hidden] { display: none; }
+.ivc-expired .ivc-head svg, .ivc-expired .ivc-meta li, .ivc-expired .ivc-title { color: #c4c4cc; }
+html[data-theme="brutal"] .ivc { border: 2px solid var(--nb-ink); box-shadow: 3px 3px 0 var(--nb-ink); border-radius: var(--radius-bubble); }
+html[data-theme="brutal"] .ivc-btn { border-width: 2px; }
+/* Token-free stand-in for an invite URL inside the message text. */
+.ivc-chip {
+  display: inline-flex; align-items: center; gap: 4px; vertical-align: middle;
+  padding: 0 6px; border-radius: 6px; font-size: 13px;
+  background: rgba(127, 127, 127, .18);
+}
+.ivc-chip svg { width: 14px; height: 14px; }
 /* Short-link placeholder while the full invite URL is being fetched. */
 .invite-card.invite-pending .invite-main { cursor: progress; }
 .invite-card.invite-pending .invite-line { opacity: .8; font-style: italic; }

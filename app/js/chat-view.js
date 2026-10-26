@@ -96,6 +96,7 @@ export function wireRowDelegation(container) {
 import { fileUrl, mediaFallbackUrl, redactMediaUrl } from "./media.js";
 import { parkMedia, unparkMedia } from "./media-park.js";
 import { renderMarkdown, extractBotCommands } from "./markdown.js";
+import { inviteCardsHtml } from "./invite-cards.js";
 import { attachMentionPicker, fprCode } from "./mentions.js";
 import { fingerprintFor, cachedFingerprintIsDerived } from "./avatar.js";
 import { detectTextLang, uiLang } from "./text-lang.js";
@@ -566,7 +567,7 @@ function cssZoom() {
 // still starts on it (#87); the join/copy click after the swipe is swallowed.
 export const GESTURE_SKIP_SELECTOR = "button, input, textarea, audio";
 export function gestureSkipTarget(target) {
-  if (target?.closest?.(".invite-card")) return false;
+  if (target?.closest?.(".invite-card, .ivc")) return false;
   if (target?.closest?.("video")?.controls) return true;
   return !!target?.closest?.(GESTURE_SKIP_SELECTOR);
 }
@@ -2322,6 +2323,9 @@ export class ChatView {
       const fullMsg = m.hasHtml === true;
       // lang drives CSS hyphenation (hyphens: auto) per message, EN or RU.
       bubble += `<div class="msg-text" lang="${detectTextLang(m.text, uiLang())}">${renderMarkdown(m.text, { mentions: this._mentionMembers })}`;
+      // Velta invite links (proxy / relay / tunnel) → action cards; the
+      // links themselves render as token-free chips (invite-cards.js).
+      bubble += inviteCardsHtml(m.text, { sender: m.from === 1 ? "" : (m.overrideSenderName || m.fromContact?.name || ""), lang: uiLang() });
       if (m.fromContact?.bot) { // bot flag rides the sender contact (mock + core)
         const cmds = extractBotCommands(m.text);
         if (cmds.length) {
