@@ -49,3 +49,22 @@ test("chat list ends with an archived-chats row bound to the archived tab", asyn
   assert.match(src, /archivedCount = n;\s*syncHeaderButtons\(\);\s*syncArchivedLink\(\);/);
   assert.match(src, /child\.id === "archived-link"/, "renderChatList keeps the row");
 });
+
+// An archived chat opened from the Archived tab is not in state.chats (the
+// main list), so the head (⋮) menu and in-chat Search used to bail out.
+test("chat head menu and in-chat search resolve archived chats via activeChat()", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const app = await readFile(new URL("../app/js/app.js", import.meta.url), "utf8");
+  const fn = app.match(/function activeChat\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(fn, "activeChat helper exists");
+  const activeChat = new Function("state", "chatView", fn + "; return activeChat();");
+  const archived = { id: 42, name: "Old", archived: true };
+  assert.equal(activeChat({ activeChatId: 42, chats: [{ id: 1 }] }, { chat: archived }), archived);
+  assert.equal(activeChat({ activeChatId: 1, chats: [{ id: 1 }] }, { chat: archived }).id, 1);
+  assert.equal(activeChat({ activeChatId: 7, chats: [] }, { chat: archived }), null);
+  for (const head of ["function bindChatHeadMenu()", "function openChatSearch("]) {
+    const body = app.slice(app.indexOf(head), app.indexOf(head) + 400);
+    assert.match(body, /const chat = activeChat\(\);/, `${head} uses activeChat()`);
+  }
+  assert.doesNotMatch(app, /state\.chats\.find\(c => c\.id === state\.activeChatId\)/);
+});

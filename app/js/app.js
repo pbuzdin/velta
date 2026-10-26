@@ -3227,10 +3227,18 @@ async function showMediaInChat(m) {
 }
 
 /* ---------------- chat head menu ---------------- */
+// The open chat. state.chats is the main (non-archived) list only, so a chat
+// opened from the Archived tab is not in it; fall back to the chat object the
+// ChatView opened with, else the head menu and in-chat search do nothing.
+function activeChat() {
+  const id = state.activeChatId;
+  if (id == null) return null;
+  return state.chats.find(c => c.id === id) || (chatView?.chat?.id === id ? chatView.chat : null);
+}
 function bindChatHeadMenu() {
   bindMenuToggle($("btn-chat-menu"), e => {
     const epoch = core.accountEpoch;
-    const chat = state.chats.find(c => c.id === state.activeChatId);
+    const chat = activeChat();
     if (!chat) return;
     const r = e.currentTarget.getBoundingClientRect();
     return showContextMenu([
@@ -3301,7 +3309,7 @@ function bindChatHeadMenu() {
   });
   function openChatSearch(prefill = "") {
     const epoch = core.accountEpoch;
-    const chat = state.chats.find(c => c.id === state.activeChatId);
+    const chat = activeChat();
     if (!chat) return;
     const chatId = chat.id;
     const p2p = chat.isP2p || String(chatId).startsWith("p2p:");
