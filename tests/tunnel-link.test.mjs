@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { parseTunnelLink, buildTunnelLink, validTunnelZone, normalizeTunnelKey, validTunnelResolver, acceptTunnelLink, tunnelConfirmText, openTunnelShare, TUNNEL_LINK_MAX } = await import("../app/js/tunnel.js");
+const { parseTunnelLink, buildTunnelLink, buildTunnelLinkV1, validTunnelZone, normalizeTunnelKey, validTunnelResolver, acceptTunnelLink, tunnelConfirmText, openTunnelShare, TUNNEL_LINK_MAX } = await import("../app/js/tunnel.js");
 
 const KEY_BYTES = Buffer.from(Array.from({ length: 32 }, (_, i) => i * 7 + 250));
 const KEY_STD = KEY_BYTES.toString("base64");
@@ -66,8 +66,11 @@ test("zone and resolver helpers", () => {
 test("build -> parse round trip keeps every field", () => {
   const cfg = { zone: "t.example.org", key: KEY_STD, resolvers: ["192.0.2.1:53", "[2001:db8::1]:853"], canaries: ["check.example.net:443"], label: "Café & co" };
   const link = buildTunnelLink(cfg);
-  assert.match(link, /^velta:\/\/tunnel\?v=1&zone=t\.example\.org&key=[A-Za-z0-9_-]{43}&/);
-  assert.deepEqual(parseTunnelLink(link), { version: 1, ...cfg });
+  assert.match(link, /^velta:\/\/tunnel\/2\/T\.EXAMPLE\.ORG\/[A-Z2-7]{52}\//);
+  assert.deepEqual(parseTunnelLink(link), { version: 2, ...cfg });
+  const v1 = buildTunnelLinkV1(cfg);
+  assert.match(v1, /^velta:\/\/tunnel\?v=1&zone=t\.example\.org&key=[A-Za-z0-9_-]{43}&/);
+  assert.deepEqual(parseTunnelLink(v1), { version: 1, ...cfg });
 });
 
 function shell(calls, { installed = false, zone = "old.example.net", desktop = false } = {}) {
@@ -139,7 +142,8 @@ test("share sheet builds a link from the stored config with the label", async ()
     invoke: async cmd => (cmd === "tunnel_link" ? { zone: "t.example.org", key: KEY_STD, resolvers: [], canaries: null } : null),
   });
   assert.equal(title, "Share tunnel link");
-  assert.equal(r.link, `velta://tunnel?v=1&zone=t.example.org&key=${KEY_URL}&n=Office`);
+  assert.match(r.link, /^velta:\/\/tunnel\/2\/T\.EXAMPLE\.ORG\/[A-Z2-7]{52}\/N\/J5TGM2LDMU$/);
+  assert.deepEqual(parseTunnelLink(r.link), { version: 2, zone: "t.example.org", key: KEY_STD, resolvers: [], canaries: [], label: "Office" });
   assert.equal(els["[data-tunnel-link]"].textContent, r.link);
   assert.match(els[".qr-box"].innerHTML, /<svg/);
   delete globalThis.document; delete globalThis.localStorage;

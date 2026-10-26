@@ -4,6 +4,45 @@ Velta's optional DNS tunnel (Android and Windows apps; `velta-app/soar-tunnel`,
 `velta-app/src-tauri/src/tunnel.rs`, `app/js/tunnel.js`) is set up from one
 link. Nothing changes until the user confirms it.
 
+Two forms are accepted, forever. Velta shares **v2** (smaller QR code);
+**v1** stays valid for links already handed out.
+
+### v2 (shared since 2026-10)
+
+```
+velta://tunnel/2/<ZONE>/<KEY>[/R/<resolvers>][/C/<canaries>][/N/<label>]
+```
+
+Everything after `velta://tunnel/` is in the QR alphanumeric set
+(`0-9 A-Z space $ % * + - . / :`), so the QR encoder (app/js/qr-encode.js,
+optimal segmentation) packs it at 5.5 bits a character instead of 8: a
+byte segment for `velta://tunnel/`, an alphanumeric segment for the rest.
+The scheme and host stay lowercase on purpose: Android matches
+intent-filter schemes and hosts case-sensitively, and the existing
+`velta`/`tunnel` filter keeps routing v2 links. Parsers accept any case.
+
+| Part | Required | Meaning | Rules |
+|------|----------|---------|-------|
+| `2` | yes | Version | Any other number asks the user to update Velta |
+| `<ZONE>` | yes | Tunnel zone, written uppercase | DNS is case-insensitive; parsed lowercased, same rules as v1 `zone` |
+| `<KEY>` | yes | Server Ed25519 key | RFC 4648 base32, no padding, uppercase on output: exactly 52 chars, zero trailing bits |
+| `R/` | no | Extra resolvers | `+`-separated; `ip` or `ip*port`, IPv6 without brackets (`2001:DB8::1*853`) |
+| `C/` | no | Canaries | `+`-separated `HOST*port` |
+| `N/` | no | Label | base32 of the UTF-8 label (same limits as v1 `n`) |
+
+Each of `R`, `C`, `N` at most once; no empty values, trailing slash, query
+or fragment. Example (placeholders only):
+
+```
+velta://tunnel/2/T.EXAMPLE.ORG/AAAQEAYEAUDAOCAJBIFQYDIOB4IBCEQTCQKRMFYYDENBWHA5DYPQ/N/IV4GC3LQNRSQ
+```
+
+The page parses either form, then hands the shell the validated values as a
+v1 link (`buildTunnelLinkV1`), so any build of the Go library works; Go's
+`ParseLink` also understands v2 (`soar-tunnel/tunnel/link_v2.go`).
+
+### v1
+
 ```
 velta://tunnel?v=1&zone=<tunnel domain>&key=<server key>[&r=<resolvers>][&c=<canaries>][&n=<label>]
 ```
@@ -71,7 +110,7 @@ a message that it works in the Velta app for Android or Windows.
 ## Sharing
 
 DNS tunnel settings → a saved tunnel's **Share** button shows a QR code and
-the link rebuilt from that tunnel (`tunnel_link {id}`, label included), with
+the v2 link rebuilt from that tunnel (`tunnel_link {id}`, label included), with
 Copy and Share buttons. Only share it with people you trust.
 
 There is no https form: Velta has no verified app-link domain for it, and an

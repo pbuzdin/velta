@@ -127,7 +127,7 @@ test("share uses the chosen tunnel's id and label", async () => {
   const sh = shell({ tunnels: [T1] });
   const r = await openTunnelShare({ showModal: () => ({ close() {} }), toast() {}, errToast: e => assert.fail(e), id: "t1", invoke: sh.invoke });
   assert.deepEqual(sh.calls.find(c => c[0] === "tunnel_link")[1], { id: "t1" });
-  assert.match(r.link, /&n=Office$/);
+  assert.match(r.link, /\/N\/J5TGM2LDMU$/); // base32("Office")
   delete globalThis.document;
 });
 

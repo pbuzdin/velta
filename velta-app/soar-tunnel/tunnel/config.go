@@ -80,10 +80,14 @@ type Config struct {
 	Pass            string   `json:"pass,omitempty"`
 }
 
-// ParseLink parses velta://tunnel?v=1&zone=<zone>&key=<base64>[&r=<ip:port,…>][&c=<host:port,…>].
+// ParseLink parses velta://tunnel?v=1&zone=<zone>&key=<base64>[&r=<ip:port,…>][&c=<host:port,…>]
+// and the v2 path form (link_v2.go).
 // r adds resolvers to the defaults; c replaces the default canaries.
 // The key may be standard or URL-safe base64, padded or not.
 func ParseLink(link string) (Config, error) {
+	if cfg, ok, err := parseLinkV2(strings.TrimSpace(link)); ok {
+		return cfg, err
+	}
 	u, err := url.Parse(strings.TrimSpace(link))
 	if err != nil {
 		return Config{}, fmt.Errorf("bad link: %w", err)

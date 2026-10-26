@@ -35,7 +35,8 @@ export function extractTunnelLink(rawUrl) {
 }
 
 // Link format (docs/dns-tunnel-link.md), parsed again by the Go library:
-//   velta://tunnel?v=1&zone=<domain>&key=<base64 32 bytes>[&r=<ip[:port],…>][&c=<host:port,…>][&n=<label>]
+//   v1: velta://tunnel?v=1&zone=<domain>&key=<base64 32 bytes>[&r=<ip[:port],…>][&c=<host:port,…>][&n=<label>]
+//   v2: velta://tunnel/2/<ZONE>/<KEY base32>[/R/…][/C/…][/N/…] (see parseV2)
 // The page checks it strictly first so a malformed or oversized link never
 // reaches the shell and the confirmation shows only validated values.
 export const TUNNEL_LINK_MAX = 2048;
@@ -104,8 +105,79 @@ function list(raw, max, ok, what) {
   return [...new Set(items)];
 }
 
+// Base32 (RFC 4648, no padding): uppercase output, either case accepted.
+const B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+export function base32Encode(bytes) {
+  let out = "", acc = 0, n = 0;
+  for (const b of bytes) {
+    acc = (acc << 8) | b; n += 8;
+    while (n >= 5) { out += B32[(acc >>> (n - 5)) & 31]; n -= 5; }
+    acc &= (1 << n) - 1;
+  }
+  if (n) out += B32[(acc << (5 - n)) & 31];
+  return out;
+}
+/** Strict: canonical length, zero trailing bits. Returns bytes or null. */
+export function base32Decode(str) {
+  const s = String(str).toUpperCase();
+  if (!/^[A-Z2-7]*$/.test(s) || [1, 3, 6].includes(s.length % 8)) return null;
+  const out = [];
+  let acc = 0, n = 0;
+  for (const c of s) {
+    acc = (acc << 5) | B32.indexOf(c); n += 5;
+    if (n >= 8) { out.push((acc >>> (n - 8)) & 255); n -= 8; }
+    acc &= (1 << n) - 1;
+  }
+  return acc === 0 ? Uint8Array.from(out) : null;
+}
+const keyToB32 = std => base32Encode(Uint8Array.from(atob(std), c => c.charCodeAt(0)));
+function keyFromB32(s) {
+  const b = s.length === 52 ? base32Decode(s) : null;
+  return b && b.length === 32 ? btoa(String.fromCharCode(...b)) : null;
+}
+
+// v2 (docs/dns-tunnel-link.md): every byte after "velta://" is in the QR
+// alphanumeric set (0-9 A-Z space $%*+-./:), so a QR encodes it at 5.5 bits
+// a char instead of 8. Scheme and host stay lowercase: Android matches
+// intent-filter schemes/hosts case-sensitively.
+//   velta://tunnel/2/<ZONE>/<KEY base32>[/R/<ip[*port]>+…][/C/<HOST*port>+…][/N/<label base32>]
+const V2_RE = /^velta:\/\/tunnel\/2\/([^/?#]+)\/([A-Za-z2-7]{52})((?:\/[RCN]\/[^/?#]+)*)$/i;
+function v2Resolver(r) {
+  // ip | ip*port  (IPv6 without brackets; ":" is part of the address)
+  const m = /^([0-9A-Fa-f:.]+)(?:\*([0-9]+))?$/.exec(r);
+  if (!m) return null;
+  const ip = m[1].toLowerCase();
+  if (!(ip.includes(":") ? validIPv6(ip) : validIPv4(ip))) return null;
+  if (!m[2]) return ip;
+  return validIPv4(ip) ? `${ip}:${m[2]}` : `[${ip}]:${m[2]}`;
+}
+function parseV2(m) {
+  const zone = m[1].toLowerCase().replace(/\.$/, "");
+  if (!validTunnelZone(zone)) bad("The tunnel domain is not valid");
+  const key = keyFromB32(m[2]);
+  if (!key) bad("The key must be 32 bytes of base32");
+  const seen = new Map();
+  const rest = m[3] ? m[3].slice(1).split("/") : [];
+  for (let i = 0; i < rest.length; i += 2) {
+    const k = rest[i].toUpperCase();
+    if (seen.has(k)) bad(`Repeated parameter: ${k}`);
+    seen.set(k, rest[i + 1]);
+  }
+  const items = (k, conv) => (seen.get(k) || "").split("+").map(x => conv(x) ?? bad(`Bad value: ${x.slice(0, 60)}`));
+  const resolvers = seen.has("R") ? list(items("R", v2Resolver).join(","), MAX_RESOLVERS, validTunnelResolver, "resolvers") : [];
+  const canaries = seen.has("C")
+    ? list(items("C", c => (/^[^*]+\*[0-9]+$/.test(c) ? c.toLowerCase().replace("*", ":") : null)).join(","), MAX_CANARIES, validCanary, "canaries") : [];
+  let label = "";
+  if (seen.has("N")) {
+    const b = base32Decode(seen.get("N"));
+    if (!b) bad("The label is not encoded correctly");
+    try { label = cleanLabel(new TextDecoder("utf-8", { fatal: true }).decode(b)); } catch (e) { if (e instanceof TunnelLinkError) throw e; bad("The label is not encoded correctly"); }
+  }
+  return { version: 2, zone, key, resolvers, canaries, label };
+}
+
 /**
- * Strictly parses a velta://tunnel link. Returns
+ * Strictly parses a velta://tunnel link (v1 query form or v2 path form). Returns
  * {version, zone, key, resolvers, canaries, label}; throws on anything off:
  * other schemes/hosts, a path, unknown or repeated parameters, a future
  * version, oversized values.
@@ -114,6 +186,11 @@ export function parseTunnelLink(raw) {
   const s = String(raw ?? "").trim();
   if (!s) bad("Empty link");
   if (s.length > TUNNEL_LINK_MAX) bad("The link is too long");
+  const m2 = V2_RE.exec(s);
+  if (m2) return parseV2(m2);
+  const fut = /^velta:\/\/tunnel\/([0-9]+)\//i.exec(s);
+  if (fut && fut[1] !== "2") bad(`Unsupported link version ${fut[1].slice(0, 10)}: update Velta`);
+  if (fut) bad("The link is not valid");
   const m = /^velta:\/\/tunnel\/?(?:\?([^#]*))?$/i.exec(s);
   if (!m) bad("Not a velta://tunnel link");
   const seen = new Map();
@@ -140,14 +217,29 @@ export function parseTunnelLink(raw) {
   return { version: 1, zone, key, resolvers, canaries, label };
 }
 
-/** Canonical link for sharing (QR, copy). The key is URL-safe so the link stays readable. */
-export function buildTunnelLink({ zone, key, resolvers = [], canaries = [], label = "" }) {
+/** v1 query form. Also what the page hands the shell (any Go library build parses it). */
+export function buildTunnelLinkV1({ zone, key, resolvers = [], canaries = [], label = "" }) {
   const k = String(key || "").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   const parts = ["v=1", `zone=${encodeURIComponent(zone)}`, `key=${k}`];
   if (resolvers?.length) parts.push(`r=${resolvers.map(encodeURIComponent).join(",")}`);
   if (canaries?.length) parts.push(`c=${canaries.map(encodeURIComponent).join(",")}`);
   if (label) parts.push(`n=${encodeURIComponent(label)}`);
   return `velta://tunnel?${parts.join("&")}`;
+}
+
+/** Canonical link for sharing (QR, copy): v2, alphanumeric after "velta://". */
+export function buildTunnelLink({ zone, key, resolvers = [], canaries = [], label = "" }) {
+  const std = normalizeTunnelKey(String(key || "").trim());
+  if (!std) bad("The key must be 32 bytes of base64");
+  let out = `velta://tunnel/2/${String(zone).toUpperCase()}/${keyToB32(std)}`;
+  const res = r => {
+    const m = /^\[(.+)\]:([0-9]+)$/.exec(r) || /^([0-9.]+):([0-9]+)$/.exec(r);
+    return (m ? `${m[1]}*${m[2]}` : r).toUpperCase();
+  };
+  if (resolvers?.length) out += `/R/${resolvers.map(res).join("+")}`;
+  if (canaries?.length) out += `/C/${canaries.map(c => c.replace(/:([0-9]+)$/, "*$1").toUpperCase()).join("+")}`;
+  if (label) out += `/N/${base32Encode(new TextEncoder().encode(label.normalize("NFC")))}`;
+  return out;
 }
 
 function storedLabel() {
@@ -340,6 +432,9 @@ export async function acceptTunnelLink(link, { confirmModal, choose = null, toas
     errToast(t("This tunnel link can't be used: {why}", { why: errMsg(e) }), 6000);
     return false;
   }
+  // The shell gets the validated values as a v1 link: every Go library
+  // build parses that, v2 support there is only a second line of defence.
+  const shellLink = buildTunnelLinkV1(parsed);
   if (!invoke) {
     toast(t(UNSUPPORTED_MSG), 6000);
     return false;
@@ -351,7 +446,7 @@ export async function acceptTunnelLink(link, { confirmModal, choose = null, toas
   }
   let preview;
   try {
-    preview = await invoke("tunnel_preview", { link });
+    preview = await invoke("tunnel_preview", { link: shellLink });
   } catch (e) {
     errToast(t("This tunnel link can't be used: {why}", { why: errMsg(e) }), 6000);
     return false;
@@ -398,7 +493,7 @@ export async function acceptTunnelLink(link, { confirmModal, choose = null, toas
     activate = true;
   }
   try {
-    await invoke("tunnel_install", { link, label: parsed.label, activate });
+    await invoke("tunnel_install", { link: shellLink, label: parsed.label, activate });
   } catch (e) {
     errToast(t("Couldn't enable the tunnel: {why}", { why: errMsg(e) }), 6000);
     return false;
