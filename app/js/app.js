@@ -19,7 +19,8 @@ import { diagnosticsSink, DiagnosticsStore, DIAGNOSTICS_CHAT_ID, diagnosticRow, 
 import { parseInviteLink, inviteLabel, bindInviteInterception, showInviteDomainsModal, isShortInviteLink, expandShortInvite } from "./invites.js";
 import { activeWsRelay, addWsRelay, listWsRelays, normalizeHost, probeC3Relay, probeDnsVia, showWsRelaysModal, useWsRelay } from "./ws-relays.js";
 import { getChoice as getMdChoice, recordChoice as recordMdChoice, markNotified as markMdNotified, classify as classifyMultiDevice, mdLabel, retryDelay as mdRetryDelay, offConfirmText as mdOffConfirmText, forgetAccount as forgetMdAccount, MD_REENABLED_NOTE } from "./multidevice.js";
-import { openImageLightbox, openVideoLightbox, bindMenuToggle, buildDrawer, showModal, footButtons, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, setCoreVersionDisplay, checkForUpdate, popoverSupported, fillSplashVersion, uiZoom, applyUiScale } from "./ui.js";
+import { openImageLightbox, openVideoLightbox, bindMenuToggle, buildDrawer, showModal, footButtons, showContextMenu, toast, closeAllPopups, confirmModal, showInvite, showEditProfile, notifyIncoming, notifyThrottled, setCoreVersionDisplay, checkForUpdate, popoverSupported, fillSplashVersion, uiZoom, applyUiScale } from "./ui.js";
+import { createNotifyQueue } from "./notify-queue.js";
 import { serializeSettings, parseSettings, diffSettings, applySettings, normalizeDownloadLimit } from "./settings-transfer.js";
 import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModal, addContact, showCreateGroupModal, showAddMembersModal } from "./p2p.js";
 import { withLocalChat, hubModel, renameDevice, removePeer, dismissLocalGroup, groupRename, groupRemoveMember, peerGroupImpact, groupActionsModel, groupMemberHint, removePeerImpactText, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
@@ -1097,6 +1098,46 @@ function refreshAfterSettingsApply(keys) {
 // cascades) would still fire dozens of RPC round trips per second, so
 // event-driven callers go through scheduleChatListRefresh() which collapses a
 // burst into one trailing refresh.
+
+// Incoming-message toasts, grouped per chat and flushed once per task: a
+// burst yields at most one notifyIncoming call per chat (the latest
+// message that passes the muted/mention gate) instead of one per message.
+const incomingNotifyQueue = createNotifyQueue(flushIncomingNotify);
+
+function queueIncomingNotify(msg) {
+  incomingNotifyQueue.push(msg, core.accountEpoch);
+}
+
+async function flushIncomingNotify(groups, epoch) {
+  for (const [chatId, msgs] of groups) {
+    if (epoch !== core.accountEpoch || notifyThrottled()) return;
+    const chat = state.chats.find(c => c.id === chatId);
+    let msg = msgs[msgs.length - 1];
+    // Muted chats stay quiet unless a message @mentions me (setting,
+    // default on; docs/mentions.md). Android posts from Rust instead.
+    if (chat?.muted) {
+      const fpr = await fingerprintFor(1).catch(() => null);
+      if (epoch !== core.accountEpoch) return;
+      const self = { name: state.account?.displayName || "", code: cachedFingerprintIsDerived(1) ? "" : fprCode(fpr) };
+      msg = null;
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (mutedChatAllows({ muted: true, mentionsMe: mentionsMe(msgs[i]?.text || "", self), mentionInMuted: mentionInMutedOn() })) { msg = msgs[i]; break; }
+      }
+      if (!msg) continue;
+    }
+    notifyIncoming(
+      msg?.fromContact?.name || msg?.fwdFrom || "New message",
+      (msg?.text || "").replace(/\s+/g, " ").slice(0, 120) || "New message",
+      {
+        chatName: chat?.name || null,
+        senderName: msg?.fromContact?.name || null,
+        senderAvatar: msg?.fromContact?.avatar || null,
+        accountId: core.accountId ?? null,
+        chatId: msg?.chatId ?? null,
+      },
+    );
+  }
+}
 
 function scheduleChatListRefresh(delay = 400) {
   chatListDirty.all = true;
@@ -6164,30 +6205,13 @@ async function boot() {
     // cores (mock) keep the full refresh on the coarse events.
     core.addEventListener("chatlist-changed", () => scheduleChatListUpdate({ order: true }));
     core.addEventListener("chatlist-item-changed", ev => scheduleChatListUpdate({ chatId: ev?.detail?.chatId || 0 }));
-    core.addEventListener("incoming-msg", async ev => {
-      if (!incrementalChatList()) scheduleChatListRefresh();
+    core.addEventListener("incoming-msg", ev => {
+      if (!incrementalChatList()) scheduleChatListRefresh(); // coalesced (one trailing refresh)
       const msg = ev?.detail?.msg;
-      const chat = state.chats.find(c => c.id === msg?.chatId);
-      // Muted chats stay quiet unless the message @mentions me (setting,
-      // default on; docs/mentions.md). Android posts from Rust instead.
-      if (chat?.muted) {
-        const epoch = core.accountEpoch;
-        const fpr = await fingerprintFor(1).catch(() => null);
-        if (epoch !== core.accountEpoch) return;
-        const self = { name: state.account?.displayName || "", code: cachedFingerprintIsDerived(1) ? "" : fprCode(fpr) };
-        if (!mutedChatAllows({ muted: true, mentionsMe: mentionsMe(msg?.text || "", self), mentionInMuted: mentionInMutedOn() })) return;
-      }
-      notifyIncoming(
-        msg?.fromContact?.name || msg?.fwdFrom || "New message",
-        (msg?.text || "").replace(/\s+/g, " ").slice(0, 120) || "New message",
-        {
-          chatName: chat?.name || null,
-          senderName: msg?.fromContact?.name || null,
-          senderAvatar: msg?.fromContact?.avatar || null,
-          accountId: core.accountId ?? null,
-          chatId: msg?.chatId ?? null,
-        },
-      );
+      // Toasts are throttled to one per 4 s: skip the per-message work
+      // outright while throttled, otherwise group the burst per chat.
+      if (notifyThrottled()) return;
+      queueIncomingNotify(msg);
     });
     core.addEventListener("call-ended", ev => {
       recordCallEnded(ev?.detail?.chatId);

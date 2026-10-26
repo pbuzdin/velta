@@ -2027,7 +2027,15 @@ function logNotify(msg) {
     if (invoke) invoke("js_log", { msg }).catch(() => {});
   } catch {}
 }
+// Cheap pre-check for the 4 s toast throttle: callers skip all per-message
+// notification work (focus/permission/window queries, muted lookups) while
+// a toast was just shown.
+export function notifyThrottled(now = Date.now()) {
+  return now - lastNotifyAt < 4000;
+}
+
 export function notifyIncoming(title, body, info = {}) {
+  if (notifyThrottled()) return;
   const tauri = window.__TAURI__;
   if (tauri) return notifyIncomingTauri(tauri, title, body, info);
   return notifyIncomingWeb(title, body, info);
@@ -2112,6 +2120,7 @@ function notifyIncomingTauri(tauri, title, body, info) {
 // throttled hard). The notificationclick side lives in the generated sw.js;
 // it focuses a client and hands over {accountId, chatId} via postMessage.
 async function notifyIncomingWeb(title, body, info) {
+  if (notifyThrottled()) return; // before the focus/permission checks
   const gated = notifyGateBody(body);
   if (gated === null) return;
   if (!("Notification" in window) || Notification.permission !== "granted") return;
