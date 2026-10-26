@@ -46,3 +46,9 @@ test("verify fails when an op's marker AND anchor are both gone (scratch copy)",
     rmSync(scratch, { recursive: true, force: true });
   }
 });
+
+test("#14 reply counts/ids skip hidden rows (send_edit_request's quoting copy is not a reply)", async () => {
+  const tool = readFileSync(new URL("../tools/apply-core-patches.py", import.meta.url), "utf8");
+  const chat = readFileSync(new URL("../core/src/chat.rs", import.meta.url), "utf8");
+  for (const src of [tool, chat]) assert.equal((src.match(/'a=%' AND replies\.hidden=0/g) || []).length, 2);
+});

@@ -731,7 +731,8 @@ async fn velta_transport_addr(context: &Context, transport_id: u32) -> String {
 // quoted message's rfc724_mid (set by Message::set_quote). Every message
 // carries In-Reply-To (the chat's latest message), so only rows with a quote
 // param (`q`) that are not forwards (`a`) count; incoming headers keep their
-// <angle brackets>, hence the TRIM. Scoped to the chat on both sides so
+// <angle brackets>, hence the TRIM. Hidden rows (send_edit_request's own
+// copy quotes the original) are not replies. Scoped to the chat on both sides so
 // cross-chat Message-ID collisions cannot bleed in.
 /// Returns the ids of the messages in `chat_id` that quote `message_id`
 /// (its replies), oldest first. Forwards are not counted as replies.
@@ -752,7 +753,7 @@ pub async fn get_reply_ids(
         .query_map_vec(
             "SELECT id FROM msgs replies \\
              WHERE chat_id=? AND TRIM(mime_in_reply_to, '<> ')=? AND (char(10) || replies.param) LIKE '%' || char(10) || 'q=%' \\
-             AND (char(10) || replies.param) NOT LIKE '%' || char(10) || 'a=%' \\
+             AND (char(10) || replies.param) NOT LIKE '%' || char(10) || 'a=%' AND replies.hidden=0 \\
              ORDER BY timestamp, id",
             (chat_id, rfc724_mid),
             |row| {
@@ -773,7 +774,7 @@ pub async fn get_reply_counts(context: &Context, chat_id: ChatId) -> Result<Vec<
              FROM msgs replies \\
              JOIN msgs quoted ON quoted.rfc724_mid = TRIM(replies.mime_in_reply_to, '<> ') \\
              WHERE replies.chat_id=? AND quoted.chat_id=? AND (char(10) || replies.param) LIKE '%' || char(10) || 'q=%' \\
-             AND (char(10) || replies.param) NOT LIKE '%' || char(10) || 'a=%' \\
+             AND (char(10) || replies.param) NOT LIKE '%' || char(10) || 'a=%' AND replies.hidden=0 \\
              AND replies.mime_in_reply_to IS NOT NULL AND replies.mime_in_reply_to != '' \\
              GROUP BY quoted.id",
             (chat_id, chat_id),
