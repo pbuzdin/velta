@@ -18,6 +18,11 @@ import { ICON, LOOP_SVG, P, svg } from "./icons.js";
 const popups = () => document.getElementById("popups");
 
 // Popover API: Chromium 114+ and Safari 17+. macOS 10.15/11 stay on the overlay.
+// "Name: on/off" row text for drawer toggles; the state words are keys too.
+function toggleText(label, state) {
+  return t("{label}: {state}", { label: t(label), state: state === "…" ? "…" : t(state) });
+}
+
 export function popoverSupported() {
   return typeof HTMLElement === "function" && Object.prototype.hasOwnProperty.call(HTMLElement.prototype, "popover");
 }
@@ -168,7 +173,7 @@ export function showActionBar({ items, reactions = [], selected = null, onReact,
     b.className = "msg-bar-react" + (emoji === selected ? " mine" : "");
     b.textContent = emoji;
     b.setAttribute("aria-pressed", emoji === selected ? "true" : "false");
-    b.setAttribute("aria-label", emoji === selected ? `Remove reaction ${emoji}` : emoji);
+    b.setAttribute("aria-label", emoji === selected ? t("Remove reaction {emoji}", { emoji }) : emoji);
     b.addEventListener("click", () => { close(); onReact?.(emoji); });
     reacts.append(b);
   }
@@ -281,7 +286,7 @@ function sheetAction(it) {
   const b = document.createElement("button");
   b.type = "button";
   b.className = "ctx-item" + (it.danger ? " danger" : "");
-  b.innerHTML = (it.icon || "") + "<span>" + escapeHtml(it.short || it.label) + "</span>";
+  b.innerHTML = (it.icon || "") + "<span>" + escapeHtml(t(it.short || it.label)) + "</span>";
   b.addEventListener("click", () => { closeAllPopups(); it.onClick?.(); });
   return b;
 }
@@ -299,12 +304,12 @@ export function buildEmojiTray({ onReact, onBack } = {}) {
   const back = document.createElement("button");
   back.type = "button";
   back.className = "msg-emoji-back";
-  back.textContent = "Back";
+  back.textContent = t("Back");
   const search = document.createElement("input");
   search.type = "search";
   search.className = "text-field";
-  search.placeholder = "Search emoji";
-  search.setAttribute("aria-label", "Search emoji");
+  search.placeholder = t("Search emoji");
+  search.setAttribute("aria-label", t("Search emoji"));
   search.autocomplete = "off";
   const grid = document.createElement("div");
   grid.className = "msg-emoji-grid";
@@ -314,7 +319,7 @@ export function buildEmojiTray({ onReact, onBack } = {}) {
     if (!found.length) {
       const empty = document.createElement("div");
       empty.className = "msg-emoji-empty";
-      empty.textContent = "No emoji";
+      empty.textContent = t("No emoji");
       grid.append(empty);
       return;
     }
@@ -349,14 +354,14 @@ export function buildReactionRow({ reactions, selected = null, onReact }) {
     b.className = "msg-react" + (emoji === selected ? " mine" : "");
     b.textContent = emoji;
     b.setAttribute("aria-pressed", emoji === selected ? "true" : "false");
-    b.setAttribute("aria-label", emoji === selected ? `Remove reaction ${emoji}` : emoji);
+    b.setAttribute("aria-label", emoji === selected ? t("Remove reaction {emoji}", { emoji }) : emoji);
     b.addEventListener("click", () => { closeAllPopups(); onReact?.(emoji); });
     reacts.append(b);
   }
   const more = document.createElement("button");
   more.type = "button";
   more.className = "msg-react msg-react-more";
-  more.setAttribute("aria-label", "More emoji");
+  more.setAttribute("aria-label", t("More emoji"));
   more.innerHTML = SMILEY_SVG;
   const tray = buildEmojiTray({
     onReact,
@@ -376,7 +381,7 @@ export function showMessageSheet({ reactions = [], selected = null, onReact, ite
   const menu = document.createElement("div");
   menu.className = "ctx-menu msg-sheet";
   menu.setAttribute("role", "dialog");
-  menu.setAttribute("aria-label", "Message actions");
+  menu.setAttribute("aria-label", t("Message actions"));
   const grab = document.createElement("div");
   grab.className = "msg-sheet-grab";
   grab.setAttribute("aria-hidden", "true");
@@ -405,7 +410,7 @@ export function showMessageSheet({ reactions = [], selected = null, onReact, ite
     const det = document.createElement("details");
     det.className = "msg-links";
     const sum = document.createElement("summary");
-    sum.textContent = links.length > 1 ? `Show links (${links.length})` : "Show links";
+    sum.textContent = links.length > 1 ? t("Show links ({n})", { n: links.length }) : t("Show links");
     const list = document.createElement("div");
     list.className = "msg-links-list";
     for (const url of links) {
@@ -437,7 +442,7 @@ export function showStickerPicker({ getStickers, onPick }) {
   pop.className = "sticker-pop";
   const grid = document.createElement("div");
   grid.className = "sticker-grid";
-  grid.innerHTML = `<div class="sticker-note">Loading…</div>`;
+  grid.innerHTML = `<div class="sticker-note">${escapeHtml(t("Loading…"))}</div>`;
   pop.append(grid);
   openLightDismiss(pop);
   Promise.resolve(getStickers()).then((collections) => {
@@ -462,9 +467,9 @@ export function showStickerPicker({ getStickers, onPick }) {
         n++;
       }
     }
-    if (!n) grid.innerHTML = `<div class="sticker-note">No stickers yet.<br>Long-press a sticker you received and choose “Save sticker”.</div>`;
+    if (!n) grid.innerHTML = `<div class="sticker-note">${t("No stickers yet.<br>Long-press a sticker you received and choose “Save sticker”.")}</div>`;
   }).catch(() => {
-    grid.innerHTML = `<div class="sticker-note">Couldn't load stickers.</div>`;
+    grid.innerHTML = `<div class="sticker-note">${escapeHtml(t("Couldn't load stickers."))}</div>`;
   });
   return pop;
 }
@@ -675,7 +680,7 @@ export function toast(text, ms = 2200, opts = {}) {
   const setTimer = (running) => { timerBar.style.animationPlayState = running ? "running" : "paused"; };
 }
 
-export function confirmModal(title, text, okLabel = "Delete", danger = true) {
+export function confirmModal(title, text, okLabel = t("Delete"), danger = true) {
   return new Promise(resolve => {
     const foot = document.createElement("div");
     const cancel = document.createElement("button");
@@ -786,7 +791,7 @@ function renderUpdateBanner() {
   banner.className = "update-banner";
   const text = document.createElement("span");
   text.className = "update-banner-text";
-  text.innerHTML = `<strong>Velta ${escapeHtml(updateInfo.version)}</strong> is available`;
+  text.innerHTML = t("{version} is available", { version: `<strong>Velta ${escapeHtml(updateInfo.version)}</strong>` });
   const btn = document.createElement("button");
   btn.className = "update-banner-btn";
   btn.type = "button";
@@ -799,7 +804,7 @@ function renderUpdateBanner() {
   // Desktop installer installs get the one-click path (updater plugin);
   // Android sideloads and the PWA still go through the system browser.
   const desktop = !isAndroid() && window.__TAURI__?.core?.invoke;
-  btn.textContent = desktop ? "Update" : "Download APK";
+  btn.textContent = desktop ? t("Update") : t("Download APK");
   btn.addEventListener("click", async () => {
     if (desktop) return selfUpdate(btn);
     const tauri = window.__TAURI__;
@@ -829,8 +834,8 @@ async function inAppApkUpdate(btn, tauri) {
   const setPct = (received, total) => {
     const pct = total ? Math.min(100, Math.round((received / total) * 100)) : 0;
     btn.textContent = total
-      ? `Downloading… ${pct}%`
-      : `Downloading… ${(received / 1048576).toFixed(1)} MB`;
+      ? t("Downloading… {n}%", { n: pct })
+      : t("Downloading… {mb} MB", { mb: (received / 1048576).toFixed(1) });
     const bar = btn.parentElement?.querySelector("progress");
     if (!bar) return;
     bar.hidden = false;
@@ -852,9 +857,9 @@ async function inAppApkUpdate(btn, tauri) {
       setPct(0, 0);
       updateInfo.apkPath = await tauri.core.invoke("download_update", { version: updateInfo.version });
     }
-    btn.textContent = "Opening installer…";
+    btn.textContent = t("Opening installer…");
     await tauri.core.invoke("install_update", { path: updateInfo.apkPath });
-    btn.textContent = "Install";
+    btn.textContent = t("Install");
   } catch {
     updateInfo.apkPath = null;
     fallbackToBrowser();
@@ -873,7 +878,7 @@ async function selfUpdate(btn) {
   try {
     const update = await tauri.updater.check();
     if (!update?.available) {
-      btn.textContent = "No update";
+      btn.textContent = t("No update");
       btn.disabled = false;
       return;
     }
@@ -885,18 +890,18 @@ async function selfUpdate(btn) {
         const pct = total ? Math.round((got / total) * 100) : 0;
         if (pct !== lastPct) {
           lastPct = pct;
-          btn.textContent = pct ? `Downloading ${pct}%` : "Downloading…";
+          btn.textContent = pct ? t("Downloading {n}%", { n: pct }) : t("Downloading…");
           const bar = btn.parentElement?.querySelector("progress");
           if (bar) { bar.hidden = false; if (total) bar.value = pct; else bar.removeAttribute("value"); }
         }
-      } else if (ev.event === "Finished") btn.textContent = "Installing…";
+      } else if (ev.event === "Finished") btn.textContent = t("Installing…");
     });
-    btn.textContent = "Restarting…";
+    btn.textContent = t("Restarting…");
     await tauri.process.relaunch(); // replaces the process — never resolves on success
   } catch (err) {
     console.error("self-update failed", err);
-    toast("Update failed: " + (err?.message || err));
-    btn.textContent = "Retry update";
+    toast(t("Update failed: ") + (err?.message || err));
+    btn.textContent = t("Retry update");
     btn.disabled = false;
   }
 }
@@ -1018,31 +1023,31 @@ export function chatAppearanceHtml() {
   // The custom-color ring is drawn from the same PRESETS (one source of hex).
   const ringCols = A.PRESETS.map(([c]) => c).filter(Boolean);
   const caRainbow = `conic-gradient(${[...ringCols, ringCols[0]].join(", ")})`;
-  const swatches = A.PRESETS.map(([c, label]) => `<label class="ca-swatch"${c ? ` style="--sw: ${c}"` : " data-default"} title="${escapeAttr(label)}"><input type="radio" name="ca-accent" value="${c || ""}" aria-label="${escapeAttr(label)}"${(c || null) === (st.accent && preset ? st.accent : null) && !custom ? " checked" : ""}></label>`).join("");
+  const swatches = A.PRESETS.map(([c, label]) => `<label class="ca-swatch"${c ? ` style="--sw: ${c}"` : " data-default"} title="${escapeAttr(t(label))}"><input type="radio" name="ca-accent" value="${c || ""}" aria-label="${escapeAttr(t(label))}"${(c || null) === (st.accent && preset ? st.accent : null) && !custom ? " checked" : ""}></label>`).join("");
   return `<details class="drawer-details" data-chat-appearance>
-        <summary>${ICON.chatAppearance}<span>Chat appearance</span></summary>
+        <summary>${ICON.chatAppearance}<span>${escapeHtml(t("Chat appearance"))}</span></summary>
         <div class="ca-panel">
-          <div class="ca-preview" role="group" aria-label="Preview">
-            <div class="msg-row"><div class="bubble"><div class="msg-sender">Ada</div><div class="msg-quote"><span class="q-name">You</span><span class="q-text">Are we still on for tonight?</span></div><div class="msg-text" lang="en">Yes! Bring the hyperparameter notes.</div><span class="msg-meta"><span>12:41</span></span></div></div>
-            <div class="msg-row out"><div class="bubble"><div class="msg-text" lang="en">Great, see you at 8. Map: <a href="#" tabindex="-1">example.org</a></div><span class="msg-meta"><span>12:42</span><span class="ticks-slot">${ticksSvg("read", "ticks")}</span></span></div></div>
+          <div class="ca-preview" role="group" aria-label="${escapeHtml(t("Preview"))}">
+            <div class="msg-row"><div class="bubble"><div class="msg-sender">Ada</div><div class="msg-quote"><span class="q-name">${escapeHtml(t("You"))}</span><span class="q-text">${escapeHtml(t("Are we still on for tonight?"))}</span></div><div class="msg-text" lang="en">${escapeHtml(t("Yes! Bring the hyperparameter notes."))}</div><span class="msg-meta"><span>12:41</span></span></div></div>
+            <div class="msg-row out"><div class="bubble"><div class="msg-text" lang="en">${escapeHtml(t("Great, see you at 8. Map:"))} <a href="#" tabindex="-1">example.org</a></div><span class="msg-meta"><span>12:42</span><span class="ticks-slot">${ticksSvg("read", "ticks")}</span></span></div></div>
           </div>
           <div class="ca-field">
-            <label for="ca-font">Message text size</label>
+            <label for="ca-font">${escapeHtml(t("Message text size"))}</label>
             <output for="ca-font" data-ca-font-out>${pxText(st.fontSize)}</output>
           </div>
           <input type="range" id="ca-font" class="ca-range" data-ca-font min="${A.FONT_MIN}" max="${A.FONT_MAX}" step="0.5" value="${st.fontSize}" aria-valuetext="${pxText(st.fontSize)}">
           <div class="ca-field">
-            <label for="ca-radius">Message corners</label>
+            <label for="ca-radius">${escapeHtml(t("Message corners"))}</label>
             <output for="ca-radius" data-ca-radius-out>${pxText(radius)}</output>
           </div>
           <input type="range" id="ca-radius" class="ca-range" data-ca-radius min="${A.RADIUS_MIN}" max="${A.RADIUS_MAX}" step="1" value="${radius}" aria-valuetext="${pxText(radius)}">
           <fieldset class="ca-accent" data-ca-accent>
-            <legend>Accent color</legend>
-            <div class="ca-swatches">${swatches}<label class="ca-swatch ca-custom" title="Custom color" style="--ca-rainbow: ${caRainbow}"><input type="color" data-ca-custom aria-label="Custom accent color" value="${custom || "#3fa34d"}"${custom ? " data-active" : ""}></label></div>
+            <legend>${escapeHtml(t("Accent color"))}</legend>
+            <div class="ca-swatches">${swatches}<label class="ca-swatch ca-custom" title="${escapeHtml(t("Custom color"))}" style="--ca-rainbow: ${caRainbow}"><input type="color" data-ca-custom aria-label="${escapeHtml(t("Custom accent color"))}" value="${custom || "#3fa34d"}"${custom ? " data-active" : ""}></label></div>
           </fieldset>
-          <div class="bar-opts-hint" data-ca-accent-hint>Links, buttons, switches and your own bubbles. Text colors adjust to stay readable in light and dark. Brutal keeps its own colors.</div>
-          <label class="scale-opt"><input type="checkbox" role="switch" data-ca-hyphens${st.hyphens ? " checked" : ""}><span>Hyphenate long words (English, Russian)</span></label>
-          <div class="ca-actions"><button type="button" class="btn-text" data-ca-reset>Reset to defaults</button></div>
+          <div class="bar-opts-hint" data-ca-accent-hint>${escapeHtml(t("Links, buttons, switches and your own bubbles. Text colors adjust to stay readable in light and dark. Brutal keeps its own colors."))}</div>
+          <label class="scale-opt"><input type="checkbox" role="switch" data-ca-hyphens${st.hyphens ? " checked" : ""}><span>${escapeHtml(t("Hyphenate long words (English, Russian)"))}</span></label>
+          <div class="ca-actions"><button type="button" class="btn-text" data-ca-reset>${escapeHtml(t("Reset to defaults"))}</button></div>
         </div>
       </details>`;
 }
@@ -1107,7 +1112,7 @@ export function wireChatAppearance(root, { onChange } = {}) {
     sync(st);
     onChange?.(st);
     relayout();
-    toast("Chat appearance reset");
+    toast(t("Chat appearance reset"));
   });
 }
 
@@ -1148,18 +1153,18 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     <div class="drawer-items">
       <button type="button" class="ctx-item" data-act="saved">${ICON.bookmark}<span>${t("Saved Messages")}</span></button>
       <button type="button" class="ctx-item" data-act="invite">${ICON.invite}<span>${t("Invite friends (QR)")}</span></button>
-      ${p2pAvailable || p2pOn ? `<label class="ctx-item">${LOOP_SVG}<span class="ctx-stack"><span data-lbl>${t("Velta Loop")}: ${p2pOn ? "on" : "off"}</span><span class="ctx-sub">${t("Local chat on the same network")}</span></span><input type="checkbox" role="switch" data-toggle="p2p"${p2pOn ? " checked" : ""}></label>` : ""}
-      ${p2pAvailable && p2pOn ? `<label class="ctx-item" title="Show when someone in a local chat is typing, and let them see when you are. Hints are live only and never stored.">${ICON.typing}<span>Typing indicator: ${localStorage.getItem("velta-p2p-typing") !== "0" ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="p2p-typing"${localStorage.getItem("velta-p2p-typing") !== "0" ? " checked" : ""}></label>` : ""}
+      ${p2pAvailable || p2pOn ? `<label class="ctx-item">${LOOP_SVG}<span class="ctx-stack"><span data-lbl>${escapeHtml(toggleText("Velta Loop", p2pOn ? "on" : "off"))}</span><span class="ctx-sub">${t("Local chat on the same network")}</span></span><input type="checkbox" role="switch" data-toggle="p2p"${p2pOn ? " checked" : ""}></label>` : ""}
+      ${p2pAvailable && p2pOn ? `<label class="ctx-item" title="${escapeHtml(t("Show when someone in a local chat is typing, and let them see when you are. Hints are live only and never stored."))}">${ICON.typing}<span>${escapeHtml(toggleText("Typing indicator", localStorage.getItem("velta-p2p-typing") !== "0" ? "on" : "off"))}</span><input type="checkbox" role="switch" data-toggle="p2p-typing"${localStorage.getItem("velta-p2p-typing") !== "0" ? " checked" : ""}></label>` : ""}
       <div class="drawer-sec">${t("Settings")}</div>
       <details class="drawer-details">
-        <summary>${ICON.palette}<span data-theme-summary>${t("Theme")}: ${t(THEME_LABELS[theme] || "Auto")}</span></summary>
+        <summary>${ICON.palette}<span data-theme-summary>${t("{label}: {state}", { label: t("Theme"), state: t(THEME_LABELS[theme] || "Auto") })}</span></summary>
         <fieldset class="scale-opts" data-theme-opts>
           <legend class="vh">${t("Theme")}</legend>
           ${Object.entries(THEME_LABELS).map(([v, label]) => `<label class="scale-opt"><input type="radio" name="app-theme" value="${v}"${v === theme ? " checked" : ""}><span>${t(label)}</span></label>`).join("")}
         </fieldset>
       </details>
       <details class="drawer-details">
-        <summary>${ICON.language}<span data-lang-summary>${t("Language")}: ${(LANGS.find(([v]) => v === currentLang()) || LANGS[0])[1]}</span></summary>
+        <summary>${ICON.language}<span data-lang-summary>${t("{label}: {state}", { label: t("Language"), state: (LANGS.find(([v]) => v === currentLang()) || LANGS[0])[1] })}</span></summary>
         <fieldset class="scale-opts" data-lang-opts>
           <legend class="vh">${t("Language")}</legend>
           ${LANGS.map(([v, name]) => `<label class="scale-opt"><input type="radio" name="ui-lang" value="${v}"${v === currentLang() ? " checked" : ""}><span>${name}</span></label>`).join("")}
@@ -1168,7 +1173,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
       </details>
       ${chatAppearanceHtml()}
       <details class="drawer-details">
-        <summary>${ICON.textSize}<span data-scale-summary>${t("Interface scale")}: ${t(uiScaleLabel())}</span></summary>
+        <summary>${ICON.textSize}<span data-scale-summary>${t("{label}: {state}", { label: t("Interface scale"), state: t(uiScaleLabel()) })}</span></summary>
         <fieldset class="scale-opts" data-scale-opts>
           <legend class="vh">${t("Interface scale")}</legend>
           ${UI_SCALES.map(([v, label]) => `<label class="scale-opt"><input type="radio" name="ui-scale" value="${v}"${v === uiScaleValue() ? " checked" : ""}><span>${t(label)}</span></label>`).join("")}
@@ -1241,29 +1246,29 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
       </details>
       <button type="button" class="ctx-item" data-act="profile-management">${ICON.profileAdd}<span>${t("Profile management…")}</span></button>
       <button type="button" class="ctx-item" data-act="relays">${ICON.globe}<span>${t("Relays of this profile…")}</span></button>
-      ${onTunnel ? `<button type="button" class="ctx-item" data-act="tunnel">${ICON.tunnel}<span>DNS tunnel: ${escapeHtml(tunnelLabel)}</span></button>` : ""}
-      ${onWsTransport ? `<button type="button" class="ctx-item" data-act="ws-transport">${ICON.wsTransport}<span>${t("WebSocket transport")}: ${escapeHtml(wsTransportLabel)}</span></button>` : ""}
+      ${onTunnel ? `<button type="button" class="ctx-item" data-act="tunnel">${ICON.tunnel}<span>${escapeHtml(t("DNS tunnel:"))} ${escapeHtml(tunnelLabel)}</span></button>` : ""}
+      ${onWsTransport ? `<button type="button" class="ctx-item" data-act="ws-transport">${ICON.wsTransport}<span>${t("{label}: {state}", { label: t("WebSocket transport"), state: escapeHtml(wsTransportLabel) })}</span></button>` : ""}
       ${onWsRelays ? `<button type="button" class="ctx-item" data-act="ws-relays">${ICON.globe}<span>${t("WebSocket relays")}</span></button>` : ""}
       ${identityBackupAvailable ? `<button type="button" class="ctx-item" data-act="identity-backup">${ICON.key}<span>${t("Identity backup…")}</span></button>` : ""}
       <button type="button" class="ctx-item" data-act="invite-domains">${ICON.globe}<span>${t("Invite link domains")}</span></button>
       <details class="drawer-details">
-        <summary>${ICON.link}<span>${t("Link previews")}: ${t(LINK_PREVIEW_LABELS[linkPreviewMode()])}</span></summary>
+        <summary>${ICON.link}<span>${t("{label}: {state}", { label: t("Link previews"), state: t(LINK_PREVIEW_LABELS[linkPreviewMode()]) })}</span></summary>
         <fieldset class="scale-opts" data-lp-opts>
           <legend class="vh">${t("Link previews")}</legend>
           ${[["off", "Off"], ["picture", "Send a picture"], ["fetch", "Load on this device"]].map(([value, label]) => `<label class="scale-opt"><input type="radio" name="link-preview-mode" data-lp-value="${value}"${value === linkPreviewMode() ? " checked" : ""}><span>${t(label)}</span></label>`).join("")}
         </fieldset>
         <div class="bar-opts-hint">${t("Send a picture attaches a snapshot; other people do not open the site.")} ${t(LINK_PREVIEW_IP_WARNING)}</div>
       </details>
-      <label class="ctx-item" title="Drops utm and click-id parameters when you paste or open a link. Undo brings them back.">${ICON.cleanLink}<span>Strip tracking from links: ${trackingStripEnabled() ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="strip-trackers"${trackingStripEnabled() ? " checked" : ""}></label>
-      <label class="ctx-item">${ICON.enterKey}<span>Send on Enter: ${localStorage.getItem("velta-send-enter") === "0" ? "off" : "on"}</span><input type="checkbox" role="switch" data-toggle="send-enter"${localStorage.getItem("velta-send-enter") === "0" ? "" : " checked"}></label>
-      <label class="ctx-item" title="Off also stops seen-status sync between your own devices">${ICON.tick2}<span>Show and send read receipts: ${localStorage.getItem("velta-mdns") === "0" ? "off" : "on"}</span><input type="checkbox" role="switch" data-toggle="read-receipts"${localStorage.getItem("velta-mdns") === "0" ? "" : " checked"}></label>
-      <label class="ctx-item" title="Copies messages you send to your other devices and syncs state between them">${ICON.devices}<span>Multi-device: ${mdLabel(multiDeviceState)}</span><input type="checkbox" role="switch" data-toggle="multidevice"${multiDeviceState === "on" ? " checked" : ""}${multiDeviceState === "on" || multiDeviceState === "off" ? "" : ' aria-checked="mixed"'}></label>
+      <label class="ctx-item" title="${escapeHtml(t("Drops utm and click-id parameters when you paste or open a link. Undo brings them back."))}">${ICON.cleanLink}<span>${escapeHtml(toggleText("Strip tracking from links", trackingStripEnabled() ? "on" : "off"))}</span><input type="checkbox" role="switch" data-toggle="strip-trackers"${trackingStripEnabled() ? " checked" : ""}></label>
+      <label class="ctx-item">${ICON.enterKey}<span>${escapeHtml(toggleText("Send on Enter", localStorage.getItem("velta-send-enter") === "0" ? "off" : "on"))}</span><input type="checkbox" role="switch" data-toggle="send-enter"${localStorage.getItem("velta-send-enter") === "0" ? "" : " checked"}></label>
+      <label class="ctx-item" title="${escapeHtml(t("Off also stops seen-status sync between your own devices"))}">${ICON.tick2}<span>${escapeHtml(toggleText("Show and send read receipts", localStorage.getItem("velta-mdns") === "0" ? "off" : "on"))}</span><input type="checkbox" role="switch" data-toggle="read-receipts"${localStorage.getItem("velta-mdns") === "0" ? "" : " checked"}></label>
+      <label class="ctx-item" title="${escapeHtml(t("Copies messages you send to your other devices and syncs state between them"))}">${ICON.devices}<span>${escapeHtml(toggleText("Multi-device", mdLabel(multiDeviceState)))}</span><input type="checkbox" role="switch" data-toggle="multidevice"${multiDeviceState === "on" ? " checked" : ""}${multiDeviceState === "on" || multiDeviceState === "off" ? "" : ' aria-checked="mixed"'}></label>
       <div class="bar-opts-hint ctx-hint" data-md-hint>${escapeHtml(t(MD_HINT))}</div>
       <div class="bar-opts-hint ctx-hint md-note" data-md-note${multiDeviceReenabled ? "" : " hidden"}><span>${escapeHtml(t(MD_REENABLED_NOTE))}</span> <span class="md-note-acts"><button type="button" class="btn-text" data-md-off>${t("Turn off again")}</button><button type="button" class="btn-text" data-md-keep>${t("Keep on")}</button></span></div>
-      ${IS_ANDROID ? `<label class="ctx-item" title="While the phone is under 10% and off the charger, your latest message in each chat gets a 🪫 reaction so the other side knows replies may stop. Recipients see it as a normal reaction; other clients show the emoji only.">${ICON.battery}<span>Low-battery marker: ${localStorage.getItem("velta-low-battery-react") === "1" ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="low-battery"${localStorage.getItem("velta-low-battery-react") === "1" ? " checked" : ""}></label>` : ""}
-      <label class="ctx-item">${ICON.download}<span>Remember scroll position in chats: ${localStorage.getItem("velta-remember-scroll") === "0" ? "off" : "on"}</span><input type="checkbox" role="switch" data-toggle="remember-scroll"${localStorage.getItem("velta-remember-scroll") === "0" ? "" : " checked"}></label>
-      <label class="ctx-item">${ICON.stopSquare}<span>Demo mode: ${localStorage.getItem("velta-mock") === "1" ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="demo"${localStorage.getItem("velta-mock") === "1" ? " checked" : ""}></label>
-      ${onExportSettings ? `<button type="button" class="ctx-item" data-act="export-settings" title="Sends your Velta preferences as one text message to Saved Messages, so another device can apply them. No relays, keys or addresses.">${ICON.bookmarkExport}<span>${t("Export settings to Saved Messages")}</span></button>` : ""}
+      ${IS_ANDROID ? `<label class="ctx-item" title="${escapeHtml(t("While the phone is under 10% and off the charger, your latest message in each chat gets a 🪫 reaction so the other side knows replies may stop. Recipients see it as a normal reaction; other clients show the emoji only."))}">${ICON.battery}<span>${escapeHtml(toggleText("Low-battery marker", localStorage.getItem("velta-low-battery-react") === "1" ? "on" : "off"))}</span><input type="checkbox" role="switch" data-toggle="low-battery"${localStorage.getItem("velta-low-battery-react") === "1" ? " checked" : ""}></label>` : ""}
+      <label class="ctx-item">${ICON.download}<span>${escapeHtml(toggleText("Remember scroll position in chats", localStorage.getItem("velta-remember-scroll") === "0" ? "off" : "on"))}</span><input type="checkbox" role="switch" data-toggle="remember-scroll"${localStorage.getItem("velta-remember-scroll") === "0" ? "" : " checked"}></label>
+      <label class="ctx-item">${ICON.stopSquare}<span>${escapeHtml(toggleText("Demo mode", localStorage.getItem("velta-mock") === "1" ? "on" : "off"))}</span><input type="checkbox" role="switch" data-toggle="demo"${localStorage.getItem("velta-mock") === "1" ? " checked" : ""}></label>
+      ${onExportSettings ? `<button type="button" class="ctx-item" data-act="export-settings" title="${escapeHtml(t("Sends your Velta preferences as one text message to Saved Messages, so another device can apply them. No relays, keys or addresses."))}">${ICON.bookmarkExport}<span>${t("Export settings to Saved Messages")}</span></button>` : ""}
       ${onScheduled ? `<button type="button" class="ctx-item" data-act="scheduled">${ICON.clock}<span>${t("Scheduled messages")}</span></button>` : ""}
       <button type="button" class="ctx-item" data-act="about">${ICON.info}<span>${t("About Velta")}</span></button>
     </div>
@@ -1338,8 +1343,8 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     if (!v) return;
     setUiScale(v);
     const summary = drawer.querySelector("[data-scale-summary]");
-    if (summary) summary.textContent = `${t("Interface scale")}: ${t(uiScaleLabel())}`;
-    toast(`${t("Interface scale")}: ${t(uiScaleLabel())}`);
+    if (summary) summary.textContent = `${t("{label}: {state}", { label: t("Interface scale"), state: t(uiScaleLabel()) })}`;
+    toast(`${t("{label}: {state}", { label: t("Interface scale"), state: t(uiScaleLabel()) })}`);
   });
   drawer.querySelector("[data-lang-opts]")?.addEventListener("change", e => {
     const v = e.target?.value;
@@ -1406,7 +1411,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
       invoke?.("request_battery_exemption")?.catch?.(() => {});
     }
     if (key === "bg" && !e.target.checked) {
-      toast("Background connection off — messages arrive when you open Velta");
+      toast(t("Background connection off — messages arrive when you open Velta"));
     }
     const invoke = tauriInvoke();
     const prefs = {
@@ -1427,7 +1432,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     const on = e.target.checked;
     if (on) localStorage.removeItem("velta-compress-photos");
     else localStorage.setItem("velta-compress-photos", "0");
-    toast(`Photo compression ${on ? "on" : "off"}`);
+    toast(toggleText("Photo compression", on ? "on" : "off"));
   });
   drawer.querySelector("[data-mq-opts]")?.addEventListener("change", e => {
     const value = e.target?.dataset?.mqValue;
@@ -1440,7 +1445,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     else localStorage.setItem("velta-mdns", "0");
     setToggleUi("read-receipts", "Show and send read receipts", on);
     onReadReceipts?.(on);
-    toast(`Read receipts ${on ? "on" : "off"}`);
+    toast(toggleText("Read receipts", on ? "on" : "off"));
   });
   // Indeterminate (loading / failed read) can't be expressed in markup;
   // app.js repaints it via paintMultiDevice once the core answers.
@@ -1453,14 +1458,14 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     setToggleUi("multidevice", "Multi-device", on);
     const ok = await onMultiDevice?.(on);
     if (ok === false && e.target.isConnected) setToggleUi("multidevice", "Multi-device", !on);
-    else if (ok !== false) toast(`Multi-device ${on ? "on" : "off"}`);
+    else if (ok !== false) toast(toggleText("Multi-device", on ? "on" : "off"));
   });
   drawer.querySelector("[data-md-off]")?.addEventListener("click", async e => {
     e.preventDefault();
     const ok = await onMultiDevice?.(false, { quick: true });
     if (ok !== false) {
       setToggleUi("multidevice", "Multi-device", false);
-      toast("Multi-device off");
+      toast(t("Multi-device off"));
     }
   });
   drawer.querySelector("[data-md-keep]")?.addEventListener("click", e => {
@@ -1472,7 +1477,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     localStorage.setItem("velta-low-battery-react", on ? "1" : "0");
     setToggleUi("low-battery", "Low-battery marker", on);
     onLowBatteryToggle?.(on);
-    toast(`Low-battery marker ${on ? "on" : "off"}`);
+    toast(toggleText("Low-battery marker", on ? "on" : "off"));
   });
   drawer.querySelector("[data-dl-opts]")?.addEventListener("change", e => {
     const value = e.target?.dataset?.dlValue;
@@ -1485,8 +1490,8 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     if (!v || !THEME_LABELS[v]) return;
     onSetTheme?.(v);
     const summary = drawer.querySelector("[data-theme-summary]");
-    if (summary) summary.textContent = `${t("Theme")}: ${t(THEME_LABELS[v])}`;
-    toast(`${t("Theme")}: ${t(THEME_LABELS[v])}`);
+    if (summary) summary.textContent = `${t("{label}: {state}", { label: t("Theme"), state: t(THEME_LABELS[v]) })}`;
+    toast(`${t("{label}: {state}", { label: t("Theme"), state: t(THEME_LABELS[v]) })}`);
   });
 
   // Outside tap closes the drawer. Capture phase, so it wins over whatever
@@ -1526,11 +1531,11 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     const row = drawer.querySelector(`[data-toggle="${key}"]`);
     if (row) row.checked = on;
     const span = drawer.querySelector(`[data-toggle="${key}"]`)?.closest(".ctx-item")?.querySelector("[data-lbl], span");
-    if (span) span.textContent = `${label}: ${on ? "on" : "off"}`;
+    if (span) span.textContent = toggleText(label, on ? "on" : "off");
   };
 
   drawer.querySelector('[data-toggle="p2p"]')?.addEventListener("change", e => {
-    setToggleUi("p2p", t("Velta Loop"), e.target.checked);
+    setToggleUi("p2p", "Velta Loop", e.target.checked);
     onP2pToggle?.(); // flips the real state and rebuilds the drawer
   });
   drawer.querySelector('[data-toggle="p2p-typing"]')?.addEventListener("change", e => {
@@ -1538,7 +1543,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     if (on) localStorage.removeItem("velta-p2p-typing");
     else localStorage.setItem("velta-p2p-typing", "0");
     setToggleUi("p2p-typing", "Typing indicator", on);
-    toast(`Typing indicator ${on ? "on" : "off"}`);
+    toast(toggleText("Typing indicator", on ? "on" : "off"));
   });
   drawer.querySelector("[data-lp-opts]")?.addEventListener("change", e => {
     const input = e.target.closest?.("[data-lp-value]") || e.target;
@@ -1546,14 +1551,14 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     if (!mode || mode === linkPreviewMode()) return;
     setLinkPreviewMode(mode);
     const summary = drawer.querySelector("[data-lp-opts]")?.closest("details")?.querySelector("summary span");
-    if (summary) summary.textContent = `Link previews: ${LINK_PREVIEW_LABELS[mode]}`;
-    toast(`Link previews: ${LINK_PREVIEW_LABELS[mode]}`);
+    if (summary) summary.textContent = t("Link previews: {mode}", { mode: LINK_PREVIEW_LABELS[mode] });
+    toast(t("Link previews: {mode}", { mode: LINK_PREVIEW_LABELS[mode] }));
   });
   drawer.querySelector('[data-toggle="strip-trackers"]')?.addEventListener("change", e => {
     const on = e.target.checked;
     setTrackingStripEnabled(on);
     setToggleUi("strip-trackers", "Strip tracking from links", on);
-    toast(`Strip tracking from links ${on ? "on" : "off"}`);
+    toast(toggleText("Strip tracking from links", on ? "on" : "off"));
   });
   drawer.querySelector('[data-toggle="send-enter"]')?.addEventListener("change", e => {
     const on = e.target.checked;
@@ -1562,7 +1567,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     setToggleUi("send-enter", "Send on Enter", on);
     const composer = document.getElementById("composer-input");
     if (composer) composer.enterKeyHint = on ? "send" : "enter";
-    toast(`Send on Enter ${on ? "on" : "off"}`);
+    toast(toggleText("Send on Enter", on ? "on" : "off"));
   });
   // Remember scroll position in chats (issue #18, default ON per #70):
   // unset or "1" = on, "0" = off; ChatView reads it on every open/close.
@@ -1571,13 +1576,13 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     if (on) localStorage.removeItem("velta-remember-scroll");
     else localStorage.setItem("velta-remember-scroll", "0");
     setToggleUi("remember-scroll", "Remember scroll position in chats", on);
-    toast(`Remember scroll position in chats ${on ? "on" : "off"}`);
+    toast(toggleText("Remember scroll position in chats", on ? "on" : "off"));
   });
   drawer.querySelector('[data-toggle="demo"]')?.addEventListener("change", e => {
     const on = e.target.checked;
     localStorage.setItem("velta-mock", on ? "1" : "0");
     setToggleUi("demo", "Demo mode", on);
-    toast(`Demo mode ${on ? "on" : "off"} — reloading`);
+    toast(toggleText("Demo mode", on ? "on" : "off") + " — " + t("reloading"));
     setTimeout(() => location.reload(), 600);
   });
 
@@ -1623,7 +1628,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
 // — or null on cancel. contactId/kind shape the avatar preview (self contact
 // by default; group editors pass contactId: 0 + kind: "group"); title
 // overrides the heading.
-export function showEditProfile({ name, avatarUrl, color, pickImage, contactId = 1, kind = "", title = "Edit profile", description = "" }) {
+export function showEditProfile({ name, avatarUrl, color, pickImage, contactId = 1, kind = "", title = t("Edit profile"), description = "" }) {
   return new Promise(resolve => {
     let picked = null;   // { path } once a new picture is chosen
     let removed = false; // "Remove photo" tapped
@@ -1632,11 +1637,11 @@ export function showEditProfile({ name, avatarUrl, color, pickImage, contactId =
     body.innerHTML = `
       <div class="ep-avatar"><velta-avatar size="84"${contactId ? ` contact-id="${contactId}"` : ""}${kind ? ` kind="${kind}"` : ""}></velta-avatar></div>
       <div class="ep-avatar-actions">
-        <button type="button" class="btn-text" data-ep="pick">Change picture</button>
-        <button type="button" class="btn-text" data-ep="remove" style="display:none">Remove photo</button>
+        <button type="button" class="btn-text" data-ep="pick">${escapeHtml(t("Change picture"))}</button>
+        <button type="button" class="btn-text" data-ep="remove" style="display:none">${escapeHtml(t("Remove photo"))}</button>
       </div>
-      <input class="text-field" maxlength="64" autocomplete="off" spellcheck="false" aria-label="Name" placeholder="Your name">
-      <textarea class="text-field ep-desc" rows="3" spellcheck="false" aria-label="Description" placeholder="Description"></textarea>`;
+      <input class="text-field" maxlength="64" autocomplete="off" spellcheck="false" aria-label="${escapeHtml(t("Name"))}" placeholder="${escapeHtml(t("Your name"))}">
+      <textarea class="text-field ep-desc" rows="3" spellcheck="false" aria-label="${escapeHtml(t("Description"))}" placeholder="${escapeHtml(t("Description"))}"></textarea>`;
     const input = body.querySelector("input");
     const descTa = body.querySelector(".ep-desc");
     descTa.value = description || "";
@@ -1662,7 +1667,7 @@ export function showEditProfile({ name, avatarUrl, color, pickImage, contactId =
         const res = await pickImage?.();
         if (res) { picked = res; removed = false; refreshPreview(); }
       } catch (err) {
-        toast("Couldn't load picture: " + (err.message || err), 4000);
+        toast(t("Couldn't load picture: ") + (err.message || err), 4000);
       } finally {
         pickBtn.disabled = false;
       }
@@ -1673,10 +1678,10 @@ export function showEditProfile({ name, avatarUrl, color, pickImage, contactId =
     foot.className = "edit-profile-foot";
     const cancel = document.createElement("button");
     cancel.type = "button";
-    cancel.className = "btn-text"; cancel.textContent = "Cancel";
+    cancel.className = "btn-text"; cancel.textContent = t("Cancel");
     const save = document.createElement("button");
     save.type = "submit";
-    save.className = "btn-text btn-primary"; save.textContent = "Save";
+    save.className = "btn-text btn-primary"; save.textContent = t("Save");
     foot.append(cancel, save);
 
     // first settlement wins — close() fires onClose, which must not win
@@ -1706,19 +1711,19 @@ export function showEditProfile({ name, avatarUrl, color, pickImage, contactId =
 // provider: async () => ({ svg, link })
 // account: when set (self invite), the Velta logo is overlaid in the QR
 // center — the core reserves a clear circle there for exactly that.
-export function showInvite(provider, { title = "Invite to Delta Chat", group = false, account = null } = {}) {
+export function showInvite(provider, { title = t("Invite to Delta Chat"), group = false, account = null } = {}) {
   const body = document.createElement("div");
   body.innerHTML = `
     <p style="font-size:14.5px;line-height:1.5">${group
-      ? "Anyone scanning this code can join this group — the joiner is verified end-to-end automatically."
-      : "Anyone scanning this code with Delta Chat can reach you with verified end-to-end encryption."}</p>
-    <div class="qr-box"><div class="qr-loading">Generating QR code…</div></div>
+      ? t("Anyone scanning this code can join this group — the joiner is verified end-to-end automatically.")
+      : t("Anyone scanning this code with Delta Chat can reach you with verified end-to-end encryption.")}</p>
+    <div class="qr-box"><div class="qr-loading">${escapeHtml(t("Generating QR code…"))}</div></div>
     <div class="invite-link" style="word-break:break-all"></div>
-    <div style="text-align:center;margin-top:6px"><button type="button" class="btn-text" data-copy>Copy invite link</button></div>`;
+    <div style="text-align:center;margin-top:6px"><button type="button" class="btn-text" data-copy>${escapeHtml(t("Copy invite link"))}</button></div>`;
   showModal({ title, body });
   body.querySelector("[data-copy]").addEventListener("click", () => {
     const link = body.querySelector(".invite-link").textContent;
-    navigator.clipboard?.writeText(link).then(() => toast("Invite link copied"));
+    navigator.clipboard?.writeText(link).then(() => toast(t("Invite link copied")));
   });
   provider()
     .then(({ svg, link }) => {
@@ -1735,7 +1740,7 @@ export function showInvite(provider, { title = "Invite to Delta Chat", group = f
     })
     .catch(err => {
       body.querySelector(".qr-box").innerHTML =
-        `<div class="qr-loading">Couldn't create the invite:<br>${escapeHtml(String(err?.message || err))}</div>`;
+        `<div class="qr-loading">${escapeHtml(t("Couldn't create the invite:"))}<br>${escapeHtml(String(err?.message || err))}</div>`;
     });
 }
 
@@ -1751,7 +1756,7 @@ async function showAbout({ onDiagnostics = null, backendKind = null } = {}) {
     btn.type = "button";
     btn.className = "btn-text";
     btn.dataset.openDiagnostics = "";
-    btn.textContent = "Open diagnostics log";
+    btn.textContent = t("Open diagnostics log");
     btn.addEventListener("click", () => { about.close(); onDiagnostics(); });
     foot = btn;
   }
@@ -1759,17 +1764,17 @@ async function showAbout({ onDiagnostics = null, backendKind = null } = {}) {
     title: "About Velta",
     foot,
     body: `
-      <div class="info-row"><span class="k">App</span><span class="v">Velta ${escapeHtml(version)}</span></div>
-      <div class="info-row"><span class="k">Core</span><span class="v">deltachat-core-rust ${CORE_VERSION}</span></div>
-      <div class="info-row"><span class="k">Transport</span><span class="v">chatmail relays (IMAP/SMTP)</span></div>
-      <div class="info-row"><span class="k">Encryption</span><span class="v">OpenPGP, end-to-end</span></div>
-      <div class="info-row"><span class="k">UI stack</span><span class="v">Elena progressive web components</span></div>
+      <div class="info-row"><span class="k">${escapeHtml(t("App"))}</span><span class="v">Velta ${escapeHtml(version)}</span></div>
+      <div class="info-row"><span class="k">${escapeHtml(t("Core"))}</span><span class="v">deltachat-core-rust ${CORE_VERSION}</span></div>
+      <div class="info-row"><span class="k">${escapeHtml(t("Transport"))}</span><span class="v">${escapeHtml(t("chatmail relays (IMAP/SMTP)"))}</span></div>
+      <div class="info-row"><span class="k">${escapeHtml(t("Encryption"))}</span><span class="v">${escapeHtml(t("OpenPGP, end-to-end"))}</span></div>
+      <div class="info-row"><span class="k">${escapeHtml(t("UI stack"))}</span><span class="v">${escapeHtml(t("Elena progressive web components"))}</span></div>
       <details class="device-info" data-device-info>
-        <summary>Show device info</summary>
+        <summary>${escapeHtml(t("Show device info"))}</summary>
         <pre class="device-info-text" data-device-info-text></pre>
         <div class="device-info-actions">
-          <button type="button" class="btn-text" data-device-copy>Copy</button>
-          <button type="button" class="btn-text" data-device-share hidden>Share</button>
+          <button type="button" class="btn-text" data-device-copy>${escapeHtml(t("Copy"))}</button>
+          <button type="button" class="btn-text" data-device-share hidden>${escapeHtml(t("Share"))}</button>
         </div>
       </details>`,
   });
@@ -1795,16 +1800,16 @@ async function showAbout({ onDiagnostics = null, backendKind = null } = {}) {
   det.querySelector("[data-device-copy]").addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(pre.textContent);
-      toast("Device info copied");
-    } catch (err) { toast("Couldn't copy: " + (err?.message || err)); }
+      toast(t("Device info copied"));
+    } catch (err) { toast(t("Couldn't copy: ") + (err?.message || err)); }
   });
   const shareBtn = det.querySelector("[data-device-share]");
   const webShare = typeof navigator.share === "function" ? o => navigator.share(o) : null;
   shareBtn.hidden = !canShareLink({ ua: navigator.userAgent, hasInvoke: !!tauriInvoke(), hasWebShare: !!webShare });
   shareBtn.addEventListener("click", async () => {
     try {
-      await shareLink(pre.textContent, { ua: navigator.userAgent, invoke: tauriInvoke(), webShare, title: "Velta device info" });
-    } catch (err) { toast("Couldn't share: " + (err?.message || err)); }
+      await shareLink(pre.textContent, { ua: navigator.userAgent, invoke: tauriInvoke(), webShare, title: t("Velta device info") });
+    } catch (err) { toast(t("Couldn't share: ") + (err?.message || err)); }
   });
 }
 
@@ -2072,7 +2077,7 @@ function notifyGateBody(body) {
   // Privacy toggle: drop the message text from the preview (the chat and
   // sender names stay).
   if (localStorage.getItem("velta-notify-text") === "0") {
-    body = "New message";
+    body = t("New message");
   }
   return body;
 }

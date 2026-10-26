@@ -1,6 +1,7 @@
 // format.js — pure helpers shared by the production modules (rpc-core,
 // chat-view, components, app) without pulling mock-core into the
 // production module graph (#48).
+import { t, currentLang } from "./i18n.js";
 
 // Page window over a chat's ordered message-id list, shared by the real and
 // the demo core's getMessages (see JsonRpcCore.getMessages for the options).
@@ -64,7 +65,7 @@ export function serviceChipsHtml(text, people) {
   let out = "", pos = 0;
   for (const s of spans) {
     out += escapeHtml(src.slice(pos, s.start));
-    out += `<button type="button" class="svc-chip" data-contact-id="${Number(s.p.id)}" aria-label="Open profile of ${escapeAttr(s.p.name)}">${escapeHtml(s.p.name)}</button>`;
+    out += `<button type="button" class="svc-chip" data-contact-id="${Number(s.p.id)}" aria-label="${escapeAttr(t("Open profile of {name}", { name: s.p.name }))}">${escapeHtml(s.p.name)}</button>`;
     pos = s.end;
   }
   return out + escapeHtml(src.slice(pos));
@@ -137,8 +138,8 @@ export function formatDateTime(ts) {
 // encrypted === false is the core padlock off; a missing flag (local chat) stays Encrypted.
 export function messageInfoState(m) {
   const seen = m?.from === 1 ? m.state === "read" : !m?.unread;
-  const enc = m?.encrypted === false ? "Not encrypted" : "Encrypted";
-  return `${seen ? "Seen" : "Not seen"}, ${enc}`;
+  const enc = m?.encrypted === false ? t("Not encrypted") : t("Encrypted");
+  return `${seen ? t("Seen") : t("Not seen")}, ${enc}`;
 }
 
 // Message-info reactions (#122). One open <details> per emoji: the summary is
@@ -152,7 +153,7 @@ export function messageInfoReactions(payload) {
   const names = payload.names || {};
   const who = new Map();
   for (const [id, emojis] of Object.entries(by)) {
-    const name = names[id] || (String(id) === "1" ? "You" : "Contact");
+    const name = names[id] || (String(id) === "1" ? t("You") : t("Contact"));
     for (const emoji of emojis || []) {
       if (!who.has(emoji)) who.set(emoji, []);
       who.get(emoji).push(name);
@@ -194,7 +195,7 @@ function relativeDayLabel() {
   try {
     const s = new Intl.RelativeTimeFormat([], { numeric: "auto" }).format(-1, "day");
     return s.charAt(0).toLocaleUpperCase() + s.slice(1);
-  } catch { return "Yesterday"; }
+  } catch { return t("Yesterday"); }
 }
 
 // Chat-list stamp, Delta Chat convention: today HH:MM, yesterday
@@ -216,8 +217,8 @@ export function formatListTime(ts, now = Date.now()) {
 export function formatDay(ts, now = Date.now()) {
   const d = new Date(ts);
   const days = calendarDaysAgo(ts, now);
-  if (days === 0) return "Today";
-  if (days === 1) return "Yesterday";
+  if (days === 0) return t("Today");
+  if (days === 1) return t("Yesterday");
   const other = d.getFullYear() !== new Date(now).getFullYear();
   const f = other ? dtf("dmy", { day: "numeric", month: "long", year: "numeric" }) : dtf("dm", { day: "numeric", month: "long" });
   return f ? f.format(d) : d.toLocaleDateString([], { day: "numeric", month: "long", year: other ? "numeric" : undefined });
@@ -251,9 +252,20 @@ export function stampTime(el, ts, { day = false } = {}) {
   el.title = p.title;
 }
 
+// English keeps its own wording; other languages use Intl plural rules.
+function relAgo(n, unit) {
+  try { return new Intl.RelativeTimeFormat(currentLang(), { numeric: "always" }).format(-n, unit); } catch { return null; }
+}
+
 export function timeAgo(ts) {
   const sec = Math.max(0, (Date.now() - ts) / 1000);
-  if (sec < 60) return "just now";
+  if (sec < 60) return t("just now");
+  if (currentLang() !== "en") {
+    const min = Math.floor(sec / 60), hrs = Math.floor(min / 60), days = Math.floor(hrs / 24);
+    const r = min < 60 ? relAgo(min, "minute") : hrs < 24 ? relAgo(hrs, "hour") : days < 7 ? relAgo(days, "day")
+      : days < 35 ? relAgo(Math.floor(days / 7), "week") : days < 365 ? relAgo(Math.floor(days / 30), "month") : relAgo(Math.floor(days / 365), "year");
+    if (r) return r;
+  }
   const min = Math.floor(sec / 60);
   if (min < 60) return `${min} minute${min === 1 ? "" : "s"} ago`;
   const hrs = Math.floor(min / 60);

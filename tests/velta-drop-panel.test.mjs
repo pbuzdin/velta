@@ -18,7 +18,7 @@ test("panel wiring: no reload, no history entry, accessible controls", () => {
   // expand/collapse toggles classes only — the iframe is never re-appended or re-pointed
   const fn = mgr.slice(mgr.indexOf("function applyExpanded"), mgr.indexOf("export function setWebxdcExpanded"));
   assert.ok(!/iframe|appendChild|\.src\s*=/.test(fn));
-  assert.match(mgr, /aria-expanded="false" title="Expand to full screen" aria-label="Expand to full screen"/);
+  assert.match(mgr, /aria-expanded="false" title="\$\{escapeHtml\(t\("Expand to full screen"\)\)\}" aria-label="\$\{escapeHtml\(t\("Expand to full screen"\)\)\}"/);
   assert.match(mgr, /wrap\.setAttribute\("role", "region"\)/);
   assert.match(mgr, /if \(active\.panel\) \{ if \(isWebxdcExpanded\(\)\) applyExpanded\(false\); return; \}/);
   const css = src("app/css/main.css");

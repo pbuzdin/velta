@@ -8,6 +8,7 @@
 // have one fixed height inside a small modal scroll box, where the window is
 // two lines of arithmetic.
 import { escapeHtml, escapeAttr } from "./format.js";
+import { t } from "./i18n.js";
 
 export const MEMBER_ROW_H = 56;
 export const MEMBER_OVERSCAN = 4;
@@ -65,7 +66,7 @@ export function buildSearchRow(doc, { placeholder, clearLabel }) {
   const clear = doc.createElement("button");
   clear.type = "button";
   clear.className = "btn-text member-search-clear";
-  clear.textContent = "Clear";
+  clear.textContent = t("Clear");
   clear.setAttribute("aria-label", clearLabel);
   clear.hidden = true;
   search.append(input, clear);
@@ -94,7 +95,7 @@ export function buildVirtualScroller(doc, { className, viewportH, label, emptyTe
 
 export function mountMemberList(host, members, { rowOptions = () => ({}), onOpen = null, viewportH = 240, doc = document } = {}) {
   host.replaceChildren();
-  const { search, input, clear } = buildSearchRow(doc, { placeholder: "Search members", clearLabel: "Clear member search" });
+  const { search, input, clear } = buildSearchRow(doc, { placeholder: t("Search members"), clearLabel: t("Clear member search") });
   const { scroller, spacer, empty } = buildVirtualScroller(doc, {
     className: "member-scroll", viewportH, label: "Members", emptyText: "No members found",
   });

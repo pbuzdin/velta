@@ -11,10 +11,10 @@ test("relay details: admin/comment from get_server_metadata, quota from connecti
   assert.match(fn, /meta\?\.comment/);
   assert.match(fn, /meta\?\.admin/);
   assert.match(fn, /escapeHtml\(comment\)/);
-  assert.match(fn, /escapeHtml\(admin\)/);
+  assert.match(fn, /escapeHtml\(t\("Admin: \{admin\}", \{ admin \}\)\)/);
   assert.match(fn, /escapeHtml\(label\)/);
   assert.doesNotMatch(fn, /<a\b/, "relay-supplied strings are never links");
-  assert.match(app, /relayDetailsHtml\(metaByAddr\?\.\[t\.addr\] \|\| null, st\?\.quota\)/);
+  assert.match(app, /relayDetailsHtml\(metaByAddr\?\.\[tr?\.addr\] \|\| null, st\?\.quota\)/);
 });
 
 test("relay details: quota bar uses design tokens and prints the percent", () => {
@@ -26,10 +26,10 @@ test("relay details: quota bar uses design tokens and prints the percent", () =>
 
 test("relay #16: D flag from canIdle (null = not known yet), limit + compression in details, legend", () => {
   assert.match(app, /flag\("D", "Instant delivery:[^"]*", typeof meta\?\.canIdle === "boolean" \? meta\.canIdle : null\)/);
-  assert.match(app, /on !== null \? " — not offered by this relay" : " — not known yet"/);
+  assert.match(app, /on !== null \? " — " \+ t\("not offered by this relay"\) : " — " \+ t\("not known yet"\)/);
   assert.match(app, /meta\?\.maxSmtpRcptTo/);
   assert.match(app, /meta\?\.canCompress === true/);
-  assert.match(app, /<span class="relay-flag">D<\/span><span>instant delivery<\/span>/);
+  assert.match(app, /<span class="relay-flag">D<\/span><span>\$\{escapeHtml\(t\("instant delivery"\)\)\}<\/span>/);
   const quilt = readFileSync(new URL("../tools/apply-core-patches.py", import.meta.url), "utf8");
   for (const f of ["pub can_idle: Option<bool>,", "pub can_compress: Option<bool>,", "pub max_smtp_rcpt_to: Option<u32>,"]) assert.ok(quilt.includes(f), f);
 });

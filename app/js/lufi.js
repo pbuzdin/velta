@@ -26,6 +26,7 @@
 // previews). This module is pure logic + storage and runs under node.
 
 import sjcl from "../vendor/sjcl.js";
+import { t } from "./i18n.js";
 
 export const LUFI_SLICE = 750000;
 export const DEFAULT_LUFI_SERVER = "https://upload.disroot.org";
@@ -108,10 +109,10 @@ export function lufiDelayChoices(config, size) {
 }
 
 export function lufiDelayLabel(days) {
-  if (!days) return "Never";
-  if (days === 1) return "1 day";
-  if (days % 365 === 0) return days === 365 ? "1 year" : `${days / 365} years`;
-  return `${days} days`;
+  if (!days) return t("Never");
+  if (days === 1) return t("1 day");
+  if (days % 365 === 0) return days === 365 ? t("1 year") : t("{n} years", { n: days / 365 });
+  return t("{n} days", { n: days });
 }
 
 // One slice → the text frame Lufi's server expects.

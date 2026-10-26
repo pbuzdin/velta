@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="scheduled_channel_name">Messages programmés</string>
+    <string name="scheduled_due_title">Un message programmé est prêt à partir</string>
+    <string name="scheduled_due_text">Ouvrez Velta pour l\'envoyer</string>
+    <string name="browser_open_external">Ouvrir dans le navigateur</string>
+    <string name="browser_close">Fermer</string>
+</resources>

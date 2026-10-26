@@ -14,6 +14,7 @@
 // Pure helpers are node-tested (tests/web-push.test.mjs).
 
 import { escapeHtml } from "./format.js";
+import { t } from "./i18n.js";
 
 // VAPID public key of the chatmail notifier. Same constant as
 // UnifiedPushService.kt (Android UnifiedPush) and ArcaneChat's build.gradle.
@@ -85,12 +86,12 @@ export function webPushSupport(win = globalThis) {
   const ios = isIos(nav);
   if (ios) {
     const v = iosVersion(nav);
-    if (v && (v[0] < 16 || (v[0] === 16 && v[1] < 4))) return { ok: false, reason: "ios-old", hint: "Push needs iOS 16.4 or newer." };
-    if (!isStandalone(win)) return { ok: false, reason: "ios-not-installed", hint: "On iPhone/iPad, push works only for the installed app: Share → Add to Home Screen, then open Velta from the home screen and turn this on there." };
+    if (v && (v[0] < 16 || (v[0] === 16 && v[1] < 4))) return { ok: false, reason: "ios-old", hint: t("Push needs iOS 16.4 or newer.") };
+    if (!isStandalone(win)) return { ok: false, reason: "ios-not-installed", hint: t("On iPhone/iPad, push works only for the installed app: Share → Add to Home Screen, then open Velta from the home screen and turn this on there.") };
   }
-  if (!nav?.serviceWorker) return { ok: false, reason: "no-sw", hint: "This browser has no service workers (private mode?), so it can't receive push." };
-  if (!("PushManager" in win) || !("Notification" in win)) return { ok: false, reason: "no-push", hint: ios ? "Open Velta from the home screen icon to use push." : "This browser doesn't support Web Push." };
-  if (win.Notification.permission === "denied") return { ok: false, reason: "denied", hint: "Notifications are blocked for this site — allow them in the browser's site settings." };
+  if (!nav?.serviceWorker) return { ok: false, reason: "no-sw", hint: t("This browser has no service workers (private mode?), so it can't receive push.") };
+  if (!("PushManager" in win) || !("Notification" in win)) return { ok: false, reason: "no-push", hint: ios ? t("Open Velta from the home screen icon to use push.") : t("This browser doesn't support Web Push.") };
+  if (win.Notification.permission === "denied") return { ok: false, reason: "denied", hint: t("Notifications are blocked for this site — allow them in the browser's site settings.") };
   return { ok: true, reason: "ok", hint: "" };
 }
 
@@ -107,10 +108,10 @@ export function endpointHost(token) {
 export function webPushBodyHtml({ on, support, status = "" }) {
   const esc = escapeHtml;
   return `
-    <label class="scale-opt"><input type="checkbox" role="switch" data-webpush-toggle${on ? " checked" : ""}${!support.ok && !on ? " disabled" : ""}><span>Notify me when Velta is closed</span></label>
+    <label class="scale-opt"><input type="checkbox" role="switch" data-webpush-toggle${on ? " checked" : ""}${!support.ok && !on ? " disabled" : ""}><span>${escapeHtml(t("Notify me when Velta is closed"))}</span></label>
     ${support.ok ? "" : `<div class="bar-opts-hint" data-webpush-hint>${esc(support.hint)}</div>`}
     <div class="bar-opts-hint" data-webpush-status role="status" aria-live="polite">${esc(status)}</div>
-    <div class="bar-opts-hint">Your relay pings this browser's push service through notifications.delta.chat; the notification only says "New message" — open Velta to fetch it.</div>`;
+    <div class="bar-opts-hint">${escapeHtml(t("Your relay pings this browser's push service through notifications.delta.chat; the notification only says \"New message\" — open Velta to fetch it."))}</div>`;
 }
 
 async function registration(nav) {
@@ -197,8 +198,8 @@ export function wireWebPushSection(details, { core, toast, errToast, win = globa
   const paint = (status) => {
     const on = pushEnabled(storage);
     const tok = storage.getItem(TOKEN_KEY);
-    body.innerHTML = webPushBodyHtml({ on, support: webPushSupport(win), status: status ?? (on ? (tok ? `On — via ${endpointHost(tok)}` : "On") : "Off") });
-    if (summary) summary.textContent = `Push notifications: ${on ? "on" : "off"}`;
+    body.innerHTML = webPushBodyHtml({ on, support: webPushSupport(win), status: status ?? (on ? (tok ? t("On, via {host}", { host: endpointHost(tok) }) : t("On")) : t("Off")) });
+    if (summary) summary.textContent = t("{label}: {state}", { label: "Push notifications", state: on ? t("on") : t("off") });
   };
   details.addEventListener("toggle", () => { if (details.open) paint(); });
   body.addEventListener("change", async (e) => {
@@ -206,13 +207,13 @@ export function wireWebPushSection(details, { core, toast, errToast, win = globa
     if (!input?.matches?.("[data-webpush-toggle]")) return;
     input.disabled = true;
     try {
-      if (input.checked) { await enableWebPush(core, { win, storage }); toast?.("Push notifications on"); }
-      else { await disableWebPush({ win, storage }); toast?.("Push notifications off"); }
+      if (input.checked) { await enableWebPush(core, { win, storage }); toast?.(t("Push notifications on")); }
+      else { await disableWebPush({ win, storage }); toast?.(t("Push notifications off")); }
       paint();
     } catch (err) {
       if (input.checked) await disableWebPush({ win, storage });
-      errToast?.("Push notifications: " + (err?.message || err));
-      paint("Off — " + (err?.message || err));
+      errToast?.(t("Push notifications: ") + (err?.message || err));
+      paint(t("Off") + " — " + (err?.message || err));
     }
   });
   paint();

@@ -204,12 +204,12 @@ test("index.html loads the pre-paint script in <head>, after ui-scale.js", () =>
 
 test("drawer section: native <details>, labelled ranges with px valuetext, swatches, reset", () => {
   assert.match(UI, /<details class="drawer-details" data-chat-appearance>/);
-  assert.match(UI, /<label for="ca-font">Message text size<\/label>/);
+  assert.match(UI, /<label for="ca-font">\$\{escapeHtml\(t\("Message text size"\)\)\}<\/label>/);
   assert.match(UI, /<input type="range" id="ca-font"[^>]*aria-valuetext="\$\{pxText\(st\.fontSize\)\}"/);
   assert.match(UI, /<input type="range" id="ca-radius"[^>]*step="1"/);
-  assert.match(UI, /<fieldset class="ca-accent" data-ca-accent>\s*<legend>Accent color<\/legend>/);
-  assert.match(UI, /<input type="color" data-ca-custom aria-label="Custom accent color"/);
-  assert.match(UI, /data-ca-reset>Reset to defaults</);
+  assert.match(UI, /<fieldset class="ca-accent" data-ca-accent>\s*<legend>\$\{escapeHtml\(t\("Accent color"\)\)\}<\/legend>/);
+  assert.match(UI, /<input type="color" data-ca-custom aria-label="\$\{escapeHtml\(t\("Custom accent color"\)\)\}"/);
+  assert.match(UI, /data-ca-reset>\$\{escapeHtml\(t\("Reset to defaults"\)\)\}</);
   assert.match(UI, /setAttribute\("aria-valuetext", pxText\(v\)\)/);
   assert.ok(UI.indexOf("${chatAppearanceHtml()}") > UI.indexOf("data-theme-opts"), "placed after Theme");
   assert.ok(UI.indexOf("${chatAppearanceHtml()}") < UI.indexOf("data-scale-opts"), "and before Interface scale");

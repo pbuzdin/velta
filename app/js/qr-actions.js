@@ -1,6 +1,7 @@
 // qr-actions.js — logic behind the "Your QR code" screen (#37), kept free of
 // DOM so it can be unit-tested: which tabs/buttons exist on this platform,
 // copy / share of the invite link, and what a scanned code is.
+import { t } from "./i18n.js";
 
 export const isMobileUa = ua => /Android|iPhone|iPad|iPod/i.test(String(ua || ""));
 export const isAndroidUa = ua => /Android/i.test(String(ua || ""));
@@ -26,7 +27,7 @@ export async function copyLink(link, { clipboard }) {
 // → "shared" | "cancelled". Throws when no path works (caller shows a toast).
 // Android: the shell's share_text command (WebView has no Web Share). Elsewhere
 // navigator.share; a user dismissing the sheet (AbortError) is not an error.
-export async function shareLink(link, { ua, invoke, webShare, title = "Velta invite" }) {
+export async function shareLink(link, { ua, invoke, webShare, title = t("Velta invite") }) {
   if (!link) throw new Error("no link to share");
   if (isAndroidUa(ua) && invoke) {
     await invoke("share_text", { text: link, title });

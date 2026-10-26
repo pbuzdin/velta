@@ -3,6 +3,7 @@
 // window.VELTA_PWA.wsProxyUrl stays the default until a domain is chosen here.
 import { invoke, tauriInvoke } from "./tauri.js";
 import { escapeHtml } from "./format.js";
+import { t } from "./i18n.js";
 const LIST_KEY = "velta-ws-relays";
 const ACTIVE_KEY = "velta-ws-relay";
 // Invite tokens per relay host ({host: token}), from velta://ws?…&t= links.
@@ -247,11 +248,11 @@ export async function showWsRelaysModal() {
   const { showModal, toast } = await import("./ui.js");
   const body = document.createElement("div");
   body.innerHTML = `
-    <p style="font-size:14.5px;line-height:1.5;margin-bottom:8px">Mail in this browser tunnels through the relay marked in use. Switching reloads the page.</p>
+    <p style="font-size:14.5px;line-height:1.5;margin-bottom:8px">${escapeHtml(t("Mail in this browser tunnels through the relay marked in use. Switching reloads the page."))}</p>
     <div class="modal-list" data-relay-list style="max-height:220px;overflow:auto"></div>
     <form data-relay-form style="display:flex;gap:8px;margin:10px 0 0">
       <input class="text-field" data-relay-input required placeholder="relay.example.org" autocomplete="off" inputmode="url" autocapitalize="none" spellcheck="false" style="flex:1">
-      <button type="submit" class="btn-text" data-relay-save>Add</button>
+      <button type="submit" class="btn-text" data-relay-save>${escapeHtml(t("Add"))}</button>
     </form>`;
   const listEl = body.querySelector("[data-relay-list]");
   const input = body.querySelector("[data-relay-input]");
@@ -261,7 +262,7 @@ export async function showWsRelaysModal() {
   const changed = (before, fn) => {
     const result = fn();
     if (result && wsProxyUrl() !== before) {
-      toast("Relay changed — reloading");
+      toast(t("Relay changed, reloading"));
       setTimeout(() => location.reload(), 400);
     }
     return result;
@@ -273,7 +274,7 @@ export async function showWsRelaysModal() {
     for (const host of listWsRelays()) {
       const item = document.createElement("div");
       item.className = "info-row";
-      item.innerHTML = `<span class="v">${escapeHtml(host)}${host === active ? ' <span style="opacity:.55">(in use)</span>' : ""}</span>`;
+      item.innerHTML = `<span class="v">${escapeHtml(host)}${host === active ? ` <span style="opacity:.55">(${escapeHtml(t("in use"))})</span>` : ""}</span>`;
       const btn = (label, click) => {
         const b = document.createElement("button");
         b.type = "button";
@@ -282,17 +283,17 @@ export async function showWsRelaysModal() {
         b.addEventListener("click", click);
         item.appendChild(b);
       };
-      if (host !== active) btn("Use", () => changed(wsProxyUrl(), () => useWsRelay(host)));
-      btn("Edit", () => {
+      if (host !== active) btn(t("Use"), () => changed(wsProxyUrl(), () => useWsRelay(host)));
+      btn(t("Edit"), () => {
         editing = host;
         input.value = host;
-        saveBtn.textContent = "Save";
+        saveBtn.textContent = t("Save");
         input.focus();
       });
       if (listWsRelays().length > 1) {
-        btn("Remove", () => {
+        btn(t("Remove"), () => {
           changed(wsProxyUrl(), () => removeWsRelay(host));
-          if (editing === host) { editing = null; saveBtn.textContent = "Add"; input.value = ""; }
+          if (editing === host) { editing = null; saveBtn.textContent = t("Add"); input.value = ""; }
           render();
         });
       }
@@ -308,11 +309,11 @@ export async function showWsRelaysModal() {
       const from = editing;
       const next = editWsRelay(from, input.value);
       editing = null;
-      saveBtn.textContent = "Add";
-      if (!next) { toast("Enter a different domain, e.g. relay.example.org"); return; }
+      saveBtn.textContent = t("Add");
+      if (!next) { toast(t("Enter a different domain, e.g. relay.example.org")); return; }
       input.value = "";
       if (wsProxyUrl() !== before) {
-        toast("Relay changed — reloading");
+        toast(t("Relay changed, reloading"));
         setTimeout(() => location.reload(), 400);
         return;
       }
@@ -320,9 +321,9 @@ export async function showWsRelaysModal() {
       return;
     }
     const host = addWsRelay(input.value);
-    if (!host) { toast("Enter a domain, e.g. relay.example.org"); return; }
+    if (!host) { toast(t("Enter a domain, e.g. relay.example.org")); return; }
     input.value = "";
     render();
-    toast(`${host} added`);
+    toast(t("{host} added", { host }));
   });
 }

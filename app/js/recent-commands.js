@@ -10,6 +10,7 @@
 // message starts with "/". Lookup is per-chat; a chat with no history falls
 // back to the account-wide (global) list. Storage failures degrade to
 // "no history", never an error.
+import { t } from "./i18n.js";
 
 export const KEY = "velta-recent-commands";
 export const MAX = 10;
@@ -109,7 +110,7 @@ export function attachRecentCommands(input, anchor, getCtx) {
       pop.id = "recent-commands";
       pop.className = "recent-commands-pop";
       pop.setAttribute("role", "listbox");
-      pop.setAttribute("aria-label", "Recent commands");
+      pop.setAttribute("aria-label", t("Recent commands"));
       // pointerdown + preventDefault: keep focus (and the Android soft
       // keyboard) on the textarea while tapping an option.
       pop.addEventListener("pointerdown", e => e.preventDefault());

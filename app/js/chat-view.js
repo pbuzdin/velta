@@ -121,7 +121,7 @@ import { t } from "./i18n.js";
 
 function reactionChipsHtml(reactions) {
   return (reactions || []).map(r =>
-    `<button type="button" class="reaction-chip${r.mine ? " mine" : ""}" aria-pressed="${r.mine ? "true" : "false"}" aria-label="${escapeAttr(r.emoji)} ${Number(r.count) || 0}${r.mine ? ", your reaction, tap to remove" : ""}" data-react="${escapeAttr(r.emoji)}">${escapeHtml(r.emoji)} ${Number(r.count) || 0}</button>`
+    `<button type="button" class="reaction-chip${r.mine ? " mine" : ""}" aria-pressed="${r.mine ? "true" : "false"}" aria-label="${escapeAttr(r.emoji)} ${Number(r.count) || 0}${r.mine ? escapeAttr(t(", your reaction, tap to remove")) : ""}" data-react="${escapeAttr(r.emoji)}">${escapeHtml(r.emoji)} ${Number(r.count) || 0}</button>`
   ).join("");
 }
 
@@ -177,7 +177,7 @@ export async function saveAttachmentFile(core, msg) {
   const name = attachmentName(msg);
   const invoke = tauriInvoke();
   if (isAndroid() && invoke) {
-    const picked = await invoke("plugin:dialog|save", { options: { title: "Save file", defaultPath: name } });
+    const picked = await invoke("plugin:dialog|save", { options: { title: t("Save file"), defaultPath: name } });
     const uri = typeof picked === "string" ? picked : "";
     if (!uri) return false;
     await invoke("save_attachment", { src: msg.filePath, uri });
@@ -196,7 +196,7 @@ export function openAttachmentFile(path, name = null, { openHtml = null, onError
   // the network context of this page) instead of the system browser.
   if (/\.x?html?$/i.test(path)) {
     if (openHtml) return openHtml(path, name);
-    onError("Open this HTML file from its message in the chat");
+    onError(t("Open this HTML file from its message in the chat"));
     return;
   }
   // Android: tauri-plugin-opener ships no file-open implementation on
@@ -209,7 +209,7 @@ export function openAttachmentFile(path, name = null, { openHtml = null, onError
       openImageLightbox(fileUrl(path), name || "image");
       return;
     }
-    onError("Opening this file type isn't supported on Android yet");
+    onError(t("Opening this file type isn't supported on Android yet"));
     return;
   }
   const invoke = tauriInvoke();
@@ -223,10 +223,10 @@ export function openAttachmentFile(path, name = null, { openHtml = null, onError
       abs = window.veltaAccountsDir.replace(/[\\/]+$/, "") + "/" + path.replace(/^[\\/]+/, "");
     }
     invoke("plugin:opener|open_path", { path: abs }).catch(err => {
-      onError("Could not open file: " + (err.message || err) + " path=" + abs);
+      onError(t("Could not open file: ") + (err.message || err) + " path=" + abs);
     });
   } else {
-    onError("File opening is only available in the Tauri app");
+    onError(t("File opening is only available in the Tauri app"));
   }
 }
 
@@ -290,7 +290,7 @@ function openHttp(href) {
   go(cleaned);
   if (cleaned === href) return;
   let used = false;
-  toast("Tracking removed from link", 6000, {
+  toast(t("Tracking removed from link"), 6000, {
     undo() {
       if (used) return;
       used = true;
@@ -304,7 +304,7 @@ function openHttp(href) {
 // "Forwarded a picture" / "an audio" / "a video", everything else "a message".
 const FWD_NOUNS = { image: "picture", gif: "picture", video: "video", audio: "audio", voice: "audio" };
 const FWD_NOUN = (viewtype) => FWD_NOUNS[viewtype] || "message";
-const FWD_ARTICLE = (viewtype) => (/^[aeiou]/.test(FWD_NOUN(viewtype)) ? "an " : "a ");
+const FWD_LABELS = { picture: "Forwarded a picture", video: "Forwarded a video", audio: "Forwarded an audio", message: "Forwarded a message" };
 
 // Round side button next to a bubble with replies (Telegram-comments style):
 // shown once a message has at least this many replies. One knob — raise it
@@ -353,14 +353,14 @@ const ICO = {
 // "Permanent SMTP error: permanent: 5.3.4 Error: message file too big"
 // → "Message file too big". Falls back to the raw text (first line).
 function failReason(error) {
-  if (!error) return "Not sent";
-  let t = String(error).split("\n")[0];
+  if (!error) return t("Not sent");
+  let line = String(error).split("\n")[0];
   // LAST "Error: " segment wins — take everything after the final occurrence
   // (a greedy match to $ grabs the whole line instead).
-  const i = t.lastIndexOf("Error: ");
-  if (i >= 0) t = t.slice(i + 7);
-  t = t.trim();
-  return t.charAt(0).toUpperCase() + t.slice(1);
+  const i = line.lastIndexOf("Error: ");
+  if (i >= 0) line = line.slice(i + 7);
+  line = line.trim();
+  return line.charAt(0).toUpperCase() + line.slice(1);
 }
 
 
@@ -424,8 +424,8 @@ function openImageCropper(imageUrl) {
         </div>
       </div>
       <div style="display:flex;gap:8px;margin-top:10px;justify-content:center">
-        <button type="button" class="btn-text" data-apply style="background:var(--accent);color:#f4f4f4">Apply</button>
-        <button type="button" class="btn-text" data-cancelcrop>Cancel</button>
+        <button type="button" class="btn-text" data-apply style="background:var(--accent);color:#f4f4f4">${escapeHtml(t("Apply"))}</button>
+        <button type="button" class="btn-text" data-cancelcrop>${escapeHtml(t("Cancel"))}</button>
       </div>`;
     const { close } = showModal({ title: "Crop image", body, onClose: () => finish(null) });
     const canvas = body.querySelector("[data-canvas]");
@@ -918,7 +918,7 @@ export class ChatView {
     const item = (m) => `
       <div class="pin-tray-item" data-pin-id="${m.id}">
         <span class="pb-text"><b>${escapeHtml(m.fromContact?.name || "")}</b> ${escapeHtml(snippet(m))}</span>
-        ${canUnpin ? `<button type="button" class="pin-unpin" data-unpin="${m.id}" title="Unpin" aria-label="Unpin">${ICON.close}</button>` : ""}
+        ${canUnpin ? `<button type="button" class="pin-unpin" data-unpin="${m.id}" title="${escapeHtml(t("Unpin"))}" aria-label="${escapeHtml(t("Unpin"))}">${ICON.close}</button>` : ""}
       </div>`;
     bar.innerHTML = `
       <summary class="pin-tray-summary">
@@ -940,7 +940,7 @@ export class ChatView {
       btn.addEventListener("click", async e => {
         e.stopPropagation();
         try { await this.core.pinMessage(Number(btn.dataset.unpin), false); } catch (err) {
-          errToast("Couldn't unpin: " + (err?.message || err));
+          errToast(t("Couldn't unpin: ") + (err?.message || err));
         }
         this._refreshPinnedBar();
       });
@@ -1377,7 +1377,7 @@ export class ChatView {
     if (!badge) {
       badge = document.createElement("span");
       badge.className = "msg-fail-badge";
-      badge.title = m?.error || "Not sent";
+      badge.title = m?.error || t("Not sent");
       badge.textContent = failReason(m?.error);
       row.querySelector(".msg-meta")?.after(badge);
     }
@@ -1385,8 +1385,8 @@ export class ChatView {
       actions = document.createElement("div");
       actions.className = "msg-fail-actions";
       actions.innerHTML =
-        `<button type="button" data-act="resend" title="Retry" aria-label="Retry sending">${ICO.resend}</button>`
-        + `<button type="button" data-act="fail-del" title="Remove" aria-label="Remove message">${ICO.trash}</button>`;
+        `<button type="button" data-act="resend" title="${escapeHtml(t("Retry"))}" aria-label="${escapeHtml(t("Retry sending"))}">${ICO.resend}</button>`
+        + `<button type="button" data-act="fail-del" title="${escapeHtml(t("Remove"))}" aria-label="${escapeHtml(t("Remove message"))}">${ICO.trash}</button>`;
       row.querySelector(".bubble")?.before(actions);
     }
   }
@@ -1415,7 +1415,7 @@ export class ChatView {
       await this.core.resendMessage(m.id);
       this.onMsgState(m.chatId, m.id, "pending");
     } catch (err) {
-      errToast(`Resend failed: ${err?.message || err}`);
+      errToast(t("Resend failed: {why}", { why: err?.message || err }));
       diagnosticsSink.append("error", `resend ${m.id}: ${err?.message || err}`);
     }
   }
@@ -1428,7 +1428,7 @@ export class ChatView {
   async _deleteFailed(m) {
     const session = this._session;
     if (!this._isCurrent(session)) return;
-    if (!(await confirmModal("Remove message", "Delete this message for everyone?"))) return;
+    if (!(await confirmModal("Remove message", t("Delete this message for everyone?")))) return;
     if (!this._isCurrent(session)) return;
     this._holdDelete(session, [m.id], true);
   }
@@ -1436,9 +1436,9 @@ export class ChatView {
   async _lcRetryTransfer(m, memberId = null) {
     try {
       await lcRetryTransfer(m.chatId, m.id, memberId);
-      toast("Retrying…");
+      toast(t("Retrying…"));
     } catch (err) {
-      errToast(`Retry failed: ${err?.message || err}`);
+      errToast(t("Retry failed: {why}", { why: err?.message || err }));
     }
   }
 
@@ -1735,7 +1735,7 @@ export class ChatView {
     const title = document.createElement("h2");
     title.id = "thread-title";
     title.className = "thread-title";
-    title.textContent = "Thread ";
+    title.textContent = t("Thread") + " ";
     const count = document.createElement("span");
     count.className = "thread-count";
     title.appendChild(count);
@@ -1748,8 +1748,8 @@ export class ChatView {
     close.type = "button";
     close.className = "icon-btn thread-close";
     // "Back", not "close": the sheet is a layer over the chat, not a dialog.
-    close.setAttribute("aria-label", "Back to chat");
-    close.title = "Back to chat";
+    close.setAttribute("aria-label", t("Back to chat"));
+    close.title = t("Back to chat");
     close.innerHTML = ICON.chevronLeft;
     close.addEventListener("click", () => this._closeThread());
     head.append(titles, close);
@@ -1778,7 +1778,7 @@ export class ChatView {
   _updateThreadCount() {
     const n = this.threadReplies.children.length;
     const el = this.threadPanel.querySelector(".thread-count");
-    if (el) el.textContent = `· ${n} ${n === 1 ? "reply" : "replies"}`;
+    if (el) el.textContent = "· " + (n === 1 ? t("1 reply") : t("{n} replies", { n }));
   }
 
   _closeThread({ fromPop = false } = {}) {
@@ -1897,7 +1897,7 @@ export class ChatView {
       this.hasMore = hasMore;
       if (messages.length) this._prependHistory(messages);
     } catch (err) {
-      if (this._isCurrent(session)) errToast("Couldn't load older messages: " + (err.message || err));
+      if (this._isCurrent(session)) errToast(t("Couldn't load older messages: ") + (err.message || err));
     } finally {
       this._loadBar(false); // unconditional: an early session-invalid return must not leave the bar on
       if (this._isCurrent(session)) this.loadingMore = false;
@@ -2029,7 +2029,7 @@ export class ChatView {
   _unreadSepEl() {
     const el = document.createElement("div");
     el.className = "unread-sep";
-    el.textContent = "Unread messages";
+    el.textContent = t("Unread messages");
     return el;
   }
 
@@ -2038,7 +2038,7 @@ export class ChatView {
   _readMarkerEl() {
     const el = document.createElement("div");
     el.className = "read-marker";
-    el.innerHTML = `<span>Read up to here</span><button type="button" class="read-marker-x" title="Remove read marker" aria-label="Remove read marker">${CLOSE_SVG}</button>`;
+    el.innerHTML = `<span>${escapeHtml(t("Read up to here"))}</span><button type="button" class="read-marker-x" title="${escapeHtml(t("Remove read marker"))}" aria-label="${escapeHtml(t("Remove read marker"))}">${CLOSE_SVG}</button>`;
     el.querySelector("button").addEventListener("click", (e) => {
       e.stopPropagation();
       if (this._isCurrent() && this.chat) this._clearReadMarker();
@@ -2078,7 +2078,7 @@ export class ChatView {
     bubble.classList.add("webxdc-info");
     bubble.setAttribute("role", "button");
     bubble.tabIndex = 0;
-    bubble.title = "Open app";
+    bubble.title = t("Open app");
     const img = document.createElement("img");
     img.className = "webxdc-info-icon";
     img.alt = "";
@@ -2148,7 +2148,7 @@ export class ChatView {
     const showAvatar = !out && (this.chat.kind === "group");
     // Event-driven inserts (onIncoming) can carry rows before decoration —
     // never let a missing fromContact kill the whole render pass.
-    const fc = m.fromContact || { id: m.from, name: "Unknown", color: "#888" };
+    const fc = m.fromContact || { id: m.from, name: t("Unknown"), color: "#888" };
     const row = document.createElement("div");
     row.className = "msg-row" + (out ? " out" : "") + (showAvatar ? " with-avatar" : "") + (m.originalMsgId ? " has-original" : "");
     row.dataset.msgid = m.id;
@@ -2158,9 +2158,9 @@ export class ChatView {
     let inner = "";
     // Day chip rides inside the first row of the day (see _annotateMessages).
     if (item.dayFirst) inner += timeTag(m.ts, formatDay(m.ts), { day: true, className: "day-chip" });
-    if (item.unreadFirst) inner += `<div class="unread-sep">Unread messages</div>`;
+    if (item.unreadFirst) inner += `<div class="unread-sep">${escapeHtml(t("Unread messages"))}</div>`;
     if (this.selection.size) {
-      inner += `<input type="checkbox" class="msg-checkbox" aria-label="Select message"${this.selection.has(m.id) ? " checked" : ""}>`;
+      inner += `<input type="checkbox" class="msg-checkbox" aria-label="${escapeHtml(t("Select message"))}"${this.selection.has(m.id) ? " checked" : ""}>`;
     }
     if (showAvatar) {
       inner += `<velta-avatar name="${escapeHtml(fc.name)}" color="${fc.color}" size="42" contact-id="${fc.id ?? ""}" addr="${escapeAttr(fc.addr || "")}"${fc.avatar ? ` avatar="${escapeAttr(fileUrl(fc.avatar))}"` : ""}></velta-avatar>`;
@@ -2172,9 +2172,9 @@ export class ChatView {
       const h = batch?.heights.get(m.id) || 0;
       const elapsed = batch ? Math.min(batch.ms, Math.max(0, Date.now() - batch.started)) : 0;
       const undo = batch && !batch.committing
-        ? `<button type="button" class="msg-undo" data-undo>Undo<span class="msg-undo-bar" style="animation-duration:${batch.ms}ms;animation-delay:-${elapsed}ms"></span></button>`
+        ? `<button type="button" class="msg-undo" data-undo>${escapeHtml(t("Undo"))}<span class="msg-undo-bar" style="animation-duration:${batch.ms}ms;animation-delay:-${elapsed}ms"></span></button>`
         : "";
-      inner += `<div class="bubble msg-deleted"${h ? ` style="min-height:${h}px"` : ""}><div class="msg-deleted-label">This message was deleted</div>${undo}</div>`;
+      inner += `<div class="bubble msg-deleted"${h ? ` style="min-height:${h}px"` : ""}><div class="msg-deleted-label">${escapeHtml(t("This message was deleted"))}</div>${undo}</div>`;
       row.innerHTML = inner;
       if (item.readMarker) row.append(this._readMarkerEl());
       row.querySelector("[data-undo]")?.addEventListener("click", (e) => {
@@ -2191,10 +2191,10 @@ export class ChatView {
     // Same control as the desktop shortcut menu, kept visible so a touch
     // can hit it. Hangs off the bubble into the gap .has-original reserves.
     if (m.originalMsgId) {
-      bubble += `<button type="button" class="msg-show-in-chat" data-act="show-original" title="Show in chat" aria-label="Show in chat">${ICON.chevronRight}</button>`;
+      bubble += `<button type="button" class="msg-show-in-chat" data-act="show-original" title="${escapeHtml(t("Show in chat"))}" aria-label="${escapeHtml(t("Show in chat"))}">${ICON.chevronRight}</button>`;
     }
     if (showAvatar) bubble += `<div class="msg-sender" style="${senderColorVars(fc.color)}">${escapeHtml(fc.name)}</div>`;
-    if (m.fwdFrom) bubble += `<div class="msg-fwd">Forwarded ${FWD_ARTICLE(m.viewtype)}${FWD_NOUN(m.viewtype)}</div>`;
+    if (m.fwdFrom) bubble += `<div class="msg-fwd">${escapeHtml(t(FWD_LABELS[FWD_NOUN(m.viewtype)]))}</div>`;
     if (m.quote) {
       bubble += `<div class="msg-quote" data-quote="${m.quote.id}">
         <span class="q-name">${escapeHtml(m.quote.fromContact?.name || "")}</span>
@@ -2202,11 +2202,11 @@ export class ChatView {
     }
     if (m.transfer) {
       const pct = Math.max(0, Math.min(100, m.transfer.pct || 0));
-      const head = `<div class="mfp-name">${escapeHtml(m.fileName || "File")}</div>`;
+      const head = `<div class="mfp-name">${escapeHtml(m.fileName || t("File"))}</div>`;
       if (m.transfer.failed) {
-        bubble += `<div class="msg-transfer is-failed">${head}<div class="mfp-fail">Transfer interrupted</div><button type="button" class="btn-text" data-act="lc-retry">Retry</button></div>`;
+        bubble += `<div class="msg-transfer is-failed">${head}<div class="mfp-fail">${escapeHtml(t("Transfer interrupted"))}</div><button type="button" class="btn-text" data-act="lc-retry">${escapeHtml(t("Retry"))}</button></div>`;
       } else {
-        bubble += `<div class="msg-transfer">${head}<progress class="mfp-bar" max="100" value="${pct}" aria-label="Transfer">${pct}%</progress><div class="mfp-pct">${pct}%</div></div>`;
+        bubble += `<div class="msg-transfer">${head}<progress class="mfp-bar" max="100" value="${pct}" aria-label="${escapeHtml(t("Transfer"))}">${pct}%</progress><div class="mfp-pct">${pct}%</div></div>`;
       }
     } else if (m.viewtype === "image" || m.viewtype === "gif" || m.viewtype === "sticker") {
       // Demo stickers are emoji placeholders, not files — render the emoji.
@@ -2245,7 +2245,7 @@ export class ChatView {
         const size = m.fileSize ? formatBytes(m.fileSize) : "";
         bubble += `<div class="msg-file download-btn" role="button" data-act="download">
           <div class="file-ico">${ICO.download}</div>
-          <div><div class="file-name">${escapeHtml(m.fileName || "Photo")}</div><div class="file-size">${m.downloadState === "InProgress" ? "Downloading…" : size || "Tap to download"}</div></div>
+          <div><div class="file-name">${escapeHtml(m.fileName || t("Photo"))}</div><div class="file-size">${escapeHtml(m.downloadState === "InProgress" ? t("Downloading…") : size || t("Tap to download"))}</div></div>
         </div>`;
       }
     } else if (m.viewtype === "video") {
@@ -2261,12 +2261,12 @@ export class ChatView {
         const dw = m.dimensionsWidth > 0 ? m.dimensionsWidth : 0;
         const dh = m.dimensionsHeight > 0 ? m.dimensionsHeight : 0;
         const vBox = dw && dh ? ` style="width:min(${dw}px, 480px, calc(min(var(--vh) * .45, 260px) * ${(dw / dh).toFixed(4)})); aspect-ratio:${dw} / ${dh}; max-width:100%"` : "";
-        bubble += `<div class="msg-video"${vBox}><velta-video src="${escapeAttr(fileUrl(m.filePath))}" file="${escapeAttr(m.filePath)}" size="${escapeAttr(size)}" duration="${m.duration || ""}" name="${escapeHtml(m.fileName || "Video")}"></velta-video></div>`;
+        bubble += `<div class="msg-video"${vBox}><velta-video src="${escapeAttr(fileUrl(m.filePath))}" file="${escapeAttr(m.filePath)}" size="${escapeAttr(size)}" duration="${m.duration || ""}" name="${escapeHtml(m.fileName || t("Video"))}"></velta-video></div>`;
       } else {
         const size = m.fileSize ? formatBytes(m.fileSize) : "";
         bubble += `<div class="msg-file download-btn" role="button" data-act="download">
           <div class="file-ico">${ICO.download}</div>
-          <div><div class="file-name">${escapeHtml(m.fileName || "Video")}</div><div class="file-size">${m.downloadState === "InProgress" ? "Downloading…" : size || "Tap to download"}</div></div>
+          <div><div class="file-name">${escapeHtml(m.fileName || t("Video"))}</div><div class="file-size">${escapeHtml(m.downloadState === "InProgress" ? t("Downloading…") : size || t("Tap to download"))}</div></div>
         </div>`;
       }
     } else if (m.viewtype === "audio" || m.viewtype === "voice") {
@@ -2275,10 +2275,10 @@ export class ChatView {
         // MediaRecorder voice notes made the native control a 0:00 pill).
         bubble += `<div class="msg-audio">${audioPlayerHtml({ label: m.viewtype === "voice" ? "Voice message" : "Audio", duration: m.duration })}<audio data-src="audio" preload="metadata" hidden></audio></div>`;
       } else {
-        const label = m.viewtype === "voice" ? "Voice message" : "Audio";
+        const label = m.viewtype === "voice" ? t("Voice message") : t("Audio");
         bubble += `<div class="msg-file download-btn" role="button" data-act="download">
           <div class="file-ico">${ICO.download}</div>
-          <div><div class="file-name">${escapeHtml(m.fileName || label)}</div><div class="file-size">${m.downloadState === "InProgress" ? "Downloading…" : "Tap to download"}</div></div>
+          <div><div class="file-name">${escapeHtml(m.fileName || label)}</div><div class="file-size">${escapeHtml(m.downloadState === "InProgress" ? t("Downloading…") : t("Tap to download"))}</div></div>
         </div>`;
       }
     } else if (m.viewtype === "webxdc") {
@@ -2288,14 +2288,14 @@ export class ChatView {
       const appName = builtin?.name || (m.fileName || "app.xdc").replace(/\.xdc$/i, "");
       bubble += `<div class="msg-webxdc" role="button" data-act="open-webxdc">
         <div class="webxdc-ico"><img data-webxdc-icon="${m.id}" alt="" decoding="async"${builtin ? ` src="${escapeAttr(builtin.iconUrl)}" style="display:block"` : ""}><span class="webxdc-ico-letter" hidden></span><span class="webxdc-ico-glyph"${builtin ? " hidden" : ""}>${ICO.webxdc || ICO.download}</span></div>
-        <div><div class="file-name">${escapeHtml(appName)}</div><div class="file-sub"><span class="webxdc-summary">Webxdc app</span></div></div>
-        <button type="button" class="webxdc-start" data-act="open-webxdc">Start</button>
+        <div><div class="file-name">${escapeHtml(appName)}</div><div class="file-sub"><span class="webxdc-summary">${escapeHtml(t("Webxdc app"))}</span></div></div>
+        <button type="button" class="webxdc-start" data-act="open-webxdc">${escapeHtml(t("Start"))}</button>
       </div>`;
     } else if (m.viewtype === "file") {
       const isDownloaded = m.downloadState === "Done";
       bubble += `<div class="msg-file${isDownloaded ? "" : " download-btn"}" role="button" data-act="${isDownloaded ? "open" : "download"}">
         <div class="file-ico">${ICO.download}</div>
-        <div><div class="file-name">${escapeHtml(m.fileName || "File")}</div><div class="file-size">${m.downloadState === "InProgress" ? "Downloading…" : (m.fileSize ? formatBytes(m.fileSize) : "Tap to download")}</div></div>
+        <div><div class="file-name">${escapeHtml(m.fileName || t("File"))}</div><div class="file-size">${escapeHtml(m.downloadState === "InProgress" ? t("Downloading…") : (m.fileSize ? formatBytes(m.fileSize) : t("Tap to download")))}</div></div>
       </div>`;
     } else if (m.viewtype === "vcard") {
       // Shared contact card, styled like the invite cards: avatar on the
@@ -2306,7 +2306,7 @@ export class ChatView {
       bubble += `<span class="invite-card vcard-card">` +
         `<span class="vcard-avatar" data-vcard-avatar></span>` +
         `<button type="button" class="invite-main" data-vcard-open>` +
-          `<span class="invite-line">Chat with <b data-vcard-name>${escapeHtml(m.text || "contact")}</b></span>` +
+          `<span class="invite-line">${t("Chat with {name}", { name: `<b data-vcard-name>${escapeHtml(m.text || t("contact"))}</b>` })}</span>` +
           `<span class="invite-sub" data-vcard-sub hidden></span>` +
         `</button>` +
       `</span>`;
@@ -2332,13 +2332,13 @@ export class ChatView {
           bubble += `<div class="msg-cmds">${cmds.map((c) => `<button type="button" class="msg-cmd" data-cmd="${escapeAttr(c)}">${escapeHtml(c)}</button>`).join("")}</div>`;
         }
       }
-      if (fullMsg) bubble += `<div style="margin-top:6px"><button type="button" class="btn-text" data-fullmsg style="padding:4px 8px;font-size:13px">Show Full Message…</button></div>`;
+      if (fullMsg) bubble += `<div style="margin-top:6px"><button type="button" class="btn-text" data-fullmsg style="padding:4px 8px;font-size:13px">${escapeHtml(t("Show Full Message…"))}</button></div>`;
       // Settings export (settings-transfer.js): only in Saved Messages, only
       // our own original messages (no forwards, no saved copies of someone
       // else's), and only when the strict parser accepts the block.
       if (this.chat?.kind === "saved" && m.from === 1 && !m.fwdFrom && !m.originalMsgId
         && looksLikeSettings(m.text) && parseSettings(m.text)) {
-        bubble += `<div class="msg-settings-act"><button type="button" class="btn-text" data-apply-settings>Apply these settings</button></div>`;
+        bubble += `<div class="msg-settings-act"><button type="button" class="btn-text" data-apply-settings>${escapeHtml(t("Apply these settings"))}</button></div>`;
       }
       // Plain text only. A baked sender preview is an image, and fetching
       // its caption would put the recipient's IP on that site (#88).
@@ -2348,16 +2348,16 @@ export class ChatView {
       // state and duration come from core call_info (hydrated below); the
       // message text is just a stock string used as the fallback label.
       const callOut = m.from === 1;
-      bubble += `<div class="call-card${callOut ? " call-out" : " call-in"}" data-call-card><span class="call-card-ico">${ICON.phone}</span><span class="call-card-main"><span class="call-card-label" data-call-label>${escapeHtml(m.text || (callOut ? "Outgoing call" : "Incoming call"))}</span><span class="call-card-sub" data-call-sub></span></span></div>`;
+      bubble += `<div class="call-card${callOut ? " call-out" : " call-in"}" data-call-card><span class="call-card-ico">${ICON.phone}</span><span class="call-card-main"><span class="call-card-label" data-call-label>${escapeHtml(m.text || (callOut ? t("Outgoing call") : t("Incoming call")))}</span><span class="call-card-sub" data-call-sub></span></span></div>`;
     } else bubble += `<div class="msg-text">`;
-    const edited = m.edited ? `<span class="edited">edited</span>` : "";
+    const edited = m.edited ? `<span class="edited">${escapeHtml(t("edited"))}</span>` : "";
     // Bot chip in the meta row's right corner (same slot as "edited"): the
     // sender contact carries the core's isBot flag (rpc-core + mock). The
     // desktop hover-reply pill sticks along the bubble's right edge, so the
     // chip stays in the meta row where it never fights it. Sticker bubbles carry no meta.
     const botChip = m.kind === "msg" && !out && m.viewtype !== "sticker" && m.fromContact?.bot
-      ? `<span class="bot-chip" title="Sent by a bot">bot</span>` : "";
-    const star = m.starred ? labelled(svg(P.star, "star-ico"), "Starred").replace("<path ", '<path fill="currentColor" ') : "";
+      ? `<span class="bot-chip" title="${escapeHtml(t("Sent by a bot"))}">${escapeHtml(t("bot"))}</span>` : "";
+    const star = m.starred ? labelled(svg(P.star, "star-ico"), t("Starred")).replace("<path ", '<path fill="currentColor" ') : "";
     const ticks = out ? `<span class="ticks-slot">${ticksSvg(m.state, "ticks")}</span>` : "";
     // Failed sends: a small red reason badge in the meta row (floats left,
     // against the right-floating timestamp) plus retry/remove buttons to the
@@ -2367,10 +2367,10 @@ export class ChatView {
     let failBadge = "";
     if (out && m.state === "failed") {
       failActions = `<div class="msg-fail-actions">`
-        + `<button type="button" data-act="resend" title="Retry" aria-label="Retry sending">${ICO.resend}</button>`
-        + `<button type="button" data-act="fail-del" title="Remove" aria-label="Remove message">${ICO.trash}</button></div>`;
+        + `<button type="button" data-act="resend" title="${escapeHtml(t("Retry"))}" aria-label="${escapeHtml(t("Retry sending"))}">${ICO.resend}</button>`
+        + `<button type="button" data-act="fail-del" title="${escapeHtml(t("Remove"))}" aria-label="${escapeHtml(t("Remove message"))}">${ICO.trash}</button></div>`;
       const reason = failReason(m.error);
-      failBadge = `<span class="msg-fail-badge" title="${escapeAttr(m.error || "Not sent")}">${escapeHtml(reason)}</span>`;
+      failBadge = `<span class="msg-fail-badge" title="${escapeAttr(m.error || t("Not sent"))}">${escapeHtml(reason)}</span>`;
     }
     // "N replies" chip: with the #14 core patch the counts are core-exact;
     // otherwise only when the whole older history is loaded (pages still
@@ -2379,10 +2379,10 @@ export class ChatView {
     // Passive count next to the timestamp (phones; desktop has the side
     // button). Not a tap target — the side button and the menu open threads.
     const repliesChip = replyN > 0
-      ? `<span class="msg-replies-count">${replyN} ${replyN === 1 ? "reply" : "replies"}</span>`
+      ? `<span class="msg-replies-count">${escapeHtml(replyN === 1 ? t("1 reply") : t("{n} replies", { n: replyN }))}</span>`
       : "";
     if (replyN >= THREAD_BUTTON_MIN_REPLIES && replyN > 0 && !inThread) {
-      const label = `Show ${replyN} ${replyN === 1 ? "reply" : "replies"}`;
+      const label = escapeHtml(replyN === 1 ? t("Show 1 reply") : t("Show {n} replies", { n: replyN }));
       threadBtn = `<button type="button" class="msg-thread-btn" data-act="thread" aria-label="${label}" title="${label}">${ICO.thread}<span aria-hidden="true">${replyN}</span></button>`;
     }
     bubble += `<span class="msg-meta">${edited}${star}${botChip}${repliesChip}${timeTag(m.ts, formatTime(m.ts))}${ticks}</span>${failBadge}</div>`;
@@ -2427,8 +2427,8 @@ export class ChatView {
       const hoverReply = document.createElement("button");
       hoverReply.type = "button";
       hoverReply.className = "msg-hover-reply";
-      hoverReply.title = "Reply";
-      hoverReply.innerHTML = `${ICO.reply}<span>Reply</span>`;
+      hoverReply.title = t("Reply");
+      hoverReply.innerHTML = `${ICO.reply}<span>${escapeHtml(t("Reply"))}</span>`;
       hoverReply.dataset.hoverAct = "reply"; // delegated: see the row click handler
       onHoverReply = () => {
         const it = liveItem();
@@ -2441,8 +2441,8 @@ export class ChatView {
     const hoverMore = document.createElement("button");
     hoverMore.type = "button";
     hoverMore.className = "msg-hover-reply msg-hover-more";
-    hoverMore.title = "Message actions";
-    hoverMore.setAttribute("aria-label", "Message actions");
+    hoverMore.title = t("Message actions");
+    hoverMore.setAttribute("aria-label", t("Message actions"));
     hoverMore.innerHTML = ICO.dots;
     hoverMore.dataset.hoverAct = "more"; // delegated: see the row click handler
     const onHoverMore = () => {
@@ -2502,7 +2502,7 @@ export class ChatView {
         const summary = webxdcCard.querySelector(".webxdc-summary");
         const shown = builtin?.name || info.name;
         if (shown && name) name.textContent = shown;
-        if (summary) summary.textContent = info.summary || "App";
+        if (summary) summary.textContent = info.summary || t("App");
         const title = String(shown || appName).trim();
         const iconImg = webxdcCard.querySelector("img[data-webxdc-icon]");
         const glyph = webxdcCard.querySelector(".webxdc-ico-glyph");
@@ -2614,11 +2614,11 @@ export class ChatView {
         // Ask first: the modal layer sits below the lightbox, so a modal
         // opened after it would render underneath.
         if (m.viewtype === "sticker" && m.from !== 1 && m.filePath) {
-          confirmModal("Add sticker", "Add this sticker to your sticker collection?", "Add", false)
+          confirmModal("Add sticker", t("Add this sticker to your sticker collection?"), t("Add"), false)
             .then(ok => {
               if (ok) {
-                this.core.saveSticker(m.id).then(() => toast("Sticker saved to your collection"))
-                  .catch(err => errToast("Couldn't save: " + (err?.message || err)));
+                this.core.saveSticker(m.id).then(() => toast(t("Sticker saved to your collection")))
+                  .catch(err => errToast(t("Couldn't save: ") + (err?.message || err)));
               }
               openImageLightbox(fileUrl(m.filePath), m.fileName || "sticker");
             });
@@ -2651,7 +2651,7 @@ export class ChatView {
         const box = mediaImg.closest(".msg-image");
         if (box && !box.dataset.failed) {
           box.dataset.failed = "1";
-          box.innerHTML = `<div class="media-fail"><div class="media-fail-ico">${ICO.photo}</div><div>Couldn't load image</div></div>`;
+          box.innerHTML = `<div class="media-fail"><div class="media-fail-ico">${ICO.photo}</div><div>${escapeHtml(t("Couldn't load image"))}</div></div>`;
           notifyHeight();
         }
       };
@@ -2677,7 +2677,7 @@ export class ChatView {
         const box = mediaAudio.closest(".msg-audio");
         if (box && !box.dataset.failed) {
           box.dataset.failed = "1";
-          box.innerHTML = `<div class="media-fail"><div class="media-fail-ico">${ICO.mic}</div><div>Audio can't be played</div></div>`;
+          box.innerHTML = `<div class="media-fail"><div class="media-fail-ico">${ICO.mic}</div><div>${escapeHtml(t("Audio can't be played"))}</div></div>`;
         }
       };
     }
@@ -2831,7 +2831,7 @@ export class ChatView {
         e.stopPropagation();
         if (Date.now() - (this._swipedAt || 0) < 400) return;
         navigator.clipboard?.writeText(copyBtn.textContent)
-          .then(() => toast("Copied")).catch(() => errToast("Couldn't copy"));
+          .then(() => toast(t("Copied"))).catch(() => errToast(t("Couldn't copy")));
         return;
       }
       const chip = e.target.closest("[data-react]");
@@ -2882,10 +2882,10 @@ export class ChatView {
       html = null;
     }
     if (!html) {
-      errToast("The full version isn't available for this message");
+      errToast(t("The full version isn't available for this message"));
       return;
     }
-    this._openHtmlOverlay("Full message", { html });
+    this._openHtmlOverlay(t("Full message"), { html });
   }
 
   // Fill a call card's label and sub-line from the core's call state
@@ -2903,18 +2903,18 @@ export class ChatView {
     const sub = card.querySelector("[data-call-sub]");
     const kind = state.kind || state;
     if (kind === "Completed") {
-      if (label) label.textContent = m.from === 1 ? "Outgoing call" : "Incoming call";
-      if (sub) sub.textContent = `Ended · ${formatDuration(state.duration || 0)}`;
+      if (label) label.textContent = m.from === 1 ? t("Outgoing call") : t("Incoming call");
+      if (sub) sub.textContent = t("Ended · {duration}", { duration: formatDuration(state.duration || 0) });
     } else if (kind === "Missed") {
-      if (label) label.textContent = "Missed call";
+      if (label) label.textContent = t("Missed call");
       card.classList.add("missed");
     } else if (kind === "Declined") {
-      if (label) label.textContent = "Call declined";
+      if (label) label.textContent = t("Call declined");
       card.classList.add("missed");
     } else if (kind === "Canceled") {
-      if (label) label.textContent = "Call canceled";
+      if (label) label.textContent = t("Call canceled");
     } else if (kind === "Active" || kind === "Alerting") {
-      if (label) label.textContent = "Call in progress…";
+      if (label) label.textContent = t("Call in progress…");
     }
   }
 
@@ -3032,7 +3032,7 @@ export class ChatView {
     if (!text) return;
     this._leaveTextSelection();
     navigator.clipboard?.writeText(text);
-    toast("Copied");
+    toast(t("Copied"));
   }
 
   _selectMessageText(msgId) {
@@ -3093,9 +3093,9 @@ export class ChatView {
       b.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); onClick(); });
       bar.appendChild(b);
     };
-    if (!this.readOnly) addBtn("Reply", () => this._replyToSelection(), true);
-    addBtn("Copy", () => this._copySelection(), true);
-    addBtn("Close", () => this._leaveTextSelection(), false);
+    if (!this.readOnly) addBtn(t("Reply"), () => this._replyToSelection(), true);
+    addBtn(t("Copy"), () => this._copySelection(), true);
+    addBtn(t("Close"), () => this._leaveTextSelection(), false);
     bubble.insertBefore(bar, bubble.children?.[0] || null);
     const exit = (e) => {
       if (this._pointerInTextSelect(e.target)) return;
@@ -3152,11 +3152,11 @@ export class ChatView {
     try {
       const contactIds = await this.core.importVcard(m.filePath);
       const contactId = contactIds?.[0];
-      if (!contactId) { toast("This contact card is empty"); return; }
+      if (!contactId) { toast(t("This contact card is empty")); return; }
       const chatId = await this.core.createChatByContactId(contactId);
       this.onOpenChat?.(Number(chatId));
     } catch (err) {
-      errToast("Couldn't add contact: " + (err?.message || err));
+      errToast(t("Couldn't add contact: ") + (err?.message || err));
     }
   }
 
@@ -3179,13 +3179,13 @@ export class ChatView {
       const href = trackingStripEnabled() ? stripTrackingUrl(linkHref) : linkHref;
       const webShare = typeof navigator.share === "function" ? o => navigator.share(o) : null;
       items.push({ label: "Copy link", pair: "text", icon: ICO.copy, onClick: async () => {
-        try { await copyLink(href, { clipboard: navigator.clipboard }); toast("Copied"); }
-        catch (err) { errToast("Couldn't copy: " + (err?.message || err)); }
+        try { await copyLink(href, { clipboard: navigator.clipboard }); toast(t("Copied")); }
+        catch (err) { errToast(t("Couldn't copy: ") + (err?.message || err)); }
       } });
       if (touch && canShareLink({ ua: navigator.userAgent, hasInvoke: !!tauriInvoke(), hasWebShare: !!webShare })) {
         items.push({ label: "Share link", pair: "text", icon: ICO.share, onClick: async () => {
           try { await shareLink(href, { ua: navigator.userAgent, invoke: tauriInvoke(), webShare }); }
-          catch (err) { errToast("Couldn't share: " + (err?.message || err)); }
+          catch (err) { errToast(t("Couldn't share: ") + (err?.message || err)); }
         } });
       }
       items.push({ label: "Open link", pair: "text", icon: ICO.openLink, onClick: () => openHttp(linkHref) });
@@ -3200,9 +3200,9 @@ export class ChatView {
     if (canEditMsg(m, this.chat)) items.push({ label: "Edit", pair: "own", icon: ICO.edit, onClick: () => this._setEdit(item) });
     if (!this.chat?.isP2p && m.viewtype === "sticker" && m.from !== 1 && m.filePath) {
       items.push({
-        label: "Save sticker", short: "Sticker", pair: "file", icon: ICO.download,
+        label: "Save sticker", short: t("Sticker"), pair: "file", icon: ICO.download,
         onClick: () => {
-          this.core.saveSticker(m.id).then(() => toast("Sticker saved")).catch((err) => errToast("Couldn't save: " + (err.message || err)));
+          this.core.saveSticker(m.id).then(() => toast(t("Sticker saved"))).catch((err) => errToast(t("Couldn't save: ") + (err.message || err)));
         },
       });
     }
@@ -3211,7 +3211,7 @@ export class ChatView {
     if ((m.viewtype === "image" || m.viewtype === "video" || m.viewtype === "file")
       && (m.filePath || (m.downloadState && m.downloadState !== "Done"))) {
       items.push({
-        label: "Download", short: "Download", pair: "file", icon: ICO.download,
+        label: "Download", short: t("Download"), pair: "file", icon: ICO.download,
         onClick: () => this._saveAttachment(m.id),
       });
     }
@@ -3220,20 +3220,20 @@ export class ChatView {
     const p2pg = !!this.chat?.isP2pGroup;
     if (this.core.pinMessage && !p2pg && !this.readOnly) {
       items.push({
-        label: m.pinned ? "Unpin" : "Pin",
+        label: m.pinned ? t("Unpin") : t("Pin"),
         pair: "keep",
         icon: ICO.pin,
         onClick: () => {
           this.core.pinMessage(m.id, !m.pinned)
             .then(() => { m.pinned = !m.pinned; return this._refreshPinnedBar(); })
-            .catch((err) => errToast("Couldn't " + (m.pinned ? "unpin" : "pin") + ": " + (err.message || err)));
+            .catch((err) => errToast((m.pinned ? t("Couldn't unpin: ") : t("Couldn't pin: ")) + (err.message || err)));
         },
       });
     }
     // Captions count: any bubble with text can enter selection mode. Copy
     // text stays whole-message and plain-text only. Touch only — desktop
     // uses the mouse and the floating Reply chip.
-    if (m.viewtype === "text" && m.text) items.push({ label: "Copy text", short: "Copy", pair: "text", icon: ICO.copy, onClick: () => { navigator.clipboard?.writeText(m.text); toast("Copied"); } });
+    if (m.viewtype === "text" && m.text) items.push({ label: "Copy text", short: t("Copy"), pair: "text", icon: ICO.copy, onClick: () => { navigator.clipboard?.writeText(m.text); toast(t("Copied")); } });
     if (m.text && touch) items.push({ label: "Select text", pair: "text", icon: ICO.selectText, onClick: () => this._selectMessageText(m.id) });
     if (!p2pg) items.push(
       { label: "Forward", pair: "send", icon: ICO.forward, onClick: () => this._forward([m.id]) },
@@ -3245,14 +3245,14 @@ export class ChatView {
     // through their own engine paths, not the core.
     if (!this.chat?.isP2p && m.from === 1) items.push({ label: "Resend", pair: "own", icon: ICO.resend, onClick: () => this._resendMessage(m) });
     if (!p2pg) items.push(
-      { label: "Save to Saved Messages", short: "Save", pair: "keep", icon: ICO.star, onClick: async () => {
+      { label: "Save to Saved Messages", short: t("Save"), pair: "keep", icon: ICO.star, onClick: async () => {
         try {
           await this.core.starMessages(session.chatId, [m.id]);
           if (!this._isCurrent(session)) return;
-          toast("Saved");
+          toast(t("Saved"));
           this.onChatsChanged();
         } catch (err) {
-          if (this._isCurrent(session)) errToast("Couldn't save message: " + (err.message || err));
+          if (this._isCurrent(session)) errToast(t("Couldn't save message: ") + (err.message || err));
         }
       } },
     );
@@ -3346,7 +3346,7 @@ export class ChatView {
     } catch (err) {
       const cur = live();
       if (before && cur) this.onMsgUpdated(chatId, { ...cur, reactions: before.reactions });
-      if (this._isCurrent(session)) errToast((plan.removing ? "Couldn't remove reaction: " : "Couldn't react: ") + (err?.message || err));
+      if (this._isCurrent(session)) errToast((plan.removing ? t("Couldn't remove reaction: ") : t("Couldn't react: ")) + (err?.message || err));
     }
     return plan;
   }
@@ -3359,24 +3359,24 @@ export class ChatView {
     if (m.state === "failed" && m.error) state += `: ${failReason(m.error)}`;
     // Local groups: who has it, per member ("Bob ✓  Cal ✗").
     const deliveryRows = Array.isArray(m.delivery) && m.delivery.length
-      ? `<div class="info-row"><span class="k">Delivered</span><span class="v">${m.delivery.filter(d => d.delivered).length} of ${m.delivery.length}</span></div>`
-        + m.delivery.map(d => `<div class="info-row"><span class="k" style="padding-left:12px">${escapeHtml(d.name)}</span><span class="v">${d.delivered ? `${ICON.check} received` : d.sending ? "… sending" : `${ICON.close} not yet`}${d.retryable ? ` <button type="button" class="btn-text" data-retry-member="${escapeAttr(d.id)}">Retry</button>` : ""}</span></div>`).join("")
-        + (m.delivery.some(d => d.retryable) ? `<div class="info-row"><span class="k">Files</span><span class="v">go only to members who are online when you send. Retry sends it again to that member.</span></div>` : "")
+      ? `<div class="info-row"><span class="k">${escapeHtml(t("Delivered"))}</span><span class="v">${escapeHtml(t("{n} of {total}", { n: m.delivery.filter(d => d.delivered).length, total: m.delivery.length }))}</span></div>`
+        + m.delivery.map(d => `<div class="info-row"><span class="k" style="padding-left:12px">${escapeHtml(d.name)}</span><span class="v">${d.delivered ? `${ICON.check} ${escapeHtml(t("received"))}` : d.sending ? `… ${escapeHtml(t("sending"))}` : `${ICON.close} ${escapeHtml(t("not yet"))}`}${d.retryable ? ` <button type="button" class="btn-text" data-retry-member="${escapeAttr(d.id)}">${escapeHtml(t("Retry"))}</button>` : ""}</span></div>`).join("")
+        + (m.delivery.some(d => d.retryable) ? `<div class="info-row"><span class="k">${escapeHtml(t("Files"))}</span><span class="v">${escapeHtml(t("go only to members who are online when you send. Retry sends it again to that member."))}</span></div>` : "")
       : "";
     const info = showModal({
       title: "Message info",
       body: `
-      <div class="info-row"><span class="k">Type</span><span class="v">${escapeHtml(m.viewtype)}</span></div>
-      <div class="info-row"><span class="k">From</span><span class="v">${escapeHtml(m.fromContact?.name || "")}</span></div>
-      <div class="info-row"><span class="k">Sent</span><span class="v">${escapeHtml(formatDateTime(m.sentTs || m.ts))}</span></div>
-      <div class="info-row"><span class="k">Received</span><span class="v">${escapeHtml(m.receivedTs ? formatDateTime(m.receivedTs) : "—")}</span></div>
-      <div class="info-row"><span class="k">State</span><span class="v">${escapeHtml(state)}</span></div>
+      <div class="info-row"><span class="k">${escapeHtml(t("Type"))}</span><span class="v">${escapeHtml(m.viewtype)}</span></div>
+      <div class="info-row"><span class="k">${escapeHtml(t("From"))}</span><span class="v">${escapeHtml(m.fromContact?.name || "")}</span></div>
+      <div class="info-row"><span class="k">${escapeHtml(t("Sent"))}</span><span class="v">${escapeHtml(formatDateTime(m.sentTs || m.ts))}</span></div>
+      <div class="info-row"><span class="k">${escapeHtml(t("Received"))}</span><span class="v">${escapeHtml(m.receivedTs ? formatDateTime(m.receivedTs) : "—")}</span></div>
+      <div class="info-row"><span class="k">${escapeHtml(t("State"))}</span><span class="v">${escapeHtml(state)}</span></div>
       <div class="info-reacts" data-reacts hidden></div>
       ${deliveryRows}
       ${lufiUploadFor(this.core.accountId, m.id) ? `<div data-largefile hidden></div>` : ""}
-      <div class="info-row"><span class="k">Database ID</span><span class="v">#${escapeHtml(m.id)}</span></div>
+      <div class="info-row"><span class="k">${escapeHtml(t("Database ID"))}</span><span class="v">#${escapeHtml(m.id)}</span></div>
       <div class="info-row wrap"><span class="k">Message-ID</span><span class="v" data-mid>…</span></div>
-      <div class="info-row wrap"><span class="k">Server URL</span><span class="v" data-servers>…</span></div>`,
+      <div class="info-row wrap"><span class="k">${escapeHtml(t("Server URL"))}</span><span class="v" data-servers>…</span></div>`,
     });
     // Lazy (fix 5): large-file.js (+ lufi.js, sjcl) only when this message
     // carries one of our uploads.
@@ -3404,7 +3404,7 @@ export class ChatView {
     else this.core.getMessageReactions(m.id).then(paintReactions).catch(() => paintReactions(fromMsg));
     info.modal.querySelectorAll("[data-retry-member]").forEach(btn => btn.addEventListener("click", () => {
       btn.disabled = true;
-      btn.textContent = "Retrying…";
+      btn.textContent = t("Retrying…");
       this._lcRetryTransfer(m, btn.dataset.retryMember);
     }));
     const midEl = info.modal.querySelector("[data-mid]");
@@ -3550,7 +3550,7 @@ export class ChatView {
       this._forgetBatch(key);
       this._repaintMsgs(ids);
       if (String(this.core.accountId) === String(batch.accountId)) {
-        errToast("Couldn't delete messages: " + (err.message || err), 4500);
+        errToast(t("Couldn't delete messages: ") + (err.message || err), 4500);
       }
       return;
     }
@@ -3604,7 +3604,7 @@ export class ChatView {
         const cb = document.createElement("input");
         cb.type = "checkbox";
         cb.className = "msg-checkbox";
-        cb.setAttribute("aria-label", "Select message");
+        cb.setAttribute("aria-label", t("Select message"));
         cb.checked = this.selection.has(id);
         row.prepend(cb);
       }
@@ -3644,11 +3644,11 @@ export class ChatView {
         try {
           await this.core.starMessages(session.chatId, ids);
           if (!this._isCurrent(session)) return;
-          toast("Saved to Saved Messages");
+          toast(t("Saved to Saved Messages"));
           this.exitSelection();
           this.onChatsChanged();
         } catch (err) {
-          if (this._isCurrent(session)) errToast("Couldn't save messages: " + (err.message || err));
+          if (this._isCurrent(session)) errToast(t("Couldn't save messages: ") + (err.message || err));
         }
       } else if (act === "delete") this._delete(ids);
       else if (act === "info") {
@@ -3706,11 +3706,11 @@ export class ChatView {
     // panel's "Back to chat", which clears the quote with it).
     document.getElementById("btn-reply-close").hidden = !!this.thread;
     if (this.editingMsg) {
-      document.getElementById("reply-name").textContent = "Editing message";
+      document.getElementById("reply-name").textContent = t("Editing message");
       document.getElementById("reply-text").textContent = this.editingMsg.text || "";
       return;
     }
-    document.getElementById("reply-name").textContent = this.replyTo.fromContact?.name || "You";
+    document.getElementById("reply-name").textContent = this.replyTo.fromContact?.name || t("You");
     document.getElementById("reply-text").textContent = this.replyFragment
       ? "“" + this.replyFragment + "”"
       : (this.replyTo.text || this.replyTo.viewtype);
@@ -3729,7 +3729,7 @@ export class ChatView {
     chip.id = "sel-quote-chip";
     chip.type = "button";
     chip.hidden = true;
-    chip.textContent = "Reply";
+    chip.textContent = t("Reply");
     chip.addEventListener("pointerdown", e => e.preventDefault()); // keep the selection alive
     chip.addEventListener("click", () => {
       const sel = this._pendingQuoteSel;
@@ -3834,7 +3834,7 @@ export class ChatView {
       }
       input.dispatchEvent(new Event("input", { bubbles: true }));
       let used = false;
-      toast("Tracking removed from link", 6000, {
+      toast(t("Tracking removed from link"), 6000, {
         undo() {
           if (used) return;
           used = true;
@@ -3964,7 +3964,7 @@ export class ChatView {
         if (!this._isCurrent(session) || !this.chat) return;
         this._sendArchivedAware(session.chatId, { text: "", viewtype: "sticker", file: path })
           .then((msg) => { if (this._isCurrent(session)) { this.appendOutgoing(msg); this.onChatsChanged(); } })
-          .catch((err) => { if (this._isCurrent(session)) errToast("Couldn't send sticker: " + (err.message || err)); });
+          .catch((err) => { if (this._isCurrent(session)) errToast(t("Couldn't send sticker: ") + (err.message || err)); });
       },
     });
   }
@@ -4018,7 +4018,7 @@ export class ChatView {
       media.src = pm.url; media.alt = "";
       thumb.append(media);
     }
-    name.textContent = pm.name || (pm.kind === "video" ? "Video" : "Photo");
+    name.textContent = pm.name || (pm.kind === "video" ? t("Video") : t("Photo"));
     crop.hidden = pm.kind !== "image";
   }
 
@@ -4087,7 +4087,7 @@ export class ChatView {
       this.onChatsChanged();
     } catch (err) {
       diagnosticsSink.append("error", `${pm.kind} send failed: ${err?.message || err}`);
-      if (this._isCurrent(session)) errToast(`Could not send ${pm.kind}: ` + (err?.message || err));
+      if (this._isCurrent(session)) errToast(t("Couldn't send the file: ") + (err?.message || err));
     }
   }
 
@@ -4259,7 +4259,7 @@ export class ChatView {
       try {
         await this.core.editMessage(session.chatId, editing.id, text);
       } catch (err) {
-        if (this._isCurrent(session)) errToast("Couldn't edit message: " + (err.message || err));
+        if (this._isCurrent(session)) errToast(t("Couldn't edit message: ") + (err.message || err));
       }
       return;
     }
@@ -4273,7 +4273,7 @@ export class ChatView {
       this.appendOutgoing(msg);
       this.onChatsChanged();
     } catch (err) {
-      if (this._isCurrent(session)) errToast("Couldn't send message: " + (err.message || err));
+      if (this._isCurrent(session)) errToast(t("Couldn't send message: ") + (err.message || err));
     }
   }
 
@@ -4282,7 +4282,7 @@ export class ChatView {
     if (bar) bar.hidden = !on;
     if (!on) {
       const label = document.getElementById("voice-rec-label");
-      if (label) label.textContent = "Recording 0:00";
+      if (label) label.textContent = t("Recording 0:00");
     }
   }
 
@@ -4292,7 +4292,7 @@ export class ChatView {
     const session = this._session;
     if (!this._isCurrent(session) || !this.chat || this.chat.isP2p || this._voice) return;
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      errToast("Voice recording isn't available here");
+      errToast(t("Voice recording isn't available here"));
       return;
     }
     let stream;
@@ -4301,8 +4301,8 @@ export class ChatView {
     } catch (err) {
       const denied = err?.name === "NotAllowedError" || err?.name === "SecurityError";
       if (this._isCurrent(session)) errToast(denied
-        ? "Microphone access is blocked. Enable it in system settings, then try again."
-        : "Couldn't use the microphone: " + (err?.message || err));
+        ? t("Microphone access is blocked. Enable it in system settings, then try again.")
+        : t("Couldn't use the microphone: ") + (err?.message || err));
       return;
     }
     if (!this._isCurrent(session)) { stream.getTracks().forEach(t => t.stop()); return; }
@@ -4312,7 +4312,7 @@ export class ChatView {
       rec = picked.mime ? new MediaRecorder(stream, { mimeType: picked.mime }) : new MediaRecorder(stream);
     } catch (err) {
       stream.getTracks().forEach(t => t.stop());
-      if (this._isCurrent(session)) errToast("Couldn't start recording: " + (err?.message || err));
+      if (this._isCurrent(session)) errToast(t("Couldn't start recording: ") + (err?.message || err));
       return;
     }
     const chunks = [];
@@ -4329,7 +4329,7 @@ export class ChatView {
       if (this._voice !== voice) return;
       const s = Math.floor((Date.now() - voice.started) / 1000);
       const label = document.getElementById("voice-rec-label");
-      if (label) label.textContent = `Recording ${formatDuration(s)}`;
+      if (label) label.textContent = t("Recording {time}", { time: formatDuration(s) });
       voice.timer = setTimeout(tick, 500);
     };
     tick();
@@ -4357,7 +4357,7 @@ export class ChatView {
     if (!voice.send) return;
     const blob = new Blob(voice.chunks, { type: voice.mime });
     if (!blob.size) {
-      if (this._isCurrent(voice.session)) errToast("Couldn't send voice message: recording was empty");
+      if (this._isCurrent(voice.session)) errToast(t("Couldn't send voice message: recording was empty"));
       return;
     }
     await this._sendVoiceFile(voice.session, blob, voice.ext);
@@ -4377,7 +4377,7 @@ export class ChatView {
       this.appendOutgoing(msg);
       this.onChatsChanged();
     } catch (err) {
-      if (this._isCurrent(session)) errToast("Couldn't send voice message: " + (err.message || err));
+      if (this._isCurrent(session)) errToast(t("Couldn't send voice message: ") + (err.message || err));
     }
   }
 
@@ -4456,7 +4456,7 @@ export class ChatView {
       }
       if (sent) this.onChatsChanged();
     } catch (err) {
-      if (this._isCurrent(session)) errToast("Could not send image: " + (err?.message || err));
+      if (this._isCurrent(session)) errToast(t("Could not send image: ") + (err?.message || err));
     }
   }
 
@@ -4477,7 +4477,7 @@ export class ChatView {
       this.onChatsChanged();
       this._rememberApp(app.name, msg?.filePath || app.file, msg?.fileName || app.filename);
     } catch (err) {
-      if (this._isCurrent(session)) errToast("Could not send app: " + (err?.message || err));
+      if (this._isCurrent(session)) errToast(t("Could not send app: ") + (err?.message || err));
     }
   }
 
@@ -4516,7 +4516,7 @@ export class ChatView {
       this._rememberApp("Velta Beam", msg?.filePath || path, msg?.fileName || "send-direct.xdc");
       if (msg?.id != null) openWebxdc(msg.id, "Velta Beam", { panel: true });
     } catch (err) {
-      if (this._isCurrent(session)) errToast("Could not start direct send: " + (err?.message || err), 4000);
+      if (this._isCurrent(session)) errToast(t("Could not start direct send: ") + (err?.message || err), 4000);
     }
   }
 
@@ -4565,7 +4565,7 @@ export class ChatView {
       try { await joinGroupCallFor(msg.id); } catch {}
       openWebxdc(msg.id, "Velta Circle");
     } catch (err) {
-      if (this._isCurrent(session)) errToast("Could not start a group call: " + (err?.message || err), 4000);
+      if (this._isCurrent(session)) errToast(t("Could not start a group call: ") + (err?.message || err), 4000);
     }
   }
 
@@ -4593,11 +4593,11 @@ export class ChatView {
 
     let filters;
     if (kind === "image") {
-      filters = [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp"] }];
+      filters = [{ name: t("Images"), extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp"] }];
     } else if (kind === "video") {
-      filters = [{ name: "Videos", extensions: ["mp4", "mov", "mkv", "avi", "webm"] }];
+      filters = [{ name: t("Videos"), extensions: ["mp4", "mov", "mkv", "avi", "webm"] }];
     } else {
-      filters = [{ name: "All files", extensions: ["*"] }];
+      filters = [{ name: t("All files"), extensions: ["*"] }];
     }
 
     const tauri = window.__TAURI__;
@@ -4676,7 +4676,7 @@ export class ChatView {
     } catch (err) {
       if (!this._isCurrent(session)) return;
       diagnosticsSink.append("error", `send ${kind} failed: ${err.message || err}`);
-      errToast("Could not send file: " + (err.message || err), 4000);
+      errToast(t("Could not send file: ") + (err.message || err), 4000);
       console.error(err);
     }
   }
@@ -4767,7 +4767,7 @@ export class ChatView {
     if (!msg) return;
     try {
       if (msg.downloadState && msg.downloadState !== "Done") {
-        if (msg.downloadState === "InProgress") { toast("Still downloading…"); return; }
+        if (msg.downloadState === "InProgress") { toast(t("Still downloading…")); return; }
         await this.core.downloadFullMessage(msgId);
         if (!this._isCurrent(session)) return;
         const fresh = await this.core.getMessage(msgId);
@@ -4778,12 +4778,12 @@ export class ChatView {
         }
       }
       const saved = await saveAttachmentFile(this.core, msg);
-      if (saved && this._isCurrent(session)) toast("Saved");
+      if (saved && this._isCurrent(session)) toast(t("Saved"));
     } catch (err) {
       if (!this._isCurrent(session)) return;
       const text = String(err?.message || err || "");
       if (/cancel/i.test(text)) return;
-      errToast("Couldn't save: " + text);
+      errToast(t("Couldn't save: ") + text);
     }
   }
 
@@ -4798,7 +4798,7 @@ export class ChatView {
       this.onMsgUpdated(session.chatId, msg);
     } catch (err) {
       if (!this._isCurrent(session)) return;
-      errToast("Download failed: " + (err.message || err), 4000);
+      errToast(t("Download failed: ") + (err.message || err), 4000);
       console.error(err);
     }
   }
@@ -4816,7 +4816,7 @@ export class ChatView {
   // webxdc overlay; sandbox without allow-same-origin keeps the document in
   // an opaque origin (scripts run, but can touch nothing of ours).
   _openHtmlIsolated(path, name = null) {
-    return this._openHtmlOverlay(name || "HTML preview", { url: fileUrl(path) });
+    return this._openHtmlOverlay(name || t("HTML preview"), { url: fileUrl(path) });
   }
 
   // Shared overlay: content comes from a fetched url (attachments) or a raw
@@ -4835,8 +4835,8 @@ export class ChatView {
     closeBtn.type = "button";
     closeBtn.className = "icon-btn";
     closeBtn.innerHTML = CLOSE_SVG; // bold house icon — unicode ✕ renders hairline
-    closeBtn.setAttribute("aria-label", "Close");
-    closeBtn.title = "Close";
+    closeBtn.setAttribute("aria-label", t("Close"));
+    closeBtn.title = t("Close");
     closeBtn.addEventListener("click", () => closeViewer());
     bar.append(title, closeBtn);
     const frame = document.createElement("iframe");
@@ -5354,7 +5354,7 @@ export class ChatView {
       this._insertItems(this._annotateMessages(newMsgs, last.dayKey));
       this.vs?.setItems(this.items);
     } catch (err) {
-      if (this._isCurrent(session)) toast("Couldn't load newer messages: " + (err.message || err));
+      if (this._isCurrent(session)) toast(t("Couldn't load newer messages: ") + (err.message || err));
     } finally {
       this._loadBar(false);
       if (this._isCurrent(session)) this.loadingNewer = false;
@@ -5371,7 +5371,7 @@ export class ChatView {
     try {
       if (await this._reloadTail(session)) this._scrollBottomSettling();
     } catch (err) {
-      if (this._isCurrent(session)) toast("Couldn't load the latest messages: " + (err.message || err));
+      if (this._isCurrent(session)) toast(t("Couldn't load the latest messages: ") + (err.message || err));
     } finally {
       this._loadBar(false);
     }
@@ -5407,7 +5407,7 @@ export class ChatView {
     try { orig = await this.core.getMessage(id); } catch { orig = null; }
     if (this.core.accountEpoch !== epoch || !this._isCurrent()) return;
     if (!orig?.chatId) {
-      toast("The original message is no longer available");
+      toast(t("The original message is no longer available"));
       return;
     }
     if (Number(orig.chatId) === Number(this.chat?.id)) {
@@ -5446,7 +5446,7 @@ export class ChatView {
       if (this.hasNewer && !this._hasItem(msgId) && !await this._reloadTail(session)) return;
       for (let page = 0; page < this.jumpMaxPages && !this._hasItem(msgId); page++) {
         if (!this.hasMore) {
-          if (this._isCurrent(session)) toast("Message is no longer in this chat's history");
+          if (this._isCurrent(session)) toast(t("Message is no longer in this chat's history"));
           return;
         }
         const firstMsg = this.items.find(i => i.type === "msg");
@@ -5457,12 +5457,12 @@ export class ChatView {
         this._prependHistory(messages);
       }
       if (!this._hasItem(msgId)) {
-        if (this._isCurrent(session)) toast("Message is higher up in history — scroll up to load it");
+        if (this._isCurrent(session)) toast(t("Message is higher up in history — scroll up to load it"));
         return;
       }
       await this._scrollToItemSeek(msgId, session);
     } catch (err) {
-      if (this._isCurrent(session)) errToast("Couldn't load history: " + (err?.message || err));
+      if (this._isCurrent(session)) errToast(t("Couldn't load history: ") + (err?.message || err));
     } finally {
       this._jumpInFlight = false;
       if (this._isCurrent(session)) this._loadBar(false);

@@ -14,6 +14,7 @@ import { tauriInvoke } from "./tauri.js";
 import { t } from "./i18n.js";
 import { ICON } from "./icons.js";
 
+// Labels and hints are English keys; t() runs where they are shown.
 const MODES = [
   ["auto", "Automatic", "Direct while the relays answer; through the tunnel when only allowlisted sites work."],
   ["always", "Always", "Every connection goes through the tunnel. Slower; use it if Automatic misjudges the network."],
@@ -94,14 +95,17 @@ function validCanary(c) {
 function cleanLabel(n) {
   // Display text only: no control or bidi-override characters.
   const s = n.normalize("NFC").trim();
-  if (/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/.test(s)) bad("The label has invalid characters");
-  if ([...s].length > TUNNEL_LABEL_MAX) bad(`The label is too long (max ${TUNNEL_LABEL_MAX})`);
+  if (/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/.test(s)) bad(t("The label has invalid characters"));
+  if ([...s].length > TUNNEL_LABEL_MAX) bad(t("The label is too long (max {max})", { max: TUNNEL_LABEL_MAX }));
   return s;
 }
 function list(raw, max, ok, what) {
   const items = raw.split(",").map(x => x.trim()).filter(Boolean);
-  if (items.length > max) bad(`Too many ${what} (max ${max})`);
-  for (const x of items) if (!ok(x)) bad(`Bad ${what.replace(/s$/, "")}: ${x.slice(0, 60)}`);
+  const many = what === "canaries" ? t("Too many canaries (max {max})", { max }) : t("Too many resolvers (max {max})", { max });
+  if (items.length > max) bad(many);
+  for (const x of items) {
+    if (!ok(x)) bad(what === "canaries" ? t("Bad canary: {value}", { value: x.slice(0, 60) }) : t("Bad resolver: {value}", { value: x.slice(0, 60) }));
+  }
   return [...new Set(items)];
 }
 
@@ -153,25 +157,25 @@ function v2Resolver(r) {
 }
 function parseV2(m) {
   const zone = m[1].toLowerCase().replace(/\.$/, "");
-  if (!validTunnelZone(zone)) bad("The tunnel domain is not valid");
+  if (!validTunnelZone(zone)) bad(t("The tunnel domain is not valid"));
   const key = keyFromB32(m[2]);
-  if (!key) bad("The key must be 32 bytes of base32");
+  if (!key) bad(t("The key must be 32 bytes of base32"));
   const seen = new Map();
   const rest = m[3] ? m[3].slice(1).split("/") : [];
   for (let i = 0; i < rest.length; i += 2) {
     const k = rest[i].toUpperCase();
-    if (seen.has(k)) bad(`Repeated parameter: ${k}`);
+    if (seen.has(k)) bad(t("Repeated parameter: {name}", { name: k }));
     seen.set(k, rest[i + 1]);
   }
-  const items = (k, conv) => (seen.get(k) || "").split("+").map(x => conv(x) ?? bad(`Bad value: ${x.slice(0, 60)}`));
+  const items = (k, conv) => (seen.get(k) || "").split("+").map(x => conv(x) ?? bad(t("Bad value: {value}", { value: x.slice(0, 60) })));
   const resolvers = seen.has("R") ? list(items("R", v2Resolver).join(","), MAX_RESOLVERS, validTunnelResolver, "resolvers") : [];
   const canaries = seen.has("C")
     ? list(items("C", c => (/^[^*]+\*[0-9]+$/.test(c) ? c.toLowerCase().replace("*", ":") : null)).join(","), MAX_CANARIES, validCanary, "canaries") : [];
   let label = "";
   if (seen.has("N")) {
     const b = base32Decode(seen.get("N"));
-    if (!b) bad("The label is not encoded correctly");
-    try { label = cleanLabel(new TextDecoder("utf-8", { fatal: true }).decode(b)); } catch (e) { if (e instanceof TunnelLinkError) throw e; bad("The label is not encoded correctly"); }
+    if (!b) bad(t("The label is not encoded correctly"));
+    try { label = cleanLabel(new TextDecoder("utf-8", { fatal: true }).decode(b)); } catch (e) { if (e instanceof TunnelLinkError) throw e; bad(t("The label is not encoded correctly")); }
   }
   return { version: 2, zone, key, resolvers, canaries, label };
 }
@@ -184,33 +188,33 @@ function parseV2(m) {
  */
 export function parseTunnelLink(raw) {
   const s = String(raw ?? "").trim();
-  if (!s) bad("Empty link");
-  if (s.length > TUNNEL_LINK_MAX) bad("The link is too long");
+  if (!s) bad(t("Empty link"));
+  if (s.length > TUNNEL_LINK_MAX) bad(t("The link is too long"));
   const m2 = V2_RE.exec(s);
   if (m2) return parseV2(m2);
   const fut = /^velta:\/\/tunnel\/([0-9]+)\//i.exec(s);
-  if (fut && fut[1] !== "2") bad(`Unsupported link version ${fut[1].slice(0, 10)}: update Velta`);
-  if (fut) bad("The link is not valid");
+  if (fut && fut[1] !== "2") bad(t("Unsupported link version {version}: update Velta", { version: fut[1].slice(0, 10) }));
+  if (fut) bad(t("The link is not valid"));
   const m = /^velta:\/\/tunnel\/?(?:\?([^#]*))?$/i.exec(s);
-  if (!m) bad("Not a velta://tunnel link");
+  if (!m) bad(t("Not a velta://tunnel link"));
   const seen = new Map();
   for (const part of (m[1] || "").split("&")) {
     if (!part) continue;
     const eq = part.indexOf("=");
     const k = eq < 0 ? part : part.slice(0, eq);
     let v;
-    try { v = decodeURIComponent((eq < 0 ? "" : part.slice(eq + 1)).replace(/\+/g, "%20")); } catch { bad("The link is not encoded correctly"); }
-    if (!TUNNEL_PARAMS.has(k)) bad(`Unknown parameter: ${k.slice(0, 20)}`);
-    if (seen.has(k)) bad(`Repeated parameter: ${k}`);
+    try { v = decodeURIComponent((eq < 0 ? "" : part.slice(eq + 1)).replace(/\+/g, "%20")); } catch { bad(t("The link is not encoded correctly")); }
+    if (!TUNNEL_PARAMS.has(k)) bad(t("Unknown parameter: {name}", { name: k.slice(0, 20) }));
+    if (seen.has(k)) bad(t("Repeated parameter: {name}", { name: k }));
     seen.set(k, v);
   }
   const version = seen.has("v") ? seen.get("v") : "1";
-  if (version !== "1") bad(`Unsupported link version ${version.slice(0, 10)}: update Velta`);
+  if (version !== "1") bad(t("Unsupported link version {version}: update Velta", { version: version.slice(0, 10) }));
   const zone = (seen.get("zone") || "").trim().toLowerCase().replace(/\.$/, "");
-  if (!zone) bad("The link has no tunnel domain");
-  if (!validTunnelZone(zone)) bad("The tunnel domain is not valid");
+  if (!zone) bad(t("The link has no tunnel domain"));
+  if (!validTunnelZone(zone)) bad(t("The tunnel domain is not valid"));
   const key = normalizeTunnelKey((seen.get("key") || "").trim());
-  if (!key) bad("The key must be 32 bytes of base64");
+  if (!key) bad(t("The key must be 32 bytes of base64"));
   const resolvers = seen.has("r") ? list(seen.get("r"), MAX_RESOLVERS, validTunnelResolver, "resolvers") : [];
   const canaries = seen.has("c") ? list(seen.get("c"), MAX_CANARIES, validCanary, "canaries") : [];
   const label = seen.has("n") ? cleanLabel(seen.get("n")) : "";
@@ -230,7 +234,7 @@ export function buildTunnelLinkV1({ zone, key, resolvers = [], canaries = [], la
 /** Canonical link for sharing (QR, copy): v2, alphanumeric after "velta://". */
 export function buildTunnelLink({ zone, key, resolvers = [], canaries = [], label = "" }) {
   const std = normalizeTunnelKey(String(key || "").trim());
-  if (!std) bad("The key must be 32 bytes of base64");
+  if (!std) bad(t("The key must be 32 bytes of base64"));
   let out = `velta://tunnel/2/${String(zone).toUpperCase()}/${keyToB32(std)}`;
   const res = r => {
     const m = /^\[(.+)\]:([0-9]+)$/.exec(r) || /^([0-9.]+):([0-9]+)$/.exec(r);
@@ -302,28 +306,30 @@ export function tunnelName(tn) {
 
 /** One-line state for the drawer and the settings sheet. */
 export function describeTunnel(s) {
-  if (!s?.installed) return { headline: "Not set up", detail: "" };
+  if (!s?.installed) return { headline: t("Not set up"), detail: "" };
   // Tunnels are saved but none is in use (current shells send active: null).
-  if (s.active === null) return { headline: "Off", detail: t("No tunnel is in use. Pick one of your saved tunnels to use it.") };
+  if (s.active === null) return { headline: t("Off"), detail: t("No tunnel is in use. Pick one of your saved tunnels to use it.") };
   if (s.available === false || s.running === false) {
-    return { headline: "Not running", detail: s.error || "The tunnel library did not start." };
+    return { headline: t("Not running"), detail: s.error || t("The tunnel library did not start.") };
   }
-  if (s.mode === "off") return { headline: "Off", detail: "Mail connects directly." };
+  if (s.mode === "off") return { headline: t("Off"), detail: t("Mail connects directly.") };
   if (s.route === "tunnel") {
-    const why = s.mode === "always" ? "set to Always" : "relays are blocked on this network";
-    return { headline: "Through the tunnel", detail: `Mail goes through the DNS tunnel (${why}).` };
+    const detail = s.mode === "always"
+      ? t("Mail goes through the DNS tunnel (set to Always).")
+      : t("Mail goes through the DNS tunnel (relays are blocked on this network).");
+    return { headline: t("Through the tunnel"), detail };
   }
   switch (s.state) {
     case "blocked":
-      return { headline: "Checking", detail: "The relays did not answer directly; checking again before switching to the tunnel." };
+      return { headline: t("Checking"), detail: t("The relays did not answer directly; checking again before switching to the tunnel.") };
     case "relays-down":
-      return { headline: "Direct", detail: "The relays answer neither directly nor through the tunnel: they seem to be down, so mail stays direct." };
+      return { headline: t("Direct"), detail: t("The relays answer neither directly nor through the tunnel: they seem to be down, so mail stays direct.") };
     case "offline":
-      return { headline: "No network", detail: "Neither the relays nor the allowlisted sites answer." };
+      return { headline: t("No network"), detail: t("Neither the relays nor the allowlisted sites answer.") };
     case "unknown":
-      return { headline: "Direct", detail: "Mail connects directly. The network is checked once the relays are in use." };
+      return { headline: t("Direct"), detail: t("Mail connects directly. The network is checked once the relays are in use.") };
     default:
-      return { headline: "Direct", detail: "The relays answer directly; the tunnel is idle." };
+      return { headline: t("Direct"), detail: t("The relays answer directly; the tunnel is idle.") };
   }
 }
 
@@ -629,30 +635,30 @@ function stateHtml(s) {
  * soar verifies paths only while carrying traffic, so "0 of N" would read
  * like a failure. */
 export function pathsSummary(s) {
-  if (!Array.isArray(s?.paths)) return `${s?.resolvers ?? "?"} resolvers`;
-  if (s.route !== "tunnel") return `${s.paths.length} resolver paths ready · tunnel idle, mail goes direct`;
+  if (!Array.isArray(s?.paths)) return t("{n} resolvers", { n: s?.resolvers ?? "?" });
+  if (s.route !== "tunnel") return t("{n} resolver paths ready · tunnel idle, mail goes direct", { n: s.paths.length });
   const ok = s.paths.filter(p => p.verified).length;
-  return `${ok} of ${s.paths.length} resolver paths working${s.session ? " · session up" : " · connecting…"}`;
+  return t("{ok} of {n} resolver paths working", { ok, n: s.paths.length }) + " · " + (s.session ? t("session up") : t("connecting…"));
 }
 
 function pathsHtml(s) {
-  return `Server: ${escapeHtml(s.zone || "?")} · ${escapeHtml(pathsSummary(s))}`;
+  return `${escapeHtml(t("Tunnel server: {zone}", { zone: s.zone || "?" }))} · ${escapeHtml(pathsSummary(s))}`;
 }
 
 /** Android Private DNS intercepts the tunnel's DNS queries (measured: answers
  * shrink to ~512 bytes and every path runs through one provider). */
 export function privateDnsWarning(s) {
   if (!s?.network?.private_dns) return "";
-  const name = s.network.private_dns_name ? ` (${escapeHtml(s.network.private_dns_name)})` : "";
-  return `<p class="p2p-hint" style="color:var(--danger)">Private DNS is on${name}. It intercepts the tunnel's DNS queries and makes it much slower. Turn it off in Android Settings → Network → Private DNS while you need the tunnel.</p>`;
+  const name = s.network.private_dns_name ? ` (${s.network.private_dns_name})` : "";
+  return `<p class="p2p-hint" style="color:var(--danger)">${escapeHtml(t("Private DNS is on{name}. It intercepts the tunnel's DNS queries and makes it much slower. Turn it off in Android Settings → Network → Private DNS while you need the tunnel.", { name }))}</p>`;
 }
 
 /** The network redirects all port-53 traffic to one resolver: plain-DNS
  * paths collapse into that one, and only DNS-over-TLS gets past it. */
 export function interceptionWarning(s) {
   if (!s?.dns_intercepted) return "";
-  const via = s.dns_egress ? ` (answered via ${escapeHtml(s.dns_egress)})` : "";
-  return `<p class="p2p-hint" style="color:var(--danger)">This network intercepts DNS${via}: every plain-DNS resolver path goes through one resolver, so the tunnel relies on DNS-over-TLS here and may be slow. Check the router's DNS settings.</p>`;
+  const via = s.dns_egress ? t(" (answered via {host})", { host: s.dns_egress }) : "";
+  return `<p class="p2p-hint" style="color:var(--danger)">${escapeHtml(t("This network intercepts DNS{via}: every plain-DNS resolver path goes through one resolver, so the tunnel relies on DNS-over-TLS here and may be slow. Check the router's DNS settings.", { via }))}</p>`;
 }
 
 function addedDate(sec) {
@@ -706,16 +712,16 @@ export async function openTunnelSettings(deps) {
     ${privateDnsWarning(s)}
     ${interceptionWarning(s)}
     <fieldset class="scale-opts" data-tunnel-modes>
-      <legend class="vh">Tunnel mode</legend>
-      ${MODES.map(([v, label, hint]) => `<label class="scale-opt" title="${escapeHtml(hint)}"><input type="radio" name="tunnel-mode" value="${v}"${s.mode === v ? " checked" : ""}><span>${escapeHtml(label)}</span></label>`).join("")}
+      <legend class="vh">${escapeHtml(t("Tunnel mode"))}</legend>
+      ${MODES.map(([v, label, hint]) => `<label class="scale-opt" title="${escapeHtml(t(hint))}"><input type="radio" name="tunnel-mode" value="${v}"${s.mode === v ? " checked" : ""}><span>${escapeHtml(t(label))}</span></label>`).join("")}
     </fieldset>
-    <div class="bar-opts-hint" data-tunnel-hint>${escapeHtml((MODES.find(m => m[0] === s.mode) || MODES[0])[2])}</div>
+    <div class="bar-opts-hint" data-tunnel-hint>${escapeHtml(t((MODES.find(m => m[0] === s.mode) || MODES[0])[2]))}</div>
     <p class="p2p-hint" data-tunnel-paths>${pathsHtml(s)}</p>
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
       ${list ? "" : `<button type="button" class="btn-text" data-tunnel-share-open>${ICON.qr}<span>${escapeHtml(t("Share tunnel link"))}</span></button>`}
-      <button type="button" class="btn-text" data-tunnel-share>Share diagnostics…</button>
-      ${list ? "" : `<button type="button" class="btn-text" data-tunnel-remove style="color:var(--danger)">Remove the tunnel</button>`}
+      <button type="button" class="btn-text" data-tunnel-share>${escapeHtml(t("Share diagnostics…"))}</button>
+      ${list ? "" : `<button type="button" class="btn-text" data-tunnel-remove style="color:var(--danger)">${escapeHtml(t("Remove the tunnel"))}</button>`}
     </div>`;
   // Live while open: a mode switch or an allowlist flip shows up within
   // seconds instead of only after reopening the sheet.
@@ -748,11 +754,11 @@ export async function openTunnelSettings(deps) {
     input.addEventListener("change", async () => {
       try {
         await invoke("tunnel_set_mode", { mode: input.value });
-        body.querySelector("[data-tunnel-hint]").textContent = MODES.find(m => m[0] === input.value)[2];
+        body.querySelector("[data-tunnel-hint]").textContent = t(MODES.find(m => m[0] === input.value)[2]);
         await refreshTunnelStatus(0, invoke);
         onChange?.();
       } catch (e) {
-        errToast("Couldn't change the mode: " + errMsg(e));
+        errToast(t("Couldn't change the mode: {why}", { why: errMsg(e) }));
       }
     }));
 
@@ -769,26 +775,26 @@ export async function openTunnelSettings(deps) {
     } catch {
       try {
         await navigator.clipboard.writeText(text);
-        toast("Diagnostics copied");
+        toast(t("Diagnostics copied"));
       } catch (e) {
-        errToast("Couldn't share diagnostics: " + errMsg(e));
+        errToast(t("Couldn't share diagnostics: {why}", { why: errMsg(e) }));
       }
     }
   });
 
   // Older shells (no tunnel_list): the single tunnel's Remove.
   body.querySelector("[data-tunnel-remove]")?.addEventListener("click", async () => {
-    const ok = await confirmModal("Remove the DNS tunnel?", "Mail will only connect directly. You need the tunnel link again to set it up.", "Remove", true);
+    const ok = await confirmModal("Remove the DNS tunnel?", t("Mail will only connect directly. You need the tunnel link again to set it up."), t("Remove"), true);
     if (!ok) return;
     try {
       await invoke("tunnel_remove");
       storeLabel("");
       await refreshTunnelStatus(0, invoke);
       close();
-      toast("DNS tunnel removed");
+      toast(t("DNS tunnel removed"));
       onChange?.();
     } catch (e) {
-      errToast("Couldn't remove the tunnel: " + errMsg(e));
+      errToast(t("Couldn't remove the tunnel: {why}", { why: errMsg(e) }));
     }
   });
   return { body, close };

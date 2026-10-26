@@ -57,6 +57,7 @@ function setup({ accountId = 1, accounts = [{ id: 1 }, { id: 2 }], chats = { 1: 
     accountIsCurrent: epoch => !ctx.state.accountChanging && epoch === core.accountEpoch,
     openChat: async chatId => { log.push(["openChat", core.accountId, chatId]); },
     toast: text => log.push(["toast", text]),
+    t: (k, v = {}) => k.replace(/\{(\w+)\}/g, (m, n) => (n in v ? String(v[n]) : m)),
     errToast: text => log.push(["errToast", text]),
     // Other deep-link kinds are out of scope here.
     extractJoinLink: () => null,

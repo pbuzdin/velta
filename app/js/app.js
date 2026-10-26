@@ -204,10 +204,10 @@ function bindEarlyRecoveryActions() {
       if (!core.restartIo) throw new Error("Core restart is unavailable for this backend");
       await core.restartIo();
       diagnostics.append("info", "Core restarted successfully");
-      toast("Core restarted");
+      toast(t("Core restarted"));
     } catch (error) {
       diagnostics.append("error", `Core restart failed: ${error?.message || error}`);
-      errToast(`Core restart failed: ${error?.message || error}`, 5000);
+      errToast(t("Core restart failed: {why}", { why: error?.message || error }), 5000);
     }
   }, { once: true });
 
@@ -227,10 +227,10 @@ function bindEarlyRecoveryActions() {
       core.backend.connected = true;
       await refreshChatList();
       diagnostics.append("info", "UI reconnected successfully");
-      toast("UI reconnected to core");
+      toast(t("UI reconnected to core"));
     } catch (error) {
       diagnostics.append("error", `UI reconnect failed: ${error?.message || error}`);
-      errToast(`Reconnect failed: ${error?.message || error}`, 5000);
+      errToast(t("Reconnect failed: {why}", { why: error?.message || error }), 5000);
     }
   }, { once: true });
 
@@ -300,7 +300,7 @@ function openDiagnosticsChat() {
     pauseBtn.addEventListener("click", () => {
       diagnosticsPaused = !diagnosticsPaused;
       pauseBtn.innerHTML = diagnosticsPaused ? DIAG_ICON_PLAY : DIAG_ICON_PAUSE;
-      const label = diagnosticsPaused ? "Resume diagnostics" : "Pause diagnostics";
+      const label = diagnosticsPaused ? t("Resume diagnostics") : t("Pause diagnostics");
       pauseBtn.title = label;
       pauseBtn.setAttribute("aria-label", label);
       pauseBtn.setAttribute("aria-pressed", String(diagnosticsPaused));
@@ -461,7 +461,7 @@ const DIAGNOSTIC_INFO_KEEP = /receive_imf|download|secure|pre-message|post-messa
 const DIAGNOSTIC_INFO_SKIP = /ConnectivityChanged|ImapInboxIdle|ImapConnected|SmtpConnected|SmtpMessageSent|imap\.rs|dns\.rs|scheduler\.rs|quota\.rs|select_folder\.rs|idle\.rs|key\.rs/i;
 core.addEventListener?.("diagnostic", e => {
   const level = e.detail?.level || "info";
-  const message = e.detail?.message || "Core event";
+  const message = e.detail?.message || t("Core event");
   if (level === "info") {
     if (DIAGNOSTIC_INFO_SKIP.test(message) && !DIAGNOSTIC_INFO_KEEP.test(message)) return;
   }
@@ -471,7 +471,7 @@ core.addEventListener?.("diagnostic", e => {
   if (isSendFailureDiagnostic(level, message)) {
     const r = relaySendErrorState.note(level);
     if (r.raised) renderRelayLine();
-    if (r.toast) toast("Sending delayed — the relay is retrying in the background", 6000);
+    if (r.toast) toast(t("Sending delayed — the relay is retrying in the background"), 6000);
   }
 });
 
@@ -814,22 +814,22 @@ function renderRelayLine() {
   if (!el) return;
   let relayState, title;
   if (core.backend?.kind === "mock") {
-    relayState = "local"; title = "Demo mode — everything stays on this device";
+    relayState = "local"; title = t("Demo mode — everything stays on this device");
   } else if (state.account && state.account.configured === false && p2pAvailable()) {
-    relayState = "local"; title = "Local chat mode — no relay configured";
+    relayState = "local"; title = t("Local chat mode — no relay configured");
   } else if (relayConnectivity == null) {
-    relayState = "connecting"; title = "Checking relay…";
+    relayState = "connecting"; title = t("Checking relay…");
   } else if (relayConnectivity >= 4000) {
     // #102: relay up but SMTP keeps retrying — distinct "delayed" state,
     // not the red relay-down look.
     relayState = relaySendErrorState.active ? "delayed" : "ok";
-    title = relaySendErrorState.active ? "Sending delayed — the relay is retrying" : "Relay connected";
+    title = relaySendErrorState.active ? t("Sending delayed — the relay is retrying") : t("Relay connected");
   } else if (relayConnectivity >= 2000) {
-    relayState = "connecting"; title = "Connecting to relay…";
+    relayState = "connecting"; title = t("Connecting to relay…");
   } else if (relayDownSince && Date.now() - relayDownSince > RELAY_DOWN_AFTER_MS) {
-    relayState = "down"; title = "Relay unreachable — retrying";
+    relayState = "down"; title = t("Relay unreachable — retrying");
   } else {
-    relayState = "connecting"; title = "Relay problems — retrying…";
+    relayState = "connecting"; title = t("Relay problems — retrying…");
   }
   // One segment per relay (equal widths); a single relay fills the whole
   // line. Without a parsed per-relay view, one segment carries the combined
@@ -874,8 +874,8 @@ function renderRelayLine() {
   }
   const segTitle = s => {
     const base = s.domain ? `${s.domain}: ${s.text}` : (s.text || title);
-    if (s.state === "unreachable") return `${base} — not accepting new connections (web check failed)`;
-    if (s.state === "offline") return `${base} — offline (not accepting connections for a while)`;
+    if (s.state === "unreachable") return t("{relay}: not accepting new connections (web check failed)", { relay: base });
+    if (s.state === "offline") return t("{relay}: offline (not accepting connections for a while)", { relay: base });
     return base;
   };
   el.replaceChildren(...segs.map((s, i) => {
@@ -931,7 +931,7 @@ function renderRelayLine() {
         label.append(` · ${s.text}`);
       }
       chip.append(label);
-      chip.title = `${segTitle(s)}${s.quota ? ` · ${s.quota}` : ""}${isSendRelay(s) && relaySendErrorState.active ? " · sending delayed — retrying" : ""}`;
+      chip.title = `${segTitle(s)}${s.quota ? ` · ${s.quota}` : ""}${isSendRelay(s) && relaySendErrorState.active ? " · " + t("sending delayed, retrying") : ""}`;
       return chip;
     }));
   }
@@ -1052,10 +1052,10 @@ async function exportSettingsToSaved() {
     if (chatId == null) throw new Error("no Saved Messages chat");
     await core.sendMessage(chatId, { text });
     if (!accountIsCurrent(epoch)) return;
-    toast("Settings sent to Saved Messages");
+    toast(t("Settings sent to Saved Messages"));
     openChat(chatId);
   } catch (err) {
-    errToast("Couldn't export settings: " + (err?.message || err));
+    errToast(t("Couldn't export settings: ") + (err?.message || err));
   }
 }
 function settingsDiffModal(changes, parsed) {
@@ -1064,9 +1064,9 @@ function settingsDiffModal(changes, parsed) {
     body.className = "settings-diff";
     const when = parsed.date ? ` from ${parsed.date}` : "";
     const notes = [];
-    if (parsed.invalid.length) notes.push(`Skipped (invalid value): ${parsed.invalid.join(", ")}`);
-    if (parsed.ignored.length) notes.push(`Skipped (unknown to this version): ${parsed.ignored.join(", ")}`);
-    body.innerHTML = `<p>Apply the settings${escapeHtml(when)} on this device? ${changes.length === 1 ? "1 setting changes" : `${changes.length} settings change`}:</p>
+    if (parsed.invalid.length) notes.push(t("Skipped (invalid value): {keys}", { keys: parsed.invalid.join(", ") }));
+    if (parsed.ignored.length) notes.push(t("Skipped (unknown to this version): {keys}", { keys: parsed.ignored.join(", ") }));
+    body.innerHTML = `<p>${t("Apply the settings{when} on this device?", { when: escapeHtml(when) })} ${changes.length === 1 ? escapeHtml(t("1 setting changes:")) : escapeHtml(t("Settings that change: {n}", { n: changes.length }))}</p>
       <ul class="settings-diff-list">${changes.map(c => `<li><span class="sd-label">${escapeHtml(t(c.label))}</span><span class="sd-vals"><span class="sd-from">${escapeHtml(c.from)}</span> → <b>${escapeHtml(c.to)}</b></span></li>`).join("")}</ul>
       ${notes.map(n => `<p class="bar-opts-hint">${escapeHtml(n)}</p>`).join("")}`;
     const { foot, cancel, ok } = footButtons("Apply", { okClass: "btn-text btn-primary" });
@@ -1078,13 +1078,13 @@ function settingsDiffModal(changes, parsed) {
 }
 async function applySettingsFromMessage(text) {
   const parsed = parseSettings(text);
-  if (!parsed) { errToast("This message isn't a valid Velta settings block"); return; }
+  if (!parsed) { errToast(t("This message isn't a valid Velta settings block")); return; }
   const changes = diffSettings(localStorage, parsed.values);
-  if (!changes.length) { toast("This device already uses these settings"); return; }
+  if (!changes.length) { toast(t("This device already uses these settings")); return; }
   if (!(await settingsDiffModal(changes, parsed))) return;
   const applied = applySettings(localStorage, parsed.values);
   refreshAfterSettingsApply(applied.map(c => c.key));
-  toast(applied.length === 1 ? "1 setting applied" : `${applied.length} settings applied`);
+  toast(applied.length === 1 ? t("1 setting applied") : t("{n} settings applied", { n: applied.length }));
 }
 // Everything a changed key needs to show live, no restart.
 function refreshAfterSettingsApply(keys) {
@@ -1111,7 +1111,7 @@ function refreshAfterSettingsApply(keys) {
   for (const [k, coreKey, lsKey, dflt] of cfg) {
     if (!has(k)) continue;
     const v = lsKey === "velta-mdns" ? (localStorage.getItem(lsKey) === "0" ? "0" : "1") : (localStorage.getItem(lsKey) || dflt);
-    core.setConfig?.(coreKey, v).catch(err => errToast(`Couldn't save ${k}: ${err?.message || err}`));
+    core.setConfig?.(coreKey, v).catch(err => errToast(t("Couldn't save {key}: {why}", { key: k, why: err?.message || err })));
   }
   // Drawer labels/radios/switches read storage at build time.
   rebuildDrawer();
@@ -1152,8 +1152,8 @@ async function flushIncomingNotify(groups, epoch) {
       if (!msg) continue;
     }
     notifyIncoming(
-      msg?.fromContact?.name || msg?.fwdFrom || "New message",
-      (msg?.text || "").replace(/\s+/g, " ").slice(0, 120) || "New message",
+      msg?.fromContact?.name || msg?.fwdFrom || t("New message"),
+      (msg?.text || "").replace(/\s+/g, " ").slice(0, 120) || t("New message"),
       {
         chatName: chat?.name || null,
         senderName: msg?.fromContact?.name || null,
@@ -1260,7 +1260,7 @@ function renderLcQueueTray() {
     });
   }
   chip.textContent = `⏳ ${items.length}`;
-  chip.title = "Offline media queued — tap to manage";
+  chip.title = t("Offline media queued — tap to manage");
 }
 
 let lcQueueJustClosed = false;
@@ -1272,18 +1272,18 @@ function toggleLcQueuePop(chatId) {
   const items = lcQueueItems(chatId);
   const pop = document.createElement("div");
   pop.id = "lc-queue-pop";
-  pop.innerHTML = `<div class="lq-head">Queued — sends when the device is reachable</div>` + items.map(it => `
+  pop.innerHTML = `<div class="lq-head">${escapeHtml(t("Queued — sends when the device is reachable"))}</div>` + items.map(it => `
     <div class="lq-row" data-id="${escapeAttr(it.id)}">
       <span class="lq-name">${escapeHtml(it.name || "file")}${it.size ? ` · ${formatBytes(it.size)}` : ""}</span>
-      <button type="button" class="btn-text" data-lq-retry="${escapeAttr(it.id)}">Send now</button>
-      <button type="button" class="btn-text" data-lq-cancel="${escapeAttr(it.id)}" aria-label="Remove from queue">${ICON.close}</button>
+      <button type="button" class="btn-text" data-lq-retry="${escapeAttr(it.id)}">${escapeHtml(t("Send now"))}</button>
+      <button type="button" class="btn-text" data-lq-cancel="${escapeAttr(it.id)}" aria-label="${escapeHtml(t("Remove from queue"))}">${ICON.close}</button>
     </div>`).join("");
   document.body.appendChild(pop);
   pop.addEventListener("click", async e => {
     const retryId = e.target.closest("[data-lq-retry]")?.dataset.lqRetry;
     const cancelId = e.target.closest("[data-lq-cancel]")?.dataset.lqCancel;
     if (retryId) {
-      try { await retryQueuedItem(chatId, retryId); toast("Sending…"); }
+      try { await retryQueuedItem(chatId, retryId); toast(t("Sending…")); }
       catch (err) { toast(String(err?.message || err)); }
       toggleLcQueuePop(chatId);
     }
@@ -1419,60 +1419,60 @@ async function renderLocalChatCard() {
     <div class="lc-row" data-open="${escapeAttr(p.id)}">
       <span class="lc-dot ${p.online ? "on" : ""}"></span>
       <span class="lc-row-name">${escapeHtml(p.name)}</span>
-      ${p.queued ? `<span class="lc-row-queued">${p.queued} queued</span>` : ""}
-      <button type="button" class="btn-text lc-chat" data-chat="${escapeAttr(p.id)}" title="Open chat" aria-label="Open chat with ${escapeAttr(p.name)}">Chat</button>
-      <button type="button" class="btn-text lc-remove" data-remove="${escapeAttr(p.rawId || p.id)}" title="Remove device" aria-label="Remove ${escapeAttr(p.name)}">${ICON.close}</button>
+      ${p.queued ? `<span class="lc-row-queued">${escapeHtml(t("{n} queued", { n: p.queued }))}</span>` : ""}
+      <button type="button" class="btn-text lc-chat" data-chat="${escapeAttr(p.id)}" title="${escapeHtml(t("Open chat"))}" aria-label="${escapeAttr(t("Open chat with {name}", { name: p.name }))}">${escapeHtml(t("Chat"))}</button>
+      <button type="button" class="btn-text lc-remove" data-remove="${escapeAttr(p.rawId || p.id)}" title="${escapeHtml(t("Remove device"))}" aria-label="${escapeAttr(t("Remove {name}", { name: p.name }))}">${ICON.close}</button>
     </div>`).join("");
   const nearbyRows = model.nearby.map(n => `
     <div class="lc-row" data-pair="${escapeAttr(n.id)}">
       <span class="lc-dot on"></span>
       <span class="lc-row-name">${escapeHtml(n.name || n.id.slice(0, 12))}</span>
-      <button type="button" class="btn-text" data-pair="${escapeAttr(n.id)}">Pair</button>
+      <button type="button" class="btn-text" data-pair="${escapeAttr(n.id)}">${escapeHtml(t("Pair"))}</button>
     </div>`).join("");
   const groupRows = (model.groups || []).map(g => `
     <div class="lc-row" data-open="${escapeAttr(g.id)}">
       <span class="lc-dot ${g.removed ? "" : g.online > 1 ? "on" : ""}"></span>
       <span class="lc-row-name">${escapeHtml(g.name)}</span>
-      <span class="lc-row-queued">${g.removed ? "closed" : `${g.members} members · ${g.online} online`}</span>
-      <button type="button" class="btn-text lc-chat" data-chat="${escapeAttr(g.id)}" title="Open group" aria-label="Open group ${escapeAttr(g.name)}">Chat</button>
+      <span class="lc-row-queued">${escapeHtml(g.removed ? t("closed") : t("{members} members · {online} online", { members: g.members, online: g.online }))}</span>
+      <button type="button" class="btn-text lc-chat" data-chat="${escapeAttr(g.id)}" title="${escapeHtml(t("Open group"))}" aria-label="${escapeAttr(t("Open group {name}", { name: g.name }))}">${escapeHtml(t("Chat"))}</button>
     </div>`).join("");
   el.innerHTML = `
     <div class="lc-card-head${lcCardOpen ? " open" : ""}" data-toggle>
       ${loopSvg}
-      <span class="lc-card-title">Velta Loop</span>
+      <span class="lc-card-title">${escapeHtml(t("Velta Loop"))}</span>
       <span class="lc-card-chevron">${svg(P.chevronDown, "", 'width="16" height="16"')}</span>
     </div>
     <div class="bar-opts-hint ctx-hint">${t("Local chat on the same network")}</div>
     <div class="lc-card-body">
-      <div class="lc-device">This device: <b>${escapeHtml(model.device.name)}</b>${short ? ` <span class="lc-nodeid">(${escapeHtml(short)})</span>` : ""} <button type="button" class="btn-text" data-rename>Edit name</button></div>
+      <div class="lc-device">${escapeHtml(t("This device:"))} <b>${escapeHtml(model.device.name)}</b>${short ? ` <span class="lc-nodeid">(${escapeHtml(short)})</span>` : ""} <button type="button" class="btn-text" data-rename>${escapeHtml(t("Edit name"))}</button></div>
       <div class="lc-actions">
-        <button type="button" class="btn-text" data-invite>Show invite</button>
-        <button type="button" class="btn-text" data-add>Add contact</button>
-        <button type="button" class="btn-text" data-new-group>New group</button>
+        <button type="button" class="btn-text" data-invite>${escapeHtml(t("Show invite"))}</button>
+        <button type="button" class="btn-text" data-add>${escapeHtml(t("Add contact"))}</button>
+        <button type="button" class="btn-text" data-new-group>${escapeHtml(t("New group"))}</button>
       </div>
-      ${nearbyRows ? `<div class="lc-sec">Nearby — discovered on this network</div>${nearbyRows}` : ""}
-      ${peerRows ? `<div class="lc-sec">Paired devices</div>${peerRows}` : ""}
-      ${groupRows ? `<div class="lc-sec">Groups</div>${groupRows}` : ""}
+      ${nearbyRows ? `<div class="lc-sec">${escapeHtml(t("Nearby on the same network"))}</div>${nearbyRows}` : ""}
+      ${peerRows ? `<div class="lc-sec">${escapeHtml(t("Paired devices"))}</div>${peerRows}` : ""}
+      ${groupRows ? `<div class="lc-sec">${escapeHtml(t("Groups"))}</div>${groupRows}` : ""}
     </div>`;
   if (lcCardOpen) el.classList.add("open");
   el.querySelector("[data-toggle]").addEventListener("click", () => { lcCardOpen = !lcCardOpen; el.classList.toggle("open"); });
   const invoke = tauriInvoke();
   const renderQr = text => core.createQrSvg(text);
   el.querySelector("[data-invite]").addEventListener("click", () => {
-    if (!invoke) return toast("Pairing needs the Velta app shell");
+    if (!invoke) return toast(t("Pairing needs the Velta app shell"));
     showInviteModal(invoke, renderQr).catch(err => toast(String(err?.message || err)));
   });
   el.querySelector("[data-add]").addEventListener("click", () => {
-    if (!invoke) return toast("Pairing needs the Velta app shell");
+    if (!invoke) return toast(t("Pairing needs the Velta app shell"));
     addContact(invoke).catch(err => toast(String(err?.message || err)));
   });
   el.querySelector("[data-new-group]").addEventListener("click", () => newLocalGroupFlow());
   el.querySelector("[data-rename]").addEventListener("click", async () => {
-    const name = await askText("Device name", model.device.name, "Save");
+    const name = await askText(t("Device name"), model.device.name, t("Save"));
     if (!name || !name.trim()) return;
     try {
       await renameDevice(name.trim());
-      toast("Device renamed");
+      toast(t("Device renamed"));
       renderLocalChatCard();
     } catch (err) { toast(String(err?.message || err)); }
   });
@@ -1483,7 +1483,7 @@ async function renderLocalChatCard() {
     if (!(await confirmRemovePeer(peerId, name))) return;
     try {
       await removePeer(peerId);
-      toast("Device removed");
+      toast(t("Device removed"));
       renderLocalChatCard();
       refreshChatList();
       closeVanishedGroupChat();
@@ -1506,7 +1506,7 @@ async function renderLocalChatCard() {
 // new-chat menu entry are both gated on it).
 async function newLocalGroupFlow() {
   const invoke = tauriInvoke();
-  if (!invoke || !p2pEnabled()) return toast("Local groups need the Velta app with local chat on");
+  if (!invoke || !p2pEnabled()) return toast(t("Local groups need the Velta app with local chat on"));
   const epoch = core.accountEpoch;
   try {
     const id = await showCreateGroupModal(invoke);
@@ -1516,7 +1516,7 @@ async function newLocalGroupFlow() {
     if (!accountIsCurrent(epoch)) return;
     openChat(id);
   } catch (err) {
-    errToast("Couldn't create the group: " + (err?.message || err));
+    errToast(t("Couldn't create the group: ") + (err?.message || err));
   }
 }
 
@@ -1586,7 +1586,7 @@ function syncHeaderButtons() {
     btn.innerHTML = searchOn
       ? ICON.close
       : ICON.search;
-    btn.title = searchOn ? "Close search" : "Search chats";
+    btn.title = searchOn ? t("Close search") : t("Search chats");
   }
   const plus = document.getElementById("btn-new-chat");
   plus?.classList.toggle("active", listView === "new");
@@ -1604,7 +1604,7 @@ function sideViewShell(title, subtitle) {
 
 async function renderContactsView() {
   stopSideScroller();
-  const rows = sideViewShell("Contacts", "Tap a contact to open the chat");
+  const rows = sideViewShell(t("Contacts"), t("Tap a contact to open the chat"));
   // #169: the toggle lives above the scroller's host — the VirtualScroller
   // owns rows' children, so the label must be a sibling, not a child.
   rows.before(knownContactsToggleRow(() => renderContactsView()));
@@ -1617,7 +1617,7 @@ async function renderContactsView() {
     contacts = contacts.filter(c => known.has(c.id));
   }
   if (!contacts.length) {
-    rows.innerHTML = `<div class="side-view-empty">${allCount ? "No known contacts yet — untick “Show only known contacts” above to see everyone." : "No contacts yet"}</div>`;
+    rows.innerHTML = `<div class="side-view-empty">${escapeHtml(allCount ? t("No known contacts yet — untick “Show only known contacts” above to see everyone.") : t("No contacts yet"))}</div>`;
     return;
   }
   const renderRow = (c) => {
@@ -1633,7 +1633,7 @@ async function renderContactsView() {
         setListView("chats");
         await refreshChatList();
         openChat(id);
-      } catch (err) { errToast(`Could not open chat: ${err?.message || err}`); }
+      } catch (err) { errToast(t("Could not open chat: {why}", { why: err?.message || err })); }
     });
     return b;
   };
@@ -1654,7 +1654,7 @@ async function renderArchivedTab(rows) {
   try { chats = await core.getChatList({ archived: true }); } catch { /* backend offline */ }
   if (listView !== "search" || searchScreenTab !== "archived") return; // switched away mid-fetch
   if (!chats.length) {
-    rows.innerHTML = `<div class="side-view-empty">No archived chats</div>`;
+    rows.innerHTML = `<div class="side-view-empty">${escapeHtml(t("No archived chats"))}</div>`;
     return;
   }
   for (const c of chats) {
@@ -1673,11 +1673,11 @@ async function renderArchivedTab(rows) {
 }
 
 function renderCallsView() {
-  const rows = sideViewShell("Calls", "Calls you ended on this device (kept locally — the core stores no call log)");
+  const rows = sideViewShell(t("Calls"), t("Calls you ended on this device (kept locally — the core stores no call log)"));
   let log = [];
   try { log = JSON.parse(localStorage.getItem(CALL_LOG_KEY)) || []; } catch { }
   if (!log.length) {
-    rows.innerHTML = `<div class="side-view-empty">No calls yet</div>`;
+    rows.innerHTML = `<div class="side-view-empty">${escapeHtml(t("No calls yet"))}</div>`;
     return;
   }
   for (const e of log) {
@@ -1687,7 +1687,7 @@ function renderCallsView() {
     b.className = "chat-item call-row";
     b.innerHTML = `
       <span class="call-row-ico">${ICON.phone}</span>
-      <div class="ci-name">${escapeHtml(chat ? chat.name : "Unknown chat")}</div>
+      <div class="ci-name">${escapeHtml(chat ? chat.name : t("Unknown chat"))}</div>
       <div class="ci-time">${timeTag(e.ts, timeAgo(e.ts))}</div>`;
     b.addEventListener("click", () => { setListView("chats"); openChat(e.chatId); });
     rows.append(b);
@@ -1709,21 +1709,21 @@ function renderQrView() {
   const hasCamera = !!navigator.mediaDevices?.getUserMedia;
   const scanTab = scanTabAvailable({ ua: navigator.userAgent, hasCamera });
   if (!scanTab) qrTab = "mine";
-  const rows = sideViewShell("Your QR code", qrTab === "scan"
-    ? "Point the camera at someone's QR code to start a chat or join a group"
-    : "Others scan this to reach you with verified encryption");
+  const rows = sideViewShell(t("Your QR code"), qrTab === "scan"
+    ? t("Point the camera at someone's QR code to start a chat or join a group")
+    : t("Others scan this to reach you with verified encryption"));
   const wrap = document.createElement("div");
   wrap.className = "qr-view";
   const tabs = scanTab ? `
     <div class="chat-cats side-tabs" role="tablist">
-      <button type="button" role="tab" data-qr-tab="mine" class="${qrTab === "mine" ? "active" : ""}">My code</button>
-      <button type="button" role="tab" data-qr-tab="scan" class="${qrTab === "scan" ? "active" : ""}">Scan a QR code</button>
+      <button type="button" role="tab" data-qr-tab="mine" class="${qrTab === "mine" ? "active" : ""}">${escapeHtml(t("My code"))}</button>
+      <button type="button" role="tab" data-qr-tab="scan" class="${qrTab === "scan" ? "active" : ""}">${escapeHtml(t("Scan a QR code"))}</button>
     </div>` : "";
   if (qrTab === "scan") {
     wrap.innerHTML = `${tabs}
       <div class="qr-scan"><video muted playsinline></video></div>
-      <div class="qr-scan-status" data-scan-status>Starting camera…</div>
-      <button type="button" class="btn-text" data-scan-retry hidden>Try again</button>`;
+      <div class="qr-scan-status" data-scan-status>${escapeHtml(t("Starting camera…"))}</div>
+      <button type="button" class="btn-text" data-scan-retry hidden>${escapeHtml(t("Try again"))}</button>`;
   } else {
     const canShare = canShareLink({
       ua: navigator.userAgent,
@@ -1731,11 +1731,11 @@ function renderQrView() {
       hasWebShare: typeof navigator.share === "function",
     });
     wrap.innerHTML = `${tabs}
-      <div class="qr-box"><div class="qr-loading">Generating QR code…</div></div>
+      <div class="qr-box"><div class="qr-loading">${escapeHtml(t("Generating QR code…"))}</div></div>
       <div class="invite-link" style="word-break:break-all"></div>
       <div class="qr-actions">
-        <button type="button" class="btn-text" data-copy-link disabled>Copy a link</button>
-        ${canShare ? `<button type="button" class="btn-text" data-share-link disabled>Share a link</button>` : ""}
+        <button type="button" class="btn-text" data-copy-link disabled>${escapeHtml(t("Copy a link"))}</button>
+        ${canShare ? `<button type="button" class="btn-text" data-share-link disabled>${escapeHtml(t("Share a link"))}</button>` : ""}
       </div>`;
   }
   rows.append(wrap);
@@ -1757,15 +1757,15 @@ function renderQrView() {
       onState: (st, msg) => {
         if (listView !== "qr" || qrTab !== "scan") return;
         retry.hidden = st !== "error" && st !== "stopped";
-        status.textContent = st === "starting" ? "Starting camera…"
-          : st === "scanning" ? "Hold the QR code inside the frame"
-          : st === "error" ? (msg || "The camera could not be started")
-          : "Camera stopped";
+        status.textContent = st === "starting" ? t("Starting camera…")
+          : st === "scanning" ? t("Hold the QR code inside the frame")
+          : st === "error" ? (msg || t("The camera could not be started"))
+          : t("Camera stopped");
       },
       onCode: raw => {
         if (!accountIsCurrent(epoch)) return false;
         const kind = classifyScannedCode(raw, { parseInviteLink, isShortInviteLink });
-        if (!kind) { toast("That QR code isn't a Velta or Delta Chat invite"); return false; }
+        if (!kind) { toast(t("That QR code isn't a Velta or Delta Chat invite")); return false; }
         setListView("chats"); // stops the camera and leaves the screen; the confirmation modal takes over
         if (kind === "invite" || kind === "short") joinFromInvite(raw.trim());
         else handleDeeplinkFromUrl(raw.trim());
@@ -1783,8 +1783,8 @@ function renderQrView() {
   copyBtn.addEventListener("click", async () => {
     try {
       await copyLink(inviteText, { clipboard: navigator.clipboard });
-      toast("Link copied");
-    } catch (err) { errToast("Couldn't copy the link: " + (err?.message || err)); }
+      toast(t("Link copied"));
+    } catch (err) { errToast(t("Couldn't copy the link: ") + (err?.message || err)); }
   });
   shareBtn?.addEventListener("click", async () => {
     try {
@@ -1793,13 +1793,13 @@ function renderQrView() {
         ua: navigator.userAgent, invoke,
         webShare: typeof navigator.share === "function" ? o => navigator.share(o) : null,
       });
-    } catch (err) { errToast("Couldn't share the link: " + (err?.message || err)); }
+    } catch (err) { errToast(t("Couldn't share the link: ") + (err?.message || err)); }
   });
   inviteQrProvider(null)()
     .then(({ svg, link }) => {
       const box = wrap.querySelector(".qr-box");
       if (listView !== "qr" || qrTab !== "mine") return;
-      box.innerHTML = svg || "<div class='qr-loading'>QR unavailable</div>";
+      box.innerHTML = svg || `<div class='qr-loading'>${escapeHtml(t("QR unavailable"))}</div>`;
       wrap.querySelector(".invite-link").textContent = link;
       inviteText = link || "";
       copyBtn.disabled = !inviteText;
@@ -1808,7 +1808,7 @@ function renderQrView() {
     .catch(err => {
       if (listView !== "qr") return;
       wrap.querySelector(".qr-box").innerHTML =
-        `<div class='qr-loading'>Couldn't create the invite:<br>${escapeHtml(String(err?.message || err))}</div>`;
+        `<div class='qr-loading'>${escapeHtml(t("Couldn't create the invite:"))}<br>${escapeHtml(String(err?.message || err))}</div>`;
     });
 }
 
@@ -1931,9 +1931,9 @@ function renderChatList() {
   if (!chats.length && !(archivedCount && state.chatCategory === "all" && !state.query)) {
     const empty = document.createElement("div");
     empty.style.cssText = "text-align:center;color:var(--text-dim);padding:30px 16px;font-size:14.5px";
-    empty.textContent = state.query ? "No chats found"
-      : state.chatCategory !== "all" ? "No chats in this category"
-      : "No chats yet — start a new one";
+    empty.textContent = state.query ? t("No chats found")
+      : state.chatCategory !== "all" ? t("No chats in this category")
+      : t("No chats yet — start a new one");
     list.appendChild(empty);
   }
   syncArchivedLink();
@@ -2078,6 +2078,7 @@ function formatFingerprint(fpr) {
 
 // Age spans shared by the chat-list menu and the info-sheet "Old messages"
 // cleanup (label + cutoff offset in ms).
+// Labels are English keys, shown through t().
 const OLD_MESSAGE_SPANS = [
   ["1 hour", 3600e3],
   ["1 day", 86400e3],
@@ -2102,20 +2103,20 @@ function chatContextMenu(chat, x, y) {
   // disband) apply — pin, mute, archive and old-message cleanup are relay-core.
   const grp = !!chat.isP2pGroup;
   showContextMenu([
-    grp ? null : { label: chat.pinned ? "Unpin" : "Pin to top", icon: icons.pin, onClick: () => core.setChatFlags(chat.id, { pinned: !chat.pinned }) },
-    grp ? null : { label: chat.muted ? "Unmute" : "Mute notifications", icon: icons.mute, onClick: () => core.setChatFlags(chat.id, { muted: !chat.muted }) },
-    { label: `Link previews: ${LINK_PREVIEW_LABELS[linkPreviewMode(chat.id)]}`, icon: icons.link, onClick: () => {
+    grp ? null : { label: chat.pinned ? t("Unpin") : t("Pin to top"), icon: icons.pin, onClick: () => core.setChatFlags(chat.id, { pinned: !chat.pinned }) },
+    grp ? null : { label: chat.muted ? t("Unmute") : t("Mute notifications"), icon: icons.mute, onClick: () => core.setChatFlags(chat.id, { muted: !chat.muted }) },
+    { label: t("Link previews: {mode}", { mode: t(LINK_PREVIEW_LABELS[linkPreviewMode(chat.id)]) }), icon: icons.link, onClick: () => {
       if (!accountIsCurrent(epoch)) return;
       const apply = (mode) => {
         if (!accountIsCurrent(epoch)) return;
         setLinkPreviewMode(mode, chat.id);
-        toast(`Link previews: ${LINK_PREVIEW_LABELS[mode]} for this chat`);
+        toast(t("Link previews: {mode} for this chat", { mode: t(LINK_PREVIEW_LABELS[mode]) }));
         if (state.activeChatId === chat.id && chatView?.open) {
           chatView.close();
           openChat(chat.id);
         }
       };
-      showContextMenu([["off", "Off"], ["picture", "Send a picture"], ["fetch", "Load on this device"]].map(([mode, label]) => ({
+      showContextMenu([["off", t("Off")], ["picture", t("Send a picture")], ["fetch", t("Load on this device")]].map(([mode, label]) => ({
         label, onClick: () => apply(mode),
       })), x, y);
     } },
@@ -2125,30 +2126,30 @@ function chatContextMenu(chat, x, y) {
       icon: icons.trash,
       onClick: () => {
         showContextMenu(OLD_MESSAGE_SPANS.map(([label, ms]) => ({
-          label: `Older than ${label}`,
+          label: t("Older than {label}", { label: t(label) }),
           onClick: async () => {
             const ok = await confirmModal(
-              "Delete old messages",
-              `Delete every message in "${chat.name}" older than ${label}? Pinned messages are kept. This cannot be undone.`,
-              "Delete",
+              t("Delete old messages"),
+              t("Delete every message in \"{name}\" older than {label}? Pinned messages are kept. This cannot be undone.", { name: chat.name, label: t(label) }),
+              t("Delete"),
               true,
             );
             if (!ok || !accountIsCurrent(epoch)) return;
             try {
               const deleted = await core.deleteMessagesOlderThan(chat.id, Date.now() - ms);
               if (!accountIsCurrent(epoch)) return;
-              toast(deleted ? `Deleted ${deleted} message${deleted === 1 ? "" : "s"}` : "Nothing older than that");
+              toast(deleted ? (deleted === 1 ? t("1 message deleted") : t("Messages deleted: {n}", { n: deleted })) : t("Nothing older than that"));
               refreshChatList();
             } catch (err) {
-              errToast("Couldn't delete: " + (err?.message || err));
+              errToast(t("Couldn't delete: ") + (err?.message || err));
             }
           },
         })), x, y);
       },
     },
     grp ? null : "-",
-    grp ? null : { label: chat.archived ? "Unarchive" : "Archive", icon: icons.archive, onClick: () => core.setChatFlags(chat.id, { archived: !chat.archived }) },
-    grp ? { label: chat.readOnly ? "Delete chat" : chat.canManage ? "Disband and delete" : "Leave and delete", icon: icons.trash, danger: true, onClick: () => deleteLocalGroupChat(chat, epoch) }
+    grp ? null : { label: chat.archived ? t("Unarchive") : t("Archive"), icon: icons.archive, onClick: () => core.setChatFlags(chat.id, { archived: !chat.archived }) },
+    grp ? { label: chat.readOnly ? t("Delete chat") : chat.canManage ? t("Disband and delete") : t("Leave and delete"), icon: icons.trash, danger: true, onClick: () => deleteLocalGroupChat(chat, epoch) }
     : { label: "Delete chat", icon: icons.trash, danger: true, onClick: async () => {
       // deleteMessages only clears history and leaves the chat in the list (#34).
       const p2p = chat.isP2p || String(chat.id).startsWith("p2p:");
@@ -2157,13 +2158,13 @@ function chatContextMenu(chat, x, y) {
       // rejects self-removal); an already-left chat errors and is ignored.
       const membership = !p2p && (chat.kind === "group" || chat.chatType === "OutBroadcast" || chat.chatType === "InBroadcast");
       const ok = p2p
-        ? await confirmRemovePeer(String(chat.id).slice("p2p:".length), chat.name, "Delete chat")
+        ? await confirmRemovePeer(String(chat.id).slice("p2p:".length), chat.name, t("Delete chat"))
         : await confirmModal(
-          "Delete chat",
+          t("Delete chat"),
           membership
-            ? `Leave "${chat.name}" and delete it with all its messages?`
-            : `Delete "${chat.name}" and all its messages?`,
-          membership ? "Leave and delete" : "Delete");
+            ? t("Leave \"{name}\" and delete it with all its messages?", { name: chat.name })
+            : t("Delete \"{name}\" and all its messages?", { name: chat.name }),
+          membership ? t("Leave and delete") : t("Delete"));
       if (!ok || !accountIsCurrent(epoch)) return;
       try {
         if (p2p) await removePeer(String(chat.id).slice("p2p:".length));
@@ -2177,7 +2178,7 @@ function chatContextMenu(chat, x, y) {
         if (p2p) { renderLocalChatCard(); closeVanishedGroupChat(); }
         refreshChatList();
       } catch (err) {
-        errToast("Couldn't delete chat: " + (err.message || err));
+        errToast(t("Couldn't delete chat: ") + (err.message || err));
       }
     } },
   ].filter(Boolean), x, y);
@@ -2186,9 +2187,9 @@ function chatContextMenu(chat, x, y) {
 // Unpairing a device, with the group consequences spelled out: groups it
 // created go away here (a creator we forgot can't re-sign anything for us),
 // groups it is merely in keep it as a member we can't message directly.
-async function confirmRemovePeer(peerId, name, title = "Remove device") {
+async function confirmRemovePeer(peerId, name, title = t("Remove device")) {
   const text = removePeerImpactText(name, await peerGroupImpact(peerId));
-  return confirmModal(title, text, title === "Delete chat" ? "Delete" : "Remove", true);
+  return confirmModal(title, text, title === t("Delete chat") ? t("Delete") : t("Remove"), true);
 }
 
 // An open local-group chat whose group was deleted underneath it (its creator
@@ -2212,11 +2213,11 @@ function p2pGroupActionsHtml(chat) {
 async function leaveLocalGroupFlow(chat, epoch) {
   const disband = !!chat.canManage;
   const ok = await confirmModal(
-    disband ? "Disband group" : "Leave group",
+    disband ? t("Disband group") : t("Leave group"),
     disband
-      ? "You created this group. Disbanding closes it for everyone — nobody can write in it any more. The history stays on each device."
-      : "You will leave this group and no longer receive its messages. The history stays on this device.",
-    disband ? "Disband" : "Leave", true);
+      ? t("You created this group. Disbanding closes it for everyone — nobody can write in it any more. The history stays on each device.")
+      : t("You will leave this group and no longer receive its messages. The history stays on this device."),
+    disband ? t("Disband") : t("Leave"), true);
   if (!ok || !accountIsCurrent(epoch)) return;
   try {
     await core.leaveGroup(chat.id);
@@ -2229,7 +2230,7 @@ async function leaveLocalGroupFlow(chat, epoch) {
       refreshActiveChatHeader(chat.id);
     }
   } catch (err) {
-    errToast("Couldn't leave: " + (err?.message || err));
+    errToast(t("Couldn't leave: ") + (err?.message || err));
   }
 }
 
@@ -2240,13 +2241,13 @@ async function deleteLocalGroupChat(chat, epoch) {
   const active = !chat.readOnly;
   const disband = active && chat.canManage;
   const ok = await confirmModal(
-    "Delete chat",
+    t("Delete chat"),
     !active
-      ? `Remove "${chat.name}" from your chat list?`
+      ? t("Remove \"{name}\" from your chat list?", { name: chat.name })
       : disband
-        ? `Disband "${chat.name}" and remove it from your list? You created this group: disbanding closes it for everyone.`
-        : `Leave "${chat.name}" and remove it from your list? You will no longer receive its messages.`,
-    disband ? "Disband" : active ? "Leave" : "Delete", true);
+        ? t("Disband \"{name}\" and remove it from your list? You created this group: disbanding closes it for everyone.", { name: chat.name })
+        : t("Leave \"{name}\" and remove it from your list? You will no longer receive its messages.", { name: chat.name }),
+    disband ? t("Disband") : active ? t("Leave") : t("Delete"), true);
   if (!ok || !accountIsCurrent(epoch)) return;
   try {
     await dismissLocalGroup(String(chat.id).slice("p2pg:".length));
@@ -2255,7 +2256,7 @@ async function deleteLocalGroupChat(chat, epoch) {
     renderLocalChatCard();
     refreshChatList();
   } catch (err) {
-    errToast("Couldn't delete chat: " + (err.message || err));
+    errToast(t("Couldn't delete chat: ") + (err.message || err));
   }
 }
 
@@ -2319,11 +2320,11 @@ async function openChat(chatId) {
   const chat = await core.getChat(chatId);
   if (!current() || !chat) return;
   if (chat.kind === "deaddrop") {
-    const ok = await confirmModal("Contact request", `"${chat.name}" wants to start a conversation with you. Accept it to read the messages and reply.`, "Accept", false);
+    const ok = await confirmModal("Contact request", t("\"{name}\" wants to start a conversation with you. Accept it to read the messages and reply.", { name: chat.name }), t("Accept"), false);
     if (ok && current()) {
       await core.acceptChat(chatId);
       if (!current()) return;
-      toast("Contact request accepted");
+      toast(t("Contact request accepted"));
       await refreshChatList();
       if (!current()) return;
       return openChat(chatId); // now a normal chat — open it
@@ -2385,7 +2386,7 @@ async function openChat(chatId) {
   } catch (error) {
     if (!current()) return;
     closeChatUI();
-    errToast("Couldn't open chat: " + (error.message || error));
+    errToast(t("Couldn't open chat: ") + (error.message || error));
   } finally {
     if (state.pendingChatId === chatId && navigation === chatNavigation) state.pendingChatId = null;
   }
@@ -2453,7 +2454,7 @@ async function openDirectChat(contactId) {
     await refreshChatList();
     if (!accountIsCurrent(epoch)) return;
     await openChat(Number(chatId));
-  } catch { errToast("Couldn't open the chat"); }
+  } catch { errToast(t("Couldn't open the chat")); }
 }
 
 // Android BACK / gesture pops the entry pushed by openChat; this performs
@@ -2526,7 +2527,7 @@ const EPHEMERAL_OPTIONS = [
 
 function formatEphemeralTimer(secs) {
   const s = secs | 0;
-  return EPHEMERAL_OPTIONS.find(o => o.secs === s)?.label ?? (s ? `On (${s} s)` : "Off");
+  return EPHEMERAL_OPTIONS.find(o => o.secs === s)?.label ?? (s ? t("On ({n} s)", { n: s }) : t("Off"));
 }
 
 // The disappearing-messages editor (chat info sheet → the row). Radios in
@@ -2539,7 +2540,7 @@ async function openEphemeralDialog(chat, valEl, epoch) {
   list.className = "eph-set";
   const legend = document.createElement("legend");
   legend.className = "vh";
-  legend.textContent = "Disappearing messages";
+  legend.textContent = t("Disappearing messages");
   list.append(legend);
   for (const o of EPHEMERAL_OPTIONS) {
     const label = document.createElement("label");
@@ -2549,12 +2550,12 @@ async function openEphemeralDialog(chat, valEl, epoch) {
     input.name = "eph-option";
     input.value = o.secs;
     input.checked = o.secs === (current | 0);
-    label.append(input, Object.assign(document.createElement("span"), { textContent: o.label }));
+    label.append(input, Object.assign(document.createElement("span"), { textContent: t(o.label) }));
     list.appendChild(label);
   }
   const note = document.createElement("div");
   note.className = "eph-note";
-  note.textContent = "Applies to all members of this chat; they can still copy, save, and forward messages.";
+  note.textContent = t("Applies to all members of this chat; they can still copy, save, and forward messages.");
   const body = document.createElement("div");
   body.append(list, note);
   const { foot, cancel, ok } = footButtons("OK");
@@ -2573,7 +2574,7 @@ async function openEphemeralDialog(chat, valEl, epoch) {
       if (accountIsCurrent(epoch)) valEl.textContent = formatEphemeralTimer(secs);
       close();
     } catch (err) {
-      errToast("Couldn't set disappearing messages: " + (err.message || err));
+      errToast(t("Couldn't set disappearing messages: ") + (err.message || err));
     }
   });
 }
@@ -2596,7 +2597,7 @@ function openMuteDialog(chat, valEl, epoch) {
   list.className = "eph-set";
   const legend = document.createElement("legend");
   legend.className = "vh";
-  legend.textContent = "Mute notifications";
+  legend.textContent = t("Mute notifications");
   list.append(legend);
   const rows = (chat.muted ? [{ label: "Unmute", secs: 0 }] : []).concat(MUTE_OPTIONS);
   for (const o of rows) {
@@ -2609,11 +2610,11 @@ function openMuteDialog(chat, valEl, epoch) {
       const muted = o.secs !== 0;
       chat.muted = muted;
       core.setChatMuted(chat.id, o.secs)
-        .then(() => { if (accountIsCurrent(epoch)) valEl.textContent = muted ? "Muted" : "On"; })
-        .catch((err) => errToast("Couldn't update notifications: " + (err.message || err)));
+        .then(() => { if (accountIsCurrent(epoch)) valEl.textContent = muted ? t("Muted") : t("On"); })
+        .catch((err) => errToast(t("Couldn't update notifications: ") + (err.message || err)));
       close();
     });
-    label.append(input, Object.assign(document.createElement("span"), { textContent: o.label }));
+    label.append(input, Object.assign(document.createElement("span"), { textContent: t(o.label) }));
     list.appendChild(label);
   }
   const { foot, cancel } = footButtons();
@@ -2642,9 +2643,9 @@ async function showChatInfo(chat) {
     try { chat.contact = { ...(await core.getContact(chat.contactId)), contactId: chat.contactId }; } catch {}
   }
   const contactRows = chat.contact ? `
-    <div class="info-row"><span class="k">Address</span><span class="v">${escapeHtml(chat.contact.addr)}</span></div>
-    ${chat.contactId ? `<div class="info-row"><span class="k">Profile key</span><span class="v"><span class="avatar-profile-fpr" data-profile-key>…</span></span></div>` : ""}
-    ${chat.contact && (chat.contact.online || chat.contact.lastSeen) ? `<div class="info-row"><span class="k">Last seen</span><span class="v">${chat.contact.online ? "online" : timeTag(chat.contact.lastSeen, timeAgo(chat.contact.lastSeen))}</span></div>` : ""}` : "";
+    <div class="info-row"><span class="k">${escapeHtml(t("Address"))}</span><span class="v">${escapeHtml(chat.contact.addr)}</span></div>
+    ${chat.contactId ? `<div class="info-row"><span class="k">${escapeHtml(t("Profile key"))}</span><span class="v"><span class="avatar-profile-fpr" data-profile-key>…</span></span></div>` : ""}
+    ${chat.contact && (chat.contact.online || chat.contact.lastSeen) ? `<div class="info-row"><span class="k">${escapeHtml(t("Last seen"))}</span><span class="v">${chat.contact.online ? escapeHtml(t("online")) : timeTag(chat.contact.lastSeen, timeAgo(chat.contact.lastSeen))}</span></div>` : ""}` : "";
   const isGroup = chat.kind === "group" || chat.kind === "channel";
   const isSelf = chat.contactId === 1;
   const isContactProfile = !isGroup && chat.contactId && !isSelf;
@@ -2662,15 +2663,15 @@ async function showChatInfo(chat) {
   if (!chat.isP2p) {
     const contactAddr = isContactProfile ? chat.contact?.addr : null;
     if (contactAddr) {
-      relayRows = `<div class="info-row"><span class="k">Relay</span><span class="v">${escapeHtml(String(contactAddr).split("@")[1] || contactAddr)}</span></div>`;
+      relayRows = `<div class="info-row"><span class="k">${escapeHtml(t("Relay"))}</span><span class="v">${escapeHtml(String(contactAddr).split("@")[1] || contactAddr)}</span></div>`;
     } else if (!isGroup) {
       let transports = [];
       try { transports = await core.listTransports(); } catch { /* offline — fall back below */ }
       if (!transports.length && state.account.relay) transports = [{ addr: state.account.addr }];
-      const row = t => `<div class="info-row" data-relays style="cursor:pointer"><span class="k">Relay</span><span class="v">${escapeHtml(t.addr || "")} ›</span></div>`;
+      const row = tr => `<div class="info-row" data-relays style="cursor:pointer"><span class="k">${escapeHtml(t("Relay"))}</span><span class="v">${escapeHtml(tr.addr || "")} ›</span></div>`;
       if (transports.length > 1) {
         relayRows = `<details class="info-details" data-relays-details>
-          <summary class="info-row"><span class="k">Relays</span><span class="v" data-relays-count>(${transports.length})</span></summary>
+          <summary class="info-row"><span class="k">${escapeHtml(t("Relays"))}</span><span class="v" data-relays-count>(${transports.length})</span></summary>
           ${transports.map(row).join("")}
         </details>`;
       } else if (transports.length === 1) {
@@ -2687,32 +2688,32 @@ async function showChatInfo(chat) {
     </div>
     <div class="profile-name">${escapeHtml(chat.name)}</div>
     <div class="profile-description" data-desc hidden></div>
-    ${(isSelf || (isGroup && !chat.isP2pGroup)) ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="ep"${chat.kind === "channel" ? " hidden" : ""}>${isSelf ? "Edit profile" : chat.kind === "channel" ? "Edit channel" : "Edit group"}</button></div>` : ""}
-    ${chat.kind === "group" && !chat.isP2pGroup ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="add-members">Add members</button><button type="button" class="btn-text" data-pa="invite">Invite via link/QR</button></div>` : ""}
-    ${chat.kind === "channel" ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="invite">Invite via link/QR</button></div>` : ""}
+    ${(isSelf || (isGroup && !chat.isP2pGroup)) ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="ep"${chat.kind === "channel" ? " hidden" : ""}>${escapeHtml(isSelf ? t("Edit profile") : chat.kind === "channel" ? t("Edit channel") : t("Edit group"))}</button></div>` : ""}
+    ${chat.kind === "group" && !chat.isP2pGroup ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="add-members">${escapeHtml(t("Add members"))}</button><button type="button" class="btn-text" data-pa="invite">${escapeHtml(t("Invite via link/QR"))}</button></div>` : ""}
+    ${chat.kind === "channel" ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="invite">${escapeHtml(t("Invite via link/QR"))}</button></div>` : ""}
     ${chat.isP2pGroup ? p2pGroupActionsHtml(chat) : ""}
     ${!isGroup && chat.contactId && chat.contactId !== 1 ? `<div class="profile-actions">
-      <button type="button" class="btn-text" data-pa="send">Send message</button>
-      <button type="button" class="btn-text" data-pa="rename">Edit name</button>
-      <button type="button" class="btn-text" data-pa="block" style="color:var(--danger)">Block</button>
+      <button type="button" class="btn-text" data-pa="send">${escapeHtml(t("Send message"))}</button>
+      <button type="button" class="btn-text" data-pa="rename">${escapeHtml(t("Edit name"))}</button>
+      <button type="button" class="btn-text" data-pa="block" style="color:var(--danger)">${escapeHtml(t("Block"))}</button>
     </div>` : ""}
     ${isGroup ? `<details class="info-details" data-members-details${chat.isP2pGroup ? " open" : ""}>
-      <summary class="info-row"><span class="k">Members</span><span class="v" data-member-count>…</span></summary>
+      <summary class="info-row"><span class="k">${escapeHtml(t("Members"))}</span><span class="v" data-member-count>…</span></summary>
       <div class="modal-list member-list" data-member-list></div>
     </details>` : ""}
     ${!chat.isP2p && (chat.kind === "group" || chat.kind === "channel" || chat.kind === "single") ? mediaSectionsHtml() : ""}
     ${chat.isP2pGroup ? `<div class="profile-description" data-pg-hint style="font-size:13px;opacity:.75;padding:6px 2px" hidden></div>` : ""}
     ${contactRows}
-    ${!chat.isP2p && !isSelf && (chat.kind === "group" || chat.kind === "channel" || chat.kind === "single") ? `<div class="info-row" data-muted style="cursor:pointer"><span class="k">Notifications</span><span class="v" data-muted-val>${chat.muted ? "Muted" : "On"}</span></div>` : `<div class="info-row"><span class="k">Notifications</span><span class="v">${chat.muted ? "Muted" : "On"}</span></div>`}
-    ${!chat.isP2p && !isSelf && (chat.kind === "group" || chat.kind === "single") ? `<div class="info-row" data-ephemeral style="cursor:pointer"><span class="k">Disappearing messages</span><span class="v" data-ephemeral-val>…</span></div>` : ""}
-    ${!chat.isP2p ? `<div class="info-row"><span class="k">Storage</span><span class="v" data-storage-val>…</span></div>
+    ${!chat.isP2p && !isSelf && (chat.kind === "group" || chat.kind === "channel" || chat.kind === "single") ? `<div class="info-row" data-muted style="cursor:pointer"><span class="k">${escapeHtml(t("Notifications"))}</span><span class="v" data-muted-val>${escapeHtml(chat.muted ? t("Muted") : t("On"))}</span></div>` : `<div class="info-row"><span class="k">${escapeHtml(t("Notifications"))}</span><span class="v">${chat.muted ? "Muted" : "On"}</span></div>`}
+    ${!chat.isP2p && !isSelf && (chat.kind === "group" || chat.kind === "single") ? `<div class="info-row" data-ephemeral style="cursor:pointer"><span class="k">${escapeHtml(t("Disappearing messages"))}</span><span class="v" data-ephemeral-val>…</span></div>` : ""}
+    ${!chat.isP2p ? `<div class="info-row"><span class="k">${escapeHtml(t("Storage"))}</span><span class="v" data-storage-val>…</span></div>
     <details class="info-details" data-old-messages>
-      <summary class="info-row"><span class="k">Old messages</span><span class="v">Clean up ›</span></summary>
-      ${OLD_MESSAGE_SPANS.map(([label, ms]) => `<div class="info-row" data-old-age="${ms}" style="cursor:pointer"><span class="k">Delete older than ${label}</span><span class="v">›</span></div>`).join("")}
+      <summary class="info-row"><span class="k">${escapeHtml(t("Old messages"))}</span><span class="v">${escapeHtml(t("Clean up ›"))}</span></summary>
+      ${OLD_MESSAGE_SPANS.map(([label, ms]) => `<div class="info-row" data-old-age="${ms}" style="cursor:pointer"><span class="k">${escapeHtml(t("Delete older than {label}", { label: t(label) }))}</span><span class="v">›</span></div>`).join("")}
     </details>` : ""}
     ${relayRows}
     ${!isGroup && chat.contactId ? `<details class="info-details" data-common hidden>
-      <summary class="info-row"><span class="k">Chats in common</span><span class="v" data-common-count></span></summary>
+      <summary class="info-row"><span class="k">${escapeHtml(t("Chats in common"))}</span><span class="v" data-common-count></span></summary>
       <div class="modal-list" data-common-list style="max-height:180px;overflow:auto"></div>
     </details>` : ""}`;
   // Name sits below the avatar now, so the head bar carries only the close.
@@ -2736,8 +2737,8 @@ async function showChatInfo(chat) {
       onOpen: (kind, m) => openChatMediaItem(kind, m),
       onShowInChat: (m) => showMediaInChat(m),
       onSave: async (m) => {
-        try { if (await saveAttachmentFile(core, m)) toast("Saved"); }
-        catch (err) { if (!/cancel/i.test(String(err?.message || err))) toast("Couldn't save: " + (err?.message || err), 3000, { danger: true }); }
+        try { if (await saveAttachmentFile(core, m)) toast(t("Saved")); }
+        catch (err) { if (!/cancel/i.test(String(err?.message || err))) toast(t("Couldn't save: ") + (err?.message || err), 3000, { danger: true }); }
       },
     });
   }
@@ -2751,7 +2752,7 @@ async function showChatInfo(chat) {
         const t = await core.getChatEphemeralTimer(chat.id);
         if (!accountIsCurrent(epoch)) return;
         ephVal.textContent = formatEphemeralTimer(t);
-      } catch { ephVal.textContent = "Off"; }
+      } catch { ephVal.textContent = t("Off"); }
     })();
     ephRow.addEventListener("click", () => openEphemeralDialog(chat, ephVal, epoch));
   }
@@ -2798,9 +2799,9 @@ async function showChatInfo(chat) {
       const ms = Number(row.dataset.oldAge);
       const span = OLD_MESSAGE_SPANS.find(([, v]) => v === ms);
       const ok = await confirmModal(
-        "Delete old messages",
-        `Delete every message in "${chat.name}" older than ${span ? span[0] : ""}? Pinned messages are kept. This cannot be undone.`,
-        "Delete",
+        t("Delete old messages"),
+        t("Delete every message in \"{name}\" older than {label}? Pinned messages are kept. This cannot be undone.", { name: chat.name, label: span ? t(span[0]) : "" }),
+        t("Delete"),
         true,
       );
       // The confirm modal replaced this sheet (showModal is one-at-a-time);
@@ -2814,14 +2815,14 @@ async function showChatInfo(chat) {
       try {
         const deleted = await core.deleteMessagesOlderThan(chat.id, Date.now() - ms);
         if (!accountIsCurrent(epoch)) return;
-        toast(deleted ? `Deleted ${deleted} message${deleted === 1 ? "" : "s"}` : "Nothing older than that");
+        toast(deleted ? (deleted === 1 ? t("1 message deleted") : t("Messages deleted: {n}", { n: deleted })) : t("Nothing older than that"));
         if (deleted) {
           // The open chat view refreshes itself via msgs-changed; the sheet
           // reopens below and the Storage row recomputes.
           refreshChatList();
         }
       } catch (err) {
-        errToast("Couldn't delete: " + (err?.message || err));
+        errToast(t("Couldn't delete: ") + (err?.message || err));
       }
       await reopen();
     });
@@ -2845,17 +2846,17 @@ async function showChatInfo(chat) {
   // Groups: add members via the shared contact picker. Channels: link/QR
   // only (subscribe flows run through the core's secure-join invite).
   body.querySelector('[data-pa="add-members"]')?.addEventListener("click", async () => {
-    const picked = await pickContactModal("Add members", true);
+    const picked = await pickContactModal(t("Add members"), true);
     if (!picked?.length || !accountIsCurrent(epoch)) return;
     try {
       await core.addChatMembers(chat.id, picked.map(c => c.id));
       if (!accountIsCurrent(epoch)) return;
       refreshChatList();
-      toast(picked.length === 1 ? "Member added" : `${picked.length} members added`);
+      toast(picked.length === 1 ? t("Member added") : t("{n} members added", { n: picked.length }));
       await modalHistorySettled();
       showChatInfo(chat); // fresh sheet: member count and list updated
     } catch (err) {
-      errToast("Couldn't add members: " + (err.message || err));
+      errToast(t("Couldn't add members: ") + (err.message || err));
     }
   });
   body.querySelector('[data-pa="invite"]')?.addEventListener("click", () => {
@@ -2917,7 +2918,7 @@ async function showChatInfo(chat) {
         pickImage: pickProfileImage,
         contactId: 0,
         kind: "group",
-        title: chat.kind === "channel" ? "Edit channel" : "Edit group",
+        title: chat.kind === "channel" ? t("Edit channel") : t("Edit group"),
       });
       if (!result || !accountIsCurrent(epoch)) return;
       try {
@@ -2944,7 +2945,7 @@ async function showChatInfo(chat) {
         await modalHistorySettled();
         showChatInfo(chat); // fresh sheet — the editor's pop has landed by now
       } catch (err) {
-        errToast("Couldn't update the chat: " + (err.message || err));
+        errToast(t("Couldn't update the chat: ") + (err.message || err));
       }
     });
   }
@@ -2967,7 +2968,7 @@ async function showChatInfo(chat) {
         await refreshChatList();
         if (!accountIsCurrent(epoch)) return;
         await openChat(Number(chatId));
-      } catch { errToast("Couldn't open the chat"); }
+      } catch { errToast(t("Couldn't open the chat")); }
     });
     actBtn("rename")?.addEventListener("click", () => {
       const input = document.createElement("input");
@@ -2978,10 +2979,10 @@ async function showChatInfo(chat) {
       const renameModal = { close: null };
       const save = document.createElement("button");
       save.type = "submit";
-      save.className = "btn-text btn-primary"; save.textContent = "Save";
+      save.className = "btn-text btn-primary"; save.textContent = t("Save");
       const cancel = document.createElement("button");
       cancel.type = "button";
-      cancel.className = "btn-text"; cancel.textContent = "Cancel";
+      cancel.className = "btn-text"; cancel.textContent = t("Cancel");
       cancel.addEventListener("click", () => renameModal.close());
       const foot = document.createElement("div");
       foot.className = "modal-foot edit-profile-foot";
@@ -2998,14 +2999,14 @@ async function showChatInfo(chat) {
         if (chat.contact) chat.contact.name = name;
         chat.name = name;
         renameModal.close();
-        toast("Name updated");
+        toast(t("Name updated"));
         refreshChatList();
         if (state.activeChatHead && state.activeChatId === chat.id) {
           replaceChatHead(chat);
         }
         showChatInfo(chat); // fresh modal with the new name everywhere
         } catch (err) {
-          errToast("Rename failed: " + (err.message || err));
+          errToast(t("Rename failed: ") + (err.message || err));
           save.disabled = false;
         }
       });
@@ -3015,7 +3016,7 @@ async function showChatInfo(chat) {
     if (core.getBlockedContactIds) {
       core.getBlockedContactIds().then(ids => {
         if (blockBtn && ids.includes(contactId)) {
-          blockBtn.textContent = "Unblock";
+          blockBtn.textContent = t("Unblock");
           blockBtn.dataset.blocked = "1";
         }
       }).catch(() => {});
@@ -3023,17 +3024,17 @@ async function showChatInfo(chat) {
     blockBtn?.addEventListener("click", async () => {
       const blockedNow = blockBtn.dataset.blocked === "1";
       const ok = await confirmModal(
-        blockedNow ? "Unblock contact" : "Block contact",
+        blockedNow ? t("Unblock contact") : t("Block contact"),
         blockedNow
-          ? `${chat.name} will be able to write to you again.`
-          : `You will no longer receive messages or requests from ${chat.name}.`,
-        blockedNow ? "Unblock" : "Block", false);
+          ? t("{name} will be able to write to you again.", { name: chat.name })
+          : t("You will no longer receive messages or requests from {name}.", { name: chat.name }),
+        blockedNow ? t("Unblock") : t("Block"), false);
       if (!ok || !accountIsCurrent(epoch)) return;
       try {
         await core.blockContact(contactId, !blockedNow);
         if (!accountIsCurrent(epoch)) return;
-        toast(blockedNow ? "Contact unblocked" : "Contact blocked");
-        blockBtn.textContent = blockedNow ? "Block" : "Unblock";
+        toast(blockedNow ? t("Contact unblocked") : t("Contact blocked"));
+        blockBtn.textContent = blockedNow ? t("Block") : t("Unblock");
         blockBtn.dataset.blocked = blockedNow ? "0" : "1";
       } catch (err) { errToast("Failed: " + (err.message || err)); }
     });
@@ -3110,10 +3111,10 @@ async function showChatInfo(chat) {
       try { await fn(); } catch (err) { errToast(String(err?.message || err)); }
     });
     act("rename", async () => {
-      const name = await askText("Group name", chat.name, "Save");
+      const name = await askText(t("Group name"), chat.name, t("Save"));
       if (name && name.trim() && name.trim() !== chat.name) {
         await groupRename(gid, name.trim());
-        toast("Group renamed");
+        toast(t("Group renamed"));
         refreshChatList();
       }
       await reopen();
@@ -3122,7 +3123,7 @@ async function showChatInfo(chat) {
       if (!invoke) return;
       let n = null;
       try { n = await showAddMembersModal(invoke, gid); } catch (err) { errToast(String(err?.message || err)); }
-      if (n) { toast(n === 1 ? "Member added" : `${n} members added`); refreshChatList(); }
+      if (n) { toast(n === 1 ? t("Member added") : t("{n} members added", { n })); refreshChatList(); }
       await reopen();
     });
     act("leave", async () => { await leaveLocalGroupFlow(chat, epoch); });
@@ -3134,10 +3135,10 @@ async function showChatInfo(chat) {
       const id = btn.dataset.pgRemove;
       const name = btn.getAttribute("aria-label")?.replace(/^Remove /, "") || "this member";
       const ok = await confirmModal("Remove member",
-        `Remove ${name} from "${chat.name}"? They stop receiving new messages and keep what they already have.`, "Remove", true);
+        t("Remove {name} from \"{chat}\"? They stop receiving new messages and keep what they already have.", { name, chat: chat.name }), t("Remove"), true);
       if (ok && accountIsCurrent(epoch)) {
-        try { await groupRemoveMember(gid, id); toast("Member removed"); refreshChatList(); }
-        catch (err) { errToast("Couldn't remove: " + (err?.message || err)); }
+        try { await groupRemoveMember(gid, id); toast(t("Member removed")); refreshChatList(); }
+        catch (err) { errToast(t("Couldn't remove: ") + (err?.message || err)); }
       }
       await reopen();
     });
@@ -3160,9 +3161,9 @@ async function showChatInfo(chat) {
         mountMemberList(list, members.map(m => ({ ...m, self: m.self || m.id === 1, avatarUrl: m.avatar ? fileUrl(m.avatar) : null })), {
           rowOptions: m => {
             if (!chat.isP2pGroup) return {};
-            const subtitle = (m.self ? "you" : (m.online ? "online" : "offline") + (m.introduced ? " · not paired" : "")) + (m.isCreator ? " · admin" : "");
+            const subtitle = (m.self ? t("you") : (m.online ? t("online") : t("offline")) + (m.introduced ? t(" · not paired") : "")) + (m.isCreator ? t(" · admin") : "");
             const canRemove = chat.isP2pGroup && chat.canManage && !chat.readOnly && !m.self && !m.isCreator;
-            return { subtitle, actionsHtml: canRemove ? `<button type="button" class="btn-text" data-pg-remove="${escapeAttr(m.id)}" aria-label="Remove ${escapeAttr(m.name)}">Remove</button>` : "" };
+            return { subtitle, actionsHtml: canRemove ? `<button type="button" class="btn-text" data-pg-remove="${escapeAttr(m.id)}" aria-label="${escapeAttr(t("Remove {name}", { name: m.name }))}">${escapeHtml(t("Remove"))}</button>` : "" };
           },
           // showModal replaces this sheet (and reuses its history entry).
           onOpen: chat.isP2pGroup ? null : m => {
@@ -3186,7 +3187,7 @@ async function showChatInfo(chat) {
 // its history to settle first.
 async function openChatMediaItem(kind, m) {
   const ready = m.filePath && (!m.downloadState || m.downloadState === "Done");
-  if (kind !== "apps" && !ready) { toast("Not downloaded yet — use Show in chat to download it"); return; }
+  if (kind !== "apps" && !ready) { toast(t("Not downloaded yet — use Show in chat to download it")); return; }
   if (kind === "files") {
     // Files open natively or in their own overlay (audio rows play inline).
     openAttachmentFile(m.filePath, m.fileName, {
@@ -3250,23 +3251,23 @@ function bindChatHeadMenu() {
         showInvite(inviteQrProvider(chat.id), { title: chat.name, group: true }) }] : []),
       // Local P2P chats have no per-chat mute / pin (flags are relay-core state).
       ...(chat.isP2p ? [] : [
-        { label: chat.muted ? "Unmute" : "Mute", onClick: () => core.setChatFlags(chat.id, { muted: !chat.muted }) },
-        { label: chat.pinned ? "Unpin" : "Pin", onClick: () => core.setChatFlags(chat.id, { pinned: !chat.pinned }) },
+        { label: chat.muted ? t("Unmute") : t("Mute"), onClick: () => core.setChatFlags(chat.id, { muted: !chat.muted }) },
+        { label: chat.pinned ? t("Unpin") : t("Pin"), onClick: () => core.setChatFlags(chat.id, { pinned: !chat.pinned }) },
       ]),
       ...(chat.isP2pGroup && chat.readOnly ? [{
         label: "Delete chat", danger: true,
         onClick: () => deleteLocalGroupChat(chat, epoch),
       }] : []),
       ...((chat.kind === "group" || (chat.kind === "channel" && chat.chatType !== "Mailinglist")) && !(chat.isP2pGroup && chat.readOnly) ? [{
-        label: chat.kind === "channel" ? "Leave channel" : chat.isP2pGroup && chat.canManage ? "Disband group" : "Leave group",
+        label: chat.kind === "channel" ? t("Leave channel") : chat.isP2pGroup && chat.canManage ? t("Disband group") : t("Leave group"),
         onClick: async () => {
           if (chat.isP2pGroup) return leaveLocalGroupFlow(chat, epoch);
           const ok = await confirmModal(
-            chat.kind === "channel" ? "Leave channel" : "Leave group",
+            chat.kind === "channel" ? t("Leave channel") : t("Leave group"),
             chat.kind === "channel"
-              ? "You will no longer receive messages from this channel. Re-subscribe via its invite link/QR."
-              : "You will leave this chat and no longer receive its messages.",
-            "Leave", true);
+              ? t("You will no longer receive messages from this channel. Re-subscribe via its invite link/QR.")
+              : t("You will leave this chat and no longer receive its messages."),
+            t("Leave"), true);
           if (!ok || !accountIsCurrent(epoch)) return;
           try {
             await core.leaveGroup(chat.id);
@@ -3278,14 +3279,14 @@ function bindChatHeadMenu() {
             $("main-composer").hidden = true;
             chatView.readOnly = true;
           } catch (err) {
-            errToast("Couldn't leave: " + (err.message || err));
+            errToast(t("Couldn't leave: ") + (err.message || err));
           }
         },
       }] : []),
       ...(chat.isP2pGroup ? [] : [
       "-",
       { label: "Clear history", danger: true, onClick: async () => {
-        if (await confirmModal("Clear history", "Delete all messages in this chat?")) {
+        if (await confirmModal("Clear history", t("Delete all messages in this chat?"))) {
           if (!accountIsCurrent(epoch)) return;
           // Ids only (#47): loading every full message just to map ids
           // made clearing a large chat pay for all of them.
@@ -3317,16 +3318,16 @@ function bindChatHeadMenu() {
     input.type = "search";
     input.enterKeyHint = "search";
     input.autocomplete = "off";
-    input.setAttribute("aria-label", "Search in chat");
+    input.setAttribute("aria-label", t("Search in chat"));
     input.className = "text-field";
-    input.placeholder = p2p ? "Search in loaded messages…" : "Search in chat…";
+    input.placeholder = p2p ? t("Search in loaded messages…") : t("Search in chat…");
     const results = document.createElement("div");
     results.className = "modal-list";
     const wrap = document.createElement("div");
     wrap.append(input, results);
     const emptyHint = p2p
-      ? `Nothing found in loaded history.`
-      : `Nothing found.`;
+      ? t("Nothing found in loaded history.")
+      : t("Nothing found.");
     // Core-backed fulltext search (FTS, all history — groups included).
     // P2P/local chats live in their own id space: filter loaded rows only.
     const runSearch = async (q) => {
@@ -3351,7 +3352,7 @@ function bindChatHeadMenu() {
         try {
           hits = await runSearch(q);
         } catch (e) {
-          results.innerHTML = `<p style="color:var(--text-dim);font-size:14px;padding:8px 0">Search failed: ${escapeHtml(String(e?.message || e))}</p>`;
+          results.innerHTML = `<p style="color:var(--text-dim);font-size:14px;padding:8px 0">${escapeHtml(t("Search failed:"))} ${escapeHtml(String(e?.message || e))}</p>`;
           return;
         }
         if (mySeq !== seq || !accountIsCurrent(epoch)) return;
@@ -3388,7 +3389,7 @@ function knownContactsToggleRow(onChange) {
   const label = document.createElement("label");
   label.className = "scale-opt";
   label.style.margin = "0 2px 8px";
-  label.innerHTML = `<input type="checkbox" role="switch"${knownContactsOnly() ? " checked" : ""}><span>Show only known contacts</span>`;
+  label.innerHTML = `<input type="checkbox" role="switch"${knownContactsOnly() ? " checked" : ""}><span>${escapeHtml(t("Show only known contacts"))}</span>`;
   const box = label.querySelector("input");
   box.addEventListener("change", () => {
     if (box.checked) localStorage.removeItem(KNOWN_CONTACTS_KEY);
@@ -3430,7 +3431,7 @@ async function pickContactModal(title, multi = false) {
     let knownOnly = knownContactsOnly();
     const empty = document.createElement("div");
     empty.className = "p2p-hint"; empty.style.opacity = ".6";
-    empty.textContent = "Nobody here yet — untick “Show only known contacts” to see everyone.";
+    empty.textContent = t("Nobody here yet — untick “Show only known contacts” to see everyone.");
     empty.hidden = true;
     const applyKnownFilter = () => {
       let shown = 0;
@@ -3446,7 +3447,7 @@ async function pickContactModal(title, multi = false) {
     wrap.append(knownContactsToggleRow(() => { knownOnly = knownContactsOnly(); applyKnownFilter(); }), list, empty);
     // Multi-select confirms a choice, it creates nothing — the group itself
     // is created in the following name dialog (#160).
-    const { foot, cancel, ok } = footButtons(multi ? "Add" : "OK");
+    const { foot, cancel, ok } = footButtons(multi ? t("Add") : "OK");
     ok.disabled = true;
     const { close } = showModal({ title, body: wrap, foot, onClose: () => resolve(null) });
     cancel.addEventListener("click", () => { close(); resolve(null); });
@@ -3461,7 +3462,7 @@ function newChatOptions() {
   return [
     { label: "New chat", onClick: async () => {
       const epoch = core.accountEpoch;
-      const picked = await pickContactModal("New chat");
+      const picked = await pickContactModal(t("New chat"));
       if (picked && accountIsCurrent(epoch)) {
         const id = await core.createChat(picked[0].name, [picked[0].id], "single");
         if (!accountIsCurrent(epoch)) return;
@@ -3470,7 +3471,7 @@ function newChatOptions() {
         openChat(id);
       }
     } },
-    { label: p2pEnabled() && p2pAvailable() ? "New group (via relay)" : "New group", onClick: async () => {
+    { label: p2pEnabled() && p2pAvailable() ? t("New group (via relay)") : t("New group"), onClick: async () => {
       const epoch = core.accountEpoch;
       const picked = await pickContactModal("Add group members", true);
       if (!picked || !accountIsCurrent(epoch)) return;
@@ -3491,9 +3492,9 @@ function newChatOptions() {
     } },
     { label: "New channel", onClick: async () => {
       const epoch = core.accountEpoch;
-      const raw = await askText("New channel", "New channel", "Create channel");
+      const raw = await askText(t("New channel"), t("New channel"), t("Create channel"));
       if (raw == null || !accountIsCurrent(epoch)) return;
-      const id = await core.createChat(raw || "New channel", [], "channel");
+      const id = await core.createChat(raw || t("New channel"), [], "channel");
       if (!accountIsCurrent(epoch)) return;
       await refreshChatList();
       if (!accountIsCurrent(epoch)) return;
@@ -3509,12 +3510,12 @@ function newChatOptions() {
 }
 
 function renderNewChatView() {
-  const rows = sideViewShell("Start something", "Pick what to create");
+  const rows = sideViewShell(t("Start something"), t("Pick what to create"));
   for (const opt of newChatOptions()) {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "chat-item side-option";
-    b.innerHTML = `<span class="side-option-label">${escapeHtml(opt.label)}</span>
+    b.innerHTML = `<span class="side-option-label">${escapeHtml(t(opt.label))}</span>
       ${svg(P.chevronRight, "side-option-arrow")}`;
     b.addEventListener("click", () => { setListView("chats"); opt.onClick(); });
     rows.append(b);
@@ -3530,8 +3531,8 @@ function renderSearchView() {
   shell.innerHTML = `
     <div class="side-view">
       <div class="chat-cats side-tabs" role="tablist">
-        <button type="button" role="tab" data-tab="search">Search</button>
-        <button type="button" role="tab" data-tab="archived">Archived${archivedCount ? ` (${archivedCount})` : ""}</button>
+        <button type="button" role="tab" data-tab="search">${escapeHtml(t("Search"))}</button>
+        <button type="button" role="tab" data-tab="archived">${escapeHtml(t("Archived"))}${archivedCount ? ` (${archivedCount})` : ""}</button>
       </div>
       <div class="side-view-rows" data-tab-body></div>`;
   const body = shell.querySelector("[data-tab-body]");
@@ -3555,9 +3556,9 @@ function renderSearchView() {
   input.type = "search";
   input.enterKeyHint = "search";
   input.autocomplete = "off";
-  input.setAttribute("aria-label", "Search chats");
+  input.setAttribute("aria-label", t("Search chats"));
   input.className = "text-field side-search-input";
-  input.placeholder = "Search chats…";
+  input.placeholder = t("Search chats…");
   const results = document.createElement("div");
   rows.append(input, results);
   const render = () => {
@@ -3565,12 +3566,12 @@ function renderSearchView() {
     const q = input.value.trim().toLowerCase();
     results.replaceChildren();
     if (q.length < 2) {
-      results.innerHTML = `<div class="side-view-empty">Type to search chats.</div>`;
+      results.innerHTML = `<div class="side-view-empty">${escapeHtml(t("Type to search chats."))}</div>`;
       return;
     }
     const hits = state.chats.filter(c => (c.name || "").toLowerCase().includes(q)).slice(0, 30);
     if (!hits.length) {
-      results.innerHTML = `<div class="side-view-empty">No chats found.</div>`;
+      results.innerHTML = `<div class="side-view-empty">${escapeHtml(t("No chats found."))}</div>`;
       return;
     }
     for (const c of hits) {
@@ -3597,7 +3598,7 @@ function askText(title, value, okLabel) {
     body.innerHTML = `<input class="text-field" maxlength="64" placeholder="${escapeAttr(title)}">`;
     const input = body.querySelector("input");
     input.value = value || "";
-    const { foot, cancel, ok } = footButtons(okLabel || "Save", { okType: "submit", okClass: "btn-text btn-primary" });
+    const { foot, cancel, ok } = footButtons(okLabel || t("Save"), { okType: "submit", okClass: "btn-text btn-primary" });
     ok.style.width = "auto";
     const done = v => { resolve(v); close(); };
     const { close, form } = showModal({ title, body, foot, form: true, onClose: () => resolve(null) });
@@ -3610,7 +3611,7 @@ function askText(title, value, okLabel) {
 function askGroupName() {
   return new Promise(resolve => {
     const body = document.createElement("div");
-    body.innerHTML = `<input class="text-field" maxlength="60" placeholder="Group name" value="New group">`;
+    body.innerHTML = `<input class="text-field" maxlength="60" placeholder="${escapeHtml(t("Group name"))}" value="${escapeHtml(t("New group"))}">`;
     const input = body.querySelector("input");
     // Fragment, not a wrapping div: the buttons land as direct children of
     // .modal-foot and inherit its one-row flex layout.
@@ -3618,7 +3619,7 @@ function askGroupName() {
     ok.style.width = "auto"; // btn-primary defaults to the full-width onboarding bar
     const done = value => { resolve(value); close(); };
     const { close, form } = showModal({ title: "New group", body, foot, form: true, onClose: () => resolve(null) });
-    form.addEventListener("submit", () => done(input.value.trim() || "New group"));
+    form.addEventListener("submit", () => done(input.value.trim() || t("New group")));
     cancel.addEventListener("click", () => done(null));
     setTimeout(() => { input.focus(); input.select(); }, 60);
   });
@@ -3635,48 +3636,48 @@ function openProfileManagement() {
   const body = document.createElement("div");
   body.innerHTML = `
     <div class="pm-tabs" data-tabs>
-      <button type="button" class="pm-tab active" data-tab="add">Add profile</button>
-      <button type="button" class="pm-tab" data-tab="device">Second device</button>
-      <button type="button" class="pm-tab" data-tab="export">Export backup</button>
-      <button type="button" class="pm-tab" data-tab="delete" style="color:var(--danger)">Delete profile</button>
+      <button type="button" class="pm-tab active" data-tab="add">${escapeHtml(t("Add profile"))}</button>
+      <button type="button" class="pm-tab" data-tab="device">${escapeHtml(t("Second device"))}</button>
+      <button type="button" class="pm-tab" data-tab="export">${escapeHtml(t("Export backup"))}</button>
+      <button type="button" class="pm-tab" data-tab="delete" style="color:var(--danger)">${escapeHtml(t("Delete profile"))}</button>
     </div>
-    <label class="scale-opt" style="margin:2px 2px 10px" title="Only the selected profile runs mail sync; background profiles are fully paused.">
+    <label class="scale-opt" style="margin:2px 2px 10px" title="${escapeHtml(t("Only the selected profile runs mail sync; background profiles are fully paused."))}">
       <input type="checkbox" role="switch" data-sync-only>
-      <span>Sync only active profile — other profiles won't receive messages until you switch to them</span>
+      <span>${escapeHtml(t("Sync only active profile — other profiles won't receive messages until you switch to them"))}</span>
     </label>
     <div class="pm-pane" data-pane="add">
-      <p class="pm-hint">Paste a <b>chatmail</b> invite link (<span>dcaccount:…</span>) or a relay domain — a new end-to-end encrypted profile is created on it.</p>
+      <p class="pm-hint">${t("Paste a <b>chatmail</b> invite link ({link}) or a relay domain — a new end-to-end encrypted profile is created on it.", { link: "<span>dcaccount:…</span>" })}</p>
       <form data-add-form>
-        <input class="text-field" data-relay required placeholder="Relay address — e.g. nine.testrun.org" autocomplete="off" inputmode="url" autocapitalize="none" spellcheck="false">
+        <input class="text-field" data-relay required placeholder="${escapeHtml(t("Relay address — e.g. nine.testrun.org"))}" autocomplete="off" inputmode="url" autocapitalize="none" spellcheck="false">
         <div class="pm-actions">
-          <button type="button" class="btn-text" data-scan>Scan a QR code</button>
-          <button type="submit" class="btn-primary" data-add>Add profile</button>
+          <button type="button" class="btn-text" data-scan>${escapeHtml(t("Scan a QR code"))}</button>
+          <button type="submit" class="btn-primary" data-add>${escapeHtml(t("Add profile"))}</button>
         </div>
       </form>
     </div>
     <div class="pm-pane" data-pane="device" hidden>
-      <p class="p2p-hint">Move this profile to a new device, or receive a profile from another one. Both devices must be on the same network.</p>
+      <p class="p2p-hint">${escapeHtml(t("Move this profile to a new device, or receive a profile from another one. Both devices must be on the same network."))}</p>
       <div class="pm-actions pm-col">
-        <button type="button" class="btn-text btn-primary" data-old>Show QR on this device</button>
-        <button type="button" class="btn-text" data-new>Receive a profile on this device…</button>
+        <button type="button" class="btn-text btn-primary" data-old>${escapeHtml(t("Show QR on this device"))}</button>
+        <button type="button" class="btn-text" data-new>${escapeHtml(t("Receive a profile on this device…"))}</button>
       </div>
       <div data-transfer-pane></div>
     </div>
     <div class="pm-pane" data-pane="export" hidden>
-      <p class="pm-hint">Write this profile — messages, contacts and keys — into a backup file. The profile stays signed in.</p>
-      <input class="text-field" data-dest placeholder="Choose a folder…" readonly>
-      <input class="text-field" data-pass type="password" minlength="6" placeholder="Passphrase (optional, min 6 chars)" autocomplete="new-password">
-      <div class="pm-actions"><button type="button" class="btn-primary" data-export disabled>Export backup</button></div>
+      <p class="pm-hint">${escapeHtml(t("Write this profile — messages, contacts and keys — into a backup file. The profile stays signed in."))}</p>
+      <input class="text-field" data-dest placeholder="${escapeHtml(t("Choose a folder…"))}" readonly>
+      <input class="text-field" data-pass type="password" minlength="6" placeholder="${escapeHtml(t("Passphrase (optional, min 6 chars)"))}" autocomplete="new-password">
+      <div class="pm-actions"><button type="button" class="btn-primary" data-export disabled>${escapeHtml(t("Export backup"))}</button></div>
       <div class="pm-progress" data-progress hidden></div>
     </div>
     <div class="pm-pane" data-pane="delete" hidden>
-      <p class="pm-hint">Removes <b data-del-name></b> for good: the account, its keys, the message database and all blobs on this device. This cannot be undone.</p>
-      <p class="pm-hint">Tip: write an <b>Export backup</b> first — it is the only copy that survives this.</p>
-      <p class="pm-hint" data-del-last hidden style="color:var(--danger)">This is the last remaining profile — it cannot be deleted here.</p>
+      <p class="pm-hint">${t("Removes {name} for good: the account, its keys, the message database and all blobs on this device. This cannot be undone.", { name: "<b data-del-name></b>" })}</p>
+      <p class="pm-hint">${t("Tip: write an <b>Export backup</b> first — it is the only copy that survives this.")}</p>
+      <p class="pm-hint" data-del-last hidden style="color:var(--danger)">${escapeHtml(t("This is the last remaining profile — it cannot be deleted here."))}</p>
       <div data-del-form>
-        <p class="pm-hint">Type the profile's address (<b data-del-addr></b>) to confirm.</p>
-        <input class="text-field" data-del-confirm autocomplete="off" autocapitalize="none" spellcheck="false" aria-label="Type the profile address to confirm deletion">
-        <div class="pm-actions"><button type="button" class="btn-text" data-delete disabled style="color:var(--danger)">Delete this profile</button></div>
+        <p class="pm-hint">${t("Type the profile's address ({addr}) to confirm.", { addr: "<b data-del-addr></b>" })}</p>
+        <input class="text-field" data-del-confirm autocomplete="off" autocapitalize="none" spellcheck="false" aria-label="${escapeHtml(t("Type the profile address to confirm deletion"))}">
+        <div class="pm-actions"><button type="button" class="btn-text" data-delete disabled style="color:var(--danger)">${escapeHtml(t("Delete this profile"))}</button></div>
         <div class="pm-progress" data-del-progress hidden></div>
       </div>
     </div>`;
@@ -3707,7 +3708,7 @@ function openProfileManagement() {
     try {
       await core.applySyncMode();
     } catch (err) {
-      errToast("Couldn't apply the sync mode: " + (err?.message || err));
+      errToast(t("Couldn't apply the sync mode: ") + (err?.message || err));
     }
   });
 
@@ -3717,7 +3718,7 @@ function openProfileManagement() {
     const link = normalizeRelayLink(relayInput.value);
     const invite = parseRelayInvite(relayInput.value);
     if (!link && !invite) {
-      toast(relayInput.value.trim() ? "That doesn't look like a chatmail relay, invite link, or dcaccount: link" : "Enter a relay address");
+      toast(relayInput.value.trim() ? t("That doesn't look like a chatmail relay, invite link, or dcaccount: link") : t("Enter a relay address"));
       return;
     }
     if (invite) {
@@ -3739,8 +3740,8 @@ function openProfileManagement() {
   panes.add.querySelector("[data-scan]").addEventListener("click", async () => {
     const code = await acquireCode({
       title: "Add account",
-      hint: "Paste a chatmail invite link (<code>dcaccount:…</code>), just a relay domain like <code>nine.testrun.org</code>, or scan a QR code in the Delta Chat app to add another profile.",
-      validate: c => (normalizeRelayLink(c) || parseRelayInvite(c) ? null : "That doesn't look like a chatmail relay, relay invite or dcaccount: link"),
+      hint: t("Paste a chatmail invite link (<code>dcaccount:…</code>), just a relay domain like <code>nine.testrun.org</code>, or scan a QR code in the Delta Chat app to add another profile."),
+      validate: c => (normalizeRelayLink(c) || parseRelayInvite(c) ? null : t("That doesn't look like a chatmail relay, relay invite or dcaccount: link")),
     });
     if (!code) return;
     relayInput.value = code;
@@ -3760,13 +3761,13 @@ function openProfileManagement() {
     transferStarted = true;
     lock(true);
     transferPane.innerHTML = `
-      <div class="qr-box" style="margin-top:10px"><div class="qr-loading">Preparing QR…</div></div>
-      <div class="p2p-hint" style="opacity:.6">On the new device, tap "Receive a profile on this device" and scan or paste this code. Keep both devices on this screen until the transfer finishes.</div>
-      <div style="margin-top:8px"><button type="button" class="btn-text" data-cancel>Cancel</button></div>`;
+      <div class="qr-box" style="margin-top:10px"><div class="qr-loading">${escapeHtml(t("Preparing QR…"))}</div></div>
+      <div class="p2p-hint" style="opacity:.6">${escapeHtml(t("On the new device, tap \"Receive a profile on this device\" and scan or paste this code. Keep both devices on this screen until the transfer finishes."))}</div>
+      <div style="margin-top:8px"><button type="button" class="btn-text" data-cancel>${escapeHtml(t("Cancel"))}</button></div>`;
     const transferDone = () => {
       if (!accountIsCurrent(epoch)) return;
       cleanupTransfer();
-      toast("Profile transferred to the second device");
+      toast(t("Profile transferred to the second device"));
       close();
     };
     progHandler = (e) => {
@@ -3791,7 +3792,7 @@ function openProfileManagement() {
       }
     }).catch((err) => {
       if (accountIsCurrent(epoch)) transferPane.querySelector(".qr-box").innerHTML =
-        `<div class="qr-loading">Couldn't prepare the transfer:<br>${escapeHtml(String(err?.message || err))}</div>`;
+        `<div class="qr-loading">${escapeHtml(t("Couldn't prepare the transfer:"))}<br>${escapeHtml(String(err?.message || err))}</div>`;
     });
   });
   panes.device.querySelector("[data-new]").addEventListener("click", () => {
@@ -3812,7 +3813,7 @@ function openProfileManagement() {
   const pwaExport = core.backend?.kind === "worker-wasm" && !!core.transport?.readCoreFileList;
   if (pwaExport) {
     panes.export.querySelector(".pm-hint").textContent =
-      "Writes this profile — messages, contacts and keys — into a backup archive and downloads it. The profile stays signed in.";
+      t("Writes this profile — messages, contacts and keys — into a backup archive and downloads it. The profile stays signed in.");
     destInput.value = "/backup/export";
     exportBtn.disabled = false;
   } else if (onAndroid) {
@@ -3821,24 +3822,24 @@ function openProfileManagement() {
     // where the file should go; the core still writes a temp tar first.
     destInput.hidden = true;
     panes.export.querySelector(".pm-hint").textContent =
-      "Writes this profile — messages, contacts and keys — into a backup file. You'll be asked where to save it. The profile stays signed in.";
+      t("Writes this profile — messages, contacts and keys — into a backup file. You'll be asked where to save it. The profile stays signed in.");
     exportBtn.disabled = false;
   } else {
     const shell = tauriInvoke();
     if (!shell) {
       // #104: no export path in this backend — say so instead of a dead field.
-      destInput.placeholder = "Backup export needs the desktop app or the Velta PWA";
+      destInput.placeholder = t("Backup export needs the desktop app or the Velta PWA");
       destInput.readOnly = true;
     } else {
       destInput.addEventListener("click", async () => {
         try {
-          const picked = await shell("plugin:dialog|open", { options: { directory: true, multiple: false, title: "Choose backup folder" } });
+          const picked = await shell("plugin:dialog|open", { options: { directory: true, multiple: false, title: t("Choose backup folder") } });
           if (typeof picked === "string" && picked) {
             destInput.value = picked;
             exportBtn.disabled = false;
           }
         } catch (err) {
-          errToast("Couldn't open the folder picker: " + (err?.message || err));
+          errToast(t("Couldn't open the folder picker: ") + (err?.message || err));
         }
       });
     }
@@ -3849,49 +3850,49 @@ function openProfileManagement() {
     const invoke = tauriInvoke();
     let androidUri = "";
     if (onAndroid && !pwaExport) {
-      if (!invoke) { toast("Backup export needs the Velta app"); return; }
+      if (!invoke) { toast(t("Backup export needs the Velta app")); return; }
       const name = backupDownloadName(state.account?.addr, new Date().toISOString().slice(0, 10));
       try {
         const picked = await invoke("plugin:dialog|save", { options: {
-          title: "Save backup",
+          title: t("Save backup"),
           defaultPath: name,
-          filters: [{ name: "Velta backup", extensions: ["tar"] }],
+          filters: [{ name: t("Velta backup"), extensions: ["tar"] }],
         }});
         androidUri = typeof picked === "string" ? picked : "";
       } catch (err) {
         const msg = String(err?.message || err || "");
         if (/cancel/i.test(msg)) return;
-        errToast("Couldn't open the save dialog: " + msg);
+        errToast(t("Couldn't open the save dialog: ") + msg);
         return;
       }
       if (!androidUri) return;
     }
     const dest = destInput.value.trim();
-    if (!androidUri && !pwaExport && !dest) { toast("Choose a destination folder first"); return; }
+    if (!androidUri && !pwaExport && !dest) { toast(t("Choose a destination folder first")); return; }
     lock(true);
     exportBtn.disabled = true;
     progressBox.hidden = false;
-    progressBox.textContent = "Exporting…";
+    progressBox.textContent = t("Exporting…");
     const onProg = (e) => {
       const p = e.detail?.progress || 0;
-      progressBox.textContent = p >= 1000 ? "Backup written." : `Exporting… ${Math.round(p / 10)}%`;
+      progressBox.textContent = p >= 1000 ? t("Backup written.") : t("Exporting… {n}%", { n: Math.round(p / 10) });
     };
     core.addEventListener("imex-progress", onProg);
   try {
     if (pwaExport) {
       await runBackupExport(pass || null);
-      progressBox.textContent = "Backup downloaded — check your browser downloads.";
+      progressBox.textContent = t("Backup downloaded — check your browser downloads.");
     } else if (androidUri) {
       const dir = await invoke("backup_scratch_dir");
       await core.exportBackup(dir, pass || null);
-      progressBox.textContent = "Saving…";
+      progressBox.textContent = t("Saving…");
       await invoke("publish_backup", { dir, uri: androidUri });
-      progressBox.textContent = "Backup saved.";
+      progressBox.textContent = t("Backup saved.");
     } else {
       await core.exportBackup(dest, pass || null);
     }
   } catch (err) {
-      errToast("Export failed: " + (err?.message || err));
+      errToast(t("Export failed: ") + (err?.message || err));
       progressBox.hidden = true;
     } finally {
       core.removeEventListener("imex-progress", onProg);
@@ -3907,9 +3908,9 @@ function openProfileManagement() {
   const delBtn = panes.delete.querySelector("[data-delete]");
   const delProgress = panes.delete.querySelector("[data-del-progress]");
   panes.delete.querySelector("[data-del-name]").textContent =
-    state.account?.displayName || state.account?.addr || "this profile";
+    state.account?.displayName || state.account?.addr || t("this profile");
   const delAddr = String(state.account?.addr || "");
-  panes.delete.querySelector("[data-del-addr]").textContent = delAddr || "(no address)";
+  panes.delete.querySelector("[data-del-addr]").textContent = delAddr || t("(no address)");
   if (state.accounts.length <= 1) {
     delForm.hidden = true;
     delLast.hidden = false;
@@ -3919,23 +3920,23 @@ function openProfileManagement() {
   });
   delBtn.addEventListener("click", async () => {
     if (state.accountChanging || core._accountTransitionBusy) {
-      errToast("Another account operation is running — try again in a moment");
+      errToast(t("Another account operation is running — try again in a moment"));
       return;
     }
     lock(true);
     delBtn.disabled = true;
     delProgress.hidden = false;
-    delProgress.textContent = "Deleting profile…";
+    delProgress.textContent = t("Deleting profile…");
     try {
       const deletedId = core.accountId;
       const moved = await core.deleteAccount(deletedId);
       forgetMdAccount(localStorage, deletedId);
       // account-changed refreshes chats and drawer for the reconciled
       // selection; the modal has nothing left to show either way.
-      toast(moved ? `Profile deleted — switched to ${moved.displayName || moved.addr}` : "Profile deleted");
+      toast(moved ? t("Profile deleted — switched to {name}", { name: moved.displayName || moved.addr }) : t("Profile deleted"));
       close();
     } catch (err) {
-      errToast("Delete failed: " + (err?.message || err));
+      errToast(t("Delete failed: ") + (err?.message || err));
       delProgress.hidden = true;
       lock(false);
     }
@@ -3987,7 +3988,7 @@ if (navigator.serviceWorker) {
 // already-open page. This page still runs the old files until a reload.
 addEventListener("velta-sw-updated", () => {
   diagnostics.append("info", "A new Velta version was installed; reload to use it");
-  toast("Velta was updated — reload the page to use the new version", 8000);
+  toast(t("Velta was updated — reload the page to use the new version"), 8000);
 });
 
 // Doze and OEM battery managers freeze the in-process core while the
@@ -4048,18 +4049,18 @@ function batteryPromptModal(maker) {
 async function addAccountFromInvite(link) {
   if (state.accountChanging) return;
   if (!core.addAccountWithQr) {
-    toast("No background service available — install the Velta Core service app to add relay accounts", 5000);
+    toast(t("No background service available — install the Velta Core service app to add relay accounts"), 5000);
     return;
   }
-  toast("Creating account on relay…", 2500);
+  toast(t("Creating account on relay…"), 2500);
   try {
     const id = await core.addAccountWithQr(link);
     const epoch = core.accountEpoch;
     await accountRefreshPromise;
     if (accountIsCurrent(epoch)) await askNotificationPermission();
-    if (accountIsCurrent(epoch) && core.accountId === id) toast(`Account ready: ${state.account?.addr || "chatmail profile"}`, 3500);
+    if (accountIsCurrent(epoch) && core.accountId === id) toast(t("Account ready: {addr}", { addr: state.account?.addr || t("chatmail profile") }), 3500);
   } catch (err) {
-    errToast("Invite failed: " + err.message, 4500);
+    errToast(t("Invite failed: ") + err.message, 4500);
   }
 }
 
@@ -4075,19 +4076,19 @@ async function ensureMailTunnelForLink(link) {
   if (!window.VELTA_PWA?.wasmCore) return true;
   const host = normalizeHost(/^dcaccount:https:\/\/([^/]+)\/new/i.exec(link || "")?.[1] || "");
   if (!host || activeWsRelay() === host) return true;
-  toast(`Checking ${host}…`);
+  toast(t("Checking {host}…", { host }));
   if (!(await probeC3Relay(host))) {
     // Stock chatmail has no tunnel. Keep the proxy already in use when it
     // resolves this host (it dials that relay's real mail ports).
     const via = activeWsRelay();
     if (via && await probeDnsVia(via, host)) return true;
-    errToast(`${host} doesn't answer browser mail, and ${via || "this page"} can't reach it either. Use the Velta app, or a WebSocket relay that dials other relays.`, 7000);
+    errToast(t("{host} doesn't answer browser mail, and {page} can't reach it either. Use the Velta app, or a WebSocket relay that dials other relays.", { host, page: via || t("this page") }), 7000);
     return false;
   }
   if (!listWsRelays().includes(host)) addWsRelay(host);
   useWsRelay(host);
   sessionStorage.setItem("velta-pending-add", link);
-  toast(`Routing mail through ${host} — reloading…`);
+  toast(t("Routing mail through {host} — reloading…", { host }));
   location.reload();
   return new Promise(() => {}); // the reload never lets this resolve
 }
@@ -4120,7 +4121,7 @@ async function claimAndConfigure(host, token) {
     if (parked?.host === host && parked?.token === token && parked.exp > Date.now()) creds = parked.creds;
   } catch {}
   if (!creds) {
-    toast("Claiming invite…");
+    toast(t("Claiming invite…"));
     const invoke = tauriInvoke();
     let status, body;
     if (invoke) {
@@ -4151,7 +4152,7 @@ async function claimAndConfigure(host, token) {
     // configure failure can retry without burning a second invite.
     sessionStorage.setItem(parkKey, JSON.stringify({ host, token, creds, exp: Date.now() + 30 * 60_000 }));
   }
-  toast("Setting up your profile…");
+  toast(t("Setting up your profile…"));
   if (tauriInvoke() && core.addAccountWithCredentials) {
     // Native: a new profile (or the empty current one), selected on success.
     await core.addAccountWithCredentials(creds.email, creds.password);
@@ -4163,7 +4164,7 @@ async function claimAndConfigure(host, token) {
   const epoch = core.accountEpoch;
   await accountRefreshPromise;
   if (accountIsCurrent(epoch)) await askNotificationPermission();
-  if (accountIsCurrent(epoch)) toast(`Account ready: ${state.account?.addr || creds.email}`, 3500);
+  if (accountIsCurrent(epoch)) toast(t("Account ready: {addr}", { addr: state.account?.addr || creds.email }), 3500);
 }
 
 // "Create account" on a relay invite card: the invite is single-use, so ask.
@@ -4176,8 +4177,8 @@ async function confirmRelayInvite({ host, token }) {
 
 async function createAccountFromRelayInvite(host, token) {
   if (state.accountChanging) return;
-  if (!window.VELTA_PWA?.wasmCore && !tauriInvoke()) { toast("Relay invites work in the Velta app and the Velta PWA", 5000); return; }
-  if (!core.configureWithCredentials) { toast("This backend cannot create relay accounts"); return; }
+  if (!window.VELTA_PWA?.wasmCore && !tauriInvoke()) { toast(t("Relay invites work in the Velta app and the Velta PWA"), 5000); return; }
+  if (!core.configureWithCredentials) { toast(t("This backend cannot create relay accounts")); return; }
   // A tunnel switch reloads the page — park the invite so boot resumes it.
   if (activeWsRelay() !== host) sessionStorage.setItem("velta-pending-invite", JSON.stringify({ host, token }));
   if (!(await ensureMailTunnelForLink(`dcaccount:https://${host}/new`))) return;
@@ -4291,7 +4292,7 @@ async function openChatFromLink({ accountId, chatId }) {
     try {
       await core.switchAccount(accountId);
     } catch (err) {
-      errToast("Switch failed: " + (err.message || err));
+      errToast(t("Switch failed: ") + (err.message || err));
       return;
     }
     await accountRefreshPromise;
@@ -4300,7 +4301,7 @@ async function openChatFromLink({ accountId, chatId }) {
   const chat = await core.getChat(chatId).catch(() => null);
   if (!accountIsCurrent(epoch)) return;
   if (!chat) {
-    toast("That chat is no longer available", 2500);
+    toast(t("That chat is no longer available"), 2500);
     return;
   }
   await openChat(chatId);
@@ -4313,7 +4314,7 @@ async function handleDeeplinkFromUrl(rawUrl, { clearUrl = false } = {}) {
   const relayInvite = extractRelayInviteJoin(rawUrl);
   if (relayInvite) {
     if (clearUrl) history.replaceState(null, "", location.pathname + location.search);
-    if (state.account?.configured) toast("You already have a profile — paste the invite into Add profile", 5000);
+    if (state.account?.configured) toast(t("You already have a profile — paste the invite into Add profile"), 5000);
     else await createAccountFromRelayInvite(relayInvite.host, relayInvite.token);
     return true;
   }
@@ -4347,8 +4348,8 @@ async function handleDeeplinkFromUrl(rawUrl, { clearUrl = false } = {}) {
     // (and switch to it) without the user confirming first.
     const epoch = core.accountEpoch;
     const ok = await confirmModal("Receive a profile",
-      "A second-device code was opened. Receive that profile on this device and switch to it? Only continue if you started the transfer on your other device.",
-      "Receive", false);
+      t("A second-device code was opened. Receive that profile on this device and switch to it? Only continue if you started the transfer on your other device."),
+      t("Receive"), false);
     if (ok && accountIsCurrent(epoch)) receiveSecondDeviceProfile(epoch, null, backupLink);
     return true;
   }
@@ -4378,10 +4379,10 @@ function chooseRelayOrNewProfile(link) {
     const host = link.replace(/^dc(account|login):https?:\/\//i, "").replace(/\/.*$/, "");
     const body = document.createElement("div");
     body.innerHTML = `
-      <p class="p2p-hint">Use the <b>${escapeHtml(host)}</b> invite to…</p>
+      <p class="p2p-hint">${t("Use the <b>{host}</b> invite to…", { host: escapeHtml(host) })}</p>
       <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
-        <button type="button" class="btn-text btn-primary" data-relay>Add the relay to this profile</button>
-        ${/^dclogin:/i.test(link) ? "" : `<button type="button" class="btn-text" data-new>Create a new profile on it</button>`}
+        <button type="button" class="btn-text btn-primary" data-relay>${escapeHtml(t("Add the relay to this profile"))}</button>
+        ${/^dclogin:/i.test(link) ? "" : `<button type="button" class="btn-text" data-new>${escapeHtml(t("Create a new profile on it"))}</button>`}
       </div>`;
     let settled = false;
     const pick = v => { if (settled) return; settled = true; close(); resolve(v); };
@@ -4408,7 +4409,7 @@ addEventListener("hashchange", () => handleDeeplink());
 // picker never opens before the chat list exists.
 let openedTimer = 0;
 const shareInbox = createShareInbox(items => offerShareNow(items), err => {
-  errToast("Couldn't share: " + (err?.message || err));
+  errToast(t("Couldn't share: ") + (err?.message || err));
 });
 
 async function routeOpenedBatch(urls) {
@@ -4483,7 +4484,7 @@ async function offerShareNow(items) {
   // profile's chats; bounded so a flapping profile cannot loop forever.
   for (let round = 0; round < 4; round++) {
     if (!core) return;
-    if (!await shareAccountSettled()) { errToast("Couldn't share: the profile is still switching"); return; }
+    if (!await shareAccountSettled()) { errToast(t("Couldn't share: the profile is still switching")); return; }
     const epoch = core.accountEpoch;
     const chats = await shareChatList(epoch);
     if (!accountIsCurrent(epoch)) continue;
@@ -4498,7 +4499,7 @@ async function offerShareNow(items) {
       try {
         await core.switchAccount(pick.accountId);
       } catch (err) {
-        errToast("Switch failed: " + (err?.message || err));
+        errToast(t("Switch failed: ") + (err?.message || err));
       }
       continue;
     }
@@ -4517,12 +4518,12 @@ async function deliverShare(chat, items, epoch) {
   await openChat(chat.id);
   if (!accountIsCurrent(epoch)) return;
   if (state.activeChatId !== chat.id || !chatView) {
-    errToast(`Couldn't open ${chat.name}`);
+    errToast(t("Couldn't open {name}", { name: chat.name }));
     return;
   }
   const result = await chatView.receiveShare({ text, files });
   if (result === "sent" && accountIsCurrent(epoch)) {
-    toast(`Sent to ${chat.name}`);
+    toast(t("Sent to {name}", { name: chat.name }));
     refreshChatList();
   }
 }
@@ -4547,16 +4548,16 @@ async function forwardFlow(msgIds) {
   const search = document.createElement("input");
   search.type = "search";
   search.className = "text-field";
-  search.placeholder = "Search chats…";
+  search.placeholder = t("Search chats…");
   search.enterKeyHint = "search";
   search.autocomplete = "off";
-  search.setAttribute("aria-label", "Search chats");
+  search.setAttribute("aria-label", t("Search chats"));
   search.style.marginBottom = "8px";
   const list = document.createElement("div");
   list.className = "modal-list";
   const empty = document.createElement("div");
   empty.className = "p2p-hint"; empty.style.opacity = ".6";
-  empty.textContent = "No chats match.";
+  empty.textContent = t("No chats match.");
   empty.hidden = true;
   wrap.append(knownContactsToggleRow(applyFilter), search, list, empty);
   const targets = state.chats.filter(c => !["deaddrop", "device"].includes(c.kind) && !c.isP2pGroup);
@@ -4570,7 +4571,7 @@ async function forwardFlow(msgIds) {
       await core.forwardMessages(fromChatId, msgIds, chat.id);
       if (!accountIsCurrent(epoch)) return;
       if (navigation === chatNavigation) chatView?.exitSelection();
-      toast(`Forwarded to ${chat.name}`);
+      toast(t("Forwarded to {name}", { name: chat.name }));
       refreshChatList();
     });
     list.appendChild(item);
@@ -4627,13 +4628,13 @@ async function refreshAccounts(knownAccount = null) {
 async function accountTapFlow(id) {
   if (state.accountChanging || String(core.accountId) === String(id)) return;
   try {
-    toast("Switching account…");
+    toast(t("Switching account…"));
     const account = await core.switchAccount(id);
     const epoch = core.accountEpoch;
     await accountRefreshPromise;
-    if (accountIsCurrent(epoch)) toast(`Switched to ${account.displayName || account.addr}`);
+    if (accountIsCurrent(epoch)) toast(t("Switched to {name}", { name: account.displayName || account.addr }));
   } catch (err) {
-    errToast("Switch failed: " + (err.message || err));
+    errToast(t("Switch failed: ") + (err.message || err));
   }
 }
 
@@ -4717,27 +4718,27 @@ async function runIdentityExport(pass) {
 }
 
 async function runIdentityRestore(file, pass, onPhase) {
-  onPhase("Reading backup…");
+  onPhase(t("Reading backup…"));
   // Wrong passphrase / corrupt file throw here — BEFORE any account is
   // created, so a bad file can never leave a stray behind.
   const bundle = await unwrapIdentityBundle(new Uint8Array(await file.arrayBuffer()), pass);
-  onPhase(`Adding account for ${bundle.addr}…`);
+  onPhase(t("Adding account for {addr}…", { addr: bundle.addr }));
   const id = await core.addAccount();
   try {
     // core 2.63.0: legacy addr/mail_pw configs are gone — configure via
     // add_transport (it runs the full configure + start_io internally).
-    onPhase("Logging in to the relay…");
+    onPhase(t("Logging in to the relay…"));
     await core.configureWithCredentials(bundle.addr, bundle.mail_pw, id);
   } catch (err) {
     // #99 family: add_account selected the fresh, empty account — a dead
     // relay here would strand the user on it. Remove the stray (the wrapper
     // reconciles selection back); on a fresh PWA nothing else exists and the
     // splash stays the usable retry surface.
-    onPhase("Restore failed — removing the half-created profile…");
+    onPhase(t("Restore failed — removing the half-created profile…"));
     await core.deleteAccount(id).catch(() => {});
     throw err;
   }
-  onPhase("Importing encryption keys…");
+  onPhase(t("Importing encryption keys…"));
   const dir = "/identity/import";
   for (const [name, b64] of Object.entries(bundle.keys)) {
     await core.transport.writeCoreFile(`${dir}/${name}`, base64ToBytes(b64));
@@ -4745,32 +4746,32 @@ async function runIdentityRestore(file, pass, onPhase) {
   await core.importSelfKeys(id, dir, pass);
   // #126: the reload must not outrun the save, or the restored profile
   // (login + keys) is not on disk yet and the next load starts empty.
-  onPhase("Saving profile…");
+  onPhase(t("Saving profile…"));
   await core.transport.checkpoint?.();
-  onPhase("Done — reloading…");
+  onPhase(t("Done — reloading…"));
   setTimeout(() => location.reload(), 800);
 }
 
 function openIdentityBackup({ restoreOnly = false } = {}) {
   if (!identityBackupAvailable()) {
-    toast("Identity backup needs the wasm core (the Velta PWA)");
+    toast(t("Identity backup needs the wasm core (the Velta PWA)"));
     return;
   }
   const body = document.createElement("div");
   body.innerHTML = `
-    <p class="modal-hint">Your identity is the relay address, its password and your encryption keys — one file keeps all three. The passphrase protects it; losing the passphrase means losing the account. It holds <b>no message history</b> — a full copy including messages is Profile management → Export backup.</p>
+    <p class="modal-hint">${t("Your identity is the relay address, its password and your encryption keys — one file keeps all three. The passphrase protects it; losing the passphrase means losing the account. It holds <b>no message history</b> — a full copy including messages is Profile management → Export backup.")}</p>
     ${restoreOnly ? "" : `
     <details class="backup-export" open>
-      <summary>Export this profile</summary>
-      <label class="modal-field">Passphrase <input class="text-field" data-pass type="password" autocomplete="new-password" placeholder="at least 8 characters"></label>
-      <label class="modal-field">Repeat <input class="text-field" data-pass2 type="password" autocomplete="new-password"></label>
-      <button class="btn-primary" data-export type="button">Export identity backup</button>
+      <summary>${escapeHtml(t("Export this profile"))}</summary>
+      <label class="modal-field">${escapeHtml(t("Passphrase"))} <input class="text-field" data-pass type="password" autocomplete="new-password" placeholder="${escapeHtml(t("at least 8 characters"))}"></label>
+      <label class="modal-field">${escapeHtml(t("Repeat"))} <input class="text-field" data-pass2 type="password" autocomplete="new-password"></label>
+      <button class="btn-primary" data-export type="button">${escapeHtml(t("Export identity backup"))}</button>
     </details>`}
     <details class="backup-restore"${restoreOnly ? " open" : ""}>
-      <summary>Restore from a backup file</summary>
-      <label class="modal-field">Backup file <input class="text-field" data-file type="file" accept=".velta-identity,application/octet-stream"></label>
-      <label class="modal-field">Passphrase <input class="text-field" data-pass-r type="password" autocomplete="off"></label>
-      <button class="btn-primary" data-restore type="button">Restore</button>
+      <summary>${escapeHtml(t("Restore from a backup file"))}</summary>
+      <label class="modal-field">${escapeHtml(t("Backup file"))} <input class="text-field" data-file type="file" accept=".velta-identity,application/octet-stream"></label>
+      <label class="modal-field">${escapeHtml(t("Passphrase"))} <input class="text-field" data-pass-r type="password" autocomplete="off"></label>
+      <button class="btn-primary" data-restore type="button">${escapeHtml(t("Restore"))}</button>
     </details>
     <p class="modal-status" data-status hidden></p>`;
   const status = body.querySelector("[data-status]");
@@ -4779,11 +4780,11 @@ function openIdentityBackup({ restoreOnly = false } = {}) {
   const exportBtn = body.querySelector("[data-export]");
   exportBtn?.addEventListener("click", async () => {
     const pass = body.querySelector("[data-pass]").value;
-    if (pass !== body.querySelector("[data-pass2]").value) { toast("Passphrases don't match"); return; }
+    if (pass !== body.querySelector("[data-pass2]").value) { toast(t("Passphrases don't match")); return; }
     busy(exportBtn, true);
     try {
       const addr = await runIdentityExport(pass);
-      phase(`Backup saved — keep the file somewhere safe (${addr})`);
+      phase(t("Backup saved — keep the file somewhere safe ({addr})", { addr }));
     } catch (err) {
       phase(err?.message || String(err));
     } finally { busy(exportBtn, false); }
@@ -4791,7 +4792,7 @@ function openIdentityBackup({ restoreOnly = false } = {}) {
   const restoreBtn = body.querySelector("[data-restore]");
   restoreBtn?.addEventListener("click", async () => {
     const file = body.querySelector("[data-file]").files[0];
-    if (!file) { toast("Pick a backup file first"); return; }
+    if (!file) { toast(t("Pick a backup file first")); return; }
     busy(restoreBtn, true);
     try {
       await runIdentityRestore(file, body.querySelector("[data-pass-r]").value, phase);
@@ -4824,7 +4825,7 @@ function paintMultiDevice() {
     box.indeterminate = !known;
     if (known) box.removeAttribute("aria-checked"); else box.setAttribute("aria-checked", "mixed");
     const span = box.closest(".ctx-item")?.querySelector("span");
-    if (span) span.textContent = `Multi-device: ${mdLabel(multiDeviceState)}`;
+    if (span) span.textContent = t("Multi-device: {state}", { state: mdLabel(multiDeviceState) === "…" ? "…" : t(mdLabel(multiDeviceState)) });
   }
   const note = root?.querySelector("[data-md-note]");
   if (note) note.hidden = !multiDeviceReenabled;
@@ -4832,7 +4833,7 @@ function paintMultiDevice() {
 
 function turnMultiDeviceOffAgain() {
   setMultiDevice(false, { quick: true }).then(ok => {
-    if (ok) toast("Multi-device off");
+    if (ok) toast(t("Multi-device off"));
   });
 }
 
@@ -4867,7 +4868,7 @@ function ensureMultiDevice() {
       paintMultiDevice();
       if (res.notify) {
         markMdNotified(localStorage, accountId);
-        toast(`${MD_REENABLED_NOTE} Turn it off again if this is your only device.`, 12000,
+        toast(t(MD_REENABLED_NOTE) + " " + t("Turn it off again if this is your only device."), 12000,
           { action: { label: "Turn off again", run: turnMultiDeviceOffAgain } });
       }
     })
@@ -4913,7 +4914,7 @@ async function setMultiDevice(on, { quick = false } = {}) {
     multiDeviceState = prevState;
     multiDeviceReenabled = prevReenabled;
     paintMultiDevice();
-    errToast("Couldn't save multi-device: " + (err?.message || err));
+    errToast(t("Couldn't save multi-device: ") + (err?.message || err));
     ensureMultiDevice();
     return false;
   }
@@ -4975,22 +4976,22 @@ function rebuildDrawer() {
       // to the core at boot (see the boot sync below).
       localStorage.setItem("velta-media-quality", value);
       core.setConfig?.("media_quality", value).catch(err =>
-        errToast("Couldn't save image quality: " + (err?.message || err)));
-      toast(value === "1" ? "Image quality: Compact" : "Image quality: Standard");
+        errToast(t("Couldn't save image quality: ") + (err?.message || err)));
+      toast(value === "1" ? t("Image quality: Compact") : t("Image quality: Standard"));
     },
     downloadLimit: savedDl,
     onDownloadLimit: (value) => {
       localStorage.setItem("velta-download-limit", value);
       core.setConfig?.("download_limit", value).catch(err =>
-        errToast("Couldn't save download limit: " + (err?.message || err)));
-      toast(value === "0" ? "Auto-download limit: none" : "Auto-download limit set");
+        errToast(t("Couldn't save download limit: ") + (err?.message || err)));
+      toast(value === "0" ? t("Auto-download limit: none") : t("Auto-download limit set"));
     },
     onReadReceipts: (on) => {
       // localStorage mirror + per-account core config (same pattern as
       // media quality); pushed from rebuildDrawer on boot/account switch.
       localStorage.setItem("velta-mdns", on ? "1" : "0");
       core.setConfig?.("mdns_enabled", on ? "1" : "0").catch(err =>
-        errToast("Couldn't save read receipts: " + (err?.message || err)));
+        errToast(t("Couldn't save read receipts: ") + (err?.message || err)));
     },
     multiDeviceState: multiDeviceFor === core.accountId ? multiDeviceState : "loading",
     multiDeviceReenabled: multiDeviceFor === core.accountId && multiDeviceReenabled,
@@ -5017,7 +5018,7 @@ function rebuildDrawer() {
       const enable = !p2pEnabled();
       try {
         await setP2pEnabled(enable);
-        toast(enable ? "Local chat enabled" : "Local chat disabled");
+        toast(enable ? t("Local chat enabled") : t("Local chat disabled"));
         if (!enable) {
           const id = String(state.activeChatId || "");
           if (id.startsWith("p2p:") || id.startsWith("p2pg:")) closeChatUI();
@@ -5032,7 +5033,7 @@ function rebuildDrawer() {
         }
       } catch (error) {
         diagnostics.append("error", `Local chat toggle failed: ${error?.message || error}`);
-        errToast(`Local chat toggle failed: ${error?.message || error}`, 5000);
+        errToast(t("Local chat toggle failed: {why}", { why: error?.message || error }), 5000);
       }
       rebuildDrawer();
     },
@@ -5147,7 +5148,7 @@ async function pickProfileImage() {
   }
   let picked = await invoke("plugin:dialog|open", { options: {
     multiple: false,
-    filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
+    filters: [{ name: t("Images"), extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
   } });
   if (Array.isArray(picked)) picked = picked[0];
   if (!picked) return null;
@@ -5187,9 +5188,9 @@ async function editProfileFlow() {
     if (!accountIsCurrent(epoch)) return;
     state.account = account;
     rebuildDrawer();
-    toast("Profile updated");
+    toast(t("Profile updated"));
   } catch (err) {
-    errToast("Couldn't update profile: " + (err.message || err), 4500);
+    errToast(t("Couldn't update profile: ") + (err.message || err), 4500);
   }
 }
 
@@ -5232,13 +5233,13 @@ async function joinFromInvite(link) {
   if (state.accountChanging) return;
   const epoch = core.accountEpoch;
   if (!core.secureJoin) {
-    toast("Joining chats needs the background core — not available in demo mode", 4500);
+    toast(t("Joining chats needs the background core — not available in demo mode"), 4500);
     return;
   }
   let parsed = parseInviteLink(link);
   if (!parsed && isShortInviteLink(link)) {
     parsed = await expandShortInvite(link);
-    if (!parsed) { errToast("Could not expand this short invite link", 4500); return; }
+    if (!parsed) { errToast(t("Could not expand this short invite link"), 4500); return; }
   }
   const label = parsed ? inviteLabel(parsed) : null;
   // joinFlow closed its modal right before calling us: its history.back()
@@ -5248,48 +5249,48 @@ async function joinFromInvite(link) {
   let ok;
   if (label?.kind === "group") {
     ok = await confirmModal("Join group",
-      `${label.actor} invited you to join the group "${label.group}".`, "Join group", false);
+      t("{actor} invited you to join the group \"{group}\".", { actor: label.actor, group: label.group }), t("Join group"), false);
   } else if (label?.kind === "channel") {
     ok = await confirmModal("Subscribe to channel",
-      `Subscribe to the channel "${label.group}"?`, "Subscribe", false);
+      t("Subscribe to the channel \"{group}\"?", { group: label.group }), t("Subscribe"), false);
   } else if (label?.kind === "person") {
     ok = await confirmModal("Start chat",
-      `Start a chat with ${label.actor}${label.addr ? ` (${label.addr})` : ""}?`, "Start chat", false);
+      t("Start a chat with {name}?", { name: label.addr ? `${label.actor} (${label.addr})` : label.actor }), t("Start chat"), false);
   } else {
-    ok = await confirmModal("Join chat", "Open this invite and start the SecureJoin handshake?", "Join", false);
+    ok = await confirmModal("Join chat", t("Open this invite and start the SecureJoin handshake?"), t("Join"), false);
   }
   if (!ok || !accountIsCurrent(epoch)) return;
-  const { update, close } = showProgressModal("Joining chat", "Starting SecureJoin handshake…");
+  const { update, close } = showProgressModal(t("Joining chat"), t("Starting SecureJoin handshake…"));
   try {
     // Mirror links (i.gluek.info & friends) are normalized onto the canonical
     // i.delta.chat form — the core only parses that scheme, and the payload
     // lives in the URL fragment, so the host is irrelevant to the join.
     const chatId = await core.secureJoin(parsed ? parsed.link : link);
     if (!accountIsCurrent(epoch)) return;
-    update("Opening chat…");
+    update(t("Opening chat…"));
     await refreshChatList();
     if (!accountIsCurrent(epoch)) return;
     openChat(chatId);
-    update("Joined successfully");
+    update(t("Joined successfully"));
     setTimeout(close, 700);
   } catch (err) {
     close();
-    errToast("Join failed: " + err.message, 4500);
+    errToast(t("Join failed: ") + err.message, 4500);
   }
 }
 
 function joinFlow() {
   const body = document.createElement("div");
   body.innerHTML = `
-    <p style="font-size:14.5px;line-height:1.5;margin-bottom:4px">Paste an invite link (<code>https://i.delta.chat/#…</code>, a mirror domain, or a short link like <code>deltachat.id/&lt;name&gt;</code>) — works for both 1:1 contacts and group chats.</p>
-    <input class="text-field" placeholder="https://i.delta.chat/#DD1F…" id="join-input" required inputmode="url" autocapitalize="none" autocomplete="off" spellcheck="false" aria-label="Invite link">`;
+    <p style="font-size:14.5px;line-height:1.5;margin-bottom:4px">${t("Paste an invite link (<code>https://i.delta.chat/#…</code>, a mirror domain, or a short link like <code>deltachat.id/&lt;name&gt;</code>) — works for both 1:1 contacts and group chats.")}</p>
+    <input class="text-field" placeholder="https://i.delta.chat/#DD1F…" id="join-input" required inputmode="url" autocapitalize="none" autocomplete="off" spellcheck="false" aria-label="${escapeHtml(t("Invite link"))}">`;
   const { foot, cancel, ok } = footButtons("Join", { okType: "submit" });
   const { close, form } = showModal({ title: "Join chat via invite link", body, foot, form: true });
   cancel.addEventListener("click", close);
   form.addEventListener("submit", () => {
     const v = body.querySelector("#join-input").value.trim();
     if (!parseInviteLink(v) && !isShortInviteLink(v)) {
-      toast("That doesn't look like an invite link (e.g. https://i.delta.chat/#… or OPENPGP4FPR:…)"); return;
+      toast(t("That doesn't look like an invite link (e.g. https://i.delta.chat/#… or OPENPGP4FPR:…)")); return;
     }
     close();
     joinFromInvite(v);
@@ -5324,30 +5325,30 @@ function showSplash() {
   el.className = "splash"; el.id = "splash";
   el.innerHTML = `
     <div class="splash-main">
-      <img class="splash-logo" src="./icons/v-logo.svg" alt="Velta logo">
-      <h1 class="splash-title">Welcome to Velta</h1>
-      <p class="splash-tag">End-to-end encrypted messaging built on Delta Chat — no phone number, no central server. Pick how to set up your profile:</p>
+      <img class="splash-logo" src="./icons/v-logo.svg" alt="${escapeHtml(t("Velta logo"))}">
+      <h1 class="splash-title">${escapeHtml(t("Welcome to Velta"))}</h1>
+      <p class="splash-tag">${escapeHtml(t("End-to-end encrypted messaging built on Delta Chat — no phone number, no central server. Pick how to set up your profile:"))}</p>
       <div class="splash-actions" data-actions>
-        <button class="btn-primary splash-btn" data-create type="button">Create an account</button>
-        <button class="btn-text splash-btn" data-second type="button">Add as a second device…</button>
-        <button class="btn-text splash-btn" data-restore type="button">Restore from a backup…</button>
-        ${identityBackupAvailable() ? `<button class="btn-text splash-btn" data-identity-restore type="button">Restore an identity backup…</button>` : ""}
-        <button class="btn-text splash-btn" data-local type="button">Enter local chat…</button>
-        ${(!window.__TAURI__ && !window.VeltaBridge && (window.VELTA_PWA?.wasmCore || localStorage.getItem("velta-wasm") === "1")) ? `<button class="btn-text splash-btn" data-ws-relays type="button">WebSocket relays</button>` : ""}
+        <button class="btn-primary splash-btn" data-create type="button">${escapeHtml(t("Create an account"))}</button>
+        <button class="btn-text splash-btn" data-second type="button">${escapeHtml(t("Add as a second device…"))}</button>
+        <button class="btn-text splash-btn" data-restore type="button">${escapeHtml(t("Restore from a backup…"))}</button>
+        ${identityBackupAvailable() ? `<button class="btn-text splash-btn" data-identity-restore type="button">${escapeHtml(t("Restore an identity backup…"))}</button>` : ""}
+        <button class="btn-text splash-btn" data-local type="button">${escapeHtml(t("Enter local chat…"))}</button>
+        ${(!window.__TAURI__ && !window.VeltaBridge && (window.VELTA_PWA?.wasmCore || localStorage.getItem("velta-wasm") === "1")) ? `<button class="btn-text splash-btn" data-ws-relays type="button">${escapeHtml(t("WebSocket relays"))}</button>` : ""}
       </div>
       <form class="splash-form" data-form hidden>
-        <p class="splash-hint">Enter a <b>chatmail</b> relay address — an instant end-to-end encrypted profile will be created for you. No email or password needed.</p>
-        <input class="text-field" data-relay required placeholder="Relay address — e.g. nine.testrun.org" autocomplete="off" inputmode="url" autocapitalize="none" spellcheck="false">
-        ${navigator.mediaDevices?.getUserMedia ? `<div style="margin-top:10px"><button class="btn-text" data-scan type="button">Scan a QR code</button></div>` : ""}
-        <div style="margin-top:12px"><button class="btn-primary splash-btn" data-ok type="submit">Create account</button></div>
-        ${core?.initTransports ? `<div style="margin-top:4px"><button class="btn-text" data-auto type="button">Autopick the fastest relay</button></div>` : ""}
+        <p class="splash-hint">${t("Enter a <b>chatmail</b> relay address — an instant end-to-end encrypted profile will be created for you. No email or password needed.")}</p>
+        <input class="text-field" data-relay required placeholder="${escapeHtml(t("Relay address — e.g. nine.testrun.org"))}" autocomplete="off" inputmode="url" autocapitalize="none" spellcheck="false">
+        ${navigator.mediaDevices?.getUserMedia ? `<div style="margin-top:10px"><button class="btn-text" data-scan type="button">${escapeHtml(t("Scan a QR code"))}</button></div>` : ""}
+        <div style="margin-top:12px"><button class="btn-primary splash-btn" data-ok type="submit">${escapeHtml(t("Create account"))}</button></div>
+        ${core?.initTransports ? `<div style="margin-top:4px"><button class="btn-text" data-auto type="button">${escapeHtml(t("Autopick the fastest relay"))}</button></div>` : ""}
       </form>
       <ul class="ob-steps" data-steps></ul>
     </div>
     <p class="splash-ver" data-splash-ver>…</p>
     <details class="splash-log">
-      <summary>App log — errors &amp; debug</summary>
-      <div class="splash-log-bar"><button class="btn-text" data-copylog type="button">Copy log</button></div>
+      <summary>${escapeHtml(t("App log — errors & debug"))}</summary>
+      <div class="splash-log-bar"><button class="btn-text" data-copylog type="button">${escapeHtml(t("Copy log"))}</button></div>
       <pre data-logpre></pre>
     </details>`;
   document.body.appendChild(el);
@@ -5380,7 +5381,7 @@ function showSplash() {
   // Loading state until boot knows the account: actions stay hidden and the
   // log footer is the only visible activity.
   actionsEl.hidden = true;
-  addStep("Connecting to the encryption core…");
+  addStep(t("Connecting to the encryption core…"));
 
   // --- create an account ---
   el.querySelector("[data-create]").addEventListener("click", () => {
@@ -5396,8 +5397,8 @@ function showSplash() {
   el.querySelector("[data-scan]")?.addEventListener("click", async () => {
     const code = await acquireCode({
       title: "Scan relay QR",
-      hint: "Point the camera at the relay's QR code — or paste the code below.",
-      validate: c => normalizeRelayLink(c) || parseRelayInvite(c) ? null : "That QR code is not a relay invite",
+      hint: t("Point the camera at the relay's QR code — or paste the code below."),
+      validate: c => normalizeRelayLink(c) || parseRelayInvite(c) ? null : t("That QR code is not a relay invite"),
       autoScan: true,
     });
     if (!code) return;
@@ -5425,7 +5426,7 @@ function showSplash() {
     if (!accountIsCurrent(epoch)) return;
     actionsEl.hidden = true;
     stepsEl.replaceChildren();
-    addStep("Starting local chat…");
+    addStep(t("Starting local chat…"));
     try {
       await setP2pEnabled(true);
       finishSteps(true);
@@ -5446,12 +5447,12 @@ function showSplash() {
 
   // --- restore from a backup ---
   el.querySelector("[data-restore]").addEventListener("click", async () => {
-    if (!core.importBackup) { toast("Restore is not available on this backend"); return; }
+    if (!core.importBackup) { toast(t("Restore is not available on this backend")); return; }
     const invoke = tauriInvoke();
-    if (!invoke) { toast("Restore from a backup file needs the Velta app — use \"Add as a second device\" instead"); return; }
+    if (!invoke) { toast(t("Restore from a backup file needs the Velta app — use \"Add as a second device\" instead")); return; }
     let picked = await invoke("plugin:dialog|open", { options: {
       multiple: false,
-      filters: [{ name: "Velta backup", extensions: ["tar"] }],
+      filters: [{ name: t("Velta backup"), extensions: ["tar"] }],
     } });
     if (Array.isArray(picked)) picked = picked[0];
     if (!picked || !accountIsCurrent(epoch)) return;
@@ -5459,7 +5460,7 @@ function showSplash() {
       try {
         picked = await invoke("resolve_content_uri", { uri: picked, filename: `backup-${Date.now()}.tar` });
       } catch (err) {
-        errToast("Couldn't read the backup file: " + (err?.message || err));
+        errToast(t("Couldn't read the backup file: ") + (err?.message || err));
         return;
       }
     }
@@ -5471,22 +5472,22 @@ function showSplash() {
 
     actionsEl.hidden = true;
     stepsEl.replaceChildren();
-    const prog = addStep("Restoring profile…").querySelector("span:last-child");
+    const prog = addStep(t("Restoring profile…")).querySelector("span:last-child");
     let seenProgress = false;
     const onProg = (e) => {
       const p = e.detail?.progress || 0;
       if (p >= 1000) {
         finishSteps(true);
-        addStep("Profile restored — restarting");
+        addStep(t("Profile restored — restarting"));
         core.removeEventListener("imex-progress", onProg);
         localStorage.setItem("velta-ask-notifications", "1");
         setTimeout(() => location.reload(), 800);
       } else if (p > 0) {
         seenProgress = true;
-        prog.textContent = `Restoring profile… ${Math.round(p / 10)}%`;
+        prog.textContent = t("Restoring profile… {n}%", { n: Math.round(p / 10) });
       } else if (seenProgress) {
         finishSteps(false);
-        addStep("Restore failed");
+        addStep(t("Restore failed"));
         core.removeEventListener("imex-progress", onProg);
         showActions();
       }
@@ -5497,7 +5498,7 @@ function showSplash() {
     core.importBackup(picked).catch(() => {
       if (seenProgress) return;
       finishSteps(false);
-      addStep("Restore failed: couldn't import the backup");
+      addStep(t("Restore failed: couldn't import the backup"));
       core.removeEventListener("imex-progress", onProg);
       showActions();
     });
@@ -5508,13 +5509,13 @@ function showSplash() {
   // (0..1000), success (notification ask + nickname ask + splash teardown +
   // toast) and failure (Retry) handling. `run()` performs the configure and
   // returns the fresh account; `hostOf` names the relay in the success toast.
-  const hostOf = (a) => (a?.addr || "").split("@")[1] || a?.relay || "your new relay";
+  const hostOf = (a) => (a?.addr || "").split("@")[1] || a?.relay || t("your new relay");
   // Issue #6: right after the account exists, politely offer a nickname —
   // once, skippable, never holding onboarding hostage.
   const askNickname = () => new Promise((resolve) => {
     const input = document.createElement("input");
     input.className = "text-field"; input.maxLength = 64;
-    input.placeholder = "How should we call you?";
+    input.placeholder = t("How should we call you?");
     input.value = state.account?.displayName || "";
     const wrap = document.createElement("div");
     wrap.appendChild(input);
@@ -5531,11 +5532,11 @@ function showSplash() {
     };
     const skip = document.createElement("button");
     skip.type = "button";
-    skip.className = "btn-text"; skip.textContent = "Skip";
+    skip.className = "btn-text"; skip.textContent = t("Skip");
     skip.addEventListener("click", () => settle(false));
     const save = document.createElement("button");
     save.type = "submit";
-    save.className = "btn-text btn-primary"; save.textContent = "Save name";
+    save.className = "btn-text btn-primary"; save.textContent = t("Save name");
     const foot = document.createElement("div");
     foot.className = "modal-foot edit-profile-foot";
     foot.append(skip, save);
@@ -5546,7 +5547,7 @@ function showSplash() {
     setTimeout(() => input.focus(), 50);
   });
   const runCreate = async ({ trigger, intro, phases, run }) => {
-    trigger.disabled = true; trigger.classList.add("btn-loading"); trigger.textContent = "Creating…";
+    trigger.disabled = true; trigger.classList.add("btn-loading"); trigger.textContent = t("Creating…");
     input.disabled = true;
     stepsEl.replaceChildren();
     addStep(intro);
@@ -5554,7 +5555,7 @@ function showSplash() {
     try {
       const account = await run();
       if (!accountIsCurrent(epoch)) return;
-      addStep("Account created — welcome!");
+      addStep(t("Account created — welcome!"));
       finishSteps(true);
       if (!accountIsCurrent(epoch)) return;
       state.account = account;
@@ -5563,13 +5564,13 @@ function showSplash() {
       setTimeout(() => {
         if (!accountIsCurrent(epoch)) return;
         finishOk();
-        toast(`Account created on ${hostOf(account)}`, 3000);
+        toast(t("Account created on {host}", { host: hostOf(account) }), 3000);
       }, 900);
     } catch (err) {
       if (!accountIsCurrent(epoch)) return;
       finishSteps(false);
-      addStep("Setup failed: " + (err.message || err));
-      trigger.disabled = false; trigger.classList.remove("btn-loading"); trigger.textContent = "Retry";
+      addStep(t("Setup failed: ") + (err.message || err));
+      trigger.disabled = false; trigger.classList.remove("btn-loading"); trigger.textContent = t("Retry");
       input.disabled = false;
     } finally {
       stopPhases();
@@ -5582,18 +5583,18 @@ function showSplash() {
     const raw = input.value;
     const invite = parseRelayInvite(raw);
     const link = invite ? null : normalizeRelayLink(raw);
-    if (!link && !invite) { toast(raw.trim() ? "That doesn't look like a relay or invite address" : "Enter a relay address"); return; }
+    if (!link && !invite) { toast(raw.trim() ? t("That doesn't look like a relay or invite address") : t("Enter a relay address")); return; }
     if (invite) {
       if (activeWsRelay() !== invite.host) sessionStorage.setItem("velta-pending-invite", JSON.stringify(invite));
       if (!(await ensureMailTunnelForLink(`dcaccount:https://${invite.host}/new`))) return;
       sessionStorage.removeItem("velta-pending-invite");
       await runCreate({
         trigger: ok,
-        intro: `Claiming your invite on ${invite.host}`,
+        intro: t("Claiming your invite on {host}", { host: invite.host }),
         phases: [
-          [1,   `Invite accepted at ${invite.host}`],
-          [200, "Setting up your profile"],
-          [750, "Finalizing account"],
+          [1,   t("Invite accepted at {host}", { host: invite.host })],
+          [200, t("Setting up your profile")],
+          [750, t("Finalizing account")],
         ],
         run: async () => {
           await claimAndConfigure(invite.host, invite.token);
@@ -5606,12 +5607,12 @@ function showSplash() {
     const host = link.replace(/^dcaccount:https:\/\//i, "").replace(/\/new.*$/, "");
     await runCreate({
       trigger: ok,
-      intro: `Attempting to connect to relay at ${host}`,
+      intro: t("Attempting to connect to relay at {host}", { host }),
       phases: [
-        [1,   `Relay found at ${host}`],
-        [200, "Requesting new account credentials"],
-        [450, "Generating encryption keys"],
-        [750, "Finalizing account"],
+        [1,   t("Relay found at {host}", { host })],
+        [200, t("Requesting new account credentials")],
+        [450, t("Generating encryption keys")],
+        [750, t("Finalizing account")],
       ],
       run: async () => {
         await core.configureWithQr(link);
@@ -5631,19 +5632,19 @@ function showSplash() {
       const via = activeWsRelay();
       if (!via || !(await probeDnsVia(via, "example.com"))) {
         errToast(via
-          ? `${via} can't reach other relays from this browser yet.`
-          : "Add a WebSocket relay before autopick can run in the browser.", 7000);
+          ? t("{via} can't reach other relays from this browser yet.", { via })
+          : t("Add a WebSocket relay before autopick can run in the browser."), 7000);
         return;
       }
     }
     await runCreate({
       trigger: el.querySelector("[data-auto]"),
-      intro: "Looking for a fast relay…",
+      intro: t("Looking for a fast relay…"),
       phases: [
-        [1,   "Found a relay that answers fast"],
-        [200, "Requesting new account credentials"],
-        [450, "Generating encryption keys"],
-        [750, "Finalizing account"],
+        [1,   t("Found a relay that answers fast")],
+        [200, t("Requesting new account credentials")],
+        [450, t("Generating encryption keys")],
+        [750, t("Finalizing account")],
       ],
       run: async () => {
         await core.initTransports();
@@ -5661,7 +5662,7 @@ function showSplash() {
         return m.count > 1 ? `${t} ${m.text} (×${m.count})` : `${t} ${m.text}`;
       })
       .join("\n");
-    logSummary.textContent = `App log (${diagnostics.messages.length}) — errors & debug`;
+    logSummary.textContent = t("App log ({n}) — errors & debug", { n: diagnostics.messages.length });
     logPre.scrollTop = logPre.scrollHeight;
   };
   diagnostics.addEventListener("changed", renderLog);
@@ -5671,8 +5672,8 @@ function showSplash() {
   });
   el.querySelector("[data-copylog]").addEventListener("click", () => {
     navigator.clipboard?.writeText(logPre.textContent)
-      .then(() => toast("Log copied"))
-      .catch(() => toast("Couldn't copy the log"));
+      .then(() => toast(t("Log copied")))
+      .catch(() => toast(t("Couldn't copy the log")));
   });
 
   // All listeners are wired — hand the boot surface back to boot().
@@ -5694,8 +5695,8 @@ function showSplash() {
 const relayFlagsHtml = (addr, meta) => {
   // on: true / false / null (null = not known yet even with metadata —
   // IMAP capabilities are only known after the relay's first connection).
-  const flag = (letter, label, on) =>
-    `<span class="relay-flag${on ? " on" : ""}" title="${escapeAttr(label + (on ? "" : meta && on !== null ? " — not offered by this relay" : " — not known yet"))}" aria-label="${escapeAttr(label)}" role="img">${letter}</span>`;
+  const flag = (letter, key, on, label = t(key)) =>
+    `<span class="relay-flag${on ? " on" : ""}" title="${escapeAttr(label + (on ? "" : meta && on !== null ? " — " + t("not offered by this relay") : " — " + t("not known yet")))}" aria-label="${escapeAttr(label)}" role="img">${letter}</span>`;
   return [
     flag("C", "Calls: the relay hands out TURN credentials", !!meta?.hasTurn),
     flag("I", "iroh relay: helps Beam and peer-to-peer transfers", !!meta?.irohRelay),
@@ -5704,7 +5705,7 @@ const relayFlagsHtml = (addr, meta) => {
     // on a polling interval. Older cores / the wasm core without the field
     // leave it "not known yet".
     flag("D", "Instant delivery: the relay pushes new mail to the app as it arrives (IMAP IDLE)", typeof meta?.canIdle === "boolean" ? meta.canIdle : null),
-    `<span class="relay-flag" data-flag-w title="Web app endpoints (C3): this relay offers the WebSocket mail tunnel the browser app uses" aria-label="Web app endpoints (C3): this relay offers the WebSocket mail tunnel the browser app uses" role="img">W</span>`,
+    `<span class="relay-flag" data-flag-w title="${escapeHtml(t("Web app endpoints (C3): this relay offers the WebSocket mail tunnel the browser app uses"))}" aria-label="${escapeHtml(t("Web app endpoints (C3): this relay offers the WebSocket mail tunnel the browser app uses"))}" role="img">W</span>`,
   ].join("");
 };
 
@@ -5719,20 +5720,20 @@ const relayDetailsHtml = (meta, quotaText) => {
   const comment = String(meta?.comment || "").trim();
   const admin = String(meta?.admin || "").trim();
   if (comment) lines.push(`<div class="relay-detail">${escapeHtml(comment)}</div>`);
-  if (admin) lines.push(`<div class="relay-detail">Admin: ${escapeHtml(admin)}</div>`);
+  if (admin) lines.push(`<div class="relay-detail">${escapeHtml(t("Admin: {admin}", { admin }))}</div>`);
   // Core patch #16: recipient limit (maxsmtprecipients) and IMAP compression,
   // shown only when the core reports them.
   const facts = [];
   const rcpt = Number(meta?.maxSmtpRcptTo);
-  if (Number.isInteger(rcpt) && rcpt > 0) facts.push(`Up to ${rcpt} recipients per message`);
-  if (meta?.canCompress === true) facts.push("compressed connection");
+  if (Number.isInteger(rcpt) && rcpt > 0) facts.push(t("Up to {rcpt} recipients per message", { rcpt }));
+  if (meta?.canCompress === true) facts.push(t("compressed connection"));
   if (facts.length) lines.push(`<div class="relay-detail">${escapeHtml(facts.join(" · "))}</div>`);
   const q = String(quotaText || "").trim();
   if (q) {
     const pcts = [...q.matchAll(/(\d{1,3})\s*%/g)].map(m => Math.min(100, Number(m[1])));
     const label = q.replace(/\s*\d{1,3}\s*%/g, "").trim();
     const pct = pcts.length ? Math.max(...pcts) : null;
-    lines.push(`<div class="relay-detail relay-quota">${pct === null ? "" : `<span class="relay-quota-bar" role="img" aria-label="Storage ${pct}% used"><span style="width:${pct}%"${pct >= 80 ? ' class="high"' : ""}></span></span>`}<span>${escapeHtml(label)}${pct === null ? "" : ` (${pct}%)`}</span></div>`);
+    lines.push(`<div class="relay-detail relay-quota">${pct === null ? "" : `<span class="relay-quota-bar" role="img" aria-label="${escapeAttr(t("Storage {n}% used", { n: pct }))}"><span style="width:${pct}%"${pct >= 80 ? ' class="high"' : ""}></span></span>`}<span>${escapeHtml(label)}${pct === null ? "" : ` (${pct}%)`}</span></div>`);
   }
   return lines.join("");
 };
@@ -5743,15 +5744,15 @@ const relayC3Flags = new Map();
 async function openRelaysModal() {
   if (state.accountChanging) return;
   if (!core.listTransports) {
-    toast("Relay management is not available on this backend");
+    toast(t("Relay management is not available on this backend"));
     return;
   }
   const epoch = core.accountEpoch;
   const body = document.createElement("div");
   body.innerHTML = `
-    <div data-list><div class="p2p-hint" style="opacity:.6">Loading…</div></div>
-    <div style="margin-top:10px"><button type="button" class="btn-text" data-add>Add relay…</button></div>
-    <div class="relay-legend" aria-hidden="true"><span class="relay-pair"><span class="relay-flag">C</span><span>calls (TURN)</span></span><span class="relay-pair"><span class="relay-flag">I</span><span>iroh transfers</span></span><span class="relay-pair"><span class="relay-flag">P</span><span>push notifications</span></span><span class="relay-pair"><span class="relay-flag">D</span><span>instant delivery</span></span><span class="relay-pair"><span class="relay-flag">W</span><span>web endpoints</span></span><span class="relay-pair"><span class="relay-dot"></span><span>offered by the relay</span></span></div>`;
+    <div data-list><div class="p2p-hint" style="opacity:.6">${escapeHtml(t("Loading…"))}</div></div>
+    <div style="margin-top:10px"><button type="button" class="btn-text" data-add>${escapeHtml(t("Add relay…"))}</button></div>
+    <div class="relay-legend" aria-hidden="true"><span class="relay-pair"><span class="relay-flag">C</span><span>${escapeHtml(t("calls (TURN)"))}</span></span><span class="relay-pair"><span class="relay-flag">I</span><span>${escapeHtml(t("iroh transfers"))}</span></span><span class="relay-pair"><span class="relay-flag">P</span><span>${escapeHtml(t("push notifications"))}</span></span><span class="relay-pair"><span class="relay-flag">D</span><span>${escapeHtml(t("instant delivery"))}</span></span><span class="relay-pair"><span class="relay-flag">W</span><span>${escapeHtml(t("web endpoints"))}</span></span><span class="relay-pair"><span class="relay-dot"></span><span>${escapeHtml(t("offered by the relay"))}</span></span></div>`;
   showModal({ title: "Relays", body });
   const listEl = body.querySelector("[data-list]");
 
@@ -5761,7 +5762,7 @@ async function openRelaysModal() {
       transports = await core.listTransports();
     } catch (err) {
       if (accountIsCurrent(epoch)) {
-        listEl.innerHTML = `<div class="p2p-hint" style="color:var(--danger)">Failed to load relays: ${escapeHtml(String(err?.message || err))}</div>`;
+        listEl.innerHTML = `<div class="p2p-hint" style="color:var(--danger)">${escapeHtml(t("Failed to load relays:"))} ${escapeHtml(String(err?.message || err))}</div>`;
       }
       return;
     }
@@ -5790,16 +5791,16 @@ async function openRelaysModal() {
     if (!transports.length) {
       const empty = document.createElement("div");
       empty.className = "p2p-hint"; empty.style.opacity = ".6";
-      empty.textContent = "No relays configured.";
+      empty.textContent = t("No relays configured.");
       listEl.appendChild(empty);
     }
-    for (const t of transports) {
+    for (const tr of transports) {
       const row = document.createElement("div");
-      const primary = state.account && t.addr === state.account.addr;
-      const other = transports.find(x => x.addr !== t.addr);
-      const st = statusByDomain?.get((t.addr || "").split("@").pop());
-      const hint = !st || st.state === "ok" ? "" : ` <span class="relay-row-status">${st.state === "down" ? "unreachable — messages queue until it's back" : "connecting…"}</span>`;
-      const demote = primary && other ? `<button type="button" class="btn-text" data-demote>Stop using for sending</button>` : "";
+      const primary = state.account && tr.addr === state.account.addr;
+      const other = transports.find(x => x.addr !== tr.addr);
+      const st = statusByDomain?.get((tr.addr || "").split("@").pop());
+      const hint = !st || st.state === "ok" ? "" : ` <span class="relay-row-status">${escapeHtml(st.state === "down" ? t("unreachable — messages queue until it's back") : t("connecting…"))}</span>`;
+      const demote = primary && other ? `<button type="button" class="btn-text" data-demote>${escapeHtml(t("Stop using for sending"))}</button>` : "";
       // Failover (core patch smtp-via): smtpVia is the transport the SMTP
       // loop is ACTUALLY bound to. When it is not the pinned one, the pin's
       // relay failed a send and the core switched away — say so on both
@@ -5807,28 +5808,28 @@ async function openRelaysModal() {
       const domainOf = (a) => String(a || "").split("@")[1]?.toLowerCase() || null;
       const viaDomain = domainOf(smtpVia);
       const pinnedDomain = domainOf(state.account?.addr);
-      const isVia = !!viaDomain && domainOf(t.addr) === viaDomain;
+      const isVia = !!viaDomain && domainOf(tr.addr) === viaDomain;
       const failedOver = !!viaDomain && viaDomain !== pinnedDomain;
       const sendMark = primary
-        ? ` <span class="relay-sending">· sending${failedOver ? ` — send failed, switched to ${escapeHtml(smtpVia)} for now` : ""}</span>`
+        ? ` <span class="relay-sending">${escapeHtml(t("· sending"))}${failedOver ? " — " + escapeHtml(t("send failed, switched to {relay} for now", { relay: smtpVia })) : ""}</span>`
         : isVia && failedOver
-          ? ` <span class="relay-sending">· sending (failover)</span>`
+          ? ` <span class="relay-sending">${escapeHtml(t("· sending (failover)"))}</span>`
           : "";
       row.className = "relay-card";
       row.innerHTML = `
         <div class="relay-line">
-          <span class="relay-addr">${escapeHtml(t.addr)}${sendMark}${hint}</span>
-          <span class="relay-flags">${relayFlagsHtml(t.addr, metaByAddr?.[t.addr] || null)}</span>
+          <span class="relay-addr">${escapeHtml(tr.addr)}${sendMark}${hint}</span>
+          <span class="relay-flags">${relayFlagsHtml(tr.addr, metaByAddr?.[tr.addr] || null)}</span>
         </div>
-        ${relayDetailsHtml(metaByAddr?.[t.addr] || null, st?.quota)}
-        <div class="relay-actions">${primary ? demote : `<button type="button" class="btn-text" data-sendvia>Use for sending</button>`}<button type="button" class="btn-text" data-remove style="color:var(--danger)">Remove</button></div>`;
+        ${relayDetailsHtml(metaByAddr?.[tr.addr] || null, st?.quota)}
+        <div class="relay-actions">${primary ? demote : `<button type="button" class="btn-text" data-sendvia>${escapeHtml(t("Use for sending"))}</button>`}<button type="button" class="btn-text" data-remove style="color:var(--danger)">${escapeHtml(t("Remove"))}</button></div>`;
       // W flag: probe the relay's C3 endpoints (probeC3Relay). In the Tauri
       // shells the probe runs in Rust without a browser Origin (relays gate
       // browser origins); in the PWA it is the browser's own WebSocket, i.e.
       // "capable from this origin". Silver until the relay answers; one
       // probe per relay per app session.
       const wEl = row.querySelector("[data-flag-w]");
-      const wDomain = (t.addr || "").split("@").pop();
+      const wDomain = (tr.addr || "").split("@").pop();
       if (wEl && wDomain) {
         const cached = relayC3Flags.get(wDomain);
         const probe = cached || probeC3Relay(wDomain).catch(() => false);
@@ -5839,13 +5840,13 @@ async function openRelaysModal() {
       }
       row.querySelector("[data-sendvia]")?.addEventListener("click", async () => {
         const ok = await confirmModal(
-          `Send via ${t.addr}?`,
-          "New messages go out through this relay first and carry its address. If it is unreachable, Velta falls back to your other relays and retries this one every few minutes. This choice applies to this device.",
-          "Use for sending");
+          t("Send via {addr}?", { addr: tr.addr }),
+          t("New messages go out through this relay first and carry its address. If it is unreachable, Velta falls back to your other relays and retries this one every few minutes. This choice applies to this device."),
+          t("Use for sending"));
         if (!ok || !accountIsCurrent(epoch)) return;
         try {
-          await core.setSendRelay(t.addr);
-          toast(`Sending via ${t.addr}`);
+          await core.setSendRelay(tr.addr);
+          toast(t("Sending via {addr}", { addr: tr.addr }));
           state.account = await core.getAccount();
           rebuildDrawer();
           refreshRelayStatus();
@@ -5860,13 +5861,13 @@ async function openRelaysModal() {
       // move the pin to another configured relay.
       row.querySelector("[data-demote]")?.addEventListener("click", async () => {
         const ok = await confirmModal(
-          `Stop using ${t.addr} for sending?`,
-          `Sending moves to ${other.addr}: new messages go out through it first and carry its address. This choice applies to this device.`,
-          "Stop using for sending");
+          t("Stop using {addr} for sending?", { addr: tr.addr }),
+          t("Sending moves to {addr}: new messages go out through it first and carry its address. This choice applies to this device.", { addr: other.addr }),
+          t("Stop using for sending"));
         if (!ok || !accountIsCurrent(epoch)) return;
         try {
           await core.setSendRelay(other.addr);
-          toast(`Sending via ${other.addr}`);
+          toast(t("Sending via {addr}", { addr: other.addr }));
           state.account = await core.getAccount();
           rebuildDrawer();
           refreshRelayStatus();
@@ -5877,13 +5878,13 @@ async function openRelaysModal() {
       });
       row.querySelector("[data-remove]").addEventListener("click", async () => {
         const ok = await confirmModal(
-          `Remove ${t.addr}?`,
-          "The relay stops being used right away and your contacts are informed automatically, but messages still on their way to the old address may arrive for a short while. Your last relay cannot be removed.",
-          "Remove");
+          t("Remove {addr}?", { addr: tr.addr }),
+          t("The relay stops being used right away and your contacts are informed automatically, but messages still on their way to the old address may arrive for a short while. Your last relay cannot be removed."),
+          t("Remove"));
         if (!ok || !accountIsCurrent(epoch)) return;
         try {
-          await core.deleteTransport(t.addr);
-          toast("Relay removed");
+          await core.deleteTransport(tr.addr);
+          toast(t("Relay removed"));
         } catch (err) {
           toast(String(err?.message || err));
         }
@@ -5905,15 +5906,15 @@ async function openRelaysModal() {
 async function addRelayFlow(epoch, refresh, presetCode) {
   if (!accountIsCurrent(epoch)) return;
   if (!core.checkQr || !core.addTransportFromQr) {
-    toast("No background service available — install the Velta Core service app to add relays", 5000);
+    toast(t("No background service available — install the Velta Core service app to add relays"), 5000);
     return;
   }
   // presetCode comes from a deeplink (already dcaccount:-prefixed by
   // extractInviteLink); without one, ask for a pasted/scanned code.
   const code = presetCode ?? await acquireCode({
     title: "Add relay",
-    hint: "Paste the relay's invite code (dcaccount:… or dclogin:…), just its domain (nine.testrun.org), or scan its QR. It becomes a second transport for this profile; messages are received on both relays.",
-    validate: c => (/^(dcaccount:|dclogin:)/i.test(c.trim()) || normalizeRelayLink(c) ? null : "That doesn't look like a relay address or invite code"),
+    hint: t("Paste the relay's invite code (dcaccount:… or dclogin:…), just its domain (nine.testrun.org), or scan its QR. It becomes a second transport for this profile; messages are received on both relays."),
+    validate: c => (/^(dcaccount:|dclogin:)/i.test(c.trim()) || normalizeRelayLink(c) ? null : t("That doesn't look like a relay address or invite code")),
   });
   if (!code || !accountIsCurrent(epoch)) return;
   // acquireCode closed its modal right before this: its history.back() lands
@@ -5931,7 +5932,7 @@ async function addRelayFlow(epoch, refresh, presetCode) {
   const stepsEl = body.querySelector("[data-steps]");
   const { addStep, finishSteps } = stepList(stepsEl);
 
-  addStep("Checking the code…");
+  addStep(t("Checking the code…"));
   try {
     const qrInfo = await core.checkQr(qr);
     if (!accountIsCurrent(epoch)) return;
@@ -5942,17 +5943,17 @@ async function addRelayFlow(epoch, refresh, presetCode) {
     addStep(`Relay: ${qrInfo.domain || qrInfo.address || qr}`);
     // Friendly phase lines driven by the core's ConfigureProgress (0..1000).
     const phases = [
-      [1,   "Connecting to the relay"],
-      [400, "Adding relay to this profile"],
-      [750, "Finalizing"],
+      [1,   t("Connecting to the relay")],
+      [400, t("Adding relay to this profile")],
+      [750, t("Finalizing")],
     ];
     const stopPhases = trackPhases(phases, addStep);
     try {
       await core.addTransportFromQr(qr);
       if (!accountIsCurrent(epoch)) return;
       finishSteps(true);
-      addStep("Relay added — messages are received on both relays");
-      toast("Relay added");
+      addStep(t("Relay added — messages are received on both relays"));
+      toast(t("Relay added"));
       refresh?.();
       // Success must not leave the steps modal open — close it and, if the
       // flow was started from the Relays modal, show the updated list again.
@@ -5970,7 +5971,7 @@ async function addRelayFlow(epoch, refresh, presetCode) {
   } catch (err) {
     if (!accountIsCurrent(epoch)) return;
     finishSteps(false);
-    addStep("Adding relay failed: " + (err?.message || err));
+    addStep(t("Adding relay failed: ") + (err?.message || err));
   }
 }
 
@@ -6014,15 +6015,15 @@ function trackPhases(phases, addStep) {
 // itself runs fire-and-forget and reports via ImexProgress.
 async function receiveSecondDeviceProfile(epoch, onStart, presetCode) {
   if (!core.addAccountWithBackup) {
-    toast("Second-device setup is not available on this backend");
+    toast(t("Second-device setup is not available on this backend"));
     return false;
   }
   const code = presetCode?.trim() || await acquireCode({
     title: "Receive a profile",
-    hint: "Scan or paste the code shown on the other device (DCBACKUP2:…). A copy of that profile is created here; the other device stays signed in.",
+    hint: t("Scan or paste the code shown on the other device (DCBACKUP2:…). A copy of that profile is created here; the other device stays signed in."),
     // Core backup QRs are "DCBACKUP" + version digits + ":" (qr.rs:455) —
     // e.g. DCBACKUP2:<token>&<addr>. Don't require a bare "dcbackup:".
-    validate: c => (/^dcbackup\d*:/i.test(c.trim()) ? null : "That doesn't look like a second-device code"),
+    validate: c => (/^dcbackup\d*:/i.test(c.trim()) ? null : t("That doesn't look like a second-device code")),
   });
   if (!code || !accountIsCurrent(epoch)) return false;
   onStart?.();
@@ -6033,21 +6034,21 @@ async function receiveSecondDeviceProfile(epoch, onStart, presetCode) {
   const stepsEl = stepsBody.querySelector("[data-steps]");
   const { addStep, finishSteps } = stepList(stepsEl);
 
-  addStep("Preparing this device…");
+  addStep(t("Preparing this device…"));
   let seenProgress = false;
   const progHandler = (e) => {
     const p = e.detail?.progress || 0;
     if (p >= 1000) {
       finishSteps(true);
-      addStep("Profile received — signing in");
-      toast("Profile received");
+      addStep(t("Profile received — signing in"));
+      toast(t("Profile received"));
       core.removeEventListener("imex-progress", progHandler);
     } else if (p > 0) {
       seenProgress = true;
-      addStep(`Receiving profile… ${Math.round(p / 10)}%`);
+      addStep(t("Receiving profile… {n}%", { n: Math.round(p / 10) }));
     } else if (seenProgress) {
       finishSteps(false);
-      addStep("Transfer failed");
+      addStep(t("Transfer failed"));
       core.removeEventListener("imex-progress", progHandler);
     }
   };
@@ -6061,7 +6062,7 @@ async function receiveSecondDeviceProfile(epoch, onStart, presetCode) {
   } catch (err) {
     core.removeEventListener("imex-progress", progHandler);
     finishSteps(false);
-    addStep("Transfer failed: " + (err?.message || err));
+    addStep(t("Transfer failed: ") + (err?.message || err));
     return false;
   }
   return true;
@@ -6079,7 +6080,7 @@ async function startCallIfMicOk(chat, { video = false } = {}) {
     if (navigator.permissions?.query) {
       const st = await navigator.permissions.query({ name: "microphone" });
       if (st?.state === "denied") {
-        await confirmModal("Microphone blocked", "Velta can't place calls because microphone access is denied. Enable it in system settings (Windows: Settings → Privacy → Microphone; macOS: System Settings → Privacy → Microphone; Android: App settings → Permissions), then call again.");
+        await confirmModal("Microphone blocked", t("Velta can't place calls because microphone access is denied. Enable it in system settings (Windows: Settings → Privacy → Microphone; macOS: System Settings → Privacy → Microphone; Android: App settings → Permissions), then call again."));
         return;
       }
     }
@@ -6278,7 +6279,7 @@ async function boot() {
         const btn = document.getElementById("bar-menu");
         if (!btn) return;
         btn.innerHTML = e.detail.open ? BAR_MENU_ICONS.open : BAR_MENU_ICONS.closed;
-        btn.title = e.detail.open ? "Close menu" : "Menu";
+        btn.title = e.detail.open ? t("Close menu") : t("Menu");
       });
       for (const view of ["chats", "contacts", "calls", "qr"]) {
         $(`bar-${view}`).addEventListener("click", () => setListView(view));
@@ -6304,7 +6305,7 @@ async function boot() {
           await createAccountFromRelayInvite(normalizeHost(relay.host), relay.token);
         },
         tunnel: link => acceptTunnelLink(link, { confirmModal, choose: makeChooser(showModal), toast, errToast, onChange: rebuildDrawer }),
-        copy: async text => { try { await copyLink(text, { clipboard: navigator.clipboard }); toast("Link copied"); } catch { errToast("Couldn't copy the link"); } },
+        copy: async text => { try { await copyLink(text, { clipboard: navigator.clipboard }); toast(t("Link copied")); } catch { errToast(t("Couldn't copy the link")); } },
       });
 
       $("btn-search").addEventListener("click", () => {
@@ -6369,7 +6370,7 @@ async function boot() {
     // whenever the core does, however long that takes.
     let reconnecting = false;
     addEventListener("velta-core-disconnected", () => {
-      toast("Lost connection to local Delta Chat core — reconnecting…", 4500);
+      toast(t("Lost connection to local Delta Chat core — reconnecting…"), 4500);
       if (reconnecting || typeof core?.reconnect !== "function") return;
       reconnecting = true;
       (async () => {
@@ -6382,7 +6383,7 @@ async function boot() {
         // do it here to update the backend.connected flag and status pill.
         dispatchEvent(new CustomEvent("velta-core-status", { detail: { connected: true, backend: core.backend?.kind } }));
         scheduleChatListRefresh(0);
-        toast("Reconnected to Delta Chat core", 2500);
+        toast(t("Reconnected to Delta Chat core"), 2500);
       })();
     });
 
@@ -6449,7 +6450,7 @@ async function boot() {
     addEventListener("beforeinstallprompt", e => {
       e.preventDefault();
       deferredPrompt = e;
-      toast("Velta can be installed — use your browser's install option", 4000);
+      toast(t("Velta can be installed — use your browser's install option"), 4000);
     });
 
     document.addEventListener("keydown", e => {
@@ -6458,7 +6459,7 @@ async function boot() {
     appLog("boot: done");
   } catch (err) {
     appLog(`boot FAILED: ${err?.message || err}\n${err?.stack || ""}`);
-    errToast(`Startup error: ${err?.message || err}`, 8000);
+    errToast(t("Startup error: {why}", { why: err?.message || err }), 8000);
     // No usable UI yet → the splash is the error surface (it shows this log).
     if (!uiLive && !splashSession) splashSession = showSplash();
     throw err;

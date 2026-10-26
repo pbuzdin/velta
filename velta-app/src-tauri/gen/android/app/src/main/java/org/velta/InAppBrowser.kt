@@ -125,7 +125,7 @@ object InAppBrowser {
                 setTextColor(Color.parseColor("#f2f2f5"))
                 setBackgroundColor(Color.TRANSPARENT)
                 setPadding(dp(10), 0, dp(10), 0)
-                contentDescription = "Open in browser"
+                contentDescription = act.getString(R.string.browser_open_external)
                 setOnClickListener {
                     try {
                         act.startActivity(
@@ -141,7 +141,7 @@ object InAppBrowser {
                 setTextColor(Color.parseColor("#f2f2f5"))
                 setBackgroundColor(Color.TRANSPARENT)
                 setPadding(dp(10), 0, dp(10), 0)
-                contentDescription = "Close"
+                contentDescription = act.getString(R.string.browser_close)
                 setOnClickListener { closeWebView() }
             }
             val bar = LinearLayout(act).apply {

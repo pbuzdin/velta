@@ -6,6 +6,7 @@ import { diagnosticsSink } from "./diagnostics.js";
 import { avatarBackgroundUrl, fingerprintFor, cachedFingerprint, cachedFingerprintIsDerived, fingerprintGroups } from "./avatar.js";
 import { avatarFill } from "./name-color.js";
 import { P, svg, labelled } from "./icons.js";
+import { t } from "./i18n.js";
 
 const AVATAR_SVG = svg(P.avatarStar, "", 'style="width:55%;height:55%"');
 const DEVICE_SVG = svg(P.device, "", 'style="width:55%;height:55%"');
@@ -276,7 +277,7 @@ class VeltaVideo extends Elena(HTMLElement) {
 
   render() {
     if (this.#failed) {
-      return html`<div class="media-fail"><div class="media-fail-ico">${unsafeHTML(VIDEO_FAIL_SVG)}</div><div>Video can't be played</div></div>`;
+      return html`<div class="media-fail"><div class="media-fail-ico">${unsafeHTML(VIDEO_FAIL_SVG)}</div><div>${escapeHtml(t("Video can't be played"))}</div></div>`;
     }
     // Native preload as the poster: metadata + a first-frame fetch via the
     // #t fragment paints frame 0 with no extraction pipeline at all. The
@@ -299,7 +300,7 @@ VeltaVideo.define();
 // Open-shackle lock, shown only on chats that can carry unencrypted mail
 // (classic-email contacts), i.e. chat.isEncrypted === false. Encrypted chats
 // show no lock at all — e2e is the default there, not something to celebrate.
-const OPEN_LOCK_SVG = labelled(svg(P.lockOpen, "ci-lock open"), "Not encrypted");
+const OPEN_LOCK_SVG = labelled(svg(P.lockOpen, "ci-lock open"), t("Not encrypted"));
 // Local (P2P) chats ride QUIC/TLS with the peer identity pinned by pairing —
 // encrypted, so instead of the open lock they carry this wifi mark.
 export const WIFI_SVG = svg(P.wifi, "ci-wifi");
@@ -307,11 +308,11 @@ export const WIFI_SVG = svg(P.wifi, "ci-wifi");
 // tracking contact verification — the old verified rosette is gone.)
 const nameBadgesFor = c =>
   c.isP2p ? WIFI_SVG : c.kind === "single" && !c.encrypted ? OPEN_LOCK_SVG : "";
-const PIN_SVG = labelled(svg(P.pin, "ci-pin"), "Pinned");
-const MUTE_SVG = labelled(svg(P.mute, "ci-mute"), "Muted");
-const TICK1 = labelled(svg(P.tick1, "ci-ticks"), "Sent");
+const PIN_SVG = labelled(svg(P.pin, "ci-pin"), t("Pinned"));
+const MUTE_SVG = labelled(svg(P.mute, "ci-mute"), t("Muted"));
+const TICK1 = labelled(svg(P.tick1, "ci-ticks"), t("Sent"));
 // Double check on the 24 grid, same stroke as the single tick.
-const TICK2 = labelled(svg(P.tick2, "ci-ticks"), "Seen");
+const TICK2 = labelled(svg(P.tick2, "ci-ticks"), t("Seen"));
 
 // Dotted ring for in-flight sends — spins via the .ticks-spin CSS rule.
 const SENDING_RING = [["12", "4"], ["17.7", "6.3"], ["20", "12"], ["17.7", "17.7"], ["12", "20"], ["6.3", "17.7"], ["4", "12"], ["6.3", "6.3"]]
@@ -319,10 +320,10 @@ const SENDING_RING = [["12", "4"], ["17.7", "6.3"], ["20", "12"], ["17.7", "17.7
   .join("");
 
 export function ticksSvg(state, cls = "ci-ticks") {
-  if (state === "pending") return `<svg role="img" aria-label="Sending" focusable="false" class="${cls} ticks-spin" viewBox="0 0 24 24">${SENDING_RING}</svg>`;
+  if (state === "pending") return `<svg role="img" aria-label="${escapeHtml(t("Sending"))}" focusable="false" class="${cls} ticks-spin" viewBox="0 0 24 24">${SENDING_RING}</svg>`;
   // Failed: a bold exclamation — squash-tolerant in the chat list's 3:2 tick
   // box (a circled icon would render as an ellipse). Colored red via CSS.
-  if (state === "failed") return labelled(svg(P.failedMark, `${cls} failed`), "Failed to send");
+  if (state === "failed") return labelled(svg(P.failedMark, `${cls} failed`), t("Failed to send"));
   // Core semantics: OutDelivered = the RELAY accepted it (one check);
   // OutMdnRcvd = the recipient's client confirmed seen (two checks).
   if (state === "sent" || state === "delivered") return TICK1.replace('ci-ticks', cls);
@@ -374,7 +375,7 @@ class VeltaChatItem extends Elena(HTMLElement) {
       : c.draft
       ? `<span class="draft">Draft:</span> ${escapeHtml(c.draft)}`
       : c.kind === "deaddrop"
-        ? `<span class="draft">Contact request:</span> ${escapeHtml(c.lastMsg || "tap to accept")}`
+        ? `<span class="draft">${escapeHtml(t("Contact request:"))}</span> ${escapeHtml(c.lastMsg || t("tap to accept"))}`
         : c.lastMsg ? escapeHtml(c.lastMsg) : "";
     return html`
       <div class="chat-item${this.active !== null && this.active !== undefined && this.getAttribute("active") !== null ? " active" : ""}" role="option">
@@ -408,20 +409,20 @@ class VeltaChatHead extends Elena(HTMLElement) {
     if (!c) return "";
     if (c.typingText) return { online: true, text: c.typingText };
     if (c.isP2pGroup) {
-      if (c.readOnly) return "no longer active";
+      if (c.readOnly) return t("no longer active");
       const n = c.memberCount || 0, on = c.onlineCount || 0;
-      return `${n} ${n === 1 ? "member" : "members"} · ${on} online`;
+      return n === 1 ? t("1 member · {online} online", { online: on }) : t("{n} members · {online} online", { n, online: on });
     }
-    if (c.kind === "group") return c.memberCount ? `${c.memberCount} members` : "…";
-    if (c.kind === "channel") return `${(c.memberCount || 0).toLocaleString()} subscribers`;
-    if (c.kind === "saved") return "your personal space";
-    if (c.kind === "device") return "local device messages";
+    if (c.kind === "group") return c.memberCount ? (c.memberCount === 1 ? t("1 member") : t("{n} members", { n: c.memberCount })) : "…";
+    if (c.kind === "channel") return (c.memberCount || 0) === 1 ? t("1 subscriber") : t("{n} subscribers", { n: (c.memberCount || 0).toLocaleString() });
+    if (c.kind === "saved") return t("your personal space");
+    if (c.kind === "device") return t("local device messages");
     if (c.contact) {
-      if (c.contact.bot) return "bot";
-      if (c.contact.online) return { online: true, text: "online" };
+      if (c.contact.bot) return t("bot");
+      if (c.contact.online) return { online: true, text: t("online") };
       // lastSeen null = never seen (core sends 0) — no honest status line.
       if (!c.contact.lastSeen) return "";
-      return "last seen " + timeAgo(c.contact.lastSeen);
+      return t("last seen {when}", { when: timeAgo(c.contact.lastSeen) });
     }
     return "";
   }

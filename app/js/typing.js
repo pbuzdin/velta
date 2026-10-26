@@ -5,6 +5,7 @@
 // sender turns that into at most one "typing" hint per REPEAT_MS while the user
 // keeps typing, and one "stopped" hint after IDLE_MS of silence. Pure logic:
 // the transport (`send(on)`) and the clock/timers are injected.
+import { t } from "./i18n.js";
 
 export const REPEAT_MS = 3000;  // never send "typing" more often than this
 export const IDLE_MS = 5000;    // no keystroke for this long -> "stopped"
@@ -57,7 +58,7 @@ export class TypingSender {
 export function typingText(names) {
   const n = names.filter(Boolean);
   if (!n.length) return "";
-  if (n.length === 1) return `${n[0]} is typing…`;
-  if (n.length === 2) return `${n[0]} and ${n[1]} are typing…`;
-  return `${n.slice(0, -1).join(", ")} and ${n[n.length - 1]} are typing…`;
+  if (n.length === 1) return t("{name} is typing…", { name: n[0] });
+  if (n.length === 2) return t("{a} and {b} are typing…", { a: n[0], b: n[1] });
+  return t("{a} and {b} are typing…", { a: n.slice(0, -1).join(", "), b: n[n.length - 1] });
 }

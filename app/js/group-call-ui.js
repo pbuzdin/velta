@@ -9,12 +9,14 @@ import { confirmModal, toast, showModal } from "./ui.js";
 import { DEFAULT_CALL_TITLE, MAX_TITLE, cleanTitle } from "./group-call-signal.js";
 import { wakeLockAcquire, wakeLockRelease } from "./wakelock.js";
 import { invoke, isAndroid, isTauri } from "./tauri.js";
+import { t } from "./i18n.js";
+import { escapeHtml } from "./format.js";
 
 export const CONSENT_TITLE = "Join the group call?";
 export const CONSENT_TEXT = "Velta will use your microphone for this call. Audio is relayed through TURN servers (turn.delta.chat), so other participants don't see your IP address.";
 
 export function askGroupCallConsent(chatName) {
-  return confirmModal(CONSENT_TITLE + (chatName ? ` — ${chatName}` : ""), CONSENT_TEXT, "Join", false);
+  return confirmModal(t(CONSENT_TITLE) + (chatName ? ` — ${chatName}` : ""), t(CONSENT_TEXT), t("Join"), false);
 }
 
 /** Platform env for GroupCallSession. */
@@ -57,12 +59,12 @@ export function barVisible(s, screen = callScreen) {
 export function askGroupCallName() {
   return new Promise((resolve) => {
     const body = document.createElement("div");
-    body.innerHTML = `<label class="gc-name-label" for="gc-name">Call name (optional)</label>
-<input id="gc-name" class="gc-name-input" type="text" maxlength="${MAX_TITLE}" autocomplete="off" placeholder="${DEFAULT_CALL_TITLE}">
-<p class="gc-name-hint">Everyone in this chat sees the call in the chat and can join. Up to 6 people.</p>`;
+    body.innerHTML = `<label class="gc-name-label" for="gc-name">${escapeHtml(t("Call name (optional)"))}</label>
+<input id="gc-name" class="gc-name-input" type="text" maxlength="${MAX_TITLE}" autocomplete="off" placeholder="${escapeHtml(t(DEFAULT_CALL_TITLE))}">
+<p class="gc-name-hint">${escapeHtml(t("Everyone in this chat sees the call in the chat and can join. Up to 6 people."))}</p>`;
     const foot = document.createElement("div");
-    const cancel = document.createElement("button"); cancel.type = "button"; cancel.className = "btn-text"; cancel.textContent = "Cancel";
-    const ok = document.createElement("button"); ok.type = "submit"; ok.className = "btn-text"; ok.textContent = "Start call";
+    const cancel = document.createElement("button"); cancel.type = "button"; cancel.className = "btn-text"; cancel.textContent = t("Cancel");
+    const ok = document.createElement("button"); ok.type = "submit"; ok.className = "btn-text"; ok.textContent = t("Start call");
     foot.append(cancel, ok);
     let done = false;
     const finish = (v) => { if (done) return; done = true; resolve(v); };
@@ -81,10 +83,10 @@ function ensureBar() {
   bar = document.createElement("div");
   bar.id = "group-call-bar";
   bar.setAttribute("role", "region");
-  bar.setAttribute("aria-label", "Group call");
-  bar.innerHTML = `<button type="button" class="gcb-open" title="Open the call"><span class="gcb-dot" aria-hidden="true"></span><span class="gcb-text"></span></button>
-<button type="button" class="gcb-mute btn-text" aria-pressed="false">Mute</button>
-<button type="button" class="gcb-leave btn-text">Leave</button>`;
+  bar.setAttribute("aria-label", t("Group call"));
+  bar.innerHTML = `<button type="button" class="gcb-open" title="${escapeHtml(t("Open the call"))}"><span class="gcb-dot" aria-hidden="true"></span><span class="gcb-text"></span></button>
+<button type="button" class="gcb-mute btn-text" aria-pressed="false">${escapeHtml(t("Mute"))}</button>
+<button type="button" class="gcb-leave btn-text">${escapeHtml(t("Leave"))}</button>`;
   bar.querySelector(".gcb-mute").addEventListener("click", () => {
     const s = currentGroupCall()?.snapshot();
     if (s) setGroupCallMuted(!s.muted);
@@ -106,7 +108,7 @@ export function renderBar(s) {
   if (!barVisible(s)) {
     bar?.remove(); bar = null;
     document.documentElement.classList.remove("in-group-call");
-    if (changed && s?.state === "ended" && s.error) toast("Group call: " + s.error, 4000);
+    if (changed && s?.state === "ended" && s.error) toast(t("Group call: ") + s.error, 4000);
     return;
   }
   const b = ensureBar();
@@ -115,13 +117,13 @@ export function renderBar(s) {
   const who = s.activeSpeaker && s.activeSpeaker !== s.participants?.find((p) => p.self)?.id
     ? (s.participants.find((p) => p.id === s.activeSpeaker)?.name || "") : "";
   const name = s.title || s.chatName || "";
-  const label = s.state === "joining" ? "Connecting…" : s.state === "full" ? "Call is full — waiting" :
-    `${name || "Group call"} · ${n} in call${who ? " · " + who + " speaking" : ""}`;
+  const label = s.state === "joining" ? t("Connecting…") : s.state === "full" ? t("Call is full — waiting") :
+    `${name || t("Group call")} · ${t("{n} in call", { n })}${who ? " · " + t("{name} speaking", { name: who }) : ""}`;
   b.querySelector(".gcb-text").textContent = label;
   b.classList.toggle("speaking", !!s.activeSpeaker);
   const m = b.querySelector(".gcb-mute");
   m.setAttribute("aria-pressed", String(!!s.muted));
-  m.textContent = s.muted ? "Unmute" : "Mute";
+  m.textContent = s.muted ? t("Unmute") : t("Mute");
 }
 
 /** Wire once from app.js; `open(msgId)` opens the call app (webxdc-manager). */

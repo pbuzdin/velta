@@ -13,6 +13,8 @@
 import { showModal, toast } from "./ui.js";
 import { diagnosticsSink } from "./diagnostics.js";
 import { wakeLockAcquire, wakeLockRelease } from "./wakelock.js";
+import { t } from "./i18n.js";
+import { escapeHtml } from "./format.js";
 
 const canUseCamera = () => !!navigator.mediaDevices?.getUserMedia;
 
@@ -72,7 +74,7 @@ async function makeDecoder(video) {
       // One toast per session — informational, not an error.
       nativeDecoderBroken = true;
       diagnosticsSink.append("info", `scan: native BarcodeDetector unusable (${err?.message || err}) — falling back to jsQR`);
-      toast("Native QR reader unusable — using the built-in decoder");
+      toast(t("Native QR reader unusable — using the built-in decoder"));
     }
   } else if (nativeDecoderBroken) {
     diagnosticsSink.append("info", "scan: using jsQR (native reader known-broken this session)");
@@ -100,20 +102,20 @@ export function acquireCode({ title, hint, validate, autoScan = false }) {
     const body = document.createElement("div");
     body.innerHTML = `
       <p style="font-size:14.5px;line-height:1.5">${hint}</p>
-      <textarea class="text-field" rows="3" placeholder="Paste code…" spellcheck="false" autocomplete="off"></textarea>
-      <div style="margin-top:8px;text-align:center"><button type="button" class="btn-text" data-use-btn>Use this code</button></div>
+      <textarea class="text-field" rows="3" placeholder="${escapeHtml(t("Paste code…"))}" spellcheck="false" autocomplete="off"></textarea>
+      <div style="margin-top:8px;text-align:center"><button type="button" class="btn-text" data-use-btn>${escapeHtml(t("Use this code"))}</button></div>
       ${canScan ? `
-      <div style="margin-top:10px"><button type="button" class="btn-text" data-scan-btn>Scan QR code</button></div>
+      <div style="margin-top:10px"><button type="button" class="btn-text" data-scan-btn>${escapeHtml(t("Scan QR code"))}</button></div>
       <div data-scan hidden style="margin-top:10px">
         <video muted playsinline style="width:100%;border-radius:10px;background:#0b0b10"></video>
       </div>` : `
-      <p style="font-size:13px;color:var(--text-dim,#777);margin-top:8px">Camera scanning is not available here — paste the code instead.</p>`}`;
+      <p style="font-size:13px;color:var(--text-dim,#777);margin-top:8px">${escapeHtml(t("Camera scanning is not available here — paste the code instead."))}</p>`}`;
     const ta = body.querySelector("textarea");
     const { close } = showModal({ title, body, onClose: () => finish(null) });
 
     const submit = code => {
       code = (code || "").trim();
-      if (!code) { diagnosticsSink.append("warning", "scan: empty payload"); toast("That QR code contains no data"); return; }
+      if (!code) { diagnosticsSink.append("warning", "scan: empty payload"); toast(t("That QR code contains no data")); return; }
       const err = validate?.(code);
       if (err) { diagnosticsSink.append("info", `scan: code rejected by validator (${code.length} chars)`); toast(err); return; }
       diagnosticsSink.append("info", `scan: code accepted (${code.length} chars)`);
@@ -143,7 +145,7 @@ export function acquireCode({ title, hint, validate, autoScan = false }) {
 
     const stopScanningUi = () => {
       scanArea.hidden = true;
-      scanBtn.textContent = "Scan QR code";
+      scanBtn.textContent = t("Scan QR code");
     };
 
     const tick = async () => {
@@ -160,12 +162,12 @@ export function acquireCode({ title, hint, validate, autoScan = false }) {
         }
       } catch (err) {
         if (++decodeErrors === 1) diagnosticsSink.append("warning", `scan: decoder error: ${err?.message || err}`);
-        if (decodeErrors === 10) toast("QR reader is failing: " + (err?.message || err));
+        if (decodeErrors === 10) toast(t("QR reader is failing: ") + (err?.message || err));
       }
       if (!hinted && startedAt && Date.now() - startedAt > 12000) {
         // 12 s of live frames without a hit — nudge instead of staying mute.
         hinted = true;
-        toast("No code found yet — hold the QR fully inside the frame");
+        toast(t("No code found yet — hold the QR fully inside the frame"));
       }
       if (stream) setTimeout(tick, 120);
     };
@@ -179,8 +181,8 @@ export function acquireCode({ title, hint, validate, autoScan = false }) {
         return;
       }
       ta.blur(); // scanning — the soft keyboard must stay down
-      if (!canUseCamera()) { toast("Camera API is not available in this WebView"); return; }
-      if (!scanning) toast("Starting camera…"); // instant feedback while the permission prompt may be pending
+      if (!canUseCamera()) { toast(t("Camera API is not available in this WebView")); return; }
+      if (!scanning) toast(t("Starting camera…")); // instant feedback while the permission prompt may be pending
       diagnosticsSink.append("info", "scan: requesting camera");
       try {
         stream = await Promise.race([
@@ -189,7 +191,7 @@ export function acquireCode({ title, hint, validate, autoScan = false }) {
         ]);
       } catch (err) {
         diagnosticsSink.append("error", `scan: camera request failed: ${err?.message || err}`);
-        toast("Camera unavailable: " + (err?.message || err));
+        toast(t("Camera unavailable: ") + (err?.message || err));
         return;
       }
       if (settled) { stopScan(); return; }
@@ -198,7 +200,7 @@ export function acquireCode({ title, hint, validate, autoScan = false }) {
       startedAt = Date.now();
       hinted = false;
       wakeLockAcquire(); // screen stays on while the camera is decoding
-      scanBtn.textContent = "Use paste instead";
+      scanBtn.textContent = t("Use paste instead");
       scanArea.hidden = false;
       video.srcObject = stream;
       try { await video.play(); } catch (err) {
@@ -247,7 +249,7 @@ export function mountScanner({ video, onCode, onState = () => {} }) {
 
   const start = async () => {
     if (running) return;
-    if (!canUseCamera()) { onState("error", "Camera API is not available in this WebView"); return; }
+    if (!canUseCamera()) { onState("error", t("Camera API is not available in this WebView")); return; }
     const mine = ++session;
     running = true;
     onState("starting");
@@ -263,7 +265,7 @@ export function mountScanner({ video, onCode, onState = () => {} }) {
       if (mine !== session) return;
       running = false;
       diagnosticsSink.append("error", `scan: camera request failed: ${err?.message || err}`);
-      onState("error", "Camera unavailable: " + (err?.message || err));
+      onState("error", t("Camera unavailable: ") + (err?.message || err));
       return;
     }
     video.srcObject = stream;
@@ -273,7 +275,7 @@ export function mountScanner({ video, onCode, onState = () => {} }) {
     if (mine !== session) return;
     let decoder;
     try { decoder = await makeDecoder(video); } catch (err) {
-      if (mine === session) { stop(); onState("error", "QR reader failed: " + (err?.message || err)); }
+      if (mine === session) { stop(); onState("error", t("QR reader failed: ") + (err?.message || err)); }
       return;
     }
     if (mine !== session) return;
@@ -294,7 +296,7 @@ export function mountScanner({ video, onCode, onState = () => {} }) {
         }
       } catch (err) {
         if (++errors === 1) diagnosticsSink.append("warning", `scan: decoder error: ${err?.message || err}`);
-        if (errors === 10) { stop(); onState("error", "QR reader is failing: " + (err?.message || err)); return; }
+        if (errors === 10) { stop(); onState("error", t("QR reader is failing: ") + (err?.message || err)); return; }
       }
       setTimeout(tick, 120);
     };

@@ -9,6 +9,7 @@
 //
 // A member here is { id, name, code } — code "" when the fingerprint is
 // unknown or only derived (no key). SELF is contact id 1.
+import { t } from "./i18n.js";
 
 const WORD = /[\p{L}\p{M}\p{N}_]/u;
 // "@" must start a word: not glued to a letter/digit or an e-mail/handle
@@ -186,7 +187,7 @@ export function attachMentionPicker(input, anchor, getMembers, avatarHtml = () =
       pop.id = "mention-picker";
       pop.className = "recent-commands-pop mention-pop";
       pop.setAttribute("role", "listbox");
-      pop.setAttribute("aria-label", "Mention a member");
+      pop.setAttribute("aria-label", t("Mention a member"));
       pop.addEventListener("pointerdown", e => e.preventDefault());
       pop.addEventListener("mousedown", e => e.preventDefault());
       pop.addEventListener("click", e => {

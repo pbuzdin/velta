@@ -7,6 +7,8 @@
 import { GroupCallSignal, callMeta } from "./group-call-signal.js";
 import { nameColor } from "./name-color.js";
 import { ICON } from "./icons.js";
+import { t } from "./i18n.js";
+import { escapeHtml } from "./format.js";
 
 export const CARD_REFRESH_MS = 20000; // members expire by TTL, re-evaluate
 export const CARD_AVATARS = 5;
@@ -54,10 +56,10 @@ export function formatDuration(ms) {
 }
 
 export function subText(model, creator) {
-  if (model.ended) return ["Call ended", formatDuration(model.duration)].filter(Boolean).join(" · ");
-  const by = creator ? `Started by ${creator}` : "";
-  if (model.count === 0) return [by, "Nobody in the call yet"].filter(Boolean).join(" · ");
-  return [by, `${model.count} in call`].filter(Boolean).join(" · ");
+  if (model.ended) return [t("Call ended"), formatDuration(model.duration)].filter(Boolean).join(" · ");
+  const by = creator ? t("Started by {name}", { name: creator }) : "";
+  if (model.count === 0) return [by, t("Nobody in the call yet")].filter(Boolean).join(" · ");
+  return [by, t("{n} in call", { n: model.count })].filter(Boolean).join(" · ");
 }
 
 /** Fill the card's dynamic parts (title, sub line, avatars, buttons). */
@@ -86,21 +88,21 @@ export function renderCard(el, model, { creatorName = "" } = {}) {
   // Ended: creator avatar, name, "Call ended · <duration>", Start again only
   // (restarts in the same room). Nothing of the live state.
   join.hidden = model.joined;
-  join.textContent = model.ended ? "Start again" : "Join";
+  join.textContent = model.ended ? t("Start again") : t("Join");
   inn.hidden = !model.joined; leave.hidden = !model.joined;
   open.hidden = model.ended;
 }
 
 /** Card markup (static part; the creator avatar is a <velta-avatar>). */
 export function cardHtml({ msgId, avatarHtml, esc }) {
-  return `<div class="msg-groupcall" data-gc="${Number(msgId)}" role="group" aria-label="Group call">
-  <div class="gc-head">${avatarHtml}<div class="gc-text"><div class="gc-title">${esc("Group call")}</div><div class="gc-sub">Loading…</div></div></div>
+  return `<div class="msg-groupcall" data-gc="${Number(msgId)}" role="group" aria-label="${escapeHtml(t("Group call"))}">
+  <div class="gc-head">${avatarHtml}<div class="gc-text"><div class="gc-title">${esc(t("Group call"))}</div><div class="gc-sub">${escapeHtml(t("Loading…"))}</div></div></div>
   <div class="gc-people" hidden></div>
   <div class="gc-actions">
-    <button type="button" class="gc-join btn-text gc-primary">Join</button>
-    <span class="gc-in" hidden>${ICON.check} You're in</span>
-    <button type="button" class="gc-open btn-text" title="Open the call screen">Open</button>
-    <button type="button" class="gc-leave btn-text" hidden>Leave</button>
+    <button type="button" class="gc-join btn-text gc-primary">${escapeHtml(t("Join"))}</button>
+    <span class="gc-in" hidden>${ICON.check} ${escapeHtml(t("You're in"))}</span>
+    <button type="button" class="gc-open btn-text" title="${escapeHtml(t("Open the call screen"))}">${escapeHtml(t("Open"))}</button>
+    <button type="button" class="gc-leave btn-text" hidden>${escapeHtml(t("Leave"))}</button>
   </div>
 </div>`;
 }

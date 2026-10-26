@@ -1,4 +1,9 @@
 <resources>
     <string name="app_name">"Velta"</string>
     <string name="main_activity_title">"Velta"</string>
+    <string name="scheduled_channel_name">Scheduled messages</string>
+    <string name="scheduled_due_title">Scheduled message is due</string>
+    <string name="scheduled_due_text">Open Velta to send it</string>
+    <string name="browser_open_external">Open in browser</string>
+    <string name="browser_close">Close</string>
 </resources>

@@ -62,6 +62,7 @@ function setup({ chats = [diagRow, { id: 10, name: "Alice", kind: "single" }, { 
     openChat: async id => { log.opened.push(id); state.activeChatId = id; },
     chatView: { receiveShare: async share => { log.received.push(share); return share.files.length > 1 ? "sent" : "staged"; } },
     toast: msg => log.toasts.push(msg),
+    t: (k, v = {}) => k.replace(/\{(\w+)\}/g, (m, n) => (n in v ? String(v[n]) : m)),
     errToast: msg => log.errors.push(msg),
   });
   ctx.__switchTo = id => {

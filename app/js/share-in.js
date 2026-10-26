@@ -2,6 +2,7 @@
 // Android (tao) turns ACTION_SEND text into data:text/plain,… or an https
 // URL, and files into content:// or file://. Windows Send to passes a path.
 // Invite and chat links are not shares — the deeplink router owns those.
+import { t } from "./i18n.js";
 
 export function parseSharePayload(raw) {
   const s = String(raw || "").trim();
@@ -125,8 +126,8 @@ export function buildSharePicker(doc, { chats, accounts = [], currentAccountId =
   const search = doc.createElement("input");
   search.type = "search";
   search.className = "text-field share-search";
-  search.placeholder = "Search chats";
-  search.setAttribute("aria-label", "Search chats");
+  search.placeholder = t("Search chats");
+  search.setAttribute("aria-label", t("Search chats"));
   root.appendChild(search);
   if (accounts.length > 1) {
     const row = doc.createElement("div");
@@ -155,7 +156,7 @@ export function buildSharePicker(doc, { chats, accounts = [], currentAccountId =
     if (!rows.length) {
       const empty = doc.createElement("div");
       empty.className = "side-view-empty";
-      empty.textContent = String(search.value || "").trim() ? "No matching chat." : "No chat to share to.";
+      empty.textContent = String(search.value || "").trim() ? t("No matching chat.") : t("No chat to share to.");
       rows.push(empty);
     }
     list.replaceChildren(...rows);

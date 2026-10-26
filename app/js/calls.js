@@ -30,6 +30,8 @@ import { wakeLockAcquire, wakeLockRelease } from "./wakelock.js";
 import { formatDuration } from "./format.js";
 import { VELTA_DEBUG, diagnosticsSink } from "./diagnostics.js";
 import { invoke, isAndroid, isTauri } from "./tauri.js";
+import { t } from "./i18n.js";
+import { escapeHtml } from "./format.js";
 
 const GATHER_TIMEOUT = 3000; // ICE gathering ceiling before sending anyway
 const ENDED_VISIBLE_MS = 2500; // how long the ended overlay stays readable
@@ -260,16 +262,16 @@ export class CallManager extends EventTarget {
     this.render();
     this.loadPeer(chatId, chatName);
     if ((await this._permission("microphone")) === "denied") {
-      this._notify(MIC_DENIED_MSG);
-      this.finish("Mic unavailable");
+      this._notify(t(MIC_DENIED_MSG));
+      this.finish(t("Mic unavailable"));
       return false;
     }
     try {
       this.localStream = await this.openMic();
     } catch (err) {
       this._log(`getUserMedia failed: ${err?.name || ""} ${err?.message || err}`);
-      this._notify("Microphone unavailable: " + (err?.message || err));
-      this.finish("Mic unavailable");
+      this._notify(t("Microphone unavailable: ") + (err?.message || err));
+      this.finish(t("Mic unavailable"));
       return false;
     }
     if (video) await this.openCamera(); // failure = audio-only, told in a toast
@@ -293,9 +295,9 @@ export class CallManager extends EventTarget {
       this.render();
       return true;
     } catch (err) {
-      this._notify("Call failed: " + (err?.message || err));
+      this._notify(t("Call failed: ") + (err?.message || err));
       try { if (this.callMsgId) await this.core.endCall(this.callMsgId); } catch {}
-      this.finish("Call failed");
+      this.finish(t("Call failed"));
       return false;
     }
   }
@@ -309,12 +311,12 @@ export class CallManager extends EventTarget {
     this.callMsgId = Number(d.msgId);
     this.chatId = Number(d.chatId);
     this.hasVideo = !!d.hasVideo;
-    this.chatName = "Incoming call";
+    this.chatName = t("Incoming call");
     this.render();
     await this.loadPeer(this.chatId, "");
-    if (!this.peer.name) this.chatName = "Incoming call";
+    if (!this.peer.name) this.chatName = t("Incoming call");
     this.render();
-    this._notify(`Incoming ${this.hasVideo ? "video " : ""}call — ${this.chatName}`);
+    this._notify(t(this.hasVideo ? "Incoming video call — {name}" : "Incoming call — {name}", { name: this.chatName }));
   }
 
   // withVideo: undefined = as offered (camera on for a video call).
@@ -330,7 +332,7 @@ export class CallManager extends EventTarget {
     try { mic = await this._permission("microphone"); } finally { this._acceptBusy = false; }
     if (this.state !== "incoming" || this.callMsgId !== msgId) return;
     if (mic === "denied") {
-      this._notify(MIC_DENIED_MSG);
+      this._notify(t(MIC_DENIED_MSG));
       return;
     }
     this.speaker = defaultSpeakerOn(video);
@@ -366,9 +368,9 @@ export class CallManager extends EventTarget {
       this.startTimer();
       this.render();
     } catch (err) {
-      this._notify("Call failed: " + (err?.message || err));
+      this._notify(t("Call failed: ") + (err?.message || err));
       try { if (msgId) await this.core.endCall(msgId); } catch {}
-      this.finish("Call failed");
+      this.finish(t("Call failed"));
     }
   }
 
@@ -391,7 +393,7 @@ export class CallManager extends EventTarget {
       this.startTimer();
       this.render();
     } catch (err) {
-      this._notify("Call failed: " + (err?.message || err));
+      this._notify(t("Call failed: ") + (err?.message || err));
       this.teardown(true);
     }
   }
@@ -400,13 +402,13 @@ export class CallManager extends EventTarget {
   onIncomingAcceptedElsewhere(d) {
     if (this.state !== "incoming" || !d || d.fromThisDevice) return;
     if (Number(d.msgId) !== this.callMsgId) return;
-    this.finish("Accepted on another device");
+    this.finish(t("Accepted on another device"));
   }
 
   onCallEnded(d) {
     if (this.state === "idle") return;
     if (d && this.callMsgId && Number(d.msgId) !== this.callMsgId) return;
-    const label = this.state === "outgoing" ? "No answer" : this.state === "incoming" ? "Missed call" : "Call ended";
+    const label = this.state === "outgoing" ? t("No answer") : this.state === "incoming" ? t("Missed call") : t("Call ended");
     this.finish(label);
   }
 
@@ -430,12 +432,12 @@ export class CallManager extends EventTarget {
 
   statusText() {
     if (this.state === "ended") return this.endLabel;
-    if (this.state === "incoming") return this.hasVideo ? "Incoming video call…" : "Incoming call…";
-    if (this.phase === "reconnecting") return "Reconnecting…";
+    if (this.state === "incoming") return this.hasVideo ? t("Incoming video call…") : t("Incoming call…");
+    if (this.phase === "reconnecting") return t("Reconnecting…");
     if (this.state === "active" && this.connectedAt) return formatDuration(Math.floor((Date.now() - this.connectedAt) / 1000));
-    if (this.state === "active" || this.state === "accepting" || this.phase === "connecting") return "Connecting…";
-    if (this.phase === "ringing") return "Ringing…";
-    return "Calling…";
+    if (this.state === "active" || this.state === "accepting" || this.phase === "connecting") return t("Connecting…");
+    if (this.phase === "ringing") return t("Ringing…");
+    return t("Calling…");
   }
 
   toggleMute() {
@@ -467,7 +469,7 @@ export class CallManager extends EventTarget {
       this._log(`speaker=${on} auto=${auto} route=${this.route}`);
     } catch (err) {
       this._log(`setSpeaker failed: ${err?.message || err}`);
-      if (!auto) this._notify("Couldn't switch the speaker: " + (err?.message || err));
+      if (!auto) this._notify(t("Couldn't switch the speaker: ") + (err?.message || err));
     }
   }
 
@@ -500,7 +502,7 @@ export class CallManager extends EventTarget {
       return this.videoOn;
     } catch (err) {
       this._log(`toggleVideo failed: ${err?.message || err}`);
-      this._notify("Camera unavailable: " + (err?.message || err));
+      this._notify(t("Camera unavailable: ") + (err?.message || err));
       return this.videoOn;
     } finally {
       this._videoBusy = false;
@@ -568,7 +570,7 @@ export class CallManager extends EventTarget {
     // Denied: no getUserMedia, audio-only, camera button stays off.
     if ((await this._permission("camera")) === "denied") {
       this._log("camera permission denied");
-      if (!quiet) this._notify(CAMERA_DENIED_MSG);
+      if (!quiet) this._notify(t(CAMERA_DENIED_MSG));
       return false;
     }
     try {
@@ -589,7 +591,7 @@ export class CallManager extends EventTarget {
       return true;
     } catch (err) {
       this._log(`camera failed: ${err?.name || ""} ${err?.message || err}`);
-      if (!quiet) this._notify("Camera unavailable: " + (err?.message || err));
+      if (!quiet) this._notify(t("Camera unavailable: ") + (err?.message || err));
       return false;
     }
   }
@@ -742,7 +744,7 @@ export class CallManager extends EventTarget {
         this.render();
       }
       if (this.pc && st === "failed") {
-        this._notify("Call connection failed");
+        this._notify(t("Call connection failed"));
         this.teardown(true);
       }
     });
@@ -853,7 +855,7 @@ export class CallManager extends EventTarget {
     this.releaseMedia();
     this.hideOverlay();
     this.reset();
-    if (!silent) this._notify("Call ended");
+    if (!silent) this._notify(t("Call ended"));
   }
 
   releaseMedia() {
@@ -902,7 +904,7 @@ export class CallManager extends EventTarget {
         <div class="call-status" role="status"></div>
       </div>
       <div class="call-avatar" aria-hidden="true"></div>
-      <video class="call-local-video" playsinline autoplay muted hidden aria-label="Your camera"></video>
+      <video class="call-local-video" playsinline autoplay muted hidden aria-label="${escapeHtml(t("Your camera"))}"></video>
       <div class="call-actions"></div>`;
     document.body.appendChild(box);
     makeDraggable(box.querySelector(".call-local-video"), box);
@@ -941,8 +943,8 @@ export class CallManager extends EventTarget {
     if (typeof document === "undefined") return; // headless (tests)
     if (this.state === "idle") return;
     const box = this.ensureOverlay();
-    const name = this.peer.name || this.chatName || this.peer.addr || "Call";
-    box.setAttribute("aria-label", `Call with ${name}`);
+    const name = this.peer.name || this.chatName || this.peer.addr || t("Call");
+    box.setAttribute("aria-label", t("Call with {name}", { name }));
     box.querySelector(".call-name").textContent = name;
     box.querySelector(".call-status").textContent = this.statusText();
     const av = box.querySelector(".call-avatar");
@@ -1038,15 +1040,15 @@ export function callButtonsHtml(actions, { muted = false, speaker = false, video
     `<button type="button" data-call="${call}" class="call-btn ${cls}" aria-label="${label}" title="${label}"` +
     (pressed === undefined ? "" : ` aria-pressed="${pressed ? "true" : "false"}"`) + `>${icon}</button>`;
   const btn = {
-    mute: () => b("mute", "call-mute" + (muted ? " on" : ""), "Mute", muted ? CALL_ICONS.micOff : CALL_ICONS.mic, muted),
-    camera: () => b("camera", "call-camera" + (video ? " on" : ""), "Camera", video ? CALL_ICONS.camera : CALL_ICONS.cameraOff, video),
-    hangup: () => b("hangup", "danger", "End call", CALL_ICONS.hangup),
-    speaker: () => b("speaker", "call-speaker" + (speaker ? " on" : ""), "Speaker", CALL_ICONS.speaker, !!speaker),
-    earpiece: () => b("earpiece", "call-earpiece" + (speaker ? "" : " on"), "Earpiece", CALL_ICONS.earpiece, !speaker),
-    flip: () => b("flip", "call-flip", "Switch camera", CALL_ICONS.flip),
-    accept: () => b("accept", "accept", "Accept", CALL_ICONS.phone),
-    "accept-video": () => b("accept-video", "accept", "Accept with video", CALL_ICONS.video),
-    decline: () => b("decline", "danger", "Decline", CALL_ICONS.hangup),
+    mute: () => b("mute", "call-mute" + (muted ? " on" : ""), t("Mute"), muted ? CALL_ICONS.micOff : CALL_ICONS.mic, muted),
+    camera: () => b("camera", "call-camera" + (video ? " on" : ""), t("Camera"), video ? CALL_ICONS.camera : CALL_ICONS.cameraOff, video),
+    hangup: () => b("hangup", "danger", t("End call"), CALL_ICONS.hangup),
+    speaker: () => b("speaker", "call-speaker" + (speaker ? " on" : ""), t("Speaker"), CALL_ICONS.speaker, !!speaker),
+    earpiece: () => b("earpiece", "call-earpiece" + (speaker ? "" : " on"), t("Earpiece"), CALL_ICONS.earpiece, !speaker),
+    flip: () => b("flip", "call-flip", t("Switch camera"), CALL_ICONS.flip),
+    accept: () => b("accept", "accept", t("Accept"), CALL_ICONS.phone),
+    "accept-video": () => b("accept-video", "accept", t("Accept with video"), CALL_ICONS.video),
+    decline: () => b("decline", "danger", t("Decline"), CALL_ICONS.hangup),
   };
   return (actions || []).map((a) => btn[a]?.() || "").join("");
 }

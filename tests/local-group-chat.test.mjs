@@ -400,7 +400,7 @@ test("UI guards exist for p2pg: header line, hidden relay-only actions, gated en
   const { readFileSync } = await import("node:fs");
   const read = f => readFileSync(new URL("../app/js/" + f, import.meta.url), "utf8");
   const comp = read("components.js"), view = read("chat-view.js"), app = read("app.js"), ui = read("ui.js");
-  assert.match(ui, /p2pAvailable \|\| p2pOn \? `<label class="ctx-item">[\s\S]{0,500}Velta Loop"\)}:/, "the off switch stays when local chat is on without an engine");
+  assert.match(ui, /p2pAvailable \|\| p2pOn \? `<label class="ctx-item">[\s\S]{0,500}Velta Loop"/, "the off switch stays when local chat is on without an engine");
   assert.match(comp, /isP2pGroup[\s\S]{0,200}members[\s\S]{0,40}online/, "header shows N members · M online");
   for (const label of ["Forward", "Save to Saved Messages", "Delete"]) {
     assert.ok(view.includes(label), label);
@@ -611,7 +611,7 @@ test("UI wiring for member management exists and stays creator-only", async () =
   for (const k of ["rename", "add", "leave", "delete"]) assert.ok(app.includes(`act("${k}"`), k);
   assert.match(app, /await confirmRemovePeer\(peerId, name\)/, "hub card unpair confirm");
   assert.match(app, /confirmRemovePeer\(String\(chat\.id\)\.slice\("p2p:"\.length\)/, "chat-list unpair confirm");
-  assert.match(view, /Delivered<\/span>[\s\S]{0,200}m\.delivery\.filter/, "per-member delivery rows in message info");
+  assert.match(view, /Delivered"\)\)}<\/span>[\s\S]{0,200}m\.delivery\.filter/, "per-member delivery rows in message info");
   assert.match(p2p, /export async function showAddMembersModal/);
   assert.match(p2p, /GROUP_MAX_OTHERS \+ 1 - inGroup\.size/, "free slots of the 5-member cap");
 });

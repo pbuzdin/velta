@@ -4,14 +4,15 @@
 
 import { showModal, footButtons, toast, notifyIncoming } from "./ui.js";
 import { escapeHtml } from "./format.js";
+import { t } from "./i18n.js";
 import { diagnosticsSink } from "./diagnostics.js";
 import { createLocalGroup, groupAddMember, groupPickerModel, findDuplicateGroup, lcGroupName, GROUP_MAX_OTHERS, GROUP_NAME_MAX } from "./local-chat.js";
 
 const TICKET_PREFIX = "VELTAP2P1:";
 
 export function p2pAvailable() {
-  const t = window.__TAURI__;
-  return !!(t && (t.core?.invoke || t.invoke));
+  const tauri = window.__TAURI__;
+  return !!(tauri && (tauri.core?.invoke || tauri.invoke));
 }
 
 // Local chat preference, persisted by the WebView. Disabled by default —
@@ -65,7 +66,7 @@ function ensureListener() {
 async function handleEvent(ev) {
   if (!ev?.kind) return;
   if (ev.kind === "pair-request") showPairRequest(ev.peerId, ev.name).catch(() => {});
-  if (ev.kind === "pairing") toast(`Paired with ${ev.name || "a device"}`);
+  if (ev.kind === "pairing") toast(ev.name ? t("Paired with {name}", { name: ev.name }) : t("Paired"));
   if (ev.kind === "error") {
     // Engine-side errors (connect timeouts on background retries) land in the
     // Diagnostics chat, not toasts: several queued connects can fail at once
@@ -78,7 +79,7 @@ async function handleEvent(ev) {
   if (ev.kind === "message") notifyIncoming(ev.name || "Velta Loop", (ev.text || "").slice(0, 120));
   // Group text: "<group> · <sender>" as the title, like a relay group.
   if (ev.kind === "group-message") {
-    notifyIncoming(`${lcGroupName(ev.gid)} · ${ev.name || "member"}`, (ev.text || "").slice(0, 120));
+    notifyIncoming(`${lcGroupName(ev.gid)} · ${ev.name || t("member")}`, (ev.text || "").slice(0, 120));
   }
 }
 
@@ -91,11 +92,9 @@ async function showPairRequest(peerId, name) {
     const accepted = await new Promise(resolve => {
       const body = document.createElement("div");
       body.innerHTML = `
-        <p class="p2p-hint"><b>${escapeHtml(name || "A device")}</b> (${shortId(peerId)}) wants to
-        pair with this device for Local chat — direct end-to-end-encrypted messages between
-        devices on the same network.</p>
-        <p class="p2p-hint" style="opacity:.75">Pair only if you recognize this device.</p>`;
-      const { foot, cancel: deny, ok } = footButtons("Pair", { cancelLabel: "Deny", okClass: "btn-text btn-primary" });
+        <p class="p2p-hint">${t("{device} wants to pair with this device for Local chat: direct end-to-end encrypted messages between devices on the same network.", { device: `<b>${escapeHtml(name || t("A device"))}</b> (${shortId(peerId)})` })}</p>
+        <p class="p2p-hint" style="opacity:.75">${escapeHtml(t("Pair only if you recognize this device."))}</p>`;
+      const { foot, cancel: deny, ok } = footButtons("Pair", { cancelLabel: t("Deny"), okClass: "btn-text btn-primary" });
       const { close, modal } = showModal({ title: "Pairing request", body, foot, onClose: () => resolve(false) });
       modal.classList.add("pair-request");
       deny.addEventListener("click", () => { resolve(false); close(); });
@@ -112,7 +111,7 @@ async function showPairRequest(peerId, name) {
 
 export async function pairNearbyFlow(invoke, id) {
   const { setStep, fail, close } = openPairingModal();
-  setStep(`Requesting ${shortId(id)}… — the other device must approve`, 40);
+  setStep(t("Requesting {id}… The other device must approve.", { id: shortId(id) }), 40);
   let peer;
   try {
     peer = await invoke("p2p_pair_nearby", { nodeId: id });
@@ -121,7 +120,7 @@ export async function pairNearbyFlow(invoke, id) {
     return;
   }
   close();
-  toast(peer?.name ? `Paired with ${peer.name}` : "Paired");
+  toast(peer?.name ? t("Paired with {name}", { name: peer.name }) : t("Paired"));
 }
 
 function shortId(nodeId) {
@@ -134,12 +133,10 @@ function shortId(nodeId) {
 export async function showInviteModal(invoke, renderQr) {
   const body = document.createElement("div");
   body.innerHTML = `
-    <p class="p2p-hint">On the other device open <b>Local chat → Add contact</b> and scan this
-    code (or paste it). Both devices must be on the same Wi-Fi network. Scanning the code is
-    what establishes the end-to-end encryption trust.</p>
-    <div class="qr-box"><div class="qr-loading">Generating invite…</div></div>
+    <p class="p2p-hint">${escapeHtml(t("On the other device open Local chat → Add contact and scan this code (or paste it). Both devices must be on the same Wi-Fi network. Scanning the code is what establishes the end-to-end encryption trust."))}</p>
+    <div class="qr-box"><div class="qr-loading">${escapeHtml(t("Generating invite…"))}</div></div>
     <div class="invite-link" style="word-break:break-all;font-size:12px;opacity:.7"></div>
-    <div style="text-align:center;margin-top:6px"><button type="button" class="btn-text" data-copy>Copy code</button></div>`;
+    <div style="text-align:center;margin-top:6px"><button type="button" class="btn-text" data-copy>${escapeHtml(t("Copy code"))}</button></div>`;
   showModal({ title: "My invite code", body });
   const ticket = await invoke("p2p_create_invite");
   body.querySelector(".invite-link").textContent = ticket;
@@ -148,11 +145,11 @@ export async function showInviteModal(invoke, renderQr) {
   if (box.isConnected) {
     // The core's QR reserves a clear circle in the middle — brand it with
     // the Velta logo (same overlay as the relay invite QR in ui.js).
-    box.innerHTML = (svg || "<div class='qr-loading'>QR unavailable — copy the code instead</div>")
+    box.innerHTML = (svg || `<div class='qr-loading'>${escapeHtml(t("QR unavailable. Copy the code instead."))}</div>`)
       + `<div class="qr-self qr-self-center"><img src="./icons/v-logo.svg" alt=""></div>`;
   }
   body.querySelector("[data-copy]").addEventListener("click", () => {
-    navigator.clipboard?.writeText(ticket).then(() => toast("Invite code copied"));
+    navigator.clipboard?.writeText(ticket).then(() => toast(t("Invite code copied")));
   });
 }
 
@@ -160,19 +157,19 @@ export async function addContact(invoke) {
   const { acquireCode } = await import("./qr-scan.js"); // lazy: camera + decoder on first use
   const code = await acquireCode({
     title: "Add contact",
-    hint: "Paste the invite code shown on the other device (Local chat → Show invite → Copy code).",
-    validate: c => (c.startsWith(TICKET_PREFIX) ? null : "That doesn't look like a Velta local-chat invite code"),
+    hint: t("Paste the invite code shown on the other device (Local chat → Show invite → Copy code)."),
+    validate: c => (c.startsWith(TICKET_PREFIX) ? null : t("That doesn't look like a Velta local chat invite code")),
   });
   if (!code) return;
 
   // Explicit pairing state machine — no silent failures: connect (up to 15 s)
   // → handshake → paired. Every failure lands on an explained error screen.
   const { setStep, fail, close } = openPairingModal();
-  setStep("Connecting to the other device… (up to 15 s)", 30);
+  setStep(t("Connecting to the other device… (up to 15 s)"), 30);
   let pct = 30;
   const creep = setInterval(() => {
     pct = Math.min(85, pct + 5);
-    setStep("Connecting to the other device…", pct);
+    setStep(t("Connecting to the other device…"), pct);
   }, 1000);
   let peer;
   try {
@@ -184,14 +181,14 @@ export async function addContact(invoke) {
   }
   clearInterval(creep);
   close();
-  toast(peer?.name ? `Paired with ${peer.name}` : "Paired");
+  toast(peer?.name ? t("Paired with {name}", { name: peer.name }) : t("Paired"));
 }
 
 function openPairingModal() {
   const body = document.createElement("div");
   body.innerHTML = `
-    <div data-step class="p2p-hint">Preparing…</div>
-    <progress class="pair-bar" data-bar max="100" aria-label="Pairing"></progress>`;
+    <div data-step class="p2p-hint">${escapeHtml(t("Preparing…"))}</div>
+    <progress class="pair-bar" data-bar max="100" aria-label="${escapeHtml(t("Pairing"))}"></progress>`;
   const { close } = showModal({ title: "Pairing", body });
   const stepEl = body.querySelector("[data-step]");
   const bar = body.querySelector("[data-bar]");
@@ -204,13 +201,12 @@ function openPairingModal() {
     close,
     fail: err => {
       if (bar) bar.classList.add("is-fail");
-      setStep(`Pairing failed — ${err}`);
+      setStep(t("Pairing failed: {why}", { why: err }));
       const hints = document.createElement("div");
       hints.className = "p2p-hint";
       hints.style.marginTop = "10px";
       hints.style.opacity = ".8";
-      hints.textContent =
-        "Check: both devices on the same Wi-Fi network · the other device has Velta open on its invite screen · Windows Firewall allows Velta · the invite is recent (each \"Show invite\" invalidates the previous one).";
+      hints.textContent = t("Check: both devices on the same Wi-Fi network · the other device has Velta open on its invite screen · Windows Firewall allows Velta · the invite is recent (each “Show invite” invalidates the previous one).");
       body.appendChild(hints);
     },
   };
@@ -231,16 +227,14 @@ export async function showCreateGroupModal(invoke) {
       <label class="p2p-row" style="${p.disabled ? "opacity:.55;cursor:default" : ""}">
         <input type="checkbox" data-pick="${escapeHtml(p.id)}"${p.disabled ? " disabled" : ""}>
         <span class="p2p-row-name">${escapeHtml(p.name)}</span>
-        ${p.disabled ? `<span class="p2p-row-queued">${escapeHtml(p.reason)}</span>` : ""}
+        ${p.disabled ? `<span class="p2p-row-queued">${escapeHtml(t(p.reason))}</span>` : ""}
       </label>`).join("");
     body.innerHTML = `
-      <input class="text-field" data-gname maxlength="${GROUP_NAME_MAX}" placeholder="Group name" autocomplete="off">
-      <p class="p2p-hint" style="margin-top:10px">Pick up to ${GROUP_MAX_OTHERS} paired devices —
-        <b data-count>0/${GROUP_MAX_OTHERS}</b>. Everyone must be online to be added now;
-        you can't add people later in this version.</p>
+      <input class="text-field" data-gname maxlength="${GROUP_NAME_MAX}" placeholder="${escapeHtml(t("Group name"))}" autocomplete="off">
+      <p class="p2p-hint" style="margin-top:10px">${t("Pick up to {max} paired devices: {count}. Everyone must be online to be added now.", { max: GROUP_MAX_OTHERS, count: `<b data-count>0/${GROUP_MAX_OTHERS}</b>` })}</p>
       ${model.peers.length ? `<div class="p2p-rows">${rows}</div>`
-        : `<div class="p2p-empty">No paired devices yet. Pair with another Velta device first.</div>`}
-      ${model.atLimit ? `<p class="p2p-hint" style="color:var(--danger)">You already have ${model.active} active groups (the maximum). Leave one first.</p>` : ""}
+        : `<div class="p2p-empty">${escapeHtml(t("No paired devices yet. Pair with another Velta device first."))}</div>`}
+      ${model.atLimit ? `<p class="p2p-hint" style="color:var(--danger)">${escapeHtml(t("You already have {n} active groups (the maximum). Leave one first.", { n: model.active }))}</p>` : ""}
       <p class="p2p-hint" data-warn style="opacity:.8" hidden></p>`;
     const { foot, cancel, ok } = footButtons("Create");
     let busy = false;
@@ -256,7 +250,7 @@ export async function showCreateGroupModal(invoke) {
       countEl.textContent = `${picked.size}/${GROUP_MAX_OTHERS}`;
       const dup = picked.size ? findDuplicateGroup(status, [...picked]) : null;
       warnEl.hidden = !dup;
-      if (dup) warnEl.textContent = `You already have a group "${dup.name}" with exactly these people. You can still create another.`;
+      if (dup) warnEl.textContent = t("You already have a group “{name}” with exactly these people. You can still create another.", { name: dup.name });
       ok.disabled = busy || model.atLimit || !picked.size || !nameEl.value.trim();
     };
     for (const cb of body.querySelectorAll("[data-pick]")) {
@@ -280,7 +274,7 @@ export async function showCreateGroupModal(invoke) {
         done = true; close(); resolve(id);
       } catch (err) {
         busy = false; sync();
-        toast("Couldn't create the group: " + String(err?.message || err));
+        toast(t("Couldn't create the group: {why}", { why: String(err?.message || err) }));
       }
     });
     sync();
@@ -294,7 +288,7 @@ export async function showCreateGroupModal(invoke) {
 export async function showAddMembersModal(invoke, gid) {
   const status = await invoke("p2p_status");
   const group = (status.groups || []).find(g => g.gid === gid);
-  if (!group) throw new Error("This group no longer exists");
+  if (!group) throw new Error(t("This group no longer exists"));
   const inGroup = new Set((group.members || []).map(m => m.id));
   const slots = Math.max(0, GROUP_MAX_OTHERS + 1 - inGroup.size);
   const model = groupPickerModel(status);
@@ -306,14 +300,14 @@ export async function showAddMembersModal(invoke, gid) {
       <label class="p2p-row" style="${p.disabled ? "opacity:.55;cursor:default" : ""}">
         <input type="checkbox" data-pick="${escapeHtml(p.id)}"${p.disabled ? " disabled" : ""}>
         <span class="p2p-row-name">${escapeHtml(p.name)}</span>
-        ${p.disabled ? `<span class="p2p-row-queued">${escapeHtml(p.reason)}</span>` : ""}
+        ${p.disabled ? `<span class="p2p-row-queued">${escapeHtml(t(p.reason))}</span>` : ""}
       </label>`).join("");
     body.innerHTML = `
-      <p class="p2p-hint">A local group holds up to ${GROUP_MAX_OTHERS + 1} devices, you included.
-        ${slots ? `You can add <b data-count>0/${slots}</b> more.` : "It is full."}
-        New members see messages sent from now on.</p>
+      <p class="p2p-hint">${escapeHtml(t("A local group holds up to {n} devices, you included.", { n: GROUP_MAX_OTHERS + 1 }))}
+        ${slots ? t("You can add {count} more.", { count: `<b data-count>0/${slots}</b>` }) : escapeHtml(t("It is full."))}
+        ${escapeHtml(t("New members see messages sent from now on."))}</p>
       ${peers.length ? `<div class="p2p-rows">${rows}</div>`
-        : `<div class="p2p-empty">No other paired devices. Pair with a device first (Local chat → Add contact).</div>`}`;
+        : `<div class="p2p-empty">${escapeHtml(t("No other paired devices. Pair with a device first (Local chat → Add contact)."))}</div>`}`;
     const { foot, cancel, ok } = footButtons("Add");
     const countEl = body.querySelector("[data-count]");
     let busy = false, done = false;
@@ -344,7 +338,7 @@ export async function showAddMembersModal(invoke, gid) {
       try {
         for (const id of picked) { await groupAddMember(gid, id); added++; }
       } catch (err) {
-        toast("Couldn't add: " + String(err?.message || err));
+        toast(t("Couldn't add: {why}", { why: String(err?.message || err) }));
       }
       done = true; close(); resolve(added);
     });

@@ -78,7 +78,7 @@ test("never leaks account identifiers even when the env carries them", () => {
 
 test("About wires a native <details> with Copy/Share and a wrapping <pre>", () => {
   const ui = readFileSync(new URL("../app/js/ui.js", import.meta.url), "utf8");
-  assert.match(ui, /<details class="device-info" data-device-info>\s*<summary>Show device info<\/summary>/);
+  assert.match(ui, /<details class="device-info" data-device-info>\s*<summary>\$\{escapeHtml\(t\("Show device info"\)\)\}<\/summary>/);
   assert.match(ui, /data-device-copy/);
   assert.match(ui, /shareBtn\.hidden = !canShareLink\(/);
   const css = readFileSync(new URL("../app/css/main.css", import.meta.url), "utf8");

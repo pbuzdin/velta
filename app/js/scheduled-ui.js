@@ -28,7 +28,7 @@ function tzName() {
 
 /** "Send later" sheet. Resolves the chosen UTC ms, or null. `initial`
  *  pre-fills the picker (Edit time). `browserOnly` adds the PWA note. */
-export function pickSendTime({ title = "Send later", initial = null, browserOnly = false, now = Date.now() } = {}) {
+export function pickSendTime({ title = t("Send later"), initial = null, browserOnly = false, now = Date.now() } = {}) {
   return new Promise(resolve => {
     let done = false;
     const finish = v => { if (!done) { done = true; resolve(v); } };
@@ -99,8 +99,8 @@ function statusLine(it) {
   if (it.status === "sending") return t("Sending…");
   if (it.status === "error") {
     return it.uncertain
-      ? t("Not sure it was sent: {error}", { error: it.error || "" })
-      : t("Failed, will retry: {error}", { error: it.error || "" });
+      ? t("Not sure it was sent: {error}", { error: t(it.error || "") })
+      : t("Failed, will retry: {error}", { error: t(it.error || "") });
   }
   return t("Scheduled for {time}", { time: formatDue(it.dueAt) });
 }
@@ -126,7 +126,7 @@ export function renderScheduledList(root, items, { chatName = null } = {}) {
 }
 
 /** Per-chat (accountId + chatId) or global (chatId null) list modal. */
-export function openScheduledList({ runner, accountId, chatId = null, chatName = null, browserOnly = false, title = "Scheduled messages" }) {
+export function openScheduledList({ runner, accountId, chatId = null, chatName = null, browserOnly = false, title = t("Scheduled messages") }) {
   const body = document.createElement("div");
   body.className = "sched-sheet";
   const list = document.createElement("div");
@@ -152,13 +152,13 @@ export function openScheduledList({ runner, accountId, chatId = null, chatName =
     if (act === "now") {
       if (await runner.op({ op: "update", id, dueAt: Date.now() })) runner.run(true);
     } else if (act === "time") {
-      const at = await pickSendTime({ title: "Edit time", initial: it.dueAt, browserOnly });
+      const at = await pickSendTime({ title: t("Edit time"), initial: it.dueAt, browserOnly });
       if (at != null && !(await runner.op({ op: "update", id, dueAt: at }))) toast(t("Can't change it while it is being sent"));
     } else if (act === "text") {
       const v = await editText(it);
       if (v != null && !(await runner.op({ op: "update", id, text: v }))) toast(t("Can't change it while it is being sent"));
     } else if (act === "del") {
-      if (await confirmModal("Delete scheduled message?", "It will not be sent.", "Delete")) {
+      if (await confirmModal("Delete scheduled message?", t("It will not be sent."), t("Delete"))) {
         if (!(await runner.op({ op: "remove", id }))) toast(t("Can't change it while it is being sent"));
       }
     }

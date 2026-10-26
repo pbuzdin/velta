@@ -92,7 +92,7 @@ object ScheduledAlarm {
     fun notifyOpenApp(context: Context) {
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
         if (Build.VERSION.SDK_INT >= 26) {
-            nm.createNotificationChannel(NotificationChannel(CHANNEL_ID, "Scheduled messages", NotificationManager.IMPORTANCE_DEFAULT))
+            nm.createNotificationChannel(NotificationChannel(CHANNEL_ID, context.getString(R.string.scheduled_channel_name), NotificationManager.IMPORTANCE_DEFAULT))
         }
         val launch = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
             .setClass(context, MainActivity::class.java)
@@ -100,8 +100,8 @@ object ScheduledAlarm {
         val pi = PendingIntent.getActivity(context, 1, launch, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val n = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(context.applicationInfo.icon)
-            .setContentTitle("Scheduled message is due")
-            .setContentText("Open Velta to send it")
+            .setContentTitle(context.getString(R.string.scheduled_due_title))
+            .setContentText(context.getString(R.string.scheduled_due_text))
             .setContentIntent(pi)
             .setAutoCancel(true)
             .build()

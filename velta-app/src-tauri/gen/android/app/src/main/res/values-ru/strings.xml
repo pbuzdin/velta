@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="scheduled_channel_name">Запланированные сообщения</string>
+    <string name="scheduled_due_title">Пора отправить запланированное сообщение</string>
+    <string name="scheduled_due_text">Откройте Velta, чтобы отправить его</string>
+    <string name="browser_open_external">Открыть в браузере</string>
+    <string name="browser_close">Закрыть</string>
+</resources>

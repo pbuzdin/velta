@@ -16,6 +16,7 @@ import { findHashtags } from "./hashtags.js";
 import { findMentions } from "./mentions.js";
 import { parseInviteLink, inviteCardHtml, isShortInviteLink, shortInviteCardHtml } from "./invites.js";
 import { inviteLinkChipHtml } from "./invite-cards.js";
+import { t } from "./i18n.js";
 
 const PLACEHOLDER_RE = /\x00(\d+)\x00/g;
 const EMAIL_RE = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+/gu;
@@ -100,7 +101,7 @@ function inlineWith(raw, members) {
   // #156: `code` spans are extracted FIRST so their content is opaque to the
   // link scan below (and to emphasis/hashtags/mentions — CommonMark semantics).
   raw = raw.replace(/`([^`\n]+)`/g, (_, txt) => hold(
-    `<button type="button" class="msg-code" data-copy-code title="Click to copy">${escapeHtml(txt)}</button>`));
+    `<button type="button" class="msg-code" data-copy-code title="${escapeHtml(t("Click to copy"))}">${escapeHtml(txt)}</button>`));
   const linkToken = (url, label) => {
     const chip = inviteLinkChipHtml(url);
     if (chip) return chip;
