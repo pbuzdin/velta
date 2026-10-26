@@ -446,5 +446,6 @@
   "The WebSocket transport isn't available here; creating the account directly": "Le transport WebSocket n’est pas disponible ici ; le compte est créé directement",
   "Create an account on {host}?": "Créer un compte sur {host} ?",
   "A new profile is created on {host} with this invite. The invite works once. Only continue if you trust the sender.": "Un nouveau profil sera créé sur {host} avec cette invitation. L’invitation ne fonctionne qu’une fois. Ne continuez que si vous faites confiance à l’expéditeur.",
-  "Velta Loop": "Velta Loop"
+  "Velta Loop": "Velta Loop",
+  "Local chat on this network": "Discussion locale sur ce réseau"
 }
