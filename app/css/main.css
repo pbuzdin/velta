@@ -1925,6 +1925,13 @@ fieldset.eph-set { border: 0; margin: 0; padding: 0; min-inline-size: 0; }
   .btn-text.btn-primary:hover { background: var(--accent-hover); }
 }
 .btn-text { color: var(--accent-text); font-weight: 600; padding: 10px 14px; border-radius: 8px; }
+/* Battery prompt + drawer dontkillmyapp.com link: --accent-text is the
+   per-theme AA link color on --bg-sidebar (dark 6.5, light 5.1, brutal
+   5.9 : 1; pinned by tests/android-background.test.mjs). Underlined so the
+   link is not told apart by color alone (WCAG 1.4.1). */
+.bat-prompt-text { font-size: 15px; line-height: 1.45; margin: 0 0 10px; }
+.bat-dkma { color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; font-weight: 600; }
+.bat-dkma:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; border-radius: 4px; }
 .btn-text:has(> svg) { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .btn-text > svg { width: 18px; height: 18px; flex: none; }
 /* Diagnostics chat switches (Logging / DevTools): same size and tone as the

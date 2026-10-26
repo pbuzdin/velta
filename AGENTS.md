@@ -2798,8 +2798,11 @@ taps above). The vestigial-SW caveat below applies only to plain `app/`.
   A `maybe_network` kick every 10 min (`bg_events::BG_KICK_INTERVAL_SECS`,
   was 90 s) while the activity is stopped interrupts a half-open IDLE; it is
   skipped while UnifiedPush delivers (endpoint set and a push within 6 h).
-  The page asks for the battery-optimization
-  exemption once per cold start until it is granted.
+  The page asks for the battery-optimization exemption ONCE
+  (`app/js/battery-prompt.js`, localStorage `velta-battery-opt-dismissed`
+  remembers any answer), with a link to the dontkillmyapp.com page for the
+  phone's maker (`device_maker` → `Battery.maker()` = Build.MANUFACTURER);
+  the drawer keeps the same link under "Force background connection".
   Event-batch requests (ids `bg-ev-`, `src/bg_events.rs`) are never timed
   out: a parked request cannot be cancelled in the core, and the old 60 s
   timeout left it parked, so its next batch went to a caller that was gone

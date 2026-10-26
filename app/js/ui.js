@@ -1206,7 +1206,8 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
           ${IS_ANDROID ? `
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="bg"${notifyChecked("velta-notify-bg") ? " checked" : ""}><span>${t("Use background connection")}</span></label>
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="bgforce"${notifyChecked("velta-notify-bgforce") ? " checked" : ""}><span>${t("Force background connection")}</span></label>
-          <div class="bar-opts-hint">${t("Force keeps background fetching alive under battery restrictions (asks Android for exemption).")}</div>` : ""}
+          <div class="bar-opts-hint">${t("Force keeps background fetching alive under battery restrictions (asks Android for exemption).")}</div>
+          <div class="bar-opts-hint"><a class="bat-dkma" href="https://dontkillmyapp.com/" data-dkma>${t("Phone still stops Velta? Extra steps for your phone")}</a></div>` : ""}
         </fieldset>
         <div class="bar-opts-hint">${t("Per-chat muting lives in each chat's info sheet.")}</div>
       </details>
@@ -1358,6 +1359,15 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     const key = e.target?.dataset?.catKey;
     if (!key || !onCatToggle) return;
     onCatToggle(key, e.target.checked);
+  });
+  // dontkillmyapp.com page for this phone's maker (Build.MANUFACTURER).
+  drawer.querySelector("[data-dkma]")?.addEventListener("click", async e => {
+    e.preventDefault();
+    let maker = "";
+    try { maker = await tauriInvoke()?.("device_maker"); } catch {}
+    const { dontKillMyAppUrl } = await import("./battery-prompt.js");
+    const { openInAppBrowser } = await import("./inapp-browser.js");
+    openInAppBrowser(dontKillMyAppUrl(maker));
   });
   drawer.querySelector("[data-notify-opts]")?.addEventListener("change", e => {
     const key = e.target?.dataset?.notifyKey;

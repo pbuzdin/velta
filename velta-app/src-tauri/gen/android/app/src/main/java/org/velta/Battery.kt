@@ -18,6 +18,10 @@ object Battery {
         return pm.isIgnoringBatteryOptimizations(context.packageName)
     }
 
+    // Build.MANUFACTURER, for the dontkillmyapp.com page of this maker.
+    @JvmStatic
+    fun maker(): String = android.os.Build.MANUFACTURER ?: ""
+
     @JvmStatic
     fun request(context: Context) {
         val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {

@@ -122,3 +122,72 @@ test("DNS tunnel / WS transport start before IO, with a health check", () => {
   assert.match(wst, /fn start_keeper[\s\S]*health\(&app\)\.await/);
   assert.match(wst, /async fn health[\s\S]*TcpStream::connect\(addr\)[\s\S]*start_active/);
 });
+
+const { dontKillMyAppUrl, makerLabel, shouldAskBattery, rememberBatteryAnswer, BATTERY_DISMISSED_KEY } =
+  await import("../app/js/battery-prompt.js");
+
+test("battery prompt: asked once, the answer is remembered", () => {
+  const m = new Map();
+  const storage = { getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v)) };
+  assert.equal(shouldAskBattery({ exempt: true, storage }), false, "already exempt");
+  assert.equal(shouldAskBattery({ exempt: false, storage }), true, "first time");
+  rememberBatteryAnswer(storage);
+  assert.equal(m.get(BATTERY_DISMISSED_KEY), "1");
+  assert.equal(shouldAskBattery({ exempt: false, storage }), false, "never again after an answer");
+  const app = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8");
+  const fn = app.slice(app.indexOf("async function askBatteryExemption"), app.indexOf("function batteryPromptModal"));
+  assert.match(fn, /shouldAskBattery\(/);
+  assert.ok(fn.indexOf("rememberBatteryAnswer") < fn.indexOf("if (!ok) return"), "dismissal remembered too");
+});
+
+test("battery prompt: dontkillmyapp.com page for the phone's maker", () => {
+  assert.equal(dontKillMyAppUrl("Xiaomi"), "https://dontkillmyapp.com/xiaomi");
+  assert.equal(dontKillMyAppUrl("POCO"), "https://dontkillmyapp.com/xiaomi");
+  assert.equal(dontKillMyAppUrl("samsung"), "https://dontkillmyapp.com/samsung");
+  assert.equal(dontKillMyAppUrl("HUAWEI"), "https://dontkillmyapp.com/huawei");
+  assert.equal(dontKillMyAppUrl("HMD Global"), "https://dontkillmyapp.com/nokia");
+  assert.equal(dontKillMyAppUrl("Acme"), "https://dontkillmyapp.com/");
+  assert.equal(dontKillMyAppUrl(""), "https://dontkillmyapp.com/");
+  assert.equal(makerLabel("xiaomi"), "Xiaomi");
+  assert.equal(makerLabel(""), "");
+  assert.match(read("Battery.kt"), /fun maker\(\): String = android\.os\.Build\.MANUFACTURER/);
+  assert.match(rs("lib.rs"), /generate_handler!\[[^\]]*\bdevice_maker\b/);
+});
+
+test("battery prompt strings are translated (fr, ru)", async () => {
+  const fr = JSON.parse(readFileSync(new URL("../app/locales/fr.json", import.meta.url), "utf8"));
+  const ru = JSON.parse(readFileSync(new URL("../app/locales/ru.json", import.meta.url), "utf8"));
+  for (const k of ["Keep messages arriving", "Allow", "Not now", "Extra steps for {maker} phones", "Extra steps for your phone",
+    "Phone still stops Velta? Extra steps for your phone",
+    "Android stops Velta from syncing after you leave the app, so new messages wait until you open it. Allow unrestricted battery use so mail keeps arriving in the background."]) {
+    assert.ok(fr[k], `fr: ${k}`);
+    assert.ok(ru[k], `ru: ${k}`);
+  }
+  assert.match(fr["Extra steps for {maker} phones"], /\{maker\}/);
+  assert.match(ru["Extra steps for {maker} phones"], /\{maker\}/);
+});
+
+// WCAG 2.x contrast of the link color on the modal / drawer surface.
+function lum(hex) {
+  const n = hex.replace("#", "");
+  const c = [0, 2, 4].map(i => parseInt(n.slice(i, i + 2), 16) / 255).map(v => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
+const contrast = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+
+test("battery prompt link meets WCAG AA in dark, light and brutal", () => {
+  const css = readFileSync(new URL("../app/css/main.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const block = sel => { const i = css.indexOf(sel + " {"); return css.slice(i, css.indexOf("\n}", i)); };
+  const vars = src => Object.fromEntries([...src.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map(m => [m[1], m[2].trim()]));
+  const root = vars(block(":root"));
+  const themes = { dark: root, light: { ...root, ...vars(block('html[data-theme="light"]')) }, brutal: { ...root, ...vars(block('html[data-theme="brutal"]')) } };
+  const resolve = (v, map) => { for (let i = 0; i < 10 && /^var\(/.test(v); i++) v = map[v.match(/var\((--[\w-]+)/)[1]]; return v; };
+  assert.match(css, /\.bat-dkma \{[^}]*color: var\(--accent-text\)[^}]*text-decoration: underline/);
+  for (const [name, map] of Object.entries(themes)) {
+    const fg = resolve("var(--accent-text)", map);
+    const bg = resolve("var(--bg-sidebar)", map);
+    assert.match(fg, /^#[0-9a-f]{6}$/i, `${name} fg ${fg}`);
+    assert.match(bg, /^#[0-9a-f]{6}$/i, `${name} bg ${bg}`);
+    assert.ok(contrast(fg, bg) >= 4.5, `${name}: ${fg} on ${bg} = ${contrast(fg, bg).toFixed(2)}`);
+  }
+});

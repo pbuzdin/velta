@@ -26,6 +26,7 @@ import { p2pAvailable, p2pEnabled, setP2pEnabled, pairNearbyFlow, showInviteModa
 import { withLocalChat, hubModel, renameDevice, removePeer, dismissLocalGroup, groupRename, groupRemoveMember, peerGroupImpact, groupActionsModel, groupMemberHint, removePeerImpactText, lcQueueItems, retryQueuedItem, cancelQueuedItem } from "./local-chat.js";
 import { timeAgo, formatBytes, timeTag } from "./format.js";
 import { openInAppBrowser } from "./inapp-browser.js";
+import { dontKillMyAppUrl, makerLabel, shouldAskBattery, rememberBatteryAnswer } from "./battery-prompt.js";
 // Fix 5 (startup): rarely used features load on first use via import().
 // The PWA build precaches the whole dist and Tauri/Android serve app/ as is,
 // so the lazily imported files ship everywhere (tests/lazy-modules.test.mjs).
@@ -3980,9 +3981,10 @@ addEventListener("velta-sw-updated", () => {
 });
 
 // Doze and OEM battery managers freeze the in-process core while the
-// activity is stopped, so mail waits until the next open. Asked again each
-// cold start until the exemption is granted; sessionStorage blocks a second
-// dialog in the same process (account create and boot can both reach here).
+// activity is stopped, so mail waits until the next open. Asked ONCE
+// (battery-prompt.js remembers any answer or close); the drawer keeps the
+// manual path. sessionStorage still blocks a second dialog in the same
+// process (account create and boot can both reach here).
 async function askBatteryExemption() {
   if (!isAndroid()) return;
   if (sessionStorage.getItem("velta-battery-opt-asked")) return;
@@ -3994,20 +3996,42 @@ async function askBatteryExemption() {
   } catch {
     return;
   }
-  if (exempt) return;
+  if (!shouldAskBattery({ exempt, storage: localStorage })) return;
   sessionStorage.setItem("velta-battery-opt-asked", "1");
-  const ok = await confirmModal(
-    "Keep messages arriving",
-    "Android stops Velta from syncing after you leave the app, so new messages wait until you open it. Allow unrestricted battery use so mail keeps arriving in the background.",
-    "Allow",
-    false,
-  );
+  let maker = "";
+  try { maker = await invoke("device_maker"); } catch {}
+  const ok = await batteryPromptModal(maker);
+  rememberBatteryAnswer(localStorage);
   if (!ok) return;
   try {
     await invoke("request_battery_exemption");
   } catch (err) {
     diagnostics.append("warning", `battery exemption: ${err?.message || err}`);
   }
+}
+
+function batteryPromptModal(maker) {
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = v => { if (!settled) { settled = true; resolve(v); } };
+    const label = makerLabel(maker);
+    const body = document.createElement("div");
+    body.innerHTML = `<p class="bat-prompt-text">${escapeHtml(t("Android stops Velta from syncing after you leave the app, so new messages wait until you open it. Allow unrestricted battery use so mail keeps arriving in the background."))}</p>
+      <p class="bat-prompt-text"><a class="bat-dkma" href="${escapeAttr(dontKillMyAppUrl(maker))}" data-dkma>${escapeHtml(label ? t("Extra steps for {maker} phones", { maker: label }) : t("Extra steps for your phone"))}</a></p>`;
+    body.querySelector("[data-dkma]").addEventListener("click", e => {
+      e.preventDefault();
+      openInAppBrowser(dontKillMyAppUrl(maker));
+    });
+    const foot = document.createElement("div");
+    const later = document.createElement("button");
+    later.type = "button"; later.className = "btn-text"; later.textContent = t("Not now");
+    const allow = document.createElement("button");
+    allow.type = "button"; allow.className = "btn-text"; allow.textContent = t("Allow");
+    foot.append(later, allow);
+    const { close } = showModal({ title: t("Keep messages arriving"), body, foot, compact: true, onClose: () => finish(false) });
+    later.addEventListener("click", () => { finish(false); close(); });
+    allow.addEventListener("click", () => { finish(true); close(); });
+  });
 }
 
 // Configure a profile from a dcaccount: relay invite link (deeplink or manual).

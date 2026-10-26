@@ -393,5 +393,11 @@
   "Share invite link?": "Поделиться ссылкой-приглашением?",
   "This link includes the invite for “{name}”. Anyone who gets it can send traffic through this proxy until its owner revokes the invite. Share it only with people you trust.": "Эта ссылка содержит приглашение для «{name}». Любой, кто её получит, сможет пускать трафик через этот прокси, пока владелец не отзовёт приглашение. Делитесь ей только с теми, кому доверяете.",
   "Invite saved for this proxy": "Приглашение для этого прокси сохранено",
-  "Mail in this browser will go through this proxy. The page reloads to switch.": "Почта в этом браузере пойдёт через этот прокси. Страница перезагрузится для переключения."
+  "Mail in this browser will go through this proxy. The page reloads to switch.": "Почта в этом браузере пойдёт через этот прокси. Страница перезагрузится для переключения.",
+  "Keep messages arriving": "Получать сообщения в фоне",
+  "Android stops Velta from syncing after you leave the app, so new messages wait until you open it. Allow unrestricted battery use so mail keeps arriving in the background.": "Android останавливает синхронизацию Velta, когда вы выходите из приложения, и новые сообщения ждут, пока вы его не откроете. Разрешите работу без ограничений батареи, чтобы почта приходила в фоне.",
+  "Allow": "Разрешить",
+  "Extra steps for {maker} phones": "Дополнительные шаги для телефонов {maker}",
+  "Extra steps for your phone": "Дополнительные шаги для вашего телефона",
+  "Phone still stops Velta? Extra steps for your phone": "Телефон всё равно останавливает Velta? Дополнительные шаги для вашего телефона"
 }

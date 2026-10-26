@@ -393,5 +393,11 @@
   "Share invite link?": "Partager le lien d’invitation ?",
   "This link includes the invite for “{name}”. Anyone who gets it can send traffic through this proxy until its owner revokes the invite. Share it only with people you trust.": "Ce lien contient l’invitation pour « {name} ». Quiconque l’obtient peut faire passer du trafic par ce proxy jusqu’à ce que son propriétaire révoque l’invitation. Ne le partagez qu’avec des personnes de confiance.",
   "Invite saved for this proxy": "Invitation enregistrée pour ce proxy",
-  "Mail in this browser will go through this proxy. The page reloads to switch.": "Le courrier de ce navigateur passera par ce proxy. La page se recharge pour basculer."
+  "Mail in this browser will go through this proxy. The page reloads to switch.": "Le courrier de ce navigateur passera par ce proxy. La page se recharge pour basculer.",
+  "Keep messages arriving": "Recevoir les messages en continu",
+  "Android stops Velta from syncing after you leave the app, so new messages wait until you open it. Allow unrestricted battery use so mail keeps arriving in the background.": "Android arrête la synchronisation de Velta quand vous quittez l’application : les nouveaux messages attendent que vous l’ouvriez. Autorisez l’utilisation de la batterie sans restriction pour continuer à recevoir le courrier en arrière-plan.",
+  "Allow": "Autoriser",
+  "Extra steps for {maker} phones": "Étapes supplémentaires pour les téléphones {maker}",
+  "Extra steps for your phone": "Étapes supplémentaires pour votre téléphone",
+  "Phone still stops Velta? Extra steps for your phone": "Le téléphone arrête encore Velta ? Étapes supplémentaires pour votre téléphone"
 }
