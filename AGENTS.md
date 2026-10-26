@@ -286,7 +286,7 @@ intent in VENDORISSUES.MD):
 | #11 | "Use for sending" pin: `ui.velta.send_transport` first, upstream recency failover, 5-min dead-pin backoff; since 2.64 a server-rejected send (upstream `smtp_failure`) backs the pin off too, so upstream's fallback wins until the backoff expires / the pin connects / a send on it succeeds | smtp.rs, smtp_tests.rs |
 | #12 | `background_fetch` 10 s bound + I/O restart for dead IDLE sockets (#42/#25 P8) | context.rs |
 | #13 | push-token accepted/rejected Info/Warning events (Diagnostics chat) | imap.rs |
-| #14 | reply-thread queries: `chat::get_reply_counts(chat)` (quoted msg → count, both sides scoped to the chat) + `get_reply_ids(chat, msg)` over `msgs.mime_in_reply_to`; thin jsonrpc wrappers. 2 ops; the chat.rs op anchors on the `/// Returns true if device message…` doc line so that comment stays on `was_device_msg_ever_added`. No index/migration (per-chat scan via the chat_id index; a dbversion bump would collide with upstream migrations) | chat.rs, deltachat-jsonrpc/src/api.rs |
+| #14 | reply-thread queries: `chat::get_reply_counts(chat)` (quoted msg → count, both sides scoped to the chat) + `get_reply_ids(chat, msg)` over `msgs.mime_in_reply_to`, hidden rows excluded (`replies.hidden=0`, 1.4.84: send_edit_request's own hidden copy quotes the original, so an edited caption counted as a reply); thin jsonrpc wrappers. 2 ops; the chat.rs op anchors on the `/// Returns true if device message…` doc line so that comment stays on `was_device_msg_ever_added`. No index/migration (per-chat scan via the chat_id index; a dbversion bump would collide with upstream migrations) | chat.rs, deltachat-jsonrpc/src/api.rs |
 | #15 | `get_server_metadata` RPC: per-transport relay capabilities (TURN/calls, iroh relay, push, app versions) from IMAP METADATA the scheduler already fetches. 6 ops | transport.rs, deltachat-jsonrpc api.rs + types/login_param.rs |
 | #16 | extends #15 (ops must stay after it): IMAP IDLE, COMPRESS=DEFLATE, and max SMTP recipients on that metadata. UI: D flag ("not known yet" until the relay has connected), recipient limit and "compressed connection" in the details line. 8 ops | imap.rs, transport.rs, api.rs, login_param.rs |
 
@@ -1060,7 +1060,11 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   call fetched the first time a People/Bots view needs them (#46 budget;
   since #77 that includes a boot-RESTORED People/Bots category, which
   `visibleChats()` kicks itself — otherwise restored views classify bots
-  as people); unknown contacts count as people. Active chip persists in
+  as people); unknown contacts count as people. Since 1.4.84 the map is
+  per account (`state.contactBotsAcct`; contact ids are account-local) and
+  `setChatCategory` re-fetches it (`ensureContactBots(true)`) every time
+  People/Bots is chosen, so a profile switch or a contact newly flagged bot
+  is picked up. Active chip persists in
   `localStorage["velta-chat-category"]`; `syncChatCategoryBar` hides the bar
   for every side view — and entirely (#80) when every special category is
   disabled (a lone "all" chip is noise). Category VISIBILITY is

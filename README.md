@@ -324,7 +324,8 @@ devices and are visible to all chat members.
 A chip bar at the top of the chat list filters it in one tap:
 **All · People · Groups · Channels · Bots · System**. "System" collects
 device messages, saved messages and contact requests; a 1:1 chat lands
-under **Bots** when its contact is a bot, otherwise under **People**. The
+under **Bots** when its contact is a bot, otherwise under **People**
+(checked again each time you pick People or Bots, per account). The
 active chip is remembered across restarts, and the bar hides itself in side
 views (Contacts, Calls, QR, Search). On phones you can also **swipe left or
 right on the list** to step through the categories — vertical scrolling is
@@ -1147,7 +1148,8 @@ on a phone where the row would otherwise wrap it underneath. Tap it (or
 choose **Show replies** in the message menu) to open the thread panel: a
 sheet over the lower part of the chat with the original message on top and
 every reply beneath. The composer stays visible and replies into the
-thread. Close the panel with its X, Escape, or by switching chats. See
+thread. Close the panel with its X, Escape, or by switching chats.
+Editing a message's text or caption does not add a reply to the count. See
 [docs/reply-threads.md](docs/reply-threads.md).
 
 </details>

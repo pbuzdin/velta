@@ -19,7 +19,9 @@ message in the same chat whose `mime_in_reply_to` equals the parent's
 | `get_reply_counts(account_id, chat_id)` | `chat::get_reply_counts` | map quoted msg id → reply count |
 | `get_reply_ids(account_id, chat_id, message_id)` | `chat::get_reply_ids` | reply ids, oldest first |
 
-A reply is a row with a quote param (`q`), not a forward (`a`), whose
+A reply is a visible row (`hidden=0` — `send_edit_request` stores a hidden
+copy that quotes the original, which must not count) with a quote param
+(`q`), not a forward (`a`), whose
 `TRIM(mime_in_reply_to, '<> ')` equals the parent's `rfc724_mid` (incoming
 rows keep the header's angle brackets; every message has In-Reply-To, so
 the quote param is what makes it a reply). Both scope replies and the quoted message to `chat_id`, so a Message-ID
