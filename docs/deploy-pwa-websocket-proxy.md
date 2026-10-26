@@ -14,8 +14,8 @@ Two ways to get one:
   other relays): the relay-fork module in
   [`relay-modules.md`](relay-modules.md#websocket-proxy).
 - **Standalone box** (this page): `tools/deploy-ws-proxy.sh` installs a
-  small Python bridge behind nginx with Let's Encrypt, an origin
-  allowlist, a target allowlist and rate limits.
+  small Python bridge behind nginx with Let's Encrypt, invite links, an
+  origin allowlist, a target allowlist and rate limits.
 
 All names below are placeholders (`ws.example.org`, `pwa.example.org`,
 `mail.example.org`).
@@ -47,12 +47,16 @@ sudo tools/deploy-ws-proxy.sh \
 | `--ports` | allowed destination ports, default `443,465,993` (IMAPS, SMTPS, 443 speed probe) |
 | `--conn-limit` | concurrent WebSockets per client IP, default 10 |
 | `--no-tls` | skip certbot (TLS terminated by something in front) |
+| `--no-auth` | no invite links: anyone on an allowed origin can use the proxy (the old behaviour) |
+| `--auth` | turn invite links on for an install that predates them |
 
 What it installs (safe to re-run; it rewrites everything from the arguments):
 
 - `/usr/local/lib/velta-ws-proxy/bridge.py` (python3-websockets), on
   `127.0.0.1:8153`, settings in `/etc/velta-ws-proxy/config`.
-- `velta-ws-proxy.service` (DynamicUser, read-only system).
+- `velta-ws-proxy.service` (DynamicUser, read-only system). With invites
+  on, the signing key `/etc/velta-ws-proxy/secret` (root, 0600, generated
+  once, kept across re-runs) reaches the service as a systemd credential.
 - nginx site `velta-ws-proxy.conf` plus `conf.d/velta-ws-proxy-maps.conf`:
   `Origin` allowlist, `limit_conn` per IP, `limit_req` 10 req/s (burst 40)
   per IP, 1 h idle timeout; certbot adds the 443 block and HTTP→HTTPS redirect.
@@ -65,10 +69,55 @@ the bridge caps total tunnels (`MAX_CONNS`, default 500).
 To change the allowlist later, re-run the command with the new `--allow`,
 or edit `/etc/velta-ws-proxy/config` and `systemctl restart velta-ws-proxy`.
 
-## 3. Point the PWA at it
+## 3. Invite links
 
-- **Per visitor:** drawer → **WebSocket relays** → add `ws.example.org` →
-  select it (the page reloads). The app checks it with
+New installs require an invite on every WebSocket. Mint one per person or
+device:
+
+```sh
+sudo tools/deploy-ws-proxy.sh invite "Mum's phone" --expires 90d
+# velta://ws?u=wss%3A%2F%2Fws.example.org&n=Mum's%20phone&t=eyJ2Ijox….Qk3x…
+# (+ a terminal QR code when qrencode is installed: apt install qrencode)
+sudo tools/deploy-ws-proxy.sh invite --list             # id, name, expiry, active/expired/revoked
+sudo tools/deploy-ws-proxy.sh invite --revoke 3f9c0a1b2d4e
+```
+
+- The token is `base64url(payload) "." base64url(HMAC-SHA256(secret, payload))`;
+  the payload is `{"v":1,"i":<invite id>,"n":<name>,"e":<expiry, unix s>}`
+  (`n`, `e` optional). `--expires` takes `30d`, `12h` or `2027-01-31` (UTC);
+  without it the invite never expires.
+- The bridge checks it during the WebSocket handshake, before it resolves
+  or dials anything, and answers **401** for a missing, malformed, forged,
+  expired or revoked token. The token is never logged.
+- Clients send it as the subprotocol pair `velta.v1, tok.<token>`
+  (`Sec-WebSocket-Protocol`). Browsers can't set other headers on a
+  WebSocket, and unlike a `?t=` query it stays out of nginx access logs.
+- `--revoke` appends the id to `/etc/velta-ws-proxy/revoked`; the bridge
+  re-reads that file within ~2 s, so new connections are refused at once.
+  Tunnels that are already open stay up until they reconnect.
+- `invites.tsv` is a local log of minted ids for `--list`; tokens can't be
+  recovered from it. Rotating `secret` (delete it, re-run the deploy)
+  invalidates every invite at once.
+- No per-invite usage cap: counting uses would need writable state shared
+  across restarts; expiry + revocation cover the same need.
+- With invites on, nginx also admits requests **without** an `Origin`
+  header (the Android/Windows apps send none); the token is what admits
+  them. Browsers always send `Origin`, so the origin allowlist still gates
+  web pages.
+
+Anyone holding a link can use the proxy until it expires or is revoked:
+send it privately.
+
+## 4. Point the PWA at it
+
+- **Invite link (proxy with invites on):** open or scan the `velta://ws`
+  link in the PWA; after a confirm it adds the proxy to **WebSocket relays**
+  with its token, selects it and reloads. The token is kept in this
+  browser's `localStorage` (`velta-ws-relay-tokens`) and offered as a
+  subprotocol on every socket to that proxy (`installWsInvite` in
+  `worker-wasm.js`; the wasm core itself is unchanged).
+- **Per visitor, no invites:** drawer → **WebSocket relays** → add
+  `ws.example.org` → select it (the page reloads). The app checks it with
   `/dns/ws.example.org`.
 - **Baked in:** `node scripts/build-pwa.mjs --ws-proxy wss://ws.example.org`
   (see [`pwa-self-host.md`](pwa-self-host.md); keep that URL out of git).
@@ -79,14 +128,17 @@ existing account or a relay that has the relay module.
 The Android and Windows apps can use the same proxy as a native transport —
 see [websocket-transport.md](websocket-transport.md).
 
-## 4. Verify
+## 5. Verify
 
 ```sh
 systemctl status velta-ws-proxy
 set -a; . /etc/velta-ws-proxy/config; set +a
-python3 /usr/local/lib/velta-ws-proxy/bridge.py --check      # allowlist + resolved IPs
+SECRET_FILE=/etc/velta-ws-proxy/secret python3 /usr/local/lib/velta-ws-proxy/bridge.py --check   # allowlist + resolved IPs
 
 O='Origin: https://pwa.example.org'
+# With invites on, add the token from an invite link to every websocat call:
+#   T=$(sudo tools/deploy-ws-proxy.sh invite test --expires 1h | sed -n 's/.*&t=//p' | head -1)
+#   websocat --protocol "velta.v1, tok.$T" …   (without it: 401)
 websocat -1 -H "$O" wss://ws.example.org/dns/mail.example.org   # ["198.51.100.7", …]
 websocat -1 -H "$O" wss://ws.example.org/dns/other.example      # []
 websocat -1 -H 'Origin: https://evil.example' wss://ws.example.org/dns/mail.example.org  # 403
@@ -105,6 +157,8 @@ Then sign in on the PWA and send a message.
 | Relay shows as not capable in the PWA | Wrong origin (exact scheme+host, no trailing slash): `grep -A5 map /etc/nginx/conf.d/velta-ws-proxy-maps.conf`. |
 | `/dns/<host>` returns `[]` | Host not in `--allow`, or it resolves only to private IPs. |
 | `/tcp/` closes with 1008 | IP is not a current address of an allowed host (DNS changed? `--check`), or port not allowed. |
+| 401 / "the proxy refused the invite" in the app | Token missing, expired or revoked (`invite --list`), or `secret` was regenerated. Mint a new link. |
+| Android/Windows app gets 403 | Invites are off (`--no-auth`), so nginx requires an allowed `Origin`, which apps don't send. Turn invites on (`--auth`). |
 | 502 from nginx | Bridge down: `journalctl -u velta-ws-proxy -n 50`. |
 | 503 / connections refused under load | `limit_conn`/`limit_req` hit; raise `--conn-limit` or the rate in the maps file. |
 | certbot fails | DNS for `--domain` not pointing here yet, or port 80 closed. |
