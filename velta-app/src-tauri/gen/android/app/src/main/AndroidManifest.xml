@@ -139,6 +139,8 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="velta" android:host="tunnel" />
+                <!-- WebSocket transport links: velta://ws?u=…&n=… (ws_transport.rs), confirmed before use. -->
+                <data android:scheme="velta" android:host="ws" />
             </intent-filter>
 
             <!-- #97: show Velta in the system share sheet. One mime per data

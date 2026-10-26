@@ -66,6 +66,9 @@ mod imp {
     static LIB: OnceLock<Result<Lib, String>> = OnceLock::new();
     /// The proxy URL the core should use, or None when the tunnel is not installed.
     static PROXY_URL: Mutex<Option<String>> = Mutex::new(None);
+    /// The WebSocket transport's proxy URL (ws_transport.rs). The same
+    /// keeper writes it; the DNS tunnel's wins if both are ever set.
+    static WS_PROXY_URL: Mutex<Option<String>> = Mutex::new(None);
     /// Network resolvers + operator the running tunnel was started with.
     static LAST_NET: Mutex<Option<(Value, String)>> = Mutex::new(None);
     static APPLIER: OnceLock<()> = OnceLock::new();
@@ -111,6 +114,28 @@ mod imp {
     /// Every proxy URL this module writes starts with this; anything else in
     /// `proxy_url` is the user's own proxy and is left alone.
     const OURS: &str = "socks5://velta-tunnel:";
+
+    pub fn set_ws_proxy(url: Option<String>) {
+        *WS_PROXY_URL.lock().unwrap() = url;
+        tauri::async_runtime::spawn(async {
+            apply_proxy().await;
+            // Same proxy URL, other upstream: reconnect now.
+            platform::maybe_network().await;
+        });
+    }
+
+    /// A DNS tunnel is selected in the saved list.
+    pub fn dns_tunnel_active(app: &tauri::AppHandle) -> bool {
+        store::active_id(&load_store(app)).is_some()
+    }
+
+    /// The WebSocket transport is being turned on: stop the DNS tunnel.
+    pub fn deactivate_for_ws(app: &tauri::AppHandle) {
+        if dns_tunnel_active(app) {
+            let _ = select(app, None);
+            tlog("info", "stopped: the WebSocket transport is in use now");
+        }
+    }
 
     fn lib() -> Result<&'static Lib, String> {
         LIB.get_or_init(|| unsafe {
@@ -234,6 +259,9 @@ mod imp {
     /// the saved port so the accounts' proxy_url stays valid across restarts.
     fn start(app: &tauri::AppHandle, mut cfg: Value) -> Result<(), String> {
         let _ = APP.set(app.clone());
+        // One at a time: the DNS tunnel and the WebSocket transport both
+        // set the profiles' proxy.
+        crate::ws_transport::deactivate_for_tunnel(app);
         let mut run = cfg.clone();
         let net = network_info();
         if let Some(info) = &net {
@@ -326,12 +354,12 @@ mod imp {
 
     pub(super) async fn apply_proxy() {
         let Some(ids) = platform::account_ids().await else { return };
-        let desired = PROXY_URL.lock().unwrap().clone();
+        let desired = PROXY_URL.lock().unwrap().clone().or_else(|| WS_PROXY_URL.lock().unwrap().clone());
         for id in ids {
             let Some((cur, enabled)) = platform::proxy_config(id).await else { continue };
             // An account in the middle of an export gets no tunnel proxy.
             let desired = if is_detached(id) { None } else { desired.clone() };
-            let ours = cur.starts_with(OURS);
+            let ours = cur.starts_with(OURS) || cur.starts_with(crate::ws_transport::OURS);
             let mut changed = false;
             let result = match &desired {
                 // A proxy the user set up themselves wins over the tunnel.
@@ -553,7 +581,7 @@ mod imp {
 }
 
 #[cfg(any(target_os = "android", windows))]
-pub use imp::boot;
+pub use imp::{boot, deactivate_for_ws, dns_tunnel_active, set_ws_proxy};
 
 /// No tunnel on this platform: nothing to start.
 #[cfg(not(any(target_os = "android", windows)))]

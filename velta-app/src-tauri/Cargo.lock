@@ -8858,6 +8858,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tauri-winrt-notification",
  "tokio",
+ "tokio-rustls",
  "tokio-util",
  "ureq",
  "webpki-roots 0.26.11",
