@@ -247,7 +247,7 @@
   "All chat traffic will go through this tunnel's server whenever the tunnel is in use. Your messages stay end-to-end encrypted, but the server operator sees which relays you connect to and when.": "Весь трафик чатов будет идти через сервер этого туннеля, когда туннель используется. Сообщения остаются зашифрованными сквозным шифрованием, но владелец сервера видит, к каким релеям и когда вы подключаетесь.",
   "It uses {n} DNS resolvers. Only accept tunnel links from someone you trust.": "Используется DNS-резолверов: {n}. Принимайте ссылки на туннель только от тех, кому доверяете.",
   "This tunnel link can't be used: {why}": "Эту ссылку на туннель нельзя использовать: {why}",
-  "DNS tunnel links work only in the Velta Android app. Open this link on your Android phone.": "Ссылки на DNS-туннель работают только в приложении Velta для Android. Откройте эту ссылку на телефоне с Android.",
+  "DNS tunnel links work only in the Velta app for Android or Windows. Open this link there.": "Ссылки на DNS-туннель работают только в приложении Velta для Android или Windows. Откройте ссылку там.",
   "unknown server": "неизвестный сервер",
   "Replace DNS tunnel?": "Заменить DNS-туннель?",
   "Add DNS tunnel?": "Добавить DNS-туннель?",

@@ -71,9 +71,12 @@ futures-util = "0.3"
 yerpc = "0.7"
 # resolve_content_uri: copy picked content:// attachments via ContentResolver.
 jni = "0.21"
-# Optional DNS tunnel (tunnel.rs): sets proxy_url on the core's accounts and
-# loads libsoartunnel.so at runtime, so an APK without it still works.
+# Optional DNS tunnel (tunnel_android.rs): sets proxy_url on the core's accounts.
 deltachat = { path = "../../core" }
+
+# Optional DNS tunnel (tunnel.rs): loads libsoartunnel.so (Android) /
+# soartunnel.dll (Windows) at runtime, so a build without it still works.
+[target.'cfg(any(target_os = "android", windows))'.dependencies]
 libloading = "0.7"
 
 
@@ -93,6 +96,8 @@ tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 # Windows toasts with the conversation layout (three text lines + circular
 # sender avatar); same crate the notification plugin uses on Windows.
 tauri-winrt-notification = "0.7"
+# DNS tunnel: the adapters' DNS servers (GetAdaptersAddresses, tunnel_windows.rs).
+windows-sys = { version = "0.59", features = ["Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock"] }
 
 [profile.release]
 # panic = "unwind" so a panic during startup (e.g. in init_android_core or the

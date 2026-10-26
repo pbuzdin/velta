@@ -73,7 +73,8 @@ test("build -> parse round trip keeps every field", () => {
 function shell(calls, { installed = false, zone = "old.example.net", desktop = false } = {}) {
   return async (cmd, args) => {
     calls.push([cmd, args]);
-    if (cmd === "tunnel_status") return desktop ? { available: false, installed: false, error: "The DNS tunnel is only available in the Android app" } : { installed, available: true, zone: installed ? zone : undefined };
+    if (cmd === "tunnel_status") return desktop === "old" ? { available: false, installed: false, error: "The DNS tunnel is only available in the Android app" }
+      : desktop ? { available: false, installed: false, unsupported: true, platform: "macos", error: "The DNS tunnel is not available on this platform yet (Android and Windows only)" } : { installed, available: true, zone: installed ? zone : undefined };
     if (cmd === "tunnel_preview") return { zone: "t.example.org", resolvers: 21 };
     return null;
   };
@@ -112,11 +113,11 @@ test("an existing tunnel: offered replace or cancel", async () => {
 });
 
 test("unsupported platforms get a clear message, no dialog", async () => {
-  for (const invoke of [null, shell([], { desktop: true })]) {
+  for (const invoke of [null, shell([], { desktop: true }), shell([], { desktop: "old" })]) {
     let msg = "", asked = false;
     const ok = await acceptTunnelLink(base(), { ...ui({ toast: m => { msg = m; }, confirmModal: async () => { asked = true; return true; } }), invoke });
     assert.equal(ok, false); assert.equal(asked, false);
-    assert.match(msg, /only in the Velta Android app/);
+    assert.match(msg, /only in the Velta app for Android or Windows/);
   }
 });
 

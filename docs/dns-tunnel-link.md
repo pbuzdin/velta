@@ -1,6 +1,6 @@
 # DNS tunnel link
 
-Velta's optional DNS tunnel (Android app only; `velta-app/soar-tunnel`,
+Velta's optional DNS tunnel (Android and Windows apps; `velta-app/soar-tunnel`,
 `velta-app/src-tauri/src/tunnel.rs`, `app/js/tunnel.js`) is set up from one
 link. Nothing changes until the user confirms it.
 
@@ -30,8 +30,10 @@ velta://tunnel?v=1&zone=t.example.org&key=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGx
 
 ## Flow
 
-1. The link arrives as an Android deep link (intent filter for scheme
-   `velta`, host `tunnel` in `AndroidManifest.xml`), a scanned QR or a paste.
+1. The link arrives as a deep link (Android: intent filter for scheme
+   `velta`, host `tunnel` in `AndroidManifest.xml`; Windows: the `velta`
+   URI scheme registered by tauri-plugin-deep-link, forwarded to the running
+   instance by single-instance), a scanned QR or a paste.
 2. The page validates it (`parseTunnelLink`), then the shell previews it
    (`tunnel_preview`).
 3. A confirmation shows the label, the domain and the warning that all chat
@@ -39,8 +41,9 @@ velta://tunnel?v=1&zone=t.example.org&key=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGx
    tunnel is already set up it offers **Replace** or **Cancel**.
 4. Only **Enable**/**Replace** calls `tunnel_install`.
 
-On desktop and in the browser app the tunnel is not available: the link
-shows a message saying it works in the Android app, and nothing else.
+On macOS, Linux and in the browser app the tunnel is not available: the
+shell's `tunnel_status` reports `unsupported: true` and the link only shows
+a message that it works in the Velta app for Android or Windows.
 
 ## Sharing
 

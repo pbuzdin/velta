@@ -63,6 +63,7 @@ velta-app/src-tauri/gen/android/**/*.so
 deltachat-backend/
 deltachat-backend.zip
 velta-app/src-tauri/binaries/*.exe
+velta-app/src-tauri/binaries/*.dll
 # macOS externalBin sidecars (deltachat-rpc-server-<target-triple>)
 velta-app/src-tauri/binaries/deltachat-rpc-server-*
 velta-app/Velta_*.apk

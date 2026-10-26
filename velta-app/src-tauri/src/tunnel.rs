@@ -1,18 +1,33 @@
-//! Optional DNS tunnel (Android only).
+//! Optional DNS tunnel (Android and Windows).
 //!
-//! `libsoartunnel.so` (velta-app/soar-tunnel, Go, built by CI into jniLibs)
-//! runs a local SOCKS5 proxy that connects directly while the network is
+//! The soar-tunnel Go library (velta-app/soar-tunnel/cmd/libsoartunnel, a
+//! `-buildmode=c-shared` C ABI) is `libsoartunnel.so` in the APK's jniLibs on
+//! Android and `soartunnel.dll` next to the sidecar in the Windows bundle;
+//! both are loaded at runtime with libloading. It runs a local SOCKS5 proxy that connects directly while the network is
 //! normal and through a soar DNS tunnel when the relays are blocked
 //! (allowlist-only mobile internet). The core reaches the relays through that
 //! proxy via `proxy_url`.
 //!
 //! Nothing is configured until the user accepts a `velta://tunnel?…` link:
 //! the server zone and key never live in this repository. Without the link
-//! (or without the library in the APK) the app behaves exactly as upstream.
+//! (or without the library in the build) the app behaves exactly as upstream.
+//!
+//! Everything platform-specific sits in `platform` (where the library is,
+//! the network's DNS resolvers, how the core's accounts are reached: the
+//! in-process accounts manager on Android, JSON-RPC to the sidecar on
+//! Windows). A new desktop target (macOS) only needs another `platform`
+//! module, a library build and the cfg lists below.
 
 use serde_json::Value;
 
 #[cfg(target_os = "android")]
+#[path = "tunnel_android.rs"]
+mod platform;
+#[cfg(windows)]
+#[path = "tunnel_windows.rs"]
+mod platform;
+
+#[cfg(any(target_os = "android", windows))]
 mod imp {
     use super::*;
     use std::ffi::{CStr, CString};
@@ -21,8 +36,7 @@ mod imp {
     use std::collections::{HashSet, VecDeque};
     use std::sync::{Mutex, OnceLock};
     use tauri::{Emitter, Manager};
-
-    use deltachat::config::Config;
+    use super::platform;
 
     type StrFn = unsafe extern "C" fn(*const c_char) -> *mut c_char;
     type StatusFn = unsafe extern "C" fn(c_int) -> *mut c_char;
@@ -55,6 +69,11 @@ mod imp {
     /// Accounts being exported or transferred: our proxy is kept off them so
     /// a backup never carries this device's 127.0.0.1 tunnel port.
     static DETACHED: Mutex<Option<HashSet<u32>>> = Mutex::new(None);
+
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub(super) fn app_handle() -> Option<tauri::AppHandle> {
+        APP.get().cloned()
+    }
 
     fn is_detached(id: u32) -> bool {
         DETACHED.lock().unwrap().as_ref().is_some_and(|s| s.contains(&id))
@@ -89,7 +108,7 @@ mod imp {
 
     fn lib() -> Result<&'static Lib, String> {
         LIB.get_or_init(|| unsafe {
-            let l = libloading::Library::new("libsoartunnel.so")
+            let l = libloading::Library::new(platform::lib_path(APP.get()))
                 .map_err(|e| format!("DNS tunnel library not available: {e}"))?;
             macro_rules! sym {
                 ($name:literal, $t:ty) => {
@@ -131,22 +150,11 @@ mod imp {
         take(lib, unsafe { f(lib)(c.as_ptr()) })
     }
 
-    /// NetInfo.kt snapshot: {"dns": ["10.0.0.1:53", …], "sim_operator": "25001",
-    /// "transport": "cellular", "private_dns": false, …}.
+    /// The network the tunnel runs on: {"dns": ["10.0.0.1:53", …],
+    /// "transport": …, plus the SIM operator and Private DNS on Android
+    /// (NetInfo.kt) or the adapters' resolvers on Windows.
     fn network_info() -> Option<Value> {
-        // Keep the guard bound: the JObject borrows the GlobalRef inside it.
-        let ctx_guard = crate::APP_CONTEXT.lock().unwrap();
-        let context = ctx_guard.as_ref().map(|r| r.as_obj())?;
-        let vm_guard = crate::APP_JAVA_VM.lock().unwrap();
-        let mut env = vm_guard.as_ref()?.attach_current_thread().ok()?;
-        let class_guard = crate::APP_NETINFO_CLASS.lock().unwrap();
-        let class_ref = class_guard.as_ref()?;
-        let out = env
-            .call_static_method(class_ref, "snapshot", "(Landroid/content/Context;)Ljava/lang/String;", &[(&context).into()])
-            .ok()?;
-        let jstr = jni::objects::JString::from(out.l().ok()?);
-        let s = env.get_string(&jstr).ok()?.to_string_lossy().into_owned();
-        serde_json::from_str(&s).ok()
+        platform::network_info()
     }
 
     /// What decides the path set: the network's resolvers and the SIM operator.
@@ -254,9 +262,7 @@ mod imp {
                     let Ok(lib) = lib() else { continue };
                     let generation = unsafe { (lib.route_gen)() };
                     if last.is_some_and(|l| l != generation) {
-                        let accounts = crate::ANDROID_ACCOUNTS.lock().unwrap().clone();
-                        if let Some(accounts) = accounts {
-                            accounts.read().await.maybe_network().await;
+                        if platform::maybe_network().await {
                             tlog("info", "route changed; asked the core to reconnect now");
                         }
                     }
@@ -267,16 +273,12 @@ mod imp {
     }
 
     pub(super) async fn apply_proxy() {
-        let accounts = crate::ANDROID_ACCOUNTS.lock().unwrap().clone();
-        let Some(accounts) = accounts else { return };
+        let Some(ids) = platform::account_ids().await else { return };
         let desired = PROXY_URL.lock().unwrap().clone();
-        let ids = accounts.read().await.get_all();
         for id in ids {
-            let Some(ctx) = accounts.read().await.get_account(id) else { continue };
+            let Some((cur, enabled)) = platform::proxy_config(id).await else { continue };
             // An account in the middle of an export gets no tunnel proxy.
             let desired = if is_detached(id) { None } else { desired.clone() };
-            let cur = ctx.get_config(Config::ProxyUrl).await.ok().flatten().unwrap_or_default();
-            let enabled = ctx.get_config_bool(Config::ProxyEnabled).await.unwrap_or(false);
             let ours = cur.starts_with(OURS);
             let mut changed = false;
             let result = match &desired {
@@ -285,19 +287,19 @@ mod imp {
                 Some(url) => {
                     let mut r = Ok(());
                     if &cur != url {
-                        r = ctx.set_config(Config::ProxyUrl, Some(url.as_str())).await;
+                        r = platform::set_config(id, "proxy_url", Some(url.as_str())).await;
                         changed = true;
                     }
                     if r.is_ok() && !enabled {
-                        r = ctx.set_config(Config::ProxyEnabled, Some("1")).await;
+                        r = platform::set_config(id, "proxy_enabled", Some("1")).await;
                         changed = true;
                     }
                     r
                 }
                 None if ours => {
                     changed = true;
-                    let r = ctx.set_config(Config::ProxyUrl, None).await;
-                    if r.is_ok() { ctx.set_config(Config::ProxyEnabled, Some("0")).await } else { r }
+                    let r = platform::set_config(id, "proxy_url", None).await;
+                    if r.is_ok() { platform::set_config(id, "proxy_enabled", Some("0")).await } else { r }
                 }
                 None => Ok(()),
             };
@@ -308,7 +310,7 @@ mod imp {
                 // the open IMAP/SMTP sessions keep bypassing (or keep using)
                 // the proxy until they drop on their own.
                 tlog("info", &format!("proxy {} for account {id}; restarting its IO", if desired.is_some() { "set" } else { "cleared" }));
-                ctx.restart_io_if_running().await;
+                platform::restart_io(id).await;
             }
         }
     }
@@ -430,135 +432,140 @@ mod imp {
     }
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", windows))]
 pub use imp::boot;
 
-#[cfg(target_os = "android")]
+/// No tunnel on this platform: nothing to start.
+#[cfg(not(any(target_os = "android", windows)))]
+pub fn boot(_app: &tauri::AppHandle) {}
+
+#[cfg(any(target_os = "android", windows))]
 #[tauri::command]
 pub fn tunnel_preview(link: String) -> Result<Value, String> {
     imp::preview(&link)
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", windows))]
 #[tauri::command]
 pub fn tunnel_install(app: tauri::AppHandle, link: String) -> Result<(), String> {
     imp::install(&app, &link)
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", windows))]
 #[tauri::command]
 pub fn tunnel_link(app: tauri::AppHandle) -> Result<Value, String> {
     imp::link(&app)
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", windows))]
 #[tauri::command]
 pub fn tunnel_remove(app: tauri::AppHandle) -> Result<(), String> {
     imp::remove(&app)
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", windows))]
 #[tauri::command]
 pub fn tunnel_status(app: tauri::AppHandle, events: Option<i32>) -> Value {
     imp::status(&app, events.unwrap_or(0))
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", windows))]
 #[tauri::command]
 pub fn tunnel_set_mode(app: tauri::AppHandle, mode: String) -> Result<(), String> {
     imp::set_mode(&app, &mode)
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", windows))]
 #[tauri::command]
 pub fn tunnel_network_changed(app: tauri::AppHandle) {
     imp::network_changed(&app)
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", windows))]
 #[tauri::command]
 pub async fn tunnel_backup_begin(account_id: u32) -> Result<(), String> {
     imp::backup_begin(account_id).await;
     Ok(())
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", windows))]
 #[tauri::command]
 pub async fn tunnel_backup_end(account_id: u32) -> Result<(), String> {
     imp::backup_end(account_id).await;
     Ok(())
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", windows))]
 #[tauri::command]
 pub async fn tunnel_reapply() -> Result<(), String> {
     imp::reapply().await;
     Ok(())
 }
 
-// Desktop: the tunnel targets mobile allowlists only; report it unavailable.
-#[cfg(not(target_os = "android"))]
-const UNAVAILABLE: &str = "The DNS tunnel is only available in the Android app";
+// macOS / Linux: no library build yet; report it unavailable. `unsupported`
+// tells the page this is the platform, not a broken install.
+#[cfg(not(any(target_os = "android", windows)))]
+const UNAVAILABLE: &str = "The DNS tunnel is not available on this platform yet (Android and Windows only)";
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", windows)))]
 #[tauri::command]
 pub fn tunnel_preview(link: String) -> Result<Value, String> {
     let _ = link;
     Err(UNAVAILABLE.into())
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", windows)))]
 #[tauri::command]
 pub fn tunnel_install(link: String) -> Result<(), String> {
     let _ = link;
     Err(UNAVAILABLE.into())
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", windows)))]
 #[tauri::command]
 pub fn tunnel_link() -> Result<Value, String> {
     Err(UNAVAILABLE.into())
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", windows)))]
 #[tauri::command]
 pub fn tunnel_remove() -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", windows)))]
 #[tauri::command]
 pub fn tunnel_status(events: Option<i32>) -> Value {
     let _ = events;
-    serde_json::json!({"available": false, "installed": false, "error": UNAVAILABLE})
+    serde_json::json!({"available": false, "installed": false, "unsupported": true, "platform": std::env::consts::OS, "error": UNAVAILABLE})
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", windows)))]
 #[tauri::command]
 pub fn tunnel_set_mode(mode: String) -> Result<(), String> {
     let _ = mode;
     Err(UNAVAILABLE.into())
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", windows)))]
 #[tauri::command]
 pub fn tunnel_network_changed() {}
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", windows)))]
 #[tauri::command]
 pub fn tunnel_backup_begin(account_id: u32) -> Result<(), String> {
     let _ = account_id;
     Ok(())
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", windows)))]
 #[tauri::command]
 pub fn tunnel_backup_end(account_id: u32) -> Result<(), String> {
     let _ = account_id;
     Ok(())
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", windows)))]
 #[tauri::command]
 pub fn tunnel_reapply() -> Result<(), String> {
     Ok(())

@@ -3062,6 +3062,44 @@ async fn rpc(request: String, state: State<'_, RpcState>) -> Result<String, Stri
     }
 }
 
+/// One JSON-RPC call to the sidecar from the shell itself (the DNS tunnel
+/// keeps the accounts' proxy settings in line, tunnel.rs). Rides the same
+/// web_pending round-trip as the rpc command, with "velta-shell-" string ids
+/// that never collide with the page's numeric ones. Returns `result`.
+#[cfg(not(target_os = "android"))]
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) async fn sidecar_call(app: &tauri::AppHandle, method: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    let state = app.try_state::<RpcState>().ok_or("Delta Chat core sidecar is not running")?;
+    let id = format!("velta-shell-{}", NEXT.fetch_add(1, Ordering::Relaxed));
+    let request = serde_json::json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string();
+    let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+    state.web_pending.lock().unwrap().insert(id.clone(), tx);
+    let stdin = state.stdin.clone();
+    let write = tauri::async_runtime::spawn_blocking(move || write_rpc_stdin(&stdin, &request))
+        .await
+        .map_err(|e| e.to_string())
+        .and_then(|r| r);
+    if let Err(e) = write {
+        state.web_pending.lock().unwrap().remove(&id);
+        return Err(e);
+    }
+    let line = match tokio::time::timeout(std::time::Duration::from_secs(30), rx).await {
+        Ok(Ok(line)) => line,
+        Ok(Err(_)) => return Err("rpc response channel dropped (sidecar restart?)".to_string()),
+        Err(_) => {
+            state.web_pending.lock().unwrap().remove(&id);
+            return Err(format!("{method}: no answer from the core (30s)"));
+        }
+    };
+    let mut v: serde_json::Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
+    if let Some(err) = v.get("error") {
+        return Err(err.get("message").and_then(|m| m.as_str()).map_or_else(|| err.to_string(), str::to_string));
+    }
+    Ok(v.get_mut("result").map(serde_json::Value::take).unwrap_or(serde_json::Value::Null))
+}
+
 // Resolve a parked WebView rpc response from a forwarder line (#49). Returns
 // true when the line completed a web_pending round-trip — the caller must
 // NOT emit it to the WebView in that case. Desktop only: the Android WebView
@@ -3964,6 +4002,8 @@ pub fn run() {
                                 stdin: Arc::new(Mutex::new(Some(stdin))),
                             });
                             set_sidecar_status(&app_handle, serde_json::json!({"running": true, "stage": "ready"}));
+                            // Optional DNS tunnel (Windows): a no-op unless a velta://tunnel link was accepted.
+                            tunnel::boot(&app_handle);
 
                             std::thread::spawn(move || {
                                 log("sidecar reader thread started");

@@ -247,7 +247,7 @@
   "All chat traffic will go through this tunnel's server whenever the tunnel is in use. Your messages stay end-to-end encrypted, but the server operator sees which relays you connect to and when.": "Tout le trafic des discussions passera par le serveur de ce tunnel lorsque le tunnel est utilisé. Vos messages restent chiffrés de bout en bout, mais l’opérateur du serveur voit à quels relais vous vous connectez et quand.",
   "It uses {n} DNS resolvers. Only accept tunnel links from someone you trust.": "Il utilise {n} résolveurs DNS. N’acceptez des liens de tunnel que de personnes de confiance.",
   "This tunnel link can't be used: {why}": "Ce lien de tunnel est inutilisable : {why}",
-  "DNS tunnel links work only in the Velta Android app. Open this link on your Android phone.": "Les liens de tunnel DNS ne fonctionnent que dans l’application Velta pour Android. Ouvrez ce lien sur votre téléphone Android.",
+  "DNS tunnel links work only in the Velta app for Android or Windows. Open this link there.": "Les liens de tunnel DNS ne fonctionnent que dans l’application Velta pour Android ou Windows. Ouvrez ce lien dans celle-ci.",
   "unknown server": "serveur inconnu",
   "Replace DNS tunnel?": "Remplacer le tunnel DNS ?",
   "Add DNS tunnel?": "Ajouter un tunnel DNS ?",

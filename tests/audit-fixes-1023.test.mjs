@@ -27,5 +27,5 @@ test("in-app browser hands mailto/tel/market to the system, drops intent/file (a
 
 test("windows cross installer job may upload release assets (audit 3)", () => {
   const y = src(".github/workflows/build-windows-cross.yml");
-  assert.match(y, /build-installer:\r?\n\s+needs: build-sidecar\r?\n(\s+#.*\r?\n)?\s+permissions:\r?\n\s+contents: write/);
+  assert.match(y, /build-installer:\r?\n\s+needs: \[?build-sidecar[^\r\n]*\r?\n(\s+#.*\r?\n)?\s+permissions:\r?\n\s+contents: write/);
 });

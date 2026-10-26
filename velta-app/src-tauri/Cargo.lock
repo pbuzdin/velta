@@ -8861,6 +8861,7 @@ dependencies = [
  "tokio-util",
  "ureq",
  "webpki-roots 0.26.11",
+ "windows-sys 0.59.0",
  "yerpc",
 ]
 

@@ -14,7 +14,8 @@ are exactly what a censor needs to block the server.
 | Platform | DNS tunnel |
 |---|---|
 | Android | **Yes.** CI builds `libsoartunnel.so` (`build-android.yml`), `tunnel.rs` loads it, the drawer shows the **DNS tunnel** row after a link is accepted. |
-| Windows / macOS / Linux desktop | **No.** `tunnel.rs` returns "only available in the Android app"; desktop CI does not build the library. `soar-socks` can be run by hand as a SOCKS5 proxy and set as the profile proxy (advanced). |
+| Windows | **Yes.** CI cross-compiles `soartunnel.dll` (Go c-shared, mingw-w64) in the `tunnel-dll` job of `build-windows.yml` / `build-windows-cross.yml` and bundles it next to the sidecar; `tunnel.rs` loads it, takes the network's resolvers from the adapters (`GetAdaptersAddresses`) and sets the proxy on every profile over the sidecar's JSON-RPC. Open the link in Velta (the `velta://` scheme is registered by the installer) or paste it. |
+| macOS / Linux desktop | **No** (not built yet). `tunnel_status` reports `unsupported`. `soar-socks` can be run by hand as a SOCKS5 proxy and set as the profile proxy (advanced). |
 | Browser PWA | **No.** A browser cannot send raw UDP DNS, and the tunnel code is native. The PWA reaches mail through the WebSocket proxy instead ([`deploy-pwa-websocket-proxy.md`](deploy-pwa-websocket-proxy.md)). |
 
 ## 1. DNS records
@@ -80,7 +81,7 @@ tcpdump -lni any 'udp dst port 53'
 Field-check resolvers in the target region with Globalping as in
 [`agents/dns-tunnel.md`](agents/dns-tunnel.md#choosing-resolvers-field-check-with-globalping).
 
-## 4. Add it in Velta (Android)
+## 4. Add it in Velta (Android or Windows)
 
 Send the printed link privately (QR code or message to yourself):
 
@@ -88,7 +89,7 @@ Send the printed link privately (QR code or message to yourself):
 velta://tunnel?v=1&zone=t.example.com&key=<url-encoded public key>
 ```
 
-Open it on the phone → confirm. The drawer then shows **DNS tunnel**;
+Open it on the phone or Windows PC (or paste it in Velta) → confirm. The drawer then shows **DNS tunnel**;
 the default mode **Auto** uses the tunnel only when relays are blocked.
 Optional link parameters: `r=<ip:port,…>` extra resolvers (IP literals,
 port 853 = DoT), `c=<host:port,…>` replacement canaries. Velta
@@ -104,6 +105,8 @@ Diagnostics shows "DNS tunnel:" lines; the tunnel sheet can share a report.
 | Server name resolution broken after install | `/etc/resolv.conf` should link to `/run/systemd/resolve/resolv.conf`. |
 | Phone connects but mail never flows | Destination port not in `PORTS`; the relay uses a non-standard port. |
 | Very slow, ~512 B answers | Android Private DNS is on; turn it off on the phone. |
+| Windows: "DNS tunnel library not available" | `soartunnel.dll` is missing next to `deltachat-rpc-server.exe` in the install folder (a build without the `tunnel-dll` job); reinstall from a CI build. |
+| Windows: no network resolvers in the report | No adapter is up with DNS servers; the tunnel still uses its built-in resolver list. |
 | Client/server mismatch errors | Rebuild with the `SOAR_VERSION` from the app's `go.mod`. |
 
 The server only listens on UDP; it does not answer DNS over TCP.

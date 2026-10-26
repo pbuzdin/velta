@@ -13,7 +13,50 @@ permissions:
   contents: read
 
 jobs:
+  # Optional DNS tunnel: velta-app/soar-tunnel as soartunnel.dll (Go
+  # c-shared, cgo with mingw-w64), cross-compiled on Ubuntu: windows-latest
+  # has no dependable cgo toolchain (Strawberry Perl's gcc shadows PATH).
+  # tunnel.rs loads it at runtime from the bundle's resources. -static keeps
+  # libgcc/winpthread inside: it imports only KERNEL32 and msvcrt.
+  tunnel-dll:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          submodules: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: velta-app/soar-tunnel/go.mod
+          cache-dependency-path: velta-app/soar-tunnel/go.sum
+
+      - name: Install mingw-w64
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-x86-64
+
+      - name: Build DNS tunnel library (windows/amd64)
+        working-directory: ./velta-app/soar-tunnel
+        run: |
+          go vet ./...
+          go test ./...
+          CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc \
+            go build -trimpath -buildmode=c-shared \
+            -ldflags="-s -w -extldflags=-static" \
+            -o ../src-tauri/binaries/soartunnel.dll ./cmd/libsoartunnel
+          x86_64-w64-mingw32-objdump -p ../src-tauri/binaries/soartunnel.dll | grep -E "DLL Name|VeltaTunnel"
+          ls -l ../src-tauri/binaries/soartunnel.dll
+
+      - name: Upload DNS tunnel library
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: soartunnel-dll
+          path: velta-app/src-tauri/binaries/soartunnel.dll
+
   build-windows:
+    needs: tunnel-dll
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -79,6 +122,12 @@ jobs:
           New-Item -ItemType Directory -Force -Path "velta-app/src-tauri/binaries"
           Copy-Item "core/target/release/deltachat-rpc-server.exe" `
             "velta-app/src-tauri/binaries/deltachat-rpc-server-x86_64-pc-windows-msvc.exe"
+
+      - name: Download DNS tunnel library
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: soartunnel-dll
+          path: velta-app/src-tauri/binaries
 
       - name: Build Tauri Windows installer
         working-directory: ./velta-app

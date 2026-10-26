@@ -1,4 +1,4 @@
-// Optional DNS tunnel (Android): UI side of
+// Optional DNS tunnel (Android and Windows apps): UI side of
 // velta-app/src-tauri/src/tunnel.rs + velta-app/soar-tunnel.
 //
 // The tunnel exists only after the user accepts a velta://tunnel?… link; the
@@ -158,6 +158,14 @@ function storeLabel(label) {
   } catch {}
 }
 
+const UNSUPPORTED_MSG = "DNS tunnel links work only in the Velta app for Android or Windows. Open this link there.";
+
+/** The shell has no tunnel on this platform (macOS, Linux): `unsupported`
+ * from current shells, the old "only available" error from older ones. */
+export function tunnelUnsupported(s) {
+  return !!s && !s.installed && (s.unsupported === true || (s.available === false && /only available|not available on this platform/i.test(s.error || "")));
+}
+
 /** Last known status (sync, for drawer rendering). */
 export function tunnelInstalled() {
   return !!cached.installed;
@@ -273,12 +281,12 @@ export async function acceptTunnelLink(link, { confirmModal, toast, errToast, on
     return false;
   }
   if (!invoke) {
-    toast(t("DNS tunnel links work only in the Velta Android app. Open this link on your Android phone."), 6000);
+    toast(t(UNSUPPORTED_MSG), 6000);
     return false;
   }
   const current = await refreshTunnelStatus(0, invoke);
-  if (current.available === false && !current.installed && /only available/i.test(current.error || "")) {
-    toast(t("DNS tunnel links work only in the Velta Android app. Open this link on your Android phone."), 6000);
+  if (tunnelUnsupported(current)) {
+    toast(t(UNSUPPORTED_MSG), 6000);
     return false;
   }
   let preview;

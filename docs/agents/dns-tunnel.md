@@ -1,6 +1,6 @@
 # Optional DNS tunnel — agent notes
 
-Velta on Android can reach the relays over a
+Velta on Android and Windows can reach the relays over a
 [soar](https://github.com/getlantern/soar) DNS tunnel when the mobile network
 only lets allowlisted sites through (allowlist-only mobile internet in
 restrictive areas). Off by default: nothing runs until the user accepts a
@@ -14,9 +14,12 @@ tunnel link.
 | `velta-app/soar-tunnel/cmd/libsoartunnel` | C ABI (`-buildmode=c-shared`) the shell dlopens |
 | `velta-app/soar-tunnel/cmd/soar-socks` | Same router as a standalone SOCKS5 proxy (Linux/macOS/Termux): `-link-file`, machine DNS from resolv.conf as first paths (`-system-dns`), `-operator`, `-paths` |
 | `gen/android/.../org/velta/NetInfo.kt` | Network-assigned DNS servers, SIM MCC+MNC, transport, Private DNS state |
-| `velta-app/src-tauri/src/tunnel.rs` | Loads the library, stores `tunnel.json` in app-local data, sets `proxy_url` on every profile, Tauri commands |
+| `velta-app/src-tauri/src/tunnel.rs` | Loads the library, stores the config in app-local data, sets `proxy_url` on every profile, Tauri commands (Android + Windows; macOS/Linux stubs report `unsupported`) |
+| `velta-app/src-tauri/src/tunnel_android.rs` | Android platform: `libsoartunnel.so`, NetInfo.kt, in-process accounts |
+| `velta-app/src-tauri/src/tunnel_windows.rs` | Windows platform: `soartunnel.dll` from the bundle resources, adapters' DNS (`GetAdaptersAddresses`), accounts via JSON-RPC to the sidecar (`sidecar_call` in lib.rs). A macOS port = one more such module + a dylib build |
 | `app/js/tunnel.js` | Deep link confirm, drawer row + settings sheet, diagnostics share |
 | `.github/workflows/build-android.yml` | Builds `libsoartunnel.so` into `gen/android/app/src/main/soarLibs` (gradle `jniLibs.srcDir`) |
+| `.github/workflows/build-windows*.yml` | `tunnel-dll` job: cross-compiles `soartunnel.dll` on Ubuntu (cgo + mingw-w64, `-extldflags=-static`), the installer job bundles it as a resource (`tauri.conf.json`) |
 
 ## Configuration never lives in the repo
 
