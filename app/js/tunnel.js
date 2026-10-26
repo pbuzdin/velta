@@ -9,6 +9,8 @@
 // tunnel_status, tunnel_set_mode, tunnel_network_changed, share_text.
 import { escapeHtml } from "./format.js";
 import { tauriInvoke } from "./tauri.js";
+import { t } from "./i18n.js";
+import { ICON } from "./icons.js";
 
 const MODES = [
   ["auto", "Automatic", "Direct while the relays answer; through the tunnel when only allowlisted sites work."],
@@ -28,6 +30,132 @@ function errMsg(e) {
 export function extractTunnelLink(rawUrl) {
   const s = String(rawUrl || "").trim();
   return /^velta:\/\/tunnel(?:[?#/]|$)/i.test(s) ? s : null;
+}
+
+// Link format (docs/dns-tunnel-link.md), parsed again by the Go library:
+//   velta://tunnel?v=1&zone=<domain>&key=<base64 32 bytes>[&r=<ip[:port],…>][&c=<host:port,…>][&n=<label>]
+// The page checks it strictly first so a malformed or oversized link never
+// reaches the shell and the confirmation shows only validated values.
+export const TUNNEL_LINK_MAX = 2048;
+export const TUNNEL_LABEL_MAX = 64;
+const TUNNEL_PARAMS = new Set(["v", "zone", "key", "r", "c", "n"]);
+const MAX_RESOLVERS = 64;
+const MAX_CANARIES = 16;
+const LABEL_KEY = "velta-tunnel-label";
+
+class TunnelLinkError extends Error {}
+const bad = msg => { throw new TunnelLinkError(msg); };
+
+/** Same rules as checkZone in soar-tunnel/tunnel/config.go. */
+export function validTunnelZone(z) {
+  if (typeof z !== "string" || !z || z.length > 200) return false;
+  const labels = z.split(".");
+  if (labels.length < 2) return false;
+  return labels.every(l => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(l)) && !/^[0-9]+$/.test(labels.at(-1));
+}
+
+/** Server Ed25519 public key: standard or URL-safe base64, padded or not, 32 bytes. */
+export function normalizeTunnelKey(k) {
+  if (typeof k !== "string" || k.length < 43 || k.length > 44) return null;
+  if (!/^[A-Za-z0-9+/_-]{43}=?$/.test(k)) return null;
+  if (/[+/]/.test(k) && /[_-]/.test(k)) return null;
+  const std = k.replace(/-/g, "+").replace(/_/g, "/").replace(/=$/, "");
+  // 43 chars = 258 bits: the last char may only carry 4 data bits.
+  if (!/[AEIMQUYcgkosw048]$/.test(std)) return null;
+  return std + "=";
+}
+
+function validIPv4(s) {
+  const p = s.split(".");
+  return p.length === 4 && p.every(x => /^(?:0|[1-9][0-9]{0,2})$/.test(x) && Number(x) <= 255);
+}
+function validIPv6(s) {
+  if (!/^[0-9a-fA-F:.]{2,45}$/.test(s) || (s.match(/::/g) || []).length > 1) return false;
+  try { return new URL(`http://[${s}]/`).hostname.length > 2; } catch { return false; }
+}
+function validPort(p) {
+  return /^[1-9][0-9]{0,4}$/.test(p) && Number(p) <= 65535;
+}
+/** ip, ip:port, [ipv6]:port or a bare IPv6 address (port 53). */
+export function validTunnelResolver(r) {
+  if (validIPv4(r) || validIPv6(r)) return true;
+  let m = /^\[([^\]]+)\]:([0-9]+)$/.exec(r);
+  if (m) return validIPv6(m[1]) && validPort(m[2]);
+  m = /^([0-9.]+):([0-9]+)$/.exec(r);
+  return !!m && validIPv4(m[1]) && validPort(m[2]);
+}
+function validCanary(c) {
+  const m = /^([a-z0-9.-]+):([0-9]+)$/i.exec(c);
+  return !!m && validTunnelZone(m[1].toLowerCase()) && validPort(m[2]);
+}
+function cleanLabel(n) {
+  // Display text only: no control or bidi-override characters.
+  const s = n.normalize("NFC").trim();
+  if (/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/.test(s)) bad("The label has invalid characters");
+  if ([...s].length > TUNNEL_LABEL_MAX) bad(`The label is too long (max ${TUNNEL_LABEL_MAX})`);
+  return s;
+}
+function list(raw, max, ok, what) {
+  const items = raw.split(",").map(x => x.trim()).filter(Boolean);
+  if (items.length > max) bad(`Too many ${what} (max ${max})`);
+  for (const x of items) if (!ok(x)) bad(`Bad ${what.replace(/s$/, "")}: ${x.slice(0, 60)}`);
+  return [...new Set(items)];
+}
+
+/**
+ * Strictly parses a velta://tunnel link. Returns
+ * {version, zone, key, resolvers, canaries, label}; throws on anything off:
+ * other schemes/hosts, a path, unknown or repeated parameters, a future
+ * version, oversized values.
+ */
+export function parseTunnelLink(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) bad("Empty link");
+  if (s.length > TUNNEL_LINK_MAX) bad("The link is too long");
+  const m = /^velta:\/\/tunnel\/?(?:\?([^#]*))?$/i.exec(s);
+  if (!m) bad("Not a velta://tunnel link");
+  const seen = new Map();
+  for (const part of (m[1] || "").split("&")) {
+    if (!part) continue;
+    const eq = part.indexOf("=");
+    const k = eq < 0 ? part : part.slice(0, eq);
+    let v;
+    try { v = decodeURIComponent((eq < 0 ? "" : part.slice(eq + 1)).replace(/\+/g, "%20")); } catch { bad("The link is not encoded correctly"); }
+    if (!TUNNEL_PARAMS.has(k)) bad(`Unknown parameter: ${k.slice(0, 20)}`);
+    if (seen.has(k)) bad(`Repeated parameter: ${k}`);
+    seen.set(k, v);
+  }
+  const version = seen.has("v") ? seen.get("v") : "1";
+  if (version !== "1") bad(`Unsupported link version ${version.slice(0, 10)}: update Velta`);
+  const zone = (seen.get("zone") || "").trim().toLowerCase().replace(/\.$/, "");
+  if (!zone) bad("The link has no tunnel domain");
+  if (!validTunnelZone(zone)) bad("The tunnel domain is not valid");
+  const key = normalizeTunnelKey((seen.get("key") || "").trim());
+  if (!key) bad("The key must be 32 bytes of base64");
+  const resolvers = seen.has("r") ? list(seen.get("r"), MAX_RESOLVERS, validTunnelResolver, "resolvers") : [];
+  const canaries = seen.has("c") ? list(seen.get("c"), MAX_CANARIES, validCanary, "canaries") : [];
+  const label = seen.has("n") ? cleanLabel(seen.get("n")) : "";
+  return { version: 1, zone, key, resolvers, canaries, label };
+}
+
+/** Canonical link for sharing (QR, copy). The key is URL-safe so the link stays readable. */
+export function buildTunnelLink({ zone, key, resolvers = [], canaries = [], label = "" }) {
+  const k = String(key || "").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const parts = ["v=1", `zone=${encodeURIComponent(zone)}`, `key=${k}`];
+  if (resolvers?.length) parts.push(`r=${resolvers.map(encodeURIComponent).join(",")}`);
+  if (canaries?.length) parts.push(`c=${canaries.map(encodeURIComponent).join(",")}`);
+  if (label) parts.push(`n=${encodeURIComponent(label)}`);
+  return `velta://tunnel?${parts.join("&")}`;
+}
+
+function storedLabel() {
+  try { return globalThis.localStorage?.getItem(LABEL_KEY) || ""; } catch { return ""; }
+}
+function storeLabel(label) {
+  try {
+    if (label) globalThis.localStorage?.setItem(LABEL_KEY, label);
+    else globalThis.localStorage?.removeItem(LABEL_KEY);
+  } catch {}
 }
 
 /** Last known status (sync, for drawer rendering). */
@@ -118,41 +246,112 @@ export function tunnelReport(s, { app = "", now = new Date() } = {}) {
   return lines.filter(l => l !== null).join("\n");
 }
 
+/** Confirmation text for a parsed link: what it is, where traffic goes, and
+ * whether it replaces the current tunnel. Exported for tests. */
+export function tunnelConfirmText(link, { replacing = null, resolvers } = {}) {
+  const lines = [];
+  if (link.label) lines.push(t("Name: {label}", { label: link.label }));
+  lines.push(t("Tunnel server: {zone}", { zone: link.zone }));
+  if (replacing) lines.push(t("This replaces your current DNS tunnel ({zone}).", { zone: replacing }));
+  lines.push(
+    t("All chat traffic will go through this tunnel's server whenever the tunnel is in use. Your messages stay end-to-end encrypted, but the server operator sees which relays you connect to and when."),
+    t("It uses {n} DNS resolvers. Only accept tunnel links from someone you trust.", { n: resolvers ?? "?" }),
+  );
+  return lines.join("\n\n");
+}
+
 /**
  * A velta://tunnel link was opened (deep link, QR, paste). Links can come from
  * any web page or app, so nothing changes without the user's confirmation.
  */
 export async function acceptTunnelLink(link, { confirmModal, toast, errToast, onChange, invoke = tauriInvoke() }) {
+  let parsed;
+  try {
+    parsed = parseTunnelLink(link);
+  } catch (e) {
+    errToast(t("This tunnel link can't be used: {why}", { why: errMsg(e) }), 6000);
+    return false;
+  }
   if (!invoke) {
-    toast("DNS tunnel links work in the Velta Android app", 5000);
+    toast(t("DNS tunnel links work only in the Velta Android app. Open this link on your Android phone."), 6000);
+    return false;
+  }
+  const current = await refreshTunnelStatus(0, invoke);
+  if (current.available === false && !current.installed && /only available/i.test(current.error || "")) {
+    toast(t("DNS tunnel links work only in the Velta Android app. Open this link on your Android phone."), 6000);
     return false;
   }
   let preview;
   try {
     preview = await invoke("tunnel_preview", { link });
   } catch (e) {
-    errToast("This tunnel link can't be used: " + errMsg(e), 6000);
+    errToast(t("This tunnel link can't be used: {why}", { why: errMsg(e) }), 6000);
     return false;
   }
+  const replacing = current.installed ? (current.zone || t("unknown server")) : null;
   const ok = await confirmModal(
-    "DNS tunnel",
-    `Use the DNS tunnel at ${preview.zone} when the relays are blocked (allowlist-only mobile internet)? ` +
-      `It uses ${preview.resolvers} DNS resolvers. Your messages stay end-to-end encrypted, but the tunnel server ` +
-      `sees which relays you connect to and when. Only accept tunnel links from someone you trust.`,
-    "Enable",
-    false,
+    replacing ? t("Replace DNS tunnel?") : t("Add DNS tunnel?"),
+    tunnelConfirmText({ ...parsed, zone: preview.zone || parsed.zone }, { replacing, resolvers: preview.resolvers }),
+    replacing ? t("Replace") : t("Enable"),
+    !!replacing,
   );
   if (!ok) return false;
   try {
     await invoke("tunnel_install", { link });
   } catch (e) {
-    errToast("Couldn't enable the tunnel: " + errMsg(e), 6000);
+    errToast(t("Couldn't enable the tunnel: {why}", { why: errMsg(e) }), 6000);
     return false;
   }
+  storeLabel(parsed.label);
   await refreshTunnelStatus(0, invoke);
-  toast("DNS tunnel enabled");
+  toast(replacing ? t("DNS tunnel replaced") : t("DNS tunnel enabled"));
   onChange?.();
   return true;
+}
+
+/** Share sheet for the installed tunnel: QR, the link, Copy and Share. */
+export async function openTunnelShare({ showModal, toast, errToast, renderQr, invoke = tauriInvoke() }) {
+  let link;
+  try {
+    const cfg = await invoke("tunnel_link");
+    link = buildTunnelLink({ ...cfg, label: storedLabel() });
+    parseTunnelLink(link);
+  } catch (e) {
+    errToast(t("Couldn't build the tunnel link: {why}", { why: errMsg(e) }));
+    return null;
+  }
+  const body = document.createElement("div");
+  body.innerHTML = `
+    <p class="p2p-hint">${escapeHtml(t("Anyone who opens this link in Velta can add this DNS tunnel. Their chat traffic will then go through its server. Share it only with people you trust."))}</p>
+    <div class="qr-box" role="img" aria-label="${escapeHtml(t("QR code of the tunnel link"))}"><div class="qr-loading">${escapeHtml(t("Generating QR…"))}</div></div>
+    <p class="invite-link" style="word-break:break-all;font-size:12px" data-tunnel-link></p>
+    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:6px">
+      <button type="button" class="btn-text" data-tunnel-copy>${ICON.copy}<span>${escapeHtml(t("Copy link"))}</span></button>
+      <button type="button" class="btn-text" data-tunnel-share-link>${ICON.share}<span>${escapeHtml(t("Share…"))}</span></button>
+    </div>`;
+  body.querySelector("[data-tunnel-link]").textContent = link;
+  const handle = showModal({ title: t("Share tunnel link"), body });
+  body.querySelector("[data-tunnel-copy]").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(link);
+      toast(t("Tunnel link copied"));
+    } catch (e) {
+      errToast(t("Couldn't copy: {why}", { why: errMsg(e) }));
+    }
+  });
+  body.querySelector("[data-tunnel-share-link]").addEventListener("click", async () => {
+    try {
+      await invoke("share_text", { text: link, title: t("Velta DNS tunnel") });
+    } catch {
+      try { await navigator.clipboard.writeText(link); toast(t("Tunnel link copied")); } catch {}
+    }
+  });
+  const svg = renderQr ? await Promise.resolve().then(() => renderQr(link)).catch(() => null) : null;
+  const box = body.querySelector(".qr-box");
+  if (box?.isConnected !== false) {
+    box.innerHTML = svg || `<div class="qr-loading">${escapeHtml(t("QR unavailable — copy the link instead"))}</div>`;
+  }
+  return { link, ...handle };
 }
 
 /** Router (Go) and shell (Rust) events as one time-ordered list of
@@ -261,7 +460,7 @@ export function interceptionWarning(s) {
 }
 
 /** Settings sheet: state, mode, diagnostics, removal. */
-export async function openTunnelSettings({ showModal, confirmModal, toast, errToast, onChange, appVersion = "", invoke = tauriInvoke() }) {
+export async function openTunnelSettings({ showModal, confirmModal, toast, errToast, onChange, renderQr, appVersion = "", invoke = tauriInvoke() }) {
   if (!invoke) return;
   const s = await refreshTunnelStatus(200, invoke);
   const body = document.createElement("div");
@@ -276,6 +475,7 @@ export async function openTunnelSettings({ showModal, confirmModal, toast, errTo
     <div class="bar-opts-hint" data-tunnel-hint>${escapeHtml((MODES.find(m => m[0] === s.mode) || MODES[0])[2])}</div>
     <p class="p2p-hint" data-tunnel-paths>${pathsHtml(s)}</p>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+      <button type="button" class="btn-text" data-tunnel-share-open>${ICON.qr}<span>${escapeHtml(t("Share tunnel link"))}</span></button>
       <button type="button" class="btn-text" data-tunnel-share>Share diagnostics…</button>
       <button type="button" class="btn-text" data-tunnel-remove style="color:var(--danger)">Remove the tunnel</button>
     </div>`;
@@ -303,6 +503,11 @@ export async function openTunnelSettings({ showModal, confirmModal, toast, errTo
       }
     }));
 
+  body.querySelector("[data-tunnel-share-open]").addEventListener("click", () => {
+    clearInterval(live);
+    openTunnelShare({ showModal, toast, errToast, renderQr, invoke });
+  });
+
   body.querySelector("[data-tunnel-share]").addEventListener("click", async () => {
     const fresh = await refreshTunnelStatus(200, invoke);
     const text = tunnelReport(fresh, { app: appVersion });
@@ -323,6 +528,7 @@ export async function openTunnelSettings({ showModal, confirmModal, toast, errTo
     if (!ok) return;
     try {
       await invoke("tunnel_remove");
+      storeLabel("");
       await refreshTunnelStatus(0, invoke);
       close();
       toast("DNS tunnel removed");

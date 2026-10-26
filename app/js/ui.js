@@ -686,7 +686,7 @@ export function confirmModal(title, text, okLabel = "Delete", danger = true) {
     ok.className = "btn-text"; ok.textContent = t(okLabel);
     if (danger) ok.style.color = "var(--danger)";
     foot.append(cancel, ok);
-    const { close } = showModal({ title, body: `<p style="font-size:15px;line-height:1.45">${escapeHtml(t(text))}</p>`, foot, compact: true, onClose: () => resolve(false) });
+    const { close } = showModal({ title, body: `<p style="font-size:15px;line-height:1.45;white-space:pre-line">${escapeHtml(t(text))}</p>`, foot, compact: true, onClose: () => resolve(false) });
     cancel.addEventListener("click", close);
     ok.addEventListener("click", () => { resolve(true); close(); });
   });

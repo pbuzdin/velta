@@ -4922,7 +4922,7 @@ function rebuildDrawer() {
     onExportSettings: () => exportSettingsToSaved(),
     backendKind: core?.backend?.kind || null,
     onTunnel: tunnelInstalled()
-      ? () => openTunnelSettings({ showModal, confirmModal, toast, errToast, onChange: rebuildDrawer })
+      ? () => openTunnelSettings({ showModal, confirmModal, toast, errToast, onChange: rebuildDrawer, renderQr: text => core.createQrSvg(text) })
       : null,
     tunnelLabel: describeTunnel(tunnelStatus()).headline,
     onPushSection: (el) => wirePushSection(el, {

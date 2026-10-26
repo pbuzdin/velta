@@ -348,6 +348,18 @@ mod imp {
         Ok(())
     }
 
+    /// What a share link needs from the stored config: only the values the
+    /// original link carried (zone, key, extra resolvers, canaries).
+    pub fn link(app: &tauri::AppHandle) -> Result<Value, String> {
+        let cfg = load_config(app).ok_or("No DNS tunnel is set up")?;
+        Ok(serde_json::json!({
+            "zone": cfg["zone"],
+            "key": cfg["key"],
+            "resolvers": cfg.get("resolvers").cloned().unwrap_or(Value::Null),
+            "canaries": cfg.get("canaries").cloned().unwrap_or(Value::Null),
+        }))
+    }
+
     pub fn remove(app: &tauri::AppHandle) -> Result<(), String> {
         let _g = OP.lock().unwrap();
         if let Ok(lib) = lib() {
@@ -435,6 +447,12 @@ pub fn tunnel_install(app: tauri::AppHandle, link: String) -> Result<(), String>
 
 #[cfg(target_os = "android")]
 #[tauri::command]
+pub fn tunnel_link(app: tauri::AppHandle) -> Result<Value, String> {
+    imp::link(&app)
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
 pub fn tunnel_remove(app: tauri::AppHandle) -> Result<(), String> {
     imp::remove(&app)
 }
@@ -493,6 +511,12 @@ pub fn tunnel_preview(link: String) -> Result<Value, String> {
 #[tauri::command]
 pub fn tunnel_install(link: String) -> Result<(), String> {
     let _ = link;
+    Err(UNAVAILABLE.into())
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+pub fn tunnel_link() -> Result<Value, String> {
     Err(UNAVAILABLE.into())
 }
 

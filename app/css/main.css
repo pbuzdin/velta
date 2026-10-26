@@ -1921,6 +1921,8 @@ fieldset.eph-set { border: 0; margin: 0; padding: 0; min-inline-size: 0; }
   .btn-text.btn-primary:hover { background: var(--accent-hover); }
 }
 .btn-text { color: var(--accent-text); font-weight: 600; padding: 10px 14px; border-radius: 8px; }
+.btn-text:has(> svg) { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.btn-text > svg { width: 18px; height: 18px; flex: none; }
 /* Diagnostics chat switches (Logging / DevTools): same size and tone as the
    .btn-text actions they share the #diagnostic-actions bar with. */
 .diag-switch { display: inline-flex; align-items: center; gap: 8px; color: var(--accent); font-weight: 600; padding: 10px 14px; border-radius: 8px; cursor: pointer; user-select: none; -webkit-user-select: none; }

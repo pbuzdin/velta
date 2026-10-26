@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 const { extractTunnelLink, describeTunnel, tunnelReport, acceptTunnelLink, tunnelInstalled, refreshTunnelStatus, privateDnsWarning, pathLines, tunnelEventRows, initTunnelDiagnostics, pathsSummary, interceptionWarning } = await import("../app/js/tunnel.js");
 const { classifyScannedCode } = await import("../app/js/qr-actions.js");
 
-const LINK = "velta://tunnel?v=1&zone=t.example.org&key=AAAA";
+const LINK = `velta://tunnel?v=1&zone=t.example.org&key=${Buffer.alloc(32, 7).toString("base64url")}`;
 
 test("only velta://tunnel links are tunnel links", () => {
   assert.equal(extractTunnelLink(`  ${LINK} `), LINK);
@@ -66,7 +66,7 @@ test("a declined link changes nothing", async () => {
   });
   assert.equal(ok, false);
   assert.match(asked, /t\.example\.org/);
-  assert.deepEqual(calls.map(c => c[0]), ["tunnel_preview"]);
+  assert.deepEqual(calls.map(c => c[0]), ["tunnel_status", "tunnel_preview"]);
 });
 
 test("an accepted link installs, refreshes and notifies", async () => {
@@ -81,8 +81,8 @@ test("an accepted link installs, refreshes and notifies", async () => {
     onChange: () => { changed = true; },
   });
   assert.equal(ok, true);
-  assert.deepEqual(calls.map(c => c[0]), ["tunnel_preview", "tunnel_install", "tunnel_status"]);
-  assert.deepEqual(calls[1][1], { link: LINK });
+  assert.deepEqual(calls.map(c => c[0]), ["tunnel_status", "tunnel_preview", "tunnel_install", "tunnel_status"]);
+  assert.deepEqual(calls[2][1], { link: LINK });
   assert.equal(tunnelInstalled(), true);
   assert.equal(changed, true);
 });
@@ -90,7 +90,7 @@ test("an accepted link installs, refreshes and notifies", async () => {
 test("a rejected link never reaches the confirmation", async () => {
   let asked = false, err = "";
   const ok = await acceptTunnelLink(LINK, {
-    invoke: async () => { throw new Error("key must be 32 bytes"); },
+    invoke: async (cmd) => { if (cmd === "tunnel_status") return { installed: false }; throw new Error("key must be 32 bytes"); },
     confirmModal: async () => { asked = true; return true; },
     toast() {}, errToast: (m) => { err = m; },
   });
