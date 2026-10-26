@@ -506,14 +506,18 @@ html[data-theme="light"] .history-scroll {
    own line inside the row. */
 .day-chip {
   width: 100%; display: flex; justify-content: center;
-  background: rgba(16,16,16,.28);
+  /* Solid fill, no backdrop blur. A blur on a sticky element inside
+     the scroller is recomputed every scroll frame (costly on Android GPUs).
+     Opaque, so text behind never bleeds through. Contrast: dark #d7d7de on
+     #1c1c22 11.8:1; light #5d636e on #f4f4f4 5.5:1;
+     brutal #d7d7de on its opaque --bg-sidebar #2a2a35 9.9:1 (rule below). */
+  background: #1c1c22;
   color: #d7d7de;
   font-size: 13px; padding: 4px 12px; border-radius: 14px;
   margin: 12px 0 6px;
   position: sticky; top: 8px; z-index: 2;
-  backdrop-filter: blur(6px);
 }
-html[data-theme="light"] .day-chip { background: rgba(244,244,244,.75); color: #5d636e; box-shadow: 0 1px 4px rgba(16,16,16,.12); }
+html[data-theme="light"] .day-chip { background: #f4f4f4; color: #5d636e; box-shadow: 0 1px 4px rgba(16,16,16,.12); }
 /* service messages (diagnosticRow) can start a day too — block wrap */
 .msg-row.day-first { display: block; }
 

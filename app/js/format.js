@@ -98,18 +98,38 @@ export function formatBytes(n) {
 // hourCycle h23 alone: adding hour12:false overrides it and V8/ICU then emits "24:05" after midnight.
 const H24 = { hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
 
+const H24S = { ...H24, second: "2-digit" };
+const YMD = { year: "numeric", month: "2-digit", day: "2-digit" };
+
+// Fix 4: toLocale*String builds a fresh ICU formatter on every call, and every
+// row render formats its time and tooltip. Reuse one Intl.DateTimeFormat per
+// option set, keyed by the default locale so a language change still applies.
+// Same output as the toLocale* calls (same locale, same options).
+const dtfCache = new Map();
+function dtf(name, opts) {
+  const key = name + "|" + (globalThis.navigator?.language || "");
+  let f = dtfCache.get(key);
+  if (!f) {
+    try { f = new Intl.DateTimeFormat([], opts); } catch { f = null; }
+    dtfCache.set(key, f);
+  }
+  return f;
+}
+
 export function formatTime(ts) {
   const d = new Date(ts);
   // 24-hour everywhere, regardless of device locale
-  return d.toLocaleTimeString([], H24);
+  const f = dtf("t", H24);
+  return f && !Number.isNaN(d.getTime()) ? f.format(d) : d.toLocaleTimeString([], H24);
 }
 
 // Date plus 24-hour time, for message info and <time> tooltips.
 export function formatDateTime(ts) {
   const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return "—";
-  const date = d.toLocaleDateString([], { year: "numeric", month: "2-digit", day: "2-digit" });
-  const time = d.toLocaleTimeString([], { ...H24, second: "2-digit" });
+  const df = dtf("ymd", YMD), tf = dtf("ts", H24S);
+  const date = df ? df.format(d) : d.toLocaleDateString([], YMD);
+  const time = tf ? tf.format(d) : d.toLocaleTimeString([], { ...H24, second: "2-digit" });
   return `${date} ${time}`;
 }
 
@@ -198,7 +218,9 @@ export function formatDay(ts, now = Date.now()) {
   const days = calendarDaysAgo(ts, now);
   if (days === 0) return "Today";
   if (days === 1) return "Yesterday";
-  return d.toLocaleDateString([], { day: "numeric", month: "long", year: d.getFullYear() !== new Date(now).getFullYear() ? "numeric" : undefined });
+  const other = d.getFullYear() !== new Date(now).getFullYear();
+  const f = other ? dtf("dmy", { day: "numeric", month: "long", year: "numeric" }) : dtf("dm", { day: "numeric", month: "long" });
+  return f ? f.format(d) : d.toLocaleDateString([], { day: "numeric", month: "long", year: other ? "numeric" : undefined });
 }
 
 // "just now" / "5 minutes ago" / "3 hours ago" / "2 days ago" — relative time
