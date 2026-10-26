@@ -94,6 +94,7 @@ const isUnknownConfigKey = err => /unknown key/i.test(String(err?.message || err
 import { debugLog } from "./diagnostics.js";
 import { pageBounds, channelAuthorId } from "./format.js";
 import { LruCache } from "./lru.js";
+import { reencodeCoreQrSvg } from "./qr-encode.js";
 import { rustLog, tauriInvoke } from "./tauri.js";
 
 // Bounded (lru.js): message-id lists of the 20 most recently used chats, or
@@ -2084,13 +2085,15 @@ export class JsonRpcCore extends EventTarget {
   // SecureJoin invite QR for this account (chatId=null) or a group chat.
   // Returns { text, svg, link } — the core renders the SVG itself.
   async getInviteQr(chatId = null) {
-    const [text, svg] = await this._call("get_chat_securejoin_qr_code_svg", this.accountId, chatId);
-    return { text, svg, link: text };
+    // The core encodes the whole link in byte mode; reencodeCoreQrSvg swaps
+    // in an optimally segmented code for the same text (smaller version).
+    const [text, coreSvg] = await this._call("get_chat_securejoin_qr_code_svg", this.accountId, chatId);
+    return { text, svg: reencodeCoreQrSvg(coreSvg, text), link: text };
   }
 
   // Renders arbitrary text (e.g. a local-chat invite ticket) as a QR SVG.
   async createQrSvg(text) {
-    return this._call("create_qr_svg", text);
+    return reencodeCoreQrSvg(await this._call("create_qr_svg", text), text);
   }
 
   // Join a 1:1 or group chat from an i.delta.chat invite link / QR text.
@@ -2175,7 +2178,11 @@ export class JsonRpcCore extends EventTarget {
   // instead of baking the Delta Chat logo into the modules, so the UI can
   // overlay its own badge (same geometry as the invite QR).
   async getBackupQrSvg() {
-    return this._call("get_backup_qr_svg", this.accountId);
+    const [svg, text] = await Promise.all([
+      this._call("get_backup_qr_svg", this.accountId),
+      this._call("get_backup_qr", this.accountId).catch(() => null),
+    ]);
+    return text ? reencodeCoreQrSvg(svg, text) : svg;
   }
 
   // Full-profile backup export (ImexMode::ExportBackup): writes messages,
