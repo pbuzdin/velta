@@ -100,6 +100,7 @@ export const P = {
   notifications: '<path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/>',
   downloadTray: '<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5"/><path d="M5 15v4h14v-4"/>',
   downloadBar: '<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5"/><rect x="4" y="17" width="16" height="4" rx="1"/>',
+  wsTransport: '<path d="M4 8h14m0 0l-3-3m3 3l-3 3"/><path d="M20 16H6m0 0l3-3m-3 3l3 3"/>',
   tunnel: '<path d="M3 20V11a9 9 0 0118 0v9"/><path d="M8 20v-7a4 4 0 018 0v7"/>',
   key: '<circle cx="8" cy="14" r="4"/><path d="M11 11l8-8M17 5l3 3M14 8l2.5 2.5"/>',
   cleanLink: '<path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7"/><path d="M4 20l5-5"/>',

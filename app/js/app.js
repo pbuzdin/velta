@@ -47,6 +47,7 @@ function mountScanner(opts) {
     get running() { return !!real?.running; },
   };
 }
+import { extractWsLink, acceptWsLink, openWsTransportSettings, refreshWsTransportStatus, wsTransportStatus, wsDrawerLabel, testHostFor } from "./ws-transport.js";
 import { scanTabAvailable, canShareLink, copyLink, shareLink, classifyScannedCode } from "./qr-actions.js";
 import { parseSharePayload, shareTextIfUnconsumed, sharePlan, createShareInbox, buildSharePicker } from "./share-in.js";
 import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS, setLinkPreviewProxySource, activeProxyUrl } from "./link-preview.js";
@@ -4270,6 +4271,13 @@ async function handleDeeplinkFromUrl(rawUrl, { clearUrl = false } = {}) {
     await acceptTunnelLink(tunnelLink, { confirmModal, choose: makeChooser(showModal), toast, errToast, onChange: rebuildDrawer });
     return true;
   }
+  // WebSocket transport link: validated and confirmed before anything changes.
+  const wsLink = extractWsLink(rawUrl);
+  if (wsLink) {
+    if (clearUrl) history.replaceState(null, "", location.pathname + location.search);
+    await acceptWsLink(wsLink, { confirmModal, toast, errToast, onChange: rebuildDrawer });
+    return true;
+  }
   const velta = extractVeltaLink(rawUrl);
   if (velta) rawUrl = velta;
   const backupLink = extractBackupLink(rawUrl);
@@ -4989,6 +4997,15 @@ function rebuildDrawer() {
       ? () => openTunnelSettings({ showModal, confirmModal, askText, toast, errToast, onChange: rebuildDrawer, renderQr: text => core.createQrSvg(text) })
       : null,
     tunnelLabel: describeTunnel(tunnelStatus()).headline,
+    // Native shells only; the PWA already speaks WebSocket (WebSocket relays).
+    onWsTransport: window.__TAURI__
+      ? async () => {
+        let mailServer = "";
+        try { mailServer = await core.getConfig("configured_mail_server") || ""; } catch { /* offline */ }
+        openWsTransportSettings({ showModal, confirmModal, toast, errToast, onChange: rebuildDrawer, testHost: testHostFor({ mailServer, addr: state.account?.addr }) });
+      }
+      : null,
+    wsTransportLabel: wsDrawerLabel(wsTransportStatus()),
     onPushSection: (el) => wirePushSection(el, {
       invoke: tauriInvoke(),
       getRelayAddrs: async () => {
@@ -6297,6 +6314,7 @@ async function boot() {
 
     // Optional DNS tunnel: show its drawer row only once one is installed.
     refreshTunnelStatus().then(s => { if (s.installed) rebuildDrawer(); });
+    refreshWsTransportStatus().then(s => { if (s) rebuildDrawer(); });
     bindTunnelNetworkEvents();
     // Route switches, proxy changes and tunnel errors go to Velta Diagnostics.
     initTunnelDiagnostics({ append: (level, text) => diagnostics.append(level, text) });

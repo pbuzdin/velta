@@ -76,6 +76,9 @@ or edit `/etc/velta-ws-proxy/config` and `systemctl restart velta-ws-proxy`.
 New-account signup (`/cm-new/`) is not part of this proxy; use an
 existing account or a relay that has the relay module.
 
+The Android and Windows apps can use the same proxy as a native transport —
+see [websocket-transport.md](websocket-transport.md).
+
 ## 4. Verify
 
 ```sh
