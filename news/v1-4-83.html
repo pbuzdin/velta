@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Velta 1.4.83 is faster and adds Send later — Velta</title>
+  <meta name="description" content="The app is quicker on busy accounts, messages can be scheduled, mail can travel over a WebSocket proxy with invite links, and Android delivers more reliably in the background.">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css?v=8">
+  <script type="speculationrules">
+{
+  "prerender": [{
+    "source": "document",
+    "where": { "and": [
+      { "href_matches": "/*" },
+      { "not": { "href_matches": "/web/*" } },
+      { "not": { "href_matches": "/admin/*" } },
+      { "not": { "selector": "a[target]" } },
+      { "not": { "selector": "a[download]" } }
+    ] },
+    "eagerness": "moderate" }
+  ]
+}
+  </script>
+</head>
+<body>
+  <a href="#content">Skip to content</a>
+  <header>
+    <a href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+    <nav aria-label="Sections">
+      <a href="/#product">Product</a>
+      <a href="/#features">Features</a>
+      <a href="/#privacy">Privacy</a>
+      <a href="/#platforms">Platforms</a>
+      <a href="/#help">Help</a>
+      <a href="/#support">Support</a>
+      <a href="/news" aria-current="page">News</a>
+      <a href="/web/">Web app</a>
+    </nav>
+    <a href="/#download"><span>Get</span><span>Download</span></a>
+    <details>
+      <summary>Menu</summary>
+      <nav aria-label="Mobile">
+        <a href="/#product">Product</a>
+        <a href="/#features">Features</a>
+        <a href="/#privacy">Privacy</a>
+        <a href="/#platforms">Platforms</a>
+        <a href="/#help">Help</a>
+        <a href="/#support">Support</a>
+        <a href="/news">News</a>
+        <a href="/web/">Web app</a>
+      </nav>
+    </details>
+  </header>
+
+  <main id="content" class="page">
+<!-- CMS:START -->
+    <p><a href="/news">News</a></p>
+    <p class="kicker">Release</p>
+    <h1>Velta 1.4.83 is faster and adds Send later</h1>
+    <p><time>26 October 2026</time> · 3 min read</p>
+    <p>The app is quicker on busy accounts, messages can be scheduled, mail can travel over a WebSocket proxy with invite links, and Android delivers more reliably in the background.</p>
+    <div class="body">
+      <p>Version 1.4.83 keeps the same core. The release is about speed, a way to send messages later, another route for mail when the usual one is blocked, and a phone that keeps delivering without draining the battery.</p>
+<h2>A faster app</h2>
+<p>New messages are now drawn in batches instead of one by one, and notifications and the chat list update once per burst. On a busy account the longest freeze went from about 600 ms to under 50 ms, and opening a chat from about 140 ms to 114 ms. Parts you rarely use, such as the QR scanner and large-file upload, now load only when you open them.</p>
+<h2>Send later</h2>
+<p>Long-press or right-click <strong>Send</strong>, or pick <strong>Send later</strong> in the attach menu, and choose a preset or a date and time. Scheduled messages show in the chat and in a list where you can send them now, change the time or text, or delete them. On Android they go out even when the app is closed. In the browser they are sent while Velta is open.</p>
+<h2>Mail over a WebSocket proxy, with invite links</h2>
+<p>On Android and Windows, mail can travel through a WebSocket proxy when a network blocks the usual connection. You can save several proxies and switch between them. Whoever runs a proxy can share an <strong>invite link</strong>: it is signed, can expire, can be limited to a number of devices, and can be revoked. Invite links now appear as <strong>cards in the chat</strong>, and a relay invite lets you sign up straight from <strong>Add account</strong>.</p>
+<h2>Android delivers more reliably and uses less battery</h2>
+<p>Velta no longer holds the phone awake all the time. It checks in every 10 minutes when push is not doing the job, and it can start in the background on its own when a message or a scheduled send needs it. The battery-settings prompt now appears once, with a link to advice for your phone’s maker.</p>
+<h2>Also in this release</h2>
+<ul>
+<li>An <strong>Archived</strong> row at the bottom of the chat list, and the menu and search work again inside an archived chat.</li>
+<li>QR codes are smaller, so they scan more easily.</li>
+<li>Local chat is called <strong>Velta Loop</strong> in the menu, with the line “Local chat on the same network”.</li>
+<li>A cleaner, consistent set of icons.</li>
+<li>French and Russian translations cover the new screens.</li>
+</ul>
+<ul>
+<li><a href="https://github.com/pbuzdin/velta/releases/tag/v1.4.83">Release notes</a></li>
+<li><a href="https://github.com/pbuzdin/velta/compare/v1.4.82...v1.4.83">Compare with 1.4.82</a></li>
+</ul>
+    </div>
+    <aside>
+      <h2>Get the current build</h2>
+      <p>The current build for Android, Windows, and macOS, plus notes for a self-hosted browser copy.</p>
+      <p><strong><a href="/#download">Download</a></strong></p>
+    </aside>
+<!-- CMS:END -->
+  </main>
+
+  <footer>
+    <div>
+      <div>
+        <a class="brand" href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+        <p>A Delta Chat client. Encrypted chat through chatmail relays — or straight across, device to device, when it should not sit on a server.</p>
+      </div>
+      <div>
+        <h2>On this site</h2>
+        <ul>
+          <li><a href="/#download">Download</a></li>
+          <li><a href="/#privacy">Privacy</a></li>
+          <li><a href="/#support">Support</a></li>
+          <li><a href="/#help">Help</a></li>
+          <li><a href="/news">News</a></li>
+          <li><a href="/about.html">About</a></li>
+          <li><a href="/developing.html">Developing</a></li>
+          <li><a href="/comparison.html">Compare</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Project</h2>
+        <ul>
+          <li><a href="https://github.com/pbuzdin/velta">GitHub</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/releases">All releases</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/LICENSE">GPL-3.0</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/README.md">README</a></li>
+          <li><a href="/admin/">Edit site</a></li>
+        </ul>
+      </div>
+    </div>
+    <p><span>Independent client. Delta Chat and Chatmail are upstream projects.</span><span>Built on the Delta Chat core</span><span>Site visits measured cookielessly — the app never phones home</span></p>
+  </footer>
+  <script src="/js/site.js?v=3"></script>
+</body>
+</html>
