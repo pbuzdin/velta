@@ -30,11 +30,13 @@ export class WorkerWasmTransport {
     workerUrl = new URL("./worker-wasm.js", import.meta.url).href,
     glueUrl,
     wsProxyUrl = null,
+    wsProxyToken = "",
   } = {}) {
     this.name = "worker-wasm";
     this._workerUrl = workerUrl;
     this._glueUrl = glueUrl;
     this._wsProxyUrl = wsProxyUrl;
+    this._wsProxyToken = wsProxyToken;
     this._receiver = null;
     this._worker = null;
     this._fileSeq = 0;
@@ -134,7 +136,7 @@ export class WorkerWasmTransport {
         this._releaseLock?.();
         reject(new Error(`worker error: ${e.message ?? "unknown"}`));
       };
-      w.postMessage({ type: "boot", glueUrl: this._glueUrl, wsProxyUrl: this._wsProxyUrl });
+      w.postMessage({ type: "boot", glueUrl: this._glueUrl, wsProxyUrl: this._wsProxyUrl, wsProxyToken: this._wsProxyToken });
       this._worker = w;
       // Save when the page goes to the background (tab switch, app switch,
       // the start of a reload). Safe now that a cut-off write is ignored.

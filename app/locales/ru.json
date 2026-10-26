@@ -383,5 +383,14 @@
   "Proxy address": "Адрес прокси",
   "Name (optional)": "Имя (необязательно)",
   "Velta WebSocket proxy": "WebSocket-прокси Velta",
-  "Link copied": "Ссылка скопирована"
+  "Link copied": "Ссылка скопирована",
+  "the proxy refused the invite. It is invalid, expired or revoked: ask the proxy owner for a new link.": "прокси отклонил приглашение. Оно недействительно, истекло или отозвано: попросите у владельца прокси новую ссылку.",
+  "The invite in the link is damaged": "Приглашение в ссылке повреждено",
+  "The link includes an invite that lets you use this proxy. Keep it private.": "Ссылка содержит приглашение, которое даёт доступ к этому прокси. Не передавайте её посторонним.",
+  "{host} · with invite": "{host} · с приглашением",
+  "With invite": "С приглашением",
+  "Share invite link?": "Поделиться ссылкой-приглашением?",
+  "This link includes the invite for “{name}”. Anyone who gets it can send traffic through this proxy until its owner revokes the invite. Share it only with people you trust.": "Эта ссылка содержит приглашение для «{name}». Любой, кто её получит, сможет пускать трафик через этот прокси, пока владелец не отзовёт приглашение. Делитесь ей только с теми, кому доверяете.",
+  "Invite saved for this proxy": "Приглашение для этого прокси сохранено",
+  "Mail in this browser will go through this proxy. The page reloads to switch.": "Почта в этом браузере пойдёт через этот прокси. Страница перезагрузится для переключения."
 }

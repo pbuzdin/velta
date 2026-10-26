@@ -383,5 +383,14 @@
   "Proxy address": "Adresse du proxy",
   "Name (optional)": "Nom (facultatif)",
   "Velta WebSocket proxy": "Proxy WebSocket Velta",
-  "Link copied": "Lien copié"
+  "Link copied": "Lien copié",
+  "the proxy refused the invite. It is invalid, expired or revoked: ask the proxy owner for a new link.": "le proxy a refusé l’invitation. Elle est invalide, expirée ou révoquée : demandez un nouveau lien au propriétaire du proxy.",
+  "The invite in the link is damaged": "L’invitation dans le lien est endommagée",
+  "The link includes an invite that lets you use this proxy. Keep it private.": "Le lien contient une invitation qui vous permet d’utiliser ce proxy. Gardez-le privé.",
+  "{host} · with invite": "{host} · avec invitation",
+  "With invite": "Avec invitation",
+  "Share invite link?": "Partager le lien d’invitation ?",
+  "This link includes the invite for “{name}”. Anyone who gets it can send traffic through this proxy until its owner revokes the invite. Share it only with people you trust.": "Ce lien contient l’invitation pour « {name} ». Quiconque l’obtient peut faire passer du trafic par ce proxy jusqu’à ce que son propriétaire révoque l’invitation. Ne le partagez qu’avec des personnes de confiance.",
+  "Invite saved for this proxy": "Invitation enregistrée pour ce proxy",
+  "Mail in this browser will go through this proxy. The page reloads to switch.": "Le courrier de ce navigateur passera par ce proxy. La page se recharge pour basculer."
 }

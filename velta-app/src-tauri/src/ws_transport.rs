@@ -11,7 +11,15 @@
 //! one on turns the other off (and if both were ever saved as active, the
 //! DNS tunnel wins). A proxy the user set up themselves is never replaced.
 //!
-//! Nothing is logged about credentials, hosts beyond the proxy's own name,
+//! Invite auth: a proxy deployed with invites (the default) wants a signed
+//! token from `deploy-ws-proxy.sh invite` on every handshake. It is stored
+//! with the saved proxy and sent as `Sec-WebSocket-Protocol: velta.v1,
+//! tok.<token>` (the PWA can only send subprotocols, so both use that, and
+//! it never lands in access logs like a query string would). The app does
+//! not verify tokens (it has no key); it checks their shape only. A 401 at
+//! the handshake surfaces as "invite refused".
+//!
+//! Nothing is logged about credentials, tokens, hosts beyond the proxy's own name,
 //! or payload bytes.
 
 #![cfg_attr(not(any(target_os = "android", windows)), allow(dead_code))]
@@ -25,6 +33,31 @@ pub const OURS: &str = "socks5://velta-ws:";
 pub const LABEL_MAX: usize = 64;
 pub const URL_MAX: usize = 512;
 pub const MAX_PROXIES: usize = 20;
+pub const TOKEN_MAX: usize = 1024;
+pub const SUBPROTOCOL: &str = "velta.v1";
+
+/// Shape check (mirrors validWsToken in ws-transport.js):
+/// base64url payload "." base64url 32-byte HMAC.
+pub fn valid_token(t: &str) -> bool {
+    let b64 = |s: &str| s.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_');
+    t.len() <= TOKEN_MAX && t.split_once('.').is_some_and(|(p, sig)| p.len() >= 4 && b64(p) && sig.len() == 43 && b64(sig))
+}
+
+/// The handshake's extra header line ("" without a token).
+pub fn auth_header(token: Option<&str>) -> String {
+    match token.filter(|t| valid_token(t)) {
+        Some(t) => format!("Sec-WebSocket-Protocol: {SUBPROTOCOL}, tok.{t}\r\n"),
+        None => String::new(),
+    }
+}
+
+/// Error text for a refused upgrade; 401 means the invite.
+pub fn refusal_text(status_line: &str) -> String {
+    if status_line.split_whitespace().nth(1) == Some("401") {
+        return "invite refused (401): invalid, expired or revoked".into();
+    }
+    format!("proxy refused the WebSocket: {}", status_line.chars().take(60).collect::<String>())
+}
 
 /// A parsed WebSocket proxy base URL.
 #[derive(Debug, Clone, PartialEq)]
@@ -282,9 +315,17 @@ pub mod store {
         l.chars().filter(|c| !c.is_control()).collect::<String>().trim().chars().take(super::LABEL_MAX).collect()
     }
     /// Adds (or finds, same canonical URL) a proxy. Returns (id, existing).
-    pub fn add(st: &mut Value, url: &str, label: &str, id: String, now: u64) -> Result<(String, bool), String> {
+    /// A token given for an existing proxy replaces its saved one (a new invite).
+    pub fn add(st: &mut Value, url: &str, label: &str, token: Option<&str>, id: String, now: u64) -> Result<(String, bool), String> {
         let canon = super::parse_proxy_url(url)?.to_url();
-        if let Some(p) = proxies(st).iter().find(|p| p["url"].as_str() == Some(&canon)) {
+        let token = token.map(str::trim).filter(|t| !t.is_empty());
+        if token.is_some_and(|t| !super::valid_token(t)) {
+            return Err("The invite is damaged".into());
+        }
+        if let Some(p) = st["proxies"].as_array_mut().and_then(|a| a.iter_mut().find(|p| p["url"].as_str() == Some(&canon))) {
+            if let Some(t) = token {
+                p["token"] = Value::from(t);
+            }
             return Ok((p["id"].as_str().unwrap_or_default().to_string(), true));
         }
         if proxies(st).len() >= super::MAX_PROXIES {
@@ -293,7 +334,11 @@ pub mod store {
         if !st["proxies"].is_array() {
             st["proxies"] = json!([]);
         }
-        st["proxies"].as_array_mut().unwrap().push(json!({"id": id, "label": clean_label(label), "url": canon, "added": now}));
+        let mut p = json!({"id": id, "label": clean_label(label), "url": canon, "added": now});
+        if let Some(t) = token {
+            p["token"] = Value::from(t);
+        }
+        st["proxies"].as_array_mut().unwrap().push(p);
         Ok((id, false))
     }
     pub fn select(st: &mut Value, id: Option<&str>) -> Result<(), String> {
@@ -317,7 +362,12 @@ pub mod store {
         }
         Ok(was)
     }
-    /// For the page: never the SOCKS password or port.
+    /// The saved invite token of a proxy, if any.
+    pub fn token<'a>(st: &'a Value, id: &str) -> Option<&'a str> {
+        find(st, id)?["token"].as_str().filter(|t| super::valid_token(t))
+    }
+    /// For the page: never the SOCKS password or port. Tokens are included:
+    /// the page needs them for Share and Test.
     pub fn public_list(st: &Value) -> Value {
         json!({"active": active_id(st), "proxies": proxies(st)})
     }
@@ -359,7 +409,7 @@ mod imp {
 
     /// Opens a WebSocket to `path` on the proxy (TLS for wss) and completes
     /// the upgrade. Times out after CONNECT_TIMEOUT.
-    pub async fn ws_connect(p: &ProxyUrl, path: &str) -> Result<Box<dyn Io>, String> {
+    pub async fn ws_connect(p: &ProxyUrl, path: &str, token: Option<&str>) -> Result<Box<dyn Io>, String> {
         tokio::time::timeout(CONNECT_TIMEOUT, async {
             let tcp = TcpStream::connect((p.host.as_str(), p.port)).await.map_err(|e| format!("can't reach the proxy: {}", e.kind()))?;
             let _ = tcp.set_nodelay(true);
@@ -372,8 +422,9 @@ mod imp {
             };
             let key = data_encoding::BASE64.encode(&crate::random_bytes::<16>());
             let host = p.host_header();
+            let auth = auth_header(token);
             let req = format!(
-                "GET {path} HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\nUser-Agent: Velta\r\n\r\n"
+                "GET {path} HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n{auth}User-Agent: Velta\r\n\r\n"
             );
             io.write_all(req.as_bytes()).await.map_err(|e| format!("handshake: {}", e.kind()))?;
             io.flush().await.ok();
@@ -388,7 +439,7 @@ mod imp {
             let head = String::from_utf8_lossy(&head);
             let first = head.lines().next().unwrap_or("");
             if first.split_whitespace().nth(1) != Some("101") {
-                return Err(format!("proxy refused the WebSocket: {}", first.chars().take(60).collect::<String>()));
+                return Err(refusal_text(first));
             }
             let want = ws_accept_key(&key);
             let ok = head.lines().any(|l| l.split_once(':').is_some_and(|(k, v)| k.trim().eq_ignore_ascii_case("sec-websocket-accept") && v.trim() == want));
@@ -427,8 +478,8 @@ mod imp {
     }
 
     /// `/dns/<host>` on the proxy → IPs.
-    pub async fn resolve(p: &ProxyUrl, host: &str) -> Result<Vec<IpAddr>, String> {
-        let mut ws = ws_connect(p, &p.dns_path(host)).await?;
+    pub async fn resolve(p: &ProxyUrl, host: &str, token: Option<&str>) -> Result<Vec<IpAddr>, String> {
+        let mut ws = ws_connect(p, &p.dns_path(host), token).await?;
         let mut msg = Vec::new();
         let r = tokio::time::timeout(CONNECT_TIMEOUT, async {
             loop {
@@ -508,6 +559,7 @@ mod imp {
 
     struct Ctx {
         proxy: ProxyUrl,
+        token: Option<String>,
         user: String,
         pass: String,
         cache: Mutex<std::collections::HashMap<String, (std::time::Instant, Vec<IpAddr>)>>,
@@ -570,7 +622,7 @@ mod imp {
                 let cached = ctx.cache.lock().unwrap().get(&name).filter(|(t, _)| t.elapsed() < DNS_CACHE).map(|(_, v)| v.clone());
                 let ips = match cached {
                     Some(v) => v,
-                    None => match resolve(&ctx.proxy, &name).await {
+                    None => match resolve(&ctx.proxy, &name, ctx.token.as_deref()).await {
                         Ok(v) if !v.is_empty() => {
                             ctx.cache.lock().unwrap().insert(name, (std::time::Instant::now(), v.clone()));
                             v
@@ -583,7 +635,7 @@ mod imp {
         };
         let mut ws = None;
         for ip in ips.iter().take(4) {
-            if let Ok(w) = ws_connect(&ctx.proxy, &ctx.proxy.tcp_path(*ip, port)).await {
+            if let Ok(w) = ws_connect(&ctx.proxy, &ctx.proxy.tcp_path(*ip, port), ctx.token.as_deref()).await {
                 ws = Some(w);
                 break;
             }
@@ -603,7 +655,7 @@ mod imp {
     }
 
     /// Starts the SOCKS5 server on `listen` ("127.0.0.1:0" for a random port).
-    pub async fn start(proxy: ProxyUrl, user: String, pass: String, listen: &str) -> Result<Server, String> {
+    pub async fn start(proxy: ProxyUrl, token: Option<String>, user: String, pass: String, listen: &str) -> Result<Server, String> {
         let l = match TcpListener::bind(listen).await {
             Ok(l) => l,
             Err(_) => TcpListener::bind("127.0.0.1:0").await.map_err(|e| e.to_string())?,
@@ -613,7 +665,7 @@ mod imp {
             return Err("listen address must be loopback".into());
         }
         let stop = CancellationToken::new();
-        let ctx = Arc::new(Ctx { proxy, user, pass, cache: Mutex::new(Default::default()), sem: Arc::new(tokio::sync::Semaphore::new(MAX_CONNS)) });
+        let ctx = Arc::new(Ctx { proxy, token, user, pass, cache: Mutex::new(Default::default()), sem: Arc::new(tokio::sync::Semaphore::new(MAX_CONNS)) });
         let st = stop.clone();
         let fut = async move {
             loop {
@@ -708,6 +760,7 @@ mod app {
         };
         let url = store::find(st, &id).and_then(|p| p["url"].as_str()).unwrap_or_default();
         let proxy = parse_proxy_url(url)?;
+        let token = store::token(st, &id).map(str::to_string);
         // Port and password belong to the list: switching proxies keeps
         // the profiles' proxy_url unchanged.
         if st["pass"].as_str().is_none_or(|p| p.len() < 16) {
@@ -715,7 +768,7 @@ mod app {
         }
         let pass = st["pass"].as_str().unwrap_or_default().to_string();
         let listen = st["listen"].as_str().unwrap_or("127.0.0.1:0").to_string();
-        let server = imp::start(proxy.clone(), "velta-ws".into(), pass.clone(), &listen).await?;
+        let server = imp::start(proxy.clone(), token, "velta-ws".into(), pass.clone(), &listen).await?;
         let addr = server.addr;
         st["listen"] = Value::from(addr.to_string());
         save(app, st)?;
@@ -755,19 +808,20 @@ mod app {
         }
     }
 
-    pub async fn add(app: &tauri::AppHandle, url: &str, label: &str, activate: bool) -> Result<Value, String> {
+    pub async fn add(app: &tauri::AppHandle, url: &str, label: &str, token: Option<&str>, activate: bool) -> Result<Value, String> {
         if activate {
             crate::tunnel::deactivate_for_ws(app);
         }
         let _g = OP.lock().await;
         let mut st = load(app);
         let id = hex(&crate::random_bytes::<6>());
-        let (id, existing) = store::add(&mut st, url, label, id, now())?;
+        let (id, existing) = store::add(&mut st, url, label, token, id, now())?;
         if activate {
             store::select(&mut st, Some(&id))?;
         }
         save(app, &st)?;
-        if activate {
+        // A new invite for the proxy in use takes effect right away.
+        if activate || (existing && token.is_some() && store::active_id(&st) == Some(id.as_str())) {
             start_active(app, &mut st).await?;
         }
         Ok(serde_json::json!({"id": id, "existing": existing}))
@@ -823,8 +877,8 @@ pub fn ws_transport_status(app: tauri::AppHandle) -> Value {
 }
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
-pub async fn ws_transport_add(app: tauri::AppHandle, url: String, label: Option<String>, activate: Option<bool>) -> Result<Value, String> {
-    app::add(&app, &url, label.as_deref().unwrap_or(""), activate.unwrap_or(false)).await
+pub async fn ws_transport_add(app: tauri::AppHandle, url: String, label: Option<String>, token: Option<String>, activate: Option<bool>) -> Result<Value, String> {
+    app::add(&app, &url, label.as_deref().unwrap_or(""), token.as_deref(), activate.unwrap_or(false)).await
 }
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
@@ -839,14 +893,14 @@ pub async fn ws_transport_delete(app: tauri::AppHandle, id: String) -> Result<()
 /// Test button: asks the proxy's /dns/ for `host` (the account's IMAP host).
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
-pub async fn ws_transport_test(url: String, host: String) -> Result<Value, String> {
+pub async fn ws_transport_test(url: String, host: String, token: Option<String>) -> Result<Value, String> {
     let p = parse_proxy_url(&url)?;
     let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
     if !valid_dns_name(&host) {
         return Err("Bad host name".into());
     }
     let t0 = std::time::Instant::now();
-    let ips = imp::resolve(&p, &host).await?;
+    let ips = imp::resolve(&p, &host, token.as_deref()).await?;
     Ok(serde_json::json!({"ips": ips.len(), "ms": t0.elapsed().as_millis() as u64}))
 }
 
@@ -860,8 +914,8 @@ pub fn ws_transport_status() -> Value {
 }
 #[cfg(not(any(target_os = "android", windows)))]
 #[tauri::command]
-pub fn ws_transport_add(url: String, label: Option<String>, activate: Option<bool>) -> Result<Value, String> {
-    let _ = (url, label, activate);
+pub fn ws_transport_add(url: String, label: Option<String>, token: Option<String>, activate: Option<bool>) -> Result<Value, String> {
+    let _ = (url, label, token, activate);
     Err(UNSUPPORTED.into())
 }
 #[cfg(not(any(target_os = "android", windows)))]
@@ -878,8 +932,8 @@ pub fn ws_transport_delete(id: String) -> Result<(), String> {
 }
 #[cfg(not(any(target_os = "android", windows)))]
 #[tauri::command]
-pub fn ws_transport_test(url: String, host: String) -> Result<Value, String> {
-    let _ = (url, host);
+pub fn ws_transport_test(url: String, host: String, token: Option<String>) -> Result<Value, String> {
+    let _ = (url, host, token);
     Err(UNSUPPORTED.into())
 }
 
@@ -949,13 +1003,41 @@ mod tests {
         assert!(parse_dns_answer("{}").is_err());
     }
 
+    const TOK: &str = "eyJ2IjoxLCJpIjoiYWFhIn0.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+    #[test]
+    fn tokens() {
+        assert!(valid_token(TOK));
+        for bad in ["", "abc", "eyJ2.short", "eyJ2IjoxfQ.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", "eyJ 2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "a.b.c"] {
+            assert!(!valid_token(bad), "{bad}");
+        }
+        assert!(!valid_token(&format!("{}.{}", "a".repeat(1000), "A".repeat(43))));
+        assert_eq!(auth_header(Some(TOK)), format!("Sec-WebSocket-Protocol: velta.v1, tok.{TOK}\r\n"));
+        assert_eq!(auth_header(Some("x\r\nEvil: 1")), "");
+        assert_eq!(auth_header(None), "");
+        assert!(refusal_text("HTTP/1.1 401 Unauthorized").starts_with("invite refused (401)"));
+        assert!(refusal_text("HTTP/1.1 403 Forbidden").contains("403"));
+
+        let mut st = store::empty();
+        assert!(store::add(&mut st, "proxy.example.org", "", Some("junk"), "a1".into(), 1).is_err());
+        store::add(&mut st, "proxy.example.org", "", None, "a1".into(), 1).unwrap();
+        assert_eq!(store::token(&st, "a1"), None);
+        // Re-adding the same proxy with an invite stores it (new link from the owner).
+        assert_eq!(store::add(&mut st, "wss://proxy.example.org", "", Some(TOK), "a2".into(), 2).unwrap(), ("a1".into(), true));
+        assert_eq!(store::token(&st, "a1"), Some(TOK));
+        // Without a token, a re-add keeps the saved one.
+        store::add(&mut st, "proxy.example.org", "", None, "a3".into(), 3).unwrap();
+        assert_eq!(store::token(&st, "a1"), Some(TOK));
+        assert!(store::public_list(&st).to_string().contains(TOK));
+    }
+
     #[test]
     fn store_logic() {
         let mut st = store::empty();
-        let (a, ex) = store::add(&mut st, "proxy.example.org", " Home\n ", "a1".into(), 1).unwrap();
+        let (a, ex) = store::add(&mut st, "proxy.example.org", " Home\n ", None, "a1".into(), 1).unwrap();
         assert!(!ex);
-        assert_eq!(store::add(&mut st, "wss://PROXY.example.org/", "x", "a2".into(), 2).unwrap(), (a.clone(), true));
-        assert!(store::add(&mut st, "http://x.example.org", "", "a3".into(), 3).is_err());
+        assert_eq!(store::add(&mut st, "wss://PROXY.example.org/", "x", None, "a2".into(), 2).unwrap(), (a.clone(), true));
+        assert!(store::add(&mut st, "http://x.example.org", "", None, "a3".into(), 3).is_err());
         assert_eq!(store::find(&st, "a1").unwrap()["label"], "Home");
         store::select(&mut st, Some("a1")).unwrap();
         assert!(store::select(&mut st, Some("zz")).is_err());
@@ -996,9 +1078,9 @@ mod tests {
         let bridge = bridge.with_echo_port(echo_port);
         let proxy = parse_proxy_url(&format!("ws://127.0.0.1:{}", bridge.port)).unwrap();
         // /dns/ answer for the allowlisted name.
-        let ips = resolve(&proxy, "localhost.example.org").await.unwrap();
+        let ips = resolve(&proxy, "localhost.example.org", None).await.unwrap();
         assert_eq!(ips, vec!["127.0.0.1".parse::<IpAddr>().unwrap()]);
-        let server = start(proxy, "velta-ws".into(), "pw".into(), "127.0.0.1:0").await.unwrap();
+        let server = start(proxy, None, "velta-ws".into(), "pw".into(), "127.0.0.1:0").await.unwrap();
 
         // Wrong password is refused.
         let mut s = tokio::net::TcpStream::connect(server.addr).await.unwrap();
@@ -1059,6 +1141,89 @@ mod tests {
         server.stop();
     }
 
+    /// Invite auth end to end with the real bridge (AUTH=1): valid, missing,
+    /// bad signature, expired and revoked tokens, plus a CONNECT that carries
+    /// the token. Skipped when python3/websockets are missing.
+    #[tokio::test]
+    async fn invite_auth_through_local_bridge() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let Some(bridge) = local_bridge::start() else {
+            eprintln!("skipped: python3 + websockets not available");
+            return;
+        };
+        let dir = std::env::temp_dir().join(format!("velta-wsauth-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (secret, revoked) = (dir.join("secret"), dir.join("revoked"));
+        std::fs::write(&secret, "ef".repeat(32)).unwrap();
+        std::fs::write(&revoked, "").unwrap();
+        let (secret_s, revoked_s) = (secret.to_str().unwrap(), revoked.to_str().unwrap());
+        const MINT: &str = "import importlib.util,sys,time\nspec=importlib.util.spec_from_file_location('b',sys.argv[1]);b=importlib.util.module_from_spec(spec);spec.loader.exec_module(b)\nk=b.load_secret(sys.argv[2]) if sys.argv[2]!='-' else b'0'*64\nprint(b.mint(k,sys.argv[3],'',float(sys.argv[4])))";
+        let valid = bridge.py(MINT, &[secret_s, "id1", "0"]);
+        let other = bridge.py(MINT, &[secret_s, "id2", &(now_secs() + 3600).to_string()]);
+        let expired = bridge.py(MINT, &[secret_s, "id3", "1000"]);
+        let forged = bridge.py(MINT, &["-", "id1", "0"]);
+        assert!(valid_token(&valid) && valid_token(&forged) && valid_token(&expired));
+
+        let echo = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let echo_port = echo.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut s, _)) = echo.accept().await {
+                tokio::spawn(async move {
+                    let mut b = [0u8; 1024];
+                    while let Ok(n) = s.read(&mut b).await {
+                        if n == 0 || s.write_all(&b[..n]).await.is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+        });
+        let port_s = echo_port.to_string();
+        let bridge = bridge.with_env(echo_port, &[("AUTH", "1"), ("SECRET_FILE", secret_s), ("REVOKED_FILE", revoked_s), ("ALLOW_PORTS", &port_s)]);
+        let proxy = parse_proxy_url(&format!("ws://127.0.0.1:{}", bridge.port)).unwrap();
+        let host = "localhost.example.org";
+        assert_eq!(resolve(&proxy, host, Some(&valid)).await.unwrap(), vec!["127.0.0.1".parse::<IpAddr>().unwrap()]);
+        for (why, tok) in [("missing", None), ("forged", Some(forged.as_str())), ("expired", Some(expired.as_str()))] {
+            let e = resolve(&proxy, host, tok).await.unwrap_err();
+            assert!(e.starts_with("invite refused (401)"), "{why}: {e}");
+        }
+        // A /tcp/ tunnel without the token is refused before any dial.
+        let e = imp::ws_connect(&proxy, &proxy.tcp_path("127.0.0.1".parse().unwrap(), echo_port), None).await.err().unwrap();
+        assert!(e.starts_with("invite refused"), "{e}");
+
+        // SOCKS CONNECT through the bridge with the token.
+        let server = start(proxy.clone(), Some(valid.clone()), "velta-ws".into(), "pw".into(), "127.0.0.1:0").await.unwrap();
+        let mut s = tokio::net::TcpStream::connect(server.addr).await.unwrap();
+        let mut r = [0u8; 2];
+        s.write_all(&[5, 1, 2]).await.unwrap();
+        s.read_exact(&mut r).await.unwrap();
+        s.write_all(&[1, 8, b'v', b'e', b'l', b't', b'a', b'-', b'w', b's', 2, b'p', b'w']).await.unwrap();
+        s.read_exact(&mut r).await.unwrap();
+        let mut req = vec![5, 1, 0, 1, 127, 0, 0, 1];
+        req.extend_from_slice(&echo_port.to_be_bytes());
+        s.write_all(&req).await.unwrap();
+        let mut rep = [0u8; 10];
+        s.read_exact(&mut rep).await.unwrap();
+        assert_eq!(rep[1], 0, "CONNECT refused");
+        s.write_all(b"ping").await.unwrap();
+        let mut got = [0u8; 4];
+        tokio::time::timeout(std::time::Duration::from_secs(10), s.read_exact(&mut got)).await.unwrap().unwrap();
+        assert_eq!(&got, b"ping");
+        server.stop();
+
+        // Revocation: the bridge re-reads the list within ~2 s.
+        std::fs::write(&revoked, "id1\n").unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(2600)).await;
+        let e = resolve(&proxy, host, Some(&valid)).await.unwrap_err();
+        assert!(e.starts_with("invite refused"), "revoked: {e}");
+        assert!(resolve(&proxy, host, Some(&other)).await.is_ok(), "other invites keep working");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn now_secs() -> u64 {
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+    }
+
     /// The bridge script extracted from tools/deploy-ws-proxy.sh, with its
     /// "never private addresses" check relaxed to loopback for this test.
     mod local_bridge {
@@ -1088,14 +1253,26 @@ mod tests {
             let body = body.replace("return a.is_global and not a.is_multicast", "return a.is_loopback");
             let body = body.replace("loop.getaddrinfo(host,", "loop.getaddrinfo(\"127.0.0.1\" if host == \"localhost.example.org\" else host,");
             assert!(body.contains("is_loopback") && body.contains("127.0.0.1"), "bridge script changed; update the test");
-            let script = std::env::temp_dir().join(format!("velta-ws-bridge-{}.py", std::process::id()));
+            static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+            let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let script = std::env::temp_dir().join(format!("velta-ws-bridge-{}-{n}.py", std::process::id()));
             std::fs::write(&script, body).ok()?;
             Some(Bridge { script, port: 0, child: None })
         }
         impl Bridge {
-            pub fn with_echo_port(mut self, echo: u16) -> Bridge {
+            pub fn with_echo_port(self, echo: u16) -> Bridge {
+                self.with_env(echo, &[])
+            }
+            /// Runs `python3 -c <code> <bridge.py> args…` (mint helpers).
+            pub fn py(&self, code: &str, args: &[&str]) -> String {
+                let o = std::process::Command::new("python3").arg("-c").arg(code).arg(&self.script).args(args).output().unwrap();
+                assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+                String::from_utf8(o.stdout).unwrap().trim().to_string()
+            }
+            pub fn with_env(mut self, echo: u16, env: &[(&str, &str)]) -> Bridge {
                 let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
                 let child = std::process::Command::new("python3")
+                    .envs(env.iter().copied())
                     .arg(&self.script)
                     .env("ALLOW_HOSTS", "localhost.example.org")
                     .env("ALLOW_PORTS", echo.to_string())

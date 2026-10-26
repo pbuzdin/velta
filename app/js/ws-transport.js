@@ -7,17 +7,32 @@
 //
 // Shell commands: ws_transport_status, ws_transport_add,
 // ws_transport_select, ws_transport_delete, ws_transport_test.
-// Share link: velta://ws?u=<wss url>&n=<label> (confirmed before use).
+// Share link: velta://ws?u=<wss url>&n=<label>&t=<invite token> (confirmed
+// before use). The token (from `deploy-ws-proxy.sh invite`) is what the proxy
+// checks at the handshake; it travels as the subprotocol "tok.<token>".
 import { escapeHtml } from "./format.js";
 import { tauriInvoke } from "./tauri.js";
 import { t } from "./i18n.js";
 import { ICON } from "./icons.js";
+import { addWsRelay, normalizeHost, setWsRelayToken, useWsRelay } from "./ws-relays.js";
 
 export const WS_URL_MAX = 512;
 export const WS_LABEL_MAX = 64;
-export const WS_LINK_MAX = 1024;
+export const WS_LINK_MAX = 2048;
+export const WS_TOKEN_MAX = 1024;
+
+/** Mirrors ws_transport.rs valid_token: b64url payload "." b64url HMAC-SHA256. */
+export function validWsToken(tok) {
+  return typeof tok === "string" && tok.length <= WS_TOKEN_MAX && /^[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{43}$/.test(tok);
+}
+
+/** The proxy refused the invite (HTTP 401 at the handshake). */
+export function isInviteRefusal(e) {
+  return /\b401\b|invite (refused|invalid|expired|revoked|bad signature|malformed)/i.test(String(e?.message || e || ""));
+}
 
 function errMsg(e) {
+  if (isInviteRefusal(e)) return t("the proxy refused the invite. It is invalid, expired or revoked: ask the proxy owner for a new link.");
   return String(e?.message || e || "unknown error").slice(0, 200);
 }
 
@@ -76,7 +91,7 @@ export function extractWsLink(rawUrl) {
   return /^velta:\/\/ws(\?|\/?$)/i.test(s) ? s : null;
 }
 
-/** Strict: only u (required) and n, each once. Returns { url, label }. */
+/** Strict: only u (required), n and t, each once. Returns { url, label, token }. */
 export function parseWsLink(raw) {
   const s = String(raw ?? "").trim();
   if (s.length > WS_LINK_MAX) throw new Error(t("The link is too long"));
@@ -87,7 +102,7 @@ export function parseWsLink(raw) {
     if (!part) continue;
     const eq = part.indexOf("=");
     const k = eq < 0 ? part : part.slice(0, eq);
-    if (!["u", "n"].includes(k)) throw new Error(t("Unknown field in the link: {k}", { k: k.slice(0, 20) }));
+    if (!["u", "n", "t"].includes(k)) throw new Error(t("Unknown field in the link: {k}", { k: k.slice(0, 20) }));
     if (seen.has(k)) throw new Error(t("Repeated field in the link: {k}", { k }));
     let v;
     try { v = decodeURIComponent((eq < 0 ? "" : part.slice(eq + 1)).replace(/\+/g, " ")); }
@@ -95,13 +110,16 @@ export function parseWsLink(raw) {
     seen.set(k, v);
   }
   if (!seen.has("u")) throw new Error(t("The link has no proxy address"));
-  return { url: normalizeWsProxyUrl(seen.get("u")), label: cleanWsLabel(seen.get("n") || "") };
+  const token = seen.get("t") ?? "";
+  if (seen.has("t") && !validWsToken(token)) throw new Error(t("The invite in the link is damaged"));
+  return { url: normalizeWsProxyUrl(seen.get("u")), label: cleanWsLabel(seen.get("n") || ""), token };
 }
 
-export function buildWsLink({ url, label = "" }) {
+export function buildWsLink({ url, label = "", token = "" }) {
   const u = normalizeWsProxyUrl(url);
   const n = cleanWsLabel(label);
-  return `velta://ws?u=${encodeURIComponent(u)}${n ? `&n=${encodeURIComponent(n)}` : ""}`;
+  const tok = validWsToken(token) ? token : "";
+  return `velta://ws?u=${encodeURIComponent(u)}${n ? `&n=${encodeURIComponent(n)}` : ""}${tok ? `&t=${tok}` : ""}`;
 }
 
 export function wsProxyHost(url) {
@@ -141,10 +159,11 @@ export function wsDrawerLabel(status) {
   return a ? wsProxyName(a) : t("Off");
 }
 
-export function wsConfirmText({ url, label }, { current = null } = {}) {
+export function wsConfirmText({ url, label, token = "" }, { current = null } = {}) {
   const lines = [];
   if (label) lines.push(t("Name: {label}", { label }));
   lines.push(t("Proxy server: {host}", { host: wsProxyHost(url) }));
+  if (token) lines.push(t("The link includes an invite that lets you use this proxy. Keep it private."));
   if (current) lines.push(t("This replaces the transport in use ({name}); it stays saved.", { name: current }));
   lines.push(
     t("All chat traffic will go through this WebSocket proxy while it is in use. Your messages stay end-to-end encrypted, but the server operator sees which relays you connect to and when."),
@@ -159,7 +178,8 @@ export function wsListHtml(status) {
   return rows.map(p => {
     const on = p.id === status.active;
     const name = wsProxyName(p);
-    const sub = p.label ? wsProxyHost(p.url) : "";
+    const host = p.label ? wsProxyHost(p.url) : "";
+    const sub = p.token ? (host ? t("{host} · with invite", { host }) : t("With invite")) : host;
     const id = escapeHtml(String(p.id).replace(/[^a-z0-9]/gi, ""));
     return `<li class="tunnel-row${on ? " is-active" : ""}" data-id="${id}">
       <span class="tunnel-text"><span class="tunnel-name">${escapeHtml(name)}</span>${on ? ` <span class="tunnel-badge">${escapeHtml(t("In use"))}</span>` : ""}${sub ? `<span class="tunnel-sub">${escapeHtml(sub)}</span>` : ""}</span>
@@ -196,7 +216,7 @@ export async function wsAction(act, p, { invoke, confirmModal, toast, errToast, 
       if (!testHost) { errToast(t("This profile has no mail server to test with"), 5000); return false; }
       toast(t("Testing {name}…", { name }), 2000);
       try {
-        const r = await invoke("ws_transport_test", { url: p.url, host: testHost });
+        const r = await invoke("ws_transport_test", { url: p.url, host: testHost, token: p.token || null });
         if (r?.ips > 0) toast(t("{name} works: {host} found ({ms} ms)", { name, host: testHost, ms: r.ms ?? "?" }), 5000);
         else errToast(t("{name} answered, but doesn't serve {host}", { name, host: testHost }), 6000);
       } catch (e) {
@@ -206,6 +226,12 @@ export async function wsAction(act, p, { invoke, confirmModal, toast, errToast, 
     }
     case "share": {
       const link = buildWsLink(p);
+      if (p.token && !(await confirmModal(
+        t("Share invite link?"),
+        t("This link includes the invite for “{name}”. Anyone who gets it can send traffic through this proxy until its owner revokes the invite. Share it only with people you trust.", { name }),
+        t("Share"),
+        false,
+      ))) { await reopen?.(p.id); return false; }
       try { await shareText?.(link); } catch (e) { errToast(t("Couldn't share: {why}", { why: errMsg(e) })); }
       return false;
     }
@@ -236,14 +262,14 @@ export async function wsAction(act, p, { invoke, confirmModal, toast, errToast, 
 }
 
 /** Adds a proxy from the form or a link. activate: also switch to it. */
-export async function addWsProxy({ url, label = "", activate = false }, { invoke, toast, errToast, onChange }) {
+export async function addWsProxy({ url, label = "", token = "", activate = false }, { invoke, toast, errToast, onChange }) {
   let canon;
   try { canon = normalizeWsProxyUrl(url); }
   catch (e) { errToast(errMsg(e), 5000); return null; }
   try {
-    const r = await invoke("ws_transport_add", { url: canon, label: cleanWsLabel(label), activate });
+    const r = await invoke("ws_transport_add", { url: canon, label: cleanWsLabel(label), token: validWsToken(token) ? token : null, activate });
     await refreshWsTransportStatus(invoke);
-    toast(r?.existing ? t("This proxy is already saved") : activate ? t("WebSocket proxy added and in use") : t("WebSocket proxy added"));
+    toast(r?.existing ? (token ? t("Invite saved for this proxy") : t("This proxy is already saved")) : activate ? t("WebSocket proxy added and in use") : t("WebSocket proxy added"));
     onChange?.();
     return r;
   } catch (e) {
@@ -257,7 +283,7 @@ export async function acceptWsLink(link, { confirmModal, toast, errToast, onChan
   let parsed;
   try { parsed = parseWsLink(link); }
   catch (e) { errToast(t("This WebSocket link can't be used: {why}", { why: errMsg(e) }), 6000); return false; }
-  if (!invoke) { errToast(wsTransportPlatform({ tauri: false }).text, 6000); return false; }
+  if (!invoke) return acceptWsLinkPwa(parsed, { confirmModal, toast, errToast });
   let status = null;
   try { status = await invoke("ws_transport_status"); } catch { /* old shell */ }
   const plat = platform || wsTransportPlatform({ tauri: true, status });
@@ -266,6 +292,31 @@ export async function acceptWsLink(link, { confirmModal, toast, errToast, onChan
   const text = wsConfirmText(parsed, { current: cur ? wsProxyName(cur) : null });
   if (!(await confirmModal(t("Use WebSocket proxy?"), text, t("Add and use"), false))) return false;
   return !!(await addWsProxy({ ...parsed, activate: true }, { invoke, toast, errToast, onChange }));
+}
+
+/** PWA: an invite link adds its proxy to "WebSocket relays" and uses it. */
+export async function acceptWsLinkPwa(parsed, { confirmModal, toast, errToast, reload = () => location.reload() }) {
+  const host = wsProxyHost(parsed.url);
+  // The PWA's relays are bare wss://<domain> (no port, no path).
+  if (!parsed.token || parsed.url !== `wss://${normalizeHost(host)}`) {
+    errToast(wsTransportPlatform({ tauri: false }).text, 6000);
+    return false;
+  }
+  const text = [
+    ...(parsed.label ? [t("Name: {label}", { label: parsed.label })] : []),
+    t("Proxy server: {host}", { host }),
+    t("The link includes an invite that lets you use this proxy. Keep it private."),
+    t("Mail in this browser will go through this proxy. The page reloads to switch."),
+  ].join("\n\n");
+  if (!(await confirmModal(t("Use WebSocket proxy?"), text, t("Add and use"), false))) return false;
+  const added = addWsRelay(host);
+  if (!added) { errToast(t("Bad host name"), 5000); return false; }
+  setWsRelayToken(added, parsed.token);
+  useWsRelay(added);
+  toast(t("WebSocket proxy added and in use"));
+  // Always reload: the worker reads the proxy and its invite once, at boot.
+  setTimeout(reload, 400);
+  return true;
 }
 
 /** The settings sheet. deps: showModal, confirmModal, toast, errToast, onChange, testHost, platform. */
@@ -286,7 +337,7 @@ export async function openWsTransportSettings(deps) {
     <ul class="tunnel-list" role="list" aria-labelledby="ws-list-h" data-ws-list>${wsListHtml(status)}</ul>
     <form data-ws-add style="display:flex;flex-direction:column;gap:6px;margin-top:10px" novalidate>
       <label for="ws-add-url" class="tunnel-list-h" style="margin:0">${escapeHtml(t("Proxy address"))}</label>
-      <input id="ws-add-url" class="text-field" type="url" inputmode="url" autocomplete="off" spellcheck="false" maxlength="${WS_URL_MAX}" placeholder="wss://proxy.example.org" required aria-describedby="ws-add-err">
+      <input id="ws-add-url" class="text-field" type="url" inputmode="url" autocomplete="off" spellcheck="false" maxlength="${WS_LINK_MAX}" placeholder="wss://proxy.example.org" required aria-describedby="ws-add-err">
       <label for="ws-add-label" class="tunnel-list-h" style="margin:0">${escapeHtml(t("Name (optional)"))}</label>
       <input id="ws-add-label" class="text-field" type="text" autocomplete="off" maxlength="${WS_LABEL_MAX}">
       <p id="ws-add-err" class="bar-opts-hint" role="alert" aria-live="assertive" style="color:var(--danger)"></p>
@@ -314,11 +365,16 @@ export async function openWsTransportSettings(deps) {
     ev.preventDefault();
     const url = form.querySelector("#ws-add-url");
     const err = form.querySelector("#ws-add-err");
-    try { normalizeWsProxyUrl(url.value); }
+    // A pasted velta://ws invite link fills address, name and token at once.
+    let entry = { url: url.value, label: form.querySelector("#ws-add-label").value, token: "" };
+    try {
+      if (extractWsLink(url.value)) { const l = parseWsLink(url.value); entry = { ...l, label: entry.label || l.label }; }
+      else normalizeWsProxyUrl(url.value);
+    }
     catch (e) { err.textContent = errMsg(e); url.setAttribute("aria-invalid", "true"); url.focus(); return; }
     url.removeAttribute("aria-invalid");
     err.textContent = "";
-    const r = await addWsProxy({ url: url.value, label: form.querySelector("#ws-add-label").value, activate: true }, { invoke, toast, errToast, onChange });
+    const r = await addWsProxy({ ...entry, activate: true }, { invoke, toast, errToast, onChange });
     if (r) reopen(r.id);
   });
   return { body, close };

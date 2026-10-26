@@ -26,7 +26,12 @@ core (IMAP/SMTP) ──SOCKS5──▶ 127.0.0.1:<random port>  (ws_transport.rs
   answered. 15 s connect/handshake timeout, at most 64 concurrent
   connections (more are refused and the core retries), frames > 1 MiB
   rejected.
-* Nothing about credentials or payload is logged; the log names only the
+* Invite auth: the saved proxy's token (from a `velta://ws…&t=` link) is
+  sent on every handshake as `Sec-WebSocket-Protocol: velta.v1,
+  tok.<token>`; the app only checks its shape (it has no key). A 401 shows
+  "the proxy refused the invite. It is invalid, expired or revoked…" in
+  Test and add errors. See [deploy guide § Invite links](deploy-pwa-websocket-proxy.md#3-invite-links).
+* Nothing about credentials, tokens or payload is logged; the log names only the
   proxy host and the local port. `velta://ws?…` links are logged redacted.
 * Android and Windows share the module; the profile proxy is written by the
   DNS tunnel's proxy keeper (`tunnel.rs`, in-process core on Android,
@@ -56,9 +61,15 @@ is in use at a time**:
 ## Settings
 
 Drawer → **WebSocket transport: <name|Off>** (`app/js/ws-transport.js`):
-saved proxies (URL + optional name), Use/Stop, **Test** (asks the proxy's
+saved proxies (URL + optional name + invite token, kept in
+`ws_transport.json` in the app's private data dir like the rest of the
+list; rows with a token say "with invite"), Use/Stop, **Test** (asks the proxy's
 `/dns/` for the profile's IMAP host — `configured_mail_server`, else the
-address's domain), Share (link), Delete (confirmed), and an add form.
+address's domain), Share (link; with an invite it first warns that the link grants access to
+the proxy), Delete (confirmed), and an add form (the address field also
+takes a pasted `velta://ws` link). Adding a proxy that is already saved
+with a new token replaces the saved token (and restarts the transport if
+that proxy is in use).
 
 URLs are validated strictly (JS and Rust agree): `wss://host[:port][/path]`,
 no credentials, query or fragment; a bare host means `wss://`. Plain `ws://`
@@ -67,10 +78,14 @@ is accepted only for a loopback proxy (local testing).
 ## Share link
 
 ```
-velta://ws?u=wss%3A%2F%2Fproxy.example.org&n=Office
+velta://ws?u=wss%3A%2F%2Fproxy.example.org&n=Office&t=<invite token>
 ```
 
-Only `u` (required) and `n` (name, ≤ 64 chars), each once, ≤ 1024 chars.
+Only `u` (required), `n` (name, ≤ 64 chars) and `t` (invite token:
+base64url payload `.` 43-char base64url HMAC, ≤ 1024 chars), each once,
+≤ 2048 chars. `deploy-ws-proxy.sh invite` prints these links. In the PWA an
+invite link adds the proxy to "WebSocket relays" instead (bare
+`wss://<domain>` only).
 Opening or scanning it shows a confirm dialog warning that all chat traffic
 goes through that server (same as tunnel links). Android claims
 `velta://ws` in the manifest; desktop uses the existing `velta` scheme.
@@ -84,8 +99,14 @@ goes through that server (same as tunnel links). Android claims
   extracts the bridge from `tools/deploy-ws-proxy.sh`, runs it on 127.0.0.1
   (loopback allowed for the test only, one allowlisted name and the echo
   port) and pipes 100 KB through the SOCKS5 server by name and by IP, plus
-  wrong-password and disallowed-port cases. Skipped if `python3` +
-  `websockets` are missing.
+  wrong-password and disallowed-port cases; `invite_auth_through_local_bridge`
+  runs it with `AUTH=1` and checks valid, missing, forged, expired and
+  revoked tokens (and a SOCKS CONNECT carrying the token). Skipped if
+  `python3` + `websockets` are missing.
+* `tests/ws-proxy-auth.test.mjs`: the same bridge from Node — 401 for
+  bad/expired/revoked/missing/garbage tokens, `velta.v1` selected for a
+  valid one, and `--mint`/`--list-invites` output parsed by the app. Passes
+  with websockets 10.4 (Debian 12's legacy API) and 17.
 
 ## Needs device testing
 

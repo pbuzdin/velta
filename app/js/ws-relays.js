@@ -5,6 +5,11 @@ import { invoke, tauriInvoke } from "./tauri.js";
 import { escapeHtml } from "./format.js";
 const LIST_KEY = "velta-ws-relays";
 const ACTIVE_KEY = "velta-ws-relay";
+// Invite tokens per relay host ({host: token}), from velta://ws?…&t= links.
+// Sent as the WebSocket subprotocol "tok.<token>" (browsers cannot set
+// headers on a WebSocket, and a query string would land in access logs).
+const TOKENS_KEY = "velta-ws-relay-tokens";
+export const WS_SUBPROTOCOL = "velta.v1";
 
 export function normalizeHost(raw) {
   let s = String(raw || "").trim().toLowerCase();
@@ -74,6 +79,41 @@ export function wsProxyUrl() {
   return page ? `wss://${page}` : null;
 }
 
+function tokens() {
+  try {
+    const v = JSON.parse(localStorage.getItem(TOKENS_KEY) || "{}");
+    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+  } catch {
+    return {};
+  }
+}
+
+export function wsRelayToken(host) {
+  const tok = tokens()[normalizeHost(host) || ""];
+  return typeof tok === "string" && /^[A-Za-z0-9_.-]{1,1024}$/.test(tok) ? tok : "";
+}
+
+export function setWsRelayToken(host, token) {
+  const h = normalizeHost(host);
+  if (!h) return;
+  const all = tokens();
+  if (token) all[h] = String(token);
+  else delete all[h];
+  localStorage.setItem(TOKENS_KEY, JSON.stringify(all));
+}
+
+/** The invite token for the proxy wsProxyUrl() points at ("" when none). */
+export function wsProxyToken(url = wsProxyUrl()) {
+  try { return url ? wsRelayToken(new URL(url).hostname) : ""; }
+  catch { return ""; }
+}
+
+/** Subprotocols for a WebSocket to `url`: the invite when we hold one. */
+export function wsProtocolsFor(url) {
+  const tok = wsProxyToken(url);
+  return tok ? [WS_SUBPROTOCOL, `tok.${tok}`] : undefined;
+}
+
 function write(list, active) {
   localStorage.setItem(LIST_KEY, JSON.stringify(list));
   if (active) localStorage.setItem(ACTIVE_KEY, active);
@@ -94,6 +134,7 @@ export function editWsRelay(from, raw) {
   if (next !== from && list.includes(next)) return null;
   const active = activeWsRelay() === from ? next : activeWsRelay();
   write(list.map((h) => (h === from ? next : h)), active);
+  if (next !== from) { const tok = wsRelayToken(from); setWsRelayToken(from, ""); if (tok) setWsRelayToken(next, tok); }
   return next;
 }
 
@@ -102,6 +143,7 @@ export function removeWsRelay(host) {
   if (!list.includes(host) || list.length < 2) return false;
   const next = list.filter((h) => h !== host);
   write(next, activeWsRelay() === host ? next[0] : activeWsRelay());
+  setWsRelayToken(host, "");
   return true;
 }
 
@@ -131,7 +173,7 @@ function probeDns(url) {
       resolve(v);
     };
     timer = setTimeout(() => finish(false), 5000);
-    try { ws = new WebSocket(url); }
+    try { const protos = wsProtocolsFor(url); ws = protos ? new WebSocket(url, protos) : new WebSocket(url); }
     catch { return finish(false); }
     ws.onmessage = (ev) => {
       if (typeof ev.data !== "string") return finish(false);
