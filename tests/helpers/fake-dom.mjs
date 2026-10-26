@@ -52,7 +52,14 @@ export class FakeElement {
     this.listeners.get(name).add(fn);
   }
   removeEventListener(name, fn) { this.listeners.get(name)?.delete(fn); }
-  fire(name, event = {}) { return Promise.all([...this.listeners.get(name) || []].map(fn => fn({ type: name, target: this, currentTarget: this, ...event }))); }
+  // Message rows carry their gesture handlers in _rowEvents and the real DOM
+  // reaches them through one delegated container listener (routeRowEvent in
+  // chat-view.js). The fake DOM does not bubble, so a row runs them itself.
+  fire(name, event = {}) {
+    const fns = [...this.listeners.get(name) || []];
+    if (this._rowEvents?.[name]) fns.push(this._rowEvents[name]);
+    return Promise.all(fns.map(fn => fn({ type: name, target: this, currentTarget: this, ...event })));
+  }
   // ".class", "tag" and [data-msgid="…"] — the selectors ChatView uses on rows.
   querySelectorAll(selector) {
     const matches = el => {

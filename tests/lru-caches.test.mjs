@@ -1,5 +1,5 @@
 // Bounded renderer caches: the shared LRU helper (app/js/lru.js) and the
-// caches built on it stay within ~2 MB / 100 items (rows: 300, pinned while
+// caches built on it stay within ~2 MB / 100 items (rows: 120, pinned while
 // in the DOM; fingerprints: 1000; message-id lists: 20 chats).
 import test from "node:test";
 import assert from "node:assert/strict";

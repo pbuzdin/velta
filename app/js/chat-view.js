@@ -73,7 +73,26 @@ setVideoLightboxOpener((src, name) => openVideoLightbox(src, name));
 
 import { diagnosticsSink, debugLog } from "./diagnostics.js";
 import { LruCache } from "./lru.js";
-const ROW_CACHE_MAX = 300; // rendered-row LRU cap (see _rowCache)
+const ROW_CACHE_MAX = 120; // rendered-row LRU cap (see _rowCache); fix 3: was 300 across chats
+
+// Message-row gestures (fix 3): one listener per type on a container routes
+// to the row's handler table (row._rowEvents, built in _renderMsgItem).
+// touchmove stays non-passive: the reply swipe cancels the scroll, exactly
+// as the old per-row listener did. Exported for tests.
+export const ROW_EVENT_TYPES = ["selectstart", "contextmenu", "touchstart", "touchmove", "touchend", "touchcancel", "click"];
+export function routeRowEvent(e) {
+  let t = e.target;
+  if (t && t.nodeType === 3) t = t.parentElement; // selectstart can target a Text node
+  const row = t?.closest?.(".msg-row");
+  const fn = row?._rowEvents?.[e.type];
+  if (fn) fn(e);
+}
+export function wireRowDelegation(container) {
+  if (!container?.addEventListener) return;
+  for (const type of ROW_EVENT_TYPES) {
+    container.addEventListener(type, routeRowEvent, type === "touchmove" ? { passive: false } : type === "touchstart" ? { passive: true } : undefined);
+  }
+}
 import { fileUrl, mediaFallbackUrl, redactMediaUrl } from "./media.js";
 import { parkMedia, unparkMedia } from "./media-park.js";
 import { openInAppBrowser } from "./inapp-browser.js";
@@ -568,7 +587,8 @@ export class ChatView {
     // _isCurrent() session check can never pass then (#98). Set by app.js
     // after close(); open()/close() clear it.
     this.externalSurface = false;
-    // Bounded (lru.js): 300 rows. Detached rows keep their listeners alive,
+    // Bounded (lru.js): ROW_CACHE_MAX rows (two to three chats of mounted rows
+    // plus prerender margin). Detached rows keep their listeners alive,
     // so a long session must not retain the whole history as detached DOM.
     // Rows still in the DOM (isConnected) are never evicted; evicting a row
     // drops its signature too so the two stay in sync.
@@ -666,6 +686,8 @@ export class ChatView {
       if (e.key === "Escape" && this.thread) { e.preventDefault(); e.stopPropagation(); this._closeThread(); }
     });
     this.scrollEl.after(this.threadPanel);
+    wireRowDelegation(this.listEl);
+    wireRowDelegation(this.threadPanel);
     // Escape from the composer (locked to the thread) closes the thread too.
     document.getElementById("composer-input")?.addEventListener?.("keydown", e => {
       if (e.key === "Escape" && this.thread && !e.defaultPrevented) { e.preventDefault(); this._closeThread(); }
@@ -2373,13 +2395,14 @@ export class ChatView {
     if (item.readMarker) row.append(this._readMarkerEl());
     if (m.viewtype === "vcard" && m.filePath) this._hydrateVcardCard(row, m);
     if (m.viewtype === "call") this._hydrateCallCard(row, m);
+    let onAvatar = null;
     if (showAvatar) {
-      row.querySelector("velta-avatar")?.addEventListener("click", (e) => {
+      // Delegated: the row click handler below routes velta-avatar taps here.
+      onAvatar = () => {
         // The sender's avatar opens their profile — not row selection/menus.
-        e.stopPropagation();
         if (!alive()) return;
         avatarProfileOpener?.({ contactId: fc.id, name: fc.name, contact: { addr: fc.addr }, online: fc.online, lastSeen: fc.lastSeen, color: fc.color });
-      });
+      };
     }
 
     // One-click reply (desktop hover): the pill sits on a full-height track
@@ -2391,19 +2414,20 @@ export class ChatView {
     // message menu (right-click needs a mouse).
     const track = document.createElement("div");
     track.className = "msg-hover-reply-track";
+    let onHoverReply = null;
     if (!this.readOnly) {
       const hoverReply = document.createElement("button");
       hoverReply.type = "button";
       hoverReply.className = "msg-hover-reply";
       hoverReply.title = "Reply";
       hoverReply.innerHTML = `${ICO.reply}<span>Reply</span>`;
-      hoverReply.addEventListener("click", e => {
-        e.stopPropagation();
+      hoverReply.dataset.hoverAct = "reply"; // delegated: see the row click handler
+      onHoverReply = () => {
         const it = liveItem();
         if (!it) return;
         this._setReply(it);
         document.getElementById("composer-input")?.focus();
-      });
+      };
       track.appendChild(hoverReply);
     }
     const hoverMore = document.createElement("button");
@@ -2412,15 +2436,15 @@ export class ChatView {
     hoverMore.title = "Message actions";
     hoverMore.setAttribute("aria-label", "Message actions");
     hoverMore.innerHTML = ICO.dots;
-    hoverMore.addEventListener("click", e => {
-      e.stopPropagation();
+    hoverMore.dataset.hoverAct = "more"; // delegated: see the row click handler
+    const onHoverMore = () => {
       const it = liveItem();
       if (!it || this._textSelect) return;
       // Already open for this message: the bar anchors right over this chip,
       // so a click here means the user missed it — do nothing, not flicker.
       if (this._barFor === it.msg.id && this._barCleanup) return;
       this._msgContextMenu(it, 0, 0, "");
-    });
+    };
     track.appendChild(hoverMore);
     row.querySelector(".bubble")?.appendChild(track);
 
@@ -2650,14 +2674,20 @@ export class ChatView {
       };
     }
 
-    row.addEventListener("selectstart", e => {
+    // Row gestures are delegated (fix 3): one listener per event type on the
+    // list / thread containers (_wireRowDelegation) finds the row with
+    // closest(".msg-row") and calls its entry in row._rowEvents. The
+    // handlers keep their per-row state in this closure, as before, but a
+    // cached row no longer pins ~10 registered listeners.
+    const ev = row._rowEvents = {};
+    ev.selectstart = e => {
       // #121: long-press starts a native selection beside the message menu.
       // Touch blocks it until Select text. A fine pointer keeps mouse selection.
       if (this._textSelect?.row === row) return;
       if (!this._offerSelectText()) return;
       e.preventDefault();
-    });
-    row.addEventListener("contextmenu", e => {
+    };
+    ev.contextmenu = e => {
       // Alt+right-click passes through to the WebView default menu
       // (Inspect / devtools) for debugging.
       const it = liveItem();
@@ -2668,7 +2698,7 @@ export class ChatView {
       // #161: a right-click landing on a link targets that link's URL.
       const href = e.target.closest?.("a[href]")?.getAttribute("href") || "";
       this._msgContextMenu(it, e.clientX, e.clientY, href);
-    });
+    };
     let pressTimer;
     let swipe = null;
     const endReplySwipe = (commit) => {
@@ -2688,7 +2718,7 @@ export class ChatView {
         if (it) this._setReply(it);
       }
     };
-    row.addEventListener("touchstart", e => {
+    ev.touchstart = e => {
       // A second finger (pinch / two-finger swipe) never means long-press,
       // and the WebView can abort the whole gesture with touchcancel once
       // it claims it — without this listener the timer would survive.
@@ -2712,8 +2742,8 @@ export class ChatView {
       if (!bubble || gestureSkipTarget(e.target)) return;
       const t = e.touches[0];
       swipe = { x: t.clientX, y: t.clientY, bubble, dx: 0, on: false };
-    }, { passive: true });
-    row.addEventListener("touchmove", e => {
+    };
+    ev.touchmove = e => {
       clearTimeout(pressTimer);
       if (!swipe || this._backSwipe || e.touches.length !== 1) {
         if (swipe?.on) {
@@ -2737,10 +2767,20 @@ export class ChatView {
       swipe.dx = Math.max(0, Math.min(dx, 64));
       swipe.bubble.style.transform = swipe.dx ? `translateX(${swipe.dx}px)` : "";
       if (e.cancelable) e.preventDefault();
-    }, { passive: false });
-    row.addEventListener("touchend", () => endReplySwipe(true));
-    row.addEventListener("touchcancel", () => endReplySwipe(false));
-    row.addEventListener("click", async e => {
+    };
+    ev.touchend = () => endReplySwipe(true);
+    ev.touchcancel = () => endReplySwipe(false);
+    ev.click = e => {
+      // Formerly own listeners on the avatar and hover chips, which stopped
+      // propagation before the row saw the click.
+      const hoverAct = e.target.closest?.(".msg-hover-reply")?.dataset?.hoverAct;
+      if (hoverAct) {
+        e.stopPropagation();
+        if (hoverAct === "more") onHoverMore();
+        else onHoverReply?.();
+        return;
+      }
+      if (onAvatar && e.target.closest?.("velta-avatar")) { e.stopPropagation(); onAvatar(); return; }
       if (!alive()) return;
       if (this.selection.size) {
         if (e.target.closest?.(".msg-checkbox")) e.preventDefault();
@@ -2817,7 +2857,7 @@ export class ChatView {
       }
       const readMore = e.target.closest("[data-fullmsg]");
       if (readMore) { e.stopPropagation(); this._showFullMessage(m); return; }
-    });
+    };
     return row;
   }
 
