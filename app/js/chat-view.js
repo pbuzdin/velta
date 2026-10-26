@@ -116,6 +116,7 @@ import { lufiUploadFor } from "./lufi-store.js";
 import { isAndroid, rustLog, tauriInvoke } from "./tauri.js";
 import { canShareLink, copyLink, shareLink } from "./qr-actions.js";
 import { ICON, P, svg, labelled } from "./icons.js";
+import { t } from "./i18n.js";
 
 function reactionChipsHtml(reactions) {
   return (reactions || []).map(r =>
@@ -311,6 +312,7 @@ export const THREAD_BUTTON_MIN_REPLIES = 1;
 
 const ICO = {
   reply: ICON.reply,
+  clock: ICON.clock,
   thread: ICON.thread,
   copy: ICON.copy,
   selectText: ICON.selectText,
@@ -822,6 +824,7 @@ export class ChatView {
       this.replyTo = draft?.replyTo || null;
       this.replyFragment = draft?.replyFragment || null;
       this._renderReplyPreview();
+      this.renderScheduledChip();
       this._scheduleLinkPreview();
       this._rebuildItems(messages);
       this._createScroller();
@@ -3799,6 +3802,8 @@ export class ChatView {
       // off, Ctrl/Cmd+Enter still sends (#56).
       const sendOnEnter = localStorage.getItem("velta-send-enter") !== "0";
       const chordSend = !sendOnEnter && (e.ctrlKey || e.metaKey);
+      // Ctrl/Cmd+Shift+Enter: "Send later" (scheduled messages).
+      if (e.key === "Enter" && e.shiftKey && (e.ctrlKey || e.metaKey) && !e.isComposing) { e.preventDefault(); this._sendLater(); return; }
       if (e.key === "Enter" && !e.shiftKey && !e.isComposing && (sendOnEnter || chordSend)) { e.preventDefault(); this._send(); }
     });
     input.addEventListener("paste", e => {
@@ -3836,7 +3841,23 @@ export class ChatView {
         },
       });
     });
-    send.addEventListener("click", () => this._send());
+    send.addEventListener("click", e => {
+      if (this._sendLongPressed) { this._sendLongPressed = false; e.preventDefault(); return; }
+      this._send();
+    });
+    // Right-click / long-press (and the ContextMenu key / Shift+F10, which
+    // fire contextmenu too) on Send: "Send later" (scheduled messages).
+    send.addEventListener("contextmenu", e => { e.preventDefault(); this._sendLater(); });
+    {
+      let timer = 0;
+      const clear = () => { clearTimeout(timer); timer = 0; };
+      send.addEventListener("pointerdown", e => {
+        if (e.pointerType !== "touch") return;
+        clear();
+        timer = setTimeout(() => { timer = 0; this._sendLongPressed = true; this._sendLater(); }, 500);
+      });
+      for (const ev of ["pointerup", "pointercancel", "pointerleave"]) send.addEventListener(ev, clear);
+    }
     document.getElementById("btn-sticker").addEventListener("click", () => this._toggleStickerPicker());
     document.getElementById("btn-media-close").addEventListener("click", () => this._clearPendingMedia());
     document.getElementById("btn-media-crop").addEventListener("click", async () => {
@@ -3888,6 +3909,10 @@ export class ChatView {
       // Voice messages are not supported in local chat — hide the item there.
       if (!this.chat?.isP2p) {
         attachItems.push({ label: "Voice message", icon: ICO.mic, onClick: () => this._sendAttachment("voice") });
+      }
+      // Scheduled messages: the keyboard/screen-reader route to "Send later".
+      if (!this.chat?.isP2p && this.scheduled) {
+        attachItems.push({ label: "Send later", icon: ICO.clock, onClick: () => this._sendLater() });
       }
       const menu = showContextMenu(attachItems.map(action => ({ ...action, onClick: () => { if (this._isCurrent(session)) return action.onClick(); } })), x, 8);
       appendAttachLists(menu, {
@@ -4147,6 +4172,55 @@ export class ChatView {
       diagnosticsSink.append("error", `link preview image failed: ${e?.message || e}`);
       return null;
     }
+  }
+
+  // ---- scheduled messages (app.js sets this.scheduled; scheduled-ui.js) ----
+
+  // Text only for now: attachments, voice and edits keep the normal path.
+  async _sendLater() {
+    if (this._sendLaterOpen) return;
+    const session = this._session;
+    if (!this._isCurrent(session) || !this.chat || !this.scheduled) return;
+    if (this.chat.isP2p) { toast(t("Local chats can't schedule messages")); return; }
+    if (this.editingMsg) return;
+    if (this.pendingMedia || this._voice) { toast(t("Attachments can't be scheduled yet")); return; }
+    const input = document.getElementById("composer-input");
+    if (!input.value.trim()) { toast(t("Type a message first, then choose Send later")); input.focus(); return; }
+    this._sendLaterOpen = true;
+    let at;
+    try { at = await this.scheduled.pickTime(); } finally { this._sendLaterOpen = false; }
+    if (at == null || !this._isCurrent(session)) return;
+    const text = input.value.trim();
+    if (!text) return;
+    const quoteId = this.replyFragment ? null : (this.replyTo?.id ?? null);
+    const prefix = this.replyFragment ? this.replyFragment.split("\n").map(l => "> " + l).join("\n") + "\n\n" : "";
+    const ok = await this.scheduled.add({ chatId: session.chatId, text: prefix + text, quoteId, dueAt: at });
+    if (!ok || !this._isCurrent(session)) return;
+    this._takeQuote();
+    input.value = "";
+    sizeComposer(input);
+    this._resetLinkPreview();
+    this._typingStop();
+  }
+
+  // "N scheduled" chip above the composer; tap opens this chat's list.
+  renderScheduledChip() {
+    const composer = document.getElementById("main-composer");
+    if (!composer) return;
+    let chip = document.getElementById("sched-chip");
+    const n = this.chat && this.scheduled ? this.scheduled.count(this.chat.id) : 0;
+    if (!n) { if (chip) chip.hidden = true; return; }
+    if (!chip) {
+      chip = document.createElement("button");
+      chip.type = "button";
+      chip.id = "sched-chip";
+      chip.className = "sched-chip";
+      chip.addEventListener("click", () => { if (this.chat) this.scheduled?.openList(this.chat.id); });
+      composer.before(chip);
+    }
+    chip.hidden = false;
+    chip.innerHTML = ICO.clock + "<span>" + escapeHtml(t("{n} scheduled", { n })) + "</span>";
+    chip.setAttribute("aria-label", t("{n} scheduled messages in this chat", { n }));
   }
 
   async _send() {

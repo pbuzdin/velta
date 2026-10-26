@@ -55,6 +55,8 @@ import { wireWebPushSection, refreshWebPush } from "./web-push.js";
 import { extractTunnelLink, acceptTunnelLink, makeChooser, openTunnelSettings, refreshTunnelStatus, tunnelInstalled, tunnelStatus, describeTunnel, bindTunnelNetworkEvents, initTunnelDiagnostics } from "./tunnel.js";
 import { wrapIdentityBundle, unwrapIdentityBundle, buildIdentityBundle, bytesToBase64, base64ToBytes, backupDownloadName, gzipBytes, mailLoginFromTransports, accountDirFromToml, mailLoginsFromDbText } from "./identity-backup.js";
 import { isAndroid, tauriInvoke } from "./tauri.js";
+import { ScheduledRunner, localStore, tauriStore } from "./scheduled.js";
+import { pickSendTime, openScheduledList, maybeAskExactAlarm, formatDue } from "./scheduled-ui.js";
 import { recordApp } from "./app-browser.js";
 import { applyDocumentLang, translateTree, t } from "./i18n.js";
 import { ICON, P, svg } from "./icons.js";
@@ -4980,6 +4982,7 @@ function rebuildDrawer() {
     onEditProfile: editProfileFlow,
     onInviteDomains: () => showInviteDomainsModal(),
     onDiagnostics: async () => { await modalHistorySettled(); openDiagnosticsChat(); },
+    onScheduled: () => openAllScheduled(),
     onExportSettings: () => exportSettingsToSaved(),
     backendKind: core?.backend?.kind || null,
     onTunnel: tunnelInstalled()
@@ -6167,6 +6170,10 @@ async function boot() {
       diagnostics.append("error", `boot: ChatView failed: ${err?.message || err}`);
     }
 
+    try { startScheduled(); } catch (err) {
+      diagnostics.append("error", `boot: scheduled messages failed: ${err?.message || err}`);
+    }
+
     if (chatView) {
       appLog("boot: refreshChatList");
       try {
@@ -6366,6 +6373,74 @@ async function boot() {
   }
 }
 
+// ---- Scheduled messages ("Send later", docs/scheduled-messages.md) ----
+// Tauri: scheduled.json in app private data (scheduled.rs); Android sends
+// from the shell (alarm-safe, no WebView needed), desktop sends from here.
+// PWA/browser: localStorage, sends only while a tab is open.
+let scheduledRunner = null;
+const schedBrowserOnly = () => !tauriInvoke();
+
+function scheduledChatName(it) {
+  if (it.accountId === core?.accountId) {
+    const c = state.chats.find(x => x.id === it.chatId);
+    if (c) return c.name;
+  }
+  const acc = (state.accounts || []).find(a => a.id === it.accountId);
+  return `${acc?.displayName || acc?.addr || t("Profile")} · #${it.chatId}`;
+}
+
+function startScheduled() {
+  if (scheduledRunner) return;
+  const invoke = tauriInvoke();
+  const android = !!invoke && isAndroid();
+  scheduledRunner = new ScheduledRunner({
+    store: invoke ? tauriStore(invoke) : localStore(),
+    // The normal send path (rpc-core sendMessage → send_msg) for the
+    // profile the message was written in.
+    send: android ? null : it => core.sendMessage(it.chatId, { text: it.text, quoteId: it.quoteId, accountId: it.accountId }),
+    nativeRun: android ? wake => invoke("scheduled_run_due", { wake }) : null,
+    onChange: () => chatView?.renderScheduledChip(),
+    onSent: (it, msg) => {
+      if (msg && it.accountId === core.accountId && chatView?.chat?.id === it.chatId) chatView.appendOutgoing(msg);
+      if (it.accountId === core.accountId) refreshChatList().catch(() => {});
+    },
+  });
+  if (chatView) {
+    chatView.scheduled = {
+      count: chatId => scheduledRunner.doc.items.filter(x => x.accountId === core.accountId && x.chatId === chatId).length,
+      pickTime: () => pickSendTime({ browserOnly: schedBrowserOnly() }),
+      openList: chatId => openScheduledList({ runner: scheduledRunner, accountId: core.accountId, chatId, browserOnly: schedBrowserOnly() }),
+      add: async ({ chatId, text, quoteId, dueAt }) => {
+        try {
+          const r = await scheduledRunner.op({ op: "add", item: { accountId: core.accountId, chatId, text, quoteId, dueAt } });
+          if (!r?.id) throw new Error(r?.error || "rejected");
+          toast(t("Scheduled for {time}", { time: formatDue(dueAt) }));
+          if (android) maybeAskExactAlarm(invoke).catch(() => {});
+          return true;
+        } catch (err) {
+          errToast(t("Couldn't schedule message: {error}", { error: err?.message || err }));
+          return false;
+        }
+      },
+    };
+  }
+  // Catch-up: at start, on resume (visibility / Android foreground), plus
+  // the runner's own timer to the next due item and a 60 s safety tick
+  // (timers stall while the device sleeps).
+  scheduledRunner.start().catch(err => appLog(`scheduled: start failed: ${err?.message || err}`));
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) scheduledRunner.run(true); });
+  try {
+    window.__TAURI__?.event?.listen?.("velta-foreground", () => scheduledRunner.run(true));
+    window.__TAURI__?.event?.listen?.("velta-scheduled-changed", () => scheduledRunner.refresh().catch(() => {}));
+  } catch { /* no shell */ }
+}
+
+function openAllScheduled() {
+  if (!scheduledRunner) return;
+  openScheduledList({ runner: scheduledRunner, accountId: null, chatName: scheduledChatName, browserOnly: schedBrowserOnly() });
+}
+
 globalThis.__veltaAppEvaluating = false;
 if (chatListRenderDeferred) { chatListRenderDeferred = false; renderChatList(); }
 boot();
+

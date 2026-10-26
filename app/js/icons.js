@@ -117,6 +117,8 @@ export const P = {
   attach: '<path d="M21 12.5l-8.5 8.5a5.5 5.5 0 01-7.8-7.8l9.2-9.2a3.7 3.7 0 015.2 5.2l-9 9a1.85 1.85 0 01-2.6-2.6l8.3-8.3"/>',
   sticker: '<path d="M11.5 20H6a2 2 0 01-2-2V6a2 2 0 012-2h12a2 2 0 012 2v6.5L11.5 20Z"/><path d="M13 20a7 7 0 017-7"/><circle cx="8.7" cy="9.7" r="1.15" fill="currentColor" stroke="none"/><circle cx="15.3" cy="9.7" r="1.15" fill="currentColor" stroke="none"/><path d="M8.5 13.4a4.2 4.2 0 007 0"/>',
   send: '<path d="M3 11.5L21 3l-6.5 18-2.7-7.3z"/>',
+  // scheduled messages ("Send later"): clock face, hands at 12 → 4
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
 };
 
 export const ICON = Object.fromEntries(Object.entries(P).map(([k, v]) => [k, svg(v)]));

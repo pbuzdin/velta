@@ -1122,7 +1122,7 @@ function notifyChecked(storageKey) {
 
 const IS_ANDROID = isAndroid();
 
-export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, onWsRelays, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality, downloadLimit = "0", onDownloadLimit, onReadReceipts, onLowBatteryToggle, multiDeviceState = "loading", multiDeviceReenabled = false, onMultiDevice, onMultiDeviceKeep, onDrawerOpen, identityBackupAvailable = false, onIdentityBackup, onTunnel = null, tunnelLabel = "", onDiagnostics = null, onPushSection = null, onWebPushSection = null, backendKind = null, onExportSettings = null }) {
+export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, onWsRelays, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality, downloadLimit = "0", onDownloadLimit, onReadReceipts, onLowBatteryToggle, multiDeviceState = "loading", multiDeviceReenabled = false, onMultiDevice, onMultiDeviceKeep, onDrawerOpen, identityBackupAvailable = false, onIdentityBackup, onTunnel = null, tunnelLabel = "", onDiagnostics = null, onPushSection = null, onWebPushSection = null, backendKind = null, onExportSettings = null, onScheduled = null }) {
   const inTauri = isTauri();
   const drawer = document.createElement("div");
   drawer.className = "drawer";
@@ -1262,6 +1262,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
       <label class="ctx-item">${ICON.download}<span>Remember scroll position in chats: ${localStorage.getItem("velta-remember-scroll") === "0" ? "off" : "on"}</span><input type="checkbox" role="switch" data-toggle="remember-scroll"${localStorage.getItem("velta-remember-scroll") === "0" ? "" : " checked"}></label>
       <label class="ctx-item">${ICON.stopSquare}<span>Demo mode: ${localStorage.getItem("velta-mock") === "1" ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="demo"${localStorage.getItem("velta-mock") === "1" ? " checked" : ""}></label>
       ${onExportSettings ? `<button type="button" class="ctx-item" data-act="export-settings" title="Sends your Velta preferences as one text message to Saved Messages, so another device can apply them. No relays, keys or addresses.">${ICON.bookmarkExport}<span>${t("Export settings to Saved Messages")}</span></button>` : ""}
+      ${onScheduled ? `<button type="button" class="ctx-item" data-act="scheduled">${ICON.clock}<span>${t("Scheduled messages")}</span></button>` : ""}
       <button type="button" class="ctx-item" data-act="about">${ICON.info}<span>${t("About Velta")}</span></button>
     </div>
     <div class="drawer-foot" data-versions>
@@ -1589,6 +1590,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     if (act === "identity-backup") onIdentityBackup?.();
     if (act === "about") showAbout({ onDiagnostics, backendKind });
     if (act === "export-settings") onExportSettings?.();
+    if (act === "scheduled") onScheduled?.();
   });
 
   // Rebuilds (rebuildDrawer) discard this drawer: drop the document
