@@ -1683,6 +1683,8 @@ fn notify_prefs_snapshot() -> NotifyPrefs {
 
 #[tauri::command]
 fn set_notify_prefs(app: tauri::AppHandle, prefs: NotifyPrefs) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    let was_bg = NOTIFY_PREFS.lock().unwrap().unwrap_or_default().use_bg_connection;
     *NOTIFY_PREFS.lock().unwrap() = Some(prefs);
     let json = serde_json::to_string(&prefs).map_err(|e| e.to_string())?;
     if let Some(path) = notify_prefs_path(&app) {
@@ -1692,7 +1694,28 @@ fn set_notify_prefs(app: tauri::AppHandle, prefs: NotifyPrefs) -> Result<(), Str
         std::fs::write(&path, &json).map_err(|e| e.to_string())?;
     }
     notify_prefs_files_dir_copy(&app, &json);
+    // "Use background connection" toggled: stop / start CoreService so the
+    // persistent notification goes away when the user turned it off (the
+    // file above is written first: the service re-reads it on start).
+    #[cfg(target_os = "android")]
+    if was_bg != prefs.use_bg_connection {
+        android_core_service(prefs.use_bg_connection);
+    }
     Ok(())
+}
+
+#[cfg(target_os = "android")]
+fn android_core_service(run: bool) {
+    let method = if run { "start" } else { "stop" };
+    let r = with_android_class(&APP_CORE_SERVICE_CLASS, "CoreService", |env, context, class_ref| {
+        env.call_static_method(class_ref, method, "(Landroid/content/Context;)V", &[(&context).into()])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    });
+    match r {
+        Ok(()) => log(&format!("background connection {}: CoreService {method}", if run { "on" } else { "off" })),
+        Err(e) => log(&format!("CoreService {method} failed: {e}")),
+    }
 }
 
 #[cfg(not(target_os = "android"))]
@@ -2289,6 +2312,10 @@ static APP_CALL_AUDIO_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new
 #[cfg(target_os = "android")]
 static APP_CALL_PERMISSIONS_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
 
+// org.velta.CoreService — start/stop when "Use background connection" flips.
+#[cfg(target_os = "android")]
+static APP_CORE_SERVICE_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
+
 // --- UnifiedPush (Android) ---
 // Handles for the JNI callbacks from UnifiedPushService.kt. The accounts
 // manager and the request channel are set once init_android_core finishes;
@@ -2358,7 +2385,7 @@ fn store_app_context(env: &mut jni::JNIEnv, context: &jni::objects::JObject) {
     *APP_CONTEXT.lock().unwrap() = Some(global);
     // Global refs to the app's helper classes for later Rust commands
     // (NetInfo: DNS tunnel, tunnel.rs — operator resolvers + SIM operator).
-    let classes: [(&str, &Mutex<Option<jni::objects::GlobalRef>>); 10] = [
+    let classes: [(&str, &Mutex<Option<jni::objects::GlobalRef>>); 11] = [
         ("InAppBrowser", &APP_INAPP_BROWSER_CLASS),
         ("Notifications", &APP_NOTIFICATIONS_CLASS),
         ("Battery", &APP_BATTERY_CLASS),
@@ -2369,6 +2396,7 @@ fn store_app_context(env: &mut jni::JNIEnv, context: &jni::objects::JObject) {
         ("CallAudio", &APP_CALL_AUDIO_CLASS),
         ("CallPermissions", &APP_CALL_PERMISSIONS_CLASS),
         ("ScheduledAlarm", &APP_SCHEDULED_CLASS),
+        ("CoreService", &APP_CORE_SERVICE_CLASS),
     ];
     for (name, slot) in classes {
         match env.find_class(format!("org/velta/{name}")) {

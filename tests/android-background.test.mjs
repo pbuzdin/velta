@@ -78,3 +78,18 @@ test("the service notification never claims to sync without a core", () => {
     for (const k of ["bg_channel_name", "bg_syncing", "bg_not_syncing"]) assert.match(x, new RegExp(`name="${k}"`), `${loc} ${k}`);
   }
 });
+
+test("'Use background connection' off stops CoreService; on starts it", () => {
+  const lib = rs("lib.rs");
+  const fn = lib.slice(lib.indexOf("fn set_notify_prefs"), lib.indexOf("fn android_core_service"));
+  assert.match(fn, /was_bg != prefs\.use_bg_connection/);
+  assert.match(fn, /android_core_service\(prefs\.use_bg_connection\)/);
+  assert.match(lib, /\("CoreService", &APP_CORE_SERVICE_CLASS\)/);
+  const s = read("CoreService.kt");
+  assert.match(s, /@JvmStatic\s+fun stop\(context: Context\)[\s\S]*stopService/);
+  assert.match(s, /@JvmStatic\s+fun start\(context: Context\)/);
+  const cmd = s.slice(s.indexOf("override fun onStartCommand"), s.indexOf("private fun startForegroundCompat"));
+  assert.ok(cmd.indexOf("backgroundConnectionEnabled") < cmd.indexOf("ensureStarted"), "checked before starting the core");
+  assert.match(cmd, /stopSelf\(\)[\s\S]*START_NOT_STICKY/);
+  assert.match(read("MainActivity.kt"), /if \(BgPrefs\.backgroundConnectionEnabled\(this\)\) \{\s*try \{\s*CoreService\.start\(this\)/);
+});

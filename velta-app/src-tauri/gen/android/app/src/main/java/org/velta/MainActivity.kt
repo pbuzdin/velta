@@ -85,9 +85,13 @@ class MainActivity : TauriActivity() {
     // user leaves the app: promote to a foreground service with a persistent
     // low-importance notification. Background notifications are posted by
     // Rust's background event poller; see start_bg_event_poller in lib.rs.
-    try {
-      CoreService.start(this)
-    } catch (_: Exception) {
+    // Not when "Use background connection" is off (BgPrefs): the page
+    // turning it on later starts the service (lib.rs set_notify_prefs).
+    if (BgPrefs.backgroundConnectionEnabled(this)) {
+      try {
+        CoreService.start(this)
+      } catch (_: Exception) {
+      }
     }
     // Local chat (p2p.rs) discovers peers on the LAN via iroh's mDNS
     // (swarm-discovery); Android silently drops multicast packets unless a

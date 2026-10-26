@@ -104,16 +104,20 @@ class CoreService : Service() {
             .build()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // "Use background connection" off: no persistent notification, no
+        // background core. startForeground first (a startForegroundService
+        // must reach it), then go away.
+        if (!BgPrefs.backgroundConnectionEnabled(this)) {
+            startForegroundCompat(buildNotification(false))
+            stopForegroundCompat()
+            stopSelf()
+            return START_NOT_STICKY
+        }
         // A sticky restart after the process died has no activity: start the
         // core here so the service really syncs (audit item 1). With the UI
         // up this reuses the core Tauri setup created.
         val starting = VeltaCore.ensureStarted(this)
-        val notification = buildNotification(starting)
-        if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING)
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
+        startForegroundCompat(buildNotification(starting))
         // Never claim to sync while no core runs: re-check once init had
         // time to finish (Accounts::new on a cold start).
         if (starting) {
@@ -122,6 +126,18 @@ class CoreService : Service() {
         // STICKY: the system restarts the service after a kill, and the
         // restart starts the core again (above).
         return START_STICKY
+    }
+
+    private fun startForegroundCompat(notification: android.app.Notification) {
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+    }
+
+    private fun stopForegroundCompat() {
+        stopForeground(STOP_FOREGROUND_REMOVE) // minSdk 24
     }
 
     private fun refreshNotification() {
@@ -138,8 +154,17 @@ class CoreService : Service() {
         const val NOTIFICATION_ID = 1
         private const val CORE_CHECK_MS = 30_000L
 
+        // Static for JNI (lib.rs android_core_service). start() can throw
+        // ForegroundServiceStartNotAllowedException from the background on
+        // Android 12+; callers catch.
+        @JvmStatic
         fun start(context: Context) {
             androidx.core.content.ContextCompat.startForegroundService(context, Intent(context, CoreService::class.java))
+        }
+
+        @JvmStatic
+        fun stop(context: Context) {
+            context.stopService(Intent(context, CoreService::class.java))
         }
     }
 }
