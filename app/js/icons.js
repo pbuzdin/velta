@@ -86,7 +86,8 @@ export const P = {
   smiley: '<circle cx="12" cy="12" r="9"/><path d="M8 14.2c1.2 1.1 2.5 1.6 4 1.6s2.8-.5 4-1.6"/><circle cx="9" cy="10" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="1" fill="currentColor" stroke="none"/>',
   chatAppearance: '<path d="M4 5h16a1 1 0 011 1v9a1 1 0 01-1 1h-9l-5 4v-4H4a1 1 0 01-1-1V6a1 1 0 011-1z"/><path d="M7 9.5h7M7 12.5h4"/>',
   profile: PROFILE,
-  profileAdd: PROFILE + '<path d="M19 5v4M21 7h-4"/>',
+  // person shifted left, smaller plus: >= 2 units clear of the head
+  profileAdd: '<circle cx="9" cy="8" r="4"/><path d="M2 20a7 7 0 0114 0M19.5 6v4M17.5 8h4"/>',
   // small check that sits inside a ring (select) or over the profile glyph (current account)
   checkInner: CHECK_INNER,
   bookmark: '<path d="M6 3h12v18l-6-4.5L6 21z"/>',
@@ -95,8 +96,9 @@ export const P = {
   typing: '<rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M8 12h.01M12 12h.01M16 12h.01"/>',
   // Theme: contrast disc, right half hatched (light/dark)
   palette: '<circle cx="12" cy="12" r="9"/><path d="M12 3v18M12 9h8.5M12 15h8.5"/>',
-  language: '<path d="M3 5h9M7.5 3v2M10 5c-.5 4-3 7-6 8.5M6 8.5c1.2 2 3 3.5 5 4.5"/><path d="M13 21l4-9 4 9M14.5 17.5h5"/>',
-  textSize: '<path d="M5 19L11.2 5h1.6L19 19M7.2 15h9.6"/><path d="M16.5 5.5L21 10M21 5.5L16.5 10"/>',
+  language: '<path d="M2 5h8.5M6.2 3v2M9 5c-.5 3.6-2.7 6.3-5.5 7.7M5 8c1 1.8 2.7 3.2 4.6 4.1"/><path d="M13.5 21l4-9 4 9M15 17.5h5"/>',
+  // Interface scale: large A + small A side by side
+  textSize: '<path d="M2 19L7.4 5h1.2L14 19M4.3 14h7.4"/><path d="M17 19l3-8.5 3 8.5M18.1 16h3.8"/>',
   // Bottom bar buttons: phone with a button bar along the bottom
   bottomBar: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M5 16h14M9 18.5h.01M12 18.5h.01M15 18.5h.01"/>',
   sortLines: '<path d="M4 6h16M4 12h10M4 18h7"/>',
