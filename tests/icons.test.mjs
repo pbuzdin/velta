@@ -82,4 +82,6 @@ test("drawer icons are pure outline (no filled shapes); QR/invite share one outl
   assert.ok(used.has("invite") && used.has("imageQuality"));
   for (const k of used) assert.doesNotMatch(P[k], /fill="currentColor"/, k);
   assert.equal(P.invite, P.qr);
+  // only Invite friends shows a QR: no other drawer glyph reuses the finder squares
+  for (const k of used) if (k !== "invite") assert.ok(!P[k].includes('width="7" height="7"'), k);
 });

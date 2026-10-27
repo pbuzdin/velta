@@ -93,10 +93,12 @@ export const P = {
   // Invite friends (QR): same outline QR glyph as the bottom bar
   invite: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 14h3M21 14v3M14 18v3M18 21h3"/>',
   typing: '<rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M8 12h.01M12 12h.01M16 12h.01"/>',
-  palette: '<path d="M12 3a9 9 0 109 9c0-1.5-1.2-2.6-2.6-2.6h-1.9a2.5 2.5 0 01-2.5-2.5V5.1C14 4 13.3 3 12 3z"/><path d="M7.5 10.5h.01M12 7.5h.01M16.5 10.5h.01"/>',
+  // Theme: contrast disc, right half hatched (light/dark)
+  palette: '<circle cx="12" cy="12" r="9"/><path d="M12 3v18M12 9h8.5M12 15h8.5"/>',
   language: '<path d="M3 5h9M7.5 3v2M10 5c-.5 4-3 7-6 8.5M6 8.5c1.2 2 3 3.5 5 4.5"/><path d="M13 21l4-9 4 9M14.5 17.5h5"/>',
   textSize: '<path d="M5 19L11.2 5h1.6L19 19M7.2 15h9.6"/><path d="M16.5 5.5L21 10M21 5.5L16.5 10"/>',
-  barChart: '<rect x="3" y="17" width="18" height="4" rx="1"/><path d="M6 17v-4m6 4V9m6 8V5"/>',
+  // Bottom bar buttons: phone with a button bar along the bottom
+  bottomBar: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M5 16h14M9 18.5h.01M12 18.5h.01M15 18.5h.01"/>',
   sortLines: '<path d="M4 6h16M4 12h10M4 18h7"/>',
   notifications: '<path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/>',
   downloadTray: '<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5"/><path d="M5 15v4h14v-4"/>',
@@ -110,7 +112,8 @@ export const P = {
   // image quality (drawer): outline photo frame, no filled dot
   imageQuality: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M9 10h.01M4 17l5-5 3.5 3.5L16 12l4 4"/>',
   battery: '<rect x="2.5" y="8" width="16.5" height="8" rx="1.5"/><path d="M21.5 10.5v3M6 11v2"/>',
-  stopSquare: '<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/>',
+  // Demo mode: lab flask (was square-in-square, read as a QR finder)
+  demo: '<path d="M9 3h6M10 3v6l-5 9a2 2 0 001.7 3h10.6a2 2 0 001.7-3l-5-9V3M7.5 14.5h9"/>',
   bookmarkExport: '<path d="M6 3h12v18l-6-4.5L6 21z"/><path d="M12 7v6m0-6l-2.5 2.5M12 7l2.5 2.5"/>',
   chats: '<path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>',
   contacts: '<circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0114 0M16 3.5a4 4 0 010 9M15.5 14a7 7 0 016.5 7"/>',

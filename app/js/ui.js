@@ -1180,7 +1180,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
         </fieldset>
       </details>
       <details class="drawer-details">
-        <summary>${ICON.barChart}<span>${t("Bottom bar buttons")}</span></summary>
+        <summary>${ICON.bottomBar}<span>${t("Bottom bar buttons")}</span></summary>
         <fieldset class="scale-opts" data-bar-opts>
           <legend class="vh">${t("Bottom bar buttons")}</legend>
           ${[["chats", "Chats"], ["contacts", "Contacts"], ["calls", "Calls"], ["qr", "QR code"]].map(([key, label]) => `<label class="scale-opt"><input type="checkbox" role="switch" data-bar-key="${key}"${barHidden.includes(key) ? "" : " checked"}><span>${t(label)}</span></label>`).join("")}
@@ -1267,7 +1267,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
       <div class="bar-opts-hint ctx-hint md-note" data-md-note${multiDeviceReenabled ? "" : " hidden"}><span>${escapeHtml(t(MD_REENABLED_NOTE))}</span> <span class="md-note-acts"><button type="button" class="btn-text" data-md-off>${t("Turn off again")}</button><button type="button" class="btn-text" data-md-keep>${t("Keep on")}</button></span></div>
       ${IS_ANDROID ? `<label class="ctx-item" title="${escapeHtml(t("While the phone is under 10% and off the charger, your latest message in each chat gets a 🪫 reaction so the other side knows replies may stop. Recipients see it as a normal reaction; other clients show the emoji only."))}">${ICON.battery}<span>${escapeHtml(toggleText("Low-battery marker", localStorage.getItem("velta-low-battery-react") === "1" ? "on" : "off"))}</span><input type="checkbox" role="switch" data-toggle="low-battery"${localStorage.getItem("velta-low-battery-react") === "1" ? " checked" : ""}></label>` : ""}
       <label class="ctx-item">${ICON.download}<span>${escapeHtml(toggleText("Remember scroll position in chats", localStorage.getItem("velta-remember-scroll") === "0" ? "off" : "on"))}</span><input type="checkbox" role="switch" data-toggle="remember-scroll"${localStorage.getItem("velta-remember-scroll") === "0" ? "" : " checked"}></label>
-      <label class="ctx-item">${ICON.stopSquare}<span>${escapeHtml(toggleText("Demo mode", localStorage.getItem("velta-mock") === "1" ? "on" : "off"))}</span><input type="checkbox" role="switch" data-toggle="demo"${localStorage.getItem("velta-mock") === "1" ? " checked" : ""}></label>
+      <label class="ctx-item">${ICON.demo}<span>${escapeHtml(toggleText("Demo mode", localStorage.getItem("velta-mock") === "1" ? "on" : "off"))}</span><input type="checkbox" role="switch" data-toggle="demo"${localStorage.getItem("velta-mock") === "1" ? " checked" : ""}></label>
       ${onExportSettings ? `<button type="button" class="ctx-item" data-act="export-settings" title="${escapeHtml(t("Sends your Velta preferences as one text message to Saved Messages, so another device can apply them. No relays, keys or addresses."))}">${ICON.bookmarkExport}<span>${t("Export settings to Saved Messages")}</span></button>` : ""}
       ${onScheduled ? `<button type="button" class="ctx-item" data-act="scheduled">${ICON.clock}<span>${t("Scheduled messages")}</span></button>` : ""}
       <button type="button" class="ctx-item" data-act="about">${ICON.info}<span>${t("About Velta")}</span></button>
