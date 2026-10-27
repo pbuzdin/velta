@@ -1735,8 +1735,8 @@ function renderQrView() {
       <div class="qr-box"><div class="qr-loading">${escapeHtml(t("Generating QR code…"))}</div></div>
       <div class="invite-link" style="word-break:break-all"></div>
       <div class="qr-actions">
-        <button type="button" class="btn-text" data-copy-link disabled>${escapeHtml(t("Copy a link"))}</button>
-        ${canShare ? `<button type="button" class="btn-text" data-share-link disabled>${escapeHtml(t("Share a link"))}</button>` : ""}
+        <button type="button" class="btn-text" data-copy-link disabled>${ICON.copy}<span>${escapeHtml(t("Copy a link"))}</span></button>
+        ${canShare ? `<button type="button" class="btn-text" data-share-link disabled>${ICON.share}<span>${escapeHtml(t("Share a link"))}</span></button>` : ""}
       </div>`;
   }
   rows.append(wrap);
@@ -1793,6 +1793,7 @@ function renderQrView() {
       await shareLink(inviteText, {
         ua: navigator.userAgent, invoke,
         webShare: typeof navigator.share === "function" ? o => navigator.share(o) : null,
+        title: t("Chat with me on Velta"), text: `${t("Chat with me on Velta")}: ${inviteText}`,
       });
     } catch (err) { errToast(t("Couldn't share the link: ") + (err?.message || err)); }
   });

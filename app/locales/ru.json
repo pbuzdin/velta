@@ -1392,5 +1392,7 @@
   "Anyone scanning this code with Velta can reach you with verified end-to-end encryption.": "Любой, кто отсканирует этот код в Velta, сможет написать вам с проверенным сквозным шифрованием.",
   "Invite to Velta": "Пригласить в Velta",
   "Share invite link": "Поделиться ссылкой-приглашением",
-  "Chat with me on Velta": "Пиши мне в Velta"
+  "Chat with me on Velta": "Пиши мне в Velta",
+  "Join {name} on Velta": "Присоединяйся к «{name}» в Velta",
+  "Chat with {name} on Velta": "Пиши {name} в Velta"
 }

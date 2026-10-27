@@ -1711,7 +1711,17 @@ export function showEditProfile({ name, avatarUrl, color, pickImage, contactId =
 // provider: async () => ({ svg, link })
 // account: when set (self invite), the Velta logo is overlaid in the QR
 // center — the core reserves a clear circle there for exactly that.
-export const inviteCanShare = () => canShareLink({ ua: navigator.userAgent, hasInvoke: !!tauriInvoke(), hasWebShare: typeof navigator.share === "function" });
+export const inviteCanShare = () => typeof navigator !== "undefined" && canShareLink({ ua: navigator.userAgent, hasInvoke: !!tauriInvoke(), hasWebShare: typeof navigator.share === "function" });
+
+/** Native share of an invite/chat link ("<text>: <link>"): Android shell
+ *  share_text, else Web Share; failures toast, a dismissed sheet is silent.
+ *  Callers render the button only when inviteCanShare(). */
+export async function shareInviteLink(link, text) {
+  if (!link) return;
+  try {
+    await shareLink(link, { ua: navigator.userAgent, invoke: tauriInvoke(), webShare: typeof navigator.share === "function" ? o => navigator.share(o) : null, title: text, text: `${text}: ${link}` });
+  } catch (err) { toast(t("Couldn't share the link: ") + (err?.message || err), 4000, { danger: true }); }
+}
 
 export function showInvite(provider, { title = t("Invite to Velta"), group = false, account = null } = {}) {
   const body = document.createElement("div");
@@ -1721,15 +1731,13 @@ export function showInvite(provider, { title = t("Invite to Velta"), group = fal
       : t("Anyone scanning this code with Velta can reach you with verified end-to-end encryption.")}</p>
     <div class="qr-box"><div class="qr-loading">${escapeHtml(t("Generating QR code…"))}</div></div>
     <div class="invite-link" style="word-break:break-all"></div>
-    <div style="display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:4px;margin-top:6px"><button type="button" class="btn-text" data-copy>${escapeHtml(t("Copy invite link"))}</button>${inviteCanShare() ? `<button type="button" class="btn-text" data-share aria-label="${escapeAttr(t("Share invite link"))}" disabled>${ICON.share}<span>${escapeHtml(t("Share"))}</span></button>` : ""}</div>`;
+    <div style="display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:4px;margin-top:6px"><button type="button" class="btn-text" data-copy>${ICON.copy}<span>${escapeHtml(t("Copy invite link"))}</span></button>${inviteCanShare() ? `<button type="button" class="btn-text" data-share aria-label="${escapeAttr(t("Share invite link"))}" disabled>${ICON.share}<span>${escapeHtml(t("Share"))}</span></button>` : ""}</div>`;
   showModal({ title, body });
   // Native share sheet: Android shell share_text, else Web Share (WebView2,
   // Safari, PWA). No path → no button (inviteCanShare).
-  body.querySelector("[data-share]")?.addEventListener("click", async () => {
+  body.querySelector("[data-share]")?.addEventListener("click", () => {
     const link = body.querySelector(".invite-link").textContent;
-    try {
-      await shareLink(link, { ua: navigator.userAgent, invoke: tauriInvoke(), webShare: typeof navigator.share === "function" ? o => navigator.share(o) : null, title: t("Chat with me on Velta"), text: `${t("Chat with me on Velta")}: ${link}` });
-    } catch (err) { errToast(t("Couldn't share the link: ") + (err?.message || err)); }
+    shareInviteLink(link, group ? t("Join {name} on Velta", { name: title }) : t("Chat with me on Velta"));
   });
   body.querySelector("[data-copy]").addEventListener("click", () => {
     const link = body.querySelector(".invite-link").textContent;

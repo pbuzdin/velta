@@ -1392,5 +1392,7 @@
   "Anyone scanning this code with Velta can reach you with verified end-to-end encryption.": "Toute personne qui scanne ce code avec Velta peut vous joindre avec un chiffrement de bout en bout vérifié.",
   "Invite to Velta": "Inviter sur Velta",
   "Share invite link": "Partager le lien d’invitation",
-  "Chat with me on Velta": "Discutons sur Velta"
+  "Chat with me on Velta": "Discutons sur Velta",
+  "Join {name} on Velta": "Rejoins {name} sur Velta",
+  "Chat with {name} on Velta": "Discute avec {name} sur Velta"
 }

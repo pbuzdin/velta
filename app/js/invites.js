@@ -1,7 +1,7 @@
 // invites.js — Delta Chat invite links (https://i.delta.chat/#… and mirrors):
 // configurable domain registry, URL parsing/normalization, invite cards in
 // chat messages, and the "Invite link domains" settings modal.
-import { showModal, toast } from "./ui.js";
+import { showModal, toast, inviteCanShare, shareInviteLink } from "./ui.js";
 import { escapeHtml, escapeAttr, gestureSwipeRecent } from "./components.js";
 import { tauriInvoke } from "./tauri.js";
 import { ICON } from "./icons.js";
@@ -131,6 +131,13 @@ export function inviteLabel(parsed) {
     : { kind: "person", actor, group: null, addr };
 }
 
+// Share button beside the card's copy button; only when a native share
+// sheet exists (Android share_text / Web Share), like the invite dialog.
+function inviteShareBtn(link, text) {
+  if (!inviteCanShare()) return "";
+  return `<button type="button" class="invite-copy" data-invite-share="${escapeAttr(link)}" data-share-text="${escapeAttr(text)}" title="${escapeHtml(t("Share invite link"))}" aria-label="${escapeHtml(t("Share invite link"))}">` + ICON.share + `</button>`;
+}
+
 // HTML for the invite card rendered inside a message bubble. The text part
 // asks to join (handled by bindInviteInterception), the right icon copies.
 export function inviteCardHtml(parsed) {
@@ -148,6 +155,7 @@ export function inviteCardHtml(parsed) {
     `<button type="button" class="invite-copy" data-invite-copy="${escapeAttr(parsed.raw)}" title="${escapeHtml(t("Copy invite link"))}" aria-label="${escapeHtml(t("Copy invite link"))}">` +
       ICON.copy +
     `</button>` +
+    inviteShareBtn(parsed.raw, label.kind === "person" ? t("Chat with {name} on Velta", { name: label.actor }) : t("Join {name} on Velta", { name: label.group })) +
   `</span>`;
 }
 
@@ -172,6 +180,13 @@ export function bindInviteInterception(onJoin) {
       e.stopPropagation();
       const link = copyBtn.getAttribute("data-invite-copy");
       navigator.clipboard?.writeText(link)?.then?.(() => toast(t("Invite link copied")));
+      return;
+    }
+    const shareBtn = e.target.closest?.("[data-invite-share]");
+    if (shareBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      shareInviteLink(shareBtn.getAttribute("data-invite-share"), shareBtn.getAttribute("data-share-text"));
       return;
     }
     const shortBtn = e.target.closest?.("[data-short-expand]");
@@ -265,6 +280,7 @@ export function shortInviteCardHtml(shortUrl) {
     `<button type="button" class="invite-copy" data-invite-copy="${escapeAttr(shortUrl)}" title="${escapeHtml(t("Copy short link"))}" aria-label="${escapeHtml(t("Copy short link"))}">` +
       ICON.copy +
     `</button>` +
+    inviteShareBtn(shortUrl, t("Chat with me on Velta")) +
   `</span>`;
 }
 
