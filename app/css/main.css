@@ -2355,9 +2355,6 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
   pointer-events: none;
 }
 .qr-self img { display: block; width: 100%; height: 100%; transform: translate(0, 2px); }
-/* Local-chat invite QR is a plain 512×512 QR with the logo zone dead-center
-   (96/512 = 18.75%); the badge is slightly larger to fully cover it. */
-.qr-self.qr-self-center { top: 50%; width: 21%; }
 .qr-loading { color: #555; font-size: 13px; text-align: center; padding: 16px 8px; }
 .invite-link {
   font-family: var(--font-mono); font-size: 12.5px;

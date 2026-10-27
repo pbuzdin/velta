@@ -345,3 +345,14 @@ export function reencodeCoreQrSvg(svg, text) {
     return svg;
   }
 }
+
+// create_qr_svg (512x512, QR 416 at 48,48) ends with the Delta Chat logo
+// group, a 96px badge dead-centre. Swap it for the Velta logo on a dark
+// disc inside a white ring (quiet zone so the finder-free centre still
+// reads; ~6% of the QR area, well under the Medium-or-better ECC budget).
+const CORE_LOGO = /<g transform="translate\(208,208\) scale\(2\)">[\s\S]*<\/g>(\s*<\/svg>\s*)$/;
+export const VELTA_QR_LOGO = '<g data-velta-logo><circle cx="256" cy="256" r="56" fill="#fff"/><circle cx="256" cy="256" r="48" fill="#1c1c1c"/><image href="./icons/v-logo.svg" x="214" y="216" width="84" height="84"/></g>';
+export function brandCoreQrSvg(svg) {
+  if (!svg || !CORE_LOGO.test(svg)) return svg;
+  return svg.replace(CORE_LOGO, (_, tail) => VELTA_QR_LOGO + tail);
+}

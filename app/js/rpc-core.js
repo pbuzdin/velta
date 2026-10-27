@@ -94,7 +94,7 @@ const isUnknownConfigKey = err => /unknown key/i.test(String(err?.message || err
 import { debugLog } from "./diagnostics.js";
 import { pageBounds, channelAuthorId } from "./format.js";
 import { LruCache } from "./lru.js";
-import { reencodeCoreQrSvg } from "./qr-encode.js";
+import { reencodeCoreQrSvg, brandCoreQrSvg } from "./qr-encode.js";
 import { rustLog, tauriInvoke } from "./tauri.js";
 
 // Bounded (lru.js): message-id lists of the 20 most recently used chats, or
@@ -2097,7 +2097,7 @@ export class JsonRpcCore extends EventTarget {
 
   // Renders arbitrary text (e.g. a local-chat invite ticket) as a QR SVG.
   async createQrSvg(text) {
-    return reencodeCoreQrSvg(await this._call("create_qr_svg", text), text);
+    return brandCoreQrSvg(reencodeCoreQrSvg(await this._call("create_qr_svg", text), text));
   }
 
   // Join a 1:1 or group chat from an i.delta.chat invite link / QR text.

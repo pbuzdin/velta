@@ -61,3 +61,15 @@ test("copy buttons beside Share carry the outline copy icon", () => {
   assert.ok(app.includes('data-copy-link disabled>${ICON.copy}<span>'));
   assert.ok(app.includes('data-share-link disabled>${ICON.share}<span>'));
 });
+
+test("create_qr_svg QRs carry the Velta logo, not the Delta Chat overlay", async () => {
+  const { brandCoreQrSvg, VELTA_QR_LOGO } = await import("../app/js/qr-encode.js");
+  const core = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect/><g transform="translate(48,48)"><path style="fill:#000000" d="M0,0h1v1h-1z" transform="scale(16)"/></g><g transform="translate(208,208) scale(2)"><path style="fill:#ffffff" d="m 24"/><g><path d="x"/></g></g></svg>';
+  const out = brandCoreQrSvg(core);
+  assert.ok(out.includes(VELTA_QR_LOGO) && out.endsWith("</svg>"));
+  assert.doesNotMatch(out, /translate\(208,208\) scale\(2\)/);
+  assert.ok(out.includes('transform="translate(48,48)"'), "QR modules untouched");
+  assert.equal(brandCoreQrSvg("<svg>other</svg>"), "<svg>other</svg>");
+  const rpc = readFileSync(new URL("../app/js/rpc-core.js", import.meta.url), "utf8");
+  assert.ok(rpc.includes('brandCoreQrSvg(reencodeCoreQrSvg(await this._call("create_qr_svg", text), text))'));
+});

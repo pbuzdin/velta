@@ -143,10 +143,8 @@ export async function showInviteModal(invoke, renderQr) {
   const svg = await renderQr(ticket).catch(() => null);
   const box = body.querySelector(".qr-box");
   if (box.isConnected) {
-    // The core's QR reserves a clear circle in the middle — brand it with
-    // the Velta logo (same overlay as the relay invite QR in ui.js).
-    box.innerHTML = (svg || `<div class='qr-loading'>${escapeHtml(t("QR unavailable. Copy the code instead."))}</div>`)
-      + `<div class="qr-self qr-self-center"><img src="./icons/v-logo.svg" alt=""></div>`;
+    // createQrSvg already carries the Velta logo (brandCoreQrSvg).
+    box.innerHTML = svg || `<div class='qr-loading'>${escapeHtml(t("QR unavailable. Copy the code instead."))}</div>`;
   }
   body.querySelector("[data-copy]").addEventListener("click", () => {
     navigator.clipboard?.writeText(ticket).then(() => toast(t("Invite code copied")));
