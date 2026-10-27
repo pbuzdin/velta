@@ -61,7 +61,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── diagnostics.js    # diagnostics chat store + event sink + shared console-style row renderer
 │   │   ├── invites.js        # invite-link registry (mirror domains), parsing, short-link expansion, invite cards, settings modal
 │   │   ├── invite-cards.js   # in-chat invite cards (chat/group/relay/WS-proxy links) + native relay-invite signup in Add account — docs/invite-cards.md
-│   │   ├── icons.js          # shared inline SVG icon set (outline, stroke 2, round caps, aria-hidden); every UI icon comes from here — tests/icons.test.mjs
+│   │   ├── icons.js          # shared inline SVG icon set (outline, stroke 2, round caps, aria-hidden); every UI icon comes from here; drawer icons have no fills (dots = zero-length round-cap strokes, `h.01`), invite = qr glyph; only the Velta Loop brand mark (LOOP_SVG) is filled — tests/icons.test.mjs
 │   │   ├── qr-encode.js      # QR encoder with optimal numeric/alphanumeric/byte segmentation (smaller codes for every QR shown)
 │   │   ├── local-chat.js     # local chat core adapter: Proxy interceptor for p2p:<peerId> chats, media transfers/progress, offline queue + auto-flush (see 5.4 / conventions)
 │   │   ├── markdown.js       # escape-first message markdown: bold/italic/underline, links, lists + bot command extraction

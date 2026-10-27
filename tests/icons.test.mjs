@@ -74,3 +74,12 @@ test("no inline 24-grid icons outside icons.js (except deliberate exceptions)", 
   assert.doesNotMatch(html, /<svg(?! data-icon=)/);
   for (const [, k] of html.matchAll(/<svg data-icon="(\w+)"/g)) assert.ok(P[k], `index.html icon ${k}`);
 });
+
+test("drawer icons are pure outline (no filled shapes); QR/invite share one outline glyph", () => {
+  const ui = src("app/js/ui.js");
+  const start = ui.indexOf('<div class="drawer-items">'), end = ui.indexOf('<div class="drawer-foot"');
+  const used = new Set([...ui.slice(start, end).matchAll(/ICON\.(\w+)/g)].map(m => m[1]));
+  assert.ok(used.has("invite") && used.has("imageQuality"));
+  for (const k of used) assert.doesNotMatch(P[k], /fill="currentColor"/, k);
+  assert.equal(P.invite, P.qr);
+});

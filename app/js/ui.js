@@ -1225,7 +1225,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
         <div data-webpush-body><div class="bar-opts-hint">${t("Loading…")}</div></div>
       </details>` : ""}
       <details class="drawer-details">
-        <summary>${ICON.sortLines}<span>${t("Image quality")}</span></summary>
+        <summary>${ICON.imageQuality}<span>${t("Image quality")}</span></summary>
         <fieldset class="scale-opts" data-mq-opts>
           <legend class="vh">${t("Image quality")}</legend>
           ${[["0", "Standard (compress to 940 KB)"], ["1", "Compact (compress to 130 KB)"]].map(([value, label]) => `<label class="scale-opt"><input type="radio" name="media-quality" data-mq-value="${value}"${value === mediaQuality ? " checked" : ""}><span>${t(label)}</span></label>`).join("")}
