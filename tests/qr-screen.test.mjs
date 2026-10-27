@@ -151,5 +151,5 @@ test("Android share: Share.kt, JNI class cache, command registered for android a
   assert.match(rs, /find_class\(format!\("org\/velta\/\{name\}"\)\)/);
   assert.match(rs, /"\(Landroid\/content\/Context;Ljava\/lang\/String;Ljava\/lang\/String;\)Z"/);
   assert.match(rs, /generate_handler!\[[^\]]*\bshare_text\b/);
-  assert.match(strip(read("../app/js/qr-actions.js")), /invoke\("share_text", \{ text: link, title \}\)/);
+  assert.match(strip(read("../app/js/qr-actions.js")), /invoke\("share_text", \{ text, title \}\)/);
 });

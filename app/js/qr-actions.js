@@ -27,15 +27,15 @@ export async function copyLink(link, { clipboard }) {
 // → "shared" | "cancelled". Throws when no path works (caller shows a toast).
 // Android: the shell's share_text command (WebView has no Web Share). Elsewhere
 // navigator.share; a user dismissing the sheet (AbortError) is not an error.
-export async function shareLink(link, { ua, invoke, webShare, title = t("Velta invite") }) {
+export async function shareLink(link, { ua, invoke, webShare, title = t("Velta invite"), text = link }) {
   if (!link) throw new Error("no link to share");
   if (isAndroidUa(ua) && invoke) {
-    await invoke("share_text", { text: link, title });
+    await invoke("share_text", { text, title });
     return "shared";
   }
   if (webShare) {
     try {
-      await webShare({ title, text: link });
+      await webShare(text === link ? { title, text: link } : { title, text, url: link });
       return "shared";
     } catch (err) {
       if (err?.name === "AbortError") return "cancelled";

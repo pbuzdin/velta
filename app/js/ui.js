@@ -1711,16 +1711,26 @@ export function showEditProfile({ name, avatarUrl, color, pickImage, contactId =
 // provider: async () => ({ svg, link })
 // account: when set (self invite), the Velta logo is overlaid in the QR
 // center — the core reserves a clear circle there for exactly that.
-export function showInvite(provider, { title = t("Invite to Delta Chat"), group = false, account = null } = {}) {
+export const inviteCanShare = () => canShareLink({ ua: navigator.userAgent, hasInvoke: !!tauriInvoke(), hasWebShare: typeof navigator.share === "function" });
+
+export function showInvite(provider, { title = t("Invite to Velta"), group = false, account = null } = {}) {
   const body = document.createElement("div");
   body.innerHTML = `
     <p style="font-size:14.5px;line-height:1.5">${group
       ? t("Anyone scanning this code can join this group — the joiner is verified end-to-end automatically.")
-      : t("Anyone scanning this code with Delta Chat can reach you with verified end-to-end encryption.")}</p>
+      : t("Anyone scanning this code with Velta can reach you with verified end-to-end encryption.")}</p>
     <div class="qr-box"><div class="qr-loading">${escapeHtml(t("Generating QR code…"))}</div></div>
     <div class="invite-link" style="word-break:break-all"></div>
-    <div style="text-align:center;margin-top:6px"><button type="button" class="btn-text" data-copy>${escapeHtml(t("Copy invite link"))}</button></div>`;
+    <div style="display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:4px;margin-top:6px"><button type="button" class="btn-text" data-copy>${escapeHtml(t("Copy invite link"))}</button>${inviteCanShare() ? `<button type="button" class="btn-text" data-share aria-label="${escapeAttr(t("Share invite link"))}" disabled>${ICON.share}<span>${escapeHtml(t("Share"))}</span></button>` : ""}</div>`;
   showModal({ title, body });
+  // Native share sheet: Android shell share_text, else Web Share (WebView2,
+  // Safari, PWA). No path → no button (inviteCanShare).
+  body.querySelector("[data-share]")?.addEventListener("click", async () => {
+    const link = body.querySelector(".invite-link").textContent;
+    try {
+      await shareLink(link, { ua: navigator.userAgent, invoke: tauriInvoke(), webShare: typeof navigator.share === "function" ? o => navigator.share(o) : null, title: t("Chat with me on Velta"), text: `${t("Chat with me on Velta")}: ${link}` });
+    } catch (err) { errToast(t("Couldn't share the link: ") + (err?.message || err)); }
+  });
   body.querySelector("[data-copy]").addEventListener("click", () => {
     const link = body.querySelector(".invite-link").textContent;
     navigator.clipboard?.writeText(link).then(() => toast(t("Invite link copied")));
@@ -1730,6 +1740,7 @@ export function showInvite(provider, { title = t("Invite to Delta Chat"), group 
       const box = body.querySelector(".qr-box");
       box.innerHTML = svg || "<div class='qr-loading'>QR unavailable</div>";
       body.querySelector(".invite-link").textContent = link;
+      const sb = body.querySelector("[data-share]"); if (sb) sb.disabled = !link;
       // Overlay the Velta logo on the clear circle the core leaves in the
       // QR center (design space 515x630, circle center at 50% / 43.65% of
       // the rendered svg).

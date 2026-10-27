@@ -1245,7 +1245,6 @@
   "Your name": "Ваше имя",
   "Description": "Описание",
   "Couldn't load picture: ": "Не удалось загрузить фото: ",
-  "Invite to Delta Chat": "Пригласить в Delta Chat",
   "Open diagnostics log": "Открыть журнал диагностики",
   "Transport": "Транспорт",
   "chatmail relays (IMAP/SMTP)": "релеи chatmail (IMAP/SMTP)",
@@ -1373,7 +1372,6 @@
   "{name} is typing…": "{name} печатает…",
   "{a} and {b} are typing…": "{a} и {b} печатают…",
   "Anyone scanning this code can join this group — the joiner is verified end-to-end automatically.": "Любой, кто отсканирует этот код, сможет вступить в группу — участник проверяется сквозным шифрованием автоматически.",
-  "Anyone scanning this code with Delta Chat can reach you with verified end-to-end encryption.": "Любой, кто отсканирует этот код в Delta Chat, сможет написать вам с проверенным сквозным шифрованием.",
   "Forwarded a picture": "Переслано: изображение",
   "Forwarded a video": "Переслано: видео",
   "Forwarded an audio": "Переслано: аудио",
@@ -1390,5 +1388,9 @@
   "Incoming video call — {name}": "Входящий видеозвонок — {name}",
   "Incoming call — {name}": "Входящий звонок — {name}",
   "{name} created {groups}: that group will be deleted from this device too.": "{name} создал(а) {groups}: эта группа тоже будет удалена с этого устройства.",
-  "{name} created {groups}: those groups will be deleted from this device too.": "{name} создал(а) {groups}: эти группы тоже будут удалены с этого устройства."
+  "{name} created {groups}: those groups will be deleted from this device too.": "{name} создал(а) {groups}: эти группы тоже будут удалены с этого устройства.",
+  "Anyone scanning this code with Velta can reach you with verified end-to-end encryption.": "Любой, кто отсканирует этот код в Velta, сможет написать вам с проверенным сквозным шифрованием.",
+  "Invite to Velta": "Пригласить в Velta",
+  "Share invite link": "Поделиться ссылкой-приглашением",
+  "Chat with me on Velta": "Пиши мне в Velta"
 }

@@ -1245,7 +1245,6 @@
   "Your name": "Votre nom",
   "Description": "Description",
   "Couldn't load picture: ": "Impossible de charger la photo : ",
-  "Invite to Delta Chat": "Inviter sur Delta Chat",
   "Open diagnostics log": "Ouvrir le journal de diagnostic",
   "Transport": "Transport",
   "chatmail relays (IMAP/SMTP)": "relais chatmail (IMAP/SMTP)",
@@ -1373,7 +1372,6 @@
   "{name} is typing…": "{name} écrit…",
   "{a} and {b} are typing…": "{a} et {b} écrivent…",
   "Anyone scanning this code can join this group — the joiner is verified end-to-end automatically.": "Toute personne qui scanne ce code peut rejoindre ce groupe — le nouveau membre est vérifié de bout en bout automatiquement.",
-  "Anyone scanning this code with Delta Chat can reach you with verified end-to-end encryption.": "Toute personne qui scanne ce code avec Delta Chat peut vous joindre avec un chiffrement de bout en bout vérifié.",
   "Forwarded a picture": "Image transférée",
   "Forwarded a video": "Vidéo transférée",
   "Forwarded an audio": "Audio transféré",
@@ -1390,5 +1388,9 @@
   "Incoming video call — {name}": "Appel vidéo entrant — {name}",
   "Incoming call — {name}": "Appel entrant — {name}",
   "{name} created {groups}: that group will be deleted from this device too.": "{name} a créé {groups} : ce groupe sera aussi supprimé de cet appareil.",
-  "{name} created {groups}: those groups will be deleted from this device too.": "{name} a créé {groups} : ces groupes seront aussi supprimés de cet appareil."
+  "{name} created {groups}: those groups will be deleted from this device too.": "{name} a créé {groups} : ces groupes seront aussi supprimés de cet appareil.",
+  "Anyone scanning this code with Velta can reach you with verified end-to-end encryption.": "Toute personne qui scanne ce code avec Velta peut vous joindre avec un chiffrement de bout en bout vérifié.",
+  "Invite to Velta": "Inviter sur Velta",
+  "Share invite link": "Partager le lien d’invitation",
+  "Chat with me on Velta": "Discutons sur Velta"
 }
