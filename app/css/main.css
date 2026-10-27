@@ -355,7 +355,6 @@ svg { width: 24px; height: 24px; display: block; }
 .side-option-label { font-size: 14.5px; font-weight: 500; color: var(--text); }
 .side-option-arrow { width: var(--ico-3); height: var(--ico-3); color: var(--text-dim); flex: none; }
 .side-view .qr-view { display: flex; flex-direction: column; gap: 12px; padding: 4px 6px; }
-.side-view .qr-view .qr-box svg { width: 100%; height: auto; }
 
 /* ---------- Main ---------- */
 .main { flex: 1; min-width: 0; display: flex; background: var(--bg-chat); position: relative; }
@@ -2339,16 +2338,20 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 .qr-box {
   position: relative;
   container-type: inline-size;
-  width: 308px; min-height: 120px; margin: 12px auto;
+  /* Fills the dialog's content width, always square; the cap only bites in
+     wide desktop dialogs. The SVGs carry their own white quiet zone. */
+  width: 100%; max-width: 520px; aspect-ratio: 1; margin: 12px auto;
   display: flex; align-items: center; justify-content: center;
 }
-.qr-box svg { width: 280px; height: 280px; display: block; }
+/* Fit inside the square (meet): plain QRs fill it, the core's 515x630
+   invite card keeps its proportions, centred. */
+.qr-box svg { width: 100%; height: 100%; display: block; }
 /* Dark badge over the circle the core reserves in the QR center (circle
    center is at 50% / 43.65% of the 515x630 design card). Opaque on purpose:
    it covers the avatar the core embeds underneath and carries the Velta logo. */
 .qr-self {
   position: absolute; left: 50%; top: 43.65%;
-  width: 20%; aspect-ratio: 1;
+  width: 18%; aspect-ratio: 1; /* card is 515/630 of the square's width */
   transform: translate(-50%, -50%);
   background: #1c1c1c;
   border-radius: 50%;

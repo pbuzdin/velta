@@ -73,3 +73,11 @@ test("create_qr_svg QRs carry the Velta logo, not the Delta Chat overlay", async
   const rpc = readFileSync(new URL("../app/js/rpc-core.js", import.meta.url), "utf8");
   assert.ok(rpc.includes('brandCoreQrSvg(reencodeCoreQrSvg(await this._call("create_qr_svg", text), text))'));
 });
+
+test("QR container fills the dialog width and stays square", () => {
+  const css = readFileSync(new URL("../app/css/main.css", import.meta.url), "utf8");
+  const box = css.slice(css.indexOf(".qr-box {"), css.indexOf("}", css.indexOf(".qr-box {")));
+  assert.match(box, /width: 100%; max-width: 520px; aspect-ratio: 1;/);
+  assert.match(css, /\.qr-box svg \{ width: 100%; height: 100%; display: block; \}/);
+  assert.doesNotMatch(css, /\.qr-box svg \{ width: 280px/);
+});
