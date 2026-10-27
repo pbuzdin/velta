@@ -1394,5 +1394,6 @@
   "Share invite link": "Partager le lien d’invitation",
   "Chat with me on Velta": "Discutons sur Velta",
   "Join {name} on Velta": "Rejoins {name} sur Velta",
-  "Chat with {name} on Velta": "Discute avec {name} sur Velta"
+  "Chat with {name} on Velta": "Discute avec {name} sur Velta",
+  "Invite link domain": "Domaine du lien d’invitation"
 }

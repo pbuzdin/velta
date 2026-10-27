@@ -14,6 +14,7 @@ import { MD_HINT, MD_REENABLED_NOTE, DL_LIMIT_HINT, mdLabel } from "./multidevic
 import { videoPosKey, videoResumeSeconds, rememberVideoPos } from "./video-pos.js";
 import { t, currentLang, setLang, LANGS, translateTree } from "./i18n.js";
 import { ICON, LOOP_SVG, P, svg } from "./icons.js";
+import { mountInviteDomains } from "./invite-domains.js";
 
 const popups = () => document.getElementById("popups");
 
@@ -1729,6 +1730,7 @@ export function showInvite(provider, { title = t("Invite to Velta"), group = fal
     <p style="font-size:14.5px;line-height:1.5">${group
       ? t("Anyone scanning this code can join this group — the joiner is verified end-to-end automatically.")
       : t("Anyone scanning this code with Velta can reach you with verified end-to-end encryption.")}</p>
+    <div data-domain-tabs></div>
     <div class="qr-box"><div class="qr-loading">${escapeHtml(t("Generating QR code…"))}</div></div>
     <div class="invite-link" style="word-break:break-all"></div>
     <div style="display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:4px;margin-top:6px"><button type="button" class="btn-text" data-copy>${ICON.copy}<span>${escapeHtml(t("Copy invite link"))}</span></button>${inviteCanShare() ? `<button type="button" class="btn-text" data-share aria-label="${escapeAttr(t("Share invite link"))}" disabled>${ICON.share}<span>${escapeHtml(t("Share"))}</span></button>` : ""}</div>`;
@@ -1746,16 +1748,20 @@ export function showInvite(provider, { title = t("Invite to Velta"), group = fal
   provider()
     .then(({ svg, link }) => {
       const box = body.querySelector(".qr-box");
-      box.innerHTML = svg || "<div class='qr-loading'>QR unavailable</div>";
-      body.querySelector(".invite-link").textContent = link;
       const sb = body.querySelector("[data-share]"); if (sb) sb.disabled = !link;
-      // Overlay the Velta logo on the clear circle the core leaves in the
-      // QR center (design space 515x630, circle center at 50% / 43.65% of
-      // the rendered svg).
-      if (account && svg) {
-        box.insertAdjacentHTML("beforeend",
-          `<div class="qr-self"><img src="./icons/v-logo.svg" alt=""></div>`);
-      }
+      // Domain pills (invite-domains.js): i.delta.chat keeps the core card,
+      // a mirror gets a plain QR that already carries the Velta logo.
+      mountInviteDomains(body.querySelector("[data-domain-tabs]"), { svg, link }, (qr, l, isDefault) => {
+        box.innerHTML = qr || "<div class='qr-loading'>QR unavailable</div>";
+        body.querySelector(".invite-link").textContent = l;
+        // Overlay the Velta logo on the clear circle the core leaves in the
+        // QR center (design space 515x630, circle center at 50% / 43.65% of
+        // the rendered svg).
+        if (account && qr && isDefault) {
+          box.insertAdjacentHTML("beforeend",
+            `<div class="qr-self"><img src="./icons/v-logo.svg" alt=""></div>`);
+        }
+      });
     })
     .catch(err => {
       body.querySelector(".qr-box").innerHTML =

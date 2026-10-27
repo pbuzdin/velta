@@ -1394,5 +1394,6 @@
   "Share invite link": "Поделиться ссылкой-приглашением",
   "Chat with me on Velta": "Пиши мне в Velta",
   "Join {name} on Velta": "Присоединяйся к «{name}» в Velta",
-  "Chat with {name} on Velta": "Пиши {name} в Velta"
+  "Chat with {name} on Velta": "Пиши {name} в Velta",
+  "Invite link domain": "Домен ссылки-приглашения"
 }

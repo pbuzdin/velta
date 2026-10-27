@@ -3392,3 +3392,16 @@ html[data-theme="brutal"] .msg-row.out .msg-text .mention { color: var(--nb-main
 .sched-acts { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .sched-acts .sched-del { color: var(--danger); }
 .sched-empty { color: var(--text-dim); text-align: center; padding: 16px 0; }
+
+/* Invite link domain pills above invite QRs (invite-domains.js); same chip
+   palette as the chat category bar (AA in light/dark/brutal). */
+.domain-tabs { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 10px 0 0; }
+.domain-tab {
+  padding: 6px 12px; font-size: 12.5px; line-height: 1.2; border: none; border-radius: 999px;
+  color: var(--text-dim); background: var(--bg-hover); cursor: pointer;
+}
+.domain-tab[aria-selected="true"] { background: var(--accent); color: var(--on-accent-chip); }
+.domain-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) {
+  .domain-tab:hover:not([aria-selected="true"]) { color: var(--text); }
+}

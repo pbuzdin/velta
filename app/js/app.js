@@ -63,6 +63,7 @@ import { ScheduledRunner, localStore, tauriStore } from "./scheduled.js";
 import { pickSendTime, openScheduledList, maybeAskExactAlarm, formatDue } from "./scheduled-ui.js";
 import { recordApp } from "./app-browser.js";
 import { applyDocumentLang, translateTree, t } from "./i18n.js";
+import { mountInviteDomains } from "./invite-domains.js";
 import { ICON, LOOP_SVG, P, svg } from "./icons.js";
 
 applyDocumentLang();
@@ -1732,6 +1733,7 @@ function renderQrView() {
       hasWebShare: typeof navigator.share === "function",
     });
     wrap.innerHTML = `${tabs}
+      <div data-domain-tabs></div>
       <div class="qr-box"><div class="qr-loading">${escapeHtml(t("Generating QR code…"))}</div></div>
       <div class="invite-link" style="word-break:break-all"></div>
       <div class="qr-actions">
@@ -1801,9 +1803,11 @@ function renderQrView() {
     .then(({ svg, link }) => {
       const box = wrap.querySelector(".qr-box");
       if (listView !== "qr" || qrTab !== "mine") return;
-      box.innerHTML = svg || `<div class='qr-loading'>${escapeHtml(t("QR unavailable"))}</div>`;
-      wrap.querySelector(".invite-link").textContent = link;
-      inviteText = link || "";
+      mountInviteDomains(wrap.querySelector("[data-domain-tabs]"), { svg, link }, (qr, l) => {
+        box.innerHTML = qr || `<div class='qr-loading'>${escapeHtml(t("QR unavailable"))}</div>`;
+        wrap.querySelector(".invite-link").textContent = l;
+        inviteText = l || "";
+      });
       copyBtn.disabled = !inviteText;
       if (shareBtn) shareBtn.disabled = !inviteText;
     })
