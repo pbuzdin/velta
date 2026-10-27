@@ -37,3 +37,19 @@ test("DNS tunnel mode off does not run the tunnel as the profiles' proxy", () =>
   const setMode = fnBody(rs, "pub fn set_mode(");
   assert.match(setMode, /if mode == "off" \{[\s\S]*?stop_running\(\);/);
 });
+
+// Background fetch runs under a 15 s timeout; patch #12 restarts IO after
+// 10 s and the stop alone can take 30 s. A restart dropped between stop and
+// start left IO stopped until a manual core restart (#165).
+test("patch #12 IO restart survives the background_fetch timeout", () => {
+  for (const p of ["core/src/context.rs", "tools/apply-core-patches.py"]) {
+    const s = src(p);
+    assert.doesNotMatch(s, /\n\s*self\.restart_io_if_running\(\)\.await;\n\s*self\.wait_for_work_done/, p);
+    assert.match(s, /tokio::spawn\(async move \{ ctx\.restart_io_if_running\(\)\.await \}\)/, p);
+  }
+});
+
+test("resume logs account lock latency and connectivity", () => {
+  const body = fnBody(src("velta-app/src-tauri/src/lib.rs"), "fn Java_org_velta_MainActivity_setActivityForeground");
+  assert.match(body, /tunnel::log_resume_state\(\)/);
+});

@@ -339,6 +339,11 @@ to `net::TIMEOUT` (60 s). Patch: bound `wait_for_work_done` at 10 s, then
 sockets. Upstream fix: a bounded fetch / stale-session detection in
 `background_fetch`.
 
+2026-10-28: the restart runs in a spawned task. `Accounts::background_fetch`
+wraps the call in a timeout (Velta: 15 s), the restart starts at 10 s and
+its stop can take 30 s, so the timeout dropped it between stop and start
+and left IO stopped (chat list frozen until a manual core restart).
+
 ### 13. Push-token registration is invisible to the UI (core/src/imap.rs)
 
 **Tracker: pbuzdin/velta#166.**

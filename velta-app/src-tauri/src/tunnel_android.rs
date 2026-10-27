@@ -60,6 +60,28 @@ pub async fn restart_io(id: u32) {
     }
 }
 
+/// Resume diagnostic: one line per account with its connectivity, or a
+/// line saying the account manager lock is held (a stuck start_io/stop_io
+/// writer blocks every UI RPC). Read-only; bounded at 5 s.
+pub async fn log_resume_state() {
+    let Some(a) = accounts() else {
+        crate::log("resume: core not running");
+        return;
+    };
+    let t = std::time::Instant::now();
+    let contexts: Vec<_> = match tokio::time::timeout(std::time::Duration::from_secs(5), a.read()).await {
+        Ok(accounts) => accounts.get_all().into_iter().filter_map(|id| accounts.get_account(id).map(|c| (id, c))).collect(),
+        Err(_) => {
+            crate::log("resume: account lock busy >5s (IO start/stop stuck?)");
+            return;
+        }
+    };
+    crate::log(&format!("resume: account lock in {} ms", t.elapsed().as_millis()));
+    for (id, ctx) in contexts {
+        crate::log(&format!("resume: account {id} connectivity {:?}", ctx.get_connectivity()));
+    }
+}
+
 /// Tells the core the network changed; false when it is not up yet.
 pub async fn maybe_network() -> bool {
     let Some(a) = accounts() else { return false };

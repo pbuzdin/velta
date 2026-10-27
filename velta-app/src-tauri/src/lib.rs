@@ -2546,6 +2546,7 @@ pub extern "system" fn Java_org_velta_MainActivity_setActivityForeground(
         }
         // Always interrupt on resume, even if a network callback just did.
         kick_maybe_network(true);
+        tauri::async_runtime::spawn(tunnel::log_resume_state());
     } else {
         kick_maybe_network(false);
     }

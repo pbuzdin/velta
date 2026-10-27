@@ -656,7 +656,15 @@ async fn test_velta_pin_yields_to_send_failure() -> Result<()> {
                     self,
                     "background_fetch: work not done within 10s, restarting IO to drop a stale connection."
                 );
-                self.restart_io_if_running().await;
+                // Velta #165: run the restart in its own task. The caller
+                // (Accounts::background_fetch) wraps this in a timeout, and a
+                // restart dropped between stop and start left IO stopped
+                // until the user restarted core by hand; maybe_network is
+                // a no-op on a stopped scheduler.
+                let ctx = self.clone();
+                tokio::spawn(async move { ctx.restart_io_if_running().await })
+                    .await
+                    .ok();
                 self.wait_for_work_done(include_smtp).await;
             }
 """,

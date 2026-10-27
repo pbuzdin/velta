@@ -32,6 +32,12 @@ mod platform;
 #[path = "tunnel_windows.rs"]
 mod platform;
 
+/// Resume diagnostic (Android): account lock latency and connectivity.
+#[cfg(target_os = "android")]
+pub async fn log_resume_state() {
+    platform::log_resume_state().await
+}
+
 #[cfg(any(target_os = "android", windows))]
 mod imp {
     use super::*;
