@@ -73,6 +73,41 @@ new crates: rustls/webpki-roots/socks are ureq's own.
 - Receiving side has no special card yet: the link opens in the in-app
   browser, the Lufi page decrypts.
 
+## Second provider: Cryptex (2026-10-28)
+
+Lufi was down, so the attach menu's Large file first asks **Upload with**
+Lufi or Cryptex (remembered in `velta-large-provider`). If the chosen one is
+unreachable, Velta offers the other.
+
+- Network: `cryptex.rs`, plain HTTPS via ureq through the account proxy
+  (same `link_preview_proxy` rules, no direct fallback). The renderer never
+  calls the server: it refuses app origins (`Disallowed CORS origin` on
+  preflight, checked 2026-10-28), so the PWA has no Cryptex (Large file is
+  Tauri-only anyway).
+- Upload: one file (`lufi_open_file` handle), 1 GB pre-check (JS and Rust),
+  random 24-char password per upload (`cryptex_new_password`), retention
+  30m…7d (default 7d), optional "delete after the first download"
+  (`autodestroy`). Multipart is streamed from disk with byte progress
+  (`cryptex_progress`) and Cancel (`cryptex_cancel`).
+- API key: entered in the upload dialog, `localStorage` `velta-cryptex-key`,
+  sent as `X-API-Key` only to the configured server, excluded from settings
+  export (with server/files/provider keys). Never hardcode or commit one.
+- Message: `📦 name (size)\nhttps://<server>/<id>#<password>\nAvailable until …`.
+  The site's own page auto-fills id + #password, so the link is the web
+  fallback. Velta parses it (`parseCryptexLink`) and renders a card with
+  **Download**: `/api/open` → `/api/download` (token) →
+  `GET /api/download/<token>` in Rust. Android saves through the save
+  dialog's content:// URI; desktop into Downloads (sanitized name, never a
+  renderer-chosen path). The server's returned `url` was broken
+  (`http://…/api/api/download/…`, 500), so only the token is used.
+- Receivers need no API key (open/download worked without one, 2026-10-28).
+- Sender: id + password kept in `velta-cryptex-files`; Message info shows
+  expiry and **Delete from server** (`/api/destroy`).
+- Not E2E like Lufi: the server stores the file behind the password and
+  sees it while storing.
+- Live test: `CRYPTEX_KEY_FILE=<file> cargo test --lib cryptex -- --ignored`
+  (create, open and download without key, compare bytes, destroy, verify gone).
+
 # Part 2 — "Velta Beam (both online)" (formerly "Send directly")
 
 Built-in webxdc (`app/webxdc/send-direct/` → `app/builtin/send-direct.xdc`,

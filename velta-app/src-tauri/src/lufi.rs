@@ -45,6 +45,10 @@ fn next_id() -> u64 {
 fn files() -> &'static Mutex<HashMap<u64, (PathBuf, u64)>> {
     FILES.get_or_init(|| Mutex::new(HashMap::new()))
 }
+/// Path and size of a file registered by lufi_open_file (shared with cryptex.rs).
+pub(crate) fn registered_file(handle: u64) -> Option<(PathBuf, u64)> {
+    files().lock().unwrap().get(&handle).cloned()
+}
 fn sockets() -> &'static Mutex<HashMap<u64, Arc<Mutex<Ws>>>> {
     SOCKETS.get_or_init(|| Mutex::new(HashMap::new()))
 }

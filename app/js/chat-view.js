@@ -114,6 +114,7 @@ import { senderColorVars } from "./name-color.js";
 const largeFileAvailable = () => !!tauriInvoke();
 import { openInAppBrowser } from "./inapp-browser.js";
 import { lufiUploadFor } from "./lufi-store.js";
+import { parseCryptexLink, cryptexUploadFor } from "./cryptex.js";
 import { isAndroid, rustLog, tauriInvoke } from "./tauri.js";
 import { canShareLink, copyLink, shareLink } from "./qr-actions.js";
 import { ICON, P, svg, labelled } from "./icons.js";
@@ -2327,6 +2328,7 @@ export class ChatView {
       // Velta invite links (proxy / relay / tunnel) → action cards; the
       // links themselves render as token-free chips (invite-cards.js).
       bubble += inviteCardsHtml(m.text, { sender: m.from === 1 ? "" : (m.overrideSenderName || m.fromContact?.name || ""), lang: uiLang() });
+      bubble += cryptexCardHtml(m.text, { canFetch: largeFileAvailable() });
       if (m.fromContact?.bot) { // bot flag rides the sender contact (mock + core)
         const cmds = extractBotCommands(m.text);
         if (cmds.length) {
@@ -2873,6 +2875,8 @@ export class ChatView {
         window.dispatchEvent(new CustomEvent("velta-apply-settings", { detail: { text: m.text, msgId: m.id, chatKind: this.chat?.kind } }));
         return;
       }
+      const cxBtn = e.target.closest("[data-cryptex-dl]");
+      if (cxBtn) { e.stopPropagation(); this._fetchCryptex(m, cxBtn); return; }
       const readMore = e.target.closest("[data-fullmsg]");
       if (readMore) { e.stopPropagation(); this._showFullMessage(m); return; }
     };
@@ -3401,7 +3405,7 @@ export class ChatView {
       <div class="info-row"><span class="k">${escapeHtml(t("State"))}</span><span class="v">${escapeHtml(state)}</span></div>
       <div class="info-reacts" data-reacts hidden></div>
       ${deliveryRows}
-      ${lufiUploadFor(this.core.accountId, m.id) ? `<div data-largefile hidden></div>` : ""}
+      ${lufiUploadFor(this.core.accountId, m.id) || cryptexUploadFor(this.core.accountId, m.id) ? `<div data-largefile hidden></div>` : ""}
       <div class="info-row"><span class="k">${escapeHtml(t("Database ID"))}</span><span class="v">#${escapeHtml(m.id)}</span></div>
       <div class="info-row wrap"><span class="k">Message-ID</span><span class="v" data-mid>…</span></div>
       <div class="info-row wrap"><span class="k">${escapeHtml(t("Server URL"))}</span><span class="v" data-servers>…</span></div>`,
@@ -3414,6 +3418,13 @@ export class ChatView {
       slot.insertAdjacentHTML("afterend", lf.largeFileInfoHtml(lufiUploadFor(this.core.accountId, m.id)));
       slot.remove();
       lf.wireLargeFileInfo(info.modal, this.core.accountId, m.id);
+    }).catch(() => {});
+    else if (cryptexUploadFor(this.core.accountId, m.id)) import("./large-file.js").then((lf) => {
+      const slot = info.modal.querySelector("[data-largefile]");
+      if (!slot || !info.modal.isConnected) return;
+      slot.insertAdjacentHTML("afterend", lf.cryptexInfoHtml(cryptexUploadFor(this.core.accountId, m.id)));
+      slot.remove();
+      lf.wireCryptexInfo(info.modal, this.core.accountId, m.id);
     }).catch(() => {});
     const reactBox = info.modal.querySelector("[data-reacts]");
     const paintReactions = (payload) => {
@@ -4605,6 +4616,26 @@ export class ChatView {
     }
   }
 
+  // Cryptex link in a message: open -> token -> file, in one tap (Tauri).
+  async _fetchCryptex(m, btn) {
+    const link = parseCryptexLink(m.text);
+    if (!link || btn.disabled) return;
+    btn.disabled = true;
+    const label = btn.querySelector("span");
+    const prev = label?.textContent;
+    if (label) label.textContent = t("Downloading…");
+    try {
+      const { fetchCryptexLink } = await import("./large-file.js");
+      const saved = await fetchCryptexLink(link);
+      if (saved) toast(t("Saved"));
+    } catch (err) {
+      if (!/cancel/i.test(String(err?.message || err))) errToast(t("Couldn't download: ") + (err?.message || err));
+    } finally {
+      btn.disabled = false;
+      if (label) label.textContent = prev;
+    }
+  }
+
   async _sendLargeFile() {
     const session = this._session;
     if (!this._isCurrent(session) || !this.chat) return;
@@ -5597,4 +5628,20 @@ export function deletedMessageActions({ onSelect, onInfo, onDelete }) {
     { label: "Info", pair: "meta", icon: ICO.info, onClick: onInfo },
     { label: "Delete", icon: ICO.trash, danger: true, onClick: onDelete },
   ];
+}
+
+// Download card under a message that carries a Cryptex link. The expiry is
+// read from the message's own "Available until …" line. Outside the Tauri
+// shell (PWA) the server refuses the app origin (CORS), so only the web
+// link (the page fills the password from #) remains.
+export function cryptexCardHtml(text, { canFetch = true } = {}) {
+  const link = parseCryptexLink(text);
+  if (!link) return "";
+  const until = /Available until ([^\n·]+)/.exec(String(text || ""))?.[1]?.trim() || "";
+  const host = (() => { try { return new URL(link.server).host; } catch { return link.server; } })();
+  return `<div class="ivc cryptex-card">
+    <div class="ivc-head">${ICO.download || ""}<span class="ivc-title">${escapeHtml(t("Large file"))}</span></div>
+    <ul class="ivc-meta"><li>${escapeHtml(host)} · Cryptex</li>${until ? `<li>${escapeHtml(t("Available until {date}", { date: until }))}</li>` : ""}</ul>
+    ${canFetch ? `<div class="ivc-acts"><button type="button" class="ivc-btn ivc-primary" data-cryptex-dl>${ICO.download || ""}<span>${escapeHtml(t("Download"))}</span></button></div>` : ""}
+  </div>`;
 }
