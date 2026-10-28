@@ -1957,7 +1957,7 @@ fieldset.eph-set { border: 0; margin: 0; padding: 0; min-inline-size: 0; }
 }
 /* Profile management tabs (Add profile / Second device / Export backup).
    Locked tabs: a running flow owns the modal until it finishes. */
-.pm-tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+.pm-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; }
 .pm-tab {
   flex: 1; padding: 8px 4px; border-radius: 8px; font-size: 13.5px;
   background: none; border: 1px solid transparent; color: var(--text-dim);

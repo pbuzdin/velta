@@ -147,6 +147,7 @@ export function activeProxyUrl(enabled, url) {
 // `picture` may call this from the composer. Incoming rows must call it
 // only for `fetch` — a picture-mode receive must not contact the site.
 export async function linkPreview(text, chatId = null) {
+  if (!tauriInvoke()) return null;
   if (linkPreviewMode(chatId) === "off") return null;
   const url = firstLink(text);
   if (!url || !/^https:\/\//.test(url)) return null;

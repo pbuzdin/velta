@@ -1128,6 +1128,7 @@ const IS_ANDROID = isAndroid();
 
 export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, onWsRelays, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality, downloadLimit = "0", onDownloadLimit, onReadReceipts, onLowBatteryToggle, multiDeviceState = "loading", multiDeviceReenabled = false, onMultiDevice, onMultiDeviceKeep, onDrawerOpen, identityBackupAvailable = false, onIdentityBackup, onTunnel = null, tunnelLabel = "", onWsTransport = null, wsTransportLabel = "", onDiagnostics = null, onPushSection = null, onWebPushSection = null, backendKind = null, onExportSettings = null, onScheduled = null }) {
   const inTauri = isTauri();
+  const androidApp = IS_ANDROID && inTauri;
   const drawer = document.createElement("div");
   drawer.className = "drawer";
   drawer.id = "drawer";
@@ -1203,11 +1204,11 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="mutedmentions"${notifyChecked("velta-notify-muted-mentions") ? " checked" : ""}><span>${t("Notify me when mentioned in muted chats")}</span></label>
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="text"${notifyChecked("velta-notify-text") ? " checked" : ""}><span>${t("Show message content")}</span></label>
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="system"${notifyChecked("velta-notify-system") ? " checked" : ""}><span>${t("System notification for new messages")}</span></label>
-          ${IS_ANDROID ? `
+          ${androidApp ? `
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="vibration"${notifyChecked("velta-notify-vibration") ? " checked" : ""}><span>${t("Vibration")}</span></label>
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="sounds"${notifyChecked("velta-notify-sounds") ? " checked" : ""}><span>${t("In-chat sounds")}</span></label>` : ""}
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="calls"${notifyChecked("velta-notify-calls") ? " checked" : ""}><span>${t("Calls")}</span></label>
-          ${IS_ANDROID ? `
+          ${androidApp ? `
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="bg"${notifyChecked("velta-notify-bg") ? " checked" : ""}><span>${t("Use background connection")}</span></label>
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="bgforce"${notifyChecked("velta-notify-bgforce") ? " checked" : ""}><span>${t("Force background connection")}</span></label>
           <div class="bar-opts-hint">${t("Force keeps background fetching alive under battery restrictions (asks Android for exemption).")}</div>
@@ -1215,11 +1216,11 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
         </fieldset>
         <div class="bar-opts-hint">${t("Per-chat muting lives in each chat's info sheet.")}</div>
       </details>
-      ${IS_ANDROID && onPushSection ? `<details class="drawer-details" data-push-section>
+      ${androidApp && onPushSection ? `<details class="drawer-details" data-push-section>
         <summary>${ICON.downloadTray}<span data-push-summary>${t("Push notifications")}</span></summary>
         <div data-push-body><div class="bar-opts-hint">${t("Loading…")}</div></div>
       </details>` : ""}
-      ${!IS_ANDROID && onWebPushSection ? `<details class="drawer-details" data-webpush-section>
+      ${onWebPushSection && !androidApp ? `<details class="drawer-details" data-webpush-section>
         <summary>${ICON.downloadTray}<span data-webpush-summary>${t("Push notifications")}</span></summary>
         <div data-webpush-body><div class="bar-opts-hint">${t("Loading…")}</div></div>
       </details>` : ""}
@@ -1250,21 +1251,21 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
       ${onWsRelays ? `<button type="button" class="ctx-item" data-act="ws-relays">${ICON.globe}<span>${t("WebSocket relays")}</span></button>` : ""}
       ${identityBackupAvailable ? `<button type="button" class="ctx-item" data-act="identity-backup">${ICON.key}<span>${t("Identity backup…")}</span></button>` : ""}
       <button type="button" class="ctx-item" data-act="invite-domains">${ICON.globe}<span>${t("Invite link domains")}</span></button>
-      <details class="drawer-details">
+      ${inTauri ? `<details class="drawer-details">
         <summary>${ICON.link}<span>${t("{label}: {state}", { label: t("Link previews"), state: t(LINK_PREVIEW_LABELS[linkPreviewMode()]) })}</span></summary>
         <fieldset class="scale-opts" data-lp-opts>
           <legend class="vh">${t("Link previews")}</legend>
           ${[["off", "Off"], ["picture", "Send a picture"], ["fetch", "Load on this device"]].map(([value, label]) => `<label class="scale-opt"><input type="radio" name="link-preview-mode" data-lp-value="${value}"${value === linkPreviewMode() ? " checked" : ""}><span>${t(label)}</span></label>`).join("")}
         </fieldset>
         <div class="bar-opts-hint">${t("Send a picture attaches a snapshot; other people do not open the site.")} ${t(LINK_PREVIEW_IP_WARNING)}</div>
-      </details>
+      </details>` : ""}
       <label class="ctx-item" title="${escapeHtml(t("Drops utm and click-id parameters when you paste or open a link. Undo brings them back."))}">${ICON.cleanLink}<span>${escapeHtml(toggleText("Strip tracking from links", trackingStripEnabled() ? "on" : "off"))}</span><input type="checkbox" role="switch" data-toggle="strip-trackers"${trackingStripEnabled() ? " checked" : ""}></label>
       <label class="ctx-item">${ICON.enterKey}<span>${escapeHtml(toggleText("Send on Enter", localStorage.getItem("velta-send-enter") === "0" ? "off" : "on"))}</span><input type="checkbox" role="switch" data-toggle="send-enter"${localStorage.getItem("velta-send-enter") === "0" ? "" : " checked"}></label>
       <label class="ctx-item" title="${escapeHtml(t("Off also stops seen-status sync between your own devices"))}">${ICON.tick2}<span>${escapeHtml(toggleText("Show and send read receipts", localStorage.getItem("velta-mdns") === "0" ? "off" : "on"))}</span><input type="checkbox" role="switch" data-toggle="read-receipts"${localStorage.getItem("velta-mdns") === "0" ? "" : " checked"}></label>
       <label class="ctx-item" title="${escapeHtml(t("Copies messages you send to your other devices and syncs state between them"))}">${ICON.devices}<span>${escapeHtml(toggleText("Multi-device", mdLabel(multiDeviceState)))}</span><input type="checkbox" role="switch" data-toggle="multidevice"${multiDeviceState === "on" ? " checked" : ""}${multiDeviceState === "on" || multiDeviceState === "off" ? "" : ' aria-checked="mixed"'}></label>
       <div class="bar-opts-hint ctx-hint" data-md-hint>${escapeHtml(t(MD_HINT))}</div>
       <div class="bar-opts-hint ctx-hint md-note" data-md-note${multiDeviceReenabled ? "" : " hidden"}><span>${escapeHtml(t(MD_REENABLED_NOTE))}</span> <span class="md-note-acts"><button type="button" class="btn-text" data-md-off>${t("Turn off again")}</button><button type="button" class="btn-text" data-md-keep>${t("Keep on")}</button></span></div>
-      ${IS_ANDROID ? `<label class="ctx-item" title="${escapeHtml(t("While the phone is under 10% and off the charger, your latest message in each chat gets a 🪫 reaction so the other side knows replies may stop. Recipients see it as a normal reaction; other clients show the emoji only."))}">${ICON.battery}<span>${escapeHtml(toggleText("Low-battery marker", localStorage.getItem("velta-low-battery-react") === "1" ? "on" : "off"))}</span><input type="checkbox" role="switch" data-toggle="low-battery"${localStorage.getItem("velta-low-battery-react") === "1" ? " checked" : ""}></label>` : ""}
+      ${androidApp ? `<label class="ctx-item" title="${escapeHtml(t("While the phone is under 10% and off the charger, your latest message in each chat gets a 🪫 reaction so the other side knows replies may stop. Recipients see it as a normal reaction; other clients show the emoji only."))}">${ICON.battery}<span>${escapeHtml(toggleText("Low-battery marker", localStorage.getItem("velta-low-battery-react") === "1" ? "on" : "off"))}</span><input type="checkbox" role="switch" data-toggle="low-battery"${localStorage.getItem("velta-low-battery-react") === "1" ? " checked" : ""}></label>` : ""}
       <label class="ctx-item">${ICON.download}<span>${escapeHtml(toggleText("Remember scroll position in chats", localStorage.getItem("velta-remember-scroll") === "0" ? "off" : "on"))}</span><input type="checkbox" role="switch" data-toggle="remember-scroll"${localStorage.getItem("velta-remember-scroll") === "0" ? "" : " checked"}></label>
       <label class="ctx-item">${ICON.demo}<span>${escapeHtml(toggleText("Demo mode", localStorage.getItem("velta-mock") === "1" ? "on" : "off"))}</span><input type="checkbox" role="switch" data-toggle="demo"${localStorage.getItem("velta-mock") === "1" ? " checked" : ""}></label>
       ${onExportSettings ? `<button type="button" class="ctx-item" data-act="export-settings" title="${escapeHtml(t("Sends your Velta preferences as one text message to Saved Messages, so another device can apply them. No relays, keys or addresses."))}">${ICON.bookmarkExport}<span>${t("Export settings to Saved Messages")}</span></button>` : ""}

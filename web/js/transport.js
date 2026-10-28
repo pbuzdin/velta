@@ -4,7 +4,7 @@
 //   2. inside the Tauri shell         → in-process core via Tauri IPC
 //   3. PWA (no native shell)          → wasm core in a worker (opt-in)
 //   4. anything else (dev/demo)       → mock core
-// The retired background-service APK (ws://127.0.0.1:20808, archive/) is
+// The retired background-service APK (ws://127.0.0.1:20808) is
 // no longer probed: nothing authenticated the listener, so any local app
 // on that port could have posed as the core after a startup failure.
 import { JsonRpcCore } from "./rpc-core.js";

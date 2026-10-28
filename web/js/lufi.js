@@ -122,11 +122,6 @@ export function encryptSlice(key, b64, { salt, iv }) {
 export function buildPartFrame(meta, encrypted) {
   return `${JSON.stringify(meta)}XXMOJOXX${JSON.stringify(encrypted)}`;
 }
-// Inverse of a /download frame's payload half (tests + round-trip check).
-export function decryptSlice(key, payload) {
-  const enc = typeof payload === "string" && payload.startsWith('"') ? JSON.parse(payload) : payload;
-  return sjcl.decrypt(key, enc);
-}
 
 export class LufiCancelled extends Error {
   constructor() { super("Upload cancelled"); this.name = "LufiCancelled"; }
