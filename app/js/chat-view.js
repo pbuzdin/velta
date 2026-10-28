@@ -2171,12 +2171,11 @@ export class ChatView {
     const holdKey = this._deleteByMsg.get(m.id);
     if (holdKey != null) {
       const batch = this._deleteBatches.get(holdKey);
-      const h = batch?.heights.get(m.id) || 0;
       const elapsed = batch ? Math.min(batch.ms, Math.max(0, Date.now() - batch.started)) : 0;
       const undo = batch && !batch.committing
         ? `<button type="button" class="msg-undo" data-undo>${escapeHtml(t("Undo"))}<span class="msg-undo-bar" style="animation-duration:${batch.ms}ms;animation-delay:-${elapsed}ms"></span></button>`
         : "";
-      inner += `<div class="bubble msg-deleted"${h ? ` style="min-height:${h}px"` : ""}><div class="msg-deleted-label">${escapeHtml(t("This message was deleted"))}</div>${undo}</div>`;
+      inner += `<div class="bubble msg-deleted"><div class="msg-deleted-label">${escapeHtml(t("This message was deleted"))}</div>${undo}</div>`;
       row.innerHTML = inner;
       if (item.readMarker) row.append(this._readMarkerEl());
       row.querySelector("[data-undo]")?.addEventListener("click", (e) => {
@@ -3179,8 +3178,21 @@ export class ChatView {
     const session = this._session;
     if (!this._isCurrent(session) || this.msgIndex.get(item.msg.id) !== item) return;
     const m = item.msg;
-    if (m.kind === "service" || this._deleteByMsg.has(m.id)) return;
+    if (m.kind === "service") return;
     const touch = this._offerSelectText();
+    // Deleted (held for undo, or committing): nothing to reply to, forward,
+    // download or resend. Delete commits it now instead of waiting for undo.
+    const heldKey = this._deleteByMsg.get(m.id);
+    if (heldKey != null) {
+      const held = deletedMessageActions({
+        onSelect: () => this._enterSelection(m.id),
+        onInfo: () => this._showInfo(item),
+        onDelete: () => this._commitDelete(heldKey),
+      }).map(action => ({ ...action, onClick: () => { if (this._isCurrent(session)) return action.onClick(); } }));
+      if (!touch) { this._showActionBar(item, "", held, false, session); return; }
+      showMessageSheet({ reactions: [], items: held });
+      return;
+    }
     const items = [];
     // #161: the gesture landed on a link — its URL gets the first actions.
     // Copy/open use the same cleaned URL a click would open (#89); Open rides
@@ -5564,3 +5576,12 @@ export class ChatView {
 }
 
 // Inline text rendering (URLs, invite cards, markdown) lives in markdown.js.
+
+// Menu for a deleted (undo-held) message: Select, Info, Delete only.
+export function deletedMessageActions({ onSelect, onInfo, onDelete }) {
+  return [
+    { label: "Select", pair: "meta", icon: ICO.select, onClick: onSelect },
+    { label: "Info", pair: "meta", icon: ICO.info, onClick: onInfo },
+    { label: "Delete", icon: ICO.trash, danger: true, onClick: onDelete },
+  ];
+}

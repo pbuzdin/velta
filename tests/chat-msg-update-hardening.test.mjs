@@ -1299,7 +1299,7 @@ test("a confirmed delete stays on screen until the undo bar ends", async t => {
   view._holdDelete(view._session, [10], false);
   let tomb = node("history").children[0];
   assert.match(tomb.innerHTML, /This message was deleted/);
-  assert.match(tomb.innerHTML, /min-height:80px/);
+  assert.doesNotMatch(tomb.innerHTML, /min-height/); // compact tombstone, not the bubble height
   assert.match(tomb.innerHTML, />Undo<span/);
   assert.match(tomb.innerHTML, /animation-delay:-\d+ms/);
   view._rowCache.delete("m10");

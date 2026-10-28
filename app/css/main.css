@@ -609,10 +609,12 @@ html[data-theme="light"] .read-marker { color: #155a9e; border-color: #155a9e; }
 }
 .msg-row.selectable .msg-select-bar { display: none; }
 html[data-theme="light"] .msg-select-btn { background: rgba(16, 16, 16, .08); }
-/* Delete hold: the bubble stays its measured height until the undo bar ends. */
+/* Delete hold: a compact tombstone (label + Undo on one line), whatever the
+   size of the bubble it replaces. */
 .bubble.msg-deleted {
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 8px; text-align: center; box-sizing: border-box; color: var(--text-dim);
+  display: flex; flex-flow: row wrap; align-items: center;
+  gap: 4px 10px; box-sizing: border-box; color: var(--text-dim);
+  min-height: 0; max-width: min(100%, 320px); font-style: italic;
 }
 .msg-deleted-label { font-size: 14px; line-height: 1.35; }
 .msg-undo {
@@ -1812,7 +1814,18 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .msg-react svg { width: 22px; height: 22px; }
 .msg-react:active, .msg-emoji:active, .msg-actions .ctx-item:active { background: var(--bg-hover); }
 .msg-actions { display: flex; flex-direction: column; gap: 8px; }
-.msg-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+/* Firefox-style action grid: three tiles per row, two on narrow phones. */
+.msg-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 339.98px) { .msg-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.msg-actions .ctx-item.msg-tile {
+  flex-direction: column; justify-content: center; gap: 6px;
+  min-height: 72px; padding: 10px 6px; text-align: center;
+}
+.msg-tile span { font-size: 13px; line-height: 1.2; overflow-wrap: anywhere; }
+.msg-tile svg { width: 24px; height: 24px; flex: none; }
+.msg-actions .ctx-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Light: the sheet and --bg are both #f4f4f4 — lift the tiles so their cells read. */
+html[data-theme="light"] .msg-actions .ctx-item { background: #fff; box-shadow: inset 0 0 0 1px rgba(16,16,16,.08); }
 .msg-actions .ctx-item {
   background: var(--bg); border-radius: 12px; min-height: 48px;
 }

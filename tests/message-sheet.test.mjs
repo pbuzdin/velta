@@ -3,27 +3,40 @@ import assert from "node:assert/strict";
 
 globalThis.HTMLElement = class {};
 globalThis.window = { addEventListener() {}, removeEventListener() {} };
-const { messageSheetRows, footButtons } = await import("../app/js/ui.js");
+const { messageSheetRows, gridNeighbor, footButtons } = await import("../app/js/ui.js");
 const { searchEmoji } = await import("../app/js/emoji.js");
 
-test("related actions share a row and delete is full width", () => {
-  const rows = messageSheetRows([
+test("actions tile in order and delete stays a full-width row", () => {
+  const { tiles, danger } = messageSheetRows([
     { label: "Reply", pair: "send" },
     { label: "Forward", pair: "send" },
     { label: "Pin", pair: "keep" },
     { label: "Save", pair: "keep" },
-    { label: "Edit", pair: "own" },
+    { label: "Download", pair: "file" },
+    { label: "Resend", pair: "own" },
+    { label: "Select", pair: "meta" },
     "-",
     { label: "Delete", danger: true },
   ]);
-  assert.deepEqual(rows.map(r => r.items.map(i => i.label)), [
-    ["Reply", "Forward"],
-    ["Pin", "Save"],
-    ["Edit"],
-    ["Delete"],
-  ]);
-  assert.equal(rows.at(-1).full, true);
-  assert.equal(rows[0].full, false);
+  assert.deepEqual(tiles.map(i => i.label), ["Reply", "Forward", "Pin", "Save", "Download", "Resend", "Select"]);
+  assert.deepEqual(danger.map(i => i.label), ["Delete"]);
+});
+
+test("arrow keys walk the 3-column grid and stop at the edges", () => {
+  assert.equal(gridNeighbor(0, 7, 3, "ArrowRight"), 1);
+  assert.equal(gridNeighbor(1, 7, 3, "ArrowDown"), 4);
+  assert.equal(gridNeighbor(4, 7, 3, "ArrowDown"), 4); // no tile below
+  assert.equal(gridNeighbor(0, 7, 3, "ArrowUp"), 0);
+  assert.equal(gridNeighbor(3, 7, 2, "ArrowUp"), 1);
+  assert.equal(gridNeighbor(5, 7, 3, "Home"), 0);
+  assert.equal(gridNeighbor(0, 7, 3, "End"), 6);
+});
+
+test("grid CSS: 3 columns, 2 under 340px, delete full width", async () => {
+  const { readFileSync } = await import("node:fs");
+  const css = readFileSync(new URL("../app/css/main.css", import.meta.url), "utf8");
+  assert.match(css, /\.msg-grid \{ display: grid; grid-template-columns: repeat\(3,/);
+  assert.match(css, /@media \(max-width: 339\.98px\) \{ \.msg-grid \{ grid-template-columns: repeat\(2,/);
 });
 
 test("emoji search matches a name and is empty for nonsense", () => {

@@ -270,17 +270,28 @@ function openLightDismiss(el) {
   return false;
 }
 
-// Consecutive items that share `pair` sit on one row (at most two).
-// A danger item is its own full-width row. "-" is dropped.
+// Phone message menu layout (Firefox-style): every non-danger action is a
+// tile in a 3-column grid (2 under 340px, CSS), in the given order, so no
+// half-empty pair rows. Danger items (Delete) follow as full-width rows.
+// "-" is dropped.
 export function messageSheetRows(items) {
-  const rows = [];
+  const tiles = [];
+  const danger = [];
   for (const it of items) {
     if (it === "-") continue;
-    const prev = rows.at(-1);
-    if (it.pair && !it.danger && prev?.pair === it.pair && prev.items.length < 2) prev.items.push(it);
-    else rows.push({ pair: it.pair || "", full: !!it.danger, items: [it] });
+    (it.danger ? danger : tiles).push(it);
   }
-  return rows;
+  return { tiles, danger };
+}
+
+// Arrow keys move focus between grid tiles; columns come from the live grid.
+export function gridNeighbor(index, count, cols, key) {
+  const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -cols, ArrowDown: cols }[key];
+  if (key === "Home") return 0;
+  if (key === "End") return count - 1;
+  if (step == null) return index;
+  const next = index + step;
+  return next < 0 || next >= count ? index : next;
 }
 
 function sheetAction(it) {
@@ -395,11 +406,34 @@ export function showMessageSheet({ reactions = [], selected = null, onReact, ite
 
   const actions = document.createElement("div");
   actions.className = "msg-actions";
-  for (const row of messageSheetRows(items)) {
+  const { tiles, danger } = messageSheetRows(items);
+  if (tiles.length) {
+    const grid = document.createElement("div");
+    grid.className = "msg-grid";
+    grid.setAttribute("role", "group");
+    grid.setAttribute("aria-label", t("Message actions"));
+    const buttons = tiles.map(it => {
+      const b = sheetAction(it);
+      b.classList.add("msg-tile");
+      return b;
+    });
+    grid.append(...buttons);
+    grid.addEventListener("keydown", (e) => {
+      const i = buttons.indexOf(document.activeElement);
+      if (i < 0) return;
+      const cols = Math.max(1, getComputedStyle(grid).gridTemplateColumns.split(" ").filter(Boolean).length);
+      const j = gridNeighbor(i, buttons.length, cols, e.key);
+      if (j !== i || e.key === "Home" || e.key === "End") {
+        e.preventDefault();
+        buttons[j].focus();
+      }
+    });
+    actions.append(grid);
+  }
+  for (const it of danger) {
     const wrap = document.createElement("div");
-    wrap.className = row.full ? "msg-row-full" : "msg-pair";
-    if (row.pair) wrap.dataset.pair = row.pair;
-    for (const it of row.items) wrap.append(sheetAction(it));
+    wrap.className = "msg-row-full";
+    wrap.append(sheetAction(it));
     actions.append(wrap);
   }
   menu.append(actions);
