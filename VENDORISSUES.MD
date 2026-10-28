@@ -484,3 +484,15 @@ queued behind that reader then blocked every other RPC (tokio's RwLock is
 fair), so `get_chat`/`get_messages` stalled until the UI's 30 s RPC timeout:
 chat switching "did nothing" on Android after a send. The op clones the
 contexts under the lock and interrupts after releasing it.
+
+### 18. Scheduler interrupts wait behind an IO restart (core/src/scheduler.rs)
+
+**Tracker: pbuzdin/velta#176. Status: patched locally (quilt ops "#18 …").**
+`SchedulerState::interrupt_{inbox,smtp,ephemeral_task,location,recently_seen}`
+awaited `inner.read()`. An IO stop/restart holds `inner.write()` while the
+IMAP/SMTP tasks wind down (30 s each, more over a dead proxy). The lock is
+fair, so `send_msg` (chat.rs) and `markseen_msgs` (opening a chat) queued
+behind it: `rpc timeout: send_msg`, and chats would not open. Patch: use
+`try_read()` and skip when a start or stop holds the lock. A starting
+scheduler fetches and sends on its own, and a stopping one would ignore the
+signal. Upstream fix: non-blocking interrupts.

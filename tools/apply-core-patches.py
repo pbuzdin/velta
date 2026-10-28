@@ -1178,6 +1178,51 @@ pub struct JsonrpcTransportServerMetadata {
     }
 """,
     ),
+    # ---- VENDORISSUES #18 (#176): scheduler interrupts skip a held lock ----
+    # An IO stop/restart holds the scheduler write lock while tasks wind
+    # down (30 s each); send_msg and markseen_msgs queued behind it and the
+    # UI froze (rpc timeout: send_msg, chats would not open). A starting
+    # scheduler fetches and sends anyway; a stopping one ignores the signal.
+    dict(
+        id="#18 interrupt_inbox does not wait behind an IO restart (scheduler.rs)",
+        file="core/src/scheduler.rs",
+        applied="Velta #18 (interrupt_inbox): never wait behind an IO start/stop",
+        anchor='    pub(crate) async fn interrupt_inbox(&self) {\n        let inner = self.inner.read().await;\n        if let InnerSchedulerState::Started(ref scheduler) = *inner {\n            scheduler.interrupt_inbox();\n        }\n    }\n',
+        where="replace",
+        text='    pub(crate) async fn interrupt_inbox(&self) {\n        // Velta #18 (interrupt_inbox): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            return;\n        };\n        if let InnerSchedulerState::Started(ref scheduler) = *inner {\n            scheduler.interrupt_inbox();\n        }\n    }\n',
+    ),
+    dict(
+        id="#18 interrupt_smtp does not wait behind an IO restart (scheduler.rs)",
+        file="core/src/scheduler.rs",
+        applied="Velta #18 (interrupt_smtp): never wait behind an IO start/stop",
+        anchor='    pub(crate) async fn interrupt_smtp(&self) {\n        let inner = self.inner.read().await;\n        if let InnerSchedulerState::Started(ref scheduler) = *inner {\n            scheduler.interrupt_smtp();\n        }\n    }\n',
+        where="replace",
+        text='    pub(crate) async fn interrupt_smtp(&self) {\n        // Velta #18 (interrupt_smtp): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            return;\n        };\n        if let InnerSchedulerState::Started(ref scheduler) = *inner {\n            scheduler.interrupt_smtp();\n        }\n    }\n',
+    ),
+    dict(
+        id="#18 interrupt_ephemeral_task does not wait behind an IO restart (scheduler.rs)",
+        file="core/src/scheduler.rs",
+        applied="Velta #18 (interrupt_ephemeral_task): never wait behind an IO start/stop",
+        anchor='    pub(crate) async fn interrupt_ephemeral_task(&self) {\n        let inner = self.inner.read().await;\n        if let InnerSchedulerState::Started(ref scheduler) = *inner {\n            scheduler.interrupt_ephemeral_task();\n        }\n    }\n',
+        where="replace",
+        text='    pub(crate) async fn interrupt_ephemeral_task(&self) {\n        // Velta #18 (interrupt_ephemeral_task): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            return;\n        };\n        if let InnerSchedulerState::Started(ref scheduler) = *inner {\n            scheduler.interrupt_ephemeral_task();\n        }\n    }\n',
+    ),
+    dict(
+        id="#18 interrupt_location does not wait behind an IO restart (scheduler.rs)",
+        file="core/src/scheduler.rs",
+        applied="Velta #18 (interrupt_location): never wait behind an IO start/stop",
+        anchor='    pub(crate) async fn interrupt_location(&self) {\n        let inner = self.inner.read().await;\n        if let InnerSchedulerState::Started(ref scheduler) = *inner {\n            scheduler.interrupt_location();\n        }\n    }\n',
+        where="replace",
+        text='    pub(crate) async fn interrupt_location(&self) {\n        // Velta #18 (interrupt_location): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            return;\n        };\n        if let InnerSchedulerState::Started(ref scheduler) = *inner {\n            scheduler.interrupt_location();\n        }\n    }\n',
+    ),
+    dict(
+        id="#18 interrupt_recently_seen does not wait behind an IO restart (scheduler.rs)",
+        file="core/src/scheduler.rs",
+        applied="Velta #18 (interrupt_recently_seen): never wait behind an IO start/stop",
+        anchor='    pub(crate) async fn interrupt_recently_seen(&self, contact_id: ContactId, timestamp: i64) {\n        let inner = self.inner.read().await;\n        if let InnerSchedulerState::Started(ref scheduler) = *inner {\n            scheduler.interrupt_recently_seen(contact_id, timestamp);\n        }\n    }\n',
+        where="replace",
+        text='    pub(crate) async fn interrupt_recently_seen(&self, contact_id: ContactId, timestamp: i64) {\n        // Velta #18 (interrupt_recently_seen): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            return;\n        };\n        if let InnerSchedulerState::Started(ref scheduler) = *inner {\n            scheduler.interrupt_recently_seen(contact_id, timestamp);\n        }\n    }\n',
+    ),
 ]
 
 

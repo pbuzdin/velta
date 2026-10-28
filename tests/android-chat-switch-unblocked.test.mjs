@@ -53,3 +53,16 @@ test("resume logs account lock latency and connectivity", () => {
   const body = fnBody(src("velta-app/src-tauri/src/lib.rs"), "fn Java_org_velta_MainActivity_setActivityForeground");
   assert.match(body, /tunnel::log_resume_state\(\)/);
 });
+
+// #176: send_msg / markseen_msgs signal the scheduler; an IO restart holds
+// its write lock for up to 30 s per task, so these must never await it.
+test("scheduler interrupts do not wait behind an IO restart", () => {
+  const s = src("core/src/scheduler.rs");
+  for (const n of ["interrupt_inbox", "interrupt_smtp", "interrupt_ephemeral_task", "interrupt_location", "interrupt_recently_seen"]) {
+    const from = s.indexOf(`pub(crate) async fn ${n}(&self`);
+    assert.notEqual(from, -1, n);
+    const body = s.slice(from, s.indexOf("\n    }\n", from));
+    assert.match(body, /self\.inner\.try_read\(\)/, n);
+    assert.doesNotMatch(body, /self\.inner\.read\(\)\.await/, n);
+  }
+});

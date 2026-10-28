@@ -256,35 +256,50 @@ impl SchedulerState {
     }
 
     pub(crate) async fn interrupt_inbox(&self) {
-        let inner = self.inner.read().await;
+        // Velta #18 (interrupt_inbox): never wait behind an IO start/stop (#176).
+        let Ok(inner) = self.inner.try_read() else {
+            return;
+        };
         if let InnerSchedulerState::Started(ref scheduler) = *inner {
             scheduler.interrupt_inbox();
         }
     }
 
     pub(crate) async fn interrupt_smtp(&self) {
-        let inner = self.inner.read().await;
+        // Velta #18 (interrupt_smtp): never wait behind an IO start/stop (#176).
+        let Ok(inner) = self.inner.try_read() else {
+            return;
+        };
         if let InnerSchedulerState::Started(ref scheduler) = *inner {
             scheduler.interrupt_smtp();
         }
     }
 
     pub(crate) async fn interrupt_ephemeral_task(&self) {
-        let inner = self.inner.read().await;
+        // Velta #18 (interrupt_ephemeral_task): never wait behind an IO start/stop (#176).
+        let Ok(inner) = self.inner.try_read() else {
+            return;
+        };
         if let InnerSchedulerState::Started(ref scheduler) = *inner {
             scheduler.interrupt_ephemeral_task();
         }
     }
 
     pub(crate) async fn interrupt_location(&self) {
-        let inner = self.inner.read().await;
+        // Velta #18 (interrupt_location): never wait behind an IO start/stop (#176).
+        let Ok(inner) = self.inner.try_read() else {
+            return;
+        };
         if let InnerSchedulerState::Started(ref scheduler) = *inner {
             scheduler.interrupt_location();
         }
     }
 
     pub(crate) async fn interrupt_recently_seen(&self, contact_id: ContactId, timestamp: i64) {
-        let inner = self.inner.read().await;
+        // Velta #18 (interrupt_recently_seen): never wait behind an IO start/stop (#176).
+        let Ok(inner) = self.inner.try_read() else {
+            return;
+        };
         if let InnerSchedulerState::Started(ref scheduler) = *inner {
             scheduler.interrupt_recently_seen(contact_id, timestamp);
         }
