@@ -111,7 +111,7 @@ test("wiring: worker handles set-push-token, transport exposes it, drawer + boot
   assert.match(src("app/js/transport-worker-wasm.js"), /setPushDeviceToken\(token\)[\s\S]*"set-push-token"/);
   assert.match(src("packages/velta-wasm/rust/src/lib.rs"), /pub async fn set_push_device_token\(&self, token: String\)/);
   const ui = src("app/js/ui.js");
-  assert.match(ui, /<details class="drawer-details" data-webpush-section>/);
+  assert.match(ui, /onWebPushSection && !androidApp \? `<details class="drawer-details" data-webpush-section>/);
   const app = src("app/js/app.js");
   assert.match(app, /refreshWebPush\(core/);
   assert.match(app, /velta-push-subscription-changed/);

@@ -99,8 +99,10 @@ function openIframeOverlay(url) {
     if (history.state?.velta === "inapp-browser") history.back();
   });
   wrap.querySelector("[data-external]").addEventListener("click", () => {
-    const t = window.__TAURI__;
-    (t?.core?.invoke || t?.invoke)?.("plugin:opener|open_url", { url }).catch(() => {});
+    const open = () => window.open(url, "_blank", "noopener");
+    const invoke = tauriInvoke();
+    if (invoke) invoke("plugin:opener|open_url", { url }).catch(open);
+    else open();
   });
 
   const progress = wrap.querySelector("[data-progress]");

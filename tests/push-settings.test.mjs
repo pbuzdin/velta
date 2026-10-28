@@ -53,7 +53,8 @@ test("last push line", () => {
 
 test("drawer section is a native <details>, Android-only, wired in app.js; shell commands exist", () => {
   const ui = readFileSync(new URL("../app/js/ui.js", import.meta.url), "utf8");
-  assert.match(ui, /IS_ANDROID && onPushSection \? `<details class="drawer-details" data-push-section>/);
+  assert.match(ui, /const androidApp = IS_ANDROID && inTauri/);
+  assert.match(ui, /androidApp && onPushSection \? `<details class="drawer-details" data-push-section>/);
   const app = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8");
   assert.match(app, /onPushSection: \(el\) => wirePushSection\(/);
   const lib = readFileSync(new URL("../velta-app/src-tauri/src/lib.rs", import.meta.url), "utf8");

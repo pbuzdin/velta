@@ -2118,7 +2118,7 @@ function chatContextMenu(chat, x, y) {
   showContextMenu([
     grp ? null : { label: chat.pinned ? t("Unpin") : t("Pin to top"), icon: icons.pin, onClick: () => core.setChatFlags(chat.id, { pinned: !chat.pinned }) },
     grp ? null : { label: chat.muted ? t("Unmute") : t("Mute notifications"), icon: icons.mute, onClick: () => core.setChatFlags(chat.id, { muted: !chat.muted }) },
-    { label: t("Link previews: {mode}", { mode: t(LINK_PREVIEW_LABELS[linkPreviewMode(chat.id)]) }), icon: icons.link, onClick: () => {
+    ...(tauriInvoke() ? [{ label: t("Link previews: {mode}", { mode: t(LINK_PREVIEW_LABELS[linkPreviewMode(chat.id)]) }), icon: icons.link, onClick: () => {
       if (!accountIsCurrent(epoch)) return;
       const apply = (mode) => {
         if (!accountIsCurrent(epoch)) return;
@@ -2132,7 +2132,7 @@ function chatContextMenu(chat, x, y) {
       showContextMenu([["off", t("Off")], ["picture", t("Send a picture")], ["fetch", t("Load on this device")]].map(([mode, label]) => ({
         label, onClick: () => apply(mode),
       })), x, y);
-    } },
+    } }] : []),
     chat.unread > 0 ? { label: "Mark as read", icon: icons.read, onClick: () => core.markRead(chat.id) } : null,
     grp ? null : {
       label: "Delete old messages…",
@@ -3650,13 +3650,14 @@ function askGroupName() {
 function openProfileManagement() {
   if (state.accountChanging) return;
   const epoch = core.accountEpoch;
+  const canImport = !!tauriInvoke();
   const body = document.createElement("div");
   body.innerHTML = `
     <div class="pm-tabs" data-tabs>
       <button type="button" class="pm-tab active" data-tab="add">${escapeHtml(t("Add profile"))}</button>
       <button type="button" class="pm-tab" data-tab="device">${escapeHtml(t("Second device"))}</button>
       <button type="button" class="pm-tab" data-tab="export">${escapeHtml(t("Export backup"))}</button>
-      <button type="button" class="pm-tab" data-tab="import">${escapeHtml(t("Import backup"))}</button>
+      ${canImport ? `<button type="button" class="pm-tab" data-tab="import">${escapeHtml(t("Import backup"))}</button>` : ""}
       <button type="button" class="pm-tab" data-tab="delete" style="color:var(--danger)">${escapeHtml(t("Delete profile"))}</button>
     </div>
     <label class="scale-opt" style="margin:2px 2px 10px" title="${escapeHtml(t("Only the selected profile runs mail sync; background profiles are fully paused."))}">
@@ -3688,11 +3689,11 @@ function openProfileManagement() {
       <div class="pm-actions"><button type="button" class="btn-primary" data-export disabled>${escapeHtml(t("Export backup"))}</button></div>
       <div class="pm-progress" data-progress hidden></div>
     </div>
-    <div class="pm-pane" data-pane="import" hidden>
+    ${canImport ? `<div class="pm-pane" data-pane="import" hidden>
       <p class="pm-hint">${escapeHtml(t("Read a backup file — messages, contacts and keys — into a new profile. The profile you are using now stays signed in."))}</p>
       <input class="text-field" data-pass type="password" minlength="6" placeholder="${escapeHtml(t("Passphrase (optional, min 6 chars)"))}" autocomplete="new-password">
       <div class="pm-actions"><button type="button" class="btn-primary" data-import>${escapeHtml(t("Import backup"))}</button></div>
-    </div>
+    </div>` : ""}
     <div class="pm-pane" data-pane="delete" hidden>
       <p class="pm-hint">${t("Removes {name} for good: the account, its keys, the message database and all blobs on this device. This cannot be undone.", { name: "<b data-del-name></b>" })}</p>
       <p class="pm-hint">${t("Tip: write an <b>Export backup</b> first — it is the only copy that survives this.")}</p>
@@ -3718,7 +3719,7 @@ function openProfileManagement() {
     const tab = e.target.closest("[data-tab]");
     if (!tab || tabsBox.classList.contains("locked")) return;
     tabsBox.querySelectorAll(".pm-tab").forEach(t => t.classList.toggle("active", t === tab));
-    for (const [key, pane] of Object.entries(panes)) pane.hidden = key !== tab.dataset.tab;
+    for (const [key, pane] of Object.entries(panes)) if (pane) pane.hidden = key !== tab.dataset.tab;
   });
 
   /* -- sync only active profile (#101) -- */
@@ -3926,6 +3927,7 @@ function openProfileManagement() {
   });
 
   /* -- import backup (a new profile; the core refuses a tar on one in use) -- */
+  if (panes.import) {
   const importPass = panes.import.querySelector("[data-pass]");
   const importBtn = panes.import.querySelector("[data-import]");
   const importHint = panes.import.querySelector(".pm-hint");
@@ -3992,6 +3994,7 @@ function openProfileManagement() {
       finishErr(t("Restore failed: couldn't import the backup") + " " + (err?.message || err));
     });
   });
+  }
 
   /* -- delete profile (#100) -- */
   const delForm = panes.delete.querySelector("[data-del-form]");
@@ -5443,9 +5446,9 @@ function showSplash() {
       <div class="splash-actions" data-actions>
         <button class="btn-primary splash-btn" data-create type="button">${escapeHtml(t("Create an account"))}</button>
         <button class="btn-text splash-btn" data-second type="button">${escapeHtml(t("Add as a second device…"))}</button>
-        <button class="btn-text splash-btn" data-restore type="button">${escapeHtml(t("Restore from a backup…"))}</button>
+        ${tauriInvoke() ? `<button class="btn-text splash-btn" data-restore type="button">${escapeHtml(t("Restore from a backup…"))}</button>` : ""}
         ${identityBackupAvailable() ? `<button class="btn-text splash-btn" data-identity-restore type="button">${escapeHtml(t("Restore an identity backup…"))}</button>` : ""}
-        <button class="btn-text splash-btn" data-local type="button">${escapeHtml(t("Enter local chat…"))}</button>
+        ${tauriInvoke() ? `<button class="btn-text splash-btn" data-local type="button">${escapeHtml(t("Enter local chat…"))}</button>` : ""}
         ${(!window.__TAURI__ && !window.VeltaBridge && (window.VELTA_PWA?.wasmCore || localStorage.getItem("velta-wasm") === "1")) ? `<button class="btn-text splash-btn" data-ws-relays type="button">${escapeHtml(t("WebSocket relays"))}</button>` : ""}
       </div>
       <form class="splash-form" data-form hidden>
@@ -5534,7 +5537,7 @@ function showSplash() {
   // No relay account needed: switch local chat on and drop into the app.
   // The relay bar then reads "Local chat mode — no relay configured"; a
   // relay profile can still be created later via the drawer's Add profile.
-  el.querySelector("[data-local]").addEventListener("click", async () => {
+  el.querySelector("[data-local]")?.addEventListener("click", async () => {
     if (!accountIsCurrent(epoch)) return;
     actionsEl.hidden = true;
     stepsEl.replaceChildren();
@@ -5558,7 +5561,7 @@ function showSplash() {
   });
 
   // --- restore from a backup ---
-  el.querySelector("[data-restore]").addEventListener("click", async () => {
+  el.querySelector("[data-restore]")?.addEventListener("click", async () => {
     if (!core.importBackup) { toast(t("Restore is not available on this backend")); return; }
     const invoke = tauriInvoke();
     if (!invoke) { toast(t("Restore from a backup file needs the Velta app — use \"Add as a second device\" instead")); return; }

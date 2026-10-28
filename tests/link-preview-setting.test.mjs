@@ -146,6 +146,22 @@ test("the configured proxy is passed to the shell fetch, and an unknown one bloc
   assert.deepEqual(calls, [{ cmd: "fetch_link_preview", args: { url: "https://unknown.example/a", proxy: null } }]);
 });
 
+test("a browser with no shell does not fetch a preview", async () => {
+  const prev = globalThis.window.__TAURI__;
+  delete globalThis.window.__TAURI__;
+  setLinkPreviewMode("picture");
+  assert.equal(await linkPreview("https://browser.example/no-shell"), null);
+  globalThis.window.__TAURI__ = prev;
+  const app = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8");
+  const ui = readFileSync(new URL("../app/js/ui.js", import.meta.url), "utf8");
+  const iab = readFileSync(new URL("../app/js/inapp-browser.js", import.meta.url), "utf8");
+  assert.match(app, /tauriInvoke\(\) \? `<button class="btn-text splash-btn" data-local/);
+  assert.match(app, /canImport \? `<button type="button" class="pm-tab" data-tab="import"/);
+  assert.match(app, /tauriInvoke\(\) \? \[\{ label: t\("Link previews:/);
+  assert.match(ui, /inTauri \? `<details class="drawer-details">/);
+  assert.match(iab, /else open\(\)/);
+});
+
 test("activeProxyUrl follows proxy_enabled and takes the first list entry", () => {
   assert.equal(activeProxyUrl("1", "socks5://a:1"), "socks5://a:1");
   assert.equal(activeProxyUrl("1", "\n socks5://a:1 \nhttp://b:2"), "socks5://a:1");
