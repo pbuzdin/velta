@@ -48,7 +48,7 @@ this into an unconditional boot splash.
 ## Second-device flow (`secondDeviceFlow`)
 
 Drawer → "Profile management…" → **Second device** tab (post-1.4.34 the
-profile flows — Add profile / Second device / Export backup — live in one
+profile flows — Add profile / Second device / Export backup / Import backup — live in one
 tabbed modal; the splash's "add as second device" path shares the same
 receive flow). The old device shows a `provide_backup`
 QR (the `get_backup_qr_svg` design card with the `.qr-self` v-logo badge on
@@ -62,8 +62,11 @@ resolves, the new device reapplies the tunnel proxy, calls `start_io`
 emits `account-changed` without bumping the epoch so the relay line leaves
 "no relay configured" (#118). A rejected import does not start IO. A file
 import still relies on the reload at imex progress 1000, which boots into
-`_startIo`. The receive path is `receiveSecondDeviceProfile`, shared with
-the splash.
+`_startIo`. Profile management → Import backup is that same file import once
+a profile already exists: `beginBackupImport` adds an unconfigured account
+(the core refuses a tar on an account in use), selects it, and deletes it
+again if the import fails. The receive path is `receiveSecondDeviceProfile`,
+shared with the splash.
 
 ## Notification permission hang (do not regress)
 

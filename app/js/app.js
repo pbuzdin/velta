@@ -56,7 +56,7 @@ import { parseSharePayload, shareTextIfUnconsumed, sharePlan, createShareInbox, 
 import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS, setLinkPreviewProxySource, activeProxyUrl } from "./link-preview.js";
 import { wirePushSection } from "./push-settings.js";
 import { wireWebPushSection, refreshWebPush } from "./web-push.js";
-import { extractTunnelLink, acceptTunnelLink, makeChooser, openTunnelSettings, refreshTunnelStatus, tunnelInstalled, tunnelStatus, describeTunnel, bindTunnelNetworkEvents, initTunnelDiagnostics } from "./tunnel.js";
+import { extractTunnelLink, acceptTunnelLink, makeChooser, openTunnelSettings, refreshTunnelStatus, tunnelOffered, tunnelStatus, describeTunnel, bindTunnelNetworkEvents, initTunnelDiagnostics } from "./tunnel.js";
 import { wrapIdentityBundle, unwrapIdentityBundle, buildIdentityBundle, bytesToBase64, base64ToBytes, backupDownloadName, gzipBytes, mailLoginFromTransports, accountDirFromToml, mailLoginsFromDbText } from "./identity-backup.js";
 import { isAndroid, tauriInvoke } from "./tauri.js";
 import { ScheduledRunner, localStore, tauriStore } from "./scheduled.js";
@@ -3643,10 +3643,10 @@ function askGroupName() {
 }
 
 // Profile management: one tabbed modal for the profile lifecycle — add a
-// profile, second-device transfer, backup export. Tabs lock while a flow
-// runs inside one (camera capture and transfers are stateful). The second
-// device "receive" branch hands over to its own full-screen steps, which
-// replaces this modal by design.
+// profile, second-device transfer, backup export, backup import. Tabs lock
+// while a flow runs inside one (camera capture and transfers are stateful).
+// The second device "receive" branch hands over to its own full-screen
+// steps, which replaces this modal by design.
 function openProfileManagement() {
   if (state.accountChanging) return;
   const epoch = core.accountEpoch;
@@ -3656,6 +3656,7 @@ function openProfileManagement() {
       <button type="button" class="pm-tab active" data-tab="add">${escapeHtml(t("Add profile"))}</button>
       <button type="button" class="pm-tab" data-tab="device">${escapeHtml(t("Second device"))}</button>
       <button type="button" class="pm-tab" data-tab="export">${escapeHtml(t("Export backup"))}</button>
+      <button type="button" class="pm-tab" data-tab="import">${escapeHtml(t("Import backup"))}</button>
       <button type="button" class="pm-tab" data-tab="delete" style="color:var(--danger)">${escapeHtml(t("Delete profile"))}</button>
     </div>
     <label class="scale-opt" style="margin:2px 2px 10px" title="${escapeHtml(t("Only the selected profile runs mail sync; background profiles are fully paused."))}">
@@ -3687,6 +3688,11 @@ function openProfileManagement() {
       <div class="pm-actions"><button type="button" class="btn-primary" data-export disabled>${escapeHtml(t("Export backup"))}</button></div>
       <div class="pm-progress" data-progress hidden></div>
     </div>
+    <div class="pm-pane" data-pane="import" hidden>
+      <p class="pm-hint">${escapeHtml(t("Read a backup file — messages, contacts and keys — into a new profile. The profile you are using now stays signed in."))}</p>
+      <input class="text-field" data-pass type="password" minlength="6" placeholder="${escapeHtml(t("Passphrase (optional, min 6 chars)"))}" autocomplete="new-password">
+      <div class="pm-actions"><button type="button" class="btn-primary" data-import>${escapeHtml(t("Import backup"))}</button></div>
+    </div>
     <div class="pm-pane" data-pane="delete" hidden>
       <p class="pm-hint">${t("Removes {name} for good: the account, its keys, the message database and all blobs on this device. This cannot be undone.", { name: "<b data-del-name></b>" })}</p>
       <p class="pm-hint">${t("Tip: write an <b>Export backup</b> first — it is the only copy that survives this.")}</p>
@@ -3704,6 +3710,7 @@ function openProfileManagement() {
     add: body.querySelector('[data-pane="add"]'),
     device: body.querySelector('[data-pane="device"]'),
     export: body.querySelector('[data-pane="export"]'),
+    import: body.querySelector('[data-pane="import"]'),
     delete: body.querySelector('[data-pane="delete"]'),
   };
   const lock = (on) => tabsBox.classList.toggle("locked", on);
@@ -3916,6 +3923,74 @@ function openProfileManagement() {
       exportBtn.disabled = false;
       lock(false);
     }
+  });
+
+  /* -- import backup (a new profile; the core refuses a tar on one in use) -- */
+  const importPass = panes.import.querySelector("[data-pass]");
+  const importBtn = panes.import.querySelector("[data-import]");
+  const importHint = panes.import.querySelector(".pm-hint");
+  if (!tauriInvoke() || !core.beginBackupImport) {
+    importBtn.disabled = true;
+    importHint.textContent = t("Restore from a backup file needs the Velta app — use \"Add as a second device\" instead");
+  }
+  importBtn.addEventListener("click", async () => {
+    if (importPass.value && !importPass.reportValidity()) return;
+    const invoke = tauriInvoke();
+    if (!invoke || !core.beginBackupImport) {
+      toast(t("Restore from a backup file needs the Velta app — use \"Add as a second device\" instead"));
+      return;
+    }
+    let picked;
+    try { picked = await pickBackupTar(invoke); }
+    catch (err) { errToast(t("Couldn't read the backup file: ") + (err?.message || err)); return; }
+    if (!picked || !accountIsCurrent(epoch)) return;
+    let job;
+    try { job = await core.beginBackupImport(picked, importPass.value || null); }
+    catch (err) {
+      errToast(t("Restore failed: couldn't import the backup") + " " + (err?.message || err));
+      return;
+    }
+    // account-changing closed this modal. Progress rides a new one; the
+    // core signals 1000 / 0, and `pending` carries an early RPC error.
+    const prog = showProgressModal("Import backup", t("Restoring profile…"));
+    let settled = false;
+    let seen = false;
+    const finishOk = () => {
+      if (settled) return;
+      settled = true;
+      core.removeEventListener("imex-progress", onProg);
+      prog.update(t("Profile restored — restarting"));
+      localStorage.setItem("velta-ask-notifications", "1");
+      core._tunnelReapply?.();
+      setTimeout(() => location.reload(), 800);
+    };
+    const finishErr = async (msg) => {
+      if (settled) return;
+      settled = true;
+      core.removeEventListener("imex-progress", onProg);
+      prog.close();
+      try { await core.stopOngoingProcess?.(); } catch { /* already finished */ }
+      if (job.created && String(job.targetId) !== String(job.prevId)) {
+        try {
+          if (String(core.accountId) === String(job.targetId)) await core.switchAccount(job.prevId);
+        } catch { /* delete still drops the stray */ }
+        try { await core.deleteAccount(job.targetId); } catch { /* leave the toast */ }
+      }
+      errToast(msg);
+    };
+    const onProg = (e) => {
+      const p = e.detail?.progress || 0;
+      if (p >= 1000) finishOk();
+      else if (p > 0) {
+        seen = true;
+        prog.update(t("Restoring profile… {n}%", { n: Math.round(p / 10) }));
+      } else if (seen) finishErr(t("Restore failed"));
+    };
+    core.addEventListener("imex-progress", onProg);
+    job.pending.then(() => finishOk()).catch(err => {
+      if (settled || seen) return;
+      finishErr(t("Restore failed: couldn't import the backup") + " " + (err?.message || err));
+    });
   });
 
   /* -- delete profile (#100) -- */
@@ -5071,8 +5146,8 @@ function rebuildDrawer() {
     onScheduled: () => openAllScheduled(),
     onExportSettings: () => exportSettingsToSaved(),
     backendKind: core?.backend?.kind || null,
-    onTunnel: tunnelInstalled()
-      ? () => openTunnelSettings({ showModal, confirmModal, askText, toast, errToast, onChange: rebuildDrawer, renderQr: text => core.createQrSvg(text) })
+    onTunnel: tunnelOffered()
+      ? () => openTunnelSettings({ showModal, confirmModal, askText, choose: makeChooser(showModal), toast, errToast, onChange: rebuildDrawer, renderQr: text => core.createQrSvg(text) })
       : null,
     tunnelLabel: describeTunnel(tunnelStatus()).headline,
     // Native shells only; the PWA already speaks WebSocket (WebSocket relays).
@@ -5315,6 +5390,26 @@ function joinFlow() {
 }
 
 /* ---------------- onboarding (real core only) ---------------- */
+// Shared by the welcome splash and Profile management → Import backup.
+// Android content URIs are copied to a real path; a gzip PWA download is
+// unpacked by the shell. Null when the picker is cancelled.
+async function pickBackupTar(invoke) {
+  let picked = await invoke("plugin:dialog|open", { options: {
+    multiple: false,
+    filters: [{ name: t("Velta backup"), extensions: ["tar", "gz"] }],
+  }});
+  if (Array.isArray(picked)) picked = picked[0];
+  if (!picked) return null;
+  if (/^content:\/\//.test(picked)) {
+    picked = await invoke("resolve_content_uri", { uri: picked, filename: `backup-${Date.now()}.tar` });
+  }
+  // PWA exports arrive gzip-compressed; the shell sniffs the magic and
+  // hands back a decompressed temp path the core can import.
+  try { picked = await invoke("prep_backup", { path: picked }); } catch {}
+  return picked;
+}
+
+
 // Accepts "example.com", "https://example.com", "example.com/new" or a full
 // dcaccount: link and normalizes to dcaccount:https://<host>/new.
 function normalizeRelayLink(raw) {
@@ -5467,25 +5562,10 @@ function showSplash() {
     if (!core.importBackup) { toast(t("Restore is not available on this backend")); return; }
     const invoke = tauriInvoke();
     if (!invoke) { toast(t("Restore from a backup file needs the Velta app — use \"Add as a second device\" instead")); return; }
-    let picked = await invoke("plugin:dialog|open", { options: {
-      multiple: false,
-      filters: [{ name: t("Velta backup"), extensions: ["tar"] }],
-    } });
-    if (Array.isArray(picked)) picked = picked[0];
+    let picked;
+    try { picked = await pickBackupTar(invoke); }
+    catch (err) { errToast(t("Couldn't read the backup file: ") + (err?.message || err)); return; }
     if (!picked || !accountIsCurrent(epoch)) return;
-    if (/^content:\/\//.test(picked)) {
-      try {
-        picked = await invoke("resolve_content_uri", { uri: picked, filename: `backup-${Date.now()}.tar` });
-      } catch (err) {
-        errToast(t("Couldn't read the backup file: ") + (err?.message || err));
-        return;
-      }
-    }
-    // PWA exports arrive gzip-compressed; the shell sniffs the magic and
-    // hands back a decompressed temp path the core can import.
-    try {
-      picked = await invoke("prep_backup", { path: picked });
-    } catch {}
 
     actionsEl.hidden = true;
     stepsEl.replaceChildren();
@@ -6404,8 +6484,8 @@ async function boot() {
       })();
     });
 
-    // Optional DNS tunnel: show its drawer row only once one is installed.
-    refreshTunnelStatus().then(s => { if (s.installed) rebuildDrawer(); });
+    // DNS tunnel row on Android and Windows, before a tunnel is saved.
+    refreshTunnelStatus().then(s => { if (tunnelOffered(s)) rebuildDrawer(); });
     refreshWsTransportStatus().then(s => { if (s) rebuildDrawer(); });
     bindTunnelNetworkEvents();
     // Route switches, proxy changes and tunnel errors go to Velta Diagnostics.

@@ -2271,12 +2271,54 @@ export class JsonRpcCore extends EventTarget {
   }
 
   // Restore a profile from a local backup file (tar) into the current
-  // account. Fire-and-forget on the wire — the import can take minutes;
+  // account. The core rejects this when the account is already configured
+  // ("Cannot import backups to accounts in use") — use beginBackupImport
+  // to land the file in a fresh profile. Fire-and-forget on the wire;
   // track it via imex-progress events (1000 = done, 0 = failed).
   async importBackup(path) {
     const res = await this._call("import_backup", this.accountId, path, null);
     this._tunnelReapply();
     return res;
+  }
+
+  // File import when a profile already exists. The core only accepts the
+  // tar into an unconfigured account, so a configured profile gets a new
+  // one selected first (same epoch boundaries as addAccountWithBackup).
+  // Returns before the import finishes — it can take minutes. `pending`
+  // rejects with the core error; imex-progress is the other completion
+  // signal. On setup failure the fresh profile is removed and the previous
+  // one selected back.
+  async beginBackupImport(path, passphrase = null) {
+    const prevId = this.accountId;
+    this._beginAccountChange();
+    let failed = true;
+    let targetId = this.accountId;
+    let created = false;
+    try {
+      const acc = await this._call("get_account_info", this.accountId);
+      if (acc.kind !== "Unconfigured") {
+        targetId = await this._call("add_account");
+        created = true;
+        await this._call("select_account", targetId);
+        this.accountId = targetId;
+      }
+      await this._call("stop_io", targetId).catch(() => {});
+      // ponytail: 10 min ceiling. A backup still moving past it needs a
+      // longer timeout; imex-progress remains the live signal either way.
+      const pending = this._callWithTimeout(600000, "import_backup", targetId, path, passphrase || null);
+      failed = false;
+      return { targetId, prevId, created, pending };
+    } catch (err) {
+      if (created) {
+        try { await this._call("select_account", prevId); this.accountId = prevId; } catch { /* reconcile below */ }
+        try { await this._call("remove_account", targetId); } catch { /* stray empty profile */ }
+      } else if (this.accountId !== prevId) {
+        try { await this._call("select_account", prevId); } catch { /* reconcile below */ }
+      }
+      throw err;
+    } finally {
+      await this._finishAccountChange(failed);
+    }
   }
 
   // Cancels the current account's ongoing process (backup provide/receive).

@@ -591,6 +591,62 @@ test("received backup starts IO only after the import, and refreshes that accoun
   assert.equal(quiet.calls.some(([method]) => method === "start_io"), false);
 });
 
+test("file import of a configured profile lands in a new account and returns before the tar finishes", async () => {
+  const gate = deferred();
+  const { core, calls } = fixture({
+    get_account_info: () => ({ kind: "Configured" }),
+    add_account: () => B,
+    stop_io: () => {},
+    import_backup: () => gate.promise,
+  });
+  const job = await core.beginBackupImport("/tmp/b.tar", "secret");
+  assert.equal(job.targetId, B);
+  assert.equal(job.prevId, A);
+  assert.equal(job.created, true);
+  assert.equal(core.accountId, B);
+  assert.equal(core._accountTransitionBusy, false);
+  assert.equal(core.accountEpoch, 2);
+  assert.deepEqual(calls.filter(([method]) => ["add_account", "select_account", "stop_io", "import_backup"].includes(method)), [
+    ["add_account"],
+    ["select_account", B],
+    ["stop_io", B],
+    ["import_backup", B, "/tmp/b.tar", "secret"],
+  ]);
+  gate.resolve("ok");
+  assert.equal(await job.pending, "ok");
+});
+
+test("file import reuses an unconfigured profile", async () => {
+  const { core, calls } = fixture({
+    get_account_info: () => ({ kind: "Unconfigured" }),
+    stop_io: () => {},
+    import_backup: () => "ok",
+  });
+  const job = await core.beginBackupImport("/tmp/b.tar", "");
+  assert.equal(job.created, false);
+  assert.equal(job.targetId, A);
+  assert.equal(calls.some(([method]) => method === "add_account"), false);
+  assert.deepEqual(calls.find(([method]) => method === "import_backup"), ["import_backup", A, "/tmp/b.tar", null]);
+  assert.equal(await job.pending, "ok");
+});
+
+test("a failed select during file import removes the fresh profile and selects the previous one", async () => {
+  const { core, calls } = fixture({
+    get_account_info: () => ({ kind: "Configured" }),
+    add_account: () => B,
+    select_account: (id) => { if (id === B) throw new Error("select failed"); },
+  });
+  await assert.rejects(core.beginBackupImport("/tmp/b.tar"), /select failed/);
+  assert.equal(core.accountId, A);
+  assert.equal(core._accountTransitionBusy, false);
+  assert.deepEqual(calls.filter(([method]) => method === "select_account"), [
+    ["select_account", B],
+    ["select_account", A],
+  ]);
+  assert.deepEqual(calls.find(([method]) => method === "remove_account"), ["remove_account", B]);
+  assert.equal(calls.some(([method]) => method === "import_backup"), false);
+});
+
 test("invalid invite rejection does not start an account transition", async () => {
   const { core, calls, events } = fixture();
   await assert.rejects(core.addAccountWithQr("not-an-invite"), /not a relay invite link/);

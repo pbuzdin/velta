@@ -44,6 +44,8 @@ test("export ships gzip (with matching name) and restore preps it through the sh
   assert.ok(stripped.includes("await gzipBytes(bytes)"), "export compresses when the platform offers it");
   assert.ok(stripped.includes('base + ".gz"'), ".gz suffix only when actually compressed");
   assert.ok(stripped.includes('invoke("prep_backup", { path: picked })'), "restore routes through the shell prep");
+  assert.ok(stripped.includes('data-pane="import"'), "profile management has an import pane");
+  assert.ok(stripped.includes("core.beginBackupImport(picked, importPass.value || null)"), "import lands in a fresh profile");
 });
 
 const swGen = readFileSync(new URL("../scripts/build-pwa.mjs", import.meta.url), "utf8");
