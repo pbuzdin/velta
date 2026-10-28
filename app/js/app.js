@@ -4083,7 +4083,11 @@ if (navigator.serviceWorker) {
 // already-open page. This page still runs the old files until a reload.
 addEventListener("velta-sw-updated", () => {
   diagnostics.append("info", "A new Velta version was installed; reload to use it");
-  toast(t("Velta was updated — reload the page to use the new version"), 8000);
+  if (document.querySelector("#toasts .toast-sticky")) return;
+  toast(t("Velta was updated — reload the page to use the new version"), 0, {
+    sticky: true,
+    action: { label: "Reload", run: () => location.reload() },
+  });
 });
 
 // Doze and OEM battery managers freeze the in-process core while the

@@ -568,13 +568,14 @@ export function showModal({ title, body, foot, onClose, compact = false, form = 
 // opts.danger: red timer bar (errToast).
 export function toast(text, ms = 2200, opts = {}) {
   const box = document.getElementById("toasts");
-  const duration = Math.max(800, ms || 2200);
+  const sticky = opts.sticky === true;
+  const duration = sticky ? 0 : Math.max(800, ms || 2200);
   // <details>/<summary>: the collapsed one-liner is the summary, the open
   // pane carries the full text and the copy button. Native toggle gives the
   // expand/collapse + disclosure semantics without JS state; JS adds the
   // timer (pause while open), copy, close, and the overflow-gated chip.
   const el = document.createElement("details");
-  el.className = "toast" + (opts.danger ? " danger" : "");
+  el.className = "toast" + (opts.danger ? " danger" : "") + (sticky ? " toast-sticky" : "");
   const summary = document.createElement("summary");
   summary.className = "toast-summary";
   const textEl = document.createElement("span");
@@ -586,7 +587,7 @@ export function toast(text, ms = 2200, opts = {}) {
   chip.className = "toast-chip"; chip.hidden = true;
   const closeBtn = document.createElement("button");
   closeBtn.type = "button"; closeBtn.className = "toast-close"; closeBtn.setAttribute("aria-label", t("Close")); closeBtn.innerHTML = CLOSE_SVG;
-  summary.append(timerBar, textEl, chip, closeBtn);
+  summary.append(...(sticky ? [] : [timerBar]), textEl, chip, closeBtn);
   const moreText = document.createElement("div");
   moreText.className = "toast-more-text";
   moreText.textContent = t(String(text));
@@ -597,7 +598,9 @@ export function toast(text, ms = 2200, opts = {}) {
   more.append(moreText, copyBtn);
   el.append(summary, more);
   box.appendChild(el);
-  while (box.children.length > 3 && box.firstElementChild) box.firstElementChild.remove();
+  // A sticky notice (the PWA reload) sits outside the cap and is never the one dropped.
+  const ordinary = () => [...box.children].filter((n) => !n.classList.contains("toast-sticky"));
+  while (ordinary().length > 3) ordinary()[0].remove();
   raiseToasts();
 
   const clickLabel = (() => {
@@ -635,8 +638,10 @@ export function toast(text, ms = 2200, opts = {}) {
     });
     summary.insertBefore(actBtn, closeBtn);
   }
-  timerBar.style.animationDuration = duration + "ms";
-  timerBar.addEventListener("animationend", dismiss);
+  if (!sticky) {
+    timerBar.style.animationDuration = duration + "ms";
+    timerBar.addEventListener("animationend", dismiss);
+  }
   closeBtn.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); dismiss(); });
   copyBtn.addEventListener("click", async e => {
     e.stopPropagation();

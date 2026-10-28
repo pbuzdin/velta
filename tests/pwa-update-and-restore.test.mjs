@@ -37,5 +37,10 @@ test("the page saves when hidden and tells the user about a new version", () => 
   const t = src("app/js/transport-worker-wasm.js");
   assert.match(t, /visibilitychange[\s\S]{0,200}checkpoint\(\)/);
   const app = src("app/js/app.js");
-  assert.match(app, /addEventListener\("velta-sw-updated"[\s\S]{0,300}toast\(/);
+  assert.match(app, /addEventListener\("velta-sw-updated"[\s\S]{0,500}sticky:\s*true/);
+  assert.match(app, /label:\s*"Reload", run: \(\) => location\.reload\(\)/);
+  const ui = src("app/js/ui.js");
+  assert.match(ui, /toast-sticky/);
+  assert.match(ui, /!n\.classList\.contains\("toast-sticky"\)/);
+  assert.match(ui, /if \(!sticky\)/);
 });
