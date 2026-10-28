@@ -1187,9 +1187,9 @@ export class ChatView {
       if (this._tracked || !incoming) {
         // Seen once actually on screen (_checkSeen), not on arrival —
         // a backgrounded app must not send read receipts.
-        requestAnimationFrame(() => { if (this._isCurrent(session)) { this._scrollBottom(); this._scheduleSeenCheck(); } });
+        requestAnimationFrame(() => { if (this._isCurrent(session)) { this._scrollBottomSettling(); this._scheduleSeenCheck(); } });
       } else {
-        requestAnimationFrame(() => { if (this._isCurrent(session)) { this._scrollBottom(); if (anyOut) this._scheduleSeenCheck(); } });
+        requestAnimationFrame(() => { if (this._isCurrent(session)) { this._scrollBottomSettling(); if (anyOut) this._scheduleSeenCheck(); } });
         this.markReadSoon(chatId);
       }
     } else if (incoming) {
@@ -1317,9 +1317,9 @@ export class ChatView {
     this.vs?.setItems(this.items);
     if (this._nearBottom()) {
       if (this._tracked) {
-        requestAnimationFrame(() => { if (this._isCurrent(session)) { this._scrollBottom(); this._scheduleSeenCheck(); } });
+        requestAnimationFrame(() => { if (this._isCurrent(session)) { this._scrollBottomSettling(); this._scheduleSeenCheck(); } });
       } else {
-        requestAnimationFrame(() => { if (this._isCurrent(session)) this._scrollBottom(); });
+        requestAnimationFrame(() => { if (this._isCurrent(session)) this._scrollBottomSettling(); });
         this.markReadSoon(this.chat.id);
       }
     } else {
@@ -1543,11 +1543,13 @@ export class ChatView {
     item.msg = msg;
     const row = this.listEl.querySelector(`[data-msgid="${msg.id}"]`);
     if (row) {
-      this.vs?.onItemHeightDidChange?.(item);
       const fresh = this._buildItem(item);
       row.replaceWith(fresh);
       this._rowCache.set(item.key, fresh);
       this._rowSigCache.set(item.key, sig);
+      // After the swap: the scroller measures the list child. Before it, the
+      // cache kept the old height and the next scroll redid layout.
+      this.vs?.onItemHeightDidChange?.(item);
     } else {
       // Not mounted: drop the stale cached row so the scroller rebuilds it
       // from the updated item on next mount, and record the new signature.
@@ -2474,6 +2476,13 @@ export class ChatView {
         lpSlot.innerHTML = linkPreviewCardHtml(p, firstLinkOf(m.text));
         lpSlot.hidden = false;
         notifyHeight();
+        // loading=lazy: the card grows again when the image decodes.
+        const lpImg = lpSlot.querySelector("img");
+        if (lpImg && !lpImg.complete) {
+          const onLpImg = () => { if (lpSlot.isConnected) notifyHeight(); };
+          lpImg.addEventListener("load", onLpImg, { once: true });
+          lpImg.addEventListener("error", onLpImg, { once: true });
+        }
       });
     }
     // A cached row (virtual scroller / chat re-open) keeps its call card but
@@ -2541,6 +2550,7 @@ export class ChatView {
           const card = holder.firstElementChild;
           webxdcCard.replaceWith(card);
           this._wireGroupCallCard(card, m);
+          notifyHeight();
         }).catch(() => {});
       }
     }
@@ -2678,6 +2688,7 @@ export class ChatView {
         if (box && !box.dataset.failed) {
           box.dataset.failed = "1";
           box.innerHTML = `<div class="media-fail"><div class="media-fail-ico">${ICO.mic}</div><div>${escapeHtml(t("Audio can't be played"))}</div></div>`;
+          notifyHeight();
         }
       };
     }

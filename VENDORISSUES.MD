@@ -73,6 +73,46 @@ like an unintended async-ordering bug. Upstream fix: reset the flag from the
 scroll listener (one-shot) instead of synchronously, or compare
 `getScrollY()` against the requested value.
 
+### 18. A viewport past the last measured row paints item 0 (blank history)
+
+**Status: patched locally — re-apply when re-vendoring.**
+
+When the height walk finishes and no measured row meets the viewport
+(scroll resting in the estimated bottom spacer, or clamped into the
+padding while a full rerender has detached the rows), stock
+`getShownItemIndexes` returns null. The caller then paints only item 0
+and warns `The list is supposed to be visible but no visible item has
+been found`. Scroll stays at the bottom, so the screen is empty padding.
+Sending a message does this: `setItems` rebuilds the rows, and one smooth
+scroll to `scrollHeight` can stop in that spacer.
+
+Prerender margin is one viewport (`getPrerenderMarginRatio` is hardcoded
+to 1). Rows that end exactly where the viewport starts still count as
+found, so the tail is rendered above the fold and nothing pins scroll
+onto it.
+
+**Local fix** in `getShownItemIndexes` / the layout pass:
+
+- A hit whose top is at or below the visible bottom, or a finished walk
+  with nothing on screen, returns a tail window through the last item
+  with `snapToEnd`.
+- After the last-item walk, if the shown window's bottom is at or above
+  the visible top (`getBeforeItemsHeight(last + 1) - verticalSpacing <=
+  visible.top`), return that same tail window and `snapToEnd`. A window
+  that still intersects the viewport is left alone, and an unmeasured
+  batch returns before this check.
+- Layout calls `scrollToY(1e9)` after `updateState` when `snapToEnd` is
+  set. The browser clamps that to the real end.
+
+**Caller side** (not inside the vendored file): a near-bottom send calls
+`_scrollBottomSettling()` rather than one smooth `_scrollBottom()`.
+`onMsgUpdated` calls `onItemHeightDidChange` after `replaceWith`, because
+the scroller measures the current list child. Notifying before the swap
+keeps the old height; the next scroll then redoes layout. The same notify
+follows a link-preview image, a group-call card swap, and the audio
+failure box. Tests: `tests/virtual-scroller-tail.test.mjs`,
+`tests/chat-msg-update-hardening.test.mjs`.
+
 ---
 
 ## elena (vendored `app/vendor/elena.js`, @elenajs/core 1.0.1)

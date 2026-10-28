@@ -51,7 +51,10 @@ function setup(t) {
     this.vs = {
       stop() {}, setItems() {},
       heightCalls: [],
-      onItemHeightDidChange(item) { this.heightCalls.push(item.key); },
+      onItemHeightDidChange(item) {
+        this.heightCalls.push(item.key);
+        this.notifiedHtml = node("history").children[0]?.innerHTML || "";
+      },
     };
   };
   view.startLive = () => {};
@@ -105,6 +108,7 @@ test("a mounted row is rebuilt and height-notified exactly once per change", asy
 
   view.onMsgUpdated(7, message(10, 7, { text: "changed" }));
   assert.deepEqual(view.vs.heightCalls, ["m10"], "mounted rows are height-notified on rebuild");
+  assert.match(view.vs.notifiedHtml, /changed/, "height is read after the new row is in the list");
   assert.notEqual(node("history").children[0], row, "the row was replaced");
   assert.ok(node("history").children[0].innerHTML.includes("changed"));
   assert.equal(view._rowSigCache.get("m10"), view._rowSignature(message(10, 7, { text: "changed" })));
