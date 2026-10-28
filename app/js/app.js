@@ -2345,6 +2345,10 @@ async function openChat(chatId) {
     return;
   }
   state.activeChatId = chatId;
+  // List clicks skip closeChatUI, so the diagnostics bar and its #history writer would stick.
+  diagnosticsOpen = false;
+  $("diagnostic-actions").hidden = true;
+  chatView.externalSurface = false;
   $("no-chat").hidden = true;
   $("chat-view").hidden = false;
   document.querySelector(".app").classList.add("chat-open");

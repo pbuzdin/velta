@@ -170,7 +170,9 @@ function setup(t) {
        get drawer() { return drawer; },
        set drawer(value) { drawer = value; },
        get listView() { return listView; },
-       set listView(value) { listView = value; } })
+       set listView(value) { listView = value; },
+       get diagnosticsOpen() { return diagnosticsOpen; },
+       set diagnosticsOpen(value) { diagnosticsOpen = value; } })
   `).runInContext(context);
   const emit = name => {
     assert.ok(listeners.has(name), `Missing ${name} listener`);
@@ -321,6 +323,17 @@ test("closeChatUI during getChat cannot reopen the chat or push history", async 
   assert.equal(node("no-chat").hidden, false);
   assert.deepEqual(effects.opens, []);
   assert.equal(context.history.pushes.length, 0);
+});
+
+test("opening a chat drops the diagnostics bar left up by a list click", async t => {
+  const { app, node, context } = setup(t);
+  app.diagnosticsOpen = true;
+  context.testChatView.externalSurface = true;
+  node("diagnostic-actions").hidden = false;
+  await app.openChat(7);
+  assert.equal(node("diagnostic-actions").hidden, true);
+  assert.equal(app.diagnosticsOpen, false);
+  assert.equal(context.testChatView.externalSurface, false);
 });
 
 test("epoch alone invalidates pending getChat after A -> B -> A", async t => {
