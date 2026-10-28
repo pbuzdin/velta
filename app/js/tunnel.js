@@ -1,9 +1,9 @@
 // Optional DNS tunnel (Android and Windows apps): UI side of
 // velta-app/src-tauri/src/tunnel.rs + velta-app/soar-tunnel.
 //
-// The tunnel exists only after the user accepts a velta://tunnel?… link; the
-// server zone and key are never part of this code. Until then nothing here
-// shows up and the app behaves exactly as upstream Velta.
+// The tunnel runs only after the user accepts a velta://tunnel?… link; the
+// server zone and key are never part of this code. The drawer row is there
+// on Android and Windows before that, so a link can be pasted.
 //
 // Several tunnels can be saved (tunnels.json in the shell); one or none is
 // active. Shell commands: tunnel_preview, tunnel_install, tunnel_list,
@@ -269,6 +269,15 @@ export function tunnelInstalled() {
   return !!cached.installed;
 }
 
+/** Drawer row: Android and Windows, including before any tunnel is saved.
+ * Hidden on macOS/Linux (`unsupported`) and in the browser (no status). */
+export function tunnelOffered(s = cached) {
+  if (!s || tunnelUnsupported(s)) return false;
+  if (s.available === true || s.installed) return true;
+  // soartunnel.dll / .so failed to load: still this platform, still a row.
+  return s.available === false && !!s.error;
+}
+
 export function tunnelStatus() {
   return cached;
 }
@@ -306,7 +315,10 @@ export function tunnelName(tn) {
 
 /** One-line state for the drawer and the settings sheet. */
 export function describeTunnel(s) {
-  if (!s?.installed) return { headline: t("Not set up"), detail: "" };
+  if (!s?.installed) {
+    if (s?.available === false && s.error) return { headline: t("Not running"), detail: s.error };
+    return { headline: t("Not set up"), detail: "" };
+  }
   // Tunnels are saved but none is in use (current shells send active: null).
   if (s.active === null) return { headline: t("Off"), detail: t("No tunnel is in use. Pick one of your saved tunnels to use it.") };
   if (s.available === false || s.running === false) {
@@ -705,8 +717,14 @@ export async function openTunnelSettings(deps) {
   const hasActive = !list || !!list.active;
   body.innerHTML = `
     <h3 class="tunnel-list-h" id="tunnel-list-h">${escapeHtml(t("Saved tunnels"))}</h3>
-    ${list ? `<ul class="tunnel-list" role="list" aria-labelledby="tunnel-list-h" data-tunnel-list>${tunnelListHtml(list)}</ul>
-    <p class="bar-opts-hint">${escapeHtml(t("To add another tunnel, open its link or scan its QR code."))}</p>` : ""}
+    ${list ? `<ul class="tunnel-list" role="list" aria-labelledby="tunnel-list-h" data-tunnel-list>${tunnelListHtml(list)}</ul>` : ""}
+    ${!hasActive && s.available === false && s.error ? `<p class="p2p-hint" role="alert">${escapeHtml(s.error)}</p>` : ""}
+    <form data-tunnel-add style="display:flex;flex-direction:column;gap:6px;margin-top:10px">
+      <label for="tunnel-add-link" class="tunnel-list-h" style="margin:0">${escapeHtml(t("Tunnel link"))}</label>
+      <input id="tunnel-add-link" class="text-field" type="text" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="velta://tunnel?…" required aria-describedby="tunnel-add-err">
+      <p id="tunnel-add-err" class="bar-opts-hint" role="alert" aria-live="assertive" style="color:var(--danger)"></p>
+      <button type="submit" class="btn-text btn-primary">${escapeHtml(t("Add"))}</button>
+    </form>
     <div data-tunnel-active${hasActive ? "" : " hidden"}>
     <p class="p2p-hint" data-tunnel-state aria-live="polite">${stateHtml(s)}</p>
     ${privateDnsWarning(s)}
@@ -761,6 +779,23 @@ export async function openTunnelSettings(deps) {
         errToast(t("Couldn't change the mode: {why}", { why: errMsg(e) }));
       }
     }));
+
+  body.querySelector("[data-tunnel-add]")?.addEventListener("submit", async ev => {
+    ev.preventDefault();
+    const input = body.querySelector("#tunnel-add-link");
+    const err = body.querySelector("#tunnel-add-err");
+    const link = extractTunnelLink(input.value);
+    if (!link) {
+      err.textContent = t("Not a velta://tunnel link");
+      input.focus();
+      return;
+    }
+    err.textContent = "";
+    clearInterval(live);
+    close();
+    await acceptTunnelLink(link, { confirmModal, choose: deps.choose || null, toast, errToast, onChange, invoke });
+    await openTunnelSettings(deps);
+  });
 
   body.querySelector("[data-tunnel-share-open]")?.addEventListener("click", () => {
     clearInterval(live);

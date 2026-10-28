@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { extractTunnelLink, describeTunnel, tunnelReport, acceptTunnelLink, tunnelInstalled, refreshTunnelStatus, privateDnsWarning, pathLines, tunnelEventRows, initTunnelDiagnostics, pathsSummary, interceptionWarning } = await import("../app/js/tunnel.js");
+const { extractTunnelLink, describeTunnel, tunnelReport, acceptTunnelLink, tunnelInstalled, tunnelOffered, refreshTunnelStatus, privateDnsWarning, pathLines, tunnelEventRows, initTunnelDiagnostics, pathsSummary, interceptionWarning } = await import("../app/js/tunnel.js");
 const { classifyScannedCode } = await import("../app/js/qr-actions.js");
 
 const LINK = `velta://tunnel?v=1&zone=t.example.org&key=${Buffer.alloc(32, 7).toString("base64url")}`;
@@ -18,6 +18,14 @@ test("only velta://tunnel links are tunnel links", () => {
 test("a scanned tunnel QR is routed to the deep-link handler", () => {
   const deps = { parseInviteLink: () => null, isShortInviteLink: () => false };
   assert.equal(classifyScannedCode(LINK, deps), "tunnel");
+});
+
+test("the drawer row is offered on Android and Windows before any tunnel is saved", () => {
+  assert.equal(tunnelOffered({ available: true, installed: false }), true);
+  assert.equal(tunnelOffered({ available: false, installed: false, error: "DNS tunnel library not available: missing" }), true);
+  assert.equal(tunnelOffered({ available: false, installed: false, unsupported: true, error: "The DNS tunnel is not available on this platform yet (Android and Windows only)" }), false);
+  assert.equal(tunnelOffered({ available: false, installed: false }), false);
+  assert.equal(describeTunnel({ installed: false, available: false, error: "DNS tunnel library not available: missing" }).headline, "Not running");
 });
 
 test("status lines", () => {
