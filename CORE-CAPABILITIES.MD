@@ -353,9 +353,9 @@ if Velta ever adds calls/P2P WebRTC on top of `p2p.js` local chat.
 
 ## 5. Update 2.60.0 → 2.61.0 (2026-09-21, shipped in 1.3.25)
 
-Snapshot: 2026-09-22, written against vendored core 2.61.0. Full change plan:
-`PLAN-UPDATE-CORE-2.61.md`. Same verdict pattern as §1: one breaking cluster
-touches Velta code, the rest is additive or automatic.
+Snapshot: 2026-09-22, written against vendored core 2.61.0. Same verdict
+pattern as §1: one breaking cluster touches Velta code, the rest is additive
+or automatic.
 
 ### 5.1 Breaking: verification tracking removed
 
@@ -389,13 +389,6 @@ in `_mapContact`; a future UI could dim "Old" contacts (not done — no demand).
   CoreService poller; a future "sync finished, release service" signal.
 - Better image recoding, MDN From fix, NDN/read-receipt failed-state fixes,
   fastest-relays-first configure — automatic wins, no code.
-
-### 5.5 Pre-existing drift fixed in the same pass
-
-`velta-core-service/rust` (now `archive/velta-core-service/`, archived 2026-10-20) resolved the git dependency to a 2.58.0-dev rev and
-its code had latent build breaks (yerpc 0.6 vs 0.7 trait bounds, ambiguous
-`StreamExt::next`, JNI `JValue` borrow shape). Now pinned to tag `v2.61.0`
-with `yerpc = "0.7"` and compiles clean.
 
 ## 6. Update → 2.63.0 (2026-10-09; 2.62.0 shipped 2026-09-26 without its own section)
 

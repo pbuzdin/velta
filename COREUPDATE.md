@@ -31,7 +31,7 @@ additive only (`get_message_summary_text`, `add_pseudo_transport`; Velta does
 not use them yet). wasm series: 0007 (Connection.last_success) and 0010
 (stop() timeout+abort, #8832; TaskTracker import cfg-gated) refreshed,
 locks re-pinned. velta-core-service was archived the same day
-(`archive/velta-core-service/`, pinned to v2.62.0, no CI) and is no longer
+(pinned to v2.62.0, no CI; since removed from the tree) and is no longer
 part of core updates.
 
 ## 0. Re-apply the Velta patches FIRST

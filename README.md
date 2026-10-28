@@ -1102,8 +1102,7 @@ installs made through the NSIS installer can self-update; a bare
 updates the same way from the signed `Velta_<version>_universal.app.tar.gz`
 (both architectures, one `latest.json` entry each). Android downloads the
 APK inside the app — the banner button shows the download progress and then
-hands the file to the system installer over Velta, no browser detour — see
-[AUTOUPDATEPLAN.MD](AUTOUPDATEPLAN.MD) for the roadmap.
+hands the file to the system installer over Velta, no browser detour.
 
 </details>
 
@@ -1384,7 +1383,7 @@ Reply quotes use a dedicated palette per bubble and theme (the generic accent/di
 - Group creation, contact discovery, QR invites, and real-time message rendering all work in basic flows but have not been stress-tested.
 - Logging to `velta.log` is disabled in the stable branch; use the status pill and browser/Tauri dev tools to diagnose issues.
 - On Windows, the app needs the sidecar binary to talk to the real core. If the sidecar fails to start the frontend falls back to the mock core.
-- On Android, the in-process core rides a built-in foreground service (`CoreService`): messages keep syncing and arrive as conversation notifications while the app is backgrounded, including after Home — see [Notifications](#notifications). Screen-off delivery still needs the unrestricted-battery prompt. Since 1.4.50 a persisted 15-minute scheduled fetch also wakes the core when the OS freezes the backgrounded process (up to that cadence, deliveries wait for the next app open or a push wake-up; installing a UnifiedPush distributor restores instant delivery). The former headless service APK for the PWA-in-browser mode was archived on 2026-10-20 (`archive/velta-core-service/`, unmaintained, pinned to core 2.62); the PWA no longer needs it.
+- On Android, the in-process core rides a built-in foreground service (`CoreService`): messages keep syncing and arrive as conversation notifications while the app is backgrounded, including after Home — see [Notifications](#notifications). Screen-off delivery still needs the unrestricted-battery prompt. Since 1.4.50 a persisted 15-minute scheduled fetch also wakes the core when the OS freezes the backgrounded process (up to that cadence, deliveries wait for the next app open or a push wake-up; installing a UnifiedPush distributor restores instant delivery).
 
 </details>
 
@@ -1480,7 +1479,6 @@ by value with their integration notes — lives in
 │           ├── tunnel.rs       # optional DNS tunnel: loads libsoartunnel.so (Android)
 │           ├── bin/p2p-hub.rs  # headless terminal hub (debug helper)
 │           └── main.rs         # Tauri entry point
-├── archive/velta-core-service/ # ARCHIVED (unmaintained, core 2.62): Android background-service APK
 ├── deltachat-backend/          # Prebuilt deltachat-rpc-server binaries
 │   ├── windows-x86_64/
 │   └── android-arm64/

@@ -13,8 +13,6 @@ import { escapeHtml } from "./format.js";
 export const CARD_REFRESH_MS = 20000; // members expire by TTL, re-evaluate
 export const CARD_AVATARS = 5;
 
-export function initialOf(n) { return (String(n || "?").trim()[0] || "?").toUpperCase(); }
-
 /**
  * Card state from the instance's status updates and the live call.
  * live: the host's snapshot when WE are in this call (else null).

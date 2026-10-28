@@ -649,7 +649,7 @@ Verification on fresh pinned apply-on-copy `/tmp/velta-wasm-day11`
 | `smoke-velta-wasm.mjs` | **PASS** (`core v2.62.0`, sqlite 3.53.0; memfs roundtrip) |
 
 ### 2. SQLCipher 4.6.1 → 4.14.0 upgrade + rollback (native, scratch)
-Harness ([`wasm-patches/sqlcipher-harness/`](wasm-patches/sqlcipher-harness/)):
+Harness (Day 11 scratch, removed):
 one `main.rs` built twice — against stock `core/` (rusqlite 0.37 /
 libsqlite3-sys 0.35 ⇒ **4.6.1**, SQLite 3.46.1) and against the series copy
 (rusqlite 0.40.2 / 0.38.2 ⇒ **4.14.0**, SQLite 3.51.3). Each "write" opens a

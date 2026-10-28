@@ -8,8 +8,7 @@ build/test commands, and conventions as they actually exist in this checkout.
 > copy of the upstream [Delta Chat core](https://github.com/chatmail/core)
 > (version `2.65.0`). The `core/` directory is effectively a vendored copy of
 > that Rust project. Wrapper code for Velta's own clients lives in `app/`,
-> `velta-app/`, and `deltachat-backend/` (plus the archived
-> `archive/velta-core-service/`).
+> `velta-app/`, and `deltachat-backend/`.
 
 ---
 
@@ -20,9 +19,6 @@ build/test commands, and conventions as they actually exist in this checkout.
 
 - **Tauri desktop/Android app** (`velta-app/`) — the web UI is embedded in a
   system WebView and the Delta Chat Rust core is linked in-process.
-- **Background Android service** (`archive/velta-core-service/` (archived 2026-10-20, unmaintained, pinned to core 2.62)) — formerly a headless APK that ran
-  the core as a foreground service and exposes it to the PWA over a loopback
-  WebSocket bridge.
 - **Standalone browser** — the wasm PWA dist (`scripts/build-pwa.mjs`) is a
   static site with the Chatmail core in a worker. Mail uses a WebSocket
   proxy on a chatmail relay; the PWA origin and the proxy host can differ
@@ -148,11 +144,6 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │       │   └── main.rs       # Tauri entry point
 │       └── build.rs
 │
-├── archive/velta-core-service/ # ARCHIVED: Android foreground-service (JNI core + loopback WS bridge), core 2.62
-│   ├── rust/                 # JNI crate (librpc_core.so)
-│   ├── android/              # Gradle project; builds velta-core-service.apk
-│   └── README.md
-│
 ├── deltachat-backend/        # Prebuilt deltachat-rpc-server binaries
 │   ├── windows-x86_64/
 │   └── android-arm64/
@@ -209,7 +200,6 @@ build (cost: a cold rebuild):
 |--------|--------------|----------------|
 | `velta-app/src-tauri/target/` | 20–45 GB | `cargo tauri dev` / `cargo tauri build` in `velta-app/src-tauri/` |
 | `core/target/` | 10–25 GB | any `cargo build`/`test` in `core/` (WSL) |
-| `archive/velta-core-service/rust/target/` | ~3 GB | `cargo build` in `velta-core-service/rust/` |
 | `core/target-win/` | ~2 GB | sidecar build (§4.3.3 recipe, `CARGO_TARGET_DIR=target-win`) |
 | `core/target-android/` | ~0.6 GB | android cross builds (§4.3.3) |
 
@@ -247,7 +237,6 @@ see §4.3), `deltachat-backend/` (prebuilt RPC servers), `core/test-data/`
 | Crypto | rPGP, Autocrypt, SecureJoin, TLS via rustls or native-tls |
 | Networking | async-imap, async-smtp, Iroh gossip, shadowsocks proxy support |
 | Core protocol | JSON-RPC 2.0 over Tauri IPC, WebSocket, HTTP, or stdio |
-| Android core bridge (archived) | JNI (`archive/velta-core-service/rust`) + foreground service |
 | Python bindings | CFFI (`core/python`) and JSON-RPC (`core/deltachat-rpc-client`) |
 
 The Rust toolchain required for the core is **1.89+** (see `core/Cargo.toml`).
@@ -838,10 +827,7 @@ tested `test/no-material` branch). In `gen/android/app/`:
 - These files are `cargo tauri android init` output: re-running init
   reverts all of this — re-apply after any re-init.
 
-### 4.4 Android background service (`archive/velta-core-service/`, ARCHIVED)
-
-> Archived 2026-10-20 at Pavel's request: unmaintained, pinned to core
-> v2.62.0, no CI, not part of core updates. The notes below are historical.
+### 4.4 Notifications and share-in
 
 **Incoming-message notifications** have platform parity: Windows
 `notify_incoming` renders a three-line toast (chat name / sender / text +
@@ -931,22 +917,6 @@ QR "Share a link" is still #37 (`share_text`). Pinned by
 `tests/share-in.test.mjs`, `tests/share-flow.test.mjs`,
 `tests/share-receive.test.mjs` and `cargo test --lib opened_args_tests`. Detail:
 docs/agents/android-shell.md.
-
-The skeleton currently contains only Cargo/Gradle manifests. To rebuild when the
-source is added:
-
-```bash
-cd archive/velta-core-service/rust
-CC_aarch64_linux_android=$NDK/aarch64-linux-android24-clang \
-CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$NDK/aarch64-linux-android24-clang \
-cargo build --release --target aarch64-linux-android
-
-cp target/aarch64-linux-android/release/librpc_core.so \
-   ../android/app/src/main/jniLibs/arm64-v8a/
-
-cd ../android
-gradle assembleDebug
-```
 
 ### 4.5 Python bindings (`core/python/` and `core/deltachat-rpc-client/`)
 
@@ -2394,7 +2364,7 @@ next push or the tainted commits come back.
 
 ### 6.10 Pitfalls found in 1.4.73
 
-- **Code without a CI build rots silently.** d4632e7 (bridge token gate) was committed without compiling `velta-core-service` and no workflow built it, so five compile errors sat on master (fixed d80dc01), and the sidecar's tokio misuse (blocking_read in the forwarder task, `tokio::spawn` on a JNI thread) crashed it on a device (a1cf215). `core-service.yml` now runs clippy + tests on host and aarch64-linux-android with the committed `Cargo.lock` (`--locked`). Every crate that ships needs a CI job; if you can't build locally, say so and don't merge until CI is green.
+- **Code without a CI build rots silently.** d4632e7 (bridge token gate) was committed without compiling `velta-core-service` and no workflow built it, so five compile errors sat on master (fixed d80dc01), and the sidecar's tokio misuse (blocking_read in the forwarder task, `tokio::spawn` on a JNI thread) crashed it on a device (a1cf215). `core-service.yml` was added for that crate and removed with it. Every crate that ships needs a CI job; if you can't build locally, say so and don't merge until CI is green.
 - **Line-ending-only commits mislead `git blame`.** The EOL renormalization (4044bce) shows up as the last change of every line it touched; use `git blame -w --ignore-rev 4044bce` (or `log -L`) before calling code "new" or attributing a bug. Keep EOL fixes in their own commits; plists must stay LF (d0214db).
 - **Verify audit claims before acting on them.** The audit flagged `dialog:allow-save` (capabilities/mobile.json) as unused, but the Android backup export needs it (`tests/backup-export-android.test.mjs`); `infoFor` (webxdc-manager.js) looked dead but chat-view.js uses it for info messages. Grep every caller, run the tests, and keep a finding open until it's reproduced.
 - **The wasm rename needs a rebuilt wasm.** wasm-bindgen glue embeds its output name (`velta_wasm_bg.wasm`), so renaming old `deltachat_wasm*` artifacts doesn't work; `build-pwa.mjs` refuses them (f37ebdf). Use a `wasm-core (opt-in)` run on/after f92d41e, then `wasm-opt -Os`.
@@ -2611,8 +2581,8 @@ Beyond that, the primary verification path is manual:
    `localStorage["velta-mock"] = "1"` (or the drawer's "Demo mode"
    checkbox) to verify UI behavior without a backend; the mock ships demo chats,
    media, and a 2400-message chat for scroller testing.
-2. Run a real backend (`deltachat-rpc-server`, the Tauri app, or the Android
-   service) and confirm the transport switches from mock to real.
+2. Run a real backend (`deltachat-rpc-server` or the Tauri app) and confirm
+   the transport switches from mock to real.
 
 For end-to-end verification against a **real core** (message delivery,
 deletion requests, SecureJoin), the setup used during development is:
@@ -2623,12 +2593,8 @@ deletion requests, SecureJoin), the setup used during development is:
    with `Cache-Control: no-store`. Plain `python -m http.server` sends no
    cache headers, and Chromium will then keep serving heuristically-fresh
    modules for hours without revalidating them.
-2. Spawn `deltachat-backend/windows-x86_64/deltachat-rpc-server.exe` with
-   `DC_ACCOUNTS_PATH` pointed at an isolated accounts directory, and bridge
-   its stdio JSON-RPC to a WebSocket server on `ws://127.0.0.1:20808` — the
-   frontend then connects to it automatically as the "local core (service)"
-   backend. A ready-made bridge lives in the local `test-rig/` workspace
-   folder (not committed).
+2. Use the Tauri app (it spawns the sidecar) against an isolated accounts
+   directory. The page does not connect to a loopback core service.
 3. Create two throwaway chatmail accounts (`set_config_from_qr` with
    `dcaccount:https://<relay>/new`), SecureJoin them to each other, and drive
    one side via raw RPC while testing the UI on the other.
@@ -2666,8 +2632,6 @@ and account-switch cleared. Tests: `tests/lru-caches.test.mjs`.
 
 - **Encryption is handled by the core.** The frontend must never touch private
   keys or plaintext mail credentials; it only speaks JSON-RPC to the core.
-- **Loopback-only service.** The Android service bridge binds to `127.0.0.1:20808`.
-  Do not expose it to other interfaces.
 - **CSP.** The Tauri `tauri.conf.json` and `tauri.android.conf.json` set a
   restrictive CSP rooted in `default-src 'self'` with no `unsafe-inline` or
   `unsafe-eval` for scripts (inline scripts are blocked — that is relied on,
@@ -2699,14 +2663,9 @@ and account-switch cleared. Tests: `tests/lru-caches.test.mjs`.
     CSP path pinning can never scope them (CSP paths are not a security
     boundary), and the cross-origin page fetch fails on CORS regardless
     (GitHub's CDN sends no ACAO headers — that is what silently killed the
-    banner in 1.4.14/1.4.15). The `ws://127.0.0.1:20808` entry stays: it
-    is the service-APK transport, token-gated since #61; never re-widen
-    connect-src beyond loopback without that same gating. The
-    `http://127.0.0.1:20809` entry (V-02, #62: kept because Chrome blocks
-    `ws://` to loopback from a secure-context page) went 10-17 with the
-    service's HTTP bridge, which never answered an RPC (instant 504). If
-    that block applies, an HTTPS-hosted page has no service path; the
-    Tauri shells, the wasm PWA and pages served over http are unaffected.
+    banner in 1.4.14/1.4.15). Do not re-add `ws://127.0.0.1:20808` or
+    `http://127.0.0.1:20809`: that service APK is gone, and nothing
+    authenticated the listener. Never re-widen connect-src beyond loopback.
 - **Webxdc sandbox is opaque-origin.** `webxdc-manager.js` deliberately omits
   `allow-same-origin` from the iframe sandbox: every mini-app document gets a
   unique opaque origin and can reach neither the host page nor other apps'
@@ -2774,8 +2733,7 @@ and account-switch cleared. Tests: `tests/lru-caches.test.mjs`.
 
 ### 9.1 PWA served statically
 
-Plain `app/` is the UI smoke test (mock core, or loopback
-`velta-core-service`). The wasm mail product is the C4 dist (§4.2.1);
+Plain `app/` is the UI smoke test (mock core). The wasm mail product is the C4 dist (§4.2.1);
 how to host your own copy, including a PWA on origin A with the
 WebSocket proxy on origin B, is `docs/pwa-self-host.md`. The deployed
 dist precaches the app shell + wasm in a content-hash-named SW cache
@@ -2867,24 +2825,7 @@ taps above). The vestigial-SW caveat below applies only to plain `app/`.
 
 ### 9.3 Android background service
 
-- The APK has no UI; it starts a foreground service and links `librpc_core.so`.
-- The WebSocket bridge is on `ws://127.0.0.1:20808` and supports multiple
-  concurrent clients.
-- **The loopback bridge is token-gated** (V-01/#61): the service generates a
-  128-bit token per start (`BRIDGE_TOKEN` in the service's lib.rs). The WS
-  bridge requires the client's FIRST message to be the token (10 s timeout,
-  before the broadcast subscription — unauthenticated peers see nothing).
-  Delivery: `RpcService.nativeGetBridgeToken`
-  JNI (same process) + a pairing dialog in the service's launcher activity
-  (copy → paste into the client's localStorage `velta-bridge-token`).
-  transport.js sends the token when configured — without it the bridge
-  fails closed by design.
-- No HTTP bridge (removed 10-17): the old `127.0.0.1:20809` `/health` +
-  `POST /rpc` server dropped its client and answered every RPC with 504.
-  The WebSocket on 20808 is the only service transport.
-- CI: none since the 2026-10-20 archive (`core-service.yml` removed). The
-  crate links upstream core v2.62.0 by git tag, not `core/`.
-- Boot receiver restarts the service after reboot.
+Removed from the tree. The page does not probe `ws://127.0.0.1:20808`.
 
 ### 9.4 UnifiedPush (Android, 1.4.27+ groundwork)
 
@@ -3323,7 +3264,7 @@ do-not-regress rules; dates mark when the lesson was learned.
   `velta-app/src-tauri/gen/android` is generated EXCEPT the hand-maintained
   `AndroidManifest.xml`, Kotlin sources and
   `res/xml/network_security_config.xml` — edit those by hand, regenerate
-  the rest. `archive/velta-core-service/` is archived — do not update it.
+  the rest.
 - **Version bumps** are one command: `node tools/bump.mjs <version>` — it
   rewrites the `velta-app` package version in `velta-app/src-tauri/Cargo.toml`
   (+`Cargo.lock`), regenerates `app/js/version.gen.js` (the PWA/mock

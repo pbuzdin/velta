@@ -20,7 +20,6 @@ meaning a **Velta-owned forward-port of chatmail/core 2.62+** targeting
 | `support/{crates,vendor-crates}/` | `velta-tokio-wasm` (Velta-original, MPL-2.0, Day 12) + vendored async-imap / astral-tokio-tar / mail-builder |
 | [`velta-tokio-wasm-requirements.md`](velta-tokio-wasm-requirements.md) | Clean-room requirements + method for the tokio facade (Day 12) |
 | [`VENDORED.md`](VENDORED.md) | Day 11 register: vendored crates (upstream base, licence, local delta, native effect) + per-patch re-apply notes |
-| `sqlcipher-harness/` | Day 11 scratch harness: SQLCipher 4.6.1↔4.14.0 upgrade/rollback on a real-schema DB (not built by CI) |
 | `support/locks/` | **Pinned** copy lockfiles (Day 9): `core.Cargo.lock`, `velta-wasm.Cargo.lock`, `PROVENANCE` |
 | `tools/apply-wasm-core-patches.py` | **Opt-in** applicator — **apply-on-copy only** by default |
 | `packages/velta-wasm/` (MPL) | Minimal JSON-RPC wasm wrapper; copied into apply-on-copy dest |
