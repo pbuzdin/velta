@@ -32,6 +32,7 @@
 
 use serde_json::Value;
 
+#[cfg(any(target_os = "android", windows, test))]
 pub use crate::lufi::{encode_frame, ws_accept_key};
 
 /// Saved proxies (`ws_transport.json` in the app data dir).
