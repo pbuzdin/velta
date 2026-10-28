@@ -388,16 +388,80 @@ export function buildReactionRow({ reactions, selected = null, onReact }) {
   return { reacts, tray };
 }
 
+// Drag-to-dismiss for bottom sheets: decide on release. Closes past 30% of
+// the sheet height or on a fast downward flick (px/ms).
+export const SHEET_CLOSE_FRACTION = 0.3;
+export const SHEET_FLICK_SPEED = 0.5;
+export function sheetDragDecision(dy, height, velocity) {
+  if (dy <= 0) return "snap";
+  if (dy >= height * SHEET_CLOSE_FRACTION) return "close";
+  return velocity >= SHEET_FLICK_SPEED && dy > 12 ? "close" : "snap";
+}
+
+// Starts on the handle or the sheet's top strip (48px). Follows the finger
+// downward only. A tap stays a tap: the drag engages after 6px of downward
+// movement, and only then is the click that ends the gesture swallowed.
+export function bindSheetDrag(sheet, handle, close, { topZone = 48 } = {}) {
+  let start = null;
+  const reduce = () => globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  const setY = (y, animate) => {
+    sheet.style.transition = animate && !reduce() ? "transform .18s ease-out" : "none";
+    sheet.style.transform = y > 0 ? `translateY(${y}px)` : "";
+  };
+  sheet.addEventListener("pointerdown", (e) => {
+    if (e.button > 0) return;
+    const top = sheet.getBoundingClientRect().top;
+    if (!handle.contains(e.target) && e.clientY - top > topZone) return;
+    start = { id: e.pointerId, y: e.clientY, t: e.timeStamp, lastY: e.clientY, lastT: e.timeStamp, v: 0, dragging: false };
+  });
+  sheet.addEventListener("pointermove", (e) => {
+    if (!start || e.pointerId !== start.id) return;
+    const dy = e.clientY - start.y;
+    if (!start.dragging) {
+      if (dy < 6) return;
+      start.dragging = true;
+      try { sheet.setPointerCapture(e.pointerId); } catch {}
+    }
+    const dt = Math.max(1, e.timeStamp - start.lastT);
+    start.v = (e.clientY - start.lastY) / dt;
+    start.lastY = e.clientY; start.lastT = e.timeStamp;
+    setY(Math.max(0, dy), false);
+    e.preventDefault();
+  });
+  const end = (e) => {
+    if (!start || e.pointerId !== start.id) return;
+    const s = start;
+    start = null;
+    if (!s.dragging) return;
+    // Swallow the click this gesture would fire on an emoji or tile.
+    sheet.addEventListener("click", ev => { ev.stopPropagation(); ev.preventDefault(); }, { capture: true, once: true });
+    const dy = Math.max(0, e.clientY - s.y);
+    const cancelled = e.type === "pointercancel";
+    if (!cancelled && sheetDragDecision(dy, sheet.getBoundingClientRect().height, s.v) === "close") {
+      if (reduce()) { close(); return; }
+      setY(sheet.getBoundingClientRect().height, true);
+      setTimeout(close, 180);
+    } else {
+      setY(0, true);
+    }
+  };
+  sheet.addEventListener("pointerup", end);
+  sheet.addEventListener("pointercancel", end);
+}
+
 export function showMessageSheet({ reactions = [], selected = null, onReact, items, links = [], onOpenLink }) {
   closeAllPopups();
   const menu = document.createElement("div");
   menu.className = "ctx-menu msg-sheet";
   menu.setAttribute("role", "dialog");
   menu.setAttribute("aria-label", t("Message actions"));
-  const grab = document.createElement("div");
+  const grab = document.createElement("button");
+  grab.type = "button";
   grab.className = "msg-sheet-grab";
-  grab.setAttribute("aria-hidden", "true");
+  grab.setAttribute("aria-label", t("Close menu"));
+  grab.addEventListener("click", () => closeAllPopups());
   menu.append(grab);
+  bindSheetDrag(menu, grab, closeAllPopups);
 
   if (reactions.length) {
     const { reacts, tray } = buildReactionRow({ reactions, selected, onReact });

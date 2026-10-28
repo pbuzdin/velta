@@ -1797,10 +1797,19 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
   animation: sheetIn .16s ease-out;
 }
 @keyframes sheetIn { from { transform: translateY(12px); } }
+/* Drag handle: a 44px-tall button (tap or drag down closes); the visible bar
+   is --text-dim, ≥5:1 on the sheet in light, dark and brutal. */
 .msg-sheet-grab {
-  width: 36px; height: 4px; border-radius: 4px;
-  background: var(--border); margin: 6px auto 12px;
+  display: block; width: 72px; height: 28px; margin: 0 auto 6px; padding: 0;
+  background: none; border: 0; border-radius: 8px; cursor: grab; touch-action: none;
 }
+.msg-sheet-grab::before {
+  content: ""; display: block; width: 44px; height: 5px; margin: 0 auto;
+  border-radius: 5px; background: var(--text-dim);
+}
+.msg-sheet-grab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ctx-menu.msg-sheet .msg-reacts { touch-action: none; } /* top strip drags the sheet */
+@media (prefers-reduced-motion: reduce) { .ctx-menu.msg-sheet { animation: none; } }
 .msg-reacts {
   display: grid; grid-template-columns: repeat(6, 1fr);
   gap: 8px; margin-bottom: 12px;
