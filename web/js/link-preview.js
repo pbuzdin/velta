@@ -3,6 +3,7 @@
 // remote reach), in-memory cache per URL, and a user setting
 // Drawer radios: off, "picture" (sender bakes a WebP, #88), "fetch"
 // (this device loads the card, #30). Old "1" / per-chat "on" are fetch.
+import { parseRelayInviteLink } from "./invite-cards.js";
 import { escapeHtml, escapeAttr } from "./components.js";
 import { parseInviteLink } from "./invites.js";
 import { LruCache } from "./lru.js";
@@ -83,7 +84,8 @@ export function senderPreviewUrl(text, { enabled = false, hasFile = false, dismi
   if (!enabled || hasFile) return null;
   const url = firstLink(text);
   if (!url || !/^https:\/\//.test(url)) return null;
-  if (parseInviteLink(url) || isDeltachatIdHost(url)) return null;
+  // Relay signup invites (/i/<token>) likewise: the token is a bearer secret.
+  if (parseInviteLink(url) || isDeltachatIdHost(url) || parseRelayInviteLink(url)) return null;
   let host = "";
   try { host = new URL(url).hostname; } catch { return null; }
   if (!host.includes(".")) return null;
@@ -153,7 +155,8 @@ export async function linkPreview(text, chatId = null) {
   // fetch would leak the invite URL (fingerprint included) to the web.
   // deltachat.id short links render as those cards too; the rest of that
   // host is the same username service, so the whole host stays unfetched.
-  if (parseInviteLink(url) || isDeltachatIdHost(url)) return null;
+  // Relay signup invites (/i/<token>) likewise: the token is a bearer secret.
+  if (parseInviteLink(url) || isDeltachatIdHost(url) || parseRelayInviteLink(url)) return null;
   if (CACHE.has(url)) return CACHE.get(url);
   if (inFlight.has(url)) return inFlight.get(url);
   // Not cached when the proxy setting can't be read: a later render retries.

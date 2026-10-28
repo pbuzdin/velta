@@ -13,6 +13,8 @@ import { currentGroupCall, routeRealtime, routeStatusUpdate, joinGroupCall, leav
 import { trustedAppName } from "./xdc-trust.js";
 import { askGroupCallConsent, groupCallEnv, oneToOneCallActive, setCallScreen } from "./group-call-ui.js";
 import { cleanTitle } from "./group-call-signal.js";
+import { t } from "./i18n.js";
+import { escapeHtml } from "./format.js";
 
 let core = null;
 export const WEBXDC_FRAME_ALLOW =
@@ -300,7 +302,7 @@ async function sendToChat({ file, name, text }) {
   const msg = await core.getMessage(msgId).catch(() => null);
   if (!msg?.chatId) throw new Error("sendToChat: owning chat not found");
   const filename = name || file?.name || "file";
-  const ok = await confirmModal("Send to chat", file ? `Send "${filename}" to this chat?` : "Send this text to this chat?", "Send", false);
+  const ok = await confirmModal("Send to chat", file ? t("Send \"{filename}\" to this chat?", { filename }) : t("Send this text to this chat?"), t("Send"), false);
   if (!ok) return { ok: false, cancelled: true };
   let dest = null;
   let temp = false;
@@ -340,7 +342,7 @@ async function importFiles(filters = {}) {
     picked = await invoke("plugin:dialog|open", {
       options: {
         multiple: !!filters.multiple,
-        ...(exts.length ? { filters: [{ name: "Files", extensions: exts }] } : {}),
+        ...(exts.length ? { filters: [{ name: t("Files"), extensions: exts }] } : {}),
       },
     });
   } catch { return []; }
@@ -439,7 +441,7 @@ export function realtimeBytes(data) {
 
 async function getInfo(msgId) {
   if (!infoCache.has(msgId)) {
-    let info = { name: "Webxdc app", icon: "", summary: "", sourceCodeUrl: "",
+    let info = { name: t("Webxdc app"), icon: "", summary: "", sourceCodeUrl: "",
       internetAccess: false, selfAddr: "", selfName: "",
       sendUpdateInterval: 1000, sendUpdateMaxSize: 0 };
     try {
@@ -489,9 +491,9 @@ export const BEAM_FILE_RE = /^send-direct(-\d+)?\.xdc$/i;
 export const GROUP_CALL_FILE_RE = /^group-call(-\d+)?\.xdc$/i;
 export function builtinAppCard(fileName) {
   // Card cosmetics only — trust for group calls is the bundle hash (xdc-trust.js).
-  if (GROUP_CALL_FILE_RE.test(String(fileName || ""))) return { name: "Velta Circle", iconUrl: new URL("../webxdc/group-call/icon.png", import.meta.url).href };
+  if (GROUP_CALL_FILE_RE.test(String(fileName || ""))) return { name: t("Velta Circle"), iconUrl: new URL("../webxdc/group-call/icon.png", import.meta.url).href };
   if (!BEAM_FILE_RE.test(String(fileName || ""))) return null;
-  return { name: "Velta Beam", iconUrl: new URL("../webxdc/send-direct/icon.png", import.meta.url).href };
+  return { name: t("Velta Beam"), iconUrl: new URL("../webxdc/send-direct/icon.png", import.meta.url).href };
 }
 
 export function appIconUrl(msgId, icon) {
@@ -529,13 +531,13 @@ export async function openWebxdc(msgId, fallbackName = "Webxdc app", opts = {}) 
   // console — explain instead of opening a dead overlay.
   if (!window.__TAURI__) {
     if (!isPwaHost()) {
-      toast("webxdc apps run in the Velta app", 3000);
+      toast(t("webxdc apps run in the Velta app"), 3000);
       return;
     }
     // The loader document only exists through the service worker (it sets
     // the sandbox CSP); without a controller the frame would 404.
     if (!navigator.serviceWorker?.controller) {
-      toast("Reload Velta once to enable apps (service worker not active yet)", 4000);
+      toast(t("Reload Velta once to enable apps (service worker not active yet)"), 4000);
       return;
     }
   }
@@ -592,8 +594,8 @@ export async function openWebxdc(msgId, fallbackName = "Webxdc app", opts = {}) 
   wrap.innerHTML = `
     <div class="webxdc-bar">
       <div class="webxdc-title"></div>
-      ${panel ? `<button type="button" class="webxdc-expand icon-btn" aria-expanded="false" title="Expand to full screen" aria-label="Expand to full screen"><span aria-hidden="true">⤢</span></button>` : ""}
-      <button type="button" class="webxdc-close icon-btn" title="Close app" aria-label="Close app">${CLOSE_SVG}</button>
+      ${panel ? `<button type="button" class="webxdc-expand icon-btn" aria-expanded="false" title="${escapeHtml(t("Expand to full screen"))}" aria-label="${escapeHtml(t("Expand to full screen"))}"><span aria-hidden="true">⤢</span></button>` : ""}
+      <button type="button" class="webxdc-close icon-btn" title="${escapeHtml(t("Close app"))}" aria-label="${escapeHtml(t("Close app"))}">${CLOSE_SVG}</button>
     </div>`;
   if (panel) {
     // A panel is a non-modal region: no focus trap, the chat stays reachable.
@@ -611,7 +613,7 @@ export async function openWebxdc(msgId, fallbackName = "Webxdc app", opts = {}) 
 
   const title = wrap.querySelector(".webxdc-title");
   const info = infoCache.get(msgId);
-  title.textContent = info?.name || fallbackName || "Webxdc app";
+  title.textContent = info?.name || fallbackName || t("Webxdc app");
 
   if (panel) wrap.setAttribute("aria-label", title.textContent);
   active = { account, msgId: Number(msgId), iframe, serial: serials.get(Number(msgId)) || 0, panel, wrap };
@@ -660,7 +662,7 @@ function applyExpanded(on) {
   wrap.classList.toggle("webxdc-expanded", on);
   const b = wrap.querySelector(".webxdc-expand");
   if (b) {
-    const label = on ? "Collapse to panel" : "Expand to full screen";
+    const label = on ? t("Collapse to panel") : t("Expand to full screen");
     b.setAttribute("aria-expanded", String(on));
     b.title = label; b.setAttribute("aria-label", label);
     b.firstElementChild.textContent = on ? "⤡" : "⤢";

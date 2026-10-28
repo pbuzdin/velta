@@ -94,6 +94,7 @@ const isUnknownConfigKey = err => /unknown key/i.test(String(err?.message || err
 import { debugLog } from "./diagnostics.js";
 import { pageBounds, channelAuthorId } from "./format.js";
 import { LruCache } from "./lru.js";
+import { reencodeCoreQrSvg, brandCoreQrSvg } from "./qr-encode.js";
 import { rustLog, tauriInvoke } from "./tauri.js";
 
 // Bounded (lru.js): message-id lists of the 20 most recently used chats, or
@@ -1645,8 +1646,12 @@ export class JsonRpcCore extends EventTarget {
     return this._mapLoaded(await this._call("get_messages", accountId, page), page);
   }
 
-  async sendMessage(chatId, { text = "", quoteId = null, viewtype = "text", file = null, filename = null } = {}) {
-    const { accountId, accountEpoch } = this;
+  // accountId: scheduled messages (scheduled.js) send for the profile they
+  // were written in, which need not be the selected one.
+  async sendMessage(chatId, { text = "", quoteId = null, viewtype = "text", file = null, filename = null, accountId: forAccount = null } = {}) {
+    const { accountEpoch } = this;
+    const accountId = forAccount ?? this.accountId;
+    const otherAccount = accountId !== this.accountId;
     // BOTH casings for the fields whose JSON name differs between core
     // builds: the deployed sidecar accepts snake_case (`viewtype`,
     // `quoted_message_id`) — serde silently IGNORES the camelCase forms
@@ -1674,10 +1679,10 @@ export class JsonRpcCore extends EventTarget {
     if (file) this._persist();
     // #83: low-battery marker — best-effort hook installed by app.js; a
     // failure here must never surface as a send error.
-    if (this._batteryGate) {
+    if (this._batteryGate && !otherAccount) {
       try { this._batteryGate(chatId, msgId); } catch { /* ignore */ }
     }
-    if (this._isCurrentAccount(accountEpoch)) this.msgIdCache.get(chatId)?.push(msgId);
+    if (!otherAccount && this._isCurrentAccount(accountEpoch)) this.msgIdCache.get(chatId)?.push(msgId);
 
     // Outgoing media messages start in OutPreparing (18). Wait briefly until the
     // core has finished copying/processing the blob so get_message returns the
@@ -1690,7 +1695,7 @@ export class JsonRpcCore extends EventTarget {
       // reconcile here so the pending spinner doesn't stick spinning.
       msg.state = this._msgStateHints.get(msgId) ?? msg.state;
       this._msgStateHints.delete(msgId);
-      this._emitAccount("msg-sent", { chatId, msg }, accountEpoch);
+      if (!otherAccount) this._emitAccount("msg-sent", { chatId, msg }, accountEpoch);
     }
     return msg;
   }
@@ -2084,13 +2089,15 @@ export class JsonRpcCore extends EventTarget {
   // SecureJoin invite QR for this account (chatId=null) or a group chat.
   // Returns { text, svg, link } — the core renders the SVG itself.
   async getInviteQr(chatId = null) {
-    const [text, svg] = await this._call("get_chat_securejoin_qr_code_svg", this.accountId, chatId);
-    return { text, svg, link: text };
+    // The core encodes the whole link in byte mode; reencodeCoreQrSvg swaps
+    // in an optimally segmented code for the same text (smaller version).
+    const [text, coreSvg] = await this._call("get_chat_securejoin_qr_code_svg", this.accountId, chatId);
+    return { text, svg: reencodeCoreQrSvg(coreSvg, text), link: text };
   }
 
   // Renders arbitrary text (e.g. a local-chat invite ticket) as a QR SVG.
   async createQrSvg(text) {
-    return this._call("create_qr_svg", text);
+    return brandCoreQrSvg(reencodeCoreQrSvg(await this._call("create_qr_svg", text), text));
   }
 
   // Join a 1:1 or group chat from an i.delta.chat invite link / QR text.
@@ -2125,6 +2132,40 @@ export class JsonRpcCore extends EventTarget {
         this.accountId = accountId;
       }
       await this.configureWithQr(qrContent, accountId);
+      failed = false;
+      return accountId;
+    } catch (err) {
+      if (accountId !== prevId) {
+        try { await this._call("select_account", prevId); } catch { /* reconcile below */ }
+      }
+      throw err;
+    } finally {
+      await this._finishAccountChange(failed);
+    }
+  }
+
+  // Relay invite (/i/claim credentials, invite-cards.js): same account
+  // handling as addAccountWithQr — the empty current profile is reused,
+  // otherwise a new one is added and selected back on failure (#99). The
+  // shell's tunnel/WebSocket proxy is applied to the new profile before
+  // its first connection (tunnel_reapply; no-op where unsupported).
+  async addAccountWithCredentials(addr, password) {
+    const prevId = this.accountId;
+    let { accountId } = this;
+    this._beginAccountChange();
+    let failed = true;
+    try {
+      const acc = await this._call("get_account_info", accountId);
+      if (acc.kind !== "Unconfigured") {
+        accountId = await this._call("add_account");
+        await this._call("select_account", accountId);
+        this.accountId = accountId;
+      }
+      await this._tunnelReapply();
+      await this._prepareFirstConfigure(accountId);
+      await this._callWithTimeout(180000, "add_transport", accountId, { addr, password });
+      await this._call("start_io", accountId);
+      await this.transport.checkpoint?.().catch(() => {});
       failed = false;
       return accountId;
     } catch (err) {
@@ -2175,7 +2216,11 @@ export class JsonRpcCore extends EventTarget {
   // instead of baking the Delta Chat logo into the modules, so the UI can
   // overlay its own badge (same geometry as the invite QR).
   async getBackupQrSvg() {
-    return this._call("get_backup_qr_svg", this.accountId);
+    const [svg, text] = await Promise.all([
+      this._call("get_backup_qr_svg", this.accountId),
+      this._call("get_backup_qr", this.accountId).catch(() => null),
+    ]);
+    return text ? reencodeCoreQrSvg(svg, text) : svg;
   }
 
   // Full-profile backup export (ImexMode::ExportBackup): writes messages,

@@ -1,6 +1,7 @@
 // qr-actions.js — logic behind the "Your QR code" screen (#37), kept free of
 // DOM so it can be unit-tested: which tabs/buttons exist on this platform,
 // copy / share of the invite link, and what a scanned code is.
+import { t } from "./i18n.js";
 
 export const isMobileUa = ua => /Android|iPhone|iPad|iPod/i.test(String(ua || ""));
 export const isAndroidUa = ua => /Android/i.test(String(ua || ""));
@@ -26,15 +27,15 @@ export async function copyLink(link, { clipboard }) {
 // → "shared" | "cancelled". Throws when no path works (caller shows a toast).
 // Android: the shell's share_text command (WebView has no Web Share). Elsewhere
 // navigator.share; a user dismissing the sheet (AbortError) is not an error.
-export async function shareLink(link, { ua, invoke, webShare, title = "Velta invite" }) {
+export async function shareLink(link, { ua, invoke, webShare, title = t("Velta invite"), text = link }) {
   if (!link) throw new Error("no link to share");
   if (isAndroidUa(ua) && invoke) {
-    await invoke("share_text", { text: link, title });
+    await invoke("share_text", { text, title });
     return "shared";
   }
   if (webShare) {
     try {
-      await webShare({ title, text: link });
+      await webShare(text === link ? { title, text: link } : { title, text, url: link });
       return "shared";
     } catch (err) {
       if (err?.name === "AbortError") return "cancelled";
@@ -56,6 +57,7 @@ export function classifyScannedCode(code, { parseInviteLink, isShortInviteLink }
   if (/^dcbackup\d*:/i.test(s)) return "backup";
   if (/^(dcaccount|dclogin):/i.test(s)) return "relay";
   if (/^velta:\/\/tunnel/i.test(s)) return "tunnel"; // DNS tunnel setup (tunnel.js)
+  if (/^velta:\/\/ws\?/i.test(s)) return "tunnel"; // WebSocket transport (ws-transport.js), same deep-link path
   if (parseInviteLink(s)) return "invite";
   if (isShortInviteLink(s)) return "short";
   return null;

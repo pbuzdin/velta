@@ -17,6 +17,7 @@ import { t } from "./i18n.js";
 import { foldText, virtualWindow, buildSearchRow, buildVirtualScroller } from "./member-list.js";
 import { LruCache } from "./lru.js";
 import { audioPlayerHtml, mountAudioPlayer, decodeAudioDuration } from "./audio-player.js";
+import { P, svg } from "./icons.js";
 
 export const MEDIA_SECTIONS = [
   { key: "apps", label: "Apps", types: ["Webxdc"], layout: "list", search: "Search apps", empty: "No apps found" },
@@ -28,12 +29,12 @@ export const MEDIA_SECTIONS = [
 ];
 
 export const MEDIA_ROW_H = 56;
-const GOTO_SVG = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 10.5h6m-2.5-2.5 2.5 2.5-2.5 2.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-const ROW_PLAY_SVG = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>`;
+const GOTO_SVG = svg(P.gotoMessage, "", 'width="20" height="20"');
+const ROW_PLAY_SVG = svg(P.playFilled, "", 'width="20" height="20"');
 export function gotoButtonHtml(name) {
-  return `<button type="button" class="icon-btn media-goto" data-media-goto aria-label="Show ${name} in chat" title="Show in chat">${GOTO_SVG}</button>`;
+  return `<button type="button" class="icon-btn media-goto" data-media-goto aria-label="${t("Show {name} in chat", { name })}" title="${escapeHtml(t("Show in chat"))}">${GOTO_SVG}</button>`;
 }
-const PLAY_SVG = `<svg viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="12" r="11" fill="rgba(0,0,0,.5)"/><path d="M9.5 7.5v9l7-4.5z" fill="#fff"/></svg>`;
+const PLAY_SVG = `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="12" r="11" fill="rgba(0,0,0,.5)"/><path d="M9.5 7.5v9l7-4.5z" fill="#fff"/></svg>`;
 // Square grid tiles: width of one column of the scroll box (minus scrollbar).
 export function gridTileSize(boxWidth, cols = MEDIA_GRID_COLS) {
   const w = Number(boxWidth) > 0 ? Number(boxWidth) : 320;
@@ -86,14 +87,14 @@ export function mediaRowHtml(section, m, { info = null, iconUrl = "" } = {}) {
   }
   if (section.key === "audio") {
     const dur = m.duration ? formatDuration(m.duration) : "";
-    return `<button type="button" class="icon-btn media-play" data-media-play aria-label="Play ${name}">${ROW_PLAY_SVG}</button>`
+    return `<button type="button" class="icon-btn media-play" data-media-play aria-label="${t("Play {name}", { name })}">${ROW_PLAY_SVG}</button>`
       + `<span class="member-text"><span class="member-name">${name}</span><span class="member-sub">${meta([who, when, dur])}</span></span>`
       + `<span class="member-actions">${gotoButtonHtml(name)}</span>`;
   }
   const size = m.fileSize ? formatBytes(m.fileSize) : "";
-  const pending = m.downloadState && m.downloadState !== "Done" ? "not downloaded" : "";
+  const pending = m.downloadState && m.downloadState !== "Done" ? t("not downloaded") : "";
   return `<span class="member-text"><span class="member-name">${name}</span><span class="member-sub">${meta([size || pending, when, who])}</span></span>`
-    + `<span class="member-actions"><button type="button" class="btn-text" data-media-save aria-label="Save ${name}">Save</button>${gotoButtonHtml(name)}</span>`;
+    + `<span class="member-actions"><button type="button" class="btn-text" data-media-save aria-label="${t("Save {name}", { name })}">${escapeHtml(t("Save"))}</button>${gotoButtonHtml(name)}</span>`;
 }
 
 // Inner HTML of one grid tile (photos / videos).
@@ -108,7 +109,7 @@ export function mediaTileHtml(section, m, { fileUrl = (p) => p } = {}) {
     const poster = ready ? `<video class="media-poster" src="${escapeAttr(fileUrl(m.filePath))}#t=0.1" preload="metadata" muted playsinline disablepictureinpicture tabindex="-1" aria-hidden="true"></video>` : "";
     return `<span class="media-tile-inner media-video" role="img" aria-label="${label}">${poster}<span class="media-play-glyph" aria-hidden="true">${PLAY_SVG}</span>${dur}</span>`;
   }
-  if (!ready) return `<span class="media-tile-inner media-pending" role="img" aria-label="${label}, not downloaded"></span>`;
+  if (!ready) return `<span class="media-tile-inner media-pending" role="img" aria-label="${t("{label}, not downloaded", { label })}"></span>`;
   return `<img class="media-tile-inner" src="${escapeAttr(fileUrl(m.filePath, { thumb: true }))}" alt="${label}" loading="lazy" decoding="async">`;
 }
 
@@ -127,7 +128,7 @@ export async function loadMessages(core, ids, cache, onLoaded = null) {
 
 export function mediaSectionsHtml() {
   return MEDIA_SECTIONS.map((s) => `<details class="info-details media-details" data-media="${s.key}" hidden>
-      <summary class="info-row"><span class="k">${t(s.label)}</span><span class="v" data-media-count aria-label="${t(s.label)} count">…</span></summary>
+      <summary class="info-row"><span class="k">${t(s.label)}</span><span class="v" data-media-count aria-label="${t("{label} count", { label: t(s.label) })}">…</span></summary>
       <div class="media-body" data-media-body></div>
     </details>`).join("");
 }

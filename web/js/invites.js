@@ -1,9 +1,11 @@
 // invites.js — Delta Chat invite links (https://i.delta.chat/#… and mirrors):
 // configurable domain registry, URL parsing/normalization, invite cards in
 // chat messages, and the "Invite link domains" settings modal.
-import { showModal, toast } from "./ui.js";
+import { showModal, toast, inviteCanShare, shareInviteLink } from "./ui.js";
 import { escapeHtml, escapeAttr, gestureSwipeRecent } from "./components.js";
 import { tauriInvoke } from "./tauri.js";
+import { ICON } from "./icons.js";
+import { t } from "./i18n.js";
 
 // Mirror the AndroidManifest.xml intent filters: OS-level interception of a
 // domain is compiled into the app, this list controls what Velta recognizes
@@ -122,11 +124,18 @@ function parseParams(payload) {
 export function inviteLabel(parsed) {
   const { params } = parsed;
   const addr = params.a || "";
-  const actor = params.n || (addr ? addr.split("@")[0] : "") || "Someone";
+  const actor = params.n || (addr ? addr.split("@")[0] : "") || t("Someone");
   if (params.b) return { kind: "channel", actor, group: params.b, addr };
   return params.g
     ? { kind: "group", actor, group: params.g, addr }
     : { kind: "person", actor, group: null, addr };
+}
+
+// Share button beside the card's copy button; only when a native share
+// sheet exists (Android share_text / Web Share), like the invite dialog.
+function inviteShareBtn(link, text) {
+  if (!inviteCanShare()) return "";
+  return `<button type="button" class="invite-copy" data-invite-share="${escapeAttr(link)}" data-share-text="${escapeAttr(text)}" title="${escapeHtml(t("Share invite link"))}" aria-label="${escapeHtml(t("Share invite link"))}">` + ICON.share + `</button>`;
 }
 
 // HTML for the invite card rendered inside a message bubble. The text part
@@ -134,18 +143,19 @@ export function inviteLabel(parsed) {
 export function inviteCardHtml(parsed) {
   const label = inviteLabel(parsed);
   const line = label.kind === "group"
-    ? `<b>${escapeHtml(label.actor)}</b> invited you to a <b>${escapeHtml(label.group)}</b> group`
+    ? t("{actor} invited you to a {group} group", { actor: `<b>${escapeHtml(label.actor)}</b>`, group: `<b>${escapeHtml(label.group)}</b>` })
     : label.kind === "channel"
-    ? `Subscribe to <b>${escapeHtml(label.group)}</b>`
-    : `Chat with <b>${escapeHtml(label.actor)}</b>`;
+    ? t("Subscribe to {group}", { group: `<b>${escapeHtml(label.group)}</b>` })
+    : t("Chat with {name}", { name: `<b>${escapeHtml(label.actor)}</b>` });
   const sub = label.addr && label.addr !== label.actor ? `<span class="invite-sub">${escapeHtml(label.addr)}</span>` : "";
   return `<span class="invite-card">` +
     `<button type="button" class="invite-main" data-invite-join="${escapeAttr(parsed.raw)}">` +
       `<span class="invite-line">${line}</span>${sub}` +
     `</button>` +
-    `<button type="button" class="invite-copy" data-invite-copy="${escapeAttr(parsed.raw)}" title="Copy invite link" aria-label="Copy invite link">` +
-      `<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 15V5a2 2 0 012-2h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>` +
+    `<button type="button" class="invite-copy" data-invite-copy="${escapeAttr(parsed.raw)}" title="${escapeHtml(t("Copy invite link"))}" aria-label="${escapeHtml(t("Copy invite link"))}">` +
+      ICON.copy +
     `</button>` +
+    inviteShareBtn(parsed.raw, label.kind === "person" ? t("Chat with {name} on Velta", { name: label.actor }) : t("Join {name} on Velta", { name: label.group })) +
   `</span>`;
 }
 
@@ -169,7 +179,14 @@ export function bindInviteInterception(onJoin) {
       e.preventDefault();
       e.stopPropagation();
       const link = copyBtn.getAttribute("data-invite-copy");
-      navigator.clipboard?.writeText(link)?.then?.(() => toast("Invite link copied"));
+      navigator.clipboard?.writeText(link)?.then?.(() => toast(t("Invite link copied")));
+      return;
+    }
+    const shareBtn = e.target.closest?.("[data-invite-share]");
+    if (shareBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      shareInviteLink(shareBtn.getAttribute("data-invite-share"), shareBtn.getAttribute("data-share-text"));
       return;
     }
     const shortBtn = e.target.closest?.("[data-short-expand]");
@@ -179,7 +196,7 @@ export function bindInviteInterception(onJoin) {
       const url = shortBtn.getAttribute("data-short-expand");
       const parsed = await expandShortInvite(url);
       if (parsed) onJoin(parsed.raw);
-      else toast("Could not expand this short invite link");
+      else toast(t("Could not expand this short invite link"));
       return;
     }
     const joinBtn = e.target.closest?.("[data-invite-join]");
@@ -204,7 +221,7 @@ export function bindInviteInterception(onJoin) {
         e.stopPropagation();
         const expanded = await expandShortInvite(href);
         if (expanded) onJoin(expanded.raw);
-        else toast("Could not expand this short invite link");
+        else toast(t("Could not expand this short invite link"));
       }
     }
   }, true);
@@ -257,12 +274,13 @@ export function shortInviteCardHtml(shortUrl) {
   }
   return `<span class="invite-card invite-pending" data-short-expand="${escapeAttr(shortUrl)}">` +
     `<span class="invite-main">` +
-      `<span class="invite-line">Expanding invite…</span>` +
+      `<span class="invite-line">${escapeHtml(t("Expanding invite…"))}</span>` +
       `<span class="invite-sub">${escapeHtml(shortUrl)}</span>` +
     `</span>` +
-    `<button type="button" class="invite-copy" data-invite-copy="${escapeAttr(shortUrl)}" title="Copy short link" aria-label="Copy short link">` +
-      `<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 15V5a2 2 0 012-2h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>` +
+    `<button type="button" class="invite-copy" data-invite-copy="${escapeAttr(shortUrl)}" title="${escapeHtml(t("Copy short link"))}" aria-label="${escapeHtml(t("Copy short link"))}">` +
+      ICON.copy +
     `</button>` +
+    inviteShareBtn(shortUrl, t("Chat with me on Velta")) +
   `</span>`;
 }
 
@@ -332,13 +350,13 @@ function watchShortCards() {
 export function showInviteDomainsModal() {
   const body = document.createElement("div");
   body.innerHTML = `
-    <p style="font-size:14.5px;line-height:1.5;margin-bottom:8px">Links on these domains open as chat invites in Velta — in messages they render as invite cards, and pasted links are recognized.</p>
+    <p style="font-size:14.5px;line-height:1.5;margin-bottom:8px">${escapeHtml(t("Links on these domains open as chat invites in Velta — in messages they render as invite cards, and pasted links are recognized."))}</p>
     <div class="modal-list" data-host-list style="max-height:220px;overflow:auto"></div>
     <form data-host-form style="display:flex;gap:8px;margin:10px 0 0">
       <input class="text-field" data-host-input required placeholder="mirror.example.org" autocomplete="off" inputmode="url" autocapitalize="none" spellcheck="false" style="flex:1">
-      <button type="submit" class="btn-text" data-host-add>Add</button>
+      <button type="submit" class="btn-text" data-host-add>${escapeHtml(t("Add"))}</button>
     </form>
-    <p style="font-size:12.5px;line-height:1.45;color:var(--text-dim);margin-top:10px">To have Android offer Velta for a new domain everywhere (e.g. in the browser), it also needs an entry in the app's intent filters — that list is compiled into the APK.</p>`;
+    <p style="font-size:12.5px;line-height:1.45;color:var(--text-dim);margin-top:10px">${escapeHtml(t("To have Android offer Velta for a new domain everywhere (e.g. in the browser), it also needs an entry in the app's intent filters — that list is compiled into the APK."))}</p>`;
 
   const list = body.querySelector("[data-host-list]");
   const input = body.querySelector("[data-host-input]");
@@ -357,7 +375,7 @@ export function showInviteDomainsModal() {
         const rm = document.createElement("button");
         rm.type = "button";
         rm.className = "btn-text";
-        rm.textContent = "Remove";
+        rm.textContent = t("Remove");
         rm.style.color = "var(--danger)";
         rm.addEventListener("click", () => { removeInviteHost(row.host); renderList(); });
         item.appendChild(rm);
@@ -371,7 +389,7 @@ export function showInviteDomainsModal() {
   body.querySelector("[data-host-form]").addEventListener("submit", (e) => {
     e.preventDefault();
     const host = addInviteHost(input.value);
-    if (!host) { toast("Enter a plain hostname, e.g. mirror.example.org"); return; }
+    if (!host) { toast(t("Enter a plain hostname, e.g. mirror.example.org")); return; }
     input.value = "";
     renderList();
     toast(`${host} added`);

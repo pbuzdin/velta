@@ -13,10 +13,17 @@ import { canShareLink, shareLink } from "./qr-actions.js";
 import { MD_HINT, MD_REENABLED_NOTE, DL_LIMIT_HINT, mdLabel } from "./multidevice.js";
 import { videoPosKey, videoResumeSeconds, rememberVideoPos } from "./video-pos.js";
 import { t, currentLang, setLang, LANGS, translateTree } from "./i18n.js";
+import { ICON, LOOP_SVG, P, svg } from "./icons.js";
+import { mountInviteDomains } from "./invite-domains.js";
 
 const popups = () => document.getElementById("popups");
 
 // Popover API: Chromium 114+ and Safari 17+. macOS 10.15/11 stay on the overlay.
+// "Name: on/off" row text for drawer toggles; the state words are keys too.
+function toggleText(label, state) {
+  return t("{label}: {state}", { label: t(label), state: state === "…" ? "…" : t(state) });
+}
+
 export function popoverSupported() {
   return typeof HTMLElement === "function" && Object.prototype.hasOwnProperty.call(HTMLElement.prototype, "popover");
 }
@@ -46,7 +53,7 @@ let modalReplacing = false; // a showModal→closeAllPopups pair is mid-flight �
 // unicode ✕ renders hairline-thin). Used by modals, the image lightbox, the
 // HTML/full-message overlay, and toasts.
 export const CLOSE_SVG =
-  '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>';
+  ICON.close;
 
 export function closeAllPopups() {
   activeModalClose?.();
@@ -73,7 +80,7 @@ function placeMenu(menu, x, y) {
 // open. A second tap closes the menu; any other close (outside tap, Esc, a
 // pick, Android Back, closeAllPopups) restores the icon — the menu element's
 // removal from the DOM is the single signal. `open(e)` returns the menu.
-export const MENU_CLOSE_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`;
+export const MENU_CLOSE_SVG = ICON.close;
 export function bindMenuToggle(btn, open, { closeLabel = "Close menu" } = {}) {
   const st = { menu: null, obs: null, wasOpen: false, icon: null, label: null, title: null };
   btn.setAttribute("aria-haspopup", "menu");
@@ -114,7 +121,7 @@ export function bindMenuToggle(btn, open, { closeLabel = "Close menu" } = {}) {
 }
 
 // Monochrome smiley that expands the quick-reaction row into the tray.
-const SMILEY_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 14.2c1.2 1.1 2.5 1.6 4 1.6s2.8-.5 4-1.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="9" cy="10" r="1" fill="currentColor"/><circle cx="15" cy="10" r="1" fill="currentColor"/></svg>`;
+const SMILEY_SVG = ICON.smiley;
 
 export function showContextMenu(items, x, y) {
   closeAllPopups();
@@ -167,7 +174,7 @@ export function showActionBar({ items, reactions = [], selected = null, onReact,
     b.className = "msg-bar-react" + (emoji === selected ? " mine" : "");
     b.textContent = emoji;
     b.setAttribute("aria-pressed", emoji === selected ? "true" : "false");
-    b.setAttribute("aria-label", emoji === selected ? `Remove reaction ${emoji}` : emoji);
+    b.setAttribute("aria-label", emoji === selected ? t("Remove reaction {emoji}", { emoji }) : emoji);
     b.addEventListener("click", () => { close(); onReact?.(emoji); });
     reacts.append(b);
   }
@@ -280,7 +287,7 @@ function sheetAction(it) {
   const b = document.createElement("button");
   b.type = "button";
   b.className = "ctx-item" + (it.danger ? " danger" : "");
-  b.innerHTML = (it.icon || "") + "<span>" + escapeHtml(it.short || it.label) + "</span>";
+  b.innerHTML = (it.icon || "") + "<span>" + escapeHtml(t(it.short || it.label)) + "</span>";
   b.addEventListener("click", () => { closeAllPopups(); it.onClick?.(); });
   return b;
 }
@@ -298,12 +305,12 @@ export function buildEmojiTray({ onReact, onBack } = {}) {
   const back = document.createElement("button");
   back.type = "button";
   back.className = "msg-emoji-back";
-  back.textContent = "Back";
+  back.textContent = t("Back");
   const search = document.createElement("input");
   search.type = "search";
   search.className = "text-field";
-  search.placeholder = "Search emoji";
-  search.setAttribute("aria-label", "Search emoji");
+  search.placeholder = t("Search emoji");
+  search.setAttribute("aria-label", t("Search emoji"));
   search.autocomplete = "off";
   const grid = document.createElement("div");
   grid.className = "msg-emoji-grid";
@@ -313,7 +320,7 @@ export function buildEmojiTray({ onReact, onBack } = {}) {
     if (!found.length) {
       const empty = document.createElement("div");
       empty.className = "msg-emoji-empty";
-      empty.textContent = "No emoji";
+      empty.textContent = t("No emoji");
       grid.append(empty);
       return;
     }
@@ -348,14 +355,14 @@ export function buildReactionRow({ reactions, selected = null, onReact }) {
     b.className = "msg-react" + (emoji === selected ? " mine" : "");
     b.textContent = emoji;
     b.setAttribute("aria-pressed", emoji === selected ? "true" : "false");
-    b.setAttribute("aria-label", emoji === selected ? `Remove reaction ${emoji}` : emoji);
+    b.setAttribute("aria-label", emoji === selected ? t("Remove reaction {emoji}", { emoji }) : emoji);
     b.addEventListener("click", () => { closeAllPopups(); onReact?.(emoji); });
     reacts.append(b);
   }
   const more = document.createElement("button");
   more.type = "button";
   more.className = "msg-react msg-react-more";
-  more.setAttribute("aria-label", "More emoji");
+  more.setAttribute("aria-label", t("More emoji"));
   more.innerHTML = SMILEY_SVG;
   const tray = buildEmojiTray({
     onReact,
@@ -375,7 +382,7 @@ export function showMessageSheet({ reactions = [], selected = null, onReact, ite
   const menu = document.createElement("div");
   menu.className = "ctx-menu msg-sheet";
   menu.setAttribute("role", "dialog");
-  menu.setAttribute("aria-label", "Message actions");
+  menu.setAttribute("aria-label", t("Message actions"));
   const grab = document.createElement("div");
   grab.className = "msg-sheet-grab";
   grab.setAttribute("aria-hidden", "true");
@@ -404,7 +411,7 @@ export function showMessageSheet({ reactions = [], selected = null, onReact, ite
     const det = document.createElement("details");
     det.className = "msg-links";
     const sum = document.createElement("summary");
-    sum.textContent = links.length > 1 ? `Show links (${links.length})` : "Show links";
+    sum.textContent = links.length > 1 ? t("Show links ({n})", { n: links.length }) : t("Show links");
     const list = document.createElement("div");
     list.className = "msg-links-list";
     for (const url of links) {
@@ -436,7 +443,7 @@ export function showStickerPicker({ getStickers, onPick }) {
   pop.className = "sticker-pop";
   const grid = document.createElement("div");
   grid.className = "sticker-grid";
-  grid.innerHTML = `<div class="sticker-note">Loading…</div>`;
+  grid.innerHTML = `<div class="sticker-note">${escapeHtml(t("Loading…"))}</div>`;
   pop.append(grid);
   openLightDismiss(pop);
   Promise.resolve(getStickers()).then((collections) => {
@@ -461,9 +468,9 @@ export function showStickerPicker({ getStickers, onPick }) {
         n++;
       }
     }
-    if (!n) grid.innerHTML = `<div class="sticker-note">No stickers yet.<br>Long-press a sticker you received and choose “Save sticker”.</div>`;
+    if (!n) grid.innerHTML = `<div class="sticker-note">${t("No stickers yet.<br>Long-press a sticker you received and choose “Save sticker”.")}</div>`;
   }).catch(() => {
-    grid.innerHTML = `<div class="sticker-note">Couldn't load stickers.</div>`;
+    grid.innerHTML = `<div class="sticker-note">${escapeHtml(t("Couldn't load stickers."))}</div>`;
   });
   return pop;
 }
@@ -674,7 +681,7 @@ export function toast(text, ms = 2200, opts = {}) {
   const setTimer = (running) => { timerBar.style.animationPlayState = running ? "running" : "paused"; };
 }
 
-export function confirmModal(title, text, okLabel = "Delete", danger = true) {
+export function confirmModal(title, text, okLabel = t("Delete"), danger = true) {
   return new Promise(resolve => {
     const foot = document.createElement("div");
     const cancel = document.createElement("button");
@@ -685,7 +692,7 @@ export function confirmModal(title, text, okLabel = "Delete", danger = true) {
     ok.className = "btn-text"; ok.textContent = t(okLabel);
     if (danger) ok.style.color = "var(--danger)";
     foot.append(cancel, ok);
-    const { close } = showModal({ title, body: `<p style="font-size:15px;line-height:1.45">${escapeHtml(t(text))}</p>`, foot, compact: true, onClose: () => resolve(false) });
+    const { close } = showModal({ title, body: `<p style="font-size:15px;line-height:1.45;white-space:pre-line">${escapeHtml(t(text))}</p>`, foot, compact: true, onClose: () => resolve(false) });
     cancel.addEventListener("click", close);
     ok.addEventListener("click", () => { resolve(true); close(); });
   });
@@ -732,12 +739,10 @@ export function setCoreVersionDisplay(v) {
   if (splash) fillSplashVersion(splash);
 }
 /* ---------- Update check (drawer banner + menu-button nudge) ---------- */
-// The latest release version lives in a version.txt asset attached to every
-// GitHub release (written by release.yml from tauri.conf.json). On Tauri the
-// check runs shell-side (get_latest_version command — shell HTTP is not
-// CSP-bound and the hardcoded URL there is the app's only GitHub reach);
-// the direct fetch is the PWA/browser fallback.
-const UPDATE_CHECK_URL = "https://github.com/pbuzdin/velta/releases/latest/download/version.txt";
+// Tauri reads GitHub version.txt in the shell (get_latest_version). The page
+// must not: that CDN sends no CORS header, and CSP connect-src has no github
+// host. The browser reads same-origin /version.txt (release.yml copies it).
+const UPDATE_CHECK_URL = "/version.txt";
 const updateApkUrl = (v) => `https://github.com/pbuzdin/velta/releases/download/v${v}/Velta-${v}-arm64.apk`;
 
 let updateInfo = null; // { version, url } while an update is available
@@ -785,7 +790,7 @@ function renderUpdateBanner() {
   banner.className = "update-banner";
   const text = document.createElement("span");
   text.className = "update-banner-text";
-  text.innerHTML = `<strong>Velta ${escapeHtml(updateInfo.version)}</strong> is available`;
+  text.innerHTML = t("{version} is available", { version: `<strong>Velta ${escapeHtml(updateInfo.version)}</strong>` });
   const btn = document.createElement("button");
   btn.className = "update-banner-btn";
   btn.type = "button";
@@ -798,7 +803,7 @@ function renderUpdateBanner() {
   // Desktop installer installs get the one-click path (updater plugin);
   // Android sideloads and the PWA still go through the system browser.
   const desktop = !isAndroid() && window.__TAURI__?.core?.invoke;
-  btn.textContent = desktop ? "Update" : "Download APK";
+  btn.textContent = desktop ? t("Update") : t("Download APK");
   btn.addEventListener("click", async () => {
     if (desktop) return selfUpdate(btn);
     const tauri = window.__TAURI__;
@@ -828,8 +833,8 @@ async function inAppApkUpdate(btn, tauri) {
   const setPct = (received, total) => {
     const pct = total ? Math.min(100, Math.round((received / total) * 100)) : 0;
     btn.textContent = total
-      ? `Downloading… ${pct}%`
-      : `Downloading… ${(received / 1048576).toFixed(1)} MB`;
+      ? t("Downloading… {n}%", { n: pct })
+      : t("Downloading… {mb} MB", { mb: (received / 1048576).toFixed(1) });
     const bar = btn.parentElement?.querySelector("progress");
     if (!bar) return;
     bar.hidden = false;
@@ -851,9 +856,9 @@ async function inAppApkUpdate(btn, tauri) {
       setPct(0, 0);
       updateInfo.apkPath = await tauri.core.invoke("download_update", { version: updateInfo.version });
     }
-    btn.textContent = "Opening installer…";
+    btn.textContent = t("Opening installer…");
     await tauri.core.invoke("install_update", { path: updateInfo.apkPath });
-    btn.textContent = "Install";
+    btn.textContent = t("Install");
   } catch {
     updateInfo.apkPath = null;
     fallbackToBrowser();
@@ -872,7 +877,7 @@ async function selfUpdate(btn) {
   try {
     const update = await tauri.updater.check();
     if (!update?.available) {
-      btn.textContent = "No update";
+      btn.textContent = t("No update");
       btn.disabled = false;
       return;
     }
@@ -884,18 +889,18 @@ async function selfUpdate(btn) {
         const pct = total ? Math.round((got / total) * 100) : 0;
         if (pct !== lastPct) {
           lastPct = pct;
-          btn.textContent = pct ? `Downloading ${pct}%` : "Downloading…";
+          btn.textContent = pct ? t("Downloading {n}%", { n: pct }) : t("Downloading…");
           const bar = btn.parentElement?.querySelector("progress");
           if (bar) { bar.hidden = false; if (total) bar.value = pct; else bar.removeAttribute("value"); }
         }
-      } else if (ev.event === "Finished") btn.textContent = "Installing…";
+      } else if (ev.event === "Finished") btn.textContent = t("Installing…");
     });
-    btn.textContent = "Restarting…";
+    btn.textContent = t("Restarting…");
     await tauri.process.relaunch(); // replaces the process — never resolves on success
   } catch (err) {
     console.error("self-update failed", err);
-    toast("Update failed: " + (err?.message || err));
-    btn.textContent = "Retry update";
+    toast(t("Update failed: ") + (err?.message || err));
+    btn.textContent = t("Retry update");
     btn.disabled = false;
   }
 }
@@ -1017,31 +1022,31 @@ export function chatAppearanceHtml() {
   // The custom-color ring is drawn from the same PRESETS (one source of hex).
   const ringCols = A.PRESETS.map(([c]) => c).filter(Boolean);
   const caRainbow = `conic-gradient(${[...ringCols, ringCols[0]].join(", ")})`;
-  const swatches = A.PRESETS.map(([c, label]) => `<label class="ca-swatch"${c ? ` style="--sw: ${c}"` : " data-default"} title="${escapeAttr(label)}"><input type="radio" name="ca-accent" value="${c || ""}" aria-label="${escapeAttr(label)}"${(c || null) === (st.accent && preset ? st.accent : null) && !custom ? " checked" : ""}></label>`).join("");
+  const swatches = A.PRESETS.map(([c, label]) => `<label class="ca-swatch"${c ? ` style="--sw: ${c}"` : " data-default"} title="${escapeAttr(t(label))}"><input type="radio" name="ca-accent" value="${c || ""}" aria-label="${escapeAttr(t(label))}"${(c || null) === (st.accent && preset ? st.accent : null) && !custom ? " checked" : ""}></label>`).join("");
   return `<details class="drawer-details" data-chat-appearance>
-        <summary><svg viewBox="0 0 24 24"><path d="M4 5h16a1 1 0 011 1v9a1 1 0 01-1 1h-9l-5 4v-4H4a1 1 0 01-1-1V6a1 1 0 011-1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M7 9.5h7M7 12.5h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Chat appearance</span></summary>
+        <summary>${ICON.chatAppearance}<span>${escapeHtml(t("Chat appearance"))}</span></summary>
         <div class="ca-panel">
-          <div class="ca-preview" role="group" aria-label="Preview">
-            <div class="msg-row"><div class="bubble"><div class="msg-sender">Ada</div><div class="msg-quote"><span class="q-name">You</span><span class="q-text">Are we still on for tonight?</span></div><div class="msg-text" lang="en">Yes! Bring the hyperparameter notes.</div><span class="msg-meta"><span>12:41</span></span></div></div>
-            <div class="msg-row out"><div class="bubble"><div class="msg-text" lang="en">Great, see you at 8. Map: <a href="#" tabindex="-1">example.org</a></div><span class="msg-meta"><span>12:42</span><span class="ticks-slot">${ticksSvg("read", "ticks")}</span></span></div></div>
+          <div class="ca-preview" role="group" aria-label="${escapeHtml(t("Preview"))}">
+            <div class="msg-row"><div class="bubble"><div class="msg-sender">Ada</div><div class="msg-quote"><span class="q-name">${escapeHtml(t("You"))}</span><span class="q-text">${escapeHtml(t("Are we still on for tonight?"))}</span></div><div class="msg-text" lang="en">${escapeHtml(t("Yes! Bring the hyperparameter notes."))}</div><span class="msg-meta"><span>12:41</span></span></div></div>
+            <div class="msg-row out"><div class="bubble"><div class="msg-text" lang="en">${escapeHtml(t("Great, see you at 8. Map:"))} <a href="#" tabindex="-1">example.org</a></div><span class="msg-meta"><span>12:42</span><span class="ticks-slot">${ticksSvg("read", "ticks")}</span></span></div></div>
           </div>
           <div class="ca-field">
-            <label for="ca-font">Message text size</label>
+            <label for="ca-font">${escapeHtml(t("Message text size"))}</label>
             <output for="ca-font" data-ca-font-out>${pxText(st.fontSize)}</output>
           </div>
           <input type="range" id="ca-font" class="ca-range" data-ca-font min="${A.FONT_MIN}" max="${A.FONT_MAX}" step="0.5" value="${st.fontSize}" aria-valuetext="${pxText(st.fontSize)}">
           <div class="ca-field">
-            <label for="ca-radius">Message corners</label>
+            <label for="ca-radius">${escapeHtml(t("Message corners"))}</label>
             <output for="ca-radius" data-ca-radius-out>${pxText(radius)}</output>
           </div>
           <input type="range" id="ca-radius" class="ca-range" data-ca-radius min="${A.RADIUS_MIN}" max="${A.RADIUS_MAX}" step="1" value="${radius}" aria-valuetext="${pxText(radius)}">
           <fieldset class="ca-accent" data-ca-accent>
-            <legend>Accent color</legend>
-            <div class="ca-swatches">${swatches}<label class="ca-swatch ca-custom" title="Custom color" style="--ca-rainbow: ${caRainbow}"><input type="color" data-ca-custom aria-label="Custom accent color" value="${custom || "#3fa34d"}"${custom ? " data-active" : ""}></label></div>
+            <legend>${escapeHtml(t("Accent color"))}</legend>
+            <div class="ca-swatches">${swatches}<label class="ca-swatch ca-custom" title="${escapeHtml(t("Custom color"))}" style="--ca-rainbow: ${caRainbow}"><input type="color" data-ca-custom aria-label="${escapeHtml(t("Custom accent color"))}" value="${custom || "#3fa34d"}"${custom ? " data-active" : ""}></label></div>
           </fieldset>
-          <div class="bar-opts-hint" data-ca-accent-hint>Links, buttons, switches and your own bubbles. Text colors adjust to stay readable in light and dark. Brutal keeps its own colors.</div>
-          <label class="scale-opt"><input type="checkbox" role="switch" data-ca-hyphens${st.hyphens ? " checked" : ""}><span>Hyphenate long words (English, Russian)</span></label>
-          <div class="ca-actions"><button type="button" class="btn-text" data-ca-reset>Reset to defaults</button></div>
+          <div class="bar-opts-hint" data-ca-accent-hint>${escapeHtml(t("Links, buttons, switches and your own bubbles. Text colors adjust to stay readable in light and dark. Brutal keeps its own colors."))}</div>
+          <label class="scale-opt"><input type="checkbox" role="switch" data-ca-hyphens${st.hyphens ? " checked" : ""}><span>${escapeHtml(t("Hyphenate long words (English, Russian)"))}</span></label>
+          <div class="ca-actions"><button type="button" class="btn-text" data-ca-reset>${escapeHtml(t("Reset to defaults"))}</button></div>
         </div>
       </details>`;
 }
@@ -1106,7 +1111,7 @@ export function wireChatAppearance(root, { onChange } = {}) {
     sync(st);
     onChange?.(st);
     relayout();
-    toast("Chat appearance reset");
+    toast(t("Chat appearance reset"));
   });
 }
 
@@ -1121,7 +1126,7 @@ function notifyChecked(storageKey) {
 
 const IS_ANDROID = isAndroid();
 
-export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, onWsRelays, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality, downloadLimit = "0", onDownloadLimit, onReadReceipts, onLowBatteryToggle, multiDeviceState = "loading", multiDeviceReenabled = false, onMultiDevice, onMultiDeviceKeep, onDrawerOpen, identityBackupAvailable = false, onIdentityBackup, onTunnel = null, tunnelLabel = "", onDiagnostics = null, onPushSection = null, onWebPushSection = null, backendKind = null, onExportSettings = null }) {
+export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, onWsRelays, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality, downloadLimit = "0", onDownloadLimit, onReadReceipts, onLowBatteryToggle, multiDeviceState = "loading", multiDeviceReenabled = false, onMultiDevice, onMultiDeviceKeep, onDrawerOpen, identityBackupAvailable = false, onIdentityBackup, onTunnel = null, tunnelLabel = "", onWsTransport = null, wsTransportLabel = "", onDiagnostics = null, onPushSection = null, onWebPushSection = null, backendKind = null, onExportSettings = null, onScheduled = null }) {
   const inTauri = isTauri();
   const drawer = document.createElement("div");
   drawer.className = "drawer";
@@ -1134,31 +1139,31 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
         <div class="drawer-links">
           <button type="button" data-act="edit-profile">${t("Edit profile")}</button>
           <details class="acct-switch" data-acct-switch>
-            <summary data-act="switch-account">Accounts<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+            <summary data-act="switch-account">Accounts${ICON.chevronDown}</summary>
             <div class="acct-pop" role="group" aria-label="Accounts" data-i18n-aria="Accounts">
-            ${accounts.map(a => `<button type="button" class="ctx-item" data-act="account" data-account="${escapeAttr(a.id)}"${a.id === currentAccountId ? ' aria-current="true"' : ""}><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>${a.id === currentAccountId ? `<path d="M8.5 12.5l2.5 2.5 5-5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>` : ""}</svg><span>${escapeHtml(a.name || a.addr)}${a.id === currentAccountId ? " · current" : ""}</span></button>`).join("")}
+            ${accounts.map(a => `<button type="button" class="ctx-item" data-act="account" data-account="${escapeAttr(a.id)}"${a.id === currentAccountId ? ' aria-current="true"' : ""}>${svg(P.profile + (a.id === currentAccountId ? P.checkInner : ""))}<span>${escapeHtml(a.name || a.addr)}${a.id === currentAccountId ? " · current" : ""}</span></button>`).join("")}
             <div class="ctx-sep"></div>
-            <button type="button" class="ctx-item" data-act="profile-management"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 5v4M21 7h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>${t("Profile management…")}</span></button>
+            <button type="button" class="ctx-item" data-act="profile-management">${ICON.profileAdd}<span>${t("Profile management…")}</span></button>
             </div>
           </details>
         </div>
       </div>
     </div>
     <div class="drawer-items">
-      <button type="button" class="ctx-item" data-act="saved"><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4.5L6 21z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>${t("Saved Messages")}</span></button>
-      <button type="button" class="ctx-item" data-act="invite"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="13" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="3" width="8" height="8" rx="1" fill="currentColor"/><rect x="3" y="13" width="8" height="8" rx="1" fill="currentColor"/></svg><span>${t("Invite friends (QR)")}</span></button>
-      ${p2pAvailable || p2pOn ? `<label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M2.5 9.5a14 14 0 0119 0M5.5 13a9.5 9.5 0 0113 0M8.5 16.5a5 5 0 017 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="19.5" r="1.4" fill="currentColor"/></svg><span>Local chat: ${p2pOn ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="p2p"${p2pOn ? " checked" : ""}></label>` : ""}
-      ${p2pAvailable && p2pOn ? `<label class="ctx-item" title="Show when someone in a local chat is typing, and let them see when you are. Hints are live only and never stored."><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="8" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="16" cy="12" r="1.2" fill="currentColor"/></svg><span>Typing indicator: ${localStorage.getItem("velta-p2p-typing") !== "0" ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="p2p-typing"${localStorage.getItem("velta-p2p-typing") !== "0" ? " checked" : ""}></label>` : ""}
+      <button type="button" class="ctx-item" data-act="saved">${ICON.bookmark}<span>${t("Saved Messages")}</span></button>
+      <button type="button" class="ctx-item" data-act="invite">${ICON.invite}<span>${t("Invite friends (QR)")}</span></button>
+      ${p2pAvailable || p2pOn ? `<label class="ctx-item">${LOOP_SVG}<span class="ctx-stack"><span data-lbl>${escapeHtml(toggleText("Velta Loop", p2pOn ? "on" : "off"))}</span><span class="ctx-sub">${t("Local chat on the same network")}</span></span><input type="checkbox" role="switch" data-toggle="p2p"${p2pOn ? " checked" : ""}></label>` : ""}
+      ${p2pAvailable && p2pOn ? `<label class="ctx-item" title="${escapeHtml(t("Show when someone in a local chat is typing, and let them see when you are. Hints are live only and never stored."))}">${ICON.typing}<span>${escapeHtml(toggleText("Typing indicator", localStorage.getItem("velta-p2p-typing") !== "0" ? "on" : "off"))}</span><input type="checkbox" role="switch" data-toggle="p2p-typing"${localStorage.getItem("velta-p2p-typing") !== "0" ? " checked" : ""}></label>` : ""}
       <div class="drawer-sec">${t("Settings")}</div>
       <details class="drawer-details">
-        <summary><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 109 9c0-1.5-1.2-2.6-2.6-2.6h-1.9a2.5 2.5 0 01-2.5-2.5V5.1C14 4 13.3 3 12 3z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="7.5" cy="10.5" r="1.2" fill="currentColor"/><circle cx="12" cy="7.5" r="1.2" fill="currentColor"/><circle cx="16.5" cy="10.5" r="1.2" fill="currentColor"/></svg><span data-theme-summary>${t("Theme")}: ${t(THEME_LABELS[theme] || "Auto")}</span></summary>
+        <summary>${ICON.palette}<span data-theme-summary>${t("{label}: {state}", { label: t("Theme"), state: t(THEME_LABELS[theme] || "Auto") })}</span></summary>
         <fieldset class="scale-opts" data-theme-opts>
           <legend class="vh">${t("Theme")}</legend>
           ${Object.entries(THEME_LABELS).map(([v, label]) => `<label class="scale-opt"><input type="radio" name="app-theme" value="${v}"${v === theme ? " checked" : ""}><span>${t(label)}</span></label>`).join("")}
         </fieldset>
       </details>
       <details class="drawer-details">
-        <summary><svg viewBox="0 0 24 24"><path d="M4 6h16M8 12h12M4 18h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span data-lang-summary>${t("Language")}: ${(LANGS.find(([v]) => v === currentLang()) || LANGS[0])[1]}</span></summary>
+        <summary>${ICON.language}<span data-lang-summary>${t("{label}: {state}", { label: t("Language"), state: (LANGS.find(([v]) => v === currentLang()) || LANGS[0])[1] })}</span></summary>
         <fieldset class="scale-opts" data-lang-opts>
           <legend class="vh">${t("Language")}</legend>
           ${LANGS.map(([v, name]) => `<label class="scale-opt"><input type="radio" name="ui-lang" value="${v}"${v === currentLang() ? " checked" : ""}><span>${name}</span></label>`).join("")}
@@ -1167,14 +1172,14 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
       </details>
       ${chatAppearanceHtml()}
       <details class="drawer-details">
-        <summary><svg viewBox="0 0 24 24"><path d="M5 19L11.2 5h1.6L19 19M7.2 15h9.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M16.5 5.5L21 10M21 5.5L16.5 10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span data-scale-summary>${t("Interface scale")}: ${t(uiScaleLabel())}</span></summary>
+        <summary>${ICON.textSize}<span data-scale-summary>${t("{label}: {state}", { label: t("Interface scale"), state: t(uiScaleLabel()) })}</span></summary>
         <fieldset class="scale-opts" data-scale-opts>
           <legend class="vh">${t("Interface scale")}</legend>
           ${UI_SCALES.map(([v, label]) => `<label class="scale-opt"><input type="radio" name="ui-scale" value="${v}"${v === uiScaleValue() ? " checked" : ""}><span>${t(label)}</span></label>`).join("")}
         </fieldset>
       </details>
       <details class="drawer-details">
-        <summary><svg viewBox="0 0 24 24"><rect x="3" y="17" width="18" height="4" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><path d="M6 17v-4m6 4V9m6 8V5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>${t("Bottom bar buttons")}</span></summary>
+        <summary>${ICON.bottomBar}<span>${t("Bottom bar buttons")}</span></summary>
         <fieldset class="scale-opts" data-bar-opts>
           <legend class="vh">${t("Bottom bar buttons")}</legend>
           ${[["chats", "Chats"], ["contacts", "Contacts"], ["calls", "Calls"], ["qr", "QR code"]].map(([key, label]) => `<label class="scale-opt"><input type="checkbox" role="switch" data-bar-key="${key}"${barHidden.includes(key) ? "" : " checked"}><span>${t(label)}</span></label>`).join("")}
@@ -1182,7 +1187,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
         <div class="bar-opts-hint">${t("Menu button is always visible.")}</div>
       </details>
       <details class="drawer-details">
-        <summary><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>${t("Chat categories")}</span></summary>
+        <summary>${ICON.sortLines}<span>${t("Chat categories")}</span></summary>
         <fieldset class="scale-opts" data-cat-opts>
           <legend class="vh">${t("Chat categories")}</legend>
           ${[["unread", "Unread"], ["people", "People"], ["groups", "Groups"], ["channels", "Channels"], ["bots", "Bots"], ["system", "System"]].map(([key, label]) => `<label class="scale-opt"><input type="checkbox" role="switch" data-cat-key="${key}"${catsHidden.includes(key) ? "" : " checked"}><span>${t(label)}</span></label>`).join("")}
@@ -1190,7 +1195,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
         <div class="bar-opts-hint">${t("\"All\" is always visible.")}</div>
       </details>
       <details class="drawer-details">
-        <summary><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.7 21a2 2 0 01-3.4 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>${t("Notifications")}</span></summary>
+        <summary>${ICON.notifications}<span>${t("Notifications")}</span></summary>
         <fieldset class="scale-opts" data-notify-opts>
           <legend class="vh">${t("Notifications")}</legend>
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="notifications"${notifyChecked("velta-notify") ? " checked" : ""}><span>${t("Notifications")}</span></label>
@@ -1205,20 +1210,21 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
           ${IS_ANDROID ? `
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="bg"${notifyChecked("velta-notify-bg") ? " checked" : ""}><span>${t("Use background connection")}</span></label>
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="bgforce"${notifyChecked("velta-notify-bgforce") ? " checked" : ""}><span>${t("Force background connection")}</span></label>
-          <div class="bar-opts-hint">${t("Force keeps background fetching alive under battery restrictions (asks Android for exemption).")}</div>` : ""}
+          <div class="bar-opts-hint">${t("Force keeps background fetching alive under battery restrictions (asks Android for exemption).")}</div>
+          <div class="bar-opts-hint"><a class="bat-dkma" href="https://dontkillmyapp.com/" data-dkma>${t("Phone still stops Velta? Extra steps for your phone")}</a></div>` : ""}
         </fieldset>
         <div class="bar-opts-hint">${t("Per-chat muting lives in each chat's info sheet.")}</div>
       </details>
       ${IS_ANDROID && onPushSection ? `<details class="drawer-details" data-push-section>
-        <summary><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v10m0 0l-4-4m4 4l4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 15v4h14v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-push-summary>${t("Push notifications")}</span></summary>
+        <summary>${ICON.downloadTray}<span data-push-summary>${t("Push notifications")}</span></summary>
         <div data-push-body><div class="bar-opts-hint">${t("Loading…")}</div></div>
       </details>` : ""}
       ${!IS_ANDROID && onWebPushSection ? `<details class="drawer-details" data-webpush-section>
-        <summary><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v10m0 0l-4-4m4 4l4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 15v4h14v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-webpush-summary>${t("Push notifications")}</span></summary>
+        <summary>${ICON.downloadTray}<span data-webpush-summary>${t("Push notifications")}</span></summary>
         <div data-webpush-body><div class="bar-opts-hint">${t("Loading…")}</div></div>
       </details>` : ""}
       <details class="drawer-details">
-        <summary><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>${t("Image quality")}</span></summary>
+        <summary>${ICON.imageQuality}<span>${t("Image quality")}</span></summary>
         <fieldset class="scale-opts" data-mq-opts>
           <legend class="vh">${t("Image quality")}</legend>
           ${[["0", "Standard (compress to 940 KB)"], ["1", "Compact (compress to 130 KB)"]].map(([value, label]) => `<label class="scale-opt"><input type="radio" name="media-quality" data-mq-value="${value}"${value === mediaQuality ? " checked" : ""}><span>${t(label)}</span></label>`).join("")}
@@ -1230,38 +1236,40 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
         <div class="bar-opts-hint">${t("Big JPEG/WebP photos are re-encoded as smaller WebP before sending, when that saves at least 10%. This also removes location and camera info from those photos. Animated images, transparent images, small photos and files are never changed.")}</div>
       </details>
       <details class="drawer-details">
-        <summary><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="4" y="17" width="16" height="4" rx="1" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>${t("Auto-download limit")}</span></summary>
+        <summary>${ICON.downloadBar}<span>${t("Auto-download limit")}</span></summary>
         <fieldset class="scale-opts" data-dl-opts>
           <legend class="vh">${t("Auto-download limit")}</legend>
           ${[["0", "No limit (default)"], ["1048576", "1 MB"], ["5242880", "5 MB"], ["26214400", "25 MB"]].map(([value, label]) => `<label class="scale-opt"><input type="radio" name="download-limit" data-dl-value="${value}"${value === downloadLimit ? " checked" : ""}><span>${t(label)}</span></label>`).join("")}
         </fieldset>
         <div class="bar-opts-hint" data-dl-hint>${escapeHtml(t(DL_LIMIT_HINT))}</div>
       </details>
-      <button type="button" class="ctx-item" data-act="profile-management"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 20a8 8 0 0116 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 5v4M21 7h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>${t("Profile management…")}</span></button>
-      <button type="button" class="ctx-item" data-act="relays"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>${t("Relays of this profile…")}</span></button>
-      ${onTunnel ? `<button type="button" class="ctx-item" data-act="tunnel"><svg viewBox="0 0 24 24"><path d="M3 20V11a9 9 0 0118 0v9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M8 20v-7a4 4 0 018 0v7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>DNS tunnel: ${escapeHtml(tunnelLabel)}</span></button>` : ""}
-      ${onWsRelays ? `<button type="button" class="ctx-item" data-act="ws-relays"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>${t("WebSocket relays")}</span></button>` : ""}
-      ${identityBackupAvailable ? `<button type="button" class="ctx-item" data-act="identity-backup"><svg viewBox="0 0 24 24"><circle cx="8" cy="14" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M11 11l8-8M17 5l3 3M14 8l2.5 2.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>${t("Identity backup…")}</span></button>` : ""}
-      <button type="button" class="ctx-item" data-act="invite-domains"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>${t("Invite link domains")}</span></button>
+      <button type="button" class="ctx-item" data-act="profile-management">${ICON.profileAdd}<span>${t("Profile management…")}</span></button>
+      <button type="button" class="ctx-item" data-act="relays">${ICON.globe}<span>${t("Relays of this profile…")}</span></button>
+      ${onTunnel ? `<button type="button" class="ctx-item" data-act="tunnel">${ICON.tunnel}<span>${escapeHtml(t("DNS tunnel:"))} ${escapeHtml(tunnelLabel)}</span></button>` : ""}
+      ${onWsTransport ? `<button type="button" class="ctx-item" data-act="ws-transport">${ICON.wsTransport}<span>${t("{label}: {state}", { label: t("WebSocket transport"), state: escapeHtml(wsTransportLabel) })}</span></button>` : ""}
+      ${onWsRelays ? `<button type="button" class="ctx-item" data-act="ws-relays">${ICON.globe}<span>${t("WebSocket relays")}</span></button>` : ""}
+      ${identityBackupAvailable ? `<button type="button" class="ctx-item" data-act="identity-backup">${ICON.key}<span>${t("Identity backup…")}</span></button>` : ""}
+      <button type="button" class="ctx-item" data-act="invite-domains">${ICON.globe}<span>${t("Invite link domains")}</span></button>
       <details class="drawer-details">
-        <summary><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>${t("Link previews")}: ${t(LINK_PREVIEW_LABELS[linkPreviewMode()])}</span></summary>
+        <summary>${ICON.link}<span>${t("{label}: {state}", { label: t("Link previews"), state: t(LINK_PREVIEW_LABELS[linkPreviewMode()]) })}</span></summary>
         <fieldset class="scale-opts" data-lp-opts>
           <legend class="vh">${t("Link previews")}</legend>
           ${[["off", "Off"], ["picture", "Send a picture"], ["fetch", "Load on this device"]].map(([value, label]) => `<label class="scale-opt"><input type="radio" name="link-preview-mode" data-lp-value="${value}"${value === linkPreviewMode() ? " checked" : ""}><span>${t(label)}</span></label>`).join("")}
         </fieldset>
         <div class="bar-opts-hint">${t("Send a picture attaches a snapshot; other people do not open the site.")} ${t(LINK_PREVIEW_IP_WARNING)}</div>
       </details>
-      <label class="ctx-item" title="Drops utm and click-id parameters when you paste or open a link. Undo brings them back."><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 20l5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Strip tracking from links: ${trackingStripEnabled() ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="strip-trackers"${trackingStripEnabled() ? " checked" : ""}></label>
-      <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M20 5v6a2 2 0 01-2 2H5m0 0l4-4m-4 4l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Send on Enter: ${localStorage.getItem("velta-send-enter") === "0" ? "off" : "on"}</span><input type="checkbox" role="switch" data-toggle="send-enter"${localStorage.getItem("velta-send-enter") === "0" ? "" : " checked"}></label>
-      <label class="ctx-item" title="Off also stops seen-status sync between your own devices"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 12a8 8 0 0114-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M20 12a8 8 0 01-14 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Show and send read receipts: ${localStorage.getItem("velta-mdns") === "0" ? "off" : "on"}</span><input type="checkbox" role="switch" data-toggle="read-receipts"${localStorage.getItem("velta-mdns") === "0" ? "" : " checked"}></label>
-      <label class="ctx-item" title="Copies messages you send to your other devices and syncs state between them"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="14" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><rect x="14" y="6" width="7" height="14" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Multi-device: ${mdLabel(multiDeviceState)}</span><input type="checkbox" role="switch" data-toggle="multidevice"${multiDeviceState === "on" ? " checked" : ""}${multiDeviceState === "on" || multiDeviceState === "off" ? "" : ' aria-checked="mixed"'}></label>
+      <label class="ctx-item" title="${escapeHtml(t("Drops utm and click-id parameters when you paste or open a link. Undo brings them back."))}">${ICON.cleanLink}<span>${escapeHtml(toggleText("Strip tracking from links", trackingStripEnabled() ? "on" : "off"))}</span><input type="checkbox" role="switch" data-toggle="strip-trackers"${trackingStripEnabled() ? " checked" : ""}></label>
+      <label class="ctx-item">${ICON.enterKey}<span>${escapeHtml(toggleText("Send on Enter", localStorage.getItem("velta-send-enter") === "0" ? "off" : "on"))}</span><input type="checkbox" role="switch" data-toggle="send-enter"${localStorage.getItem("velta-send-enter") === "0" ? "" : " checked"}></label>
+      <label class="ctx-item" title="${escapeHtml(t("Off also stops seen-status sync between your own devices"))}">${ICON.tick2}<span>${escapeHtml(toggleText("Show and send read receipts", localStorage.getItem("velta-mdns") === "0" ? "off" : "on"))}</span><input type="checkbox" role="switch" data-toggle="read-receipts"${localStorage.getItem("velta-mdns") === "0" ? "" : " checked"}></label>
+      <label class="ctx-item" title="${escapeHtml(t("Copies messages you send to your other devices and syncs state between them"))}">${ICON.devices}<span>${escapeHtml(toggleText("Multi-device", mdLabel(multiDeviceState)))}</span><input type="checkbox" role="switch" data-toggle="multidevice"${multiDeviceState === "on" ? " checked" : ""}${multiDeviceState === "on" || multiDeviceState === "off" ? "" : ' aria-checked="mixed"'}></label>
       <div class="bar-opts-hint ctx-hint" data-md-hint>${escapeHtml(t(MD_HINT))}</div>
       <div class="bar-opts-hint ctx-hint md-note" data-md-note${multiDeviceReenabled ? "" : " hidden"}><span>${escapeHtml(t(MD_REENABLED_NOTE))}</span> <span class="md-note-acts"><button type="button" class="btn-text" data-md-off>${t("Turn off again")}</button><button type="button" class="btn-text" data-md-keep>${t("Keep on")}</button></span></div>
-      ${IS_ANDROID ? `<label class="ctx-item" title="While the phone is under 10% and off the charger, your latest message in each chat gets a 🪫 reaction so the other side knows replies may stop. Recipients see it as a normal reaction; other clients show the emoji only."><svg viewBox="0 0 24 24"><rect x="2.5" y="8" width="16.5" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M21.5 10.5v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><rect x="4.5" y="10" width="3.5" height="4" rx="0.5" fill="currentColor"/></svg><span>Low-battery marker: ${localStorage.getItem("velta-low-battery-react") === "1" ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="low-battery"${localStorage.getItem("velta-low-battery-react") === "1" ? " checked" : ""}></label>` : ""}
-      <label class="ctx-item"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 20h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Remember scroll position in chats: ${localStorage.getItem("velta-remember-scroll") === "0" ? "off" : "on"}</span><input type="checkbox" role="switch" data-toggle="remember-scroll"${localStorage.getItem("velta-remember-scroll") === "0" ? "" : " checked"}></label>
-      <label class="ctx-item"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 9h6v6H9z" fill="currentColor"/></svg><span>Demo mode: ${localStorage.getItem("velta-mock") === "1" ? "on" : "off"}</span><input type="checkbox" role="switch" data-toggle="demo"${localStorage.getItem("velta-mock") === "1" ? " checked" : ""}></label>
-      ${onExportSettings ? `<button type="button" class="ctx-item" data-act="export-settings" title="Sends your Velta preferences as one text message to Saved Messages, so another device can apply them. No relays, keys or addresses."><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4.5L6 21z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 7v6m0-6l-2.5 2.5M12 7l2.5 2.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>${t("Export settings to Saved Messages")}</span></button>` : ""}
-      <button type="button" class="ctx-item" data-act="about"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 10v6M12 7v.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><span>${t("About Velta")}</span></button>
+      ${IS_ANDROID ? `<label class="ctx-item" title="${escapeHtml(t("While the phone is under 10% and off the charger, your latest message in each chat gets a 🪫 reaction so the other side knows replies may stop. Recipients see it as a normal reaction; other clients show the emoji only."))}">${ICON.battery}<span>${escapeHtml(toggleText("Low-battery marker", localStorage.getItem("velta-low-battery-react") === "1" ? "on" : "off"))}</span><input type="checkbox" role="switch" data-toggle="low-battery"${localStorage.getItem("velta-low-battery-react") === "1" ? " checked" : ""}></label>` : ""}
+      <label class="ctx-item">${ICON.download}<span>${escapeHtml(toggleText("Remember scroll position in chats", localStorage.getItem("velta-remember-scroll") === "0" ? "off" : "on"))}</span><input type="checkbox" role="switch" data-toggle="remember-scroll"${localStorage.getItem("velta-remember-scroll") === "0" ? "" : " checked"}></label>
+      <label class="ctx-item">${ICON.demo}<span>${escapeHtml(toggleText("Demo mode", localStorage.getItem("velta-mock") === "1" ? "on" : "off"))}</span><input type="checkbox" role="switch" data-toggle="demo"${localStorage.getItem("velta-mock") === "1" ? " checked" : ""}></label>
+      ${onExportSettings ? `<button type="button" class="ctx-item" data-act="export-settings" title="${escapeHtml(t("Sends your Velta preferences as one text message to Saved Messages, so another device can apply them. No relays, keys or addresses."))}">${ICON.bookmarkExport}<span>${t("Export settings to Saved Messages")}</span></button>` : ""}
+      ${onScheduled ? `<button type="button" class="ctx-item" data-act="scheduled">${ICON.clock}<span>${t("Scheduled messages")}</span></button>` : ""}
+      <button type="button" class="ctx-item" data-act="about">${ICON.info}<span>${t("About Velta")}</span></button>
     </div>
     <div class="drawer-foot" data-versions>
       <div class="drawer-ver"><span>Velta</span><span data-v="app">…</span></div>
@@ -1334,8 +1342,8 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     if (!v) return;
     setUiScale(v);
     const summary = drawer.querySelector("[data-scale-summary]");
-    if (summary) summary.textContent = `${t("Interface scale")}: ${t(uiScaleLabel())}`;
-    toast(`${t("Interface scale")}: ${t(uiScaleLabel())}`);
+    if (summary) summary.textContent = `${t("{label}: {state}", { label: t("Interface scale"), state: t(uiScaleLabel()) })}`;
+    toast(`${t("{label}: {state}", { label: t("Interface scale"), state: t(uiScaleLabel()) })}`);
   });
   drawer.querySelector("[data-lang-opts]")?.addEventListener("change", e => {
     const v = e.target?.value;
@@ -1355,6 +1363,15 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     const key = e.target?.dataset?.catKey;
     if (!key || !onCatToggle) return;
     onCatToggle(key, e.target.checked);
+  });
+  // dontkillmyapp.com page for this phone's maker (Build.MANUFACTURER).
+  drawer.querySelector("[data-dkma]")?.addEventListener("click", async e => {
+    e.preventDefault();
+    let maker = "";
+    try { maker = await tauriInvoke()?.("device_maker"); } catch {}
+    const { dontKillMyAppUrl } = await import("./battery-prompt.js");
+    const { openInAppBrowser } = await import("./inapp-browser.js");
+    openInAppBrowser(dontKillMyAppUrl(maker));
   });
   drawer.querySelector("[data-notify-opts]")?.addEventListener("change", e => {
     const key = e.target?.dataset?.notifyKey;
@@ -1393,7 +1410,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
       invoke?.("request_battery_exemption")?.catch?.(() => {});
     }
     if (key === "bg" && !e.target.checked) {
-      toast("Background connection off — messages arrive when you open Velta");
+      toast(t("Background connection off — messages arrive when you open Velta"));
     }
     const invoke = tauriInvoke();
     const prefs = {
@@ -1414,7 +1431,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     const on = e.target.checked;
     if (on) localStorage.removeItem("velta-compress-photos");
     else localStorage.setItem("velta-compress-photos", "0");
-    toast(`Photo compression ${on ? "on" : "off"}`);
+    toast(toggleText("Photo compression", on ? "on" : "off"));
   });
   drawer.querySelector("[data-mq-opts]")?.addEventListener("change", e => {
     const value = e.target?.dataset?.mqValue;
@@ -1427,7 +1444,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     else localStorage.setItem("velta-mdns", "0");
     setToggleUi("read-receipts", "Show and send read receipts", on);
     onReadReceipts?.(on);
-    toast(`Read receipts ${on ? "on" : "off"}`);
+    toast(toggleText("Read receipts", on ? "on" : "off"));
   });
   // Indeterminate (loading / failed read) can't be expressed in markup;
   // app.js repaints it via paintMultiDevice once the core answers.
@@ -1440,14 +1457,14 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     setToggleUi("multidevice", "Multi-device", on);
     const ok = await onMultiDevice?.(on);
     if (ok === false && e.target.isConnected) setToggleUi("multidevice", "Multi-device", !on);
-    else if (ok !== false) toast(`Multi-device ${on ? "on" : "off"}`);
+    else if (ok !== false) toast(toggleText("Multi-device", on ? "on" : "off"));
   });
   drawer.querySelector("[data-md-off]")?.addEventListener("click", async e => {
     e.preventDefault();
     const ok = await onMultiDevice?.(false, { quick: true });
     if (ok !== false) {
       setToggleUi("multidevice", "Multi-device", false);
-      toast("Multi-device off");
+      toast(t("Multi-device off"));
     }
   });
   drawer.querySelector("[data-md-keep]")?.addEventListener("click", e => {
@@ -1459,7 +1476,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     localStorage.setItem("velta-low-battery-react", on ? "1" : "0");
     setToggleUi("low-battery", "Low-battery marker", on);
     onLowBatteryToggle?.(on);
-    toast(`Low-battery marker ${on ? "on" : "off"}`);
+    toast(toggleText("Low-battery marker", on ? "on" : "off"));
   });
   drawer.querySelector("[data-dl-opts]")?.addEventListener("change", e => {
     const value = e.target?.dataset?.dlValue;
@@ -1472,8 +1489,8 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     if (!v || !THEME_LABELS[v]) return;
     onSetTheme?.(v);
     const summary = drawer.querySelector("[data-theme-summary]");
-    if (summary) summary.textContent = `${t("Theme")}: ${t(THEME_LABELS[v])}`;
-    toast(`${t("Theme")}: ${t(THEME_LABELS[v])}`);
+    if (summary) summary.textContent = `${t("{label}: {state}", { label: t("Theme"), state: t(THEME_LABELS[v]) })}`;
+    toast(`${t("{label}: {state}", { label: t("Theme"), state: t(THEME_LABELS[v]) })}`);
   });
 
   // Outside tap closes the drawer. Capture phase, so it wins over whatever
@@ -1512,12 +1529,12 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
   const setToggleUi = (key, label, on) => {
     const row = drawer.querySelector(`[data-toggle="${key}"]`);
     if (row) row.checked = on;
-    const span = drawer.querySelector(`[data-toggle="${key}"]`)?.closest(".ctx-item")?.querySelector("span");
-    if (span) span.textContent = `${label}: ${on ? "on" : "off"}`;
+    const span = drawer.querySelector(`[data-toggle="${key}"]`)?.closest(".ctx-item")?.querySelector("[data-lbl], span");
+    if (span) span.textContent = toggleText(label, on ? "on" : "off");
   };
 
   drawer.querySelector('[data-toggle="p2p"]')?.addEventListener("change", e => {
-    setToggleUi("p2p", "Local chat", e.target.checked);
+    setToggleUi("p2p", "Velta Loop", e.target.checked);
     onP2pToggle?.(); // flips the real state and rebuilds the drawer
   });
   drawer.querySelector('[data-toggle="p2p-typing"]')?.addEventListener("change", e => {
@@ -1525,7 +1542,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     if (on) localStorage.removeItem("velta-p2p-typing");
     else localStorage.setItem("velta-p2p-typing", "0");
     setToggleUi("p2p-typing", "Typing indicator", on);
-    toast(`Typing indicator ${on ? "on" : "off"}`);
+    toast(toggleText("Typing indicator", on ? "on" : "off"));
   });
   drawer.querySelector("[data-lp-opts]")?.addEventListener("change", e => {
     const input = e.target.closest?.("[data-lp-value]") || e.target;
@@ -1533,14 +1550,14 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     if (!mode || mode === linkPreviewMode()) return;
     setLinkPreviewMode(mode);
     const summary = drawer.querySelector("[data-lp-opts]")?.closest("details")?.querySelector("summary span");
-    if (summary) summary.textContent = `Link previews: ${LINK_PREVIEW_LABELS[mode]}`;
-    toast(`Link previews: ${LINK_PREVIEW_LABELS[mode]}`);
+    if (summary) summary.textContent = t("Link previews: {mode}", { mode: LINK_PREVIEW_LABELS[mode] });
+    toast(t("Link previews: {mode}", { mode: LINK_PREVIEW_LABELS[mode] }));
   });
   drawer.querySelector('[data-toggle="strip-trackers"]')?.addEventListener("change", e => {
     const on = e.target.checked;
     setTrackingStripEnabled(on);
     setToggleUi("strip-trackers", "Strip tracking from links", on);
-    toast(`Strip tracking from links ${on ? "on" : "off"}`);
+    toast(toggleText("Strip tracking from links", on ? "on" : "off"));
   });
   drawer.querySelector('[data-toggle="send-enter"]')?.addEventListener("change", e => {
     const on = e.target.checked;
@@ -1549,7 +1566,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     setToggleUi("send-enter", "Send on Enter", on);
     const composer = document.getElementById("composer-input");
     if (composer) composer.enterKeyHint = on ? "send" : "enter";
-    toast(`Send on Enter ${on ? "on" : "off"}`);
+    toast(toggleText("Send on Enter", on ? "on" : "off"));
   });
   // Remember scroll position in chats (issue #18, default ON per #70):
   // unset or "1" = on, "0" = off; ChatView reads it on every open/close.
@@ -1558,13 +1575,13 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     if (on) localStorage.removeItem("velta-remember-scroll");
     else localStorage.setItem("velta-remember-scroll", "0");
     setToggleUi("remember-scroll", "Remember scroll position in chats", on);
-    toast(`Remember scroll position in chats ${on ? "on" : "off"}`);
+    toast(toggleText("Remember scroll position in chats", on ? "on" : "off"));
   });
   drawer.querySelector('[data-toggle="demo"]')?.addEventListener("change", e => {
     const on = e.target.checked;
     localStorage.setItem("velta-mock", on ? "1" : "0");
     setToggleUi("demo", "Demo mode", on);
-    toast(`Demo mode ${on ? "on" : "off"} — reloading`);
+    toast(toggleText("Demo mode", on ? "on" : "off") + " — " + t("reloading"));
     setTimeout(() => location.reload(), 600);
   });
 
@@ -1583,11 +1600,13 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     if (act === "account") onAccountTap?.(btn.dataset.account);
     if (act === "relays") onRelays?.();
     if (act === "ws-relays") onWsRelays?.();
+    if (act === "ws-transport") onWsTransport?.();
     if (act === "invite-domains") onInviteDomains?.();
     if (act === "tunnel") onTunnel?.();
     if (act === "identity-backup") onIdentityBackup?.();
     if (act === "about") showAbout({ onDiagnostics, backendKind });
     if (act === "export-settings") onExportSettings?.();
+    if (act === "scheduled") onScheduled?.();
   });
 
   // Rebuilds (rebuildDrawer) discard this drawer: drop the document
@@ -1608,7 +1627,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
 // — or null on cancel. contactId/kind shape the avatar preview (self contact
 // by default; group editors pass contactId: 0 + kind: "group"); title
 // overrides the heading.
-export function showEditProfile({ name, avatarUrl, color, pickImage, contactId = 1, kind = "", title = "Edit profile", description = "" }) {
+export function showEditProfile({ name, avatarUrl, color, pickImage, contactId = 1, kind = "", title = t("Edit profile"), description = "" }) {
   return new Promise(resolve => {
     let picked = null;   // { path } once a new picture is chosen
     let removed = false; // "Remove photo" tapped
@@ -1617,11 +1636,11 @@ export function showEditProfile({ name, avatarUrl, color, pickImage, contactId =
     body.innerHTML = `
       <div class="ep-avatar"><velta-avatar size="84"${contactId ? ` contact-id="${contactId}"` : ""}${kind ? ` kind="${kind}"` : ""}></velta-avatar></div>
       <div class="ep-avatar-actions">
-        <button type="button" class="btn-text" data-ep="pick">Change picture</button>
-        <button type="button" class="btn-text" data-ep="remove" style="display:none">Remove photo</button>
+        <button type="button" class="btn-text" data-ep="pick">${escapeHtml(t("Change picture"))}</button>
+        <button type="button" class="btn-text" data-ep="remove" style="display:none">${escapeHtml(t("Remove photo"))}</button>
       </div>
-      <input class="text-field" maxlength="64" autocomplete="off" spellcheck="false" aria-label="Name" placeholder="Your name">
-      <textarea class="text-field ep-desc" rows="3" spellcheck="false" aria-label="Description" placeholder="Description"></textarea>`;
+      <input class="text-field" maxlength="64" autocomplete="off" spellcheck="false" aria-label="${escapeHtml(t("Name"))}" placeholder="${escapeHtml(t("Your name"))}">
+      <textarea class="text-field ep-desc" rows="3" spellcheck="false" aria-label="${escapeHtml(t("Description"))}" placeholder="${escapeHtml(t("Description"))}"></textarea>`;
     const input = body.querySelector("input");
     const descTa = body.querySelector(".ep-desc");
     descTa.value = description || "";
@@ -1647,7 +1666,7 @@ export function showEditProfile({ name, avatarUrl, color, pickImage, contactId =
         const res = await pickImage?.();
         if (res) { picked = res; removed = false; refreshPreview(); }
       } catch (err) {
-        toast("Couldn't load picture: " + (err.message || err), 4000);
+        toast(t("Couldn't load picture: ") + (err.message || err), 4000);
       } finally {
         pickBtn.disabled = false;
       }
@@ -1658,10 +1677,10 @@ export function showEditProfile({ name, avatarUrl, color, pickImage, contactId =
     foot.className = "edit-profile-foot";
     const cancel = document.createElement("button");
     cancel.type = "button";
-    cancel.className = "btn-text"; cancel.textContent = "Cancel";
+    cancel.className = "btn-text"; cancel.textContent = t("Cancel");
     const save = document.createElement("button");
     save.type = "submit";
-    save.className = "btn-text btn-primary"; save.textContent = "Save";
+    save.className = "btn-text btn-primary"; save.textContent = t("Save");
     foot.append(cancel, save);
 
     // first settlement wins — close() fires onClose, which must not win
@@ -1691,36 +1710,60 @@ export function showEditProfile({ name, avatarUrl, color, pickImage, contactId =
 // provider: async () => ({ svg, link })
 // account: when set (self invite), the Velta logo is overlaid in the QR
 // center — the core reserves a clear circle there for exactly that.
-export function showInvite(provider, { title = "Invite to Delta Chat", group = false, account = null } = {}) {
+export const inviteCanShare = () => typeof navigator !== "undefined" && canShareLink({ ua: navigator.userAgent, hasInvoke: !!tauriInvoke(), hasWebShare: typeof navigator.share === "function" });
+
+/** Native share of an invite/chat link ("<text>: <link>"): Android shell
+ *  share_text, else Web Share; failures toast, a dismissed sheet is silent.
+ *  Callers render the button only when inviteCanShare(). */
+export async function shareInviteLink(link, text) {
+  if (!link) return;
+  try {
+    await shareLink(link, { ua: navigator.userAgent, invoke: tauriInvoke(), webShare: typeof navigator.share === "function" ? o => navigator.share(o) : null, title: text, text: `${text}: ${link}` });
+  } catch (err) { toast(t("Couldn't share the link: ") + (err?.message || err), 4000, { danger: true }); }
+}
+
+export function showInvite(provider, { title = t("Invite to Velta"), group = false, account = null } = {}) {
   const body = document.createElement("div");
   body.innerHTML = `
     <p style="font-size:14.5px;line-height:1.5">${group
-      ? "Anyone scanning this code can join this group — the joiner is verified end-to-end automatically."
-      : "Anyone scanning this code with Delta Chat can reach you with verified end-to-end encryption."}</p>
-    <div class="qr-box"><div class="qr-loading">Generating QR code…</div></div>
+      ? t("Anyone scanning this code can join this group — the joiner is verified end-to-end automatically.")
+      : t("Anyone scanning this code with Velta can reach you with verified end-to-end encryption.")}</p>
+    <div data-domain-tabs></div>
+    <div class="qr-box"><div class="qr-loading">${escapeHtml(t("Generating QR code…"))}</div></div>
     <div class="invite-link" style="word-break:break-all"></div>
-    <div style="text-align:center;margin-top:6px"><button type="button" class="btn-text" data-copy>Copy invite link</button></div>`;
+    <div style="display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:4px;margin-top:6px"><button type="button" class="btn-text" data-copy>${ICON.copy}<span>${escapeHtml(t("Copy invite link"))}</span></button>${inviteCanShare() ? `<button type="button" class="btn-text" data-share aria-label="${escapeAttr(t("Share invite link"))}" disabled>${ICON.share}<span>${escapeHtml(t("Share"))}</span></button>` : ""}</div>`;
   showModal({ title, body });
+  // Native share sheet: Android shell share_text, else Web Share (WebView2,
+  // Safari, PWA). No path → no button (inviteCanShare).
+  body.querySelector("[data-share]")?.addEventListener("click", () => {
+    const link = body.querySelector(".invite-link").textContent;
+    shareInviteLink(link, group ? t("Join {name} on Velta", { name: title }) : t("Chat with me on Velta"));
+  });
   body.querySelector("[data-copy]").addEventListener("click", () => {
     const link = body.querySelector(".invite-link").textContent;
-    navigator.clipboard?.writeText(link).then(() => toast("Invite link copied"));
+    navigator.clipboard?.writeText(link).then(() => toast(t("Invite link copied")));
   });
   provider()
     .then(({ svg, link }) => {
       const box = body.querySelector(".qr-box");
-      box.innerHTML = svg || "<div class='qr-loading'>QR unavailable</div>";
-      body.querySelector(".invite-link").textContent = link;
-      // Overlay the Velta logo on the clear circle the core leaves in the
-      // QR center (design space 515x630, circle center at 50% / 43.65% of
-      // the rendered svg).
-      if (account && svg) {
-        box.insertAdjacentHTML("beforeend",
-          `<div class="qr-self"><img src="./icons/v-logo.svg" alt=""></div>`);
-      }
+      const sb = body.querySelector("[data-share]"); if (sb) sb.disabled = !link;
+      // Domain pills (invite-domains.js): i.delta.chat keeps the core card,
+      // a mirror gets a plain QR that already carries the Velta logo.
+      mountInviteDomains(body.querySelector("[data-domain-tabs]"), { svg, link }, (qr, l, isDefault) => {
+        box.innerHTML = qr || "<div class='qr-loading'>QR unavailable</div>";
+        body.querySelector(".invite-link").textContent = l;
+        // Overlay the Velta logo on the clear circle the core leaves in the
+        // QR center (design space 515x630, circle center at 50% / 43.65% of
+        // the rendered svg).
+        if (account && qr && isDefault) {
+          box.insertAdjacentHTML("beforeend",
+            `<div class="qr-self"><img src="./icons/v-logo.svg" alt=""></div>`);
+        }
+      });
     })
     .catch(err => {
       body.querySelector(".qr-box").innerHTML =
-        `<div class="qr-loading">Couldn't create the invite:<br>${escapeHtml(String(err?.message || err))}</div>`;
+        `<div class="qr-loading">${escapeHtml(t("Couldn't create the invite:"))}<br>${escapeHtml(String(err?.message || err))}</div>`;
     });
 }
 
@@ -1736,7 +1779,7 @@ async function showAbout({ onDiagnostics = null, backendKind = null } = {}) {
     btn.type = "button";
     btn.className = "btn-text";
     btn.dataset.openDiagnostics = "";
-    btn.textContent = "Open diagnostics log";
+    btn.textContent = t("Open diagnostics log");
     btn.addEventListener("click", () => { about.close(); onDiagnostics(); });
     foot = btn;
   }
@@ -1744,18 +1787,17 @@ async function showAbout({ onDiagnostics = null, backendKind = null } = {}) {
     title: "About Velta",
     foot,
     body: `
-      <div class="info-row"><span class="k">App</span><span class="v">Velta ${escapeHtml(version)}</span></div>
-      <div class="info-row"><span class="k">Core</span><span class="v">deltachat-core-rust ${CORE_VERSION}</span></div>
-      <div class="info-row"><span class="k">Transport</span><span class="v">chatmail relays (IMAP/SMTP)</span></div>
-      <div class="info-row"><span class="k">Encryption</span><span class="v">OpenPGP, end-to-end</span></div>
-      <div class="info-row"><span class="k">UI stack</span><span class="v">Elena progressive web components</span></div>
-      <div class="enc-note"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 10V7a4 4 0 018 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>No phone number needed. No central servers. Your messages travel through email relays you choose, encrypted end to end.</span></div>
+      <div class="info-row"><span class="k">${escapeHtml(t("App"))}</span><span class="v">Velta ${escapeHtml(version)}</span></div>
+      <div class="info-row"><span class="k">${escapeHtml(t("Core"))}</span><span class="v">deltachat-core-rust ${CORE_VERSION}</span></div>
+      <div class="info-row"><span class="k">${escapeHtml(t("Transport"))}</span><span class="v">${escapeHtml(t("chatmail relays (IMAP/SMTP)"))}</span></div>
+      <div class="info-row"><span class="k">${escapeHtml(t("Encryption"))}</span><span class="v">${escapeHtml(t("OpenPGP, end-to-end"))}</span></div>
+      <div class="info-row"><span class="k">${escapeHtml(t("UI stack"))}</span><span class="v">${escapeHtml(t("Elena progressive web components"))}</span></div>
       <details class="device-info" data-device-info>
-        <summary>Show device info</summary>
+        <summary>${escapeHtml(t("Show device info"))}</summary>
         <pre class="device-info-text" data-device-info-text></pre>
         <div class="device-info-actions">
-          <button type="button" class="btn-text" data-device-copy>Copy</button>
-          <button type="button" class="btn-text" data-device-share hidden>Share</button>
+          <button type="button" class="btn-text" data-device-copy>${escapeHtml(t("Copy"))}</button>
+          <button type="button" class="btn-text" data-device-share hidden>${escapeHtml(t("Share"))}</button>
         </div>
       </details>`,
   });
@@ -1781,16 +1823,16 @@ async function showAbout({ onDiagnostics = null, backendKind = null } = {}) {
   det.querySelector("[data-device-copy]").addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(pre.textContent);
-      toast("Device info copied");
-    } catch (err) { toast("Couldn't copy: " + (err?.message || err)); }
+      toast(t("Device info copied"));
+    } catch (err) { toast(t("Couldn't copy: ") + (err?.message || err)); }
   });
   const shareBtn = det.querySelector("[data-device-share]");
   const webShare = typeof navigator.share === "function" ? o => navigator.share(o) : null;
   shareBtn.hidden = !canShareLink({ ua: navigator.userAgent, hasInvoke: !!tauriInvoke(), hasWebShare: !!webShare });
   shareBtn.addEventListener("click", async () => {
     try {
-      await shareLink(pre.textContent, { ua: navigator.userAgent, invoke: tauriInvoke(), webShare, title: "Velta device info" });
-    } catch (err) { toast("Couldn't share: " + (err?.message || err)); }
+      await shareLink(pre.textContent, { ua: navigator.userAgent, invoke: tauriInvoke(), webShare, title: t("Velta device info") });
+    } catch (err) { toast(t("Couldn't share: ") + (err?.message || err)); }
   });
 }
 
@@ -2026,7 +2068,15 @@ function logNotify(msg) {
     if (invoke) invoke("js_log", { msg }).catch(() => {});
   } catch {}
 }
+// Cheap pre-check for the 4 s toast throttle: callers skip all per-message
+// notification work (focus/permission/window queries, muted lookups) while
+// a toast was just shown.
+export function notifyThrottled(now = Date.now()) {
+  return now - lastNotifyAt < 4000;
+}
+
 export function notifyIncoming(title, body, info = {}) {
+  if (notifyThrottled()) return;
   const tauri = window.__TAURI__;
   if (tauri) return notifyIncomingTauri(tauri, title, body, info);
   return notifyIncomingWeb(title, body, info);
@@ -2050,7 +2100,7 @@ function notifyGateBody(body) {
   // Privacy toggle: drop the message text from the preview (the chat and
   // sender names stay).
   if (localStorage.getItem("velta-notify-text") === "0") {
-    body = "New message";
+    body = t("New message");
   }
   return body;
 }
@@ -2111,6 +2161,7 @@ function notifyIncomingTauri(tauri, title, body, info) {
 // throttled hard). The notificationclick side lives in the generated sw.js;
 // it focuses a client and hands over {accountId, chatId} via postMessage.
 async function notifyIncomingWeb(title, body, info) {
+  if (notifyThrottled()) return; // before the focus/permission checks
   const gated = notifyGateBody(body);
   if (gated === null) return;
   if (!("Notification" in window) || Notification.permission !== "granted") return;

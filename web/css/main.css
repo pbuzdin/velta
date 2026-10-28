@@ -345,6 +345,8 @@ svg { width: 24px; height: 24px; display: block; }
 /* Hint under a drawer ctx-item row (multi-device): aligned with the row's
    label text (row padding + icon + gap). */
 .ctx-hint { padding: 0 12px 6px calc(12px + var(--ico-3) + 12px); margin-top: -4px; }
+.ctx-stack { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.ctx-sub { font-size: 12px; color: var(--text-dim); line-height: 1.3; }
 .md-note { color: var(--text); }
 .md-note[hidden] { display: none; }
 .md-note-acts { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; margin-left: -8px; }
@@ -353,7 +355,6 @@ svg { width: 24px; height: 24px; display: block; }
 .side-option-label { font-size: 14.5px; font-weight: 500; color: var(--text); }
 .side-option-arrow { width: var(--ico-3); height: var(--ico-3); color: var(--text-dim); flex: none; }
 .side-view .qr-view { display: flex; flex-direction: column; gap: 12px; padding: 4px 6px; }
-.side-view .qr-view .qr-box svg { width: 100%; height: auto; }
 
 /* ---------- Main ---------- */
 .main { flex: 1; min-width: 0; display: flex; background: var(--bg-chat); position: relative; }
@@ -506,14 +507,18 @@ html[data-theme="light"] .history-scroll {
    own line inside the row. */
 .day-chip {
   width: 100%; display: flex; justify-content: center;
-  background: rgba(16,16,16,.28);
+  /* Solid fill, no backdrop blur. A blur on a sticky element inside
+     the scroller is recomputed every scroll frame (costly on Android GPUs).
+     Opaque, so text behind never bleeds through. Contrast: dark #d7d7de on
+     #1c1c22 11.8:1; light #5d636e on #f4f4f4 5.5:1;
+     brutal #d7d7de on its opaque --bg-sidebar #2a2a35 9.9:1 (rule below). */
+  background: #1c1c22;
   color: #d7d7de;
   font-size: 13px; padding: 4px 12px; border-radius: 14px;
   margin: 12px 0 6px;
   position: sticky; top: 8px; z-index: 2;
-  backdrop-filter: blur(6px);
 }
-html[data-theme="light"] .day-chip { background: rgba(244,244,244,.75); color: #5d636e; box-shadow: 0 1px 4px rgba(16,16,16,.12); }
+html[data-theme="light"] .day-chip { background: #f4f4f4; color: #5d636e; box-shadow: 0 1px 4px rgba(16,16,16,.12); }
 /* service messages (diagnosticRow) can start a day too — block wrap */
 .msg-row.day-first { display: block; }
 
@@ -948,6 +953,67 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
   .invite-copy:hover { color: #f2f2f5; background: rgba(244, 244, 244, .10); }
 }
 .invite-copy svg { width: var(--ico-2); height: var(--ico-2); }
+/* Velta invite cards (invite-cards.js, docs/invite-cards.md): proxy, relay,
+   combined and DNS-tunnel invites. Same fixed dark panel as .invite-card in
+   every theme, but near-opaque (.88) so text keeps AA on any bubble:
+   #f2f2f5 on the darkest composite (~#16191f over the light/brutal yellow
+   bubbles) is >= 14:1, the .82-alpha secondary text >= 9:1, the primary
+   button #f2f2f5 on #1a68b8 5.3:1. Expired cards stay readable (no opacity):
+   only the colors switch to neutral greys (#c4c4cc, >= 9:1). */
+.ivc {
+  display: flex; flex-direction: column; gap: 6px;
+  margin: 8px 0 2px; padding: 10px 12px; max-width: 360px;
+  white-space: normal; text-align: left;
+  background: rgba(14, 17, 23, .88); color: #f2f2f5;
+  border: 1px solid rgba(244, 244, 244, .22);
+  border-radius: var(--radius-media);
+  font-size: 14px; line-height: 1.35;
+}
+.ivc svg { width: 18px; height: 18px; flex: none; }
+.ivc-head { display: flex; align-items: center; gap: 8px; }
+.ivc-head svg { width: 22px; height: 22px; color: #8cc4ff; }
+.ivc-title { flex: 1; min-width: 0; font-weight: 700; overflow-wrap: anywhere; }
+.ivc-badge {
+  flex: none; padding: 1px 8px; border-radius: 999px;
+  font-size: 12px; font-weight: 700; color: #16181d; background: #c4c4cc;
+}
+.ivc-from { margin: 0; font-size: 12.5px; color: rgba(244, 244, 244, .82); }
+.ivc .ivc-meta { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.ivc .ivc-meta li { display: flex; margin: 0; align-items: center; gap: 7px; color: rgba(244, 244, 244, .9); overflow-wrap: anywhere; }
+.ivc-meta li svg { color: rgba(244, 244, 244, .75); }
+.ivc-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.ivc-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 36px; min-width: 36px; padding: 6px 12px;
+  border-radius: 8px; border: 1px solid rgba(244, 244, 244, .35);
+  background: transparent; color: #f2f2f5; font: inherit; font-weight: 600; cursor: pointer;
+}
+.ivc-btn span:empty { display: none; }
+.ivc-btn.ivc-primary { background: #1a68b8; border-color: #1a68b8; }
+.ivc-btn:active { background: rgba(244, 244, 244, .14); }
+.ivc-btn.ivc-primary:active { background: #155a9e; }
+@media (hover: hover) and (pointer: fine) {
+  .ivc-btn:hover { background: rgba(244, 244, 244, .12); }
+  .ivc-btn.ivc-primary:hover { background: #155a9e; }
+}
+.ivc-btn:focus-visible { outline: 2px solid #8cc4ff; outline-offset: 2px; }
+.ivc-btn[disabled] { cursor: not-allowed; background: transparent; border-color: rgba(244, 244, 244, .2); color: rgba(244, 244, 244, .55); }
+.ivc-link {
+  display: block; padding: 6px 8px; border-radius: 6px;
+  background: rgba(0, 0, 0, .35); color: #e6e6ec;
+  font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: all;
+}
+.ivc-link[hidden] { display: none; }
+.ivc-expired .ivc-head svg, .ivc-expired .ivc-meta li, .ivc-expired .ivc-title { color: #c4c4cc; }
+html[data-theme="brutal"] .ivc { border: 2px solid var(--nb-ink); box-shadow: 3px 3px 0 var(--nb-ink); border-radius: var(--radius-bubble); }
+html[data-theme="brutal"] .ivc-btn { border-width: 2px; }
+/* Token-free stand-in for an invite URL inside the message text. */
+.ivc-chip {
+  display: inline-flex; align-items: center; gap: 4px; vertical-align: middle;
+  padding: 0 6px; border-radius: 6px; font-size: 13px;
+  background: rgba(127, 127, 127, .18);
+}
+.ivc-chip svg { width: 14px; height: 14px; }
 /* Short-link placeholder while the full invite URL is being fetched. */
 .invite-card.invite-pending .invite-main { cursor: progress; }
 .invite-card.invite-pending .invite-line { opacity: .8; font-style: italic; }
@@ -1557,6 +1623,17 @@ velta-chat-item { display: block; }
    height (48px avatar + 2×10px padding); the IntersectionObserver swaps in
    the real element before it scrolls into view. */
 .chat-item-ghost { height: 68px; margin: 0 6px; }
+/* "Archived chats (N)" row at the bottom of the chat list. */
+.archived-link {
+  display: flex; align-items: center; gap: 10px; width: calc(100% - 12px);
+  margin: 4px 6px 8px; padding: 10px 12px; border: none; border-radius: 10px;
+  background: none; color: var(--text-dim); font: inherit; font-size: 14px;
+  text-align: left; cursor: pointer;
+}
+.archived-link-icon { display: inline-flex; width: 48px; justify-content: center; }
+.archived-link-icon svg { width: 22px; height: 22px; }
+@media (hover: hover) and (pointer: fine) { .archived-link:hover { background: var(--bg-hover); color: var(--text); } }
+.archived-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .ci-main { flex: 1; min-width: 0; }
 .ci-top { display: flex; align-items: baseline; gap: 6px; }
 .ci-name { flex: 1; min-width: 0; font-size: 15.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 4px; }
@@ -1910,6 +1987,15 @@ fieldset.eph-set { border: 0; margin: 0; padding: 0; min-inline-size: 0; }
   .btn-text.btn-primary:hover { background: var(--accent-hover); }
 }
 .btn-text { color: var(--accent-text); font-weight: 600; padding: 10px 14px; border-radius: 8px; }
+/* Battery prompt + drawer dontkillmyapp.com link: --accent-text is the
+   per-theme AA link color on --bg-sidebar (dark 6.5, light 5.1, brutal
+   5.9 : 1; pinned by tests/android-background.test.mjs). Underlined so the
+   link is not told apart by color alone (WCAG 1.4.1). */
+.bat-prompt-text { font-size: 15px; line-height: 1.45; margin: 0 0 10px; }
+.bat-dkma { color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; font-weight: 600; }
+.bat-dkma:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; border-radius: 4px; }
+.btn-text:has(> svg) { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.btn-text > svg { width: 18px; height: 18px; flex: none; }
 /* Diagnostics chat switches (Logging / DevTools): same size and tone as the
    .btn-text actions they share the #diagnostic-actions bar with. */
 .diag-switch { display: inline-flex; align-items: center; gap: 8px; color: var(--accent); font-weight: 600; padding: 10px 14px; border-radius: 8px; cursor: pointer; user-select: none; -webkit-user-select: none; }
@@ -2000,14 +2086,6 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 /* Captioned identity tile beside the velta-avatar in the chat-info modal
    (the global 24px svg rule would otherwise shrink it). */
 .chat-info-tile svg { width: 168px; height: 168px; display: block; border-radius: 22%; }
-.enc-note {
-  display: flex; gap: 10px; align-items: flex-start;
-  background: rgba(79,174,79,.12); border: 1px solid rgba(79,174,79,.3);
-  border-radius: 10px; padding: 10px 12px; margin: 10px 0;
-  font-size: 13.5px; color: var(--green);
-  min-width: 0; overflow-wrap: anywhere;
-}
-.enc-note svg { width: var(--ico-3); height: var(--ico-3); flex: none; margin-top: 1px; }
 
 /* About → Show device info: native <details>; the <pre> wraps (pre-wrap +
    anywhere) so a long user agent never widens the modal on a narrow phone. */
@@ -2260,25 +2338,26 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
 .qr-box {
   position: relative;
   container-type: inline-size;
-  width: 308px; min-height: 120px; margin: 12px auto;
+  /* Fills the dialog's content width, always square; the cap only bites in
+     wide desktop dialogs. The SVGs carry their own white quiet zone. */
+  width: 100%; max-width: 520px; aspect-ratio: 1; margin: 12px auto;
   display: flex; align-items: center; justify-content: center;
 }
-.qr-box svg { width: 280px; height: 280px; display: block; }
+/* Fit inside the square (meet): plain QRs fill it, the core's 515x630
+   invite card keeps its proportions, centred. */
+.qr-box svg { width: 100%; height: 100%; display: block; }
 /* Dark badge over the circle the core reserves in the QR center (circle
    center is at 50% / 43.65% of the 515x630 design card). Opaque on purpose:
    it covers the avatar the core embeds underneath and carries the Velta logo. */
 .qr-self {
   position: absolute; left: 50%; top: 43.65%;
-  width: 20%; aspect-ratio: 1;
+  width: 18%; aspect-ratio: 1; /* card is 515/630 of the square's width */
   transform: translate(-50%, -50%);
   background: #1c1c1c;
   border-radius: 50%;
   pointer-events: none;
 }
 .qr-self img { display: block; width: 100%; height: 100%; transform: translate(0, 2px); }
-/* Local-chat invite QR is a plain 512×512 QR with the logo zone dead-center
-   (96/512 = 18.75%); the badge is slightly larger to fully cover it. */
-.qr-self.qr-self-center { top: 50%; width: 21%; }
 .qr-loading { color: #555; font-size: 13px; text-align: center; padding: 16px 8px; }
 .invite-link {
   font-family: var(--font-mono); font-size: 12.5px;
@@ -3082,7 +3161,7 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
    bar fill is --text-dim on --bg-hover (same pair as the key-caps, AA as
    text), --danger from 80% — the % is always printed too, so color is
    never the only signal. */
-.relay-detail { font-size: 12px; color: var(--text-dim); overflow-wrap: anywhere; }
+.relay-meta { font-size: 12px; color: var(--text-dim); overflow-wrap: anywhere; }
 .relay-quota { display: flex; align-items: center; gap: 6px; }
 .relay-quota-bar { flex: none; width: 56px; height: 6px; border-radius: 3px; background: var(--bg-hover); overflow: hidden; }
 .relay-quota-bar > span { display: block; height: 100%; background: var(--text-dim); }
@@ -3252,3 +3331,77 @@ html[data-theme="brutal"] .msg-row.out .msg-text .mention { color: var(--nb-main
 }
 .mention-pop .mention-opt-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .mention-pop .mention-code { color: inherit; }
+
+/* Inline house icons that replaced text glyphs (✕/✓/✗): size to the text. */
+.btn-text > svg, .pin-unpin > svg, .gc-in > svg, .info-row .v > svg {
+  width: 1.1em; height: 1.1em; vertical-align: -0.2em; flex: none;
+}
+
+/* DNS tunnel settings: saved tunnels (tunnel.js tunnelListHtml). The
+   active row is marked by a check AND an "In use" badge, not colour alone. */
+.tunnel-list-h { font-size: 13px; font-weight: 600; color: var(--text-dim); margin: 0 0 6px; }
+.tunnel-list { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.tunnel-row { display: flex; align-items: center; gap: 8px; padding: 6px 4px 6px 6px; border-radius: 10px; border: 1px solid var(--border); }
+.tunnel-row.is-active { border-color: var(--accent); }
+.tunnel-mark { width: 22px; flex: none; display: grid; place-items: center; color: var(--accent); }
+.tunnel-mark svg { width: 20px; height: 20px; }
+.tunnel-text { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
+.tunnel-name { font-weight: 600; overflow-wrap: anywhere; }
+.tunnel-badge { font-size: 12px; font-weight: 600; padding: 1px 6px; border-radius: 6px; border: 1px solid currentColor; }
+.tunnel-sub { flex-basis: 100%; font-size: 12px; color: var(--text-dim); overflow-wrap: anywhere; }
+.tunnel-acts { display: flex; align-items: center; flex: none; }
+.tunnel-acts .btn-text { min-height: 40px; padding: 0 10px; }
+.tunnel-acts .icon-btn { width: 40px; height: 40px; }
+.tunnel-acts button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* ===== Scheduled messages ("Send later", app/js/scheduled-ui.js) ===== */
+.sched-chip {
+  display: flex; align-items: center; gap: 6px; align-self: flex-start;
+  margin: 4px 10px 0; padding: 4px 12px; min-height: 32px;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: var(--bg-sidebar); color: var(--text); font: inherit; font-size: 13px; cursor: pointer;
+}
+.sched-chip[hidden] { display: none; }
+.sched-chip svg { width: 16px; height: 16px; color: var(--accent); flex: none; }
+.sched-chip:hover { background: var(--bg-hover); }
+.sched-chip:focus-visible, .sched-preset:focus-visible, .sched-row .btn-text:focus-visible, .sched-dt:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.sched-pick { display: flex; flex-direction: column; gap: 8px; min-width: min(340px, calc(var(--vw) - 48px)); }
+.sched-presets { display: flex; flex-direction: column; }
+.sched-preset { width: 100%; }
+.sched-preset .sched-preset-l { flex: 1; text-align: start; }
+.sched-preset .sched-preset-t { color: var(--text-dim); font-size: 13px; }
+.sched-custom-l { font-size: 13px; color: var(--text-dim); margin-top: 6px; }
+.sched-dt, .sched-text {
+  font: inherit; font-size: 15px; color: var(--text); background: var(--bg);
+  border: 1px solid var(--text-dim); border-radius: 8px; padding: 8px 10px; color-scheme: light dark;
+}
+.sched-text { width: 100%; box-sizing: border-box; resize: vertical; min-width: min(340px, calc(var(--vw) - 48px)); }
+.sched-hint { font-size: 13px; color: var(--text-dim); line-height: 1.4; margin: 0; }
+.sched-err { font-size: 13px; color: var(--danger); margin: 0; }
+.sched-sheet { display: flex; flex-direction: column; gap: 10px; }
+.sched-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.sched-row { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: var(--bg-sidebar); }
+.sched-row-err { border-color: var(--danger); }
+.sched-chat { font-weight: 600; font-size: 14px; margin-bottom: 2px; }
+.sched-when { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-dim); }
+.sched-row-err .sched-when { color: var(--danger); }
+.sched-when svg { width: 15px; height: 15px; flex: none; }
+.sched-body { margin: 6px 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 7.5em; overflow: hidden; color: var(--text); }
+.sched-acts { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.sched-acts .sched-del { color: var(--danger); }
+.sched-empty { color: var(--text-dim); text-align: center; padding: 16px 0; }
+
+/* Invite link domain pills above invite QRs (invite-domains.js); same chip
+   palette as the chat category bar (AA in light/dark/brutal). */
+.domain-tabs { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 10px 0 0; }
+.domain-tab {
+  padding: 6px 12px; font-size: 12.5px; line-height: 1.2; border: none; border-radius: 999px;
+  color: var(--text-dim); background: var(--bg-hover); cursor: pointer;
+}
+.domain-tab[aria-selected="true"] { background: var(--accent); color: var(--on-accent-chip); }
+.domain-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) {
+  .domain-tab:hover:not([aria-selected="true"]) { color: var(--text); }
+}

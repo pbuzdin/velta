@@ -5,6 +5,7 @@
 // registered" / "… (addr): relay did not accept the push token"). That is
 // the only signal: no probe, no guessing. Unknown relays get no mark.
 // Results are cached per relay domain (push support is a relay property).
+import { t } from "./i18n.js";
 
 const KEY = "velta.relayPush";
 const OK = /^Transport \d+ \(([^()\s]+@[^()\s]+)\): push notifications registered\b/;
@@ -44,5 +45,5 @@ export function relaySupportsPush(addrOrDomain, storage = globalThis.localStorag
 
 export const PUSH_MARK_LABEL = "Supports UnifiedPush push notifications";
 export function pushMarkHtml() {
-  return ` <span class="relay-push-mark" title="${PUSH_MARK_LABEL}" aria-label="${PUSH_MARK_LABEL}" role="img">(U)</span>`;
+  return ` <span class="relay-push-mark" title="${t(PUSH_MARK_LABEL)}" aria-label="${t(PUSH_MARK_LABEL)}" role="img">(U)</span>`;
 }

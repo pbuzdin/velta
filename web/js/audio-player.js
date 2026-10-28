@@ -10,10 +10,13 @@
 // comes from the element when finite, else from decoding the (small) file
 // once, else from the core's duration when it has one.
 import { formatDuration } from "./format.js";
+import { P, svg } from "./icons.js";
+import { t } from "./i18n.js";
+import { escapeHtml } from "./format.js";
 
 export const DECODE_MAX_BYTES = 4 * 1024 * 1024;
-const PLAY = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>`;
-const PAUSE = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z" fill="currentColor"/></svg>`;
+const PLAY = svg(P.playFilled, "", 'width="20" height="20"');
+const PAUSE = svg(P.pauseFilled, "", 'width="20" height="20"');
 
 export function finiteDuration(d) {
   return Number.isFinite(d) && d > 0 ? d : 0;
@@ -25,9 +28,9 @@ export function timeLabel(current, total) {
 
 export function audioPlayerHtml({ label = "Audio", duration = 0 } = {}) {
   const total = finiteDuration(duration);
-  return `<div class="vp" role="group" aria-label="${label === "Voice message" ? "Voice message" : "Audio"}">`
-    + `<button type="button" class="vp-play" aria-label="Play">${PLAY}</button>`
-    + `<input type="range" class="vp-seek" min="0" max="${total || 0}" step="0.1" value="0" aria-label="Seek"${total ? "" : " disabled"}>`
+  return `<div class="vp" role="group" aria-label="${escapeHtml(t(label === "Voice message" ? "Voice message" : "Audio"))}">`
+    + `<button type="button" class="vp-play" aria-label="${escapeHtml(t("Play"))}">${PLAY}</button>`
+    + `<input type="range" class="vp-seek" min="0" max="${total || 0}" step="0.1" value="0" aria-label="${escapeHtml(t("Seek"))}"${total ? "" : " disabled"}>`
     + `<span class="vp-time" aria-live="off">${timeLabel(0, total)}</span>`
     + `</div>`;
 }
@@ -55,7 +58,7 @@ export function mountAudioPlayer(box, audio, { duration = 0, decodeDuration = nu
   };
   const setPlaying = (on) => {
     play.innerHTML = on ? PAUSE : PLAY;
-    play.setAttribute("aria-label", on ? "Pause" : "Play");
+    play.setAttribute("aria-label", on ? t("Pause") : t("Play"));
   };
   const learn = () => {
     const d = finiteDuration(audio.duration);

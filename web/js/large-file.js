@@ -14,6 +14,7 @@ import {
   lufiUpload, lufiMessageText, rememberLufiUpload, lufiUploadFor, markLufiDeleted,
   LufiCancelled,
 } from "./lufi.js";
+import { t } from "./i18n.js";
 
 export const largeFileAvailable = () => !!tauriInvoke();
 
@@ -40,16 +41,16 @@ function optionsDialog({ name, size, server, config, onServerChange }) {
       const forced = Number(cfg?.force_burn_after_reading) === 1;
       body.innerHTML = `
         <p style="font-size:15px;line-height:1.45;margin:0 0 10px"><b>${escapeHtml(name)}</b> · ${escapeHtml(formatBytes(size))}</p>
-        <p style="font-size:13.5px;line-height:1.45;color:var(--text-dim);margin:0 0 12px">The file is encrypted on this device before upload. The key goes only into the link you send (after #); the server stores ciphertext. Anyone with the link can download it until it expires.</p>
-        <div style="font-size:13px;color:var(--text-dim);margin:8px 0 4px">Server (Lufi)</div><input class="text-field" type="url" inputmode="url" autocapitalize="none" data-server value="${escapeAttr(server)}" spellcheck="false" autocomplete="off">
+        <p style="font-size:13.5px;line-height:1.45;color:var(--text-dim);margin:0 0 12px">${escapeHtml(t("The file is encrypted on this device before upload. The key goes only into the link you send (after #); the server stores ciphertext. Anyone with the link can download it until it expires."))}</p>
+        <div style="font-size:13px;color:var(--text-dim);margin:8px 0 4px">${escapeHtml(t("Server (Lufi)"))}</div><input class="text-field" type="url" inputmode="url" autocapitalize="none" data-server value="${escapeAttr(server)}" spellcheck="false" autocomplete="off">
         <div data-server-note style="font-size:12.5px;color:var(--text-dim);margin:4px 0 10px">${escapeHtml(cfg?.instance_name || "")}</div>
-        <div style="font-size:13px;color:var(--text-dim);margin:8px 0 4px">Delete after</div><select class="text-field" data-delay>${choices.map(d => `<option value="${d}"${d === dflt ? " selected" : ""}>${escapeHtml(lufiDelayLabel(d))}</option>`).join("")}</select>
-        <label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:14.5px"><input type="checkbox" data-burn${forced ? " checked disabled" : ""}> Delete after the first download</label>`;
+        <div style="font-size:13px;color:var(--text-dim);margin:8px 0 4px">${escapeHtml(t("Delete after"))}</div><select class="text-field" data-delay>${choices.map(d => `<option value="${d}"${d === dflt ? " selected" : ""}>${escapeHtml(lufiDelayLabel(d))}</option>`).join("")}</select>
+        <label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:14.5px"><input type="checkbox" data-burn${forced ? " checked disabled" : ""}> ${escapeHtml(t("Delete after the first download"))}</label>`;
       body.querySelector("[data-server]").addEventListener("change", async (e) => {
         const note = body.querySelector("[data-server-note]");
         try {
           const s = normalizeLufiServer(e.target.value);
-          note.textContent = "Checking server…";
+          note.textContent = t("Checking server…");
           cfg = await onServerChange(s);
           server = s;
           render();
@@ -58,8 +59,8 @@ function optionsDialog({ name, size, server, config, onServerChange }) {
     };
     render();
     const foot = document.createElement("div");
-    const cancel = Object.assign(document.createElement("button"), { type: "button", className: "btn-text", textContent: "Cancel" });
-    const ok = Object.assign(document.createElement("button"), { type: "button", className: "btn-text", textContent: "Upload & send" });
+    const cancel = Object.assign(document.createElement("button"), { type: "button", className: "btn-text", textContent: t("Cancel") });
+    const ok = Object.assign(document.createElement("button"), { type: "button", className: "btn-text", textContent: t("Upload & send") });
     foot.append(cancel, ok);
     let done = false;
     const { close } = showModal({ title: "Send large file", body, foot, compact: true, onClose: () => { if (!done) resolve(null); } });
@@ -78,9 +79,9 @@ function progressDialog(name, onCancel) {
   const body = document.createElement("div");
   body.innerHTML = `<p style="font-size:15px;margin:0 0 6px">${escapeHtml(name)}</p>
     <progress class="mfp-bar" max="1000" value="0" data-bar></progress>
-    <p data-status style="font-size:13.5px;color:var(--text-dim);margin:8px 0 0">Connecting…</p>`;
+    <p data-status style="font-size:13.5px;color:var(--text-dim);margin:8px 0 0">${escapeHtml(t("Connecting…"))}</p>`;
   const foot = document.createElement("div");
-  const cancel = Object.assign(document.createElement("button"), { type: "button", className: "btn-text", textContent: "Cancel upload" });
+  const cancel = Object.assign(document.createElement("button"), { type: "button", className: "btn-text", textContent: t("Cancel upload") });
   foot.append(cancel);
   let finished = false;
   const m = showModal({ title: "Uploading", body, foot, compact: true, onClose: () => { if (!finished) onCancel(); } });
@@ -89,9 +90,9 @@ function progressDialog(name, onCancel) {
     update({ part, parts, sentBytes, phase }, size) {
       body.querySelector("[data-bar]").value = Math.round(1000 * sentBytes / Math.max(1, size));
       body.querySelector("[data-status]").textContent = phase === "encrypt"
-        ? `Encrypting part ${part + 1} of ${parts}`
-        : phase === "send" ? `Sending part ${part + 1} of ${parts} · ${formatBytes(sentBytes)} of ${formatBytes(size)}`
-          : `${formatBytes(sentBytes)} of ${formatBytes(size)}`;
+        ? t("Encrypting part {n} of {total}", { n: part + 1, total: parts })
+        : phase === "send" ? t("Sending part {n} of {total}", { n: part + 1, total: parts }) + " · " + t("{n} of {total}", { n: formatBytes(sentBytes), total: formatBytes(size) })
+          : t("{n} of {total}", { n: formatBytes(sentBytes), total: formatBytes(size) });
     },
     done() { finished = true; m.close(); },
   };
@@ -100,7 +101,7 @@ function progressDialog(name, onCancel) {
 // The whole flow. `send(text)` posts the chat message and returns it.
 export async function sendLargeFile({ accountId, send, isCurrent = () => true }) {
   const invoke = tauriInvoke();
-  if (!invoke) { toast("Large file upload runs in the Velta app", 3000); return null; }
+  if (!invoke) { toast(t("Large file upload runs in the Velta app"), 3000); return null; }
   let handle = null;
   let dismiss = null; // options modal still open until the progress one replaces it
   try {
@@ -155,8 +156,8 @@ export async function sendLargeFile({ accountId, send, isCurrent = () => true })
     if (msg?.id != null) rememberLufiUpload(accountId, msg.id, { ...res, server, name: file.name, size: file.size });
     return msg;
   } catch (e) {
-    if (e instanceof LufiCancelled || e?.name === "LufiCancelled") { toast("Upload cancelled", 2000); return null; }
-    toast("Large file: " + errText(e), 5000, { danger: true });
+    if (e instanceof LufiCancelled || e?.name === "LufiCancelled") { toast(t("Upload cancelled"), 2000); return null; }
+    toast(t("Large file: ") + errText(e), 5000, { danger: true });
     return null;
   } finally {
     dismiss?.();
@@ -168,9 +169,9 @@ export async function sendLargeFile({ accountId, send, isCurrent = () => true })
 export function largeFileInfoHtml(rec) {
   if (!rec) return "";
   const exp = rec.expiresAt ? formatDateTime(rec.expiresAt * 1000) : "never";
-  return `<div class="info-row"><span class="k">Large file</span><span class="v">${escapeHtml(rec.name)} · ${escapeHtml(formatBytes(rec.size))}</span></div>
-    <div class="info-row"><span class="k">Expires</span><span class="v">${escapeHtml(rec.deleted ? "deleted from server" : exp)}</span></div>
-    <div class="info-row wrap"><span class="k">Deletion link</span><span class="v">${escapeHtml(rec.deleteUrl || "—")}${rec.deleted ? "" : ` <button type="button" class="btn-text" data-lufi-delete style="color:var(--danger)">Delete from server</button>`}</span></div>`;
+  return `<div class="info-row"><span class="k">${escapeHtml(t("Large file"))}</span><span class="v">${escapeHtml(rec.name)} · ${escapeHtml(formatBytes(rec.size))}</span></div>
+    <div class="info-row"><span class="k">${escapeHtml(t("Expires"))}</span><span class="v">${escapeHtml(rec.deleted ? t("deleted from server") : exp)}</span></div>
+    <div class="info-row wrap"><span class="k">${escapeHtml(t("Deletion link"))}</span><span class="v">${escapeHtml(rec.deleteUrl || "—")}${rec.deleted ? "" : ` <button type="button" class="btn-text" data-lufi-delete style="color:var(--danger)">${escapeHtml(t("Delete from server"))}</button>`}</span></div>`;
 }
 
 export function wireLargeFileInfo(modal, accountId, msgId) {
@@ -180,13 +181,13 @@ export function wireLargeFileInfo(modal, accountId, msgId) {
     const rec = lufiUploadFor(accountId, msgId);
     const invoke = tauriInvoke();
     if (!rec || !invoke) return;
-    if (!await confirmModal("Delete from server", `Delete "${rec.name}" from ${rec.server}? The link in the chat stops working.`, "Delete")) return;
+    if (!await confirmModal("Delete from server", t("Delete \"{name}\" from {server}? The link in the chat stops working.", { name: rec.name, server: rec.server }), t("Delete"))) return;
     try {
       const proxy = await shellProxy();
       const r = await invoke("lufi_delete", { server: rec.server, short: rec.short, token: rec.token, proxy });
       if (!r?.success) throw new Error(String(r?.msg || "server refused").replace(/<[^>]*>/g, ""));
       markLufiDeleted(accountId, msgId);
-      toast("Deleted from the server", 2200);
-    } catch (e) { toast("Could not delete: " + errText(e), 4000, { danger: true }); }
+      toast(t("Deleted from the server"), 2200);
+    } catch (e) { toast(t("Could not delete: ") + errText(e), 4000, { danger: true }); }
   });
 }

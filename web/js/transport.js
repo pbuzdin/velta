@@ -9,7 +9,7 @@
 // on that port could have posed as the core after a startup failure.
 import { JsonRpcCore } from "./rpc-core.js";
 import { WorkerWasmTransport } from "./transport-worker-wasm.js";
-import { wsProxyUrl } from "./ws-relays.js";
+import { wsProxyDevice, wsProxyToken, wsProxyUrl } from "./ws-relays.js";
 import { rustLog, tauriInvoke } from "./tauri.js";
 
 
@@ -126,6 +126,8 @@ export async function createCore({ onDiagnostic = () => {} } = {}) {
     attempts.push(() => new WorkerWasmTransport({
       glueUrl: wasmGlueUrl(),
       wsProxyUrl: wsProxyUrl(),
+      wsProxyToken: wsProxyToken(),
+      wsProxyDevice: wsProxyDevice(),
     }));
   }
 
@@ -178,4 +180,4 @@ export async function createCore({ onDiagnostic = () => {} } = {}) {
   const mock = new MockCore();
   mock.backend = { kind: "mock", label: "demo mode (no local core)", connected: false };
   return mock;
-}
+}

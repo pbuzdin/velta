@@ -162,7 +162,7 @@ function clamp(n, lo, hi) { return Math.min(hi, Math.max(lo, n)); }
 // Storage keys that must never appear in an export (also pinned by tests).
 export const EXCLUDED_STORAGE_KEYS = [
   "velta-ws-relay", "velta-ws-relays", "velta-push", "velta-bridge-token", "velta-identity",
-  "velta-bcc-self-choice", "velta-invite-hosts", "velta-invite-creds", "velta-short-invites",
+  "velta-bcc-self-choice", "velta-invite-hosts", "velta-invite-domain", "velta-invite-creds", "velta-short-invites",
   "velta-lufi-server", "velta-lufi-files", "velta-p2p", "velta-p2pg-hidden", "velta-notify-bg",
   "velta-notify-bgforce", "velta-low-battery-react", "velta-battery-opt-asked", "velta-sync-only-active",
   "velta-logging", "velta-debug", "velta-mock", "velta-mock-fresh", "velta-wasm", "velta-tunnel-log",

@@ -11,6 +11,7 @@ import { nameColor } from "./name-color.js";
 import { typingText, SHOW_TTL_MS } from "./typing.js";
 import { tauriInvoke } from "./tauri.js";
 import { shareViewtype } from "./share-in.js";
+import { t } from "./i18n.js";
 
 const P2P_PREFIX = "p2p:";
 // Local groups (serverless group chats of up to 5 devices) live in their own
@@ -177,7 +178,7 @@ function ensureGroup(gid) {
   let g = store.groups.get(gid);
   if (!g) {
     g = {
-      id: gid, name: "Local group", creator: "", epoch: 0, closed: false, removed: false, canManage: false,
+      id: gid, name: t("Local group"), creator: "", epoch: 0, closed: false, removed: false, canManage: false,
       members: [], msgs: [], unread: 0, acks: new Map(), createdTs: Date.now(), sysAdded: false,
     };
     store.groups.set(gid, g);
@@ -204,7 +205,7 @@ function applyGroup(info) {
     const creatorName = memberLabel(g, g.creator);
     g.msgs.unshift({
       id: nowId(), sys: true, lead: true, ts: g.createdTs,
-      text: g.canManage ? "You created the group" : `${creatorName} added you to the group`,
+      text: g.canManage ? t("You created the group") : t("{name} added you to the group", { name: creatorName }),
     });
   }
   return g;
@@ -249,7 +250,7 @@ function ensureEndLine(g) {
   if (!g.removed || hasEndLine(g) || g.msgs.some(m => m.sys && m.atEnd)) return;
   g.msgs.push({
     id: nowId(), sys: true, atEnd: true, ts: Date.now(),
-    text: g.closed ? "The group was disbanded" : "You are no longer in this group",
+    text: g.closed ? t("The group was disbanded") : t("You are no longer in this group"),
   });
 }
 
@@ -572,20 +573,20 @@ export function groupActionsModel(chat) {
   const out = [];
   if (chat.canManage) {
     out.push({ key: "rename", label: "Rename", danger: false, disabled: false });
-    out.push({ key: "add", label: full ? "Add member (group is full)" : "Add member", danger: false, disabled: full });
+    out.push({ key: "add", label: full ? t("Add member (group is full)") : t("Add member"), danger: false, disabled: full });
   }
-  out.push({ key: "leave", label: chat.canManage ? "Disband group" : "Leave group", danger: true, disabled: false });
+  out.push({ key: "leave", label: chat.canManage ? t("Disband group") : t("Leave group"), danger: true, disabled: false });
   return out;
 }
 
 // The member list's footnote, in plain words.
 export function groupMemberHint(chat, members) {
   const parts = [];
-  if (chat.readOnly) parts.push("This group is over: nobody can write in it any more. The history stays on this device.");
-  else if (chat.canManage) parts.push(`You created this group, so only you can rename it and add or remove members (${members.length}/${GROUP_MAX_OTHERS + 1}).`);
-  else parts.push("Only the group's creator can rename it and add or remove members. You can leave at any time.");
+  if (chat.readOnly) parts.push(t("This group is over: nobody can write in it any more. The history stays on this device."));
+  else if (chat.canManage) parts.push(t("You created this group, so only you can rename it and add or remove members ({n}/{max}).", { n: members.length, max: GROUP_MAX_OTHERS + 1 }));
+  else parts.push(t("Only the group's creator can rename it and add or remove members. You can leave at any time."));
   if (members.some(m => m.introduced && !m.self)) {
-    parts.push("\u201cNot paired\u201d members joined through the group: you can talk to them only here. Pair with them (Local chat \u2192 Add contact) to message them directly.");
+    parts.push(t("“Not paired” members joined through the group: you can talk to them only here. Pair with them (Local chat → Add contact) to message them directly."));
   }
   return parts.join(" ");
 }
@@ -596,12 +597,12 @@ export function groupMemberHint(chat, members) {
 export function removePeerImpactText(name, impact) {
   const list = gs => gs.map(g => `"${g.name}"`).join(", ");
   const created = impact?.created || [], member = impact?.member || [];
-  let text = `Forget "${name}"? Its chat history and received files will be deleted. The device can re-pair with a new invite.`;
+  let text = t("Forget \"{name}\"? Its chat history and received files will be deleted. The device can re-pair with a new invite.", { name });
   if (created.length) {
-    text += ` ${name} created ${list(created)}: ${created.length === 1 ? "that group" : "those groups"} will be deleted from this device too.`;
+    text += " " + t(created.length === 1 ? "{name} created {groups}: that group will be deleted from this device too." : "{name} created {groups}: those groups will be deleted from this device too.", { name, groups: list(created) });
   }
   if (member.length) {
-    text += ` ${name} is also in ${list(member)}: it stays there as a member you can't message directly any more. To take it out of a group you created, remove it from the group first.`;
+    text += " " + t("{name} is also in {groups}: it stays there as a member you can't message directly any more. To take it out of a group you created, remove it from the group first.", { name, groups: list(member) });
   }
   return text;
 }

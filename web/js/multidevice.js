@@ -10,6 +10,8 @@
 // on drawer open, on app resume and when a backup/transfer finishes.
 // Velta never reverts the flip on its own — it offers "Turn off again".
 
+import { t } from "./i18n.js";
+
 export const MD_CHOICE_KEY = "velta-bcc-self-choice";
 
 // Retry schedule for a failed bcc_self read (ms); the last delay repeats.
@@ -95,8 +97,8 @@ export function retryDelay(attempt) {
 // back on since the user's last choice (sync from another device, transfer
 // or backup).
 export function offConfirmText(reenabled) {
-  const base = "With multi-device off, this device deletes messages from the relay after downloading them, so other devices using this profile stop receiving them.";
-  return reenabled
-    ? `${base} Multi-device was recently turned back on by a backup export, Add second device or a sync from another device, so another device may still be using this profile.`
-    : `${base} Keep it on if you use this profile anywhere else.`;
+  const base = t("With multi-device off, this device deletes messages from the relay after downloading them, so other devices using this profile stop receiving them.");
+  return base + " " + (reenabled
+    ? t("Multi-device was recently turned back on by a backup export, Add second device or a sync from another device, so another device may still be using this profile.")
+    : t("Keep it on if you use this profile anywhere else."));
 }

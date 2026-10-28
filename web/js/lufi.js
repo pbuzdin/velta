@@ -26,11 +26,11 @@
 // previews). This module is pure logic + storage and runs under node.
 
 import sjcl from "../vendor/sjcl.js";
+import { t } from "./i18n.js";
 
 export const LUFI_SLICE = 750000;
 export const DEFAULT_LUFI_SERVER = "https://upload.disroot.org";
 const SERVER_KEY = "velta-lufi-server";
-const FILES_KEY = "velta-lufi-files";
 
 function store() {
   try { return globalThis.localStorage || null; } catch { return null; }
@@ -109,10 +109,10 @@ export function lufiDelayChoices(config, size) {
 }
 
 export function lufiDelayLabel(days) {
-  if (!days) return "Never";
-  if (days === 1) return "1 day";
-  if (days % 365 === 0) return days === 365 ? "1 year" : `${days / 365} years`;
-  return `${days} days`;
+  if (!days) return t("Never");
+  if (days === 1) return t("1 day");
+  if (days % 365 === 0) return days === 365 ? t("1 year") : t("{n} years", { n: days / 365 });
+  return t("{n} days", { n: days });
 }
 
 // One slice → the text frame Lufi's server expects.
@@ -198,25 +198,6 @@ export function parseLufiLink(text) {
   return { server, short: m[1], key: m[2] };
 }
 
-// Deletion tokens stay on this device only (never in the chat message).
-// Keyed by account + message id.
-function readFiles() {
-  try { return JSON.parse(store()?.getItem(FILES_KEY) || "{}") || {}; } catch { return {}; }
-}
-export function rememberLufiUpload(accountId, msgId, rec) {
-  const all = readFiles();
-  all[`${accountId}:${msgId}`] = {
-    server: rec.server, short: rec.short, token: rec.token, url: rec.url,
-    deleteUrl: rec.deleteUrl, name: rec.name, size: rec.size,
-    expiresAt: rec.expiresAt || 0, deleted: false,
-  };
-  store()?.setItem(FILES_KEY, JSON.stringify(all));
-}
-export function lufiUploadFor(accountId, msgId) {
-  return readFiles()[`${accountId}:${msgId}`] || null;
-}
-export function markLufiDeleted(accountId, msgId) {
-  const all = readFiles();
-  const k = `${accountId}:${msgId}`;
-  if (all[k]) { all[k].deleted = true; store()?.setItem(FILES_KEY, JSON.stringify(all)); }
-}
+// Deletion tokens: lufi-store.js (tiny, so message info can check for an
+// upload without loading this module and sjcl).
+export { rememberLufiUpload, lufiUploadFor, markLufiDeleted } from "./lufi-store.js";
