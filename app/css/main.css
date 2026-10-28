@@ -1807,6 +1807,17 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
   content: ""; display: block; width: 44px; height: 5px; margin: 0 auto;
   border-radius: 5px; background: var(--text-dim);
 }
+/* Inline delete confirm: Cancel + one or two red choices in the Delete row.
+   Labels wrap at 320px rather than truncate. */
+.msg-del-confirm { display: flex; gap: 8px; animation: delConfirmIn .14s ease-out; }
+.msg-del-confirm .ctx-item {
+  flex: 1 1 0; min-width: 0; justify-content: center; text-align: center;
+  min-height: 48px; padding: 8px 6px; font-size: 14px; line-height: 1.2;
+  white-space: normal; overflow-wrap: anywhere;
+}
+.msg-del-confirm .ctx-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@keyframes delConfirmIn { from { opacity: 0; transform: scale(.97); } }
+@media (prefers-reduced-motion: reduce) { .msg-del-confirm { animation: none; } }
 .msg-sheet-grab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ctx-menu.msg-sheet .msg-reacts { touch-action: none; } /* top strip drags the sheet */
 @media (prefers-reduced-motion: reduce) { .ctx-menu.msg-sheet { animation: none; } }

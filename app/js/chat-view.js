@@ -3284,7 +3284,12 @@ export class ChatView {
     const canReact = !this.chat?.isP2p; // local chats carry no reactions
     items.push({ label: "Select", pair: "meta", icon: ICO.select, onClick: () => this._enterSelection(m.id) });
     items.push({ label: "Info", pair: "meta", icon: ICO.info, onClick: () => this._showInfo(item) });
-    if (!p2pg) items.push("-", { label: "Delete", icon: ICO.trash, danger: true, onClick: () => this._delete([m.id]) });
+    // Touch sheet: Delete turns into Cancel / Delete for me / for everyone in
+    // place (inlineConfirm); the desktop bar keeps the modal (onClick).
+    if (!p2pg) items.push("-", {
+      label: "Delete", icon: ICO.trash, danger: true, onClick: () => this._delete([m.id]),
+      inlineConfirm: { canForAll: this._canDeleteForAll([m.id]), onChoose: (choice) => this._applyDeleteChoice(session, [m.id], choice) },
+    });
     const guarded = items.map(action => action === "-" ? action : {
       ...action, onClick: () => { if (this._isCurrent(session)) return action.onClick(); },
     });
@@ -3449,12 +3454,20 @@ export class ChatView {
     // Mirror the official Delta Chat desktop dialog: "Delete for everyone"
     // is offered only when the core can honor it — self-sent messages in an
     // encrypted chat that isn't self-talk (delete_messages_for_all rules).
+    const choice = await confirmDeleteMessagesModal(ids.length, this._canDeleteForAll(ids));
+    this._applyDeleteChoice(session, ids, choice);
+  }
+
+  _canDeleteForAll(ids) {
     const msgs = ids.map(id => this.msgIndex.get(id)?.msg).filter(Boolean);
-    const canForAll = msgs.length === ids.length
-      && this.chat.kind !== "saved"
-      && this.chat.encrypted !== false
+    return msgs.length === ids.length
+      && this.chat?.kind !== "saved"
+      && this.chat?.encrypted !== false
       && msgs.every(m => m.from === 1);
-    const choice = await confirmDeleteMessagesModal(ids.length, canForAll);
+  }
+
+  // Shared by the modal and the phone sheet's inline Delete row.
+  _applyDeleteChoice(session, ids, choice) {
     if (!choice || !this._isCurrent(session)) return;
     this._holdDelete(session, ids, choice === "everyone");
     if (this._isCurrent(session)) this.exitSelection();

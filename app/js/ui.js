@@ -449,6 +449,41 @@ export function bindSheetDrag(sheet, handle, close, { topZone = 48 } = {}) {
   sheet.addEventListener("pointercancel", end);
 }
 
+// Inline delete confirm (phone sheet): the Delete row becomes Cancel /
+// Delete for me / Delete for everyone (only when the modal would offer it).
+export function deleteConfirmChoices(canForAll) {
+  const c = [{ label: "Cancel", value: null }, { label: "Delete for me", value: "me", danger: true }];
+  if (canForAll) c.push({ label: "Delete for everyone", value: "everyone", danger: true });
+  return c;
+}
+
+function showInlineDeleteConfirm(wrap, deleteBtn, { canForAll, onChoose }) {
+  const row = document.createElement("div");
+  row.className = "msg-del-confirm";
+  row.setAttribute("role", "group");
+  row.setAttribute("aria-label", t("Delete messages"));
+  const buttons = deleteConfirmChoices(canForAll).map(c => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "ctx-item" + (c.danger ? " danger" : "");
+    b.textContent = t(c.label);
+    b.addEventListener("click", () => {
+      if (c.value == null) {
+        row.replaceWith(deleteBtn);
+        deleteBtn.focus();
+        return;
+      }
+      closeAllPopups();
+      onChoose(c.value);
+    });
+    return b;
+  });
+  row.append(...buttons);
+  deleteBtn.replaceWith(row);
+  wrap.classList.add("confirming");
+  buttons[0].focus();
+}
+
 export function showMessageSheet({ reactions = [], selected = null, onReact, items, links = [], onOpenLink }) {
   closeAllPopups();
   const menu = document.createElement("div");
@@ -497,7 +532,16 @@ export function showMessageSheet({ reactions = [], selected = null, onReact, ite
   for (const it of danger) {
     const wrap = document.createElement("div");
     wrap.className = "msg-row-full";
-    wrap.append(sheetAction(it));
+    if (it.inlineConfirm) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "ctx-item danger";
+      b.innerHTML = (it.icon || "") + "<span>" + escapeHtml(t(it.short || it.label)) + "</span>";
+      b.addEventListener("click", () => showInlineDeleteConfirm(wrap, b, it.inlineConfirm));
+      wrap.append(b);
+    } else {
+      wrap.append(sheetAction(it));
+    }
     actions.append(wrap);
   }
   menu.append(actions);
