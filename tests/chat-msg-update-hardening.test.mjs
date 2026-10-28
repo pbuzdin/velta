@@ -681,7 +681,9 @@ test("Select text is hidden on a fine pointer and shown on a coarse one", async 
   const tray = menu.querySelector(".msg-emoji-tray");
   const reacts = menu.querySelector(".msg-reacts");
   assert.equal(tray.hidden, false);
-  assert.equal(reacts.hidden, true);
+  // Sheet: the picker takes over the whole body (CSS .picking), reacts stay in the DOM.
+  assert.ok(reacts);
+  assert.ok(String(menu.className).includes("picking") || menu.classList?.contains?.("picking"), "sheet switches to picker mode");
   const search = menu.querySelector("input");
   search.value = "heart";
   await search.fire("input");

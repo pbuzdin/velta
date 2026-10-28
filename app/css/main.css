@@ -1807,6 +1807,27 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
   content: ""; display: block; width: 44px; height: 5px; margin: 0 auto;
   border-radius: 5px; background: var(--text-dim);
 }
+/* Narrow phones: two tiles per row sit icon-beside-label (Pavel: two per
+   row only with icon and caption on one line); three per row keep icon on top. */
+@media (max-width: 339.98px) {
+  .msg-actions .msg-grid .ctx-item.msg-tile {
+    flex-direction: row; justify-content: flex-start; text-align: left;
+    min-height: 48px; padding: 10px 12px; gap: 10px;
+  }
+  .msg-grid .msg-tile span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .msg-grid .msg-tile svg { width: 20px; height: 20px; }
+}
+/* Sheet emoji picker: replaces the body at the sheet's locked height. */
+.ctx-menu.msg-sheet.picking { display: flex; flex-direction: column; overflow: hidden; }
+.ctx-menu.msg-sheet.picking > :not(.msg-sheet-grab):not(.msg-sheet-picker) { display: none; }
+.msg-sheet-picker:not([hidden]) { display: flex; flex-direction: column; flex: 1; min-height: 0; margin: 0; }
+.msg-sheet-picker .msg-emoji-grid {
+  flex: 1; min-height: 0; max-height: none; overflow: auto;
+  overscroll-behavior: contain; align-content: start;
+}
+.msg-emoji-back { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; }
+.msg-emoji-back svg { width: 18px; height: 18px; }
+.msg-emoji-back:focus-visible, .msg-emoji:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* Inline delete confirm: Cancel + one or two red choices in the Delete row.
    Labels wrap at 320px rather than truncate. */
 .msg-del-confirm { display: flex; gap: 8px; animation: delConfirmIn .14s ease-out; }
@@ -1815,6 +1836,9 @@ velta-chat-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
   min-height: 48px; padding: 8px 6px; font-size: 14px; line-height: 1.2;
   white-space: normal; overflow-wrap: anywhere;
 }
+.msg-del-confirm[data-count="3"] .ctx-item { flex-direction: column; gap: 4px; }
+.msg-del-confirm[data-count="2"] .ctx-item { flex-direction: row; justify-content: flex-start; text-align: left; gap: 10px; padding: 8px 12px; }
+.msg-del-confirm .ctx-item svg { width: 20px; height: 20px; flex: none; }
 .msg-del-confirm .ctx-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @keyframes delConfirmIn { from { opacity: 0; transform: scale(.97); } }
 @media (prefers-reduced-motion: reduce) { .msg-del-confirm { animation: none; } }

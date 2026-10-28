@@ -316,7 +316,8 @@ export function buildEmojiTray({ onReact, onBack } = {}) {
   const back = document.createElement("button");
   back.type = "button";
   back.className = "msg-emoji-back";
-  back.textContent = t("Back");
+  back.innerHTML = ICON.arrowLeft + "<span>" + escapeHtml(t("Back")) + "</span>";
+  back.setAttribute("aria-label", t("Back"));
   const search = document.createElement("input");
   search.type = "search";
   search.className = "text-field";
@@ -346,6 +347,19 @@ export function buildEmojiTray({ onReact, onBack } = {}) {
     }
   };
   search.addEventListener("input", paint);
+  // Arrow keys: from search, Down enters the grid; inside it they walk it.
+  search.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") { const f = grid.querySelector(".msg-emoji"); if (f) { e.preventDefault(); f.focus(); } }
+  });
+  grid.addEventListener("keydown", (e) => {
+    const cells = [...grid.querySelectorAll(".msg-emoji")];
+    const i = cells.indexOf(document.activeElement);
+    if (i < 0) return;
+    const cols = Math.max(1, getComputedStyle(grid).gridTemplateColumns.split(" ").filter(Boolean).length);
+    if (e.key === "ArrowUp" && i < cols) { e.preventDefault(); search.focus(); return; }
+    const j = gridNeighbor(i, cells.length, cols, e.key);
+    if (j !== i) { e.preventDefault(); cells[j].focus(); cells[j].scrollIntoView?.({ block: "nearest" }); }
+  });
   back.addEventListener("click", () => { search.value = ""; onBack?.(); });
   tray.append(back, search, grid);
   tray.open = () => { paint(); search.focus(); };
@@ -356,7 +370,7 @@ export function buildEmojiTray({ onReact, onBack } = {}) {
 // message sheet and the desktop context menu: one row of quick reactions
 // ending in a monochrome smiley that swaps the row for Back + search + grid.
 // Caller appends { reacts, tray } in that order (tray starts hidden).
-export function buildReactionRow({ reactions, selected = null, onReact }) {
+export function buildReactionRow({ reactions, selected = null, onReact, onMore = null }) {
   const reacts = document.createElement("div");
   reacts.className = "msg-reacts";
   const shown = selected && !reactions.includes(selected) ? [selected, ...reactions.slice(0, -1)] : reactions;
@@ -380,6 +394,7 @@ export function buildReactionRow({ reactions, selected = null, onReact }) {
     onBack: () => { tray.hidden = true; reacts.hidden = false; },
   });
   more.addEventListener("click", () => {
+    if (onMore) { onMore(tray); return; }
     reacts.hidden = true;
     tray.hidden = false;
     tray.open();
@@ -452,21 +467,23 @@ export function bindSheetDrag(sheet, handle, close, { topZone = 48 } = {}) {
 // Inline delete confirm (phone sheet): the Delete row becomes Cancel /
 // Delete for me / Delete for everyone (only when the modal would offer it).
 export function deleteConfirmChoices(canForAll) {
-  const c = [{ label: "Cancel", value: null }, { label: "Delete for me", value: "me", danger: true }];
-  if (canForAll) c.push({ label: "Delete for everyone", value: "everyone", danger: true });
+  const c = [{ label: "Cancel", value: null, icon: "close" }, { label: "Delete for me", value: "me", danger: true, icon: "trash" }];
+  if (canForAll) c.push({ label: "Delete for everyone", value: "everyone", danger: true, icon: "trash" });
   return c;
 }
 
 function showInlineDeleteConfirm(wrap, deleteBtn, { canForAll, onChoose }) {
   const row = document.createElement("div");
   row.className = "msg-del-confirm";
+  // Two choices sit icon-beside-label; three stack icon over label.
+  row.dataset.count = String(deleteConfirmChoices(canForAll).length);
   row.setAttribute("role", "group");
   row.setAttribute("aria-label", t("Delete messages"));
   const buttons = deleteConfirmChoices(canForAll).map(c => {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "ctx-item" + (c.danger ? " danger" : "");
-    b.textContent = t(c.label);
+    b.innerHTML = (ICON[c.icon] || "") + "<span>" + escapeHtml(t(c.label)) + "</span>";
     b.addEventListener("click", () => {
       if (c.value == null) {
         row.replaceWith(deleteBtn);
@@ -484,6 +501,28 @@ function showInlineDeleteConfirm(wrap, deleteBtn, { canForAll, onChoose }) {
   buttons[0].focus();
 }
 
+// Two rows of six: 11 quick reactions + the "more" smiley.
+export const SHEET_QUICK_REACTIONS = 11;
+
+function openSheetPicker(menu, tray) {
+  menu.style.height = menu.getBoundingClientRect().height + "px";
+  menu.classList.add("picking");
+  tray.hidden = false;
+  tray.open();
+}
+
+function closeSheetPicker(menu, tray) {
+  menu.classList.remove("picking");
+  menu.style.height = "";
+  tray.hidden = true;
+  menu.querySelector(".msg-react-more")?.focus();
+}
+
+// Escape in the sheet: leaves the picker first, closes on the next press.
+export function sheetEscapeAction(picking) {
+  return picking ? "back" : "close";
+}
+
 export function showMessageSheet({ reactions = [], selected = null, onReact, items, links = [], onOpenLink }) {
   closeAllPopups();
   const menu = document.createElement("div");
@@ -498,8 +537,18 @@ export function showMessageSheet({ reactions = [], selected = null, onReact, ite
   menu.append(grab);
   bindSheetDrag(menu, grab, closeAllPopups);
 
+  // Phone sheet: exactly two rows of quick reactions (11 + the smiley).
+  // The smiley swaps the whole sheet body for the picker at the sheet's
+  // current height (no resize, no modal); Back / Escape return to the menu.
+  let picker = null;
   if (reactions.length) {
-    const { reacts, tray } = buildReactionRow({ reactions, selected, onReact });
+    const quick = reactions.slice(0, SHEET_QUICK_REACTIONS);
+    const { reacts, tray } = buildReactionRow({
+      reactions: quick, selected, onReact,
+      onMore: (tr) => openSheetPicker(menu, tr),
+    });
+    tray.classList.add("msg-sheet-picker");
+    picker = tray;
     menu.append(reacts, tray);
   }
 
@@ -576,6 +625,21 @@ export function showMessageSheet({ reactions = [], selected = null, onReact, ite
   overlay.addEventListener("pointerdown", closeAllPopups);
   overlay.addEventListener("contextmenu", e => { e.preventDefault(); closeAllPopups(); });
   popups().append(overlay, menu);
+  if (picker) {
+    // buildEmojiTray's onBack restores the inline row; in the sheet the
+    // whole body comes back instead.
+    picker.querySelector(".msg-emoji-back")?.addEventListener("click", () => closeSheetPicker(menu, picker));
+    const onKey = (e) => {
+      if (!menu.isConnected) { window.removeEventListener("keydown", onKey, true); return; }
+      if (e.key !== "Escape") return;
+      if (sheetEscapeAction(menu.classList.contains("picking")) === "back") {
+        e.stopPropagation(); e.preventDefault();
+        picker.querySelector("input").value = "";
+        closeSheetPicker(menu, picker);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+  }
   return menu;
 }
 
