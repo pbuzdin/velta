@@ -37,15 +37,32 @@ export const diagnosticsSink = {
   },
 };
 
+// CI build paths in core log lines ("/home/runner/work/velta/velta/core/src/
+// sql.rs:971: …"): keep the repo-relative "core/src/…:line" part only.
+export function stripBuildPaths(text) {
+  return String(text).replace(/(?:[A-Za-z]:)?[\\/](?:[^\s:"'\\/]+[\\/])*?(?=core[\\/]src[\\/])/g, "");
+}
+
+// Core info lines that repeat on every connectivity render and say nothing
+// new after the first time: kept once per session.
+const ONCE_PER_SESSION = [/connectivity: root name hidden:/];
+
 export class DiagnosticsStore extends EventTarget {
   constructor() {
     super();
     this.messages = [];
     this.nextId = 1;
+    this._seenOnce = new Set();
     this.append("info", "Velta UI loaded");
   }
 
   append(level, text) {
+    text = stripBuildPaths(text);
+    const once = ONCE_PER_SESSION.find(re => re.test(text));
+    if (once) {
+      if (this._seenOnce.has(once)) return null;
+      this._seenOnce.add(once);
+    }
     const message = {
       id: this.nextId++,
       chatId: DIAGNOSTICS_CHAT_ID,
