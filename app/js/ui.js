@@ -739,12 +739,10 @@ export function setCoreVersionDisplay(v) {
   if (splash) fillSplashVersion(splash);
 }
 /* ---------- Update check (drawer banner + menu-button nudge) ---------- */
-// The latest release version lives in a version.txt asset attached to every
-// GitHub release (written by release.yml from tauri.conf.json). On Tauri the
-// check runs shell-side (get_latest_version command — shell HTTP is not
-// CSP-bound and the hardcoded URL there is the app's only GitHub reach);
-// the direct fetch is the PWA/browser fallback.
-const UPDATE_CHECK_URL = "https://github.com/pbuzdin/velta/releases/latest/download/version.txt";
+// Tauri reads GitHub version.txt in the shell (get_latest_version). The page
+// must not: that CDN sends no CORS header, and CSP connect-src has no github
+// host. The browser reads same-origin /version.txt (release.yml copies it).
+const UPDATE_CHECK_URL = "/version.txt";
 const updateApkUrl = (v) => `https://github.com/pbuzdin/velta/releases/download/v${v}/Velta-${v}-arm64.apk`;
 
 let updateInfo = null; // { version, url } while an update is available
