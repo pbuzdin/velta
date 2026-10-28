@@ -32,6 +32,8 @@
 
 use serde_json::Value;
 
+pub use crate::lufi::{encode_frame, ws_accept_key};
+
 /// Saved proxies (`ws_transport.json` in the app data dir).
 pub const FILE: &str = "ws_transport.json";
 /// Every proxy URL this module writes starts with this (see tunnel.rs).
@@ -280,34 +282,6 @@ pub mod socks {
     pub fn reply(code: u8) -> [u8; 10] {
         [5, code, 0, 1, 0, 0, 0, 0, 0, 0]
     }
-}
-
-/// RFC 6455 accept key.
-pub fn ws_accept_key(key: &str) -> String {
-    use sha1::{Digest, Sha1};
-    let mut h = Sha1::new();
-    h.update(key.as_bytes());
-    h.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
-    data_encoding::BASE64.encode(&h.finalize())
-}
-
-/// Masked client frame header + payload.
-pub fn encode_frame(opcode: u8, payload: &[u8], mask: [u8; 4]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(payload.len() + 14);
-    out.push(0x80 | opcode);
-    let n = payload.len();
-    if n < 126 {
-        out.push(0x80 | n as u8);
-    } else if n <= 0xffff {
-        out.push(0x80 | 126);
-        out.extend_from_slice(&(n as u16).to_be_bytes());
-    } else {
-        out.push(0x80 | 127);
-        out.extend_from_slice(&(n as u64).to_be_bytes());
-    }
-    out.extend_from_slice(&mask);
-    out.extend(payload.iter().enumerate().map(|(i, b)| b ^ mask[i % 4]));
-    out
 }
 
 /// The `/dns/` answer: a JSON array of IP strings (bad entries skipped).
