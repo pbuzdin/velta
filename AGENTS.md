@@ -1087,6 +1087,10 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   virtual-scroller), composer, selection mode and the delete dialog, plus the pinned-message tray under the chat head (`_refreshPinnedBar`, fed by `pinned-changed` events AND — #69 — debounced re-checks on `msgs-changed`/`msgs-deleted`: the core's tombstone REPLACE clears a pin WITHOUT a `MessageUnpinned` event, and core `MsgDeleted` (explicit/remote/ephemeral deletions) maps to `msgs-deleted`+`msgs-changed` in rpc-core — unmapped, remote deletions never reached the UI at all). #157: a chat you cannot post in (`can_send` false — someone else's channel) still shows the tray, without the ✕ unpin buttons and without a Pin/Unpin menu chip. Composer send keys (1.4.52, #56): Enter sends while the `velta-send-enter` drawer setting is on (default); with it OFF, Ctrl/Cmd+Enter sends instead and plain Enter inserts a newline; Shift+Enter is always a newline and IME composition never sends. KEEP:
   rows must NOT get `content-visibility` (the scroller measures mounted rows
   itself; collapsing desyncs its height cache — scroll jumps on remount);
+  a near-bottom send calls `_scrollBottomSettling` (one smooth scroll can
+  stop in the bottom spacer while the scroller relayouts — VENDORISSUES #18);
+  `onItemHeightDidChange` runs after `replaceWith` in `onMsgUpdated` (the
+  scroller measures the mounted child; an earlier notify keeps the old height);
   day chips render inside the first message row of each day (`dayFirst`) —
   separator items broke the scroller's prepend diff; `_loadOlder` prepends
   stay pure message prefixes. Bubbles use `contain: layout style` (not
@@ -1286,6 +1290,11 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   `openDiagnosticsChat` sets `chatView.externalSurface = true` after
   `close()` — without it no session exists and the swipe could never close
   the diagnostics chat. `open()`/`close()` clear the flag.
+  List clicks go through `openChat` and skip `closeChatUI`, so `openChat`
+  also clears `diagnosticsOpen`, hides `#diagnostic-actions`, and sets
+  `externalSurface` false (1.4.86). Left set, the diagnostics bar stays on
+  the next chat and its writer can replace `#history`. Pinned by
+  `tests/app-account-isolation.test.mjs`.
   Pinned by `tests/chat-msg-update-hardening.test.mjs`. Detail:
   docs/agents/android-shell.md.
 - **Select text (#36, #121)** — bubble text stays unselectable on touch
@@ -2174,7 +2183,8 @@ replies; applies regardless of which tools or modes are active.)
   #48). The dist worker's cache name is the content hash in §4.2.1, not a
   hard-coded constant.
 - `app/vendor/` files carry local fixes for upstream bugs (the zoom
-  normalization in `virtual-scroller.js` is a patch, not upstream code).
+  normalization and the tail-window snap in `virtual-scroller.js` are
+  patches, not upstream code — VENDORISSUES #1 and #18).
   Read `VENDORISSUES.MD` before upgrading or re-vendoring any of them, and
   re-apply the local patches afterwards.
 - **Modal async flows: settle BEFORE close.** `showModal`'s `close()` fires
@@ -2431,7 +2441,11 @@ incoming-msg (`mutedChatAllows`) and Rust `bg_notify_incoming`
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 143 files, 988 tests as of 2026-10-25 (1.4.82: languages #129,
+whole set — 162 files, 1143 tests as of 2026-10-28 (1.4.86: diagnostics bar
+leaves with the chat, history stays on screen after a send, row height is
+read after replace. On this Windows checkout `tests/ws-proxy-auth.test.mjs`
+still fails before it runs: the script path doubles the drive letter.
+1.4.82: languages #129,
 app catalog #137, chats in common #171, invite-card swipes #87; New channel #155,
 click-to-copy `` `code` `` spans #156, pin-tray permissions #157; 1.4.80: +link actions
 (#161: menu Copy/Open, touch-only Share, mobile Show-links list), bubble
@@ -3236,11 +3250,14 @@ do-not-regress rules; dates mark when the lesson was learned.
   closes consume the entry via `history.back()`; reopening an already-open
   overlay REPLACES its entry (back-then-push races and loses it).
 - **Update banner (1.4.14+, shell-side since 1.4.16)** — boot fires
-  `checkForUpdate()` (ui.js, fire-and-forget); the latest version comes
-  from the shell command `get_latest_version` (lib.rs, ureq, hardcoded
-  version.txt URL, 5 s timeout) because the renderer's cross-origin fetch
-  is CORS-blocked by GitHub's CDN — do not move it back into the page and
-  do not re-add github CSP hosts (§8). Newer remote → drawer-bottom banner
+  `checkForUpdate()` (ui.js, fire-and-forget). Inside Tauri the latest
+  version comes from `get_latest_version` (lib.rs, ureq, the GitHub
+  version.txt URL, 5 s timeout). The page must not fetch that URL:
+  GitHub's CDN sends no CORS header and CSP `connect-src` has no github
+  host (§8). Since 1.4.86 the browser branch fetches same-origin
+  `/version.txt` (`UPDATE_CHECK_URL`); release.yml copies that file to the
+  site root. A relative `version.txt` would request `/web/version.txt`
+  and 404. Do not re-add github CSP hosts. Newer remote → drawer-bottom banner
   with Download APK + `.update` pulse on
   `#bar-menu` (box-shadow animation, no layout shift; disabled under
   `prefers-reduced-motion`). No banner when versions match, offline, or
