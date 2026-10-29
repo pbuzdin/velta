@@ -307,6 +307,21 @@ migration from configured_addr): docs/agents/relays.md "Sending relay".
 The wasm patch series has no #10/#11 equivalent (quilt-refreshed for 2.63
 in #112) — the PWA falls back to the configured address.
 
+**Upstream status (2026-10-29):** no quilt patch is implemented upstream
+and the trackers (#163–168, #175, #176) have no upstream comments. The one
+real conversation — server metadata (#15/#16) as chatmail/core#8857 — was
+CLOSED: upstream's stated trajectory is fully automatic multi-relay
+(hpk42), API exposure gated on DC's UX lead; link2xt doubted exposing the
+metadata level but wants structured JSON connectivity output (Parla parses
+our HTML reports). Velta's upstream PRs core #8182 (Iroh 1.0) + relay
+#1061 are open, unreviewed, mutually blocked. Upstream converges with our
+diagnoses automatically (2.64 smtp_failure switching, 2.66 configured_addr
+removal + markseen/scheduler refactors) — re-check #11/#16 assumptions when
+automatic relay replacement lands. Working posture: quilt = product
+differentiator, cheap so far (4 clean re-vendors); escalate #12/#17/#18 as
+small PRs, not issues; reframe #15/#16 as connectivity JSON with Parla as
+co-customer. Full write-up: VENDORISSUES.MD "Upstream status".
+
 ```bash
 # Run all Rust tests; use nextest — plain `cargo test` flakes a varying
 # set of ~4 time-shift tests per run (see COREUPDATE.md §4)

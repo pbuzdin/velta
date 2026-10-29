@@ -52,7 +52,9 @@ upstream replaces the whole tree and wipes them. **The quilt
 change inside `core/` must be an op there** (anchor + marker); a hand edit
 that is not an op is lost on the next re-vendor — that is how #12 and #13
 vanished in 2.63.0. Current quilt at core 2.66.0 — **45 ops in 10 files**
-(intent per patch in VENDORISSUES.MD):
+(intent per patch in VENDORISSUES.MD; upstream status — none implemented,
+multi-relay heading "fully automatic" upstream, escalation posture — in
+VENDORISSUES.MD "Upstream status (assessed 2026-10-29)"):
 
 | Patch | Ops | Files | What |
 |---|---|---|---|

@@ -233,11 +233,41 @@ the same way when updating; verified by decoding generated QR codes.
 ## Delta Chat core (vendored `core/`, upstream chatmail/core)
 
 Re-vendor note: every Velta core change is an op in the quilt
-`tools/apply-core-patches.py` (live: #10 -> velta#163, #11 -> velta#164, #12 -> velta#165, #13 -> velta#166, #14 -> velta#167, #15 -> velta#168; retired: #7) and
+`tools/apply-core-patches.py` (live: #10 -> velta#163, #11 -> velta#164, #12 -> velta#165, #13 -> velta#166, #14 -> velta#167, #15 -> velta#168; #16 extends #15, #17 -> velta#175, #18 -> velta#176; retired: #7) and
 re-applies mechanically — `apply`, then `verify` and `tree-check --fetch`
 must pass (COREUPDATE.md §0; CI `core-patches.yml` enforces both). Hand
 edits to `core/` that are not quilt ops are lost on re-vendor — exactly how
 #12 and #13 silently vanished in the 2.63.0 re-vendor (2aac743, v1.4.64).
+
+### Upstream status (assessed 2026-10-29)
+
+None of the core patches are implemented upstream, and the trackers
+(#163–168, #175, #176) have no upstream comments. The one proposal that got
+a real conversation — per-transport server metadata (#15/#16), filed as
+upstream issue chatmail/core#8857 — was **closed**: hpk42 stated the
+upstream trajectory for multi-relay is "fully automatic, where core
+determines to replace failing relays, adds new relays", with API exposure
+gated on Delta Chat's UX lead; link2xt doubted exposing that metadata level
+but acknowledged a need for structured JSON connectivity output (Parla, the
+GTK client, currently parses Velta's connectivity HTML reports). Velta's
+upstream PRs — core #8182 (Iroh 1.0) and relay #1061 (iroh-relay 1.0
+co-hosting) — are open with no reviews, each blocked on the other.
+
+Upstream is nonetheless converging with several diagnoses, solving them
+automatically instead: 2.64 switches transports after send rejections
+(`smtp_failure`, the automatic cousin of #11's user pin), 2.66 removed
+`configured_addr` (the auto-relay trajectory; #11 survives via its
+`ui.velta.send_transport` re-key), and 2.65/2.66 refactored
+`background_fetch_any`, markseen (one transaction) and scheduler start-waits
+— the same latency territory as #12/#17/#18 without the lock-across-interrupt
+bug fix.
+
+Working posture: carry the quilt as the product differentiator (four
+re-vendors 2.63→2.66 applied all ops clean); escalate #12/#17/#18 upstream
+as small PRs rather than issues (issues went unanswered, and those diffs are
+minimal with no API surface); reframe #15/#16 as the connectivity-JSON need
+Parla shares; re-check #11/#16 assumptions whenever upstream's automatic
+relay replacement lands.
 
 ### 7. Recoding an animated WebP strips its animation (static JPEG out)
 
@@ -454,7 +484,11 @@ has not connected to yet are absent — the UI shows "not known yet" rather
 than "not offered".
 
 Upstream fix: a public per-transport server-metadata accessor (or folding
-the fields into `list_transports`) — then drop the patch.
+the fields into `list_transports`) — then drop the patch. Proposed upstream
+as chatmail/core#8857; **closed 2026-10** — hpk42: multi-relay is heading
+"fully automatic", exposure gated on DC's UX lead; link2xt doubted exposing
+this level but wants structured JSON connectivity output (Parla parses the
+HTML reports). Reframe there if retried.
 
 ### 16. IDLE / COMPRESS / recipient limit per relay are invisible to clients (core/src/imap.rs, transport.rs)
 
@@ -467,7 +501,9 @@ connection); `get_server_metadata` returns them as `canIdle` /
 (instant delivery) as a flag and the limit/compression in the details
 line. Quilt ops `#16 …` in tools/apply-core-patches.py; must stay after the
 #15 ops (anchored on their inserted text). The wasm copy inherits it (the
-wasm series applies on top of the quilted core). Drop when upstream exposes
+wasm series applies on top of the quilted core). Same upstream picture as
+#15 (chatmail/core#8857 closed; see the upstream-status note above). Drop
+when upstream exposes
 per-transport capabilities.
 
 ### 17. `maybe_network` holds the account manager lock across interrupts (deltachat-jsonrpc/src/api.rs)
