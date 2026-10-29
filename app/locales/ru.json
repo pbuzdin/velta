@@ -1417,5 +1417,10 @@
   "Couldn't download: ": "Не удалось скачать: ",
   "Open the link in a browser to download": "Откройте ссылку в браузере, чтобы скачать",
   "This link has no file": "По этой ссылке нет файла",
-  "Downloading {name} ({size})…": "Скачивание {name} ({size})…"
+  "Downloading {name} ({size})…": "Скачивание {name} ({size})…",
+  "Admin group": "Группа с администратором",
+  "Only you can add or remove members and edit the group. Protection works only in Velta and ArcaneChat.": "Только вы сможете добавлять и удалять участников и редактировать группу. Защита работает только в Velta и ArcaneChat.",
+  "Admin": "Админ",
+  "Moderated group · admin: {name}": "Модерируемая группа · админ: {name}",
+  "Only the group admin can do this": "Это может сделать только администратор группы"
 }

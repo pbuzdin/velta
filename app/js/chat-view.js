@@ -119,6 +119,7 @@ import { isAndroid, rustLog, tauriInvoke } from "./tauri.js";
 import { canShareLink, copyLink, shareLink } from "./qr-actions.js";
 import { ICON, P, svg, labelled } from "./icons.js";
 import { t } from "./i18n.js";
+import { adminCaps } from "./admin-group.js";
 
 function reactionChipsHtml(reactions) {
   return (reactions || []).map(r =>
@@ -802,7 +803,10 @@ export class ChatView {
       this._session = session;
       // @mentions: members (+ fingerprint codes) before the first paint, but
       // never hold the chat open on slow lookups.
-      await Promise.race([this._loadMentionMembers(chat, session), new Promise(r => setTimeout(r, 600))]);
+      await Promise.race([
+        Promise.all([this._loadMentionMembers(chat, session), this._loadGroupAdmin(chat)]),
+        new Promise(r => setTimeout(r, 600)),
+      ]);
       if (this._openGen !== openGen || !this._isCurrent(session)) return false;
       this._clearHistory();
       if (this._openGen !== openGen || !this._isCurrent(session)) return false;
@@ -915,7 +919,7 @@ export class ChatView {
     const newest = msgs[msgs.length - 1];
     // Unpin is for chats you can write in: members of someone else's channel
     // see the pins but no ✕ (#157). readOnly resolves via canSend.
-    const canUnpin = !this.readOnly;
+    const canUnpin = !this.readOnly && adminCaps(this.chat).canPin;
     const item = (m) => `
       <div class="pin-tray-item" data-pin-id="${m.id}">
         <span class="pb-text"><b>${escapeHtml(m.fromContact?.name || "")}</b> ${escapeHtml(snippet(m))}</span>
@@ -956,6 +960,13 @@ export class ChatView {
   // @mentions (docs/mentions.md): the open group's members as
   // { id, name, code, color, addr, avatar }. SELF (id 1) carries our own
   // display name; code = first fingerprint group, "" when only derived.
+  // #177: admin groups — FullChat.groupAdminId on the chat object, read by
+  // adminCaps() for the pin / delete-for-everyone entries.
+  async _loadGroupAdmin(chat) {
+    if (!chat || chat.kind !== "group" || chat.isP2p || !this.core.getGroupAdminId) return;
+    try { chat.groupAdminId = await this.core.getGroupAdminId(chat.id); } catch { /* keep */ }
+  }
+
   async _loadMentionMembers(chat, session) {
     this._mentionMembers = [];
     this._mentionKey = "";
@@ -3269,7 +3280,7 @@ export class ChatView {
     // Local P2P groups: no pin / forward / save / react / delete (relay-core
     // features the mesh engine has no equivalent for).
     const p2pg = !!this.chat?.isP2pGroup;
-    if (this.core.pinMessage && !p2pg && !this.readOnly) {
+    if (this.core.pinMessage && !p2pg && !this.readOnly && adminCaps(this.chat).canPin) {
       items.push({
         label: m.pinned ? t("Unpin") : t("Pin"),
         pair: "keep",
@@ -3498,7 +3509,7 @@ export class ChatView {
     return msgs.length === ids.length
       && this.chat?.kind !== "saved"
       && this.chat?.encrypted !== false
-      && msgs.every(m => m.from === 1);
+      && msgs.every(m => adminCaps(this.chat).canDeleteForAll(m.from));
   }
 
   // Shared by the modal and the phone sheet's inline Delete row.

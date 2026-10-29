@@ -6,6 +6,7 @@ import { escapeHtml, escapeAttr } from "./components.js";
 import { chatCategoryOf, chatIsUnread, swipeCategoryStep, batteryReactionPlan, chatsInCommon } from "./rpc-core.js";
 import { fileUrl, setWasmBlobReader, redactMediaUrl } from "./media.js";
 import { mountMemberList } from "./member-list.js";
+import { adminCaps, adminBadgeHtml, adminInfoText, canRemoveMember } from "./admin-group.js";
 import { mentionsMe, fprCode } from "./mentions.js";
 import { mutedChatAllows, mentionInMutedOn } from "./notify-policy.js";
 import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintFromVcard, fingerprintGroups, cachedFingerprintIsDerived } from "./avatar.js";
@@ -2645,6 +2646,12 @@ function openMuteDialog(chat, valEl, epoch) {
 async function showChatInfo(chat) {
   if (state.accountChanging) return;
   const epoch = core.accountEpoch;
+  // #177: admin groups — who administers it decides which controls show.
+  if (chat.kind === "group" && !chat.isP2p && core.getGroupAdminId) {
+    try { chat.groupAdminId = await core.getGroupAdminId(chat.id); } catch { /* keep */ }
+    if (!accountIsCurrent(epoch)) return;
+  }
+  const caps = adminCaps(chat);
   // Local group: the roster, counts and rights change under the sheet — start
   // from the adapter's current view of the group.
   if (chat.isP2pGroup) {
@@ -2704,9 +2711,10 @@ async function showChatInfo(chat) {
       ${chat.contactId ? `<span class="chat-info-tile" data-caption-tile></span>` : ""}
     </div>
     <div class="profile-name">${escapeHtml(chat.name)}</div>
+    ${caps.isAdminGroup ? `<div class="admin-group-info" data-admin-info>${ICON.shieldCheck}<span data-admin-info-text>${escapeHtml(adminInfoText(chat, ""))}</span></div>` : ""}
     <div class="profile-description" data-desc hidden></div>
-    ${(isSelf || (isGroup && !chat.isP2pGroup)) ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="ep"${chat.kind === "channel" ? " hidden" : ""}>${escapeHtml(isSelf ? t("Edit profile") : chat.kind === "channel" ? t("Edit channel") : t("Edit group"))}</button></div>` : ""}
-    ${chat.kind === "group" && !chat.isP2pGroup ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="add-members">${escapeHtml(t("Add members"))}</button><button type="button" class="btn-text" data-pa="invite">${escapeHtml(t("Invite via link/QR"))}</button></div>` : ""}
+    ${(isSelf || (isGroup && !chat.isP2pGroup && caps.canEditGroup)) ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="ep"${chat.kind === "channel" ? " hidden" : ""}>${escapeHtml(isSelf ? t("Edit profile") : chat.kind === "channel" ? t("Edit channel") : t("Edit group"))}</button></div>` : ""}
+    ${chat.kind === "group" && !chat.isP2pGroup && caps.canAddMembers ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="add-members">${escapeHtml(t("Add members"))}</button><button type="button" class="btn-text" data-pa="invite">${escapeHtml(t("Invite via link/QR"))}</button></div>` : ""}
     ${chat.kind === "channel" ? `<div class="profile-actions"><button type="button" class="btn-text" data-pa="invite">${escapeHtml(t("Invite via link/QR"))}</button></div>` : ""}
     ${chat.isP2pGroup ? p2pGroupActionsHtml(chat) : ""}
     ${!isGroup && chat.contactId && chat.contactId !== 1 ? `<div class="profile-actions">
@@ -2722,7 +2730,9 @@ async function showChatInfo(chat) {
     ${chat.isP2pGroup ? `<div class="profile-description" data-pg-hint style="font-size:13px;opacity:.75;padding:6px 2px" hidden></div>` : ""}
     ${contactRows}
     ${!chat.isP2p && !isSelf && (chat.kind === "group" || chat.kind === "channel" || chat.kind === "single") ? `<div class="info-row" data-muted style="cursor:pointer"><span class="k">${escapeHtml(t("Notifications"))}</span><span class="v" data-muted-val>${escapeHtml(chat.muted ? t("Muted") : t("On"))}</span></div>` : `<div class="info-row"><span class="k">${escapeHtml(t("Notifications"))}</span><span class="v">${chat.muted ? "Muted" : "On"}</span></div>`}
-    ${!chat.isP2p && !isSelf && (chat.kind === "group" || chat.kind === "single") ? `<div class="info-row" data-ephemeral style="cursor:pointer"><span class="k">${escapeHtml(t("Disappearing messages"))}</span><span class="v" data-ephemeral-val>…</span></div>` : ""}
+    ${!chat.isP2p && !isSelf && (chat.kind === "group" || chat.kind === "single") ? (caps.canSetTimer
+      ? `<div class="info-row" data-ephemeral style="cursor:pointer"><span class="k">${escapeHtml(t("Disappearing messages"))}</span><span class="v" data-ephemeral-val>…</span></div>`
+      : `<div class="info-row" data-ephemeral data-admin-only aria-disabled="true" title="${escapeAttr(t("Only the group admin can do this"))}"><span class="k">${escapeHtml(t("Disappearing messages"))}</span><span class="v" data-ephemeral-val>…</span></div>`) : ""}
     ${!chat.isP2p ? `<div class="info-row"><span class="k">${escapeHtml(t("Storage"))}</span><span class="v" data-storage-val>…</span></div>
     <details class="info-details" data-old-messages>
       <summary class="info-row"><span class="k">${escapeHtml(t("Old messages"))}</span><span class="v">${escapeHtml(t("Clean up ›"))}</span></summary>
@@ -2771,7 +2781,7 @@ async function showChatInfo(chat) {
         ephVal.textContent = formatEphemeralTimer(t);
       } catch { ephVal.textContent = t("Off"); }
     })();
-    ephRow.addEventListener("click", () => openEphemeralDialog(chat, ephVal, epoch));
+    if (caps.canSetTimer) ephRow.addEventListener("click", () => openEphemeralDialog(chat, ephVal, epoch));
   }
   // Storage row: sum attachment bytes across the whole chat (paged newest→
   // oldest; text is negligible). Computed on sheet open — lazy by design,
@@ -3161,11 +3171,38 @@ async function showChatInfo(chat) {
     });
   }
 
+  // #177: the admin removes a member (relay admin groups only).
+  if (caps.canRemoveOthers && core.removeChatMember) {
+    body.addEventListener("click", async e => {
+      const btn = e.target.closest?.("[data-admin-remove]");
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const name = btn.dataset.name || "?";
+      const ok = await confirmModal("Remove member",
+        t("Remove {name} from \"{chat}\"? They stop receiving new messages and keep what they already have.", { name, chat: chat.name }), t("Remove"), true);
+      if (!ok || !accountIsCurrent(epoch)) return;
+      try {
+        await core.removeChatMember(chat.id, Number(btn.dataset.adminRemove));
+        if (!accountIsCurrent(epoch)) return;
+        toast(t("Member removed"));
+        refreshChatList();
+        await modalHistorySettled();
+        showChatInfo(chat);
+      } catch (err) { errToast(t("Couldn't remove: ") + (err?.message || err)); }
+    }, true);
+  }
+
   if (isGroup && core.getChatMembers) {
     core.getChatMembers(chat.id).then(members => {
       const count = body.querySelector("[data-member-count]");
       const list = body.querySelector("[data-member-list]");
       if (count) count.textContent = members.length.toLocaleString();
+      const adminText = body.querySelector("[data-admin-info-text]");
+      if (adminText) {
+        const admin = members.find(m => m.id === chat.groupAdminId);
+        adminText.textContent = adminInfoText(chat, admin?.name);
+      }
       const hint = body.querySelector("[data-pg-hint]");
       if (hint) {
         hint.hidden = false;
@@ -3177,7 +3214,13 @@ async function showChatInfo(chat) {
         // Local P2P groups keep their reachability subtitle and Remove.
         mountMemberList(list, members.map(m => ({ ...m, self: m.self || m.id === 1, avatarUrl: m.avatar ? fileUrl(m.avatar) : null })), {
           rowOptions: m => {
-            if (!chat.isP2pGroup) return {};
+            if (!chat.isP2pGroup) {
+              // #177: admin badge; the admin gets Remove on everyone else.
+              const badge = caps.isAdminGroup && m.id === chat.groupAdminId ? adminBadgeHtml() : "";
+              const remove = canRemoveMember(chat, m)
+                ? `<button type="button" class="btn-text" data-admin-remove="${escapeAttr(m.id)}" data-name="${escapeAttr(m.name || "?")}" aria-label="${escapeAttr(t("Remove {name}", { name: m.name }))}">${escapeHtml(t("Remove"))}</button>` : "";
+              return badge || remove ? { actionsHtml: badge + remove } : {};
+            }
             const subtitle = (m.self ? t("you") : (m.online ? t("online") : t("offline")) + (m.introduced ? t(" · not paired") : "")) + (m.isCreator ? t(" · admin") : "");
             const canRemove = chat.isP2pGroup && chat.canManage && !chat.readOnly && !m.self && !m.isCreator;
             return { subtitle, actionsHtml: canRemove ? `<button type="button" class="btn-text" data-pg-remove="${escapeAttr(m.id)}" aria-label="${escapeAttr(t("Remove {name}", { name: m.name }))}">${escapeHtml(t("Remove"))}</button>` : "" };
@@ -3264,7 +3307,8 @@ function bindChatHeadMenu() {
       // Phones have no room for a second header call icon (the name would
       // shrink to nothing at 320px): the video call lives here too.
       ...(chat.kind === "single" && !chat.isP2p ? [{ label: "Video call", onClick: () => startCallIfMicOk(chat, { video: true }) }] : []),
-      ...(chat.kind === "group" && !chat.isP2pGroup ? [{ label: "Group invite QR", onClick: () =>
+      // #177: only an admin group's admin may invite (chat-view loads groupAdminId).
+      ...(!adminCaps(chat).canAddMembers ? [] : chat.kind === "group" && !chat.isP2pGroup ? [{ label: "Group invite QR", onClick: () =>
         showInvite(inviteQrProvider(chat.id), { title: chat.name, group: true }) }] : []),
       // Local P2P chats have no per-chat mute / pin (flags are relay-core state).
       ...(chat.isP2p ? [] : [
@@ -3497,10 +3541,10 @@ function newChatOptions() {
       // state is still current) and the pending pop closes it instantly —
       // Create appeared to do nothing (#151).
       await modalHistorySettled();
-      const name = await askGroupName();
-      if (!name || !accountIsCurrent(epoch)) return;
+      const res = await askGroupName();
+      if (!res || !accountIsCurrent(epoch)) return;
       {
-        const id = await core.createChat(name, picked.map(c => c.id), "group");
+        const id = await core.createChat(res.name, picked.map(c => c.id), res.admin ? "admin-group" : "group");
         if (!accountIsCurrent(epoch)) return;
         await refreshChatList();
         if (!accountIsCurrent(epoch)) return;
@@ -3625,18 +3669,26 @@ function askText(title, value, okLabel) {
   });
 }
 
+// Resolves { name, admin } or null. `admin` = the "Admin group" switch
+// (#177, core quilt #19): only the creator may then manage the group.
 function askGroupName() {
   return new Promise(resolve => {
     const body = document.createElement("div");
-    body.innerHTML = `<input class="text-field" maxlength="60" placeholder="${escapeHtml(t("Group name"))}" value="${escapeHtml(t("New group"))}">`;
+    body.innerHTML = `<input class="text-field" maxlength="60" placeholder="${escapeHtml(t("Group name"))}" value="${escapeHtml(t("New group"))}">
+      <label class="scale-opt admin-group-opt">
+        <input type="checkbox" role="switch" data-admin-group aria-describedby="admin-group-hint">
+        <span class="admin-group-opt-text"><span class="admin-group-opt-title">${ICON.shieldCheck}${escapeHtml(t("Admin group"))}</span>
+        <span class="admin-group-hint" id="admin-group-hint">${escapeHtml(t("Only you can add or remove members and edit the group. Protection works only in Velta and ArcaneChat."))}</span></span>
+      </label>`;
     const input = body.querySelector("input");
+    const adminBox = body.querySelector("[data-admin-group]");
     // Fragment, not a wrapping div: the buttons land as direct children of
     // .modal-foot and inherit its one-row flex layout.
     const { foot, cancel, ok } = footButtons("Create group", { okType: "submit", okClass: "btn-text btn-primary" });
     ok.style.width = "auto"; // btn-primary defaults to the full-width onboarding bar
     const done = value => { resolve(value); close(); };
     const { close, form } = showModal({ title: "New group", body, foot, form: true, onClose: () => resolve(null) });
-    form.addEventListener("submit", () => done(input.value.trim() || t("New group")));
+    form.addEventListener("submit", () => done({ name: input.value.trim() || t("New group"), admin: adminBox.checked }));
     cancel.addEventListener("click", () => done(null));
     setTimeout(() => { input.focus(); input.select(); }, 60);
   });

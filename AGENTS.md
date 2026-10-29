@@ -2497,6 +2497,12 @@ The default mirror is `https://apps.testrun.org`; extras are
 the next. A download is sent only when `isValidXdc` accepts it, from that
 mirror's `cache_relname`.
 
+Admin groups (#177, core quilt #19, ArcaneChat-compatible): `app/js/admin-group.js` (`adminCaps(chat)`) decides
+which controls show from `chat.groupAdminId` (rpc-core `getGroupAdminId` → FullChat.groupAdminId; 1 = us,
+null = regular group). The chat info sheet and chat-view load it themselves. Non-admins never see edit/add/invite/
+pin/timer actions; the admin gets Remove on members and delete-for-everyone on any message. The receiving cores
+enforce the same rules, so the UI only mirrors them. Plan, interop and limits: docs/core-patches/admin-groups-plan.md.
+
 UI language (#129, `tests/i18n.test.mjs`): English in the source is the
 key. `app/locales/fr.json` and `ru.json` map that key to a translation; a
 blank or missing value stays English. Settings → Language (also the

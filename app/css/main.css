@@ -3468,3 +3468,28 @@ html[data-theme="brutal"] .msg-row.out .msg-text .mention { color: var(--nb-main
 @media (hover: hover) and (pointer: fine) {
   .domain-tab:hover:not([aria-selected="true"]) { color: var(--text); }
 }
+
+/* Admin groups (#177): badge on the admin's member row, info line under the
+   group name, the "Admin group" switch in the new-group dialog. Text uses
+   --accent-text / --text (AA on every theme surface: accent-text >= 4.65:1
+   light, 7.2 dark, 5.3 brutal); the shield is an outline 24-grid icon. */
+.admin-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 8px 1px 6px; border: 1px solid currentColor; border-radius: 999px;
+  color: var(--accent-text); font-size: 12px; font-weight: 600; line-height: 18px;
+  white-space: nowrap;
+}
+.admin-badge svg { width: 14px; height: 14px; flex: none; }
+.member-actions .admin-badge + .btn-text { margin-left: 6px; }
+.admin-group-info {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  margin: 2px 0 6px; font-size: 13px; color: var(--text);
+}
+.admin-group-info svg { width: 16px; height: 16px; color: var(--accent-text); flex: none; }
+.admin-group-opt { align-items: flex-start; margin: 10px 2px 0; }
+.admin-group-opt-text { display: flex; flex-direction: column; gap: 2px; }
+.admin-group-opt-title { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.admin-group-opt-title svg { width: 18px; height: 18px; color: var(--accent-text); flex: none; }
+.admin-group-hint { font-size: 12.5px; color: var(--text-dim); }
+.info-row[data-admin-only] { cursor: default; }
+.info-row[data-admin-only] .v { color: var(--text-dim); }

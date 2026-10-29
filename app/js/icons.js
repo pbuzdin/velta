@@ -128,7 +128,8 @@ export const P = {
   sticker: '<path d="M11.5 20H6a2 2 0 01-2-2V6a2 2 0 012-2h12a2 2 0 012 2v6.5L11.5 20Z"/><path d="M13 20a7 7 0 017-7"/><circle cx="8.7" cy="9.7" r="1.15" fill="currentColor" stroke="none"/><circle cx="15.3" cy="9.7" r="1.15" fill="currentColor" stroke="none"/><path d="M8.5 13.4a4.2 4.2 0 007 0"/>',
   send: '<path d="M3 11.5L21 3l-6.5 18-2.7-7.3z"/>',
   // scheduled messages ("Send later"): clock face, hands at 12 → 4
-  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',  // Admin group / admin badge (#177): outline shield with a check
+  shieldCheck: '<path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z"/><path d="M8.8 12.2l2.3 2.3 4.2-4.6"/>',
 };
 
 export const ICON = Object.fromEntries(Object.entries(P).map(([k, v]) => [k, svg(v)]));

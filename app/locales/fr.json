@@ -1417,5 +1417,10 @@
   "Couldn't download: ": "Échec du téléchargement : ",
   "Open the link in a browser to download": "Ouvrez le lien dans un navigateur pour télécharger",
   "This link has no file": "Ce lien ne contient aucun fichier",
-  "Downloading {name} ({size})…": "Téléchargement de {name} ({size})…"
+  "Downloading {name} ({size})…": "Téléchargement de {name} ({size})…",
+  "Admin group": "Groupe avec administrateur",
+  "Only you can add or remove members and edit the group. Protection works only in Velta and ArcaneChat.": "Vous seul pourrez ajouter ou retirer des membres et modifier le groupe. La protection ne fonctionne que dans Velta et ArcaneChat.",
+  "Admin": "Admin",
+  "Moderated group · admin: {name}": "Groupe modéré · admin : {name}",
+  "Only the group admin can do this": "Seul l'administrateur du groupe peut faire cela"
 }

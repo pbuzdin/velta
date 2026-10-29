@@ -4,10 +4,11 @@ Status: in progress (#177). Target: vendored chatmail core 2.66.0 via `tools/app
 
 ## Checklist
 - [x] Phase 1: core port as quilt #19 (46 ops) + Rust tests (`test_velta_*`), verify / tree-check / self-test green
-- [ ] Phase 2: jsonrpc + JS bindings (`createGroupWithAdmin`, `groupAdminId`)
-- [ ] Phase 3: UI + strings (en/ru/fr) + JS tests
+- [x] Phase 2: jsonrpc + JS bindings (`create_group_with_admin`, `FullChat.groupAdminId`; rpc-core `createChat(…, "admin-group")`, `getGroupAdminId`, `removeChatMember`). The app calls JSON-RPC by name, so no TS bindings needed regenerating.
+- [x] Phase 3: UI + strings (en/ru/fr) + JS tests (`app/js/admin-group.js`, `tests/admin-groups.test.mjs`). Screenshots: /workspace/drawer-icons/admin-groups-*.png (light/dark/brutal). Contrast measured in-page: badge 5.1 / 6.5 / 5.9:1, hint 5.6 / 5.2 / 5.5:1 (light / dark / brutal)
 - [x] Phase 4a: stock Delta Chat interop (core-level simulation, see "Mixed clients")
 - [ ] Phase 4b: manual device interop (Velta ↔ ArcaneChat Android, stock DC app)
+- [ ] Multiple admins: not implemented. The grpid encodes exactly one admin (the creator), and ArcaneChat would ignore a new `Chat-Group-Admins` header, so this needs a format agreed with ArcaneChat (see Open questions)
 
 ## Goal
 Groups where one admin (the creator) can't be kicked by regular members and is the only one who can change membership and group state. Wire-compatible with ArcaneChat.
@@ -98,3 +99,12 @@ Total ≈ 6–10 days.
 - ArcaneChat desktop: not checked whether it supports admin groups.
 - Exact stock Delta Chat behaviour (see test).
 - Whether upstream chatmail plans roles (none found as of Oct 2026).
+
+## As built (UI, #177)
+- New group → name dialog: an "Admin group" switch (outline shield icon) with the hint string.
+- Chat info: "Moderated group · admin: X" line under the name; an Admin badge on the admin's member row.
+- Admin: Remove on every other member. Velta's relay-group sheet had no Remove before, so regular groups still have none.
+- Non-admin: the Edit group, Add members, and Invite via link/QR buttons are hidden, and so is "Group invite QR" in the chat menu. The disappearing-messages row is shown but inert (`aria-disabled`, with the title "Only the group admin can do this"). Pin, Unpin, and the pinned-bar unpin are hidden.
+- Delete for everyone: the admin also gets it on others' messages. Everyone keeps it for their own messages.
+- Leaving stays possible for everyone, the admin included. Nothing hands the group over, so if the admin leaves, the group is frozen.
+- PWA: the wasm series still applies on top of quilt #19 (`apply-wasm-core-patches.py apply-on-copy` OK), so the PWA gets the same core code. The wasm build itself was not compiled in this run.
