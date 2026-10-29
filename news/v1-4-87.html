@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Velta 1.4.87: invites on velta.cc, steadier Android, a new message menu — Velta</title>
+  <meta name="description" content="Four releases in one: invite links that live on velta.cc, an end to the minutes-long chat stalls on Android, images that always appear, Cryptex as a second large-file provider, Chatmail core 2.66.0, and a reworked message menu.">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css?v=8">
+  <script type="speculationrules">
+{
+  "prerender": [{
+    "source": "document",
+    "where": { "and": [
+      { "href_matches": "/*" },
+      { "not": { "href_matches": "/web/*" } },
+      { "not": { "href_matches": "/admin/*" } },
+      { "not": { "selector": "a[target]" } },
+      { "not": { "selector": "a[download]" } }
+    ] },
+    "eagerness": "moderate" }
+  ]
+}
+  </script>
+</head>
+<body>
+  <a href="#content">Skip to content</a>
+  <header>
+    <a href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+    <nav aria-label="Sections">
+      <a href="/#product">Product</a>
+      <a href="/#features">Features</a>
+      <a href="/#privacy">Privacy</a>
+      <a href="/#platforms">Platforms</a>
+      <a href="/#help">Help</a>
+      <a href="/#support">Support</a>
+      <a href="/news" aria-current="page">News</a>
+      <a href="/web/">Web app</a>
+    </nav>
+    <a href="/#download"><span>Get</span><span>Download</span></a>
+    <details>
+      <summary>Menu</summary>
+      <nav aria-label="Mobile">
+        <a href="/#product">Product</a>
+        <a href="/#features">Features</a>
+        <a href="/#privacy">Privacy</a>
+        <a href="/#platforms">Platforms</a>
+        <a href="/#help">Help</a>
+        <a href="/#support">Support</a>
+        <a href="/news">News</a>
+        <a href="/web/">Web app</a>
+      </nav>
+    </details>
+  </header>
+
+  <main id="content" class="page">
+<!-- CMS:START -->
+    <p><a href="/news">News</a></p>
+    <p class="kicker">Release</p>
+    <h1>Velta 1.4.87: invites on velta.cc, steadier Android, a new message menu</h1>
+    <p><time>29 October 2026</time> · 4 min read</p>
+    <p>Four releases in one: invite links that live on velta.cc, an end to the minutes-long chat stalls on Android, images that always appear, Cryptex as a second large-file provider, Chatmail core 2.66.0, and a reworked message menu.</p>
+    <div class="body">
+      <p>Versions 1.4.84 through 1.4.87 arrived in quick steps; this note gathers what changed since <a href="/news/v1-4-83.html">1.4.83</a>. The through-line: things that used to get stuck — a chat that would not open, an image that would not appear — now fix themselves.</p>
+<h2>Invites live on velta.cc</h2>
+<p>When you share an invite, the link now points to <strong>velta.cc/join</strong>. Open it in a browser and you get a page that says who invited you, offers a button that opens the chat straight in the app, and shows the QR for moving the chat to another device. No account, no tracking — the invitation is just the link. Links in the older Delta Chat format keep working everywhere, including pasted ones.</p>
+<h2>The end of the minutes-long stalls</h2>
+<p>On Android, after a network change the app sometimes froze for a few minutes: chats would not open, the list stopped updating, categories came up empty. The cause sat deep in the messaging engine — a reconnect held a lock while old connections wound down, and everything else queued behind it. Two fixes landed across 1.4.85 and 1.4.87, and the queue is gone: switching chats after a send works, and a background reconnect can no longer hold the interface hostage.</p>
+<h2>Images that always appear</h2>
+<p>A picture in a chat could occasionally stay an empty box for the rest of the session — the image had loaded, but the moment of its arrival was missed. Rows now heal themselves when you come back to them. No restart, no forwarding the message to another chat to see it.</p>
+<h2>Cryptex: a second home for large files</h2>
+<p>Big attachments travel through a file host. Cryptex joins Lufi as a second provider, so a large file gets a fallback when its first host is unreachable.</p>
+<h2>A calmer message menu</h2>
+<p>The message menu is now a three-column grid in the style of Firefox’s menus, delete confirms inline instead of a dialog, the emoji picker opens full height, and the sheet’s drag handle is easier to grab.</p>
+<h2>Chatmail core 2.66.0</h2>
+<p>Under the hood the messaging engine moved to the October upstream release: marking messages seen and queueing read receipts happen in one transaction, and the IMAP loop skips full table scans. All of Velta’s engine patches carried over unchanged — the release builds compile the patched core.</p>
+<h2>Also in these releases</h2>
+<ul>
+<li><strong>Import a backup</strong> into a new profile from Profile management; the profile you use stays signed in.</li>
+<li>Bots and People in the chat list re-check their categories every time you pick the chip, per account.</li>
+<li>Editing a message no longer counts as a reply to it in reply counts and the thread panel.</li>
+<li>The DNS tunnel’s <strong>Off</strong> switch really turns the tunnel off now, and the drawer row is there before any tunnel is saved.</li>
+<li>The invite QR carries the Velta logo, stays square, is shareable, and has pills to pick the invite domain.</li>
+<li>Relay details no longer stack over the Add relay button; opening a normal chat hides the diagnostics actions.</li>
+<li>In the browser, the update notice stays until you reload, and controls that only make sense in the apps are hidden.</li>
+<li>Android’s background check-in gives up sooner, never runs while you are using the app, and no longer drops a restart halfway.</li>
+</ul>
+<ul>
+<li><a href="https://github.com/pbuzdin/velta/releases/tag/v1.4.87">Release notes</a></li>
+<li><a href="https://github.com/pbuzdin/velta/compare/v1.4.83...v1.4.87">Compare 1.4.83 with 1.4.87</a></li>
+</ul>
+    </div>
+    <aside>
+      <h2>Get the current build</h2>
+      <p>The current build for Android, Windows, and macOS, plus notes for a self-hosted browser copy.</p>
+      <p><strong><a href="/#download">Download</a></strong></p>
+    </aside>
+<!-- CMS:END -->
+  </main>
+
+  <footer>
+    <div>
+      <div>
+        <a class="brand" href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+        <p>A Delta Chat client. Encrypted chat through chatmail relays — or straight across, device to device, when it should not sit on a server.</p>
+      </div>
+      <div>
+        <h2>On this site</h2>
+        <ul>
+          <li><a href="/#download">Download</a></li>
+          <li><a href="/#privacy">Privacy</a></li>
+          <li><a href="/#support">Support</a></li>
+          <li><a href="/#help">Help</a></li>
+          <li><a href="/news">News</a></li>
+          <li><a href="/about.html">About</a></li>
+          <li><a href="/developing.html">Developing</a></li>
+          <li><a href="/comparison.html">Compare</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Project</h2>
+        <ul>
+          <li><a href="https://github.com/pbuzdin/velta">GitHub</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/releases">All releases</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/LICENSE">GPL-3.0</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/README.md">README</a></li>
+          <li><a href="/admin/">Edit site</a></li>
+        </ul>
+      </div>
+    </div>
+    <p><span>Independent client. Delta Chat and Chatmail are upstream projects.</span><span>Built on the Delta Chat core</span><span>Site visits measured cookielessly — the app never phones home</span></p>
+  </footer>
+  <script src="/js/site.js?v=3"></script>
+</body>
+</html>
