@@ -1994,6 +1994,7 @@ export class ChatView {
     if (cached && cached._veltaFlags === this._itemFlags(item)
         && (sig == null || this._rowSigCache.get(item.key) === sig)) {
       unparkMedia(cached);
+      this._healCachedImage(cached);
       if (cached.querySelector?.("video")) {
         debugLog(`render: CACHED video row ${item.key} t=${Date.now() % 100000}`);
       }
@@ -2011,6 +2012,21 @@ export class ChatView {
   _holdKey(id) {
     const key = this._deleteByMsg.get(id);
     return key == null ? "" : String(key);
+  }
+
+  // Re-run a cached image row's terminal handlers (_imgReveal / _imgFail,
+  // parked on the img in _renderMsgItem): a load or error that landed while
+  // the chat was not current never applied, and cached reuse alone does not
+  // rebind. The handlers re-check alive(), which is true here — the row is
+  // rendering back into the current chat.
+  _healCachedImage(el) {
+    const img = el.querySelector?.(".msg-image")?.querySelector("img");
+    if (!img || !img.complete || !img.getAttribute("src")) return;
+    if (img.naturalWidth) {
+      if (!img.closest(".img-wrap")?.dataset.ready) img._imgReveal?.();
+    } else if (!img.dataset.fallback) {
+      img._imgFail?.();
+    }
   }
 
   _rowCacheSig(item) {
@@ -2647,7 +2663,7 @@ export class ChatView {
         // Original, not the bubble thumbnail: full-screen shows full resolution.
         if (mediaImg.naturalWidth) openImageLightbox(fileUrl(m.filePath), m.fileName || "photo");
       });
-      mediaImg.onerror = () => {
+      const onImgError = () => {
         if (!alive()) return;
         rustLog(`media img error src=${redactMediaUrl(mediaImg.src)} original=${m.filePath}`);
         // One-shot swap to the legacy chain (media HTTP server / asset
@@ -2666,6 +2682,14 @@ export class ChatView {
           notifyHeight();
         }
       };
+      mediaImg.onerror = onImgError;
+      // Both handlers gate on alive(), but the row cache reuses a rendered
+      // row without rebinding — a load/error that lands while this chat is
+      // not current is swallowed and the row keeps the pre-reveal state
+      // forever (invisible image in the reserved box until restart). Park
+      // the handlers on the img so reuse can re-run them (_healCachedImage).
+      mediaImg._imgReveal = reveal;
+      mediaImg._imgFail = onImgError;
     }
     const mediaAudio = row.querySelector('.msg-audio audio[data-src]');
     if (mediaAudio) {
