@@ -98,9 +98,17 @@
             </intent-filter>
 
             <!-- Open https://i.delta.chat/#… invite links inside Velta.
-                 Mirror domains belong here too — one intent-filter each; the
+                 velta.cc (the default share domain, /join/?… landing form,
+                 path-scoped so ordinary site taps stay in the browser) and
+                 mirror domains belong here too — one intent-filter each; the
                  runtime-recognized list lives in app/js/invites.js (the
                  drawer's "Invite link domains" setting). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="velta.cc" android:pathPrefix="/join/" />
+            </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

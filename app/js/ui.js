@@ -1960,7 +1960,8 @@ export function showInvite(provider, { title = t("Invite to Velta"), group = fal
       const box = body.querySelector(".qr-box");
       const sb = body.querySelector("[data-share]"); if (sb) sb.disabled = !link;
       // Domain pills (invite-domains.js): i.delta.chat keeps the core card,
-      // a mirror gets a plain QR that already carries the Velta logo.
+      // velta.cc/join/? (the default) and mirrors get a plain QR that already
+      // carries the Velta logo.
       mountInviteDomains(body.querySelector("[data-domain-tabs]"), { svg, link }, (qr, l, isDefault) => {
         box.innerHTML = qr || "<div class='qr-loading'>QR unavailable</div>";
         body.querySelector(".invite-link").textContent = l;

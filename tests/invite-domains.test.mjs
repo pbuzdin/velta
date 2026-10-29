@@ -16,30 +16,46 @@ const { encodeQr } = await import("../app/js/qr-encode.js");
 
 const LINK = "https://i.delta.chat/#A1B2C3D4E5F60718293A4B5C6D7E8F9012345678&v=3&x=grp&i=inv&s=auth&a=pavel%40example.org&n=Pavel&g=Chat+RU%21";
 
-test("rewrite swaps only the host; fragment byte-identical", () => {
+test("rewrite: velta.cc takes the /join/? form, mirrors keep the fragment; payload byte-identical", () => {
   const out = D.rewriteInviteHost(LINK, "i.gluek.info");
   assert.ok(out.startsWith("https://i.gluek.info/#"));
   assert.equal(out.slice(out.indexOf("#")), LINK.slice(LINK.indexOf("#")));
   assert.equal(D.rewriteInviteHost(LINK, "i.delta.chat"), LINK);
+  const v = D.rewriteInviteHost(LINK, "velta.cc");
+  assert.ok(v.startsWith("https://velta.cc/join/?"));
+  assert.equal(v.slice("https://velta.cc/join/?".length), LINK.slice(LINK.indexOf("#") + 1));
   assert.equal(D.rewriteInviteHost("OPENPGP4FPR:AB#x", "i.gluek.info"), "OPENPGP4FPR:AB#x", "non-core forms untouched");
 });
 
-test("domains: i.delta.chat first; tabs hidden with one domain", () => {
-  assert.deepEqual(D.inviteDomains(["i.deltachat.id", "i.delta.chat", "x.example.org"]), ["i.delta.chat", "i.deltachat.id", "x.example.org"]);
+test("domains: velta.cc first; tabs hidden with one domain", () => {
+  assert.deepEqual(D.inviteDomains(["i.deltachat.id", "i.delta.chat", "x.example.org"]), ["velta.cc", "i.deltachat.id", "i.delta.chat", "x.example.org"]);
   assert.equal(D.domainTabsHtml(["i.delta.chat"], "i.delta.chat"), "");
-  const html = D.domainTabsHtml(["i.delta.chat", "i.gluek.info"], "i.gluek.info");
+  const html = D.domainTabsHtml(["velta.cc", "i.delta.chat"], "i.delta.chat");
   assert.match(html, /role="tablist" aria-label="Invite link domain"/);
-  assert.match(html, /data-domain="i.gluek.info" aria-selected="true" tabindex="0"/);
-  assert.match(html, /data-domain="i.delta.chat" aria-selected="false" tabindex="-1"/);
+  assert.match(html, /data-domain="i.delta.chat" aria-selected="true" tabindex="0"/);
+  assert.match(html, /data-domain="velta.cc" aria-selected="false" tabindex="-1"/);
   assert.ok(ru["Invite link domain"] && fr["Invite link domain"]);
 });
 
-test("remembered domain falls back to i.delta.chat when it was removed", () => {
+test("remembered domain falls back to velta.cc when it was removed", () => {
   D.rememberDomain("x.example.org");
   assert.equal(D.chosenDomain(["i.delta.chat", "x.example.org"]), "x.example.org");
-  assert.equal(D.chosenDomain(["i.delta.chat", "i.gluek.info"]), "i.delta.chat");
-  D.rememberDomain("i.delta.chat");
+  assert.equal(D.chosenDomain(["i.delta.chat", "i.gluek.info"]), "velta.cc");
+  D.rememberDomain("velta.cc");
   assert.equal(mem.get(D.DOMAIN_KEY), undefined);
+});
+
+test("velta.cc/join/? links parse like the fragment form; canonical stays i.delta.chat", async () => {
+  const I = await import("../app/js/invites.js");
+  const p = I.parseInviteLink(D.rewriteInviteHost(LINK, "velta.cc"));
+  assert.ok(p, "query form parses");
+  assert.equal(p.fingerprint, "A1B2C3D4E5F60718293A4B5C6D7E8F9012345678");
+  assert.equal(p.params.n, "Pavel");
+  assert.equal(p.link, LINK);
+  assert.equal(I.parseInviteLink("https://velta.cc/join/?invite=" + encodeURIComponent(LINK)).link, LINK, "urlencoded invite= form");
+  assert.equal(I.parseInviteLink("https://velta.cc/join/#" + LINK.slice(LINK.indexOf("#") + 1)).link, LINK, "hash form still parses");
+  assert.equal(I.getInviteHosts()[0], "velta.cc");
+  assert.equal(I.parseInviteLink("https://velta.cc/other/?n=x"), null, "query without a fingerprint is not an invite");
 });
 
 test("mirror QR: plain 512 QR with Velta logo, ECC >= M, decodes to the rewritten link", async () => {
