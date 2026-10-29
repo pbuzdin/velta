@@ -1,7 +1,9 @@
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Context as _, Result, bail};
-use deltachat::chat::{self, ChatVisibility, get_chat_contacts, get_past_chat_contacts};
+use deltachat::chat::{
+    self, ChatVisibility, get_admin_contact_id, get_chat_contacts, get_past_chat_contacts,
+};
 use deltachat::chat::{Chat, ChatId};
 use deltachat::constants::Chattype;
 use deltachat::contact::{Contact, ContactId};
@@ -73,6 +75,9 @@ pub struct FullChat {
     can_send: bool,
     freshness: ContactFreshness,
     mailing_list_address: Option<String>,
+
+    /// Contact ID of the group admin for admin-controlled groups, or `null` for regular groups.
+    group_admin_id: Option<u32>,
 }
 
 impl FullChat {
@@ -109,6 +114,10 @@ impl FullChat {
 
         let mailing_list_address = chat.get_mailinglist_addr().map(|s| s.to_string());
 
+        let group_admin_id = get_admin_contact_id(context, &chat.grpid)
+            .await?
+            .map(|id| id.to_u32());
+
         Ok(FullChat {
             id: chat_id,
             name: chat.name.clone(),
@@ -131,6 +140,7 @@ impl FullChat {
             can_send,
             freshness,
             mailing_list_address,
+            group_admin_id,
         })
     }
 }

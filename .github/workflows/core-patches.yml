@@ -91,7 +91,8 @@ jobs:
         run: cargo check -p deltachat --lib --tests --locked
 
       # Patched modules only: smtp (#10/#11), scheduler/connectivity (#10),
-      # context/background_fetch (#12), imap/push (#13) — ~40 tests, seconds
+      # context/background_fetch (#12), imap/push (#13), admin groups (#19:
+      # test_velta_* plus securejoin/qr/ephemeral) — seconds
       # once built. The full suite needs real DNS/network for a few
       # configure/autorelay tests and ~18 min; run it locally per
       # COREUPDATE.md §4 on re-vendors. nextest, not cargo test:
@@ -99,4 +100,4 @@ jobs:
       - name: Patched-module tests
         run: >-
           cargo nextest run -p deltachat --lib --locked --no-fail-fast
-          -E 'test(/^(smtp|scheduler|context|imap|push)::/) | test(smtp) | test(background_fetch)'
+          -E 'test(/^(smtp|scheduler|context|imap|push)::/) | test(smtp) | test(background_fetch) | test(velta) | test(/^(securejoin|qr|ephemeral)::/)'

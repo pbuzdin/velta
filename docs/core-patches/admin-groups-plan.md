@@ -1,6 +1,13 @@
 # Core patch plan: admin groups (port from ArcaneChat)
 
-Status: plan only, no code yet. Target: vendored chatmail core 2.65.0 via `tools/apply-core-patches.py`.
+Status: in progress (#177). Target: vendored chatmail core 2.66.0 via `tools/apply-core-patches.py` (quilt patch #19, VENDORISSUES.MD §19).
+
+## Checklist
+- [x] Phase 1: core port as quilt #19 (46 ops) + Rust tests (`test_velta_*`), verify / tree-check / self-test green
+- [ ] Phase 2: jsonrpc + JS bindings (`createGroupWithAdmin`, `groupAdminId`)
+- [ ] Phase 3: UI + strings (en/ru/fr) + JS tests
+- [x] Phase 4a: stock Delta Chat interop (core-level simulation, see "Mixed clients")
+- [ ] Phase 4b: manual device interop (Velta ↔ ArcaneChat Android, stock DC app)
 
 ## Goal
 Groups where one admin (the creator) can't be kicked by regular members and is the only one who can change membership and group state. Wire-compatible with ArcaneChat.
@@ -62,7 +69,12 @@ Ordinary groups: unchanged upstream behaviour.
 
 ## Mixed clients
 - Velta ↔ ArcaneChat: same grpid format and rules; compatible.
-- Stock Delta Chat / older clients: upstream `validate_id` rejects the `:` grpid, so they most likely don't treat it as a proper group (ad-hoc group or 1:1, no admin rules). **Unverified — planned test below.**
+- Stock Delta Chat / older clients — **verified 2026-10-29** on stock core 2.66.0 (a scratch test: an Alice group whose grpid was rewritten to `FPR:base`, received by an unpatched Bob; test not committed):
+  - Stock `validate_id` rejects the `:` grpid, so the Chat-Group-ID is ignored. Bob gets an **ad-hoc group** ("Moderated", 3 members, `grpid=""`, address contacts). Later admin messages land in the same ad-hoc chat (matched by members and subject, not by ID).
+  - Bob **cannot reply**: the ad-hoc group has no keys, so on a chatmail relay the send fails ("requires end-to-end encryption", `Failed to create send jobs`). On a classic e-mail server it would go out unencrypted, without the group ID, and the Velta side would put it in a separate ad-hoc chat.
+  - Bob's "remove member" only changes his own ad-hoc chat. Nothing reaches the admin group.
+  - Bob scanning an admin-group invite (`x=<base>&z=<name>`, no `g=`): stock `check_qr` sees a **contact** invite (`AskVerifyContact`), so it verifies the admin contact and joins nothing.
+  - Net effect: stock clients can't take part in admin groups. They neither break the group nor bypass the admin. The UI hint says that protection (and membership) works only in Velta and ArcaneChat.
 - Enforcement is per-device; a stock client can still locally "kick", only its own view changes.
 
 ## Test plan

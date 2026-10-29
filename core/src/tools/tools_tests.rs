@@ -204,6 +204,20 @@ fn test_create_id() {
 }
 
 #[test]
+fn test_velta_validate_group_id() {
+    // Velta #19 (admin groups): FINGERPRINT:base_id.
+    let id = create_id();
+    assert!(validate_group_id(&id));
+    let fpr = "0123456789ABCDEF0123456789ABCDEF01234567";
+    assert!(validate_group_id(&format!("{fpr}:{id}")));
+    assert!(!validate_group_id(&format!("{}:{id}", fpr.to_lowercase())));
+    assert!(!validate_group_id(&format!("{fpr}:short")));
+    assert!(!validate_group_id(&format!("{fpr}:{id}:{id}")));
+    assert!(!validate_group_id(&format!(":{id}")));
+    assert!(!validate_group_id("a b:aaaaaaaaaaaa"));
+}
+
+#[test]
 fn test_validate_id() {
     for _ in 0..10 {
         assert!(validate_id(&create_id()));

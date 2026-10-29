@@ -265,7 +265,7 @@ quilt `tools/apply-core-patches.py`** (anchor + marker ops; never hand-edit
 `core/`, never apply the wasm series in `docs/research/wasm-patches/` to
 production `core/`). The 2.63.0 re-vendor (2aac743) silently dropped two
 hand-made core edits that were never quilt ops (#12, #13 below); v1.4.64
-shipped without them. Restored 2026-10-10. Current quilt at core 2.66.0 (45 ops, 10 files;
+shipped without them. Restored 2026-10-10. Current quilt at core 2.66.0 (91 ops, 20 files;
 intent in VENDORISSUES.MD):
 
 | # | What | Files |
@@ -279,6 +279,7 @@ intent in VENDORISSUES.MD):
 | #15 | `get_server_metadata` RPC: per-transport relay capabilities (TURN/calls, iroh relay, push, app versions) from IMAP METADATA the scheduler already fetches. 6 ops | transport.rs, deltachat-jsonrpc api.rs + types/login_param.rs |
 | #17 | jsonrpc `maybe_network` clones the contexts under `accounts.read()` and awaits scheduler interrupts AFTER releasing it (#175, 1.4.85): a queued `start_io`/`stop_io` writer behind a stuck IO restart (dead proxy, up to 30 s per task) blocked every UI RPC, so chat switching "did nothing" on Android after a send. `tunnel_android::maybe_network` does the same | deltachat-jsonrpc/src/api.rs |
 | #16 | extends #15 (ops must stay after it): IMAP IDLE, COMPRESS=DEFLATE, and max SMTP recipients on that metadata. UI: D flag ("not known yet" until the relay has connected), recipient limit and "compressed connection" in the details line. 8 ops | imap.rs, transport.rs, api.rs, login_param.rs |
+| #19 | admin groups (#177), ArcaneChat-compatible: grpid `ADMINFPR:randomid`, receivers enforce admin-only add / remove-others / name / description / avatar / timer / pins / delete-for-everyone; `create_group_with_admin` + `FullChat.groupAdminId` jsonrpc. 46 ops; receive_imf.rs ops are the fragile part on re-vendor. Plan + stock-DC interop: docs/core-patches/admin-groups-plan.md | chat.rs, receive_imf.rs, securejoin.rs, qr.rs, tools.rs, mimeparser.rs, ephemeral.rs, message.rs, jsonrpc api.rs + types/chat.rs, chat_tests.rs, tools_tests.rs |
 
 ```bash
 python3 tools/apply-core-patches.py apply        # re-insert missing ops (fails, writes nothing, on a moved anchor)

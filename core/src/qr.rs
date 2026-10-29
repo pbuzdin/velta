@@ -12,6 +12,7 @@ use regex::regex;
 use serde::Deserialize;
 
 use crate::autorelay::login_param_from_host;
+use crate::chat::ADMIN_GROUP_ID_SEPARATOR;
 use crate::config::Config;
 use crate::configure::MAX_RELAYS;
 use crate::contact::{Contact, ContactId, Origin};
@@ -509,13 +510,24 @@ async fn decode_openpgp(context: &Context, qr: &str) -> Result<Qr> {
         .get("s")
         .filter(|&s| validate_id(s))
         .map(|s| s.to_string());
-    let grpid = param
-        .get("x")
-        .filter(|&s| validate_id(s))
-        .map(|s| s.to_string());
 
     let grpname = decode_name(&param, "g")?;
+    let admin_grpname = decode_name(&param, "z")?;
     let broadcast_name = decode_name(&param, "b")?;
+
+    // For admin groups, reconstruct the full grpid as FINGERPRINT<SEP>base_grpid.
+    let grpid = if admin_grpname.is_some() {
+        param
+            .get("x")
+            .filter(|&s| validate_id(s))
+            .map(|base_id| format!("{}{ADMIN_GROUP_ID_SEPARATOR}{base_id}", fingerprint.hex()))
+    } else {
+        param
+            .get("x")
+            .filter(|&s| validate_id(s))
+            .map(|s| s.to_string())
+    };
+    let grpname = grpname.or(admin_grpname);
 
     let mut is_v3 = param.get("v") == Some(&"3");
 

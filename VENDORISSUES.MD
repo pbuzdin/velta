@@ -532,3 +532,30 @@ behind it: `rpc timeout: send_msg`, and chats would not open. Patch: use
 `try_read()` and skip when a start or stop holds the lock. A starting
 scheduler fetches and sends on its own, and a stopping one would ignore the
 signal. Upstream fix: non-blocking interrupts.
+
+### 19. Admin groups (port of ArcaneChat/core; chat.rs, receive_imf.rs, securejoin.rs, qr.rs, …)
+
+**Tracker: pbuzdin/velta#177. Status: patched locally (quilt ops "#19 admin groups …", 46 ops, 12 files incl. tests).**
+Port of ArcaneChat/core c9b9666 ("add group with admin"), a2683e9 ("allow
+admins to remove messages from others") and 9aa16dc ("ignore pinned messages
+changes from non-admins"); same wire format, so Velta ↔ ArcaneChat interoperate.
+The group ID is `ADMINFINGERPRINT:randomid`; the admin is the contact whose key
+fingerprint is the prefix. Every receiving core enforces: member add,
+removing others (self-leave stays allowed), name/description/avatar,
+ephemeral timer and pins only from the admin; delete-for-everyone of others'
+messages only by the admin; an admin grpid creating a group from a non-admin
+is ignored. Invites carry the base id in `x=` and the name in `z=` (stock
+clients see a plain contact invite); a non-admin aborts the securejoin.
+jsonrpc: `create_group_with_admin`, `FullChat.groupAdminId`.
+Deviations from ArcaneChat (security): `validate_group_id` requires a 40/64
+hex fingerprint (ArcaneChat accepts an EMPTY prefix, which made `get_admin_contact_id`
+match address contacts with an empty fingerprint); admin delete-for-everyone
+is limited to messages of that same admin group, and the request must carry
+that group's ID (ArcaneChat's a2683e9 let ANY member delete ANY message in
+regular groups, and it checked the trash chat's grpid so admin deletes never
+matched on 2.66); `delete_msgs_ext` keeps the own-messages check for
+non-admins instead of commenting it out; no broadcast secret on creation.
+Rust tests: `test_velta_*` in chat_tests.rs / tools_tests.rs. Plan, interop
+with stock Delta Chat and limits: docs/core-patches/admin-groups-plan.md.
+Single admin only (the creator); multiple admins need a new header that
+ArcaneChat would ignore.

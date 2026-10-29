@@ -298,6 +298,25 @@ pub(crate) fn validate_id(s: &str) -> bool {
     s.chars().all(|c| alphabet.contains(c)) && s.len() > 10 && s.len() <= 32
 }
 
+/// Returns true if given string is a valid group ID.
+///
+/// Accepts both:
+/// - regular group IDs generated with `create_id()` and admin group IDs
+pub(crate) fn validate_group_id(s: &str) -> bool {
+    if validate_id(s) {
+        return true;
+    }
+    // Admin group grpid: FINGERPRINT<SEPARATOR>base_grpid
+    if let Some((fpr, base_id)) = s.split_once(':') {
+        // Velta #19: a real (v4 or v6) fingerprint, never empty.
+        matches!(fpr.len(), 40 | 64)
+            && fpr.chars().all(|c| matches!(c, '0'..='9' | 'A'..='F'))
+            && validate_id(base_id)
+    } else {
+        false
+    }
+}
+
 pub(crate) fn validate_broadcast_secret(s: &str) -> bool {
     let alphabet = base64::alphabet::URL_SAFE.as_str();
     s.chars().all(|c| alphabet.contains(c)) && s.len() >= 43 && s.len() <= 100

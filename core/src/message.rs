@@ -1682,8 +1682,15 @@ pub async fn delete_msgs_ext(
 
     for &msg_id in msg_ids {
         let msg = Message::load_from_db(context, msg_id).await?;
+        // Velta #19: the admin of an admin group may delete others' messages there.
+        let is_admin_of_chat = if delete_for_all && msg.from_id != ContactId::SELF {
+            let chat = Chat::load_from_db(context, msg.chat_id).await?;
+            crate::chat::get_admin_contact_id(context, &chat.grpid).await? == Some(ContactId::SELF)
+        } else {
+            false
+        };
         ensure!(
-            !delete_for_all || msg.from_id == ContactId::SELF,
+            !delete_for_all || msg.from_id == ContactId::SELF || is_admin_of_chat,
             "Can delete only own messages for others"
         );
         ensure!(

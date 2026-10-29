@@ -4,7 +4,10 @@ use anyhow::{Context as _, Error, Result, bail, ensure};
 use deltachat_contact_tools::ContactAddress;
 use percent_encoding::{AsciiSet, utf8_percent_encode};
 
-use crate::chat::{self, Chat, ChatId, ChatIdBlocked, get_chat_id_by_grpid, load_broadcast_secret};
+use crate::chat::{
+    self, Chat, ChatId, ChatIdBlocked, admin_group_base_id, admin_group_fingerprint,
+    get_chat_id_by_grpid, load_broadcast_secret,
+};
 use crate::config::Config;
 use crate::constants::{Blocked, Chattype, NON_ALPHANUMERIC_WITHOUT_DOT};
 use crate::contact::{Contact, ContactId, Origin};
@@ -159,6 +162,12 @@ pub async fn get_securejoin_qr(context: &Context, chat: Option<ChatId>) -> Resul
             // For historic reansons, broadcasts currently use j instead of i for the invitenumber.
             format!(
                 "https://i.delta.chat/#{fingerprint}&v=3&x={grpid}&j={invitenumber}&s={auth}&a={self_addr_urlencoded}{r_param}&n={self_name_urlencoded}&b={chat_name_urlencoded}",
+            )
+        } else if admin_group_fingerprint(grpid).is_some() {
+            // Admin group: put only the base (random) grpid in x=, use z= for the group name
+            let base_grpid = admin_group_base_id(grpid);
+            format!(
+                "https://i.delta.chat/#{fingerprint}&v=3&x={base_grpid}&i={invitenumber}&s={auth}&a={self_addr_urlencoded}{r_param}&n={self_name_urlencoded}&z={chat_name_urlencoded}",
             )
         } else {
             format!(
@@ -642,6 +651,20 @@ pub(crate) async fn handle_securejoin_handshake(
                 ChatId::create_for_contact(context, contact_id).await?;
             }
             if let Some(joining_chat_id) = joining_chat_id {
+                // In admin groups, only the admin may add members.
+                // If we are not the admin, abort the secure-join instead of
+                // forwarding an add-member message that will be rejected anyway.
+                if let Some(admin_fpr) = admin_group_fingerprint(&grpid) {
+                    let my_fpr = self_fingerprint(context).await?;
+                    if my_fpr != admin_fpr {
+                        info!(
+                            context,
+                            "Aborting secure-join: we are not the admin of group."
+                        );
+                        return Ok(HandshakeMessage::Ignore);
+                    }
+                }
+
                 chat::add_contact_to_chat_ext(context, Nosync, joining_chat_id, contact_id, true)
                     .await?;
 

@@ -27,6 +27,307 @@ use pretty_assertions::assert_eq;
 use strum::IntoEnumIterator;
 use tokio::fs;
 
+/// Velta #19 (admin groups): sets up an admin group of Alice (admin) with Bob and Charlie.
+async fn velta_admin_group_setup(
+    tcm: &mut TestContextManager,
+) -> Result<(
+    TestContext,
+    TestContext,
+    TestContext,
+    ChatId,
+    ChatId,
+    ChatId,
+)> {
+    let alice = tcm.alice().await;
+    let bob = tcm.bob().await;
+    let charlie = tcm.charlie().await;
+    let alice_bob = alice.add_or_lookup_contact_id(&bob).await;
+    let alice_charlie = alice.add_or_lookup_contact_id(&charlie).await;
+
+    let alice_chat_id = create_group_with_admin(&alice, "Moderated").await?;
+    let grpid = Chat::load_from_db(&alice, alice_chat_id).await?.grpid;
+    let alice_fpr = self_fingerprint(&alice).await?;
+    assert_eq!(admin_group_fingerprint(&grpid), Some(alice_fpr));
+    assert!(crate::tools::validate_id(admin_group_base_id(&grpid)));
+    assert_eq!(
+        get_admin_contact_id(&alice, &grpid).await?,
+        Some(ContactId::SELF)
+    );
+
+    add_contact_to_chat(&alice, alice_chat_id, alice_bob).await?;
+    add_contact_to_chat(&alice, alice_chat_id, alice_charlie).await?;
+    let sent = alice.send_text(alice_chat_id, "hi").await;
+    let bob_chat_id = bob.recv_msg(&sent).await.chat_id;
+    let charlie_chat_id = charlie.recv_msg(&sent).await.chat_id;
+    bob_chat_id.accept(&bob).await?;
+    charlie_chat_id.accept(&charlie).await?;
+    assert_eq!(Chat::load_from_db(&bob, bob_chat_id).await?.grpid, grpid);
+    assert_eq!(
+        get_admin_contact_id(&bob, &grpid).await?,
+        Some(bob.add_or_lookup_contact_id(&alice).await)
+    );
+    Ok((
+        alice,
+        bob,
+        charlie,
+        alice_chat_id,
+        bob_chat_id,
+        charlie_chat_id,
+    ))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_velta_admin_group_non_admin_api_refused() -> Result<()> {
+    let mut tcm = TestContextManager::new();
+    let (_alice, bob, charlie, _a, bob_chat_id, _c) = velta_admin_group_setup(&mut tcm).await?;
+    let bob_charlie = bob.add_or_lookup_contact_id(&charlie).await;
+    let fiona = tcm.fiona().await;
+    let bob_fiona = bob.add_or_lookup_contact_id(&fiona).await;
+
+    assert!(
+        remove_contact_from_chat(&bob, bob_chat_id, bob_charlie)
+            .await
+            .is_err()
+    );
+    assert!(
+        add_contact_to_chat(&bob, bob_chat_id, bob_fiona)
+            .await
+            .is_err()
+    );
+    assert!(set_chat_name(&bob, bob_chat_id, "Hijacked").await.is_err());
+    assert!(
+        bob_chat_id
+            .set_ephemeral_timer(
+                &bob,
+                Timer::Enabled {
+                    duration: 60.try_into()?
+                }
+            )
+            .await
+            .is_err()
+    );
+    // Leaving is always allowed.
+    remove_contact_from_chat(&bob, bob_chat_id, ContactId::SELF).await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_velta_admin_group_forged_removal_ignored() -> Result<()> {
+    let mut tcm = TestContextManager::new();
+    let (alice, bob, charlie, alice_chat_id, bob_chat_id, charlie_chat_id) =
+        velta_admin_group_setup(&mut tcm).await?;
+
+    // Bob bypasses his own API check (a patched or buggy client) and "removes" Charlie.
+    let bob_chat = Chat::load_from_db(&bob, bob_chat_id).await?;
+    let bob_charlie = bob.add_or_lookup_contact_id(&charlie).await;
+    let charlie_contact = Contact::get_by_id(&bob, bob_charlie).await?;
+    let fpr = charlie_contact.fingerprint().map(|f| f.hex());
+    send_member_removal_msg(
+        &bob,
+        &bob_chat,
+        bob_charlie,
+        charlie_contact.get_addr(),
+        fpr.as_deref(),
+    )
+    .await?;
+    let sent = bob.pop_sent_msg().await;
+    alice.recv_msg_trash(&sent).await;
+    charlie.recv_msg_trash(&sent).await;
+    let alice_charlie = alice.add_or_lookup_contact_id(&charlie).await;
+    assert!(is_contact_in_chat(&alice, alice_chat_id, alice_charlie).await?);
+    assert!(is_contact_in_chat(&charlie, charlie_chat_id, ContactId::SELF).await?);
+
+    // The admin can remove Bob.
+    let alice_bob = alice.add_or_lookup_contact_id(&bob).await;
+    remove_contact_from_chat(&alice, alice_chat_id, alice_bob).await?;
+    let sent = alice.pop_sent_msg().await;
+    charlie.recv_msg(&sent).await;
+    let charlie_bob = charlie.add_or_lookup_contact_id(&bob).await;
+    assert!(!is_contact_in_chat(&charlie, charlie_chat_id, charlie_bob).await?);
+
+    // Charlie can leave.
+    remove_contact_from_chat(&charlie, charlie_chat_id, ContactId::SELF).await?;
+    let sent = charlie.pop_sent_msg().await;
+    alice.recv_msg(&sent).await;
+    assert!(!is_contact_in_chat(&alice, alice_chat_id, alice_charlie).await?);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_velta_admin_group_forged_rename_ignored() -> Result<()> {
+    let mut tcm = TestContextManager::new();
+    let (alice, bob, charlie, alice_chat_id, bob_chat_id, charlie_chat_id) =
+        velta_admin_group_setup(&mut tcm).await?;
+    SystemTime::shift(Duration::from_secs(60));
+
+    bob.sql
+        .execute(
+            "UPDATE chats SET name='Hijacked', name_normalized='hijacked' WHERE id=?",
+            (bob_chat_id,),
+        )
+        .await?;
+    let mut msg = Message::new_text("renamed".to_string());
+    msg.param.set_cmd(SystemMessage::GroupNameChanged);
+    msg.param.set(Param::Arg, "Moderated");
+    send_msg(&bob, bob_chat_id, &mut msg).await?;
+    let sent = bob.pop_sent_msg().await;
+    alice.recv_msg_trash(&sent).await;
+    assert_eq!(
+        Chat::load_from_db(&alice, alice_chat_id).await?.name,
+        "Moderated"
+    );
+
+    // The admin can rename.
+    set_chat_name(&alice, alice_chat_id, "Renamed").await?;
+    let sent = alice.pop_sent_msg().await;
+    charlie.recv_msg(&sent).await;
+    assert_eq!(
+        Chat::load_from_db(&charlie, charlie_chat_id).await?.name,
+        "Renamed"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_velta_admin_group_delete_for_all() -> Result<()> {
+    let mut tcm = TestContextManager::new();
+    let (alice, bob, charlie, alice_chat_id, bob_chat_id, charlie_chat_id) =
+        velta_admin_group_setup(&mut tcm).await?;
+
+    // A non-admin cannot delete others' messages for everyone.
+    let sent = alice.send_text(alice_chat_id, "from admin").await;
+    let bob_admin_msg = bob.recv_msg(&sent).await;
+    charlie.recv_msg(&sent).await;
+    assert!(
+        crate::message::delete_msgs_ext(&bob, &[bob_admin_msg.id], true)
+            .await
+            .is_err()
+    );
+
+    // The admin can delete Bob's message for everyone.
+    let sent = bob.send_text(bob_chat_id, "spam").await;
+    let alice_spam = alice.recv_msg(&sent).await;
+    let charlie_spam = charlie.recv_msg(&sent).await;
+    crate::message::delete_msgs_ext(&alice, &[alice_spam.id], true).await?;
+    let sent = alice.pop_sent_msg().await;
+    charlie.recv_msg_trash(&sent).await;
+    assert_eq!(charlie_chat_id, charlie_spam.chat_id);
+    let gone = Message::load_from_db_optional(&charlie, charlie_spam.id).await?;
+    assert!(gone.is_none_or(|m| m.chat_id.is_trash()));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_velta_regular_group_no_delete_others() -> Result<()> {
+    // Regression guard for the ArcaneChat port: in a REGULAR group nobody
+    // may delete another member's message for everyone.
+    let mut tcm = TestContextManager::new();
+    let alice = tcm.alice().await;
+    let bob = tcm.bob().await;
+    let alice_bob = alice.add_or_lookup_contact_id(&bob).await;
+    let alice_chat_id = create_group(&alice, "Plain").await?;
+    add_contact_to_chat(&alice, alice_chat_id, alice_bob).await?;
+    let sent = alice.send_text(alice_chat_id, "keep me").await;
+    let bob_msg = bob.recv_msg(&sent).await;
+    bob_msg.chat_id.accept(&bob).await?;
+    let alice_msg_id = sent.sender_msg_id;
+    assert!(
+        crate::message::delete_msgs_ext(&bob, &[bob_msg.id], true)
+            .await
+            .is_err()
+    );
+    // Bob forges the delete request on the wire (patched client).
+    let mut msg = Message::new_text("x".to_owned());
+    msg.param.set_int(Param::GuaranteeE2ee, 1);
+    msg.param.set(Param::DeleteRequestFor, &bob_msg.rfc724_mid);
+    msg.hidden = true;
+    send_msg(&bob, bob_msg.chat_id, &mut msg).await?;
+    let sent = bob.pop_sent_msg().await;
+    alice.recv_msg_trash(&sent).await;
+    alice.assert_warn("Delete message: Bad sender.").await;
+    let kept = Message::load_from_db(&alice, alice_msg_id).await?;
+    assert_eq!(kept.chat_id, alice_chat_id);
+    assert_eq!(kept.text, "keep me");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_velta_admin_group_pin_and_timer_from_non_admin_ignored() -> Result<()> {
+    let mut tcm = TestContextManager::new();
+    let (alice, bob, _charlie, alice_chat_id, bob_chat_id, _c) =
+        velta_admin_group_setup(&mut tcm).await?;
+    let sent = alice.send_text(alice_chat_id, "pin me").await;
+    let bob_msg = bob.recv_msg(&sent).await;
+    let alice_msg_id = sent.sender_msg_id;
+
+    set_pinned_state(&bob, bob_msg.id, true).await?;
+    if let Some(sent) = bob.pop_sent_msg_opt().await {
+        alice.recv_msg_opt(&sent).await;
+    }
+    assert!(
+        !get_pinned_messages(&alice, alice_chat_id)
+            .await?
+            .contains(&alice_msg_id)
+    );
+
+    // The admin's pin reaches Bob.
+    set_pinned_state(&alice, alice_msg_id, true).await?;
+    let sent = alice.pop_sent_msg().await;
+    bob.recv_msg_opt(&sent).await;
+    assert!(
+        get_pinned_messages(&bob, bob_chat_id)
+            .await?
+            .contains(&bob_msg.id)
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_velta_admin_group_securejoin_qr() -> Result<()> {
+    let mut tcm = TestContextManager::new();
+    let (alice, bob, _charlie, alice_chat_id, bob_chat_id, _c) =
+        velta_admin_group_setup(&mut tcm).await?;
+    let grpid = Chat::load_from_db(&alice, alice_chat_id).await?.grpid;
+
+    let qr = get_securejoin_qr(&alice, Some(alice_chat_id)).await?;
+    assert!(qr.contains("&z="));
+    assert!(!qr.contains("&g="));
+    assert!(qr.contains(&format!("x={}", admin_group_base_id(&grpid))));
+
+    let fiona = tcm.fiona().await;
+    match check_qr(&fiona, &qr).await? {
+        Qr::AskVerifyGroup {
+            grpid: g, grpname, ..
+        } => {
+            assert_eq!(g, grpid);
+            assert_eq!(grpname, "Moderated");
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    let fiona_chat_id = tcm.exec_securejoin_qr(&fiona, &alice, &qr).await;
+    assert_eq!(
+        Chat::load_from_db(&fiona, fiona_chat_id).await?.grpid,
+        grpid
+    );
+
+    // A non-admin cannot even produce a working invite: Bob aborts the handshake.
+    let bob_qr = get_securejoin_qr(&bob, Some(bob_chat_id)).await?;
+    let dom = tcm.dom().await;
+    join_securejoin(&dom, &bob_qr).await?;
+    let request = dom.pop_sent_msg().await;
+    bob.recv_msg_trash(&request).await;
+    let auth_required = bob.pop_sent_msg_opt().await;
+    if let Some(auth_required) = auth_required {
+        dom.recv_msg_trash(&auth_required).await;
+        if let Some(request_with_auth) = dom.pop_sent_msg_opt().await {
+            bob.recv_msg_trash(&request_with_auth).await;
+        }
+    }
+    let bob_dom = bob.add_or_lookup_contact_id(&dom).await;
+    assert!(!is_contact_in_chat(&bob, bob_chat_id, bob_dom).await?);
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_chat_info() {
     let t = TestContext::new().await;
