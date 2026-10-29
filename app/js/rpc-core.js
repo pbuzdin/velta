@@ -1960,6 +1960,13 @@ export class JsonRpcCore extends EventTarget {
     } else if (kind === "channel") {
       // Outgoing broadcast. Recipients join later via the invite QR.
       chatId = await this._call("create_broadcast", accountId, name);
+    } else if (kind === "admin-group") {
+      // #177 (core quilt #19): group ID = our fingerprint + ":" + random id;
+      // only we may add/remove members or edit the group.
+      chatId = await this._call("create_group_with_admin", accountId, name);
+      for (const cid of contactIds) {
+        await this._call("add_contact_to_chat", accountId, chatId, cid);
+      }
     } else {
       chatId = await this._call("create_group_chat", accountId, name, false);
       for (const cid of contactIds) {
@@ -1978,6 +1985,22 @@ export class JsonRpcCore extends EventTarget {
       await this._call("add_contact_to_chat", accountId, chatId, cid);
     }
     this._emitAccount("chat-updated", { chatId }, accountEpoch);
+  }
+
+  // #177: the admin of an admin group removes a member. The core refuses
+  // for anyone else (and every receiving core ignores a forged removal).
+  async removeChatMember(chatId, contactId) {
+    const { accountId, accountEpoch } = this;
+    await this._call("remove_contact_from_chat", accountId, chatId, contactId);
+    this._emitAccount("chat-updated", { chatId }, accountEpoch);
+  }
+
+  // #177: contact id of an admin group's admin (1 = this account), null for
+  // regular groups and on cores without quilt #19 (field absent).
+  async getGroupAdminId(chatId) {
+    const full = await this._call("get_full_chat_by_id", this.accountId, chatId);
+    const id = full?.groupAdminId;
+    return Number.isInteger(id) && id > 0 ? id : null;
   }
 
   // Leave a group / unsubscribe from a channel: removes SELF and, for

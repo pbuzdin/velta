@@ -654,12 +654,30 @@ export class MockCore extends EventTarget {
     return (await this.getChatMembers(chatId)).map(m => m.id);
   }
 
+  // #177 demo: "Velta Devs" (15) is an admin group run by contact 4, so the
+  // non-admin view (badge, hidden edit controls) shows without a real core.
+  async getGroupAdminId(chatId) {
+    const chat = this.chats.find(c => c.id === chatId);
+    if (!chat || chat.kind !== "group") return null;
+    return chat.groupAdminId ?? ({ 15: 4 })[chat.id] ?? null;
+  }
+
+  async removeChatMember(chatId, contactId) {
+    const chat = this.chats.find(c => c.id === chatId);
+    if (!chat) return;
+    this._extraMembers[chatId] = (this._extraMembers[chatId] || []).filter(id => id !== contactId);
+    (this._removedMembers ||= {})[chatId] = [...(this._removedMembers[chatId] || []), contactId];
+    chat.memberCount = Math.max(1, (chat.memberCount || 1) - 1);
+    this._emit("chat-updated", { chatId });
+  }
+
   async getChatMembers(chatId) {
     const GROUP_MEMBERS = { 13: [2, 3, 4, 5, 6], 15: [2, 4, 6, 7], 17: [2], 20: [3, 6] };
     const chat = this.chats.find(c => c.id === chatId);
     if (!chat || (chat.kind !== "group" && chat.kind !== "channel")) return [];
     const self = { id: 1, name: this.account.displayName, color: this.account.color };
-    return [self, ...(GROUP_MEMBERS[chat.id] || []).concat(this._extraMembers[chat.id] || []).map(id => {
+    const gone = new Set(this._removedMembers?.[chat.id] || []);
+    return [self, ...(GROUP_MEMBERS[chat.id] || []).concat(this._extraMembers[chat.id] || []).filter(id => !gone.has(id)).map(id => {
       const c = this.contacts.find(x => x.id === id);
       return c && { id: c.id, name: c.name, addr: c.addr, color: c.color, avatar: c.avatar, online: c.online, lastSeen: c.lastSeen };
     }).filter(Boolean)];
@@ -1089,8 +1107,12 @@ export class MockCore extends EventTarget {
 
   async createChat(name, contactIds, kind = "group") {
     const id = 100 + this.chats.length;
+    // #177: an admin group is a group whose admin is this account.
+    const adminGroup = kind === "admin-group";
+    if (adminGroup) kind = "group";
     const chat = {
       id, name, kind, contactId: kind === "single" ? contactIds[0] : null,
+      groupAdminId: adminGroup ? 1 : null,
       chatType: kind === "channel" ? "OutBroadcast" : null,
       canPost: kind === "channel",
       memberCount: (contactIds?.length || 0) + 1, pinned: false, muted: false,
@@ -1098,6 +1120,7 @@ export class MockCore extends EventTarget {
       messages: [this._mkMsg({ id }, { kind: "service", text: kind === "group" ? `Group "${name}" created` : kind === "channel" ? `Channel "${name}" created` : "Messages are end-to-end encrypted.", ts: Date.now() })],
     };
     this.chats.push(chat);
+    if (kind === "group") this._extraMembers[id] = [...(contactIds || [])];
     this._emit("chat-updated", { chatId: id });
     return id;
   }
