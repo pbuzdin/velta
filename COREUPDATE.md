@@ -7,9 +7,19 @@ undocumented JSON-RPC/event surface, and because core behavior changes
 (e.g. event emission rates, IMAP idle loops) surface as *frontend* symptoms:
 re-render storms, log spam, and battery drain rather than clean errors.
 
-Last updated for core `2.65.0` (see `core/Cargo.toml` `version` and the
+Last updated for core `2.66.0` (see `core/Cargo.toml` `version` and the
 statement in `README.md`; feature-by-feature notes per release live in
-`CORE-CAPABILITIES.MD`). 2.65.0 notes (2026-10-23, c280e05): no DB
+`CORE-CAPABILITIES.MD`). 2.66.0 notes (2026-10-29): no DB migration; two
+config removals land the long-announced upstream break — `configured_addr`
+is GONE (Velta's #11 pin was re-keyed to `ui.velta.send_transport` in
+advance; `rpc-core.js` falls back cleanly on cores without the key) and
+`webxdc_realtime_enabled` is removed (Velta never used it). `markseen_msgs`
+became one transaction with the read-receipt queueing and `update_msg_state()`
+is synchronous — no quilt op touched those paths, but consumers reading
+`MsgRead` event timing see no change. Scheduler start no longer waits for
+the IMAP/SMTP loops. The 45-op quilt applied unchanged on the first try.
+yerpc 0.7.1, tokio 1.53.3, clipboard-win 5.4.3; preloaded DNS cache update.
+2.65.0 notes (2026-10-23, c280e05): no DB
 migration, no JSON-RPC API change — upstream adds a visible unpin info
 message (`MessageUnpinned`), stops ignoring `background_fetch_any` join
 errors, bumps webpki; the re-vendor applied every quilt op unchanged.
@@ -41,7 +51,7 @@ upstream replaces the whole tree and wipes them. **The quilt
 `tools/apply-core-patches.py` is the single source of truth: every Velta
 change inside `core/` must be an op there** (anchor + marker); a hand edit
 that is not an op is lost on the next re-vendor — that is how #12 and #13
-vanished in 2.63.0. Current quilt at core 2.65.0 — **39 ops in 10 files**
+vanished in 2.63.0. Current quilt at core 2.66.0 — **45 ops in 10 files**
 (intent per patch in VENDORISSUES.MD):
 
 | Patch | Ops | Files | What |
@@ -54,6 +64,8 @@ vanished in 2.63.0. Current quilt at core 2.65.0 — **39 ops in 10 files**
 | #14 | 2 | chat.rs, deltachat-jsonrpc/src/api.rs | reply-thread queries (`get_reply_counts` / `get_reply_ids`) + jsonrpc wrappers |
 | #15 | 6 | transport.rs, deltachat-jsonrpc/src/api.rs, deltachat-jsonrpc/src/api/types/login_param.rs | `get_server_metadata` RPC: per-transport relay capabilities (TURN/calls, iroh relay, push, app versions) from the IMAP METADATA the scheduler already fetches |
 | #16 | 8 | imap.rs, transport.rs, deltachat-jsonrpc/src/api.rs, deltachat-jsonrpc/src/api/types/login_param.rs | extends #15: `update_metadata` records the session's IMAP IDLE + COMPRESS=DEFLATE and the `/shared/vendor/deltachat/maxsmtprecipients` limit into `ServerMetadata`; `get_server_metadata` returns `canIdle`/`canCompress`/`maxSmtpRcptTo` (`null` until the relay connected). Must apply after the #15 ops |
+| #17 | 1 | deltachat-jsonrpc/src/api.rs | `maybe_network` clones the contexts under `accounts.read()` and interrupts after releasing it — an IO restart holds the scheduler lock up to 30 s/task while tasks wind down, and the old lock-across-interrupt blocked every RPC on every account (Android chat-open stalls; trackers #175/#176) |
+| #18 | 5 | core/src/scheduler.rs | scheduler interrupts (`inbox`/`smtp`/`ephemeral_task`/`location`/`recently_seen`) use `try_read()` and skip while a start/stop holds the write lock, instead of queueing behind the wind-down (`rpc timeout: send_msg` / `markseen_msgs`, chats would not open) |
 
 Re-vendor steps:
 

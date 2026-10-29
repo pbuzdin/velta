@@ -17,7 +17,7 @@ Velta shares one web frontend (`app/`) between:
 - **Android mobile** — the same Tauri 2 app, but the Delta Chat core runs in-process inside the APK. A foreground service keeps sync (and notifications) running after the app is backgrounded.
 - **Browser/PWA** — the same frontend as a static site with a WebAssembly Chatmail core in the tab. Mail goes out through a WebSocket proxy on a chatmail relay (the PWA origin and the proxy host can be different domains). A refresh keeps the signed-in account, database included: the browser copy is written when login or an identity restore finishes, when the page goes to the background, and every few seconds, and a copy cut off by a reload is ignored in favour of the previous one. A crash can drop the last few seconds until the next sync. A new deploy reaches an open PWA on its next load; a page that was already open shows an update notice. A public build is published at [velta.cc/web](https://velta.cc/web) by CI (it mints new chatmail accounts through the configured relay even from another origin). Serving `app/` without the wasm dist still falls back to a mock core (UI smoke test). How to host your own copy: [docs/pwa-self-host.md](docs/pwa-self-host.md); standalone WebSocket proxy in one command: [docs/deploy-pwa-websocket-proxy.md](docs/deploy-pwa-websocket-proxy.md).
 
-The UI is plain HTML/CSS/ES modules (no bundler). The backend is the upstream [Delta Chat core](https://github.com/chatmail/core) at version `2.65.0`.
+The UI is plain HTML/CSS/ES modules (no bundler). The backend is the upstream [Delta Chat core](https://github.com/chatmail/core) at version `2.66.0`.
 
 ## Screenshots
 
@@ -1503,7 +1503,7 @@ is hand-rolled for Velta.
 | [Elena](https://github.com/arielsalminen/elena) (`@elenajs/core` v1.0.1) | Tiny progressive web-components library — powers `<velta-avatar>`, `<velta-chat-item>`, `<velta-chat-head>`, `<velta-video>` | [arielsalminen/elena](https://github.com/arielsalminen/elena) |
 | [virtual-scroller](https://github.com/catamphetamine/virtual-scroller) (`virtual-scroller-dom`) | Windowed rendering of the message history with variable-height rows, seamless prepends and scroll restoration | [catamphetamine/virtual-scroller](https://github.com/catamphetamine/virtual-scroller) |
 | [Tauri 2](https://github.com/tauri-apps/tauri) | Desktop/Android shell, deep links, sidecar process | [tauri-apps/tauri](https://github.com/tauri-apps/tauri) |
-| [Delta Chat core 2.65.0](https://github.com/chatmail/core) | The messaging engine (Rust): contacts, chats, e2e crypto, IMAP/SMTP | [chatmail/core](https://github.com/chatmail/core) |
+| [Delta Chat core 2.66.0](https://github.com/chatmail/core) | The messaging engine (Rust): contacts, chats, e2e crypto, IMAP/SMTP | [chatmail/core](https://github.com/chatmail/core) |
 | [soar](https://github.com/getlantern/soar) v0.2.0 (Go) | Optional Android DNS tunnel, built by CI into `libsoartunnel.so` | [getlantern/soar](https://github.com/getlantern/soar) |
 
 Both JS libraries are vendored under `app/vendor/` (no bundler, no `node_modules`
