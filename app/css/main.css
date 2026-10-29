@@ -1051,11 +1051,17 @@ html[data-theme="brutal"] .ivc-btn { border-width: 2px; }
    .msg-row wraps, and that wrap is chosen from the bubble's full width, so
    min-width:0 never stopped the button falling under the bubble on a phone.
    The pair is its own nowrap line; flex-basis 0 lets that line share the
-   row with the avatar instead of wrapping under it. */
+   row with the avatar instead of wrapping under it.
+   min-width 50% (not 0): with a 0 basis AND 0 min the line's hypothetical
+   size is 0, so a full-width .unread-sep / .read-marker in the same row
+   (100% outer) still "fits" beside it on ONE flex line — the line then got
+   0px, and the bubble shrank to its overflow-wrap:anywhere min-content, one
+   letter per line. A non-zero floor pushes the separator onto its own line;
+   50% still leaves room for the avatar. */
 .msg-row.has-thread { align-items: flex-end; }
 .msg-thread-line {
   display: flex; flex-wrap: nowrap; align-items: flex-end;
-  min-width: 0; max-width: 100%; flex: 1 1 0;
+  min-width: 50%; max-width: 100%; flex: 1 1 0;
 }
 .msg-row.out .msg-thread-line { justify-content: flex-end; }
 .msg-row.has-thread .bubble { max-width: min(480px, calc(100% - 48px)); min-width: 0; }
