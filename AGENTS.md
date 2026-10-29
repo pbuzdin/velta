@@ -1458,7 +1458,11 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   switches — contact ids are per-account, hence the composite key; entries
   never expire. `parseFingerprint` reads only the grouped fingerprint lines,
   so hex in a display name or address is not part of the key. The block is
-  the one whose address matches. No parsed key hashes the address (the
+  the one whose address matches. Core 2.66 dropped addresses from
+  `get_contact_encryption_info` blocks (`<name>:` instead of
+  `<name> (<addr>):`) and orders them by fingerprint, so (47c68b0, 1.4.88)
+  the parser matches by address when present, else takes the block that is
+  not our own key, else skips the Me block (`tests/fingerprint-cache.test.mjs`). No parsed key hashes the address (the
   element `addr`, or `addrOf`). **Greyscale rule (7ef758c):** a tile not
   backed by a real OpenPGP fingerprint is greyscale (`mono`, `monoFill` =
   luma grey, no color-name captions) and the profile key row shows "—".
@@ -2501,7 +2505,9 @@ Admin groups (#177, core quilt #19, ArcaneChat-compatible): `app/js/admin-group.
 which controls show from `chat.groupAdminId` (rpc-core `getGroupAdminId` → FullChat.groupAdminId; 1 = us,
 null = regular group). The chat info sheet and chat-view load it themselves. Non-admins never see edit/add/invite/
 pin/timer actions; the admin gets Remove on members and delete-for-everyone on any message. The receiving cores
-enforce the same rules, so the UI only mirrors them. Plan, interop and limits: docs/core-patches/admin-groups-plan.md.
+enforce the same rules, so the UI only mirrors them. Messages from the group admin carry an
+**Admin chip** in the sender line (after the bot chip; 88c1620), patched into already-rendered rows when
+`groupAdminId` loads late; mock demo via `?mockadmin=`. Shipped in 1.4.88. Plan, interop and limits: docs/core-patches/admin-groups-plan.md.
 
 UI language (#129, `tests/i18n.test.mjs`): English in the source is the
 key. `app/locales/fr.json` and `ru.json` map that key to a translation; a
@@ -3153,7 +3159,11 @@ do-not-regress rules; dates mark when the lesson was learned.
   (right of incoming, left of outgoing; 32px disc in a 44px hit box,
   `aria-label="Show N replies"`). The button and the bubble share
   `.msg-thread-line` (`flex-wrap: nowrap`, `flex: 1 1 0`) so a wrapping
-  `.msg-row` cannot drop the button under the bubble on a phone. Shown
+  `.msg-row` cannot drop the button under the bubble on a phone. The line
+  also has `min-width: 50%` (223afd6, 1.4.88): with only `min-width: 0` its
+  flex basis was 0, so a full-width `.unread-sep` / `.read-marker` in the
+  same row fit beside it and the bubble collapsed to one letter per line
+  (`tests/thread-line-collapse.test.mjs`). Shown
   from `THREAD_BUTTON_MIN_REPLIES`
   (chat-view.js, one constant — set 2 to require >1). The button and the
   menu's "Show replies" open the **thread panel**: a non-modal

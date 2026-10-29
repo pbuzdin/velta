@@ -1077,6 +1077,14 @@ The chat info sheet carries the per-chat actions:
   which jumps to and highlights that message. Audio rows (and audio
   bubbles in the chat) use Velta's own player: play, seek and
   "current / total", full width from the first render.
+- **Admin groups** (since 1.4.88) — turn on **Admin group** in the New
+  group dialog and you become the group's only admin: only you can add or
+  remove members, change name, description, avatar, the disappearing
+  timer and pins, and you can delete anyone's message for everyone. The
+  info sheet shows "Moderated group · admin: X" and an Admin badge, and
+  the admin's messages carry an **Admin** chip. Other members' Velta and
+  ArcaneChat clients enforce the same rules; compatible with ArcaneChat
+  admin groups.
 - **Leave group / Leave channel** — in the chat's ⋮ menu. Mailing lists
   have no Leave. The chat turns
   read-only and stops receiving messages; the history stays on this

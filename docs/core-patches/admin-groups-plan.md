@@ -1,6 +1,6 @@
 # Core patch plan: admin groups (port from ArcaneChat)
 
-Status: in progress (#177). Target: vendored chatmail core 2.66.0 via `tools/apply-core-patches.py` (quilt patch #19, VENDORISSUES.MD §19).
+Status: shipped in v1.4.88 (#177; phases 1–4a and the admin chip done, 4b manual device interop and multiple admins still open). Target: vendored chatmail core 2.66.0 via `tools/apply-core-patches.py` (quilt patch #19, VENDORISSUES.MD §19).
 
 ## Checklist
 - [x] Phase 1: core port as quilt #19 (46 ops) + Rust tests (`test_velta_*`), verify / tree-check / self-test green
@@ -108,3 +108,5 @@ Total ≈ 6–10 days.
 - Delete for everyone: the admin also gets it on others' messages. Everyone keeps it for their own messages.
 - Leaving stays possible for everyone, the admin included. Nothing hands the group over, so if the admin leaves, the group is frozen.
 - PWA: the wasm series still applies on top of quilt #19 (`apply-wasm-core-patches.py apply-on-copy` OK), so the PWA gets the same core code. The wasm build itself was not compiled in this run.
+- Admin chip (88c1620): the admin's messages show an "Admin" chip in the sender line (after the bot chip), added to already-rendered rows when `groupAdminId` arrives late. Strings en/ru/fr; mock demo `?mockadmin=`.
+- Released in v1.4.88 (core 156441d, bindings d3d4c40, UI 92b5be9, chip 88c1620).
