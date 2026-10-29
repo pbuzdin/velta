@@ -14,7 +14,7 @@ import { qrSvg } from "./qr-encode.js";
  */
 export function parsePayload(s) {
   s = String(s ?? "").trim()
-    .replace(/^[?]/, "")
+    .replace(/^[?#]/, "")
     .replace(/^https?:\/\/[^#\s]*?[#?]/i, "")
     .replace(/^openpgp4fpr:/i, "")
     .replace(/%23/gi, "#"); // Safari/iOS encodes the # (i.delta.chat #16)
@@ -60,7 +60,8 @@ export function label({ params }) {
 
 if (typeof document !== "undefined" && document.getElementById("invite-open")) {
   const sp = new URLSearchParams(location.search);
-  const parsed = parsePayload(sp.get("invite") ?? location.search);
+  // ?invite=<value>, the raw query, or a fragment form (velta.cc/join/#FPR&…)
+  const parsed = parsePayload(sp.get("invite") ?? (location.search || location.hash));
   if (parsed) {
     const info = label(parsed);
     document.title = (info.kind === "person"

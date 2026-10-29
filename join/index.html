@@ -12,6 +12,9 @@
   <link rel="stylesheet" href="/css/velta.css?v=8">
   <style>
     /* page-scoped: the invite landing renders inside the generic content layer */
+    /* keep the footer at the bottom on short viewports */
+    body { min-height: 100svh; display: flex; flex-direction: column; }
+    main#content { flex: 1; }
     #invite-qr { margin: 1.25rem 0 0.75rem; }
     #invite-qr svg { display: block; width: min(280px, 80vw); height: auto; border-radius: 12px; }
     #invite-note { color: var(--muted); font-size: 0.9rem; margin-top: 2.5rem; }
