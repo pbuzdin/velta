@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="You were invited to chat on Velta — private messages, end-to-end encrypted.">
+  <title>Join me on Velta</title>
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css?v=8">
+  <style>
+    /* page-scoped: the invite landing renders inside the generic content layer */
+    #invite-qr { margin: 1.25rem 0 0.75rem; }
+    #invite-qr svg { display: block; width: min(280px, 80vw); height: auto; border-radius: 12px; }
+    #invite-note { color: var(--muted); font-size: 0.9rem; margin-top: 2.5rem; }
+  </style>
+  <script type="speculationrules">
+{
+  "prerender": [{
+    "source": "document",
+    "where": { "and": [
+      { "href_matches": "/*" },
+      { "not": { "href_matches": "/web/*" } },
+      { "not": { "href_matches": "/admin/*" } },
+      { "not": { "selector": "a[target]" } },
+      { "not": { "selector": "a[download]" } }
+    ] },
+    "eagerness": "moderate" }
+  ]
+}
+  </script>
+</head>
+<body>
+  <a href="#content">Skip to content</a>
+<header>
+  <a href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+  <nav aria-label="Sections">
+    <a href="/#product">Product</a>
+    <a href="/#features">Features</a>
+    <a href="/#privacy">Privacy</a>
+    <a href="/#platforms">Platforms</a>
+    <a href="/#help">Help</a>
+    <a href="/#support">Support</a>
+    <a href="/news" data-nav="news">News</a>
+    <a href="/web/">Web app</a>
+  </nav>
+  <a href="/#download"><span>Get</span><span>Download</span></a>
+  <details>
+    <summary>Menu</summary>
+    <nav aria-label="Mobile">
+      <a href="/#product">Product</a>
+      <a href="/#features">Features</a>
+      <a href="/#privacy">Privacy</a>
+      <a href="/#platforms">Platforms</a>
+      <a href="/#help">Help</a>
+      <a href="/#support">Support</a>
+      <a href="/news" data-nav="news">News</a>
+      <a href="/web/">Web app</a>
+    </nav>
+  </details>
+</header>
+  <main id="content" class="page">
+<!-- CMS:START -->
+<h1 id="invite-title">Say hello on Velta.</h1>
+<p id="invite-lede">Someone you know sent you an invite. Open it in Velta to start an end-to-end encrypted chat — the invitation is just a link, nothing here stores or sends your data.</p>
+<p id="invite-actions">
+  <strong><a id="invite-open" href="/#download">Open in Velta</a></strong>
+  <a href="/#download">Get the app</a>
+</p>
+<details id="invite-qr-wrap" hidden>
+  <summary>Switching devices? Scan the invitation</summary>
+  <div id="invite-qr"></div>
+  <p>Open Velta on your other device and scan this code to start the same chat.</p>
+</details>
+<p id="invite-note">An invite carries a fingerprint your Velta checks before connecting — no account, no phone number, no tracking.</p>
+<!-- CMS:END -->
+  </main>
+<footer>
+  <div>
+    <div>
+      <a class="brand" href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+      <p>A Delta Chat client. Encrypted chat through chatmail relays — or straight across, device to device, when it should not sit on a server.</p>
+    </div>
+    <div>
+      <h2>On this site</h2>
+      <ul>
+        <li><a href="/#download">Download</a></li>
+        <li><a href="/#privacy">Privacy</a></li>
+        <li><a href="/#support">Support</a></li>
+        <li><a href="/#help">Help</a></li>
+        <li><a href="/news">News</a></li>
+        <li><a href="/about.html">About</a></li>
+        <li><a href="/developing.html">Developing</a></li>
+        <li><a href="/comparison.html">Compare</a></li>
+      </ul>
+    </div>
+    <div>
+      <h2>Project</h2>
+      <ul>
+        <li><a href="https://github.com/pbuzdin/velta">GitHub</a></li>
+        <li><a href="https://github.com/pbuzdin/velta/releases">All releases</a></li>
+        <li><a href="https://github.com/pbuzdin/velta/blob/master/LICENSE">GPL-3.0</a></li>
+        <li><a href="https://github.com/pbuzdin/velta/blob/master/README.md">README</a></li>
+        <li><a href="/admin/">Edit site</a></li>
+      </ul>
+    </div>
+  </div>
+  <p><span>Independent client. Delta Chat and Chatmail are upstream projects.</span><span>Built on the Delta Chat core</span><span>Site visits measured cookielessly — the app never phones home</span></p>
+</footer>
+  <script src="/js/site.js?v=3"></script>
+  <script type="module" src="/join/join.js"></script>
+</body>
+</html>
