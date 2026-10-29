@@ -1176,6 +1176,14 @@ html[data-theme="light"] #chat-view:has(#thread-panel:not([hidden])) #history-sc
   padding: 1.5px 4px; border: 1px solid currentColor; border-radius: 4px;
   opacity: .85; cursor: default;
 }
+.msg-meta .admin-chip {
+  display: inline-flex; align-items: center; gap: 2px;
+  font-size: 8.5px; font-weight: 700;
+  text-transform: uppercase; line-height: 1;
+  padding: 1.5px 4px; border: 1px solid currentColor; border-radius: 4px;
+  cursor: default; /* no .85 fade like .bot-chip: it drops below 4.5:1 in dark (WCAG AA) */
+}
+.msg-meta .admin-chip svg { width: 9px; height: 9px; }
 .msg-meta svg { width: var(--ico-2); height: var(--ico-2); }
 /* The ticks are a 3:2 glyph letterboxed in a 16px square (drawn height
    ~10.7px), while the timestamp digits' optical center sits ~1.5px above

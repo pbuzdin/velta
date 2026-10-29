@@ -1422,5 +1422,7 @@
   "Only you can add or remove members and edit the group. Protection works only in Velta and ArcaneChat.": "Только вы сможете добавлять и удалять участников и редактировать группу. Защита работает только в Velta и ArcaneChat.",
   "Admin": "Админ",
   "Moderated group · admin: {name}": "Модерируемая группа · админ: {name}",
-  "Only the group admin can do this": "Это может сделать только администратор группы"
+  "Only the group admin can do this": "Это может сделать только администратор группы",
+  "Group admin": "Администратор группы",
+  "admin": "админ"
 }

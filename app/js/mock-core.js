@@ -659,7 +659,9 @@ export class MockCore extends EventTarget {
   async getGroupAdminId(chatId) {
     const chat = this.chats.find(c => c.id === chatId);
     if (!chat || chat.kind !== "group") return null;
-    return chat.groupAdminId ?? ({ 15: 4 })[chat.id] ?? null;
+    // ?mockadmin=7 (Delta Bot) or =1 (you) previews other admins in Velta Devs.
+    const q = Number(globalThis.location?.search?.match(/[?&]mockadmin=(\d+)/)?.[1]);
+    return chat.groupAdminId ?? ({ 15: q || 4 })[chat.id] ?? null;
   }
 
   async removeChatMember(chatId, contactId) {

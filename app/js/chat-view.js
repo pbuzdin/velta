@@ -119,7 +119,7 @@ import { isAndroid, rustLog, tauriInvoke } from "./tauri.js";
 import { canShareLink, copyLink, shareLink } from "./qr-actions.js";
 import { ICON, P, svg, labelled } from "./icons.js";
 import { t } from "./i18n.js";
-import { adminCaps } from "./admin-group.js";
+import { adminCaps, isAdminGroup, adminChipHtml } from "./admin-group.js";
 
 function reactionChipsHtml(reactions) {
   return (reactions || []).map(r =>
@@ -965,6 +965,22 @@ export class ChatView {
   async _loadGroupAdmin(chat) {
     if (!chat || chat.kind !== "group" || chat.isP2p || !this.core.getGroupAdminId) return;
     try { chat.groupAdminId = await this.core.getGroupAdminId(chat.id); } catch { /* keep */ }
+    // The open race paints after 600 ms; a late id patches the admin chip
+    // into rows already on screen (later rows render it themselves).
+    if (this.chat === chat) this._patchAdminChips(chat);
+  }
+
+  _patchAdminChips(chat) {
+    if (!isAdminGroup(chat)) return;
+    const hist = document.getElementById("history");
+    hist?.querySelectorAll(`.msg-row[data-from="${chat.groupAdminId}"] .msg-meta`).forEach(meta => {
+      if (meta.querySelector(".admin-chip")) return;
+      const bot = meta.querySelector(".bot-chip");
+      // Same slot as the render: after edited / star / bot chip.
+      let anchor = meta.firstChild;
+      while (anchor && anchor.nodeType === 1 && anchor.matches(".edited, .star-ico, .bot-chip")) anchor = anchor.nextSibling;
+      meta.insertBefore(document.createRange().createContextualFragment(adminChipHtml()), anchor);
+    });
   }
 
   async _loadMentionMembers(chat, session) {
@@ -2182,6 +2198,7 @@ export class ChatView {
     const row = document.createElement("div");
     row.className = "msg-row" + (out ? " out" : "") + (showAvatar ? " with-avatar" : "") + (m.originalMsgId ? " has-original" : "");
     row.dataset.msgid = m.id;
+    if (m.from != null) row.dataset.from = m.from;
     if (this.selection.size) row.classList.add("selectable");
     if (this.selection.has(m.id)) row.classList.add("selected");
 
@@ -2387,6 +2404,9 @@ export class ChatView {
     // chip stays in the meta row where it never fights it. Sticker bubbles carry no meta.
     const botChip = m.kind === "msg" && !out && m.viewtype !== "sticker" && m.fromContact?.bot
       ? `<span class="bot-chip" title="${escapeHtml(t("Sent by a bot"))}">${escapeHtml(t("bot"))}</span>` : "";
+    // #177: admin chip on the group admin's messages (own ones too), after the bot chip.
+    const adminChip = m.kind === "msg" && m.viewtype !== "sticker" && isAdminGroup(this.chat) && m.from === this.chat.groupAdminId
+      ? adminChipHtml() : "";
     const star = m.starred ? labelled(svg(P.star, "star-ico"), t("Starred")).replace("<path ", '<path fill="currentColor" ') : "";
     const ticks = out ? `<span class="ticks-slot">${ticksSvg(m.state, "ticks")}</span>` : "";
     // Failed sends: a small red reason badge in the meta row (floats left,
@@ -2415,7 +2435,7 @@ export class ChatView {
       const label = escapeHtml(replyN === 1 ? t("Show 1 reply") : t("Show {n} replies", { n: replyN }));
       threadBtn = `<button type="button" class="msg-thread-btn" data-act="thread" aria-label="${label}" title="${label}">${ICO.thread}<span aria-hidden="true">${replyN}</span></button>`;
     }
-    bubble += `<span class="msg-meta">${edited}${star}${botChip}${repliesChip}${timeTag(m.ts, formatTime(m.ts))}${ticks}</span>${failBadge}</div>`;
+    bubble += `<span class="msg-meta">${edited}${star}${botChip}${adminChip}${repliesChip}${timeTag(m.ts, formatTime(m.ts))}${ticks}</span>${failBadge}</div>`;
     if (m.reactions?.length) {
       bubble += `<div class="msg-reactions">${reactionChipsHtml(m.reactions)}</div>`;
     }

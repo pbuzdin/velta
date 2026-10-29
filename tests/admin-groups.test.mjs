@@ -11,7 +11,7 @@ globalThis.localStorage ??= {
   setItem: (k, v) => mem.set(k, String(v)),
   removeItem: k => mem.delete(k),
 };
-const { adminCaps, canRemoveMember, adminBadgeHtml, adminInfoText, isAdminGroup, selfIsAdmin } = await import("../app/js/admin-group.js");
+const { adminCaps, canRemoveMember, adminBadgeHtml, adminChipHtml, adminInfoText, isAdminGroup, selfIsAdmin } = await import("../app/js/admin-group.js");
 const { JsonRpcCore } = await import("../app/js/rpc-core.js");
 const { MockCore } = await import("../app/js/mock-core.js");
 const { ICON } = await import("../app/js/icons.js");
@@ -168,4 +168,61 @@ test("CSS: badge colours come from theme tokens only", () => {
   const block = css.slice(css.indexOf(".admin-badge {"), css.indexOf("}", css.indexOf(".admin-badge {")));
   assert.match(block, /color: var\(--accent-text\)/);
   assert.doesNotMatch(block, /#[0-9a-f]{3,6}\b/i);
+});
+
+// ---- admin chip on the admin's messages ---------------------------------
+test("admin chip: shield icon, 'Group admin' title + aria-label, 'admin' label", () => {
+  const html = adminChipHtml();
+  assert.match(html, /^<span class="admin-chip" title="Group admin" aria-label="Group admin">/);
+  assert.ok(html.includes(ICON.shield));
+  assert.match(html, />admin<\/span><\/span>$/);
+  assert.match(ICON.shield, /viewBox="0 0 24 24"/);
+  assert.match(ICON.shield, /stroke-width="2"/);
+});
+
+test("admin chip strings exist in ru and fr", () => {
+  for (const pack of [ru, fr]) for (const k of ["Group admin", "admin"]) assert.ok(pack[k]?.trim(), k);
+});
+
+test("chat-view renders the admin chip after the bot chip, only in admin groups", () => {
+  const cv = src("app/js/chat-view.js");
+  assert.match(cv, /\$\{botChip\}\$\{adminChip\}/);
+  assert.match(cv, /const adminChip = [^;]*isAdminGroup\(this\.chat\) && m\.from === this\.chat\.groupAdminId/);
+  // No `!out`: own messages carry it when this account is the admin.
+  assert.doesNotMatch(cv.match(/const adminChip = [^;]*;/)[0], /!out/);
+  assert.match(cv, /row\.dataset\.from = m\.from/);
+});
+
+test("a late groupAdminId patches the chip into rows already on screen", () => {
+  const cv = src("app/js/chat-view.js");
+  const load = cv.slice(cv.indexOf("async _loadGroupAdmin"), cv.indexOf("_patchAdminChips(chat) {"));
+  assert.match(load, /this\._patchAdminChips\(chat\)/);
+  const patch = cv.slice(cv.indexOf("_patchAdminChips(chat) {"), cv.indexOf("async _loadMentionMembers"));
+  assert.match(patch, /if \(!isAdminGroup\(chat\)\) return/);
+  assert.match(patch, /data-from="\$\{chat\.groupAdminId\}"/);
+  assert.match(patch, /\.bot-chip/); // lands after the bot chip
+});
+
+test("admin chip CSS mirrors .bot-chip at full opacity (WCAG AA)", () => {
+  const css = src("app/css/main.css");
+  const rule = css.match(/\.msg-meta \.admin-chip \{[^}]*\}/)[0];
+  assert.match(rule, /border: 1px solid currentColor/);
+  assert.doesNotMatch(rule, /opacity:/);
+});
+
+test("mock: ?mockadmin= picks the Velta Devs admin (bot-admin demo)", async () => {
+  const core = new MockCore();
+  core._simTimer?.unref();
+  const prev = globalThis.location;
+  try {
+    globalThis.location = { search: "?mockadmin=7" };
+    assert.equal(await core.getGroupAdminId(15), 7);
+    globalThis.location = { search: "" };
+    assert.equal(await core.getGroupAdminId(15), 4);
+  } finally { globalThis.location = prev; }
+});
+
+test("no admin chip outside admin groups", () => {
+  assert.equal(isAdminGroup({ kind: "group", groupAdminId: null }), false);
+  assert.equal(isAdminGroup({ kind: "single", groupAdminId: 1 }), false);
 });

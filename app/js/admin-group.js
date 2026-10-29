@@ -54,6 +54,12 @@ export function adminBadgeHtml() {
   return `<span class="admin-badge" title="${escapeHtml(label)}">${ICON.shieldCheck}<span>${escapeHtml(label)}</span></span>`;
 }
 
+/** Message-meta chip on the group admin's messages (styled like .bot-chip). */
+export function adminChipHtml() {
+  const label = t("Group admin");
+  return `<span class="admin-chip" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}">${ICON.shield}<span aria-hidden="true">${escapeHtml(t("admin"))}</span></span>`;
+}
+
 /** "Moderated group · admin: X" info line, or "" for regular groups. */
 export function adminInfoText(chat, adminName) {
   if (!isAdminGroup(chat)) return "";

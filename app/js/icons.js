@@ -129,6 +129,8 @@ export const P = {
   send: '<path d="M3 11.5L21 3l-6.5 18-2.7-7.3z"/>',
   // scheduled messages ("Send later"): clock face, hands at 12 → 4
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',  // Admin group / admin badge (#177): outline shield with a check
+  // Admin chip on the admin's messages (#177): plain outline shield
+  shield: '<path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z"/>',
   shieldCheck: '<path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z"/><path d="M8.8 12.2l2.3 2.3 4.2-4.6"/>',
 };
 
