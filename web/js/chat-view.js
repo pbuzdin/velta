@@ -114,6 +114,7 @@ import { senderColorVars } from "./name-color.js";
 const largeFileAvailable = () => !!tauriInvoke();
 import { openInAppBrowser } from "./inapp-browser.js";
 import { lufiUploadFor } from "./lufi-store.js";
+import { parseCryptexLink, cryptexUploadFor } from "./cryptex.js";
 import { isAndroid, rustLog, tauriInvoke } from "./tauri.js";
 import { canShareLink, copyLink, shareLink } from "./qr-actions.js";
 import { ICON, P, svg, labelled } from "./icons.js";
@@ -1993,6 +1994,7 @@ export class ChatView {
     if (cached && cached._veltaFlags === this._itemFlags(item)
         && (sig == null || this._rowSigCache.get(item.key) === sig)) {
       unparkMedia(cached);
+      this._healCachedImage(cached);
       if (cached.querySelector?.("video")) {
         debugLog(`render: CACHED video row ${item.key} t=${Date.now() % 100000}`);
       }
@@ -2010,6 +2012,21 @@ export class ChatView {
   _holdKey(id) {
     const key = this._deleteByMsg.get(id);
     return key == null ? "" : String(key);
+  }
+
+  // Re-run a cached image row's terminal handlers (_imgReveal / _imgFail,
+  // parked on the img in _renderMsgItem): a load or error that landed while
+  // the chat was not current never applied, and cached reuse alone does not
+  // rebind. The handlers re-check alive(), which is true here — the row is
+  // rendering back into the current chat.
+  _healCachedImage(el) {
+    const img = el.querySelector?.(".msg-image")?.querySelector("img");
+    if (!img || !img.complete || !img.getAttribute("src")) return;
+    if (img.naturalWidth) {
+      if (!img.closest(".img-wrap")?.dataset.ready) img._imgReveal?.();
+    } else if (!img.dataset.fallback) {
+      img._imgFail?.();
+    }
   }
 
   _rowCacheSig(item) {
@@ -2171,12 +2188,11 @@ export class ChatView {
     const holdKey = this._deleteByMsg.get(m.id);
     if (holdKey != null) {
       const batch = this._deleteBatches.get(holdKey);
-      const h = batch?.heights.get(m.id) || 0;
       const elapsed = batch ? Math.min(batch.ms, Math.max(0, Date.now() - batch.started)) : 0;
       const undo = batch && !batch.committing
         ? `<button type="button" class="msg-undo" data-undo>${escapeHtml(t("Undo"))}<span class="msg-undo-bar" style="animation-duration:${batch.ms}ms;animation-delay:-${elapsed}ms"></span></button>`
         : "";
-      inner += `<div class="bubble msg-deleted"${h ? ` style="min-height:${h}px"` : ""}><div class="msg-deleted-label">${escapeHtml(t("This message was deleted"))}</div>${undo}</div>`;
+      inner += `<div class="bubble msg-deleted"><div class="msg-deleted-label">${escapeHtml(t("This message was deleted"))}</div>${undo}</div>`;
       row.innerHTML = inner;
       if (item.readMarker) row.append(this._readMarkerEl());
       row.querySelector("[data-undo]")?.addEventListener("click", (e) => {
@@ -2328,6 +2344,7 @@ export class ChatView {
       // Velta invite links (proxy / relay / tunnel) → action cards; the
       // links themselves render as token-free chips (invite-cards.js).
       bubble += inviteCardsHtml(m.text, { sender: m.from === 1 ? "" : (m.overrideSenderName || m.fromContact?.name || ""), lang: uiLang() });
+      bubble += cryptexCardHtml(m.text, { canFetch: largeFileAvailable() });
       if (m.fromContact?.bot) { // bot flag rides the sender contact (mock + core)
         const cmds = extractBotCommands(m.text);
         if (cmds.length) {
@@ -2646,7 +2663,7 @@ export class ChatView {
         // Original, not the bubble thumbnail: full-screen shows full resolution.
         if (mediaImg.naturalWidth) openImageLightbox(fileUrl(m.filePath), m.fileName || "photo");
       });
-      mediaImg.onerror = () => {
+      const onImgError = () => {
         if (!alive()) return;
         rustLog(`media img error src=${redactMediaUrl(mediaImg.src)} original=${m.filePath}`);
         // One-shot swap to the legacy chain (media HTTP server / asset
@@ -2665,6 +2682,14 @@ export class ChatView {
           notifyHeight();
         }
       };
+      mediaImg.onerror = onImgError;
+      // Both handlers gate on alive(), but the row cache reuses a rendered
+      // row without rebinding — a load/error that lands while this chat is
+      // not current is swallowed and the row keeps the pre-reveal state
+      // forever (invisible image in the reserved box until restart). Park
+      // the handlers on the img so reuse can re-run them (_healCachedImage).
+      mediaImg._imgReveal = reveal;
+      mediaImg._imgFail = onImgError;
     }
     const mediaAudio = row.querySelector('.msg-audio audio[data-src]');
     if (mediaAudio) {
@@ -2874,6 +2899,8 @@ export class ChatView {
         window.dispatchEvent(new CustomEvent("velta-apply-settings", { detail: { text: m.text, msgId: m.id, chatKind: this.chat?.kind } }));
         return;
       }
+      const cxBtn = e.target.closest("[data-cryptex-dl]");
+      if (cxBtn) { e.stopPropagation(); this._fetchCryptex(m, cxBtn); return; }
       const readMore = e.target.closest("[data-fullmsg]");
       if (readMore) { e.stopPropagation(); this._showFullMessage(m); return; }
     };
@@ -3179,8 +3206,21 @@ export class ChatView {
     const session = this._session;
     if (!this._isCurrent(session) || this.msgIndex.get(item.msg.id) !== item) return;
     const m = item.msg;
-    if (m.kind === "service" || this._deleteByMsg.has(m.id)) return;
+    if (m.kind === "service") return;
     const touch = this._offerSelectText();
+    // Deleted (held for undo, or committing): nothing to reply to, forward,
+    // download or resend. Delete commits it now instead of waiting for undo.
+    const heldKey = this._deleteByMsg.get(m.id);
+    if (heldKey != null) {
+      const held = deletedMessageActions({
+        onSelect: () => this._enterSelection(m.id),
+        onInfo: () => this._showInfo(item),
+        onDelete: () => this._commitDelete(heldKey),
+      }).map(action => ({ ...action, onClick: () => { if (this._isCurrent(session)) return action.onClick(); } }));
+      if (!touch) { this._showActionBar(item, "", held, false, session); return; }
+      showMessageSheet({ reactions: [], items: held });
+      return;
+    }
     const items = [];
     // #161: the gesture landed on a link — its URL gets the first actions.
     // Copy/open use the same cleaned URL a click would open (#89); Open rides
@@ -3272,7 +3312,12 @@ export class ChatView {
     const canReact = !this.chat?.isP2p; // local chats carry no reactions
     items.push({ label: "Select", pair: "meta", icon: ICO.select, onClick: () => this._enterSelection(m.id) });
     items.push({ label: "Info", pair: "meta", icon: ICO.info, onClick: () => this._showInfo(item) });
-    if (!p2pg) items.push("-", { label: "Delete", icon: ICO.trash, danger: true, onClick: () => this._delete([m.id]) });
+    // Touch sheet: Delete turns into Cancel / Delete for me / for everyone in
+    // place (inlineConfirm); the desktop bar keeps the modal (onClick).
+    if (!p2pg) items.push("-", {
+      label: "Delete", icon: ICO.trash, danger: true, onClick: () => this._delete([m.id]),
+      inlineConfirm: { canForAll: this._canDeleteForAll([m.id]), onChoose: (choice) => this._applyDeleteChoice(session, [m.id], choice) },
+    });
     const guarded = items.map(action => action === "-" ? action : {
       ...action, onClick: () => { if (this._isCurrent(session)) return action.onClick(); },
     });
@@ -3384,7 +3429,7 @@ export class ChatView {
       <div class="info-row"><span class="k">${escapeHtml(t("State"))}</span><span class="v">${escapeHtml(state)}</span></div>
       <div class="info-reacts" data-reacts hidden></div>
       ${deliveryRows}
-      ${lufiUploadFor(this.core.accountId, m.id) ? `<div data-largefile hidden></div>` : ""}
+      ${lufiUploadFor(this.core.accountId, m.id) || cryptexUploadFor(this.core.accountId, m.id) ? `<div data-largefile hidden></div>` : ""}
       <div class="info-row"><span class="k">${escapeHtml(t("Database ID"))}</span><span class="v">#${escapeHtml(m.id)}</span></div>
       <div class="info-row wrap"><span class="k">Message-ID</span><span class="v" data-mid>…</span></div>
       <div class="info-row wrap"><span class="k">${escapeHtml(t("Server URL"))}</span><span class="v" data-servers>…</span></div>`,
@@ -3397,6 +3442,13 @@ export class ChatView {
       slot.insertAdjacentHTML("afterend", lf.largeFileInfoHtml(lufiUploadFor(this.core.accountId, m.id)));
       slot.remove();
       lf.wireLargeFileInfo(info.modal, this.core.accountId, m.id);
+    }).catch(() => {});
+    else if (cryptexUploadFor(this.core.accountId, m.id)) import("./large-file.js").then((lf) => {
+      const slot = info.modal.querySelector("[data-largefile]");
+      if (!slot || !info.modal.isConnected) return;
+      slot.insertAdjacentHTML("afterend", lf.cryptexInfoHtml(cryptexUploadFor(this.core.accountId, m.id)));
+      slot.remove();
+      lf.wireCryptexInfo(info.modal, this.core.accountId, m.id);
     }).catch(() => {});
     const reactBox = info.modal.querySelector("[data-reacts]");
     const paintReactions = (payload) => {
@@ -3437,12 +3489,20 @@ export class ChatView {
     // Mirror the official Delta Chat desktop dialog: "Delete for everyone"
     // is offered only when the core can honor it — self-sent messages in an
     // encrypted chat that isn't self-talk (delete_messages_for_all rules).
+    const choice = await confirmDeleteMessagesModal(ids.length, this._canDeleteForAll(ids));
+    this._applyDeleteChoice(session, ids, choice);
+  }
+
+  _canDeleteForAll(ids) {
     const msgs = ids.map(id => this.msgIndex.get(id)?.msg).filter(Boolean);
-    const canForAll = msgs.length === ids.length
-      && this.chat.kind !== "saved"
-      && this.chat.encrypted !== false
+    return msgs.length === ids.length
+      && this.chat?.kind !== "saved"
+      && this.chat?.encrypted !== false
       && msgs.every(m => m.from === 1);
-    const choice = await confirmDeleteMessagesModal(ids.length, canForAll);
+  }
+
+  // Shared by the modal and the phone sheet's inline Delete row.
+  _applyDeleteChoice(session, ids, choice) {
     if (!choice || !this._isCurrent(session)) return;
     this._holdDelete(session, ids, choice === "everyone");
     if (this._isCurrent(session)) this.exitSelection();
@@ -4580,6 +4640,26 @@ export class ChatView {
     }
   }
 
+  // Cryptex link in a message: open -> token -> file, in one tap (Tauri).
+  async _fetchCryptex(m, btn) {
+    const link = parseCryptexLink(m.text);
+    if (!link || btn.disabled) return;
+    btn.disabled = true;
+    const label = btn.querySelector("span");
+    const prev = label?.textContent;
+    if (label) label.textContent = t("Downloading…");
+    try {
+      const { fetchCryptexLink } = await import("./large-file.js");
+      const saved = await fetchCryptexLink(link);
+      if (saved) toast(t("Saved"));
+    } catch (err) {
+      if (!/cancel/i.test(String(err?.message || err))) errToast(t("Couldn't download: ") + (err?.message || err));
+    } finally {
+      btn.disabled = false;
+      if (label) label.textContent = prev;
+    }
+  }
+
   async _sendLargeFile() {
     const session = this._session;
     if (!this._isCurrent(session) || !this.chat) return;
@@ -5564,3 +5644,28 @@ export class ChatView {
 }
 
 // Inline text rendering (URLs, invite cards, markdown) lives in markdown.js.
+
+// Menu for a deleted (undo-held) message: Select, Info, Delete only.
+export function deletedMessageActions({ onSelect, onInfo, onDelete }) {
+  return [
+    { label: "Select", pair: "meta", icon: ICO.select, onClick: onSelect },
+    { label: "Info", pair: "meta", icon: ICO.info, onClick: onInfo },
+    { label: "Delete", icon: ICO.trash, danger: true, onClick: onDelete },
+  ];
+}
+
+// Download card under a message that carries a Cryptex link. The expiry is
+// read from the message's own "Available until …" line. Outside the Tauri
+// shell (PWA) the server refuses the app origin (CORS), so only the web
+// link (the page fills the password from #) remains.
+export function cryptexCardHtml(text, { canFetch = true } = {}) {
+  const link = parseCryptexLink(text);
+  if (!link) return "";
+  const until = /Available until ([^\n·]+)/.exec(String(text || ""))?.[1]?.trim() || "";
+  const host = (() => { try { return new URL(link.server).host; } catch { return link.server; } })();
+  return `<div class="ivc cryptex-card">
+    <div class="ivc-head">${ICO.download || ""}<span class="ivc-title">${escapeHtml(t("Large file"))}</span></div>
+    <ul class="ivc-meta"><li>${escapeHtml(host)} · Cryptex</li>${until ? `<li>${escapeHtml(t("Available until {date}", { date: until }))}</li>` : ""}</ul>
+    ${canFetch ? `<div class="ivc-acts"><button type="button" class="ivc-btn ivc-primary" data-cryptex-dl>${ICO.download || ""}<span>${escapeHtml(t("Download"))}</span></button></div>` : ""}
+  </div>`;
+}

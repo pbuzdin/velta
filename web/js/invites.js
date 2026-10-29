@@ -10,7 +10,9 @@ import { t } from "./i18n.js";
 // Mirror the AndroidManifest.xml intent filters: OS-level interception of a
 // domain is compiled into the app, this list controls what Velta recognizes
 // at runtime (OS deep links, pasted links, invite cards in chat messages).
-const BUILTIN_HOSTS = ["i.delta.chat", "i.deltachat.id", "i.gluek.info"];
+// velta.cc is the default share domain (invite-domains.js): its /join/
+// landing page carries the payload in the query string instead of the hash.
+const BUILTIN_HOSTS = ["velta.cc", "i.delta.chat", "i.deltachat.id", "i.gluek.info"];
 const HOSTS_KEY = "velta-invite-hosts"; // localStorage JSON array of extra hosts
 // v3 invite URL: https://<host>/#FINGERPRINT&v=3&x=…&i=…&s=…&a=…&n=…&g=…
 // The payload lives in the fragment and is never sent to a server — the host
@@ -81,8 +83,18 @@ export function parseInviteLink(raw) {
     try { url = new URL(s); } catch { return null; }
     if (url.protocol !== "https:" || !getInviteHosts().includes(url.hostname)) return null;
     host = url.hostname;
-    const hash = url.hash.replace(/^#\/?/, ""); // tolerate "/#fp" and "#fp"
-    const m = hash.match(/^([0-9A-Fa-f]{40})(?:[&#]([\s\S]*))?$/); // fp, then params joined by & or #
+    // The payload rides the fragment (i.delta.chat mirrors, "#fp") or the
+    // query string (velta.cc/join/?fp&…); an ?invite=<urlencoded> value is
+    // unwrapped first. The fragment wins when both would match.
+    let form = url.hash.replace(/^#\/?/, ""); // tolerate "/#fp" and "#fp"
+    if (!/^([0-9A-Fa-f]{40})(?:[&#]|$)/.test(form)) {
+      form = url.search.replace(/^\?/, "");
+      if (/^invite=/.test(form)) {
+        try { form = decodeURIComponent(form.slice(7)); } catch { /* keep raw */ }
+        form = form.replace(/^https?:\/\/[^#\s]*?[#?]/i, "");
+      }
+    }
+    const m = form.match(/^([0-9A-Fa-f]{40})(?:[&#]([\s\S]*))?$/); // fp, then params joined by & or #
     if (!m) return null;
     fingerprint = m[1];
     payload = m[2] ? "&" + m[2] : "";

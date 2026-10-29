@@ -163,7 +163,7 @@ function clamp(n, lo, hi) { return Math.min(hi, Math.max(lo, n)); }
 export const EXCLUDED_STORAGE_KEYS = [
   "velta-ws-relay", "velta-ws-relays", "velta-push", "velta-bridge-token", "velta-identity",
   "velta-bcc-self-choice", "velta-invite-hosts", "velta-invite-domain", "velta-invite-creds", "velta-short-invites",
-  "velta-lufi-server", "velta-lufi-files", "velta-p2p", "velta-p2pg-hidden", "velta-notify-bg",
+  "velta-lufi-server", "velta-lufi-files", "velta-cryptex-key", "velta-cryptex-server", "velta-cryptex-files", "velta-large-provider", "velta-p2p", "velta-p2pg-hidden", "velta-notify-bg",
   "velta-notify-bgforce", "velta-low-battery-react", "velta-battery-opt-asked", "velta-sync-only-active",
   "velta-logging", "velta-debug", "velta-mock", "velta-mock-fresh", "velta-wasm", "velta-tunnel-log",
   "velta-tunnel-diag-seen", "velta-read-markers", "velta-recent-commands", "velta-recent-apps", "velta-xdc-mirrors", "velta-xdc-mirror-ok", "velta-link-preview-chats",

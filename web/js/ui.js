@@ -270,17 +270,28 @@ function openLightDismiss(el) {
   return false;
 }
 
-// Consecutive items that share `pair` sit on one row (at most two).
-// A danger item is its own full-width row. "-" is dropped.
+// Phone message menu layout (Firefox-style): every non-danger action is a
+// tile in a 3-column grid (2 under 340px, CSS), in the given order, so no
+// half-empty pair rows. Danger items (Delete) follow as full-width rows.
+// "-" is dropped.
 export function messageSheetRows(items) {
-  const rows = [];
+  const tiles = [];
+  const danger = [];
   for (const it of items) {
     if (it === "-") continue;
-    const prev = rows.at(-1);
-    if (it.pair && !it.danger && prev?.pair === it.pair && prev.items.length < 2) prev.items.push(it);
-    else rows.push({ pair: it.pair || "", full: !!it.danger, items: [it] });
+    (it.danger ? danger : tiles).push(it);
   }
-  return rows;
+  return { tiles, danger };
+}
+
+// Arrow keys move focus between grid tiles; columns come from the live grid.
+export function gridNeighbor(index, count, cols, key) {
+  const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -cols, ArrowDown: cols }[key];
+  if (key === "Home") return 0;
+  if (key === "End") return count - 1;
+  if (step == null) return index;
+  const next = index + step;
+  return next < 0 || next >= count ? index : next;
 }
 
 function sheetAction(it) {
@@ -305,7 +316,8 @@ export function buildEmojiTray({ onReact, onBack } = {}) {
   const back = document.createElement("button");
   back.type = "button";
   back.className = "msg-emoji-back";
-  back.textContent = t("Back");
+  back.innerHTML = ICON.arrowLeft + "<span>" + escapeHtml(t("Back")) + "</span>";
+  back.setAttribute("aria-label", t("Back"));
   const search = document.createElement("input");
   search.type = "search";
   search.className = "text-field";
@@ -335,6 +347,19 @@ export function buildEmojiTray({ onReact, onBack } = {}) {
     }
   };
   search.addEventListener("input", paint);
+  // Arrow keys: from search, Down enters the grid; inside it they walk it.
+  search.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") { const f = grid.querySelector(".msg-emoji"); if (f) { e.preventDefault(); f.focus(); } }
+  });
+  grid.addEventListener("keydown", (e) => {
+    const cells = [...grid.querySelectorAll(".msg-emoji")];
+    const i = cells.indexOf(document.activeElement);
+    if (i < 0) return;
+    const cols = Math.max(1, getComputedStyle(grid).gridTemplateColumns.split(" ").filter(Boolean).length);
+    if (e.key === "ArrowUp" && i < cols) { e.preventDefault(); search.focus(); return; }
+    const j = gridNeighbor(i, cells.length, cols, e.key);
+    if (j !== i) { e.preventDefault(); cells[j].focus(); cells[j].scrollIntoView?.({ block: "nearest" }); }
+  });
   back.addEventListener("click", () => { search.value = ""; onBack?.(); });
   tray.append(back, search, grid);
   tray.open = () => { paint(); search.focus(); };
@@ -345,7 +370,7 @@ export function buildEmojiTray({ onReact, onBack } = {}) {
 // message sheet and the desktop context menu: one row of quick reactions
 // ending in a monochrome smiley that swaps the row for Back + search + grid.
 // Caller appends { reacts, tray } in that order (tray starts hidden).
-export function buildReactionRow({ reactions, selected = null, onReact }) {
+export function buildReactionRow({ reactions, selected = null, onReact, onMore = null }) {
   const reacts = document.createElement("div");
   reacts.className = "msg-reacts";
   const shown = selected && !reactions.includes(selected) ? [selected, ...reactions.slice(0, -1)] : reactions;
@@ -369,6 +394,7 @@ export function buildReactionRow({ reactions, selected = null, onReact }) {
     onBack: () => { tray.hidden = true; reacts.hidden = false; },
   });
   more.addEventListener("click", () => {
+    if (onMore) { onMore(tray); return; }
     reacts.hidden = true;
     tray.hidden = false;
     tray.open();
@@ -377,29 +403,194 @@ export function buildReactionRow({ reactions, selected = null, onReact }) {
   return { reacts, tray };
 }
 
+// Drag-to-dismiss for bottom sheets: decide on release. Closes past 30% of
+// the sheet height or on a fast downward flick (px/ms).
+export const SHEET_CLOSE_FRACTION = 0.3;
+export const SHEET_FLICK_SPEED = 0.5;
+export function sheetDragDecision(dy, height, velocity) {
+  if (dy <= 0) return "snap";
+  if (dy >= height * SHEET_CLOSE_FRACTION) return "close";
+  return velocity >= SHEET_FLICK_SPEED && dy > 12 ? "close" : "snap";
+}
+
+// Starts on the handle or the sheet's top strip (48px). Follows the finger
+// downward only. A tap stays a tap: the drag engages after 6px of downward
+// movement, and only then is the click that ends the gesture swallowed.
+export function bindSheetDrag(sheet, handle, close, { topZone = 48 } = {}) {
+  let start = null;
+  const reduce = () => globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  const setY = (y, animate) => {
+    sheet.style.transition = animate && !reduce() ? "transform .18s ease-out" : "none";
+    sheet.style.transform = y > 0 ? `translateY(${y}px)` : "";
+  };
+  sheet.addEventListener("pointerdown", (e) => {
+    if (e.button > 0) return;
+    const top = sheet.getBoundingClientRect().top;
+    if (!handle.contains(e.target) && e.clientY - top > topZone) return;
+    start = { id: e.pointerId, y: e.clientY, t: e.timeStamp, lastY: e.clientY, lastT: e.timeStamp, v: 0, dragging: false };
+  });
+  sheet.addEventListener("pointermove", (e) => {
+    if (!start || e.pointerId !== start.id) return;
+    const dy = e.clientY - start.y;
+    if (!start.dragging) {
+      if (dy < 6) return;
+      start.dragging = true;
+      try { sheet.setPointerCapture(e.pointerId); } catch {}
+    }
+    const dt = Math.max(1, e.timeStamp - start.lastT);
+    start.v = (e.clientY - start.lastY) / dt;
+    start.lastY = e.clientY; start.lastT = e.timeStamp;
+    setY(Math.max(0, dy), false);
+    e.preventDefault();
+  });
+  const end = (e) => {
+    if (!start || e.pointerId !== start.id) return;
+    const s = start;
+    start = null;
+    if (!s.dragging) return;
+    // Swallow the click this gesture would fire on an emoji or tile.
+    sheet.addEventListener("click", ev => { ev.stopPropagation(); ev.preventDefault(); }, { capture: true, once: true });
+    const dy = Math.max(0, e.clientY - s.y);
+    const cancelled = e.type === "pointercancel";
+    if (!cancelled && sheetDragDecision(dy, sheet.getBoundingClientRect().height, s.v) === "close") {
+      if (reduce()) { close(); return; }
+      setY(sheet.getBoundingClientRect().height, true);
+      setTimeout(close, 180);
+    } else {
+      setY(0, true);
+    }
+  };
+  sheet.addEventListener("pointerup", end);
+  sheet.addEventListener("pointercancel", end);
+}
+
+// Inline delete confirm (phone sheet): the Delete row becomes Cancel /
+// Delete for me / Delete for everyone (only when the modal would offer it).
+export function deleteConfirmChoices(canForAll) {
+  const c = [{ label: "Cancel", value: null, icon: "close" }, { label: "Delete for me", value: "me", danger: true, icon: "trash" }];
+  if (canForAll) c.push({ label: "Delete for everyone", value: "everyone", danger: true, icon: "trash" });
+  return c;
+}
+
+function showInlineDeleteConfirm(wrap, deleteBtn, { canForAll, onChoose }) {
+  const row = document.createElement("div");
+  row.className = "msg-del-confirm";
+  // Two choices sit icon-beside-label; three stack icon over label.
+  row.dataset.count = String(deleteConfirmChoices(canForAll).length);
+  row.setAttribute("role", "group");
+  row.setAttribute("aria-label", t("Delete messages"));
+  const buttons = deleteConfirmChoices(canForAll).map(c => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "ctx-item" + (c.danger ? " danger" : "");
+    b.innerHTML = (ICON[c.icon] || "") + "<span>" + escapeHtml(t(c.label)) + "</span>";
+    b.addEventListener("click", () => {
+      if (c.value == null) {
+        row.replaceWith(deleteBtn);
+        deleteBtn.focus();
+        return;
+      }
+      closeAllPopups();
+      onChoose(c.value);
+    });
+    return b;
+  });
+  row.append(...buttons);
+  deleteBtn.replaceWith(row);
+  wrap.classList.add("confirming");
+  buttons[0].focus();
+}
+
+// Two rows of six: 11 quick reactions + the "more" smiley.
+export const SHEET_QUICK_REACTIONS = 11;
+
+function openSheetPicker(menu, tray) {
+  menu.style.height = menu.getBoundingClientRect().height + "px";
+  menu.classList.add("picking");
+  tray.hidden = false;
+  tray.open();
+}
+
+function closeSheetPicker(menu, tray) {
+  menu.classList.remove("picking");
+  menu.style.height = "";
+  tray.hidden = true;
+  menu.querySelector(".msg-react-more")?.focus();
+}
+
+// Escape in the sheet: leaves the picker first, closes on the next press.
+export function sheetEscapeAction(picking) {
+  return picking ? "back" : "close";
+}
+
 export function showMessageSheet({ reactions = [], selected = null, onReact, items, links = [], onOpenLink }) {
   closeAllPopups();
   const menu = document.createElement("div");
   menu.className = "ctx-menu msg-sheet";
   menu.setAttribute("role", "dialog");
   menu.setAttribute("aria-label", t("Message actions"));
-  const grab = document.createElement("div");
+  const grab = document.createElement("button");
+  grab.type = "button";
   grab.className = "msg-sheet-grab";
-  grab.setAttribute("aria-hidden", "true");
+  grab.setAttribute("aria-label", t("Close menu"));
+  grab.addEventListener("click", () => closeAllPopups());
   menu.append(grab);
+  bindSheetDrag(menu, grab, closeAllPopups);
 
+  // Phone sheet: exactly two rows of quick reactions (11 + the smiley).
+  // The smiley swaps the whole sheet body for the picker at the sheet's
+  // current height (no resize, no modal); Back / Escape return to the menu.
+  let picker = null;
   if (reactions.length) {
-    const { reacts, tray } = buildReactionRow({ reactions, selected, onReact });
+    const quick = reactions.slice(0, SHEET_QUICK_REACTIONS);
+    const { reacts, tray } = buildReactionRow({
+      reactions: quick, selected, onReact,
+      onMore: (tr) => openSheetPicker(menu, tr),
+    });
+    tray.classList.add("msg-sheet-picker");
+    picker = tray;
     menu.append(reacts, tray);
   }
 
   const actions = document.createElement("div");
   actions.className = "msg-actions";
-  for (const row of messageSheetRows(items)) {
+  const { tiles, danger } = messageSheetRows(items);
+  if (tiles.length) {
+    const grid = document.createElement("div");
+    grid.className = "msg-grid";
+    grid.setAttribute("role", "group");
+    grid.setAttribute("aria-label", t("Message actions"));
+    const buttons = tiles.map(it => {
+      const b = sheetAction(it);
+      b.classList.add("msg-tile");
+      return b;
+    });
+    grid.append(...buttons);
+    grid.addEventListener("keydown", (e) => {
+      const i = buttons.indexOf(document.activeElement);
+      if (i < 0) return;
+      const cols = Math.max(1, getComputedStyle(grid).gridTemplateColumns.split(" ").filter(Boolean).length);
+      const j = gridNeighbor(i, buttons.length, cols, e.key);
+      if (j !== i || e.key === "Home" || e.key === "End") {
+        e.preventDefault();
+        buttons[j].focus();
+      }
+    });
+    actions.append(grid);
+  }
+  for (const it of danger) {
     const wrap = document.createElement("div");
-    wrap.className = row.full ? "msg-row-full" : "msg-pair";
-    if (row.pair) wrap.dataset.pair = row.pair;
-    for (const it of row.items) wrap.append(sheetAction(it));
+    wrap.className = "msg-row-full";
+    if (it.inlineConfirm) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "ctx-item danger";
+      b.innerHTML = (it.icon || "") + "<span>" + escapeHtml(t(it.short || it.label)) + "</span>";
+      b.addEventListener("click", () => showInlineDeleteConfirm(wrap, b, it.inlineConfirm));
+      wrap.append(b);
+    } else {
+      wrap.append(sheetAction(it));
+    }
     actions.append(wrap);
   }
   menu.append(actions);
@@ -434,6 +625,21 @@ export function showMessageSheet({ reactions = [], selected = null, onReact, ite
   overlay.addEventListener("pointerdown", closeAllPopups);
   overlay.addEventListener("contextmenu", e => { e.preventDefault(); closeAllPopups(); });
   popups().append(overlay, menu);
+  if (picker) {
+    // buildEmojiTray's onBack restores the inline row; in the sheet the
+    // whole body comes back instead.
+    picker.querySelector(".msg-emoji-back")?.addEventListener("click", () => closeSheetPicker(menu, picker));
+    const onKey = (e) => {
+      if (!menu.isConnected) { window.removeEventListener("keydown", onKey, true); return; }
+      if (e.key !== "Escape") return;
+      if (sheetEscapeAction(menu.classList.contains("picking")) === "back") {
+        e.stopPropagation(); e.preventDefault();
+        picker.querySelector("input").value = "";
+        closeSheetPicker(menu, picker);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+  }
   return menu;
 }
 
@@ -733,7 +939,7 @@ export function confirmDeleteMessagesModal(count, canForAll) {
 // Fallback only: the live core version is fetched via get_system_info in
 // app.js boot and pushed here with setCoreVersionDisplay (the running
 // sidecar/in-process core is the source of truth, not this constant).
-let CORE_VERSION = "2.65.0";
+let CORE_VERSION = "2.66.0";
 
 export function setCoreVersionDisplay(v) {
   if (!v) return;
@@ -1754,7 +1960,8 @@ export function showInvite(provider, { title = t("Invite to Velta"), group = fal
       const box = body.querySelector(".qr-box");
       const sb = body.querySelector("[data-share]"); if (sb) sb.disabled = !link;
       // Domain pills (invite-domains.js): i.delta.chat keeps the core card,
-      // a mirror gets a plain QR that already carries the Velta logo.
+      // velta.cc/join/? (the default) and mirrors get a plain QR that already
+      // carries the Velta logo.
       mountInviteDomains(body.querySelector("[data-domain-tabs]"), { svg, link }, (qr, l, isDefault) => {
         box.innerHTML = qr || "<div class='qr-loading'>QR unavailable</div>";
         body.querySelector(".invite-link").textContent = l;
