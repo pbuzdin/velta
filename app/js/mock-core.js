@@ -718,7 +718,7 @@ export class MockCore extends EventTarget {
     const c = this.contacts.find(x => x.id === Number(contactId));
     if (!c) throw new Error("no such contact");
     const g = f => f.match(/.{4}/g).join(" ");
-    return `End-to-end encryption available.\n\nYou (${this.account.addr}):\n${g(mockFingerprint(this.account.addr))}\n\n${c.name} (${c.addr}):\n${g(mockFingerprint(c.addr))}`;
+    return `End-to-end encryption available.\n\nYou:\n${g(mockFingerprint(this.account.addr))}\n\n${c.name}:\n${g(mockFingerprint(c.addr))}`;
   }
 
   async getSelfDisplayName() { return this.account.displayName || ""; }

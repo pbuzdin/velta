@@ -107,21 +107,37 @@ function blockAddr(block) {
 }
 
 // Pull the contact's fingerprint out of get_contact_encryption_info output.
-// Blocks look like "<name> (<addr>):" plus the grouped fingerprint. Only the
+// Core <= 2.65 wrote blocks as "<name> (<addr>):\n<fpr>"; core 2.66 dropped
+// the address ("<name>:\n<fpr>") and orders blocks by fingerprint, not by
+// address. So: match by address when present, else drop our own key (selfFpr)
+// and take the remaining one, else skip a "Me"-ish header. Only the
 // fingerprint lines count: a display name or a chatmail address can itself
-// contain 4 hex characters, and desktop and the PWA often store different
-// names for the same key, which used to slice that key into two tiles.
-export function parseFingerprint(encrInfo, contactAddr) {
-  if (!encrInfo) return null;
-  const blocks = String(encrInfo).split(/\n\s*\n/).filter((b) => b.includes("("));
-  if (!blocks.length) return null;
-  const want = String(contactAddr || "").trim().toLowerCase();
-  let block = want ? blocks.find((b) => blockAddr(b) === want) : null;
-  if (!block) block = blocks.find((b) => !/^\s*me\b/i.test(b.trim()));
-  if (!block) return null;
-  const lines = block.match(/(?:[0-9A-Fa-f]{4} ){4}[0-9A-Fa-f]{4}/g) || [];
+// contain 4 hex characters.
+function blockFpr(block) {
+  const lines = String(block).match(/(?:[0-9A-Fa-f]{4} ){4}[0-9A-Fa-f]{4}/g) || [];
   const hex = lines.join("").replace(/[^0-9A-Fa-f]/g, "");
   return hex.length >= 40 ? hex.slice(0, 40).toUpperCase() : null;
+}
+
+export function parseFingerprint(encrInfo, contactAddr, selfFpr) {
+  if (!encrInfo) return null;
+  const blocks = String(encrInfo).split(/\n\s*\n/)
+    .map((b) => ({ b, fpr: blockFpr(b) })).filter((x) => x.fpr);
+  if (!blocks.length) return null;
+  const want = String(contactAddr || "").trim().toLowerCase();
+  if (want) {
+    const hit = blocks.find((x) => blockAddr(x.b) === want);
+    if (hit) return hit.fpr;
+  }
+  const self = String(selfFpr || "").replace(/[^0-9A-Fa-f]/g, "").toUpperCase();
+  if (self.length >= 40) {
+    const others = blocks.filter((x) => x.fpr !== self.slice(0, 40));
+    if (others.length === 1) return others[0].fpr;
+    // Both blocks carry our key: this is the self contact.
+    if (!others.length) return blocks[0].fpr;
+  }
+  const notMe = blocks.find((x) => !/^\s*(me|you)\b/i.test(x.b.trim()));
+  return (notMe || blocks[0]).fpr;
 }
 
 // OpenPGP fingerprint of the primary public-key packet in a make_vcard KEY
@@ -385,7 +401,12 @@ export function fingerprintFor(contactId, addr) {
     ? Promise.resolve(addr || "")
     : Promise.resolve().then(() => addrOf(contactId)).then((a) => a || "").catch(() => "");
   const p = Promise.all([infoP, whoP]).then(async ([encrInfo, who]) => {
-    const parsed = parseFingerprint(encrInfo, who);
+    // Core 2.66+ no longer prints addresses; our own key disambiguates.
+    let own = null;
+    if (contactId !== 1 && selfFingerprint && encrInfo && !String(encrInfo).includes(`(${who}`)) {
+      own = await Promise.resolve().then(() => selfFingerprint()).catch(() => null);
+    }
+    const parsed = parseFingerprint(encrInfo, who, own);
     if (parsed) return parsed;
     if (contactId === 1 && selfFingerprint) {
       const own = await Promise.resolve().then(() => selfFingerprint()).catch(() => null);

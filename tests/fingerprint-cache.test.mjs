@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { setFingerprintSource, fingerprintFor, cachedFingerprint, parseFingerprint, deriveFingerprint, fingerprintFromVcard, fingerprintFromPublicKey } from "../app/js/avatar.js";
+import { setFingerprintSource, fingerprintFor, cachedFingerprint, cachedFingerprintIsDerived, parseFingerprint, deriveFingerprint, fingerprintFromVcard, fingerprintFromPublicKey } from "../app/js/avatar.js";
 
 const ALICE_KEY = "0123 4567 89AB CDEF 0123 4567 89AB CDEF 0123 4567";
 
@@ -59,6 +59,32 @@ test("a fingerprint tile ignores the display name and the address", () => {
   assert.equal(parseFingerprint("No encryption.", addr), null);
   const me = "AAAABBBBCCCCDDDDEEEEFFFF1111222233334444";
   assert.equal(parseFingerprint(named, "me@mail.org"), me);
+});
+
+test("core 2.66 encryption info without addresses still yields the contact key", () => {
+  const me = "AAAABBBBCCCCDDDDEEEEFFFF1111222233334444";
+  const ME_LINES = "AAAA BBBB CCCC DDDD EEEE\nFFFF 1111 2222 3333 4444";
+  const addr = "p3xjn215np@chat.gluek.info";
+  // New format: "<name>:" headers, blocks sorted by fingerprint, relay list.
+  const v266 = `Messages are end-to-end encrypted.\nFingerprints:\n\nMe:\n${ME_LINES}\n\nGluek:\n${BOB_LINES}\n\nRelays:\nchat.gluek.info`;
+  const v266swap = `Messages are end-to-end encrypted.\nFingerprints:\n\nGluek:\n${BOB_LINES}\n\nIch:\n${ME_LINES}`;
+  assert.equal(parseFingerprint(v266, addr, me), BOB);
+  assert.equal(parseFingerprint(v266swap, addr, me), BOB);
+  assert.equal(parseFingerprint(v266, addr), BOB, "falls back to the non-Me block");
+  // Old format still works, with or without our own key.
+  const v265 = `Messages are end-to-end encrypted.\nFingerprints:\n\nMe (me@mail.org):\n${ME_LINES}\n\nGluek (${addr}):\n${BOB_LINES}`;
+  assert.equal(parseFingerprint(v265, addr), BOB);
+  assert.equal(parseFingerprint(v265, addr, me), BOB);
+});
+
+test("fingerprintFor resolves a 2.66-format contact via our own key", async () => {
+  const me = "AAAABBBBCCCCDDDDEEEEFFFF1111222233334444";
+  setFingerprintSource(async () => `Fingerprints:\n\nGluek:\n${BOB_LINES}\n\nIch:\nAAAA BBBB CCCC DDDD EEEE\nFFFF 1111 2222 3333 4444`, "acct-266", {
+    addrOf: async () => "p3xjn215np@chat.gluek.info",
+    selfFingerprint: async () => me,
+  });
+  assert.equal(await fingerprintFor(42), BOB);
+  assert.equal(cachedFingerprintIsDerived(42), false);
 });
 
 test("v4 public-key packet fingerprint matches RFC 4880", async () => {
