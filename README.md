@@ -106,7 +106,10 @@ Full steps: [docs/pwa-self-host.md](docs/pwa-self-host.md).
   adds one after a confirmation. Proxy operators can hand out signed invite
   links with an expiry, a device limit, and revocation. Invite links of all
   kinds show as **invite cards** in chat, and a relay invite can sign you up
-  straight from **Add account**. Details:
+  straight from **Add account**. Shared invite links point to
+  [velta.cc/join](https://velta.cc/join) by default (since 1.4.87) — a
+  landing page that greets the invitee and deep-links into the app; the
+  older Delta Chat link format keeps working everywhere. Details:
   [docs/websocket-transport.md](docs/websocket-transport.md),
   [docs/invite-cards.md](docs/invite-cards.md); server side:
   [docs/deploy-pwa-websocket-proxy.md](docs/deploy-pwa-websocket-proxy.md).
@@ -788,7 +791,7 @@ Delta Chat splits very large messages into a small placeholder plus a downloadab
 </details>
 
 <details>
-<summary>Large files (Lufi link)</summary>
+<summary>Large files (Lufi, Cryptex)</summary>
 
 On desktop, the attach menu's **Large file** encrypts the file on your
 device the same way Lufi's web client does, uploads it to a Lufi server
@@ -799,6 +802,13 @@ recipients without Velta can download it in any browser. You choose the
 expiry within the server's limits and can make it burn after reading;
 **Message info** keeps the deletion link with **Delete from server**. Not
 offered in local chats.
+
+**Cryptex** (since 1.4.87) is a second provider next to Lufi, picked in the
+same menu: up to 1 GB per file, retentions from 30 minutes to 7 days,
+upload through the app's proxy (the network runs shell-side, so the browser
+build hides it), the password again in the link's `#` part — and the server's
+page doubles as a web fallback that auto-fills the key, while Velta downloads
+in one tap.
 
 </details>
 
