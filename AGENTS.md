@@ -6,7 +6,7 @@ build/test commands, and conventions as they actually exist in this checkout.
 
 > **Scope note:** This repository is a Velta-specific workspace layered around a
 > copy of the upstream [Delta Chat core](https://github.com/chatmail/core)
-> (version `2.65.0`). The `core/` directory is effectively a vendored copy of
+> (version `2.66.0`). The `core/` directory is effectively a vendored copy of
 > that Rust project. Wrapper code for Velta's own clients lives in `app/`,
 > `velta-app/`, and `deltachat-backend/`.
 
@@ -121,7 +121,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   ├── fuzz/                 # Fuzz targets
 │   ├── scripts/              # CI helper scripts (clippy, deny, tests, wheels)
 │   ├── test-data/            # fixtures for Rust tests
-│   ├── Cargo.toml            # workspace manifest, version 2.65.0
+│   ├── Cargo.toml            # workspace manifest, version 2.66.0
 │   ├── CMakeLists.txt        # CMake install wrapper for libdeltachat
 │   └── deny.toml             # cargo-deny policy
 │
@@ -265,7 +265,7 @@ quilt `tools/apply-core-patches.py`** (anchor + marker ops; never hand-edit
 `core/`, never apply the wasm series in `docs/research/wasm-patches/` to
 production `core/`). The 2.63.0 re-vendor (2aac743) silently dropped two
 hand-made core edits that were never quilt ops (#12, #13 below); v1.4.64
-shipped without them. Restored 2026-10-10. Current quilt at core 2.65.0 (40 ops, 10 files;
+shipped without them. Restored 2026-10-10. Current quilt at core 2.66.0 (45 ops, 10 files;
 intent in VENDORISSUES.MD):
 
 | # | What | Files |
@@ -741,7 +741,7 @@ Then copy `core/target/release/deltachat-rpc-server.exe` to
 `velta-app/src-tauri/binaries/deltachat-rpc-server-x86_64-pc-windows-msvc.exe`
 *and* `velta-app/src-tauri/binaries/deltachat-rpc-server.exe`, and verify the
 swap by piping a `get_system_info` JSON-RPC request into the exe's stdin —
-it must report the vendored core's version (v2.65.0 since the 2026-10-23
+it must report the vendored core's version (v2.66.0 since the 2026-10-29
 re-vendor, shipped in 1.4.79; v2.64.0 in the 2026-10-20 interim; v2.63.0 since 1.4.63; the
 previous prebuilt was silently v2.59.0, which the drawer footer exposed).
 `.github/workflows/build-windows.yml` does the same via
