@@ -1500,5 +1500,9 @@
   "Biometric lock is on.": "Verrou biométrique activé.",
   "Biometric lock is off.": "Verrou biométrique désactivé.",
   "The biometric prompt did not succeed.": "La demande biométrique n'a pas abouti.",
-  "The biometric lock protects this profile's database key at rest — cold starts ask for your fingerprint before the data opens.": "Le verrou biométrique protège la clé de base de données de ce profil : à froid, les données ne s'ouvrent qu'après votre empreinte."
+  "The biometric lock protects this profile's database key at rest — cold starts ask for your fingerprint before the data opens.": "Le verrou biométrique protège la clé de base de données de ce profil : à froid, les données ne s'ouvrent qu'après votre empreinte.",
+  "Attachments stay unencrypted — they rely on platform isolation and, on this device, your disk encryption.": "Les pièces jointes restent non chiffrées — elles s'appuient sur l'isolation de la plate-forme et, sur cet appareil, sur votre chiffrement de disque.",
+  "Attachments stay in the app's private storage, which Android encrypts at rest (file-based encryption).": "Les pièces jointes restent dans le stockage privé de l'app, qu'Android chiffre (chiffrement basé sur les fichiers).",
+  "Disk encryption: on.": "Chiffrement du disque : activé.",
+  "Disk encryption: OFF — turn on BitLocker (or FileVault) to protect attachments at rest.": "Chiffrement du disque : DÉSACTIVÉ — activez BitLocker (ou FileVault) pour protéger les pièces jointes."
 }

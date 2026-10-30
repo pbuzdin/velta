@@ -132,6 +132,33 @@ One random 256-bit key (DEK) per install, generated with the OS CSPRNG. All acco
 - Auto-lock after N minutes in the background: drop the in-memory key, `stop_io`, and close contexts (`Accounts` reload). Notifications then show "New message" only.
 
 ### 2.5 Blobs (attachments)
+
+**DECIDED 2026-10-30 (#178 phase 5): option A.** The message database is
+SQLCipher-encrypted (phases 0–4); the blob directory `<account>/dc.db-blobs/`
+stays plaintext and relies on platform isolation, exactly as the core
+maintainers argue. Concretely: Android app-private storage is file-based
+encrypted at rest (Android 10+); the PWA's blobs are inside the encrypted
+OPFS snapshot (phase 3, already covered); desktop relies on OS disk
+encryption. Option B (app-level blob encryption) is REJECTED for 2.66:
+core reads blobs directly on the send path, for thumbnails and for webxdc,
+so every read/write would need a core patch that fights every bump — the
+same reason upstream deprecated DB encryption. Revisit only if upstream
+revives keyed blobs. Shipped with the decision:
+
+- the desktop thumbnail cache (`<data>/thumbs/`, a flat gallery of derived
+  plaintext images) is wiped on lock (`lock_now`) and regenerates on
+  demand. NOT moved under `accounts/`: nothing accounts-scoped scans
+  `<data>`, and the move would churn every cache key for no gain;
+- the settings show the boundary (Profile management): a static FBE note
+  on Android, or the live disk-encryption status on desktop
+  (`volume_encryption_status`: PowerShell `Get-BitLockerVolume` on Windows
+  — Home editions without the module report "unknown" —, `fdesetup
+  isactive` on macOS, "unknown" on Linux);
+- PWA: no on-disk thumbnail cache exists (originals serve from memory);
+  nothing to change.
+
+The original options, for the record.
+
 Core stores blobs in `<account>/dc.db-blobs/` in plaintext, and the core maintainers say that is why DB encryption was deprecated. Options:
 - **A (recommended, phase 1)**: rely on platform isolation and FS encryption, and document it. Android app-private storage is file-based encrypted (FBE) since Android 10. Desktop: recommend BitLocker/FileVault/LUKS, and the settings page shows whether the volume is encrypted where it can tell. PWA: blobs are inside the encrypted snapshot (§2.3), so they are already covered.
 - **B (phase 4, optional)**: app-level blob encryption at rest via the Tauri blob server (`lib.rs:936`, it already serves blobs and thumbnails). It needs a core patch, because core reads blobs directly for sending, thumbnails and webxdc. It is too invasive for 2.66, so it is deferred.

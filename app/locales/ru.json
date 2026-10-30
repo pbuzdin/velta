@@ -1500,5 +1500,9 @@
   "Biometric lock is on.": "Биометрическая блокировка включена.",
   "Biometric lock is off.": "Биометрическая блокировка выключена.",
   "The biometric prompt did not succeed.": "Биометрический запрос не прошёл.",
-  "The biometric lock protects this profile's database key at rest — cold starts ask for your fingerprint before the data opens.": "Биометрическая блокировка защищает ключ базы данных профиля: при холодном запуске данные откроются только после отпечатка."
+  "The biometric lock protects this profile's database key at rest — cold starts ask for your fingerprint before the data opens.": "Биометрическая блокировка защищает ключ базы данных профиля: при холодном запуске данные откроются только после отпечатка.",
+  "Attachments stay unencrypted — they rely on platform isolation and, on this device, your disk encryption.": "Вложения не шифруются — они полагаются на изоляцию платформы и, на этом устройстве, на шифрование диска.",
+  "Attachments stay in the app's private storage, which Android encrypts at rest (file-based encryption).": "Вложения хранятся в закрытом хранилище приложения, которое Android шифрует (файловое шифрование).",
+  "Disk encryption: on.": "Шифрование диска: включено.",
+  "Disk encryption: OFF — turn on BitLocker (or FileVault) to protect attachments at rest.": "Шифрование диска: ВЫКЛЮЧЕНО — включите BitLocker (или FileVault), чтобы защитить вложения."
 }

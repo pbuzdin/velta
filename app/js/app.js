@@ -3983,6 +3983,7 @@ function openProfileManagement() {
     ${desktopApplock ? `
     <div style="margin:0 2px 10px;display:grid;gap:8px;border-top:1px solid var(--hairline);padding-top:10px" data-applock-box>
       <p class="pm-hint" data-applock-status></p>
+      <p class="pm-hint" data-blob-status hidden></p>
       <div data-pin-form hidden style="display:grid;gap:6px">
         <input class="text-field" data-pin-cur type="password" placeholder="${escapeHtml(t("Current PIN"))}" autocomplete="current-password">
         <input class="text-field" data-pin-new type="password" minlength="6" required placeholder="${escapeHtml(t("App-lock PIN (6+ characters)"))}" autocomplete="new-password">
@@ -4247,6 +4248,28 @@ function openProfileManagement() {
     });
     // Android: the biometric lock replaces the PIN (the Keystore KEK is the
     // user-auth root there); the result arrives as a velta-biometric event.
+    // #178 phase 5: the encryption decision's honest boundary — the
+    // message database is keyed, attachments are not; say what still rides
+    // on platform/disk encryption.
+    const blobEl = applockBox.querySelector("[data-blob-status]");
+    if (blobEl) {
+      blobEl.hidden = false;
+      if (isAndroid()) {
+        blobEl.textContent = t("Attachments stay in the app's private storage, which Android encrypts at rest (file-based encryption).");
+      } else {
+        const shell2 = tauriInvoke();
+        if (shell2) {
+          shell2("volume_encryption_status").then((st) => {
+            const vol = st === "on"
+              ? " " + t("Disk encryption: on.")
+              : st === "off"
+                ? " " + t("Disk encryption: OFF — turn on BitLocker (or FileVault) to protect attachments at rest.")
+                : "";
+            blobEl.textContent = t("Attachments stay unencrypted — they rely on platform isolation and, on this device, your disk encryption.") + vol;
+          }).catch(() => {});
+        }
+      }
+    }
     const bioBtn = applockBox.querySelector("[data-bio-toggle]");
     if (bioBtn) {
       let bioOn = false;
