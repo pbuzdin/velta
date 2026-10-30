@@ -1,25 +1,30 @@
-//! Database encryption at rest (#178, phase 1 — desktop).
+//! Database encryption at rest (#178, phases 1–2 — desktop and Android).
 //!
-//! One random 256-bit DEK per install lives in the OS keychain (`keyring`
-//! crate: Windows Credential Manager/DPAPI, macOS login Keychain, Linux
-//! Secret Service/kernel keyutils). The raw SQLCipher key (`x'<64 hex>'`,
-//! skips PBKDF2) is handed to the core sidecar via the `VELTA_DB_KEY` env
-//! var (core quilt patch #20), and to nothing else — no plaintext key file
-//! ever exists.
+//! One random 256-bit DEK per install. The raw SQLCipher key (`x'<64 hex>'`,
+//! skips PBKDF2) reaches the core via the `VELTA_DB_KEY` env var (core quilt
+//! patch #20): desktop passes it to the spawned rpc-server sidecar, Android
+//! sets it in-process before `Accounts::new`. The DEK itself lives in the OS
+//! keychain — desktop: `keyring` (Windows Credential Manager/DPAPI, macOS
+//! login Keychain, Linux Secret Service); Android: AndroidKeyStore KEK
+//! wrapping the DEK (`org.velta.VeltaKeystore`, blob in `noBackupFilesDir`).
+//! No plaintext key file ever exists.
 //!
-//! Before the sidecar spawns, every `accounts/<uuid>/dc.db` is classified
-//! and plaintext databases are migrated in-process (`sqlcipher_export`
-//! through the same bundled SQLCipher core uses) while the files are not
-//! open by anyone. Hard rule from the plan (§3.3): an account we cannot
-//! open stays LOCKED — the UI shows a locked screen and onboarding never
-//! runs; we never create a fresh account over unreadable data.
+//! Before the core opens anything, every `<accounts>/<uuid>/dc.db` is
+//! classified and plaintext databases are migrated in-process
+//! (`sqlcipher_export` through the same bundled SQLCipher core uses) while
+//! the files are not open by anyone. Hard rule from the plan (§3.3): an
+//! account we cannot open stays LOCKED — the UI shows a locked screen and
+//! onboarding never runs; we never create a fresh account over unreadable
+//! data.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use rusqlite::Connection;
 
+#[cfg(not(target_os = "android"))]
 const KEYCHAIN_SERVICE: &str = "chat.velta.dbkey";
+#[cfg(not(target_os = "android"))]
 const KEYCHAIN_USER: &str = "default";
 
 /// Tables whose row counts must survive the migration byte-identical.
@@ -54,6 +59,7 @@ fn log(msg: &str) {
 /// and stored. `None` = keychain unavailable or unreadable — the session
 /// runs unencrypted (or locked, if encrypted databases exist); we never
 /// fall back to a key file next to the database, which would add nothing.
+#[cfg(not(target_os = "android"))]
 fn load_or_create_dek() -> Option<String> {
     let entry = match keyring::Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_USER) {
         Ok(e) => e,
@@ -303,10 +309,40 @@ pub fn prepare(accounts_root: &Path, key_hex: Option<&str>) -> Prepare {
 /// Desktop startup entry point: load/create the DEK, migrate plaintext
 /// databases, and return the raw key for the sidecar env — `None` runs the
 /// session without encryption.
+#[cfg(not(target_os = "android"))]
 pub fn startup(accounts_data_dir: &Path) -> Option<String> {
     let t0 = Instant::now();
     let hex = load_or_create_dek();
     let report = prepare(&accounts_data_dir.join("accounts"), hex.as_deref());
+    log(&format!(
+        "prepare: {} newly encrypted, {} already encrypted, {} locked, key {} ({} ms)",
+        report.migrated,
+        report.already,
+        report.locked,
+        if report.use_key { "active" } else { "off" },
+        t0.elapsed().as_millis()
+    ));
+    if report.use_key {
+        hex.map(|h| format!("x'{h}'"))
+    } else {
+        None
+    }
+}
+
+/// Android startup entry point (#178 phase 2): the DEK comes from the
+/// Keystore via `org.velta.VeltaKeystore` (JNI, works on push/job cold
+/// starts — no user auth bound to the KEK). Called from `init_android_core`
+/// with the accounts ROOT (`<data>/accounts`, where `Accounts::new` puts
+/// per-account dirs directly — desktop nests one level deeper through the
+/// sidecar's cwd). The raw key is returned for `std::env::set_var` before
+/// `Accounts::new`; a Keystore failure runs the session keyless, which
+/// leaves already-encrypted databases closed until the Keystore works
+/// again — nothing is recreated over them.
+#[cfg(target_os = "android")]
+pub fn android_startup(accounts_root: &Path) -> Option<String> {
+    let t0 = Instant::now();
+    let hex = crate::android_keystore_dek();
+    let report = prepare(accounts_root, hex.as_deref());
     log(&format!(
         "prepare: {} newly encrypted, {} already encrypted, {} locked, key {} ({} ms)",
         report.migrated,

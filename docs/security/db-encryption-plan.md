@@ -2,16 +2,26 @@
 
 Refs #178
 
-Status: phases 0–1 (desktop) IMPLEMENTED 2026-10-30. Desktop ships: keyring
-DEK (`chat.velta.dbkey`), keyed sidecar via the `VELTA_DB_KEY` env var (core
-quilt patch #20), one-time pre-spawn `sqlcipher_export` migration with
-rollback (`velta-app/src-tauri/src/db_key.rs`), and a locked screen for
-accounts the key cannot open. Deviations from §2.1 below: the desktop core
+Status: phases 0–2 (desktop + Android) IMPLEMENTED 2026-10-30. Desktop ships:
+keyring DEK (`chat.velta.dbkey`), keyed sidecar via the `VELTA_DB_KEY` env
+var (core quilt patch #20), one-time pre-spawn `sqlcipher_export` migration
+with rollback (`velta-app/src-tauri/src/db_key.rs`), and a locked screen for
+accounts the key cannot open. Android ships: the same migration + env var
+in-process (set before `Accounts::new` in `init_android_core`), with the DEK
+custodied in AndroidKeyStore (`org.velta.VeltaKeystore`: non-exportable
+AES-256-GCM KEK `velta_kek`, StrongBox when available, wrapped DEK blob in
+`noBackupFilesDir/dbkey.wrap` — never backed up, so a restored database is
+unopenable by design); no user auth is bound to the KEK, so push/job cold
+starts unlock without UI (the strong biometric mode is phase 4's app lock).
+Backup/transfer exclusion predates this: `allowBackup=false` + global
+`data_extraction_rules.xml`. Deviations from §2.1 below: the desktop core
 is the rpc-server SIDECAR, not in-process `Accounts` (that is Android-only,
 corrected below), so the key crosses as an env var and migration runs in
 the shell before spawn; `.plain.bak` rollback copies are pruned at the next
-successful startup instead of in-session. Phases 2 (Android Keystore), 3
-(PWA), 4 (app lock) are still open.
+successful startup instead of in-session. Phase 3 (PWA) and 4 (app lock)
+are still open. Android Keystore wrap/unwrap and the upgrade-keep-the-key
+test (§3.6) still need a device run — the Keystore cannot be exercised on
+a JVM.
 
 ## 1. Findings: what core 2.66.0 offers
 

@@ -810,9 +810,9 @@ use webxdc_serve::{webxdc_resolve_line, webxdc_serve};
 mod bg_events;
 mod scheduled;
 mod scheduled_store;
-// Database encryption at rest (#178): desktop phase. Android ships its
-// Keystore variant in phase 2 and must not compile this yet.
-#[cfg(not(target_os = "android"))]
+// Database encryption at rest (#178): desktop keeps the DEK in the OS
+// keychain (keyring) and passes it to the sidecar; Android keeps it in the
+// Keystore (VeltaKeystore.kt via JNI) and sets it in-process.
 mod db_key;
 
 // ---------- blobfile:// -- Range-aware media serving ----------
@@ -2422,6 +2422,11 @@ static APP_UNIFIEDPUSH_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::ne
 #[cfg(target_os = "android")]
 static APP_SCHEDULED_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
 
+// org.velta.VeltaKeystore — #178 phase 2: DEK custody for database
+// encryption at rest (AndroidKeyStore KEK + wrapped blob in noBackupFilesDir).
+#[cfg(target_os = "android")]
+static APP_KEYSTORE_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
+
 // org.velta.CallAudio — #141 call audio route (earpiece / loudspeaker /
 // headset, MODE_IN_COMMUNICATION while a call is up).
 #[cfg(target_os = "android")]
@@ -2504,7 +2509,7 @@ fn store_app_context(env: &mut jni::JNIEnv, context: &jni::objects::JObject) {
     *APP_CONTEXT.lock().unwrap() = Some(global);
     // Global refs to the app's helper classes for later Rust commands
     // (NetInfo: DNS tunnel, tunnel.rs — operator resolvers + SIM operator).
-    let classes: [(&str, &Mutex<Option<jni::objects::GlobalRef>>); 11] = [
+    let classes: [(&str, &Mutex<Option<jni::objects::GlobalRef>>); 12] = [
         ("InAppBrowser", &APP_INAPP_BROWSER_CLASS),
         ("Notifications", &APP_NOTIFICATIONS_CLASS),
         ("Battery", &APP_BATTERY_CLASS),
@@ -2516,6 +2521,7 @@ fn store_app_context(env: &mut jni::JNIEnv, context: &jni::objects::JObject) {
         ("CallPermissions", &APP_CALL_PERMISSIONS_CLASS),
         ("ScheduledAlarm", &APP_SCHEDULED_CLASS),
         ("CoreService", &APP_CORE_SERVICE_CLASS),
+        ("VeltaKeystore", &APP_KEYSTORE_CLASS),
     ];
     for (name, slot) in classes {
         match env.find_class(format!("org/velta/{name}")) {
@@ -3646,6 +3652,32 @@ pub extern "system" fn Java_org_velta_VeltaCore_isRunning(
     android_core().is_some_and(|s| s.tx.lock().unwrap().is_some()) as jni::sys::jboolean
 }
 
+/// #178 phase 2: the database-encryption DEK from the Keystore, as 64 hex
+/// chars. `None` = Keystore lost or unusable — the caller runs keyless and
+/// encrypted databases stay closed (never recreated).
+#[cfg(target_os = "android")]
+fn android_keystore_dek() -> Option<String> {
+    with_android_class(&APP_KEYSTORE_CLASS, "VeltaKeystore", |env, context, class_ref| {
+        let out = env
+            .call_static_method(
+                class_ref,
+                "getOrCreateDek",
+                "(Landroid/content/Context;)Ljava/lang/String;",
+                &[(&context).into()],
+            )
+            .map_err(|e| e.to_string())?;
+        let jstr = jni::objects::JString::from(out.l().map_err(|e| e.to_string())?);
+        let hex = env.get_string(&jstr).map_err(|e| e.to_string())?.to_string_lossy().into_owned();
+        Ok(if hex.len() == 64 && !hex.is_empty() { Some(hex) } else { None })
+    })
+    .map_err(|e| {
+        log(&format!("db-key: keystore call failed: {e}"));
+        e
+    })
+    .ok()
+    .flatten()
+}
+
 #[cfg(target_os = "android")]
 async fn init_android_core(
     accounts_dir: PathBuf,
@@ -3661,6 +3693,15 @@ async fn init_android_core(
     // Tell the frontend we're past the "starting" stage so the status pill
     // shows progress instead of looking stuck during Accounts::new().
     android_core_status(serde_json::json!({"running": true, "stage": "initializing"}));
+
+    // #178 phase 2: load the DEK from the Keystore and migrate any plaintext
+    // databases BEFORE Accounts::new opens them in-process. The key reaches
+    // the core through the same VELTA_DB_KEY env var as the desktop sidecar
+    // (quilt patch #20); no UI is involved, so push/job cold starts unlock
+    // without user authentication.
+    if let Some(raw) = db_key::android_startup(&accounts_dir) {
+        std::env::set_var("VELTA_DB_KEY", raw);
+    }
 
     let accounts = Accounts::new(accounts_dir, true).await?;
     let accounts = Arc::new(RwLock::new(accounts));

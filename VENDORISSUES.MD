@@ -573,7 +573,9 @@ creation, and a wrong key returns `Ok(false)` (account closed, never an
 error). Unset env keeps upstream behavior byte-for-byte, so the wasm build
 and stock rpc-server users are unaffected. The velta-app desktop shell
 generates the DEK into the OS keychain and migrates plaintext databases
-BEFORE spawning the sidecar (`velta-app/src-tauri/src/db_key.rs`); the
+BEFORE the core opens anything (`velta-app/src-tauri/src/db_key.rs`:
+desktop passes the key to the sidecar's env, Android sets it in-process
+with the DEK from AndroidKeyStore via org.velta.VeltaKeystore); the
 guard test `test_velta_keyed_open_roundtrip` rides the quilt and fails to
 compile if a core bump removes `Context::open`. Plan and phases (Android
 Keystore, PWA snapshot encryption): docs/security/db-encryption-plan.md.
