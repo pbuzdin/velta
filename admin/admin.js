@@ -79,6 +79,16 @@ const formatDate = (iso) => {
   });
 };
 
+// News-list category: only "Release" is inferred (titles like "Velta 1.4.87 …");
+// other posts get no tag unless one is added by hand (Feature, Guide, Site).
+const newsTag = (title) => (/^Velta \d/.test(title) ? "Release" : "");
+// One news-index item: whole item is the link; meta line = date · tag;
+// the trailing arrow is decorative. Same markup as news/index.html.
+const newsListItem = ({ slug, title, summary, date, iso }) => {
+  const tag = newsTag(title);
+  const meta = `<time datetime="${esc(iso)}">${esc(date)}</time>${tag ? ` · <span class="news-tag">${tag}</span>` : ""}`;
+  return `<li><a href="/news/${slug}.html"><span><h2>${esc(title)}<span class="news-arrow" aria-hidden="true">\u00a0→</span></h2><p>${esc(summary)}</p><p class="news-meta">${meta}</p></span></a></li>`;
+};
 const readMinutes = (text) => Math.max(1, Math.round(text.trim().split(/\s+/).length / 200));
 
 // Camera originals would sit in git forever at full size: downscale any
@@ -619,8 +629,9 @@ class VeltaAdmin extends Elena(HTMLElement) {
       const indexRaw = b64ToUtf8(indexFile.content);
       const im = indexRaw.match(MARKERS);
       if (!im) throw new Error("news/index.html has no body markers — cannot add the post to the list.");
-      const li = `<li><a href="/news/${slug}.html"><time>${esc(date)}</time><span><h2>${esc(title)}</h2><p>${esc(summary)}</p><p>${mins} min read</p></span></a></li>`;
-      const newIndexRaw = spliceBody(indexRaw, im[1].replace(/<ul>/i, () => `<ul>\n  ${li}`));
+      const li = newsListItem({ slug, title, summary, date, iso: this.newPost.date.trim() || isoToday() });
+      // the index list is <ul class="news-list"> — match any <ul ...> opener
+      const newIndexRaw = spliceBody(indexRaw, im[1].replace(/<ul\b[^>]*>/i, (open) => `${open}\n  ${li}`));
       await this.putFile("news/index.html", `Add ${path} to the news index`, newIndexRaw, indexFile.sha);
 
       await this.loadFiles();

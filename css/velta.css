@@ -499,17 +499,25 @@ article.card p, #platforms li, #features p { color: var(--muted); }
    turned whole items blue there — titles stay ink, like home and /news */
 ul.news-list li a {
   display: grid;
-  grid-template-columns: 9rem 1fr;
-  gap: 2rem;
+  grid-template-columns: 1fr;
   padding: 1.5rem 0;
   color: inherit;
   text-decoration: none;
 }
 .news-list time { color: var(--muted); font-size: 0.875rem; }
+/* one meta line under the summary: date · category tag */
+ul.news-list li p.news-meta { margin: 0.75rem 0 0; color: var(--muted); font-size: 0.875rem; }
+.news-tag { color: var(--fg); font-weight: 500; }
+/* trailing arrow: signals the whole item is a link; decorative (aria-hidden) */
+.news-arrow { color: var(--muted); font-family: var(--sans); font-weight: 400; display: inline-block; transition: transform 0.15s ease, color 0.15s ease; }
+.news-list a:hover .news-arrow, .news-list a:focus-visible .news-arrow { color: var(--link); transform: translateX(0.2em); }
 /* ul+li: without them `main.page h2` ties on specificity (main is an
    element too) and wins on the 404, shrinking titles below the home size */
 ul.news-list li h2 { margin: 0.25rem 0 0; font-size: 1.8rem; }
 .news-list a:hover h2 { color: var(--link); }
+/* 404/posts: `main.page ul/li` indented the list and spaced its items */
+main.page ul.news-list { padding-left: 0; }
+main.page ul.news-list li { margin: 0; }
 
 #support { grid-template-columns: 1fr 1fr; align-items: start; }
 #support h2 { margin-top: 0.75rem; }
@@ -602,16 +610,8 @@ main.page aside a strong { display: block; font-family: var(--display); font-siz
   /* footer link groups side by side on mobile; the brand block spans both */
   footer > div { grid-template-columns: 1fr 1fr; }
   footer > div > div:first-child { grid-column: 1 / -1; }
-  /* mobile: date drops under the headline so it doesn't read as an eyebrow */
-  .news-list time { order: 2; }
-  /* ul+li to outrank the base `ul.news-list li a` rule — a bare `.news-list a`
-     in the selector lists above lost, so the 9rem date column stayed on
-     phones and squeezed titles into a ~150px column */
-  ul.news-list li a { grid-template-columns: 1fr; gap: 0.5rem; padding: 1.25rem 0; }
+  ul.news-list li a { padding: 1.25rem 0; }
   ul.news-list li h2 { font-size: 1.45rem; line-height: 1.2; overflow-wrap: anywhere; }
-  /* 404/posts: `main.page ul/li` indented the list and spaced its items */
-  main.page ul.news-list { padding-left: 0; }
-  main.page ul.news-list li { margin: 0; }
   #hero dl { grid-template-columns: 1fr 1fr; }
   #features ul { grid-template-columns: 1fr 1fr; }
   #download ul { grid-template-columns: 1fr 1fr; }
@@ -629,6 +629,7 @@ main.page aside a strong { display: block; font-family: var(--display); font-siz
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
+  .news-arrow { transition: none; }
 }
 
 /* --- generic page content (about, developing, comparison, 404, news posts) --- */
