@@ -2,7 +2,16 @@
 
 Refs #178
 
-Status: plan (approved for writing, not implemented). Applies to desktop (Tauri), Android (Tauri), PWA (wasm core).
+Status: phases 0–1 (desktop) IMPLEMENTED 2026-10-30. Desktop ships: keyring
+DEK (`chat.velta.dbkey`), keyed sidecar via the `VELTA_DB_KEY` env var (core
+quilt patch #20), one-time pre-spawn `sqlcipher_export` migration with
+rollback (`velta-app/src-tauri/src/db_key.rs`), and a locked screen for
+accounts the key cannot open. Deviations from §2.1 below: the desktop core
+is the rpc-server SIDECAR, not in-process `Accounts` (that is Android-only,
+corrected below), so the key crosses as an env var and migration runs in
+the shell before spawn; `.plain.bak` rollback copies are pruned at the next
+successful startup instead of in-session. Phases 2 (Android Keystore), 3
+(PWA), 4 (app lock) are still open.
 
 ## 1. Findings: what core 2.66.0 offers
 
@@ -24,7 +33,7 @@ Deprecation: `CHANGELOG.md:1856` says "Mark database encryption support as depre
 JSON-RPC: `deltachat-jsonrpc/src/api.rs` exposes **no** `open`/`change_passphrase`/`is_open`/`add_closed_account`. The `passphrase` parameters at `api.rs:639/655/2055/2071` are backup export/import passphrases only.
 
 How Velta opens accounts today:
-- Desktop and Android: `velta-app/src-tauri/src/lib.rs:~3610` embeds `deltachat_jsonrpc::api::{Accounts, CommandApi}` **in-process** via `Accounts::new(accounts_dir, true)`. It does not spawn a sidecar rpc-server. The Rust side therefore holds `Arc<RwLock<Accounts>>` (also `ANDROID_ACCOUNTS`, `lib.rs:2401`) and can call `deltachat::Context` methods directly, before the UI's first JSON-RPC call.
+- Android: `velta-app/src-tauri/src/lib.rs` (`init_android_core`) embeds `deltachat_jsonrpc::api::Accounts` **in-process** (`Accounts::new`, `ANDROID_ACCOUNTS`). The Rust side can call `deltachat::Context` methods directly. Desktop does NOT: it spawns the `deltachat-rpc-server` sidecar child process and speaks JSON-RPC over stdio, so the shell can only pass the key as an environment variable (quilt patch #20 reads `VELTA_DB_KEY` in `Accounts::load_accounts`/`add_account`).
 - `app/js/rpc-core.js` only uses JSON-RPC (`start_io_for_all_accounts`, ...) and never sees a key.
 - PWA: `packages/velta-wasm/rust/src/lib.rs:149` runs `Accounts::new("/accounts")`. SQLite lives in sqlite-wasm-rs's **in-memory** VFS (`lib.rs:79-113`, `sqlite_export`/`sqlite_import`). `app/js/worker-wasm.js` persists a snapshot (memfs + exported DB bytes) to **OPFS** under `navigator.locks`. In the browser the data at rest is that OPFS snapshot, not a live SQLite file.
 

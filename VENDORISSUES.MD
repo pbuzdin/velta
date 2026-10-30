@@ -559,3 +559,21 @@ Rust tests: `test_velta_*` in chat_tests.rs / tools_tests.rs. Plan, interop
 with stock Delta Chat and limits: docs/core-patches/admin-groups-plan.md.
 Single admin only (the creator); multiple admins need a new header that
 ArcaneChat would ignore.
+
+### 20. Database encryption at rest: keyed open (core/src/accounts.rs)
+
+**Tracker: pbuzdin/velta#178. Status: patched locally (quilt ops "#20 keyed …", 3 ops, 1 file).**
+Upstream deprecated db encryption (chatmail/core#7403) but 2.66 still ships
+`Context::open`/`change_passphrase` on SQLCipher. `Accounts` however always
+opened with an empty passphrase (`load_accounts`, `add_account`), so an
+encrypted dc.db stayed closed and a fresh one was created plaintext. The ops
+read `VELTA_DB_KEY` (raw SQLCipher key `x'<64 hex>'`) and open with it when
+set — existing encrypted databases unlock, fresh ones are encrypted at
+creation, and a wrong key returns `Ok(false)` (account closed, never an
+error). Unset env keeps upstream behavior byte-for-byte, so the wasm build
+and stock rpc-server users are unaffected. The velta-app desktop shell
+generates the DEK into the OS keychain and migrates plaintext databases
+BEFORE spawning the sidecar (`velta-app/src-tauri/src/db_key.rs`); the
+guard test `test_velta_keyed_open_roundtrip` rides the quilt and fails to
+compile if a core bump removes `Context::open`. Plan and phases (Android
+Keystore, PWA snapshot encryption): docs/security/db-encryption-plan.md.

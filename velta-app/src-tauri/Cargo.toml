@@ -66,6 +66,14 @@ iroh = { version = "0.35", default-features = false, features = ["discovery-loca
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "bmp"] }
 sha1 = "0.10"
 
+# Database encryption at rest (#178, desktop): the DEK lives in the OS
+# keychain and the one-time plaintext→SQLCipher migration runs in-process
+# before the sidecar spawns. Android gets its Keystore variant in phase 2
+# and must not compile these yet; iOS shares the apple-native keychain.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native-sync-persistent"] }
+rusqlite = { version = "0.37", features = ["bundled-sqlcipher-vendored-openssl"] }
+
 # Android links the Delta Chat core in-process instead of spawning a sidecar.
 [target.'cfg(target_os = "android")'.dependencies]
 deltachat-jsonrpc = { path = "../../core/deltachat-jsonrpc" }

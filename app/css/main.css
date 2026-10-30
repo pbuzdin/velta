@@ -3568,3 +3568,17 @@ html[data-theme="brutal"] .msg-row.out .msg-text .mention { color: var(--nb-main
 .admin-group-hint { font-size: 12.5px; color: var(--text-dim); }
 .info-row[data-admin-only] { cursor: default; }
 .info-row[data-admin-only] .v { color: var(--text-dim); }
+
+/* #178 database locked: blocking screen for accounts the keychain key
+   cannot open. Sits over everything, including onboarding. */
+#db-locked {
+  position: fixed; inset: 0; z-index: 1000;
+  display: grid; place-items: center;
+  background: var(--bg); color: var(--text);
+  padding: 16px;
+}
+#db-locked .db-locked-card { max-width: 420px; display: grid; gap: 12px; text-align: center; }
+#db-locked h2 { margin: 0; font-size: 18px; }
+#db-locked p { margin: 0; opacity: .85; font-size: 14px; line-height: 1.45; }
+#db-locked .db-locked-hint { opacity: .65; font-size: 13px; }
+#db-locked .db-locked-retry { margin-top: 4px; }

@@ -407,6 +407,31 @@ if (window.__TAURI__) {
   } catch (e) {
     console.warn("[velta] sidecar status setup failed:", e);
   }
+
+  // Database locked (#178): accounts the OS-keychain key could not open.
+  // Blocking overlay — onboarding must never run over unreadable data, and
+  // nothing may look like a fresh install to the user.
+  try {
+    const showDbLocked = (payload) => {
+      const locked = Array.isArray(payload?.locked) ? payload.locked.length : 0;
+      if (!locked || document.getElementById("db-locked")) return;
+      const el = document.createElement("div");
+      el.id = "db-locked";
+      el.innerHTML = `
+        <div class="db-locked-card">
+          <h2>Database locked</h2>
+          <p>${locked} profile${locked === 1 ? " was" : "s were"} not decrypted with the key stored on this device. Your data is intact — nothing was reset.</p>
+          <p class="db-locked-hint">Unlock your keychain (or credential manager) and try again, or restore via Profile management → Import backup.</p>
+          <button class="btn-primary db-locked-retry" type="button">Try again</button>
+        </div>`;
+      document.body.appendChild(el);
+      el.querySelector(".db-locked-retry").addEventListener("click", () => location.reload());
+    };
+    listen("velta-db-locked", ev => showDbLocked(ev.payload));
+    invoke("get_db_lock_status").then(showDbLocked).catch(() => {});
+  } catch (e) {
+    console.warn("[velta] db-locked setup failed:", e);
+  }
 }
 
 // The splash is created on demand: boot shows it only when the account is

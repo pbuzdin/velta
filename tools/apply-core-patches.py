@@ -1598,7 +1598,78 @@ pub struct JsonrpcTransportServerMetadata {
         where="replace",
         text="    let buf = create_id();\n    assert_eq!(buf.len(), 24);\n}\n\n#[test]\nfn test_velta_validate_group_id() {\n    // Velta #19 (admin groups): FINGERPRINT:base_id.\n    let id = create_id();\n    assert!(validate_group_id(&id));\n    let fpr = \"0123456789ABCDEF0123456789ABCDEF01234567\";\n    assert!(validate_group_id(&format!(\"{fpr}:{id}\")));\n    assert!(!validate_group_id(&format!(\"{}:{id}\", fpr.to_lowercase())));\n    assert!(!validate_group_id(&format!(\"{fpr}:short\")));\n    assert!(!validate_group_id(&format!(\"{fpr}:{id}:{id}\")));\n    assert!(!validate_group_id(&format!(\":{id}\")));\n    assert!(!validate_group_id(\"a b:aaaaaaaaaaaa\"));\n}\n\n",
     ),
+
+    # ---- VENDORISSUES #20 (#178): database encryption at rest ----
+    # Accounts::new/load_accounts and add_account opened every database with
+    # an empty passphrase, so a SQLCipher-encrypted dc.db stayed closed and a
+    # fresh one was created plaintext. When the embedding app provides a raw
+    # key (VELTA_DB_KEY, format x'<64 hex>'), open with it instead: existing
+    # encrypted databases unlock, fresh ones are encrypted at creation. A
+    # plaintext database + nonempty key returns Ok(false) (account stays
+    # closed) -- the app must migrate plaintext files BEFORE handing the key
+    # over (velta-app db_key::startup does, pre-spawn). Empty/unset env keeps
+    # upstream behavior byte-for-byte.
+    dict(
+        id="#20 keyed open at startup (accounts.rs, load_accounts)",
+        file="core/src/accounts.rs",
+        applied="open with the app-provided raw key when",
+        anchor="            // Try to open without a passphrase,\n            // but do not return an error if account is passphare-protected.\n            ctx.open(\"\".to_string()).await?;\n",
+        where="replace",
+        text="            // Try to open without a passphrase,\n            // but do not return an error if account is passphare-protected.\n            // Velta patch #20 (#178): open with the app-provided raw key when\n            // one is set (empty = upstream plaintext behavior).\n            let velta_db_key = std::env::var(\"VELTA_DB_KEY\").unwrap_or_default();\n            ctx.open(velta_db_key).await?;\n",
+    ),
+    dict(
+        id="#20 keyed creation (accounts.rs, add_account)",
+        file="core/src/accounts.rs",
+        applied="encrypted at creation",
+        anchor="        // Try to open without a passphrase,\n        // but do not return an error if account is passphare-protected.\n        ctx.open(\"\".to_string()).await?;\n",
+        where="replace",
+        text="        // Try to open without a passphrase,\n        // but do not return an error if account is passphare-protected.\n        // Velta patch #20 (#178): a fresh database is encrypted at creation\n        // when the app provides a raw key (empty = upstream behavior).\n        let velta_db_key = std::env::var(\"VELTA_DB_KEY\").unwrap_or_default();\n        ctx.open(velta_db_key).await?;\n",
+    ),
+
+    dict(
+        id="#20 keyed-open guard test (accounts.rs tests)",
+        file="core/src/accounts.rs",
+        applied="test_velta_keyed_open_roundtrip",
+        anchor="    /// Tests that accounts share stock string translations.\n",
+        where="before",
+        text="""    /// Velta #20 (#178): the raw SQLCipher key form (x'<64 hex>') that the
+    /// VELTA_DB_KEY patch passes round-trips through the deprecated (upstream
+    /// #7403) passphrase API: sets encryption on a fresh database, reopens
+    /// it, and a wrong key reports false instead of erroring. Doubles as the
+    /// core-bump guard: fails to COMPILE if `Context::open` disappears.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_velta_keyed_open_roundtrip() -> Result<()> {
+        let key = "x'00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff'";
+        let other = "x'ff112233445566778899aabbccddeeff00112233445566778899aabbccddeeffee'";
+        let dir = tempfile::tempdir()?.keep();
+
+        let mut accounts = Accounts::new(dir.clone(), true).await?;
+        let id = accounts.add_closed_account().await?;
+        let ctx = accounts.get_account(id).context("no account")?;
+        assert!(
+            ctx.open(key.to_string()).await?,
+            "set the raw key on a fresh db"
+        );
+        drop(accounts);
+        drop(ctx);
+
+        // Reopening without the key (load_accounts passes an empty
+        // passphrase upstream) leaves the account closed, not an error.
+        let accounts = Accounts::new(dir.clone(), true).await?;
+        let ctx = accounts.get_account(id).context("no account")?;
+        assert!(!ctx.is_open().await, "empty passphrase must not open");
+        assert!(
+            !ctx.open(other.to_string()).await?,
+            "wrong key must report false while closed"
+        );
+        assert!(ctx.open(key.to_string()).await?, "same key must reopen");
+        Ok(())
+    }
+
+"""
+    ),
 ]
+
 
 
 # --------------------------------------------------------------------------

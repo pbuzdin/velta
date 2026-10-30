@@ -167,7 +167,10 @@ impl Accounts {
             .await?;
         // Try to open without a passphrase,
         // but do not return an error if account is passphare-protected.
-        ctx.open("".to_string()).await?;
+        // Velta patch #20 (#178): a fresh database is encrypted at creation
+        // when the app provides a raw key (empty = upstream behavior).
+        let velta_db_key = std::env::var("VELTA_DB_KEY").unwrap_or_default();
+        ctx.open(velta_db_key).await?;
 
         self.accounts.insert(account_config.id, ctx);
         self.emit_event(EventType::AccountsChanged);
@@ -804,7 +807,10 @@ impl Config {
                 .with_context(|| format!("failed to create context from file {dbfile:?}"))?;
             // Try to open without a passphrase,
             // but do not return an error if account is passphare-protected.
-            ctx.open("".to_string()).await?;
+            // Velta patch #20 (#178): open with the app-provided raw key when
+            // one is set (empty = upstream plaintext behavior).
+            let velta_db_key = std::env::var("VELTA_DB_KEY").unwrap_or_default();
+            ctx.open(velta_db_key).await?;
 
             accounts.insert(account_config.id, ctx);
         }
@@ -1296,6 +1302,40 @@ mod tests {
         assert_eq!(account.open("foobar".to_string()).await?, true);
         assert_eq!(account.is_open().await, true);
 
+        Ok(())
+    }
+
+    /// Velta #20 (#178): the raw SQLCipher key form (x'<64 hex>') that the
+    /// VELTA_DB_KEY patch passes round-trips through the deprecated (upstream
+    /// #7403) passphrase API: sets encryption on a fresh database, reopens
+    /// it, and a wrong key reports false instead of erroring. Doubles as the
+    /// core-bump guard: fails to COMPILE if `Context::open` disappears.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_velta_keyed_open_roundtrip() -> Result<()> {
+        let key = "x'00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff'";
+        let other = "x'ff112233445566778899aabbccddeeff00112233445566778899aabbccddeeffee'";
+        let dir = tempfile::tempdir()?.keep();
+
+        let mut accounts = Accounts::new(dir.clone(), true).await?;
+        let id = accounts.add_closed_account().await?;
+        let ctx = accounts.get_account(id).context("no account")?;
+        assert!(
+            ctx.open(key.to_string()).await?,
+            "set the raw key on a fresh db"
+        );
+        drop(accounts);
+        drop(ctx);
+
+        // Reopening without the key (load_accounts passes an empty
+        // passphrase upstream) leaves the account closed, not an error.
+        let accounts = Accounts::new(dir.clone(), true).await?;
+        let ctx = accounts.get_account(id).context("no account")?;
+        assert!(!ctx.is_open().await, "empty passphrase must not open");
+        assert!(
+            !ctx.open(other.to_string()).await?,
+            "wrong key must report false while closed"
+        );
+        assert!(ctx.open(key.to_string()).await?, "same key must reopen");
         Ok(())
     }
 
