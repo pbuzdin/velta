@@ -60,7 +60,7 @@ export function langCardHtml(code, { ui = currentLang(), esc }) {
   const c = LANG_CARDS[code];
   if (!c) return "";
   const on = ui === code;
-  return `<div class="ivc lang-card" lang="${code}"><div class="ivc-acts">${on
-    ? `<button type="button" class="ivc-btn" disabled aria-disabled="true" aria-current="true">${esc(c.current)}</button>`
-    : `<button type="button" class="ivc-btn ivc-primary" data-lang-card="${code}">${esc(c.action)}</button>`}</div></div>`;
+  return `<div class="lang-card" lang="${code}">${on
+    ? `<button type="button" class="lang-card-btn lang-card-on" disabled aria-disabled="true" aria-current="true">${esc(c.current)}</button>`
+    : `<button type="button" class="btn-text btn-primary lang-card-btn" data-lang-card="${code}">${esc(c.action)}</button>`}</div>`;
 }

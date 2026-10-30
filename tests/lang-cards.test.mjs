@@ -47,6 +47,17 @@ test("button switches, or shows current when already on", () => {
   assert.match(on, /disabled[^>]*aria-current="true">Le français est déjà activé</);
 });
 
+test("theme-following styles: design-system primary button, no dark .ivc panel", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const off = lc.langCardHtml("ru", { ui: "en", esc });
+  assert.match(off, /class="btn-text btn-primary lang-card-btn"/);
+  assert.doesNotMatch(off + lc.langCardHtml("ru", { ui: "ru", esc }), /\bivc/);
+  const css = await readFile(new URL("../app/css/main.css", import.meta.url), "utf8");
+  assert.match(css, /\.lang-card \{[^}]*background: var\(--bg-reply\)[^}]*border: 1px solid var\(--border\)[^}]*border-radius: 10px/);
+  assert.match(css, /\.lang-card-btn\.btn-primary:not\(\[disabled\]\) \{ color: var\(--on-accent\); background: var\(--accent\)/);
+  assert.match(css, /\.lang-card \.lang-card-on \{[^}]*color: var\(--text\)/);
+});
+
 test("wiring: device chat + device sender gate, reload switch, core label", () => {
   const cv = src("chat-view.js");
   assert.match(cv, /langCardCode\(m\.text, \{ trusted: this\.chat\?\.kind === "device" && m\.fromDevice === true \}\)/);

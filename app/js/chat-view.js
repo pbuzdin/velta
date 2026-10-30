@@ -570,7 +570,7 @@ function cssZoom() {
 // still starts on it (#87); the join/copy click after the swipe is swallowed.
 export const GESTURE_SKIP_SELECTOR = "button, input, textarea, audio";
 export function gestureSkipTarget(target) {
-  if (target?.closest?.(".invite-card, .ivc")) return false;
+  if (target?.closest?.(".invite-card, .ivc, .lang-card")) return false;
   if (target?.closest?.("video")?.controls) return true;
   return !!target?.closest?.(GESTURE_SKIP_SELECTOR);
 }
