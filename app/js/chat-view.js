@@ -2426,16 +2426,16 @@ export class ChatView {
     // otherwise only when the whole older history is loaded (pages still
     // ahead would silently under-count).
     const replyN = this._replyCountFor(m.id);
-    // Passive count next to the timestamp (phones; desktop has the side
-    // button). Not a tap target — the side button and the menu open threads.
+    // Passive count after the timestamp ("03:25 · 1 reply"), every screen
+    // size. Not a tap target — the side button and the menu open threads.
     const repliesChip = replyN > 0
-      ? `<span class="msg-replies-count">${escapeHtml(replyN === 1 ? t("1 reply") : t("{n} replies", { n: replyN }))}</span>`
+      ? `<span class="msg-replies-count"><span aria-hidden="true">· </span>${escapeHtml(replyN === 1 ? t("1 reply") : t("{n} replies", { n: replyN }))}</span>`
       : "";
     if (replyN >= THREAD_BUTTON_MIN_REPLIES && replyN > 0 && !inThread) {
       const label = escapeHtml(replyN === 1 ? t("Show 1 reply") : t("Show {n} replies", { n: replyN }));
-      threadBtn = `<button type="button" class="msg-thread-btn" data-act="thread" aria-label="${label}" title="${label}">${ICO.thread}<span aria-hidden="true">${replyN}</span></button>`;
+      threadBtn = `<button type="button" class="msg-thread-btn" data-act="thread" aria-label="${label}" title="${label}">${ICO.thread}</button>`;
     }
-    bubble += `<span class="msg-meta">${edited}${star}${botChip}${adminChip}${repliesChip}${timeTag(m.ts, formatTime(m.ts))}${ticks}</span>${failBadge}</div>`;
+    bubble += `<span class="msg-meta">${edited}${star}${botChip}${adminChip}${timeTag(m.ts, formatTime(m.ts))}${ticks}${repliesChip}</span>${failBadge}</div>`;
     if (m.reactions?.length) {
       bubble += `<div class="msg-reactions">${reactionChipsHtml(m.reactions)}</div>`;
     }

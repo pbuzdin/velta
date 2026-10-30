@@ -206,7 +206,12 @@ test("side button: shown from THREAD_BUTTON_MIN_REPLIES, labelled, opens the thr
   assert.ok(row.innerHTML.includes('class="msg-thread-btn" data-act="thread" aria-label="Show 1 reply"'), "round button with aria-label");
   assert.ok(row.innerHTML.includes('class="msg-thread-line"'), "button shares a nowrap line with the bubble");
   assert.ok(row.className.includes("has-thread"));
-  assert.ok(row.innerHTML.includes('class="msg-replies-count">1 reply'), "passive meta count");
+  assert.ok(row.innerHTML.includes('class="msg-replies-count"><span aria-hidden="true">· </span>1 reply</span>'), "passive meta count");
+  const meta = row.innerHTML.match(/<span class="msg-meta">.*?<\/span><\/span>(?=<\/div>|$)|<span class="msg-meta">[\s\S]*$/)[0];
+  assert.ok(meta.indexOf("msg-replies-count") > meta.indexOf("<time"), "count comes after the timestamp");
+  assert.ok(!/<a[ >]/.test(meta.slice(meta.indexOf("msg-replies-count"), meta.indexOf("msg-replies-count") + 80)), "count is not a link");
+  const btn = row.innerHTML.match(/<button type="button" class="msg-thread-btn"[\s\S]*?<\/button>/)[0];
+  assert.ok(!/>\d+</.test(btn), "button shows only its icon, no visible count");
   const inPanel = view._renderMsgItem(view.msgIndex.get(11), { inThread: true });
   assert.ok(!inPanel.innerHTML.includes("msg-thread-btn"), "no side button inside the panel");
   const plain = view._renderMsgItem(view.msgIndex.get(12));

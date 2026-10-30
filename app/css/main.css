@@ -1041,10 +1041,9 @@ html[data-theme="brutal"] .ivc-btn { border-width: 2px; }
 .msg-meta .edited { font-style: normal; }
 /* Reply threads (Velta #14). Passive "N replies" count next to the
    timestamp: plain meta text (inherits --text-meta-in/-out, same contrast as
-   the time), not a tap target. Phones only — wider screens use the round
-   side button below. */
-.msg-replies-count { margin: 0 4px 0 0; white-space: nowrap; }
-@media (min-width: 601px) { .msg-replies-count { display: none; } }
+   the time), not a tap target. Shown after the time on every screen size; the round
+   side button below opens the thread. */
+.msg-replies-count { margin: 0 0 0 4px; white-space: nowrap; }
 /* Round side button beside a bubble with replies (THREAD_BUTTON_MIN_REPLIES
    in chat-view.js): 32px visual disc inside a 44px hit box, on the open
    side (right of incoming, left of outgoing), bottom-aligned with the bubble.
@@ -1074,13 +1073,16 @@ html[data-theme="brutal"] .ivc-btn { border-width: 2px; }
   -webkit-tap-highlight-color: transparent;
 }
 .msg-thread-btn::before {
-  content: ""; grid-area: 1 / 1; width: 32px; height: 32px; border-radius: 50%;
+  align-self: end; content: ""; grid-area: 1 / 1; width: 32px; height: 32px; border-radius: 16px;
+  /* Attached look: the corner touching the bubble's bottom is sharp.
+     Logical corners, so RTL (row reversed) mirrors it automatically. */
+  border-end-start-radius: 0;
   background: var(--bg-bubble-in); box-shadow: var(--shadow);
   border: 1px solid var(--border);
 }
-.msg-thread-btn svg, .msg-thread-btn span { grid-area: 1 / 1; position: relative; }
-.msg-thread-btn svg { width: 14px; height: 14px; transform: translateY(-5px); }
-.msg-thread-btn span { font-size: 11px; font-weight: 600; line-height: 1; transform: translateY(7px); }
+.msg-row.out .msg-thread-btn::before { border-end-start-radius: 16px; border-end-end-radius: 0; }
+.msg-thread-btn { place-items: end center; }
+.msg-thread-btn svg { grid-area: 1 / 1; position: relative; width: 16px; height: 16px; margin-bottom: 8px; }
 .msg-thread-btn:focus-visible { outline: none; }
 .msg-thread-btn:focus-visible::before { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (hover: hover) and (pointer: fine) {
