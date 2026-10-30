@@ -160,3 +160,13 @@ test("link previews never fetch relay invite URLs", async () => {
   const src = await import("node:fs").then(fs => fs.readFileSync(new URL("../app/js/link-preview.js", import.meta.url), "utf8"));
   assert.match(src, /parseRelayInviteLink\(url\)\) return null/);
 });
+
+test("invite + Cryptex cards follow theme tokens (no fixed dark panel)", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const css = await readFile(new URL("../app/css/main.css", import.meta.url), "utf8");
+  assert.doesNotMatch(css, /rgba\(14, 17, 23, \.88\)/);
+  assert.doesNotMatch(css, /\.ivc-primary \{ background: #1a68b8/);
+  assert.match(css, /\.ivc \{[^}]*var\(--bg-reply\)[^}]*color: var\(--text\)[^}]*border-radius: 10px/);
+  assert.match(css, /\.ivc-btn\.ivc-primary:not\(\[disabled\]\) \{\s*background: var\(--accent\); border-color: var\(--accent\); color: var\(--on-accent\)/);
+  assert.match(css, /html\[data-theme="brutal"\] \.ivc \.ivc-btn\.ivc-primary:not\(\[disabled\]\) \{\s*border: 2px solid var\(--nb-ink\); background: var\(--nb-main\); color: var\(--nb-main-ink\)/);
+});

@@ -955,60 +955,74 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
   .invite-copy:hover { color: #f2f2f5; background: rgba(244, 244, 244, .10); }
 }
 .invite-copy svg { width: var(--ico-2); height: var(--ico-2); }
-/* Velta invite cards (invite-cards.js, docs/invite-cards.md): proxy, relay,
-   combined and DNS-tunnel invites. Same fixed dark panel as .invite-card in
-   every theme, but near-opaque (.88) so text keeps AA on any bubble:
-   #f2f2f5 on the darkest composite (~#16191f over the light/brutal yellow
-   bubbles) is >= 14:1, the .82-alpha secondary text >= 9:1, the primary
-   button #f2f2f5 on #1a68b8 5.3:1. Expired cards stay readable (no opacity):
-   only the colors switch to neutral greys (#c4c4cc, >= 9:1). */
+/* Velta invite cards (invite-cards.js, docs/invite-cards.md) and the Cryptex
+   download card (chat-view.js cryptexCardHtml): theme tokens, like .lang-card
+   (velta.cc/design). Surface = --bg-reply over an opaque --bg-bubble-in, so the
+   colors are the same on incoming and outgoing bubbles (brutal yellow too).
+   Text --text, secondary --text-dim, primary button = .btn-primary look
+   (--accent / --on-accent, radius 8, 15px), others outlined. Expired cards stay
+   readable (no opacity); only icons/title switch to --text-dim.
+   Contrast pinned by tests/invite-cards.test.mjs (AA in light/dark/brutal). */
 .ivc {
   display: flex; flex-direction: column; gap: 6px;
   margin: 8px 0 2px; padding: 10px 12px; max-width: 360px;
   white-space: normal; text-align: left;
-  background: rgba(14, 17, 23, .88); color: #f2f2f5;
-  border: 1px solid rgba(244, 244, 244, .22);
-  border-radius: var(--radius-media);
+  background: linear-gradient(var(--bg-reply), var(--bg-reply)), var(--bg-bubble-in);
+  color: var(--text);
+  /* secondary text: --text-dim nudged toward --text (dark --text-dim is 4.3:1 here) */
+  --ivc-dim: color-mix(in srgb, var(--text-dim) 80%, var(--text));
+  border: 1px solid var(--border);
+  border-radius: 10px;
   font-size: 14px; line-height: 1.35;
 }
 .ivc svg { width: 18px; height: 18px; flex: none; }
 .ivc-head { display: flex; align-items: center; gap: 8px; }
-.ivc-head svg { width: 22px; height: 22px; color: #8cc4ff; }
-.ivc-title { flex: 1; min-width: 0; font-weight: 700; overflow-wrap: anywhere; }
+.ivc-head svg { width: 22px; height: 22px; color: var(--accent-text-in); }
+.ivc-title { flex: 1; min-width: 0; font-weight: 700; overflow-wrap: anywhere; color: var(--text); }
 .ivc-badge {
   flex: none; padding: 1px 8px; border-radius: 999px;
-  font-size: 12px; font-weight: 700; color: #16181d; background: #c4c4cc;
+  font-size: 12px; font-weight: 700; color: var(--on-badge-muted); background: var(--text-dim);
 }
-.ivc-from { margin: 0; font-size: 12.5px; color: rgba(244, 244, 244, .82); }
+.ivc-from { margin: 0; font-size: 12.5px; color: var(--ivc-dim); }
 .ivc .ivc-meta { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
-.ivc .ivc-meta li { display: flex; margin: 0; align-items: center; gap: 7px; color: rgba(244, 244, 244, .9); overflow-wrap: anywhere; }
-.ivc-meta li svg { color: rgba(244, 244, 244, .75); }
+.ivc .ivc-meta li { display: flex; margin: 0; align-items: center; gap: 7px; color: var(--text); overflow-wrap: anywhere; }
+.ivc-meta li svg { color: var(--text-dim); }
 .ivc-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
-.ivc-btn {
+html .ivc .ivc-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   min-height: 36px; min-width: 36px; padding: 6px 12px;
-  border-radius: 8px; border: 1px solid rgba(244, 244, 244, .35);
-  background: transparent; color: #f2f2f5; font: inherit; font-weight: 600; cursor: pointer;
+  border-radius: 8px; border: 1px solid var(--text-dim);
+  background: transparent; color: var(--text); font: inherit; font-weight: 600; cursor: pointer;
 }
 .ivc-btn span:empty { display: none; }
-.ivc-btn.ivc-primary { background: #1a68b8; border-color: #1a68b8; }
-.ivc-btn:active { background: rgba(244, 244, 244, .14); }
-.ivc-btn.ivc-primary:active { background: #155a9e; }
-@media (hover: hover) and (pointer: fine) {
-  .ivc-btn:hover { background: rgba(244, 244, 244, .12); }
-  .ivc-btn.ivc-primary:hover { background: #155a9e; }
+html .ivc .ivc-btn.ivc-primary:not([disabled]) {
+  background: var(--accent); border-color: var(--accent); color: var(--on-accent);
+  font-size: 15px; padding: 6px 16px;
 }
-.ivc-btn:focus-visible { outline: 2px solid #8cc4ff; outline-offset: 2px; }
-.ivc-btn[disabled] { cursor: not-allowed; background: transparent; border-color: rgba(244, 244, 244, .2); color: rgba(244, 244, 244, .55); }
+html .ivc .ivc-btn:not([disabled]):active { background: var(--bg-hover); }
+html .ivc .ivc-btn.ivc-primary:not([disabled]):active { background: var(--accent-active); }
+@media (hover: hover) and (pointer: fine) {
+  html .ivc .ivc-btn:not([disabled]):hover { background: var(--bg-hover); }
+  html .ivc .ivc-btn.ivc-primary:not([disabled]):hover { background: var(--accent-hover); }
+}
+.ivc-btn:focus-visible { outline: 2px solid var(--accent-text-in); outline-offset: 2px; }
+html .ivc .ivc-btn[disabled] { cursor: not-allowed; background: transparent; border-color: var(--border); color: var(--ivc-dim); }
 .ivc-link {
   display: block; padding: 6px 8px; border-radius: 6px;
-  background: rgba(0, 0, 0, .35); color: #e6e6ec;
+  background: var(--bg-reply); color: var(--text);
   font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: all;
 }
 .ivc-link[hidden] { display: none; }
-.ivc-expired .ivc-head svg, .ivc-expired .ivc-meta li, .ivc-expired .ivc-title { color: #c4c4cc; }
+.ivc-expired .ivc-head svg, .ivc-expired .ivc-meta li svg { color: var(--text-dim); }
 html[data-theme="brutal"] .ivc { border: 2px solid var(--nb-ink); box-shadow: 3px 3px 0 var(--nb-ink); border-radius: var(--radius-bubble); }
-html[data-theme="brutal"] .ivc-btn { border-width: 2px; }
+html[data-theme="brutal"] .ivc .ivc-btn { border-width: 2px; }
+html[data-theme="brutal"] .ivc .ivc-btn.ivc-primary:not([disabled]) {
+  border: 2px solid var(--nb-ink); background: var(--nb-main); color: var(--nb-main-ink); box-shadow: 3px 3px 0 var(--nb-ink);
+}
+html[data-theme="brutal"] .ivc .ivc-btn.ivc-primary:not([disabled]):active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--nb-ink); background: var(--nb-main); }
+@media (hover: hover) and (pointer: fine) {
+  html[data-theme="brutal"] .ivc .ivc-btn.ivc-primary:not([disabled]):hover { background: color-mix(in srgb, var(--nb-main) 88%, #fff); }
+}
 /* Token-free stand-in for an invite URL inside the message text. */
 .ivc-chip {
   display: inline-flex; align-items: center; gap: 4px; vertical-align: middle;
