@@ -604,6 +604,14 @@ main.page aside a strong { display: block; font-family: var(--display); font-siz
   footer > div > div:first-child { grid-column: 1 / -1; }
   /* mobile: date drops under the headline so it doesn't read as an eyebrow */
   .news-list time { order: 2; }
+  /* ul+li to outrank the base `ul.news-list li a` rule — a bare `.news-list a`
+     in the selector lists above lost, so the 9rem date column stayed on
+     phones and squeezed titles into a ~150px column */
+  ul.news-list li a { grid-template-columns: 1fr; gap: 0.5rem; padding: 1.25rem 0; }
+  ul.news-list li h2 { font-size: 1.45rem; line-height: 1.2; overflow-wrap: anywhere; }
+  /* 404/posts: `main.page ul/li` indented the list and spaced its items */
+  main.page ul.news-list { padding-left: 0; }
+  main.page ul.news-list li { margin: 0; }
   #hero dl { grid-template-columns: 1fr 1fr; }
   #features ul { grid-template-columns: 1fr 1fr; }
   #download ul { grid-template-columns: 1fr 1fr; }
