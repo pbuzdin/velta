@@ -113,10 +113,10 @@ const DB = "/accounts/uuid-1/dc.db";
 const bytes = (s) => new TextEncoder().encode(s);
 const text = (b) => new TextDecoder().decode(b);
 
-async function boot(dbKey) {
+async function boot(dbKey, unlockSrc) {
   posted.length = 0;
   store.memfs.clear(); store.dbs.clear();
-  send({ type: "boot", glueUrl: pathToFileURL(gluePath).href, dbKey });
+  send({ type: "boot", glueUrl: pathToFileURL(gluePath).href, dbKey, unlockSrc });
   return waitFor((m) => ["ready", "boot-error", "db-locked"].includes(m.type));
 }
 let cpId = 0;
@@ -187,4 +187,48 @@ test("disable rewrites the snapshot plaintext and drops the wrap", async () => {
   const r = await boot(); // no key needed anymore
   assert.equal(r.type, "ready");
   assert.equal(text(store.dbs.get(DB)), "configured=2");
+});
+
+// --- #178 phase 4: app-lock PIN + recovery code wraps (same DEK, shorter
+// secrets) — set, boot through each, coexistence, removal, plaintext guard.
+test("PIN and recovery wraps: boot through each, remove, refuse on plaintext", async () => {
+  const kek = await deriveKekPassphrase("horse", new Uint8Array(16).fill(1));
+  send({ type: "set-encryption", id: 601, kek, meta: { v: 1, mode: "pass", salt: b64(new Uint8Array(16).fill(1)), iter: 600000 } });
+  assert.equal((await waitFor((m) => m.id === 601)).type, "encryption-on");
+  store.dbs.set(DB, bytes("configured=3"));
+  assert.equal((await checkpoint()).type, "checkpoint-done");
+
+  const req = (id, msg) => { send({ id, ...msg }); return waitFor((m) => m.id === id); };
+  const pinKek = await deriveKekPassphrase("123456", new Uint8Array(16).fill(2));
+  assert.equal(
+    (await req(602, { type: "set-unlock-wrap", kind: "pin", kek: pinKek, meta: { v: 1, kind: "pin", salt: b64(new Uint8Array(16).fill(2)), iter: 600000 } })).type,
+    "unlock-wrap-done");
+  assert.ok(await rootFile("dbkey.pin"));
+  assert.ok(await rootFile("dbkey.pinmeta"));
+  const recKek = await deriveKekPassphrase("ABCD-EFGH-JKMN", new Uint8Array(16).fill(3));
+  assert.equal(
+    (await req(603, { type: "set-unlock-wrap", kind: "recovery", kek: recKek, meta: { v: 1, kind: "recovery", salt: b64(new Uint8Array(16).fill(3)), iter: 600000 } })).type,
+    "unlock-wrap-done");
+  assert.ok(await rootFile("dbkey.recovery"));
+  assert.ok(await rootFile("dbkey.recmeta"));
+
+  // Each wrap boots the full profile; a KEK against the WRONG wrap fails.
+  assert.equal((await boot(pinKek, "pin")).type, "ready");
+  assert.equal(text(store.dbs.get(DB)), "configured=3", "decrypted via the PIN wrap");
+  assert.equal((await boot(recKek, "recovery")).type, "ready");
+  assert.equal((await boot(kek)).type, "ready", "the main wrap still works");
+  assert.equal((await boot(kek, "pin")).type, "boot-error", "main KEK cannot open the pin wrap");
+
+  // Removal: the wrap files go, the PIN no longer boots, recovery survives.
+  assert.equal((await req(604, { type: "remove-unlock-wrap", kind: "pin" })).type, "unlock-wrap-done");
+  assert.equal(await rootFile("dbkey.pin"), null);
+  assert.equal((await boot(pinKek, "pin")).type, "boot-error");
+  assert.equal((await boot(recKek, "recovery")).type, "ready", "recovery wrap untouched");
+
+  // On a plaintext install there is no DEK to wrap — the PIN is refused,
+  // and turning encryption off dropped the recovery wrap with the rest.
+  assert.equal((await req(605, { type: "disable-encryption" })).type, "encryption-off");
+  assert.equal(await rootFile("dbkey.recovery"), null, "disable drops every wrap");
+  const err = await req(606, { type: "set-unlock-wrap", kind: "pin", kek: pinKek, meta: {} });
+  assert.equal(err.type, "unlock-wrap-error");
 });

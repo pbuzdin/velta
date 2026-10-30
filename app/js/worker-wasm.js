@@ -15,6 +15,7 @@ let glue = null;
 // the KEK over at boot (it probes dbkey.wrap BEFORE creating the transport,
 // so the 20s core-connect deadline never races the unlock UI).
 let dekKey = null; // non-extractable AES-GCM key; the raw DEK never persists
+let rawDek = null; // in-memory only; re-wrapping for the PIN/recovery wraps (phase 4)
 // db-crypt.js is imported at boot, not statically: this file is evaluated
 // as a classic script by some test harnesses, so no import statement may
 // appear at the top level.
@@ -88,9 +89,18 @@ const decName = (n) => decodeURIComponent(n);
 // credential id). Both survive the generation cleanup (keep-list below).
 const WRAP = "dbkey.wrap";
 const META = "dbkey.meta";
-async function lockState(root) {
+// #178 phase 4: a PIN / recovery code is a second, shorter secret wrapping
+// the SAME DEK (dbkey.pin / dbkey.recovery + params). Convenience unlocks —
+// once the profile files are copied the wrap can be attacked offline, so
+// the passphrase/passkey stays the root of security.
+const PIN_WRAP = "dbkey.pin";
+const PIN_META = "dbkey.pinmeta";
+const RECOV_WRAP = "dbkey.recovery";
+const RECOV_META = "dbkey.recmeta";
+const wrapFileFor = (src) => (src === "pin" ? PIN_WRAP : src === "recovery" ? RECOV_WRAP : WRAP);
+async function lockState(root, src) {
   let wrap = null;
-  try { wrap = new Uint8Array(await (await (await root.getFileHandle(WRAP)).getFile()).arrayBuffer()); } catch {}
+  try { wrap = new Uint8Array(await (await (await root.getFileHandle(wrapFileFor(src))).getFile()).arrayBuffer()); } catch {}
   if (!wrap || !wrap.length) return null; // torn/absent wrap = no lock
   let meta = {};
   try { meta = JSON.parse(await readText(root, META) || "{}"); } catch {}
@@ -259,7 +269,8 @@ async function snapshot() {
   // Old generations (and the legacy tree) only go after the flip. The wrap
   // and its meta are root-level state, not snapshot data — never pruned.
   for await (const [name] of root.entries()) {
-    if (name === `snap-${next}` || name === "current" || name === WRAP || name === META) continue;
+    if (name === `snap-${next}` || name === "current" || name === WRAP || name === META
+      || name === PIN_WRAP || name === PIN_META || name === RECOV_WRAP || name === RECOV_META) continue;
     if (name === "accounts" || /^snap-\d+$/.test(name)) {
       try { await root.removeEntry(name, { recursive: true }); } catch {}
     }
@@ -322,14 +333,19 @@ self.onmessage = async (e) => {
         // have none): unavailable just means no encryption support — but an
         // existing wrap must then fail loudly, never boot plaintext over it.
         crypt = await import("./db-crypt.js").catch(() => null);
-        const lock = await lockState(root);
+        // A boot starts keyless, then maybe unlocks — never inherit a key
+        // from an earlier boot of this worker (in-process re-boots in
+        // harnesses would otherwise decrypt without being given a KEK).
+        dekKey = null;
+        rawDek = null;
+        const lock = await lockState(root, d.unlockSrc);
         if (lock && !crypt) throw new Error("dbkey.wrap present but db-crypt.js could not be loaded");
         if (lock) {
           if (!d.dbKey) {
             self.postMessage({ type: "db-locked", mode: lock.meta?.mode || "pass", salt: lock.meta?.salt || "", credId: lock.meta?.credId || "" });
             return;
           }
-          const rawDek = await crypt.unwrapDek(new Uint8Array(d.dbKey), lock.wrap);
+          rawDek = await crypt.unwrapDek(new Uint8Array(d.dbKey), lock.wrap);
           dekKey = await crypto.subtle.importKey("raw", rawDek, "AES-GCM", false, ["encrypt", "decrypt"]);
         }
         await restore(root);
@@ -417,12 +433,13 @@ self.onmessage = async (e) => {
     // generation (the `enc` marker travels with the generation).
     try {
       if (!glue) throw new Error("core not ready");
-      const rawDek = crypt.generateDek();
+      const raw = crypt.generateDek();
       const root = await opfsRoot();
       if (!root) throw new Error("OPFS unavailable");
-      await writeFile(root, WRAP, await crypt.wrapDek(new Uint8Array(d.kek), rawDek));
+      await writeFile(root, WRAP, await crypt.wrapDek(new Uint8Array(d.kek), raw));
       await writeFile(root, META, new TextEncoder().encode(JSON.stringify(d.meta || {})));
-      dekKey = await crypto.subtle.importKey("raw", rawDek, "AES-GCM", false, ["encrypt", "decrypt"]);
+      rawDek = raw;
+      dekKey = await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]);
       lastDigest = ""; // the digest is over plaintext: force the encrypted rewrite
       self.postMessage({ type: "encryption-on", id: d.id });
     } catch (err) {
@@ -435,13 +452,37 @@ self.onmessage = async (e) => {
     try {
       if (!glue) throw new Error("core not ready");
       dekKey = null;
+      rawDek = null;
       lastDigest = "";
       await checkpoint();
       const root = await opfsRoot();
-      for (const name of [WRAP, META]) { try { await root.removeEntry(name); } catch {} }
+      for (const name of [WRAP, META, PIN_WRAP, PIN_META, RECOV_WRAP, RECOV_META]) { try { await root.removeEntry(name); } catch {} }
       self.postMessage({ type: "encryption-off", id: d.id });
     } catch (err) {
       self.postMessage({ type: "encryption-error", id: d.id, error: String(err?.message ?? err) });
+    }
+  } else if (d.type === "set-unlock-wrap") {
+    // #178 phase 4: wrap the current DEK under a page-derived KEK from the
+    // PIN or the recovery code. Refuses on a plaintext install (no DEK to
+    // wrap — the PIN is not an encryption switch).
+    try {
+      if (!glue || !rawDek) throw new Error("encryption is not on");
+      const root = await opfsRoot();
+      if (!root) throw new Error("OPFS unavailable");
+      await writeFile(root, wrapFileFor(d.kind), await crypt.wrapDek(new Uint8Array(d.kek), rawDek));
+      await writeFile(root, d.kind === "recovery" ? RECOV_META : PIN_META, new TextEncoder().encode(JSON.stringify(d.meta || {})));
+      self.postMessage({ type: "unlock-wrap-done", id: d.id });
+    } catch (err) {
+      self.postMessage({ type: "unlock-wrap-error", id: d.id, error: String(err?.message ?? err) });
+    }
+  } else if (d.type === "remove-unlock-wrap") {
+    try {
+      const root = await opfsRoot();
+      if (!root) throw new Error("OPFS unavailable");
+      for (const name of [wrapFileFor(d.kind), d.kind === "recovery" ? RECOV_META : PIN_META]) { try { await root.removeEntry(name); } catch {} }
+      self.postMessage({ type: "unlock-wrap-done", id: d.id });
+    } catch (err) {
+      self.postMessage({ type: "unlock-wrap-error", id: d.id, error: String(err?.message ?? err) });
     }
   }
 };

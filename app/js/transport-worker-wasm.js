@@ -33,6 +33,7 @@ export class WorkerWasmTransport {
     wsProxyToken = "",
     wsProxyDevice = "",
     dbKey = null,
+    unlockSrc = null,
   } = {}) {
     this.name = "worker-wasm";
     this._workerUrl = workerUrl;
@@ -40,8 +41,10 @@ export class WorkerWasmTransport {
     this._wsProxyUrl = wsProxyUrl;
     this._wsProxyToken = wsProxyToken;
     // #178: KEK bytes for the encrypted snapshot (page-derived, page keeps
-    // no copy); null boots the plaintext/opt-out path.
+    // no copy); null boots the plaintext/opt-out path. `unlockSrc` names the
+    // wrap the KEK opens when the user unlocked via PIN/recovery code.
     this._dbKey = dbKey;
+    this._unlockSrc = unlockSrc;
     this._wsProxyDevice = wsProxyDevice;
     this._receiver = null;
     this._worker = null;
@@ -132,6 +135,16 @@ export class WorkerWasmTransport {
     return this._fileRequest({ type: "disable-encryption" }, "encryption-off");
   }
 
+  // #178 phase 4: wrap the current DEK under a PIN / recovery-code KEK, or
+  // drop that wrap again (kind: "pin" | "recovery").
+  setUnlockWrap({ kind, kek, meta }) {
+    return this._fileRequest({ type: "set-unlock-wrap", kind, kek, meta }, "unlock-wrap-done");
+  }
+
+  removeUnlockWrap(kind) {
+    return this._fileRequest({ type: "remove-unlock-wrap", kind }, "unlock-wrap-done");
+  }
+
   async _boot() {
     // Single-tab gate: two live cores would race the OPFS snapshot. Hold the
     // lock for the worker's lifetime; a second tab gets a clear error.
@@ -155,7 +168,7 @@ export class WorkerWasmTransport {
         this._releaseLock?.();
         reject(new Error(`worker error: ${e.message ?? "unknown"}`));
       };
-      w.postMessage({ type: "boot", glueUrl: this._glueUrl, wsProxyUrl: this._wsProxyUrl, wsProxyToken: this._wsProxyToken, wsProxyDevice: this._wsProxyDevice, dbKey: this._dbKey });
+      w.postMessage({ type: "boot", glueUrl: this._glueUrl, wsProxyUrl: this._wsProxyUrl, wsProxyToken: this._wsProxyToken, wsProxyDevice: this._wsProxyDevice, dbKey: this._dbKey, unlockSrc: this._unlockSrc });
       this._worker = w;
       // Save when the page goes to the background (tab switch, app switch,
       // the start of a reload). Safe now that a cut-off write is ignored.

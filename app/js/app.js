@@ -483,16 +483,22 @@ let chatListRenderDeferred = false;
 // worker gets the KEK in the boot message) so the 20s connect deadline
 // never races the unlock prompt.
 let bootDbKey = null;
+let bootUnlockSrc = null;
+let bootLockInfo = null;
 if (!window.__TAURI__ && !window.VeltaBridge) {
   try {
     const lock = await probeLock();
-    if (lock) bootDbKey = await unlockInteractive(lock);
+    if (lock) {
+      bootLockInfo = lock;
+      ({ kek: bootDbKey, src: bootUnlockSrc } = await unlockInteractive(lock));
+    }
   } catch (e) {
     diagnostics.append("error", `Unlock failed: ${e?.message || e}`);
   }
 }
 coreStartupPromise = createCore({
   dbKey: bootDbKey,
+  unlockSrc: bootUnlockSrc,
   onDiagnostic: (level, message) => {
     diagnostics.append(level, message);
     notePushDiagnostic(message); // #110: relay "(U)" marks
@@ -502,6 +508,42 @@ coreStartupPromise = createCore({
     } catch {}
   },
 });
+
+// #178 phase 4: auto-lock — when enabled on an encrypted profile, returning
+// after N minutes hidden reloads the page and the boot path asks for the
+// passphrase/passkey/PIN again; the decrypted snapshot dies with the worker.
+// The setting is read per transition, so the select applies at once.
+if (bootLockInfo) {
+  let armed = false;
+  let timer = 0;
+  document.addEventListener("visibilitychange", () => {
+    const mins = Number(localStorage.getItem("velta-autolock-mins")) || 0;
+    if (document.hidden) {
+      armed = false;
+      clearTimeout(timer);
+      if (mins > 0) timer = setTimeout(() => { armed = true; }, mins * 60_000);
+    } else {
+      clearTimeout(timer);
+      if (armed) location.reload();
+    }
+  });
+}
+
+// #178 phase 4: backup reminder — stale after 30 days without a successful
+// export (or right after encryption was turned on), re-shown at most weekly
+// until one is exported. PWA only for now; the desktop reminder rides a
+// later slice.
+{
+  const now = Date.now();
+  const day = 86_400_000;
+  const lastBak = Number(localStorage.getItem("velta-last-backup")) || 0;
+  const reminded = Number(localStorage.getItem("velta-backup-reminded")) || 0;
+  const nudge = localStorage.getItem("velta-enc-nudge") === "1";
+  if (bootLockInfo && (((!lastBak || now - lastBak > 30 * day) && now - reminded > 7 * day) || (nudge && now - reminded > day))) {
+    toast(t("Encryption is on but there is no recent backup. Export one from Profile management → Export backup — without it, losing the passphrase or the passkey loses the data."), 9000);
+    try { localStorage.setItem("velta-backup-reminded", String(now)); localStorage.removeItem("velta-enc-nudge"); } catch {}
+  }
+}
 
 try {
   core = withLocalChat(await coreStartupPromise);
@@ -3823,7 +3865,41 @@ function openProfileManagement() {
       <div data-enc-off hidden>
         <button class="btn-primary" type="button" data-enc-disable>${escapeHtml(t("Turn off encryption"))}</button>
       </div>
-    </div>` : ""}
+      <div data-enc-lock hidden style="display:grid;gap:8px;border-top:1px solid var(--hairline);padding-top:10px">
+        <p class="pm-hint" data-lock-status>${escapeHtml(t("Quicker unlocks for this profile. The PIN and the recovery code wrap the same key — the passphrase or the passkey stays the master way in."))}</p>
+        <label class="pm-hint" style="display:grid;gap:4px">
+          <span>${escapeHtml(t("Lock when hidden"))}</span>
+          <select class="text-field" data-autolock>
+            <option value="0">${escapeHtml(t("Off"))}</option>
+            <option value="1">${escapeHtml(t("After 1 minute"))}</option>
+            <option value="5">${escapeHtml(t("After 5 minutes"))}</option>
+            <option value="15">${escapeHtml(t("After 15 minutes"))}</option>
+          </select>
+        </label>
+        <div style="display:grid;gap:6px">
+          <div data-pin-form hidden style="display:grid;gap:6px">
+            <input class="text-field" data-pin type="password" minlength="6" required placeholder="${escapeHtml(t("App-lock PIN (6+ characters)"))}" autocomplete="new-password">
+            <input class="text-field" data-pin2 type="password" minlength="6" required placeholder="${escapeHtml(t("Repeat PIN"))}" autocomplete="new-password">
+            <div class="pm-actions">
+              <button class="btn-primary" type="button" data-pin-save>${escapeHtml(t("Save PIN"))}</button>
+              <button class="btn-text" type="button" data-pin-cancel>${escapeHtml(t("Cancel"))}</button>
+            </div>
+          </div>
+          <div class="pm-actions" data-pin-actions hidden>
+            <button class="btn-text" type="button" data-pin-edit>${escapeHtml(t("Change PIN"))}</button>
+            <button class="btn-text" type="button" data-pin-remove style="color:var(--danger)">${escapeHtml(t("Remove PIN"))}</button>
+          </div>
+        </div>
+        <div style="display:grid;gap:6px">
+          <div class="pm-actions" data-rec-gen hidden>
+            <button class="btn-text" type="button" data-rec-new>${escapeHtml(t("Generate a recovery code"))}</button>
+          </div>
+          <div class="pm-actions" data-rec-actions hidden>
+            <button class="btn-text" type="button" data-rec-new>${escapeHtml(t("Replace the recovery code"))}</button>
+            <button class="btn-text" type="button" data-rec-remove style="color:var(--danger)">${escapeHtml(t("Remove the recovery code"))}</button>
+          </div>
+        </div>
+      </div>` : ""}
     <div class="pm-pane" data-pane="add">
       <p class="pm-hint">${t("Paste a <b>chatmail</b> invite link ({link}) or a relay domain — a new end-to-end encrypted profile is created on it.", { link: "<span>dcaccount:…</span>" })}</p>
       <form data-add-form>
@@ -3903,16 +3979,30 @@ function openProfileManagement() {
     const statusEl = encBox.querySelector("[data-enc-status]");
     const onBox = encBox.querySelector("[data-enc-on]");
     const offBox = encBox.querySelector("[data-enc-off]");
+    // #178 phase 4: app-lock rows (PIN, recovery code, auto-lock).
+    const lockBox = encBox.querySelector("[data-enc-lock]");
+    const pinForm = lockBox.querySelector("[data-pin-form]");
+    const pinActions = lockBox.querySelector("[data-pin-actions]");
+    const recGen = lockBox.querySelector("[data-rec-gen]");
+    const recActions = lockBox.querySelector("[data-rec-actions]");
+    const alSel = lockBox.querySelector("[data-autolock]");
+    alSel.value = localStorage.getItem("velta-autolock-mins") || "0";
     const refresh = async () => {
       const lock = await probeLock();
       if (lock) {
         statusEl.textContent = t("Local data is encrypted. Unlocking needs the passphrase or passkey you chose — the key never leaves this device.");
         onBox.hidden = true;
         offBox.hidden = false;
+        lockBox.hidden = false;
+        pinForm.hidden = true;
+        pinActions.hidden = !lock.pin;
+        recGen.hidden = !!lock.recovery;
+        recActions.hidden = !lock.recovery;
       } else {
         statusEl.textContent = t("Local data is stored in plain text in this browser. Encryption protects it against access to the profile files (lost laptop, copied profile), not against malware while Velta is open.");
         onBox.hidden = false;
         offBox.hidden = true;
+        lockBox.hidden = true;
       }
     };
     refresh();
@@ -3926,6 +4016,7 @@ function openProfileManagement() {
         const kek = await deriveKekPassphrase(pass, salt);
         await core.transport.setEncryption({ kek, meta: { v: 1, mode: "pass", salt: b64(salt), iter: 600000 } });
         toast(t("Local data encryption is on. The passphrase is the only way to unlock this profile — write it down."));
+        try { localStorage.setItem("velta-enc-nudge", "1"); } catch {}
         await refresh();
       } catch (err) {
         errToast(t("Couldn't enable encryption: ") + (err?.message || err));
@@ -3940,6 +4031,7 @@ function openProfileManagement() {
         const kek = await deriveKekPrf(await prfEval(cred.rawId, salt), salt);
         await core.transport.setEncryption({ kek, meta: { v: 1, mode: "prf", salt: b64(salt), credId: b64(new Uint8Array(cred.rawId)) } });
         toast(t("Local data encryption is on. Unlocking needs this passkey — keep a backup: losing the passkey means losing the data."));
+        try { localStorage.setItem("velta-enc-nudge", "1"); } catch {}
         await refresh();
       } catch (err) {
         errToast(t("Couldn't enable encryption: ") + (err?.message || err));
@@ -3952,6 +4044,74 @@ function openProfileManagement() {
         await refresh();
       } catch (err) {
         errToast(t("Couldn't turn encryption off: ") + (err?.message || err));
+      }
+    });
+
+    /* -- app lock: PIN, recovery code, auto-lock (#178 phase 4) -- */
+    const saveWrap = async (kind, secret, meta) => {
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      const kek = await deriveKekPassphrase(secret, salt);
+      await core.transport.setUnlockWrap({ kind, kek, meta: { v: 1, kind, salt: b64(salt), iter: 600000, ...meta } });
+    };
+    alSel.addEventListener("change", () => {
+      try { localStorage.setItem("velta-autolock-mins", alSel.value); } catch {}
+    });
+    lockBox.querySelector("[data-pin-edit]").addEventListener("click", () => {
+      pinActions.hidden = true;
+      pinForm.hidden = false;
+    });
+    lockBox.querySelector("[data-pin-cancel]").addEventListener("click", () => {
+      pinForm.reset();
+      pinForm.hidden = true;
+      pinActions.hidden = false;
+    });
+    lockBox.querySelector("[data-pin-save]").addEventListener("click", async () => {
+      if (!pinForm.reportValidity()) return;
+      const pin = pinForm.querySelector("[data-pin]").value;
+      if (pin !== pinForm.querySelector("[data-pin2]").value) { errToast(t("The PINs don't match.")); return; }
+      try {
+        await saveWrap("pin", pin);
+        toast(t("App-lock PIN saved — it unlocks this profile faster. The passphrase or the passkey still works."));
+        pinForm.reset();
+        await refresh();
+      } catch (err) {
+        errToast(t("Couldn't save the PIN: ") + (err?.message || err));
+      }
+    });
+    lockBox.querySelector("[data-pin-remove]").addEventListener("click", async () => {
+      try {
+        await core.transport.removeUnlockWrap("pin");
+        toast(t("PIN removed."));
+        await refresh();
+      } catch (err) {
+        errToast(t("Couldn't remove the PIN: ") + (err?.message || err));
+      }
+    });
+    // Shown once — the code IS the secret, it cannot be displayed again.
+    const genRecovery = async () => {
+      const alph = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+      const raw = [...crypto.getRandomValues(new Uint8Array(12))].map((b) => alph[b % alph.length]).join("");
+      try {
+        await saveWrap("recovery", raw);
+        const m = showModal({
+          title: t("Recovery code"),
+          body: `<p class="modal-hint">${escapeHtml(t("Write this down now — it is shown only once. It unlocks this profile if you lose the passphrase and the passkey."))}</p><p style="font-size:1.4em;letter-spacing:.08em;text-align:center"><b>${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8, 12)}</b></p>`,
+          foot: `<button class="btn-primary" type="button" data-done>${escapeHtml(t("I wrote it down"))}</button>`,
+        });
+        m.modal.querySelector("[data-done]").addEventListener("click", m.close);
+        await refresh();
+      } catch (err) {
+        errToast(t("Couldn't save the recovery code: ") + (err?.message || err));
+      }
+    };
+    lockBox.querySelectorAll("[data-rec-new]").forEach((b) => b.addEventListener("click", genRecovery));
+    lockBox.querySelector("[data-rec-remove]").addEventListener("click", async () => {
+      try {
+        await core.transport.removeUnlockWrap("recovery");
+        toast(t("Recovery code removed."));
+        await refresh();
+      } catch (err) {
+        errToast(t("Couldn't remove the recovery code: ") + (err?.message || err));
       }
     });
   }
@@ -4051,6 +4211,11 @@ function openProfileManagement() {
   const passInput = panes.export.querySelector("[data-pass]");
   const exportBtn = panes.export.querySelector("[data-export]");
   const progressBox = panes.export.querySelector("[data-progress]");
+  // #178 phase 4: a successful export feeds the backup reminder (and clears
+  // the post-enable nudge).
+  const stampBackup = () => {
+    try { localStorage.setItem("velta-last-backup", String(Date.now())); localStorage.removeItem("velta-enc-nudge"); } catch {}
+  };
   const onAndroid = isAndroid();
   // #104: wasm core (PWA) has no folder picker — the backup tar is written
   // into memfs and downloaded by the browser; desktop/Android paths unchanged.
@@ -4126,14 +4291,17 @@ function openProfileManagement() {
     if (pwaExport) {
       await runBackupExport(pass || null);
       progressBox.textContent = t("Backup downloaded — check your browser downloads.");
+      stampBackup();
     } else if (androidUri) {
       const dir = await invoke("backup_scratch_dir");
       await core.exportBackup(dir, pass || null);
       progressBox.textContent = t("Saving…");
       await invoke("publish_backup", { dir, uri: androidUri });
       progressBox.textContent = t("Backup saved.");
+      stampBackup();
     } else {
       await core.exportBackup(dest, pass || null);
+      stampBackup();
     }
   } catch (err) {
       errToast(t("Export failed: ") + (err?.message || err));

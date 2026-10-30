@@ -96,7 +96,7 @@ function statusEvent(connected, backend) {
   dispatchEvent(new CustomEvent("velta-core-status", { detail: { connected, backend } }));
 }
 
-export async function createCore({ onDiagnostic = () => {}, dbKey = null } = {}) {
+export async function createCore({ onDiagnostic = () => {}, dbKey = null, unlockSrc = null } = {}) {
   const diagnostic = (level, message) => {
     rustLog(message);
     onDiagnostic(level, message);
@@ -130,6 +130,7 @@ export async function createCore({ onDiagnostic = () => {}, dbKey = null } = {})
       wsProxyDevice: wsProxyDevice(),
       // #178: page-derived KEK for an encrypted OPFS snapshot (db-lock.js).
       dbKey,
+      unlockSrc,
     }));
   }
 

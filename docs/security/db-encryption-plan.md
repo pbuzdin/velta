@@ -30,8 +30,24 @@ tests/wasm-db-crypt.test.mjs. Deviation from §2.3: Argon2id is NOT shipped
 wasm module remains the upgrade path. PRF on a real authenticator and the
 Firefox/old-Safari opt-out need device verification. Android Keystore
 wrap/unwrap and the upgrade-keep-the-key test (§3.6) still need a device
-run — the Keystore cannot be exercised on a JVM. Phase 4 (app lock) is
-open.
+run — the Keystore cannot be exercised on a JVM. Phase 4 (app lock) shipped
+for the PWA 2026-10-30: an app-lock PIN (6+ chars) and a generated recovery
+code each wrap the SAME DEK (`dbkey.pin`/`dbkey.pinmeta`,
+`dbkey.recovery`/`dbkey.recmeta` at the OPFS root, in the snapshot-cleanup
+keep-list), the unlock screen switches between passkey/passphrase/PIN/
+recovery with in-session exponential backoff (1s→30s), and auto-lock
+(Off/1/5/15 min, live setting) reloads the page after the tab was hidden —
+the decrypted snapshot dies with the worker, and the boot path re-prompts.
+A successful backup export stamps the reminder; encryption-on nudges one
+reminder; stale after 30 days, re-shown at most weekly. Deviations from
+§2.4: the PIN backoff counter is in-session only (an OPFS wrap is offline-
+brute-forcible once the profile files are copied — the passphrase/passkey
+stays the root of security, stated in the UI), PBKDF2-SHA256 not Argon2id
+(phase 3 deferral), and the boot now resets its key state first, so an
+in-process re-boot cannot inherit a previous unlock. Desktop (PIN replacing
+the keychain, Windows Hello) and Android (biometric-bound KEK,
+`setUserAuthenticationRequired`) slices of phase 4 remain open, as do the
+optional phase-5 blob decision.
 
 ## 1. Findings: what core 2.66.0 offers
 
