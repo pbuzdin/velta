@@ -147,8 +147,14 @@ revives keyed blobs. Shipped with the decision:
 
 - the desktop thumbnail cache (`<data>/thumbs/`, a flat gallery of derived
   plaintext images) is wiped on lock (`lock_now`) and regenerates on
-  demand. NOT moved under `accounts/`: nothing accounts-scoped scans
-  `<data>`, and the move would churn every cache key for no gain;
+  demand from the LOCAL originals (`dc.db-blobs/` — no network involved;
+  the cost is one full-res decode per viewed image per lock cycle). Honest
+  sizing: while blobs themselves stay plaintext (option A) the wipe buys
+  little — it removes the most BROWSABLE artifact (every photo contact-
+  sheeted in one folder) while the sources remain; it becomes load-bearing
+  only if blobs are ever keyed (option B), when thumbs would be the last
+  plaintext copies. NOT moved under `accounts/`: nothing accounts-scoped
+  scans `<data>`, and the move would churn every cache key for no gain;
 - the settings show the boundary (Profile management): a static FBE note
   on Android, or the live disk-encryption status on desktop
   (`volume_encryption_status`: PowerShell `Get-BitLockerVolume` on Windows

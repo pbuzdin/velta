@@ -2754,6 +2754,37 @@ and account-switch cleared. Tests: `tests/lru-caches.test.mjs`.
   SQLite to minimize external runtime dependencies.
 - **No unsafe code in the core.** The `deltachat` crate forbids `unsafe`; keep
   it that way.
+- **Data at rest is keyed (#178), blobs are not — by decision.** One random
+  256-bit DEK per install opens every account's SQLCipher database; it
+  reaches the core as the `VELTA_DB_KEY` env var (core quilt patch #20,
+  read in `Accounts::load_accounts`/`add_account`). Custody per platform:
+  desktop keychain (`keyring`, `chat.velta.dbkey`) or the app-lock PIN —
+  the PIN REPLACES the keychain as the key root (Argon2id wrap in
+  `<data>/dbkey.wrap`, `db_key.rs`; a PIN session STARTS LOCKED: the
+  sidecar spawns keyless, `unlock_with_pin` re-migrates and respawns it
+  keyed, `spawn_sidecar` owns the child so lock/unlock can respawn);
+  Android Keystore (`org.velta.VeltaKeystore`) with the optional biometric
+  lock (`org.velta.VeltaLock`: an auth-bound KEK `velta_kek_auth` wraps the
+  DEK into `dbkey.wrap.auth`, the plain wrap is removed, and
+  `init_android_core` bails "app-locked" until the activity's
+  BiometricPrompt hands the DEK to `VeltaCore.startWithDek` — headless
+  push/job cold starts stay down); PWA: the DEK is PBKDF2/PRF-wrapped in
+  OPFS (`db-crypt.js`/`db-lock.js`, optional PIN + recovery-code second
+  wraps), and the whole OPFS snapshot is AES-GCM encrypted. Attachments
+  (`dc.db-blobs/`) stay plaintext deliberately (plan §2.5 option A: core
+  reads blobs directly, an app-level crypto patch would fight every bump);
+  the settings show the boundary (`volume_encryption_status`). The desktop
+  thumbnail cache `<data>/thumbs/` — a flat gallery of derived plaintext
+  images — is wiped in `lock_now` and regenerates on demand from the local
+  originals. Agent rules: the one-time plaintext migration runs BEFORE the
+  core opens anything and must never see an open `dc.db`; `sync_file` must
+  open with `write(true)` on Windows (`sync_all` on a read-only handle =
+  Access denied, silently killed every migration once); Kotlin `external
+  fun` in an object needs `@JvmStatic` to match a static JNI symbol
+  (JNI binds by name at runtime — a mismatch compiles clean everywhere);
+  db_key tests live in `velta-app/src-tauri/src/db_key.rs` and need the
+  §4.3.1 toolchain locally; the i18n test validates every `R.string.*` a
+  Kotlin file references against `values*/strings.xml` in all locales.
 
 ---
 
