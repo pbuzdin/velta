@@ -7,6 +7,19 @@
 let dc = null;
 let glue = null;
 
+// #178 phase 3: snapshot encryption at rest. `dek` is the raw 256-bit key,
+// held only here; `dekKey` is its non-extractable CryptoKey used for the
+// snapshot writes/reads. Absent → the snapshot is plaintext (the opt-out
+// default). The DEK is stored at the OPFS root wrapped by a KEK the page
+// derives (passphrase PBKDF2 or passkey PRF — db-crypt.js); the page hands
+// the KEK over at boot (it probes dbkey.wrap BEFORE creating the transport,
+// so the 20s core-connect deadline never races the unlock UI).
+let dekKey = null; // non-extractable AES-GCM key; the raw DEK never persists
+// db-crypt.js is imported at boot, not statically: this file is evaluated
+// as a classic script by some test harnesses, so no import statement may
+// appear at the top level.
+let crypt = null;
+
 // Stock chatmail POST /new has no CORS header, so the browser cannot read
 // the minted address. /cm-new/<host> on the configured mail relay (the
 // wsProxyUrl host; the page origin when none is set) is the relay proxy, so
@@ -71,6 +84,52 @@ async function opfsRoot() {
 const encName = (n) => encodeURIComponent(n);
 const decName = (n) => decodeURIComponent(n);
 
+// Root files: the wrapped DEK + its non-secret params (mode, salt, prf
+// credential id). Both survive the generation cleanup (keep-list below).
+const WRAP = "dbkey.wrap";
+const META = "dbkey.meta";
+async function lockState(root) {
+  let wrap = null;
+  try { wrap = new Uint8Array(await (await (await root.getFileHandle(WRAP)).getFile()).arrayBuffer()); } catch {}
+  if (!wrap || !wrap.length) return null; // torn/absent wrap = no lock
+  let meta = {};
+  try { meta = JSON.parse(await readText(root, META) || "{}"); } catch {}
+  return { wrap, meta };
+}
+
+// AAD binds every ciphertext to its path and generation, so bytes cannot be
+// transplanted between files or snapshots. Memfs files use their tree path;
+// databases prefix `db:` (they live outside the memfs, see #124).
+const fileAad = (path, gen) => `${path}|${gen}`;
+const dbAad = (name, gen) => `db:${name}|${gen}`;
+
+async function decryptTree(root, snap, gen) {
+  const open = async (bytes, aad) => {
+    if (!dekKey) throw new Error("snapshot is encrypted but no key was provided");
+    return crypt.decryptFile(dekKey, bytes, aad);
+  };
+  const walk = async (dir, prefix) => {
+    for await (const [name, handle] of dir.entries()) {
+      const p = `${prefix}/${name}`;
+      if (handle.kind === "directory") { await walk(handle, p); continue; }
+      const bytes = new Uint8Array(await (await handle.getFile()).arrayBuffer());
+      glue.vfs_mkdirp(p.slice(0, p.lastIndexOf("/")) || "/");
+      glue.vfs_write(p, await open(bytes, fileAad(p, gen)));
+    }
+  };
+  try { await walk(await snap.getDirectoryHandle("accounts"), "/accounts"); } catch (e) { if (e?.name !== "NotFoundError") throw e; }
+  let dbs = null;
+  try { dbs = await snap.getDirectoryHandle("sqlite"); } catch {}
+  if (dbs) {
+    if (typeof glue.sqlite_import !== "function") throw new Error("this wasm core cannot restore databases");
+    for await (const [name, handle] of dbs.entries()) {
+      if (handle.kind !== "file") continue;
+      const bytes = new Uint8Array(await (await handle.getFile()).arrayBuffer());
+      glue.sqlite_import(decName(name), await open(bytes, dbAad(decName(name), gen)));
+    }
+  }
+}
+
 async function readText(dir, name) {
   try { return await (await (await dir.getFileHandle(name)).getFile()).text(); } catch { return null; }
 }
@@ -103,14 +162,22 @@ async function restore(root) {
   if (Number.isFinite(cur) && cur > 0) {
     const snap = await root.getDirectoryHandle(`snap-${cur}`);
     generation = cur;
-    try { await restoreTree(await snap.getDirectoryHandle("accounts"), "/accounts"); } catch (e) { if (e?.name !== "NotFoundError") throw e; }
-    let dbs = null;
-    try { dbs = await snap.getDirectoryHandle("sqlite"); } catch {}
-    if (dbs) {
-      if (typeof glue.sqlite_import !== "function") throw new Error("this wasm core cannot restore databases");
-      for await (const [name, handle] of dbs.entries()) {
-        if (handle.kind !== "file") continue;
-        glue.sqlite_import(decName(name), new Uint8Array(await (await handle.getFile()).arrayBuffer()));
+    // The `enc` marker travels with the generation: it decides plaintext vs
+    // VLTE1, so the encryption transition (wrap written, next snapshot not
+    // yet written) restores the older plaintext snapshot without a key.
+    let encrypted = false;
+    try { await snap.getFileHandle("enc"); encrypted = true; } catch {}
+    if (encrypted) await decryptTree(root, snap, cur);
+    else {
+      try { await restoreTree(await snap.getDirectoryHandle("accounts"), "/accounts"); } catch (e) { if (e?.name !== "NotFoundError") throw e; }
+      let dbs = null;
+      try { dbs = await snap.getDirectoryHandle("sqlite"); } catch {}
+      if (dbs) {
+        if (typeof glue.sqlite_import !== "function") throw new Error("this wasm core cannot restore databases");
+        for await (const [name, handle] of dbs.entries()) {
+          if (handle.kind !== "file") continue;
+          glue.sqlite_import(decName(name), new Uint8Array(await (await handle.getFile()).arrayBuffer()));
+        }
       }
     }
     return;
@@ -169,22 +236,30 @@ async function snapshot() {
   // A worker killed mid-write can leave a partial snap-<next>; start clean.
   try { await root.removeEntry(`snap-${next}`, { recursive: true }); } catch {}
   const snap = await root.getDirectoryHandle(`snap-${next}`, { create: true });
+  // #178: when a DEK is set, every payload is written VLTE1-encrypted and
+  // the generation carries an `enc` marker (restore reads the marker, not
+  // the wrap, so the plaintext→encrypted transition stays bootable).
+  const encSnap = !!dekKey;
+  if (encSnap) await writeFile(snap, "enc", new Uint8Array([1]));
+  const put = async (dir, name, bytes, aad) =>
+    writeFile(dir, name, dekKey ? await crypt.encryptFile(dekKey, bytes, aad) : bytes);
   for (const f of files) {
     const parts = f.path.split("/").filter(Boolean);
     let dir = snap;
     for (let i = 0; i < parts.length - 1; i++) dir = await dir.getDirectoryHandle(parts[i], { create: true });
-    await writeFile(dir, parts[parts.length - 1], f.bytes);
+    await put(dir, parts[parts.length - 1], f.bytes, fileAad(f.path, next));
   }
   if (dbs.length) {
     const dir = await snap.getDirectoryHandle("sqlite", { create: true });
-    for (const d of dbs) await writeFile(dir, encName(d.name), d.bytes);
+    for (const d of dbs) await put(dir, encName(d.name), d.bytes, dbAad(d.name, next));
   }
   await writeFile(root, "current", new TextEncoder().encode(String(next)));
   generation = next;
   lastDigest = digest;
-  // Old generations (and the legacy tree) only go after the flip.
+  // Old generations (and the legacy tree) only go after the flip. The wrap
+  // and its meta are root-level state, not snapshot data — never pruned.
   for await (const [name] of root.entries()) {
-    if (name === `snap-${next}` || name === "current") continue;
+    if (name === `snap-${next}` || name === "current" || name === WRAP || name === META) continue;
     if (name === "accounts" || /^snap-\d+$/.test(name)) {
       try { await root.removeEntry(name, { recursive: true }); } catch {}
     }
@@ -239,6 +314,24 @@ self.onmessage = async (e) => {
         // the worker answers no RPC until the snapshot is confirmed restored.
         const root = await opfsRoot();
         if (!root) throw new Error("OPFS unavailable — cannot restore accounts");
+        // #178: a wrap means the snapshot tree belongs to an encrypted
+        // install. The page unlocks BEFORE it creates the transport and
+        // passes the KEK in the boot message; a boot that arrives without
+        // one must not open the core (and never resets anything).
+        // Relative resolution needs a real module URL (data:-URL harnesses
+        // have none): unavailable just means no encryption support — but an
+        // existing wrap must then fail loudly, never boot plaintext over it.
+        crypt = await import("./db-crypt.js").catch(() => null);
+        const lock = await lockState(root);
+        if (lock && !crypt) throw new Error("dbkey.wrap present but db-crypt.js could not be loaded");
+        if (lock) {
+          if (!d.dbKey) {
+            self.postMessage({ type: "db-locked", mode: lock.meta?.mode || "pass", salt: lock.meta?.salt || "", credId: lock.meta?.credId || "" });
+            return;
+          }
+          const rawDek = await crypt.unwrapDek(new Uint8Array(d.dbKey), lock.wrap);
+          dekKey = await crypto.subtle.importKey("raw", rawDek, "AES-GCM", false, ["encrypt", "decrypt"]);
+        }
         await restore(root);
       }
       relayBase = relayBaseFromWsUrl(d.wsProxyUrl);
@@ -316,6 +409,39 @@ self.onmessage = async (e) => {
       self.postMessage({ type: "written", id: d.id });
     } catch (err) {
       self.postMessage({ type: "file-error", id: d.id, error: String(err?.message ?? err) });
+    }
+  } else if (d.type === "set-encryption") {
+    // #178: wrap a fresh DEK with the page-derived KEK and switch the next
+    // checkpoint to encrypted writes. The wrap lands before the encrypted
+    // snapshot exists — an interrupted transition boots the older plaintext
+    // generation (the `enc` marker travels with the generation).
+    try {
+      if (!glue) throw new Error("core not ready");
+      const rawDek = crypt.generateDek();
+      const root = await opfsRoot();
+      if (!root) throw new Error("OPFS unavailable");
+      await writeFile(root, WRAP, await crypt.wrapDek(new Uint8Array(d.kek), rawDek));
+      await writeFile(root, META, new TextEncoder().encode(JSON.stringify(d.meta || {})));
+      dekKey = await crypto.subtle.importKey("raw", rawDek, "AES-GCM", false, ["encrypt", "decrypt"]);
+      lastDigest = ""; // the digest is over plaintext: force the encrypted rewrite
+      self.postMessage({ type: "encryption-on", id: d.id });
+    } catch (err) {
+      self.postMessage({ type: "encryption-error", id: d.id, error: String(err?.message ?? err) });
+    }
+  } else if (d.type === "disable-encryption") {
+    // Rewrite the snapshot plaintext FIRST, then drop the wrap: a crash
+    // between the two boots the plaintext generation and just shows the
+    // unlock prompt once more; the reverse order could brick the profile.
+    try {
+      if (!glue) throw new Error("core not ready");
+      dekKey = null;
+      lastDigest = "";
+      await checkpoint();
+      const root = await opfsRoot();
+      for (const name of [WRAP, META]) { try { await root.removeEntry(name); } catch {} }
+      self.postMessage({ type: "encryption-off", id: d.id });
+    } catch (err) {
+      self.postMessage({ type: "encryption-error", id: d.id, error: String(err?.message ?? err) });
     }
   }
 };

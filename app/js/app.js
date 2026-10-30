@@ -4,6 +4,8 @@ import { createNetWatch, NET_DEFAULTS } from "./net-watch.js";
 import "./components.js";
 import { escapeHtml, escapeAttr } from "./components.js";
 import { chatCategoryOf, chatIsUnread, swipeCategoryStep, batteryReactionPlan, chatsInCommon } from "./rpc-core.js";
+import { probeLock, unlockInteractive, prfSupported } from "./db-lock.js";
+import { deriveKekPassphrase, deriveKekPrf, prfCreate, prfEval, b64 } from "./db-crypt.js";
 import { fileUrl, setWasmBlobReader, redactMediaUrl } from "./media.js";
 import { mountMemberList } from "./member-list.js";
 import { adminCaps, adminBadgeHtml, adminInfoText, canRemoveMember } from "./admin-group.js";
@@ -450,7 +452,20 @@ let chatListRenderDeferred = false;
 // Mirror diagnostics into velta.log (js_log): the in-app store is only
 // visible on the phone's splash footer, while velta.log is pullable via
 // adb (run-as) — every core/transport diagnostic must land in both.
+// #178: an encrypted PWA snapshot unlocks BEFORE the transport exists (the
+// worker gets the KEK in the boot message) so the 20s connect deadline
+// never races the unlock prompt.
+let bootDbKey = null;
+if (!window.__TAURI__ && !window.VeltaBridge) {
+  try {
+    const lock = await probeLock();
+    if (lock) bootDbKey = await unlockInteractive(lock);
+  } catch (e) {
+    diagnostics.append("error", `Unlock failed: ${e?.message || e}`);
+  }
+}
 coreStartupPromise = createCore({
+  dbKey: bootDbKey,
   onDiagnostic: (level, message) => {
     diagnostics.append(level, message);
     notePushDiagnostic(message); // #110: relay "(U)" marks
@@ -3752,6 +3767,8 @@ function openProfileManagement() {
   if (state.accountChanging) return;
   const epoch = core.accountEpoch;
   const canImport = !!tauriInvoke();
+  // #178: snapshot encryption is a PWA-only feature (worker-wasm backend).
+  const pwaEnc = core.backend?.kind === "worker-wasm" && !!core.transport?.setEncryption;
   const body = document.createElement("div");
   body.innerHTML = `
     <div class="pm-tabs" data-tabs>
@@ -3765,6 +3782,21 @@ function openProfileManagement() {
       <input type="checkbox" role="switch" data-sync-only>
       <span>${escapeHtml(t("Sync only active profile — other profiles won't receive messages until you switch to them"))}</span>
     </label>
+    ${pwaEnc ? `
+    <div style="margin:0 2px 10px;display:grid;gap:8px" data-encrypt-box>
+      <p class="pm-hint" data-enc-status></p>
+      <div data-enc-on hidden>
+        <form data-enc-form style="display:grid;gap:8px">
+          <input class="text-field" data-enc-pass type="password" minlength="8" required placeholder="${escapeHtml(t("Passphrase (8+ characters)"))}" autocomplete="new-password">
+          <input class="text-field" data-enc-pass2 type="password" minlength="8" required placeholder="${escapeHtml(t("Repeat passphrase"))}" autocomplete="new-password">
+          <button class="btn-primary" type="submit">${escapeHtml(t("Encrypt local data"))}</button>
+        </form>
+        ${prfSupported() ? `<button class="btn-text" type="button" data-enc-prf>${escapeHtml(t("Use a passkey instead"))}</button>` : ""}
+      </div>
+      <div data-enc-off hidden>
+        <button class="btn-primary" type="button" data-enc-disable>${escapeHtml(t("Turn off encryption"))}</button>
+      </div>
+    </div>` : ""}
     <div class="pm-pane" data-pane="add">
       <p class="pm-hint">${t("Paste a <b>chatmail</b> invite link ({link}) or a relay domain — a new end-to-end encrypted profile is created on it.", { link: "<span>dcaccount:…</span>" })}</p>
       <form data-add-form>
@@ -3837,6 +3869,65 @@ function openProfileManagement() {
       errToast(t("Couldn't apply the sync mode: ") + (err?.message || err));
     }
   });
+
+  /* -- local data encryption (#178, PWA only) -- */
+  const encBox = body.querySelector("[data-encrypt-box]");
+  if (encBox) {
+    const statusEl = encBox.querySelector("[data-enc-status]");
+    const onBox = encBox.querySelector("[data-enc-on]");
+    const offBox = encBox.querySelector("[data-enc-off]");
+    const refresh = async () => {
+      const lock = await probeLock();
+      if (lock) {
+        statusEl.textContent = t("Local data is encrypted. Unlocking needs the passphrase or passkey you chose — the key never leaves this device.");
+        onBox.hidden = true;
+        offBox.hidden = false;
+      } else {
+        statusEl.textContent = t("Local data is stored in plain text in this browser. Encryption protects it against access to the profile files (lost laptop, copied profile), not against malware while Velta is open.");
+        onBox.hidden = false;
+        offBox.hidden = true;
+      }
+    };
+    refresh();
+    const form = encBox.querySelector("[data-enc-form]");
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const pass = form.querySelector("[data-enc-pass]").value;
+      if (pass !== form.querySelector("[data-enc-pass2]").value) { errToast(t("The passphrases don't match.")); return; }
+      try {
+        const salt = crypto.getRandomValues(new Uint8Array(16));
+        const kek = await deriveKekPassphrase(pass, salt);
+        await core.transport.setEncryption({ kek, meta: { v: 1, mode: "pass", salt: b64(salt), iter: 600000 } });
+        toast(t("Local data encryption is on. The passphrase is the only way to unlock this profile — write it down."));
+        await refresh();
+      } catch (err) {
+        errToast(t("Couldn't enable encryption: ") + (err?.message || err));
+      }
+    });
+    encBox.querySelector("[data-enc-prf]")?.addEventListener("click", async () => {
+      try {
+        const salt = crypto.getRandomValues(new Uint8Array(16));
+        const cred = await prfCreate();
+        const prf = cred.getClientExtensionResults?.()?.prf;
+        if (!prf?.isSupported) throw new Error(t("This authenticator does not support passkey encryption (PRF)."));
+        const kek = await deriveKekPrf(await prfEval(cred.rawId, salt), salt);
+        await core.transport.setEncryption({ kek, meta: { v: 1, mode: "prf", salt: b64(salt), credId: b64(new Uint8Array(cred.rawId)) } });
+        toast(t("Local data encryption is on. Unlocking needs this passkey — keep a backup: losing the passkey means losing the data."));
+        await refresh();
+      } catch (err) {
+        errToast(t("Couldn't enable encryption: ") + (err?.message || err));
+      }
+    });
+    encBox.querySelector("[data-enc-disable]").addEventListener("click", async () => {
+      try {
+        await core.transport.disableEncryption();
+        toast(t("Local data encryption is off."));
+        await refresh();
+      } catch (err) {
+        errToast(t("Couldn't turn encryption off: ") + (err?.message || err));
+      }
+    });
+  }
 
   /* -- add profile -- */
   const relayInput = panes.add.querySelector("[data-relay]");

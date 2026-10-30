@@ -32,12 +32,16 @@ export class WorkerWasmTransport {
     wsProxyUrl = null,
     wsProxyToken = "",
     wsProxyDevice = "",
+    dbKey = null,
   } = {}) {
     this.name = "worker-wasm";
     this._workerUrl = workerUrl;
     this._glueUrl = glueUrl;
     this._wsProxyUrl = wsProxyUrl;
     this._wsProxyToken = wsProxyToken;
+    // #178: KEK bytes for the encrypted snapshot (page-derived, page keeps
+    // no copy); null boots the plaintext/opt-out path.
+    this._dbKey = dbKey;
     this._wsProxyDevice = wsProxyDevice;
     this._receiver = null;
     this._worker = null;
@@ -115,6 +119,19 @@ export class WorkerWasmTransport {
     });
   }
 
+  // #178: switch the snapshot to encrypted writes (KEK + non-secret meta:
+  // mode, KDF salt, prf credential id). Resolves after the wrap is stored;
+  // the next checkpoint rewrites the generation encrypted.
+  setEncryption({ kek, meta }) {
+    return this._fileRequest({ type: "set-encryption", kek, meta }, "encryption-on");
+  }
+
+  // Rewrite the snapshot plaintext and drop the wrap (worker awaits the
+  // checkpoint before confirming).
+  disableEncryption() {
+    return this._fileRequest({ type: "disable-encryption" }, "encryption-off");
+  }
+
   async _boot() {
     // Single-tab gate: two live cores would race the OPFS snapshot. Hold the
     // lock for the worker's lifetime; a second tab gets a clear error.
@@ -138,7 +155,7 @@ export class WorkerWasmTransport {
         this._releaseLock?.();
         reject(new Error(`worker error: ${e.message ?? "unknown"}`));
       };
-      w.postMessage({ type: "boot", glueUrl: this._glueUrl, wsProxyUrl: this._wsProxyUrl, wsProxyToken: this._wsProxyToken, wsProxyDevice: this._wsProxyDevice });
+      w.postMessage({ type: "boot", glueUrl: this._glueUrl, wsProxyUrl: this._wsProxyUrl, wsProxyToken: this._wsProxyToken, wsProxyDevice: this._wsProxyDevice, dbKey: this._dbKey });
       this._worker = w;
       // Save when the page goes to the background (tab switch, app switch,
       // the start of a reload). Safe now that a cut-off write is ignored.
