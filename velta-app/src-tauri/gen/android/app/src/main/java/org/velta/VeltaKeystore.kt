@@ -62,7 +62,18 @@ object VeltaKeystore {
         blob[0] = 1 // format version
         iv.copyInto(blob, 1)
         cipher.doFinal(dek).copyInto(blob, 1 + iv.size)
-        wrapFile.writeBytes(blob)
+        // Atomic: temp file + fsync + rename, so a crash mid-write never
+        // leaves a torn dbkey.wrap (which would read as "Keystore lost").
+        val tmp = File(wrapFile.parentFile, "$WRAP_FILE.tmp")
+        java.io.FileOutputStream(tmp).use { out ->
+            out.write(blob)
+            out.fd.sync()
+        }
+        if (!tmp.renameTo(wrapFile)) {
+            tmp.delete()
+            Log.e(TAG, "dbkey.wrap rename failed")
+            return null
+        }
         Log.i(TAG, "generated a new database key")
         return hex(dek)
     }

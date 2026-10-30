@@ -1447,5 +1447,10 @@
   "Unlock": "Déverrouiller",
   "Wrong passphrase. Try again — nothing was changed.": "Phrase secrète erronée. Réessayez — rien n'a été modifié.",
   "The passkey did not unlock this profile. Try again.": "La clé d'accès n'a pas déverrouillé ce profil. Réessayez.",
-  "Database locked": "Base de données verrouillée"
+  "Database locked": "Base de données verrouillée",
+  "Database key missing": "Clé de la base de données manquante",
+  "Database encryption is off": "Le chiffrement de la base de données est désactivé",
+  "Encrypted profiles exist, but this device's keychain has no key for them. No new key was created and nothing was reset. Restore the keychain or import a backup.": "Des profils chiffrés existent, mais le trousseau de cet appareil n'a pas de clé pour eux. Aucune nouvelle clé n'a été créée et rien n'a été réinitialisé. Restaurez le trousseau ou importez une sauvegarde.",
+  "No system keychain is available (on Linux: a Secret Service such as GNOME Keyring or KWallet), so messages on this device are stored unencrypted. Enable a keychain and restart Velta to turn encryption on.": "Aucun trousseau système n'est disponible (sous Linux : un Secret Service comme GNOME Keyring ou KWallet), les messages sont donc stockés non chiffrés sur cet appareil. Activez un trousseau et redémarrez Velta pour activer le chiffrement.",
+  "Dismiss": "Fermer"
 }

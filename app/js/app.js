@@ -434,6 +434,33 @@ if (window.__TAURI__) {
   } catch (e) {
     console.warn("[velta] db-locked setup failed:", e);
   }
+
+  // Encryption off / key missing (#178): a non-blocking notice so the user
+  // knows this device is NOT storing the database encrypted, or why
+  // encrypted profiles cannot open. Dismissible for the session only.
+  try {
+    invoke("get_db_key_issue").then((issue) => {
+      if (!issue || document.getElementById("db-key-notice")) return;
+      const missing = issue === "key-missing";
+      const el = document.createElement("div");
+      el.id = "db-key-notice";
+      el.setAttribute("role", missing ? "alert" : "status");
+      const title = missing ? t("Database key missing") : t("Database encryption is off");
+      const body = missing
+        ? t("Encrypted profiles exist, but this device's keychain has no key for them. No new key was created and nothing was reset. Restore the keychain or import a backup.")
+        : t("No system keychain is available (on Linux: a Secret Service such as GNOME Keyring or KWallet), so messages on this device are stored unencrypted. Enable a keychain and restart Velta to turn encryption on.");
+      el.innerHTML = `<div class="db-key-notice-text"><strong></strong><span></span></div><button type="button" class="db-key-notice-close"></button>`;
+      el.querySelector("strong").textContent = title;
+      el.querySelector("span").textContent = body;
+      const close = el.querySelector("button");
+      close.textContent = "×";
+      close.setAttribute("aria-label", t("Dismiss"));
+      close.addEventListener("click", () => el.remove());
+      document.body.appendChild(el);
+    }).catch(() => {});
+  } catch (e) {
+    console.warn("[velta] db-key notice setup failed:", e);
+  }
 }
 
 // The splash is created on demand: boot shows it only when the account is

@@ -3582,3 +3582,23 @@ html[data-theme="brutal"] .msg-row.out .msg-text .mention { color: var(--nb-main
 #db-locked p { margin: 0; opacity: .85; font-size: 14px; line-height: 1.45; }
 #db-locked .db-locked-hint { opacity: .65; font-size: 13px; }
 #db-locked .db-locked-retry { margin-top: 4px; }
+
+/* #178 encryption off / key missing: non-blocking notice. Tokens only:
+   --text on --bg-sidebar (AA in dark, light and high-contrast themes),
+   --danger only as a non-text accent bar. */
+#db-key-notice {
+  position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 900;
+  display: flex; align-items: flex-start; gap: 12px;
+  max-width: 560px; margin: 0 auto; padding: 12px 14px;
+  background: var(--bg-sidebar); color: var(--text);
+  border: 1px solid var(--border); border-left: 4px solid var(--danger);
+  border-radius: var(--radius-media); box-shadow: 0 4px 16px rgba(0,0,0,.25);
+  font-size: 14px; line-height: 1.45;
+}
+#db-key-notice .db-key-notice-text { display: grid; gap: 4px; flex: 1; }
+#db-key-notice .db-key-notice-close {
+  min-width: 32px; min-height: 32px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--text); font-size: 20px; cursor: pointer;
+}
+#db-key-notice .db-key-notice-close:hover { background: var(--bg-hover); }
+#db-key-notice .db-key-notice-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

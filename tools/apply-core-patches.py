@@ -1640,7 +1640,7 @@ pub struct JsonrpcTransportServerMetadata {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_velta_keyed_open_roundtrip() -> Result<()> {
         let key = "x'00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff'";
-        let other = "x'ff112233445566778899aabbccddeeff00112233445566778899aabbccddeeffee'";
+        let other = "x'ff112233445566778899aabbccddeeff00112233445566778899aabbccddee00'";
         let dir = tempfile::tempdir()?.keep();
 
         let mut accounts = Accounts::new(dir.clone(), true).await?;

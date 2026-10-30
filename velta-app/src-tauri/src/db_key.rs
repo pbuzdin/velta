@@ -55,42 +55,159 @@ fn log(msg: &str) {
     crate::log(&format!("db-key: {msg}"));
 }
 
-/// The install DEK as 64 hex chars: loaded from the keychain, or generated
-/// and stored. `None` = keychain unavailable or unreadable — the session
-/// runs unencrypted (or locked, if encrypted databases exist); we never
-/// fall back to a key file next to the database, which would add nothing.
+/// What the keychain said about the install DEK.
+#[derive(Debug)]
+pub enum Lookup {
+    /// A well-formed 64-hex key.
+    Found(String),
+    /// No item stored (fresh install, or the keychain was reset).
+    NoEntry,
+    /// Keychain unavailable, unreadable, or the item is corrupt.
+    Unavailable,
+}
+
+/// Why this session runs without a usable key — surfaced in the UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyIssue {
+    /// No OS keychain (e.g. no Linux Secret Service): stays unencrypted.
+    KeychainUnavailable,
+    /// Encrypted databases exist but the keychain has no key for them.
+    /// No new key is created (no mixed keys); they stay locked.
+    KeyMissing,
+}
+
+/// Key policy (plan §3.3): a new DEK is only generated when NO encrypted
+/// database exists. If encrypted data exists and the keychain lost the
+/// key, creating a fresh one would encrypt new accounts with a second key
+/// while the old ones stay locked — never do that.
+/// Returns (key to use, whether to create+store a new key, issue for UI).
+pub fn decide_key(lookup: Lookup, has_encrypted: bool) -> (Option<String>, bool, Option<KeyIssue>) {
+    match lookup {
+        Lookup::Found(hex) => (Some(hex), false, None),
+        Lookup::NoEntry if has_encrypted => (None, false, Some(KeyIssue::KeyMissing)),
+        Lookup::NoEntry => (None, true, None),
+        Lookup::Unavailable if has_encrypted => (None, false, Some(KeyIssue::KeyMissing)),
+        Lookup::Unavailable => (None, false, Some(KeyIssue::KeychainUnavailable)),
+    }
+}
+
 #[cfg(not(target_os = "android"))]
-fn load_or_create_dek() -> Option<String> {
-    let entry = match keyring::Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_USER) {
-        Ok(e) => e,
+fn keychain_entry() -> Option<keyring::Entry> {
+    match keyring::Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_USER) {
+        Ok(e) => Some(e),
         Err(e) => {
             log(&format!("keychain unavailable: {e}"));
-            return None;
-        }
-    };
-    match entry.get_password() {
-        Ok(hex) if hex.len() == 64 && hex.chars().all(|c| c.is_ascii_hexdigit()) => Some(hex),
-        Ok(_) => {
-            // A mangled item is not recoverable and must not be overwritten
-            // silently: the databases it may have encrypted stay locked.
-            log("keychain item is corrupt; treating as missing");
-            None
-        }
-        Err(keyring::Error::NoEntry) => {
-            let bytes = crate::random_bytes::<32>();
-            let hex: String = data_encoding::HEXLOWER.encode(&bytes);
-            if let Err(e) = entry.set_password(&hex) {
-                log(&format!("keychain write failed: {e}"));
-                return None;
-            }
-            log("generated a new database key");
-            Some(hex)
-        }
-        Err(e) => {
-            log(&format!("keychain read failed: {e}"));
             None
         }
     }
+}
+
+#[cfg(not(target_os = "android"))]
+fn keychain_lookup(entry: Option<&keyring::Entry>) -> Lookup {
+    let Some(entry) = entry else { return Lookup::Unavailable };
+    match entry.get_password() {
+        Ok(hex) if hex.len() == 64 && hex.chars().all(|c| c.is_ascii_hexdigit()) => Lookup::Found(hex),
+        Ok(_) => {
+            // A mangled item is not recoverable and must not be overwritten
+            // silently: the databases it may have encrypted stay locked.
+            log("keychain item is corrupt; treating as unavailable");
+            Lookup::Unavailable
+        }
+        Err(keyring::Error::NoEntry) => Lookup::NoEntry,
+        Err(e) => {
+            log(&format!("keychain read failed: {e}"));
+            Lookup::Unavailable
+        }
+    }
+}
+
+/// Generate and store a new DEK. `None` = the keychain refused the write.
+#[cfg(not(target_os = "android"))]
+fn create_dek(entry: Option<&keyring::Entry>) -> Option<String> {
+    let entry = entry?;
+    let bytes = crate::random_bytes::<32>();
+    let hex: String = data_encoding::HEXLOWER.encode(&bytes);
+    if let Err(e) = entry.set_password(&hex) {
+        log(&format!("keychain write failed: {e}"));
+        return None;
+    }
+    log("generated a new database key");
+    Some(hex)
+}
+
+/// Every `<root>/<uuid>/dc.db` — including accounts whose `dc.db` is
+/// missing but whose migration backup `dc.db.plain.bak` exists (a crash
+/// between the two swap renames).
+fn account_dbs(accounts_root: &Path) -> Vec<PathBuf> {
+    match std::fs::read_dir(accounts_root) {
+        Ok(entries) => entries
+            .flatten()
+            .map(|e| e.path().join("dc.db"))
+            .filter(|db| db.is_file() || sibling(db, "plain.bak").is_file())
+            .collect(),
+        Err(e) => {
+            log(&format!("cannot read {}: {e}", accounts_root.display()));
+            Vec::new()
+        }
+    }
+}
+
+/// Any database that is not plaintext (or an unrecoverable interrupted
+/// swap's leftover) means a key has been used on this install before.
+pub fn has_encrypted(accounts_root: &Path) -> bool {
+    account_dbs(accounts_root)
+        .iter()
+        .any(|db| db.is_file() && !opens(db, None))
+}
+
+/// fsync a file (and on unix its directory) so a rename after it cannot
+/// publish an empty or torn file after a power loss.
+fn sync_file(path: &Path) -> std::io::Result<()> {
+    std::fs::File::open(path)?.sync_all()
+}
+
+fn sync_dir(dir: &Path) {
+    #[cfg(unix)]
+    if let Ok(d) = std::fs::File::open(dir) {
+        let _ = d.sync_all();
+    }
+    #[cfg(not(unix))]
+    let _ = dir; // Windows: no std directory fsync; the .bak covers it.
+}
+
+fn count(conn: &Connection, table: &str) -> Result<i64, String> {
+    conn.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+        .map_err(|e| format!("{table}: {e}"))
+}
+
+/// Before the migration backup is deleted: the encrypted live database
+/// must be the SAME data as the backup, not a fresh db created over a
+/// missing file. Row counts must match; tables that legitimately change
+/// in a session (msgs, chats, contacts) may only grow — a shrink, or a
+/// different identity (config `addr`, keypairs), keeps the backup.
+fn bak_superseded(db: &Path, bak: &Path, key_hex: &str) -> Result<(), String> {
+    let plain = Connection::open(bak).map_err(|e| e.to_string())?;
+    let enc = Connection::open(db).map_err(|e| e.to_string())?;
+    enc.pragma_update(None, "key", format!("x'{key_hex}'"))
+        .map_err(|e| e.to_string())?;
+    for table in COUNT_TABLES {
+        let (b, e) = (count(&plain, table)?, count(&enc, table)?);
+        let ok = match table {
+            "keypairs" => e == b,
+            _ => e >= b,
+        };
+        if !ok {
+            return Err(format!("row count mismatch on {table}: backup {b}, live {e}"));
+        }
+    }
+    let addr = |c: &Connection| -> Option<String> {
+        c.query_row("SELECT value FROM config WHERE keyname='addr'", [], |r| r.get(0))
+            .ok()
+    };
+    if addr(&plain) != addr(&enc) {
+        return Err("identity (addr) differs from backup".to_string());
+    }
+    Ok(())
 }
 
 fn opens(path: &Path, key_hex: Option<&str>) -> bool {
@@ -192,10 +309,11 @@ fn migrate(db: &Path, key_hex: &str) -> Result<(), String> {
         Ok(())
     };
 
-    if let Err(e) = run() {
+    if let Err(e) = run().and_then(|()| sync_file(&enc).map_err(|e| format!("fsync enc failed: {e}"))) {
         let _ = std::fs::remove_file(&enc);
         return Err(e);
     }
+    let dir = db.parent().unwrap_or(Path::new("."));
 
     // Same-volume renames do not copy. Windows has no std directory fsync;
     // the .bak survives until the next startup verifies the swap anyway.
@@ -208,6 +326,7 @@ fn migrate(db: &Path, key_hex: &str) -> Result<(), String> {
                 false
             }
         };
+    sync_dir(dir);
     if !swapped {
         let _ = std::fs::remove_file(&enc);
         return Err("swap failed".to_string());
@@ -228,17 +347,21 @@ pub fn prepare(accounts_root: &Path, key_hex: Option<&str>) -> Prepare {
     };
     let mut failed = 0;
 
-    let mut dbs: Vec<PathBuf> = match std::fs::read_dir(accounts_root) {
-        Ok(entries) => entries
-            .flatten()
-            .map(|e| e.path().join("dc.db"))
-            .filter(|db| db.is_file())
-            .collect(),
-        Err(e) => {
-            log(&format!("cannot read {}: {e}", accounts_root.display()));
-            Vec::new()
+    let mut dbs = account_dbs(accounts_root);
+
+    // Crash between the two swap renames: dc.db gone, plaintext backup
+    // present. Restore it first — otherwise the core would create a fresh
+    // database in its place and the next start would prune the backup.
+    for db in &dbs {
+        let bak = sibling(db, "plain.bak");
+        if !db.exists() && opens(&bak, None) {
+            log(&format!("restoring plaintext backup over missing {}", db.display()));
+            if let Err(e) = std::fs::rename(&bak, db) {
+                log(&format!("restore failed for {}: {e}", db.display()));
+            }
         }
-    };
+    }
+    dbs.retain(|db| db.is_file());
 
     // Classify (and migrate) each database. A `None` result means "restore
     // path reclassified this one" — it is re-examined on a second pass.
@@ -262,10 +385,22 @@ pub fn prepare(accounts_root: &Path, key_hex: Option<&str>) -> Prepare {
                 }
                 Kind::Ours => {
                     state.already += 1;
-                    // The encrypted copy opens with the key: any leftover
-                    // backup from the migration that produced it is
-                    // verified — drop it.
-                    let _ = std::fs::remove_file(sibling(db, "plain.bak"));
+                    // The encrypted copy opens with the key. Drop the
+                    // migration backup only once it is proven to hold the
+                    // same data (never a fresh db over a lost file).
+                    let bak = sibling(db, "plain.bak");
+                    if bak.exists() {
+                        match key_hex.map(|k| bak_superseded(db, &bak, k)) {
+                            Some(Ok(())) => {
+                                let _ = std::fs::remove_file(&bak);
+                            }
+                            Some(Err(e)) => log(&format!(
+                                "KEEPING backup {}: {e}",
+                                bak.display()
+                            )),
+                            None => {}
+                        }
+                    }
                     false
                 }
                 Kind::Foreign => {
@@ -310,10 +445,21 @@ pub fn prepare(accounts_root: &Path, key_hex: Option<&str>) -> Prepare {
 /// databases, and return the raw key for the sidecar env — `None` runs the
 /// session without encryption.
 #[cfg(not(target_os = "android"))]
-pub fn startup(accounts_data_dir: &Path) -> Option<String> {
+pub fn startup(accounts_data_dir: &Path) -> (Option<String>, Option<KeyIssue>) {
     let t0 = Instant::now();
-    let hex = load_or_create_dek();
-    let report = prepare(&accounts_data_dir.join("accounts"), hex.as_deref());
+    let root = accounts_data_dir.join("accounts");
+    let entry = keychain_entry();
+    let (mut hex, create, mut issue) = decide_key(keychain_lookup(entry.as_ref()), has_encrypted(&root));
+    if create {
+        hex = create_dek(entry.as_ref());
+        if hex.is_none() {
+            issue = Some(KeyIssue::KeychainUnavailable);
+        }
+    }
+    if let Some(i) = issue {
+        log(&format!("key issue: {i:?}"));
+    }
+    let report = prepare(&root, hex.as_deref());
     log(&format!(
         "prepare: {} newly encrypted, {} already encrypted, {} locked, key {} ({} ms)",
         report.migrated,
@@ -323,9 +469,9 @@ pub fn startup(accounts_data_dir: &Path) -> Option<String> {
         t0.elapsed().as_millis()
     ));
     if report.use_key {
-        hex.map(|h| format!("x'{h}'"))
+        (hex.map(|h| format!("x'{h}'")), issue)
     } else {
-        None
+        (None, issue)
     }
 }
 
@@ -364,7 +510,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     const KEY: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
-    const OTHER: &str = "ff112233445566778899aabbccddeeff00112233445566778899aabbccddeeffee";
+    const OTHER: &str = "ff112233445566778899aabbccddeeff00112233445566778899aabbccddee00";
 
     static TMP_N: AtomicUsize = AtomicUsize::new(0);
 
@@ -389,7 +535,8 @@ mod tests {
             "CREATE TABLE msgs (id INTEGER PRIMARY KEY, txt TEXT);
              CREATE TABLE chats (id INTEGER PRIMARY KEY);
              CREATE TABLE contacts (id INTEGER PRIMARY KEY);
-             CREATE TABLE config (id INTEGER PRIMARY KEY, name TEXT);
+             CREATE TABLE config (id INTEGER PRIMARY KEY, keyname TEXT, value TEXT);
+             INSERT INTO config (keyname, value) VALUES ('addr', 'me@example.org');
              CREATE TABLE keypairs (id INTEGER PRIMARY KEY);
              PRAGMA user_version = 7;",
         )
@@ -484,6 +631,95 @@ mod tests {
         let p = prepare(&dir2, None);
         assert_eq!((p.migrated, p.use_key), (0, false));
         assert!(opens(&db2, None));
+    }
+
+    #[test]
+    fn test_keys_are_64_hex() {
+        for k in [KEY, OTHER] {
+            assert_eq!(k.len(), 64);
+            assert!(k.chars().all(|c| c.is_ascii_hexdigit()));
+        }
+    }
+
+    /// Crash after `dc.db -> dc.db.plain.bak` but before `dc.db.enc ->
+    /// dc.db`: no live db at all. Must restore and re-migrate, not let the
+    /// core create a fresh database and later prune the only copy.
+    #[test]
+    fn crash_between_renames_restores_and_remigrates() {
+        let dir = tmpdir();
+        let acc = dir.join("acc1");
+        let db = plant_plain_db(&acc, 4);
+        std::fs::rename(&db, acc.join("dc.db.plain.bak")).unwrap();
+        // A half-written export may also be left behind.
+        std::fs::write(acc.join("dc.db.enc"), b"partial").unwrap();
+        assert!(!db.exists());
+        assert!(!has_encrypted(&dir));
+
+        let p = prepare(&dir, Some(KEY));
+        assert_eq!((p.migrated, p.locked, p.use_key), (1, 0, true));
+        assert_eq!(keyed_count(&db, KEY, "SELECT count(*) FROM msgs"), 4);
+        assert!(!acc.join("dc.db.enc").exists());
+
+        // Next start: backup verified against the live db, then pruned.
+        let p = prepare(&dir, Some(KEY));
+        assert_eq!(p.already, 1);
+        assert!(!acc.join("dc.db.plain.bak").exists());
+    }
+
+    /// The original failure: a FRESH keyed db sits where the data was and
+    /// the plaintext backup still has it. The backup must never be pruned.
+    #[test]
+    fn backup_kept_when_live_db_is_not_the_same_data() {
+        let dir = tmpdir();
+        let acc = dir.join("acc1");
+        let db = plant_plain_db(&acc, 5);
+        let bak = acc.join("dc.db.plain.bak");
+        std::fs::rename(&db, &bak).unwrap();
+        // Fresh empty keyed db (what the core would create).
+        {
+            let c = Connection::open(&db).unwrap();
+            c.pragma_update(None, "key", format!("x'{KEY}'")).unwrap();
+            c.execute_batch(
+                "CREATE TABLE msgs (id INTEGER PRIMARY KEY, txt TEXT);
+                 CREATE TABLE chats (id INTEGER PRIMARY KEY);
+                 CREATE TABLE contacts (id INTEGER PRIMARY KEY);
+                 CREATE TABLE config (id INTEGER PRIMARY KEY, keyname TEXT, value TEXT);
+                 CREATE TABLE keypairs (id INTEGER PRIMARY KEY);",
+            )
+            .unwrap();
+        }
+        assert!(opens(&db, Some(KEY)));
+
+        let p = prepare(&dir, Some(KEY));
+        assert_eq!(p.already, 1);
+        assert!(bak.exists(), "backup with more data must be kept");
+        assert!(opens(&bak, None));
+    }
+
+    #[test]
+    fn key_policy_never_mixes_keys() {
+        let k = || Lookup::Found(KEY.to_string());
+        assert_eq!(decide_key(k(), true), (Some(KEY.to_string()), false, None));
+        assert_eq!(decide_key(k(), false), (Some(KEY.to_string()), false, None));
+        // Fresh install: create.
+        assert_eq!(decide_key(Lookup::NoEntry, false), (None, true, None));
+        // Encrypted data but no key: do NOT create, report it.
+        assert_eq!(decide_key(Lookup::NoEntry, true), (None, false, Some(KeyIssue::KeyMissing)));
+        assert_eq!(decide_key(Lookup::Unavailable, true), (None, false, Some(KeyIssue::KeyMissing)));
+        // No keychain at all (Linux without Secret Service): plaintext, reported.
+        assert_eq!(
+            decide_key(Lookup::Unavailable, false),
+            (None, false, Some(KeyIssue::KeychainUnavailable))
+        );
+    }
+
+    #[test]
+    fn has_encrypted_detects_keyed_databases() {
+        let dir = tmpdir();
+        plant_plain_db(&dir.join("acc1"), 1);
+        assert!(!has_encrypted(&dir));
+        prepare(&dir, Some(KEY));
+        assert!(has_encrypted(&dir));
     }
 
     #[test]

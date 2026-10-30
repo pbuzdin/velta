@@ -1447,5 +1447,10 @@
   "Unlock": "Разблокировать",
   "Wrong passphrase. Try again — nothing was changed.": "Неверная парольная фраза. Попробуйте снова — ничего не изменено.",
   "The passkey did not unlock this profile. Try again.": "Ключ-доступ не разблокировал профиль. Попробуйте снова.",
-  "Database locked": "База данных заблокирована"
+  "Database locked": "База данных заблокирована",
+  "Database key missing": "Ключ базы данных отсутствует",
+  "Database encryption is off": "Шифрование базы данных выключено",
+  "Encrypted profiles exist, but this device's keychain has no key for them. No new key was created and nothing was reset. Restore the keychain or import a backup.": "Есть зашифрованные профили, но в хранилище ключей этого устройства нет ключа для них. Новый ключ не создавался, ничего не сброшено. Восстановите хранилище ключей или импортируйте резервную копию.",
+  "No system keychain is available (on Linux: a Secret Service such as GNOME Keyring or KWallet), so messages on this device are stored unencrypted. Enable a keychain and restart Velta to turn encryption on.": "Системное хранилище ключей недоступно (в Linux — Secret Service, например GNOME Keyring или KWallet), поэтому сообщения на этом устройстве хранятся без шифрования. Включите хранилище ключей и перезапустите Velta, чтобы включить шифрование.",
+  "Dismiss": "Закрыть"
 }
