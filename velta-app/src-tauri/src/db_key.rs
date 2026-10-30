@@ -163,7 +163,9 @@ pub fn has_encrypted(accounts_root: &Path) -> bool {
 /// fsync a file (and on unix its directory) so a rename after it cannot
 /// publish an empty or torn file after a power loss.
 fn sync_file(path: &Path) -> std::io::Result<()> {
-    std::fs::File::open(path)?.sync_all()
+    // Windows: FlushFileBuffers refuses read-only handles (os error 5) —
+    // open for writing or every migration fails its fsync step.
+    std::fs::OpenOptions::new().write(true).open(path)?.sync_all()
 }
 
 fn sync_dir(dir: &Path) {
@@ -443,10 +445,18 @@ pub fn prepare(accounts_root: &Path, key_hex: Option<&str>) -> Prepare {
 
 /// Desktop startup entry point: load/create the DEK, migrate plaintext
 /// databases, and return the raw key for the sidecar env — `None` runs the
-/// session without encryption.
+/// session without encryption. The third element reports an app-lock PIN
+/// wrap: the session then starts LOCKED (keyless sidecar) and
+/// `pin_unlock` re-keys it after the user entered the PIN.
 #[cfg(not(target_os = "android"))]
-pub fn startup(accounts_data_dir: &Path) -> (Option<String>, Option<KeyIssue>) {
+pub fn startup(accounts_data_dir: &Path) -> (Option<String>, Option<KeyIssue>, bool) {
     let t0 = Instant::now();
+    // A PIN wrap is the key root (the keychain item was removed when the
+    // PIN was set): no keychain read at all, no new key ever.
+    if pin_locked(accounts_data_dir) {
+        log("app-lock PIN wrap present; starting locked");
+        return (None, None, true);
+    }
     let root = accounts_data_dir.join("accounts");
     let entry = keychain_entry();
     let (mut hex, create, mut issue) = decide_key(keychain_lookup(entry.as_ref()), has_encrypted(&root));
@@ -469,9 +479,9 @@ pub fn startup(accounts_data_dir: &Path) -> (Option<String>, Option<KeyIssue>) {
         t0.elapsed().as_millis()
     ));
     if report.use_key {
-        (hex.map(|h| format!("x'{h}'")), issue)
+        (hex.map(|h| format!("x'{h}'")), issue, false)
     } else {
-        (None, issue)
+        (None, issue, false)
     }
 }
 
@@ -502,6 +512,227 @@ pub fn android_startup(accounts_root: &Path) -> Option<String> {
     } else {
         None
     }
+}
+
+// ---- App-lock PIN (#178 phase 4, desktop) ---------------------------------
+//
+// The PIN replaces the OS keychain as the KEK source (plan §2.4):
+// Argon2id(PIN, salt, 64 MiB / t=3) → AES-256-GCM wraps the SAME DEK into
+// `<data>/dbkey.wrap`; setting a PIN removes the keychain item, clearing it
+// rewrites the keychain. File layout:
+// `VLTDW | u8 ver | u32 LE wrong-attempts | 16B salt | 12B nonce | 48B ct`.
+// The attempts counter backs off online guessing only — a copied wrap can be
+// attacked offline, so the PIN is a convenience root, not a stronger one.
+
+#[cfg(not(target_os = "android"))]
+pub fn pin_wrap_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("dbkey.wrap")
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn pin_locked(data_dir: &Path) -> bool {
+    pin_wrap_path(data_dir).is_file()
+}
+
+#[cfg(not(target_os = "android"))]
+fn derive_pin_kek(pin: &str, salt: &[u8]) -> [u8; 32] {
+    use argon2::Argon2;
+    let mut kek = [0u8; 32];
+    let params = argon2::Params::new(64 * 1024, 3, 1, None).expect("static Argon2 params");
+    Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params)
+        .hash_password_into(pin.as_bytes(), salt, &mut kek)
+        .expect("Argon2id with static params cannot fail");
+    kek
+}
+
+#[cfg(not(target_os = "android"))]
+fn pin_header(counter: u32, salt: &[u8], nonce: &[u8]) -> Vec<u8> {
+    let mut head = Vec::with_capacity(38);
+    head.extend_from_slice(b"VLTDW");
+    head.push(1);
+    head.extend_from_slice(&counter.to_le_bytes());
+    head.extend_from_slice(salt);
+    head.extend_from_slice(nonce);
+    head
+}
+
+/// Wrap `dek_hex` under `pin`. Rejects short PINs and non-hex DEKs.
+#[cfg(not(target_os = "android"))]
+pub fn pin_wrap_write(path: &Path, pin: &str, dek_hex: &str) -> Result<(), String> {
+    if pin.chars().count() < 6 {
+        return Err("pin too short".to_string());
+    }
+    if dek_hex.len() != 64 || !dek_hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err("bad dek".to_string());
+    }
+    let salt = crate::random_bytes::<16>();
+    let nonce = crate::random_bytes::<12>();
+    let head = pin_header(0, &salt, &nonce);
+    // The AAD binds everything EXCEPT the clear-text attempts counter
+    // (bytes 6..10), which moves on wrong attempts without a rewrap.
+    let mut aad = Vec::with_capacity(34);
+    aad.extend_from_slice(&head[0..6]);
+    aad.extend_from_slice(&salt);
+    aad.extend_from_slice(&nonce);
+    let ct = {
+        use aes_gcm::aead::{Aead, KeyInit, Payload};
+        use aes_gcm::{Aes256Gcm, Nonce};
+        let cipher = Aes256Gcm::new((&derive_pin_kek(pin, &salt)).into());
+        let dek = data_encoding::HEXLOWER
+            .decode(dek_hex.as_bytes())
+            .map_err(|_| "bad dek".to_string())?;
+        cipher
+            .encrypt(Nonce::from_slice(&nonce), Payload { msg: &dek, aad: &aad })
+            .map_err(|_| "encrypt failed".to_string())?
+    };
+    let mut file = head;
+    file.extend_from_slice(&ct);
+    std::fs::write(path, file).map_err(|e| format!("wrap write failed: {e}"))
+}
+
+/// Patch the clear-text attempts counter (offset 6..10) without rewrapping.
+#[cfg(not(target_os = "android"))]
+fn pin_counter_store(path: &Path, counter: u32) {
+    if let Ok(mut bytes) = std::fs::read(path) {
+        if bytes.len() >= 10 {
+            bytes[6..10].copy_from_slice(&counter.to_le_bytes());
+            let _ = std::fs::write(path, bytes);
+        }
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+fn backoff_secs(attempts: u32) -> u64 {
+    match attempts {
+        0 => 0,
+        n => 30.min(1u64 << (n - 1).min(5)),
+    }
+}
+
+/// What opening the PIN wrap produced.
+#[cfg(not(target_os = "android"))]
+pub enum PinOpen {
+    /// The DEK hex, verified by the GCM tag.
+    Dek(String),
+    /// Wrong PIN; the wrap now records `attempts` and asks for `delay_secs`.
+    Wrong { attempts: u32, delay_secs: u64 },
+    /// Not a Velta wrap (truncated/foreign bytes) — locked, never reset.
+    Corrupt,
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn pin_wrap_open(path: &Path, pin: &str) -> PinOpen {
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) => {
+            log(&format!("pin wrap unreadable: {e}"));
+            return PinOpen::Corrupt;
+        }
+    };
+    if bytes.len() != 86 || &bytes[0..5] != b"VLTDW" || bytes[5] != 1 {
+        return PinOpen::Corrupt;
+    }
+    let attempts = u32::from_le_bytes(bytes[6..10].try_into().unwrap());
+    let (salt, nonce, ct) = (&bytes[10..26], &bytes[26..38], &bytes[38..]);
+    let mut aad = Vec::with_capacity(34);
+    aad.extend_from_slice(&bytes[0..6]);
+    aad.extend_from_slice(salt);
+    aad.extend_from_slice(nonce);
+    let open = (|| {
+        use aes_gcm::aead::{Aead, KeyInit, Payload};
+        use aes_gcm::{Aes256Gcm, Nonce};
+        let cipher = Aes256Gcm::new((&derive_pin_kek(pin, salt)).into());
+        let dek = cipher.decrypt(Nonce::from_slice(nonce), Payload { msg: ct, aad: &aad }).ok()?;
+        Some(data_encoding::HEXLOWER.encode(&dek))
+    })();
+    match open {
+        Some(hex) => {
+            pin_counter_store(path, 0);
+            PinOpen::Dek(hex)
+        }
+        None => {
+            let attempts = attempts.saturating_add(1);
+            pin_counter_store(path, attempts);
+            PinOpen::Wrong { attempts, delay_secs: backoff_secs(attempts) }
+        }
+    }
+}
+
+/// Verify the wrap with `old_pin` (when a PIN is already set), wrap the DEK
+/// under `new_pin`, and drop the keychain item — the PIN replaces it. The
+/// DEK itself never changes, so a running keyed session is unaffected.
+#[cfg(not(target_os = "android"))]
+pub fn pin_set(data_dir: &Path, old_pin: Option<&str>, new_pin: &str) -> Result<(), String> {
+    let path = pin_wrap_path(data_dir);
+    let dek = if path.is_file() {
+        let Some(old) = old_pin else { return Err("current-pin-required".to_string()) };
+        match pin_wrap_open(&path, old) {
+            PinOpen::Dek(dek) => dek,
+            PinOpen::Wrong { delay_secs, .. } => return Err(format!("retry:{delay_secs}")),
+            PinOpen::Corrupt => return Err("corrupt".to_string()),
+        }
+    } else {
+        match keychain_lookup(keychain_entry().as_ref()) {
+            Lookup::Found(dek) => dek,
+            Lookup::NoEntry => return Err("no-key".to_string()),
+            Lookup::Unavailable => return Err("keychain-unavailable".to_string()),
+        }
+    };
+    pin_wrap_write(&path, new_pin, &dek)?;
+    // Paranoia: the wrap must open with the exact PIN we just wrote.
+    if !matches!(pin_wrap_open(&path, new_pin), PinOpen::Dek(_)) {
+        let _ = std::fs::remove_file(&path);
+        return Err("wrap verify failed".to_string());
+    }
+    if let Some(entry) = keychain_entry() {
+        match entry.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => {}
+            Err(e) => log(&format!("keychain delete failed: {e}")),
+        }
+    }
+    log("app-lock PIN is now the key root; keychain item removed");
+    Ok(())
+}
+
+/// Verify `pin`, store the DEK back in the keychain, remove the wrap.
+#[cfg(not(target_os = "android"))]
+pub fn pin_clear(data_dir: &Path, pin: &str) -> Result<(), String> {
+    let path = pin_wrap_path(data_dir);
+    let dek = match pin_wrap_open(&path, pin) {
+        PinOpen::Dek(dek) => dek,
+        PinOpen::Wrong { delay_secs, .. } => return Err(format!("retry:{delay_secs}")),
+        PinOpen::Corrupt => return Err("corrupt".to_string()),
+    };
+    let Some(entry) = keychain_entry() else {
+        return Err("keychain-unavailable".to_string());
+    };
+    entry
+        .set_password(&dek)
+        .map_err(|e| format!("keychain write failed: {e}"))?;
+    let _ = std::fs::remove_file(&path);
+    log("app-lock PIN removed; DEK back in the keychain");
+    Ok(())
+}
+
+/// Verify `pin` and migrate any plaintext databases — returns the raw key
+/// for the respawned sidecar env. The wrap's counter resets on success.
+#[cfg(not(target_os = "android"))]
+pub fn pin_unlock(data_dir: &Path, accounts_root: &Path, pin: &str) -> Result<String, String> {
+    let path = pin_wrap_path(data_dir);
+    let hex = match pin_wrap_open(&path, pin) {
+        PinOpen::Dek(hex) => hex,
+        PinOpen::Wrong { delay_secs, .. } => return Err(format!("retry:{delay_secs}")),
+        PinOpen::Corrupt => return Err("corrupt".to_string()),
+    };
+    let report = prepare(accounts_root, Some(&hex));
+    if !report.use_key {
+        return Err("prepare-failed".to_string());
+    }
+    log(&format!(
+        "pin unlock: {} migrated, {} already encrypted, {} locked",
+        report.migrated, report.already, report.locked
+    ));
+    Ok(format!("x'{hex}'"))
 }
 
 #[cfg(test)]
@@ -730,5 +961,63 @@ mod tests {
             sibling(db, "plain.bak"),
             PathBuf::from("/x/accounts/uuid/dc.db.plain.bak")
         );
+    }
+
+    #[test]
+    fn pin_wrap_roundtrip_and_backoff() {
+        let dir = tmpdir();
+        let wrap = pin_wrap_path(&dir);
+        assert!(matches!(pin_wrap_write(&wrap, "12345", KEY), Err(_)), "short PIN refused");
+
+        pin_wrap_write(&wrap, "123456", KEY).unwrap();
+        assert!(matches!(pin_wrap_open(&wrap, "123456"), PinOpen::Dek(d) if d == KEY));
+        assert!(!matches!(pin_wrap_open(&wrap, OTHER), PinOpen::Dek(_)));
+
+        // Wrong attempts back off 1s, 2s, … and the counter is clear-text
+        // (the OTHER attempt above already counted).
+        assert!(matches!(pin_wrap_open(&wrap, "000000"), PinOpen::Wrong { attempts: 2, delay_secs: 2 }));
+        assert!(matches!(pin_wrap_open(&wrap, "000000"), PinOpen::Wrong { attempts: 3, delay_secs: 4 }));
+        // The right PIN still opens and resets the counter.
+        assert!(matches!(pin_wrap_open(&wrap, "123456"), PinOpen::Dek(d) if d == KEY));
+        assert!(matches!(pin_wrap_open(&wrap, "000000"), PinOpen::Wrong { attempts: 1, delay_secs: 1 }));
+        assert_eq!(backoff_secs(10), 30, "capped");
+    }
+
+    #[test]
+    fn pin_wrap_corrupt_is_locked_never_reset() {
+        let dir = tmpdir();
+        let wrap = pin_wrap_path(&dir);
+        pin_wrap_write(&wrap, "123456", KEY).unwrap();
+        let mut bytes = std::fs::read(&wrap).unwrap();
+        bytes[0] = b'X'; // foreign magic
+        std::fs::write(&wrap, bytes).unwrap();
+        assert!(matches!(pin_wrap_open(&wrap, "123456"), PinOpen::Corrupt));
+        let dir2 = tmpdir();
+        std::fs::write(pin_wrap_path(&dir2), b"tiny").unwrap();
+        assert!(matches!(pin_wrap_open(&pin_wrap_path(&dir2), "123456"), PinOpen::Corrupt));
+    }
+
+    #[test]
+    fn pin_unlock_migrates_and_returns_the_key() {
+        let dir = tmpdir();
+        let db = plant_plain_db(&dir.join("acc1"), 2);
+        pin_wrap_write(&pin_wrap_path(&dir), "654321", KEY).unwrap();
+        assert!(pin_locked(&dir));
+
+        let raw = pin_unlock(&dir, &dir, "654321").unwrap();
+        assert_eq!(raw, format!("x'{KEY}'"));
+        assert_eq!(keyed_count(&db, KEY, "SELECT count(*) FROM msgs"), 2);
+        assert!(!opens(&db, None));
+
+        // Wrong PIN: retry backoff, data untouched.
+        assert!(matches!(
+            pin_unlock(&dir, &dir, "000000"),
+            Err(e) if e.starts_with("retry:")
+        ));
+        assert!(opens(&db, Some(KEY)));
+        assert_eq!(keyed_count(&db, KEY, "SELECT count(*) FROM msgs"), 2);
+
+        // Second unlock: already encrypted, same key back.
+        assert_eq!(pin_unlock(&dir, &dir, "654321").unwrap(), raw);
     }
 }

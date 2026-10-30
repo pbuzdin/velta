@@ -44,10 +44,31 @@ reminder; stale after 30 days, re-shown at most weekly. Deviations from
 brute-forcible once the profile files are copied — the passphrase/passkey
 stays the root of security, stated in the UI), PBKDF2-SHA256 not Argon2id
 (phase 3 deferral), and the boot now resets its key state first, so an
-in-process re-boot cannot inherit a previous unlock. Desktop (PIN replacing
-the keychain, Windows Hello) and Android (biometric-bound KEK,
-`setUserAuthenticationRequired`) slices of phase 4 remain open, as do the
-optional phase-5 blob decision.
+in-process re-boot cannot inherit a previous unlock.
+
+Phase 4 desktop + Android shipped 2026-10-30 (same day). Desktop: the
+app-lock PIN REPLACES the keychain as the KEK root (plan §2.4) —
+Argon2id(PIN, 64 MiB, t=3) wraps the SAME DEK into `<data>/dbkey.wrap`
+(`VLTDW|ver|attempts|salt|nonce|ct`, attempts counter with 1s→30s backoff
+enforced in `unlock_with_pin`), the keychain item is removed on set and
+rewritten on clear, and a PIN session STARTS LOCKED: the sidecar spawns
+keyless, the locked screen asks for the PIN, and a correct one re-migrates
+and respawns the sidecar keyed (`spawn_sidecar` now owns the child so
+lock/unlock can respawn it). Auto-lock (same Off/1/5/15 setting) respawns
+the sidecar keyless after N minutes hidden. Deviations: a copied wrap is
+offline-attackable (the counter gates online guessing only), and the PIN
+wrap is not ferried across an OS keychain outage — losing the PIN means
+restore-from-backup, as the plan's §3.3 says. Android (compile-verified,
+device runs pending): `VeltaLock.kt` — a second AndroidKeyStore key
+`velta_kek_auth` with `setUserAuthenticationRequired(true)` wraps the SAME
+DEK into `noBackupFilesDir/dbkey.wrap.auth` while the plain wrap is
+removed, so `init_android_core` refuses to run until the activity's
+BiometricPrompt hands the DEK to `VeltaCore.startWithDek` (the init future
+retries; headless push/job cold starts stay down, per §2.4), and auto-lock
+is a full-screen re-prompt after N minutes hidden (UI gate — the DEK stays
+in the running core's memory). Desktop optional bits still open: the
+keychain-mode auto-lock (pointless — the keychain re-keys without asking),
+a desktop recovery code, and the phase-5 blob decision.
 
 ## 1. Findings: what core 2.66.0 offers
 

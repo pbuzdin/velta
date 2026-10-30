@@ -6,4 +6,10 @@
     <string name="scheduled_due_text">Open Velta to send it</string>
     <string name="browser_open_external">Open in browser</string>
     <string name="browser_close">Close</string>
+    <!-- #178 phase 4: biometric app lock -->
+    <string name="biometric_enable_title">Use biometrics to protect this app's data key</string>
+    <string name="biometric_disable_title">Authenticate to turn the biometric lock off</string>
+    <string name="biometric_unlock_title">Unlock Velta</string>
+    <string name="biometric_cancel">Cancel</string>
+    <string name="biometric_retry">Retry</string>
 </resources>

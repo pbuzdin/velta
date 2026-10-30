@@ -295,9 +295,274 @@ async fn probe_db_lock(app: tauri::AppHandle) {
     if locked.is_empty() {
         return;
     }
-    let status = serde_json::json!({ "locked": locked });
+    let mut status = serde_json::json!({ "locked": locked });
+    // Keep an app-lock PIN marker if the session started locked — the PIN
+    // screen must win over the generic retry.
+    if let Some(prev) = DB_LOCK_STATUS.lock().unwrap().as_ref() {
+        if let Some(mode) = prev.get("mode") {
+            status["mode"] = mode.clone();
+        }
+    }
     *DB_LOCK_STATUS.lock().unwrap() = Some(status.clone());
     app.emit("velta-db-locked", status).ok();
+}
+
+// ---- App lock: PIN + auto-lock (#178 phase 4, desktop) --------------------
+
+/// The live sidecar process, so a lock/unlock can respawn it (the key rides
+/// the process env, so re-keying means a new process).
+#[cfg(not(target_os = "android"))]
+static SIDECAR_CHILD: Mutex<Option<std::process::Child>> = Mutex::new(None);
+
+/// Spawn (or respawn) the rpc-server sidecar with `key` as its env. The
+/// reader/wait threads ride each spawn; the managed RpcState only has its
+/// stdin swapped on a respawn. `first` runs the one-time tunnel/proxy
+/// boots. `probe_db_lock` is the caller's job.
+#[cfg(not(target_os = "android"))]
+fn spawn_sidecar(app: &tauri::AppHandle, key: Option<String>, first: bool) {
+    if let Some(mut child) = SIDECAR_CHILD.lock().unwrap().take() {
+        log("stopping the previous sidecar");
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    let accounts = accounts_dir(app);
+    let Some(sidecar_path) = find_sidecar(app) else {
+        log("sidecar not found; continuing with mock/remote transports available to frontend");
+        set_sidecar_status(app, serde_json::json!({"running": false, "stage": "missing", "error": "sidecar not found"}));
+        return;
+    };
+    log(&format!("starting sidecar at {}", sidecar_path.display()));
+    set_sidecar_status(app, serde_json::json!({"running": true, "stage": "starting"}));
+
+    let stderr_file = log_dir().join("sidecar-stderr.log");
+    let stderr = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&stderr_file)
+        .map(Stdio::from)
+        .unwrap_or_else(|e| {
+            log(&format!("could not open sidecar stderr log: {e}; sending stderr to null"));
+            Stdio::null()
+        });
+
+    let mut cmd = Command::new(&sidecar_path);
+    if let Some(raw) = &key {
+        cmd.env("VELTA_DB_KEY", raw);
+    }
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    match cmd
+        .current_dir(&accounts)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(stderr)
+        .spawn()
+    {
+        Ok(mut child) => {
+            let stdin = child.stdin.take().unwrap();
+            let stdout = child.stdout.take().unwrap();
+            *SIDECAR_CHILD.lock().unwrap() = Some(child);
+            match app.try_state::<RpcState>() {
+                Some(st) => {
+                    *st.stdin.lock().unwrap() = Some(stdin);
+                }
+                None => {
+                    app.manage(RpcState {
+                        wxdc_pending: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+                        bg_pending: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+                        web_pending: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+                        stdin: Arc::new(Mutex::new(Some(stdin))),
+                    });
+                }
+            }
+            set_sidecar_status(app, serde_json::json!({"running": true, "stage": "ready"}));
+            if first {
+                // Optional DNS tunnel (Windows): a no-op unless a velta://tunnel link was accepted.
+                tunnel::boot(&Host::from_app(app));
+                ws_transport::boot(&Host::from_app(app));
+            }
+
+            let app_handle = app.clone();
+            std::thread::spawn(move || {
+                log("sidecar reader thread started");
+                let reader = BufReader::new(stdout);
+                for line in reader.lines() {
+                    match line {
+                        Ok(line) => {
+                            // NOTE: do not log every line -- it's the
+                            // hot path and would grow velta.log
+                            // unbounded. Errors are logged below.
+                            if line.contains("\"id\":\"wxdc-") {
+                                webxdc_resolve_line(&app_handle, &line);
+                                continue;
+                            }
+                            // #49: a WebView command's response goes back
+                            // through the rpc command's return value — only
+                            // core-pushed lines reach the broadcast.
+                            if line.contains("\"id\":") && resolve_web_line(&app_handle, &line) {
+                                continue;
+                            }
+                            app_handle.emit("velta-rpc", line).ok();
+                        }
+                        Err(e) => {
+                            log(&format!("sidecar stdout error: {e}"));
+                        }
+                    }
+                }
+                log("sidecar reader thread ended");
+                set_sidecar_status(&app_handle, serde_json::json!({"running": false, "stage": "stopped"}));
+            });
+
+            if let Some(mut child) = SIDECAR_CHILD.lock().unwrap().take() {
+                std::thread::spawn(move || {
+                    match child.wait() {
+                        Ok(status) => log(&format!("sidecar exited with {status}")),
+                        Err(e) => log(&format!("sidecar wait error: {e}"))
+                    }
+                });
+            }
+        }
+        Err(e) => {
+            log(&format!("failed to start sidecar: {e}"));
+            set_sidecar_status(app, serde_json::json!({"running": false, "stage": "error", "error": e.to_string()}));
+        }
+    }
+}
+
+/// The biometric app lock on/off (Android; phase 4).
+#[tauri::command]
+fn biometric_state(app: tauri::AppHandle) -> bool {
+    #[cfg(target_os = "android")]
+    {
+        let _ = &app;
+        android_biometric_pending()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        false
+    }
+}
+
+/// Show the enable/disable prompt (result rides the velta-biometric event).
+#[tauri::command]
+fn biometric_set(app: tauri::AppHandle, on: bool) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = &app;
+        android_biometric_request(on)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (app, on);
+        Err("not supported on this platform".to_string())
+    }
+}
+
+/// Persist the auto-lock minutes where the platform checks them.
+#[tauri::command]
+fn set_autolock_mins(app: tauri::AppHandle, mins: i64) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = &app;
+        android_set_autolock_mins(mins)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (app, mins);
+        Ok(()) // desktop reads the same value from localStorage
+    }
+}
+
+#[tauri::command]
+fn get_db_pin_state(app: tauri::AppHandle) -> bool {
+    #[cfg(not(target_os = "android"))]
+    {
+        db_key::pin_locked(&accounts_dir(&app))
+    }
+    #[cfg(target_os = "android")]
+    {
+        let _ = &app;
+        false
+    }
+}
+
+/// Set / change the app-lock PIN. `old` must verify when a PIN is already
+/// set; the DEK comes from the wrap or the keychain. The session keeps
+/// running (same DEK) — only the custody changes.
+#[tauri::command]
+fn set_db_pin(app: tauri::AppHandle, old: Option<String>, pin: String) -> Result<(), String> {
+    #[cfg(not(target_os = "android"))]
+    {
+        db_key::pin_set(&accounts_dir(&app), old.as_deref(), &pin)
+    }
+    #[cfg(target_os = "android")]
+    {
+        let _ = (app, old, pin);
+        Err("not supported on this platform".to_string())
+    }
+}
+
+#[tauri::command]
+fn clear_db_pin(app: tauri::AppHandle, pin: String) -> Result<(), String> {
+    #[cfg(not(target_os = "android"))]
+    {
+        db_key::pin_clear(&accounts_dir(&app), &pin)
+    }
+    #[cfg(target_os = "android")]
+    {
+        let _ = (app, pin);
+        Err("not supported on this platform".to_string())
+    }
+}
+
+/// Verify the PIN and re-key the session: migrate anything plaintext, then
+/// respawn the sidecar with the DEK. Backoff for wrong PINs runs here, so
+/// the renderer cannot bypass it.
+#[tauri::command]
+async fn unlock_with_pin(app: tauri::AppHandle, pin: String) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = (app, pin);
+        return Err("not supported on this platform".to_string());
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+    let dir = accounts_dir(&app);
+    let raw = {
+        let dir = dir.clone();
+        tauri::async_runtime::spawn_blocking(move || db_key::pin_unlock(&dir, &dir.join("accounts"), &pin))
+            .await
+            .map_err(|e| e.to_string())??
+    };
+    spawn_sidecar(&app, Some(raw), false);
+    *DB_LOCK_STATUS.lock().unwrap() = None;
+    probe_db_lock(app.clone()).await;
+    app.emit("velta-db-unlocked", ()).ok();
+    Ok(())
+    }
+}
+
+/// Auto-lock (PIN sessions only): kill the keyed sidecar and respawn
+/// keyless — accounts close, the PIN screen returns. The data on disk was
+/// already encrypted; nothing else to wipe.
+#[tauri::command]
+async fn lock_now(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = &app;
+        return Err("not supported on this platform".to_string());
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+    if !db_key::pin_locked(&accounts_dir(&app)) {
+        return Err("no app-lock PIN is set".to_string());
+    }
+    *DB_LOCK_STATUS.lock().unwrap() = Some(serde_json::json!({ "mode": "pin" }));
+    spawn_sidecar(&app, None, false);
+    app.emit("velta-db-locked", serde_json::json!({ "mode": "pin" })).ok();
+    Ok(())
+    }
 }
 
 /// Latest released Velta version for the drawer update banner. Shell-side
@@ -2445,6 +2710,9 @@ static APP_SCHEDULED_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(
 // encryption at rest (AndroidKeyStore KEK + wrapped blob in noBackupFilesDir).
 #[cfg(target_os = "android")]
 static APP_KEYSTORE_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
+// #178 phase 4: the biometric app lock (VeltaLock.kt).
+#[cfg(target_os = "android")]
+static APP_LOCK_CLASS: Mutex<Option<jni::objects::GlobalRef>> = Mutex::new(None);
 
 // org.velta.CallAudio — #141 call audio route (earpiece / loudspeaker /
 // headset, MODE_IN_COMMUNICATION while a call is up).
@@ -2496,6 +2764,13 @@ pub extern "system" fn Java_org_velta_MainActivity_setApplicationContext(
 #[cfg(target_os = "android")]
 static ACTIVITY_LAUNCHED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+// #178 phase 4: the DEK handed over by VeltaLock after a successful
+// BiometricPrompt (raw x'<hex>' form). While the biometric app lock is
+// on, init_android_core refuses to run without it — a headless cold
+// start (push/job) has no user, so the core stays down (plan §2.4).
+#[cfg(target_os = "android")]
+static ANDROID_DEK_OVERRIDE: Mutex<Option<String>> = Mutex::new(None);
+
 // VeltaApp.onCreate (Application): every process start, before any service,
 // receiver or job runs, so the JNI helpers have a context and the classes.
 #[cfg(target_os = "android")]
@@ -2528,7 +2803,7 @@ fn store_app_context(env: &mut jni::JNIEnv, context: &jni::objects::JObject) {
     *APP_CONTEXT.lock().unwrap() = Some(global);
     // Global refs to the app's helper classes for later Rust commands
     // (NetInfo: DNS tunnel, tunnel.rs — operator resolvers + SIM operator).
-    let classes: [(&str, &Mutex<Option<jni::objects::GlobalRef>>); 12] = [
+    let classes: [(&str, &Mutex<Option<jni::objects::GlobalRef>>); 13] = [
         ("InAppBrowser", &APP_INAPP_BROWSER_CLASS),
         ("Notifications", &APP_NOTIFICATIONS_CLASS),
         ("Battery", &APP_BATTERY_CLASS),
@@ -2541,6 +2816,7 @@ fn store_app_context(env: &mut jni::JNIEnv, context: &jni::objects::JObject) {
         ("ScheduledAlarm", &APP_SCHEDULED_CLASS),
         ("CoreService", &APP_CORE_SERVICE_CLASS),
         ("VeltaKeystore", &APP_KEYSTORE_CLASS),
+        ("VeltaLock", &APP_LOCK_CLASS),
     ];
     for (name, slot) in classes {
         match env.find_class(format!("org/velta/{name}")) {
@@ -3561,7 +3837,11 @@ fn ensure_android_core(accounts_dir: PathBuf) -> &'static RpcState {
         let tx_holder = state.tx.clone();
         let bg_pending = state.bg_pending.clone();
         rt.spawn(async move {
-            match init_android_core(accounts_dir, bg_pending).await {
+            // #178 phase 4: an app-locked start is retried once the activity
+            // unlocks (VeltaCore.startWithDek) — nothing was opened, so
+            // Accounts::new simply runs again with the provided DEK.
+            loop {
+            match init_android_core(accounts_dir.clone(), bg_pending.clone()).await {
                 Ok(tx) => {
                     log("android core RPC session ready");
                     // Proxies first (audit item 5): the DNS tunnel / WS
@@ -3586,10 +3866,19 @@ fn ensure_android_core(accounts_dir: PathBuf) -> &'static RpcState {
                         }
                     }
                 }
+                Err(e) if e.to_string().contains("app-locked") => {
+                    android_core_status(serde_json::json!({"running": false, "stage": "app-locked"}));
+                    while ANDROID_DEK_OVERRIDE.lock().unwrap().is_none() {
+                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                    }
+                    log("db-key: DEK provided; retrying the core init");
+                }
                 Err(e) => {
                     log(&format!("embedded Android core initialization failed: {e}"));
                     android_core_status(serde_json::json!({"running": false, "stage": "error", "message": e.to_string()}));
+                    break;
                 }
+            }
             }
         });
         state
@@ -3671,6 +3960,44 @@ pub extern "system" fn Java_org_velta_VeltaCore_isRunning(
     android_core().is_some_and(|s| s.tx.lock().unwrap().is_some()) as jni::sys::jboolean
 }
 
+// #178 phase 4: VeltaCore.startWithDek — the DEK from the successful
+// BiometricPrompt. Rust stores it as the override; the app-locked init
+// retry loop (ensure_android_core) picks it up.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_org_velta_VeltaCore_provideDek(
+    mut env: jni::JNIEnv,
+    _this: jni::objects::JObject,
+    dek: jni::objects::JString,
+) -> jni::sys::jboolean {
+    let hex = match env.get_string(&dek) {
+        Ok(h) => h.to_string_lossy().into_owned(),
+        Err(_) => return 0,
+    };
+    if hex.len() != 64 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        log("db-key: provideDek refused (bad key shape)");
+        return 0;
+    }
+    *ANDROID_DEK_OVERRIDE.lock().unwrap() = Some(format!("x'{hex}'"));
+    1
+}
+
+// #178 phase 4: VeltaLock.notifyResult — the enable/disable prompt finished;
+// the settings row follows the velta-biometric event.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_org_velta_VeltaLock_notifyResult(
+    _env: jni::JNIEnv,
+    _class: jni::objects::JClass,
+    on: jni::sys::jboolean,
+    ok: jni::sys::jboolean,
+) {
+    Host::current().emit(
+        "velta-biometric",
+        serde_json::json!({ "on": on != 0, "ok": ok != 0 }),
+    );
+}
+
 /// #178 phase 2: the database-encryption DEK from the Keystore, as 64 hex
 /// chars. `None` = Keystore lost or unusable — the caller runs keyless and
 /// encrypted databases stay closed (never recreated).
@@ -3697,6 +4024,67 @@ fn android_keystore_dek() -> Option<String> {
     .flatten()
 }
 
+/// The biometric app lock is on: the DEK only opens after a prompt.
+#[cfg(target_os = "android")]
+fn android_biometric_pending() -> bool {
+    with_android_class(&APP_LOCK_CLASS, "VeltaLock", |env, context, class_ref| {
+        let out = env
+            .call_static_method(class_ref, "on", "(Landroid/content/Context;)Z", &[(&context).into()])
+            .map_err(|e| e.to_string())?;
+        Ok(out.z().map_err(|e| e.to_string())?)
+    })
+    .map_err(|e| {
+        log(&format!("db-key: biometric-state call failed: {e}"));
+        e
+    })
+    .unwrap_or(false)
+}
+
+/// VeltaLock.request from a command: the activity (registered by
+/// MainActivity) runs the prompt; the result comes back as the
+/// velta-biometric event via Java_org_velta_VeltaLock_notifyResult.
+#[cfg(target_os = "android")]
+fn android_biometric_request(on: bool) -> Result<(), String> {
+    with_android_class(&APP_LOCK_CLASS, "VeltaLock", |env, context, class_ref| {
+        env.call_static_method(
+            class_ref,
+            "requestFromContext",
+            "(Landroid/content/Context;Z)Z",
+            &[(&context).into(), jni::objects::JValue::from(on)],
+        )
+        .map_err(|e| e.to_string())?
+        .z()
+        .map_err(|e| e.to_string())
+    })
+    .map_err(|e| {
+        log(&format!("db-key: biometric request failed: {e}"));
+        e
+    })
+    .and_then(|queued| {
+        if queued { Ok(()) } else { Err("no activity is up to run the prompt".to_string()) }
+    })
+}
+
+/// The auto-lock minutes reach Kotlin's SharedPreferences (the resume
+/// check lives there); the desktop keeps the same setting in localStorage.
+#[cfg(target_os = "android")]
+fn android_set_autolock_mins(mins: i64) -> Result<(), String> {
+    with_android_class(&APP_LOCK_CLASS, "VeltaLock", |env, context, class_ref| {
+        env.call_static_method(
+            class_ref,
+            "setAutoLockMinutes",
+            "(Landroid/content/Context;I)V",
+            &[(&context).into(), jni::objects::JValue::from(mins.clamp(0, 240) as i32)],
+        )
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+    })
+    .map_err(|e| {
+        log(&format!("db-key: autolock pref failed: {e}"));
+        e
+    })
+}
+
 #[cfg(target_os = "android")]
 async fn init_android_core(
     accounts_dir: PathBuf,
@@ -3718,7 +4106,16 @@ async fn init_android_core(
     // the core through the same VELTA_DB_KEY env var as the desktop sidecar
     // (quilt patch #20); no UI is involved, so push/job cold starts unlock
     // without user authentication.
-    if let Some(raw) = db_key::android_startup(&accounts_dir) {
+    let override_raw = ANDROID_DEK_OVERRIDE.lock().unwrap().take();
+    if let Some(raw) = override_raw {
+        log("db-key: using the DEK from the biometric unlock");
+        std::env::set_var("VELTA_DB_KEY", raw);
+    } else if android_biometric_pending() {
+        // Nothing has been opened yet: Accounts::new will run again once
+        // VeltaCore.startWithDek hands over the unlocked DEK.
+        log("db-key: biometric app lock is on; core start waits for the activity unlock");
+        anyhow::bail!("app-locked");
+    } else if let Some(raw) = db_key::android_startup(&accounts_dir) {
         std::env::set_var("VELTA_DB_KEY", raw);
     }
 
@@ -4522,101 +4919,20 @@ pub fn run() {
                 // #178: load the DEK from the keychain and migrate any
                 // plaintext databases BEFORE the sidecar opens them — the
                 // files must be untouched while sqlcipher_export runs.
-                let (db_key, key_issue) = db_key::startup(&accounts);
+                // #178: load the DEK from the keychain and migrate any plaintext
+                // databases BEFORE the sidecar opens them — the files must be
+                // untouched while sqlcipher_export runs. An app-lock PIN wrap
+                // starts the session LOCKED: the sidecar spawns keyless and
+                // unlock_with_pin respawns it keyed after the PIN is entered.
+                let (db_key, key_issue, pin_locked) = db_key::startup(&accounts);
                 set_db_key_issue(key_issue);
-                if let Some(sidecar_path) = find_sidecar(app.handle()) {
-                    log(&format!("starting sidecar at {}", sidecar_path.display()));
-                    set_sidecar_status(&app_handle, serde_json::json!({"running": true, "stage": "starting"}));
-
-                    let stderr_file = log_dir().join("sidecar-stderr.log");
-                    let stderr = OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open(&stderr_file)
-                        .map(Stdio::from)
-                        .unwrap_or_else(|e| {
-                            log(&format!("could not open sidecar stderr log: {e}; sending stderr to null"));
-                            Stdio::null()
-                        });
-
-                    let mut cmd = Command::new(&sidecar_path);
-                    if let Some(raw) = &db_key {
-                        cmd.env("VELTA_DB_KEY", raw);
-                    }
-                    #[cfg(windows)]
-                    cmd.creation_flags(CREATE_NO_WINDOW);
-                    match cmd
-                        .current_dir(&accounts)
-                        .stdin(Stdio::piped())
-                        .stdout(Stdio::piped())
-                        .stderr(stderr)
-                        .spawn()
-                    {
-                        Ok(mut child) => {
-                            let stdin = child.stdin.take().unwrap();
-                            let stdout = child.stdout.take().unwrap();
-
-                            app.manage(RpcState {
-                                wxdc_pending: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-                                bg_pending: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-                                web_pending: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-                                stdin: Arc::new(Mutex::new(Some(stdin))),
-                            });
-                            set_sidecar_status(&app_handle, serde_json::json!({"running": true, "stage": "ready"}));
-                            // Optional DNS tunnel (Windows): a no-op unless a velta://tunnel link was accepted.
-                            tunnel::boot(&Host::from_app(&app_handle));
-                            ws_transport::boot(&Host::from_app(&app_handle));
-
-                            // #178: once the sidecar answers, report accounts
-                            // the key could not open (locked screen in the UI).
-                            tauri::async_runtime::spawn(probe_db_lock(app_handle.clone()));
-
-                            std::thread::spawn(move || {
-                                log("sidecar reader thread started");
-                                let reader = BufReader::new(stdout);
-                                for line in reader.lines() {
-                                    match line {
-                                        Ok(line) => {
-                                            // NOTE: do not log every line -- it's the
-                                            // hot path and would grow velta.log
-                                            // unbounded. Errors are logged below.
-                                            if line.contains("\"id\":\"wxdc-") {
-                                                webxdc_resolve_line(&app_handle, &line);
-                                                continue;
-                                            }
-                                            // #49: a WebView command's response goes back
-                                            // through the rpc command's return value — only
-                                            // core-pushed lines reach the broadcast.
-                                            if line.contains("\"id\":") && resolve_web_line(&app_handle, &line) {
-                                                continue;
-                                            }
-                                            app_handle.emit("velta-rpc", line).ok();
-                                        }
-                                        Err(e) => {
-                                            log(&format!("sidecar stdout error: {e}"));
-                                        }
-                                    }
-                                }
-                                log("sidecar reader thread ended");
-                                set_sidecar_status(&app_handle, serde_json::json!({"running": false, "stage": "stopped"}));
-                            });
-
-                            std::thread::spawn(move || {
-                                match child.wait() {
-                                    Ok(status) => log(&format!("sidecar exited with {status}")),
-                                    Err(e) => log(&format!("sidecar wait error: {e}")),
-                                }
-                            });
-                        }
-                        Err(e) => {
-                            log(&format!("failed to start sidecar: {e}"));
-                            set_sidecar_status(&app_handle, serde_json::json!({"running": false, "stage": "error", "error": e.to_string()}));
-                        }
-                    }
-                } else {
-                    log("sidecar not found; continuing with mock/remote transports available to frontend");
-                    set_sidecar_status(&app_handle, serde_json::json!({"running": false, "stage": "missing", "error": "sidecar not found"}));
+                if pin_locked {
+                    *DB_LOCK_STATUS.lock().unwrap() = Some(serde_json::json!({ "mode": "pin" }));
                 }
+                spawn_sidecar(&app_handle, db_key, true);
+                // Once the sidecar answers, report accounts the key could not
+                // open (locked screen in the UI); probe keeps a PIN marker.
+                tauri::async_runtime::spawn(probe_db_lock(app_handle.clone()));
             }
             Ok(())
         })
@@ -4651,7 +4967,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_accounts_dir, resolve_upload_path, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, push_status, push_select, push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,tunnel::tunnel_preview, tunnel::tunnel_install, tunnel::tunnel_link, tunnel::tunnel_list, tunnel::tunnel_select, tunnel::tunnel_rename, tunnel::tunnel_delete, tunnel::tunnel_remove, tunnel::tunnel_status, tunnel::tunnel_set_mode, tunnel::tunnel_network_changed, tunnel::tunnel_backup_begin, tunnel::tunnel_backup_end, tunnel::tunnel_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_db_pin_state, set_db_pin, clear_db_pin, unlock_with_pin, lock_now, biometric_state, biometric_set, set_autolock_mins, get_accounts_dir, resolve_upload_path, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, push_status, push_select, push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,tunnel::tunnel_preview, tunnel::tunnel_install, tunnel::tunnel_link, tunnel::tunnel_list, tunnel::tunnel_select, tunnel::tunnel_rename, tunnel::tunnel_delete, tunnel::tunnel_remove, tunnel::tunnel_status, tunnel::tunnel_set_mode, tunnel::tunnel_network_changed, tunnel::tunnel_backup_begin, tunnel::tunnel_backup_end, tunnel::tunnel_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 

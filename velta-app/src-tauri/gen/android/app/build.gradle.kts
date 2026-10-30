@@ -77,6 +77,8 @@ dependencies {
     // Chrome Custom Tabs for the in-app message-link browser (InAppBrowser.kt).
     implementation("androidx.browser:browser:1.8.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
+    // #178 phase 4: BiometricPrompt for the app lock (VeltaLock.kt).
+    implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.activity:activity-ktx:1.10.1")
     implementation("androidx.lifecycle:lifecycle-process:2.10.0")
     // UnifiedPush connector: registration + push-event plumbing with the

@@ -40,8 +40,12 @@ class MainActivity : TauriActivity() {
   // onStart also asks the core to fetch and tells the page to refetch.
   external fun setActivityForeground(foreground: Boolean)
 
-  override fun onCreate(savedInstanceState: Bundle?) {
-    // #97: a share-sheet launch is the task's base intent. Reopening the task
+    override fun onCreate(savedInstanceState: Bundle?) {
+        // #178 phase 4: register for the lock prompts BEFORE anything else
+        // shows data; with the biometric lock on, the overlay gates the
+        // (already-loading) WebView and the prompt hands the DEK to Rust.
+        VeltaLock.onActivityCreated(this)
+        // #97: a share-sheet launch is the task's base intent. Reopening the task
     // from Recents (or a restored activity) hands that SEND back to tao, which
     // would offer the old share again; start as a plain launch instead.
     val action = intent?.action
@@ -119,11 +123,18 @@ class MainActivity : TauriActivity() {
     }
   }
 
+  override fun onResume() {
+    super.onResume()
+    // #178 phase 4: auto-lock — returning after N minutes hidden re-prompts.
+    VeltaLock.onActivityResumed(this)
+  }
+
   override fun onStop() {
     try {
       setActivityForeground(false)
     } catch (_: UnsatisfiedLinkError) {
     }
+    VeltaLock.onActivityStopped()
     super.onStop()
   }
 
@@ -135,6 +146,7 @@ class MainActivity : TauriActivity() {
       CallAudio.stop(applicationContext)
     } catch (_: Throwable) {
     }
+    VeltaLock.onActivityDestroyed()
     super.onDestroy()
   }
 

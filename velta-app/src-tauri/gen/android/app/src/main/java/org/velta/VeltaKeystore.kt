@@ -36,6 +36,13 @@ object VeltaKeystore {
     @JvmStatic
     fun getOrCreateDek(context: Context): String? {
         return try {
+            // #178 phase 4: with the biometric app lock on, the DEK only
+            // opens after a successful BiometricPrompt (VeltaLock) — never
+            // silently here, and never a fresh key over locked databases.
+            if (VeltaLock.on(context)) {
+                Log.i(TAG, "biometric app lock is on; the DEK needs the activity unlock")
+                return null
+            }
             val wrapFile = File(context.noBackupFilesDir, WRAP_FILE)
             if (wrapFile.exists()) {
                 unwrap(wrapFile)?.let { return it }
@@ -50,6 +57,37 @@ object VeltaKeystore {
             Log.e(TAG, "keystore unavailable", e)
             null
         }
+    }
+
+    /** #178 phase 4 (disable flow): write the DEK back into the plain wrap. */
+    @JvmStatic
+    fun storePlainWrap(context: Context, dek: ByteArray): Boolean {
+        return try {
+            val kek = kek() ?: return false
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.ENCRYPT_MODE, kek)
+            val iv = cipher.iv
+            val blob = ByteArray(1 + iv.size + dek.size)
+            blob[0] = 1
+            iv.copyInto(blob, 1)
+            cipher.doFinal(dek).copyInto(blob, 1 + iv.size)
+            val wrapFile = File(context.noBackupFilesDir, WRAP_FILE)
+            val tmp = File(wrapFile.parentFile, "$WRAP_FILE.tmp")
+            java.io.FileOutputStream(tmp).use { out ->
+                out.write(blob)
+                out.fd.sync()
+            }
+            tmp.renameTo(wrapFile)
+        } catch (e: Exception) {
+            Log.e(TAG, "plain wrap restore failed", e)
+            false
+        }
+    }
+
+    /** #178 phase 4 (enable flow): drop the plain wrap once the auth wrap exists. */
+    @JvmStatic
+    fun deletePlainWrap(context: Context) {
+        File(context.noBackupFilesDir, WRAP_FILE).delete()
     }
 
     private fun create(context: Context, wrapFile: File): String? {

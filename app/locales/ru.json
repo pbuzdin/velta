@@ -1486,5 +1486,19 @@
   "Use a recovery code instead": "Вместо этого ввести код восстановления",
   "Wait {n} s.": "Подождите {n} с.",
   "Wrong PIN. Try again — nothing was changed.": "Неверный PIN-код. Попробуйте снова — ничего не изменено.",
-  "Wrong recovery code. Try again — nothing was changed.": "Неверный код восстановления. Попробуйте снова — ничего не изменено."
+  "Wrong recovery code. Try again — nothing was changed.": "Неверный код восстановления. Попробуйте снова — ничего не изменено.",
+  "Current PIN": "Текущий PIN-код",
+  "Add app-lock PIN": "Добавить PIN-код разблокировки",
+  "App-lock PIN is on. The PIN — not the OS keychain — protects this profile's database key at rest, and auto-lock can re-lock the app.": "PIN-код разблокировки включён. Не связка ОС, а именно PIN-код защищает ключ базы данных профиля, а авто-блокировка может снова заблокировать приложение.",
+  "The database key lives in the OS keychain. Add a PIN to require it at every start and to enable auto-lock.": "Ключ базы данных хранится в связке ключей ОС. Добавьте PIN-код, чтобы запрашивать его при каждом запуске и включить авто-блокировку.",
+  "App-lock PIN saved — it is required at every start. Keep it safe: without it, restore from a backup.": "PIN-код разблокировки сохранён — он требуется при каждом запуске. Храните его бережно: без него восстановление только из резервной копии.",
+  "Too many attempts — wait {n} s.": "Слишком много попыток — подождите {n} с.",
+  "This profile has no database key yet — nothing for a PIN to protect.": "У этого профиля ещё нет ключа базы данных — PIN-коду нечего защищать.",
+  "The OS keychain is unavailable.": "Связка ключей ОС недоступна.",
+  "Use the biometric lock": "Включить биометрическую блокировку",
+  "Turn off the biometric lock": "Выключить биометрическую блокировку",
+  "Biometric lock is on.": "Биометрическая блокировка включена.",
+  "Biometric lock is off.": "Биометрическая блокировка выключена.",
+  "The biometric prompt did not succeed.": "Биометрический запрос не прошёл.",
+  "The biometric lock protects this profile's database key at rest — cold starts ask for your fingerprint before the data opens.": "Биометрическая блокировка защищает ключ базы данных профиля: при холодном запуске данные откроются только после отпечатка."
 }

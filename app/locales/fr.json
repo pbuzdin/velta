@@ -1486,5 +1486,19 @@
   "Use a recovery code instead": "Utiliser un code de récupération à la place",
   "Wait {n} s.": "Attendez {n} s.",
   "Wrong PIN. Try again — nothing was changed.": "Code PIN erroné. Réessayez — rien n'a été modifié.",
-  "Wrong recovery code. Try again — nothing was changed.": "Code de récupération erroné. Réessayez — rien n'a été modifié."
+  "Wrong recovery code. Try again — nothing was changed.": "Code de récupération erroné. Réessayez — rien n'a été modifié.",
+  "Current PIN": "Code PIN actuel",
+  "Add app-lock PIN": "Ajouter un code PIN de déverrouillage",
+  "App-lock PIN is on. The PIN — not the OS keychain — protects this profile's database key at rest, and auto-lock can re-lock the app.": "Le code PIN de déverrouillage est actif. C'est lui — et non le trousseau de l'OS — qui protège la clé de base de données de ce profil, et le verrouillage automatique peut re-verrouiller l'app.",
+  "The database key lives in the OS keychain. Add a PIN to require it at every start and to enable auto-lock.": "La clé de la base de données vit dans le trousseau de l'OS. Ajoutez un code PIN pour l'exiger à chaque démarrage et activer le verrouillage automatique.",
+  "App-lock PIN saved — it is required at every start. Keep it safe: without it, restore from a backup.": "Code PIN enregistré — il est exigé à chaque démarrage. Gardez-le précieusement : sans lui, seule une sauvegarde permet de récupérer.",
+  "Too many attempts — wait {n} s.": "Trop de tentatives — attendez {n} s.",
+  "This profile has no database key yet — nothing for a PIN to protect.": "Ce profil n'a pas encore de clé de base de données — aucun PIN n'a rien à protéger.",
+  "The OS keychain is unavailable.": "Le trousseau de l'OS est indisponible.",
+  "Use the biometric lock": "Activer le verrou biométrique",
+  "Turn off the biometric lock": "Désactiver le verrou biométrique",
+  "Biometric lock is on.": "Verrou biométrique activé.",
+  "Biometric lock is off.": "Verrou biométrique désactivé.",
+  "The biometric prompt did not succeed.": "La demande biométrique n'a pas abouti.",
+  "The biometric lock protects this profile's database key at rest — cold starts ask for your fingerprint before the data opens.": "Le verrou biométrique protège la clé de base de données de ce profil : à froid, les données ne s'ouvrent qu'après votre empreinte."
 }

@@ -5,4 +5,9 @@
     <string name="scheduled_due_text">Ouvrez Velta pour l\'envoyer</string>
     <string name="browser_open_external">Ouvrir dans le navigateur</string>
     <string name="browser_close">Fermer</string>
+    <string name="biometric_enable_title">Utilisez la biométrie pour protéger la clé de données de cette app</string>
+    <string name="biometric_disable_title">Authentifiez-vous pour désactiver le verrou biométrique</string>
+    <string name="biometric_unlock_title">Déverrouiller Velta</string>
+    <string name="biometric_cancel">Annuler</string>
+    <string name="biometric_retry">Réessayer</string>
 </resources>
