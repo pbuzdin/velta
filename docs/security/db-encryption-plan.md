@@ -2,7 +2,7 @@
 
 Refs #178
 
-Status: phases 0–2 (desktop + Android) IMPLEMENTED 2026-10-30. Desktop ships:
+Status: phases 0–3 (desktop + Android + PWA) IMPLEMENTED 2026-10-30. Desktop ships:
 keyring DEK (`chat.velta.dbkey`), keyed sidecar via the `VELTA_DB_KEY` env
 var (core quilt patch #20), one-time pre-spawn `sqlcipher_export` migration
 with rollback (`velta-app/src-tauri/src/db_key.rs`), and a locked screen for
@@ -19,9 +19,19 @@ is the rpc-server SIDECAR, not in-process `Accounts` (that is Android-only,
 corrected below), so the key crosses as an env var and migration runs in
 the shell before spawn; `.plain.bak` rollback copies are pruned at the next
 successful startup instead of in-session. Phase 3 (PWA) and 4 (app lock)
-are still open. Android Keystore wrap/unwrap and the upgrade-keep-the-key
-test (§3.6) still need a device run — the Keystore cannot be exercised on
-a JVM.
+still open. Phase 3 (PWA) shipped: db-crypt.js (VLTE1 file framing with
+path|generation AAD, VLTEW DEK wrap, PBKDF2-SHA256 600k and PRF+HKDF KEK
+derivation), worker boot gated on the page-supplied KEK (unlock before the
+transport exists, so the 20s connect deadline never races the prompt), per-
+generation `enc` marker so the plaintext→encrypted transition stays
+bootable, verify-and-discard unlock UI, profile-management setup row, and
+tests/wasm-db-crypt.test.mjs. Deviation from §2.3: Argon2id is NOT shipped
+— the KEK comes from PBKDF2-SHA256 (600k) or a PRF passkey; the Argon2id
+wasm module remains the upgrade path. PRF on a real authenticator and the
+Firefox/old-Safari opt-out need device verification. Android Keystore
+wrap/unwrap and the upgrade-keep-the-key test (§3.6) still need a device
+run — the Keystore cannot be exercised on a JVM. Phase 4 (app lock) is
+open.
 
 ## 1. Findings: what core 2.66.0 offers
 
