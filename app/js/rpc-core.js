@@ -135,6 +135,8 @@ export class JsonRpcCore extends EventTarget {
     this.chatlistEvents = true;
     this._eventChain = Promise.resolve(); // serializes core event handlers (arrival order)
     this._eventsQueued = 0;               // handlers queued or running on _eventChain
+    this.slowRpcMs = 2000;                // "rpc slow:" log threshold
+    this._timedOut = new Map();           // id -> {method, started} after a timeout
     this.eventHandlerStallMs = 2000;      // max time one slow handler holds the queue
     this._onLine = this._onLine.bind(this);
   }
@@ -358,6 +360,12 @@ export class JsonRpcCore extends EventTarget {
       this._dispatchPollResult(msg.params?.[0]);
       return;
     }
+    if (msg.id != null && this._timedOut.has(msg.id)) {
+      const { method, started } = this._timedOut.get(msg.id);
+      this._timedOut.delete(msg.id);
+      this._rpcLog(`rpc late: ${method} answered after ${Date.now() - started} ms`);
+      return;
+    }
     if (msg.id != null && this.pending.has(msg.id)) {
       const entry = this.pending.get(msg.id);
       const { resolve, reject, onLate } = entry;
@@ -373,6 +381,8 @@ export class JsonRpcCore extends EventTarget {
     }
   }
 
+  _rpcLog(msg) { try { rustLog(msg); } catch {} }
+
   _call(method, ...params) {
     return this._callWithTimeout(30000, method, ...params);
   }
@@ -380,7 +390,18 @@ export class JsonRpcCore extends EventTarget {
   _callWithTimeout(timeoutMs, method, ...params) {
     const id = nextId++;
     const line = JSON.stringify({ jsonrpc: "2.0", id, method, params });
-    return new Promise((resolve, reject) => {
+    const started = Date.now();
+    return new Promise((resolve0, reject0) => {
+      // Stall diagnostics (Refs #176): a call slower than slowRpcMs logs
+      // "rpc slow: METHOD took N ms"; one that times out is remembered so
+      // its late answer logs "rpc late: METHOD answered after N ms" (a
+      // stalled core) — no late line means the answer was lost.
+      const done = () => {
+        const ms = Date.now() - started;
+        if (ms >= this.slowRpcMs) this._rpcLog(`rpc slow: ${method} took ${ms} ms`);
+      };
+      const resolve = v => { done(); resolve0(v); };
+      const reject = e => { done(); reject0(e); };
       this.pending.set(id, { resolve, reject });
       try {
         const result = this.transport.send(line);
@@ -401,7 +422,10 @@ export class JsonRpcCore extends EventTarget {
       setTimeout(() => {
         if (this.pending.has(id)) {
           this.pending.delete(id);
-          reject(new Error("rpc timeout: " + method));
+          this._timedOut.set(id, { method, started });
+          if (this._timedOut.size > 200) this._timedOut.delete(this._timedOut.keys().next().value);
+          this._rpcLog(`rpc timeout: ${method} after ${Date.now() - started} ms (${this.pending.size} still pending)`);
+          reject0(new Error("rpc timeout: " + method));
         }
       }, timeoutMs);
     });
@@ -1541,7 +1565,12 @@ export class JsonRpcCore extends EventTarget {
     // Just this chat's chatlist item (same shape as the list rows, works for
     // archived chats too) — this used to load and map the WHOLE chat list,
     // three times per chat open (issue #25).
-    const items = await this.getChatListItems([chatId], accountId).catch(() => null);
+    // A timeout means the core is stalled: falling back would chain three
+    // more 30 s calls (minutes per tap, #176), so surface it instead.
+    const items = await this.getChatListItems([chatId], accountId).catch(e => {
+      if (String(e?.message).startsWith("rpc timeout")) throw e;
+      return null;
+    });
     const found = items?.get(chatId);
     if (found) return found;
     // fallback: minimal info when there is no chatlist item (special ids,

@@ -756,8 +756,16 @@ export class ChatView {
       reload: 0,
     };
     this._loadBar(true);
+    // "open chat N: STEP took N ms" for steps >= 1 s (Refs #176).
+    let stepAt = Date.now();
+    const step = (name) => {
+      const ms = Date.now() - stepAt;
+      stepAt = Date.now();
+      if (ms >= 1000) this.core._rpcLog?.(`open chat ${chatId}: ${name} took ${ms} ms`);
+    };
     try {
       if (chat?.id !== chatId) chat = await this.core.getChat(chatId);
+      step("get_chat");
       if (this._openGen !== openGen) return false;
       // Opening position: while the chat has unread messages it opens at
       // the manual read marker, else at the first unread message; a fully
@@ -767,6 +775,7 @@ export class ChatView {
       let firstUnread = null;
       if (tracked && chat.unread > 0) {
         firstUnread = await this.core.getFirstUnreadMessageId(chatId).catch(() => null);
+        step("first unread");
         if (this._openGen !== openGen) return false;
       }
       let anchorId = firstUnread != null ? (marker ?? firstUnread) : null;
@@ -780,6 +789,7 @@ export class ChatView {
       }
       const load = (aroundId) => this.core.getMessages(chatId, aroundId != null ? { aroundId, before: 10, limit: 60 } : { limit: 40 });
       let page = await load(anchorId ?? restore?.anchorId);
+      step("messages");
       if (this._openGen !== openGen) return false;
       if (restore && !page.messages.some(m => m.id === restore.anchorId)) {
         // The anchor message is gone (deleted) — forget it, open at the bottom.
@@ -807,6 +817,7 @@ export class ChatView {
         Promise.all([this._loadMentionMembers(chat, session), this._loadGroupAdmin(chat)]),
         new Promise(r => setTimeout(r, 600)),
       ]);
+      step("members");
       if (this._openGen !== openGen || !this._isCurrent(session)) return false;
       this._clearHistory();
       if (this._openGen !== openGen || !this._isCurrent(session)) return false;
@@ -837,6 +848,7 @@ export class ChatView {
       this._refreshPinnedBar();
       if (!tracked) {
         await this.core.markRead(chatId);
+        step("mark read");
         if (this._openGen !== openGen || !this._isCurrent(session)) return false;
       }
       if (anchorId != null) {

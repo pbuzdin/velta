@@ -2330,8 +2330,25 @@ async function openChat(chatId) {
   state.pendingChatId = chatId;
   chatView.cancelOpen?.();
   renderChatList();
+  // Stall diagnostics + recovery (Refs #176): slow steps log
+  // "open chat N: STEP took N ms"; an open still waiting after
+  // 15 s releases the same-chat guard so a re-tap retries
+  // instead of being swallowed until every chained RPC timed out.
+  const openStarted = Date.now();
+  const step = (name, since) => {
+    const ms = Date.now() - since;
+    if (ms >= 1000) appLog(`open chat ${chatId}: ${name} took ${ms} ms`);
+  };
+  const guard = setTimeout(() => {
+    if (state.pendingChatId !== chatId || navigation !== chatNavigation) return;
+    appLog(`open chat ${chatId}: still waiting after ${Date.now() - openStarted} ms, guard released`);
+    state.pendingChatId = null;
+    renderChatList();
+  }, 15000);
   try {
+  let stepStarted = Date.now();
   const chat = await core.getChat(chatId);
+  step("get_chat", stepStarted);
   if (!current() || !chat) return;
   if (chat.kind === "deaddrop") {
     const ok = await confirmModal("Contact request", t("\"{name}\" wants to start a conversation with you. Accept it to read the messages and reply.", { name: chat.name }), t("Accept"), false);
@@ -2394,7 +2411,10 @@ async function openChat(chatId) {
     }).catch(() => {});
   }
   // Hand over the chat fetched above: the view used to fetch it again.
-  if (!await chatView.open(chatId, chat) || !current()) return;
+  stepStarted = Date.now();
+  const opened = await chatView.open(chatId, chat);
+  step("view open", stepStarted);
+  if (!opened || !current()) return;
   // History entry per open chat: Android BACK pops it (chat -> chat list)
   // via WryActivity's WebView-history navigation instead of exiting.
   if (history.state?.velta !== "chat") history.pushState({ velta: "chat", chatId }, "");
@@ -2406,6 +2426,8 @@ async function openChat(chatId) {
     closeChatUI();
     errToast(t("Couldn't open chat: ") + (error.message || error));
   } finally {
+    clearTimeout(guard);
+    step("total", openStarted);
     if (state.pendingChatId === chatId && navigation === chatNavigation) state.pendingChatId = null;
   }
 }
