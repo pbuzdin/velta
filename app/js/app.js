@@ -455,6 +455,8 @@ if (!core) {
   core = withLocalChat(new MockCore());
   core.backend = { kind: "mock", label: "demo mode (no local core)", connected: false };
 }
+// Device-chat language card when the OS speaks ru/fr and the UI does not.
+import("./lang-cards.js").then(lc => lc.maybeAddLangCard(core)).catch(() => {});
 if (core?.transport?.readCoreFile) setWasmBlobReader((path) => core.transport.readCoreFile(path));
 // The core's per-transport Info events (IMAP/DNS/quota/idle chatter) flood
 // the Diagnostics chat within seconds and bury everything useful. Keep

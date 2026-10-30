@@ -1000,6 +1000,8 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
 }
 .ivc-btn:focus-visible { outline: 2px solid #8cc4ff; outline-offset: 2px; }
 .ivc-btn[disabled] { cursor: not-allowed; background: transparent; border-color: rgba(244, 244, 244, .2); color: rgba(244, 244, 244, .55); }
+/* Language card "current" state: informative, so full #c4c4cc (>= 9:1), not the faded disabled grey. */
+.lang-card .ivc-btn[disabled] { color: #c4c4cc; border-color: rgba(244, 244, 244, .3); cursor: default; }
 .ivc-link {
   display: block; padding: 6px 8px; border-radius: 6px;
   background: rgba(0, 0, 0, .35); color: #e6e6ec;

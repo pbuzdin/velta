@@ -13,6 +13,7 @@ import { canShareLink, shareLink } from "./qr-actions.js";
 import { MD_HINT, MD_REENABLED_NOTE, DL_LIMIT_HINT, mdLabel } from "./multidevice.js";
 import { videoPosKey, videoResumeSeconds, rememberVideoPos } from "./video-pos.js";
 import { t, currentLang, setLang, LANGS, translateTree } from "./i18n.js";
+import { markLangCardDone } from "./lang-cards.js";
 import { ICON, LOOP_SVG, P, svg } from "./icons.js";
 import { mountInviteDomains } from "./invite-domains.js";
 
@@ -1561,6 +1562,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     const v = e.target?.value;
     if (!v || v === currentLang()) return;
     setLang(v);
+    markLangCardDone(); // a switch ends the language cards (lang-cards.js)
     location.reload();
   });
 

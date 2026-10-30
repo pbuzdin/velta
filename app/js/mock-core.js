@@ -793,6 +793,16 @@ export class MockCore extends EventTarget {
     return null;
   }
 
+  async addDeviceMessage(label, text) {
+    this._deviceLabels ||= new Set();
+    if (this._deviceLabels.has(label)) return null;
+    this._deviceLabels.add(label);
+    const chat = this.chats.find(c => c.kind === "device");
+    const m = this._mkMsg(chat, { from: 0, text, fromDevice: true });
+    chat.messages.push(m);
+    return m.id;
+  }
+
   async getMessages(chatId, opts = {}) {
     const c = this.chats.find(x => x.id === chatId);
     if (!c) return { messages: [], hasMore: false, hasNewer: false };

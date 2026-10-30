@@ -962,6 +962,7 @@ export class JsonRpcCore extends EventTarget {
       edited: !!m.isEdited,
       quote: this._mapQuote(m.quote),
       reactions: this._mapReactions(m.reactions),
+      fromDevice: m.fromId === 5, // ContactId::DEVICE (lang-cards.js trusts only this)
       fwdFrom: m.isForwarded ? (m.overrideSenderName || sender.displayName || "") : null,
       filePath: m.file || null,
       fileName: m.fileName || (m.file ? m.file.split("/").pop() : null),
@@ -1054,6 +1055,11 @@ export class JsonRpcCore extends EventTarget {
         await this._call("add_device_message", accountId, label, null);
       }
     } catch (e) { console.warn("device label prep failed", e); }
+  }
+
+  // Device-chat message under a unique label: core adds a label once per account.
+  async addDeviceMessage(label, text) {
+    return this._call("add_device_message", this.accountId, label, { text });
   }
 
   // Our own display name ("" when unset) — @mention matching (mentions.js).

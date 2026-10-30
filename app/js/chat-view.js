@@ -118,7 +118,8 @@ import { parseCryptexLink, cryptexUploadFor } from "./cryptex.js";
 import { isAndroid, rustLog, tauriInvoke } from "./tauri.js";
 import { canShareLink, copyLink, shareLink } from "./qr-actions.js";
 import { ICON, P, svg, labelled } from "./icons.js";
-import { t } from "./i18n.js";
+import { t, setLang } from "./i18n.js";
+import { langCardCode, langCardHtml, stripLangLink, markLangCardDone } from "./lang-cards.js";
 import { adminCaps, isAdminGroup, adminChipHtml } from "./admin-group.js";
 
 function reactionChipsHtml(reactions) {
@@ -2379,8 +2380,12 @@ export class ChatView {
       // no stored original (hasHtml false): no button, because it could open
       // nothing.
       const fullMsg = m.hasHtml === true;
+      // Language card (lang-cards.js): device chat + device sender only.
+      const langCard = langCardCode(m.text, { trusted: this.chat?.kind === "device" && m.fromDevice === true });
+      const bodyText = langCard ? stripLangLink(m.text) : m.text;
       // lang drives CSS hyphenation (hyphens: auto) per message, EN or RU.
-      bubble += `<div class="msg-text" lang="${detectTextLang(m.text, uiLang())}">${renderMarkdown(m.text, { mentions: this._mentionMembers })}`;
+      bubble += `<div class="msg-text" lang="${detectTextLang(m.text, uiLang())}">${renderMarkdown(bodyText, { mentions: this._mentionMembers })}`;
+      if (langCard) bubble += langCardHtml(langCard, { esc: escapeHtml });
       // Velta invite links (proxy / relay / tunnel) → action cards; the
       // links themselves render as token-free chips (invite-cards.js).
       bubble += inviteCardsHtml(m.text, { sender: m.from === 1 ? "" : (m.overrideSenderName || m.fromContact?.name || ""), lang: uiLang() });
@@ -2940,6 +2945,13 @@ export class ChatView {
       if (applyBtn) {
         e.stopPropagation();
         window.dispatchEvent(new CustomEvent("velta-apply-settings", { detail: { text: m.text, msgId: m.id, chatKind: this.chat?.kind } }));
+        return;
+      }
+      const langBtn = e.target.closest("[data-lang-card]");
+      if (langBtn && this.chat?.kind === "device" && m.fromDevice === true) {
+        e.stopPropagation();
+        const code = langCardCode(m.text, { trusted: true });
+        if (code) { markLangCardDone(); setLang(code); location.reload(); }
         return;
       }
       const cxBtn = e.target.closest("[data-cryptex-dl]");
