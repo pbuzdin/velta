@@ -393,7 +393,7 @@ if (window.__TAURI__) {
   const listen = event.listen ? event.listen.bind(event) : tauri.listen.bind(tauri);
 
   function applySidecarStatus(status) {
-    diagnostics.append(status.error ? "error" : "info", `Embedded core: ${status.stage || (status.running ? "running" : "stopped")}${status.error ? ` — ${status.error}` : ""}`);
+    diagnostics.append((status.error || status.stage === "error") ? "error" : "info", `Embedded core: ${status.stage || (status.running ? "running" : "stopped")}${(status.error || status.message) ? ` — ${status.error || status.message}` : ""}`);
   }
 
   try {

@@ -3917,6 +3917,7 @@ fn ensure_android_core(accounts_dir: PathBuf) -> &'static RpcState {
                             log("headless core: IO started for all accounts");
                         }
                     }
+                    break;
                 }
                 Err(e) if e.to_string().contains("app-locked") => {
                     android_core_status(serde_json::json!({"running": false, "stage": "app-locked"}));
