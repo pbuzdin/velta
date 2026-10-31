@@ -23,6 +23,8 @@ test("Profile management has no app-lock box; Privacy & security has it", () => 
   assert.ok(!slice(app, "function openProfileManagement(").includes("data-applock-box"));
   const ps = slice(app, "function openPrivacySecurity(");
   for (const s of ["data-applock-box", "data-bio-toggle", "data-pin-add", "velta-biometric"]) assert.ok(ps.includes(s), s);
+  // pinForm.reset()/reportValidity() need a real <form>.
+  assert.match(ps, /<form data-pin-form/);
   // Android shows the PIN rows too (no early return hiding them).
   assert.ok(!/isAndroid\(\)\)\s*\{\s*\/\/ PIN is a desktop mode/.test(ps));
 });

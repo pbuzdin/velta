@@ -5686,7 +5686,7 @@ function openPrivacySecurity() {
     <div style="display:grid;gap:8px" data-applock-box>
       <p class="pm-hint" data-applock-status></p>
       <p class="pm-hint" data-blob-status hidden></p>
-      <div data-pin-form hidden style="display:grid;gap:6px">
+      <form data-pin-form hidden style="display:grid;gap:6px">
         <input class="text-field" data-pin-cur type="password" placeholder="${escapeHtml(t("Current PIN"))}" autocomplete="current-password">
         <input class="text-field" data-pin-new type="password" minlength="6" required placeholder="${escapeHtml(t("App-lock PIN (6+ characters)"))}" autocomplete="new-password">
         <input class="text-field" data-pin-new2 type="password" minlength="6" required placeholder="${escapeHtml(t("Repeat PIN"))}" autocomplete="new-password">
@@ -5694,7 +5694,7 @@ function openPrivacySecurity() {
           <button class="btn-primary" type="button" data-pin-save>${escapeHtml(t("Save PIN"))}</button>
           <button class="btn-text" type="button" data-pin-cancel>${escapeHtml(t("Cancel"))}</button>
         </div>
-      </div>
+      </form>
       <div class="pm-actions" data-pin-off-row hidden>
         <button class="btn-text" type="button" data-pin-add>${escapeHtml(t("Add app-lock PIN"))}</button>
       </div>
@@ -5822,6 +5822,7 @@ function openPrivacySecurity() {
       pinForm.hidden = false;
       (mode === "remove" ? pinCur : pinNew).focus();
     };
+    pinForm.addEventListener("submit", (e) => { e.preventDefault(); pinForm.querySelector("[data-pin-save]").click(); });
     applockBox.querySelector("[data-pin-add]").addEventListener("click", () => openForm("set"));
     applockBox.querySelector("[data-pin-edit]").addEventListener("click", () => openForm("change"));
     applockBox.querySelector("[data-pin-remove]").addEventListener("click", () => openForm("remove"));
