@@ -622,6 +622,9 @@ html[data-theme="light"] .msg-select-btn { background: rgba(16, 16, 16, .08); }
 .msg-row.out .bubble.msg-deleted { color: color-mix(in srgb, var(--text-meta-out) 80%, var(--text)); }
 html[data-theme="brutal"] .msg-row.out .bubble.msg-deleted { color: var(--nb-main-ink); }
 .msg-deleted-label { font-size: 14px; line-height: 1.35; }
+/* After the Undo window: one-line row (chat-view _collapseTombstones). */
+.bubble.msg-deleted.is-compact { padding-top: 4px; padding-bottom: 4px; }
+.bubble.msg-deleted.is-compact .msg-deleted-label { font-size: 13px; }
 .msg-undo {
   position: relative; overflow: hidden;
   border: 0; border-radius: 14px;

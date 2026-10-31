@@ -1301,7 +1301,7 @@ test("a confirmed delete stays on screen until the undo bar ends", async t => {
   view._holdDelete(view._session, [10], false);
   let tomb = node("history").children[0];
   assert.match(tomb.innerHTML, /This message was deleted/);
-  assert.doesNotMatch(tomb.innerHTML, /min-height/); // compact tombstone, not the bubble height
+  assert.match(tomb.innerHTML, /min-height:\d+px/); // keeps the original bubble height while Undo shows
   assert.match(tomb.innerHTML, />Undo<span/);
   assert.match(tomb.innerHTML, /animation-delay:-\d+ms/);
   view._rowCache.delete("m10");
@@ -1317,7 +1317,10 @@ test("a confirmed delete stays on screen until the undo bar ends", async t => {
   view._holdDelete(view._session, [10], true);
   await wait(80);
   assert.deepEqual(calls, [[7, [10], true]]);
-  assert.equal(view.msgIndex.has(10), false);
+  // Undo window over: a compact "Message deleted" row for this session.
+  assert.equal(view.msgIndex.has(10), true);
+  assert.match(node("history").children[0].innerHTML, /msg-deleted is-compact/);
+  assert.doesNotMatch(node("history").children[0].innerHTML, /min-height|Undo/);
 
   await view.open(7);
   calls.length = 0;

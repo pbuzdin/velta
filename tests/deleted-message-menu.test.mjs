@@ -14,9 +14,22 @@ test("a deleted message's menu is Select, Info and Delete only", () => {
   assert.match(menu, /reactions: \[\]/);
 });
 
-test("the deleted tombstone is compact (no measured min-height)", () => {
-  assert.doesNotMatch(src, /msg-deleted"\$\{h \?/);
+test("held tombstone keeps the original height; committed one is compact", () => {
+  assert.match(src, /style="min-height:\$\{keepH\}px"/);
+  assert.match(src, /msg-deleted is-compact/);
   const css = readFileSync(new URL("../app/css/main.css", import.meta.url), "utf8");
   const rule = css.slice(css.indexOf(".bubble.msg-deleted {"), css.indexOf("}", css.indexOf(".bubble.msg-deleted {")));
-  assert.match(rule, /min-height: 0/);
+  assert.match(rule, /min-height: 0/); // the inline hold height is the only floor
+});
+
+test("collapse animates ~180ms, honors reduced motion, notifies the scroller once, anchors scroll", () => {
+  const body = src.slice(src.indexOf("_collapseTombstones(ids) {"), src.indexOf("_forgetBatch(key) {"));
+  assert.match(body, /prefers-reduced-motion: reduce/);
+  assert.match(body, /duration: 180/);
+  assert.match(body, /scrollTop -= fromH - toH/);
+  assert.equal((body.match(/onItemHeightDidChange/g) || []).length, 1);
+  const commit = src.slice(src.indexOf("async _commitDelete(key)"), src.indexOf("_forward(ids)"));
+  assert.match(commit, /_collapseTombstones\(batch\.ids\)/);
+  assert.doesNotMatch(commit, /this\.onMsgsDeleted\(/);
+  assert.match(src, /ids = ids\.filter\(id => !this\._tombstones\.has\(id\)\)/);
 });

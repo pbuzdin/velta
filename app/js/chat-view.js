@@ -642,6 +642,9 @@ export class ChatView {
     this._deleteSeq = 0;
     this._deleteBatches = new Map();
     this._deleteByMsg = new Map();
+    // Committed deletes shown as a compact one-line "Message deleted" row
+    // for the rest of this chat session (scroll away/back keeps them).
+    this._tombstones = new Set();
     this.selection = new Set();
     this.replyTo = null;
     this.replyFragment = null;
@@ -824,6 +827,8 @@ export class ChatView {
       if (this._openGen !== openGen || !this._isCurrent(session)) return false;
       this._clearHistory();
       if (this._openGen !== openGen || !this._isCurrent(session)) return false;
+      for (const id of this._tombstones) { this._rowCache.delete("m" + id); this._rowSigCache.delete("m" + id); }
+      this._tombstones.clear(); // reopen: the core no longer lists them
       const { messages, hasMore, hasNewer = false } = page;
       if (anchorId != null && !messages.some(m => m.id === anchorId)) anchorId = null;
       this.chat = chat;
@@ -1660,6 +1665,9 @@ export class ChatView {
 
   onMsgsDeleted(chatId, ids) {
     this._releaseHolds(ids);
+    // Our own committed deletes stay as compact tombstones until reopen.
+    ids = ids.filter(id => !this._tombstones.has(id));
+    if (!ids.length) return;
     if (!this._isCurrent() || !this.chat || chatId !== this.chat.id) return;
     this.items = this.items.filter(it => !(it.type === "msg" && ids.includes(it.msg.id)));
     for (const id of ids) {
@@ -2131,7 +2139,7 @@ export class ChatView {
   }
 
   _rowCacheSig(item) {
-    const hold = this._holdKey(item.msg.id);
+    const hold = this._holdKey(item.msg.id) || (this._tombstones.has(item.msg.id) ? "t" : "");
     const sig = this._rowSignature(item.msg);
     return hold ? sig + "\n" + hold : sig;
   }
@@ -2288,13 +2296,23 @@ export class ChatView {
     }
 
     const holdKey = this._deleteByMsg.get(m.id);
+    if (holdKey == null && this._tombstones.has(m.id)) {
+      inner += `<div class="bubble msg-deleted is-compact"><div class="msg-deleted-label">${escapeHtml(t("Message deleted"))}</div></div>`;
+      row.innerHTML = inner;
+      if (item.readMarker) row.append(this._readMarkerEl());
+      return row;
+    }
     if (holdKey != null) {
       const batch = this._deleteBatches.get(holdKey);
       const elapsed = batch ? Math.min(batch.ms, Math.max(0, Date.now() - batch.started)) : 0;
       const undo = batch && !batch.committing
         ? `<button type="button" class="msg-undo" data-undo>${escapeHtml(t("Undo"))}<span class="msg-undo-bar" style="animation-duration:${batch.ms}ms;animation-delay:-${elapsed}ms"></span></button>`
         : "";
-      inner += `<div class="bubble msg-deleted"><div class="msg-deleted-label">${escapeHtml(t("This message was deleted"))}</div>${undo}</div>`;
+      // While Undo is offered the tombstone keeps the original bubble's
+      // height, so the list doesn't jump and Undo restores in place.
+      const keepH = batch?.heights.get(m.id) || 0;
+      const hold = keepH ? ` style="min-height:${keepH}px"` : "";
+      inner += `<div class="bubble msg-deleted"${hold}><div class="msg-deleted-label">${escapeHtml(t("This message was deleted"))}</div>${undo}</div>`;
       row.innerHTML = inner;
       if (item.readMarker) row.append(this._readMarkerEl());
       row.querySelector("[data-undo]")?.addEventListener("click", (e) => {
@@ -3313,6 +3331,7 @@ export class ChatView {
     const touch = this._offerSelectText();
     // Deleted (held for undo, or committing): nothing to reply to, forward,
     // download or resend. Delete commits it now instead of waiting for undo.
+    if (this._tombstones.has(m.id)) return; // already deleted: nothing to act on
     const heldKey = this._deleteByMsg.get(m.id);
     if (heldKey != null) {
       const held = deletedMessageActions({
@@ -3653,6 +3672,50 @@ export class ChatView {
     this._repaintMsgs(ids);
   }
 
+  // A committing batch keeps its key (for the RPC) but its rows render as
+  // tombstones: drop the per-message hold so _renderMsgItem picks the
+  // compact branch.
+  _forgetBatchHolds(batch) {
+    for (const id of batch.ids) if (this._deleteByMsg.get(id) === batch.key) this._deleteByMsg.delete(id);
+  }
+
+  // Held (original-height) tombstone -> compact row. Height animates
+  // ~180 ms (none under prefers-reduced-motion); the scroller is told once,
+  // after the final height. A row above the viewport collapses instantly
+  // with a matching scrollTop shift so the visible content doesn't move.
+  _collapseTombstones(ids) {
+    const reduce = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    for (const id of ids) {
+      const item = this.msgIndex.get(id);
+      if (!item) continue;
+      const oldRow = this.listEl?.querySelector?.(`[data-msgid="${id}"]`);
+      const fromH = oldRow?.getBoundingClientRect?.().height || 0;
+      const above = !!(oldRow && this.scrollEl
+        && oldRow.getBoundingClientRect().bottom <= this.scrollEl.getBoundingClientRect().top);
+      this._rowCache.delete(item.key);
+      this._rowSigCache.delete(item.key);
+      if (!oldRow) continue; // not mounted: it renders compact when it is
+      const fresh = this._buildItem(item);
+      oldRow.replaceWith(fresh);
+      this._rowCache.set(item.key, fresh);
+      this._rowSigCache.set(item.key, this._rowCacheSig(item));
+      const toH = fresh.getBoundingClientRect?.().height || 0;
+      const done = () => this.vs?.onItemHeightDidChange?.(item);
+      if (above) {
+        if (this.scrollEl && fromH > toH) this.scrollEl.scrollTop -= fromH - toH;
+        done();
+        continue;
+      }
+      if (reduce || !(fromH > toH) || typeof fresh.animate !== "function") { done(); continue; }
+      fresh.style.overflow = "hidden";
+      const anim = fresh.animate([{ height: `${fromH}px` }, { height: `${toH}px` }], { duration: 180, easing: "ease-out" });
+      let settled = false;
+      const finish = () => { if (settled) return; settled = true; fresh.style.overflow = ""; done(); };
+      anim.onfinish = finish;
+      anim.oncancel = finish;
+    }
+  }
+
   _forgetBatch(key) {
     const batch = this._deleteBatches.get(key);
     if (!batch) return;
@@ -3716,12 +3779,16 @@ export class ChatView {
     }
     batch.committing = true;
     clearTimeout(batch.timer);
-    this._repaintMsgs(batch.ids);
+    // Undo window over: collapse to the compact one-line row.
+    for (const id of batch.ids) this._tombstones.add(id);
+    this._forgetBatchHolds(batch);
+    this._collapseTombstones(batch.ids);
     try {
       await this.core.deleteMessages(batch.chatId, batch.ids, { forAll: batch.forAll });
     } catch (err) {
       const ids = batch.ids;
       this._forgetBatch(key);
+      for (const id of ids) this._tombstones.delete(id);
       this._repaintMsgs(ids);
       if (String(this.core.accountId) === String(batch.accountId)) {
         errToast(t("Couldn't delete messages: ") + (err.message || err), 4500);
@@ -3734,9 +3801,8 @@ export class ChatView {
       this.exitSelection();
       this.onChatsChanged();
     }
-    // The core event removes the rows when it arrives. If this view is still
-    // the one that deleted them, drop the rows now so the list doesn't wait.
-    if (this._isCurrent(batch.session) && this.chat?.id === batch.chatId) this.onMsgsDeleted(batch.chatId, ids);
+    // The rows stay as compact tombstones for this session (onMsgsDeleted
+    // keeps tombstoned ids); reopening the chat no longer lists them.
   }
 
   _forward(ids) {
