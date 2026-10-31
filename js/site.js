@@ -44,3 +44,43 @@
     })
     .catch(function () { /* offline: heading and link still work */ });
 })();
+
+// <velta-news-pager data-page="k"> wraps the static archive-page nav
+// (/news/page-k/). Archive pages are frozen: their HTML only knows older
+// pages. This adds the NEWER page numbers and a "Newer →" link from the
+// page count /news/ carries (data-pages="N" on its pager). No JS or a
+// failed fetch: the static older links still work.
+if (window.customElements && !customElements.get("velta-news-pager")) {
+  customElements.define("velta-news-pager", class extends HTMLElement {
+    connectedCallback() {
+      var self = this, k = Number(this.getAttribute("data-page"));
+      if (!k || this._done || !window.fetch) return;
+      this._done = true;
+      fetch("/news/", { cache: "no-cache" })
+        .then(function (r) { return r.ok ? r.text() : ""; })
+        .then(function (html) {
+          var m = /data-pages="(\d+)"/.exec(html || "");
+          var n = m ? Number(m[1]) : 0;
+          var ol = self.querySelector("ol.news-pages");
+          if (!ol || n <= k) return;
+          var first = ol.firstChild;
+          for (var p = n; p > k; p--) {
+            var li = document.createElement("li");
+            var a = document.createElement("a");
+            a.href = "/news/page-" + p + "/";
+            a.setAttribute("aria-label", "Page " + p);
+            a.textContent = String(p);
+            li.appendChild(a);
+            ol.insertBefore(li, first);
+          }
+          var newer = document.createElement("a");
+          newer.className = "news-newer";
+          newer.href = "/news/page-" + (k + 1) + "/";
+          newer.textContent = "Newer →";
+          var latest = self.querySelector(".news-latest");
+          if (latest) latest.parentNode.insertBefore(newer, latest);
+        })
+        .catch(function () { /* static older links still work */ });
+    }
+  });
+}

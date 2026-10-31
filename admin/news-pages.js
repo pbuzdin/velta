@@ -2,20 +2,21 @@
 // no DOM: imported by admin.js in the browser and by tools/news-pages.mjs
 // and admin/admin.test.mjs in node).
 //
-// Pages are numbered from the OLDEST item: /news/page/1/ holds the 10
+// Pages are numbered from the OLDEST item: /news/page-1/ holds the 10
 // oldest, page 2 the next 10, … Adding an item touches only the newest page
 // (or creates the next one when the newest is full) — older pages never
 // change, so their URLs and contents are stable. Pages link only to OLDER
 // pages (rel="prev") and to /news/; they never link forward, which is what
-// lets them stay frozen. /news/ shows the newest 10 and lists every page.
+// lets them stay frozen. <velta-news-pager> (js/site.js) adds the newer
+// page links at view time from /news/'s data-pages. /news/ shows the newest 10 and lists every page.
 
 export const PER_PAGE = 10;
 export const SITE = "https://velta.cc";
 const MARKERS = /<!--\s*CMS:START\s*-->([\s\S]*?)<!--\s*CMS:END\s*-->/;
 const HEAD_LINK = /\n?[ \t]*<link rel="(?:canonical|prev|next)"[^>]*>/g;
 
-export const pageUrl = (k) => `/news/page/${k}/`;
-export const pagePath = (k) => `news/page/${k}/index.html`;
+export const pageUrl = (k) => `/news/page-${k}/`;
+export const pagePath = (k) => `news/page-${k}/index.html`;
 
 // The <li>…</li> items of the page's news list, in document order.
 export function listItems(raw) {
@@ -66,11 +67,11 @@ export function pageBody(k, items) {
 <h1>News, page ${k}</h1>
 <p>An archive page. <a href="/news/">Latest news</a></p>
 ${list(items)}
-<nav class="news-pager" aria-label="News pages">
+<velta-news-pager data-page="${k}"><nav class="news-pager" aria-label="News pages">
   ${older}
   ${pageLinks(k, k)}
   <a class="news-latest" href="/news/">Latest news →</a>
-</nav>`;
+</nav></velta-news-pager>`;
 }
 
 // Swap title/description/canonical/prev in a full document (the /news/

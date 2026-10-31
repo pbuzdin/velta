@@ -518,7 +518,7 @@ ul.news-list li h2 { margin: 0.25rem 0 0; font-size: 1.8rem; }
 /* 404/posts: `main.page ul/li` indented the list and spaced its items */
 main.page ul.news-list { padding-left: 0; }
 main.page ul.news-list li { margin: 0; }
-/* news pagination (/news/ "Older news" + archive pages /news/page/N/):
+/* news pagination (/news/ "Older news" + archive pages /news/page-N/):
    pages numbered from the oldest post; links only go to older pages */
 .news-pager { margin: 2rem 0 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.25rem; font-size: 1rem; }
 .news-pager h2 { flex-basis: 100%; margin: 0; font-size: 1.4rem; }
@@ -529,7 +529,7 @@ main.page .news-pager ol.news-pages li { margin: 0; }
 .news-pager a:hover { text-decoration: underline; }
 .news-pages a { display: inline-flex; align-items: center; justify-content: center; min-width: 2.75rem; min-height: 2.75rem; padding: 0 0.5rem; border: 1px solid var(--line); border-radius: 0.5rem; box-sizing: border-box; }
 .news-pages a[aria-current="page"] { color: var(--fg); font-weight: 600; border-color: currentColor; }
-.news-older, .news-latest { display: inline-flex; align-items: center; min-height: 2.75rem; }
+.news-older, .news-newer, .news-latest { display: inline-flex; align-items: center; min-height: 2.75rem; }
 
 #support { grid-template-columns: 1fr 1fr; align-items: start; }
 #support h2 { margin-top: 0.75rem; }
@@ -718,3 +718,4 @@ main.page aside a {
 }
 main.page aside a:hover { border-color: var(--accent); color: var(--fg); }
 
+velta-news-pager { display: block; }

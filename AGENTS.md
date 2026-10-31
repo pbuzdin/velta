@@ -136,12 +136,14 @@ localStorage). Reads work signed-out. Four groups:
   partials" re-applies it to every page.
 
 News pagination (`admin/news-pages.js`, shared by the CMS, `tools/news-pages.mjs`
-and the tests): archive pages `news/page/N/` are numbered from the OLDEST post,
+and the tests): archive pages `news/page-N/` are numbered from the OLDEST post,
 10 per page. `/news/` shows the newest 10 + an "Older news" page list
 (`data-pages="N"`). "New post" writes the post, prepends it to the newest page
 (or creates page N+1 when page N has 10) and rewrites `/news/`. Archive pages
 link only to older pages (`rel="prev"`) and `/news/`, so they never change once
-a newer page exists. Canonical/prev/robots head tags survive save and rebuild
+a newer page exists. At view time `<velta-news-pager>` (js/site.js) fetches
+/news/, reads `data-pages` and adds links to the newer pages + "Newer →"
+(progressive enhancement; without JS only older links show). Canonical/prev/robots head tags survive save and rebuild
 (`headExtraOf`). `tools/news-pages.mjs --init` was the one-time split.
 
 Commit math: page save = 1 commit, post creation = 3 (the post, its archive page, /news/) — was 2 (the post + its index
