@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Velta 1.4.89 encrypts your messages on the device — Velta</title>
+  <meta name="description" content="Message databases are now encrypted at rest on every platform, a new Privacy &amp; security screen holds the app lock, and Android gets a biometric lock with a PIN fallback.">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css?v=12">
+  <script type="speculationrules">
+{
+  "prerender": [{
+    "source": "document",
+    "where": { "and": [
+      { "href_matches": "/*" },
+      { "not": { "href_matches": "/web/*" } },
+      { "not": { "href_matches": "/admin/*" } },
+      { "not": { "selector": "a[target]" } },
+      { "not": { "selector": "a[download]" } }
+    ] },
+    "eagerness": "moderate" }
+  ]
+}
+  </script>
+</head>
+<body>
+  <a href="#content">Skip to content</a>
+  <header>
+    <a href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+    <nav aria-label="Sections">
+      <a href="/#product">Product</a>
+      <a href="/#features">Features</a>
+      <a href="/#privacy">Privacy</a>
+      <a href="/#platforms">Platforms</a>
+      <a href="/#help">Help</a>
+      <a href="/#support">Support</a>
+      <a href="/news" aria-current="page">News</a>
+      <a href="/web/">Web app</a>
+    </nav>
+    <a href="/#download"><span>Get</span><span>Download</span></a>
+    <details>
+      <summary>Menu</summary>
+      <nav aria-label="Mobile">
+        <a href="/#product">Product</a>
+        <a href="/#features">Features</a>
+        <a href="/#privacy">Privacy</a>
+        <a href="/#platforms">Platforms</a>
+        <a href="/#help">Help</a>
+        <a href="/#support">Support</a>
+        <a href="/news">News</a>
+        <a href="/web/">Web app</a>
+      </nav>
+    </details>
+  </header>
+
+  <main id="content" class="page">
+<!-- CMS:START -->
+    <p><a href="/news">News</a></p>
+    <p class="kicker">Release</p>
+    <h1>Velta 1.4.89 encrypts your messages on the device</h1>
+    <p><time>31 October 2026</time> · 4 min read</p>
+    <p>Message databases are now encrypted at rest on every platform, a new Privacy &amp; security screen holds the app lock, and Android gets a biometric lock with a PIN fallback.</p>
+    <div class="body">
+<p>Until now Velta’s messages were end-to-end encrypted on the way, but stored as a plain database on your device. <a href="/news/v1-4-88.html">1.4.88</a> was the last release where that was true.</p>
+<h2>Encrypted at rest, everywhere</h2>
+<p>Every profile’s message database is now encrypted on Windows, macOS, Linux, Android and in the browser app. On first start after the update, Velta converts your existing data once: it writes an encrypted copy, checks it, and only then swaps it in — the old file is kept until the new one is proven, so an interrupted update loses nothing.</p>
+<p>The key never sits next to the data. On a computer it lives in the system keychain; on Android in the phone’s secure key store; in the browser behind your passphrase or a passkey. If a Linux machine has no keychain, Velta says so plainly instead of pretending.</p>
+<h2>Privacy &amp; security</h2>
+<p>A new <strong>Privacy &amp; security</strong> screen in the side menu gathers the lock settings for the whole app — they used to hide inside each profile’s management screen, although one key protects all profiles.</p>
+<ul>
+<li><strong>App-lock PIN</strong> — Velta asks for it at every start, with growing waits after wrong tries. Now on Android too.</li>
+<li><strong>Biometric lock</strong> on Android — your fingerprint, or on Android 11 and later the phone’s own screen-lock PIN, pattern or password, so it works even without a fingerprint set up. It combines with the Velta PIN: the lock screen offers <strong>Use PIN</strong>.</li>
+<li><strong>Lock when hidden</strong> after 1, 5 or 15 minutes.</li>
+</ul>
+<p>Attachments stay outside this encryption on purpose: they rely on the system’s app isolation and disk encryption, and the screen tells you which applies on your device. Keep a backup — without the PIN and the device key, the data cannot be opened.</p>
+<h2>Steadier chats</h2>
+<ul>
+<li>Opening a chat can no longer get stuck for minutes when the messaging engine stalls; tapping again retries.</li>
+<li>Images and videos keep their height while they load, so the chat stops jumping.</li>
+<li>A deleted message keeps its place while Undo is offered, then folds away smoothly; its label is readable in every theme.</li>
+<li>The thread button is a small icon on the bubble’s corner, and the device chat offers French or Russian when your system speaks it.</li>
+</ul>
+<ul>
+<li><a href="https://github.com/pbuzdin/velta/releases/tag/v1.4.89">Release notes</a></li>
+<li><a href="https://github.com/pbuzdin/velta/compare/v1.4.88...v1.4.89">Compare 1.4.88 with 1.4.89</a></li>
+</ul>
+    </div>
+    <aside>
+      <h2>Get the current build</h2>
+      <p>The current build for Android, Windows, and macOS, plus notes for a self-hosted browser copy.</p>
+      <p><strong><a href="/#download">Download</a></strong></p>
+    </aside>
+<!-- CMS:END -->
+  </main>
+
+  <footer>
+    <div>
+      <div>
+        <a class="brand" href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+        <p>A Delta Chat client. Encrypted chat through chatmail relays — or straight across, device to device, when it should not sit on a server.</p>
+      </div>
+      <div>
+        <h2>On this site</h2>
+        <ul>
+          <li><a href="/#download">Download</a></li>
+          <li><a href="/#privacy">Privacy</a></li>
+          <li><a href="/#support">Support</a></li>
+          <li><a href="/#help">Help</a></li>
+          <li><a href="/news">News</a></li>
+          <li><a href="/about.html">About</a></li>
+          <li><a href="/developing.html">Developing</a></li>
+          <li><a href="/comparison.html">Compare</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Project</h2>
+        <ul>
+          <li><a href="https://github.com/pbuzdin/velta">GitHub</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/releases">All releases</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/LICENSE">GPL-3.0</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/README.md">README</a></li>
+          <li><a href="/admin/">Edit site</a></li>
+        </ul>
+      </div>
+    </div>
+    <p><span>Independent client. Delta Chat and Chatmail are upstream projects.</span><span>Built on the Delta Chat core</span><span>Site visits measured cookielessly — the app never phones home</span></p>
+  </footer>
+  <script defer src="/js/site.js?v=7"></script>
+</body>
+</html>

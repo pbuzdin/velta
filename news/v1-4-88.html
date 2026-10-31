@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Velta 1.4.88 adds admin groups — Velta</title>
+  <meta name="description" content="Groups can have one admin who controls members, settings and pins, profile keys show up correctly again, and threaded bubbles no longer shrink to one letter wide.">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css?v=12">
+  <script type="speculationrules">
+{
+  "prerender": [{
+    "source": "document",
+    "where": { "and": [
+      { "href_matches": "/*" },
+      { "not": { "href_matches": "/web/*" } },
+      { "not": { "href_matches": "/admin/*" } },
+      { "not": { "selector": "a[target]" } },
+      { "not": { "selector": "a[download]" } }
+    ] },
+    "eagerness": "moderate" }
+  ]
+}
+  </script>
+</head>
+<body>
+  <a href="#content">Skip to content</a>
+  <header>
+    <a href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+    <nav aria-label="Sections">
+      <a href="/#product">Product</a>
+      <a href="/#features">Features</a>
+      <a href="/#privacy">Privacy</a>
+      <a href="/#platforms">Platforms</a>
+      <a href="/#help">Help</a>
+      <a href="/#support">Support</a>
+      <a href="/news" aria-current="page">News</a>
+      <a href="/web/">Web app</a>
+    </nav>
+    <a href="/#download"><span>Get</span><span>Download</span></a>
+    <details>
+      <summary>Menu</summary>
+      <nav aria-label="Mobile">
+        <a href="/#product">Product</a>
+        <a href="/#features">Features</a>
+        <a href="/#privacy">Privacy</a>
+        <a href="/#platforms">Platforms</a>
+        <a href="/#help">Help</a>
+        <a href="/#support">Support</a>
+        <a href="/news">News</a>
+        <a href="/web/">Web app</a>
+      </nav>
+    </details>
+  </header>
+
+  <main id="content" class="page">
+<!-- CMS:START -->
+    <p><a href="/news">News</a></p>
+    <p class="kicker">Release</p>
+    <h1>Velta 1.4.88 adds admin groups</h1>
+    <p><time>29 October 2026</time> · 2 min read</p>
+    <p>Groups can have one admin who controls members, settings and pins, profile keys show up correctly again, and threaded bubbles no longer shrink to one letter wide.</p>
+    <div class="body">
+<p>A small release with one big switch. It follows <a href="/news/v1-4-87.html">1.4.87</a> by a day.</p>
+<h2>Admin groups</h2>
+<p>Turn on <strong>Admin group</strong> in the New group dialog and you become the group’s only admin. Only you can add or remove members, change the name, description, avatar, disappearing-message timer and pins, and you can delete any message for everyone. The group’s info sheet says <em>Moderated group · admin: you</em> with an Admin badge, and the admin’s messages carry a small <strong>Admin</strong> chip.</p>
+<p>The rules are not just hidden buttons: the other members’ apps enforce them too. Admin groups work with ArcaneChat’s admin groups, so mixed groups behave the same on both apps.</p>
+<h2>Fixed</h2>
+<ul>
+<li><strong>Profile keys showing “-”.</strong> The October messaging engine changed how it reports encryption details; Velta reads them correctly again, so avatars and profile keys show the real key.</li>
+<li><strong>One-letter-wide bubbles.</strong> A threaded message that shared its row with the unread line no longer collapses into one letter per line.</li>
+</ul>
+<ul>
+<li><a href="https://github.com/pbuzdin/velta/releases/tag/v1.4.88">Release notes</a></li>
+<li><a href="https://github.com/pbuzdin/velta/compare/v1.4.87...v1.4.88">Compare 1.4.87 with 1.4.88</a></li>
+</ul>
+    </div>
+    <aside>
+      <h2>Get the current build</h2>
+      <p>The current build for Android, Windows, and macOS, plus notes for a self-hosted browser copy.</p>
+      <p><strong><a href="/#download">Download</a></strong></p>
+    </aside>
+<!-- CMS:END -->
+  </main>
+
+  <footer>
+    <div>
+      <div>
+        <a class="brand" href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+        <p>A Delta Chat client. Encrypted chat through chatmail relays — or straight across, device to device, when it should not sit on a server.</p>
+      </div>
+      <div>
+        <h2>On this site</h2>
+        <ul>
+          <li><a href="/#download">Download</a></li>
+          <li><a href="/#privacy">Privacy</a></li>
+          <li><a href="/#support">Support</a></li>
+          <li><a href="/#help">Help</a></li>
+          <li><a href="/news">News</a></li>
+          <li><a href="/about.html">About</a></li>
+          <li><a href="/developing.html">Developing</a></li>
+          <li><a href="/comparison.html">Compare</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Project</h2>
+        <ul>
+          <li><a href="https://github.com/pbuzdin/velta">GitHub</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/releases">All releases</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/LICENSE">GPL-3.0</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/README.md">README</a></li>
+          <li><a href="/admin/">Edit site</a></li>
+        </ul>
+      </div>
+    </div>
+    <p><span>Independent client. Delta Chat and Chatmail are upstream projects.</span><span>Built on the Delta Chat core</span><span>Site visits measured cookielessly — the app never phones home</span></p>
+  </footer>
+  <script defer src="/js/site.js?v=7"></script>
+</body>
+</html>
