@@ -117,7 +117,7 @@ test("DNS tunnel / WS transport start before IO, with a health check", () => {
   assert.ok(boot > 0 && ws > boot && reapply > ws && publish > reapply && io > publish, "proxies, then tx, then IO");
   const tunnel = rs("tunnel.rs");
   assert.match(tunnel, /fn check_alive\(app: &crate::Host\)[\s\S]*connect_timeout[\s\S]*start\(app, cfg\)/);
-  assert.match(tunnel, /check_network\(&app\);\s*check_alive\(&app\);/);
+  assert.match(tunnel, /check_network\(&a\);\s*check_alive\(&a\);/);
   const wst = rs("ws_transport.rs");
   assert.match(wst, /fn start_keeper[\s\S]*health\(&app\)\.await/);
   assert.match(wst, /async fn health[\s\S]*TcpStream::connect\(addr\)[\s\S]*start_active/);

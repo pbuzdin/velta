@@ -119,6 +119,28 @@ function blockFpr(block) {
   return hex.length >= 40 ? hex.slice(0, 40).toUpperCase() : null;
 }
 
+// Every relay address of a contact, from the "Relays:" section core appends
+// to get_contact_encryption_info (addresses_from_public_key: the contact's
+// key lists all its transports; same list Delta Chat shows). The primary
+// (sending) address comes first even when the key does not list it. No key /
+// no section → just the primary address, or [] without one.
+export function relayAddresses(encrInfo, primaryAddr) {
+  const primary = String(primaryAddr || "").trim();
+  const m = String(encrInfo || "").match(/(?:^|\n)Relays:[ \t]*\n([\s\S]*)$/);
+  const listed = m
+    ? m[1].split("\n").map(l => l.trim()).filter(l => /^[^\s@]+@[^\s@]+$/.test(l))
+    : [];
+  const seen = new Set();
+  const out = [];
+  for (const a of [primary, ...listed]) {
+    const k = a.toLowerCase();
+    if (!a || seen.has(k)) continue;
+    seen.add(k);
+    out.push(a);
+  }
+  return out;
+}
+
 export function parseFingerprint(encrInfo, contactAddr, selfFpr) {
   if (!encrInfo) return null;
   const blocks = String(encrInfo).split(/\n\s*\n/)

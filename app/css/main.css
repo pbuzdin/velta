@@ -2205,6 +2205,17 @@ html[data-theme="brutal"] .msg-row:not(.out) .btn-text { color: var(--accent-2);
    key when the row is too narrow for both (flex-wrap). */
 .info-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; column-gap: 12px; row-gap: 2px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14.5px; }
 .info-row:last-child { border-bottom: 0; }
+/* Contact relay list: each address copies on click/Enter; the primary
+   (sending) address carries a badge. Theme tokens only (AA in every theme). */
+.info-row.contact-addr { cursor: pointer; }
+.info-row.contact-addr:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.info-row.contact-addr .v { font-weight: 500; }
+.info-row.contact-addr-head + .contact-addr .k:empty,
+.info-row.contact-addr .k:empty { display: none; }
+.addr-primary-badge {
+  flex: none; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; line-height: 1.5;
+  color: var(--text); background: var(--bg-sidebar); border: 1px solid var(--border);
+}
 .info-row .k { color: var(--text-dim); min-width: 0; overflow-wrap: anywhere; }
 .info-row .v { font-weight: 500; display: flex; align-items: center; gap: 6px; min-width: 0; margin-left: auto; text-align: right; overflow-wrap: anywhere; }
 .info-row.wrap { align-items: flex-start; gap: 12px; }

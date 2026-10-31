@@ -11,7 +11,7 @@ import { mountMemberList } from "./member-list.js";
 import { adminCaps, adminBadgeHtml, adminInfoText, canRemoveMember } from "./admin-group.js";
 import { mentionsMe, fprCode } from "./mentions.js";
 import { mutedChatAllows, mentionInMutedOn } from "./notify-policy.js";
-import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintFromVcard, fingerprintGroups, cachedFingerprintIsDerived } from "./avatar.js";
+import { buildAvatarSvg, setFingerprintSource, fingerprintFor, fingerprintFromVcard, fingerprintGroups, cachedFingerprintIsDerived, relayAddresses } from "./avatar.js";
 import { ChatView, setAvatarProfileOpener, saveAttachmentFile, openAttachmentFile } from "./chat-view.js";
 import { mediaSectionsHtml, mountChatMedia } from "./chat-media.js";
 import { initCalls } from "./calls.js";
@@ -66,6 +66,7 @@ import { ScheduledRunner, localStore, tauriStore } from "./scheduled.js";
 import { pickSendTime, openScheduledList, maybeAskExactAlarm, formatDue } from "./scheduled-ui.js";
 import { recordApp } from "./app-browser.js";
 import { applyDocumentLang, translateTree, t } from "./i18n.js";
+import { contactAddrRowsHtml } from "./contact-addrs.js";
 import { mountInviteDomains } from "./invite-domains.js";
 import { ICON, LOOP_SVG, P, svg } from "./icons.js";
 
@@ -2860,6 +2861,11 @@ function openMuteDialog(chat, valEl, epoch) {
   cancel.addEventListener("click", () => close());
 }
 
+async function copyContactAddr(addr) {
+  try { await navigator.clipboard.writeText(addr); toast(t("Address copied")); }
+  catch { errToast(t("Couldn't copy")); }
+}
+
 async function showChatInfo(chat) {
   if (state.accountChanging) return;
   const epoch = core.accountEpoch;
@@ -2883,8 +2889,9 @@ async function showChatInfo(chat) {
   if (!chat.contact && chat.kind === "single" && chat.contactId && chat.contactId !== 1 && core.getContact) {
     try { chat.contact = { ...(await core.getContact(chat.contactId)), contactId: chat.contactId }; } catch {}
   }
+  const isContactAddrList = chat.kind === "single" && !chat.isP2p && chat.contactId && chat.contactId !== 1;
   const contactRows = chat.contact ? `
-    <div class="info-row"><span class="k">${escapeHtml(t("Address"))}</span><span class="v">${escapeHtml(chat.contact.addr)}</span></div>
+    ${isContactAddrList ? `<div data-contact-addrs>${contactAddrRowsHtml([chat.contact.addr].filter(Boolean))}</div>` : `<div class="info-row"><span class="k">${escapeHtml(t("Address"))}</span><span class="v">${escapeHtml(chat.contact.addr)}</span></div>`}
     ${chat.contactId ? `<div class="info-row"><span class="k">${escapeHtml(t("Profile key"))}</span><span class="v"><span class="avatar-profile-fpr" data-profile-key>…</span></span></div>` : ""}
     ${chat.contact && (chat.contact.online || chat.contact.lastSeen) ? `<div class="info-row"><span class="k">${escapeHtml(t("Last seen"))}</span><span class="v">${chat.contact.online ? escapeHtml(t("online")) : timeTag(chat.contact.lastSeen, timeAgo(chat.contact.lastSeen))}</span></div>` : ""}` : "";
   const isGroup = chat.kind === "group" || chat.kind === "channel";
@@ -2902,10 +2909,9 @@ async function showChatInfo(chat) {
   // of this profile…" is the single entry point).
   let relayRows = "";
   if (!chat.isP2p) {
-    const contactAddr = isContactProfile ? chat.contact?.addr : null;
-    if (contactAddr) {
-      relayRows = `<div class="info-row"><span class="k">${escapeHtml(t("Relay"))}</span><span class="v">${escapeHtml(String(contactAddr).split("@")[1] || contactAddr)}</span></div>`;
-    } else if (!isGroup) {
+    // 1:1 contacts: their relays are the "Relays" list in contactRows
+    // (contactAddrRowsHtml), no separate relay row.
+    if (!isGroup && !isContactProfile) {
       let transports = [];
       try { transports = await core.listTransports(); } catch { /* offline — fall back below */ }
       if (!transports.length && state.account.relay) transports = [{ addr: state.account.addr }];
@@ -3285,6 +3291,27 @@ async function showChatInfo(chat) {
       } catch (err) { errToast("Failed: " + (err.message || err)); }
     });
   }
+
+  // Every relay address of the contact (core: "Relays:" in the encryption
+  // info, from the contact's key), primary first. No key: the single
+  // "Address" row stays.
+  const addrSlot = body.querySelector("[data-contact-addrs]");
+  if (addrSlot && core.getContactEncryptionInfo) {
+    core.getContactEncryptionInfo(chat.contactId)
+      .then((info) => {
+        if (!accountIsCurrent(epoch) || !addrSlot.isConnected) return;
+        addrSlot.innerHTML = contactAddrRowsHtml(relayAddresses(info, chat.contact?.addr));
+      })
+      .catch(() => {});
+  }
+  addrSlot?.addEventListener("click", (e) => {
+    const row = e.target.closest("[data-copy-addr]");
+    if (row) copyContactAddr(row.dataset.copyAddr);
+  });
+  addrSlot?.addEventListener("keydown", (e) => {
+    const row = e.target.closest("[data-copy-addr]");
+    if (row && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); copyContactAddr(row.dataset.copyAddr); }
+  });
 
   // Same formatted key as the Avatar modal (avatar-profile-fpr), filled in
   // once the contact's fingerprint resolves. The captioned identity tile
