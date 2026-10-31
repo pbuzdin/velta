@@ -1505,5 +1505,9 @@
   "Attachments stay unencrypted — they rely on platform isolation and, on this device, your disk encryption.": "Вложения не шифруются — они полагаются на изоляцию платформы и, на этом устройстве, на шифрование диска.",
   "Attachments stay in the app's private storage, which Android encrypts at rest (file-based encryption).": "Вложения хранятся в закрытом хранилище приложения, которое Android шифрует (файловое шифрование).",
   "Disk encryption: on.": "Шифрование диска: включено.",
-  "Disk encryption: OFF — turn on BitLocker (or FileVault) to protect attachments at rest.": "Шифрование диска: ВЫКЛЮЧЕНО — включите BitLocker (или FileVault), чтобы защитить вложения."
+  "Disk encryption: OFF — turn on BitLocker (or FileVault) to protect attachments at rest.": "Шифрование диска: ВЫКЛЮЧЕНО — включите BitLocker (или FileVault), чтобы защитить вложения.",
+  "Privacy & security": "Конфиденциальность и безопасность",
+  "Privacy & security…": "Конфиденциальность и безопасность…",
+  "The biometric prompt did not succeed: {why}": "Биометрическая проверка не удалась: {why}",
+  "The biometric lock protects the database key of all profiles at rest — cold starts ask for your fingerprint before any data opens.": "Биометрическая блокировка защищает ключ базы данных всех профилей в хранилище — при холодном запуске приложение запрашивает отпечаток пальца, прежде чем открыть данные."
 }

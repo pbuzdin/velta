@@ -3921,9 +3921,6 @@ function openProfileManagement() {
   const canImport = !!tauriInvoke();
   // #178: snapshot encryption is a PWA-only feature (worker-wasm backend).
   const pwaEnc = core.backend?.kind === "worker-wasm" && !!core.transport?.setEncryption;
-  // #178 phase 4: the app-lock PIN section is a native-shell feature (the
-  // PIN replaces the OS keychain as the DEK's key root).
-  const desktopApplock = !!window.__TAURI__ && !!tauriInvoke();
   const body = document.createElement("div");
   body.innerHTML = `
     <div class="pm-tabs" data-tabs>
@@ -3986,39 +3983,6 @@ function openProfileManagement() {
           </div>
         </div>
       </div>` : ""}
-    ${desktopApplock ? `
-    <div style="margin:0 2px 10px;display:grid;gap:8px;border-top:1px solid var(--hairline);padding-top:10px" data-applock-box>
-      <p class="pm-hint" data-applock-status></p>
-      <p class="pm-hint" data-blob-status hidden></p>
-      <div data-pin-form hidden style="display:grid;gap:6px">
-        <input class="text-field" data-pin-cur type="password" placeholder="${escapeHtml(t("Current PIN"))}" autocomplete="current-password">
-        <input class="text-field" data-pin-new type="password" minlength="6" required placeholder="${escapeHtml(t("App-lock PIN (6+ characters)"))}" autocomplete="new-password">
-        <input class="text-field" data-pin-new2 type="password" minlength="6" required placeholder="${escapeHtml(t("Repeat PIN"))}" autocomplete="new-password">
-        <div class="pm-actions">
-          <button class="btn-primary" type="button" data-pin-save>${escapeHtml(t("Save PIN"))}</button>
-          <button class="btn-text" type="button" data-pin-cancel>${escapeHtml(t("Cancel"))}</button>
-        </div>
-      </div>
-      <div class="pm-actions" data-pin-off-row hidden>
-        <button class="btn-text" type="button" data-pin-add>${escapeHtml(t("Add app-lock PIN"))}</button>
-      </div>
-      <div class="pm-actions" data-pin-rows hidden>
-        <button class="btn-text" type="button" data-pin-edit>${escapeHtml(t("Change PIN"))}</button>
-        <button class="btn-text" type="button" data-pin-remove style="color:var(--danger)">${escapeHtml(t("Remove PIN"))}</button>
-      </div>
-      ${isAndroid() ? `<div class="pm-actions" style="display:grid;gap:6px">
-        <button class="btn-text" type="button" data-bio-toggle></button>
-      </div>` : ""}
-      <label class="pm-hint" style="display:grid;gap:4px">
-        <span>${escapeHtml(t("Lock when hidden"))}</span>
-        <select class="text-field" data-autolock>
-          <option value="0">${escapeHtml(t("Off"))}</option>
-          <option value="1">${escapeHtml(t("After 1 minute"))}</option>
-          <option value="5">${escapeHtml(t("After 5 minutes"))}</option>
-          <option value="15">${escapeHtml(t("After 15 minutes"))}</option>
-        </select>
-      </label>
-    </div>` : ""}
     <div class="pm-pane" data-pane="add">
       <p class="pm-hint">${t("Paste a <b>chatmail</b> invite link ({link}) or a relay domain — a new end-to-end encrypted profile is created on it.", { link: "<span>dcaccount:…</span>" })}</p>
       <form data-add-form>
@@ -4231,132 +4195,6 @@ function openProfileManagement() {
         await refresh();
       } catch (err) {
         errToast(t("Couldn't remove the recovery code: ") + (err?.message || err));
-      }
-    });
-  }
-
-  /* -- app-lock PIN + auto-lock (#178 phase 4, native shell) -- */
-  const applockBox = body.querySelector("[data-applock-box]");
-  if (applockBox) {
-    const shell = tauriInvoke();
-    const statusEl = applockBox.querySelector("[data-applock-status]");
-    const pinForm = applockBox.querySelector("[data-pin-form]");
-    const pinCur = pinForm.querySelector("[data-pin-cur]");
-    const pinNew = pinForm.querySelector("[data-pin-new]");
-    const pinNew2 = pinForm.querySelector("[data-pin-new2]");
-    const pinOffRow = applockBox.querySelector("[data-pin-off-row]");
-    const pinRows = applockBox.querySelector("[data-pin-rows]");
-    const alSel = applockBox.querySelector("[data-autolock]");
-    alSel.value = localStorage.getItem("velta-autolock-mins") || "0";
-    alSel.addEventListener("change", () => {
-      try { localStorage.setItem("velta-autolock-mins", alSel.value); } catch {}
-      if (isAndroid() && tauriInvoke()) tauriInvoke()("set_autolock_mins", { mins: Number(alSel.value) || 0 }).catch(() => {});
-    });
-    // Android: the biometric lock replaces the PIN (the Keystore KEK is the
-    // user-auth root there); the result arrives as a velta-biometric event.
-    // #178 phase 5: the encryption decision's honest boundary — the
-    // message database is keyed, attachments are not; say what still rides
-    // on platform/disk encryption.
-    const blobEl = applockBox.querySelector("[data-blob-status]");
-    if (blobEl) {
-      blobEl.hidden = false;
-      if (isAndroid()) {
-        blobEl.textContent = t("Attachments stay in the app's private storage, which Android encrypts at rest (file-based encryption).");
-      } else {
-        const shell2 = tauriInvoke();
-        if (shell2) {
-          shell2("volume_encryption_status").then((st) => {
-            const vol = st === "on"
-              ? " " + t("Disk encryption: on.")
-              : st === "off"
-                ? " " + t("Disk encryption: OFF — turn on BitLocker (or FileVault) to protect attachments at rest.")
-                : "";
-            blobEl.textContent = t("Attachments stay unencrypted — they rely on platform isolation and, on this device, your disk encryption.") + vol;
-          }).catch(() => {});
-        }
-      }
-    }
-    const bioBtn = applockBox.querySelector("[data-bio-toggle]");
-    if (bioBtn) {
-      let bioOn = false;
-      const refreshBio = async () => {
-        try {
-          bioOn = await tauriInvoke()("biometric_state");
-          bioBtn.textContent = bioOn ? t("Turn off the biometric lock") : t("Use the biometric lock");
-        } catch {}
-      };
-      window.__TAURI__?.event?.listen?.("velta-biometric", (ev) => {
-        refreshBio();
-        if (ev?.payload && !ev.payload.ok) errToast(t("The biometric prompt did not succeed."));
-        else if (ev?.payload?.ok) toast(ev.payload.on ? t("Biometric lock is on.") : t("Biometric lock is off."));
-      });
-      bioBtn.addEventListener("click", () => {
-        tauriInvoke()("biometric_set", { on: !bioOn }).catch((err) => errToast(t("The biometric prompt did not succeed.") + " " + (err?.message || err)));
-      });
-      refreshBio();
-    }
-    // "set" (no PIN yet), "change", "remove" — the current PIN is asked for
-    // whenever one is set; the Rust side re-verifies it anyway.
-    let formMode = "set";
-    const refresh = async () => {
-      if (isAndroid()) {
-        // PIN is a desktop mode; Android gates through the Keystore.
-        statusEl.textContent = t("The biometric lock protects this profile's database key at rest — cold starts ask for your fingerprint before the data opens.");
-        pinForm.hidden = true;
-        pinOffRow.hidden = true;
-        pinRows.hidden = true;
-        return;
-      }
-      let on = false;
-      try { on = await shell("get_db_pin_state"); } catch {}
-      statusEl.textContent = on
-        ? t("App-lock PIN is on. The PIN — not the OS keychain — protects this profile's database key at rest, and auto-lock can re-lock the app.")
-        : t("The database key lives in the OS keychain. Add a PIN to require it at every start and to enable auto-lock.");
-      pinForm.hidden = true;
-      pinOffRow.hidden = on;
-      pinRows.hidden = !on;
-      pinCur.hidden = !on;
-      pinCur.required = on;
-    };
-    refresh();
-    const openForm = (mode) => {
-      formMode = mode;
-      pinForm.reset();
-      pinNew.hidden = mode === "remove";
-      pinNew2.hidden = mode === "remove";
-      pinNew.required = mode !== "remove";
-      pinNew2.required = mode !== "remove";
-      pinOffRow.hidden = true;
-      pinRows.hidden = true;
-      pinForm.hidden = false;
-      (mode === "remove" ? pinCur : pinNew).focus();
-    };
-    applockBox.querySelector("[data-pin-add]").addEventListener("click", () => openForm("set"));
-    applockBox.querySelector("[data-pin-edit]").addEventListener("click", () => openForm("change"));
-    applockBox.querySelector("[data-pin-remove]").addEventListener("click", () => openForm("remove"));
-    applockBox.querySelector("[data-pin-cancel]").addEventListener("click", refresh);
-    pinForm.querySelector("[data-pin-save]").addEventListener("click", async () => {
-      if (!pinForm.reportValidity()) return;
-      try {
-        if (formMode === "remove") {
-          await shell("clear_db_pin", { pin: pinCur.value });
-          toast(t("PIN removed."));
-        } else {
-          if (pinNew.value !== pinNew2.value) { errToast(t("The PINs don't match.")); return; }
-          await shell("set_db_pin", { old: pinCur.hidden ? null : pinCur.value, pin: pinNew.value });
-          toast(t("App-lock PIN saved — it is required at every start. Keep it safe: without it, restore from a backup."));
-        }
-        await refresh();
-      } catch (err) {
-        const msg = String(err?.message || err || "");
-        const wait = msg.startsWith("retry:") ? Number(msg.slice(6)) || 0 : 0;
-        errToast(wait > 0
-          ? t("Too many attempts — wait {n} s.", { n: wait })
-          : t("Couldn't save the PIN: ") + (msg.includes("no-key")
-            ? t("This profile has no database key yet — nothing for a PIN to protect.")
-            : msg.includes("keychain-unavailable")
-              ? t("The OS keychain is unavailable.")
-              : msg || err));
       }
     });
   }
@@ -5777,6 +5615,7 @@ function rebuildDrawer() {
       : undefined,
     onSetTheme: (mode) => { state.theme = mode; applyTheme(); },
     onProfileManagement: () => openProfileManagement(),
+    onPrivacySecurity: window.__TAURI__ && tauriInvoke() ? () => openPrivacySecurity() : null,
     onInvite: () => showInvite(inviteQrProvider(null), { account: state.account }),
     onProfile: openSelfProfile,
     onEditProfile: editProfileFlow,
@@ -5832,6 +5671,183 @@ function rebuildDrawer() {
     drawer.el.style.transition = "";
   }
   ensureMultiDevice();
+}
+
+// #178 phase 4: app-wide Privacy & security (native shells). The database
+// key (DEK) is one per install, so its key root — the app-lock PIN on
+// desktop, the biometric lock on Android — and auto-lock live here, not in
+// the per-profile Profile management screen.
+function openPrivacySecurity() {
+  const body = document.createElement("div");
+  body.innerHTML = `
+    <div style="display:grid;gap:8px" data-applock-box>
+      <p class="pm-hint" data-applock-status></p>
+      <p class="pm-hint" data-blob-status hidden></p>
+      <div data-pin-form hidden style="display:grid;gap:6px">
+        <input class="text-field" data-pin-cur type="password" placeholder="${escapeHtml(t("Current PIN"))}" autocomplete="current-password">
+        <input class="text-field" data-pin-new type="password" minlength="6" required placeholder="${escapeHtml(t("App-lock PIN (6+ characters)"))}" autocomplete="new-password">
+        <input class="text-field" data-pin-new2 type="password" minlength="6" required placeholder="${escapeHtml(t("Repeat PIN"))}" autocomplete="new-password">
+        <div class="pm-actions">
+          <button class="btn-primary" type="button" data-pin-save>${escapeHtml(t("Save PIN"))}</button>
+          <button class="btn-text" type="button" data-pin-cancel>${escapeHtml(t("Cancel"))}</button>
+        </div>
+      </div>
+      <div class="pm-actions" data-pin-off-row hidden>
+        <button class="btn-text" type="button" data-pin-add>${escapeHtml(t("Add app-lock PIN"))}</button>
+      </div>
+      <div class="pm-actions" data-pin-rows hidden>
+        <button class="btn-text" type="button" data-pin-edit>${escapeHtml(t("Change PIN"))}</button>
+        <button class="btn-text" type="button" data-pin-remove style="color:var(--danger)">${escapeHtml(t("Remove PIN"))}</button>
+      </div>
+      ${isAndroid() ? `<div class="pm-actions" style="display:grid;gap:6px">
+        <button class="btn-text" type="button" data-bio-toggle></button>
+      </div>` : ""}
+      <label class="pm-hint" style="display:grid;gap:4px">
+        <span>${escapeHtml(t("Lock when hidden"))}</span>
+        <select class="text-field" data-autolock>
+          <option value="0">${escapeHtml(t("Off"))}</option>
+          <option value="1">${escapeHtml(t("After 1 minute"))}</option>
+          <option value="5">${escapeHtml(t("After 5 minutes"))}</option>
+          <option value="15">${escapeHtml(t("After 15 minutes"))}</option>
+        </select>
+      </label>
+    </div>
+  `;
+  const cleanups = [];
+  /* -- app-lock PIN + auto-lock (#178 phase 4, native shell) -- */
+  const applockBox = body.querySelector("[data-applock-box]");
+  if (applockBox) {
+    const shell = tauriInvoke();
+    const statusEl = applockBox.querySelector("[data-applock-status]");
+    const pinForm = applockBox.querySelector("[data-pin-form]");
+    const pinCur = pinForm.querySelector("[data-pin-cur]");
+    const pinNew = pinForm.querySelector("[data-pin-new]");
+    const pinNew2 = pinForm.querySelector("[data-pin-new2]");
+    const pinOffRow = applockBox.querySelector("[data-pin-off-row]");
+    const pinRows = applockBox.querySelector("[data-pin-rows]");
+    const alSel = applockBox.querySelector("[data-autolock]");
+    alSel.value = localStorage.getItem("velta-autolock-mins") || "0";
+    alSel.addEventListener("change", () => {
+      try { localStorage.setItem("velta-autolock-mins", alSel.value); } catch {}
+      if (isAndroid() && tauriInvoke()) tauriInvoke()("set_autolock_mins", { mins: Number(alSel.value) || 0 }).catch(() => {});
+    });
+    // Android: the biometric lock replaces the PIN (the Keystore KEK is the
+    // user-auth root there); the result arrives as a velta-biometric event.
+    // #178 phase 5: the encryption decision's honest boundary — the
+    // message database is keyed, attachments are not; say what still rides
+    // on platform/disk encryption.
+    const blobEl = applockBox.querySelector("[data-blob-status]");
+    if (blobEl) {
+      blobEl.hidden = false;
+      if (isAndroid()) {
+        blobEl.textContent = t("Attachments stay in the app's private storage, which Android encrypts at rest (file-based encryption).");
+      } else {
+        const shell2 = tauriInvoke();
+        if (shell2) {
+          shell2("volume_encryption_status").then((st) => {
+            const vol = st === "on"
+              ? " " + t("Disk encryption: on.")
+              : st === "off"
+                ? " " + t("Disk encryption: OFF — turn on BitLocker (or FileVault) to protect attachments at rest.")
+                : "";
+            blobEl.textContent = t("Attachments stay unencrypted — they rely on platform isolation and, on this device, your disk encryption.") + vol;
+          }).catch(() => {});
+        }
+      }
+    }
+    const bioBtn = applockBox.querySelector("[data-bio-toggle]");
+    if (bioBtn) {
+      let bioOn = false;
+      const refreshBio = async () => {
+        try {
+          bioOn = await tauriInvoke()("biometric_state");
+          bioBtn.textContent = bioOn ? t("Turn off the biometric lock") : t("Use the biometric lock");
+        } catch {}
+      };
+      // The prompt's error code + message rides in payload.detail (also in
+      // velta.log); surface it so a failure is diagnosable.
+      const bioFail = (why) => {
+        diagnostics.append("error", `Biometric lock: ${why || "failed"}`);
+        errToast(why ? t("The biometric prompt did not succeed: {why}", { why }) : t("The biometric prompt did not succeed."), 6000);
+      };
+      const unlistenP = window.__TAURI__?.event?.listen?.("velta-biometric", (ev) => {
+        refreshBio();
+        if (ev?.payload && !ev.payload.ok) bioFail(ev.payload.detail);
+        else if (ev?.payload?.ok) toast(ev.payload.on ? t("Biometric lock is on.") : t("Biometric lock is off."));
+      });
+      cleanups.push(() => { Promise.resolve(unlistenP).then((un) => un?.()).catch(() => {}); });
+      bioBtn.addEventListener("click", () => {
+        tauriInvoke()("biometric_set", { on: !bioOn }).catch((err) => bioFail(String(err?.message || err)));
+      });
+      refreshBio();
+    }
+    // "set" (no PIN yet), "change", "remove" — the current PIN is asked for
+    // whenever one is set; the Rust side re-verifies it anyway.
+    let formMode = "set";
+    const refresh = async () => {
+      if (isAndroid()) {
+        // PIN is a desktop mode; Android gates through the Keystore.
+        statusEl.textContent = t("The biometric lock protects the database key of all profiles at rest — cold starts ask for your fingerprint before any data opens.");
+        pinForm.hidden = true;
+        pinOffRow.hidden = true;
+        pinRows.hidden = true;
+        return;
+      }
+      let on = false;
+      try { on = await shell("get_db_pin_state"); } catch {}
+      statusEl.textContent = on
+        ? t("App-lock PIN is on. The PIN — not the OS keychain — protects this profile's database key at rest, and auto-lock can re-lock the app.")
+        : t("The database key lives in the OS keychain. Add a PIN to require it at every start and to enable auto-lock.");
+      pinForm.hidden = true;
+      pinOffRow.hidden = on;
+      pinRows.hidden = !on;
+      pinCur.hidden = !on;
+      pinCur.required = on;
+    };
+    refresh();
+    const openForm = (mode) => {
+      formMode = mode;
+      pinForm.reset();
+      pinNew.hidden = mode === "remove";
+      pinNew2.hidden = mode === "remove";
+      pinNew.required = mode !== "remove";
+      pinNew2.required = mode !== "remove";
+      pinOffRow.hidden = true;
+      pinRows.hidden = true;
+      pinForm.hidden = false;
+      (mode === "remove" ? pinCur : pinNew).focus();
+    };
+    applockBox.querySelector("[data-pin-add]").addEventListener("click", () => openForm("set"));
+    applockBox.querySelector("[data-pin-edit]").addEventListener("click", () => openForm("change"));
+    applockBox.querySelector("[data-pin-remove]").addEventListener("click", () => openForm("remove"));
+    applockBox.querySelector("[data-pin-cancel]").addEventListener("click", refresh);
+    pinForm.querySelector("[data-pin-save]").addEventListener("click", async () => {
+      if (!pinForm.reportValidity()) return;
+      try {
+        if (formMode === "remove") {
+          await shell("clear_db_pin", { pin: pinCur.value });
+          toast(t("PIN removed."));
+        } else {
+          if (pinNew.value !== pinNew2.value) { errToast(t("The PINs don't match.")); return; }
+          await shell("set_db_pin", { old: pinCur.hidden ? null : pinCur.value, pin: pinNew.value });
+          toast(t("App-lock PIN saved — it is required at every start. Keep it safe: without it, restore from a backup."));
+        }
+        await refresh();
+      } catch (err) {
+        const msg = String(err?.message || err || "");
+        const wait = msg.startsWith("retry:") ? Number(msg.slice(6)) || 0 : 0;
+        errToast(wait > 0
+          ? t("Too many attempts — wait {n} s.", { n: wait })
+          : t("Couldn't save the PIN: ") + (msg.includes("no-key")
+            ? t("This profile has no database key yet — nothing for a PIN to protect.")
+            : msg.includes("keychain-unavailable")
+              ? t("The OS keychain is unavailable.")
+              : msg || err));
+      }
+    });
+  }
+
+  showModal({ title: "Privacy & security", body, onClose: () => cleanups.forEach((fn) => fn()) });
 }
 
 // Profile editor flow: name + avatar picture.

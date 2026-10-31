@@ -1505,5 +1505,9 @@
   "Attachments stay unencrypted — they rely on platform isolation and, on this device, your disk encryption.": "Les pièces jointes restent non chiffrées — elles s'appuient sur l'isolation de la plate-forme et, sur cet appareil, sur votre chiffrement de disque.",
   "Attachments stay in the app's private storage, which Android encrypts at rest (file-based encryption).": "Les pièces jointes restent dans le stockage privé de l'app, qu'Android chiffre (chiffrement basé sur les fichiers).",
   "Disk encryption: on.": "Chiffrement du disque : activé.",
-  "Disk encryption: OFF — turn on BitLocker (or FileVault) to protect attachments at rest.": "Chiffrement du disque : DÉSACTIVÉ — activez BitLocker (ou FileVault) pour protéger les pièces jointes."
+  "Disk encryption: OFF — turn on BitLocker (or FileVault) to protect attachments at rest.": "Chiffrement du disque : DÉSACTIVÉ — activez BitLocker (ou FileVault) pour protéger les pièces jointes.",
+  "Privacy & security": "Confidentialité et sécurité",
+  "Privacy & security…": "Confidentialité et sécurité…",
+  "The biometric prompt did not succeed: {why}": "La vérification biométrique a échoué : {why}",
+  "The biometric lock protects the database key of all profiles at rest — cold starts ask for your fingerprint before any data opens.": "Le verrouillage biométrique protège au repos la clé de la base de données de tous les profils — au démarrage à froid, votre empreinte est demandée avant l'ouverture des données."
 }

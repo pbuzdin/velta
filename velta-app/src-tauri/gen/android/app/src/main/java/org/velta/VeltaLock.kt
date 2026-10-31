@@ -60,12 +60,25 @@ object VeltaLock {
     fun available(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < 28) return false
         val bm = BiometricManager.from(context)
-        val authenticators = if (Build.VERSION.SDK_INT >= 30) {
-            BiometricManager.Authenticators.BIOMETRIC_STRONG
-        } else {
-            BiometricManager.Authenticators.BIOMETRIC_WEAK
+        return bm.canAuthenticate(AUTHENTICATORS) == BiometricManager.BIOMETRIC_SUCCESS
+    }
+
+    // A CryptoObject prompt only accepts Class 3 (strong) biometrics on every
+    // API level; asking for WEAK on 28/29 made available() say yes on devices
+    // whose prompt then refused the crypto op.
+    private const val AUTHENTICATORS = BiometricManager.Authenticators.BIOMETRIC_STRONG
+
+    /** Why canAuthenticate refused, in words for the toast / velta.log. */
+    private fun canAuthenticateDetail(context: Context): String? {
+        val code = BiometricManager.from(context).canAuthenticate(AUTHENTICATORS)
+        return when (code) {
+            BiometricManager.BIOMETRIC_SUCCESS -> null
+            BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> "canAuthenticate=$code: no strong biometric enrolled"
+            BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> "canAuthenticate=$code: no biometric hardware"
+            BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> "canAuthenticate=$code: biometric hardware unavailable"
+            BiometricManager.BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED -> "canAuthenticate=$code: security update required"
+            else -> "canAuthenticate=$code"
         }
-        return bm.canAuthenticate(authenticators) == BiometricManager.BIOMETRIC_SUCCESS
     }
 
     fun autoLockMinutes(context: Context): Int =
@@ -76,6 +89,9 @@ object VeltaLock {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putInt(PREF_AUTOLOCK_MINS, mins.coerceIn(0, 240)).apply()
     }
+
+    @Volatile
+    private var lastKekError: String? = null
 
     private fun authKek(): SecretKey? {
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -95,10 +111,9 @@ object VeltaLock {
                 .setUserAuthenticationRequired(true)
                 .setInvalidatedByBiometricEnrollment(false)
             if (Build.VERSION.SDK_INT >= 30) {
-                builder.setUserAuthenticationParameters(
-                    0,
-                    KeyProperties.AUTH_DEVICE_CREDENTIAL or KeyProperties.AUTH_BIOMETRIC_STRONG,
-                )
+                // Strong biometric only, matching the prompt's authenticators
+                // (a device-credential prompt cannot carry a negative button).
+                builder.setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG)
             } else {
                 // -1: auth required for every use (CryptoObject mandatory).
                 builder.setUserAuthenticationValidityDurationSeconds(-1)
@@ -107,6 +122,7 @@ object VeltaLock {
             generator.generateKey()
         } catch (e: Exception) {
             Log.e(TAG, "auth-bound KEK generation failed", e)
+            lastKekError = "auth key generation failed: ${e.javaClass.simpleName}: ${e.message}"
             null
         }
     }
@@ -130,6 +146,10 @@ object VeltaLock {
         }
     }
 
+    /** Last prompt failure ("code N: message") for the result event. */
+    @Volatile
+    private var lastPromptError: String? = null
+
     private fun prompt(activity: FragmentActivity, cipher: Cipher?, title: String, onResult: (ok: Boolean, cipher: Cipher?) -> Unit) {
         val executor = ContextCompat.getMainExecutor(activity)
         val callback = object : BiometricPrompt.AuthenticationCallback() {
@@ -139,6 +159,7 @@ object VeltaLock {
 
             override fun onAuthenticationError(code: Int, msg: CharSequence) {
                 Log.w(TAG, "prompt error $code: $msg")
+                lastPromptError = "BiometricPrompt error $code: $msg"
                 onResult(false, null)
             }
 
@@ -150,6 +171,7 @@ object VeltaLock {
         val info = BiometricPrompt.PromptInfo.Builder()
             .setTitle(title)
             .setNegativeButtonText(activity.getString(R.string.biometric_cancel))
+            .setAllowedAuthenticators(AUTHENTICATORS)
             .setConfirmationRequired(false)
             .build()
         if (cipher != null) prompt.authenticate(info, BiometricPrompt.CryptoObject(cipher))
@@ -166,20 +188,57 @@ object VeltaLock {
      */
     @JvmStatic
     fun request(activity: FragmentActivity, on: Boolean) {
+        // BiometricPrompt must be built and shown on the main thread; the
+        // Rust command calls in from a worker thread.
+        activity.runOnUiThread {
+            try {
+                requestOnMain(activity, on)
+            } catch (e: Exception) {
+                Log.e(TAG, "biometric request failed", e)
+                report(on, false, "${e.javaClass.simpleName}: ${e.message}")
+            }
+        }
+    }
+
+    private fun report(on: Boolean, ok: Boolean, detail: String = "") {
+        if (!ok) Log.w(TAG, "biometric ${if (on) "enable" else "disable"} failed: $detail")
+        notifyResult(on, ok, detail)
+    }
+
+    private fun notifyResult(on: Boolean, ok: Boolean) {
+        val detail = if (ok) "" else (lastPromptError ?: "failed before the prompt")
+        report(on, ok, detail)
+    }
+
+    private fun requestOnMain(activity: FragmentActivity, on: Boolean) {
         val context = activity.applicationContext
+        lastPromptError = null
         if (on == on(context)) {
             notifyResult(on, true)
             return
         }
+        if (Build.VERSION.SDK_INT < 28) {
+            report(on, false, "Android ${Build.VERSION.SDK_INT} < 9")
+            return
+        }
+        canAuthenticateDetail(context)?.let {
+            report(on, false, it)
+            return
+        }
+        if (activity.isFinishing || activity.supportFragmentManager.isStateSaved) {
+            report(on, false, "activity not resumed")
+            return
+        }
+        lastKekError = null
         val kek = authKek()
         if (kek == null) {
-            notifyResult(on, false)
+            report(on, false, lastKekError ?: "auth key unavailable")
             return
         }
         if (on) {
             val dekHex = VeltaKeystore.getOrCreateDek(context)
             if (dekHex == null) {
-                notifyResult(on, false)
+                report(on, false, "database key unavailable")
                 return
             }
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -200,7 +259,7 @@ object VeltaLock {
                     c.doFinal(dek)
                 } catch (e: Exception) {
                     Log.e(TAG, "auth wrap encrypt failed", e)
-                    notifyResult(on, false)
+                    report(on, false, "encrypt failed: ${e.javaClass.simpleName}: ${e.message}")
                     return@prompt
                 }
                 // The auth wrap lands BEFORE the plain wrap is removed — a
@@ -212,7 +271,7 @@ object VeltaLock {
                     notifyResult(on, true)
                 } else {
                     authWrap(context).delete()
-                    notifyResult(on, false)
+                    report(on, false, "auth wrap write failed")
                 }
             }
         } else {
@@ -232,6 +291,7 @@ object VeltaLock {
                         dek = c.doFinal(blob, 13, blob.size - 13)
                     } catch (e: Exception) {
                         Log.e(TAG, "auth wrap decrypt failed", e)
+                        lastPromptError = "decrypt failed: ${e.javaClass.simpleName}: ${e.message}"
                     }
                 }
                 val plain = dek?.let { VeltaKeystore.storePlainWrap(context, it) }
@@ -397,6 +457,6 @@ object VeltaLock {
     // export is a static JNI symbol — a plain external member of an object
     // would compile as an instance native and fail to link at first call.
     @JvmStatic
-    private external fun notifyResult(on: Boolean, ok: Boolean)
+    private external fun notifyResult(on: Boolean, ok: Boolean, detail: String)
 
 }

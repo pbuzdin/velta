@@ -4040,14 +4040,24 @@ pub extern "system" fn Java_org_velta_VeltaCore_provideDek(
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub extern "system" fn Java_org_velta_VeltaLock_notifyResult(
-    _env: jni::JNIEnv,
+    mut env: jni::JNIEnv,
     _class: jni::objects::JClass,
     on: jni::sys::jboolean,
     ok: jni::sys::jboolean,
+    detail: jni::objects::JString,
 ) {
+    // The prompt's error code + message (or the pre-prompt reason) so a
+    // failed toggle is diagnosable from velta.log / the toast.
+    let detail: String = env
+        .get_string(&detail)
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if ok == 0 {
+        log(&format!("app-lock: biometric {} failed: {detail}", if on != 0 { "enable" } else { "disable" }));
+    }
     Host::current().emit(
         "velta-biometric",
-        serde_json::json!({ "on": on != 0, "ok": ok != 0 }),
+        serde_json::json!({ "on": on != 0, "ok": ok != 0, "detail": detail }),
     );
 }
 

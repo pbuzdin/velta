@@ -1338,7 +1338,7 @@ function notifyChecked(storageKey) {
 
 const IS_ANDROID = isAndroid();
 
-export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, onWsRelays, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality, downloadLimit = "0", onDownloadLimit, onReadReceipts, onLowBatteryToggle, multiDeviceState = "loading", multiDeviceReenabled = false, onMultiDevice, onMultiDeviceKeep, onDrawerOpen, identityBackupAvailable = false, onIdentityBackup, onTunnel = null, tunnelLabel = "", onWsTransport = null, wsTransportLabel = "", onDiagnostics = null, onPushSection = null, onWebPushSection = null, backendKind = null, onExportSettings = null, onScheduled = null }) {
+export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = null, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, onWsRelays, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality, downloadLimit = "0", onDownloadLimit, onReadReceipts, onLowBatteryToggle, multiDeviceState = "loading", multiDeviceReenabled = false, onMultiDevice, onMultiDeviceKeep, onDrawerOpen, identityBackupAvailable = false, onIdentityBackup, onTunnel = null, tunnelLabel = "", onWsTransport = null, wsTransportLabel = "", onDiagnostics = null, onPushSection = null, onWebPushSection = null, backendKind = null, onExportSettings = null, onScheduled = null }) {
   const inTauri = isTauri();
   const androidApp = IS_ANDROID && inTauri;
   const drawer = document.createElement("div");
@@ -1357,6 +1357,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
             ${accounts.map(a => `<button type="button" class="ctx-item" data-act="account" data-account="${escapeAttr(a.id)}"${a.id === currentAccountId ? ' aria-current="true"' : ""}>${svg(P.profile + (a.id === currentAccountId ? P.checkInner : ""))}<span>${escapeHtml(a.name || a.addr)}${a.id === currentAccountId ? " · current" : ""}</span></button>`).join("")}
             <div class="ctx-sep"></div>
             <button type="button" class="ctx-item" data-act="profile-management">${ICON.profileAdd}<span>${t("Profile management…")}</span></button>
+      ${onPrivacySecurity ? `<button type="button" class="ctx-item" data-act="privacy-security">${ICON.shieldCheck}<span>${t("Privacy & security…")}</span></button>` : ""}
             </div>
           </details>
         </div>
@@ -1811,6 +1812,7 @@ export function buildDrawer({ account, onProfileManagement, onSetTheme, onOpenCh
     if (act === "profile") onProfile?.();
     if (act === "edit-profile") onEditProfile?.();
     if (act === "profile-management") onProfileManagement?.();
+    if (act === "privacy-security") onPrivacySecurity?.();
     if (act === "account") onAccountTap?.(btn.dataset.account);
     if (act === "relays") onRelays?.();
     if (act === "ws-relays") onWsRelays?.();
