@@ -4285,7 +4285,7 @@ function openProfileManagement() {
           bioBtn.textContent = bioOn ? t("Turn off the biometric lock") : t("Use the biometric lock");
         } catch {}
       };
-      listen("velta-biometric", (ev) => {
+      window.__TAURI__?.event?.listen?.("velta-biometric", (ev) => {
         refreshBio();
         if (ev?.payload && !ev.payload.ok) errToast(t("The biometric prompt did not succeed."));
         else if (ev?.payload?.ok) toast(ev.payload.on ? t("Biometric lock is on.") : t("Biometric lock is off."));
