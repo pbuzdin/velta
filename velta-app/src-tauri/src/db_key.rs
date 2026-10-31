@@ -714,7 +714,10 @@ pub fn pin_unlock(data_dir: &Path, accounts_root: &Path, pin: &str) -> Result<St
     let path = pin_wrap_path(data_dir);
     let hex = match pin_wrap_open(&path, pin) {
         PinOpen::Dek(hex) => hex,
-        PinOpen::Wrong { delay_secs, .. } => return Err(format!("retry:{delay_secs}")),
+        PinOpen::Wrong { attempts, delay_secs } => {
+            log(&format!("pin unlock: wrong PIN (attempt {attempts}, wait {delay_secs} s)"));
+            return Err(format!("retry:{delay_secs}"));
+        }
         PinOpen::Corrupt => return Err("corrupt".to_string()),
     };
     let report = prepare(accounts_root, Some(&hex));

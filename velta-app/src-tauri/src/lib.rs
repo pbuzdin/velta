@@ -461,6 +461,7 @@ fn volume_encryption_status(app: tauri::AppHandle) -> String {
     }
     #[cfg(target_os = "macos")]
     {
+        let _ = &app; // FileVault is per machine, not per data path
         match std::process::Command::new("/usr/bin/fdesetup").arg("isactive").output() {
             Ok(out) if out.status.success() => {
                 if String::from_utf8_lossy(&out.stdout).trim() == "true" { "on".to_string() } else { "off".to_string() }
@@ -4203,7 +4204,10 @@ fn android_pin_unlock(pin: &str) -> Result<(), String> {
             *ANDROID_DEK_OVERRIDE.lock().unwrap() = Some(format!("x'{hex}'"));
             Ok(())
         }
-        db_key::PinOpen::Wrong { delay_secs, .. } => Err(format!("retry:{delay_secs}")),
+        db_key::PinOpen::Wrong { attempts, delay_secs } => {
+            log(&format!("app-lock: wrong PIN (attempt {attempts}, wait {delay_secs} s)"));
+            Err(format!("retry:{delay_secs}"))
+        }
         db_key::PinOpen::Corrupt => Err("corrupt".to_string()),
     }
 }
