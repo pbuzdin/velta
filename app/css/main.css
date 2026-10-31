@@ -2086,6 +2086,10 @@ fieldset.eph-set { border: 0; margin: 0; padding: 0; min-inline-size: 0; }
 .pm-pane .text-field { width: 100%; margin-bottom: 10px; }
 .pm-actions { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
 .pm-actions .btn-primary { flex: 1; }
+/* #178 Privacy & security: PIN + biometric actions share one row as equal
+   columns and wrap to two lines on narrow widths (labels never truncate). */
+.ps-lock-actions > div { display: contents; }
+.ps-lock-actions button { flex: 1 1 10rem; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 .pm-col { flex-direction: column; margin: 10px 0; }
 .pm-progress { margin-top: 10px; font-size: 14.5px; color: var(--text-dim); }
 .modal .chat-item { margin: 0; }

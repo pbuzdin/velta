@@ -5695,16 +5695,16 @@ function openPrivacySecurity() {
           <button class="btn-text" type="button" data-pin-cancel>${escapeHtml(t("Cancel"))}</button>
         </div>
       </form>
-      <div class="pm-actions" data-pin-off-row hidden>
+      <div class="pm-actions ps-lock-actions">
+      <div data-pin-off-row hidden>
         <button class="btn-text" type="button" data-pin-add>${escapeHtml(t("Add app-lock PIN"))}</button>
       </div>
-      <div class="pm-actions" data-pin-rows hidden>
+      <div data-pin-rows hidden>
         <button class="btn-text" type="button" data-pin-edit>${escapeHtml(t("Change PIN"))}</button>
         <button class="btn-text" type="button" data-pin-remove style="color:var(--danger)">${escapeHtml(t("Remove PIN"))}</button>
       </div>
-      ${isAndroid() ? `<div class="pm-actions" style="display:grid;gap:6px">
-        <button class="btn-text" type="button" data-bio-toggle></button>
-      </div>` : ""}
+        ${isAndroid() ? `<button class="btn-text" type="button" data-bio-toggle></button>` : ""}
+      </div>
       <label class="pm-hint" style="display:grid;gap:4px">
         <span>${escapeHtml(t("Lock when hidden"))}</span>
         <select class="text-field" data-autolock>

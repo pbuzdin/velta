@@ -472,8 +472,21 @@ object VeltaLock {
             setOnClickListener { hideLock() }
         }
         box.addView(title)
-        box.addView(retry, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        box.addView(usePin, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        // Retry + Use PIN share one row as equal columns (weight 1 each);
+        // a GONE one leaves the other the full width. Labels wrap, never cut.
+        val row = android.widget.LinearLayout(activity).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            setPadding(48, 0, 48, 0)
+        }
+        val gap = (8 * activity.resources.displayMetrics.density).toInt()
+        for ((i, b) in listOf(retry, usePin).withIndex()) {
+            b.isAllCaps = false
+            b.maxLines = 3
+            row.addView(b, android.widget.LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                if (i > 0) marginStart = gap
+            })
+        }
+        box.addView(row, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         root.addView(box, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         activity.runOnUiThread {
             (activity.window.decorView as? ViewGroup)?.addView(
