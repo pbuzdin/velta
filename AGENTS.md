@@ -2768,7 +2768,21 @@ and account-switch cleared. Tests: `tests/lru-caches.test.mjs`.
   DEK into `dbkey.wrap.auth`, the plain wrap is removed, and
   `init_android_core` bails "app-locked" until the activity's
   BiometricPrompt hands the DEK to `VeltaCore.startWithDek` — headless
-  push/job cold starts stay down); PWA: the DEK is PBKDF2/PRF-wrapped in
+  push/job cold starts stay down). Android since 1.4.89 also has the Velta
+  app-lock PIN (same Argon2id wrap, `noBackupFilesDir/dbkey.pin.wrap`,
+  `android_pin_set/clear/unlock` in lib.rs; with it the plain wrap is
+  removed and init bails "app-locked" with `DB_LOCK_STATUS` mode pin) and
+  the biometric prompt accepts `BIOMETRIC_STRONG | DEVICE_CREDENTIAL` on
+  API 30+ (no negative button then; API 28-29 strong biometric only).
+  The prompt must run on the main thread (`runOnUiThread`); every unlock
+  DEK goes through `db_key::prepare` (migration) before the core opens;
+  failures carry the BiometricPrompt code+message to the toast, Diagnostics
+  and velta.log. Android wrap layout is `[1][12B iv][ct ‖ 16B tag]` sized
+  from the doFinal output (`VeltaKeystore.pack`) — sizing it from the
+  32-byte plaintext threw on every wrap, so until 1.4.89 Android never
+  stored a key and ran keyless. The UI lives in the app-wide **Privacy &
+  security** screen (`openPrivacySecurity`, main drawer, Tauri only), not
+  in Profile management. PWA: the DEK is PBKDF2/PRF-wrapped in
   OPFS (`db-crypt.js`/`db-lock.js`, optional PIN + recovery-code second
   wraps), and the whole OPFS snapshot is AES-GCM encrypted. Attachments
   (`dc.db-blobs/`) stay plaintext deliberately (plan §2.5 option A: core

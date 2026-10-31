@@ -1130,7 +1130,9 @@ hands the file to the system installer over Velta, no browser detour.
 Deleting a message (long-press / right-click → Delete) opens the same dialog as
 official Delta Chat desktop. After you confirm, the bubble stays put and shows
 "This message was deleted" with Undo. A bar along the bottom of Undo runs for
-10 seconds; when it finishes, the message is deleted and the row leaves.
+10 seconds; the deleted bubble keeps its height meanwhile, so nothing
+jumps, then collapses smoothly to a compact "Message deleted" row (no
+animation with reduced motion).
 Undo puts the original bubble back. **Right-click a chat in the chat list → Delete
 old messages…** bulk-deletes a whole chat's history older than a chosen age
 (1 hour / 1 day / 1 week / 5 weeks / 6 months / 1 year); pinned messages are
@@ -1419,6 +1421,42 @@ traffic goes through the tunnel server named in the link you accepted.
 There is no update-check, no usage tracking, and no crash uploader. One installer-level exception: on Windows, a machine
 missing the WebView2 runtime fetches it via Tauri's install bootstrap — that
 is the installer, not the app, and it sends nothing about you.
+
+</details>
+
+<details>
+<summary>Database encryption at rest &amp; app lock (since 1.4.89)</summary>
+
+Every profile's message database is now **encrypted at rest** (SQLCipher)
+on every platform. One random 256-bit key per install opens all profiles;
+existing plaintext databases are migrated once at startup (backup first,
+verified copy, atomic swap — the old file is kept until the encrypted one
+is proven). Where the key lives:
+
+- **Windows / macOS / Linux** — the OS keychain (Credential Manager,
+  Keychain, Secret Service). Without a keychain Velta says so with an
+  "encryption is off" notice instead of silently storing a key file.
+- **Android** — the Android Keystore (StrongBox when the phone has one).
+- **Browser (PWA)** — a passphrase or a passkey (WebAuthn PRF) wraps the
+  key; the whole local snapshot is encrypted.
+
+**Privacy & security** (side drawer, desktop and Android apps) gathers the
+lock settings for the whole app, not per profile:
+
+- **App-lock PIN** (desktop, Android, PWA) — 6+ characters; Velta asks for
+  it at every start. The PIN replaces the keychain/Keystore as the key's
+  root (Argon2id), with growing delays after wrong attempts.
+- **Biometric lock** (Android 9+) — fingerprint/face, and on Android 11+
+  also the phone's screen-lock PIN, pattern or password, so phones without
+  enrolled biometrics can use it. It can be combined with the Velta PIN
+  ("Use PIN" on the lock screen).
+- **Lock when hidden** — off / 1 / 5 / 15 minutes.
+
+Attachments stay outside the database encryption by design: they rely on
+the platform's app isolation and disk encryption (Android file-based
+encryption; on desktop the screen shows whether BitLocker/FileVault is on).
+Lose the PIN and the keychain/Keystore and the data cannot be opened —
+keep a backup.
 
 </details>
 

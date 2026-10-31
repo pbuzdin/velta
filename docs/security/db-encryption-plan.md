@@ -46,6 +46,12 @@ stays the root of security, stated in the UI), PBKDF2-SHA256 not Argon2id
 (phase 3 deferral), and the boot now resets its key state first, so an
 in-process re-boot cannot inherit a previous unlock.
 
+Update 2026-10-31 (1.4.89): Android actually encrypts now — the Keystore
+wrap buffer was 16 bytes short (GCM tag), so no DEK was ever stored and the
+core ran keyless; fixed with `VeltaKeystore.pack`. Android also gained the
+Velta app-lock PIN, the screen-lock fallback for the biometric lock (API
+30+), and the lock settings moved to the app-wide Privacy & security screen.
+
 Phase 4 desktop + Android shipped 2026-10-30 (same day). Desktop: the
 app-lock PIN REPLACES the keychain as the KEK root (plan §2.4) —
 Argon2id(PIN, 64 MiB, t=3) wraps the SAME DEK into `<data>/dbkey.wrap`
