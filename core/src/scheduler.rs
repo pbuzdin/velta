@@ -221,7 +221,10 @@ impl SchedulerState {
     /// Interrupts IDLE on all transports so that they fetch,
     /// and marks them as having work to do.
     pub(crate) async fn interrupt_inbox_idle(&self) {
-        let inner = self.inner.read().await;
+        // Velta #18 (interrupt_inbox_idle): never wait behind an IO start/stop (#176).
+        let Ok(inner) = self.inner.try_read() else {
+            return;
+        };
         let inboxes = match *inner {
             InnerSchedulerState::Started(ref scheduler) => {
                 scheduler.interrupt_inbox();
@@ -239,7 +242,10 @@ impl SchedulerState {
 
     /// Indicate that the network likely is lost.
     pub(crate) async fn maybe_network_lost(&self, context: &Context) {
-        let inner = self.inner.read().await;
+        // Velta #18 (maybe_network_lost): never wait behind an IO start/stop (#176).
+        let Ok(inner) = self.inner.try_read() else {
+            return;
+        };
         let stores = match *inner {
             InnerSchedulerState::Started(ref scheduler) => {
                 scheduler.maybe_network_lost();
@@ -838,6 +844,15 @@ impl Scheduler {
             b.conn_state.stop();
         }
         self.smtp.stop();
+
+        // Velta #21 (#176) test hook: simulate IMAP/SMTP tasks that take
+        // long to wind down (dead proxy), for tests/core-stall. Unset = no-op.
+        if let Some(ms) = std::env::var("VELTA_TEST_STOP_IO_DELAY_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+        }
 
         // Actually shutdown tasks.
         let timeout_duration = std::time::Duration::from_secs(30);

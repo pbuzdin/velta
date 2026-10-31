@@ -1668,6 +1668,119 @@ pub struct JsonrpcTransportServerMetadata {
 
 """
     ),
+
+    # ---- VENDORISSUES #21 (#176): IO start/stop for all accounts without
+    # the account manager write lock. start_io_for_all_accounts and
+    # stop_io_for_all_accounts awaited every scheduler start/stop while
+    # holding accounts.write(); Scheduler::stop waits up to 30 s per IMAP/SMTP
+    # task, so EVERY other RPC (get_context takes accounts.read()) froze for
+    # N x 30 s: get_chat / get_chatlist_items_by_entries hit the UI's 30 s
+    # timeout. The ops snapshot the contexts under a read lock and start/stop
+    # them (stop in parallel) with no account manager lock held. A test-only
+    # env hook (VELTA_TEST_STOP_IO_DELAY_MS) stretches Scheduler::stop so
+    # tests/core-stall/stop_io_stall.py can reproduce the stall for real.
+    dict(
+        id="#21 start/stop_io_for_all_accounts release the account lock (api.rs)",
+        file="core/deltachat-jsonrpc/src/api.rs",
+        applied="Velta #21 (#176): no account manager lock across IO start/stop.",
+        anchor=(
+            "    /// Starts background tasks for all accounts.\n"
+            "    async fn start_io_for_all_accounts(&self) -> Result<()> {\n"
+            "        self.accounts.write().await.start_io().await;\n"
+            "        Ok(())\n"
+            "    }\n"
+            "\n"
+            "    /// Stops background tasks for all accounts.\n"
+            "    async fn stop_io_for_all_accounts(&self) -> Result<()> {\n"
+            "        self.accounts.write().await.stop_io().await;\n"
+            "        Ok(())\n"
+            "    }\n"
+        ),
+        where="replace",
+        text="""    /// Starts background tasks for all accounts.
+    async fn start_io_for_all_accounts(&self) -> Result<()> {
+        // Velta #21 (#176): no account manager lock across IO start/stop.
+        // Holding the write lock while a scheduler stop waits out its
+        // IMAP/SMTP tasks (up to 30 s each) blocked every other RPC.
+        let contexts: Vec<_> = {
+            let accounts = self.accounts.read().await;
+            accounts
+                .get_all()
+                .into_iter()
+                .filter_map(|id| accounts.get_account(id))
+                .collect()
+        };
+        for ctx in contexts {
+            ctx.start_io().await;
+        }
+        Ok(())
+    }
+
+    /// Stops background tasks for all accounts.
+    async fn stop_io_for_all_accounts(&self) -> Result<()> {
+        // Velta #21 (#176): see start_io_for_all_accounts; stops run in parallel.
+        let contexts: Vec<_> = {
+            let accounts = self.accounts.read().await;
+            accounts
+                .get_all()
+                .into_iter()
+                .filter_map(|id| accounts.get_account(id))
+                .collect()
+        };
+        let mut set = tokio::task::JoinSet::new();
+        for ctx in contexts {
+            set.spawn(async move { ctx.stop_io().await });
+        }
+        while set.join_next().await.is_some() {}
+        Ok(())
+    }
+""",
+    ),
+    dict(
+        id="#21 test hook: stretch Scheduler::stop (scheduler.rs)",
+        file="core/src/scheduler.rs",
+        applied="Velta #21 (#176) test hook",
+        anchor=(
+            "        // Actually shutdown tasks.\n"
+            "        let timeout_duration = std::time::Duration::from_secs(30);\n"
+        ),
+        where="replace",
+        text="""        // Velta #21 (#176) test hook: simulate IMAP/SMTP tasks that take
+        // long to wind down (dead proxy), for tests/core-stall. Unset = no-op.
+        if let Some(ms) = std::env::var("VELTA_TEST_STOP_IO_DELAY_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+        }
+
+        // Actually shutdown tasks.
+        let timeout_duration = std::time::Duration::from_secs(30);
+""",
+    ),
+
+
+    # #18 follow-up (#176): interrupt_inbox_idle (maybe_network, background
+    # fetch) and maybe_network_lost still awaited the scheduler read lock;
+    # the stop_io_stall harness showed maybe_network blocked for the whole
+    # IO stop. Same rule as the other #18 ops: skip while a start/stop holds it.
+    dict(
+        id="#18 interrupt_inbox_idle does not wait behind an IO restart (scheduler.rs)",
+        file="core/src/scheduler.rs",
+        applied="Velta #18 (interrupt_inbox_idle): never wait behind an IO start/stop",
+        anchor="    pub(crate) async fn interrupt_inbox_idle(&self) {\n        let inner = self.inner.read().await;\n",
+        where="replace",
+        text="    pub(crate) async fn interrupt_inbox_idle(&self) {\n        // Velta #18 (interrupt_inbox_idle): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            return;\n        };\n",
+    ),
+    dict(
+        id="#18 maybe_network_lost does not wait behind an IO restart (scheduler.rs)",
+        file="core/src/scheduler.rs",
+        applied="Velta #18 (maybe_network_lost): never wait behind an IO start/stop",
+        anchor="    pub(crate) async fn maybe_network_lost(&self, context: &Context) {\n        let inner = self.inner.read().await;\n",
+        where="replace",
+        text="    pub(crate) async fn maybe_network_lost(&self, context: &Context) {\n        // Velta #18 (maybe_network_lost): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            return;\n        };\n",
+    ),
+
 ]
 
 

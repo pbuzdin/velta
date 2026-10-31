@@ -267,13 +267,39 @@ impl CommandApi {
 
     /// Starts background tasks for all accounts.
     async fn start_io_for_all_accounts(&self) -> Result<()> {
-        self.accounts.write().await.start_io().await;
+        // Velta #21 (#176): no account manager lock across IO start/stop.
+        // Holding the write lock while a scheduler stop waits out its
+        // IMAP/SMTP tasks (up to 30 s each) blocked every other RPC.
+        let contexts: Vec<_> = {
+            let accounts = self.accounts.read().await;
+            accounts
+                .get_all()
+                .into_iter()
+                .filter_map(|id| accounts.get_account(id))
+                .collect()
+        };
+        for ctx in contexts {
+            ctx.start_io().await;
+        }
         Ok(())
     }
 
     /// Stops background tasks for all accounts.
     async fn stop_io_for_all_accounts(&self) -> Result<()> {
-        self.accounts.write().await.stop_io().await;
+        // Velta #21 (#176): see start_io_for_all_accounts; stops run in parallel.
+        let contexts: Vec<_> = {
+            let accounts = self.accounts.read().await;
+            accounts
+                .get_all()
+                .into_iter()
+                .filter_map(|id| accounts.get_account(id))
+                .collect()
+        };
+        let mut set = tokio::task::JoinSet::new();
+        for ctx in contexts {
+            set.spawn(async move { ctx.stop_io().await });
+        }
+        while set.join_next().await.is_some() {}
         Ok(())
     }
 

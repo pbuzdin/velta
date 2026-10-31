@@ -533,6 +533,12 @@ behind it: `rpc timeout: send_msg`, and chats would not open. Patch: use
 scheduler fetches and sends on its own, and a stopping one would ignore the
 signal. Upstream fix: non-blocking interrupts.
 
+**Follow-up (#181 harness):** `interrupt_inbox_idle` (behind `maybe_network`
+and background fetch) and `maybe_network_lost` still awaited `inner.read()`;
+`tests/core-stall/stop_io_stall.py` showed `maybe_network` blocked for the
+whole IO stop. Two more ops ("#18 interrupt_inbox_idle …", "#18
+maybe_network_lost …") switch them to `try_read()`.
+
 ### 19. Admin groups (port of ArcaneChat/core; chat.rs, receive_imf.rs, securejoin.rs, qr.rs, …)
 
 **Tracker: pbuzdin/velta#177. Status: patched locally (quilt ops "#19 admin groups …", 46 ops, 12 files incl. tests).**
@@ -579,3 +585,20 @@ with the DEK from AndroidKeyStore via org.velta.VeltaKeystore); the
 guard test `test_velta_keyed_open_roundtrip` rides the quilt and fails to
 compile if a core bump removes `Context::open`. Plan and phases (Android
 Keystore, PWA snapshot encryption): docs/security/db-encryption-plan.md.
+
+### 21. IO start/stop for all accounts holds the account manager write lock (deltachat-jsonrpc/src/api.rs)
+
+**Tracker: pbuzdin/velta#181. Status: patched locally (quilt ops "#21 …").**
+`start_io_for_all_accounts` / `stop_io_for_all_accounts` awaited each
+scheduler start/stop under `accounts.write()`. `Scheduler::stop` waits up to
+30 s per IMAP/SMTP task, and every other RPC takes `accounts.read()` in
+`get_context`, so `get_chat`, `get_message_ids` and
+`get_chatlist_items_by_entries` hung for N × 30 s (the UI's 30 s chat-open
+timeouts). A start queued behind a stop held the same lock. The op clones
+the contexts under a short read lock and starts/stops them with no lock
+held (stops in parallel). A test hook, `VELTA_TEST_STOP_IO_DELAY_MS`
+(no-op when unset), stretches `Scheduler::stop` so
+`tests/core-stall/stop_io_stall.py` (real deltachat-rpc-server, CI
+`core-patches`) reproduces the stall: before the patch 7 chat reads took
+7.7 s, after it 3–4 ms. Upstream fix: no `Accounts` lock across IO
+start/stop.

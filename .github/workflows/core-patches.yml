@@ -17,6 +17,7 @@ on:
       - 'tools/apply-core-patches.py'
       - 'tests/apply-core-patches.test.mjs'
       - 'tests/send-relay-pin.test.mjs'
+      - 'tests/core-stall/**'
       - 'app/js/rpc-core.js'
       - '.github/workflows/core-patches.yml'
   pull_request:
@@ -25,6 +26,7 @@ on:
       - 'tools/apply-core-patches.py'
       - 'tests/apply-core-patches.test.mjs'
       - 'tests/send-relay-pin.test.mjs'
+      - 'tests/core-stall/**'
       - 'app/js/rpc-core.js'
       - '.github/workflows/core-patches.yml'
 
@@ -101,3 +103,13 @@ jobs:
         run: >-
           cargo nextest run -p deltachat --lib --locked --no-fail-fast
           -E 'test(/^(smtp|scheduler|context|imap|push)::/) | test(smtp) | test(background_fetch) | test(velta) | test(/^(securejoin|qr|ephemeral)::/)'
+
+      # Behavioral lock regression (#176, patches #17/#18/#21): the real
+      # deltachat-rpc-server with an account on a blackhole relay; an IO stop
+      # held 8 s (VELTA_TEST_STOP_IO_DELAY_MS) must not delay chat-open reads
+      # past 1 s. Reuses the cached build above; ~1-2 min extra.
+      - name: Build deltachat-rpc-server
+        run: cargo build -p deltachat-rpc-server --locked
+
+      - name: Stop-IO stall regression (chat reads stay < 1 s)
+        run: python3 ../tests/core-stall/stop_io_stall.py target/debug/deltachat-rpc-server
