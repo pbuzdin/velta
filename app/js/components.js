@@ -260,13 +260,9 @@ class VeltaVideo extends Elena(HTMLElement) {
       v.addEventListener("loadedmetadata", () => {
         if (this.#shaped || !v.videoWidth || !v.videoHeight) return;
         this.#shaped = true;
-        const host = this.closest?.(".msg-video");
-        if (host && !host.style.aspectRatio) {
-          host.style.aspectRatio = `${v.videoWidth} / ${v.videoHeight}`;
-          host.style.height = `min(${v.videoHeight}px, 45vh, 260px)`;
-          host.style.maxWidth = "100%";
-          this.dispatchEvent(new CustomEvent("velta-row-resized", { bubbles: true }));
-        }
+        // Stable heights: the host box reserved at render (core dimensions,
+        // else the fixed 260px band with object-fit: contain) is final —
+        // reshaping here changed the row height after it was shown.
       });
     }
   }

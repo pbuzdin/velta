@@ -1308,6 +1308,9 @@ html[data-theme="brutal"] .msg-fail-badge { color: #3d3405; background: rgba(229
 /* Landscape photos show the whole frame. Cover would clip the sides when
    the reserved box is taller than the picture. */
 .msg-image .img-wrap.is-land img { object-fit: contain; }
+/* Unknown size (core had no dimensions): the 4/3 placeholder IS the final
+   box — show the whole picture letterboxed instead of resizing the row. */
+.msg-image .img-wrap.no-dims img { object-fit: contain; }
 /* Chromium only. Safari keeps the px-only inline width: a percentage inside
    min() collapses its shrink-to-fit bubble (#27). The bubble width is set
    first so 100% is a real length. For a 960×376 photo this is

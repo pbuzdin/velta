@@ -2516,6 +2516,10 @@ async function openChat(chatId) {
   const navigation = ++chatNavigation, epoch = core.accountEpoch;
   const current = () => navigation === chatNavigation && accountIsCurrent(epoch);
   state.pendingChatId = chatId;
+  // click->open latency for the chat-open stats line (event.timeStamp is
+  // on the performance.now() clock).
+  const ev = typeof window !== "undefined" ? window.event : null;
+  chatView.noteOpenClick?.(ev?.timeStamp > 0 ? ev.timeStamp : performance.now());
   chatView.cancelOpen?.();
   renderChatList();
   // Stall diagnostics + recovery (Refs #176): slow steps log
@@ -3007,7 +3011,9 @@ async function showChatInfo(chat) {
         // Sheet closed (or chat switched) → stop burning RPCs on a row
         // nobody is watching.
         if (!storageVal.isConnected || !accountIsCurrent(epoch)) return;
+        const pageAt = performance.now();
         const page = await core.getMessages(chat.id, { beforeId, limit: 500 });
+        chatView?.noteOpenStat?.("storage", performance.now() - pageAt);
         if (!storageVal.isConnected || !accountIsCurrent(epoch)) return;
         const msgs = page.messages || [];
         // fileSize (not the core's raw fileBytes): rpc-core._mapMessage

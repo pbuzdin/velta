@@ -759,9 +759,11 @@ export class ChatView {
     this._loadBar(true);
     // "open chat N: STEP took N ms" for steps >= 1 s (Refs #176).
     let stepAt = Date.now();
+    const stats = this._beginOpenStats(chatId);
     const step = (name) => {
       const ms = Date.now() - stepAt;
       stepAt = Date.now();
+      stats.steps[name] = (stats.steps[name] || 0) + ms;
       if (ms >= 1000) this.core._rpcLog?.(`open chat ${chatId}: ${name} took ${ms} ms`);
     };
     try {
@@ -844,8 +846,12 @@ export class ChatView {
       this._renderReplyPreview();
       this.renderScheduledChip();
       this._scheduleLinkPreview();
+      stepAt = Date.now();
       this._rebuildItems(messages);
       this._createScroller();
+      step("render");
+      stats.rows = messages.length;
+      requestAnimationFrame(() => { stats.firstPaintMs = Math.round(performance.now() - stats.t0); });
       this._refreshPinnedBar();
       if (!tracked) {
         await this.core.markRead(chatId);
@@ -871,6 +877,55 @@ export class ChatView {
     } finally {
       this._loadBar(false);
     }
+  }
+
+  // Chat-open timing (freeze investigation). One summary line per open,
+  // emitted ~10 s after open, plus a warning when any step took > 1 s.
+  // Never logs message content — only ids, counts and durations.
+  // Line: "chat-open stats chat=N click=Nms get_chat=Nms ... rows=N
+  //        firstPaint=Nms jumpPages=N jump=Nms storagePages=N storage=Nms
+  //        heightChanges=N vsUpdates=N"
+  _beginOpenStats(chatId) {
+    this._flushOpenStats();
+    const t0 = performance.now();
+    const clickAt = this._openClickAt;
+    this._openClickAt = null;
+    const stats = this._openStats = {
+      chatId, t0, click: clickAt != null ? Math.max(0, Math.round(t0 - clickAt)) : null,
+      steps: {}, rows: 0, firstPaintMs: null,
+      jumpPages: 0, jumpMs: 0, storagePages: 0, storageMs: 0,
+      heightChanges: 0, vsUpdates: 0, done: false,
+    };
+    stats.timer = setTimeout(() => this._flushOpenStats(), 10000);
+    return stats;
+  }
+
+  // Called from the jump-to-message loop and the chat-info storage walk.
+  noteOpenStat(kind, ms) {
+    const st = this._openStats;
+    if (!st || st.done) return;
+    if (kind === "jump") { st.jumpPages++; st.jumpMs += ms; }
+    else if (kind === "storage") { st.storagePages++; st.storageMs += ms; }
+  }
+
+  // Called by the chat list click handler right before openChat().
+  noteOpenClick(at = performance.now()) { this._openClickAt = at; }
+
+  _flushOpenStats() {
+    const st = this._openStats;
+    if (!st || st.done) return;
+    st.done = true;
+    clearTimeout(st.timer);
+    const r = Math.round;
+    const steps = Object.entries(st.steps).map(([k, v]) => `${k.replace(/\s+/g, "_")}=${r(v)}ms`).join(" ");
+    const line = `chat-open stats chat=${st.chatId} click=${st.click ?? "?"}ms ${steps} rows=${st.rows}`
+      + ` firstPaint=${st.firstPaintMs ?? "?"}ms jumpPages=${st.jumpPages} jump=${r(st.jumpMs)}ms`
+      + ` storagePages=${st.storagePages} storage=${r(st.storageMs)}ms`
+      + ` heightChanges=${st.heightChanges} vsUpdates=${st.vsUpdates}`;
+    rustLog(line);
+    const slow = [...Object.entries(st.steps), ["click", st.click || 0], ["jump", st.jumpMs], ["storage", st.storageMs]]
+      .filter(([, v]) => v > 1000).map(([k, v]) => `${k.replace(/\s+/g, "_")}=${r(v)}ms`);
+    if (slow.length) diagnosticsSink.append("warn", `chat-open slow chat=${st.chatId} ${slow.join(" ")}`);
   }
 
   // History loading strip under the chat header (see .chat-load-bar).
@@ -2004,8 +2059,14 @@ export class ChatView {
     // childNodes ("Element with index N was not found… There're only N-1").
     // The next update re-syncs the rendered list, so swallow exactly that
     // known race instead of letting it escape as an uncaught rejection.
+    const self = this;
     const wrap = (name, orig) => function (...args) {
       if (debugLog.enabled) debugLog(`vs.${name} n=${args[0]?.length ?? ""} t=${Date.now() % 100000}`);
+      const st = self._openStats;
+      if (st && !st.done) {
+        if (name === "onItemHeightDidChange") st.heightChanges++;
+        else if (name === "setItems" || name === "update" || name === "rerender") st.vsUpdates++;
+      }
       const r = orig.apply(this, args);
       if (r && typeof r.catch === "function") {
         r.catch(err => {
@@ -2640,24 +2701,11 @@ export class ChatView {
       // natural-size-capped box the CSS used to produce) before revealing.
       const reveal = () => {
         if (!alive()) return;
-        if (mediaImg.naturalWidth && mediaImg.naturalHeight && wrap) {
-          const r = mediaImg.naturalWidth / mediaImg.naturalHeight;
-          wrap.style.aspectRatio = `${mediaImg.naturalWidth} / ${mediaImg.naturalHeight}`;
-          wrap.classList.toggle("is-land", mediaImg.naturalWidth > mediaImg.naturalHeight);
-          // Stickers match the official Android cap (175dp, see the reserve
-          // above) — the photo cap made stickers render up to 450px AND
-          // jump from the reserve.
-          const cap = m.viewtype === "sticker" ? 175 : 450;
-          wrap.style.setProperty("--img-w", `${mediaImg.naturalWidth}px`);
-          wrap.style.setProperty("--img-r", r.toFixed(4));
-          wrap.style.setProperty("--img-cap", `${cap}px`);
-          // px terms only (#27): no % inside min() — a percentage here
-          // collapses the box in Safari's shrink-to-fit bubble. max-width
-          // on the wrap handles the narrow-bubble clamp instead.
-          wrap.style.width = `min(${mediaImg.naturalWidth}px, 480px, calc(min(${cap}px, 45vh) * ${r.toFixed(4)}))`;
-          // The core had no dimensions for this message (the reserved box was
-          // a 4/3 guess) — remember the true shape so the NEXT render
-          // reserves the exact box and the decode causes no jump.
+        if (mediaImg.naturalWidth && mediaImg.naturalHeight && wrap && wrap.classList.contains("no-dims")) {
+          // Stable heights: the reserved box is final. An unknown-size image
+          // stays in the fixed 4/3 placeholder (object-fit: contain, see
+          // .img-wrap.no-dims) — resizing here made rows change height after
+          // they were shown. Only remember the shape for the next render.
           if (!(m.dimensionsWidth > 0)) rememberMediaDims(this.core.accountId, m.id, mediaImg.naturalWidth, mediaImg.naturalHeight);
         }
         if (wrap && !wrap.dataset.ready) {
@@ -5596,7 +5644,9 @@ export class ChatView {
           return;
         }
         const firstMsg = this.items.find(i => i.type === "msg");
+        const pageAt = performance.now();
         const { messages, hasMore } = await this.core.getMessages(session.chatId, { beforeId: firstMsg?.msg.id ?? null, limit: 40 });
+        this.noteOpenStat("jump", performance.now() - pageAt);
         if (!this._isCurrent(session)) return;
         this.hasMore = hasMore;
         if (!messages.length) break;
