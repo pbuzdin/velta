@@ -1425,6 +1425,18 @@ is the installer, not the app, and it sends nothing about you.
 </details>
 
 <details>
+<summary>Chat-open freeze fix (1.4.90)</summary>
+
+Opening or switching chats could hang for 30 s or longer, especially with a
+saved DNS tunnel whose server was unreachable: restarting mail connections
+held a lock that every chat request waited on. 1.4.90 starts and stops mail
+connections without that lock, runs DNS-tunnel work off the UI thread, and
+no longer stacks repeated requests when you re-tap a chat. A regression test
+with the real core runs in CI on every core change.
+
+</details>
+
+<details>
 <summary>Profile data encryption &amp; app lock (since 1.4.89)</summary>
 
 **Android:** each profile's message database is encrypted at rest

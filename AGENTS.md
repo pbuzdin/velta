@@ -280,6 +280,8 @@ intent in VENDORISSUES.MD):
 | #17 | jsonrpc `maybe_network` clones the contexts under `accounts.read()` and awaits scheduler interrupts AFTER releasing it (#175, 1.4.85): a queued `start_io`/`stop_io` writer behind a stuck IO restart (dead proxy, up to 30 s per task) blocked every UI RPC, so chat switching "did nothing" on Android after a send. `tunnel_android::maybe_network` does the same | deltachat-jsonrpc/src/api.rs |
 | #16 | extends #15 (ops must stay after it): IMAP IDLE, COMPRESS=DEFLATE, and max SMTP recipients on that metadata. UI: D flag ("not known yet" until the relay has connected), recipient limit and "compressed connection" in the details line. 8 ops | imap.rs, transport.rs, api.rs, login_param.rs |
 | #19 | admin groups (#177), ArcaneChat-compatible: grpid `ADMINFPR:randomid`, receivers enforce admin-only add / remove-others / name / description / avatar / timer / pins / delete-for-everyone; `create_group_with_admin` + `FullChat.groupAdminId` jsonrpc. 46 ops; receive_imf.rs ops are the fragile part on re-vendor. Plan + stock-DC interop: docs/core-patches/admin-groups-plan.md | chat.rs, receive_imf.rs, securejoin.rs, qr.rs, tools.rs, mimeparser.rs, ephemeral.rs, message.rs, jsonrpc api.rs + types/chat.rs, chat_tests.rs, tools_tests.rs |
+| #18 | scheduler interrupts (`interrupt_inbox/smtp/ephemeral_task/location/recently_seen`, and since 1.4.90 `interrupt_inbox_idle` + `maybe_network_lost`) use `try_read()`: never wait behind an IO start/stop holding the scheduler lock (#176) | scheduler.rs |
+| #21 | `start_io_for_all_accounts` / `stop_io_for_all_accounts` clone the contexts under a short `accounts.read()` and start/stop with NO account manager lock (stops in parallel) (#181, 1.4.90). They held `accounts.write()` across `Scheduler::stop` (up to 30 s per IMAP/SMTP task), freezing every RPC (`get_context`): the 30 s chat-open timeouts, worst with a saved DNS tunnel. Test hook `VELTA_TEST_STOP_IO_DELAY_MS` (no-op unset) for `tests/core-stall/stop_io_stall.py` | deltachat-jsonrpc/src/api.rs, scheduler.rs |
 
 ```bash
 python3 tools/apply-core-patches.py apply        # re-insert missing ops (fails, writes nothing, on a moved anchor)
@@ -2143,6 +2145,26 @@ replies; applies regardless of which tools or modes are active.)
 - Dependencies are mostly pinned in `Cargo.lock`. Run `cargo update --dry-run`
   before accepting dependency changes.
 - Tests use `tempfile`, `testdir`, and the `pretty_assertions` crate.
+
+**Lock rule for RPC handlers (#176/#181, hard rule).** In jsonrpc handlers
+and shell code reachable from RPC (core patches, `tunnel_*`, `lib.rs`):
+never `.await` a lock (`.read()/.write()/.lock().await`) while holding
+another, and never hold the account manager lock (`accounts.read()/write()`)
+across a long await (IO start/stop, network, scheduler locks). Clone the
+contexts under a short read lock, release it, then await. Scheduler
+interrupts use `try_read()`. tokio's RwLock is fair: one queued writer behind
+a long holder blocks every reader, i.e. every chat RPC. Blocking work (Go
+tunnel library, JNI, sync file/network I/O) goes to `spawn_blocking`, and
+Tauri commands that do it are `async` (sync commands run on the Android main
+thread, which delivers every core RPC response to the WebView). Guarded by
+`tests/core-stall/stop_io_stall.py` (real deltachat-rpc-server, CI
+`core-patches`: chat reads < 1 s during an 8 s IO stop) and
+`tests/tunnel-off-main-thread.test.mjs`.
+
+**Chat-open diagnostics (1.4.90).** `rpc-core.getChat` is deduped per
+(account, chat); `rpc timeout` lines end with `; oldest: METHOD Ns, …`; the
+Android bridge logs `core rpc slow`, `core rpc in flight (N): …` (watchdog,
+calls > 8 s) and `core runtime stalled`.
 
 ### 6.2 JavaScript / Frontend
 

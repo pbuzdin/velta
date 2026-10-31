@@ -109,6 +109,7 @@ Diagnostics shows "DNS tunnel:" lines; the tunnel sheet can share a report.
 | Very slow, ~512 B answers | Android Private DNS is on; turn it off on the phone. |
 | Windows: "DNS tunnel library not available" | `soartunnel.dll` is missing next to `deltachat-rpc-server.exe` in the install folder (a build without the `tunnel-dll` job); reinstall from a CI build. |
 | Windows: no network resolvers in the report | No adapter is up with DNS servers; the tunnel still uses its built-in resolver list. |
+| Chats open slowly or freeze while a dead tunnel is saved (before 1.4.90) | Update to 1.4.90+ (fixed: IO restarts no longer lock out chat loading, tunnel work runs off the UI thread). On older versions select "No tunnel" or delete the saved tunnel. |
 | Client/server mismatch errors | Rebuild with the `SOAR_VERSION` from the app's `go.mod`. |
 
 The server only listens on UDP; it does not answer DNS over TCP.
