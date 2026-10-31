@@ -218,7 +218,7 @@ ${body.replace(/^\n+|\n+$/g, "")}
 ${END}
   </main>
 ${footer.trimEnd()}
-  <script src="/js/site.js?v=7"></script>
+  <script defer src="/js/site.js?v=7"></script>
 </body>
 </html>
 `;
