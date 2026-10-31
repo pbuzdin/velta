@@ -478,6 +478,9 @@ if (window.__TAURI__) {
       el.querySelector(".db-locked-retry").addEventListener("click", () => location.reload());
     };
     listen("velta-db-locked", ev => showDbLocked(ev.payload));
+    // Android: the biometric overlay can unlock while the PIN screen sits
+    // behind it — reload into the now-keyed core.
+    listen("velta-db-unlocked", () => { if (document.getElementById("db-locked")) location.reload(); });
     invoke("get_db_lock_status").then(showDbLocked).catch(() => {});
   } catch (e) {
     console.warn("[velta] db-locked setup failed:", e);
@@ -5790,17 +5793,14 @@ function openPrivacySecurity() {
     // whenever one is set; the Rust side re-verifies it anyway.
     let formMode = "set";
     const refresh = async () => {
-      if (isAndroid()) {
-        // PIN is a desktop mode; Android gates through the Keystore.
-        statusEl.textContent = t("The biometric lock protects the database key of all profiles at rest — cold starts ask for your fingerprint before any data opens.");
-        pinForm.hidden = true;
-        pinOffRow.hidden = true;
-        pinRows.hidden = true;
-        return;
-      }
       let on = false;
       try { on = await shell("get_db_pin_state"); } catch {}
-      statusEl.textContent = on
+      // Android: the Velta PIN and the biometric / screen lock are both
+      // key roots for the same database key; either one unlocks.
+      if (isAndroid()) statusEl.textContent = on
+        ? t("App-lock PIN is on: Velta asks for it at every start. The biometric lock can be added for quicker unlocks.")
+        : t("Add a Velta app-lock PIN, or use the biometric lock (fingerprint or screen lock), to require it at every start. Either protects the database key of all profiles at rest.");
+      else statusEl.textContent = on
         ? t("App-lock PIN is on. The PIN — not the OS keychain — protects this profile's database key at rest, and auto-lock can re-lock the app.")
         : t("The database key lives in the OS keychain. Add a PIN to require it at every start and to enable auto-lock.");
       pinForm.hidden = true;
@@ -5844,7 +5844,7 @@ function openPrivacySecurity() {
         errToast(wait > 0
           ? t("Too many attempts — wait {n} s.", { n: wait })
           : t("Couldn't save the PIN: ") + (msg.includes("no-key")
-            ? t("This profile has no database key yet — nothing for a PIN to protect.")
+            ? (isAndroid() ? t("Database encryption isn't set up on this device yet. Restart Velta to finish it, then turn on the lock.") : t("This profile has no database key yet — nothing for a PIN to protect."))
             : msg.includes("keychain-unavailable")
               ? t("The OS keychain is unavailable.")
               : msg || err));

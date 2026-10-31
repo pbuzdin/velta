@@ -10,4 +10,5 @@
     <string name="biometric_unlock_title">Déverrouiller Velta</string>
     <string name="biometric_cancel">Annuler</string>
     <string name="biometric_retry">Réessayer</string>
+    <string name="biometric_use_pin">Utiliser le code PIN</string>
 </resources>

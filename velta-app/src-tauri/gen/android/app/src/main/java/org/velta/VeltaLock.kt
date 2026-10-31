@@ -205,6 +205,10 @@ object VeltaLock {
      * into the plain wrap. The result reaches JS via the velta-biometric
      * event (JNI notifyResult) — the caller keeps no DEK.
      */
+    /** The running core's DEK (from Rust; "" when keyless). Never logged. */
+    @Volatile
+    private var currentDek: String = ""
+
     @JvmStatic
     fun request(activity: FragmentActivity, on: Boolean) {
         // BiometricPrompt must be built and shown on the main thread; the
@@ -268,7 +272,15 @@ object VeltaLock {
             // The existing DEK only: with no plain wrap the core is running
             // keyless (encryption not set up yet) and a fresh key would not
             // match its databases.
-            val dekHex = VeltaKeystore.readDek(context)
+            // 1) the key the running core actually uses, 2) the plain wrap,
+            // 3) none yet (the core runs keyless): create it now — the next
+            // (unlocked) start migrates the plaintext databases to it.
+            val running = currentDek.takeIf { it.length == 64 }
+            val dekHex = running ?: VeltaKeystore.readDek(context)
+                ?: if (!VeltaKeystore.pinOn(context) && !VeltaKeystore.hasPlainWrap(context)) {
+                    Log.i(TAG, "no database key yet; creating one for the lock")
+                    VeltaKeystore.getOrCreateDek(context)
+                } else null
             if (dekHex == null) {
                 report(on, false, VeltaKeystore.lastError ?: "database key unavailable")
                 return
@@ -326,7 +338,9 @@ object VeltaLock {
                         lastPromptError = "decrypt failed: ${e.javaClass.simpleName}: ${e.message}"
                     }
                 }
-                val plain = dek?.let { VeltaKeystore.storePlainWrap(context, it) }
+                // With the app-lock PIN on, it stays the key root: no plain
+                // wrap comes back, the auth wrap just goes.
+                val plain = dek?.let { if (VeltaKeystore.pinOn(context)) true else VeltaKeystore.storePlainWrap(context, it) }
                 if (plain == true) {
                     authWrap(context).delete()
                     Log.i(TAG, "biometric app lock disabled")
@@ -340,8 +354,9 @@ object VeltaLock {
 
     /** Rust command entry: prompt on the registered activity, if any. */
     @JvmStatic
-    fun requestFromContext(context: Context, on: Boolean): Boolean {
+    fun requestFromContext(context: Context, on: Boolean, dek: String): Boolean {
         val a = activity ?: return false
+        currentDek = dek
         request(a, on)
         return true
     }
@@ -450,8 +465,15 @@ object VeltaLock {
                 if (VeltaLock.on(activity) && lockOverlay != null) requestUnlock(activity)
             }
         }
+        // App-lock PIN on too: the page behind shows the PIN screen.
+        val usePin = Button(activity).apply {
+            text = activity.getString(R.string.biometric_use_pin)
+            visibility = if (VeltaKeystore.pinOn(activity)) View.VISIBLE else View.GONE
+            setOnClickListener { hideLock() }
+        }
         box.addView(title)
         box.addView(retry, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        box.addView(usePin, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         root.addView(box, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         activity.runOnUiThread {
             (activity.window.decorView as? ViewGroup)?.addView(

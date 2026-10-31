@@ -72,13 +72,13 @@ sha1 = "0.10"
 # keychain (keyring, below); Android in the Keystore via org.velta.
 # VeltaKeystore (JNI), so keyring must not compile on Android.
 rusqlite = { version = "0.37", features = ["bundled-sqlcipher-vendored-openssl"] }
+# #178 phase 4: the app-lock PIN (desktop and Android) — Argon2id(PIN)
+# wraps the DEK (AES-256-GCM) in a dbkey wrap file.
+argon2 = { version = "0.5", default-features = false, features = ["alloc"] }
+aes-gcm = "0.10"
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 keyring = { version = "3", features = ["windows-native", "apple-native", "linux-native-sync-persistent"] }
-# #178 phase 4: the app-lock PIN replaces the keychain as KEK source —
-# Argon2id(PIN) wraps the DEK (AES-256-GCM) in <data>/dbkey.wrap.
-argon2 = { version = "0.5", default-features = false, features = ["alloc"] }
-aes-gcm = "0.10"
 
 # Android links the Delta Chat core in-process instead of spawning a sidecar.
 [target.'cfg(target_os = "android")'.dependencies]

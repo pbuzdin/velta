@@ -10,4 +10,5 @@
     <string name="biometric_unlock_title">Разблокировать Velta</string>
     <string name="biometric_cancel">Отмена</string>
     <string name="biometric_retry">Повторить</string>
+    <string name="biometric_use_pin">Ввести PIN-код</string>
 </resources>

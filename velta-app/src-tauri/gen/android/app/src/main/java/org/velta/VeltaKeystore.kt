@@ -29,12 +29,30 @@ object VeltaKeystore {
     private const val TAG = "velta-keystore"
     private const val KEK_ALIAS = "velta_kek"
     private const val WRAP_FILE = "dbkey.wrap"
+    // #178 phase 4: the Argon2id(PIN) wrap written by Rust (lib.rs
+    // android_pin_set); while it exists the PIN is the key root.
+    private const val PIN_WRAP_FILE = "dbkey.pin.wrap"
     private const val GCM_TAG_BITS = 128
 
     /** Why the last getOrCreateDek/readDek gave null (no key material). */
     @Volatile
     @JvmStatic
     var lastError: String? = null
+
+    /** Rust: where the PIN wrap lives (never backed up). */
+    @JvmStatic
+    fun noBackupDir(context: Context): String = context.noBackupFilesDir.absolutePath
+
+    @JvmStatic
+    fun pinOn(context: Context): Boolean = File(context.noBackupFilesDir, PIN_WRAP_FILE).exists()
+
+    /** Rust (PIN removal): the DEK hex back into the plain wrap. */
+    @JvmStatic
+    fun storePlainWrapHex(context: Context, dekHex: String): Boolean {
+        if (dekHex.length != 64) return false
+        val dek = ByteArray(32) { i -> ((Character.digit(dekHex[2 * i], 16) shl 4) or Character.digit(dekHex[2 * i + 1], 16)).toByte() }
+        return storePlainWrap(context, dek)
+    }
 
     /** The plain wrap exists: database encryption is set up on this device. */
     @JvmStatic
@@ -72,6 +90,12 @@ object VeltaKeystore {
             // silently here, and never a fresh key over locked databases.
             if (VeltaLock.on(context)) {
                 Log.i(TAG, "biometric app lock is on; the DEK needs the activity unlock")
+                lastError = "app-locked (biometric)"
+                return null
+            }
+            // Same for the app-lock PIN: never a fresh key over its databases.
+            if (pinOn(context)) {
+                lastError = "app-locked (PIN)"
                 return null
             }
             val wrapFile = File(context.noBackupFilesDir, WRAP_FILE)

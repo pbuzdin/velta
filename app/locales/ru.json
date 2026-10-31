@@ -1511,5 +1511,7 @@
   "The biometric prompt did not succeed: {why}": "Биометрическая проверка не удалась: {why}",
   "The biometric lock protects the database key of all profiles at rest — cold starts ask for your fingerprint before any data opens.": "Биометрическая блокировка защищает ключ базы данных всех профилей в хранилище — при холодном запуске приложение запрашивает отпечаток пальца, прежде чем открыть данные.",
   "Database encryption isn't set up on this device yet. Restart Velta to finish it, then turn on the lock.": "Шифрование базы данных на этом устройстве ещё не настроено. Перезапустите Velta, чтобы завершить настройку, затем включите блокировку.",
-  "Set up a screen lock (PIN, pattern or password) or a fingerprint in Android settings first.": "Сначала настройте блокировку экрана (PIN-код, графический ключ или пароль) или отпечаток пальца в настройках Android."
+  "Set up a screen lock (PIN, pattern or password) or a fingerprint in Android settings first.": "Сначала настройте блокировку экрана (PIN-код, графический ключ или пароль) или отпечаток пальца в настройках Android.",
+  "App-lock PIN is on: Velta asks for it at every start. The biometric lock can be added for quicker unlocks.": "PIN-код блокировки включён: Velta запрашивает его при каждом запуске. Для быстрой разблокировки можно добавить биометрическую блокировку.",
+  "Add a Velta app-lock PIN, or use the biometric lock (fingerprint or screen lock), to require it at every start. Either protects the database key of all profiles at rest.": "Добавьте PIN-код блокировки Velta или включите биометрическую блокировку (отпечаток пальца или блокировка экрана), чтобы требовать их при каждом запуске. Любой из способов защищает ключ базы данных всех профилей в хранилище."
 }

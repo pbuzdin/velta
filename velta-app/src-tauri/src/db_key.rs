@@ -534,7 +534,6 @@ pub fn pin_locked(data_dir: &Path) -> bool {
     pin_wrap_path(data_dir).is_file()
 }
 
-#[cfg(not(target_os = "android"))]
 fn derive_pin_kek(pin: &str, salt: &[u8]) -> [u8; 32] {
     use argon2::Argon2;
     let mut kek = [0u8; 32];
@@ -545,7 +544,6 @@ fn derive_pin_kek(pin: &str, salt: &[u8]) -> [u8; 32] {
     kek
 }
 
-#[cfg(not(target_os = "android"))]
 fn pin_header(counter: u32, salt: &[u8], nonce: &[u8]) -> Vec<u8> {
     let mut head = Vec::with_capacity(38);
     head.extend_from_slice(b"VLTDW");
@@ -557,7 +555,6 @@ fn pin_header(counter: u32, salt: &[u8], nonce: &[u8]) -> Vec<u8> {
 }
 
 /// Wrap `dek_hex` under `pin`. Rejects short PINs and non-hex DEKs.
-#[cfg(not(target_os = "android"))]
 pub fn pin_wrap_write(path: &Path, pin: &str, dek_hex: &str) -> Result<(), String> {
     if pin.chars().count() < 6 {
         return Err("pin too short".to_string());
@@ -591,7 +588,6 @@ pub fn pin_wrap_write(path: &Path, pin: &str, dek_hex: &str) -> Result<(), Strin
 }
 
 /// Patch the clear-text attempts counter (offset 6..10) without rewrapping.
-#[cfg(not(target_os = "android"))]
 fn pin_counter_store(path: &Path, counter: u32) {
     if let Ok(mut bytes) = std::fs::read(path) {
         if bytes.len() >= 10 {
@@ -601,7 +597,6 @@ fn pin_counter_store(path: &Path, counter: u32) {
     }
 }
 
-#[cfg(not(target_os = "android"))]
 fn backoff_secs(attempts: u32) -> u64 {
     match attempts {
         0 => 0,
@@ -610,7 +605,6 @@ fn backoff_secs(attempts: u32) -> u64 {
 }
 
 /// What opening the PIN wrap produced.
-#[cfg(not(target_os = "android"))]
 pub enum PinOpen {
     /// The DEK hex, verified by the GCM tag.
     Dek(String),
@@ -620,7 +614,6 @@ pub enum PinOpen {
     Corrupt,
 }
 
-#[cfg(not(target_os = "android"))]
 pub fn pin_wrap_open(path: &Path, pin: &str) -> PinOpen {
     let bytes = match std::fs::read(path) {
         Ok(b) => b,

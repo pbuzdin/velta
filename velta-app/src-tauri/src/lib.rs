@@ -529,7 +529,7 @@ fn get_db_pin_state(app: tauri::AppHandle) -> bool {
     #[cfg(target_os = "android")]
     {
         let _ = &app;
-        false
+        android_pin_wrap().is_some_and(|p| p.is_file())
     }
 }
 
@@ -544,8 +544,8 @@ fn set_db_pin(app: tauri::AppHandle, old: Option<String>, pin: String) -> Result
     }
     #[cfg(target_os = "android")]
     {
-        let _ = (app, old, pin);
-        Err("not supported on this platform".to_string())
+        let _ = app;
+        android_pin_set(old.as_deref(), &pin)
     }
 }
 
@@ -557,8 +557,8 @@ fn clear_db_pin(app: tauri::AppHandle, pin: String) -> Result<(), String> {
     }
     #[cfg(target_os = "android")]
     {
-        let _ = (app, pin);
-        Err("not supported on this platform".to_string())
+        let _ = app;
+        android_pin_clear(&pin)
     }
 }
 
@@ -569,8 +569,10 @@ fn clear_db_pin(app: tauri::AppHandle, pin: String) -> Result<(), String> {
 async fn unlock_with_pin(app: tauri::AppHandle, pin: String) -> Result<(), String> {
     #[cfg(target_os = "android")]
     {
-        let _ = (app, pin);
-        return Err("not supported on this platform".to_string());
+        let _ = app;
+        return tauri::async_runtime::spawn_blocking(move || android_pin_unlock(&pin))
+            .await
+            .map_err(|e| e.to_string())?;
     }
     #[cfg(not(target_os = "android"))]
     {
@@ -4075,7 +4077,20 @@ fn android_keystore_dek() -> Option<String> {
                 &[(&context).into()],
             )
             .map_err(|e| e.to_string())?;
-        let jstr = jni::objects::JString::from(out.l().map_err(|e| e.to_string())?);
+        let obj = out.l().map_err(|e| e.to_string())?;
+        if obj.is_null() {
+            // Why (no key material): logged so a keyless start is diagnosable.
+            let why = env
+                .call_static_method(class_ref, "getLastError", "()Ljava/lang/String;", &[])
+                .ok()
+                .and_then(|v| v.l().ok())
+                .filter(|o| !o.is_null())
+                .and_then(|o| env.get_string(&jni::objects::JString::from(o)).ok().map(|s| s.to_string_lossy().into_owned()))
+                .unwrap_or_else(|| "no reason recorded".to_string());
+            log(&format!("db-key: keystore gave no DEK: {why}"));
+            return Ok(None);
+        }
+        let jstr = jni::objects::JString::from(obj);
         let hex = env.get_string(&jstr).map_err(|e| e.to_string())?.to_string_lossy().into_owned();
         Ok(if hex.len() == 64 && !hex.is_empty() { Some(hex) } else { None })
     })
@@ -4085,6 +4100,112 @@ fn android_keystore_dek() -> Option<String> {
     })
     .ok()
     .flatten()
+}
+
+
+// ---- #178 phase 4: app-lock PIN on Android --------------------------------
+// Same Argon2id wrap as desktop (db_key::pin_wrap_*), stored in
+// noBackupFilesDir/dbkey.pin.wrap (never backed up). While it exists the
+// plain Keystore wrap is gone: cold starts wait for the PIN (or the
+// biometric overlay) before any database opens.
+
+#[cfg(target_os = "android")]
+fn android_pin_wrap() -> Option<PathBuf> {
+    with_android_class(&APP_KEYSTORE_CLASS, "VeltaKeystore", |env, context, class_ref| {
+        let out = env
+            .call_static_method(class_ref, "noBackupDir", "(Landroid/content/Context;)Ljava/lang/String;", &[(&context).into()])
+            .map_err(|e| e.to_string())?;
+        let jstr = jni::objects::JString::from(out.l().map_err(|e| e.to_string())?);
+        let dir = env.get_string(&jstr).map_err(|e| e.to_string())?.to_string_lossy().into_owned();
+        Ok(PathBuf::from(dir).join("dbkey.pin.wrap"))
+    })
+    .map_err(|e| log(&format!("db-key: pin wrap path failed: {e}")))
+    .ok()
+}
+
+/// The DEK the running core opened with (64 hex), if it runs keyed.
+#[cfg(target_os = "android")]
+fn android_current_dek() -> Option<String> {
+    let raw = std::env::var("VELTA_DB_KEY").ok()?;
+    let hex = raw.strip_prefix("x'")?.strip_suffix('\'')?;
+    (hex.len() == 64 && hex.chars().all(|c| c.is_ascii_hexdigit())).then(|| hex.to_string())
+}
+
+#[cfg(target_os = "android")]
+fn android_keystore_call(method: &str, sig: &str, extra: Option<&str>) -> Result<bool, String> {
+    with_android_class(&APP_KEYSTORE_CLASS, "VeltaKeystore", |env, context, class_ref| {
+        let out = match extra {
+            Some(s) => {
+                let js = env.new_string(s).map_err(|e| e.to_string())?;
+                env.call_static_method(class_ref, method, sig, &[(&context).into(), (&js).into()])
+            }
+            None => env.call_static_method(class_ref, method, sig, &[(&context).into()]),
+        }
+        .map_err(|e| e.to_string())?;
+        Ok(out.z().unwrap_or(true))
+    })
+}
+
+#[cfg(target_os = "android")]
+fn android_pin_set(old: Option<&str>, pin: &str) -> Result<(), String> {
+    let path = android_pin_wrap().ok_or("no-key")?;
+    let dek = if path.is_file() {
+        let Some(old) = old else { return Err("current-pin-required".to_string()) };
+        match db_key::pin_wrap_open(&path, old) {
+            db_key::PinOpen::Dek(d) => d,
+            db_key::PinOpen::Wrong { delay_secs, .. } => return Err(format!("retry:{delay_secs}")),
+            db_key::PinOpen::Corrupt => return Err("corrupt".to_string()),
+        }
+    } else {
+        android_current_dek().ok_or_else(|| {
+            log("app-lock: PIN refused — the core runs without a database key");
+            "no-key".to_string()
+        })?
+    };
+    db_key::pin_wrap_write(&path, pin, &dek)?;
+    if !matches!(db_key::pin_wrap_open(&path, pin), db_key::PinOpen::Dek(_)) {
+        let _ = std::fs::remove_file(&path);
+        return Err("wrap verify failed".to_string());
+    }
+    // The PIN replaces the plain Keystore wrap as the key root.
+    let _ = android_keystore_call("deletePlainWrap", "(Landroid/content/Context;)V", None);
+    log("app-lock: PIN is now the key root on Android; plain wrap removed");
+    Ok(())
+}
+
+#[cfg(target_os = "android")]
+fn android_pin_clear(pin: &str) -> Result<(), String> {
+    let path = android_pin_wrap().ok_or("corrupt")?;
+    let dek = match db_key::pin_wrap_open(&path, pin) {
+        db_key::PinOpen::Dek(d) => d,
+        db_key::PinOpen::Wrong { delay_secs, .. } => return Err(format!("retry:{delay_secs}")),
+        db_key::PinOpen::Corrupt => return Err("corrupt".to_string()),
+    };
+    // With the biometric lock on it stays the root; otherwise the DEK goes
+    // back into the plain Keystore wrap BEFORE the PIN wrap is removed.
+    if !android_biometric_pending() {
+        let ok = android_keystore_call("storePlainWrapHex", "(Landroid/content/Context;Ljava/lang/String;)Z", Some(&dek))?;
+        if !ok {
+            return Err("keychain-unavailable".to_string());
+        }
+    }
+    let _ = std::fs::remove_file(&path);
+    log("app-lock: PIN removed on Android");
+    Ok(())
+}
+
+#[cfg(target_os = "android")]
+fn android_pin_unlock(pin: &str) -> Result<(), String> {
+    let path = android_pin_wrap().ok_or("corrupt")?;
+    match db_key::pin_wrap_open(&path, pin) {
+        db_key::PinOpen::Dek(hex) => {
+            log("app-lock: PIN verified; handing the DEK to the core init");
+            *ANDROID_DEK_OVERRIDE.lock().unwrap() = Some(format!("x'{hex}'"));
+            Ok(())
+        }
+        db_key::PinOpen::Wrong { delay_secs, .. } => Err(format!("retry:{delay_secs}")),
+        db_key::PinOpen::Corrupt => Err("corrupt".to_string()),
+    }
 }
 
 /// The biometric app lock is on: the DEK only opens after a prompt.
@@ -4108,12 +4229,17 @@ fn android_biometric_pending() -> bool {
 /// velta-biometric event via Java_org_velta_VeltaLock_notifyResult.
 #[cfg(target_os = "android")]
 fn android_biometric_request(on: bool) -> Result<(), String> {
+    // The running core's DEK (never logged): lets the enable flow wrap the
+    // key the databases are actually open with, also when the plain wrap is
+    // gone because the app-lock PIN is the key root.
+    let current = android_current_dek().unwrap_or_default();
     with_android_class(&APP_LOCK_CLASS, "VeltaLock", |env, context, class_ref| {
+        let dek = env.new_string(&current).map_err(|e| e.to_string())?;
         env.call_static_method(
             class_ref,
             "requestFromContext",
-            "(Landroid/content/Context;Z)Z",
-            &[(&context).into(), jni::objects::JValue::from(on)],
+            "(Landroid/content/Context;ZLjava/lang/String;)Z",
+            &[(&context).into(), jni::objects::JValue::from(on), (&dek).into()],
         )
         .map_err(|e| e.to_string())?
         .z()
@@ -4170,9 +4296,32 @@ async fn init_android_core(
     // (quilt patch #20); no UI is involved, so push/job cold starts unlock
     // without user authentication.
     let override_raw = ANDROID_DEK_OVERRIDE.lock().unwrap().take();
+    let pin_on = android_pin_wrap().is_some_and(|p| p.is_file());
     if let Some(raw) = override_raw {
-        log("db-key: using the DEK from the biometric unlock");
-        std::env::set_var("VELTA_DB_KEY", raw);
+        // Unlocked DEK (biometric or PIN): run the same prepare/migration as
+        // the plain-wrap start, so databases still plaintext (the lock was
+        // turned on while the core ran keyless) are encrypted, not misread.
+        log("db-key: using the DEK from the app-lock unlock");
+        let hex = raw.trim_start_matches("x'").trim_end_matches('\'').to_string();
+        let report = db_key::prepare(&accounts_dir, Some(&hex));
+        log(&format!(
+            "db-key: unlock prepare: {} migrated, {} already encrypted, {} locked, key {}",
+            report.migrated, report.already, report.locked, if report.use_key { "active" } else { "off" }
+        ));
+        if report.use_key {
+            std::env::set_var("VELTA_DB_KEY", raw);
+        }
+        *DB_LOCK_STATUS.lock().unwrap() = None;
+        Host::current().emit("velta-db-unlocked", serde_json::json!({}));
+    } else if pin_on {
+        // App-lock PIN is the key root: the page shows the PIN screen
+        // (get_db_lock_status / velta-db-locked) and unlock_with_pin
+        // hands the DEK over; the biometric overlay, when also on, offers
+        // "Use PIN".
+        log("db-key: app-lock PIN is on; core start waits for the PIN unlock");
+        *DB_LOCK_STATUS.lock().unwrap() = Some(serde_json::json!({ "mode": "pin" }));
+        Host::current().emit("velta-db-locked", serde_json::json!({ "mode": "pin" }));
+        anyhow::bail!("app-locked");
     } else if android_biometric_pending() {
         // Nothing has been opened yet: Accounts::new will run again once
         // VeltaCore.startWithDek hands over the unlocked DEK.
