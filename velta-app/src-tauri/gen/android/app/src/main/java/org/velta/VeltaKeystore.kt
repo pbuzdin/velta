@@ -123,10 +123,7 @@ object VeltaKeystore {
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.ENCRYPT_MODE, kek)
             val iv = cipher.iv
-            val blob = ByteArray(1 + iv.size + dek.size)
-            blob[0] = 1
-            iv.copyInto(blob, 1)
-            cipher.doFinal(dek).copyInto(blob, 1 + iv.size)
+            val blob = pack(iv, cipher.doFinal(dek))
             val wrapFile = File(context.noBackupFilesDir, WRAP_FILE)
             val tmp = File(wrapFile.parentFile, "$WRAP_FILE.tmp")
             java.io.FileOutputStream(tmp).use { out ->
@@ -152,10 +149,7 @@ object VeltaKeystore {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, kek)
         val iv = cipher.iv
-        val blob = ByteArray(1 + iv.size + dek.size)
-        blob[0] = 1 // format version
-        iv.copyInto(blob, 1)
-        cipher.doFinal(dek).copyInto(blob, 1 + iv.size)
+        val blob = pack(iv, cipher.doFinal(dek))
         // Atomic: temp file + fsync + rename, so a crash mid-write never
         // leaves a torn dbkey.wrap (which would read as "Keystore lost").
         val tmp = File(wrapFile.parentFile, "$WRAP_FILE.tmp")
@@ -225,6 +219,22 @@ object VeltaKeystore {
             lastError = "kek generation: ${e.javaClass.simpleName}: ${e.message}"
             null
         }
+    }
+
+    /**
+     * [ver=1][12B iv][ciphertext ‖ 16B GCM tag] — sized from the actual
+     * doFinal output (32B DEK → 48B), not the plaintext: the old
+     * 1 + iv + dek.size buffer was 16 bytes short, so every wrap threw
+     * ArrayIndexOutOfBounds and no DEK was ever stored. Unwrap reads
+     * iv = [1, 13) and ct = [13, end), the mirror of this layout.
+     */
+    @JvmStatic
+    fun pack(iv: ByteArray, ct: ByteArray): ByteArray {
+        val blob = ByteArray(1 + iv.size + ct.size)
+        blob[0] = 1
+        iv.copyInto(blob, 1)
+        ct.copyInto(blob, 1 + iv.size)
+        return blob
     }
 
     private fun hex(bytes: ByteArray): String {
