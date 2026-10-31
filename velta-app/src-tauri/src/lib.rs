@@ -4449,18 +4449,107 @@ async fn init_android_core(
     });
 
     // Process incoming JSON-RPC requests.
+    // Stall diagnostics (Refs #176): every request is tracked while the core
+    // works on it; >= 2 s logs "core rpc slow", and a watchdog names the
+    // oldest calls still inside the core plus any runtime stall, so a
+    // frozen chat open shows WHICH core call hogs it (vs a lost response).
+    let inflight: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<u64, (String, std::time::Instant)>>> =
+        Default::default();
+    start_core_rpc_watchdog(inflight.clone());
     tokio::spawn(async move {
+        let mut seq: u64 = 0;
         while let Some(line) = req_rx.recv().await {
             // NOTE: do not log every request here either.
             let session = session.clone();
+            seq = seq.wrapping_add(1);
+            let key = seq;
+            let method = rpc_method_of(&line);
+            let inflight = inflight.clone();
+            inflight.lock().unwrap().insert(key, (method.clone(), std::time::Instant::now()));
             tokio::spawn(async move {
+                let started = std::time::Instant::now();
                 session.handle_incoming(&line).await;
+                inflight.lock().unwrap().remove(&key);
+                let ms = started.elapsed().as_millis();
+                if ms >= 2000 && !rpc_parks_by_design(&method) {
+                    log(&format!("core rpc slow: {method} took {ms} ms"));
+                }
             });
         }
     });
 
     log("android core RPC session and response forwarder ready");
     Ok(req_tx)
+}
+
+/// The "method" of a JSON-RPC request line (diagnostics only).
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn rpc_method_of(line: &str) -> String {
+    #[derive(serde::Deserialize)]
+    struct M<'a> {
+        #[serde(borrow)]
+        method: Option<std::borrow::Cow<'a, str>>,
+    }
+    serde_json::from_str::<M>(line)
+        .ok()
+        .and_then(|m| m.method.map(|c| c.into_owned()))
+        .unwrap_or_else(|| "?".to_string())
+}
+
+/// Long polls that wait for work by design (not a stall).
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn rpc_parks_by_design(method: &str) -> bool {
+    matches!(method, "get_next_event_batch" | "get_next_event" | "background_fetch" | "wait_next_msgs")
+}
+
+/// One line per stall episode: the oldest in-flight core calls ("core rpc
+/// in flight (N): get_chatlist_items_by_entries 12.0s, ..."), at most every
+/// 10 s while a call is older than 8 s; plus "core runtime stalled" when the
+/// watchdog's own 2 s tick ran >= 1.5 s late (a blocked tokio worker).
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn summarize_inflight(
+    rows: &std::collections::HashMap<u64, (String, std::time::Instant)>,
+    now: std::time::Instant,
+    min_age: std::time::Duration,
+) -> Option<String> {
+    let mut v: Vec<(&str, std::time::Duration)> = rows
+        .values()
+        .filter(|(m, _)| !rpc_parks_by_design(m))
+        .map(|(m, t)| (m.as_str(), now.saturating_duration_since(*t)))
+        .collect();
+    v.sort_by(|a, b| b.1.cmp(&a.1));
+    if v.first().map_or(true, |(_, age)| *age < min_age) {
+        return None;
+    }
+    let top: Vec<String> = v.iter().take(8).map(|(m, a)| format!("{m} {:.1}s", a.as_secs_f64())).collect();
+    Some(format!("core rpc in flight ({}): {}", v.len(), top.join(", ")))
+}
+
+#[cfg(target_os = "android")]
+fn start_core_rpc_watchdog(
+    inflight: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<u64, (String, std::time::Instant)>>>,
+) {
+    tokio::spawn(async move {
+        let tick = std::time::Duration::from_secs(2);
+        let mut last_report: Option<std::time::Instant> = None;
+        loop {
+            let before = std::time::Instant::now();
+            tokio::time::sleep(tick).await;
+            let now = std::time::Instant::now();
+            let late = now.duration_since(before).saturating_sub(tick);
+            if late >= std::time::Duration::from_millis(1500) {
+                log(&format!("core runtime stalled: watchdog tick {} ms late", late.as_millis()));
+            }
+            if last_report.is_some_and(|t| now.duration_since(t) < std::time::Duration::from_secs(10)) {
+                continue;
+            }
+            let line = summarize_inflight(&inflight.lock().unwrap(), now, std::time::Duration::from_secs(8));
+            if let Some(line) = line {
+                log(&line);
+                last_report = Some(now);
+            }
+        }
+    });
 }
 
 // Interrupt IDLE so a socket Android stopped delivering actually fetches.
@@ -5654,5 +5743,30 @@ mod relay_claim_tests {
         ] {
             assert!(relay_claim_url(h, t).is_err(), "{h} {t}");
         }
+    }
+}
+
+#[cfg(test)]
+mod core_rpc_watchdog_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn method_of_request_line() {
+        assert_eq!(rpc_method_of(r#"{"jsonrpc":"2.0","id":3,"method":"get_chat","params":[1]}"#), "get_chat");
+        assert_eq!(rpc_method_of("garbage"), "?");
+    }
+
+    #[test]
+    fn inflight_summary_names_oldest_and_skips_long_polls() {
+        let now = Instant::now() + Duration::from_secs(60);
+        let mut m = std::collections::HashMap::new();
+        m.insert(1, ("get_next_event_batch".to_string(), now - Duration::from_secs(50)));
+        m.insert(2, ("get_chatlist_items_by_entries".to_string(), now - Duration::from_secs(12)));
+        m.insert(3, ("get_chat".to_string(), now - Duration::from_secs(1)));
+        let s = summarize_inflight(&m, now, Duration::from_secs(8)).unwrap();
+        assert_eq!(s, "core rpc in flight (2): get_chatlist_items_by_entries 12.0s, get_chat 1.0s");
+        m.remove(&2);
+        assert!(summarize_inflight(&m, now, Duration::from_secs(8)).is_none());
     }
 }

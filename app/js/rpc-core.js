@@ -383,6 +383,21 @@ export class JsonRpcCore extends EventTarget {
 
   _rpcLog(msg) { try { rustLog(msg); } catch {} }
 
+  // Stall diagnostics (Refs #176): the oldest calls still waiting, so a
+  // timeout line names what the core is busy with ("; oldest: m 29s, ...").
+  // The event long poll parks by design and is left out.
+  _inFlightSummary(max = 6) {
+    const now = Date.now();
+    const rows = [];
+    for (const e of this.pending.values()) {
+      if (!e.method || !e.started || e.method === this._eventPollMethod) continue;
+      rows.push([e.method, now - e.started]);
+    }
+    if (!rows.length) return "";
+    rows.sort((a, b) => b[1] - a[1]);
+    return "; oldest: " + rows.slice(0, max).map(([m, ms]) => `${m} ${Math.round(ms / 100) / 10}s`).join(", ");
+  }
+
   _call(method, ...params) {
     return this._callWithTimeout(30000, method, ...params);
   }
@@ -402,7 +417,7 @@ export class JsonRpcCore extends EventTarget {
       };
       const resolve = v => { done(); resolve0(v); };
       const reject = e => { done(); reject0(e); };
-      this.pending.set(id, { resolve, reject });
+      this.pending.set(id, { resolve, reject, method, started });
       try {
         const result = this.transport.send(line);
         // Tauri IPC returns a promise; catch invoke errors immediately
@@ -424,7 +439,7 @@ export class JsonRpcCore extends EventTarget {
           this.pending.delete(id);
           this._timedOut.set(id, { method, started });
           if (this._timedOut.size > 200) this._timedOut.delete(this._timedOut.keys().next().value);
-          this._rpcLog(`rpc timeout: ${method} after ${Date.now() - started} ms (${this.pending.size} still pending)`);
+          this._rpcLog(`rpc timeout: ${method} after ${Date.now() - started} ms (${this.pending.size} still pending${this._inFlightSummary()})`);
           reject0(new Error("rpc timeout: " + method));
         }
       }, timeoutMs);
@@ -1566,7 +1581,22 @@ export class JsonRpcCore extends EventTarget {
     return this._call("can_send", this.accountId, chatId);
   }
 
-  async getChat(chatId) {
+  // One get_chat per (account, chat) in flight: a re-tap after the 15 s
+  // guard release (or a quick list re-render) joins the pending call instead
+  // of queueing another 30 s request on a stalled core (request storm, #176).
+  getChat(chatId) {
+    const key = `${this.accountId}:${chatId}`;
+    this._getChatInflight ??= new Map();
+    const running = this._getChatInflight.get(key);
+    if (running) return running;
+    const p = this._getChatOnce(chatId).finally(() => {
+      if (this._getChatInflight.get(key) === p) this._getChatInflight.delete(key);
+    });
+    this._getChatInflight.set(key, p);
+    return p;
+  }
+
+  async _getChatOnce(chatId) {
     const { accountId } = this;
     // Just this chat's chatlist item (same shape as the list rows, works for
     // archived chats too) — this used to load and map the WHOLE chat list,

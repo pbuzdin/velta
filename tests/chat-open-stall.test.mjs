@@ -55,3 +55,23 @@ test("openChat releases its same-chat guard on a stall and logs steps", () => {
   assert.match(body, /clearTimeout\(guard\)/);
   assert.match(body, /open chat \$\{chatId\}: \$\{name\} took \$\{ms\} ms/);
 });
+
+test("re-tapping a chat joins the pending getChat instead of a new RPC", async () => {
+  const { core, transport, respond } = setup();
+  const a = core.getChat(7), b = core.getChat(7);
+  assert.equal(a, b);
+  assert.equal(transport.sent.length, 1);
+  respond(transport.sent[0], { 7: { kind: "Error", error: "x" } });
+  await a.catch(() => {});
+  core.getChat(7).catch(() => {});
+  assert.equal(transport.sent.filter(r => r.method === "get_chatlist_items_by_entries").length, 2);
+});
+
+test("a timeout line names the oldest calls still in flight", async () => {
+  const { core, logs } = setup();
+  core._callWithTimeout(60000, "get_chatlist_items_by_entries", 1, [3]).catch(() => {});
+  await assert.rejects(core._callWithTimeout(5, "get_chat", 1), /rpc timeout/);
+  assert.ok(logs.some(l => /still pending; oldest: get_chatlist_items_by_entries \d/.test(l)), logs.join("\n"));
+  for (const e of core.pending.values()) e.reject(new Error("done"));
+  core.pending.clear();
+});
