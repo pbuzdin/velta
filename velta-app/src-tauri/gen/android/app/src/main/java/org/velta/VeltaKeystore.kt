@@ -151,7 +151,7 @@ object VeltaKeystore {
         try {
             if (Build.VERSION.SDK_INT >= 28) {
                 try {
-                    generator.init(common().setStrongBoxBacked(true).build())
+                    generator.init(common().setIsStrongBoxBacked(true).build())
                 } catch (e: Exception) {
                     if (e is StrongBoxUnavailableException || e is KeyPermanentlyInvalidatedException) {
                         generator.init(common().build())

@@ -338,8 +338,8 @@ object VeltaLock {
             isClickable = true
             isFocusable = true
         }
-        val box = androidx.appcompat.widget.LinearLayout(activity).apply {
-            orientation = androidx.appcompat.widget.LinearLayout.VERTICAL
+        val box = android.widget.LinearLayout(activity).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
             gravity = Gravity.CENTER
         }
         val title = TextView(activity).apply {
