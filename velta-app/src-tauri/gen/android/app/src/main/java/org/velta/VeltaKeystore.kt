@@ -3,9 +3,7 @@ package org.velta
 import android.content.Context
 import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
-import android.security.keystore.StrongBoxUnavailableException
 import android.util.Log
 import java.io.File
 import java.security.KeyStore
@@ -33,8 +31,41 @@ object VeltaKeystore {
     private const val WRAP_FILE = "dbkey.wrap"
     private const val GCM_TAG_BITS = 128
 
+    /** Why the last getOrCreateDek/readDek gave null (no key material). */
+    @Volatile
+    @JvmStatic
+    var lastError: String? = null
+
+    /** The plain wrap exists: database encryption is set up on this device. */
+    @JvmStatic
+    fun hasPlainWrap(context: Context): Boolean = File(context.noBackupFilesDir, WRAP_FILE).exists()
+
+    /**
+     * #178 phase 4 (enable flow): the EXISTING DEK, never a fresh one — a
+     * new key here would not match databases the core opened keyless.
+     */
+    @JvmStatic
+    fun readDek(context: Context): String? {
+        lastError = null
+        val wrapFile = File(context.noBackupFilesDir, WRAP_FILE)
+        if (!wrapFile.exists()) {
+            lastError = "no-key: dbkey.wrap missing"
+            return null
+        }
+        return try {
+            unwrap(wrapFile) ?: run {
+                if (lastError == null) lastError = "dbkey.wrap undecryptable"
+                null
+            }
+        } catch (e: Exception) {
+            lastError = "keystore: ${e.javaClass.simpleName}: ${e.message}"
+            null
+        }
+    }
+
     @JvmStatic
     fun getOrCreateDek(context: Context): String? {
+        lastError = null
         return try {
             // #178 phase 4: with the biometric app lock on, the DEK only
             // opens after a successful BiometricPrompt (VeltaLock) — never
@@ -55,6 +86,7 @@ object VeltaKeystore {
             create(context, wrapFile)
         } catch (e: Exception) {
             Log.e(TAG, "keystore unavailable", e)
+            lastError = "keystore: ${e.javaClass.simpleName}: ${e.message}"
             null
         }
     }
@@ -129,6 +161,8 @@ object VeltaKeystore {
             hex(cipher.doFinal(blob, 13, blob.size - 13))
         }
     } catch (e: Exception) {
+        Log.e(TAG, "dbkey.wrap unwrap failed", e)
+        lastError = "unwrap: ${e.javaClass.simpleName}: ${e.message}"
         null
     }
 
@@ -148,25 +182,25 @@ object VeltaKeystore {
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                 .setKeySize(256)
         }
-        try {
-            if (Build.VERSION.SDK_INT >= 28) {
-                try {
-                    generator.init(common().setIsStrongBoxBacked(true).build())
-                } catch (e: Exception) {
-                    if (e is StrongBoxUnavailableException || e is KeyPermanentlyInvalidatedException) {
-                        generator.init(common().build())
-                    } else {
-                        throw e
-                    }
-                }
-            } else {
-                generator.init(common().build())
+        // StrongBox first; StrongBoxUnavailableException surfaces from
+        // generateKey() (not init()) on devices without a StrongBox, so the
+        // fallback has to wrap both calls — otherwise every start ran keyless.
+        if (Build.VERSION.SDK_INT >= 28) {
+            try {
+                generator.init(common().setIsStrongBoxBacked(true).build())
+                return generator.generateKey()
+            } catch (e: Exception) {
+                Log.w(TAG, "StrongBox KEK unavailable (${e.javaClass.simpleName}); using the TEE")
             }
+        }
+        return try {
+            generator.init(common().build())
+            generator.generateKey()
         } catch (e: Exception) {
             Log.e(TAG, "kek generation failed", e)
-            return null
+            lastError = "kek generation: ${e.javaClass.simpleName}: ${e.message}"
+            null
         }
-        return generator.generateKey()
     }
 
     private fun hex(bytes: ByteArray): String {

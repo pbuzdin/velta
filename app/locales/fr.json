@@ -1509,5 +1509,7 @@
   "Privacy & security": "Confidentialité et sécurité",
   "Privacy & security…": "Confidentialité et sécurité…",
   "The biometric prompt did not succeed: {why}": "La vérification biométrique a échoué : {why}",
-  "The biometric lock protects the database key of all profiles at rest — cold starts ask for your fingerprint before any data opens.": "Le verrouillage biométrique protège au repos la clé de la base de données de tous les profils — au démarrage à froid, votre empreinte est demandée avant l'ouverture des données."
+  "The biometric lock protects the database key of all profiles at rest — cold starts ask for your fingerprint before any data opens.": "Le verrouillage biométrique protège au repos la clé de la base de données de tous les profils — au démarrage à froid, votre empreinte est demandée avant l'ouverture des données.",
+  "Database encryption isn't set up on this device yet. Restart Velta to finish it, then turn on the lock.": "Le chiffrement de la base de données n'est pas encore configuré sur cet appareil. Redémarrez Velta pour le terminer, puis activez le verrouillage.",
+  "Set up a screen lock (PIN, pattern or password) or a fingerprint in Android settings first.": "Configurez d'abord un verrouillage d'écran (code PIN, schéma ou mot de passe) ou une empreinte dans les paramètres Android."
 }

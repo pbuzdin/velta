@@ -5768,7 +5768,12 @@ function openPrivacySecurity() {
       // velta.log); surface it so a failure is diagnosable.
       const bioFail = (why) => {
         diagnostics.append("error", `Biometric lock: ${why || "failed"}`);
-        errToast(why ? t("The biometric prompt did not succeed: {why}", { why }) : t("The biometric prompt did not succeed."), 6000);
+        const w = String(why || "");
+        // no-key: the core runs without a database key yet; no-auth: no
+        // screen lock / fingerprint set up. Clear hints, not raw codes.
+        if (w.startsWith("no-key")) errToast(t("Database encryption isn't set up on this device yet. Restart Velta to finish it, then turn on the lock."), 8000);
+        else if (w.startsWith("no-auth")) errToast(t("Set up a screen lock (PIN, pattern or password) or a fingerprint in Android settings first."), 8000);
+        else errToast(w ? t("The biometric prompt did not succeed: {why}", { why: w }) : t("The biometric prompt did not succeed."), 6000);
       };
       const unlistenP = window.__TAURI__?.event?.listen?.("velta-biometric", (ev) => {
         refreshBio();

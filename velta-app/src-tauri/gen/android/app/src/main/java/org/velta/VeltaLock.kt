@@ -66,14 +66,29 @@ object VeltaLock {
     // A CryptoObject prompt only accepts Class 3 (strong) biometrics on every
     // API level; asking for WEAK on 28/29 made available() say yes on devices
     // whose prompt then refused the crypto op.
-    private const val AUTHENTICATORS = BiometricManager.Authenticators.BIOMETRIC_STRONG
+    //
+    // Android 11+: the phone's screen-lock PIN/pattern/password is accepted
+    // too (DEVICE_CREDENTIAL with a CryptoObject is supported from API 30),
+    // so users without an enrolled fingerprint can turn the lock on.
+    // Android 9-10 cannot combine a device credential with a CryptoObject:
+    // strong biometric only there.
+    private val AUTHENTICATORS: Int
+        get() = if (Build.VERSION.SDK_INT >= 30) {
+            BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        } else {
+            BiometricManager.Authenticators.BIOMETRIC_STRONG
+        }
 
     /** Why canAuthenticate refused, in words for the toast / velta.log. */
     private fun canAuthenticateDetail(context: Context): String? {
         val code = BiometricManager.from(context).canAuthenticate(AUTHENTICATORS)
         return when (code) {
             BiometricManager.BIOMETRIC_SUCCESS -> null
-            BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> "canAuthenticate=$code: no strong biometric enrolled"
+            BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> if (Build.VERSION.SDK_INT >= 30) {
+                "no-auth: canAuthenticate=$code: no screen lock or strong biometric set up"
+            } else {
+                "no-auth: canAuthenticate=$code: no fingerprint enrolled (Android 9-10 needs one)"
+            }
             BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> "canAuthenticate=$code: no biometric hardware"
             BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> "canAuthenticate=$code: biometric hardware unavailable"
             BiometricManager.BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED -> "canAuthenticate=$code: security update required"
@@ -111,9 +126,11 @@ object VeltaLock {
                 .setUserAuthenticationRequired(true)
                 .setInvalidatedByBiometricEnrollment(false)
             if (Build.VERSION.SDK_INT >= 30) {
-                // Strong biometric only, matching the prompt's authenticators
-                // (a device-credential prompt cannot carry a negative button).
-                builder.setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG)
+                // Matches the prompt: strong biometric or the screen lock.
+                builder.setUserAuthenticationParameters(
+                    0,
+                    KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL,
+                )
             } else {
                 // -1: auth required for every use (CryptoObject mandatory).
                 builder.setUserAuthenticationValidityDurationSeconds(-1)
@@ -168,12 +185,14 @@ object VeltaLock {
             }
         }
         val prompt = BiometricPrompt(activity, executor, callback)
-        val info = BiometricPrompt.PromptInfo.Builder()
+        val builder = BiometricPrompt.PromptInfo.Builder()
             .setTitle(title)
-            .setNegativeButtonText(activity.getString(R.string.biometric_cancel))
             .setAllowedAuthenticators(AUTHENTICATORS)
             .setConfirmationRequired(false)
-            .build()
+        // A DEVICE_CREDENTIAL prompt has its own cancel; a negative button
+        // there throws IllegalArgumentException.
+        if (Build.VERSION.SDK_INT < 30) builder.setNegativeButtonText(activity.getString(R.string.biometric_cancel))
+        val info = builder.build()
         if (cipher != null) prompt.authenticate(info, BiometricPrompt.CryptoObject(cipher))
         else prompt.authenticate(info)
     }
@@ -230,15 +249,28 @@ object VeltaLock {
             return
         }
         lastKekError = null
+        // Enabling with the lock off: the auth key protects nothing yet, so
+        // regenerate it — an older build made it biometric-only, which
+        // would refuse the screen-lock PIN.
+        if (on) {
+            try {
+                KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(AUTH_KEK_ALIAS)
+            } catch (e: Exception) {
+                Log.w(TAG, "auth key reset failed", e)
+            }
+        }
         val kek = authKek()
         if (kek == null) {
             report(on, false, lastKekError ?: "auth key unavailable")
             return
         }
         if (on) {
-            val dekHex = VeltaKeystore.getOrCreateDek(context)
+            // The existing DEK only: with no plain wrap the core is running
+            // keyless (encryption not set up yet) and a fresh key would not
+            // match its databases.
+            val dekHex = VeltaKeystore.readDek(context)
             if (dekHex == null) {
-                report(on, false, "database key unavailable")
+                report(on, false, VeltaKeystore.lastError ?: "database key unavailable")
                 return
             }
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
