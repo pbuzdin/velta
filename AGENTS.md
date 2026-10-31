@@ -2754,7 +2754,7 @@ and account-switch cleared. Tests: `tests/lru-caches.test.mjs`.
   SQLite to minimize external runtime dependencies.
 - **No unsafe code in the core.** The `deltachat` crate forbids `unsafe`; keep
   it that way.
-- **Data at rest is keyed (#178), blobs are not — by decision.** One random
+- **Data at rest is keyed (#178): shipped on Android, preview on desktop/PWA; blobs not yet (attachment encryption is WIP).** One random
   256-bit DEK per install opens every account's SQLCipher database; it
   reaches the core as the `VELTA_DB_KEY` env var (core quilt patch #20,
   read in `Accounts::load_accounts`/`add_account`). Custody per platform:
@@ -2785,7 +2785,7 @@ and account-switch cleared. Tests: `tests/lru-caches.test.mjs`.
   in Profile management. PWA: the DEK is PBKDF2/PRF-wrapped in
   OPFS (`db-crypt.js`/`db-lock.js`, optional PIN + recovery-code second
   wraps), and the whole OPFS snapshot is AES-GCM encrypted. Attachments
-  (`dc.db-blobs/`) stay plaintext deliberately (plan §2.5 option A: core
+  (`dc.db-blobs/`) are still plaintext (encryption WIP; plan §2.5 option A so far: core
   reads blobs directly, an app-level crypto patch would fight every bump);
   the settings show the boundary (`volume_encryption_status`). The desktop
   thumbnail cache `<data>/thumbs/` — a flat gallery of derived plaintext

@@ -1425,20 +1425,19 @@ is the installer, not the app, and it sends nothing about you.
 </details>
 
 <details>
-<summary>Database encryption at rest &amp; app lock (since 1.4.89)</summary>
+<summary>Profile data encryption &amp; app lock (since 1.4.89)</summary>
 
-Every profile's message database is now **encrypted at rest** (SQLCipher)
-on every platform. One random 256-bit key per install opens all profiles;
-existing plaintext databases are migrated once at startup (backup first,
-verified copy, atomic swap — the old file is kept until the encrypted one
-is proven). Where the key lives:
+**Android:** each profile's message database is encrypted at rest
+(SQLCipher) with a key in the Android Keystore (StrongBox when present).
+Existing data is migrated once at startup (verified copy, atomic swap, old
+file kept until the new one is proven).
 
-- **Windows / macOS / Linux** — the OS keychain (Credential Manager,
-  Keychain, Secret Service). Without a keychain Velta says so with an
-  "encryption is off" notice instead of silently storing a key file.
-- **Android** — the Android Keystore (StrongBox when the phone has one).
-- **Browser (PWA)** — a passphrase or a passkey (WebAuthn PRF) wraps the
-  key; the whole local snapshot is encrypted.
+**Desktop and browser (PWA): preview.** The same database encryption exists
+there (key in the OS keychain, or behind a passphrase/passkey in the
+browser) but is not final yet.
+
+**Attachments are not encrypted yet** — work in progress. Until then they
+rely on the platform's app isolation and disk encryption.
 
 **Privacy & security** (side drawer, desktop and Android apps) gathers the
 lock settings for the whole app, not per profile:
@@ -1452,9 +1451,8 @@ lock settings for the whole app, not per profile:
   ("Use PIN" on the lock screen).
 - **Lock when hidden** — off / 1 / 5 / 15 minutes.
 
-Attachments stay outside the database encryption by design: they rely on
-the platform's app isolation and disk encryption (Android file-based
-encryption; on desktop the screen shows whether BitLocker/FileVault is on).
+The screen also shows what protects attachments today (Android
+file-based encryption; on desktop whether BitLocker/FileVault is on).
 Lose the PIN and the keychain/Keystore and the data cannot be opened —
 keep a backup.
 
