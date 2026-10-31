@@ -112,13 +112,15 @@ if (window.customElements && !customElements.get("velta-news-pager")) {
       if (this.firstChild) return;
       var share = typeof navigator.share === "function";
       var label = share ? "Share" : "Copy link";
-      this.innerHTML = '<button type="button" class="share-btn" aria-label="' + label + '" title="' + label + '">' +
-        (share ? ICON_SHARE : ICON_LINK) + '</button><span class="share-status" role="status" aria-live="polite"></span>';
-      var btn = this.firstChild, status = this.lastChild, timer;
+      this.innerHTML = '<button type="button" class="share-btn">' + (share ? ICON_SHARE : ICON_LINK) +
+        '<span class="share-label">' + label + '</span></button><span class="share-status" role="status" aria-live="polite"></span>';
+      var btn = this.firstChild, text = btn.lastChild, status = this.lastChild, timer;
+      // "Copied" swaps the visible label briefly; the live region announces it.
       var say = function (t) {
+        text.textContent = t;
         status.textContent = t;
         clearTimeout(timer);
-        timer = setTimeout(function () { status.textContent = ""; }, 2000);
+        timer = setTimeout(function () { text.textContent = label; status.textContent = ""; }, 2000);
       };
       btn.addEventListener("click", function () {
         var u = url();
