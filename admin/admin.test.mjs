@@ -186,4 +186,38 @@ for (const [name, ok] of cases) {
   console.log((ok ? "PASS" : "FAIL") + "  " + name);
   if (!ok) fail++;
 }
+// ---- news pagination (admin/news-pages.js is pure, imported directly) ----
+{
+  const np = await import("./news-pages.js");
+  const assert = (await import("node:assert/strict")).default;
+  const tpl = read("../news/index.html");
+  const li = (n) => `<li><a href="/news/p${n}.html"><span><h2>P${n}</h2></span></a></li>`;
+  const p1 = read("../news/page/1/index.html");
+  assert.equal(np.listItems(p1).length, 10, "page 1 holds the 10 oldest");
+  assert.match(p1, /<link rel="canonical" href="https:\/\/velta\.cc\/news\/page\/1\/">/);
+  assert.match(read("../news/page/2/index.html"), /<link rel="prev" href="https:\/\/velta\.cc\/news\/page\/1\/">/);
+  assert.match(p1, /aria-current="page" aria-label="Page 1">1</);
+  assert.equal(np.listItems(tpl).length, 10, "/news/ shows the newest 10");
+  assert.equal(np.pageCountOf(tpl), 2);
+  // append to a non-full newest page: only that page + /news/
+  let idx = np.indexDoc(tpl, [li(3), li(2), li(1)], 1);
+  let page = np.pageDoc(tpl, 1, [li(3), li(2), li(1)]);
+  let w = np.planAdd({ indexRaw: idx, newestRaw: page, pageCount: 1, li: li(4) });
+  assert.deepEqual(w.map((x) => x.path), ["news/page/1/index.html", "news/index.html"]);
+  assert.equal(np.listItems(w[0].content)[0], li(4));
+  // full newest page: a new page N+1 is created, page N untouched
+  const ten = Array.from({ length: 10 }, (_, i) => li(10 - i));
+  idx = np.indexDoc(tpl, ten, 1);
+  page = np.pageDoc(tpl, 1, ten);
+  w = np.planAdd({ indexRaw: idx, newestRaw: page, pageCount: 1, li: li(11) });
+  assert.deepEqual(w.map((x) => [x.path, x.create]), [["news/page/2/index.html", true], ["news/index.html", false]]);
+  assert.deepEqual(np.listItems(w[0].content), [li(11)]);
+  assert.equal(np.pageCountOf(w[1].content), 2);
+  assert.equal(np.listItems(w[1].content).length, 10);
+  assert.equal(np.listItems(w[1].content)[0], li(11));
+  assert.doesNotMatch(w[0].content, /rel="next"/);
+  assert.match(read("../404.html"), /<meta name="robots" content="noindex, follow">/);
+  console.log("news pagination: ok");
+}
 process.exit(fail ? 1 : 0);
+

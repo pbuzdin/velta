@@ -31,7 +31,7 @@
     .then(function (html) {
       if (!html) return;
       var doc = new DOMParser().parseFromString(html, "text/html");
-      var links = doc.querySelectorAll("main.news ul a");
+      var links = doc.querySelectorAll("main.news ul.news-list a");
       if (!links.length) return;
       lists.forEach(function (notes) {
         notes.innerHTML = "";

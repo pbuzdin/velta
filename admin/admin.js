@@ -23,6 +23,7 @@
 
 import { Elena, html, nothing } from "./elena.js";
 import { createGithubBackend } from "./backend-github.js";
+import { planAdd, pageCountOf, pagePath } from "./news-pages.js?v=1";
 
 const REPO = "pbuzdin/velta";
 const BRANCH = "website";
@@ -174,7 +175,12 @@ const spliceBody = (raw, body) =>
   raw.replace(MARKERS, () => `${START}\n${body.replace(/^\n+|\n+$/g, "")}\n${END}`);
 
 // The assembler: full static page = partials + body (includes expanded).
-function assemble({ nav, footer, body, title, description, active, mainClass }) {
+// Per-page head tags the assembler must keep (canonical / prev / next for
+// news pagination, robots on 404): carried over verbatim from the old file.
+const headExtraOf = (raw) =>
+  (raw.match(/<link rel="(?:canonical|prev|next)"[^>]*>|<meta name="robots"[^>]*>/g) || []).join("\n  ");
+
+function assemble({ nav, footer, body, title, description, active, mainClass, headExtra = "" }) {
   const cls = mainClass ? ` class="${mainClass}"` : "";
   return `<!doctype html>
 <html lang="en">
@@ -186,7 +192,7 @@ function assemble({ nav, footer, body, title, description, active, mainClass }) 
   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/css/velta.css?v=8">
+  <link rel="stylesheet" href="/css/velta.css?v=9">${headExtra ? `\n  ${headExtra}` : ""}
   <script type="speculationrules">
 {
   "prerender": [{
@@ -212,7 +218,7 @@ ${body.replace(/^\n+|\n+$/g, "")}
 ${END}
   </main>
 ${footer.trimEnd()}
-  <script src="/js/site.js?v=3"></script>
+  <script src="/js/site.js?v=4"></script>
 </body>
 </html>
 `;
@@ -379,7 +385,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
     }
     frame.srcdoc =
       `<!doctype html><html lang="en"><head><meta charset="utf-8">` +
-      `<link rel="stylesheet" href="/css/velta.css?v=8"><style>body{margin:0;padding:1.25rem}</style></head>` +
+      `<link rel="stylesheet" href="/css/velta.css?v=9"><style>body{margin:0;padding:1.25rem}</style></head>` +
       `<body><main id="content"${this.mainClass ? ` class="${this.mainClass}"` : ""}>${body}</main></body></html>`;
   }
 
@@ -406,7 +412,18 @@ class VeltaAdmin extends Elena(HTMLElement) {
             .map((f) => ({ path: `${dir}/${f.name}`, name: f.name, size: f.size, sha: f.sha, kind })),
         );
       }
-      files.sort((a, b) => a.path.localeCompare(b.path));
+      // News archive pages: news/page/<n>/index.html
+      if (files.some((f) => f.path.startsWith("news/"))) {
+        const pagesDir = await this.backend.list("news").then((l) => l.some((d) => d.type === "dir" && d.name === "page")).catch(() => false);
+        if (pagesDir) {
+          for (const d of (await this.backend.list("news/page")).filter((d) => d.type === "dir")) {
+            for (const f of (await this.backend.list(`news/page/${d.name}`)).filter((f) => f.type === "file" && f.name === "index.html")) {
+              files.push({ path: `news/page/${d.name}/index.html`, name: `page ${d.name}`, size: f.size, sha: f.sha, kind: "page" });
+            }
+          }
+        }
+      }
+      files.sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }));
       this.files = files;
     } catch (e) {
       this.error = String(e.message || e);
@@ -469,6 +486,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
           description: descriptionOf(this.raw),
           active: activeOf(this.raw),
           mainClass: mainClassOf(this.raw),
+          headExtra: headExtraOf(this.raw),
         });
       } else {
         newRaw = this.content;
@@ -521,6 +539,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
           description: descriptionOf(raw),
           active: activeOf(raw),
           mainClass: mainClassOf(raw),
+          headExtra: headExtraOf(raw),
         });
         f.sha = await this.putFile(f.path, `Rebuild ${f.path} from partials`, newRaw, f.sha);
         n++;
@@ -623,16 +642,20 @@ class VeltaAdmin extends Elena(HTMLElement) {
       });
       await this.putFile(path, `Create ${path}`, newRaw, null);
 
-      // Add the post to the news index right away — newest first. A second
-      // manual step here was the most confusing part of the old flow.
+      // Add the post to /news/ (newest 10) and to the newest archive page
+      // (news/page/N/, numbered from the oldest; a full page starts N+1).
+      // Older archive pages are never touched — see news-pages.js.
       const indexFile = await this.backend.get("news/index.html");
       const indexRaw = b64ToUtf8(indexFile.content);
-      const im = indexRaw.match(MARKERS);
-      if (!im) throw new Error("news/index.html has no body markers — cannot add the post to the list.");
+      if (!indexRaw.match(MARKERS)) throw new Error("news/index.html has no body markers — cannot add the post to the list.");
       const li = newsListItem({ slug, title, summary, date, iso: this.newPost.date.trim() || isoToday() });
-      // the index list is <ul class="news-list"> — match any <ul ...> opener
-      const newIndexRaw = spliceBody(indexRaw, im[1].replace(/<ul\b[^>]*>/i, (open) => `${open}\n  ${li}`));
-      await this.putFile("news/index.html", `Add ${path} to the news index`, newIndexRaw, indexFile.sha);
+      const pageCount = pageCountOf(indexRaw);
+      const newestFile = pageCount ? await this.backend.get(pagePath(pageCount)) : null;
+      const writes = planAdd({ indexRaw, newestRaw: newestFile ? b64ToUtf8(newestFile.content) : null, pageCount, li });
+      for (const w of writes) {
+        const sha = w.path === "news/index.html" ? indexFile.sha : w.create ? null : newestFile.sha;
+        await this.putFile(w.path, `Add ${path} to ${w.path}`, w.content, sha);
+      }
 
       await this.loadFiles();
       await this.open(path);
