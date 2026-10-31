@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Velta 1.4.89 encrypts your messages on the device — Velta</title>
-  <meta name="description" content="Message databases are now encrypted at rest on every platform, a new Privacy &amp; security screen holds the app lock, and Android gets a biometric lock with a PIN fallback.">
+  <title>Velta 1.4.89 encrypts profile data on Android — Velta</title>
+  <meta name="description" content="Profile data is now encrypted at rest on Android (preview on desktop and in the browser), a new Privacy &amp; security screen holds the app lock, and Android gets a biometric lock with a PIN fallback.">
   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -59,14 +59,14 @@
 <!-- CMS:START -->
     <p><a href="/news">News</a></p>
     <p class="kicker">Release</p>
-    <h1>Velta 1.4.89 encrypts your messages on the device</h1>
+    <h1>Velta 1.4.89 encrypts profile data on Android</h1>
     <p><time>31 October 2026</time> · 4 min read</p>
-    <p>Message databases are now encrypted at rest on every platform, a new Privacy &amp; security screen holds the app lock, and Android gets a biometric lock with a PIN fallback.</p>
+    <p>Profile data is now encrypted at rest on Android (preview on desktop and in the browser), a new Privacy &amp; security screen holds the app lock, and Android gets a biometric lock with a PIN fallback.</p>
     <div class="body">
 <p>Until now Velta’s messages were end-to-end encrypted on the way, but stored as a plain database on your device. <a href="/news/v1-4-88.html">1.4.88</a> was the last release where that was true.</p>
-<h2>Encrypted at rest, everywhere</h2>
-<p>Every profile’s message database is now encrypted on Windows, macOS, Linux, Android and in the browser app. On first start after the update, Velta converts your existing data once: it writes an encrypted copy, checks it, and only then swaps it in — the old file is kept until the new one is proven, so an interrupted update loses nothing.</p>
-<p>The key never sits next to the data. On a computer it lives in the system keychain; on Android in the phone’s secure key store; in the browser behind your passphrase or a passkey. If a Linux machine has no keychain, Velta says so plainly instead of pretending.</p>
+<h2>Encrypted at rest on Android</h2>
+<p>On Android, every profile’s message database is now encrypted, with the key in the phone’s secure key store. On first start after the update, Velta converts your existing data once: it writes an encrypted copy, checks it, and only then swaps it in — an interrupted update loses nothing.</p>
+<p>On Windows, macOS, Linux and in the browser app the same encryption is a <strong>preview</strong> for now. Attachments are <strong>not encrypted yet</strong> — that is work in progress.</p>
 <h2>Privacy &amp; security</h2>
 <p>A new <strong>Privacy &amp; security</strong> screen in the side menu gathers the lock settings for the whole app — they used to hide inside each profile’s management screen, although one key protects all profiles.</p>
 <ul>
@@ -74,7 +74,7 @@
 <li><strong>Biometric lock</strong> on Android — your fingerprint, or on Android 11 and later the phone’s own screen-lock PIN, pattern or password, so it works even without a fingerprint set up. It combines with the Velta PIN: the lock screen offers <strong>Use PIN</strong>.</li>
 <li><strong>Lock when hidden</strong> after 1, 5 or 15 minutes.</li>
 </ul>
-<p>Attachments stay outside this encryption on purpose: they rely on the system’s app isolation and disk encryption, and the screen tells you which applies on your device. Keep a backup — without the PIN and the device key, the data cannot be opened.</p>
+<p>Until attachment encryption lands, attachments rely on the system’s app isolation and disk encryption; the screen tells you which applies on your device. Keep a backup — without the PIN and the device key, the data cannot be opened.</p>
 <h2>Steadier chats</h2>
 <ul>
 <li>Opening a chat can no longer get stuck for minutes when the messaging engine stalls; tapping again retries.</li>
