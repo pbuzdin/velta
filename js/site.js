@@ -84,3 +84,64 @@ if (window.customElements && !customElements.get("velta-news-pager")) {
     }
   });
 }
+
+// <velta-share>: one icon button in a news POST's meta row
+// ("29 October 2026 · 4 min read"). Created by JS only — without JS there
+// is no dead button. navigator.share → "Share" (native sheet); otherwise
+// "Copy link" with a polite "Copied" status. Not on news lists.
+(function () {
+  if (!window.customElements || customElements.get("velta-share")) return;
+  var SVG = '<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">';
+  var ICON_SHARE = SVG + '<path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>';
+  var ICON_LINK = SVG + '<path d="M10 14a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1 1"/><path d="M14 10a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1-1"/></svg>';
+  var url = function () {
+    var c = document.querySelector('link[rel="canonical"]');
+    return c ? c.href : location.origin + location.pathname;
+  };
+  function legacyCopy(text) {
+    var ta = document.createElement("textarea");
+    ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+    ta.remove();
+    return ok;
+  }
+  customElements.define("velta-share", class extends HTMLElement {
+    connectedCallback() {
+      if (this.firstChild) return;
+      var share = typeof navigator.share === "function";
+      var label = share ? "Share" : "Copy link";
+      this.innerHTML = '<button type="button" class="share-btn" aria-label="' + label + '" title="' + label + '">' +
+        (share ? ICON_SHARE : ICON_LINK) + '</button><span class="share-status" role="status" aria-live="polite"></span>';
+      var btn = this.firstChild, status = this.lastChild, timer;
+      var say = function (t) {
+        status.textContent = t;
+        clearTimeout(timer);
+        timer = setTimeout(function () { status.textContent = ""; }, 2000);
+      };
+      btn.addEventListener("click", function () {
+        var u = url();
+        if (share) {
+          navigator.share({ title: document.title, url: u }).catch(function () { /* cancelled */ });
+          return;
+        }
+        var done = function () { say("Copied"); };
+        var fail = function () { if (legacyCopy(u)) done(); else { window.prompt("Copy this link:", u); } };
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(u).then(done, fail);
+        else fail();
+      });
+    }
+  });
+  // A post page: /news/<slug>.html with a "N min read" meta row.
+  if (!/^\/news\/[^/]+\.html$/.test(location.pathname)) return;
+  var rows = document.querySelectorAll("main p");
+  for (var i = 0; i < rows.length; i++) {
+    var p = rows[i];
+    if (p.firstElementChild && p.firstElementChild.tagName === "TIME" && /min read\s*$/.test(p.textContent)) {
+      p.classList.add("post-meta");
+      p.appendChild(document.createElement("velta-share"));
+      break;
+    }
+  }
+})();

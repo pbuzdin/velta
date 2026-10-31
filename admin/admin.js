@@ -192,7 +192,7 @@ function assemble({ nav, footer, body, title, description, active, mainClass, he
   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/css/velta.css?v=10">${headExtra ? `\n  ${headExtra}` : ""}
+  <link rel="stylesheet" href="/css/velta.css?v=11">${headExtra ? `\n  ${headExtra}` : ""}
   <script type="speculationrules">
 {
   "prerender": [{
@@ -218,7 +218,7 @@ ${body.replace(/^\n+|\n+$/g, "")}
 ${END}
   </main>
 ${footer.trimEnd()}
-  <script src="/js/site.js?v=5"></script>
+  <script src="/js/site.js?v=6"></script>
 </body>
 </html>
 `;
@@ -385,7 +385,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
     }
     frame.srcdoc =
       `<!doctype html><html lang="en"><head><meta charset="utf-8">` +
-      `<link rel="stylesheet" href="/css/velta.css?v=10"><style>body{margin:0;padding:1.25rem}</style></head>` +
+      `<link rel="stylesheet" href="/css/velta.css?v=11"><style>body{margin:0;padding:1.25rem}</style></head>` +
       `<body><main id="content"${this.mainClass ? ` class="${this.mainClass}"` : ""}>${body}</main></body></html>`;
   }
 

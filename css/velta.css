@@ -719,3 +719,18 @@ main.page aside a {
 main.page aside a:hover { border-color: var(--accent); color: var(--fg); }
 
 velta-news-pager { display: block; }
+/* <velta-share> (js/site.js): one icon button at the end of a post's meta
+   row. Icon matches the text size; the 44px hit area comes from a negative
+   margin so the line height does not change. */
+.post-meta { overflow-wrap: anywhere; }
+velta-share { display: inline-flex; align-items: center; vertical-align: middle; margin-left: 0.6em; }
+.share-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 44px; min-height: 44px; margin: -12px -10px; padding: 0;
+  border: 0; border-radius: 0.5rem; background: transparent;
+  color: var(--muted); font-size: 1.15em; cursor: pointer;
+}
+.share-btn:hover { color: var(--link); }
+.share-btn:focus-visible { outline: 2px solid var(--link); outline-offset: -4px; }
+.share-status { color: var(--muted); font-size: 0.875rem; margin-left: 0.6em; }
+.share-status:empty { display: none; }
