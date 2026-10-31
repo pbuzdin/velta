@@ -34,6 +34,7 @@ function rgba(v) {
   throw new Error("color? " + v);
 }
 const over = (top, under) => { const a = top[3]; return [0, 1, 2].map(i => top[i] * a + under[i] * (1 - a)).concat(1); };
+const mix80 = (a, b) => [0, 1, 2].map(i => a[i] * .8 + b[i] * .2).concat(1);
 const lum = c => c.slice(0, 3).map(x => { x /= 255; return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }).reduce((s, x, i) => s + x * [0.2126, 0.7152, 0.0722][i], 0);
 const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
 
@@ -51,6 +52,10 @@ function pairs(theme, t) {
     ["out .msg-meta / .edited", c("--text-meta-out"), outB, 4.5],
     ["in .q-name", c("--quote-name"), over(reply, inB), 4.5],
     ["out .q-name", c("--quote-name-out"), over(outReply, outB), 4.5],
+    // Deleted-message tombstone (.bubble.msg-deleted): secondary text token
+    // = --text-dim 80% / --text 20% (out: --text-meta-out; brutal: ink).
+    ["in .msg-deleted", mix80(c("--text-dim"), c("--text")), inB, 4.5],
+    ["out .msg-deleted", theme === "brutal" ? c("--nb-main-ink") : mix80(c("--text-meta-out"), c("--text")), outB, 4.5],
     ["out .ticks.read (icon)", theme === "brutal" ? c("--nb-main-ink") : c("--ticks-read"), outB, 3],
   ];
 }

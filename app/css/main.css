@@ -613,9 +613,14 @@ html[data-theme="light"] .msg-select-btn { background: rgba(16, 16, 16, .08); }
    size of the bubble it replaces. */
 .bubble.msg-deleted {
   display: flex; flex-flow: row wrap; align-items: center;
-  gap: 4px 10px; box-sizing: border-box; color: var(--text-dim);
+  gap: 4px 10px; box-sizing: border-box;
+  /* Secondary text token (dim 80 / text 20): bare --text-dim measured
+     2.41:1 on the dark outgoing bubble and 1.32:1 on brutal yellow. */
+  color: color-mix(in srgb, var(--text-dim) 80%, var(--text));
   min-height: 0; max-width: min(100%, 320px); font-style: italic;
 }
+.msg-row.out .bubble.msg-deleted { color: color-mix(in srgb, var(--text-meta-out) 80%, var(--text)); }
+html[data-theme="brutal"] .msg-row.out .bubble.msg-deleted { color: var(--nb-main-ink); }
 .msg-deleted-label { font-size: 14px; line-height: 1.35; }
 .msg-undo {
   position: relative; overflow: hidden;
@@ -631,6 +636,7 @@ html[data-theme="light"] .msg-select-btn { background: rgba(16, 16, 16, .08); }
 }
 @keyframes msg-undo-shrink { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 html[data-theme="light"] .msg-undo { background: rgba(16, 16, 16, .08); }
+html[data-theme="brutal"] .msg-row.out .msg-undo { background: rgba(18, 16, 22, .1); color: var(--nb-main-ink); }
 .msg-row.out .bubble {
   background: var(--bg-bubble-out);
   border-bottom-left-radius: var(--radius-bubble);
