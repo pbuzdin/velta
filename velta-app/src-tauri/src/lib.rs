@@ -3904,7 +3904,9 @@ fn ensure_android_core(accounts_dir: PathBuf) -> &'static RpcState {
                     // BEFORE anything can start IO — the page cannot call
                     // start_io until tx is published below, and the
                     // headless start_io comes last. No-ops when neither is set up.
-                    tunnel::boot(&Host::current());
+                    // The tunnel start probes the network (~1 s, Go mutex):
+                    // keep it off the core runtime's workers (#176).
+                    let _ = tokio::task::spawn_blocking(|| tunnel::boot(&Host::current())).await;
                     ws_transport::boot_now(&Host::current()).await;
                     tunnel::reapply_proxy().await;
                     start_bg_event_poller(tx.clone());

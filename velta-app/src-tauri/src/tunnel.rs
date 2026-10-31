@@ -365,8 +365,14 @@ mod imp {
             tauri::async_runtime::spawn(async move {
                 loop {
                     apply_proxy().await;
-                    check_network(&app);
-                    check_alive(&app);
+                    // Blocking (Go library, JNI, a 2 s TCP probe, OP mutex):
+                    // never on an async worker (#176).
+                    let a = app.clone();
+                    let _ = tauri::async_runtime::spawn_blocking(move || {
+                        check_network(&a);
+                        check_alive(&a);
+                    })
+                    .await;
                     tokio::time::sleep(std::time::Duration::from_secs(60)).await;
                 }
             });
@@ -648,72 +654,82 @@ pub use imp::{boot, deactivate_for_ws, dns_tunnel_active, set_ws_proxy};
 #[cfg(not(any(target_os = "android", windows)))]
 pub fn boot(_app: &crate::Host) {}
 
+/// Tunnel commands run the library (Go start/stop/status share one mutex;
+/// start probes the network for ~1 s), JNI and file I/O. Sync Tauri commands
+/// run on the main thread, where the WebView's evaluateJavascript (every
+/// core RPC response and event) runs too: a slow or dead tunnel stalled chat
+/// RPCs. Every command now runs on a blocking pool thread (#176).
+#[cfg(any(target_os = "android", windows))]
+async fn off_main<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())
+}
+
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
-pub fn tunnel_preview(app: tauri::AppHandle, link: String) -> Result<Value, String> {
-    imp::preview(&crate::Host::from_app(&app), &link)
+pub async fn tunnel_preview(app: tauri::AppHandle, link: String) -> Result<Value, String> {
+    off_main(move || imp::preview(&crate::Host::from_app(&app), &link)).await?
 }
 
 /// Saves the link's tunnel; `activate` (default true) also switches to it.
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
-pub fn tunnel_install(app: tauri::AppHandle, link: String, label: Option<String>, activate: Option<bool>) -> Result<Value, String> {
-    imp::install(&crate::Host::from_app(&app), &link, label.as_deref().unwrap_or(""), activate.unwrap_or(true))
+pub async fn tunnel_install(app: tauri::AppHandle, link: String, label: Option<String>, activate: Option<bool>) -> Result<Value, String> {
+    off_main(move || imp::install(&crate::Host::from_app(&app), &link, label.as_deref().unwrap_or(""), activate.unwrap_or(true))).await?
 }
 
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
-pub fn tunnel_link(app: tauri::AppHandle, id: Option<String>) -> Result<Value, String> {
-    imp::link(&crate::Host::from_app(&app), id.as_deref())
+pub async fn tunnel_link(app: tauri::AppHandle, id: Option<String>) -> Result<Value, String> {
+    off_main(move || imp::link(&crate::Host::from_app(&app), id.as_deref())).await?
 }
 
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
-pub fn tunnel_list(app: tauri::AppHandle) -> Value {
-    imp::list(&crate::Host::from_app(&app))
+pub async fn tunnel_list(app: tauri::AppHandle) -> Value {
+    off_main(move || imp::list(&crate::Host::from_app(&app))).await.unwrap_or_else(|e| serde_json::json!({"error": e}))
 }
 
 /// id null: no tunnel (stops the running one).
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
-pub fn tunnel_select(app: tauri::AppHandle, id: Option<String>) -> Result<(), String> {
-    imp::select(&crate::Host::from_app(&app), id.as_deref())
+pub async fn tunnel_select(app: tauri::AppHandle, id: Option<String>) -> Result<(), String> {
+    off_main(move || imp::select(&crate::Host::from_app(&app), id.as_deref())).await?
 }
 
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
-pub fn tunnel_rename(app: tauri::AppHandle, id: String, label: String) -> Result<(), String> {
-    imp::rename(&crate::Host::from_app(&app), &id, &label)
+pub async fn tunnel_rename(app: tauri::AppHandle, id: String, label: String) -> Result<(), String> {
+    off_main(move || imp::rename(&crate::Host::from_app(&app), &id, &label)).await?
 }
 
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
-pub fn tunnel_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    imp::delete(&crate::Host::from_app(&app), &id)
+pub async fn tunnel_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    off_main(move || imp::delete(&crate::Host::from_app(&app), &id)).await?
 }
 
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
-pub fn tunnel_remove(app: tauri::AppHandle) -> Result<(), String> {
-    imp::remove(&crate::Host::from_app(&app))
+pub async fn tunnel_remove(app: tauri::AppHandle) -> Result<(), String> {
+    off_main(move || imp::remove(&crate::Host::from_app(&app))).await?
 }
 
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
-pub fn tunnel_status(app: tauri::AppHandle, events: Option<i32>) -> Value {
-    imp::status(&crate::Host::from_app(&app), events.unwrap_or(0))
+pub async fn tunnel_status(app: tauri::AppHandle, events: Option<i32>) -> Value {
+    off_main(move || imp::status(&crate::Host::from_app(&app), events.unwrap_or(0))).await.unwrap_or_else(|e| serde_json::json!({"error": e}))
 }
 
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
-pub fn tunnel_set_mode(app: tauri::AppHandle, mode: String) -> Result<(), String> {
-    imp::set_mode(&crate::Host::from_app(&app), &mode)
+pub async fn tunnel_set_mode(app: tauri::AppHandle, mode: String) -> Result<(), String> {
+    off_main(move || imp::set_mode(&crate::Host::from_app(&app), &mode)).await?
 }
 
 #[cfg(any(target_os = "android", windows))]
 #[tauri::command]
-pub fn tunnel_network_changed(app: tauri::AppHandle) {
-    imp::network_changed(&crate::Host::from_app(&app))
+pub async fn tunnel_network_changed(app: tauri::AppHandle) {
+    let _ = off_main(move || imp::network_changed(&crate::Host::from_app(&app))).await;
 }
 
 #[cfg(any(target_os = "android", windows))]

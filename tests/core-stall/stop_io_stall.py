@@ -19,8 +19,9 @@ MIN_STALL_S = 5.0
 
 
 class Blackhole:
-    def __init__(self, greet=b""):
+    def __init__(self, greet=b"", socks=False):
         self.greet = greet
+        self.socks = socks
         self.sock = socket.socket()
         self.sock.bind(("127.0.0.1", 0))
         self.sock.listen(64)
@@ -35,11 +36,31 @@ class Blackhole:
             except OSError:
                 return
             self.conns.append(c)
+            if self.socks:
+                threading.Thread(target=self._socks, args=(c,), daemon=True).start()
+                continue
             if self.greet:
                 try:
                     c.sendall(self.greet)  # then never answer again
                 except OSError:
                     pass
+
+
+    @staticmethod
+    def _socks(c):
+        """A dead DNS tunnel: SOCKS5 greeting/auth succeed, CONNECT never answers."""
+        try:
+            hdr = c.recv(2)
+            c.recv(hdr[1])
+            c.sendall(b"\x05\x02" if True else b"")  # user/pass auth
+            sub = c.recv(2)
+            c.recv(sub[1])
+            plen = c.recv(1)[0]
+            c.recv(plen)
+            c.sendall(b"\x01\x00")  # auth ok
+            c.recv(512)  # CONNECT request: never answered
+        except (OSError, IndexError):
+            pass
 
 
 class Rpc:
@@ -116,7 +137,7 @@ def blackhole_transport(db, addr, port):
 
 def main(binary):
     mode = os.environ.get("STALL_MODE", "hook")
-    hole = Blackhole(b"* OK IMAP4rev1 ready\r\n" if mode == "greet" else b"")
+    hole = Blackhole(b"* OK IMAP4rev1 ready\r\n" if mode == "greet" else b"", socks=mode == "deadtunnel")
     root = tempfile.mkdtemp(prefix="velta-stall-")
     rpc = Rpc(binary, root)
     acc = rpc.call("add_account")
@@ -128,6 +149,10 @@ def main(binary):
     rpc = Rpc(binary, root)
     assert rpc.call("is_configured", acc), "pseudo transport not accepted as configured"
     chat = rpc.call("create_chat_by_contact_id", acc, 1)  # saved messages
+    if mode == "deadtunnel":
+        # Saved-but-dead DNS tunnel (Velta writes socks5://velta-tunnel:…@127.0.0.1:N).
+        rpc.call("set_config", acc, "proxy_url", f"socks5://velta-tunnel:pw@127.0.0.1:{hole.port}")
+        rpc.call("set_config", acc, "proxy_enabled", "1")
     if mode == "proxy":
         # Dead SOCKS5 proxy (the field case): TCP accepted, no handshake.
         rpc.call("set_config", acc, "proxy_url", f"socks5://127.0.0.1:{hole.port}")
