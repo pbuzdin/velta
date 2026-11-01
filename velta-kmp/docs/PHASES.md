@@ -36,7 +36,7 @@ that order completes the daily-drivable story before the release polish.
 | P1b Android in-process core | ✅ done | `2cd1c8f2` | green |
 | P2 Persistence + read paths | ✅ done | `cbb3809b` | green |
 | P3 Write paths | ✅ code complete — live gate pending | `fd2a405c` + quote-restore | green |
-| P4 Velta layer | 🚧 slices 1-11 done (…, app lock) | — | — |
+| P4 Velta layer | 🚧 slices 1-12 done (…, QR camera) | — | — |
 | P5 Release track | ⬜ | — | — |
 
 ---
@@ -194,6 +194,18 @@ Verified on the emulator: `dumpsys` shows the ServiceRecord with
 `isForeground=true`, dataSync type, ongoing notification, process held.
 Because the shim and the event loop live at process scope, holding the
 process IS the sync story — no extra plumbing.
+
+**Slice 12 — mobile QR-camera (shipped):** the Join screen gains
+"📷 Scan a QR instead" (Android only; hidden on desktop where the callback
+is null). `ScanActivity` = CameraX preview + `ImageAnalysis` frames →
+ZXing `QRCodeReader` over the luma plane (pure-Java decode, no Google
+services — fits the privacy posture). On the first decode the payload
+goes **straight to the process-wide model** (`onQrScanned`) and the
+activity finishes — no ActivityResult: FragmentActivity's legacy
+`startActivityForResult` rejects the registry-generated request codes
+("lower 16 bits" crash, caught live on the emulator and routed around).
+The Join screen then pre-fills, checks, and routes as usual.
+`QrRoundTripTest` pins the encode→decode pipeline.
 
 **Slice 11 — app lock (shipped, phase-4 port; biometric/device-credential):**
 🔒 row on the Accounts screen enables/disables the lock (each tap runs the

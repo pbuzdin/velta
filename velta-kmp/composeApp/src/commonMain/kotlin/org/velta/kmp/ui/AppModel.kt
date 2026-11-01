@@ -108,6 +108,18 @@ class AppModel(
         private set
     var joinError by mutableStateOf<String?>(null)
 
+    /** Platform-injected: run the camera scanner; result lands in onQrScanned. */
+    var requestQrScan: (() -> Unit)? = null
+
+    /** Scanner result → the Join screen, pre-filled and immediately checked. */
+    fun onQrScanned(text: String) {
+        joinText = text
+        joinChecked = null
+        joinError = null
+        screen = Screen.Join
+        checkJoin()
+    }
+
     /** Parse what the user pasted; surface the kind so the UI can explain it. */
     fun checkJoin() {
         val veltaCore = core

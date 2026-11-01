@@ -33,6 +33,10 @@ kotlin {
             implementation(libs.androidx.activity.compose)
             implementation(libs.unifiedpush.connector)
             implementation(libs.androidx.biometric)
+            implementation(libs.zxing.core)
+            implementation(libs.camera.camera2)
+            implementation(libs.camera.lifecycle)
+            implementation(libs.camera.view)
         }
         val desktopMain by getting {
             dependsOn(jvmCommon)
@@ -43,6 +47,7 @@ kotlin {
         val desktopTest by getting {
             dependencies {
                 implementation(kotlin("test"))
+                implementation(libs.zxing.core)
             }
         }
     }

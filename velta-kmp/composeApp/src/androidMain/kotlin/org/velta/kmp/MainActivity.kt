@@ -59,6 +59,16 @@ class MainActivity : FragmentActivity() {
     }
 
     /**
+     * Invite-QR scan. No ActivityResult here: FragmentActivity's legacy
+     * startActivityForResult path rejects the registry-generated request
+     * codes ("lower 16 bits"), and the model is a process-wide singleton —
+     * ScanActivity hands the payload straight to it and finishes.
+     */
+    private fun startQrScan() {
+        startActivity(Intent(this, org.velta.kmp.scan.ScanActivity::class.java))
+    }
+
+    /**
      * App-lock prompt (biometric or device credential — no CryptoObject: a
      * successful authentication opens the 30 s Keystore auth window the
      * keystore calls run inside).
@@ -93,6 +103,7 @@ class MainActivity : FragmentActivity() {
         // Shared with the foreground service: one model, one core, one event loop.
         model = AppHolder.obtain(applicationContext)
         model.attachmentPicker = { pickFile.launch(arrayOf("*/*")) }
+        model.requestQrScan = { startQrScan() }
         model.batteryCheck = {
             val pm = getSystemService(android.os.PowerManager::class.java)
             pm?.isIgnoringBatteryOptimizations(packageName)

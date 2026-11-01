@@ -328,6 +328,10 @@ private fun JoinScreen(model: AppModel) {
                 onClick = { model.checkJoin() },
                 enabled = !model.joinBusy && model.joinText.isNotBlank(),
             ) { Text("Check") }
+            if (model.requestQrScan != null) {
+                Spacer(Modifier.size(8.dp))
+                TextButton(onClick = { model.requestQrScan?.invoke() }) { Text("📷 Scan a QR instead") }
+            }
             model.joinError?.let {
                 Spacer(Modifier.size(8.dp))
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)

@@ -11,6 +11,9 @@
     <!-- Battery-saver exemptions keep the sync service alive on OEM ROMs
          (P4 slice 10); the system dialog lets the user decide. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Invite-QR scanning (P4 slice 11b): camera only while the scan screen
+         is open; ZXing decodes locally, nothing leaves the device. -->
+    <uses-permission android:name="android.permission.CAMERA" />
 
     <application
         android:label="Velta KMP"
@@ -38,5 +41,9 @@
                 <action android:name="org.unifiedpush.android.connector.PUSH_EVENT" />
             </intent-filter>
         </service>
+
+        <activity
+            android:name=".scan.ScanActivity"
+            android:exported="false" />
     </application>
 </manifest>
