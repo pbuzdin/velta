@@ -37,6 +37,32 @@ over time. No new API surface, no C-FFI binding fork.
 Requires JDK 21 (and the Android SDK for the Android target). CI:
 `.github/workflows/build-kmp.yml` builds both on every push touching this dir.
 
+## Android core shim (P1b)
+
+Android runs the core **in-process** — no sidecar binary. `native/rpc-shim/`
+is a small Rust cdylib (Accounts + CommandApi + yerpc, one session per
+connection) that serves the deltachat JSON-RPC surface on `127.0.0.1`; the
+app loads it via JNI (`System.loadLibrary("velta_rpc_shim")`) and connects
+with a plain socket transport. Same architecture as the Tauri Android shell.
+
+Build (WSL — NDK exports per AGENTS §4.3.3, targets already installed):
+
+```sh
+export NDK=$HOME/Android/Sdk/ndk/29.0.13846066
+export TC=$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin
+export RANLIB=$TC/llvm-ranlib AR=$TC/llvm-ar PATH="$TC:$PATH"
+export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$TC/clang
+export CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS="-C link-arg=--target=aarch64-linux-android24"
+export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER=$TC/clang
+export CARGO_TARGET_X86_64_LINUX_ANDROID_RUSTFLAGS="-C link-arg=--target=x86_64-linux-android24"
+cargo build --release \
+  --target aarch64-linux-android --target x86_64-linux-android
+```
+
+Copy the outputs into `composeApp/src/androidMain/jniLibs/{arm64-v8a,x86_64}/`
+(kept out of git — same rule as the Tauri `binaries/`; a CI job replaces this
+step later).
+
 ## Run the P1 bridge demo (desktop)
 
 The app spawns `deltachat-rpc-server` and talks JSON Lines over stdio

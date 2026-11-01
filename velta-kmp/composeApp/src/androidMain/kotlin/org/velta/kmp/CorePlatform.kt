@@ -2,14 +2,16 @@ package org.velta.kmp
 
 import android.content.Context
 import org.velta.kmp.core.CorePlatform
+import org.velta.kmp.core.RpcShim
 import org.velta.kmp.core.RpcTransport
+import org.velta.kmp.core.SocketRpcTransport
 import java.io.File
 
 /**
- * Android platform: accounts under `filesDir/accounts`. The sidecar spawn is
- * the P1b step (bundle `deltachat-rpc-server` for aarch64 and exec it from
- * `nativeLibraryDir`, the proven Tauri pattern) — until it lands this
- * returns null and the UI shows the connection status (issue #192 P1b).
+ * Android platform: accounts under `filesDir/accounts`; the core runs
+ * IN-PROCESS via the Rust cdylib shim (native/rpc-shim), which serves the
+ * deltachat JSON-RPC surface on a loopback port — same architecture as the
+ * Tauri Android shell, no exec'd sidecar (issue #192 P1b).
  */
 class AndroidCorePlatform(private val context: Context) : CorePlatform {
 
@@ -17,7 +19,21 @@ class AndroidCorePlatform(private val context: Context) : CorePlatform {
         File(context.filesDir, "accounts").apply { mkdirs() }.absolutePath
 
     override fun spawnRpcServer(accountsDir: String): RpcTransport? {
-        println("velta-kmp: sidecar spawn not wired yet (P1b) — accounts dir: $accountsDir")
-        return null
+        if (!RpcShim.available) {
+            println("velta-kmp: rpc shim not packaged — build native/rpc-shim for this ABI (see README)")
+            return null
+        }
+        return try {
+            val port = RpcShim.startCore(accountsDir)
+            if (port <= 0) {
+                println("velta-kmp: shim failed to start the core (port=$port)")
+                null
+            } else {
+                SocketRpcTransport("127.0.0.1", port)
+            }
+        } catch (t: Throwable) {
+            println("velta-kmp: shim start threw: $t")
+            null
+        }
     }
 }

@@ -73,7 +73,7 @@ private fun LoginScreen(model: AppModel) {
     ) {
         Text("Velta", style = MaterialTheme.typography.displaySmall)
         Text(
-            "KMP client · core $model.coreVersion · ${model.status}",
+            "KMP client · core ${model.coreVersion} · ${model.status}",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -142,7 +142,7 @@ private fun ChatListScreen(model: AppModel) {
                     Column {
                         Text("Velta")
                         Text(
-                            listOfNotNull(model.accountAddr, "core $model.coreVersion").joinToString(" · "),
+                            listOfNotNull(model.accountAddr, "core ${model.coreVersion}").joinToString(" · "),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

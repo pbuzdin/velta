@@ -7,3 +7,6 @@ local.properties
 captures/
 .externalNativeBuild/
 .cxx/
+# Native core shims are built per-machine (WSL/CI), never committed —
+# same rule as velta-app/src-tauri/binaries/.
+composeApp/src/androidMain/jniLibs/**/*.so

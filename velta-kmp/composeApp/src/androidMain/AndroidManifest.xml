@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Core sockets (IMAP/SMTP + the loopback RPC shim) need INTERNET;
+         Android gates every AF_INET socket, loopback included, on it. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:label="Velta KMP"
         android:supportsRtl="true"
