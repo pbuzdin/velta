@@ -8,7 +8,7 @@
   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/css/velta.css?v=14">
+  <link rel="stylesheet" href="/css/velta.css?v=15">
   <script type="speculationrules">
 {
   "prerender": [{
@@ -65,15 +65,18 @@
       <a href="/news/two-paths.html">How a message moves</a>
     </p>
     <dl>
-      <div><dt>Encryption</dt><dd>End-to-end (OpenPGP)</dd></div>
+      <div><dt>Encryption</dt><dd>End-to-end</dd></div>
       <div><dt>Identity</dt><dd>An email address</dd></div>
       <div><dt>Open source</dt><dd>GPL-3.0</dd></div>
       <div><dt>Telemetry</dt><dd>None</dd></div>
     </dl>
   </div>
   <figure class="shot">
-    <img src="/hero-phone.webp" alt="Velta on an Android phone, dark theme: the Weekend Crew group chat with voice messages, a shared zip file and delivery ticks." width="689" height="1024" fetchpriority="high">
-    <figcaption class="sr">Velta on Android in dark mode. A group chat shows voice messages, a shared file, and delivery ticks.</figcaption>
+    <picture>
+      <source media="(max-width: 64rem)" srcset="/hero-phone.webp">
+      <img src="/hero-desktop.webp" alt="Velta in dark mode: the chat with Ada Byron shows reactions, a forwarded message, a webxdc app card and delivery ticks." width="874" height="886" fetchpriority="high">
+    </picture>
+    <figcaption class="sr">Velta in dark mode. A chat shows reactions, a forwarded message, a webxdc app card and delivery ticks.</figcaption>
   </figure>
 </section>
 
