@@ -439,6 +439,7 @@ class AppModel(
     fun openAccounts() {
         screen = Screen.Accounts
         refreshAccounts()
+        refreshBattery()
     }
 
     fun backFromAccounts() {
@@ -489,6 +490,31 @@ class AppModel(
     /** "Add account" from the switcher → the login screen (login() reuses/creates). */
     fun addAccountFromSwitcher() {
         screen = Screen.Login
+    }
+
+    // ---- Battery allowance (P4) — injected by the Android entry point ----
+
+    /** Platform-injected: fire the system battery-exemption dialog. */
+    var requestBatteryExemption: (() -> Unit)? = null
+
+    /** Platform-injected: is the app exempt from battery optimizations? */
+    var batteryCheck: (() -> Boolean?)? = null
+
+    /** null = platform cannot report (desktop); true/false = exempt/restricted. */
+    var batteryExempt by mutableStateOf<Boolean?>(null)
+        private set
+
+    fun refreshBattery() {
+        batteryExempt = batteryCheck?.invoke()
+    }
+
+    /** System dialog → the user allows or denies; refresh afterwards. */
+    fun requestBatteryAllowance() {
+        requestBatteryExemption?.invoke()
+        scope.launch {
+            kotlinx.coroutines.delay(1500)
+            refreshBattery()
+        }
     }
 
     // ---- Push (P4, Android) — entered by VeltaPushService ----

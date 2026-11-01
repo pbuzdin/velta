@@ -36,7 +36,7 @@ that order completes the daily-drivable story before the release polish.
 | P1b Android in-process core | ✅ done | `2cd1c8f2` | green |
 | P2 Persistence + read paths | ✅ done | `cbb3809b` | green |
 | P3 Write paths | ✅ code complete — live gate pending | `fd2a405c` + quote-restore | green |
-| P4 Velta layer | 🚧 slices 1-9 done (…, encryption at rest) | — | — |
+| P4 Velta layer | 🚧 slices 1-10 done (…, battery allowance) | — | — |
 | P5 Release track | ⬜ | — | — |
 
 ---
@@ -194,6 +194,14 @@ Verified on the emulator: `dumpsys` shows the ServiceRecord with
 `isForeground=true`, dataSync type, ongoing notification, process held.
 Because the shim and the event loop live at process scope, holding the
 process IS the sync story — no extra plumbing.
+
+**Slice 10 — battery allowance (shipped):** a Battery row on the Accounts
+screen — restricted/exempt state from `PowerManager.isIgnoringBatteryOptimizations`,
+tap fires the system `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` dialog
+(the app holds the permission; adb shell cannot resolve the activity, which
+is why the row's tap-through is verified in the gate checklist rather than
+by script), state re-read on resume. Whitelist effect proven via
+`dumpsys deviceidle whitelist`.
 
 **Slice 9 — database encryption at rest (shipped, Android):** the #178 port.
 `VeltaKeystore` (androidMain) is a faithful port of the Tauri wrap format —

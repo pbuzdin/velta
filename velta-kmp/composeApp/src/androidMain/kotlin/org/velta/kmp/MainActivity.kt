@@ -53,6 +53,18 @@ class MainActivity : ComponentActivity() {
         // Shared with the foreground service: one model, one core, one event loop.
         model = AppHolder.obtain(applicationContext)
         model.attachmentPicker = { pickFile.launch(arrayOf("*/*")) }
+        model.batteryCheck = {
+            val pm = getSystemService(android.os.PowerManager::class.java)
+            pm?.isIgnoringBatteryOptimizations(packageName)
+        }
+        model.requestBatteryExemption = {
+            startActivity(
+                android.content.Intent(
+                    android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    android.net.Uri.parse("package:$packageName"),
+                ),
+            )
+        }
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
@@ -64,6 +76,12 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(Unit) { model.connect() }
         }
         org.velta.kmp.push.VeltaPushService.maybeRegister(this)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Returning from the system battery dialog — re-read the exemption.
+        model.refreshBattery()
     }
 
     override fun onStart() {

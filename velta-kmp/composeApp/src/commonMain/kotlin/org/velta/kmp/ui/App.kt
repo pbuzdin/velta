@@ -200,7 +200,38 @@ private fun AccountsScreen(model: AppModel) {
                     modifier = Modifier.padding(16.dp),
                 ) { Text("+ Add account") }
             }
+            item {
+                BatteryRow(model)
+            }
         }
+    }
+}
+
+/** P4: battery-allowance row — restricted batteries kill the sync service. */
+@Composable
+private fun BatteryRow(model: AppModel) {
+    val exempt = model.batteryExempt ?: return // desktop / not reportable
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { model.requestBatteryAllowance() }
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("Battery optimization")
+            Text(
+                if (exempt) "exempt — background sync survives battery savers"
+                else "restricted — tap to allow background sync",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            if (exempt) "✓" else "!",
+            style = MaterialTheme.typography.labelLarge,
+            color = if (exempt) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+        )
     }
 }
 
