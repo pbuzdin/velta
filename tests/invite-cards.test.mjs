@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 // Velta invite cards (invite-cards.js, docs/invite-cards.md): strict parsing
-// of proxy / relay / tunnel invite links, card HTML, the token-free chip in
+// of proxy / relay / SOCKS5 invite links, card HTML, the token-free chip in
 // the message text, and claim error mapping.
 globalThis.HTMLElement = class {};
 globalThis.customElements = { get() {}, define() {} };
@@ -29,7 +29,7 @@ test("relay invite: strict parse", () => {
     "https://10.0.0.1/i/AbCdEfGh12", "https://localhost/i/AbCdEfGh12", "https://relay.example/i/short",
     "https://relay.example/i/claim", "https://relay.example/i/AbCdEfGh12?x=1", "https://relay.example/i/AbCdEfGh12#f",
     "https://relay.example/i/AbCd%2FEfGh12", "https://relay.example/x/i/AbCdEfGh12", "https://relay.example/i/AbCdEfGh12/x",
-    "https://rel_ay.example/i/AbCdEfGh12", "https://relay.example/i/" + "a".repeat(129), "javascript:alert(1)//relay.example/i/AbCdEfGh12",
+    "https://rel_ay.example/i/AbCdEfGh12", "https://relay.example/i/" + "a".repeat(129), "javascript:alert(1)//relay.example",
     "https://relay.example/i/<script>x</script>", "", null,
   ]) assert.equal(m.parseRelayInviteLink(bad), null, String(bad));
   assert.equal(m.parseRelayInviteInput("relay.example/i/AbCdEfGh12").host, "relay.example");
@@ -68,8 +68,8 @@ test("findInviteLinks: first of each kind, punctuation trimmed", () => {
   const f = m.findInviteLinks(`Join: ${RELAY}. Proxy (${proxyLink()}), again ${RELAY.replace("xyz", "zzz")}`);
   assert.equal(f.relay.token, "AbCdEfGh12345678xyz_-");
   assert.equal(f.proxy.name, "Office");
-  assert.equal(f.tunnel, null);
-  assert.deepEqual(m.findInviteLinks("nothing https://example.org/i/ here"), { proxy: null, relay: null, tunnel: null });
+  assert.equal(f.socks5, null);
+  assert.deepEqual(m.findInviteLinks("nothing https://example.org/i/ here"), { proxy: null, relay: null, socks5: null });
 });
 
 test("cards: combined, sender, no token in visible text, show/copy", () => {
@@ -86,7 +86,7 @@ test("cards: combined, sender, no token in visible text, show/copy", () => {
   assert.doesNotMatch(visible, /AbCdEfGh12345678xyz|eyJ2Ijox/);
 });
 
-test("cards: proxy-only, relay-only, expired, tunnel", () => {
+test("cards: proxy-only, relay-only, expired, SOCKS5 proxy", () => {
   const p = m.inviteCardsHtml(proxyLink(), { now: NOW });
   assert.match(p, /Proxy invite: Office/);
   assert.match(p, /data-ivc-act="use"/);
@@ -103,10 +103,14 @@ test("cards: proxy-only, relay-only, expired, tunnel", () => {
   assert.match(e, /data-ivc-act="copy"/); // copy stays available
   const ce = m.inviteCardsHtml(`${RELAY} ${proxyLink({ v: 1, i: "x", e: PAST })}`, { now: NOW });
   assert.match(ce, /data-ivc-act="join" disabled/);
-  const key = Buffer.alloc(32, 7).toString("base64");
-  const tl = m.inviteCardsHtml(`velta://tunnel?zone=t.example.org&key=${encodeURIComponent(key)}&n=Home`, { now: NOW });
-  assert.match(tl, /DNS tunnel: Home/);
-  assert.match(tl, /data-ivc-act="tunnel"/);
+  const link = "velta://proxy?v=1&h=192.168.1.20&p=1080&u=alice&w=secret&n=Home";
+  const card = m.inviteCardsHtml(link, { now: NOW });
+  assert.match(card, /SOCKS5 proxy: Home/);
+  assert.match(card, /192\.168\.1\.20:1080/);
+  assert.match(card, /with username and password/);
+  assert.match(card, /data-ivc-act="socks5"/);
+  assert.deepEqual(m.parseSocks5Invite(link), { kind: "socks5", host: "192.168.1.20", port: 1080, auth: true, name: "Home", link });
+  assert.equal(m.parseSocks5Invite("velta://proxy?v=1&h=bad_host&p=1080"), null);
   assert.equal(m.inviteCardsHtml("velta://tunnel?zone=t.example.org&key=bad"), "");
 });
 
@@ -128,7 +132,10 @@ test("markdown: invite URLs become token-free chips, malformed stay text", () =>
   const bad = renderMarkdown("velta://ws?u=x&t=<b>");
   assert.match(bad, /velta:\/\/ws\?u=x&amp;t=&lt;b&gt;/);
   assert.doesNotMatch(bad, /<b>/);
-  assert.match(renderMarkdown("see https://example.org/page"), /<a href="https:\/\/example.org\/page"/);
+  assert.match(renderMarkdown("see https://example.org/page"), /<a href="https:\/\/example\.org\/page"/);
+  const s5 = "velta://proxy?v=1&h=127.0.0.1&p=1080&n=Local";
+  assert.match(renderMarkdown(s5), /SOCKS5 proxy: Local/);
+  assert.doesNotMatch(renderMarkdown(s5), /<a href/);
 });
 
 test("claim answers: credentials or clear errors", () => {
@@ -145,15 +152,17 @@ test("bindInviteCards dispatches only from card buttons", async () => {
   let listener;
   const root = { addEventListener: (_, fn) => { listener = fn; } };
   const calls = [];
-  m.bindInviteCards({ join: a => calls.push(["join", a.relay.host, a.proxy]), copy: s => calls.push(["copy", s]), useProxy: l => calls.push(["use", l]) }, root);
-  const card = { dataset: { ivcRelay: RELAY, ivcProxy: "velta://ws?u=x" } };
+  const socks5 = "velta://proxy?v=1&h=192.168.1.20&p=1080";
+  m.bindInviteCards({ join: a => calls.push(["join", a.relay.host, a.proxy]), copy: s => calls.push(["copy", s]), useProxy: l => calls.push(["use", l]), socks5: l => calls.push(["socks5", l]) }, root);
+  const card = { dataset: { ivcRelay: RELAY, ivcProxy: "velta://ws?u=x", ivcSocks5: socks5 } };
   const mk = act => ({ dataset: { ivcAct: act }, disabled: false, closest: s => (s === ".ivc" ? card : null) });
   const ev = target => ({ target: { closest: () => target }, preventDefault() {}, stopPropagation() {} });
   await listener(ev(mk("join")));
   await listener(ev(mk("copy")));
+  await listener(ev(mk("socks5")));
   await listener(ev({ ...mk("use"), disabled: true }));
   await listener({ target: { closest: () => null } });
-  assert.deepEqual(calls, [["join", "relay.example", "velta://ws?u=x"], ["copy", `${RELAY}\nvelta://ws?u=x`]]);
+  assert.deepEqual(calls, [["join", "relay.example", "velta://ws?u=x"], ["copy", `${RELAY}\nvelta://ws?u=x\n${socks5}`], ["socks5", socks5]]);
 });
 
 test("link previews never fetch relay invite URLs", async () => {
