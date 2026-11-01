@@ -868,10 +868,7 @@ async fn get_blob(archive: &mut BlobZipReader, name: &str) -> Result<Vec<u8>> {
 impl Message {
     /// Get handle to a webxdc ZIP-archive.
     /// To check for file existence use archive.by_name(), to read a file, use get_blob(archive).
-    async fn get_webxdc_archive(
-        &self,
-        context: &Context,
-    ) -> Result<BlobZipReader> {
+    async fn get_webxdc_archive(&self, context: &Context) -> Result<BlobZipReader> {
         let path = self
             .get_file(context)
             .ok_or_else(|| format_err!("No webxdc instance file."))?;

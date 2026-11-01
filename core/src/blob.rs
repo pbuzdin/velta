@@ -576,9 +576,10 @@ fn ensure_encrypted(context: &Context, path: &Path) -> Result<()> {
     }
     let mut input = std::fs::File::open(path)?;
     let len = input.metadata()?.len();
-    let mut temp = tempfile::Builder::new()
-        .prefix("tmp-")
-        .tempfile_in(path.parent().context("attachment has no parent directory")?)?;
+    let mut temp = tempfile::Builder::new().prefix("tmp-").tempfile_in(
+        path.parent()
+            .context("attachment has no parent directory")?,
+    )?;
     attachment::encrypt(&key, &mut input, len, temp.as_file_mut())?;
     temp.as_file().sync_all()?;
     temp.persist(path).map_err(|err| err.error)?;
@@ -603,7 +604,11 @@ pub(crate) async fn migrate_plaintext_blobs(context: &Context) -> Result<()> {
                 continue;
             }
             if let Err(err) = ensure_encrypted(&context, &path) {
-                warn!(context, "Cannot encrypt attachment {}: {err:#}.", path.display());
+                warn!(
+                    context,
+                    "Cannot encrypt attachment {}: {err:#}.",
+                    path.display()
+                );
             }
         }
         Ok(())

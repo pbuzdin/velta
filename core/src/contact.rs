@@ -37,7 +37,9 @@ use crate::mimeparser::AvatarAction;
 use crate::param::{Param, Params};
 use crate::pgp::{addresses_from_public_key, merge_openpgp_certificates};
 use crate::sync::{self, Sync::*};
-use crate::tools::{SystemTime, duration_to_str, get_abs_path, normalize_text, read_file, time, to_lowercase};
+use crate::tools::{
+    SystemTime, duration_to_str, get_abs_path, normalize_text, read_file, time, to_lowercase,
+};
 use crate::{chat, chatlist_events, ensure_and_debug_assert, stock_str};
 
 /// If the contact's "last seen" is newer, the contact freshness is set to "recently seen".
