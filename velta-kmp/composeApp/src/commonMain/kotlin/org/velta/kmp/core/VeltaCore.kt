@@ -156,6 +156,31 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         )
     }
 
+    // ---- Invite / join flow (P4) ----
+
+    /** Parses a QR string locally (no network): kind + the fields to route on. */
+    suspend fun checkQr(accountId: Long, qr: String): CoreQr =
+        client.json.decodeFromString(
+            CoreQr.serializer(),
+            client.call(
+                "check_qr",
+                RpcClient.params(RpcClient.param(accountId), RpcClient.param(qr)),
+            ).toString(),
+        )
+
+    /** Starts the secure-join protocol for the QR; returns the chat id. Needs io. */
+    suspend fun secureJoin(accountId: Long, qr: String): Long =
+        client.call("secure_join", RpcClient.params(RpcClient.param(accountId), RpcClient.param(qr)))
+            .toString().toLong()
+
+    /** Adds a transport from a `DCACCOUNT:` invite QR (relay onboarding). */
+    suspend fun addTransportFromQr(accountId: Long, qr: String) {
+        client.call(
+            "add_transport_from_qr",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(qr)),
+        )
+    }
+
     suspend fun addTransport(accountId: Long, addr: String, password: String) {
         val param = buildJsonObject {
             put("addr", addr)

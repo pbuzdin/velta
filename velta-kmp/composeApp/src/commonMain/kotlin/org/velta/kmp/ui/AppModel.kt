@@ -27,6 +27,7 @@ class AppModel(
         data object Login : Screen
         data object ChatList : Screen
         data object Relays : Screen
+        data object Join : Screen
         data class Chat(val chatId: Long, val title: String, val isGroup: Boolean) : Screen
     }
 
@@ -77,6 +78,82 @@ class AppModel(
 
     fun attach() {
         attachmentPicker?.invoke()
+    }
+
+    // ---- Invite / join (P4) ----
+    var joinText by mutableStateOf("")
+    var joinChecked by mutableStateOf<org.velta.kmp.core.CoreQr?>(null)
+    var joinBusy by mutableStateOf(false)
+        private set
+    var joinError by mutableStateOf<String?>(null)
+
+    /** Parse what the user pasted; surface the kind so the UI can explain it. */
+    fun checkJoin() {
+        val veltaCore = core
+        val id = accountId ?: unconfiguredAccountId
+        val qr = joinText.trim()
+        if (veltaCore == null || qr.isEmpty()) return
+        scope.launch {
+            joinBusy = true
+            joinError = null
+            try {
+                joinChecked = veltaCore.checkQr(id ?: veltaCore.addAccount().also { accountId = it }, qr)
+            } catch (t: Throwable) {
+                joinError = t.message ?: t.toString()
+            } finally {
+                joinBusy = false
+            }
+        }
+    }
+
+    /**
+     * Route on the checked kind: "account" = relay onboarding (transport +
+     * configure, mirroring login), "ask*" = secure-join (the chat appears and
+     * the protocol runs in the background).
+     */
+    fun join() {
+        val veltaCore = core
+        val qr = joinChecked ?: return
+        val raw = joinText.trim()
+        if (veltaCore == null || raw.isEmpty() || joinBusy) return
+        scope.launch {
+            joinBusy = true
+            joinError = null
+            try {
+                val id = accountId
+                    ?: unconfiguredAccountId
+                    ?: veltaCore.addAccount().also { accountId = it }
+                when {
+                    qr.isAccountInvite -> {
+                        veltaCore.addTransportFromQr(id, raw)
+                        status = "configuring"
+                        veltaCore.configure(id)
+                        veltaCore.startIoForAllAccounts()
+                        accountAddr = veltaCore.accountInfo(id).addr
+                        loadChats()
+                        screen = Screen.ChatList
+                    }
+                    qr.isSecureJoin -> {
+                        veltaCore.startIoForAllAccounts()
+                        veltaCore.secureJoin(id, raw)
+                        loadChats()
+                        screen = Screen.ChatList
+                    }
+                    else -> joinError = "this QR is not an invite (kind: ${qr.kind})"
+                }
+            } catch (t: Throwable) {
+                joinError = t.message ?: t.toString()
+            } finally {
+                joinBusy = false
+            }
+        }
+    }
+
+    fun closeJoin() {
+        joinText = ""
+        joinChecked = null
+        joinError = null
+        screen = if (accountId != null) Screen.ChatList else Screen.Login
     }
 
     /** Called by the platform after a file was picked and staged readable. */

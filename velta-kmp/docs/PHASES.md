@@ -11,7 +11,7 @@ the gaps next to it.
 | P1b Android in-process core | ✅ done | `2cd1c8f2` | green |
 | P2 Persistence + read paths | ✅ done | `cbb3809b` | green |
 | P3 Write paths | ✅ code complete — live gate pending | `fd2a405c` + quote-restore | green |
-| P4 Velta layer | 🚧 slices 1-3 done (theming, relay cards, media rendering) | — | — |
+| P4 Velta layer | 🚧 slices 1-4 done (theming, relay cards, media, invite/join) | — | — |
 | P5 Release track | ⬜ | — | — |
 
 ---
@@ -161,6 +161,16 @@ Data: `list_transports` (sending transport first, quilt #11) merged with
 ordering, "not known yet" fallback and delete params; the real-binary IT
 covers both RPCs on a fresh account.
 
+**Slice 4 — invite/join (shipped):** 🎟 entry (chat list ⚡ + "Have an invite
+code?" on the login screen) → paste a QR payload → `check_qr` parses it
+OFFLINE (kind + domain/group name shown in plain language) → routed:
+`account` QRs onboard a relay (`add_transport_from_qr` → configure → io —
+this IS the throwaway-login path, paste instead of typing),
+`askVerifyContact/Group/Broadcast` QRs run `secure_join` (the protocol
+proceeds in the background; the chat appears), anything else says so.
+The live-binary IT pins `check_qr` on garbage (kind "text") and a real
+`DCACCOUNT:` string (kind "account" + domain) — no network needed.
+
 **Slice 3 — media rendering (shipped):** image viewtypes (Image/Gif/Sticker)
 render the blob file inside the bubble — dependency-free expect/actual
 decoders (Android `BitmapFactory`, desktop `ImageIO` →
@@ -176,9 +186,9 @@ MediaAndroid.kt/MediaDesktop.kt).
 patch #23, issue #189). The W flag (C3 websocket probe) is browser/Tauri
 specific and skipped.
 
-**Next slices (planned):** invite/join flow, account switcher, video/audio
-playback, UnifiedPush + foreground service, at-rest lock port, brand logo
-assets.
+**Next slices (planned):** account switcher, QR-camera scanning on mobile,
+video/audio playback, UnifiedPush + foreground service, at-rest lock port,
+brand logo assets.
 
 ## P5 — Release track ⬜
 

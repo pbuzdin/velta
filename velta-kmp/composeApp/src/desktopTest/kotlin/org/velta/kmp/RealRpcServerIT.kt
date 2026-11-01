@@ -66,6 +66,14 @@ class RealRpcServerIT {
                 val relays = core.relayCards(accountId)
                 assertTrue(relays.isEmpty(), "fresh account has no relay cards")
 
+                // Invite parsing (P4): check_qr parses offline — a garbage
+                // string is kind "text", a DCACCOUNT invite carries its domain.
+                val garbage = core.checkQr(accountId, "not a qr at all")
+                assertEquals("text", garbage.kind)
+                val invite = core.checkQr(accountId, "DCACCOUNT:https://example.org/i/abc123")
+                assertEquals("account", invite.kind)
+                assertEquals("example.org", invite.domain)
+
                 // P3 write-path round-trip WITHOUT network: a device message
                 // is created locally and read back through the client models.
                 val msgData = kotlinx.serialization.json.buildJsonObject {

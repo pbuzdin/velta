@@ -54,6 +54,7 @@ fun App(model: AppModel) {
                 AppModel.Screen.Login -> LoginScreen(model)
                 AppModel.Screen.ChatList -> ChatListScreen(model)
                 AppModel.Screen.Relays -> RelaysScreen(model)
+                AppModel.Screen.Join -> JoinScreen(model)
                 is AppModel.Screen.Chat -> ChatScreen(model, current)
             }
         }
@@ -130,6 +131,77 @@ private fun LoginScreen(model: AppModel) {
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        TextButton(onClick = {
+            model.joinText = ""
+            model.joinChecked = null
+            model.joinError = null
+            model.screen = AppModel.Screen.Join
+        }) { Text("Have an invite code? Join with it →") }
+    }
+}
+
+/** P4: invite/join — paste a QR payload (relay invite or secure-join). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun JoinScreen(model: AppModel) {
+    val checked = model.joinChecked
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Join") },
+                navigationIcon = {
+                    TextButton(onClick = { model.closeJoin() }) { Text("✕") }
+                },
+            )
+        },
+    ) { inner ->
+        Column(
+            modifier = Modifier.padding(inner).fillMaxSize().padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            OutlinedTextField(
+                value = model.joinText,
+                onValueChange = {
+                    model.joinText = it
+                    model.joinChecked = null
+                },
+                label = { Text("Invite code or QR text") },
+                placeholder = { Text("DCACCOUNT:… or DCJOIN:…") },
+                minLines = 2,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.size(12.dp))
+            Button(
+                onClick = { model.checkJoin() },
+                enabled = !model.joinBusy && model.joinText.isNotBlank(),
+            ) { Text("Check") }
+            model.joinError?.let {
+                Spacer(Modifier.size(8.dp))
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+            if (checked != null) {
+                Spacer(Modifier.size(16.dp))
+                val summary = when {
+                    checked.isAccountInvite -> "Relay invite for ${checked.domain ?: "?"} — sets up this app for that relay"
+                    checked.isSecureJoin -> "Secure-join invite${checked.grpname?.let { " — $it" } ?: ""}"
+                    checked.kind == "text" -> "Not a Delta Chat QR — just text"
+                    else -> "QR of kind “${checked.kind}” — not supported here yet"
+                }
+                Text(summary, textAlign = TextAlign.Center)
+                if (checked.isAccountInvite || checked.isSecureJoin) {
+                    Spacer(Modifier.size(16.dp))
+                    Button(
+                        onClick = { model.join() },
+                        enabled = !model.joinBusy,
+                    ) { Text(if (checked.isAccountInvite) "Set up relay" else "Join") }
+                }
+            }
+            if (model.joinBusy) {
+                Spacer(Modifier.size(12.dp))
+                Text("working…", style = MaterialTheme.typography.bodySmall)
+            }
+        }
     }
 }
 
@@ -155,6 +227,7 @@ private fun ChatListScreen(model: AppModel) {
                         Spacer(Modifier.size(12.dp))
                     }
                     TextButton(onClick = { model.openRelays() }) { Text("⚡") }
+                    TextButton(onClick = { model.screen = AppModel.Screen.Join; model.joinChecked = null; model.joinError = null }) { Text("🎟") }
                     TextButton(onClick = { model.refreshChats() }) { Text("Refresh") }
                 },
             )

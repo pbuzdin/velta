@@ -114,6 +114,26 @@ data class RelayCard(
 )
 
 /**
+ * Parsed QR (core `Qr` oneOf, tagged by `kind`). Only the fields the join
+ * flow routes on are decoded; everything else stays ignored (lenient).
+ * Kinds: "account" = relay invite (add_transport_from_qr),
+ * "askVerifyContact"/"askVerifyGroup"/"askJoinBroadcast" = secure-join,
+ * "text" = not a DC QR, others = informational.
+ */
+@Serializable
+data class CoreQr(
+    val kind: String = "text",
+    val text: String? = null,
+    val domain: String? = null,
+    val grpname: String? = null,
+    val contactId: Long? = null,
+) {
+    val isAccountInvite: Boolean get() = kind == "account"
+    val isSecureJoin: Boolean
+        get() = kind == "askVerifyContact" || kind == "askVerifyGroup" || kind == "askJoinBroadcast"
+}
+
+/**
  * Core event as returned by the long-poll `get_next_event`:
  * `{accountId, event: {kind, ...}}` — the inner event is kept raw; consumers
  * match on `kind` (ConfigureProgress, MsgsChanged, IncomingMsg, …).
