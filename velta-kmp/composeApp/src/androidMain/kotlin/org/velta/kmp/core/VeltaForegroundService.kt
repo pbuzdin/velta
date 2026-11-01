@@ -8,15 +8,17 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
+import org.velta.kmp.AppHolder
 
 /**
  * Foreground service that keeps the app process — and with it the in-process
- * core shim — alive while the screen is off (P4 slice 6).
+ * core shim — alive while the screen is off (P4 slice 6/7).
  *
- * The service itself does no work: the shim serves IMAP IDLE on its loopback
- * socket and the client's event loop lives at process scope, so holding the
- * process IS the job. Started when the activity stops, stopped when it
- * resumes. Restart-on-kill (core re-init in the service) is the next slice.
+ * On every start (including the sticky restart after the system killed the
+ * process) it bootstraps the shared AppModel via [AppHolder]: the shim
+ * respawns, the client reconnects and the event loop resumes — full sync
+ * without the UI. The service itself holds the process; the model does the
+ * work. Started when the activity stops, stopped when it resumes.
  */
 class VeltaForegroundService : Service() {
 
@@ -24,6 +26,8 @@ class VeltaForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        // Rebuild the core after a process kill; a no-op when it is already up.
+        AppHolder.obtain(applicationContext).connect()
         return START_STICKY
     }
 

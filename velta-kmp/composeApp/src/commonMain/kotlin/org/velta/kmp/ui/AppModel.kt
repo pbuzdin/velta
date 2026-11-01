@@ -169,6 +169,7 @@ class AppModel(
 
     private var core: VeltaCore? = null
     private var transport: RpcTransport? = null
+    private var connecting = false
 
     /** The account the UI is currently rooted at (public read for the switcher). */
     var accountId: Long? = null
@@ -177,13 +178,21 @@ class AppModel(
     /** An account that exists but is not configured — reused by the next login attempt. */
     private var unconfiguredAccountId: Long? = null
 
+    /**
+     * Start (or reuse) the core connection. Idempotent: the foreground
+     * service calls this after a process kill, the UI calls it at launch —
+     * one core, one event loop, whichever call wins first.
+     */
     fun connect() {
+        if (connected || connecting) return
+        connecting = true
         scope.launch {
             status = "spawning core"
             val dir = platform.accountsDir()
             val spawned = platform.spawnRpcServer(dir)
             if (spawned == null) {
                 status = platform.connectHint()
+                connecting = false
                 return@launch
             }
             transport = spawned
@@ -202,11 +211,20 @@ class AppModel(
                 }
 
                 resumeSession(veltaCore)
+                println("velta-kmp: connect ok — core $coreVersion, ${modelAccountsSummary()}")
             } catch (t: Throwable) {
                 status = "connect failed: ${t.message}"
+            } finally {
+                connecting = false
             }
         }
     }
+
+    private fun modelAccountsSummary(): String =
+        when (val id = accountId) {
+            null -> "no account resumed"
+            else -> "account $id active"
+        }
 
     /**
      * P2 persistence: the core's accounts dir already holds every account.

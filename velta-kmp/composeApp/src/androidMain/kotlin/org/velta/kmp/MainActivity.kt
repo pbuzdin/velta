@@ -9,9 +9,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
 import androidx.core.content.ContextCompat
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import org.velta.kmp.core.VeltaForegroundService
 import org.velta.kmp.ui.App
 import org.velta.kmp.ui.AppModel
@@ -53,10 +50,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        model = AppModel(
-            AndroidCorePlatform(applicationContext),
-            CoroutineScope(SupervisorJob() + Dispatchers.Default),
-        )
+        // Shared with the foreground service: one model, one core, one event loop.
+        model = AppHolder.obtain(applicationContext)
         model.attachmentPicker = { pickFile.launch(arrayOf("*/*")) }
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=

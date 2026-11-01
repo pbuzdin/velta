@@ -11,7 +11,7 @@ the gaps next to it.
 | P1b Android in-process core | ✅ done | `2cd1c8f2` | green |
 | P2 Persistence + read paths | ✅ done | `cbb3809b` | green |
 | P3 Write paths | ✅ code complete — live gate pending | `fd2a405c` + quote-restore | green |
-| P4 Velta layer | 🚧 slices 1-6 done (…, foreground service) | — | — |
+| P4 Velta layer | 🚧 slices 1-7 done (…, restart-on-kill) | — | — |
 | P5 Release track | ⬜ | — | — |
 
 ---
@@ -170,10 +170,27 @@ Verified on the emulator: `dumpsys` shows the ServiceRecord with
 Because the shim and the event loop live at process scope, holding the
 process IS the sync story — no extra plumbing.
 
-**Slice 6 not included (next slices):** restart-on-kill (a CoreHolder
-singleton re-initialising the shim + client inside the service after the
-system reaps the process), UnifiedPush receiver (token registration +
-message-triggered fetch), and the battery-allowance onboarding UI.
+**Slice 7 — restart-on-kill (shipped):** `AppHolder` makes the AppModel a
+process-wide singleton shared by the UI and the service; `connect()` is
+idempotent (a guard plus a re-entrancy flag — one core, one event loop,
+whichever call wins). When the system kills the process, the sticky
+service restarts into a fresh process and its `onStartCommand` bootstraps
+everything headlessly: shim respawns, client reconnects, handshake +
+resume run without the UI. **Verified live on the emulator**: `am crash`
+→ new pid, service foreground again, and the service-side
+`velta-kmp: connect ok — core v2.66.0` in logcat.
+
+**Slice 6 — foreground service (shipped):** a `dataSync` foreground service
+holds the app process — and with it the in-process core shim — while the
+screen is off. Started on activity stop, stopped on resume; MIN-importance
+"Background sync" notification; POST_NOTIFICATIONS requested at launch.
+Verified on the emulator: `dumpsys` shows the ServiceRecord with
+`isForeground=true`, dataSync type, ongoing notification, process held.
+Because the shim and the event loop live at process scope, holding the
+process IS the sync story — no extra plumbing.
+
+**Epic remainder:** the UnifiedPush receiver (token registration +
+message-triggered fetch) and the battery-allowance onboarding UI.
 
 **Slice 5 — account switcher (shipped):** 👤 entry on the chat list →
 Accounts screen listing every account (`get_all_accounts`), current one
