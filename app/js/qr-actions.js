@@ -56,7 +56,6 @@ export function classifyScannedCode(code, { parseInviteLink, isShortInviteLink }
   if (!s) return null;
   if (/^dcbackup\d*:/i.test(s)) return "backup";
   if (/^(dcaccount|dclogin):/i.test(s)) return "relay";
-  if (/^velta:\/\/tunnel/i.test(s)) return "tunnel"; // DNS tunnel setup (tunnel.js)
   if (/^velta:\/\/proxy/i.test(s)) return "tunnel"; // SOCKS5 proxy setup (proxy.js), same deep-link path
   if (/^velta:\/\/ws\?/i.test(s)) return "tunnel"; // WebSocket transport (ws-transport.js), same deep-link path
   if (parseInviteLink(s)) return "invite";
