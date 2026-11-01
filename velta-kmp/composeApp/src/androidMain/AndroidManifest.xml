@@ -4,6 +4,10 @@
     <!-- Core sockets (IMAP/SMTP + the loopback RPC shim) need INTERNET;
          Android gates every AF_INET socket, loopback included, on it. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Keep the core syncing while the screen is off (P4 slice 6). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:label="Velta KMP"
@@ -18,5 +22,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".core.VeltaForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
     </application>
 </manifest>

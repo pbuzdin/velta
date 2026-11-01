@@ -11,7 +11,7 @@ the gaps next to it.
 | P1b Android in-process core | ✅ done | `2cd1c8f2` | green |
 | P2 Persistence + read paths | ✅ done | `cbb3809b` | green |
 | P3 Write paths | ✅ code complete — live gate pending | `fd2a405c` + quote-restore | green |
-| P4 Velta layer | 🚧 slices 1-5 done (theming, relays, media, invites, switcher) | — | — |
+| P4 Velta layer | 🚧 slices 1-6 done (…, foreground service) | — | — |
 | P5 Release track | ⬜ | — | — |
 
 ---
@@ -160,6 +160,20 @@ Data: `list_transports` (sending transport first, quilt #11) merged with
 `get_server_metadata` (#15) by address. Scripted test pins the merge,
 ordering, "not known yet" fallback and delete params; the real-binary IT
 covers both RPCs on a fresh account.
+
+**Slice 6 — foreground service (shipped):** a `dataSync` foreground service
+holds the app process — and with it the in-process core shim — while the
+screen is off. Started on activity stop, stopped on resume; MIN-importance
+"Background sync" notification; POST_NOTIFICATIONS requested at launch.
+Verified on the emulator: `dumpsys` shows the ServiceRecord with
+`isForeground=true`, dataSync type, ongoing notification, process held.
+Because the shim and the event loop live at process scope, holding the
+process IS the sync story — no extra plumbing.
+
+**Slice 6 not included (next slices):** restart-on-kill (a CoreHolder
+singleton re-initialising the shim + client inside the service after the
+system reaps the process), UnifiedPush receiver (token registration +
+message-triggered fetch), and the battery-allowance onboarding UI.
 
 **Slice 5 — account switcher (shipped):** 👤 entry on the chat list →
 Accounts screen listing every account (`get_all_accounts`), current one
