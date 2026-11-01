@@ -1,0 +1,23 @@
+# Version catalog for the KMP client (tracking issue #192).
+# Gradle wrapper 8.14.3 + Kotlin 2.2.20 + compileSdk 36 mirror the proven
+# combo of the Tauri gen Android project so both builds share a toolchain.
+
+[versions]
+agp = "8.13.0"
+kotlin = "2.2.20"
+composeMultiplatform = "1.9.0"
+coroutines = "1.10.2"
+androidxActivityCompose = "1.11.0"
+compileSdk = "36"
+minSdk = "24"
+targetSdk = "36"
+
+[libraries]
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidxActivityCompose" }
+
+[plugins]
+kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
+composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+androidApplication = { id = "com.android.application", version.ref = "agp" }
