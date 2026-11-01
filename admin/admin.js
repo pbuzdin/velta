@@ -192,7 +192,7 @@ function assemble({ nav, footer, body, title, description, active, mainClass, he
   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/css/velta.css?v=12">${headExtra ? `\n  ${headExtra}` : ""}
+  <link rel="stylesheet" href="/css/velta.css?v=16">${headExtra ? `\n  ${headExtra}` : ""}
   <script type="speculationrules">
 {
   "prerender": [{
@@ -303,6 +303,15 @@ class VeltaAdmin extends Elena(HTMLElement) {
   async putFile(path, message, content, sha, blob = false) {
     // blob: content arrives already base64 (binary upload, e.g. images).
     return this.backend.put(path, message, blob ? content : utf8ToB64(content), sha);
+  }
+
+  // A commit per write triggers a full (slow) Pages build on the branch, so
+  // a write whose output is byte-identical to what is already committed
+  // must not become a commit at all. Line endings are normalized — a CRLF
+  // artifact from a Windows checkout must not defeat the skip.
+  sameAs(current, next) {
+    const norm = (s) => s.replace(/\r\n/g, "\n").replace(/\n+$/, "\n");
+    return norm(current) === norm(next);
   }
 
   async deleteFile(path, sha) {
@@ -490,12 +499,20 @@ class VeltaAdmin extends Elena(HTMLElement) {
         newRaw = this.content;
       }
       const message = this.commitMsg.trim() || `Update ${this.current.path}`;
-      this.current.sha = await this.putFile(this.current.path, message, newRaw, this.current.sha);
-      this.raw = newRaw;
-      if (this.current.path.startsWith("_partials/")) this.blocksCache = null;
-      localStorage.removeItem(this.draftKey);
-      this.dirty = false;
-      this.status = "Saved. Live at velta.cc in about a minute.";
+      if (this.sameAs(this.raw, newRaw)) {
+        // Assembled output is byte-identical to what is committed — a PUT
+        // here would only spend a commit and a Pages build.
+        localStorage.removeItem(this.draftKey);
+        this.dirty = false;
+        this.status = "Already live — no changes to commit.";
+      } else {
+        this.current.sha = await this.putFile(this.current.path, message, newRaw, this.current.sha);
+        this.raw = newRaw;
+        if (this.current.path.startsWith("_partials/")) this.blocksCache = null;
+        localStorage.removeItem(this.draftKey);
+        this.dirty = false;
+        this.status = "Saved. Live at velta.cc in about a minute.";
+      }
     } catch (e) {
       const m = String(e.message || e);
       if (/sha|conflict|409|422/i.test(m)) {
@@ -525,6 +542,7 @@ class VeltaAdmin extends Elena(HTMLElement) {
         this.getBlockMap(),
       ]);
       let n = 0;
+      let same = 0;
       for (const f of this.files.filter((f) => f.kind === "page")) {
         const raw = await this.getRaw(f.path);
         const m = raw.match(MARKERS);
@@ -539,10 +557,18 @@ class VeltaAdmin extends Elena(HTMLElement) {
           mainClass: mainClassOf(raw),
           headExtra: headExtraOf(raw),
         });
+        if (this.sameAs(raw, newRaw)) {
+          // Already matches the assembled output — no commit, no Pages build.
+          same++;
+          continue;
+        }
         f.sha = await this.putFile(f.path, `Rebuild ${f.path} from partials`, newRaw, f.sha);
         n++;
       }
-      this.status = `Rebuilt ${n} page(s) from the partials.`;
+      this.status =
+        `Rebuilt ${n} page(s) from the partials` +
+        (same ? `; ${same} already current — skipped` : "") +
+        ".";
     } catch (e) {
       this.error = String(e.message || e);
     }
@@ -651,6 +677,11 @@ class VeltaAdmin extends Elena(HTMLElement) {
       const newestFile = pageCount ? await this.backend.get(pagePath(pageCount)) : null;
       const writes = planAdd({ indexRaw, newestRaw: newestFile ? b64ToUtf8(newestFile.content) : null, pageCount, li });
       for (const w of writes) {
+        if (!w.create) {
+          const current =
+            w.path === "news/index.html" ? indexRaw : b64ToUtf8(newestFile.content);
+          if (this.sameAs(current, w.content)) continue; // entry already in place
+        }
         const sha = w.path === "news/index.html" ? indexFile.sha : w.create ? null : newestFile.sha;
         await this.putFile(w.path, `Add ${path} to ${w.path}`, w.content, sha);
       }
