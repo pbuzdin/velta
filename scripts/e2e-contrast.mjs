@@ -149,6 +149,24 @@ const openDrawer = async page => { await page.locator('.bar-btn').last().click()
 const toBottom = async page => { for (let i = 0; i < 4; i++) { await page.evaluate(() => { for (const e of document.querySelectorAll('*')) if (e.scrollHeight > e.clientHeight + 50 && /auto|scroll/.test(getComputedStyle(e).overflowY)) e.scrollTop = e.scrollHeight }); await page.waitForTimeout(250) } }
 const openDetails = async (page, sel) => { const s = page.locator(sel); if (await s.count()) { await s.first().click(); await page.waitForTimeout(300) } }
 const openChat = async (page, name) => { await clickText(page, '.chat-item', name); await page.waitForTimeout(700) }
+const inviteCards = async page => {
+  await openChat(page, 'Ada Byron')
+  await page.evaluate(async () => {
+    const { parseInviteLink, inviteCardHtml } = await import('./js/invites.js')
+    const link = 'https://i.delta.chat/#A1B2C3D4E5F60718293A4B5C6D7E8F9012345678&v=3&x=grp&i=inv&s=auth&a=pavel%40example.org&n=Pavel&g=Chat+RU%21'
+    const html = inviteCardHtml(parseInviteLink(link))
+    const history = document.createElement('div')
+    history.className = 'history'
+    document.getElementById('history-scroll').replaceChildren(history)
+    document.getElementById('main-composer').hidden = true
+    for (const out of [false, true]) {
+      const row = document.createElement('div')
+      row.className = `msg-row${out ? ' out' : ''}`
+      row.innerHTML = `<div class="bubble"><div class="msg-text">${html}</div></div>`
+      history.appendChild(row)
+    }
+  })
+}
 // The 1:1 call screen exactly as calls.js builds it (ensureOverlay + render),
 // without a peer connection: incoming and active states.
 const callScreen = state => async page => {
@@ -174,6 +192,7 @@ const screens = [
   ['calls-tab', async p => { await p.locator('.bar-btn').nth(2).click(); await p.waitForTimeout(450) }],
   ['new-chat', async p => { await p.locator('.bar-btn.bar-accent').click(); await p.waitForTimeout(450) }],
   ['chat-ada', async p => { await openChat(p, 'Ada Byron'); await toBottom(p) }],
+  ['invite-cards', inviteCards],
   ['chat-ada-top', async p => { await openChat(p, 'Ada Byron'); await p.evaluate(() => { for (const e of document.querySelectorAll('*')) if (e.scrollHeight > e.clientHeight + 50 && /auto|scroll/.test(getComputedStyle(e).overflowY)) e.scrollTop = 0 }); await p.waitForTimeout(400) }],
   ['chat-group-card', async p => { await openChat(p, 'Weekend Crew'); await toBottom(p); await p.locator('.msg-groupcall').first().evaluate(e => e.scrollIntoView({ block: 'center' })).catch(() => {}); await p.waitForTimeout(300) }],
   ['chat-devs', async p => { await openChat(p, 'Velta Devs'); await toBottom(p) }],

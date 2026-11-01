@@ -171,12 +171,13 @@ test("invite + Cryptex cards follow theme tokens (no fixed dark panel)", async (
   assert.match(css, /html\[data-theme="brutal"\] \.ivc \.ivc-btn\.ivc-primary:not\(\[disabled\]\) \{\s*border: 2px solid var\(--nb-ink\); background: var\(--nb-main\); color: var\(--nb-main-ink\)/);
 });
 
-test("link invite card (.invite-card) follows theme tokens, join area is the primary action", async () => {
+test("link invite card keeps a neutral surface with a small accent action cue", async () => {
   const { readFile } = await import("node:fs/promises");
   const css = await readFile(new URL("../app/css/main.css", import.meta.url), "utf8");
   assert.doesNotMatch(css, /rgba\(9, 14, 22, \.55\)/);
   assert.match(css, /\.invite-card \{[^}]*var\(--bg-reply\)[^}]*color: var\(--text\)[^}]*border-radius: 10px/);
-  assert.match(css, /\.invite-main \{[^}]*background: var\(--accent\);[^}]*color: var\(--on-accent\)/);
-  assert.match(css, /html\[data-theme="brutal"\] \.invite-card \.invite-main \{ background: var\(--nb-main\)/);
+  assert.match(css, /\.invite-main \{[^}]*background: transparent;[^}]*color: var\(--text\)/);
+  assert.match(css, /\.invite-action \{[^}]*color: var\(--accent-text-in\)/);
+  assert.match(css, /html\[data-theme="brutal"\] \.invite-card \.invite-main \{ background: transparent;/);
   assert.doesNotMatch(css, /\.invite-pending \.invite-line \{ opacity/);
 });
