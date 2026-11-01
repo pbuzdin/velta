@@ -25,13 +25,13 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result, anyhow, bail, ensure, format_err};
 
-use async_zip::base::read::seek::ZipFileReader as SeekZipFileReader;
+use async_zip::tokio::read::seek::ZipFileReader as SeekZipFileReader;
 type BlobZipReader = SeekZipFileReader<Cursor<Vec<u8>>>;
 
 async fn open_zip(context: &Context, path: &Path) -> Result<BlobZipReader> {
     let reader = open_blob(context, path)?;
     let bytes = tokio::task::spawn_blocking(move || reader.read_all()).await??;
-    Ok(SeekZipFileReader::new(Cursor::new(bytes)).await?)
+    Ok(SeekZipFileReader::with_tokio(Cursor::new(bytes)).await?)
 }
 use deltachat_contact_tools::sanitize_bidi_characters;
 use deltachat_derive::FromSql;
