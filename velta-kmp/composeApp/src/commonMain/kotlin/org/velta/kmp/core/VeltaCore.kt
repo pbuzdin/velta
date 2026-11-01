@@ -119,6 +119,43 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         )
     }
 
+    // ---- Relay management (P4) — the Velta differentiator. ----
+
+    /**
+     * All configured transports (relays) with their metadata merged in.
+     * `list_transports` already orders the sending transport first (quilt #11).
+     */
+    suspend fun relayCards(accountId: Long): List<RelayCard> {
+        val rawTransports = client.call("list_transports", RpcClient.params(RpcClient.param(accountId)))
+        val transports = (rawTransports as? JsonArray)?.mapNotNull { element ->
+            runCatching {
+                client.json.decodeFromString(TransportLogin.serializer(), element.toString())
+            }.onFailure { println("velta-kmp: transport decode failed: $it") }.getOrNull()
+        } ?: emptyList()
+
+        val metaByAddr: Map<String, ServerMetadata> = runCatching {
+            val meta = client.call("get_server_metadata", RpcClient.params(RpcClient.param(accountId)))
+            (meta as? JsonObject)?.mapNotNull { (addr, value) ->
+                val parsed = runCatching {
+                    client.json.decodeFromString(ServerMetadata.serializer(), value.toString())
+                }.onFailure { println("velta-kmp: metadata decode failed for $addr: $it") }.getOrNull()
+                    ?: return@mapNotNull null
+                addr to parsed
+            }?.toMap()
+        }.getOrNull() ?: emptyMap()
+
+        return transports.map { transport ->
+            RelayCard(transport.addr, metaByAddr[transport.addr])
+        }
+    }
+
+    suspend fun deleteTransport(accountId: Long, addr: String) {
+        client.call(
+            "delete_transport",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(addr)),
+        )
+    }
+
     suspend fun addTransport(accountId: Long, addr: String, password: String) {
         val param = buildJsonObject {
             put("addr", addr)

@@ -11,7 +11,7 @@ the gaps next to it.
 | P1b Android in-process core | ✅ done | `2cd1c8f2` | green |
 | P2 Persistence + read paths | ✅ done | `cbb3809b` | green |
 | P3 Write paths | ✅ code complete — live gate pending | `fd2a405c` + quote-restore | green |
-| P4 Velta layer | 🚧 slice 1 (theming) done | — | — |
+| P4 Velta layer | 🚧 slices 1-2 done (theming, relay cards) | — | — |
 | P5 Release track | ⬜ | — | — |
 
 ---
@@ -151,10 +151,24 @@ outgoing bubble `#2b5278`; light bg `#f4f4f4`, accent `#3390ec`, out-bubble
 `#e1f0fb`. Follows the system setting; verified on the emulator in BOTH
 modes via screenshots.
 
-**Next slices (planned):** relay management cards (`get_server_metadata`,
-per-relay enable/disable — the quilt-patched RPC surface), invite/join flow,
-account switcher, media rendering (blob files in bubbles), UnifiedPush +
-foreground service, at-rest lock port, brand logo assets.
+**Slice 2 — relay cards (shipped):** ⚡ entry on the chat list → Relays
+screen with one card per configured transport: address, capability flags
+**C**alls (TURN) / **I**roh / **P**ush / **D** instant-delivery (green =
+advertised, grey = not offered or not known yet), relay-provided details
+(comment, admin, recipients-per-message, compression), Remove action.
+Data: `list_transports` (sending transport first, quilt #11) merged with
+`get_server_metadata` (#15) by address. Scripted test pins the merge,
+ordering, "not known yet" fallback and delete params; the real-binary IT
+covers both RPCs on a fresh account.
+
+**Slice 2 not included (deliberate):** per-relay enable/disable toggle —
+`set_transport_enabled` does not exist in the core yet (proposed quilt
+patch #23, issue #189). The W flag (C3 websocket probe) is browser/Tauri
+specific and skipped.
+
+**Next slices (planned):** invite/join flow, account switcher, media
+rendering (blob files in bubbles), UnifiedPush + foreground service,
+at-rest lock port, brand logo assets.
 
 ## P5 — Release track ⬜
 

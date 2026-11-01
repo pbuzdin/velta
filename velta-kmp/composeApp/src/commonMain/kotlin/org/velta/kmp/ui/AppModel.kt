@@ -26,6 +26,7 @@ class AppModel(
     sealed interface Screen {
         data object Login : Screen
         data object ChatList : Screen
+        data object Relays : Screen
         data class Chat(val chatId: Long, val title: String, val isGroup: Boolean) : Screen
     }
 
@@ -46,6 +47,11 @@ class AppModel(
 
     var chats by mutableStateOf<List<ChatListItem>>(emptyList())
     var chatsLoading by mutableStateOf(false)
+        private set
+
+    // ---- Relay management (P4) ----
+    var relays by mutableStateOf<List<org.velta.kmp.core.RelayCard>>(emptyList())
+    var relaysLoading by mutableStateOf(false)
         private set
     var chatMessages by mutableStateOf<List<MessageObject>>(emptyList())
     var chatLoading by mutableStateOf(false)
@@ -275,6 +281,47 @@ class AppModel(
         pendingAttachment = null
         screen = Screen.ChatList
         refreshChats()
+    }
+
+    // ---- Relays (P4) ----
+
+    fun openRelays() {
+        screen = Screen.Relays
+        refreshRelays()
+    }
+
+    fun backFromRelays() {
+        screen = Screen.ChatList
+    }
+
+    fun refreshRelays() {
+        val veltaCore = core
+        val id = accountId
+        if (veltaCore == null || id == null) return
+        scope.launch {
+            relaysLoading = true
+            try {
+                relays = veltaCore.relayCards(id)
+            } catch (t: Throwable) {
+                println("velta-kmp: refreshRelays failed: $t")
+            } finally {
+                relaysLoading = false
+            }
+        }
+    }
+
+    fun removeRelay(addr: String) {
+        val veltaCore = core
+        val id = accountId
+        if (veltaCore == null || id == null) return
+        scope.launch {
+            try {
+                veltaCore.deleteTransport(id, addr)
+            } catch (t: Throwable) {
+                println("velta-kmp: removeRelay failed: $t")
+            }
+            refreshRelays()
+        }
     }
 
     /**

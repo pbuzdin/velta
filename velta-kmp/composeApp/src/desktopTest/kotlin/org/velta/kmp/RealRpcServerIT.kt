@@ -61,6 +61,11 @@ class RealRpcServerIT {
                 val entries = core.chatlistEntries(accountId)
                 assertTrue(entries.isEmpty(), "fresh account has an empty chatlist")
 
+                // Relay surface (P4): a fresh account has no transports and
+                // an empty metadata map — both calls answer for real.
+                val relays = core.relayCards(accountId)
+                assertTrue(relays.isEmpty(), "fresh account has no relay cards")
+
                 // P3 write-path round-trip WITHOUT network: a device message
                 // is created locally and read back through the client models.
                 val msgData = kotlinx.serialization.json.buildJsonObject {

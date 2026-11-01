@@ -82,6 +82,37 @@ data class Draft(
     val file: String? = null,
 )
 
+/** One configured transport (relay) — subset of EnteredLoginParam we render. */
+@Serializable
+data class TransportLogin(
+    val addr: String = "",
+    val imapServer: String? = null,
+    val smtpServer: String? = null,
+)
+
+/**
+ * Relay capabilities per `JsonrpcTransportServerMetadata` (quilt patch #15).
+ * Tri-state flags: null = not known yet (IMAP capabilities only exist after
+ * the relay's first connection). Server-reported strings are plain text.
+ */
+@Serializable
+data class ServerMetadata(
+    val hasTurn: Boolean? = null,
+    val irohRelay: String? = null,
+    val supportsPush: Boolean? = null,
+    val canIdle: Boolean? = null,
+    val canCompress: Boolean? = null,
+    val maxSmtpRcptTo: Long? = null,
+    val comment: String? = null,
+    val admin: String? = null,
+)
+
+/** A relay card: transport address + its metadata (when the core knows it). */
+data class RelayCard(
+    val addr: String,
+    val metadata: ServerMetadata? = null,
+)
+
 /**
  * Core event as returned by the long-poll `get_next_event`:
  * `{accountId, event: {kind, ...}}` — the inner event is kept raw; consumers

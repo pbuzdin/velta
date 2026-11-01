@@ -53,6 +53,7 @@ fun App(model: AppModel) {
             when (val current = model.screen) {
                 AppModel.Screen.Login -> LoginScreen(model)
                 AppModel.Screen.ChatList -> ChatListScreen(model)
+                AppModel.Screen.Relays -> RelaysScreen(model)
                 is AppModel.Screen.Chat -> ChatScreen(model, current)
             }
         }
@@ -153,6 +154,7 @@ private fun ChatListScreen(model: AppModel) {
                         CircularProgressIndicator(Modifier.size(20.dp))
                         Spacer(Modifier.size(12.dp))
                     }
+                    TextButton(onClick = { model.openRelays() }) { Text("⚡") }
                     TextButton(onClick = { model.refreshChats() }) { Text("Refresh") }
                 },
             )
@@ -232,6 +234,106 @@ private sealed interface ChatRow {
     data class Message(val message: MessageObject) : ChatRow {
         override val key: String get() = "m:${message.id}"
     }
+}
+
+private val FLAG_ON = androidx.compose.ui.graphics.Color(0xFF2ECC71)
+private val FLAG_OFF = androidx.compose.ui.graphics.Color(0xFF9AA0A6)
+
+/** P4 slice 2: relay cards — one card per configured transport (issue #192). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RelaysScreen(model: AppModel) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Relays") },
+                navigationIcon = {
+                    TextButton(onClick = { model.backFromRelays() }) { Text("‹ Back") }
+                },
+                actions = {
+                    if (model.relaysLoading) CircularProgressIndicator(Modifier.size(20.dp))
+                    Spacer(Modifier.size(12.dp))
+                },
+            )
+        },
+    ) { inner ->
+        if (model.relays.isEmpty()) {
+            Box(Modifier.padding(inner).fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    if (model.relaysLoading) "Loading…" else "No relays yet",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            LazyColumn(Modifier.padding(inner)) {
+                items(model.relays, key = { it.addr }) { card ->
+                    RelayCardItem(card) { model.removeRelay(card.addr) }
+                    HorizontalDivider()
+                }
+                item {
+                    Text(
+                        "C calls · I iroh · P push · D instant delivery — grey means the relay does not advertise it (or it is not known yet)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(16.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RelayCardItem(card: org.velta.kmp.core.RelayCard, onRemove: () -> Unit) {
+    val meta = card.metadata
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                card.addr,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f),
+            )
+            RelayFlag("C", meta?.hasTurn == true)
+            RelayFlag("I", meta?.irohRelay != null)
+            RelayFlag("P", meta?.supportsPush == true)
+            RelayFlag("D", meta?.canIdle) // tri-state: null = not known yet
+        }
+        val details = buildList {
+            meta?.comment?.trim()?.takeIf { it.isNotEmpty() }?.let { add(it) }
+            meta?.admin?.trim()?.takeIf { it.isNotEmpty() }?.let { add("Admin: $it") }
+            val rcpt = meta?.maxSmtpRcptTo
+            if (rcpt != null && rcpt > 0) add("Up to $rcpt recipients per message")
+            if (meta?.canCompress == true) add("compressed connection")
+        }
+        details.forEach { line ->
+            Text(
+                line,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            TextButton(onClick = onRemove) {
+                Text("Remove", color = MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RelayFlag(letter: String, on: Boolean?) {
+    val color = if (on == true) FLAG_ON else FLAG_OFF
+    Text(
+        letter,
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.Bold,
+        color = color,
+        modifier = Modifier
+            .padding(start = 6.dp)
+            .background(color.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
