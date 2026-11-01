@@ -589,6 +589,8 @@ footer .brand {
   font-size: 1.25rem;
   text-decoration: none;
 }
+footer > div > div:first-child p { margin: 0.4rem 0 0; color: var(--muted); font-size: 0.9375rem; }
+footer .motto { font-family: var(--display); font-size: 1.05rem; }
 
 main.page, main.news {
   width: min(40rem, calc(100% - 2.5rem));
