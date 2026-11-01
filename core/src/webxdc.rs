@@ -25,12 +25,13 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result, anyhow, bail, ensure, format_err};
 
-use async_zip::tokio::read::seek::ZipFileReader as SeekZipFileReader;
-type BlobZipReader = SeekZipFileReader<BufReader<SyncIoBridge<AttachmentReader>>>;
+use async_zip::base::read::seek::ZipFileReader as SeekZipFileReader;
+type BlobZipReader = SeekZipFileReader<Cursor<Vec<u8>>>;
 
 async fn open_zip(context: &Context, path: &Path) -> Result<BlobZipReader> {
-    let reader = BufReader::new(SyncIoBridge::new(open_blob(context, path)?));
-    Ok(SeekZipFileReader::with_tokio(reader).await?)
+    let reader = open_blob(context, path)?;
+    let bytes = tokio::task::spawn_blocking(move || reader.read_all()).await??;
+    Ok(SeekZipFileReader::new(Cursor::new(bytes)).await?)
 }
 use deltachat_contact_tools::sanitize_bidi_characters;
 use deltachat_derive::FromSql;
@@ -40,10 +41,7 @@ use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use tokio::io::BufReader;
-use tokio_util::io::SyncIoBridge;
 
-use crate::attachment::AttachmentReader;
 use crate::blob::open_blob;
 use crate::chat::{self, Chat};
 use crate::constants::Chattype;

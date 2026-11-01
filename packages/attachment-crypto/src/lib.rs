@@ -12,7 +12,6 @@ use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
 use anyhow::{Context as _, Result, bail, ensure};
 use hkdf::Hkdf;
-use rand::RngCore;
 use sha2::Sha256;
 use zeroize::Zeroizing;
 

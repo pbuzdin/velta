@@ -5,7 +5,6 @@ use bytes::Bytes;
 use http_body_util::BodyExt;
 use hyper_util::rt::TokioIo;
 use mime::Mime;
-use tokio::fs;
 
 use crate::blob::BlobObject;
 use crate::context::Context;

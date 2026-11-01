@@ -12,7 +12,6 @@ use mail_builder::headers::address::Address;
 use mail_builder::headers::raw::Raw;
 use mail_builder::headers::text::Text;
 use mail_builder::mime::MimePart;
-use tokio::fs;
 
 use crate::aheader::{Aheader, EncryptPreference};
 use crate::blob::BlobObject;

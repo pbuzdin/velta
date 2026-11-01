@@ -21,7 +21,7 @@ use crate::config::Config;
 use crate::constants::{self, MediaQuality};
 use crate::context::Context;
 use crate::events::EventType;
-use crate::log::{LogExt, warn};
+use crate::log::warn;
 use crate::message::Viewtype;
 use crate::tools::sanitize_filename;
 
@@ -364,12 +364,12 @@ impl<'a> BlobObject<'a> {
         let vt = &mut *viewtype;
         let res: Result<String> = tokio::task::block_in_place(move || {
             let mut file = self.open(context)?;
-            let (nr_bytes, exif) = image_metadata(&file)?;
+            let (nr_bytes, exif) = image_metadata(&mut file)?;
             *no_exif_ref = exif.is_none();
             // It's strange that BufReader modifies a file position while it takes a non-mut
             // reference. Ok, just rewind it.
             file.rewind()?;
-            let imgreader = ImageReader::new(std::io::BufReader::new(&file))
+            let imgreader = ImageReader::new(std::io::BufReader::new(&mut file))
                 .with_guessed_format()
                 .context("Failed to guess image format due to I/O error")?;
             let fmt = imgreader.format().context("Unknown format")?;
@@ -631,7 +631,7 @@ fn file_hash(context: &Context, src: &Path) -> Result<blake3::Hash> {
 }
 
 /// Returns image file size and Exif.
-fn image_metadata(file: &AttachmentReader) -> Result<(u64, Option<exif::Exif>)> {
+fn image_metadata(file: &mut AttachmentReader) -> Result<(u64, Option<exif::Exif>)> {
     let len = file.len();
     let mut bufreader = std::io::BufReader::new(file);
     let exif = exif::Reader::new()

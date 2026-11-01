@@ -10,7 +10,6 @@ use deltachat_contact_tools::{addr_cmp, sanitize_single_line};
 use serde::{Deserialize, Serialize};
 use strum::{EnumProperty, IntoEnumIterator};
 use strum_macros::{AsRefStr, Display, EnumIter, EnumString};
-use tokio::fs;
 
 use crate::blob::BlobObject;
 use crate::context::Context;
@@ -710,7 +709,7 @@ impl Context {
                             .set_raw_config(key.as_ref(), Some(blob.as_name()))
                             .await?;
                         if sync {
-                            let buf = blob.read_bytes(context)?;
+                            let buf = blob.read_bytes(self)?;
                             better_value = base64::engine::general_purpose::STANDARD.encode(buf);
                             value = Some(&better_value);
                         }

@@ -579,9 +579,19 @@ where
         .await?;
 
     for blob in blobdir.iter() {
-        let mut file = tokio_util::io::SyncIoBridge::new(blob.open(context)?);
+        let mut source = blob.open(context)?;
+        let plaintext_len = source.len();
+        let (writer, mut reader) = tokio::io::duplex(64 * 1024);
+        let mut writer = tokio_util::io::SyncIoBridge::new(writer);
+        let copy = tokio::task::spawn_blocking(move || std::io::copy(&mut source, &mut writer));
+        let mut header = tokio_tar::Header::new_gnu();
+        header.set_size(plaintext_len);
+        header.set_mode(0o644);
         let path_in_archive = PathBuf::from(BLOBS_BACKUP_NAME).join(blob.as_name());
-        builder.append_file(path_in_archive, &mut file).await?;
+        builder
+            .append_data(&mut header, path_in_archive, &mut reader)
+            .await?;
+        copy.await??;
     }
 
     builder.finish().await?;
