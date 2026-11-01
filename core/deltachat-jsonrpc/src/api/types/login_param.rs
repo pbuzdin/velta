@@ -235,3 +235,14 @@ pub struct JsonrpcTransportServerMetadata {
     /// Max recipients per SMTP message (`maxsmtprecipients`), if advertised.
     pub max_smtp_rcpt_to: Option<u32>,
 }
+
+/// One transport's paused state (Velta #23, #189).
+#[derive(Serialize, Deserialize, TypeDef, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct VeltaTransportState {
+    /// Transport email address.
+    pub addr: String,
+
+    /// False when the user paused this relay: no fetch, no sends.
+    pub enabled: bool,
+}

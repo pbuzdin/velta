@@ -3303,6 +3303,13 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
    the capability. C calls/TURN, I iroh, P push, D instant delivery (IDLE), W web/C3 endpoints. */
 .relay-card { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .relay-card:last-child { border-bottom: 0; }
+/* Paused relay (Velta #23, #189): dimmed card + off chip. */
+.relay-card.relay-off .relay-addr { opacity: .55; }
+.relay-off-chip {
+  display: inline-block; margin-inline-start: 4px; padding: 1px 8px;
+  border-radius: 999px; border: 1px solid var(--border);
+  color: var(--muted); font-size: 11px; vertical-align: middle;
+}
 .relay-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .relay-addr { font-weight: 600; overflow-wrap: anywhere; }
 .relay-sending { font-weight: 400; opacity: .75; }

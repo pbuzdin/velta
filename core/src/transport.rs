@@ -669,6 +669,71 @@ pub(crate) fn transport_addrs(transaction: &rusqlite::Transaction) -> Result<Vec
     Ok(addrs)
 }
 
+/// Velta patch (#23, #189): ui-config key holding the addresses of paused
+/// transports as a JSON array. Velta-owned like `ui.velta.send_transport`
+/// (patch #11): stored verbatim, per device, not synced.
+pub const VELTA_DISABLED_TRANSPORTS_KEY: &str = "ui.velta.disabled_transports";
+
+/// Velta patch (#23, #189): lowercased addresses of paused transports.
+/// A missing or unreadable key means "nothing paused" — the paused list
+/// must never be able to take the whole profile down by being corrupt.
+pub async fn velta_disabled_transports(context: &Context) -> Result<Vec<String>> {
+    Ok(context
+        .get_ui_config(VELTA_DISABLED_TRANSPORTS_KEY)
+        .await?
+        .and_then(|json| serde_json::from_str::<Vec<String>>(&json).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|addr| addr.trim().to_lowercase())
+        .filter(|addr| !addr.is_empty())
+        .collect())
+}
+
+/// Velta patch (#23, #189): pause (`enabled = false`) or resume a transport.
+/// Pausing keeps the transport configured: sends exclude it immediately and
+/// fetch skips it at the next IO start; stored mail and the config stay.
+/// Unknown addresses are stored verbatim and stay inert until one exists.
+pub async fn velta_set_transport_enabled(
+    context: &Context,
+    addr: &str,
+    enabled: bool,
+) -> Result<()> {
+    let addr = addr.trim().to_lowercase();
+    anyhow::ensure!(!addr.is_empty(), "empty transport address");
+    let mut disabled = velta_disabled_transports(context).await?;
+    if enabled {
+        disabled.retain(|a| a != &addr);
+    } else if !disabled.contains(&addr) {
+        disabled.push(addr);
+    }
+    let json = serde_json::to_string(&disabled)?;
+    context
+        .set_ui_config(VELTA_DISABLED_TRANSPORTS_KEY, Some(&json))
+        .await?;
+    Ok(())
+}
+
+/// Velta patch (#23, #189): `(addr, enabled)` per configured transport,
+/// in list_transports order.
+pub async fn velta_transport_states(context: &Context) -> Result<Vec<(String, bool)>> {
+    let disabled = velta_disabled_transports(context).await?;
+    let addrs: Vec<String> = context
+        .sql
+        .query_map_vec(
+            "SELECT addr FROM transports ORDER BY add_timestamp DESC, id DESC",
+            (),
+            |row| Ok(row.get(0)?),
+        )
+        .await?;
+    Ok(addrs
+        .into_iter()
+        .map(|addr| {
+            let enabled = !disabled.contains(&addr.to_lowercase());
+            (addr, enabled)
+        })
+        .collect())
+}
+
 /// Deletes the transport row unless it is newer than `remove_timestamp`,
 /// records the tombstone, and returns the deleted row's id.
 pub(crate) fn delete_transport_row(

@@ -118,6 +118,7 @@ export class MockCore extends EventTarget {
     // Demo relay set for the Relays modal (issue #11 slices: demotion +
     // stale-transport hint are demoable without a real multi-relay account).
     this.relayDomains = this.account.relay ? [this.account.relay, "chat.vim.wtf"] : [];
+    this.pausedRelays = []; // Velta #23 (#189): relays paused via the Relays modal
     this.contacts = CONTACTS;
     this._extraMembers = {}; // chatId → contact ids added via addChatMembers
     this._leftChats = new Set(); // chat ids the demo user has left
@@ -411,7 +412,19 @@ export class MockCore extends EventTarget {
 
   // ---- Relay management demo surface (Relays modal works in demo mode) ----
   async listTransports() {
-    return this.relayDomains.map(d => ({ addr: `you@${d}` }));
+    return this.relayDomains.map(d => ({ addr: `you@${d}`, enabled: !this.pausedRelays.includes(d) }));
+  }
+
+  // Velta #23 (#189): pause/resume without deleting.
+  async setTransportEnabled(addr, enabled) {
+    const domain = String(addr).includes("@") ? addr.split("@")[1] : addr;
+    if (enabled) this.pausedRelays = this.pausedRelays.filter(d => d !== domain);
+    else if (!this.pausedRelays.includes(domain)) this.pausedRelays.push(domain);
+    this._emit("transports-modified", {});
+  }
+
+  async listTransportStates() {
+    return this.relayDomains.map(d => ({ addr: `you@${d}`, enabled: !this.pausedRelays.includes(d) }));
   }
 
   async setSendRelay(addr) {

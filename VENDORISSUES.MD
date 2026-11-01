@@ -602,3 +602,16 @@ held (stops in parallel). A test hook, `VELTA_TEST_STOP_IO_DELAY_MS`
 `core-patches`) reproduces the stall: before the patch 7 chat reads took
 7.7 s, after it 3–4 ms. Upstream fix: no `Accounts` lock across IO
 start/stop.
+
+### 23. Per-relay enable/disable: pause a relay without deleting it
+
+**Tracker: pbuzdin/velta#189. Status: patched locally (quilt ops "#23 …", 10 ops, 5 files).**
+The Relays modal offered only "Use for sending" (#11/#164) and Remove — the only way
+to stop a misbehaving relay was deleting it, losing the address. Paused transports
+live in the Velta-owned ui key `ui.velta.disabled_transports` (JSON array of
+lowercased addrs, per device like the send pin). Sends exclude paused relays in the
+SMTP connect loop; the inbox loops and `background_fetch_any` skip them at
+`ConfiguredLoginParam::load_all` (toggling applies at the next IO start); a send pin
+on a paused relay is voided. RPCs `set_transport_enabled(addr, enabled)` and
+`list_transport_states()` (typed `VeltaTransportState`). Upstream will not take this
+(auto-philosophy, chatmail/core#8857).

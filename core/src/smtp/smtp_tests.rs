@@ -53,6 +53,62 @@ async fn test_velta_pinned_send_transport() -> Result<()> {
     Ok(())
 }
 
+// Velta patch (#23, #189): pausing a transport hides it from the send
+// order and voids the pin; the roundtrip is case-insensitive and unknown
+// addresses are stored but stay inert.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_velta_transport_enabled() -> Result<()> {
+    let t = TestContext::new().await;
+    transport::add_pseudo_transport(&t, "foo@example.net").await?;
+    transport::add_pseudo_transport(&t, "bar@example.net").await?;
+    transport::add_pseudo_transport(&t, "baz@example.net").await?;
+
+    // Nothing paused initially.
+    assert!(
+        crate::transport::velta_disabled_transports(&t)
+            .await?
+            .is_empty()
+    );
+    let addrs = |v: Vec<(u32, crate::transport::ConfiguredLoginParam)>| {
+        v.into_iter()
+            .map(|(_, lp)| lp.addr.to_lowercase())
+            .collect::<Vec<_>>()
+    };
+    let before = addrs(super::sorted_transports(&t).await?);
+    assert_eq!(before.len(), 3);
+
+    // Pause one: it drops out of the send order, case-insensitively.
+    crate::transport::velta_set_transport_enabled(&t, "Bar@Example.net", false).await?;
+    assert!(
+        crate::transport::velta_disabled_transports(&t)
+            .await?
+            .contains(&"bar@example.net".to_string())
+    );
+    let after = addrs(super::sorted_transports(&t).await?);
+    assert_eq!(after, vec!["foo@example.net", "baz@example.net"]);
+
+    // A pin on a paused transport is ignored.
+    t.set_ui_config(super::VELTA_SEND_TRANSPORT_KEY, Some("bar@example.net"))
+        .await?;
+    assert_eq!(super::velta_pinned_transport(&t).await?, None);
+
+    // Clear the pin before re-checking the order: it still names bar.
+    t.set_ui_config(super::VELTA_SEND_TRANSPORT_KEY, Some(""))
+        .await?;
+
+    // Resume: the transport is back. Unpausing an unknown address is a
+    // no-op that must not error.
+    crate::transport::velta_set_transport_enabled(&t, "bar@example.net", true).await?;
+    assert_eq!(addrs(super::sorted_transports(&t).await?), before);
+    crate::transport::velta_set_transport_enabled(&t, "gone@example.net", true).await?;
+    assert!(
+        crate::transport::velta_disabled_transports(&t)
+            .await?
+            .is_empty()
+    );
+    Ok(())
+}
+
 // Velta patch (#11): a pin that just failed to connect drops behind the most
 // recently successful transport; once VELTA_PIN_BACKOFF passed (or the pin
 // connected again) it is first again.
