@@ -1873,7 +1873,7 @@ export function showEditProfile({ name, avatarUrl, color, pickImage, contactId =
       <input class="text-field" maxlength="64" autocomplete="off" spellcheck="false" aria-label="${escapeHtml(t("Name"))}" placeholder="${escapeHtml(t("Your name"))}">
       <textarea class="text-field ep-desc" rows="3" spellcheck="false" aria-label="${escapeHtml(t("Description"))}" placeholder="${escapeHtml(t("Description"))}"></textarea>`;
     const input = body.querySelector("input");
-    const descTa = body.querySelector(".ep-desc");
+    const descTa = body.querySelector("textarea");
     descTa.value = description || "";
     const preview = body.querySelector("velta-avatar");
     const removeBtn = body.querySelector('[data-ep="remove"]');
