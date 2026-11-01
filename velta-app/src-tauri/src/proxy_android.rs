@@ -55,9 +55,6 @@ pub async fn maybe_network() -> bool {
 /// Resume diagnostic: one line per account with its connectivity, or a
 /// line saying the account manager lock is held (a stuck start_io/stop_io
 /// writer blocks every UI RPC). Read-only; bounded at 5 s.
-// Called from proxy.rs's log_resume_state, wired into lib.rs by the
-// "archive the DNS tunnel" commit.
-#[allow(dead_code)]
 pub async fn log_resume_state() {
     let Some(a) = accounts() else {
         crate::log("resume: core not running");

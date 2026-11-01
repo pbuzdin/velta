@@ -35,9 +35,7 @@ mod platform;
 mod platform;
 
 /// Resume diagnostic (Android): account lock latency and connectivity.
-/// Wired into lib.rs by the "archive the DNS tunnel" commit.
 #[cfg(target_os = "android")]
-#[allow(dead_code)]
 pub async fn log_resume_state() {
     platform::log_resume_state().await
 }
@@ -147,9 +145,6 @@ mod imp {
     /// Keeps every profile's proxy_url in line with the selected proxy (on
     /// install, on removal, and every minute so profiles added later pick it
     /// up). Runs wherever the core runs, including the Android headless core.
-    // boot/start_applier are wired into lib.rs by the "archive the DNS
-    // tunnel" commit; until then nothing calls them.
-    #[allow(dead_code)]
     fn start_applier(app: crate::Host) {
         APPLIER.get_or_init(|| {
             tauri::async_runtime::spawn(async move {
@@ -216,7 +211,6 @@ mod imp {
     }
 
     /// Called once the core is up: point the profiles at the selected proxy.
-    #[allow(dead_code)] // wired by the "archive the DNS tunnel" commit
     pub fn boot(app: &crate::Host) {
         *HOST.lock().unwrap() = Some(app.clone());
         // Always run the proxy keeper, selected proxy or not: a profile
@@ -231,7 +225,6 @@ mod imp {
     /// The WebSocket transport's proxy: stored here and written by the same
     /// keeper (a selected SOCKS5 proxy wins; normally the two are never on
     /// at once).
-    #[allow(dead_code)] // called by ws_transport.rs once it is repointed
     pub fn set_ws_proxy(url: Option<String>) {
         *WS_PROXY_URL.lock().unwrap() = url;
         tauri::async_runtime::spawn(async {
@@ -242,13 +235,11 @@ mod imp {
     }
 
     /// A SOCKS5 proxy is selected in the saved list.
-    #[allow(dead_code)] // called by ws_transport.rs once it is repointed
     pub fn socks_proxy_active(app: &crate::Host) -> bool {
         store::active_id(&load_store(app)).is_some()
     }
 
     /// The WebSocket transport is being turned on: deselect the proxy.
-    #[allow(dead_code)] // called by ws_transport.rs once it is repointed
     pub fn deactivate_for_ws(app: &crate::Host) {
         if socks_proxy_active(app) {
             let _ = select(app, None);
@@ -256,8 +247,7 @@ mod imp {
         }
     }
 
-    /// Commands work before boot() wired the keeper (an interim state):
-    /// remember the host so apply_proxy has one.
+    /// Commands also remember the host so an early deep link can apply a proxy.
     fn touch(app: &crate::Host) {
         *HOST.lock().unwrap() = Some(app.clone());
     }
@@ -276,7 +266,7 @@ mod imp {
             // One at a time: the proxy and the WebSocket transport both set
             // the profiles' proxy.
             #[cfg(any(target_os = "android", windows))]
-            crate::ws_transport::deactivate_for_tunnel(app);
+            crate::ws_transport::deactivate_for_proxy(app);
             tauri::async_runtime::spawn(async {
                 apply_proxy().await;
                 platform::maybe_network().await;
@@ -301,7 +291,7 @@ mod imp {
             Some(id) => {
                 plog("info", &format!("switching to proxy {id}"));
                 #[cfg(any(target_os = "android", windows))]
-                crate::ws_transport::deactivate_for_tunnel(app);
+                crate::ws_transport::deactivate_for_proxy(app);
                 tauri::async_runtime::spawn(async {
                     apply_proxy().await;
                     // Same proxy URL, new proxy: reconnect now.
@@ -386,13 +376,9 @@ mod imp {
     }
 }
 
-// Used by ws_transport.rs and lib.rs from the "archive the DNS tunnel"
-// commit on; the re-exports stay inert until then.
-#[allow(unused_imports)]
 pub use imp::{boot, deactivate_for_ws, set_ws_proxy, socks_proxy_active};
 
 /// Points every profile at the selected proxy now (boot: before IO starts).
-#[allow(dead_code)] // wired by the "archive the DNS tunnel" commit
 pub async fn reapply_proxy() {
     imp::reapply().await;
 }
