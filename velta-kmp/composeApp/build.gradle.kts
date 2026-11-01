@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.androidApplication)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
+    alias(libs.plugins.kotlinSerialization)
 }
 
 kotlin {
@@ -19,13 +20,27 @@ kotlin {
             implementation(compose.material3)
             implementation(compose.ui)
             implementation(libs.kotlinx.coroutines.core)
+            implementation(libs.kotlinx.serialization.json)
         }
+        // Shared JVM layer: the JSON-RPC client + process transport are
+        // identical on Android and desktop — this is the KMP boundary
+        // (core bridge in jvmCommon, entry points + platform seam per target).
+        val jvmCommon by creating {
+            dependsOn(commonMain.get())
+        }
+        androidMain.get().dependsOn(jvmCommon)
         androidMain.dependencies {
             implementation(libs.androidx.activity.compose)
         }
         val desktopMain by getting {
+            dependsOn(jvmCommon)
             dependencies {
                 implementation(compose.desktop.currentOs)
+            }
+        }
+        val desktopTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
             }
         }
     }
@@ -59,7 +74,7 @@ compose.desktop {
     application {
         mainClass = "org.velta.kmp.MainKt"
         nativeDistributions {
-            targetFormats(TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.Msi)
+            targetFormats(TargetFormat.Deb, TargetFormat.Msi)
             packageName = "Velta"
             packageVersion = "0.1.0"
         }

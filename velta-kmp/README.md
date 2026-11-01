@@ -31,7 +31,21 @@ over time. No new API surface, no C-FFI binding fork.
 ```sh
 ./gradlew :composeApp:assembleDebug                     # Android debug APK
 ./gradlew :composeApp:packageDistributionForCurrentOS   # desktop installer/jar
+./gradlew :composeApp:desktopTest                       # unit tests (+ real-binary IT when VELTA_KMP_RPC_SERVER is set)
 ```
 
 Requires JDK 21 (and the Android SDK for the Android target). CI:
 `.github/workflows/build-kmp.yml` builds both on every push touching this dir.
+
+## Run the P1 bridge demo (desktop)
+
+The app spawns `deltachat-rpc-server` and talks JSON Lines over stdio
+(accounts land in `~/.velta-kmp/accounts`):
+
+```sh
+export VELTA_KMP_RPC_SERVER=/path/to/deltachat-rpc-server   # any recent build
+./gradlew :composeApp:run
+```
+
+Sign in with a throwaway account — the P1 flow is add account → add
+transport → configure → start io → chat list → chat view (read-only).

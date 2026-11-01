@@ -37,3 +37,7 @@ jobs:
       - name: Build desktop distribution
         working-directory: velta-kmp
         run: ./gradlew :composeApp:packageDistributionForCurrentOS --no-daemon --stacktrace
+
+      - name: Unit tests (desktopTest)
+        working-directory: velta-kmp
+        run: ./gradlew :composeApp:desktopTest --no-daemon --stacktrace
