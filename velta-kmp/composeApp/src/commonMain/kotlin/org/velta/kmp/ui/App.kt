@@ -48,7 +48,7 @@ import androidx.compose.ui.unit.dp
 /** P1 read-path UI: login, chat list, chat view. Bare bones by design (issue #192). */
 @Composable
 fun App(model: AppModel) {
-    MaterialTheme(colorScheme = darkColorScheme()) {
+    VeltaTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
             when (val current = model.screen) {
                 AppModel.Screen.Login -> LoginScreen(model)

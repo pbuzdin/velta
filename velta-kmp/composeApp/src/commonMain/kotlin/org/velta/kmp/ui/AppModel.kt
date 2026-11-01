@@ -221,9 +221,20 @@ class AppModel(
                 } catch (t: Throwable) {
                     println("velta-kmp: marknoticed failed: $t")
                 }
-                // Restore a persisted draft (text only; the quote is not re-fetched).
-                veltaCore.draft(id, item.id)?.text?.let { saved ->
-                    if (composerText.isBlank()) composerText = saved
+            }
+        }
+        // Draft restore rides its own coroutine — it must not wait behind
+        // marknoticed (which can be slow or, in tests, never answer).
+        scope.launch {
+            val veltaCore = core
+            val id = accountId
+            if (veltaCore != null && id != null) {
+                veltaCore.draft(id, item.id)?.let { saved ->
+                    if (composerText.isBlank()) composerText = saved.text ?: ""
+                    val quotedId = saved.quotedMessageId
+                    if (quotedId != null && replyTo == null) {
+                        replyTo = veltaCore.messages(id, listOf(quotedId)).firstOrNull { it.id == quotedId }
+                    }
                 }
             }
         }

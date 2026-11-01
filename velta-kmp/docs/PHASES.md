@@ -10,8 +10,8 @@ the gaps next to it.
 | P1a Core bridge (desktop) | ✅ done | `2ee90088` | green |
 | P1b Android in-process core | ✅ done | `2cd1c8f2` | green |
 | P2 Persistence + read paths | ✅ done | `cbb3809b` | green |
-| P3 Write paths | 🚧 first slice done | this commit | — |
-| P4 Velta layer | ⬜ | — | — |
+| P3 Write paths | ✅ code complete — live gate pending | `fd2a405c` + quote-restore | green |
+| P4 Velta layer | 🚧 slice 1 (theming) done | — | — |
 | P5 Release track | ⬜ | — | — |
 
 ---
@@ -125,9 +125,16 @@ Also corrected: delivery-state numbers are 20=Pending, 24=Failed, 26=Delivered,
 28=Read (core/src/message.rs), not 10/13/16/26.
 
 **Missing:**
-- **The P3 exit gate itself**: a real message sent from the KMP client
-  arriving in another client (needs a throwaway-account login on desktop or
-  Android).
+- **The P3 exit gate** — the one step that needs human hands, everything else
+  is CI-tested. Checklist (15 min):
+  1. Desktop: `VELTA_KMP_RPC_SERVER=<deltachat-rpc-server> ./gradlew :composeApp:run`
+  2. Sign in with a **throwaway** account (invite creds, not a daily account)
+  3. Chat list loads; open any 1:1 chat
+  4. Send a text → bubble appears ⏳ → flips ✓ when the relay takes it
+  5. Send an attachment → arrives in the receiving client with the right name
+  6. React 👍 to the reply → chip appears under the bubble
+  7. Quote-reply → quote renders in the receiving client
+  Then tick the gate in this file and the issue.
 - Attachment DISPLAY in the chat view — sending works (picker → core
   dedup into blobdir), but bubbles show only the 📎 glyph; rendering and
   opening blob files is the media-rendering item.
@@ -135,14 +142,19 @@ Also corrected: delivery-state numbers are 20=Pending, 24=Failed, 26=Delivered,
 - No optimistic fake rows — deliberate: after `misc_send_draft` returns the
   message is already in the db, so the immediate reload shows the real
   OutPending bubble with ⏳ (no fakery to reconcile later).
-- Recipient/draft edge cases: quote restore after reopen (draft's
-  quotedMessageId is not re-fetched), draft for non-open chats.
 
-## P4 — Velta layer ⬜
+## P4 — Velta layer 🚧 slice 1 done
 
-Planned: relay management cards, invite/join flow, UnifiedPush + foreground
-service, at-rest lock port, brand/theming, account switcher, media rendering
-if not pulled earlier.
+**Slice 1 — theming (shipped):** `VeltaTheme` lifted from the PWA's tokens
+(`app/css/main.css`): dark bg `#0f0f14`, elev `#1c1c26`, accent `#5aa2e6`,
+outgoing bubble `#2b5278`; light bg `#f4f4f4`, accent `#3390ec`, out-bubble
+`#e1f0fb`. Follows the system setting; verified on the emulator in BOTH
+modes via screenshots.
+
+**Next slices (planned):** relay management cards (`get_server_metadata`,
+per-relay enable/disable — the quilt-patched RPC surface), invite/join flow,
+account switcher, media rendering (blob files in bubbles), UnifiedPush +
+foreground service, at-rest lock port, brand logo assets.
 
 ## P5 — Release track ⬜
 

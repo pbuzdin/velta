@@ -197,6 +197,36 @@ class SendFlowTest {
     }
 
     @Test
+    fun draftRestoreRestoresTextAndQuote() = runBlocking {
+        val transport = ScriptedRpcTransport(
+            mapOf(
+                "get_system_info" to """{"deltachat_core_version":"v2.66.0"}""",
+                "get_all_account_ids" to "[1]",
+                "get_account_info" to """{"id":1,"addr":"demo@example.org","isConfigured":true}""",
+                "get_chatlist_entries" to "[5]",
+                "get_chatlist_items_by_entries" to
+                    """{"5":{"kind":"ChatListItem","id":5,"name":"Test Chat","summaryText2":"x","lastUpdated":1,"freshMessageCounter":0}}""",
+                "get_message_ids" to "[]",
+                "get_draft" to """{"text":"saved draft","quotedMessageId":42}""",
+                "get_messages" to
+                    """{"42":{"kind":"message","id":42,"chatId":5,"fromId":5,"text":"the quoted msg","state":13}}""",
+            ),
+        )
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val model = AppModel(scriptedPlatform(transport), scope)
+        try {
+            openTestChat(model)
+            withTimeout(10_000) {
+                while (model.composerText != "saved draft" || model.replyTo?.id != 42L) yield()
+            }
+            assertEquals("saved draft", model.composerText)
+            assertEquals("the quoted msg", model.replyTo?.text)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun reactSendsReactionArray() = runBlocking {
         val transport = ScriptedRpcTransport(
             mapOf(
