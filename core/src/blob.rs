@@ -16,6 +16,7 @@ use num_traits::{FromPrimitive, cast};
 use tokio::{fs, task};
 use tokio_stream::wrappers::ReadDirStream;
 
+use crate::attachment::{self, AttachmentReader};
 use crate::config::Config;
 use crate::constants::{self, MediaQuality};
 use crate::context::Context;
@@ -71,22 +72,29 @@ impl<'a> BlobObject<'a> {
             let blobdir = context.get_blobdir();
 
             let src_in_blobdir = if src.starts_with(blobdir) {
+                ensure_encrypted(context, src)?;
                 src
             } else {
                 info!(
                     context,
                     "Source file not in blobdir. Copying instead of moving in order to prevent moving a file that was still needed."
                 );
+                std::fs::create_dir_all(blobdir)?;
                 temp_path = blobdir.join(format!("tmp-{}", rand::random::<u64>()));
-                if std::fs::copy(src, &temp_path).is_err() {
-                    // Maybe the blobdir didn't exist
-                    std::fs::create_dir_all(blobdir).log_err(context).ok();
+                if let Some(key) = context.attachment_key() {
+                    if attachment::is_encrypted(src)? {
+                        std::fs::copy(src, &temp_path)
+                            .context("Copying encrypted blobfile failed")?;
+                    } else {
+                        attachment::encrypt_file(&key, src, &temp_path)?;
+                    }
+                } else {
                     std::fs::copy(src, &temp_path).context("Copying new blobfile failed")?;
-                };
+                }
                 &temp_path
             };
 
-            let hash = file_hash(src_in_blobdir)?.to_hex();
+            let hash = file_hash(context, src_in_blobdir)?.to_hex();
             let hash = hash.as_str();
             let hash = hash.get(0..31).unwrap_or(hash);
             let new_file =
@@ -129,12 +137,15 @@ impl<'a> BlobObject<'a> {
     ) -> Result<BlobObject<'a>> {
         task::block_in_place(|| {
             let blobdir = context.get_blobdir();
+            std::fs::create_dir_all(blobdir)?;
             let temp_path = blobdir.join(format!("tmp-{}", rand::random::<u64>()));
-            if std::fs::write(&temp_path, data).is_err() {
-                // Maybe the blobdir didn't exist
-                std::fs::create_dir_all(blobdir).log_err(context).ok();
+            if let Some(key) = context.attachment_key() {
+                let mut output = std::fs::File::create_new(&temp_path)?;
+                attachment::encrypt(&key, &mut &data[..], data.len() as u64, &mut output)?;
+                output.sync_all()?;
+            } else {
                 std::fs::write(&temp_path, data).context("writing new blobfile failed")?;
-            };
+            }
 
             BlobObject::create_and_deduplicate(context, &temp_path, Path::new(original_name))
         })
@@ -177,7 +188,23 @@ impl<'a> BlobObject<'a> {
         })
     }
 
+    /// Opens a plaintext view over this blob, decrypting VLTA files as needed.
+    pub fn open(&self, context: &Context) -> Result<AttachmentReader> {
+        open_blob(context, &self.to_abs_path())
+    }
+
+    /// Reads the complete plaintext blob.
+    pub fn read_bytes(&self, context: &Context) -> Result<Vec<u8>> {
+        self.open(context)?.read_all()
+    }
+
+    /// Returns the plaintext size used by MIME, archives and HTTP ranges.
+    pub fn plaintext_len(&self, context: &Context) -> Result<u64> {
+        Ok(self.open(context)?.len())
+    }
+
     /// Returns the absolute path to the blob in the filesystem.
+    /// Use `open()` for contents; this path exposes ciphertext for keyed accounts.
     pub fn to_abs_path(&self) -> PathBuf {
         let fname = Path::new(&self.name).strip_prefix("$BLOBDIR/").unwrap();
         self.blobdir.join(fname)
@@ -336,7 +363,7 @@ impl<'a> BlobObject<'a> {
         let original_name = name.clone();
         let vt = &mut *viewtype;
         let res: Result<String> = tokio::task::block_in_place(move || {
-            let mut file = std::fs::File::open(self.to_abs_path())?;
+            let mut file = self.open(context)?;
             let (nr_bytes, exif) = image_metadata(&file)?;
             *no_exif_ref = exif.is_none();
             // It's strange that BufReader modifies a file position while it takes a non-mut
@@ -535,14 +562,62 @@ impl<'a> BlobObject<'a> {
     }
 }
 
-fn file_hash(src: &Path) -> Result<blake3::Hash> {
+/// Opens either a legacy plaintext file or a VLTA blob with the account key.
+pub fn open_blob(context: &Context, path: &Path) -> Result<AttachmentReader> {
+    AttachmentReader::open(path, context.attachment_key().as_ref())
+}
+
+fn ensure_encrypted(context: &Context, path: &Path) -> Result<()> {
+    let Some(key) = context.attachment_key() else {
+        return Ok(());
+    };
+    if attachment::is_encrypted(path)? {
+        return Ok(());
+    }
+    let mut input = std::fs::File::open(path)?;
+    let len = input.metadata()?.len();
+    let mut temp = tempfile::Builder::new()
+        .prefix("tmp-")
+        .tempfile_in(path.parent().context("attachment has no parent directory")?)?;
+    attachment::encrypt(&key, &mut input, len, temp.as_file_mut())?;
+    temp.as_file().sync_all()?;
+    temp.persist(path).map_err(|err| err.error)?;
+    Ok(())
+}
+
+/// Encrypts legacy blobs in place, one atomic file replacement at a time.
+/// Temporary files and the unpacked backup database are deliberately excluded.
+pub(crate) async fn migrate_plaintext_blobs(context: &Context) -> Result<()> {
+    let _migration = context.attachment_migration.lock().await;
+    let context = context.clone();
+    task::spawn_blocking(move || {
+        for entry in std::fs::read_dir(context.get_blobdir())? {
+            let path = entry?.path();
+            if !path.is_file() {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if name.starts_with("tmp-") || name == "dc_database_backup.sqlite" {
+                continue;
+            }
+            if let Err(err) = ensure_encrypted(&context, &path) {
+                warn!(context, "Cannot encrypt attachment {}: {err:#}.", path.display());
+            }
+        }
+        Ok(())
+    })
+    .await?
+}
+
+fn file_hash(context: &Context, src: &Path) -> Result<blake3::Hash> {
     ensure!(
         !src.starts_with("$BLOBDIR/"),
         "Use `get_abs_path()` to get the absolute path of the blobfile"
     );
     let mut hasher = blake3::Hasher::new();
-    let mut src_file = std::fs::File::open(src)
-        .with_context(|| format!("Failed to open file {}", src.display()))?;
+    let mut src_file = open_blob(context, src)?;
     hasher
         .update_reader(&mut src_file)
         .context("update_reader")?;
@@ -551,8 +626,8 @@ fn file_hash(src: &Path) -> Result<blake3::Hash> {
 }
 
 /// Returns image file size and Exif.
-fn image_metadata(file: &std::fs::File) -> Result<(u64, Option<exif::Exif>)> {
-    let len = file.metadata()?.len();
+fn image_metadata(file: &AttachmentReader) -> Result<(u64, Option<exif::Exif>)> {
+    let len = file.len();
     let mut bufreader = std::io::BufReader::new(file);
     let exif = exif::Reader::new()
         .continue_on_error(true)

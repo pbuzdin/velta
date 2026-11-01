@@ -937,3 +937,41 @@ async fn test_recode_without_downscaling() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_keyed_blobs_encrypt_and_deduplicate_plaintext() -> Result<()> {
+    let t = TestContext::new().await;
+    let key = crate::attachment::AttachmentKey::from_db_key(&format!("x'{}'", "42".repeat(32)))?
+        .unwrap();
+    *t.attachment_key.write() = Some(key);
+
+    let first = BlobObject::create_and_deduplicate_from_bytes(&t, FILE_BYTES, "foo.txt")?;
+    let second = BlobObject::create_and_deduplicate_from_bytes(&t, FILE_BYTES, "foo.txt")?;
+    assert_eq!(first.as_name(), second.as_name());
+    assert_eq!(first.as_name(), format!("$BLOBDIR/{FILE_DEDUPLICATED}"));
+    let physical = fs::read(first.to_abs_path()).await?;
+    assert!(physical.starts_with(b"VLTA"));
+    assert_ne!(physical, FILE_BYTES);
+    assert_eq!(first.read_bytes(&t)?, FILE_BYTES);
+    assert_eq!(first.plaintext_len(&t)?, FILE_BYTES.len() as u64);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_legacy_blob_migration_is_atomic_and_skips_backup_files() -> Result<()> {
+    let t = TestContext::new().await;
+    let path = t.get_blobdir().join("legacy.jpg");
+    let backup = t.get_blobdir().join("dc_database_backup.sqlite");
+    fs::write(&path, b"legacy image").await?;
+    fs::write(&backup, b"backup database").await?;
+    let key = crate::attachment::AttachmentKey::from_db_key(&format!("x'{}'", "42".repeat(32)))?
+        .unwrap();
+    *t.attachment_key.write() = Some(key);
+
+    migrate_plaintext_blobs(&t).await?;
+    assert!(fs::read(&path).await?.starts_with(b"VLTA"));
+    assert_eq!(open_blob(&t, &path)?.read_all()?, b"legacy image");
+    assert_eq!(fs::read(&backup).await?, b"backup database");
+    assert!(fs::read_dir(t.get_blobdir()).await?.next_entry().await?.is_some());
+    Ok(())
+}

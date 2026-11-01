@@ -26,6 +26,12 @@ use std::path::Path;
 use anyhow::{Context as _, Result, anyhow, bail, ensure, format_err};
 
 use async_zip::tokio::read::seek::ZipFileReader as SeekZipFileReader;
+type BlobZipReader = SeekZipFileReader<BufReader<SyncIoBridge<AttachmentReader>>>;
+
+async fn open_zip(context: &Context, path: &Path) -> Result<BlobZipReader> {
+    let reader = BufReader::new(SyncIoBridge::new(open_blob(context, path)?));
+    Ok(SeekZipFileReader::with_tokio(reader).await?)
+}
 use deltachat_contact_tools::sanitize_bidi_characters;
 use deltachat_derive::FromSql;
 use image::{ImageFormat, ImageReader};
@@ -34,8 +40,11 @@ use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use tokio::{fs::File, io::BufReader};
+use tokio::io::BufReader;
+use tokio_util::io::SyncIoBridge;
 
+use crate::attachment::AttachmentReader;
+use crate::blob::open_blob;
 use crate::chat::{self, Chat};
 use crate::constants::Chattype;
 use crate::contact::ContactId;
@@ -270,8 +279,7 @@ impl Context {
     pub(crate) async fn ensure_sendable_webxdc_file(&self, path: &Path) -> Result<()> {
         let filename = path.to_str().unwrap_or_default();
 
-        let file = BufReader::new(File::open(path).await?);
-        let valid = match SeekZipFileReader::with_tokio(file).await {
+        let valid = match open_zip(self, path).await {
             Ok(archive) => {
                 if find_zip_entry(archive.file(), "index.html").is_none() {
                     warn!(self, "{} misses index.html", filename);
@@ -848,7 +856,7 @@ fn parse_webxdc_manifest(bytes: &[u8]) -> Result<WebxdcManifest> {
     Ok(manifest)
 }
 
-async fn get_blob(archive: &mut SeekZipFileReader<BufReader<File>>, name: &str) -> Result<Vec<u8>> {
+async fn get_blob(archive: &mut BlobZipReader, name: &str) -> Result<Vec<u8>> {
     let (i, _) =
         find_zip_entry(archive.file(), name).ok_or_else(|| anyhow!("no entry found for {name}"))?;
     let mut reader = archive.reader_with_entry(i).await?;
@@ -863,13 +871,12 @@ impl Message {
     async fn get_webxdc_archive(
         &self,
         context: &Context,
-    ) -> Result<SeekZipFileReader<BufReader<File>>> {
+    ) -> Result<BlobZipReader> {
         let path = self
             .get_file(context)
             .ok_or_else(|| format_err!("No webxdc instance file."))?;
         let path_abs = get_abs_path(context, &path);
-        let file = BufReader::new(File::open(path_abs).await?);
-        let archive = SeekZipFileReader::with_tokio(file).await?;
+        let archive = open_zip(context, &path_abs).await?;
         Ok(archive)
     }
 

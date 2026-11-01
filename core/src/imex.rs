@@ -397,6 +397,12 @@ async fn import_backup_stream_inner<R: tokio::io::AsyncRead + Unpin>(
             .ok();
     }
     if res.is_ok() {
+        crate::blob::migrate_plaintext_blobs(context)
+            .await
+            .log_err(context)
+            .ok();
+    }
+    if res.is_ok() {
         delete_and_reset_all_device_msgs(context)
             .await
             .log_err(context)
@@ -471,7 +477,7 @@ async fn export_backup(context: &Context, dir: &Path, passphrase: String) -> Res
     let mut file_size = 0;
     file_size += temp_db_path.metadata()?.len();
     for blob in blobdir.iter() {
-        file_size += blob.to_abs_path().metadata()?.len()
+        file_size += blob.plaintext_len(context)?
     }
 
     export_backup_stream(context, &temp_db_path, blobdir, file, file_size)
@@ -573,7 +579,7 @@ where
         .await?;
 
     for blob in blobdir.iter() {
-        let mut file = File::open(blob.to_abs_path()).await?;
+        let mut file = tokio_util::io::SyncIoBridge::new(blob.open(context)?);
         let path_in_archive = PathBuf::from(BLOBS_BACKUP_NAME).join(blob.as_name());
         builder.append_file(path_in_archive, &mut file).await?;
     }

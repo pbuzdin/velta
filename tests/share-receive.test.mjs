@@ -19,7 +19,7 @@ function shell(view, files = {}) {
     calls.push([cmd, args]);
     if (cmd === "resolve_content_uri") return files[args.uri];
     if (cmd === "resolve_upload_path") return `/acc/uploads/${args.filename}`;
-    if (cmd === "plugin:fs|read_file") return [1, 2, 3];
+    if (cmd === "plugin:fs|read_file" || cmd === "read_media_bytes") return [1, 2, 3];
     return null;
   } } };
   return calls;
@@ -56,7 +56,8 @@ test("one shared photo goes to the attachment strip with the text as caption", a
   assert.equal(view.pendingMedia?.name, "IMG_1.jpg");
   assert.equal(node("composer-input").value, "look");
   assert.equal(sent.length, 0);
-  assert.deepEqual(calls[0], ["resolve_content_uri", { uri: "content://media/1", filename: calls[0][1].filename }]);
+  assert.deepEqual(calls[0], ["resolve_content_uri", { uri: "content://media/1", filename: calls[0][1].filename, encrypt: true }]);
+  assert.ok(calls.some(([cmd]) => cmd === "read_media_bytes"), "preview reads plaintext, not the VLTA staging bytes");
 });
 
 test("a shared document is sent with the text as caption; several files go one by one", async t => {

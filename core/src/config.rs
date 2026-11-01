@@ -710,7 +710,7 @@ impl Context {
                             .set_raw_config(key.as_ref(), Some(blob.as_name()))
                             .await?;
                         if sync {
-                            let buf = fs::read(blob.to_abs_path()).await?;
+                            let buf = blob.read_bytes(context)?;
                             better_value = base64::engine::general_purpose::STANDARD.encode(buf);
                             value = Some(&better_value);
                         }

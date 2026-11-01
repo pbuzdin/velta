@@ -396,6 +396,7 @@ async function resolveAttachmentPath(originalPath, filename) {
     await invoke("plugin:fs|write_file", bytes, {
       headers: { path: encodeURIComponent(absDest) },
     });
+    await invoke("encrypt_upload", { path: absDest });
     return absDest;
   } catch (e) {
     rustLog(`resolveAttachmentPath failed: ${e}; falling back to original`);
@@ -4272,6 +4273,7 @@ export class ChatView {
       await invoke("plugin:fs|write_file", bytes, {
         headers: { path: encodeURIComponent(filePath) },
       });
+      await invoke("encrypt_upload", { path: filePath });
       return filePath;
     }
     const write = this.core?.transport?.writeCoreFile;
@@ -4652,7 +4654,7 @@ export class ChatView {
       const picked = paths[i];
       let resolved;
       if (/^content:\/\//.test(picked)) {
-        resolved = await invoke("resolve_content_uri", { uri: picked, filename: `${Date.now()}-${i}` });
+        resolved = await invoke("resolve_content_uri", { uri: picked, filename: `${Date.now()}-${i}`, encrypt: true });
       } else {
         await invoke("allow_picked_path", { path: picked }).catch(e => rustLog(`allow_picked_path: ${e}`));
         resolved = await resolveAttachmentPath(picked, picked.replace(/\\/g, "/").split("/").pop());
@@ -4897,7 +4899,7 @@ export class ChatView {
       // (the raw content id has no extension).
       let resolved;
       if (/^content:\/\//.test(picked)) {
-        resolved = await invoke("resolve_content_uri", { uri: picked, filename: String(Date.now()) });
+        resolved = await invoke("resolve_content_uri", { uri: picked, filename: String(Date.now()), encrypt: true });
         if (!this._isCurrent(session)) return;
         diagnosticsSink.append("info", `attachment copied to ${resolved}`);
       } else {
@@ -4911,7 +4913,7 @@ export class ChatView {
       const exts = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" };
       if (kind === "image" || Object.keys(exts).includes(extOf(resolved))) {
         const mime = exts[extOf(resolved).toLowerCase()] || "image/png";
-        const bytes = new Uint8Array(await invoke("plugin:fs|read_file", { path: resolved }));
+        const bytes = await attachmentBytes(this.core, resolved);
         const blob = new Blob([bytes], { type: mime });
         if (!this._isCurrent(session)) return;
         this._setPendingMedia("image", blob, resolved, name);
@@ -4963,7 +4965,7 @@ export class ChatView {
       let path = file;
       if (/^content:\/\//i.test(file)) {
         if (!invoke) throw new Error("Sending that file needs the Velta app");
-        path = await invoke("resolve_content_uri", { uri: file, filename: String(Date.now()) });
+        path = await invoke("resolve_content_uri", { uri: file, filename: String(Date.now()), encrypt: true });
       } else if (invoke) {
         // Send to / Open with: the user's own pick is the consent, as with
         // the file picker (V-07/#65), then copy it next to the accounts.
@@ -4980,7 +4982,7 @@ export class ChatView {
       if (kind === "image") {
         const path = resolved[0];
         const exts = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" };
-        const bytes = new Uint8Array(await invoke("plugin:fs|read_file", { path }));
+        const bytes = await attachmentBytes(this.core, path);
         if (!this._isCurrent(session)) return null;
         const name = path.replace(/\\/g, "/").split("/").pop() || "image";
         this._setPendingMedia("image", new Blob([bytes], { type: exts[extOf(path)] || "image/png" }), path, name);

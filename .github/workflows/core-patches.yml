@@ -14,6 +14,7 @@ on:
     branches: [master]
     paths:
       - 'core/**'
+      - 'packages/attachment-crypto/**'
       - 'tools/apply-core-patches.py'
       - 'tests/apply-core-patches.test.mjs'
       - 'tests/send-relay-pin.test.mjs'
@@ -23,6 +24,7 @@ on:
   pull_request:
     paths:
       - 'core/**'
+      - 'packages/attachment-crypto/**'
       - 'tools/apply-core-patches.py'
       - 'tests/apply-core-patches.test.mjs'
       - 'tests/send-relay-pin.test.mjs'
@@ -87,7 +89,12 @@ jobs:
           tool: cargo-nextest
 
       - name: rustfmt (quilt ops must be rustfmt-clean)
-        run: cargo fmt -p deltachat --check
+        run: |
+          cargo fmt -p deltachat --check
+          cargo fmt --manifest-path ../packages/attachment-crypto/Cargo.toml --check
+
+      - name: Attachment format and tamper tests
+        run: cargo test --manifest-path ../packages/attachment-crypto/Cargo.toml
 
       - name: cargo check (lib + tests)
         run: cargo check -p deltachat --lib --tests --locked
@@ -102,7 +109,7 @@ jobs:
       - name: Patched-module tests
         run: >-
           cargo nextest run -p deltachat --lib --locked --no-fail-fast
-          -E 'test(/^(smtp|scheduler|context|imap|push)::/) | test(smtp) | test(background_fetch) | test(velta) | test(/^(securejoin|qr|ephemeral)::/)'
+          -E 'test(/^(smtp|scheduler|context|imap|push)::/) | test(smtp) | test(background_fetch) | test(velta) | test(keyed_blobs) | test(legacy_blob_migration) | test(/^(securejoin|qr|ephemeral)::/)'
 
       # Behavioral lock regression (#176, patches #17/#18/#21): the real
       # deltachat-rpc-server with an account on a blackhole relay; an IO stop
