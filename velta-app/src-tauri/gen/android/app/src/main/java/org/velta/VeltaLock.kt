@@ -1,7 +1,7 @@
 package org.velta
 
 import android.content.Context
-import android.graphics.Color
+import android.graphics.Typeface
 import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -11,6 +11,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
@@ -439,22 +440,33 @@ object VeltaLock {
 
     private fun showLock(activity: FragmentActivity) {
         if (lockOverlay != null) return
+        val density = activity.resources.displayMetrics.density
+        val dp = { value: Int -> (value * density).toInt() }
         val root = FrameLayout(activity).apply {
             tag = "velta-lock-overlay"
-            setBackgroundColor(Color.parseColor("#10131a"))
+            setBackgroundColor(ContextCompat.getColor(activity, R.color.velta_bg))
             isClickable = true
             isFocusable = true
         }
         val box = android.widget.LinearLayout(activity).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             gravity = Gravity.CENTER
+            setPadding(dp(24), dp(24), dp(24), dp(24))
         }
+        val logo = ImageView(activity).apply {
+            setImageResource(R.mipmap.ic_launcher)
+            contentDescription = null
+        }
+        box.addView(logo, android.widget.LinearLayout.LayoutParams(dp(56), dp(56)).apply {
+            bottomMargin = dp(16)
+        })
         val title = TextView(activity).apply {
             text = activity.getString(R.string.biometric_unlock_title)
-            setTextColor(Color.WHITE)
-            textSize = 18f
+            setTextColor(ContextCompat.getColor(activity, R.color.velta_text))
+            setTypeface(typeface, Typeface.BOLD)
+            textSize = 22f
             gravity = Gravity.CENTER
-            setPadding(48, 0, 48, 32)
+            setPadding(0, 0, 0, dp(32))
         }
         val retry = Button(activity).apply {
             tag = "velta-retry"
@@ -476,18 +488,23 @@ object VeltaLock {
         // a GONE one leaves the other the full width. Labels wrap, never cut.
         val row = android.widget.LinearLayout(activity).apply {
             orientation = android.widget.LinearLayout.HORIZONTAL
-            setPadding(48, 0, 48, 0)
         }
-        val gap = (8 * activity.resources.displayMetrics.density).toInt()
         for ((i, b) in listOf(retry, usePin).withIndex()) {
             b.isAllCaps = false
             b.maxLines = 3
+            b.minHeight = dp(48)
+            b.textSize = 15f
+            b.setTypeface(b.typeface, Typeface.BOLD)
+            b.setTextColor(ContextCompat.getColor(activity, R.color.velta_on_accent))
+            b.setBackgroundResource(R.drawable.velta_primary_button)
+            b.setPadding(dp(22), 0, dp(22), 0)
             row.addView(b, android.widget.LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                if (i > 0) marginStart = gap
+                if (i > 0) marginStart = dp(8)
             })
         }
         box.addView(row, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        root.addView(box, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+        val boxWidth = minOf(activity.resources.displayMetrics.widthPixels, dp(360))
+        root.addView(box, FrameLayout.LayoutParams(boxWidth, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         activity.runOnUiThread {
             (activity.window.decorView as? ViewGroup)?.addView(
                 root,
