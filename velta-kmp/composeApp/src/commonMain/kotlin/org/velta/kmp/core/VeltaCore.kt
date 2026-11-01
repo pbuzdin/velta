@@ -58,6 +58,49 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         )
     }
 
+    // ---- Write path (P3): the draft flow — set, then send. ----
+
+    suspend fun setDraft(accountId: Long, chatId: Long, text: String, quotedMessageId: Long? = null) {
+        client.call(
+            "misc_set_draft",
+            RpcClient.params(
+                RpcClient.param(accountId),
+                RpcClient.param(chatId),
+                RpcClient.param(text),
+                RpcClient.nullParam(), // file
+                RpcClient.nullParam(), // filename
+                if (quotedMessageId != null) RpcClient.param(quotedMessageId) else RpcClient.nullParam(),
+                RpcClient.nullParam(), // viewType
+            ),
+        )
+    }
+
+    suspend fun sendDraft(accountId: Long, chatId: Long) {
+        client.call(
+            "misc_send_draft",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId)),
+        )
+    }
+
+    /** Returns null when the chat has no draft (or the core errors out). */
+    suspend fun draft(accountId: Long, chatId: Long): Draft? =
+        runCatching {
+            client.json.decodeFromString(
+                Draft.serializer(),
+                client.call(
+                    "get_draft",
+                    RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId)),
+                ).toString(),
+            )
+        }.getOrNull()
+
+    suspend fun removeDraft(accountId: Long, chatId: Long) {
+        client.call(
+            "remove_draft",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId)),
+        )
+    }
+
     suspend fun addTransport(accountId: Long, addr: String, password: String) {
         val param = buildJsonObject {
             put("addr", addr)

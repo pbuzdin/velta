@@ -60,6 +60,13 @@ class RealRpcServerIT {
 
                 val entries = core.chatlistEntries(accountId)
                 assertTrue(entries.isEmpty(), "fresh account has an empty chatlist")
+
+                // NOTE (P3): the write-path e2e ("send lands in another
+                // client") needs a CONFIGURED account — `add_device_message`
+                // accepts writes unconfigured but the message is NOT visible
+                // via get_messages (async materialization requires a self
+                // addr), so there is no no-network round-trip to assert here.
+                // The send flow is covered by the scripted SendFlowTest.
             }
         } finally {
             core.close()

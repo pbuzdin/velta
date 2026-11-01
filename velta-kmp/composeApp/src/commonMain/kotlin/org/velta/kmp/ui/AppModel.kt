@@ -53,6 +53,13 @@ class AppModel(
     var senderNames by mutableStateOf<Map<Long, String>>(emptyMap())
         private set
 
+    // ---- Composer (P3) ----
+    var composerText by mutableStateOf("")
+    var replyTo by mutableStateOf<MessageObject?>(null)
+    var sending by mutableStateOf(false)
+        private set
+    var sendError by mutableStateOf<String?>(null)
+
     private var core: VeltaCore? = null
     private var transport: RpcTransport? = null
     private var accountId: Long? = null
@@ -181,6 +188,10 @@ class AppModel(
 
     fun openChat(item: ChatListItem) {
         screen = Screen.Chat(item.id, item.name, item.isGroup)
+        composerText = ""
+        replyTo = null
+        sendError = null
+        senderNames = emptyMap()
         scope.launch {
             val veltaCore = core
             val id = accountId
@@ -190,15 +201,69 @@ class AppModel(
                 } catch (t: Throwable) {
                     println("velta-kmp: marknoticed failed: $t")
                 }
+                // Restore a persisted draft (text only; the quote is not re-fetched).
+                veltaCore.draft(id, item.id)?.text?.let { saved ->
+                    if (composerText.isBlank()) composerText = saved
+                }
             }
         }
         loadMessages(item.id)
         refreshChats()
     }
 
+    /** Persist or clear the draft of the open chat when leaving it. */
     fun backToChatList() {
+        val chat = screen as? Screen.Chat
+        val veltaCore = core
+        val id = accountId
+        if (chat != null && veltaCore != null && id != null) {
+            val text = composerText
+            scope.launch {
+                try {
+                    if (text.isNotBlank()) {
+                        veltaCore.setDraft(id, chat.chatId, text, replyTo?.id)
+                    } else {
+                        veltaCore.removeDraft(id, chat.chatId)
+                    }
+                } catch (t: Throwable) {
+                    println("velta-kmp: draft save failed: $t")
+                }
+            }
+        }
+        composerText = ""
+        replyTo = null
+        sendError = null
         screen = Screen.ChatList
         refreshChats()
+    }
+
+    /**
+     * P3 send: `misc_set_draft` (text + optional quote) then `misc_send_draft`.
+     * The core emits MsgsChanged/MsgDelivered events; the event loop reloads.
+     */
+    fun send() {
+        val chat = screen as? Screen.Chat ?: return
+        val veltaCore = core
+        val id = accountId
+        val text = composerText.trim()
+        if (veltaCore == null || id == null || text.isEmpty() || sending) return
+        val quote = replyTo?.id
+        composerText = ""
+        replyTo = null
+        sendError = null
+        sending = true
+        scope.launch {
+            try {
+                veltaCore.setDraft(id, chat.chatId, text, quote)
+                veltaCore.sendDraft(id, chat.chatId)
+            } catch (t: Throwable) {
+                sendError = t.message ?: t.toString()
+                // Restore the text so nothing the user typed is lost.
+                if (composerText.isBlank()) composerText = text
+            } finally {
+                sending = false
+            }
+        }
     }
 
     private fun loadMessages(chatId: Long, isGroup: Boolean = false) {

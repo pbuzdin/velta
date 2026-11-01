@@ -70,6 +70,14 @@ data class Contact(
     val profileImage: String? = null,
 )
 
+/** Chat draft (camelCase) — text + optional quote; file fields not used yet. */
+@Serializable
+data class Draft(
+    val text: String? = null,
+    val quotedMessageId: Long? = null,
+    val file: String? = null,
+)
+
 /**
  * Core event as returned by the long-poll `get_next_event`:
  * `{accountId, event: {kind, ...}}` — the inner event is kept raw; consumers

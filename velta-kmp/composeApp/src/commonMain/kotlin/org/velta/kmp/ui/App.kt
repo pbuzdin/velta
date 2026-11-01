@@ -262,6 +262,7 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
                 },
             )
         },
+        bottomBar = { Composer(model) },
     ) { inner ->
         val rows = chatRows(model.chatMessages)
         LazyColumn(
@@ -327,6 +328,59 @@ private fun viewTypeGlyph(viewType: String): String = when (viewType) {
     else -> "📎"
 }
 
+/** Outgoing delivery state: 10 pending, 13 failed, 16/26 delivered/sent. */
+private fun stateGlyph(state: Int): String? = when (state) {
+    10 -> "⏳"
+    13 -> "⚠️"
+    16, 26 -> "✓"
+    else -> null
+}
+
+@Composable
+private fun Composer(model: AppModel) {
+    val reply = model.replyTo
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+        if (reply != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "↩ ${reply.text.take(60)}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                )
+                TextButton(onClick = { model.replyTo = null }) { Text("✕") }
+            }
+        }
+        model.sendError?.let {
+            Text(
+                "send failed: $it",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+        Row(verticalAlignment = Alignment.Bottom) {
+            OutlinedTextField(
+                value = model.composerText,
+                onValueChange = { model.composerText = it },
+                placeholder = { Text("Message") },
+                modifier = Modifier.weight(1f),
+                maxLines = 4,
+            )
+            Spacer(Modifier.size(8.dp))
+            Button(
+                onClick = { model.send() },
+                enabled = !model.sending && model.composerText.isNotBlank(),
+            ) {
+                Text(if (model.sending) "…" else "Send")
+            }
+        }
+    }
+}
+
 @Composable
 private fun MessageBubble(message: MessageObject, senderName: String?) {
     val outgoing = message.fromId == 1L // ContactId.SELF
@@ -363,13 +417,26 @@ private fun MessageBubble(message: MessageObject, senderName: String?) {
                     if (message.text.isNotBlank()) {
                         Text(message.text, style = MaterialTheme.typography.bodyMedium)
                     }
-                    Text(
-                        formatTimestamp(message.timestamp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.End,
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.align(Alignment.End),
-                    )
+                    ) {
+                        Text(
+                            formatTimestamp(message.timestamp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (outgoing) {
+                            stateGlyph(message.state)?.let { glyph ->
+                                Spacer(Modifier.size(4.dp))
+                                Text(
+                                    glyph,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
