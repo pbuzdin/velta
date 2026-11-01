@@ -690,7 +690,7 @@ export function showStickerPicker({ getStickers, onPick }) {
         n++;
       }
     }
-    if (!n) grid.innerHTML = `<div class="sticker-note">${t("No stickers yet.<br>Long-press a sticker you received and choose “Save sticker".")}</div>`;
+    if (!n) grid.innerHTML = `<div class="sticker-note">${t("No stickers yet.<br>Long-press a sticker you received and choose “Save sticker”.")}</div>`;
   }).catch(() => {
     grid.innerHTML = `<div class="sticker-note">${escapeHtml(t("Couldn't load stickers."))}</div>`;
   });
@@ -1353,7 +1353,7 @@ function notifyChecked(storageKey) {
 
 const IS_ANDROID = isAndroid();
 
-export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = null, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, onWsRelays, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality, downloadLimit = "0", onDownloadLimit, onReadReceipts, onLowBatteryToggle, multiDeviceState = "loading", multiDeviceReenabled = false, onMultiDevice, onMultiDeviceKeep, onDrawerOpen, identityBackupAvailable = false, onIdentityBackup, onTunnel = null, tunnelLabel = "", onProxy = null, proxyLabel = "", onWsTransport = null, wsTransportLabel = "", onDiagnostics = null, onPushSection = null, onWebPushSection = null, backendKind = null, onExportSettings = null, onScheduled = null }) {
+export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = null, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, onWsRelays, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality, downloadLimit = "0", onDownloadLimit, onReadReceipts, onLowBatteryToggle, multiDeviceState = "loading", multiDeviceReenabled = false, onMultiDevice, onMultiDeviceKeep, onDrawerOpen, identityBackupAvailable = false, onIdentityBackup, onProxy = null, proxyLabel = "", onWsTransport = null, wsTransportLabel = "", onDiagnostics = null, onPushSection = null, onWebPushSection = null, backendKind = null, onExportSettings = null, onScheduled = null }) {
   const inTauri = isTauri();
   const androidApp = IS_ANDROID && inTauri;
   const drawer = document.createElement("div");
@@ -1439,7 +1439,7 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
           ${androidApp ? `
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="bg"${notifyChecked("velta-notify-bg") ? " checked" : ""}><span>${t("Use background connection")}</span></label>
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="bgforce"${notifyChecked("velta-notify-bgforce") ? " checked" : ""}><span>${t("Force background connection")}</span></label>
-          <div class="bar-opts-hint">${t("Force keeps background fetching alive under battery restrictions (asks Android for exemption).")}</div>
+          <div class="bar-opts-hint">${t("Force keeps background fetching alive under battery restrictions (asks Android for exemption.")}</div>
           <div class="bar-opts-hint"><a class="bat-dkma" href="https://dontkillmyapp.com/" data-dkma>${t("Phone still stops Velta? Extra steps for your phone")}</a></div>` : ""}
         </fieldset>
         <div class="bar-opts-hint">${t("Per-chat muting lives in each chat's info sheet.")}</div>
@@ -1474,7 +1474,6 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
       </details>
       <button type="button" class="ctx-item" data-act="profile-management">${ICON.profileAdd}<span>${t("Profile management…")}</span></button>
       <button type="button" class="ctx-item" data-act="relays">${ICON.globe}<span>${t("Relays of this profile…")}</span></button>
-      ${onTunnel ? `<button type="button" class="ctx-item" data-act="tunnel">${ICON.tunnel}<span>${escapeHtml(t("DNS tunnel:"))} ${escapeHtml(tunnelLabel)}</span></button>` : ""}
       ${onProxy ? `<button type="button" class="ctx-item" data-act="proxy">${ICON.proxy}<span>${escapeHtml(t("SOCKS5 proxy:"))} ${escapeHtml(proxyLabel)}</span></button>` : ""}
       ${onWsTransport ? `<button type="button" class="ctx-item" data-act="ws-transport">${ICON.wsTransport}<span>${t("{label}: {state}", { label: t("WebSocket transport"), state: escapeHtml(wsTransportLabel) })}</span></button>` : ""}
       ${onWsRelays ? `<button type="button" class="ctx-item" data-act="ws-relays">${ICON.globe}<span>${t("WebSocket relays")}</span></button>` : ""}
@@ -1834,7 +1833,6 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
     if (act === "ws-relays") onWsRelays?.();
     if (act === "ws-transport") onWsTransport?.();
     if (act === "invite-domains") onInviteDomains?.();
-    if (act === "tunnel") onTunnel?.();
     if (act === "proxy") onProxy?.();
     if (act === "identity-backup") onIdentityBackup?.();
     if (act === "about") showAbout({ onDiagnostics, backendKind });
