@@ -206,7 +206,10 @@ impl AttachmentReader {
             u16::from_be_bytes(bytes[6..8].try_into()?) as usize == HEADER_LEN,
             "unsupported attachment header length"
         );
-        ensure!(bytes[96..].iter().all(|byte| *byte == 0), "invalid attachment reserved bytes");
+        ensure!(
+            bytes[96..].iter().all(|byte| *byte == 0),
+            "invalid attachment reserved bytes"
+        );
         let chunk_len = u32::from_be_bytes(bytes[8..12].try_into()?);
         ensure!(
             chunk_len as usize == CHUNK_LEN,
@@ -239,7 +242,10 @@ impl AttachmentReader {
                     .and_then(|overhead| len.checked_add(overhead))
             })
             .context("attachment length overflow")?;
-        ensure!(physical_len == expected_len, "truncated or oversized attachment");
+        ensure!(
+            physical_len == expected_len,
+            "truncated or oversized attachment"
+        );
         Ok(Self {
             file,
             len: plaintext_len,
@@ -324,7 +330,10 @@ impl Read for AttachmentReader {
                     },
                 )
                 .map_err(|_| {
-                    io::Error::new(io::ErrorKind::InvalidData, "attachment authentication failed")
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "attachment authentication failed",
+                    )
                 })?;
             let wanted = (plaintext_len - within as usize).min(output.len() - total);
             output[total..total + wanted]
@@ -344,7 +353,10 @@ impl Seek for AttachmentReader {
             SeekFrom::Current(offset) => i128::from(self.position) + i128::from(offset),
         };
         if !(0..=i128::from(self.len)).contains(&next) {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid attachment seek"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid attachment seek",
+            ));
         }
         self.position = next as u64;
         Ok(self.position)
@@ -378,7 +390,13 @@ mod tests {
 
     fn encrypted_bytes(plaintext: &[u8]) -> Vec<u8> {
         let mut encrypted = Vec::new();
-        encrypt(&key(), &mut &plaintext[..], plaintext.len() as u64, &mut encrypted).unwrap();
+        encrypt(
+            &key(),
+            &mut &plaintext[..],
+            plaintext.len() as u64,
+            &mut encrypted,
+        )
+        .unwrap();
         encrypted
     }
 
@@ -395,7 +413,14 @@ mod tests {
 
     #[test]
     fn chunk_boundaries_and_empty_file_roundtrip() {
-        for len in [0, 1, CHUNK_LEN - 1, CHUNK_LEN, CHUNK_LEN + 1, 2 * CHUNK_LEN + 17] {
+        for len in [
+            0,
+            1,
+            CHUNK_LEN - 1,
+            CHUNK_LEN,
+            CHUNK_LEN + 1,
+            2 * CHUNK_LEN + 17,
+        ] {
             let plaintext: Vec<u8> = (0..len).map(|i| (i % 251) as u8).collect();
             roundtrip(&plaintext);
         }
@@ -439,7 +464,10 @@ mod tests {
         std::fs::write(&path, bytes).unwrap();
         let mut reader = AttachmentReader::open(&path, Some(&key())).unwrap();
         let mut output = Vec::new();
-        assert_eq!(reader.read_to_end(&mut output).unwrap_err().kind(), io::ErrorKind::InvalidData);
+        assert_eq!(
+            reader.read_to_end(&mut output).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
     }
 
     #[test]
@@ -447,7 +475,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("blob");
         std::fs::write(&path, b"legacy").unwrap();
-        assert_eq!(AttachmentReader::open(&path, None).unwrap().read_all().unwrap(), b"legacy");
+        assert_eq!(
+            AttachmentReader::open(&path, None)
+                .unwrap()
+                .read_all()
+                .unwrap(),
+            b"legacy"
+        );
         let mut reader = AttachmentReader::open(&path, None).unwrap();
         reader.seek(SeekFrom::Start(2)).unwrap();
         let mut tail = Vec::new();
