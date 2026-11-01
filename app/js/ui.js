@@ -1439,7 +1439,7 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
           ${androidApp ? `
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="bg"${notifyChecked("velta-notify-bg") ? " checked" : ""}><span>${t("Use background connection")}</span></label>
           <label class="scale-opt"><input type="checkbox" role="switch" data-notify-key="bgforce"${notifyChecked("velta-notify-bgforce") ? " checked" : ""}><span>${t("Force background connection")}</span></label>
-          <div class="bar-opts-hint">${t("Force keeps background fetching alive under battery restrictions (asks Android for exemption.")}</div>
+          <div class="bar-opts-hint">${t("Force keeps background fetching alive under battery restrictions (asks Android for exemption).")}</div>
           <div class="bar-opts-hint"><a class="bat-dkma" href="https://dontkillmyapp.com/" data-dkma>${t("Phone still stops Velta? Extra steps for your phone")}</a></div>` : ""}
         </fieldset>
         <div class="bar-opts-hint">${t("Per-chat muting lives in each chat's info sheet.")}</div>
@@ -1873,7 +1873,7 @@ export function showEditProfile({ name, avatarUrl, color, pickImage, contactId =
       <input class="text-field" maxlength="64" autocomplete="off" spellcheck="false" aria-label="${escapeHtml(t("Name"))}" placeholder="${escapeHtml(t("Your name"))}">
       <textarea class="text-field ep-desc" rows="3" spellcheck="false" aria-label="${escapeHtml(t("Description"))}" placeholder="${escapeHtml(t("Description"))}"></textarea>`;
     const input = body.querySelector("input");
-    const descTa = body.querySelector("textarea");
+    const descTa = body.querySelector(".ep-desc");
     descTa.value = description || "";
     const preview = body.querySelector("velta-avatar");
     const removeBtn = body.querySelector('[data-ep="remove"]');
