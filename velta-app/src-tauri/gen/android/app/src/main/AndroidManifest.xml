@@ -142,14 +142,12 @@
                 <data android:scheme="dcbackup" />
                 <data android:scheme="openpgp4fpr" />
             </intent-filter>
-            <!-- DNS tunnel setup links: velta://tunnel?v=1&zone=…&key=…
-                 (tunnel.rs). The app asks before applying one. Only the
-                 tunnel host is claimed; velta://chat stays internal. -->
+            <!-- Proxy setup links (proxy.js). The app asks before applying
+                 one; velta://chat stays internal. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="velta" android:host="tunnel" />
                 <data android:scheme="velta" android:host="proxy" />
                 <!-- WebSocket transport links: velta://ws?u=…&n=… (ws_transport.rs), confirmed before use. -->
                 <data android:scheme="velta" android:host="ws" />
