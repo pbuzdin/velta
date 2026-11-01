@@ -530,6 +530,8 @@ private fun Composer(model: AppModel) {
     }
 }
 
+private val MEDIA_VIEWTYPES = setOf("Image", "Gif", "Sticker")
+
 @Composable
 private fun MessageBubble(message: MessageObject, senderName: String?, onTap: () -> Unit) {
     val outgoing = message.fromId == 1L // ContactId.SELF
@@ -558,14 +560,17 @@ private fun MessageBubble(message: MessageObject, senderName: String?, onTap: ()
                     .heightIn(min = 20.dp)
                     .clickable(onClick = onTap),
             ) {
-                Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                    if (message.viewType != "Text") {
-                        Text(
-                            "${viewTypeGlyph(message.viewType)} ${message.viewType}",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                val mediaShown = message.viewType in MEDIA_VIEWTYPES && message.file != null
+                if (mediaShown) {
+                    MediaFromDisk(message.file!!)
+                } else if (message.viewType != "Text") {
+                    Text(
+                        "${viewTypeGlyph(message.viewType)} ${message.viewType}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                     if (message.text.isNotBlank()) {
                         Text(message.text, style = MaterialTheme.typography.bodyMedium)
                     }

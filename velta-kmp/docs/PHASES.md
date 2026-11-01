@@ -11,7 +11,7 @@ the gaps next to it.
 | P1b Android in-process core | ✅ done | `2cd1c8f2` | green |
 | P2 Persistence + read paths | ✅ done | `cbb3809b` | green |
 | P3 Write paths | ✅ code complete — live gate pending | `fd2a405c` + quote-restore | green |
-| P4 Velta layer | 🚧 slices 1-2 done (theming, relay cards) | — | — |
+| P4 Velta layer | 🚧 slices 1-3 done (theming, relay cards, media rendering) | — | — |
 | P5 Release track | ⬜ | — | — |
 
 ---
@@ -161,14 +161,24 @@ Data: `list_transports` (sending transport first, quilt #11) merged with
 ordering, "not known yet" fallback and delete params; the real-binary IT
 covers both RPCs on a fresh account.
 
+**Slice 3 — media rendering (shipped):** image viewtypes (Image/Gif/Sticker)
+render the blob file inside the bubble — dependency-free expect/actual
+decoders (Android `BitmapFactory`, desktop `ImageIO` →
+`toComposeImageBitmap`), decoded on Dispatchers.IO with a loading
+placeholder; captions still render; non-media viewtypes keep their glyphs.
+`DecodeImageTest` covers the JVM decoder against a real PNG (dimensions)
+and junk paths. Note: platform files for expect/actual must not share a
+FILE NAME across source sets — the JVM facade collides (Media.kt →
+MediaAndroid.kt/MediaDesktop.kt).
+
 **Slice 2 not included (deliberate):** per-relay enable/disable toggle —
 `set_transport_enabled` does not exist in the core yet (proposed quilt
 patch #23, issue #189). The W flag (C3 websocket probe) is browser/Tauri
 specific and skipped.
 
-**Next slices (planned):** invite/join flow, account switcher, media
-rendering (blob files in bubbles), UnifiedPush + foreground service,
-at-rest lock port, brand logo assets.
+**Next slices (planned):** invite/join flow, account switcher, video/audio
+playback, UnifiedPush + foreground service, at-rest lock port, brand logo
+assets.
 
 ## P5 — Release track ⬜
 
