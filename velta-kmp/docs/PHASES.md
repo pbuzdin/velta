@@ -1,8 +1,33 @@
 # Phase status & gap ledger
 
-Tracking issue #192. Updated 2026-11-01 after P2. Every phase lists what
-SHIPPED, how it was VERIFIED, and what is still MISSING — no "done" without
-the gaps next to it.
+Tracking issue #192. Updated 2026-11-02 after P4 slice 7. Every phase lists
+what SHIPPED, how it was VERIFIED, and what is still MISSING — no "done"
+without the gaps next to it.
+
+## Remaining work at a glance
+
+**P4 — Velta layer (in progress, 7 of ~10 slices):**
+1. **UnifiedPush receiver** — token registration + push-triggered fetch; the
+   vendored core RPCs (`set_push_device_token`, background fetch) already
+   exist and the Tauri glue documents the flow. *The last functionally
+   critical piece.*
+2. Battery-allowance onboarding UI (ask the user to exempt the app).
+3. Mobile QR-camera scanning (needs a scanner dependency + camera permission).
+4. Video/audio playback in bubbles.
+5. At-rest lock port (epic) — Keystore DEK → the shim's `VELTA_DB_KEY` env;
+   the Tauri side's patch #20 already speaks that contract.
+6. Brand logo assets (app icon, in-app mark).
+
+**P5 — release track:** signing + keystore, release builds (LTO /
+`panic=abort` / ABI splits — the debug APK is 130 MB), distribution channel,
+crash reporting, CI artifact wiring for shims + sidecars, and the
+`org.velta` switchover decision.
+
+**Standing (human-only):** the P3 live gate — a throwaway-account login,
+7-step checklist below; the 🎟 invite-paste path makes it a copy-paste job.
+
+**Recommendation:** UnifiedPush receiver next, then at-rest lock, then P5 —
+that order completes the daily-drivable story before the release polish.
 
 | Phase | State | Commit | CI |
 |---|---|---|---|

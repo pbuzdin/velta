@@ -8,16 +8,23 @@ Read this file before touching anything in this folder.
 
 ```
 composeApp/src/
-  commonMain/    Compose UI + AppModel + core facade (PURE Kotlin — no java.*: compile fails even for JVM-only targets)
-  jvmCommon/     shared JVM layer: RpcClient's process transport, socket transport, java.time formatters
-  androidMain/   MainActivity, AndroidCorePlatform (JNI shim), manifest
-  desktopMain/   DesktopCorePlatform (sidecar spawn), window entry
-  desktopTest/   all tests (scripted + real-binary IT)
+  commonMain/    Compose UI + AppModel + VeltaCore facade (PURE Kotlin — no java.*: compile fails even for JVM-only targets)
+  jvmCommon/     shared JVM layer: process + socket transports, java.time formatters
+  androidMain/   MainActivity (AppHolder, SAF picker, notification permission),
+                 AppHolder (process-wide model), VeltaForegroundService,
+                 RpcShim (JNI), CorePlatform impl, MediaAndroid
+  desktopMain/   DesktopCorePlatform (sidecar spawn), Main (window + FileDialog),
+                 MediaDesktop, PlatformBack actual
+  desktopTest/   all tests (scripted transports + real-binary IT)
 native/rpc-shim/ Rust cdylib: in-process core for Android (JSON Lines on 127.0.0.1)
 ```
 
 Expect/actual lives in commonMain + one actual per target; anything JVM-only
 that BOTH targets need goes in jvmCommon (wire it with `dependsOn(commonMain.get())`).
+⚠️ expect/actual files must NOT share a FILE NAME across source sets — the
+JVM facade classes collide (Media.kt → MediaAndroid.kt/MediaDesktop.kt).
+⚠️ ANY source change (including renames) needs the tar-sync below; renames
+also need explicit `rm` of the old file in the WSL copy (overlay keeps it).
 
 ## Ground rules
 
@@ -68,9 +75,11 @@ API-suffixed wrappers, no bare `aarch64-linux-android-clang`.
 
 ### Emulator flow
 
-Windows-side JDK is 26 (too new for Gradle 8.14) — build in WSL, copy the APK
-to `C:/Users/pave/Velta/build-artifacts/`, then the android-emulator plugin or
-raw adb (`C:/Users/pave/AppData/Local/Android/Sdk/platform-tools/adb.exe`):
+Windows-side JDK is 26 (too new for Gradle 8.14) — build the APK in WSL,
+copy it to `C:/Users/pave/Velta/build-artifacts/`, install via the
+android-emulator plugin (⚠️ Windows adb cannot read `/mnt/c/...` paths; the
+plugin handles it), then raw adb
+(`C:/Users/pave/AppData/Local/Android/Sdk/platform-tools/adb.exe`):
 
 ```sh
 adb -s emulator-5554 shell "am force-stop org.velta.kmp; input keyevent KEYCODE_WAKEUP"
@@ -79,20 +88,60 @@ adb -s emulator-5554 logcat -d | grep velta-kmp     # println only; shim stderr 
 ```
 
 Debugging on-device: shim stderr never reaches logcat — rely on the shim's
-distinct return codes (-1 generic, -2 bind, -3 accounts) and the Kotlin
-`velta-kmp:` println lines.
+distinct return codes (-1 generic, -2 bind, -3 accounts), the Kotlin
+`velta-kmp:` println lines, and the connect-ok line
+(`velta-kmp: connect ok — core v2.66.0, ...`) that lands on every successful
+handshake.
+
+Android lifecycle (P4): `AppHolder` holds ONE process-wide `AppModel`
+shared by the UI and `VeltaForegroundService`; `connect()` is idempotent.
+Verification recipes:
+
+```sh
+# Foreground service held after backgrounding:
+adb shell "input keyevent KEYCODE_HOME; sleep 2; dumpsys activity services org.velta.kmp" | grep isForeground
+# Restart-on-kill: crash the process, the sticky service rebuilds the core:
+adb logcat -c; adb shell "am crash org.velta.kmp"; sleep 12
+adb shell pidof org.velta.kmp            # NEW pid
+adb logcat -d | grep "connect ok"        # service-side handshake line
+```
+
+Gotchas: a fresh install shows the POST_NOTIFICATIONS dialog which BLOCKS
+everything (`GrantPermissionsActivity` on top) —
+`adb shell pm grant org.velta.kmp android.permission.POST_NOTIFICATIONS` +
+BACK clears it; `pidof`/`ps` read empty during that transition; emulator
+`/tmp` does not survive between wsl.exe calls; Windows-side JDK is 26 —
+never run Gradle on the Windows side.
 
 ## Protocol facts (verified against vendored core 2.66)
 
 - `get_system_info` → map; version key is **`deltachat_core_version`**.
 - Responses carry `"jsonrpc":"2.0"`; errors are `{"id","error":{"code","message"}}`.
 - Events = **long-poll `get_next_event`** driven in a loop (BaseDeltaChat pattern).
-- Persistence = the accounts dir (`DC_ACCOUNTS_PATH`): enumerate with
-  `get_all_account_ids`, check `get_account_info(id).isConfigured`.
+- Persistence = the accounts dir (`DC_ACCOUNTS_PATH`): `get_all_account_ids`,
+  `get_account_info(id).isConfigured`; **the core's selected account persists
+  across restarts** (`get_selected_account_id` / `select_account`) — resume
+  prefers it; `get_all_accounts` returns every Account in one call;
+  `add_account` auto-selects the new account.
 - Modern write path is draft-based:
   `misc_set_draft(accountId, chatId, text?, file?, filename?, quotedMessageId?, viewType?)`
   → `misc_send_draft(accountId, chatId)`; `get_draft`/`remove_draft` alongside.
-  `send_reaction(accountId, messageId, [emoji])` for reactions.
+  The core dedups attachment files into its blobdir itself
+  (`set_file_and_deduplicate`) — never copy blobs client-side.
+- `send_reaction(accountId, messageId, [emoji])` (re-send toggles off).
+- Invites: `check_qr(accountId, qr)` parses OFFLINE — kind-tagged oneOf
+  ("text" for garbage, "account"+domain for `DCACCOUNT:` invites,
+  "askVerifyContact/Group/Broadcast" for secure-join); `secure_join` needs io;
+  `add_transport_from_qr` onboards relays.
+- Relays: `list_transports` → Vec<EnteredLoginParam> (sending transport
+  first, quilt #11), `get_server_metadata` → map addr→metadata (quilt #15),
+  `delete_transport(addr)`. ⚠️ `set_transport_enabled` does NOT exist yet
+  (proposed quilt #23, issue #189).
+- Message state numbers (core/src/message.rs): 10=InFresh, 13=InNoticed,
+  16=InSeen, 19=OutDraft, 20=OutPending, 24=OutFailed, 26=OutDelivered,
+  28=OutMdnRcvd. Wire casing: `MessageLoadResult` kind is **"message"**
+  (enum-level camelCase) — a PascalCase filter silently drops every real
+  message; `ChatListItemFetchResult` kinds ARE PascalCase ("ChatListItem").
 - The server exits when stdin reaches EOF (sidecar); the in-process shim has
   no such trap. Probe a real binary with `(printf '...'; sleep 3) | binary` —
   instant EOF skips the answer.
@@ -105,12 +154,17 @@ distinct return codes (-1 generic, -2 bind, -3 accounts) and the Kotlin
 - Calls under test go in a **SupervisorJob scope** — a plain `async` child
   failing cancels the `runBlocking` parent before `assertFailsWith` can run.
 - Never assert on request ORDER across coroutines; map method → id from the
-  recorded sent lines.
-- `ScriptedRpcTransport` (method → result JSON) for client/facade tests;
-  a method missing from the script never answers = realistic long-poll.
-- Raw-string JSON in tests: concatenate fragments and you WILL double a quote
-  — the unparseable line is logged, not fatal, and the test hangs on the
-  missing response. Dump requests/status on timeout.
+  recorded sent lines. Poll loops must RE-COMPUTE their indexes each pass
+  (a captured `-1` before the coroutine runs = eternal timeout).
+- `ScriptedRpcTransport` (method → result JSON) for client/facade tests; a
+  method missing from the script never answers = realistic long-poll. When a
+  poll times out, check SCRIPT COVERAGE first — a missing entry hangs the
+  call silently. Dump requests/status on timeout (DIAG pattern).
+- Fixture JSON must match the WIRE, not the Rust struct names: probed truth
+  is `kind:"message"` (lowercase) vs `kind:"ChatListItem"` (PascalCase) —
+  reading serde attributes instead of probing shipped a silent drop-everything
+  bug once. Raw-string JSON concatenation doubles quotes — write one string.
+- `runBlocking` + real PNG fixtures for the decoders (DecodeImageTest).
 
 ## Desktop run
 
