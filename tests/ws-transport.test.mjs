@@ -29,7 +29,7 @@ test("velta://ws links round-trip and reject junk", () => {
   assert.deepEqual(m.parseWsLink(link), { url: "wss://proxy.example.org/ws", label: "Office & home", token: "" });
   assert.equal(m.extractWsLink(` ${link} `), link);
   assert.equal(m.extractWsLink("velta://wsx?u=a"), null);
-  assert.equal(m.extractWsLink("velta://tunnel?zone=x"), null);
+  assert.equal(m.extractWsLink("velta://proxy?h=127.0.0.1&p=1080"), null);
   assert.equal(classifyScannedCode(link, { parseInviteLink: () => null, isShortInviteLink: () => false }), "tunnel");
   for (const bad of ["velta://ws?", "velta://ws?n=x", "velta://ws?u=wss://a.example.org&u=wss://b.example.org",
     "velta://ws?u=wss://a.example.org&x=1", "velta://ws?u=%E0%A4%A", "velta://ws?u=http://a.example.org",
@@ -260,4 +260,15 @@ test("worker offers the invite as a subprotocol only to the proxy", async () => 
     ["wss://ws.example.org/dns/x", ["chat"]],
   ]);
   assert.match(src, /if \(d\.wsProxyToken\) installWsInvite\(self, d\.wsProxyUrl, d\.wsProxyToken, d\.wsProxyDevice\)/);
+});
+
+test("WebSocket settings reflect a selected SOCKS5 proxy, not a DNS tunnel", async () => {
+  const { readFileSync } = await import("node:fs");
+  const js = readFileSync(new URL("../app/js/ws-transport.js", import.meta.url), "utf8");
+  const rs = readFileSync(new URL("../velta-app/src-tauri/src/ws_transport.rs", import.meta.url), "utf8");
+  assert.match(js, /status\.proxy_active/);
+  assert.match(js, /The SOCKS5 proxy is in use/);
+  assert.doesNotMatch(js, /DNS tunnel|dns_tunnel_active/);
+  assert.match(rs, /v\["proxy_active"\]/);
+  assert.doesNotMatch(rs, /dns_tunnel_active|deactivate_for_tunnel/);
 });
