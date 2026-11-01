@@ -690,7 +690,7 @@ export function showStickerPicker({ getStickers, onPick }) {
         n++;
       }
     }
-    if (!n) grid.innerHTML = `<div class="sticker-note">${t("No stickers yet.<br>Long-press a sticker you received and choose “Save sticker”.")}</div>`;
+    if (!n) grid.innerHTML = `<div class="sticker-note">${t("No stickers yet.<br>Long-press a sticker you received and choose “Save sticker".")}</div>`;
   }).catch(() => {
     grid.innerHTML = `<div class="sticker-note">${escapeHtml(t("Couldn't load stickers."))}</div>`;
   });
@@ -1247,7 +1247,7 @@ export function chatAppearanceHtml() {
   const preset = A.PRESETS.find(([c]) => c === st.accent);
   const custom = st.accent && !preset ? st.accent : "";
   // The custom-color ring is drawn from the same PRESETS (one source of hex).
-  const ringCols = A.PRESETS.map(([c]) => c).filter(Boolean);
+  const ringCols = A.PRESETS.map(([c, label]) => c).filter(Boolean);
   const caRainbow = `conic-gradient(${[...ringCols, ringCols[0]].join(", ")})`;
   const swatches = A.PRESETS.map(([c, label]) => `<label class="ca-swatch"${c ? ` style="--sw: ${c}"` : " data-default"} title="${escapeAttr(t(label))}"><input type="radio" name="ca-accent" value="${c || ""}" aria-label="${escapeAttr(t(label))}"${(c || null) === (st.accent && preset ? st.accent : null) && !custom ? " checked" : ""}></label>`).join("");
   return `<details class="drawer-details" data-chat-appearance>
@@ -1353,7 +1353,7 @@ function notifyChecked(storageKey) {
 
 const IS_ANDROID = isAndroid();
 
-export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = null, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, onWsRelays, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality, downloadLimit = "0", onDownloadLimit, onReadReceipts, onLowBatteryToggle, multiDeviceState = "loading", multiDeviceReenabled = false, onMultiDevice, onMultiDeviceKeep, onDrawerOpen, identityBackupAvailable = false, onIdentityBackup, onTunnel = null, tunnelLabel = "", onWsTransport = null, wsTransportLabel = "", onDiagnostics = null, onPushSection = null, onWebPushSection = null, backendKind = null, onExportSettings = null, onScheduled = null }) {
+export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = null, onSetTheme, onOpenChat, onInvite, onProfile, onEditProfile, onInviteDomains, onWsRelays, p2pAvailable = false, p2pOn = false, onP2pToggle, onRelays, accounts = [], currentAccountId = null, onAccountTap, theme, barHidden = [], onBarToggle, catsHidden = [], onCatToggle, mediaQuality = "0", onMediaQuality, downloadLimit = "0", onDownloadLimit, onReadReceipts, onLowBatteryToggle, multiDeviceState = "loading", multiDeviceReenabled = false, onMultiDevice, onMultiDeviceKeep, onDrawerOpen, identityBackupAvailable = false, onIdentityBackup, onTunnel = null, tunnelLabel = "", onProxy = null, proxyLabel = "", onWsTransport = null, wsTransportLabel = "", onDiagnostics = null, onPushSection = null, onWebPushSection = null, backendKind = null, onExportSettings = null, onScheduled = null }) {
   const inTauri = isTauri();
   const androidApp = IS_ANDROID && inTauri;
   const drawer = document.createElement("div");
@@ -1475,6 +1475,7 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
       <button type="button" class="ctx-item" data-act="profile-management">${ICON.profileAdd}<span>${t("Profile management…")}</span></button>
       <button type="button" class="ctx-item" data-act="relays">${ICON.globe}<span>${t("Relays of this profile…")}</span></button>
       ${onTunnel ? `<button type="button" class="ctx-item" data-act="tunnel">${ICON.tunnel}<span>${escapeHtml(t("DNS tunnel:"))} ${escapeHtml(tunnelLabel)}</span></button>` : ""}
+      ${onProxy ? `<button type="button" class="ctx-item" data-act="proxy">${ICON.proxy}<span>${escapeHtml(t("SOCKS5 proxy:"))} ${escapeHtml(proxyLabel)}</span></button>` : ""}
       ${onWsTransport ? `<button type="button" class="ctx-item" data-act="ws-transport">${ICON.wsTransport}<span>${t("{label}: {state}", { label: t("WebSocket transport"), state: escapeHtml(wsTransportLabel) })}</span></button>` : ""}
       ${onWsRelays ? `<button type="button" class="ctx-item" data-act="ws-relays">${ICON.globe}<span>${t("WebSocket relays")}</span></button>` : ""}
       ${identityBackupAvailable ? `<button type="button" class="ctx-item" data-act="identity-backup">${ICON.key}<span>${t("Identity backup…")}</span></button>` : ""}
@@ -1834,6 +1835,7 @@ export function buildDrawer({ account, onProfileManagement, onPrivacySecurity = 
     if (act === "ws-transport") onWsTransport?.();
     if (act === "invite-domains") onInviteDomains?.();
     if (act === "tunnel") onTunnel?.();
+    if (act === "proxy") onProxy?.();
     if (act === "identity-backup") onIdentityBackup?.();
     if (act === "about") showAbout({ onDiagnostics, backendKind });
     if (act === "export-settings") onExportSettings?.();
@@ -2036,7 +2038,7 @@ async function showAbout({ onDiagnostics = null, backendKind = null } = {}) {
   // Device info for bug reports — collected when opened (viewport, orientation
   // and insets are live values), no personal identifiers (device-info.js).
   const det = about.modal.querySelector("[data-device-info]");
-  const pre = det.querySelector("[data-device-info-text]");
+  const pre = det.querySelector(".device-info-text");
   let tauriVersion = null;
   const fill = () => {
     pre.textContent = formatDeviceInfo(collectDeviceInfo({
