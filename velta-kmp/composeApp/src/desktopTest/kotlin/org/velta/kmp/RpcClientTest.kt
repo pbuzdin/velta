@@ -97,12 +97,16 @@ class RpcClientTest {
         val first = testScope().async { client.call("get_system_info") }
         val second = testScope().async { client.call("add_account") }
         awaitRequest(transport, count = 2)
-        val idFirst = requestId(transport.sent[0])
-        val idSecond = requestId(transport.sent[1])
-        assertTrue(idFirst != idSecond)
+        // Send order between the two coroutines is nondeterministic — derive
+        // ids by METHOD, not by position in the sent list.
+        val idOf = transport.sent.associate { line ->
+            val obj = Json.parseToJsonElement(line).jsonObject
+            obj["method"]!!.jsonPrimitive.content to obj["id"]!!.jsonPrimitive.content
+        }
+        assertTrue(idOf["get_system_info"] != idOf["add_account"])
         // Answer out of order — correlation must hold.
-        transport.emit("""{"id":$idSecond,"result":7}""")
-        transport.emit("""{"id":$idFirst,"result":{"version":"x"}}""")
+        transport.emit("""{"id":${idOf["add_account"]},"result":7}""")
+        transport.emit("""{"id":${idOf["get_system_info"]},"result":{"version":"x"}}""")
         assertEquals("x", first.await().jsonObject["version"]!!.jsonPrimitive.content)
         assertEquals(7L, second.await().jsonPrimitive.content.toLong())
         client.close()

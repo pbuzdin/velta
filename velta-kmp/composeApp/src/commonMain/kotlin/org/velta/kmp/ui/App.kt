@@ -221,14 +221,32 @@ private fun chatColor(hex: String?): androidx.compose.ui.graphics.Color {
     return androidx.compose.ui.graphics.Color(argb)
 }
 
+/** One row of the chat view: a day separator or a message. */
+private sealed interface ChatRow {
+    val key: String
+
+    data class Header(val text: String) : ChatRow {
+        override val key: String get() = "h:$text"
+    }
+
+    data class Message(val message: MessageObject) : ChatRow {
+        override val key: String get() = "m:${message.id}"
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
     val listState = rememberLazyListState()
     LaunchedEffect(model.chatMessages.size) {
         if (model.chatMessages.isNotEmpty()) {
-            listState.animateScrollToItem(model.chatMessages.size - 1)
+            listState.animateScrollToItem(chatRows(model.chatMessages).size - 1)
         }
+    }
+
+    // System back (Android) returns to the chat list; desktop uses ‹ Back.
+    PlatformBackHandler {
+        model.backToChatList()
     }
 
     Scaffold(
@@ -245,46 +263,114 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
             )
         },
     ) { inner ->
+        val rows = chatRows(model.chatMessages)
         LazyColumn(
             modifier = Modifier.padding(inner).fillMaxSize(),
             state = listState,
             contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp, horizontal = 12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            items(model.chatMessages, key = { it.id }) { message ->
-                MessageBubble(message)
+            items(rows, key = { it.key }) { row ->
+                when (row) {
+                    is ChatRow.Header -> DayHeader(row.text)
+                    is ChatRow.Message -> MessageBubble(
+                        message = row.message,
+                        senderName = if (chat.isGroup) model.senderNames[row.message.fromId] else null,
+                    )
+                }
             }
         }
     }
 }
 
+/** Group messages by local calendar date, inserting a header where the day changes. */
+private fun chatRows(messages: List<MessageObject>): List<ChatRow> {
+    val rows = mutableListOf<ChatRow>()
+    var lastDay: String? = null
+    for (message in messages) {
+        val day = formatDateHeader(message.timestamp)
+        if (day != lastDay) {
+            rows += ChatRow.Header(day)
+            lastDay = day
+        }
+        rows += ChatRow.Message(message)
+    }
+    return rows
+}
+
 @Composable
-private fun MessageBubble(message: MessageObject) {
+private fun DayHeader(text: String) {
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .background(
+                    MaterialTheme.colorScheme.surfaceVariant,
+                    RoundedCornerShape(10.dp),
+                )
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+        )
+    }
+}
+
+private fun viewTypeGlyph(viewType: String): String = when (viewType) {
+    "Image" -> "📷"
+    "Gif" -> "🖼"
+    "Video" -> "🎞"
+    "Sticker" -> "✨"
+    "Audio" -> "🎵"
+    "Voice" -> "🎤"
+    "File" -> "📎"
+    "Webxdc" -> "🌐"
+    else -> "📎"
+}
+
+@Composable
+private fun MessageBubble(message: MessageObject, senderName: String?) {
     val outgoing = message.fromId == 1L // ContactId.SELF
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start,
     ) {
-        Surface(
-            color = if (outgoing) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant
-            },
-            shape = RoundedCornerShape(14.dp),
-            modifier = Modifier.widthIn(max = 420.dp).heightIn(min = 20.dp),
-        ) {
-            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                if (message.text.isNotBlank()) {
-                    Text(message.text, style = MaterialTheme.typography.bodyMedium)
-                }
+        Column(horizontalAlignment = if (outgoing) Alignment.End else Alignment.Start) {
+            if (!outgoing && senderName != null) {
                 Text(
-                    formatTimestamp(message.timestamp),
+                    senderName,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.End,
-                    modifier = Modifier.align(Alignment.End),
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 12.dp, bottom = 1.dp),
                 )
+            }
+            Surface(
+                color = if (outgoing) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant
+                },
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.widthIn(max = 420.dp).heightIn(min = 20.dp),
+            ) {
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    if (message.viewType != "Text") {
+                        Text(
+                            "${viewTypeGlyph(message.viewType)} ${message.viewType}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (message.text.isNotBlank()) {
+                        Text(message.text, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    Text(
+                        formatTimestamp(message.timestamp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.End,
+                        modifier = Modifier.align(Alignment.End),
+                    )
+                }
             }
         }
     }

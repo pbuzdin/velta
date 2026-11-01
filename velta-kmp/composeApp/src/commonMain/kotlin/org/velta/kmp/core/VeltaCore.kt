@@ -34,6 +34,30 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
             client.call("get_account_info", RpcClient.params(RpcClient.param(accountId))).toString(),
         )
 
+    /** All account ids known to the core — the persistence layer of P2 resume. */
+    suspend fun allAccountIds(): List<Long> {
+        val result = client.call("get_all_account_ids")
+        return (result as? JsonArray)?.mapNotNull {
+            (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull()
+        } ?: emptyList()
+    }
+
+    suspend fun contact(accountId: Long, contactId: Long): Contact =
+        client.json.decodeFromString(
+            Contact.serializer(),
+            client.call(
+                "get_contact",
+                RpcClient.params(RpcClient.param(accountId), RpcClient.param(contactId)),
+            ).toString(),
+        )
+
+    suspend fun marknoticedChat(accountId: Long, chatId: Long) {
+        client.call(
+            "marknoticed_chat",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(chatId)),
+        )
+    }
+
     suspend fun addTransport(accountId: Long, addr: String, password: String) {
         val param = buildJsonObject {
             put("addr", addr)

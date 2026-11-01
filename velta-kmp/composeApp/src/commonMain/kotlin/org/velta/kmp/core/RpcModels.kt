@@ -59,6 +59,17 @@ data class MessageObject(
     val error: String? = null,
 )
 
+/** DC contact (camelCase) — used for sender names in group chats. */
+@Serializable
+data class Contact(
+    val id: Long = 0,
+    val name: String = "",
+    val displayName: String = "",
+    val address: String = "",
+    val color: String? = null,
+    val profileImage: String? = null,
+)
+
 /**
  * Core event as returned by the long-poll `get_next_event`:
  * `{accountId, event: {kind, ...}}` — the inner event is kept raw; consumers

@@ -38,4 +38,7 @@ class DesktopCorePlatform : CorePlatform {
             null
         }
     }
+
+    override fun connectHint(): String =
+        "no deltachat-rpc-server binary found (set VELTA_KMP_RPC_SERVER)"
 }

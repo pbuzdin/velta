@@ -36,4 +36,7 @@ class AndroidCorePlatform(private val context: Context) : CorePlatform {
             null
         }
     }
+
+    override fun connectHint(): String =
+        "core shim missing — build native/rpc-shim (README) and copy into jniLibs"
 }

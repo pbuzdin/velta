@@ -41,3 +41,50 @@ jobs:
       - name: Unit tests (desktopTest)
         working-directory: velta-kmp
         run: ./gradlew :composeApp:desktopTest --no-daemon --stacktrace
+
+  # The in-process Android core (native/rpc-shim) is heavy to build and NOT
+  # committed — this job produces libvelta_rpc_shim.so for both ABIs and
+  # publishes them as artifacts. It only runs when the shim changes or on
+  # demand; the APK job above never depends on it.
+  shim:
+    runs-on: ubuntu-latest
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          contains(github.event.head_commit.modified.*,
+                   'velta-kmp/native/rpc-shim/') }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Rust android targets
+        run: rustup target add aarch64-linux-android x86_64-linux-android
+
+      - name: Locate NDK
+        run: echo "NDK=$(ls -d $ANDROID_HOME/ndk/* | tail -1)" >> "$GITHUB_ENV"
+
+      - name: Build shim (aarch64 + x86_64)
+        working-directory: velta-kmp/native/rpc-shim
+        env:
+          TC: ${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/bin
+        run: |
+          export RANLIB="$TC/llvm-ranlib" AR="$TC/llvm-ar" PATH="$TC:$PATH"
+          export CC_aarch64_linux_android="$TC/aarch64-linux-android24-clang"
+          export AR_aarch64_linux_android="$TC/llvm-ar"
+          export CC_x86_64_linux_android="$TC/x86_64-linux-android24-clang"
+          export AR_x86_64_linux_android="$TC/llvm-ar"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$TC/aarch64-linux-android24-clang"
+          export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$TC/x86_64-linux-android24-clang"
+          cargo build --release \
+            --target aarch64-linux-android --target x86_64-linux-android
+          "$TC/llvm-strip" \
+            target/aarch64-linux-android/release/libvelta_rpc_shim.so
+          "$TC/llvm-strip" \
+            target/x86_64-linux-android/release/libvelta_rpc_shim.so
+
+      - name: Upload shim artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: velta-rpc-shim-so
+          path: |
+            velta-kmp/native/rpc-shim/target/aarch64-linux-android/release/libvelta_rpc_shim.so
+            velta-kmp/native/rpc-shim/target/x86_64-linux-android/release/libvelta_rpc_shim.so
