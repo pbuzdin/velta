@@ -602,3 +602,22 @@ held (stops in parallel). A test hook, `VELTA_TEST_STOP_IO_DELAY_MS`
 `core-patches`) reproduces the stall: before the patch 7 chat reads took
 7.7 s, after it 3–4 ms. Upstream fix: no `Accounts` lock across IO
 start/stop.
+
+### 23. Automatic relay onboarding is opt-in (core configure + Relays modal)
+
+**Tracker: pbuzdin/velta#relays. Status: patched locally (quilt ops "#23 autorelay opt-in …", 1 op, 1 file).**
+Upstream core 2.66 turns `Config::Autorelay` on at the end of every
+`init_transports`: a background task then silently onboards extra transports
+from a hardcoded candidate list (nine.testrun.org, chatmail.cc, …) until the
+profile has three. That contradicts Velta's "Relays you pick": the quilt op
+flips the default to **false** (init_transports runs only for unconfigured
+profiles, so a later re-configure never touches the user's choice), and the
+Relays modal exposes the switch ("Add relays automatically" → generic
+`setConfig("autorelay", …)`; null/"0" = off). Profiles configured before this
+change carry autorelay=1; a one-time per-account migration
+(`RpcCore.migrateAutorelayDefault`, marker `velta-autorelay-default` in
+localStorage, retried on the next open when the core read fails) flips them
+off at upgrade — nobody could have opted in before, the UI did not exist.
+Deliberately NOT built: proactive sending-relay switching (the sending pin +
+automatic failover stay; a stable sending relay is better for DKIM/reputation
+and failover already covers outages).

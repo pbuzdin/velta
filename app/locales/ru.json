@@ -829,6 +829,8 @@
   "Storage {n}% used": "Хранилище занято на {n}%",
   "Relay management is not available on this backend": "Управление релеями недоступно на этом бэкенде",
   "Add relay…": "Добавить релей…",
+  "Add relays automatically": "Добавлять релеи автоматически",
+  "Velta may onboard extra relays by itself so mail keeps flowing. Off — you pick the relays.": "Velta может сама подключать дополнительные релеи, чтобы почта продолжала приходить. Выключено — релеи выбираете вы.",
   "calls (TURN)": "звонки (TURN)",
   "iroh transfers": "передачи iroh",
   "push notifications": "push-уведомления",

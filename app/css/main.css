@@ -3303,6 +3303,12 @@ html[data-theme="brutal"] .bar-btn.bar-accent {
    the capability. C calls/TURN, I iroh, P push, D instant delivery (IDLE), W web/C3 endpoints. */
 .relay-card { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .relay-card:last-child { border-bottom: 0; }
+/* VENDORISSUES #23: opt-in automatic relay onboarding — profile-level
+   switch under the relay list, above the flag legend. */
+.relay-auto { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+.relay-auto label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13.5px; }
+.relay-auto input { width: 15px; height: 15px; accent-color: var(--accent); flex: none; margin: 0; }
+.relay-auto-hint { margin: 4px 0 0 23px; font-size: 12.5px; line-height: 1.35; color: var(--text-dim); }
 .relay-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .relay-addr { font-weight: 600; overflow-wrap: anywhere; }
 .relay-sending { font-weight: 400; opacity: .75; }

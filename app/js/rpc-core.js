@@ -2127,6 +2127,28 @@ export class JsonRpcCore extends EventTarget {
     await this._call("set_config", this.accountId, key, value === null ? null : String(value));
   }
 
+  // VENDORISSUES #23: profiles configured before the opt-in flip carry
+  // autorelay=1 from upstream's init_transports default. One-time per
+  // account: turn it off. The Relays modal writes the config directly after
+  // that, and the per-account marker keeps this from re-running once the
+  // user has opted back in. Returns true when it flipped the value.
+  async migrateAutorelayDefault() {
+    const KEY = "velta-autorelay-default";
+    let markers = {};
+    try { markers = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch {}
+    if (markers[this.accountId]) return false;
+    let flipped = false;
+    try {
+      if (String(await this.getConfig("autorelay")) === "1") {
+        await this.setConfig("autorelay", "0");
+        flipped = true;
+      }
+    } catch { return false; } // core unavailable — retry on the next open
+    markers[this.accountId] = 1;
+    try { localStorage.setItem(KEY, JSON.stringify(markers)); } catch {}
+    return flipped;
+  }
+
   async renameContact(contactId, name) {
     await this._call("change_contact_name", this.accountId, contactId, name);
   }

@@ -829,6 +829,8 @@
   "Storage {n}% used": "Stockage utilisé à {n} %",
   "Relay management is not available on this backend": "La gestion des relais n'est pas disponible sur ce backend",
   "Add relay…": "Ajouter un relais…",
+  "Add relays automatically": "Ajouter des relais automatiquement",
+  "Velta may onboard extra relays by itself so mail keeps flowing. Off — you pick the relays.": "Velta peut ajouter elle-même des relais supplémentaires pour que le courrier continue d'arriver. Désactivé — vous choisissez les relais.",
   "calls (TURN)": "appels (TURN)",
   "iroh transfers": "transferts iroh",
   "push notifications": "notifications push",
