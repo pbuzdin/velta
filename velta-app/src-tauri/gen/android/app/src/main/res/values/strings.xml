@@ -11,6 +11,6 @@
     <string name="biometric_disable_title">Authenticate to turn the biometric lock off</string>
     <string name="biometric_unlock_title">Unlock Velta</string>
     <string name="biometric_cancel">Cancel</string>
-    <string name="biometric_retry">Retry</string>
-    <string name="biometric_use_pin">Use PIN</string>
+    <string name="biometric_unlock_action">Unlock with biometrics</string>
+    <string name="biometric_use_pin">Use Velta PIN</string>
 </resources>

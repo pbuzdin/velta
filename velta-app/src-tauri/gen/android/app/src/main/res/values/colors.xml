@@ -13,4 +13,6 @@
     <color name="velta_accent">#FF5AA2E6</color>
     <color name="velta_on_accent">#FF10131A</color>
     <color name="velta_on_accent_ripple">#3310131A</color>
+    <color name="velta_bg_elev">#FF1C1C26</color>
+    <color name="velta_text_ripple">#33F2F2F5</color>
 </resources>

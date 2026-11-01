@@ -421,7 +421,7 @@ object VeltaLock {
                 return@prompt
             }
             VeltaCore.startWithDek(hex(dek))
-            if (VeltaCore.running()) hideLock() else showRetry(activity)
+            if (VeltaCore.running()) hideLock()
         }
     }
 
@@ -429,12 +429,6 @@ object VeltaLock {
     private fun reAuth(activity: FragmentActivity) {
         prompt(activity, null, activity.getString(R.string.biometric_unlock_title)) { ok, _ ->
             if (ok) hideLock()
-        }
-    }
-
-    private fun showRetry(activity: FragmentActivity) {
-        (lockOverlay as? ViewGroup)?.let { root ->
-            root.findViewWithTag<Button>("velta-retry")?.visibility = View.VISIBLE
         }
     }
 
@@ -468,41 +462,39 @@ object VeltaLock {
             gravity = Gravity.CENTER
             setPadding(0, 0, 0, dp(32))
         }
-        val retry = Button(activity).apply {
-            tag = "velta-retry"
-            text = activity.getString(R.string.biometric_retry)
-            visibility = View.GONE
+        val unlock = Button(activity).apply {
+            text = activity.getString(R.string.biometric_unlock_action)
             setOnClickListener {
-                it.visibility = View.GONE
-                if (VeltaLock.on(activity) && lockOverlay != null) requestUnlock(activity)
+                if (VeltaLock.on(activity) && lockOverlay != null) {
+                    if (VeltaCore.running()) reAuth(activity) else requestUnlock(activity)
+                }
             }
         }
-        // App-lock PIN on too: the page behind shows the PIN screen.
+        // The web PIN screen exists at cold start. During auto-lock the core
+        // is already unlocked, so hiding this overlay would bypass the PIN.
         val usePin = Button(activity).apply {
             text = activity.getString(R.string.biometric_use_pin)
-            visibility = if (VeltaKeystore.pinOn(activity)) View.VISIBLE else View.GONE
+            visibility = if (VeltaKeystore.pinOn(activity) && !VeltaCore.running()) View.VISIBLE else View.GONE
             setOnClickListener { hideLock() }
         }
-        box.addView(title)
-        // Retry + Use PIN share one row as equal columns (weight 1 each);
-        // a GONE one leaves the other the full width. Labels wrap, never cut.
-        val row = android.widget.LinearLayout(activity).apply {
-            orientation = android.widget.LinearLayout.HORIZONTAL
-        }
-        for ((i, b) in listOf(retry, usePin).withIndex()) {
+        for (b in listOf(unlock, usePin)) {
             b.isAllCaps = false
             b.maxLines = 3
             b.minHeight = dp(48)
             b.textSize = 15f
             b.setTypeface(b.typeface, Typeface.BOLD)
-            b.setTextColor(ContextCompat.getColor(activity, R.color.velta_on_accent))
-            b.setBackgroundResource(R.drawable.velta_primary_button)
             b.setPadding(dp(22), 0, dp(22), 0)
-            row.addView(b, android.widget.LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                if (i > 0) marginStart = dp(8)
-            })
         }
-        box.addView(row, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        unlock.setTextColor(ContextCompat.getColor(activity, R.color.velta_on_accent))
+        unlock.setBackgroundResource(R.drawable.velta_primary_button)
+        usePin.setTextColor(ContextCompat.getColor(activity, R.color.velta_text))
+        usePin.setBackgroundResource(R.drawable.velta_secondary_button)
+        box.addView(title)
+        box.addView(unlock, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        box.addView(usePin, android.widget.LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply { topMargin = dp(12) })
         val boxWidth = minOf(activity.resources.displayMetrics.widthPixels, dp(360))
         root.addView(box, FrameLayout.LayoutParams(boxWidth, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         activity.runOnUiThread {
