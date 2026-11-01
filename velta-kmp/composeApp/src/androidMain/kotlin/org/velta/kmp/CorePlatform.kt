@@ -5,6 +5,7 @@ import org.velta.kmp.core.CorePlatform
 import org.velta.kmp.core.RpcShim
 import org.velta.kmp.core.RpcTransport
 import org.velta.kmp.core.SocketRpcTransport
+import org.velta.kmp.core.VeltaKeystore
 import java.io.File
 
 /**
@@ -24,7 +25,11 @@ class AndroidCorePlatform(private val context: Context) : CorePlatform {
             return null
         }
         return try {
-            val port = RpcShim.startCore(accountsDir)
+            // Database encryption at rest (#178 port): the DEK comes from the
+            // Keystore wrap; null → "" runs keyless, which leaves
+            // already-encrypted databases locked instead of recreating them.
+            val dbKey = VeltaKeystore.getOrCreateDek(context) ?: ""
+            val port = RpcShim.startCore(accountsDir, dbKey)
             if (port <= 0) {
                 println("velta-kmp: shim failed to start the core (port=$port)")
                 null

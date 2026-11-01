@@ -63,7 +63,28 @@ the exit path for the worst of it; the rest is worth fixing in place.
    runtime env mutation for exactly this reason (process-global, unsound
    with concurrent readers). *Improvement:* pass the DEK explicitly into
    `Accounts::new`-adjacent setup, or set it once in `main` before any
-   thread spawns.
+   thread spawns. (The KMP shim does the latter — the only moment env
+   mutation cannot race a reader.)
+
+7b. **#178 Android encryption is inert on every install — two device-path
+    bugs in `VeltaKeystore.kt`** (gen/android; found 2026-11-02 while
+    porting, both fixed in the KMP port,
+    `velta-kmp/.../core/VeltaKeystore.kt`):
+    - The StrongBox fallback is **dead code**: `KeyGenerator.init()` only
+      stores the spec — the StrongBox failure surfaces at `generateKey()`,
+      which sits *outside* the fallback try/catch. On StrongBox-failure
+      devices the app silently runs keyless.
+    - `create()` sizes the wrap blob `1 + iv.size + dek.size` (45 bytes)
+      but GCM output is `dek + 16-byte tag` (48) — `copyInto` overflows on
+      **every** device, so key creation always throws.
+    Net effect: **no Android Tauri install actually encrypts its database**
+    (the phase-2 layout unit test passes because it tests the format, not
+    the device path). The KMP port fixed both and verified on the emulator
+    that the wrap is created and the on-disk db is ciphertext with a
+    working unwrap path. The same audit should be applied to
+    `storePlainWrap` (same allocation pattern) and ideally to the shipped
+    1.4.89/1.4.90 builds — #178 phase 2 needs re-verification on device
+    after this fix lands there.
 
 8. **WebView ceiling (the headline).** The Android app is a WebView + 44 MB
    of Rust in one process: input latency, scroll cost, lifecycle fights

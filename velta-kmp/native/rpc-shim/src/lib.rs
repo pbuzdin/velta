@@ -98,7 +98,16 @@ async fn push_token_intercept(
 /// JNI call returns), then serve the core from a dedicated thread with its
 /// own tokio runtime. Returns the port, or a distinct negative code:
 /// -2 bind failed, -3 Accounts::new failed.
-fn start_core(accounts_dir: String) -> anyhow::Result<i32> {
+///
+/// `db_key` is the 64-hex database-encryption DEK (#178 port): the vendored
+/// core reads `VELTA_DB_KEY` from the environment when accounts open
+/// (patch #20), so it is set HERE — before the worker thread and the tokio
+/// runtime exist, the only moment in this process where env mutation cannot
+/// race a concurrent reader. Empty string = keyless (upstream behavior).
+fn start_core(accounts_dir: String, db_key: String) -> anyhow::Result<i32> {
+    if !db_key.is_empty() {
+        std::env::set_var("VELTA_DB_KEY", &db_key);
+    }
     let std_listener = match std::net::TcpListener::bind(("127.0.0.1", 0)) {
         Ok(listener) => listener,
         Err(e) => {
@@ -154,19 +163,25 @@ fn start_core(accounts_dir: String) -> anyhow::Result<i32> {
     Ok(port)
 }
 
-/// JNI entry: `org.velta.kmp.core.RpcShim.startCore(accountsDir) -> port`.
+/// JNI entry: `org.velta.kmp.core.RpcShim.startCore(accountsDir, dbKey) -> port`.
 /// Returns -1 on failure (the Kotlin side surfaces that as a connect error).
 #[no_mangle]
 pub extern "system" fn Java_org_velta_kmp_core_RpcShim_startCore<'local>(
     mut env: jni::JNIEnv<'local>,
     _class: jni::objects::JClass<'local>,
     accounts_dir: jni::objects::JString<'local>,
+    db_key: jni::objects::JString<'local>,
 ) -> i32 {
     let dir: String = match env.get_string(&accounts_dir) {
         Ok(s) => s.into(),
         Err(_) => return -1,
     };
-    match start_core(dir) {
+    // An absent (null) key runs keyless — same as the empty string.
+    let key: String = match env.get_string(&db_key) {
+        Ok(s) => s.into(),
+        Err(_) => String::new(),
+    };
+    match start_core(dir, key) {
         Ok(port) => port,
         Err(e) => {
             eprintln!("velta-rpc-shim: start failed: {e:#}");

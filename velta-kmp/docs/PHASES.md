@@ -36,7 +36,7 @@ that order completes the daily-drivable story before the release polish.
 | P1b Android in-process core | ✅ done | `2cd1c8f2` | green |
 | P2 Persistence + read paths | ✅ done | `cbb3809b` | green |
 | P3 Write paths | ✅ code complete — live gate pending | `fd2a405c` + quote-restore | green |
-| P4 Velta layer | 🚧 slices 1-8 done (…, UnifiedPush receiver) | — | — |
+| P4 Velta layer | 🚧 slices 1-9 done (…, encryption at rest) | — | — |
 | P5 Release track | ⬜ | — | — |
 
 ---
@@ -194,6 +194,22 @@ Verified on the emulator: `dumpsys` shows the ServiceRecord with
 `isForeground=true`, dataSync type, ongoing notification, process held.
 Because the shim and the event loop live at process scope, holding the
 process IS the sync story — no extra plumbing.
+
+**Slice 9 — database encryption at rest (shipped, Android):** the #178 port.
+`VeltaKeystore` (androidMain) is a faithful port of the Tauri wrap format —
+non-exportable "velta_kek" (StrongBox → plain fallback) wrapping a random
+256-bit DEK into `noBackupFilesDir/dbkey.wrap` (v1+iv+GCM(ct), atomic
+write), DEK handed to the shim as 64-hex; the shim sets `VELTA_DB_KEY`
+before any thread exists (patch #20 reads it at account open; empty =
+keyless = upstream). **Verified**: fresh start creates the wrap (61 bytes);
+the real-core headless check shows the on-disk db is ciphertext (random
+header), restart with the key opens the account, restart without it stays
+locked ("no SQL connection"); app restart unwraps (no new key).
+**Two Tauri bugs found and fixed in the port** (see
+TAURI-IMPROVEMENTS.MD §7b): the StrongBox fallback was dead code
+(generateKey outside the fallback try) and the wrap blob was sized without
+the GCM tag (copyInto overflow on every device) — net effect: Tauri
+Android installs have been running keyless, encryption inert.
 
 **Slice 8 — UnifiedPush receiver (shipped):** `VeltaPushService : PushService`
 (connector `org.unifiedpush.android:connector:3.3.4-rc1`, PUSH_EVENT filter)
