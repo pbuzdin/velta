@@ -3339,7 +3339,7 @@ export class ChatView {
         onInfo: () => this._showInfo(item),
         onDelete: () => this._commitDelete(heldKey),
       }).map(action => ({ ...action, onClick: () => { if (this._isCurrent(session)) return action.onClick(); } }));
-      if (!touch) { this._showActionBar(item, "", held, false, session, { x, y }); return; }
+      if (!touch) { this._showActionBar(item, "", held, false, session); return; }
       showMessageSheet({ reactions: [], items: held });
       return;
     }
@@ -3444,7 +3444,7 @@ export class ChatView {
       ...action, onClick: () => { if (this._isCurrent(session)) return action.onClick(); },
     });
     if (!touch) {
-      this._showActionBar(item, linkHref, guarded, canReact, session, { x, y });
+      this._showActionBar(item, linkHref, guarded, canReact, session);
       return;
     }
     const buckets = new Map(SHEET_PAIRS.map(k => [k, []]));
@@ -3483,7 +3483,7 @@ export class ChatView {
   // bubble (⋮ hover chip and right-click both land here). Touch keeps the
   // sheet. The bar closes on any outside tap, another popup, chat switch, or
   // scroll — it does not follow the bubble while scrolling.
-  _showActionBar(item, linkHref, guarded, canReact, session, point = null) {
+  _showActionBar(item, linkHref, guarded, canReact, session) {
     const m = item.msg;
     this._barCleanup?.();
     this._barFor = m.id;
@@ -3501,7 +3501,6 @@ export class ChatView {
       selected: myReaction(m.reactions),
       onReact: (emoji) => { if (this._isCurrent(session)) return this._toggleReaction(session.chatId, m.id, emoji); },
       anchor,
-      point,
       own: rowEl?.classList.contains("out") || false,
       scrollEl: this.scrollEl,
       onClosed: () => { rowEl?.classList.remove("bar-open"); this._barCleanup = null; },

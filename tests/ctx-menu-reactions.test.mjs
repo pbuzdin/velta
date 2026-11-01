@@ -9,7 +9,7 @@ import { installChatViewGlobals, installFakeDocument, installFakeFrames } from "
 installChatViewGlobals();
 globalThis.localStorage = { _s: {}, getItem(k) { return this._s[k] ?? null; }, setItem(k, v) { this._s[k] = String(v); }, removeItem(k) { delete this._s[k]; } };
 const { ChatView } = await import("../app/js/chat-view.js");
-const { closeAllPopups } = await import("../app/js/ui.js");
+const { showActionBar, closeAllPopups } = await import("../app/js/ui.js");
 
 const message = (id, text) => ({
   id, chatId: 7, ts: Date.now() + id, viewtype: "text", state: "sent",
@@ -109,35 +109,29 @@ test("smiley swaps the chips for the searchable tray and back", async (t) => {
   closeAllPopups();
 });
 
-test("the bar stays inside the viewport for a message taller than the screen", async (t) => {
-  const core = Object.assign(new EventTarget(), {
-    accountId: "A", accountEpoch: 0,
-    getChat: async () => ({ id: 7, kind: "single", unread: 0, encrypted: true }),
-    getMessages: async () => page([message(11, "hello")]),
-    markRead: async () => {},
-    setReaction: async () => {},
-  });
-  const { view, node } = setup(t, core);
-  await view.open(7);
-  // The fake DOM's rects are 0×0, so both bubble edges degenerate — exactly
-  // the tall-message case: anchor.top and anchor.bottom are both useless and
-  // the viewport clamp is what keeps the bar reachable.
+test("the bar rides the visible top of a message taller than the screen", async (t) => {
+  const node = installFakeDocument();
   globalThis.innerHeight = 300;
-  t.after(() => { delete globalThis.innerHeight; });
+  t.after(() => { delete globalThis.innerHeight; closeAllPopups(); });
+  const scrollEl = {
+    getBoundingClientRect: () => ({ top: 0, bottom: 300, left: 0, right: 800, width: 800, height: 300 }),
+    addEventListener() {}, removeEventListener() {},
+  };
+  const items = [{ label: "Info", onClick() {} }];
 
-  // Right-click low on a tall message: the bar must not open below the fold.
-  view._msgContextMenu(view.msgIndex.get(11), 10, 290);
+  // Bubble spanning past both viewport edges: the bar pins to the message's
+  // visible top (the list's top margin) — message-anchored, never off-screen.
+  showActionBar({ items, reactions: [], anchor: { top: -500, bottom: 1500, left: 20, right: 700, width: 680, height: 2000 }, scrollEl });
   let menu = node("popups").querySelector(".msg-action-bar");
-  assert.ok(menu, "bar opened for the right-click");
-  const lowTop = parseFloat(menu.style.top);
-  assert.ok(lowTop >= 8, "never above the viewport top");
-  assert.ok(lowTop <= 300 - 8, "never below the viewport bottom");
+  assert.ok(menu, "bar opened for the tall bubble");
+  assert.equal(parseFloat(menu.style.top), 8, "pinned to the message's visible top");
   closeAllPopups();
 
-  // And near the top: the clamp keeps the 8px margin.
-  view._msgContextMenu(view.msgIndex.get(11), 10, 4);
+  // Fully visible bubble: above its top edge, exactly the Velta placement.
+  showActionBar({ items, reactions: [], anchor: { top: 100, bottom: 140, left: 20, right: 700, width: 680, height: 40 }, scrollEl });
   menu = node("popups").querySelector(".msg-action-bar");
-  assert.ok(menu, "bar opened near the top");
-  assert.ok(parseFloat(menu.style.top) >= 8, "clamped to the 8px top margin");
+  assert.ok(menu, "bar opened for a visible bubble");
+  const barH = menu.getBoundingClientRect().height;
+  assert.equal(parseFloat(menu.style.top), 100 - barH - 6, "above the bubble's top edge");
   closeAllPopups();
 });
