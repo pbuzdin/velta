@@ -8,6 +8,7 @@ kotlin = "2.2.20"
 composeMultiplatform = "1.9.0"
 coroutines = "1.10.2"
 serialization = "1.9.0"
+unifiedpush = "3.3.4-rc1"
 androidxActivityCompose = "1.11.0"
 compileSdk = "36"
 # 26: java.time (used for timestamp formatting) without desugaring.
@@ -18,6 +19,7 @@ targetSdk = "36"
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidxActivityCompose" }
+unifiedpush-connector = { module = "org.unifiedpush.android:connector", version.ref = "unifiedpush" }
 
 [plugins]
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }

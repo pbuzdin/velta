@@ -200,6 +200,31 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         )
     }
 
+    // ---- Push (P4, Android) ----
+
+    /**
+     * SHIM-ONLY method: `Accounts::set_push_device_token` is not on the
+     * JSON-RPC surface, so the Android shim intercepts it before dispatch.
+     * The desktop sidecar rejects it — push is Android-only. The token is
+     * the `webpush:<url>|<pubkey>|<auth>` serialization; the core treats it
+     * as opaque, encrypts it to the notifier key and registers it via IMAP
+     * METADATA when io runs.
+     */
+    suspend fun setPushDeviceToken(token: String) {
+        client.call(
+            "velta_set_push_device_token",
+            RpcClient.params(RpcClient.param(token)),
+        )
+    }
+
+    /** Push-triggered fetch: pulls new mail; results surface as events. */
+    suspend fun backgroundFetch(timeoutSeconds: Double) {
+        client.call(
+            "background_fetch",
+            RpcClient.params(RpcClient.param(timeoutSeconds)),
+        )
+    }
+
     suspend fun addTransport(accountId: Long, addr: String, password: String) {
         val param = buildJsonObject {
             put("addr", addr)

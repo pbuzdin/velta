@@ -18,7 +18,14 @@ use yerpc::{RpcClient, RpcSession};
 
 /// One yerpc session per connection: read request lines, dispatch them as
 /// independent tasks, and forward responses/events back as JSON Lines.
-async fn serve_connection(state: CommandApi, stream: tokio::net::TcpStream) -> anyhow::Result<()> {
+/// `velta_set_push_device_token` is intercepted before dispatch: it is a
+/// shim-only extension (Accounts::set_push_device_token is not on the
+/// JSON-RPC surface, and the shim holds the accounts manager).
+async fn serve_connection(
+    state: CommandApi,
+    accounts: Arc<RwLock<Accounts>>,
+    stream: tokio::net::TcpStream,
+) -> anyhow::Result<()> {
     let (client, mut out_receiver) = RpcClient::new();
     let session = RpcSession::new(client.clone(), state);
     let (reader, mut writer) = stream.into_split();
@@ -28,6 +35,11 @@ async fn serve_connection(state: CommandApi, stream: tokio::net::TcpStream) -> a
         tokio::select! {
             incoming = lines.next_line() => match incoming? {
                 Some(line) => {
+                    if let Some(response) = push_token_intercept(&accounts, &line).await {
+                        writer.write_all(response.as_bytes()).await?;
+                        writer.write_all(b"\n").await?;
+                        continue;
+                    }
                     let session = session.clone();
                     tokio::spawn(async move {
                         session.handle_incoming(&line).await;
@@ -46,6 +58,40 @@ async fn serve_connection(state: CommandApi, stream: tokio::net::TcpStream) -> a
         }
     }
     Ok(())
+}
+
+/// Answers `velta_set_push_device_token` directly and returns the JSON Lines
+/// response, or None when the line is anything else (normal RPC dispatch).
+async fn push_token_intercept(
+    accounts: &Arc<RwLock<Accounts>>,
+    line: &str,
+) -> Option<String> {
+    let obj: serde_json::Value = serde_json::from_str(line).ok()?;
+    let method = obj.get("method")?.as_str()?;
+    if method != "velta_set_push_device_token" {
+        return None;
+    }
+    let id = obj.get("id").cloned().unwrap_or(serde_json::Value::Null);
+    let token = obj
+        .get("params")
+        .and_then(|p| p.get(0))
+        .and_then(|t| t.as_str())
+        .map(|s| s.to_string());
+
+    let response = match token {
+        Some(token) => match accounts.read().await.set_push_device_token(&token) {
+            Ok(()) => serde_json::json!({"jsonrpc": "2.0", "id": id, "result": null}),
+            Err(e) => serde_json::json!({
+                "jsonrpc": "2.0", "id": id,
+                "error": {"code": -1, "message": format!("push token failed: {e:#}")},
+            }),
+        },
+        None => serde_json::json!({
+            "jsonrpc": "2.0", "id": id,
+            "error": {"code": -1, "message": "missing token param"},
+        }),
+    };
+    Some(serde_json::to_string(&response).unwrap_or_default())
 }
 
 /// Bind a loopback port synchronously (the port must be known before the
@@ -95,8 +141,9 @@ fn start_core(accounts_dir: String) -> anyhow::Result<i32> {
                         }
                     };
                     let state = state.clone();
+                    let accounts = accounts.clone();
                     tokio::spawn(async move {
-                        if let Err(e) = serve_connection(state, stream).await {
+                        if let Err(e) = serve_connection(state, accounts, stream).await {
                             eprintln!("velta-rpc-shim: connection ended: {e:#}");
                         }
                     });
@@ -125,5 +172,35 @@ pub extern "system" fn Java_org_velta_kmp_core_RpcShim_startCore<'local>(
             eprintln!("velta-rpc-shim: start failed: {e:#}");
             -1
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn push_token_intercept_answers_and_stores() {
+        let dir = std::env::temp_dir().join("velta-shim-intercept-test");
+        let accounts = Arc::new(RwLock::new(
+            Accounts::new(dir, true).await.expect("accounts"),
+        ));
+
+        let push_line = r#"{"jsonrpc":"2.0","id":7,"method":"velta_set_push_device_token","params":["webpush:x|key|auth"]}"#;
+        let response = push_token_intercept(&accounts, push_line)
+            .await
+            .expect("push line must be intercepted");
+        assert!(response.contains("\"result\":null"), "response: {response}");
+
+        // A normal RPC line must NOT be intercepted.
+        assert!(
+            push_token_intercept(
+                &accounts,
+                r#"{"jsonrpc":"2.0","id":1,"method":"get_system_info","params":[]}"#
+            )
+            .await
+            .is_none(),
+            "regular RPC lines pass through"
+        );
     }
 }

@@ -63,6 +63,7 @@ class MainActivity : ComponentActivity() {
             App(model)
             LaunchedEffect(Unit) { model.connect() }
         }
+        org.velta.kmp.push.VeltaPushService.maybeRegister(this)
     }
 
     override fun onStart() {

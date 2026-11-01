@@ -491,6 +491,53 @@ class AppModel(
         screen = Screen.Login
     }
 
+    // ---- Push (P4, Android) — entered by VeltaPushService ----
+
+    /**
+     * A UnifiedPush endpoint arrived: ensure the core is up, then register
+     * the token (the shim's `velta_set_push_device_token`; the core encrypts
+     * it to the notifier key and registers via IMAP METADATA on next io).
+     */
+    fun onPushEndpoint(token: String) {
+        scope.launch {
+            try {
+                ensureConnected()
+                core?.setPushDeviceToken(token)
+                println("velta-kmp: push endpoint registered")
+            } catch (t: Throwable) {
+                println("velta-kmp: push endpoint registration failed: $t")
+            }
+        }
+    }
+
+    /** A push message arrived: fetch. Results surface through the event loop. */
+    fun onPushWakeup() {
+        scope.launch {
+            try {
+                ensureConnected()
+                core?.startIoForAllAccounts()
+                core?.backgroundFetch(30.0)
+                println("velta-kmp: push-triggered fetch done")
+            } catch (t: Throwable) {
+                println("velta-kmp: push fetch failed: $t")
+            }
+        }
+    }
+
+    fun onPushUnregistered() {
+        println("velta-kmp: push unregistered — re-register on next start")
+    }
+
+    /** connect() + wait for the handshake; for non-UI entry points. */
+    private suspend fun ensureConnected() {
+        if (!connected) {
+            connect()
+            kotlinx.coroutines.withTimeout(30_000) {
+                while (!connected) kotlinx.coroutines.delay(200)
+            }
+        }
+    }
+
     /**
      * P3 send: `misc_set_draft` (text + optional quote) then `misc_send_draft`.
      * After the send returns, the message exists in the db with real

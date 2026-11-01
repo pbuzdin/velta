@@ -36,7 +36,7 @@ that order completes the daily-drivable story before the release polish.
 | P1b Android in-process core | ✅ done | `2cd1c8f2` | green |
 | P2 Persistence + read paths | ✅ done | `cbb3809b` | green |
 | P3 Write paths | ✅ code complete — live gate pending | `fd2a405c` + quote-restore | green |
-| P4 Velta layer | 🚧 slices 1-7 done (…, restart-on-kill) | — | — |
+| P4 Velta layer | 🚧 slices 1-8 done (…, UnifiedPush receiver) | — | — |
 | P5 Release track | ⬜ | — | — |
 
 ---
@@ -194,6 +194,22 @@ Verified on the emulator: `dumpsys` shows the ServiceRecord with
 `isForeground=true`, dataSync type, ongoing notification, process held.
 Because the shim and the event loop live at process scope, holding the
 process IS the sync story — no extra plumbing.
+
+**Slice 8 — UnifiedPush receiver (shipped):** `VeltaPushService : PushService`
+(connector `org.unifiedpush.android:connector:3.3.4-rc1`, PUSH_EVENT filter)
+mirrors the Tauri shell's contract: `onNewEndpoint` serializes the webpush
+token (`webpush:<url>|<pubkey>|<auth>`) → `velta_set_push_device_token` (a
+**shim-only RPC** — `Accounts::set_push_device_token` is not on the JSON-RPC
+surface, so the shim intercepts that one method before dispatch and calls
+the accounts manager directly; Rust test pins the interception),
+`onMessage` → ensure-connected → `start_io_for_all_accounts` +
+`background_fetch(30)` (a JSON-RPC method — the fetch results surface
+through the event loop). Auto-registration follows the Tauri rules
+(single/resolved distributor, VAPID key constant, no-distributor = silent
+skip). Token registration lands via IMAP METADATA on next io.
+**End-to-end push still needs the relay side** (notifier keypair swap,
+ntfy, the maildir hook — PLAN-UNIFIEDPUSH.MD items 1-3, a separate
+relay-side project).
 
 **Slice 7 — restart-on-kill (shipped):** `AppHolder` makes the AppModel a
 process-wide singleton shared by the UI and the service; `connect()` is

@@ -31,6 +31,7 @@ kotlin {
         androidMain.get().dependsOn(jvmCommon)
         androidMain.dependencies {
             implementation(libs.androidx.activity.compose)
+            implementation(libs.unifiedpush.connector)
         }
         val desktopMain by getting {
             dependsOn(jvmCommon)
