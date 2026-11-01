@@ -2,7 +2,6 @@
 // (docs/invite-cards.md):
 //   • proxy invites   velta://ws?u=<wss url>&n=<name>&t=<token>
 //   • relay invites   https://<relay>/i/<token>   (single-use account signup)
-//   • DNS tunnels     velta://tunnel…
 //   • SOCKS5 proxies  velta://proxy…
 // A message carrying a relay AND a proxy invite (Veltar's /invite) gets one
 // combined "account + proxy" card. Parsing is strict: anything malformed is
@@ -14,7 +13,6 @@ import { escapeHtml, escapeAttr } from "./format.js";
 import { t } from "./i18n.js";
 import { ICON } from "./icons.js";
 import { parseWsLink, buildWsLink, validWsToken, wsProxyHost } from "./ws-transport.js";
-import { parseTunnelLink } from "./tunnel.js";
 import { parseProxyLink } from "./proxy.js";
 import { trimLinkEnd } from "./bare-links.js";
 
@@ -90,14 +88,6 @@ export function parseProxyInvite(raw) {
   };
 }
 
-/** Strict velta://tunnel link → card model or null. */
-export function parseTunnelInvite(raw) {
-  try {
-    const tn = parseTunnelLink(raw);
-    return { kind: "tunnel", zone: tn.zone, name: clean(tn.label) || tn.zone, link: String(raw).trim() };
-  } catch { return null; }
-}
-
 /** Strict velta://proxy link → card model or null. */
 export function parseSocks5Invite(raw) {
   try {
@@ -112,19 +102,17 @@ export function parseSocks5Invite(raw) {
 const SCAN_MAX = 20000;
 // Same token boundaries as markdown.js's link scan ([^\s<]), so a card exists
 // exactly when the text shows the matching chip.
-const CANDIDATE_RE = /\bhttps:\/\/[^\s<]+|\bvelta:\/\/(?:ws|tunnel|proxy)\b[^\s<]*/gi;
+const CANDIDATE_RE = /\bhttps:\/\/[^\s<]+|\bvelta:\/\/(?:ws|proxy)\b[^\s<]*/gi;
 
-
-/** First valid invite of each kind in a message: { proxy, relay, tunnel, socks5 }. */
+/** First valid invite of each kind in a message: { proxy, relay, socks5 }. */
 export function findInviteLinks(text) {
-  const out = { proxy: null, relay: null, tunnel: null, socks5: null };
+  const out = { proxy: null, relay: null, socks5: null };
   const s = String(text ?? "").slice(0, SCAN_MAX);
   for (const m of s.matchAll(CANDIDATE_RE)) {
     const u = trimLinkEnd(m[0]);
     if (/^https:/i.test(u)) out.relay ||= parseRelayInviteLink(u);
     else if (/^velta:\/\/ws/i.test(u)) out.proxy ||= parseProxyInvite(u);
     else if (/^velta:\/\/proxy/i.test(u)) out.socks5 ||= parseSocks5Invite(u);
-    else out.tunnel ||= parseTunnelInvite(u);
   }
   return out;
 }
@@ -133,11 +121,9 @@ export function findInviteLinks(text) {
 export function inviteLinkChipHtml(raw) {
   const r = parseRelayInviteLink(raw);
   const p = r ? null : parseProxyInvite(raw);
-  const tn = r || p ? null : parseTunnelInvite(raw);
-  const s5 = r || p || tn ? null : parseSocks5Invite(raw);
+  const s5 = r || p ? null : parseSocks5Invite(raw);
   const what = r ? t("Relay invite: {host}", { host: r.host })
     : p ? t("Proxy invite: {host}", { host: p.host })
-    : tn ? t("DNS tunnel: {name}", { name: tn.name })
     : s5 ? t("SOCKS5 proxy: {name}", { name: s5.name }) : null;
   if (!what) return null;
   return `<span class="ivc-chip">${ICON.link}<span>${escapeHtml(what)}</span></span>`;
@@ -160,7 +146,7 @@ function btn(act, label, { primary = false, disabled = false, aria = "", icon = 
 
 /** Card HTML for one message's invites ("" when none). opts: sender, now, lang. */
 export function inviteCardsHtml(text, { sender = "", now = Date.now(), lang = "" } = {}) {
-  const { proxy, relay, tunnel, socks5 } = findInviteLinks(text);
+  const { proxy, relay, socks5 } = findInviteLinks(text);
   const cards = [];
   const proxyExpired = !!(proxy?.expires && proxy.expires <= now);
   const from = sender ? `<p class="ivc-from">${escapeHtml(t("From {name}", { name: clean(sender) }))}</p>` : "";
@@ -198,12 +184,6 @@ export function inviteCardsHtml(text, { sender = "", now = Date.now(), lang = ""
       btn("save", t("Save"), { disabled: proxyExpired, aria: t("Save proxy {name} without using it", { name: proxy.name }) }),
       { proxy: proxy.link }, proxyExpired, proxy.link));
   }
-  if (tunnel) {
-    cards.push(shell("ivc-tunnel", t("DNS tunnel: {name}", { name: tunnel.name }), ICON.tunnel,
-      row(ICON.globe, t("Domain: {zone}", { zone: tunnel.zone })),
-      btn("tunnel", t("Set up tunnel"), { primary: true, aria: t("Set up DNS tunnel {name}", { name: tunnel.name }) }),
-      { tunnel: tunnel.link }, false, tunnel.link));
-  }
   if (socks5) {
     cards.push(shell("ivc-socks5", t("SOCKS5 proxy: {name}", { name: socks5.name }), ICON.proxy,
       row(ICON.globe, t("Server: {host}", { host: `${socks5.host}:${socks5.port}` })) +
@@ -232,7 +212,7 @@ export function relayClaimResult(status, body) {
 
 /** Document-level actions (capture; survives re-renders). handlers:
  *  useProxy(link), saveProxy(link), createAccount({host,token}),
- *  join({proxy, relay}), tunnel(link), socks5(link), copy(text). */
+ *  join({proxy, relay}), socks5(link), copy(text). */
 export function bindInviteCards(handlers, root = document) {
   root.addEventListener("click", async ev => {
     const b = ev.target?.closest?.("[data-ivc-act]");
@@ -251,12 +231,11 @@ export function bindInviteCards(handlers, root = document) {
         b.querySelector("span").textContent = open ? t("Hide link") : t("Show link");
         return;
       }
-      case "copy": return handlers.copy?.([d.ivcRelay, d.ivcProxy, d.ivcTunnel, d.ivcSocks5].filter(Boolean).join("\n"));
+      case "copy": return handlers.copy?.([d.ivcRelay, d.ivcProxy, d.ivcSocks5].filter(Boolean).join("\n"));
       case "use": return handlers.useProxy?.(d.ivcProxy);
       case "save": return handlers.saveProxy?.(d.ivcProxy);
       case "create": return relay && handlers.createAccount?.(relay);
       case "join": return relay && handlers.join?.({ proxy: d.ivcProxy, relay });
-      case "tunnel": return handlers.tunnel?.(d.ivcTunnel);
       case "socks5": return handlers.socks5?.(d.ivcSocks5);
     }
   }, true);

@@ -92,10 +92,10 @@ export function renderMarkdown(rawText, opts = {}) {
 // which are turned into the very same https anchors / invite cards.
 function inlineWith(raw, members) {
   raw = raw.replace(/\x00/g, ""); // NUL delimits placeholders below
-  // velta://ws and velta://tunnel invites (invite-cards.js) are matched too:
+  // velta://ws and velta://proxy invites (invite-cards.js) are matched too:
   // a valid one becomes a token-free chip (the card below the text carries
   // the actions), a malformed one stays plain text.
-  const re = /\[([^\]\n]+)\]\((https?:\/\/[^)\s]*)\)|\bhttps?:\/\/[^\s<]+|\bvelta:\/\/(?:ws|tunnel)\b[^\s<]*/gi;
+  const re = /\[([^\]\n]+)\]\((https?:\/\/[^)\s]*)\)|\bhttps?:\/\/[^\s<]+|\bvelta:\/\/(?:ws|proxy)\b[^\s<]*/gi;
   const anchors = [];
   const hold = token => { anchors.push(token); return `\x00${anchors.length - 1}\x00`; };
   // #156: `code` spans are extracted FIRST so their content is opaque to the
