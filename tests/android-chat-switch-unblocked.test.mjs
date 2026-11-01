@@ -58,6 +58,14 @@ test("resume cancels a hidden background fetch before nudging the network", () =
   assert.ok(cancel < body.indexOf('app.emit("velta-foreground"'), "cancellation must precede the foreground refresh");
 });
 
+test("headless startup does not hold the account manager write lock across IO start", () => {
+  const lib = src("velta-app/src-tauri/src/lib.rs");
+  const body = lib.slice(lib.indexOf("if !ACTIVITY_LAUNCHED.load"), lib.indexOf("break;", lib.indexOf("if !ACTIVITY_LAUNCHED.load")));
+  assert.doesNotMatch(body, /accounts\.write\(\)\.await\.start_io\(\)\.await/);
+  assert.match(body, /accounts\.read\(\)\.await/);
+  assert.match(body, /ctx\.start_io\(\)\.await/);
+});
+
 test("resume logs account lock latency and connectivity", () => {
   const body = fnBody(src("velta-app/src-tauri/src/lib.rs"), "fn Java_org_velta_MainActivity_setActivityForeground");
   assert.match(body, /tunnel::log_resume_state\(\)/);

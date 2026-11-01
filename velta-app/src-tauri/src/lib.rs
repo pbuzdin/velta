@@ -3928,7 +3928,15 @@ fn ensure_android_core(accounts_dir: PathBuf) -> &'static RpcState {
                     if !ACTIVITY_LAUNCHED.load(std::sync::atomic::Ordering::SeqCst) {
                         let accounts = ANDROID_ACCOUNTS.lock().unwrap().clone();
                         if let Some(accounts) = accounts {
-                            accounts.write().await.start_io().await;
+                            // Same rule as jsonrpc patch #21: never hold the
+                            // account manager lock across a scheduler start.
+                            let contexts: Vec<_> = {
+                                let accounts = accounts.read().await;
+                                accounts.get_all().into_iter().filter_map(|id| accounts.get_account(id)).collect()
+                            };
+                            for ctx in contexts {
+                                ctx.start_io().await;
+                            }
                             log("headless core: IO started for all accounts");
                         }
                     }
