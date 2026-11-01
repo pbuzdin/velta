@@ -103,11 +103,17 @@ failed / ✓ sent) from the core's message states.
 **Verified:** scripted send-flow tests (plain + quoted, exact positional
 params asserted), full WSL gate, CI.
 
-**Finding (cost an iteration):** there is NO no-network write-path e2e —
-`add_device_message` accepts writes on an unconfigured account but the
-message is never visible via `get_messages` (device-chat rows need a self
-addr), so "send lands in another client" requires a configured throwaway
-account. The scripted tests carry the mechanics until then.
+**Finding — SOLVED (was a client bug, not a core limitation):** the missing
+no-network write-path e2e traced to a wire-casing bug in OUR client:
+`MessageLoadResult` is enum-level camelCase-tagged → real responses carry
+`kind:"message"` (lowercase), while our filter expected `"Message"` — every
+real message was silently dropped (the scripted fixtures shared the wrong
+casing, which hid it). Fixed + pinned by `WireCasingTest`; the real-binary IT
+now round-trips a device message through `add_device_message` →
+`get_messages` on every CI run, no account needed. Lesson recorded in
+AGENTS.md: fixture data must be probed from the wire, never assumed.
+Also corrected: delivery-state numbers are 20=Pending, 24=Failed, 26=Delivered,
+28=Read (core/src/message.rs), not 10/13/16/26.
 
 **Missing:**
 - **The P3 exit gate itself**: a real message sent from the KMP client

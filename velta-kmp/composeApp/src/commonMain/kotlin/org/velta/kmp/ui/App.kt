@@ -328,11 +328,12 @@ private fun viewTypeGlyph(viewType: String): String = when (viewType) {
     else -> "📎"
 }
 
-/** Outgoing delivery state: 10 pending, 13 failed, 16/26 delivered/sent. */
+/** Outgoing delivery state (core/src/message.rs): 20 pending, 24 failed, 26 delivered, 28 read. */
 private fun stateGlyph(state: Int): String? = when (state) {
-    10 -> "⏳"
-    13 -> "⚠️"
-    16, 26 -> "✓"
+    20 -> "⏳"
+    24 -> "⚠️"
+    26 -> "✓"
+    28 -> "✓✓"
     else -> null
 }
 

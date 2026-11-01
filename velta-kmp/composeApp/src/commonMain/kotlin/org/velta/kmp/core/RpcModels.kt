@@ -40,10 +40,10 @@ data class ChatListItem(
     val error: String? = null,
 )
 
-/** `MessageLoadResult::Message` (tagged `kind`); `LoadingError` is dropped. */
+/** `MessageLoadResult::Message` (tagged `kind` = "message", enum-level camelCase); `loadingError` is dropped. */
 @Serializable
 data class MessageObject(
-    val kind: String = "Message",
+    val kind: String = "message",
     val id: Long = 0,
     val chatId: Long = 0,
     val fromId: Long = 0,

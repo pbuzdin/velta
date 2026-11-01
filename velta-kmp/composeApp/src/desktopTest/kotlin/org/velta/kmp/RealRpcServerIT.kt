@@ -61,12 +61,28 @@ class RealRpcServerIT {
                 val entries = core.chatlistEntries(accountId)
                 assertTrue(entries.isEmpty(), "fresh account has an empty chatlist")
 
-                // NOTE (P3): the write-path e2e ("send lands in another
-                // client") needs a CONFIGURED account — `add_device_message`
-                // accepts writes unconfigured but the message is NOT visible
-                // via get_messages (async materialization requires a self
-                // addr), so there is no no-network round-trip to assert here.
-                // The send flow is covered by the scripted SendFlowTest.
+                // P3 write-path round-trip WITHOUT network: a device message
+                // is created locally and read back through the client models.
+                val msgData = kotlinx.serialization.json.buildJsonObject {
+                    put("text", kotlinx.serialization.json.JsonPrimitive("hello from the kmp IT"))
+                }
+                val msgId = core.raw
+                    .call(
+                        "add_device_message",
+                        org.velta.kmp.core.RpcClient.params(
+                            org.velta.kmp.core.RpcClient.param(accountId),
+                            org.velta.kmp.core.RpcClient.param("kmp-it"),
+                            msgData,
+                        ),
+                    )
+                    .toString().toLong()
+                assertTrue(msgId > 0, "add_device_message returns a message id")
+
+                val readBack = core.messages(accountId, listOf(msgId))
+                assertTrue(
+                    readBack.any { it.text == "hello from the kmp IT" },
+                    "device message round-trips through get_messages: $readBack",
+                )
             }
         } finally {
             core.close()

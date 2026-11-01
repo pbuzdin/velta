@@ -179,7 +179,10 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         val obj = result as? JsonObject ?: return emptyList()
         return obj.entries.mapNotNull { (_, value) ->
             val message = client.json.decodeFromString(MessageObject.serializer(), value.toString())
-            if (message.kind == "Message") message else null
+            // Wire truth (probed against core 2.66): MessageLoadResult is an
+            // enum-level camelCase-tagged enum → kind is "message" (lowercase),
+            // NOT "Message". LoadingError entries are dropped here.
+            if (message.kind == "message") message else null
         }
     }
 
