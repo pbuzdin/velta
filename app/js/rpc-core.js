@@ -1,3 +1,5 @@
+// Account-scoped RPC, cache persistence, sync, and transfer orchestration.
+// Transport frames live in core.js; this module owns account lifetimes and persistence fences.
 import { invoke, invokeError, isAndroid, onNativeEvent, postNative, base64FromBytes, clearStoredCache as clearCacheStorage, setBackgroundAudioWanted, claimAndroidWakelock, unclaimAndroidWakelock } from "./runtime.js";
 import { freeBytes, fmtFreeBytes } from "./quota.js";
 import { bytesToBase64, base64ToBytes, clearKeysCache } from "./crypto.js";
