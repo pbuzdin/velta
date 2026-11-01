@@ -156,7 +156,7 @@ export function showContextMenu(items, x, y) {
 // below when that would clip the viewport top. `anchor` is the bubble rect;
 // `scrollEl` closes the bar when the chat scrolls (it does not follow).
 // Returns a close() that also unwires the scroll listener.
-export function showActionBar({ items, reactions = [], selected = null, onReact, anchor = null, own = false, scrollEl = null, onClosed = null }) {
+export function showActionBar({ items, reactions = [], selected = null, onReact, anchor = null, point = null, own = false, scrollEl = null, onClosed = null }) {
   closeAllPopups();
   const bar = document.createElement("div");
   bar.className = "ctx-menu msg-action-bar";
@@ -235,6 +235,7 @@ export function showActionBar({ items, reactions = [], selected = null, onReact,
   openLightDismiss(bar);
   const r = bar.getBoundingClientRect();
   const vw = globalThis.innerWidth || 1024;
+  const vh = globalThis.innerHeight || 800;
   // Own (.out) bubbles right-align the bar to their edge; received bubbles
   // left-align it — the bar never swings over the chat list.
   let left;
@@ -243,8 +244,20 @@ export function showActionBar({ items, reactions = [], selected = null, onReact,
     left = anchor ? anchor.right - r.width : (vw - r.width) / 2;
     left = Math.max(8, Math.min(left, vw - r.width - 8));
   }
-  let top = anchor ? anchor.top - r.height - 6 : 120;
-  if (top < 8 && anchor) top = anchor.bottom + 6;
+  // Vertical: a right-click opens next to the cursor — below it, above when
+  // that would clip. Every path then hard-clamps into the viewport, so a
+  // message taller than the screen can never push the bar off-screen: the
+  // old flip used the bubble's bottom edge, which is off-screen too for such
+  // messages, and the bar closes on scroll — it was unreachable.
+  let top;
+  if (point) {
+    top = point.y + 6;
+    if (top + r.height > vh - 8) top = point.y - r.height - 6;
+  } else {
+    top = anchor ? anchor.top - r.height - 6 : 120;
+    if (top < 8 && anchor) top = anchor.bottom + 6;
+  }
+  top = Math.max(8, Math.min(top, vh - r.height - 8));
   bar.style.left = Math.round(left) + "px";
   bar.style.top = Math.round(top) + "px";
   return close;

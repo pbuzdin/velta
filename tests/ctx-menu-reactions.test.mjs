@@ -108,3 +108,36 @@ test("smiley swaps the chips for the searchable tray and back", async (t) => {
   assert.equal(menu.querySelector(".msg-bar-chips").hidden, false, "action row visible again");
   closeAllPopups();
 });
+
+test("the bar stays inside the viewport for a message taller than the screen", async (t) => {
+  const core = Object.assign(new EventTarget(), {
+    accountId: "A", accountEpoch: 0,
+    getChat: async () => ({ id: 7, kind: "single", unread: 0, encrypted: true }),
+    getMessages: async () => page([message(11, "hello")]),
+    markRead: async () => {},
+    setReaction: async () => {},
+  });
+  const { view, node } = setup(t, core);
+  await view.open(7);
+  // The fake DOM's rects are 0×0, so both bubble edges degenerate — exactly
+  // the tall-message case: anchor.top and anchor.bottom are both useless and
+  // the viewport clamp is what keeps the bar reachable.
+  globalThis.innerHeight = 300;
+  t.after(() => { delete globalThis.innerHeight; });
+
+  // Right-click low on a tall message: the bar must not open below the fold.
+  view._msgContextMenu(view.msgIndex.get(11), 10, 290);
+  let menu = node("popups").querySelector(".msg-action-bar");
+  assert.ok(menu, "bar opened for the right-click");
+  const lowTop = parseFloat(menu.style.top);
+  assert.ok(lowTop >= 8, "never above the viewport top");
+  assert.ok(lowTop <= 300 - 8, "never below the viewport bottom");
+  closeAllPopups();
+
+  // And near the top: the clamp keeps the 8px margin.
+  view._msgContextMenu(view.msgIndex.get(11), 10, 4);
+  menu = node("popups").querySelector(".msg-action-bar");
+  assert.ok(menu, "bar opened near the top");
+  assert.ok(parseFloat(menu.style.top) >= 8, "clamped to the 8px top margin");
+  closeAllPopups();
+});
