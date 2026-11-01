@@ -36,7 +36,7 @@ that order completes the daily-drivable story before the release polish.
 | P1b Android in-process core | ✅ done | `2cd1c8f2` | green |
 | P2 Persistence + read paths | ✅ done | `cbb3809b` | green |
 | P3 Write paths | ✅ code complete — live gate pending | `fd2a405c` + quote-restore | green |
-| P4 Velta layer | 🚧 slices 1-10 done (…, battery allowance) | — | — |
+| P4 Velta layer | 🚧 slices 1-11 done (…, app lock) | — | — |
 | P5 Release track | ⬜ | — | — |
 
 ---
@@ -194,6 +194,23 @@ Verified on the emulator: `dumpsys` shows the ServiceRecord with
 `isForeground=true`, dataSync type, ongoing notification, process held.
 Because the shim and the event loop live at process scope, holding the
 process IS the sync story — no extra plumbing.
+
+**Slice 11 — app lock (shipped, phase-4 port; biometric/device-credential):**
+🔒 row on the Accounts screen enables/disables the lock (each tap runs the
+system prompt). With the lock on: cold start does NOT start the core —
+`getOrCreateDek` refuses, the platform reports locked, and the whole app is
+replaced by a lock screen; the DEK exists only in the auth-window wrap
+(`dbkey.bio`, 30 s Keystore validity after a successful prompt, biometric or
+device credential). Unlock: prompt → `unlockDek` inside the window →
+`spawnRpcServerWithKey(dir, dek)` → core opens the encrypted databases. The
+Foreground service while locked holds a process with NO core (nothing
+decrypts without auth — the correct trade-off). MainActivity migrated to
+`FragmentActivity` (BiometricPrompt requirement). Scripted test: locked
+platform blocks every RPC and the plain spawn path; unlock spawns exactly
+once with the DEK. **PIN fallback (Argon2id wrap, the Tauri phase-4 shape)
+is deferred** — biometric/device-credential only for now; the on-device
+enable→restart→prompt→unlock walk joins the gate checklist (needs a
+configured account to reach the Accounts screen).
 
 **Slice 10 — battery allowance (shipped):** a Battery row on the Accounts
 screen — restricted/exempt state from `PowerManager.isIgnoringBatteryOptimizations`,

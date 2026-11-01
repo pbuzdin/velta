@@ -6,6 +6,7 @@ import org.velta.kmp.core.RpcShim
 import org.velta.kmp.core.RpcTransport
 import org.velta.kmp.core.SocketRpcTransport
 import org.velta.kmp.core.VeltaKeystore
+import org.velta.kmp.core.VeltaLock
 import java.io.File
 
 /**
@@ -44,4 +45,41 @@ class AndroidCorePlatform(private val context: Context) : CorePlatform {
 
     override fun connectHint(): String =
         "core shim missing — build native/rpc-shim (README) and copy into jniLibs"
+
+    override fun isAppLocked(): Boolean =
+        VeltaLock.on(context) && VeltaLock.bioFile(context).exists()
+
+    override fun isAppLockOn(): Boolean = VeltaLock.on(context)
+
+    /** Unlock path: the DEK comes from the auth-window unwrap, not the store. */
+    override fun spawnRpcServerWithKey(accountsDir: String, dbKey: String): RpcTransport? {
+        if (!RpcShim.available) {
+            println("velta-kmp: rpc shim not packaged — build native/rpc-shim for this ABI (see README)")
+            return null
+        }
+        return try {
+            val port = RpcShim.startCore(accountsDir, dbKey)
+            if (port <= 0) {
+                println("velta-kmp: shim failed to start the core (port=$port)")
+                null
+            } else {
+                SocketRpcTransport("127.0.0.1", port)
+            }
+        } catch (t: Throwable) {
+            println("velta-kmp: shim start threw: $t")
+            null
+        }
+    }
+
+    /** MUST be called inside the auth window a successful prompt just opened. */
+    override fun enableAppLock(): Boolean {
+        val dek = VeltaKeystore.getOrCreateDek(context) ?: return false
+        return VeltaKeystore.enableAppLock(context, dek)
+    }
+
+    /** The DEK for the plain wrap comes from the bio wrap's auth window. */
+    override fun disableAppLock(): Boolean {
+        val dek = VeltaKeystore.unlockDek(context) ?: return false
+        return VeltaKeystore.disableAppLock(context, dek)
+    }
 }

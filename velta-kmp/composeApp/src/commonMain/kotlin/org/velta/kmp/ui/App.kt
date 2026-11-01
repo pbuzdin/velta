@@ -50,15 +50,40 @@ import androidx.compose.ui.unit.dp
 fun App(model: AppModel) {
     VeltaTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
-            when (val current = model.screen) {
-                AppModel.Screen.Login -> LoginScreen(model)
-                AppModel.Screen.ChatList -> ChatListScreen(model)
-                AppModel.Screen.Relays -> RelaysScreen(model)
-                AppModel.Screen.Accounts -> AccountsScreen(model)
-                AppModel.Screen.Join -> JoinScreen(model)
-                is AppModel.Screen.Chat -> ChatScreen(model, current)
+            if (model.locked) {
+                LockScreen(model)
+            } else {
+                when (val current = model.screen) {
+                    AppModel.Screen.Login -> LoginScreen(model)
+                    AppModel.Screen.ChatList -> ChatListScreen(model)
+                    AppModel.Screen.Relays -> RelaysScreen(model)
+                    AppModel.Screen.Accounts -> AccountsScreen(model)
+                    AppModel.Screen.Join -> JoinScreen(model)
+                    is AppModel.Screen.Chat -> ChatScreen(model, current)
+                }
             }
         }
+    }
+}
+
+/** P4 phase-4 port: blocks the whole app until the unlock prompt succeeds. */
+@Composable
+private fun LockScreen(model: AppModel) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("Velta", style = MaterialTheme.typography.displaySmall)
+        Spacer(Modifier.size(8.dp))
+        Text(
+            "Locked — the database stays encrypted until you unlock",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.size(24.dp))
+        Button(onClick = { model.requestUnlock?.invoke() }) { Text("Unlock") }
     }
 }
 
@@ -203,7 +228,39 @@ private fun AccountsScreen(model: AppModel) {
             item {
                 BatteryRow(model)
             }
+            item {
+                AppLockRow(model)
+            }
         }
+    }
+}
+
+/** P4 phase-4 port: enable/disable the app lock (prompt runs per tap). */
+@Composable
+private fun AppLockRow(model: AppModel) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+                if (model.appLockOn) model.requestAppLockDisable?.invoke()
+                else model.requestAppLockEnable?.invoke()
+            }
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("App lock")
+            Text(
+                if (model.appLockOn) "on — unlock required at start"
+                else "off — tap to lock the database behind your screen lock",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            if (model.appLockOn) "🔒" else "🔓",
+            style = MaterialTheme.typography.labelLarge,
+        )
     }
 }
 

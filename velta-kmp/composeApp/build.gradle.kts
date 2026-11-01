@@ -32,6 +32,7 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.androidx.activity.compose)
             implementation(libs.unifiedpush.connector)
+            implementation(libs.androidx.biometric)
         }
         val desktopMain by getting {
             dependsOn(jvmCommon)

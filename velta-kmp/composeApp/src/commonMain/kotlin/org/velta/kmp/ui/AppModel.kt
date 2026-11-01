@@ -76,6 +76,21 @@ class AppModel(
     /** Message whose action bar (react / reply) is open; null = hidden. */
     var messageActions by mutableStateOf<MessageObject?>(null)
 
+    // ---- App lock (P4, phase 4 port) ----
+
+    /** True while the platform is app-locked: no core, no plaintext, UI blocked. */
+    var locked by mutableStateOf(false)
+        private set
+
+    /** The app-lock setting (Accounts row reflects it). */
+    var appLockOn by mutableStateOf(false)
+        private set
+
+    /** Platform-injected: run the biometric/credential prompt; on success hand over. */
+    var requestUnlock: (() -> Unit)? = null
+    var requestAppLockEnable: (() -> Unit)? = null
+    var requestAppLockDisable: (() -> Unit)? = null
+
     /** (picked path, display name) awaiting send; the core dedups it into its blobdir. */
     var pendingAttachment by mutableStateOf<Pair<String, String>?>(null)
 
@@ -182,14 +197,27 @@ class AppModel(
      * Start (or reuse) the core connection. Idempotent: the foreground
      * service calls this after a process kill, the UI calls it at launch —
      * one core, one event loop, whichever call wins first.
+     *
+     * [keyOverride] is the app-lock unlock path: the DEK from the bio wrap
+     * after a successful prompt. Without it, an app-locked platform stays
+     * locked — no core, no plaintext.
      */
-    fun connect() {
+    fun connect(keyOverride: String? = null) {
         if (connected || connecting) return
+        if (keyOverride == null && platform.isAppLocked()) {
+            locked = true
+            status = "locked"
+            return
+        }
         connecting = true
         scope.launch {
             status = "spawning core"
             val dir = platform.accountsDir()
-            val spawned = platform.spawnRpcServer(dir)
+            val spawned = if (keyOverride != null) {
+                platform.spawnRpcServerWithKey(dir, keyOverride)
+            } else {
+                platform.spawnRpcServer(dir)
+            }
             if (spawned == null) {
                 status = platform.connectHint()
                 connecting = false
@@ -205,6 +233,7 @@ class AppModel(
                 val info = veltaCore.systemInfo()
                 coreVersion = (info["deltachat_core_version"]?.toString() ?: "?").trim('"')
                 connected = true
+                locked = false
 
                 veltaCore.startEventLoop(scope) { event ->
                     handleEvent(event)
@@ -440,6 +469,7 @@ class AppModel(
         screen = Screen.Accounts
         refreshAccounts()
         refreshBattery()
+        refreshAppLockState()
     }
 
     fun backFromAccounts() {
@@ -552,6 +582,32 @@ class AppModel(
 
     fun onPushUnregistered() {
         println("velta-kmp: push unregistered — re-register on next start")
+    }
+
+    // ---- App lock (P4, phase 4 port) — the UI side ----
+
+    /** Unlock button pressed: the platform runs the prompt, then hands the DEK. */
+    fun onAppUnlocked(dekHex: String) {
+        locked = false
+        connect(dekHex)
+    }
+
+    /** The user opted in on the Accounts screen (prompt already succeeded). */
+    fun onAppLockEnabled() {
+        appLockOn = platform.enableAppLock()
+        if (!appLockOn) {
+            // Roll forward on the next unlock — nothing user-visible broke.
+            println("velta-kmp: app lock enable failed")
+        }
+    }
+
+    fun onAppLockDisabled() {
+        appLockOn = platform.disableAppLock()
+    }
+
+    fun refreshAppLockState() {
+        appLockOn = platform.isAppLockOn()
+        if (!appLockOn) locked = false
     }
 
     /** connect() + wait for the handshake; for non-UI entry points. */
