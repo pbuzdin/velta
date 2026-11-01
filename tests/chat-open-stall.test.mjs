@@ -18,7 +18,7 @@ function setup() {
 test("slow rpc logs its method and duration", async () => {
   const { core, transport, logs, respond } = setup();
   core.slowRpcMs = 0;
-  const p = core._callWithTimeout(1000, "get_messages", 1, [5]);
+  const p = core._callWithTimeout(50, "get_messages", 1, [5]);
   respond(transport.sent[0], { ok: 1 });
   assert.deepEqual(await p, { ok: 1 });
   assert.match(logs[0], /^rpc slow: get_messages took \d+ ms$/);
@@ -26,7 +26,7 @@ test("slow rpc logs its method and duration", async () => {
 
 test("fast rpc logs nothing", async () => {
   const { core, transport, logs, respond } = setup();
-  const p = core._callWithTimeout(1000, "get_chat", 1);
+  const p = core._callWithTimeout(50, "get_chat", 1);
   respond(transport.sent[0], 1);
   await p;
   assert.deepEqual(logs, []);
@@ -58,18 +58,19 @@ test("openChat releases its same-chat guard on a stall and logs steps", () => {
 
 test("re-tapping a chat joins the pending getChat instead of a new RPC", async () => {
   const { core, transport, respond } = setup();
+  core._call = (method, ...a) => core._callWithTimeout(5, method, ...a);
   const a = core.getChat(7), b = core.getChat(7);
   assert.equal(a, b);
   assert.equal(transport.sent.length, 1);
   respond(transport.sent[0], { 7: { kind: "Error", error: "x" } });
   await a.catch(() => {});
-  core.getChat(7).catch(() => {});
+  await assert.rejects(core.getChat(7), /rpc timeout/);
   assert.equal(transport.sent.filter(r => r.method === "get_chatlist_items_by_entries").length, 2);
 });
 
 test("a timeout line names the oldest calls still in flight", async () => {
   const { core, logs } = setup();
-  core._callWithTimeout(60000, "get_chatlist_items_by_entries", 1, [3]).catch(() => {});
+  core._callWithTimeout(50, "get_chatlist_items_by_entries", 1, [3]).catch(() => {});
   await assert.rejects(core._callWithTimeout(5, "get_chat", 1), /rpc timeout/);
   assert.ok(logs.some(l => /still pending; oldest: get_chatlist_items_by_entries \d/.test(l)), logs.join("\n"));
   for (const e of core.pending.values()) e.reject(new Error("done"));
