@@ -8,7 +8,7 @@
   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/css/velta.css?v=13">
+  <link rel="stylesheet" href="/css/velta.css?v=14">
   <script type="speculationrules">
 {
   "prerender": [{
@@ -99,18 +99,33 @@
 <section id="features">
   <div>
     <div>
-      <h2>What the client actually does</h2>
+      <h2>Built on Delta Chat.</h2>
     </div>
     <a href="/news/two-paths.html">Read the longer note</a>
   </div>
   <ul>
     <li>
-      <h3>Encrypted on the device</h3>
-      <p>OpenPGP, handled by the Delta Chat core. Velta has no master key and does not keep yours.</p>
+      <h3>Encrypted end to end</h3>
+      <p>OpenPGP, handled by the Delta Chat core — the client the protocol comes from. Velta has no master key and does not keep yours.</p>
     </li>
     <li>
+      <h3>Quiet by default</h3>
+      <p>Disappearing messages, tracking parameters stripped from links, HTML mail drawn in a sandboxed frame.</p>
+    </li>
+    <li>
+      <h3>Speaks Delta Chat</h3>
+      <p>Same protocol, same network. Chat with anyone on the official Delta Chat apps, and bring a chatmail address into Velta — or back out — at any time.</p>
+    </li>
+    <li>
+      <h3>Profiles you can leave with</h3>
+      <p>Add, export, transfer, delete. The identity is an email address, not a phone number and not an account with us.</p>
+    </li>
+  </ul>
+  <h2>What Velta adds.</h2>
+  <ul>
+    <li>
       <h3>Relays you pick</h3>
-      <p>More than one chatmail relay on a profile. One is primary for sending. Another takes over if it drops. Each relay shows what it offers — C calls, I iroh transfers, P push, D instant delivery, W web endpoints — plus its operator’s note, admin contact, quota, and recipient limit.</p>
+      <p>More than one chatmail relay on a profile. One is primary for sending. Another takes over if it drops. Each relay shows what it offers — C calls, I iroh transfers, P push, D instant delivery, W web endpoints — plus its operator’s note, admin contact, quota, and recipient limit. Signed invite links, with an expiry and a device limit, bring someone in through <a href="/join/">/join</a>.</p>
     </li>
     <li>
       <img src="/beam-logo.svg" alt="">
@@ -137,16 +152,12 @@
       <p>Beta, and one to one. Set up through the encrypted chat. The ring only sounds while the app is open.</p>
     </li>
     <li>
-      <h3>Profiles you can leave with</h3>
-      <p>Add, export, transfer, delete. The identity is an email address, not a phone number and not an account with us.</p>
-    </li>
-    <li>
-      <h3>Quiet by default</h3>
-      <p>Disappearing messages, tracking parameters stripped from links, HTML mail drawn in a sandboxed frame.</p>
+      <h3>Locked when you walk away</h3>
+      <p>The database and attachments are encrypted at rest. A PIN or your fingerprint locks the app. Identity backups stay end-to-end encrypted.</p>
     </li>
     <li>
       <h3>The daily tools</h3>
-      <p>Full-history search, pins that sync, edits to your own text, and ticks for sent, delivered, and read.</p>
+      <p>Full-history search, pins that sync, edits to your own text, and ticks for sent, delivered, and read — plus @mentions that cut through mutes, threads with reply counts, reactions, and Send later to schedule a message.</p>
     </li>
   </ul>
 </section>
@@ -178,6 +189,7 @@
       <ul>
         <li>Needs an arm64 phone.</li>
         <li>The chat core runs inside the app, with a foreground service so sync continues after you leave.</li>
+        <li>Push notifications through UnifiedPush — no Google services in the loop.</li>
         <li>Optional DNS tunnel when a network blocks mail. Off until you turn it on.</li>
       </ul>
       <p><strong><a href="https://github.com/pbuzdin/velta/releases/latest/download/Velta-android-arm64.apk">Download APK</a></strong></p>

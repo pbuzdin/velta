@@ -399,6 +399,7 @@ article.card p, #platforms li, #features p { color: var(--muted); }
   padding: 0;
   list-style: none;
 }
+#features > h2 { margin-top: 4rem; }
 #features li h3 {
   margin: 0.75rem 0 0;
   font-family: var(--sans);
