@@ -2877,8 +2877,9 @@ taps above). The vestigial-SW caveat below applies only to plain `app/`.
   kept the poller asleep while the page's parked poll held IncomingMsg until
   the next open. The page does not post its own Android
   notification — that second card doubled once the WebView kept running
-  after Home. `onStart` calls
-  `maybe_network` and emits `velta-foreground` so the page refetches.
+  after Home. `onStart` cancels any push/job `background_fetch` still running
+  from the hidden interval, then calls `maybe_network` and emits
+  `velta-foreground` so the page refetches without queueing behind that fetch.
   `CoreService` holds the default-network callback and NO wake lock (a
   permanent PARTIAL_WAKE_LOCK kept the CPU up all day; the IDLE socket wakes
   the CPU on incoming data, as in upstream's KeepAliveService).

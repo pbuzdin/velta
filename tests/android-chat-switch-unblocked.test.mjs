@@ -49,6 +49,15 @@ test("patch #12 IO restart survives the background_fetch timeout", () => {
   }
 });
 
+test("resume cancels a hidden background fetch before nudging the network", () => {
+  const body = fnBody(src("velta-app/src-tauri/src/lib.rs"), "fn Java_org_velta_MainActivity_setActivityForeground");
+  const cancel = body.indexOf("stop_background_fetch()");
+  const nudge = body.indexOf("kick_maybe_network(true)");
+  assert.ok(cancel > 0, "returning to the foreground must cancel work started while hidden");
+  assert.ok(cancel < nudge, "cancellation must happen before the resume network nudge");
+  assert.ok(cancel < body.indexOf('app.emit("velta-foreground"'), "cancellation must precede the foreground refresh");
+});
+
 test("resume logs account lock latency and connectivity", () => {
   const body = fnBody(src("velta-app/src-tauri/src/lib.rs"), "fn Java_org_velta_MainActivity_setActivityForeground");
   assert.match(body, /tunnel::log_resume_state\(\)/);

@@ -2942,11 +2942,21 @@ pub extern "system" fn Java_org_velta_MainActivity_setActivityForeground(
     ACTIVITY_FOREGROUND.store(foreground, std::sync::atomic::Ordering::SeqCst);
     log(&format!("activity foreground: {foreground}"));
     if foreground {
-        if let Some(app) = APP_HANDLE.lock().unwrap().clone() {
-            let _ = app.emit("velta-foreground", ());
-        }
-        // Always interrupt on resume, even if a network callback just did.
-        kick_maybe_network(true);
+        // A push/job fetch started while hidden may still be waiting on a
+        // stale socket or restarting IO. Cancel it before the resume nudge and
+        // refresh so foreground chat RPCs do not queue behind background work.
+        let app = APP_HANDLE.lock().unwrap().clone();
+        let accounts = ANDROID_ACCOUNTS.lock().unwrap().clone();
+        tauri::async_runtime::spawn(async move {
+            if let Some(accounts) = accounts {
+                accounts.read().await.stop_background_fetch();
+            }
+            // Always interrupt on resume, even if a network callback just did.
+            kick_maybe_network(true);
+            if let Some(app) = app {
+                let _ = app.emit("velta-foreground", ());
+            }
+        });
         tauri::async_runtime::spawn(tunnel::log_resume_state());
     } else {
         kick_maybe_network(false);
