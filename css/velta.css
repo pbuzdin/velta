@@ -363,9 +363,17 @@ a[href^="http"]:not([href*="velta.cc"])::after {
 main > section { padding-block: 5rem; border-top: 1px solid var(--line); }
 main > section h2 { margin: 0.75rem 0 0; font-size: clamp(2rem, 4vw, 3rem); }
 #product > div:first-child,
-#features > div:first-child,
 #platforms > p.kicker,
 #download > p.kicker { max-width: 40rem; }
+/* the features header mirrors #notes: h2 left, longer-note link on the
+   same right edge the "All notes" link uses */
+#features > div:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+}
 #product > div:first-child p,
 #platforms > p,
 #download > p,
