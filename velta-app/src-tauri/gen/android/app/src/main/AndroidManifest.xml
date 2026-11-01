@@ -150,6 +150,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="velta" android:host="tunnel" />
+                <data android:scheme="velta" android:host="proxy" />
                 <!-- WebSocket transport links: velta://ws?u=…&n=… (ws_transport.rs), confirmed before use. -->
                 <data android:scheme="velta" android:host="ws" />
             </intent-filter>

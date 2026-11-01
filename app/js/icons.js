@@ -55,7 +55,7 @@ export const P = {
   warn: '<path d="M12 4L2.5 20h19z"/><path d="M12 10v4.5M12 17.5v.01"/>',
   reply: '<path d="M9 14L4 9l5-5M4 9h9a7 7 0 017 7v2"/>',
   // thread: two overlapping speech bubbles (opens a message's replies)
-  thread: '<path d="M14 9a2 2 0 012 2v6a2 2 0 01-2 2H7l-4 3V11a2 2 0 012-2z"/><path d="M8 9V5a2 2 0 012-2h9a2 2 0 012 2v11l-3-3h-2"/>',
+  thread: '<path d="M14 9a2 2 0 012 2v6a2 2 0 01-2 2H7l-4 3V11a2 2 0 012-2h9a2 2 0 012 2v11l-3-3h-2"/>',
   forward: '<path d="M15 14l5-5-5-5M20 9h-9a7 7 0 00-7 7v2"/>',
   pause: '<path d="M9 5.5v13M15 5.5v13"/>',
   menu: '<path d="M3 6h18M3 12h18M3 18h18"/>',
@@ -108,6 +108,7 @@ export const P = {
   downloadBar: '<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5"/><rect x="4" y="17" width="16" height="4" rx="1"/>',
   wsTransport: '<path d="M4 8h14m0 0l-3-3m3 3l-3 3"/><path d="M20 16H6m0 0l3-3m-3 3l3 3"/>',
   tunnel: '<path d="M3 20V11a9 9 0 0118 0v9"/><path d="M8 20v-7a4 4 0 018 0v7"/>',
+  proxy: '<rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/>',
   key: '<circle cx="8" cy="14" r="4"/><path d="M11 11l8-8M17 5l3 3M14 8l2.5 2.5"/>',
   cleanLink: '<path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7"/><path d="M4 20l5-5"/>',
   enterKey: '<path d="M20 5v6a2 2 0 01-2 2H5m0 0l4-4m-4 4l4 4"/>',
