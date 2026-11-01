@@ -266,13 +266,16 @@ body > main > header.page {
 
 #hero {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  /* Two real columns, not content-plus-leftover: the shot owns a fixed
+     38rem column, the text owns the rest, and the gutter breathes with the
+     viewport (2.5rem floor, 4.5rem cap) instead of hugging the image. */
+  grid-template-columns: minmax(20rem, 1fr) minmax(0, 38rem);
   align-items: center;
-  gap: 2.5rem;
+  gap: clamp(2.5rem, 5vw, 4.5rem);
   padding-block: 2.5rem 4rem;
   border-top: 0;
 }
-#hero .shot { max-width: min(100%, 44rem); }
+#hero .shot { max-width: 100%; }
 #hero h1 {
   max-width: 12ch;
   margin: 0.75rem 0 0;
