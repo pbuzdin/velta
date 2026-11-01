@@ -54,6 +54,7 @@ fun App(model: AppModel) {
                 AppModel.Screen.Login -> LoginScreen(model)
                 AppModel.Screen.ChatList -> ChatListScreen(model)
                 AppModel.Screen.Relays -> RelaysScreen(model)
+                AppModel.Screen.Accounts -> AccountsScreen(model)
                 AppModel.Screen.Join -> JoinScreen(model)
                 is AppModel.Screen.Chat -> ChatScreen(model, current)
             }
@@ -137,6 +138,69 @@ private fun LoginScreen(model: AppModel) {
             model.joinError = null
             model.screen = AppModel.Screen.Join
         }) { Text("Have an invite code? Join with it →") }
+    }
+}
+
+/** P4: account switcher — the core persists the selected account across restarts. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AccountsScreen(model: AppModel) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Accounts") },
+                navigationIcon = {
+                    TextButton(onClick = { model.backFromAccounts() }) { Text("‹ Back") }
+                },
+                actions = {
+                    if (model.accountsLoading) CircularProgressIndicator(Modifier.size(20.dp))
+                    Spacer(Modifier.size(12.dp))
+                },
+            )
+        },
+    ) { inner ->
+        LazyColumn(Modifier.padding(inner)) {
+            items(model.accounts, key = { it.id }) { account ->
+                val current = account.id == model.accountId
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = account.isConfigured == true) {
+                            if (!current) model.switchAccount(account.id)
+                        }
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            account.addr ?: "Not set up",
+                            fontWeight = if (current) FontWeight.Bold else FontWeight.Normal,
+                        )
+                        if (account.isConfigured != true) {
+                            Text(
+                                "not set up — sign in to configure",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    if (current) {
+                        Text(
+                            "current",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+                HorizontalDivider()
+            }
+            item {
+                TextButton(
+                    onClick = { model.addAccountFromSwitcher() },
+                    modifier = Modifier.padding(16.dp),
+                ) { Text("+ Add account") }
+            }
+        }
     }
 }
 
@@ -227,6 +291,7 @@ private fun ChatListScreen(model: AppModel) {
                         Spacer(Modifier.size(12.dp))
                     }
                     TextButton(onClick = { model.openRelays() }) { Text("⚡") }
+                    TextButton(onClick = { model.openAccounts() }) { Text("👤") }
                     TextButton(onClick = { model.screen = AppModel.Screen.Join; model.joinChecked = null; model.joinError = null }) { Text("🎟") }
                     TextButton(onClick = { model.refreshChats() }) { Text("Refresh") }
                 },

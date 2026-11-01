@@ -27,6 +27,7 @@ class AppModel(
         data object Login : Screen
         data object ChatList : Screen
         data object Relays : Screen
+        data object Accounts : Screen
         data object Join : Screen
         data class Chat(val chatId: Long, val title: String, val isGroup: Boolean) : Screen
     }
@@ -53,6 +54,11 @@ class AppModel(
     // ---- Relay management (P4) ----
     var relays by mutableStateOf<List<org.velta.kmp.core.RelayCard>>(emptyList())
     var relaysLoading by mutableStateOf(false)
+        private set
+
+    // ---- Account switcher (P4) ----
+    var accounts by mutableStateOf<List<org.velta.kmp.core.Account>>(emptyList())
+    var accountsLoading by mutableStateOf(false)
         private set
     var chatMessages by mutableStateOf<List<MessageObject>>(emptyList())
     var chatLoading by mutableStateOf(false)
@@ -163,7 +169,10 @@ class AppModel(
 
     private var core: VeltaCore? = null
     private var transport: RpcTransport? = null
-    private var accountId: Long? = null
+
+    /** The account the UI is currently rooted at (public read for the switcher). */
+    var accountId: Long? = null
+        private set
 
     /** An account that exists but is not configured — reused by the next login attempt. */
     private var unconfiguredAccountId: Long? = null
@@ -207,16 +216,22 @@ class AppModel(
     private suspend fun resumeSession(veltaCore: VeltaCore) {
         status = "looking for accounts"
         val ids = veltaCore.allAccountIds()
+        val selectedId = runCatching { veltaCore.selectedAccountId() }.getOrNull()
         var configured: org.velta.kmp.core.Account? = null
+        var fallbackConfigured: org.velta.kmp.core.Account? = null
         var unconfigured: Long? = null
         for (id in ids) {
             val info = runCatching { veltaCore.accountInfo(id) }.getOrNull() ?: continue
-            if (configured == null && info.isConfigured == true) {
-                configured = info
-            } else if (unconfigured == null && info.isConfigured != true) {
+            if (info.isConfigured == true) {
+                // The core's own selection wins (it persists across restarts);
+                // otherwise the first configured account.
+                if (configured == null || info.id == selectedId) configured = info
+                if (fallbackConfigured == null) fallbackConfigured = info
+            } else if (unconfigured == null) {
                 unconfigured = id
             }
         }
+        if (configured == null) configured = fallbackConfigured
         unconfiguredAccountId = unconfigured
         val account = configured
         if (account != null) {
@@ -399,6 +414,63 @@ class AppModel(
             }
             refreshRelays()
         }
+    }
+
+    // ---- Account switcher (P4) ----
+
+    fun openAccounts() {
+        screen = Screen.Accounts
+        refreshAccounts()
+    }
+
+    fun backFromAccounts() {
+        screen = Screen.ChatList
+    }
+
+    fun refreshAccounts() {
+        val veltaCore = core
+        if (veltaCore == null) return
+        scope.launch {
+            accountsLoading = true
+            try {
+                accounts = veltaCore.allAccounts()
+            } catch (t: Throwable) {
+                println("velta-kmp: refreshAccounts failed: $t")
+            } finally {
+                accountsLoading = false
+            }
+        }
+    }
+
+    /** Switch to another account: the core remembers the choice across restarts. */
+    fun switchAccount(id: Long) {
+        val veltaCore = core
+        if (veltaCore == null) return
+        scope.launch {
+            try {
+                veltaCore.selectAccount(id)
+            } catch (t: Throwable) {
+                println("velta-kmp: selectAccount failed: $t")
+            }
+            accountId = id
+            composerText = ""
+            replyTo = null
+            pendingAttachment = null
+            messageActions = null
+            sendError = null
+            try {
+                accountAddr = veltaCore.accountInfo(id).addr
+            } catch (t: Throwable) {
+                println("velta-kmp: accountInfo failed: $t")
+            }
+            loadChats()
+            screen = Screen.ChatList
+        }
+    }
+
+    /** "Add account" from the switcher → the login screen (login() reuses/creates). */
+    fun addAccountFromSwitcher() {
+        screen = Screen.Login
     }
 
     /**

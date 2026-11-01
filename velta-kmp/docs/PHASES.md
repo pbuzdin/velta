@@ -11,7 +11,7 @@ the gaps next to it.
 | P1b Android in-process core | ✅ done | `2cd1c8f2` | green |
 | P2 Persistence + read paths | ✅ done | `cbb3809b` | green |
 | P3 Write paths | ✅ code complete — live gate pending | `fd2a405c` + quote-restore | green |
-| P4 Velta layer | 🚧 slices 1-4 done (theming, relay cards, media, invite/join) | — | — |
+| P4 Velta layer | 🚧 slices 1-5 done (theming, relays, media, invites, switcher) | — | — |
 | P5 Release track | ⬜ | — | — |
 
 ---
@@ -160,6 +160,16 @@ Data: `list_transports` (sending transport first, quilt #11) merged with
 `get_server_metadata` (#15) by address. Scripted test pins the merge,
 ordering, "not known yet" fallback and delete params; the real-binary IT
 covers both RPCs on a fresh account.
+
+**Slice 5 — account switcher (shipped):** 👤 entry on the chat list →
+Accounts screen listing every account (`get_all_accounts`), current one
+badged, tap to switch (`select_account` → composer/reply/attachment state
+reset → chat list reload). The core's own selection **persists across
+restarts** (probed: select 2 → restart → still 2), so resume now prefers
+the core-selected account when it's configured — the switch survives
+restarts with zero local storage. "Add account" routes to the login
+screen; unconfigured accounts show "not set up" and are not switchable
+(their fixture: sign in on them).
 
 **Slice 4 — invite/join (shipped):** 🎟 entry (chat list ⚡ + "Have an invite
 code?" on the login screen) → paste a QR payload → `check_qr` parses it

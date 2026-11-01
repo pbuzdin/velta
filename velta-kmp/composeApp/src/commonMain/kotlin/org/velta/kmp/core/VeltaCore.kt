@@ -121,6 +121,25 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
 
     // ---- Relay management (P4) — the Velta differentiator. ----
 
+    /** All accounts (id + addr + isConfigured) in one call — the switcher's data. */
+    suspend fun allAccounts(): List<Account> {
+        val result = client.call("get_all_accounts")
+        return (result as? JsonArray)?.mapNotNull { element ->
+            runCatching {
+                client.json.decodeFromString(Account.serializer(), element.toString())
+            }.onFailure { println("velta-kmp: account decode failed: $it") }.getOrNull()
+        } ?: emptyList()
+    }
+
+    /** The account the core currently has selected (persists across restarts). */
+    suspend fun selectedAccountId(): Long? =
+        (client.call("get_selected_account_id") as? kotlinx.serialization.json.JsonPrimitive)
+            ?.content?.toLongOrNull()
+
+    suspend fun selectAccount(id: Long) {
+        client.call("select_account", RpcClient.params(RpcClient.param(id)))
+    }
+
     /**
      * All configured transports (relays) with their metadata merged in.
      * `list_transports` already orders the sending transport first (quilt #11).

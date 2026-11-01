@@ -43,6 +43,7 @@ class SendFlowTest {
             mapOf(
                 "get_system_info" to """{"deltachat_core_version":"v2.66.0"}""",
                 "get_all_account_ids" to "[1]",
+                "get_selected_account_id" to "1",
                 "get_account_info" to """{"id":1,"addr":"demo@example.org","isConfigured":true}""",
                 "get_chatlist_entries" to "[5]",
                 "get_chatlist_items_by_entries" to
@@ -80,6 +81,7 @@ class SendFlowTest {
             mapOf(
                 "get_system_info" to """{"deltachat_core_version":"v2.66.0"}""",
                 "get_all_account_ids" to "[1]",
+                "get_selected_account_id" to "1",
                 "get_account_info" to """{"id":1,"addr":"demo@example.org","isConfigured":true}""",
                 "get_chatlist_entries" to "[5]",
                 "get_chatlist_items_by_entries" to
@@ -118,6 +120,7 @@ class SendFlowTest {
             mapOf(
                 "get_system_info" to """{"deltachat_core_version":"v2.66.0"}""",
                 "get_all_account_ids" to "[1]",
+                "get_selected_account_id" to "1",
                 "get_account_info" to """{"id":1,"addr":"demo@example.org","isConfigured":true}""",
                 "get_chatlist_entries" to "[5]",
                 "get_chatlist_items_by_entries" to
@@ -160,6 +163,7 @@ class SendFlowTest {
             mapOf(
                 "get_system_info" to """{"deltachat_core_version":"v2.66.0"}""",
                 "get_all_account_ids" to "[1]",
+                "get_selected_account_id" to "1",
                 "get_account_info" to """{"id":1,"addr":"demo@example.org","isConfigured":true}""",
                 "get_chatlist_entries" to "[5]",
                 "get_chatlist_items_by_entries" to
@@ -202,6 +206,7 @@ class SendFlowTest {
             mapOf(
                 "get_system_info" to """{"deltachat_core_version":"v2.66.0"}""",
                 "get_all_account_ids" to "[1]",
+                "get_selected_account_id" to "1",
                 "get_account_info" to """{"id":1,"addr":"demo@example.org","isConfigured":true}""",
                 "get_chatlist_entries" to "[5]",
                 "get_chatlist_items_by_entries" to
@@ -232,6 +237,7 @@ class SendFlowTest {
             mapOf(
                 "get_system_info" to """{"deltachat_core_version":"v2.66.0"}""",
                 "get_all_account_ids" to "[1]",
+                "get_selected_account_id" to "1",
                 "get_account_info" to """{"id":1,"addr":"demo@example.org","isConfigured":true}""",
                 "get_chatlist_entries" to "[5]",
                 "get_chatlist_items_by_entries" to
