@@ -98,10 +98,14 @@ emulator regression (connected, zero failure logs), CI green.
 (text + quotes via `quotedMessageId`), composer UI (text field, reply chip,
 send button), draft restore on chat open + save/remove on back, send-error
 restores the typed text, outgoing delivery-state glyphs (⏳ pending / ⚠️
-failed / ✓ sent) from the core's message states.
+failed / ✓ delivered / ✓✓ read) from the core's real state numbers,
+message action bar on bubble tap (quick reactions via `send_reaction` +
+reply), reaction summary chips under bubbles, immediate reload after send.
 
-**Verified:** scripted send-flow tests (plain + quoted, exact positional
-params asserted), full WSL gate, CI.
+**Verified:** scripted send-flow tests (plain + quoted + reaction params +
+reload-after-send ordering), real-binary device-message round-trip IT
+(the no-network write-path e2e), wire-casing regression test, full WSL
+gate, CI.
 
 **Finding — SOLVED (was a client bug, not a core limitation):** the missing
 no-network write-path e2e traced to a wire-casing bug in OUR client:
@@ -119,10 +123,10 @@ Also corrected: delivery-state numbers are 20=Pending, 24=Failed, 26=Delivered,
 - **The P3 exit gate itself**: a real message sent from the KMP client
   arriving in another client (needs a throwaway-account login on desktop or
   Android).
-- Attachments (file picker is platform work).
-- Reactions UI (`send_reaction` RPC verified present, no UI yet).
-- No optimistic pending row — the composer clears and the message appears on
-  the event-driven reload; on slow relays there's a visible gap.
+- Attachments (file picker is platform work; needs the blobdir copy dance).
+- No optimistic fake rows — deliberate: after `misc_send_draft` returns the
+  message is already in the db, so the immediate reload shows the real
+  OutPending bubble with ⏳ (no fakery to reconcile later).
 - Recipient/draft edge cases: quote restore after reopen (draft's
   quotedMessageId is not re-fetched), draft for non-open chats.
 

@@ -111,4 +111,78 @@ class SendFlowTest {
             scope.cancel()
         }
     }
+
+    @Test
+    fun sendReloadsMessagesImmediately() = runBlocking {
+        val transport = ScriptedRpcTransport(
+            mapOf(
+                "get_system_info" to """{"deltachat_core_version":"v2.66.0"}""",
+                "get_all_account_ids" to "[1]",
+                "get_account_info" to """{"id":1,"addr":"demo@example.org","isConfigured":true}""",
+                "get_chatlist_entries" to "[5]",
+                "get_chatlist_items_by_entries" to
+                    """{"5":{"kind":"ChatListItem","id":5,"name":"Test Chat","summaryText2":"x","lastUpdated":1,"freshMessageCounter":0}}""",
+                "get_message_ids" to "[]",
+                "misc_set_draft" to "null",
+                "misc_send_draft" to "null",
+            ),
+        )
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val model = AppModel(scriptedPlatform(transport), scope)
+        try {
+            openTestChat(model)
+
+            model.composerText = "ping"
+            model.send()
+            // The message is in the db the moment send_draft returns — the
+            // reload must be requested AFTER the send, not wait for events.
+            withTimeout(10_000) {
+                while (true) {
+                    val sentIdx = transport.requests.indexOfFirst { "\"misc_send_draft\"" in it }
+                    if (sentIdx >= 0 &&
+                        transport.requests
+                            .drop(sentIdx + 1)
+                            .any { "\"get_message_ids\"" in it }
+                    ) {
+                        break
+                    }
+                    yield()
+                }
+            }
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun reactSendsReactionArray() = runBlocking {
+        val transport = ScriptedRpcTransport(
+            mapOf(
+                "get_system_info" to """{"deltachat_core_version":"v2.66.0"}""",
+                "get_all_account_ids" to "[1]",
+                "get_account_info" to """{"id":1,"addr":"demo@example.org","isConfigured":true}""",
+                "get_chatlist_entries" to "[5]",
+                "get_chatlist_items_by_entries" to
+                    """{"5":{"kind":"ChatListItem","id":5,"name":"Test Chat","summaryText2":"x","lastUpdated":1,"freshMessageCounter":0}}""",
+                "get_message_ids" to "[]",
+                "send_reaction" to "null",
+            ),
+        )
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val model = AppModel(scriptedPlatform(transport), scope)
+        try {
+            openTestChat(model)
+
+            model.react(MessageObject(id = 33, text = "target"), "👍")
+            withTimeout(10_000) {
+                while (transport.requests.none { "\"send_reaction\"" in it }) yield()
+            }
+
+            assertEquals(null, model.messageActions, "action bar closes after reacting")
+            val line = transport.requests.first { "\"send_reaction\"" in it }
+            assertTrue(line.contains("""[1,33,["👍"]]"""), "reaction params must be [account, message, [emoji]]: $line")
+        } finally {
+            scope.cancel()
+        }
+    }
 }

@@ -262,7 +262,12 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
                 },
             )
         },
-        bottomBar = { Composer(model) },
+        bottomBar = {
+            Column {
+                MessageActionBar(model)
+                Composer(model)
+            }
+        },
     ) { inner ->
         val rows = chatRows(model.chatMessages)
         LazyColumn(
@@ -277,6 +282,7 @@ private fun ChatScreen(model: AppModel, chat: AppModel.Screen.Chat) {
                     is ChatRow.Message -> MessageBubble(
                         message = row.message,
                         senderName = if (chat.isGroup) model.senderNames[row.message.fromId] else null,
+                        onTap = { model.toggleMessageActions(row.message) },
                     )
                 }
             }
@@ -337,6 +343,28 @@ private fun stateGlyph(state: Int): String? = when (state) {
     else -> null
 }
 
+private val QUICK_REACTIONS = listOf("👍", "❤️", "😂", "😮", "😢", "🙏")
+
+/** Tapping a bubble opens this bar: quick reactions + reply. */
+@Composable
+private fun MessageActionBar(model: AppModel) {
+    val message = model.messageActions ?: return
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        QUICK_REACTIONS.forEach { emoji ->
+            TextButton(onClick = { model.react(message, emoji) }) { Text(emoji) }
+        }
+        Spacer(Modifier.weight(1f))
+        TextButton(onClick = { model.startReply(message) }) { Text("↩ Reply") }
+        TextButton(onClick = { model.toggleMessageActions(message) }) { Text("✕") }
+    }
+}
+
 @Composable
 private fun Composer(model: AppModel) {
     val reply = model.replyTo
@@ -383,7 +411,7 @@ private fun Composer(model: AppModel) {
 }
 
 @Composable
-private fun MessageBubble(message: MessageObject, senderName: String?) {
+private fun MessageBubble(message: MessageObject, senderName: String?, onTap: () -> Unit) {
     val outgoing = message.fromId == 1L // ContactId.SELF
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -405,7 +433,10 @@ private fun MessageBubble(message: MessageObject, senderName: String?) {
                     MaterialTheme.colorScheme.surfaceVariant
                 },
                 shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.widthIn(max = 420.dp).heightIn(min = 20.dp),
+                modifier = Modifier
+                    .widthIn(max = 420.dp)
+                    .heightIn(min = 20.dp)
+                    .clickable(onClick = onTap),
             ) {
                 Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                     if (message.viewType != "Text") {
@@ -440,6 +471,35 @@ private fun MessageBubble(message: MessageObject, senderName: String?) {
                     }
                 }
             }
+            // Reaction summary under the bubble: emoji + count.
+            val reactions = reactionSummary(message.reactions)
+            if (reactions.isNotEmpty()) {
+                Spacer(Modifier.size(2.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    reactions.forEach { (emoji, count) ->
+                        Text(
+                            if (count > 1) "$emoji $count" else emoji,
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier
+                                .background(
+                                    MaterialTheme.colorScheme.surfaceVariant,
+                                    RoundedCornerShape(10.dp),
+                                )
+                                .padding(horizontal = 8.dp, vertical = 2.dp),
+                        )
+                    }
+                }
+            }
         }
+    }
+}
+
+/** Aggregate the core's `Reactions` object into emoji → count pairs. */
+private fun reactionSummary(reactions: kotlinx.serialization.json.JsonElement?): List<Pair<String, Int>> {
+    val byReaction = (reactions as? kotlinx.serialization.json.JsonObject)
+        ?.get("contactsByReaction") as? kotlinx.serialization.json.JsonObject
+        ?: return emptyList()
+    return byReaction.map { (emoji, contacts) ->
+        emoji to ((contacts as? kotlinx.serialization.json.JsonArray)?.size ?: 0)
     }
 }

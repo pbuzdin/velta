@@ -56,6 +56,8 @@ data class MessageObject(
     val isInfo: Boolean = false,
     val isForwarded: Boolean = false,
     val showPadlock: Boolean = true,
+    /** Raw `Reactions` object (`contactsByReaction`: emoji → contact list); parsed leniently in the UI. */
+    val reactions: kotlinx.serialization.json.JsonElement? = null,
     val error: String? = null,
 )
 

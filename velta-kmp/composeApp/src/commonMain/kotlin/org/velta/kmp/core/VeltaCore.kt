@@ -101,6 +101,17 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
         )
     }
 
+    /** Toggle the user's reaction (sending the same emoji again removes it). */
+    suspend fun sendReaction(accountId: Long, messageId: Long, emoji: List<String>) {
+        val emojis = kotlinx.serialization.json.buildJsonArray {
+            emoji.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) }
+        }
+        client.call(
+            "send_reaction",
+            RpcClient.params(RpcClient.param(accountId), RpcClient.param(messageId), emojis),
+        )
+    }
+
     suspend fun addTransport(accountId: Long, addr: String, password: String) {
         val param = buildJsonObject {
             put("addr", addr)

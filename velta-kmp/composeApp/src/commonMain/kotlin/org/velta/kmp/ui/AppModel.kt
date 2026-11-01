@@ -60,6 +60,9 @@ class AppModel(
         private set
     var sendError by mutableStateOf<String?>(null)
 
+    /** Message whose action bar (react / reply) is open; null = hidden. */
+    var messageActions by mutableStateOf<MessageObject?>(null)
+
     private var core: VeltaCore? = null
     private var transport: RpcTransport? = null
     private var accountId: Long? = null
@@ -239,7 +242,9 @@ class AppModel(
 
     /**
      * P3 send: `misc_set_draft` (text + optional quote) then `misc_send_draft`.
-     * The core emits MsgsChanged/MsgDelivered events; the event loop reloads.
+     * After the send returns, the message exists in the db with real
+     * OutPending state — reload immediately so the bubble shows with ⏳
+     * instead of waiting for the event echo.
      */
     fun send() {
         val chat = screen as? Screen.Chat ?: return
@@ -256,6 +261,7 @@ class AppModel(
             try {
                 veltaCore.setDraft(id, chat.chatId, text, quote)
                 veltaCore.sendDraft(id, chat.chatId)
+                loadMessages(chat.chatId, chat.isGroup)
             } catch (t: Throwable) {
                 sendError = t.message ?: t.toString()
                 // Restore the text so nothing the user typed is lost.
@@ -264,6 +270,32 @@ class AppModel(
                 sending = false
             }
         }
+    }
+
+    // ---- Message actions: reactions + reply (P3) ----
+
+    fun toggleMessageActions(message: MessageObject) {
+        messageActions = if (messageActions?.id == message.id) null else message
+    }
+
+    fun react(message: MessageObject, emoji: String) {
+        val veltaCore = core
+        val id = accountId
+        messageActions = null
+        if (veltaCore == null || id == null) return
+        scope.launch {
+            try {
+                veltaCore.sendReaction(id, message.id, listOf(emoji))
+                if (screen is Screen.Chat) loadMessages((screen as Screen.Chat).chatId, (screen as Screen.Chat).isGroup)
+            } catch (t: Throwable) {
+                println("velta-kmp: react failed: $t")
+            }
+        }
+    }
+
+    fun startReply(message: MessageObject) {
+        replyTo = message
+        messageActions = null
     }
 
     private fun loadMessages(chatId: Long, isGroup: Boolean = false) {
