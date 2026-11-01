@@ -63,6 +63,21 @@ class AppModel(
     /** Message whose action bar (react / reply) is open; null = hidden. */
     var messageActions by mutableStateOf<MessageObject?>(null)
 
+    /** (picked path, display name) awaiting send; the core dedups it into its blobdir. */
+    var pendingAttachment by mutableStateOf<Pair<String, String>?>(null)
+
+    /** Platform-injected file-picker launcher (desktop FileDialog / Android SAF). */
+    var attachmentPicker: (() -> Unit)? = null
+
+    fun attach() {
+        attachmentPicker?.invoke()
+    }
+
+    /** Called by the platform after a file was picked and staged readable. */
+    fun onAttachmentPicked(path: String, displayName: String?) {
+        pendingAttachment = path to (displayName ?: path.substringAfterLast('/'))
+    }
+
     private var core: VeltaCore? = null
     private var transport: RpcTransport? = null
     private var accountId: Long? = null
@@ -195,6 +210,8 @@ class AppModel(
         replyTo = null
         sendError = null
         senderNames = emptyMap()
+        pendingAttachment = null
+        messageActions = null
         scope.launch {
             val veltaCore = core
             val id = accountId
@@ -221,10 +238,18 @@ class AppModel(
         val id = accountId
         if (chat != null && veltaCore != null && id != null) {
             val text = composerText
+            val attachment = pendingAttachment
             scope.launch {
                 try {
-                    if (text.isNotBlank()) {
-                        veltaCore.setDraft(id, chat.chatId, text, replyTo?.id)
+                    if (text.isNotBlank() || attachment != null) {
+                        veltaCore.setDraft(
+                            id,
+                            chat.chatId,
+                            text,
+                            replyTo?.id,
+                            file = attachment?.first,
+                            filename = attachment?.second,
+                        )
                     } else {
                         veltaCore.removeDraft(id, chat.chatId)
                     }
@@ -236,6 +261,7 @@ class AppModel(
         composerText = ""
         replyTo = null
         sendError = null
+        pendingAttachment = null
         screen = Screen.ChatList
         refreshChats()
     }
@@ -251,7 +277,9 @@ class AppModel(
         val veltaCore = core
         val id = accountId
         val text = composerText.trim()
-        if (veltaCore == null || id == null || text.isEmpty() || sending) return
+        val attachment = pendingAttachment
+        if (veltaCore == null || id == null || sending) return
+        if (text.isEmpty() && attachment == null) return
         val quote = replyTo?.id
         composerText = ""
         replyTo = null
@@ -259,13 +287,22 @@ class AppModel(
         sending = true
         scope.launch {
             try {
-                veltaCore.setDraft(id, chat.chatId, text, quote)
+                veltaCore.setDraft(
+                    id,
+                    chat.chatId,
+                    text,
+                    quote,
+                    file = attachment?.first,
+                    filename = attachment?.second,
+                )
                 veltaCore.sendDraft(id, chat.chatId)
+                pendingAttachment = null
                 loadMessages(chat.chatId, chat.isGroup)
             } catch (t: Throwable) {
                 sendError = t.message ?: t.toString()
-                // Restore the text so nothing the user typed is lost.
+                // Restore what the user composed so nothing is lost.
                 if (composerText.isBlank()) composerText = text
+                if (pendingAttachment == null) pendingAttachment = attachment
             } finally {
                 sending = false
             }

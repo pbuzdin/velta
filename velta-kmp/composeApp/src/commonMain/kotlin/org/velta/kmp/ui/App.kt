@@ -368,6 +368,7 @@ private fun MessageActionBar(model: AppModel) {
 @Composable
 private fun Composer(model: AppModel) {
     val reply = model.replyTo
+    val attachment = model.pendingAttachment
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
         if (reply != null) {
             Row(
@@ -384,6 +385,21 @@ private fun Composer(model: AppModel) {
                 TextButton(onClick = { model.replyTo = null }) { Text("✕") }
             }
         }
+        if (attachment != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "📎 ${attachment.second}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                )
+                TextButton(onClick = { model.pendingAttachment = null }) { Text("✕") }
+            }
+        }
         model.sendError?.let {
             Text(
                 "send failed: $it",
@@ -392,6 +408,7 @@ private fun Composer(model: AppModel) {
             )
         }
         Row(verticalAlignment = Alignment.Bottom) {
+            TextButton(onClick = { model.attach() }) { Text("📎") }
             OutlinedTextField(
                 value = model.composerText,
                 onValueChange = { model.composerText = it },
@@ -402,7 +419,8 @@ private fun Composer(model: AppModel) {
             Spacer(Modifier.size(8.dp))
             Button(
                 onClick = { model.send() },
-                enabled = !model.sending && model.composerText.isNotBlank(),
+                enabled = !model.sending &&
+                    (model.composerText.isNotBlank() || model.pendingAttachment != null),
             ) {
                 Text(if (model.sending) "…" else "Send")
             }

@@ -60,17 +60,24 @@ class VeltaCore(private val client: RpcClient) : AutoCloseable {
 
     // ---- Write path (P3): the draft flow — set, then send. ----
 
-    suspend fun setDraft(accountId: Long, chatId: Long, text: String, quotedMessageId: Long? = null) {
+    suspend fun setDraft(
+        accountId: Long,
+        chatId: Long,
+        text: String,
+        quotedMessageId: Long? = null,
+        file: String? = null,
+        filename: String? = null,
+    ) {
         client.call(
             "misc_set_draft",
             RpcClient.params(
                 RpcClient.param(accountId),
                 RpcClient.param(chatId),
                 RpcClient.param(text),
-                RpcClient.nullParam(), // file
-                RpcClient.nullParam(), // filename
+                if (file != null) RpcClient.param(file) else RpcClient.nullParam(),
+                if (filename != null) RpcClient.param(filename) else RpcClient.nullParam(),
                 if (quotedMessageId != null) RpcClient.param(quotedMessageId) else RpcClient.nullParam(),
-                RpcClient.nullParam(), // viewType
+                RpcClient.nullParam(), // viewType — the core infers it from the file
             ),
         )
     }

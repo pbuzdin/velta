@@ -83,6 +83,37 @@ class RealRpcServerIT {
                     readBack.any { it.text == "hello from the kmp IT" },
                     "device message round-trips through get_messages: $readBack",
                 )
+
+                // Attachment round-trip: the core dedups the file into its
+                // blobdir at message-creation time (set_file_and_deduplicate).
+                val attachment = java.nio.file.Files.createTempFile("kmp-it", ".txt")
+                java.nio.file.Files.write(attachment, "attachment payload".toByteArray())
+                val attachMsgData = kotlinx.serialization.json.buildJsonObject {
+                    put("text", kotlinx.serialization.json.JsonPrimitive("with attachment"))
+                    put("file", kotlinx.serialization.json.JsonPrimitive(attachment.toString()))
+                    put("filename", kotlinx.serialization.json.JsonPrimitive("payload.txt"))
+                }
+                val attachMsgId = core.raw
+                    .call(
+                        "add_device_message",
+                        org.velta.kmp.core.RpcClient.params(
+                            org.velta.kmp.core.RpcClient.param(accountId),
+                            org.velta.kmp.core.RpcClient.param("kmp-it-attachment"),
+                            attachMsgData,
+                        ),
+                    )
+                    .toString().toLong()
+                val attachBack = core.messages(accountId, listOf(attachMsgId))
+                val withFile = attachBack.firstOrNull { it.text == "with attachment" }
+                assertTrue(withFile != null, "attachment message read back: $attachBack")
+                assertTrue(
+                    !withFile.file.isNullOrBlank() && withFile.fileName == "payload.txt",
+                    "file must be deduplicated into the blobdir with its name: ${withFile.file}/${withFile.fileName}",
+                )
+                assertTrue(
+                    java.io.File(withFile.file!!).isFile,
+                    "the blob file must physically exist: ${withFile.file}",
+                )
             }
         } finally {
             core.close()

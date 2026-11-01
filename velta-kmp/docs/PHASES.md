@@ -100,12 +100,17 @@ send button), draft restore on chat open + save/remove on back, send-error
 restores the typed text, outgoing delivery-state glyphs (⏳ pending / ⚠️
 failed / ✓ delivered / ✓✓ read) from the core's real state numbers,
 message action bar on bubble tap (quick reactions via `send_reaction` +
-reply), reaction summary chips under bubbles, immediate reload after send.
+reply), reaction summary chips under bubbles, immediate reload after send,
+**attachments** — 📎 picker (desktop `FileDialog` / Android SAF staged to a
+cache file), the core dedups the file into its blobdir
+(`set_file_and_deduplicate`), captions optional, attachment chip + draft
+persistence + error restore.
 
-**Verified:** scripted send-flow tests (plain + quoted + reaction params +
-reload-after-send ordering), real-binary device-message round-trip IT
-(the no-network write-path e2e), wire-casing regression test, full WSL
-gate, CI.
+**Verified:** scripted tests (plain + quoted + attachment params + reaction
+params + reload-after-send ordering), wire-casing regression test, and the
+real-binary IT round-trips BOTH a text and an attachment device message
+through `add_device_message` → `get_messages` (file physically present in
+the blobdir) — no account, no network, on every CI run.
 
 **Finding — SOLVED (was a client bug, not a core limitation):** the missing
 no-network write-path e2e traced to a wire-casing bug in OUR client:
@@ -123,7 +128,10 @@ Also corrected: delivery-state numbers are 20=Pending, 24=Failed, 26=Delivered,
 - **The P3 exit gate itself**: a real message sent from the KMP client
   arriving in another client (needs a throwaway-account login on desktop or
   Android).
-- Attachments (file picker is platform work; needs the blobdir copy dance).
+- Attachment DISPLAY in the chat view — sending works (picker → core
+  dedup into blobdir), but bubbles show only the 📎 glyph; rendering and
+  opening blob files is the media-rendering item.
+- Attachment pickers are verified by tests + compile only — no device run yet.
 - No optimistic fake rows — deliberate: after `misc_send_draft` returns the
   message is already in the db, so the immediate reload shows the real
   OutPending bubble with ⏳ (no fakery to reconcile later).

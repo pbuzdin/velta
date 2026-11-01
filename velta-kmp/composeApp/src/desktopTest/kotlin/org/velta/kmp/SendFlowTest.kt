@@ -155,6 +155,48 @@ class SendFlowTest {
     }
 
     @Test
+    fun attachmentSendCarriesFileAndFilename() = runBlocking {
+        val transport = ScriptedRpcTransport(
+            mapOf(
+                "get_system_info" to """{"deltachat_core_version":"v2.66.0"}""",
+                "get_all_account_ids" to "[1]",
+                "get_account_info" to """{"id":1,"addr":"demo@example.org","isConfigured":true}""",
+                "get_chatlist_entries" to "[5]",
+                "get_chatlist_items_by_entries" to
+                    """{"5":{"kind":"ChatListItem","id":5,"name":"Test Chat","summaryText2":"x","lastUpdated":1,"freshMessageCounter":0}}""",
+                "get_message_ids" to "[]",
+                "misc_set_draft" to "null",
+                "misc_send_draft" to "null",
+            ),
+        )
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val model = AppModel(scriptedPlatform(transport), scope)
+        try {
+            openTestChat(model)
+
+            // The platform "picked" a file; the core dedups it into the blobdir.
+            model.onAttachmentPicked("/tmp/pic.png", "pic.png")
+            assertEquals("/tmp/pic.png", model.pendingAttachment?.first)
+            model.send()
+            withTimeout(10_000) {
+                while (transport.requests.none { "\"misc_send_draft\"" in it }) yield()
+            }
+            // The request line can appear before the coroutine resumes and
+            // clears the state — wait for the state, don't race it.
+            withTimeout(10_000) {
+                while (model.pendingAttachment != null) yield()
+            }
+            val setDraft = transport.requests.first { "\"misc_set_draft\"" in it }
+            assertTrue(
+                setDraft.contains("""[1,5,"","/tmp/pic.png","pic.png",null,null]"""),
+                "set_draft must carry empty caption + file + filename: $setDraft",
+            )
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun reactSendsReactionArray() = runBlocking {
         val transport = ScriptedRpcTransport(
             mapOf(
