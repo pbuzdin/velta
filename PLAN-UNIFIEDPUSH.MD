@@ -50,6 +50,9 @@ posts its usual MessagingStyle notification. No FCM, no Google.
      `MESSAGE` → start `CoreService` + trigger a fetch. Notification posting
      stays in `Notifications.kt` (MessagingStyle, JNI 584df30 — release it
      first).
+   - VAPID public key is a Gradle property (`-PveltaVapidKey` /
+     `VELTA_VAPID_KEY`; default is the upstream chatmail notifier key) so a
+     self-hosted notifier keypair does not require a Kotlin edit.
    - Drawer switch "Background push (UnifiedPush)" with a distributor-missing
      hint (ntfy app install link).
 5. **Demote CoreService.** Keep the foreground service as a fallback for

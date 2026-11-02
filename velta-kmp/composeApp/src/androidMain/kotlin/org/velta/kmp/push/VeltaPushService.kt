@@ -10,6 +10,7 @@ import org.unifiedpush.android.connector.data.PushEndpoint
 import org.unifiedpush.android.connector.data.PushMessage
 import org.unifiedpush.android.connector.data.ResolvedDistributor
 import org.velta.kmp.AppHolder
+import org.velta.kmp.BuildConfig
 
 /**
  * UnifiedPush connector (P4): receives push events from the user-chosen
@@ -50,12 +51,10 @@ class VeltaPushService : PushService() {
         private const val TAG = "VeltaPushService"
 
         // VAPID public key identifying the push relay to the distributor.
-        // Upstream chatmail notifier key, same constant the Tauri shell ships.
         // 🐴 a self-hosted relay whose notifier uses a different VAPID keypair
-        // needs this constant updated, or VAPID-verifying providers reject
+        // must pass -PveltaVapidKey or VELTA_VAPID_KEY at APK build (see
+        // composeApp/build.gradle.kts), or VAPID-verifying providers reject
         // its pushes; providers ignoring VAPID work regardless.
-        private const val VAPID_KEY =
-            "BHNce1sXk99bpkFFYwiSR3Lp4n54PiS-Y0S9iX6R7va7sxQ5hE7ll6DMKlKs2tFT9POq92gLygezT7o0fkQU8NE"
 
         /**
          * Auto-register on app start. Only the no-questions case: a single
@@ -78,7 +77,7 @@ class VeltaPushService : PushService() {
         }
 
         fun register(context: Context) {
-            UnifiedPush.register(context, INSTANCE_DEFAULT, null, VAPID_KEY)
+            UnifiedPush.register(context, INSTANCE_DEFAULT, null, BuildConfig.VAPID_KEY)
             Log.d(TAG, "UnifiedPush registration requested")
         }
     }
