@@ -145,7 +145,7 @@ mod imp {
     /// Keeps every profile's proxy_url in line with the selected proxy (on
     /// install, on removal, and every minute so profiles added later pick it
     /// up). Runs wherever the core runs, including the Android headless core.
-    fn start_applier(app: crate::Host) {
+    fn start_applier(_app: crate::Host) {
         APPLIER.get_or_init(|| {
             tauri::async_runtime::spawn(async move {
                 loop {
@@ -379,6 +379,9 @@ mod imp {
 pub use imp::{boot, deactivate_for_ws, set_ws_proxy, socks_proxy_active};
 
 /// Points every profile at the selected proxy now (boot: before IO starts).
+/// Only the Android headless core calls this; the desktops reapply via the
+/// keeper's minute tick.
+#[cfg(target_os = "android")]
 pub async fn reapply_proxy() {
     imp::reapply().await;
 }
