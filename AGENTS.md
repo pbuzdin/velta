@@ -249,6 +249,8 @@ README's requirements section).
 
 ## 4. Build and test commands
 
+JSON-RPC is the only core contract across shells — see `docs/json-rpc-contract.md`.
+
 ### 4.1 Core Rust library (`core/`)
 
 ```bash
