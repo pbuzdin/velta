@@ -1572,5 +1572,7 @@
   "“{name}” is in use. Deleting it stops using the proxy and mail connects directly. You need its link to add it again.": "«{name}» используется. Удаление отключит прокси, и почта будет подключаться напрямую. Чтобы добавить его снова, понадобится его ссылка.",
   "Only add proxies from someone you trust. Turning it on stops the SOCKS5 proxy if one is in use.": "Добавляйте прокси только от тех, кому доверяете. Включение останавливает SOCKS5-прокси, если он используется.",
   "Mail goes through a Velta WebSocket proxy instead of connecting to the relays directly. Useful when only web traffic works. Only one of WebSocket transport and SOCKS5 proxy is in use at a time.": "Почта идёт через WebSocket-прокси Velta вместо прямого подключения к релеям. Полезно, когда работает только веб-трафик. Одновременно используется только WebSocket-транспорт или SOCKS5-прокси.",
-  "The SOCKS5 proxy is in use. Using a WebSocket proxy turns it off.": "SOCKS5-прокси используется. Использование WebSocket-прокси отключает его."
+  "The SOCKS5 proxy is in use. Using a WebSocket proxy turns it off.": "SOCKS5-прокси используется. Использование WebSocket-прокси отключает его.",
+  "Profile transfer continues in the background — keep Velta open on both devices": "Перенос профиля продолжается в фоне — не закрывайте Velta на обоих устройствах",
+  "A profile transfer is already running — wait for it to finish": "Перенос профиля уже идёт — дождитесь его завершения"
 }

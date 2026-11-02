@@ -2,6 +2,7 @@
 import { createCore } from "./transport.js";
 import { createNetWatch, NET_DEFAULTS } from "./net-watch.js";
 import "./components.js";
+import { wakeLockAcquire, wakeLockRelease } from "./wakelock.js";
 import { escapeHtml, escapeAttr } from "./components.js";
 import { chatCategoryOf, chatIsUnread, swipeCategoryStep, batteryReactionPlan, chatsInCommon } from "./rpc-core.js";
 import { probeLock, unlockInteractive, prfSupported } from "./db-lock.js";
@@ -4302,9 +4303,22 @@ function openProfileManagement() {
   let transferStarted = false;
   let progHandler = null;
   const transferPane = panes.device.querySelector("[data-transfer-pane]");
-  const cleanupTransfer = () => {
+  // Set once a receiver authenticated (ImexProgress 1..999). From then on
+  // only the explicit Cancel button stops the provider: an overlay tap, the
+  // Android back gesture or any closeAllPopups() used to call
+  // stop_ongoing_process and the receiver failed mid-tar with
+  // "connection lost: closed by peer: 0".
+  let receiverConnected = false;
+  let wakeHeld = false;
+  const releaseWake = () => { if (wakeHeld) { wakeHeld = false; wakeLockRelease(); } };
+  const cleanupTransfer = (explicit = false) => {
+    if (receiverConnected && !explicit) {
+      toast(t("Profile transfer continues in the background — keep Velta open on both devices"));
+      return; // progHandler stays to report completion and free the wake lock
+    }
     if (progHandler) { core.removeEventListener("imex-progress", progHandler); progHandler = null; }
-    if (transferStarted) core.stopOngoingProcess?.().catch?.(() => {});
+    releaseWake();
+    if (transferStarted) { transferStarted = false; core.stopOngoingProcess?.().catch?.(() => {}); }
   };
   panes.device.querySelector("[data-old]").addEventListener("click", () => {
     if (!accountIsCurrent(epoch)) return;
@@ -4314,21 +4328,28 @@ function openProfileManagement() {
       <div class="qr-box" style="margin-top:10px"><div class="qr-loading">${escapeHtml(t("Preparing QR…"))}</div></div>
       <div class="p2p-hint" style="opacity:.6">${escapeHtml(t("On the new device, tap \"Receive a profile on this device\" and scan or paste this code. Keep both devices on this screen until the transfer finishes."))}</div>
       <div style="margin-top:8px"><button type="button" class="btn-text" data-cancel>${escapeHtml(t("Cancel"))}</button></div>`;
+    wakeHeld = true;
+    wakeLockAcquire(); // screen-off/Doze must not stall the sender mid-transfer
     const transferDone = () => {
-      if (!accountIsCurrent(epoch)) return;
+      receiverConnected = false;
+      transferStarted = false; // finished: nothing to cancel
       cleanupTransfer();
+      if (!accountIsCurrent(epoch)) return;
       toast(t("Profile transferred to the second device"));
       close();
     };
     progHandler = (e) => {
-      if ((e.detail?.progress || 0) >= 1000) transferDone();
+      const p = e.detail?.progress || 0;
+      if (p >= 1000) transferDone();
+      else if (p > 0) receiverConnected = true;
+      else if (receiverConnected) { receiverConnected = false; cleanupTransfer(); }
     };
     core.addEventListener("imex-progress", progHandler);
     // Blocks server-side until a device retrieves the backup; it can outlive
     // the RPC timeout — completion is detected via ImexProgress above.
     core.provideBackup().then(transferDone).catch(() => {});
     transferPane.querySelector("[data-cancel]").addEventListener("click", () => {
-      cleanupTransfer();
+      cleanupTransfer(true);
       transferPane.innerHTML = "";
       lock(false);
     });
@@ -4349,7 +4370,10 @@ function openProfileManagement() {
     if (!accountIsCurrent(epoch)) return;
     // Hands over to its own full-screen code sheet + steps, replacing this
     // modal (closeAllPopups inside) — nothing to clean up here.
-    receiveSecondDeviceProfile(epoch, () => { transferStarted = true; });
+    // Receiving: the profile modal closing must NOT stop_ongoing_process —
+    // the current account may already be the one importing (reused
+    // unconfigured account), which cancelled the receive.
+    receiveSecondDeviceProfile(epoch);
   });
 
   /* -- export backup -- */
@@ -4571,7 +4595,7 @@ function openProfileManagement() {
     }
   });
 
-  const { close } = showModal({ title: "Profile management", body, onClose: cleanupTransfer });
+  const { close } = showModal({ title: "Profile management", body, onClose: () => cleanupTransfer(false) });
 }
 
 // Ask for notification permission once the user has a working account —
@@ -6883,9 +6907,16 @@ function trackPhases(phases, addStep) {
 // (scanned or pasted). Used by the second-device modal and by onboarding.
 // Resolves true once the fresh account was created and selected; the transfer
 // itself runs fire-and-forget and reports via ImexProgress.
+// One receive at a time: a second scan while the first import ran used to
+// start another get_backup on the same (reused, still unconfigured) account.
+let profileReceiveRunning = false;
 async function receiveSecondDeviceProfile(epoch, onStart, presetCode) {
   if (!core.addAccountWithBackup) {
     toast(t("Second-device setup is not available on this backend"));
+    return false;
+  }
+  if (profileReceiveRunning || core.backupReceiveRunning) {
+    toast(t("A profile transfer is already running — wait for it to finish"));
     return false;
   }
   const code = presetCode?.trim() || await acquireCode({
@@ -6906,8 +6937,12 @@ async function receiveSecondDeviceProfile(epoch, onStart, presetCode) {
 
   addStep(t("Preparing this device…"));
   let seenProgress = false;
+  profileReceiveRunning = true;
+  wakeLockAcquire();
+  const endReceive = () => { if (profileReceiveRunning) { profileReceiveRunning = false; wakeLockRelease(); } };
   const progHandler = (e) => {
     const p = e.detail?.progress || 0;
+    if (p >= 1000 || (p === 0 && seenProgress)) endReceive();
     if (p >= 1000) {
       finishSteps(true);
       addStep(t("Profile received — signing in"));
@@ -6931,6 +6966,7 @@ async function receiveSecondDeviceProfile(epoch, onStart, presetCode) {
     await core.addAccountWithBackup(code.trim());
   } catch (err) {
     core.removeEventListener("imex-progress", progHandler);
+    endReceive();
     finishSteps(false);
     addStep(t("Transfer failed: ") + (err?.message || err));
     return false;

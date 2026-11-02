@@ -20,7 +20,7 @@ test("export runs between detaching and re-attaching the shell proxy", () => wit
 }));
 
 test("a failed transfer still re-attaches the proxy", () => withShell(async (calls) => {
-  const self = { accountId: 3, _call: async () => { throw new Error("cancelled"); } };
+  const self = { accountId: 3, _callWithTimeout: async () => { throw new Error("cancelled"); } };
   self._withoutShellProxy = JsonRpcCore.prototype._withoutShellProxy;
   await assert.rejects(JsonRpcCore.prototype.provideBackup.call(self), /cancelled/);
   await new Promise(r => setTimeout(r, 0));

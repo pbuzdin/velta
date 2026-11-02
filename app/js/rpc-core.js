@@ -16,6 +16,11 @@ let nextId = 1;
 // the bar's unfiltered state and is never returned here. Special and request
 // chats are "system"; a 1:1 chat is "bots" when its contact is a bot,
 // "people" otherwise (unknown contact counts as people — the safe default).
+// provide_backup / get_backup run for the whole transfer (minutes). The
+// default 30 s timeout made the receiver skip start_io after a slow import
+// and re-attached the sender proxy mid-transfer.
+export const BACKUP_TRANSFER_TIMEOUT_MS = 60 * 60 * 1000;
+
 export function chatCategoryOf(chat, isBot = () => false) {
   if (chat.kind === "saved" || chat.kind === "device" || chat.kind === "deaddrop") return "system";
   if (chat.kind === "group") return "groups";
@@ -2307,7 +2312,7 @@ export class JsonRpcCore extends EventTarget {
   // it. The call blocks server-side for the whole transfer — don't await it
   // in a timeout-sensitive path; completion arrives via ImexProgress.
   async provideBackup() {
-    return this._withoutShellProxy(() => this._call("provide_backup", this.accountId));
+    return this._withoutShellProxy(() => this._callWithTimeout(BACKUP_TRANSFER_TIMEOUT_MS, "provide_backup", this.accountId));
   }
 
   // Keep this device's SOCKS5/WebSocket proxy out of backups and
@@ -2358,6 +2363,8 @@ export class JsonRpcCore extends EventTarget {
   // minutes; track it via imex-progress events. Same two epoch boundaries
   // as addAccountWithQr, including the select-back on failure (#99).
   async addAccountWithBackup(qrContent) {
+    // Never two get_backup calls at once (second scan during an import).
+    if (this.backupReceiveRunning) throw new Error("A profile transfer is already running");
     const prevId = this.accountId;
     this._beginAccountChange();
     let failed = true;
@@ -2371,7 +2378,8 @@ export class JsonRpcCore extends EventTarget {
       }
       // get_backup does not start IO (core api.rs). Do it once the import
       // lands, then refresh so the relay line leaves "no relay configured" (#118).
-      this._call("get_backup", targetId, qrContent).then(async () => {
+      this.backupReceiveRunning = true;
+      this._callWithTimeout(BACKUP_TRANSFER_TIMEOUT_MS, "get_backup", targetId, qrContent).finally(() => { this.backupReceiveRunning = false; }).then(async () => {
         await this._proxyReapply();
         if (!this.syncOnlyActive || String(this.accountId) === String(targetId)) {
           await this._call("start_io", targetId).catch(() => {});
