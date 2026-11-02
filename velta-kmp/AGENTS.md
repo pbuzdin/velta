@@ -10,13 +10,18 @@ Read this file before touching anything in this folder.
 composeApp/src/
   commonMain/    Compose UI + AppModel + VeltaCore facade (PURE Kotlin — no java.*: compile fails even for JVM-only targets)
   jvmCommon/     shared JVM layer: process + socket transports, java.time formatters
-  androidMain/   MainActivity (AppHolder, SAF picker, notification permission),
-                 AppHolder (process-wide model), VeltaForegroundService,
-                 RpcShim (JNI), CorePlatform impl, MediaAndroid
+  androidMain/   MainActivity (FragmentActivity: BiometricPrompt; NO registered-launcher
+                 startActivityForResult — 16-bit crash, use startActivity + AppHolder),
+                 AppHolder (process-wide model), VeltaForegroundService, push/VeltaPushService,
+                 scan/ScanActivity (CameraX + ZXing), VeltaKeystore + VeltaLock (app lock,
+                 dbkey.wrap + dbkey.bio), RpcShim (JNI), CorePlatform impl, MediaAndroid
   desktopMain/   DesktopCorePlatform (sidecar spawn), Main (window + FileDialog),
                  MediaDesktop, PlatformBack actual
   desktopTest/   all tests (scripted transports + real-binary IT)
-native/rpc-shim/ Rust cdylib: in-process core for Android (JSON Lines on 127.0.0.1)
+native/rpc-shim/ Rust cdylib: in-process core for Android (JSON Lines on 127.0.0.1);
+                 size-tuned release profile (lto + codegen-units=1 + opt-level=s + strip)
+composeApp/proguard-rules.pro — R8 keeps: RpcShim native methods, serialization, UnifiedPush
+composeApp/keystore.properties — release signing (gitignored; absent → debug-key fallback)
 ```
 
 Expect/actual lives in commonMain + one actual per target; anything JVM-only
@@ -25,6 +30,12 @@ that BOTH targets need goes in jvmCommon (wire it with `dependsOn(commonMain.get
 JVM facade classes collide (Media.kt → MediaAndroid.kt/MediaDesktop.kt).
 ⚠️ ANY source change (including renames) needs the tar-sync below; renames
 also need explicit `rm` of the old file in the WSL copy (overlay keeps it).
+⚠️ FragmentActivity traps: (1) registered ActivityResult launchers crash
+with "lower 16 bits for requestCode" — route results through AppHolder
+instead; (2) biometric 1.1.0 drags fragment < 1.3 (breaks ActivityResult)
+— explicit `fragment-ktx` 1.8.x is in the catalog, keep it.
+⚠️ Release builds run lintVitalRelease, which catches what debug builds
+don't — run `assembleRelease` locally before shipping build-file changes.
 
 ## Ground rules
 
@@ -56,7 +67,12 @@ Full local gate = desktopTest + assembleDebug + desktop package, then CI green
 `VELTA_KMP_RPC_SERVER=~/velta-core-build/core/target/release/deltachat-rpc-server`
 (linux build lives in `~/velta-core-build/core/`).
 
-### Android shim rebuild (only when native/rpc-shim changes; deps cached ≈ 11 s)
+### Android shim rebuild (only when native/rpc-shim changes)
+
+The Cargo.toml carries a size-tuned release profile (lto +
+codegen-units=1 + opt-level=s + strip): 56/64 MB → 25.9/28.7 MB per ABI.
+⚠️ The FIRST build after a profile/dependency change recompiles the whole
+core under LTO (~10 min in WSL); after that, shim-only edits are ≈ 11 s.
 
 ```sh
 export NDK=$HOME/Android/Sdk/ndk/29.0.13846066; export TC=$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin
@@ -137,6 +153,21 @@ never run Gradle on the Windows side.
   first, quilt #11), `get_server_metadata` → map addr→metadata (quilt #15),
   `delete_transport(addr)`. ⚠️ `set_transport_enabled` does NOT exist yet
   (proposed quilt #23, issue #189).
+- Push: **`velta_set_push_device_token` is a SHIM-ONLY RPC** —
+  `Accounts::set_push_device_token` is not on the JSON-RPC surface; the
+  shim intercepts it before yerpc dispatch (desktop sidecar rejects it).
+  Token = `webpush:<url>|<pubKey>|<auth>`; `background_fetch(timeout_s)`
+  IS on JSON-RPC. End-to-end push still needs the relay side
+  (PLAN-UNIFIEDPUSH.MD items 1–3).
+- Invites/QR: `check_qr(accountId, qr)` parses OFFLINE — kind oneOf
+  ("text" for garbage, "account"+domain for `DCACCOUNT:`,
+  "askVerifyContact/Group/Broadcast" for secure-join). The KMP scan flow
+  hands the decoded payload straight to the model (no ActivityResult).
+- App lock (phase-4 port): lock ON → cold start refuses the core
+  (`getOrCreateDek` returns null); the DEK lives in an auth-window wrap
+  (`dbkey.bio`, 30 s Keystore validity after a prompt); unlock = prompt →
+  `unlockDek` inside the window → `spawnRpcServerWithKey(dir, dek)`.
+  PIN/Argon2id fallback deferred.
 - Message state numbers (core/src/message.rs): 10=InFresh, 13=InNoticed,
   16=InSeen, 19=OutDraft, 20=OutPending, 24=OutFailed, 26=OutDelivered,
   28=OutMdnRcvd. Wire casing: `MessageLoadResult` kind is **"message"**

@@ -1,33 +1,37 @@
 # Phase status & gap ledger
 
-Tracking issue #192. Updated 2026-11-02 after P4 slice 7. Every phase lists
+Tracking issue #192. Updated 2026-11-02 after P5 slice 1. Every phase lists
 what SHIPPED, how it was VERIFIED, and what is still MISSING — no "done"
 without the gaps next to it.
 
 ## Remaining work at a glance
 
-**P4 — Velta layer (in progress, 7 of ~10 slices):**
-1. **UnifiedPush receiver** — token registration + push-triggered fetch; the
-   vendored core RPCs (`set_push_device_token`, background fetch) already
-   exist and the Tauri glue documents the flow. *The last functionally
-   critical piece.*
-2. Battery-allowance onboarding UI (ask the user to exempt the app).
-3. Mobile QR-camera scanning (needs a scanner dependency + camera permission).
-4. Video/audio playback in bubbles.
-5. At-rest lock port (epic) — Keystore DEK → the shim's `VELTA_DB_KEY` env;
-   the Tauri side's patch #20 already speaks that contract.
-6. Brand logo assets (app icon, in-app mark).
+**Done since the last roadmap (all shipped, see per-phase sections):**
+UnifiedPush receiver (slice 8), encryption at rest + 2 Tauri keystore bugs
+found (slice 9), battery-allowance row (10), app lock — biometric /
+device-credential (11), QR-camera scanner (12), release builds + size —
+debug 135→69 MB, release 57 MB (P5 slice 1).
 
-**P5 — release track:** signing + keystore, release builds (LTO /
-`panic=abort` / ABI splits — the debug APK is 130 MB), distribution channel,
-crash reporting, CI artifact wiring for shims + sidecars, and the
-`org.velta` switchover decision.
+**P4 leftovers (small):**
+1. Video/audio playback in bubbles (images already render).
+2. Brand logo assets (app icon, in-app mark).
 
-**Standing (human-only):** the P3 live gate — a throwaway-account login,
-7-step checklist below; the 🎟 invite-paste path makes it a copy-paste job.
+**P5 — release track (slice 1 done):**
+1. Production keystore + distribution channel decision (release lane
+   currently signs with the debug key by design); ABI splits if a channel
+   wants them (~halves the APK again).
+2. Crash reporting.
+3. CI release lane (signed artifacts on tag).
+4. `org.velta` switchover decision.
 
-**Recommendation:** UnifiedPush receiver next, then at-rest lock, then P5 —
-that order completes the daily-drivable story before the release polish.
+**Separate relay project (client side done):** end-to-end push needs
+PLAN-UNIFIEDPUSH.MD items 1–3 (notifier keypair swap, ntfy, maildir hook).
+
+**Standing (human-only):**
+- The P3 live gate — a throwaway-account login, 7-step checklist below;
+  the 🎟 invite-paste / 📷 scan paths make it a copy-paste job.
+- #178 on-device re-verification for the TAURI shell (its VeltaKeystore
+  regressed — see `../TAURI-IMPROVEMENTS.MD` §7b).
 
 | Phase | State | Commit | CI |
 |---|---|---|---|
