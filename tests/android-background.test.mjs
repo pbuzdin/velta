@@ -25,8 +25,8 @@ test("background reconnect nudge: ~10 min, skipped while push delivers", () => {
   assert.match(kicker, /BG_KICK_INTERVAL_SECS/);
   assert.match(kicker, /bg_kick_due_now\(\)/);
   assert.doesNotMatch(kicker, /from_secs\(90\)/);
-  assert.match(lib, /PUSH_ENDPOINT_SET\.store\(true/);
-  assert.match(lib, /Java_org_velta_UnifiedPushService_pushUnregistered/);
+  assert.match(rs("push.rs"), /PUSH_ENDPOINT_SET\.store\(true/);
+  assert.match(rs("push.rs"), /Java_org_velta_UnifiedPushService_pushUnregistered/);
   assert.match(read("UnifiedPushService.kt"), /pushUnregistered\(\)/);
 });
 
