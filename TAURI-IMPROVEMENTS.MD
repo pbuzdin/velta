@@ -151,10 +151,9 @@ the exit path for the worst of it; the rest is worth fixing in place.
     build sidecars in the same pipeline as the vendored core so they can't
     drift (the KMP repo's `shim` job is the pattern).
 
-16. **`tauri.ios.conf.json` exists with no viable path.** Tauri iOS is not
-    production-grade; the config suggests an option that isn't one.
-    *Improvement:* delete or comment out with the reason, so nobody burns
-    time on it.
+16. **`tauri.ios.conf.json` removed (#199).** Tauri iOS is not a viable
+    product path; the overlay suggested an option that isn't one. Deleted
+    so nobody burns time on it.
 
 ## Latent platform traps (from the KMP port)
 

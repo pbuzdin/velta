@@ -1549,7 +1549,6 @@ by value with their integration notes — lives in
 │       ├── Cargo.toml          # Rust crate + deltachat-jsonrpc dependency
 │       ├── tauri.conf.json     # shared Tauri config
 │       ├── tauri.android.conf.json
-│       ├── tauri.ios.conf.json
 │       ├── gen/android/        # generated Android project
 │       └── src/
 │           ├── lib.rs          # sidecar + Android in-process core glue
