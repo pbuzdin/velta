@@ -30,8 +30,7 @@ PLAN-UNIFIEDPUSH.MD items 1–3 (notifier keypair swap, ntfy, maildir hook).
 **Standing (human-only):**
 - The P3 live gate — a throwaway-account login, 7-step checklist below;
   the 🎟 invite-paste / 📷 scan paths make it a copy-paste job.
-- #178 on-device re-verification for the TAURI shell (its VeltaKeystore
-  regressed — see `../TAURI-IMPROVEMENTS.MD` §7b).
+- #178 on-device re-verification for the TAURI shell.
 
 | Phase | State | Commit | CI |
 |---|---|---|---|
@@ -246,11 +245,10 @@ keyless = upstream). **Verified**: fresh start creates the wrap (61 bytes);
 the real-core headless check shows the on-disk db is ciphertext (random
 header), restart with the key opens the account, restart without it stays
 locked ("no SQL connection"); app restart unwraps (no new key).
-**Two Tauri bugs found and fixed in the port** (see
-TAURI-IMPROVEMENTS.MD §7b): the StrongBox fallback was dead code
-(generateKey outside the fallback try) and the wrap blob was sized without
-the GCM tag (copyInto overflow on every device) — net effect: Tauri
-Android installs have been running keyless, encryption inert.
+**Two Tauri bugs found and fixed in the port:** the StrongBox fallback was
+dead code (`generateKey` outside the fallback try) and the wrap blob was
+sized without the GCM tag (`copyInto` overflow on every device). Both are
+fixed in `velta-app/.../VeltaKeystore.kt` (`pack()`, `setIsStrongBoxBacked`).
 
 **Slice 8 — UnifiedPush receiver (shipped):** `VeltaPushService : PushService`
 (connector `org.unifiedpush.android:connector:3.3.4-rc1`, PUSH_EVENT filter)

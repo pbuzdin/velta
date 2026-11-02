@@ -34,7 +34,7 @@ no-network e2e round-trips against the real core gate every push. See
   `VELTA_DB_KEY`, patch #20 contract; on-disk db verified ciphertext);
   optional app lock (🔒 biometric/device-credential — locked = the core
   never starts, nothing decrypts). Port of #178, with two Tauri-side
-  keystore bugs fixed here (see `../TAURI-IMPROVEMENTS.MD` §7b).
+  keystore bugs (undersized wrap blob, StrongBox fallback) fixed here.
 - **Persistence** — resume straight into the chat list on every start; the
   core's accounts dir is the only storage.
 - **Background** — a dataSync foreground service holds the process (screen
