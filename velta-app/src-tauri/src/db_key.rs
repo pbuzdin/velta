@@ -2,8 +2,9 @@
 //!
 //! One random 256-bit DEK per install. The raw SQLCipher key (`x'<64 hex>'`,
 //! skips PBKDF2) reaches the core via the `VELTA_DB_KEY` env var (core quilt
-//! patch #20): desktop passes it to the spawned rpc-server sidecar, Android
-//! sets it in-process before `Accounts::new`. The DEK itself lives in the OS
+//! patch #20): desktop passes it to the spawned rpc-server sidecar (`cmd.env`,
+//! never `install_env` in the parent), Android calls [`install_env`] before
+//! `Accounts::new`. The DEK itself lives in the OS
 //! keychain — desktop: `keyring` (Windows Credential Manager/DPAPI, macOS
 //! login Keychain, Linux Secret Service); Android: AndroidKeyStore KEK
 //! wrapping the DEK (`org.velta.VeltaKeystore`, blob in `noBackupFilesDir`).
@@ -21,6 +22,23 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use rusqlite::Connection;
+
+/// Install `VELTA_DB_KEY` for this process. This is the only writer of that
+/// variable in the crate.
+///
+/// Desktop never uses this: the sidecar gets `cmd.env` before the child
+/// exists. Android still calls it after the tokio runtime exists
+/// (biometric/PIN unlock arrives later). The invariant is "once per
+/// process, one function, before `Accounts::new` on that start attempt" —
+/// not a claim that the mutation happens pre-thread on Android.
+pub fn install_env(raw: &str) {
+    // Runtime env mutation is process-global. Callers must not race a
+    // concurrent `Accounts::new` on this start attempt.
+    #[allow(unused_unsafe, deprecated)]
+    unsafe {
+        std::env::set_var("VELTA_DB_KEY", raw);
+    }
+}
 
 #[cfg(not(target_os = "android"))]
 const KEYCHAIN_SERVICE: &str = "chat.velta.dbkey";
@@ -490,7 +508,7 @@ pub fn startup(accounts_data_dir: &Path) -> (Option<String>, Option<KeyIssue>, b
 /// starts — no user auth bound to the KEK). Called from `init_android_core`
 /// with the accounts ROOT (`<data>/accounts`, where `Accounts::new` puts
 /// per-account dirs directly — desktop nests one level deeper through the
-/// sidecar's cwd). The raw key is returned for `std::env::set_var` before
+/// sidecar's cwd). The raw key is returned for [`install_env`] before
 /// `Accounts::new`; a Keystore failure runs the session keyless, which
 /// leaves already-encrypted databases closed until the Keystore works
 /// again — nothing is recreated over them.
@@ -1015,5 +1033,11 @@ mod tests {
 
         // Second unlock: already encrypted, same key back.
         assert_eq!(pin_unlock(&dir, &dir, "654321").unwrap(), raw);
+    }
+
+    #[test]
+    fn install_env_is_the_process_writer() {
+        install_env("x'deadbeef'");
+        assert_eq!(std::env::var("VELTA_DB_KEY").ok().as_deref(), Some("x'deadbeef'"));
     }
 }

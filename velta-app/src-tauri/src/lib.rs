@@ -4285,7 +4285,7 @@ async fn init_android_core(
             report.migrated, report.already, report.locked, if report.use_key { "active" } else { "off" }
         ));
         if report.use_key {
-            std::env::set_var("VELTA_DB_KEY", raw);
+            db_key::install_env(&raw);
             log("boot: db key applied");
         } else {
             log("boot: db key keyless");
@@ -4309,7 +4309,7 @@ async fn init_android_core(
         log("boot: db key keyless");
         anyhow::bail!("app-locked");
     } else if let Some(raw) = db_key::android_startup(&accounts_dir) {
-        std::env::set_var("VELTA_DB_KEY", raw);
+        db_key::install_env(&raw);
         log("boot: db key applied");
     } else {
         log("boot: db key keyless");
