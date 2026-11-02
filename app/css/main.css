@@ -2767,6 +2767,31 @@ html[data-theme="light"] .acct-pop .ctx-item {
 }
 .call-status { margin-top: 4px; font-size: 15px; color: var(--call-fg-dim); font-variant-numeric: tabular-nums; }
 #call-overlay.video .call-status { color: inherit; opacity: .8; }
+/* #239 Direct / Via relay chip: neutral in every theme (a relay is normal).
+   Text is --call-fg on a 10% --call-fg tint of --call-bg (>= 12:1 light, dark,
+   brutal); over remote video the scrim tokens carry it. Native <details>. */
+.call-net { margin-top: 8px; font-size: 13px; }
+.call-net-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 28px; padding: 2px 10px 2px 8px; border-radius: 999px;
+  list-style: none; cursor: pointer; user-select: none;
+  color: var(--call-fg);
+  background: color-mix(in srgb, var(--call-fg) 10%, var(--call-bg));
+  border: 1px solid color-mix(in srgb, var(--call-fg) 28%, var(--call-bg));
+  transition: background-color .3s, box-shadow .3s;
+}
+.call-net-chip::-webkit-details-marker { display: none; }
+.call-net-chip svg { width: 16px; height: 16px; flex: none; }
+.call-net-chip:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+.call-net-chip.flash { box-shadow: 0 0 0 2px var(--accent-text); background: color-mix(in srgb, var(--accent-text) 16%, var(--call-bg)); }
+.call-net-detail {
+  margin-top: 6px; padding: 8px 10px; border-radius: 10px; max-width: 320px;
+  color: var(--call-fg); background: color-mix(in srgb, var(--call-fg) 8%, var(--call-bg));
+  line-height: 1.4;
+}
+#call-overlay.video .call-net-chip,
+#call-overlay.video .call-net-detail { color: var(--call-video-fg); background: var(--call-scrim); border-color: color-mix(in srgb, var(--call-video-fg) 35%, transparent); }
+@media (prefers-reduced-motion: reduce) { .call-net-chip { transition: none; } }
 .call-avatar {
   position: relative;
   width: min(168px, calc(var(--vw) * .46));

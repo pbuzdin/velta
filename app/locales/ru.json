@@ -1583,5 +1583,11 @@
   "Cancelled": "Отменено",
   "Sending profile": "Отправка профиля",
   "Exporting backup": "Экспорт резервной копии",
-  "Importing backup": "Импорт резервной копии"
+  "Importing backup": "Импорт резервной копии",
+  "Via relay": "Через релей",
+  "Candidates: {local} / {remote}": "Кандидаты: {local} / {remote}",
+  "Protocol: {protocol}": "Протокол: {protocol}",
+  "Round trip: {ms} ms": "Задержка туда-обратно: {ms} мс",
+  "Relayed calls are normal and still end-to-end encrypted.": "Звонок через релей — это нормально, он всё так же зашифрован сквозным шифрованием.",
+  "Media goes straight between the devices, end-to-end encrypted.": "Звук и видео идут напрямую между устройствами, со сквозным шифрованием."
 }

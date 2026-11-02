@@ -1583,5 +1583,11 @@
   "Cancelled": "Annulé",
   "Sending profile": "Envoi du profil",
   "Exporting backup": "Exportation de la sauvegarde",
-  "Importing backup": "Importation de la sauvegarde"
+  "Importing backup": "Importation de la sauvegarde",
+  "Via relay": "Via un relais",
+  "Candidates: {local} / {remote}": "Candidats : {local} / {remote}",
+  "Protocol: {protocol}": "Protocole : {protocol}",
+  "Round trip: {ms} ms": "Aller-retour : {ms} ms",
+  "Relayed calls are normal and still end-to-end encrypted.": "Passer par un relais est normal ; l’appel reste chiffré de bout en bout.",
+  "Media goes straight between the devices, end-to-end encrypted.": "Le son et la vidéo passent directement entre les appareils, chiffrés de bout en bout."
 }
