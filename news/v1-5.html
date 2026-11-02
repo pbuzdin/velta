@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Velta 1.5 encrypts attachments and replaces the DNS tunnel — Velta</title>
+  <meta name="description" content="Attachments are encrypted on disk, mail can ride a SOCKS5 proxy instead of the old DNS tunnel, you can pause a relay without deleting it, and the app-lock PIN also unlocks the auto-lock screen.">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f14">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f4">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/velta.css?v=18">
+  <script type="speculationrules">
+{
+  "prerender": [{
+    "source": "document",
+    "where": { "and": [
+      { "href_matches": "/*" },
+      { "not": { "href_matches": "/web/*" } },
+      { "not": { "href_matches": "/admin/*" } },
+      { "not": { "selector": "a[target]" } },
+      { "not": { "selector": "a[download]" } }
+    ] },
+    "eagerness": "moderate" }
+  ]
+}
+  </script>
+</head>
+<body>
+  <a href="#content">Skip to content</a>
+  <header>
+    <a href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+    <nav aria-label="Sections">
+      <a href="/#product">Product</a>
+      <a href="/#features">Features</a>
+      <a href="/#privacy">Privacy</a>
+      <a href="/#platforms">Platforms</a>
+      <a href="/#help">Help</a>
+      <a href="/#support">Support</a>
+      <a href="/news" aria-current="page">News</a>
+      <a href="/web/">Web app</a>
+    </nav>
+    <a href="/#download"><span>Get</span><span>Download</span></a>
+    <details>
+      <summary>Menu</summary>
+      <nav aria-label="Mobile">
+        <a href="/#product">Product</a>
+        <a href="/#features">Features</a>
+        <a href="/#privacy">Privacy</a>
+        <a href="/#platforms">Platforms</a>
+        <a href="/#help">Help</a>
+        <a href="/#support">Support</a>
+        <a href="/news">News</a>
+        <a href="/web/">Web app</a>
+      </nav>
+    </details>
+  </header>
+
+  <main id="content" class="page">
+<!-- CMS:START -->
+    <p><a href="/news">News</a></p>
+    <p class="kicker">Release</p>
+    <h1>Velta 1.5 encrypts attachments and replaces the DNS tunnel</h1>
+    <p><time>2 November 2026</time> · 4 min read</p>
+    <p>Attachments are encrypted on disk, mail can ride a SOCKS5 proxy instead of the old DNS tunnel, you can pause a relay without deleting it, and the app-lock PIN also unlocks the auto-lock screen.</p>
+    <div class="body">
+<p>This note gathers what changed since <a href="/news/v1-4-89.html">1.4.89</a>. Profile databases were already encrypted on Android. 1.5 finishes the on-device picture, retires the DNS tunnel, and makes relays and the lock screen easier to live with.</p>
+<h2>Attachments encrypted on disk</h2>
+<p>Pictures, videos and files in a chat are now encrypted on the device, the same way the message database already is on Android. Opening a backup still works in Delta Chat: the export is the usual unencrypted archive. Until this landing, attachments relied on the phone’s own isolation; <a href="/news/v1-4-89.html">1.4.89</a> said so. That work is done.</p>
+<h2>SOCKS5 instead of the DNS tunnel</h2>
+<p>The DNS tunnel is gone. Native apps (Android, Windows, macOS) can send mail through a <strong>SOCKS5 proxy</strong> you save on this device, your LAN, or the internet, with an optional username and password. Share one as a <code>velta://proxy</code> link, a QR code, or a card in chat — Velta names the server and warns about credentials before it is added. A WebSocket proxy still works; pick one or the other.</p>
+<h2>Pause a relay</h2>
+<p>In the Relays list you can <strong>Disable</strong> a relay without deleting it. Sends skip it immediately; fetch skips it at the next reconnect. Mail already stored there stays. Pausing every relay takes the profile offline on purpose.</p>
+<p><strong>Add relays automatically</strong> is now a switch in that same list, off by default. Older profiles that had it on are flipped off once at upgrade.</p>
+<h2>The PIN also unlocks auto-lock</h2>
+<p>With a fingerprint and a Velta PIN both on, cancelling the biometric prompt used to leave no way in short of killing the app. The auto-lock screen now offers <strong>Use PIN</strong> as well: it checks the PIN there and then, with the same growing waits after wrong tries as at start, and it never drops the lock without a match.</p>
+<h2>A log you turn on</h2>
+<p>File logging is off unless you turn it on in <strong>About Velta</strong> or <strong>Velta Diagnostics</strong>. When you need a log, About can copy or share the last stretch of it. A few startup heartbeats still write, so a stuck splash has a trail.</p>
+<h2>Push that says when it failed</h2>
+<p>On Android, Settings → Push notifications now shows when the push app could not register, with the reason it gave. Pick another distributor, or turn push off, from the same screen.</p>
+<h2>Steadier chats</h2>
+<p>Opening or switching chats could hang for half a minute, especially with a saved proxy whose server was unreachable. That freeze is gone: mail connections no longer block the chat, and coming back to the app no longer waits on a fetch started while it was hidden.</p>
+<p>The message menu stays on the bubble and in the viewport. A contact’s profile lists every relay address, primary first.</p>
+<ul>
+<li><a href="https://github.com/pbuzdin/velta/releases/tag/v1.5.0">Release notes</a></li>
+<li><a href="https://github.com/pbuzdin/velta/compare/v1.4.90...v1.5.0">Compare 1.4.90 with 1.5.0</a></li>
+</ul>
+    </div>
+    <aside>
+      <h2>Get the current build</h2>
+      <p>The current build for Android, Windows, and macOS, plus notes for a self-hosted browser copy.</p>
+      <p><strong><a href="/#download">Download</a></strong></p>
+    </aside>
+<!-- CMS:END -->
+  </main>
+
+  <footer>
+    <div>
+      <div>
+        <a class="brand" href="/"><img src="/v-logo.svg" alt="" width="32" height="32"> Velta</a>
+        <p>A Delta Chat client. Encrypted chat through chatmail relays — or straight across, device to device, when it should not sit on a server.</p>
+      </div>
+      <div>
+        <h2>On this site</h2>
+        <ul>
+          <li><a href="/#download">Download</a></li>
+          <li><a href="/#privacy">Privacy</a></li>
+          <li><a href="/#support">Support</a></li>
+          <li><a href="/#help">Help</a></li>
+          <li><a href="/news">News</a></li>
+          <li><a href="/about.html">About</a></li>
+          <li><a href="/developing.html">Developing</a></li>
+          <li><a href="/comparison.html">Compare</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>Project</h2>
+        <ul>
+          <li><a href="https://github.com/pbuzdin/velta">GitHub</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/releases">All releases</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/LICENSE">GPL-3.0</a></li>
+          <li><a href="https://github.com/pbuzdin/velta/blob/master/README.md">README</a></li>
+          <li><a href="/admin/">Edit site</a></li>
+        </ul>
+      </div>
+    </div>
+    <p><span>Independent client, built on the Delta Chat core</span><span>Site visits measured cookielessly — the app never phones home</span></p>
+  </footer>
+  <script defer src="/js/site.js?v=7"></script>
+</body>
+</html>
