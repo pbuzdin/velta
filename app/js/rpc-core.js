@@ -278,6 +278,7 @@ export class JsonRpcCore extends EventTarget {
     // fail all pending calls from the dead connection
     for (const { reject } of this.pending.values()) reject(new Error("reconnecting"));
     this.pending.clear();
+    this._timedOut.clear(); // their late answers belong to the old connection
     await this.transport.setReceiver(this._onLine);
     // A restarted service is a fresh core process: stock overrides are gone.
     await this._applyVeltaStrings();
@@ -403,11 +404,12 @@ export class JsonRpcCore extends EventTarget {
     return "; oldest: " + rows.slice(0, max).map(([m, ms]) => `${m} ${Math.round(ms / 100) / 10}s`).join(", ");
   }
 
-  // Core watchdog (#240): the oldest call still waiting (event long poll
-  // excluded — it parks by design), or null.
+  // Core watchdog (#240): the oldest unresolved call (event long poll
+  // excluded — it parks by design), including client-timed-out calls still
+  // awaiting a late response, or null.
   oldestInFlight(now = Date.now()) {
     let best = null;
-    for (const e of this.pending.values()) {
+    for (const e of [...this.pending.values(), ...this._timedOut.values()]) {
       if (!e.method || !e.started || e.method === this._eventPollMethod) continue;
       const ms = now - e.started;
       if (!best || ms > best.ms) best = { method: e.method, ms };
@@ -1830,7 +1832,7 @@ export class JsonRpcCore extends EventTarget {
   // RFC 724 Message-ID and IMAP server locations. Not on the message object.
   async getMessageInfo(msgId) {
     const { accountId } = this;
-    const info = await this._call("get_message_info_object", accountId, msgId);
+    const info = await this._call("get_message_info_object", this.accountId, msgId);
     return {
       rfc724Mid: info?.rfc724Mid || "",
       serverUrls: Array.isArray(info?.serverUrls) ? info.serverUrls : [],
@@ -2180,7 +2182,7 @@ export class JsonRpcCore extends EventTarget {
   }
 
   async renameContact(contactId, name) {
-    await this._call("change_contact_name", this.accountId, contactId, name);
+    await this._call("change_contact_name", accountId, contactId, name);
   }
 
   async blockContact(contactId, blocked) {
