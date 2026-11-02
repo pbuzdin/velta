@@ -29,8 +29,10 @@ jobs:
       # five tests skipped on Linux CI.
       - name: Python websockets (ws-proxy-auth)
         run: python3 -m pip install --user --break-system-packages 'websockets==13.1'
+      # Quoted glob: Node 24 treats a `tests/` directory argument as one
+      # file and fails with MODULE_NOT_FOUND. Node expands ** itself.
       - name: JavaScript tests
-        run: node --test tests/
+        run: node --test 'tests/**/*.test.mjs'
       - name: Install browser test dependency
         working-directory: scripts
         run: npm ci --no-fund --no-audit

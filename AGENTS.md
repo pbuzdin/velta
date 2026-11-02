@@ -364,7 +364,7 @@ Build profiles are tuned for size in `Cargo.toml`:
 ### 4.2 Velta PWA (`app/`)
 
 ```bash
-node --test tests/             # complete JS suite; required by tests.yml
+node --test tests/**/*.test.mjs  # complete JS suite; required by tests.yml
 node scripts/e2e-smoke.mjs     # real Chromium: demo boot/open/send/no JS errors
 ```
 
@@ -2299,7 +2299,7 @@ calls > 8 s) and `core runtime stalled`.
   1. Tokens, not raw colors/sizes; new tokens go into `:root`, light and
      brutal as needed, and into `design/velta-design-system.html` + `.svg`
      (restamp the header with APP_VERSION and the date).
-  2. `node --test tests/` (includes `bubble-label-contrast` and
+  2. `node --test tests/**/*.test.mjs` (includes `bubble-label-contrast` and
      `design-token-guard`).
   3. `node scripts/e2e-contrast.mjs` (mock core; every theme × default,
      dark, mid and yellow accent; lists each offending element with its
@@ -2485,7 +2485,7 @@ network resume, contrast/token guards, webxdc tokens; 1.4.75: narrow-viewport CS
 chat appearance, hyphenation, settings export/apply, reactions scale):
 
 ```bash
-node --test tests/
+node --test tests/**/*.test.mjs
 ```
 
 Chat-list time (`app/js/format.js` `formatListTime`/`formatDay`,
