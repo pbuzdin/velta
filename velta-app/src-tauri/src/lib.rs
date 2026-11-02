@@ -22,6 +22,7 @@ pub mod p2p;
 mod proxy;
 mod ws_transport;
 mod log;
+mod sidecar;
 pub use crate::log::{log, set_log_dir, set_mirror_log_dir};
 use crate::log::{log_dir, redact_chat_link};
 
@@ -282,19 +283,21 @@ fn spawn_sidecar(app: &tauri::AppHandle, key: Option<String>, first: bool) {
                     match line {
                         Ok(line) => {
                             // NOTE: do not log every line -- it's the
-                            // hot path and would grow velta.log
-                            // unbounded. Errors are logged below.
-                            if line.contains("\"id\":\"wxdc-") {
-                                webxdc_resolve_line(&app_handle, &line);
-                                continue;
+                            // hot path. Route on the typed envelope id
+                            // (#201); malformed JSON is still emitted.
+                            match sidecar::route_sidecar_line(&line) {
+                                sidecar::Route::Webxdc => {
+                                    webxdc_resolve_line(&app_handle, &line);
+                                }
+                                sidecar::Route::Web => {
+                                    if !resolve_web_line(&app_handle, &line) {
+                                        app_handle.emit("velta-rpc", line).ok();
+                                    }
+                                }
+                                sidecar::Route::Emit => {
+                                    app_handle.emit("velta-rpc", line).ok();
+                                }
                             }
-                            // #49: a WebView command's response goes back
-                            // through the rpc command's return value — only
-                            // core-pushed lines reach the broadcast.
-                            if line.contains("\"id\":") && resolve_web_line(&app_handle, &line) {
-                                continue;
-                            }
-                            app_handle.emit("velta-rpc", line).ok();
                         }
                         Err(e) => {
                             log(&format!("sidecar stdout error: {e}"));
