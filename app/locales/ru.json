@@ -1589,5 +1589,9 @@
   "Protocol: {protocol}": "Протокол: {protocol}",
   "Round trip: {ms} ms": "Задержка туда-обратно: {ms} мс",
   "Relayed calls are normal and still end-to-end encrypted.": "Звонок через релей — это нормально, он всё так же зашифрован сквозным шифрованием.",
-  "Media goes straight between the devices, end-to-end encrypted.": "Звук и видео идут напрямую между устройствами, со сквозным шифрованием."
+  "Media goes straight between the devices, end-to-end encrypted.": "Звук и видео идут напрямую между устройствами, со сквозным шифрованием.",
+  "Core not responding": "Ядро не отвечает",
+  "Restart core": "Перезапустить ядро",
+  "Core stopped — restarting…": "Ядро остановилось — перезапуск…",
+  "Core stopped and could not be restarted": "Ядро остановилось, перезапустить не удалось"
 }

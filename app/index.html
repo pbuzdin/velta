@@ -78,6 +78,11 @@
 
   <!-- Main chat column -->
   <main id="main" class="main">
+    <div id="core-banner" class="core-banner" role="status" aria-live="polite" hidden>
+      <svg data-icon="warn" class="core-banner-ico"></svg>
+      <span id="core-banner-text" class="core-banner-text" data-i18n="Core not responding">Core not responding</span>
+      <button id="core-banner-restart" class="core-banner-btn" type="button" data-i18n="Restart core">Restart core</button>
+    </div>
     <div id="no-chat" class="no-chat">
       <div class="no-chat-badge" data-i18n="Select a chat to start messaging">Select a chat to start messaging</div>
       <p class="no-chat-sub" data-i18n="End-to-end encrypted · powered by chatmail relays">End-to-end encrypted · powered by chatmail relays</p>

@@ -90,13 +90,14 @@ import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS, setLinkPrevie
 import { wirePushSection } from "./push-settings.js";
 import { wireWebPushSection, refreshWebPush } from "./web-push.js";
 import { extractProxyLink, acceptProxyLink, makeChooser, openProxySettings, refreshProxyStatus, proxyOffered, proxyStatus, describeProxy, initProxyDiagnostics } from "./proxy.js";
-import { isAndroid, tauriInvoke } from "./tauri.js";
+import { isAndroid, tauriInvoke, rustLog } from "./tauri.js";
 import { ScheduledRunner, localStore, tauriStore } from "./scheduled.js";
 import { recordApp } from "./app-browser.js";
 import { applyDocumentLang, translateTree, t } from "./i18n.js";
 import { contactAddrRowsHtml } from "./contact-addrs.js";
 import { mountInviteDomains } from "./invite-domains.js";
 import { ICON, LOOP_SVG, P, svg } from "./icons.js";
+import { startCoreWatchdog } from "./core-watchdog.js";
 
 bootMark("velta-boot:imports");
 applyDocumentLang();
@@ -227,23 +228,95 @@ function renderInitialDiagnosticsChat() {
   list.replaceChildren(createChatItem(diagnostics.getChat(), false));
 }
 
+// The one "Restart: Core" path (Diagnostics button, watchdog banner, #240
+// auto-restart). kind: "manual" | "hung" | "dead". Resolves true on success.
+async function restartCore(kind = "manual") {
+  if (!core) {
+    diagnostics.append("warning", "Core is still starting; reloading the UI to retry initialization");
+    setTimeout(() => location.reload(), 150);
+    return true;
+  }
+  // PWA: a dead worker cannot be revived in place — reload boots a fresh
+  // one from the OPFS snapshot. The watchdog's restart history survives it.
+  if (kind === "dead" && core.backend?.kind === "worker-wasm") {
+    diagnostics.append("warning", "Core worker died; reloading to boot a new one");
+    setTimeout(() => location.reload(), 150);
+    return true;
+  }
+  try {
+    if (kind === "dead" && core.reconnect && await core.reconnect()) {
+      diagnostics.append("info", "Core reconnected after it died");
+    } else {
+      if (!core.restartIo) throw new Error("Core restart is unavailable for this backend");
+      await core.restartIo();
+    }
+    diagnostics.append("info", "Core restarted successfully");
+    toast(t("Core restarted"));
+    return true;
+  } catch (error) {
+    diagnostics.append("error", `Core restart failed: ${error?.message || error}`);
+    errToast(t("Core restart failed: {why}", { why: error?.message || error }), 5000);
+    throw error;
+  }
+}
+
+// #240 Core watchdog: banner + liveness ping, started once the core is up.
+let coreWatchdog = null;
+let imexRunning = false;
+const WATCHDOG_HISTORY_KEY = "velta-core-restarts";
+function startWatchdog() {
+  if (coreWatchdog || !core || core.backend?.kind === "mock" || !core._callWithTimeout) return;
+  const banner = $("core-banner");
+  const text = $("core-banner-text");
+  const btn = $("core-banner-restart");
+  core.addEventListener("imex-progress", e => {
+    const p = e.detail?.progress || 0;
+    imexRunning = p > 0 && p < 1000;
+  });
+  const wlog = msg => {
+    try { rustLog(msg); } catch {}
+    diagnostics.append(/failed|died|cap|unresponsive|hung/.test(msg) ? "warning" : "info", msg);
+  };
+  // Restarts from before a PWA reload count toward the cap.
+  let history = [];
+  try { history = JSON.parse(sessionStorage.getItem(WATCHDOG_HISTORY_KEY) || "[]").filter(n => typeof n === "number"); } catch {}
+  coreWatchdog = startCoreWatchdog({
+    core,
+    restarts: history,
+    log: wlog,
+    isBusy: () => ({
+      transfer: imexRunning,
+      call: !!calls && ["incoming", "outgoing", "accepting", "active"].includes(calls.state),
+    }),
+    restart: async kind => {
+      if (kind !== "manual") {
+        try {
+          const h = JSON.parse(sessionStorage.getItem(WATCHDOG_HISTORY_KEY) || "[]");
+          sessionStorage.setItem(WATCHDOG_HISTORY_KEY, JSON.stringify([...h, Date.now()].slice(-5)));
+        } catch {}
+      }
+      if (btn) btn.disabled = true;
+      try { return await restartCore(kind); } finally { if (btn) btn.disabled = false; }
+    },
+    onShow: status => {
+      if (!banner) return;
+      banner.dataset.status = status;
+      text.textContent = status === "failed"
+        ? t("Core stopped and could not be restarted")
+        : status === "dead" ? t("Core stopped — restarting…") : t("Core not responding");
+      banner.hidden = false;
+    },
+    onHide: () => { if (banner) banner.hidden = true; },
+  });
+  btn?.addEventListener("click", () => coreWatchdog.manual());
+  addEventListener("velta-core-dead", e => coreWatchdog.dead(e.detail?.reason || "transport closed"));
+}
+
 function bindEarlyRecoveryActions() {
   $("btn-restart-core")?.addEventListener("click", async () => {
     diagnostics.append("info", "Core restart requested during startup");
-    if (!core) {
-      diagnostics.append("warning", "Core is still starting; reloading the UI to retry initialization");
-      setTimeout(() => location.reload(), 150);
-      return;
-    }
-    try {
-      if (!core.restartIo) throw new Error("Core restart is unavailable for this backend");
-      await core.restartIo();
-      diagnostics.append("info", "Core restarted successfully");
-      toast(t("Core restarted"));
-    } catch (error) {
-      diagnostics.append("error", `Core restart failed: ${error?.message || error}`);
-      errToast(t("Core restart failed: {why}", { why: error?.message || error }), 5000);
-    }
+    if (coreWatchdog) { coreWatchdog.manual(); return; }
+    await restartCore("manual");
   }, { once: true });
 
   $("btn-reconnect-ui")?.addEventListener("click", async () => {
@@ -7300,6 +7373,7 @@ async function boot() {
     // mid-session; without this loop the only recovery is a full page reload.
     // Retries forever at a capped interval — the app should come back
     // whenever the core does, however long that takes.
+    startWatchdog();
     let reconnecting = false;
     addEventListener("velta-core-disconnected", () => {
       toast(t("Lost connection to local Delta Chat core — reconnecting…"), 4500);

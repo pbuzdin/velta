@@ -403,6 +403,18 @@ export class JsonRpcCore extends EventTarget {
     return "; oldest: " + rows.slice(0, max).map(([m, ms]) => `${m} ${Math.round(ms / 100) / 10}s`).join(", ");
   }
 
+  // Core watchdog (#240): the oldest call still waiting (event long poll
+  // excluded — it parks by design), or null.
+  oldestInFlight(now = Date.now()) {
+    let best = null;
+    for (const e of this.pending.values()) {
+      if (!e.method || !e.started || e.method === this._eventPollMethod) continue;
+      const ms = now - e.started;
+      if (!best || ms > best.ms) best = { method: e.method, ms };
+    }
+    return best;
+  }
+
   _call(method, ...params) {
     return this._callWithTimeout(30000, method, ...params);
   }
