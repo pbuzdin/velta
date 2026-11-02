@@ -1,9 +1,10 @@
-// #140: Settings → Push notifications (Android only). A native
+// #140/#204: Settings → Push notifications (Android only). A native
 // <details class="drawer-details"> section in the drawer, like the other
 // settings groups. State comes from the shell (push_status → Kotlin
-// UnifiedPushBridge): installed UnifiedPush distributors with app labels,
-// the saved one, an explicit Off, and the last push time recorded by
-// UnifiedPushService. Relay support reuses relay-push.js (#110 "(U)" data).
+// UnifiedPushBridge.status): one computed object — distributors with app
+// labels, the saved one, explicit Off, last push time, and registration
+// ok|failed|none. JS does not read prefs itself. Relay support reuses
+// relay-push.js (#110 "(U)" data).
 
 import { relaySupportsPush } from "./relay-push.js";
 import { escapeHtml } from "./format.js";
@@ -20,12 +21,15 @@ export function parsePushStatus(raw) {
   const distributors = (Array.isArray(v.distributors) ? v.distributors : [])
     .filter(d => d && typeof d.pkg === "string" && d.pkg)
     .map(d => ({ pkg: d.pkg, label: String(d.label || d.pkg) }));
+  const registration = v.registration === "ok" || v.registration === "failed" ? v.registration : "none";
   return {
     distributors,
     saved: typeof v.saved === "string" ? v.saved : "",
     savedLabel: String(v.savedLabel || ""),
     optedOut: v.optedOut === true,
     lastPush: Number(v.lastPush) > 0 ? Number(v.lastPush) : 0,
+    registration,
+    registrationError: typeof v.registrationError === "string" ? v.registrationError : "",
   };
 }
 
@@ -38,6 +42,11 @@ export function selectedValue(s) {
 /** One-line current state for the summary. */
 export function describePushState(s) {
   if (!s.distributors.length) return t("No push app installed — using periodic background checks");
+  if (s.registration === "failed") {
+    return s.registrationError
+      ? t("Registration failed: {reason}", { reason: s.registrationError })
+      : t("Registration failed");
+  }
   if (s.saved) {
     const d = s.distributors.find(x => x.pkg === s.saved);
     return t("Using {app}", { app: d ? d.label : (s.savedLabel || s.saved) });

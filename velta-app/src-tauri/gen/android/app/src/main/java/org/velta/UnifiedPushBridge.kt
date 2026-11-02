@@ -8,16 +8,18 @@ import org.json.JSONObject
 import org.unifiedpush.android.connector.INSTANCE_DEFAULT
 import org.unifiedpush.android.connector.UnifiedPush
 
-// #140: Settings → Push notifications. Called from lib.rs (push_status /
+// #140/#204: Settings → Push notifications. Called from lib.rs (push_status /
 // push_select / push_off) through the cached-class JNI pattern. State the
-// connector does not keep (explicit "Off", last push time) lives in the
-// "velta_push" SharedPreferences, shared with UnifiedPushService.
+// connector does not keep (explicit "Off", last push time, last registration
+// failure) lives in the "velta_push" SharedPreferences, shared with
+// UnifiedPushService. status() is the only object the settings UI reads.
 object UnifiedPushBridge {
     private const val TAG = "UnifiedPushBridge"
     const val PREFS = "velta_push"
     const val KEY_OPTED_OUT = "opted_out"
     const val KEY_LAST_PUSH = "last_push_ms"
     const val KEY_LAST_ENDPOINT = "last_endpoint_ms"
+    const val KEY_REG_FAILED = "reg_failed"
 
     fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -30,7 +32,7 @@ object UnifiedPushBridge {
         pkg
     }
 
-    /** JSON: {distributors:[{pkg,label}], saved, savedLabel, optedOut, lastPush, lastEndpoint} */
+    /** JSON: {distributors:[{pkg,label}], saved, savedLabel, optedOut, lastPush, lastEndpoint, registration, registrationError} */
     @JvmStatic
     fun status(context: Context): String {
         val out = JSONObject()
@@ -48,15 +50,31 @@ object UnifiedPushBridge {
         out.put("saved", saved ?: "")
         out.put("savedLabel", if (saved != null) label(context, saved) else "")
         out.put("optedOut", optedOut(context))
-        out.put("lastPush", prefs(context).getLong(KEY_LAST_PUSH, 0L))
-        out.put("lastEndpoint", prefs(context).getLong(KEY_LAST_ENDPOINT, 0L))
+        val p = prefs(context)
+        val lastEndpoint = p.getLong(KEY_LAST_ENDPOINT, 0L)
+        val failed = p.getString(KEY_REG_FAILED, "") ?: ""
+        out.put("lastPush", p.getLong(KEY_LAST_PUSH, 0L))
+        out.put("lastEndpoint", lastEndpoint)
+        // failed wins over a previous endpoint so a later registration error
+        // is not reported as ok. ok needs a recorded endpoint and no failure.
+        val registration = when {
+            failed.isNotEmpty() -> "failed"
+            lastEndpoint > 0L -> "ok"
+            else -> "none"
+        }
+        out.put("registration", registration)
+        out.put("registrationError", failed)
         return out.toString()
     }
 
-    /** Use this distributor now: save + register; clears an explicit Off. */
+    /** Use this distributor now: save + register; clears an explicit Off
+     * and any previous registration-failure flag (retry in progress). */
     @JvmStatic
     fun select(context: Context, pkg: String) {
-        prefs(context).edit().putBoolean(KEY_OPTED_OUT, false).apply()
+        prefs(context).edit()
+            .putBoolean(KEY_OPTED_OUT, false)
+            .putString(KEY_REG_FAILED, "")
+            .apply()
         UnifiedPush.saveDistributor(context, pkg)
         UnifiedPushService.register(context)
     }

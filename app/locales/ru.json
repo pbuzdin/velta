@@ -1126,6 +1126,8 @@
   "No other paired devices. Pair with a device first (Local chat → Add contact).": "Других сопряжённых устройств нет. Сначала сопрягитесь с устройством (Локальный чат → Добавить контакт).",
   "Couldn't add: {why}": "Не удалось добавить: {why}",
   "No push app installed — using periodic background checks": "Push-приложение не установлено — периодические фоновые проверки",
+  "Registration failed": "Регистрация не удалась",
+  "Registration failed: {reason}": "Регистрация не удалась: {reason}",
   "Using {app}": "Через {app}",
   "Off — using periodic background checks": "Выкл — периодические фоновые проверки",
   "Off — pick a push app below": "Выкл — выберите push-приложение ниже",
