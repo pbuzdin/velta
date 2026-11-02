@@ -100,7 +100,6 @@ import { inviteCardsHtml } from "./invite-cards.js";
 import { attachMentionPicker, fprCode } from "./mentions.js";
 import { fingerprintFor, cachedFingerprintIsDerived } from "./avatar.js";
 import { detectTextLang, uiLang } from "./text-lang.js";
-import { looksLikeSettings, parseSettings } from "./settings-transfer.js";
 import { lcRetryTransfer } from "./local-chat.js";
 import { TypingSender } from "./typing.js";
 import { linkPreview, linkPreviewCardHtml, linkPreviewMode, firstLink as firstLinkOf, senderPreviewUrl, receiveFetchesPreview, renderPreviewImage } from "./link-preview.js";
@@ -112,6 +111,11 @@ import { senderColorVars } from "./name-color.js";
 // Fix 5: image compression and large-file/Lufi upload (with sjcl) load on
 // first use; largeFileAvailable() is just "running in the Tauri shell".
 const largeFileAvailable = () => !!tauriInvoke();
+// Cheap header gate so Saved Messages can offer Apply without pulling
+// settings-transfer.js into the boot graph (strict parse is on Apply).
+function looksLikeSettings(text) {
+  return typeof text === "string" && text.length <= 4096 && /^\s*Velta settings v1\b/.test(text);
+}
 import { openInAppBrowser } from "./inapp-browser.js";
 import { lufiUploadFor } from "./lufi-store.js";
 import { parseCryptexLink, cryptexUploadFor } from "./cryptex.js";
@@ -2477,11 +2481,10 @@ export class ChatView {
         }
       }
       if (fullMsg) bubble += `<div style="margin-top:6px"><button type="button" class="btn-text" data-fullmsg style="padding:4px 8px;font-size:13px">${escapeHtml(t("Show Full Message…"))}</button></div>`;
-      // Settings export (settings-transfer.js): only in Saved Messages, only
-      // our own original messages (no forwards, no saved copies of someone
-      // else's), and only when the strict parser accepts the block.
+      // Settings export: Saved Messages, own original only. Header gate is
+      // cheap; settings-transfer.js (lazy) parses strictly on Apply.
       if (this.chat?.kind === "saved" && m.from === 1 && !m.fwdFrom && !m.originalMsgId
-        && looksLikeSettings(m.text) && parseSettings(m.text)) {
+        && looksLikeSettings(m.text)) {
         bubble += `<div class="msg-settings-act"><button type="button" class="btn-text" data-apply-settings>${escapeHtml(t("Apply these settings"))}</button></div>`;
       }
       // Plain text only. A baked sender preview is an image, and fetching

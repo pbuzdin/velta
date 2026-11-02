@@ -11,7 +11,6 @@
 // cache_relname, not the entry's absolute url (often a different host).
 
 import { isValidXdc } from "./builtin-xdc.js";
-import { base64ToBytes } from "./identity-backup.js";
 import { t } from "./i18n.js";
 
 export const APPS_KEY = "velta-recent-apps";
@@ -43,7 +42,10 @@ export function bytesFromBase64(b64) {
   const s = String(b64 ?? "").replace(/\s/g, "");
   if (!s) return new Uint8Array();
   const pad = s.length % 4 === 0 ? s : s + "=".repeat(4 - (s.length % 4));
-  return base64ToBytes(pad);
+  const bin = atob(pad);
+  const u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return u8;
 }
 
 // http(s) origin + path, no credentials, no hash. A pasted index URL loses
