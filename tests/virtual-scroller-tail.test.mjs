@@ -4,6 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
 
 function el(tag) {
   const node = {
@@ -163,4 +164,17 @@ test("appending at the bottom keeps a row on screen", () => {
   assert.equal(st.lastShownItemIndex, more.length - 1);
   assert.equal(intersects(scroll, itemsEl), true);
   vs.stop();
+});
+
+// The vendor's _onItemHeightDidChange catches the "element not in the DOM"
+// race at the rendered-window boundary (state says rendered, the DOM lags
+// one update) and used to surface it as "[virtual-scroller] ERROR" — noise
+// in diagnostics for a self-healing condition (the Velta patch demotes it
+// to the debug logger, matching the sibling "no longer rendered" branch).
+test("the can't-measure height race logs at debug, not ERROR (Velta patch)", () => {
+  const vs = readFileSync(new URL("../app/vendor/virtual-scroller.js", import.meta.url), "utf8");
+  const at = vs.indexOf('has been called for item index');
+  assert.ok(at > 0, "vendor call site not found — vendor upgraded? re-review the patch");
+  assert.ok(vs.slice(at - 120, at).includes("return _("),
+    "the can't-measure race must use the debug logger, not the ERROR logger");
 });
