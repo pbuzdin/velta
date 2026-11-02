@@ -123,9 +123,25 @@ status line live. `add_transport_from_qr` with `check_qr` validation and
 `configure-progress` step UI for adding.
 
 Demo mode: MockCore carries a relay surface (`relayDomains` +
-`listTransports`/`setSendRelay`/`deleteTransport`/`getConnectivityHtml`),
+`listTransports`/`setSendRelay`/`deleteTransport`/`getConnectivityHtml` +
+`setTransportEnabled`/`listTransportStates`),
 so the Relays modal is fully demoable — the second demo relay renders
 as unreachable, which exercises the stale-transport hint.
+
+**Add relays automatically (quilt #23).** Upstream `init_transports` turns
+`Config::Autorelay` on and onboards extra transports from a hardcoded
+candidate list until the profile has three. Velta defaults it **false**
+and exposes the switch in this modal (`setConfig("autorelay", …)`). A
+one-time JS migration (`RpcCore.migrateAutorelayDefault`, marker
+`velta-autorelay-default`) flips legacy profiles off.
+
+**Disable / Enable (quilt #24, #189).** Each card can pause a relay
+without deleting it. Paused addrs live in `ui.velta.disabled_transports`
+(JSON, per device, like the send pin). Sends drop them immediately; inbox
+loops and `background_fetch_any` skip them at the next IO start. A send
+pin naming a paused relay is voided. RPCs `set_transport_enabled` /
+`list_transport_states`; old cores hide the toggle. All paused = the
+profile is offline by choice.
 
 ## Deep links
 

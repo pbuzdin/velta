@@ -51,7 +51,7 @@ upstream replaces the whole tree and wipes them. **The quilt
 `tools/apply-core-patches.py` is the single source of truth: every Velta
 change inside `core/` must be an op there** (anchor + marker); a hand edit
 that is not an op is lost on the next re-vendor — that is how #12 and #13
-vanished in 2.63.0. Current quilt at core 2.66.0 — **91 ops in 20 files**
+vanished in 2.63.0. Current quilt at core 2.66.0 — **149 ops in 34 files**
 (intent per patch in VENDORISSUES.MD; upstream status — none implemented,
 multi-relay heading "fully automatic" upstream, escalation posture — in
 VENDORISSUES.MD "Upstream status (assessed 2026-10-29)"):
@@ -67,7 +67,13 @@ VENDORISSUES.MD "Upstream status (assessed 2026-10-29)"):
 | #15 | 6 | transport.rs, deltachat-jsonrpc/src/api.rs, deltachat-jsonrpc/src/api/types/login_param.rs | `get_server_metadata` RPC: per-transport relay capabilities (TURN/calls, iroh relay, push, app versions) from the IMAP METADATA the scheduler already fetches |
 | #16 | 8 | imap.rs, transport.rs, deltachat-jsonrpc/src/api.rs, deltachat-jsonrpc/src/api/types/login_param.rs | extends #15: `update_metadata` records the session's IMAP IDLE + COMPRESS=DEFLATE and the `/shared/vendor/deltachat/maxsmtprecipients` limit into `ServerMetadata`; `get_server_metadata` returns `canIdle`/`canCompress`/`maxSmtpRcptTo` (`null` until the relay connected). Must apply after the #15 ops |
 | #17 | 1 | deltachat-jsonrpc/src/api.rs | `maybe_network` clones the contexts under `accounts.read()` and interrupts after releasing it — an IO restart holds the scheduler lock up to 30 s/task while tasks wind down, and the old lock-across-interrupt blocked every RPC on every account (Android chat-open stalls; trackers #175/#176) |
-| #18 | 5 | core/src/scheduler.rs | scheduler interrupts (`inbox`/`smtp`/`ephemeral_task`/`location`/`recently_seen`) use `try_read()` and skip while a start/stop holds the write lock, instead of queueing behind the wind-down (`rpc timeout: send_msg` / `markseen_msgs`, chats would not open) |
+| #18 | 7 | core/src/scheduler.rs | scheduler interrupts (`inbox`/`smtp`/`ephemeral_task`/`location`/`recently_seen`/`inbox_idle`/`maybe_network_lost`) use `try_read()` and skip while a start/stop holds the write lock |
+| #19 | 46 | chat.rs, receive_imf.rs, securejoin.rs, qr.rs, tools.rs, mimeparser.rs, ephemeral.rs, message.rs, jsonrpc, tests | admin groups (#177) |
+| #20 | 3 | accounts.rs | keyed SQLCipher open via `VELTA_DB_KEY` (#178) |
+| #21 | 2 | deltachat-jsonrpc/src/api.rs, scheduler.rs | start/stop_io_for_all_accounts release the account lock (#181) |
+| #22 | 40 | blob.rs and blob consumers, Cargo.toml/lock | native attachment encryption VLTA (#178) |
+| #23 | 1 | configure.rs | autorelay default off (#relays) |
+| #24 | 10 | transport.rs, smtp.rs, scheduler.rs, jsonrpc | per-relay enable/disable (#189) |
 
 Re-vendor steps:
 
@@ -76,7 +82,7 @@ Re-vendor steps:
 # 2. re-apply the quilt
 python3 tools/apply-core-patches.py apply                # CONFLICT = anchor moved; nothing is written
 # 3. prove it
-python3 tools/apply-core-patches.py verify               # must report 39/39 (any missing marker fails)
+python3 tools/apply-core-patches.py verify               # must report 149/149 (any missing marker fails)
 python3 tools/apply-core-patches.py tree-check --fetch   # pristine v<Cargo.toml version> + quilt == core/
 python3 tools/apply-core-patches.py self-test            # if you touched the tool
 # 4. build + targeted tests (WSL on Windows)

@@ -564,6 +564,12 @@ and whether the connection is compressed.
 - **Add relay** — paste a `dcaccount:`/`dclogin:` invite code or just the relay's domain (`nine.testrun.org`); the core
   configures it as a second transport (progress modal during setup).
 - **Use for sending** — makes that relay the primary (sending) transport.
+- **Disable / Enable** — pause a relay without deleting it. Sends skip it
+  immediately; fetch skips it at the next reconnect. Mail already stored
+  there stays. Pausing every relay takes the profile offline on purpose.
+- **Add relays automatically** — off by default. When on, the core may
+  onboard extra transports from its candidate list until the profile has
+  three. Velta flips legacy profiles off once at upgrade.
 - **Remove relay** — immediate removal (core 2.60.0): the relay stops being
   used right away and your contacts are informed automatically, but messages
   still on their way to the old address may arrive for a short while. Your
@@ -1426,11 +1432,12 @@ is the installer, not the app, and it sends nothing about you.
 <summary>Chat-open freeze fix (1.4.90)</summary>
 
 Opening or switching chats could hang for 30 s or longer, especially with a
-saved DNS tunnel whose server was unreachable: restarting mail connections
+saved proxy whose server was unreachable: restarting mail connections
 held a lock that every chat request waited on. 1.4.90 starts and stops mail
-connections without that lock, runs DNS-tunnel work off the UI thread, and
-no longer stacks repeated requests when you re-tap a chat. A regression test
-with the real core runs in CI on every core change.
+connections without that lock, and no longer stacks repeated requests when
+you re-tap a chat. Returning to the app also cancels a background fetch
+started while hidden, so foreground chat RPCs do not wait behind it. A
+regression test with the real core runs in CI on every core change.
 
 </details>
 
@@ -1446,8 +1453,12 @@ file kept until the new one is proven).
 there (key in the OS keychain, or behind a passphrase/passkey in the
 browser) but is not final yet.
 
-**Attachments are not encrypted yet** — work in progress. Until then they
-rely on the platform's app isolation and disk encryption.
+**Native attachments are encrypted at rest** (VLTA: a profile key derived
+from the database DEK, a random key per file, authenticated 64 KiB chunks).
+Legacy blobs migrate in place. Backups still export standard plaintext
+entries so they open in Delta Chat. The PWA keeps encrypting the whole
+OPFS snapshot instead — the wasm core has no raw DEK. Large-file/Lufi
+uploads stay on their own path.
 
 **Privacy & security** (side drawer, desktop and Android apps) gathers the
 lock settings for the whole app, not per profile:
@@ -1457,12 +1468,15 @@ lock settings for the whole app, not per profile:
   root (Argon2id), with growing delays after wrong attempts.
 - **Biometric lock** (Android 9+) — fingerprint/face, and on Android 11+
   also the phone's screen-lock PIN, pattern or password, so phones without
-  enrolled biometrics can use it. It can be combined with the Velta PIN
-  ("Use PIN" on the lock screen).
+  enrolled biometrics can use it. It can be combined with the Velta PIN.
+  The lock overlay keeps **Unlock with biometrics** on screen. **Use PIN**
+  appears only at cold start, when the page behind is the real PIN gate.
+  After auto-lock the core is already running, so that button is hidden.
 - **Lock when hidden** — off / 1 / 5 / 15 minutes.
 
-The screen also shows what protects attachments today (Android
-file-based encryption; on desktop whether BitLocker/FileVault is on).
+The screen also shows volume encryption (Android file-based encryption;
+on desktop whether BitLocker/FileVault is on). Native blobs, uploads and
+thumbnails are VLTA-encrypted when the DEK is present.
 Lose the PIN and the keychain/Keystore and the data cannot be opened —
 keep a backup.
 

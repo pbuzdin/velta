@@ -288,6 +288,10 @@ struct persisted to `notify-prefs.json` in app local data, plus a copy in
   in the foreground (the live IO loop already fetches; a fetch there could
   restart IO under a send and block chat switching), and the core's
   `background_fetch` bound is 15 s (was 30 s).
+- On resume, `setActivityForeground` cancels any hidden `background_fetch`
+  **before** `maybe_network` and `velta-foreground`, so chat RPCs do not
+  wait behind a stale socket. Headless core startup clones account
+  contexts under a short read lock and starts IO after releasing it.
 - `Notifications.kt` picks the channel id from vibration/sound prefs
   (Android freezes channel settings; id-switch = fresh channel).
 
@@ -306,3 +310,14 @@ time, and a "Get a push app (ntfy)" link when none is installed. JS:
 (lib.rs) → `UnifiedPushBridge.kt`; explicit Off persisted in prefs
 `velta_push/opted_out` and honoured by `UnifiedPushService.maybeRegister`.
 See AGENTS.md §9.4.
+
+## Lock overlay (VeltaLock)
+
+`showLock(activity, allowPinFallback)` paints the dark lock overlay.
+**Unlock with biometrics** stays on screen and retries: `reAuth` when the
+core is running, `requestUnlock` (DEK unwrap) when it is keyless. **Use
+PIN** is visible only at cold start (`allowPinFallback && pinOn`) — the
+WebView behind is the real PIN gate. Auto-lock never shows it; that
+button only calls `hideLock()` and would open the unlocked app. Pinned by
+`tests/android-lock-screen-design.test.mjs` and
+`tests/privacy-security.test.mjs`.

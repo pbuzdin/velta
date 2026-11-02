@@ -152,7 +152,8 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── design/                   # token snapshot of app/css/main.css (HTML + SVG); restamp header with APP_VERSION
 ├── docs/agents/              # per-subsystem agent notes (webxdc, relays,
 │                              p2p/local chat, android-shell, media,
-│                              onboarding, security-triage, large-file, calls, web-push) — referenced from §5/§11
+│                              onboarding, security-triage, large-file, calls, web-push;
+│                              dns-tunnel.md is archival — SOCKS5 replaced it) — referenced from §5/§11
 ├── docs/as-built-architecture.md # product snapshot at cd59531 (2026-10-13); no implementation plan
 ├── docs/web-components-audit.md  # UI semantics/a11y/progressive-rendering audit (2026-10-06)
 ├── docs/web-components-plan.md   # phased fix plan for that audit (quick wins → tests)
@@ -177,6 +178,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── docs/research/websockify-c3-deploy.md          # C3 runbook: deploy the websockify-c3 relay, verify, RELAY_WS_URL e2e
 ├── docs/research/ws-relay-endpoints-probe.md      # external WS endpoints vs the C3 contract — chatmail.uk /ygg-ws = Yggdrasil peering, not a mail tunnel (10-09)
 ├── docs/research/wasm-patches/   # 10-patch wasm series (series.txt, VENDORED.md, pinned locks + PROVENANCE)
+├── packages/attachment-crypto/ # velta-attachment VLTA format (#22 / #178): wrap + seekable 64 KiB chunks; native only
 ├── packages/velta-wasm/      # MPL wasm wrapper — README = local wasm-pack build + e2e recipes
 ├── scripts/build-pwa.mjs         # C4 PWA dist builder (app/ + wasm assets + pwa-config.js + precache SW + wasm.br/gz sidecars not in PRECACHE); refuses a wasm without sqlite_export unless --allow-no-db-persist — §4.2.1; ship snapshot is git branch pwa-dist
 ├── scripts/relay-invite/         # invite-only signup: invite.py CGI (interstitial + claim) + invite-tool.py CLI + README (deploy/features/troubleshooting) — deployed to the private relay (§4.2.1 relay-list bullet)
@@ -281,6 +283,7 @@ intent in VENDORISSUES.MD):
 | #16 | extends #15 (ops must stay after it): IMAP IDLE, COMPRESS=DEFLATE, and max SMTP recipients on that metadata. UI: D flag ("not known yet" until the relay has connected), recipient limit and "compressed connection" in the details line. 8 ops | imap.rs, transport.rs, api.rs, login_param.rs |
 | #19 | admin groups (#177), ArcaneChat-compatible: grpid `ADMINFPR:randomid`, receivers enforce admin-only add / remove-others / name / description / avatar / timer / pins / delete-for-everyone; `create_group_with_admin` + `FullChat.groupAdminId` jsonrpc. 46 ops; receive_imf.rs ops are the fragile part on re-vendor. Plan + stock-DC interop: docs/core-patches/admin-groups-plan.md | chat.rs, receive_imf.rs, securejoin.rs, qr.rs, tools.rs, mimeparser.rs, ephemeral.rs, message.rs, jsonrpc api.rs + types/chat.rs, chat_tests.rs, tools_tests.rs |
 | #18 | scheduler interrupts (`interrupt_inbox/smtp/ephemeral_task/location/recently_seen`, and since 1.4.90 `interrupt_inbox_idle` + `maybe_network_lost`) use `try_read()`: never wait behind an IO start/stop holding the scheduler lock (#176) | scheduler.rs |
+| #20 | keyed SQLCipher open: `VELTA_DB_KEY` (`x'<64 hex>'`) in `Accounts::load_accounts`/`add_account` (#178). Unset env keeps upstream empty-passphrase behavior. 3 ops | accounts.rs |
 | #21 | `start_io_for_all_accounts` / `stop_io_for_all_accounts` clone the contexts under a short `accounts.read()` and start/stop with NO account manager lock (stops in parallel) (#181, 1.4.90). They held `accounts.write()` across `Scheduler::stop` (up to 30 s per IMAP/SMTP task), freezing every RPC (`get_context`): the 30 s chat-open timeouts, worst with a saved DNS tunnel. Test hook `VELTA_TEST_STOP_IO_DELAY_MS` (no-op unset) for `tests/core-stall/stop_io_stall.py` | deltachat-jsonrpc/src/api.rs, scheduler.rs |
 | #22 | Native attachment encryption (#178): the shared `velta-attachment` crate derives a profile key from the raw DEK, wraps a random key per blob, and authenticates independent 64 KiB chunks for seek/Range reads. Core encrypts writes and legacy blobs, hashes plaintext for dedup, decrypts all consumers, and exports standard plaintext backup entries. 40 ops | Cargo.toml/lock, blob.rs + tests, context.rs, imex.rs + transfer.rs, message.rs, mimefactory.rs, net/http.rs, webxdc.rs and other plaintext readers |
 | #23 | Automatic relay onboarding is opt-in: `init_transports` defaults `Config::Autorelay` to **false** (upstream sets true), the Relays modal toggles it ("Add relays automatically" → generic `setConfig`), and a one-time per-account JS migration (`migrateAutorelayDefault`, marker `velta-autorelay-default` in localStorage) flips legacy profiles off. Velta's "Relays you pick" is the brand — upstream's auto-onboard adds transports from a candidate list silently (#relays) | configure.rs |
@@ -2465,10 +2468,13 @@ incoming-msg (`mutedChatAllows`) and Rust `bg_notify_incoming`
 ### 7.2 Frontend
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
-whole set — 162 files, 1143 tests as of 2026-10-28 (1.4.86: diagnostics bar
+whole set — 179 files, 1236 tests as of 2026-11-02 (5 skipped without
+python3+websockets: `tests/ws-proxy-auth.test.mjs`; Windows path uses
+`fileURLToPath`). Includes SOCKS5 proxy, relay pause/autorelay, native
+attachment encryption, and Android lock-screen contracts from the 2026-11-02
+PR stack. 1.4.86: diagnostics bar
 leaves with the chat, history stays on screen after a send, row height is
-read after replace. On this Windows checkout `tests/ws-proxy-auth.test.mjs`
-still fails before it runs: the script path doubles the drive letter.
+read after replace.
 1.4.82: languages #129,
 app catalog #137, chats in common #171, invite-card swipes #87; New channel #155,
 click-to-copy `` `code` `` spans #156, pin-tray permissions #157; 1.4.80: +link actions
@@ -2808,6 +2814,12 @@ and account-switch cleared. Tests: `tests/lru-caches.test.mjs`.
   removed and init bails "app-locked" with `DB_LOCK_STATUS` mode pin) and
   the biometric prompt accepts `BIOMETRIC_STRONG | DEVICE_CREDENTIAL` on
   API 30+ (no negative button then; API 28-29 strong biometric only).
+  The native lock overlay (`VeltaLock.showLock`) keeps a persistent
+  **Unlock with biometrics** action; **Use PIN** is only shown at cold
+  start (`allowPinFallback` while the core is keyless). Auto-lock over a
+  running core never offers it — that button only `hideLock()`s and would
+  bypass the gate. A cancelled prompt leaves the Unlock action; it
+  re-auths when the core is running and unwraps the DEK when keyless.
   The prompt must run on the main thread (`runOnUiThread`); every unlock
   DEK goes through `db_key::prepare` (migration) before the core opens;
   failures carry the BiometricPrompt code+message to the toast, Diagnostics

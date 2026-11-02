@@ -46,7 +46,12 @@ stays the root of security, stated in the UI), PBKDF2-SHA256 not Argon2id
 (phase 3 deferral), and the boot now resets its key state first, so an
 in-process re-boot cannot inherit a previous unlock.
 
-Update 2026-10-31 (1.4.89): release status — Android profile-data encryption SHIPPED; desktop and PWA are PREVIEW; attachment encryption is WIP (not encrypted yet). Android actually encrypts now — the Keystore
+Update 2026-11-02: native attachment encryption SHIPPED (quilt #22,
+`packages/attachment-crypto`, VLTA wrap + 64 KiB chunks). PWA stays on
+whole-OPFS-snapshot encryption (no raw DEK in WASM). Large-file/Lufi
+staging is unchanged.
+
+Update 2026-10-31 (1.4.89): release status — Android profile-data encryption SHIPPED; desktop and PWA are PREVIEW. Android actually encrypts now — the Keystore
 wrap buffer was 16 bytes short (GCM tag), so no DEK was ever stored and the
 core ran keyless; fixed with `VeltaKeystore.pack`. Android also gained the
 Velta app-lock PIN, the screen-lock fallback for the biometric lock (API
