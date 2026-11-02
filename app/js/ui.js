@@ -2015,6 +2015,7 @@ async function showAbout({ onDiagnostics = null, backendKind = null } = {}) {
     btn.addEventListener("click", () => { about.close(); onDiagnostics(); });
     foot = btn;
   }
+  const tauri = isTauri();
   const about = showModal({
     title: "About Velta",
     foot,
@@ -2024,6 +2025,14 @@ async function showAbout({ onDiagnostics = null, backendKind = null } = {}) {
       <div class="info-row"><span class="k">${escapeHtml(t("Transport"))}</span><span class="v">${escapeHtml(t("chatmail relays (IMAP/SMTP)"))}</span></div>
       <div class="info-row"><span class="k">${escapeHtml(t("Encryption"))}</span><span class="v">${escapeHtml(t("OpenPGP, end-to-end"))}</span></div>
       <div class="info-row"><span class="k">${escapeHtml(t("UI stack"))}</span><span class="v">${escapeHtml(t("Elena progressive web components"))}</span></div>
+      ${tauri ? `<label class="info-row" data-file-logging>
+        <span class="k">${escapeHtml(t("File logging"))}</span>
+        <span class="v"><input type="checkbox" data-file-logging-sw></span>
+      </label>
+      <div class="device-info-actions about-log-actions">
+        <button type="button" class="btn-text" data-log-copy>${escapeHtml(t("Copy log"))}</button>
+        <button type="button" class="btn-text" data-log-share hidden>${escapeHtml(t("Share"))}</button>
+      </div>` : ""}
       <details class="device-info" data-device-info>
         <summary>${escapeHtml(t("Show device info"))}</summary>
         <pre class="device-info-text" data-device-info-text></pre>
@@ -2060,12 +2069,40 @@ async function showAbout({ onDiagnostics = null, backendKind = null } = {}) {
   });
   const shareBtn = det.querySelector("[data-device-share]");
   const webShare = typeof navigator.share === "function" ? o => navigator.share(o) : null;
-  shareBtn.hidden = !canShareLink({ ua: navigator.userAgent, hasInvoke: !!tauriInvoke(), hasWebShare: !!webShare });
+  const shareOpts = { ua: navigator.userAgent, hasInvoke: !!tauriInvoke(), hasWebShare: !!webShare };
+  shareBtn.hidden = !canShareLink(shareOpts);
   shareBtn.addEventListener("click", async () => {
     try {
       await shareLink(pre.textContent, { ua: navigator.userAgent, invoke: tauriInvoke(), webShare, title: t("Velta device info") });
     } catch (err) { toast(t("Couldn't share: ") + (err?.message || err)); }
   });
+  if (tauri) {
+    const sw = about.modal.querySelector("[data-file-logging-sw]");
+    sw.checked = localStorage.getItem("velta-logging") === "1";
+    sw.addEventListener("change", () => {
+      const on = sw.checked;
+      localStorage.setItem("velta-logging", on ? "1" : "0");
+      tauriInvoke()?.("set_logging_enabled", { enabled: on }).catch?.(() => {});
+    });
+    const loadLog = () => tauriInvoke()?.("read_log_file") ?? Promise.resolve("");
+    about.modal.querySelector("[data-log-copy]").addEventListener("click", async () => {
+      try {
+        const text = await loadLog();
+        if (!text) { toast(t("Log is empty")); return; }
+        await navigator.clipboard.writeText(text);
+        toast(t("Log copied"));
+      } catch { toast(t("Couldn't copy the log")); }
+    });
+    const shareLog = about.modal.querySelector("[data-log-share]");
+    shareLog.hidden = !canShareLink(shareOpts);
+    shareLog.addEventListener("click", async () => {
+      try {
+        const text = await loadLog();
+        if (!text) { toast(t("Log is empty")); return; }
+        await shareLink(text, { ua: navigator.userAgent, invoke: tauriInvoke(), webShare, title: t("Velta log") });
+      } catch (err) { toast(t("Couldn't share: ") + (err?.message || err)); }
+    });
+  }
 }
 
 /* ---------- Emoji pop ---------- */

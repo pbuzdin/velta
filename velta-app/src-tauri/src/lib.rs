@@ -21,8 +21,10 @@ use tauri::{Emitter, Manager, State};
 pub mod p2p;
 mod proxy;
 mod ws_transport;
+mod log;
+pub use crate::log::{log, set_log_dir, set_mirror_log_dir};
+use crate::log::{log_dir, redact_chat_link};
 
-static LOG_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
 // OS opens waiting for the page: invite links, notification taps, and
 // #97 shares. take_opened_urls drains the lot.
 static OPENED_URLS: Mutex<Vec<String>> = Mutex::new(Vec::new());
@@ -91,120 +93,6 @@ fn ui_app() -> Option<tauri::AppHandle> {
 // Android. Set by setup and by the headless start, whichever runs first.
 #[cfg(target_os = "android")]
 static ANDROID_DATA_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
-
-// Non-blocking logger: messages are pushed onto an unbounded mpsc channel and
-// written from a dedicated background thread, so log() never blocks the IPC /
-// RPC hot path. On Android this is critical -- the WebView event bridge and the
-// JSON-RPC session both pass through the main thread context, and a
-// synchronous file open+write per RPC round-trip was stalling the startup
-// handshake long enough for the frontend's event.listen() to time out and
-// fall back to demo mode.
-static LOG_TX: Mutex<Option<std::sync::mpsc::Sender<String>>> = Mutex::new(None);
-// Runtime logging gate, flipped by set_logging_enabled (Diagnostics chat).
-// Default OFF (V-09/#66): the log mirrors message content to disk outside
-// the account db; the renderer pushes the persisted choice at boot
-// (localStorage `velta-logging`).
-static LOG_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-// Optional second log location on the shared external storage, where adb can
-// read it on non-rooted devices (/storage/emulated/0/Android/data/<id>/files).
-static MIRROR_LOG_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
-
-pub fn set_mirror_log_dir(path: PathBuf) {
-    *MIRROR_LOG_DIR.lock().unwrap() = Some(path);
-}
-
-fn log_dir() -> PathBuf {
-    LOG_DIR
-        .lock()
-        .unwrap()
-        .clone()
-        .unwrap_or_else(|| {
-            // Fallback when set_log_dir() hasn't run yet. On Android,
-            // LOCALAPPDATA is unset and the process CWD is "/" (not writable),
-            // so the old fallback silently failed on every log call. Prefer a
-            // temp directory so log writes never block. The real path is set
-            // by set_log_dir() early in setup() before any meaningful logging.
-            if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
-                if !local_app_data.is_empty() {
-                    return Path::new(&local_app_data).join("Velta").join("logs");
-                }
-            }
-            std::env::temp_dir().join("velta-logs")
-        })
-}
-
-pub fn set_log_dir(path: PathBuf) {
-    *LOG_DIR.lock().unwrap() = Some(path);
-    // Spawn the writer thread lazily on the first set_log_dir() call so it
-    // points at the real log directory.
-    ensure_log_writer();
-}
-
-fn ensure_log_writer() {
-    let mut guard = LOG_TX.lock().unwrap();
-    if guard.is_some() {
-        return;
-    }
-    let (tx, rx) = std::sync::mpsc::channel::<String>();
-    *guard = Some(tx);
-    drop(guard);
-
-    // Capture the directory at spawn time -- it won't change during the session.
-    let dir = log_dir();
-    std::thread::Builder::new()
-        .name("velta-log-writer".into())
-        .spawn(move || {
-            let _ = std::fs::create_dir_all(&dir);
-            for msg in rx {
-                let log_file = dir.join("velta.log");
-                let res = OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&log_file)
-                    .and_then(|mut f| {
-                        use std::io::Write;
-                        f.write_all(msg.as_bytes())
-                    });
-                // If the log file becomes unwritable (rotated, volume full),
-                // don't kill the thread -- just keep draining the channel so
-                // log() callers never block.
-                if res.is_err() {
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                }
-                if let Some(mirror) = MIRROR_LOG_DIR.lock().unwrap().clone() {
-                    let _ = std::fs::create_dir_all(&mirror);
-                    let mirror_file = mirror.join("velta.log");
-                    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&mirror_file) {
-                        use std::io::Write;
-                        let _ = f.write_all(msg.as_bytes());
-                    }
-                }
-            }
-        })
-        .ok();
-}
-
-pub fn log(msg: &str) {
-    // Runtime gate (Diagnostics chat "Logging" switch): when off, velta.log
-    // and its mirror freeze. The in-app Diagnostics chat keeps working —
-    // its rows live in the frontend and never pass through here.
-    if !LOG_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-        return;
-    }
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let line = format!("[{}.{:03}] {}\n", now.as_secs(), now.subsec_millis(), msg);
-    // Non-blocking send. If the channel doesn't exist yet (before
-    // set_log_dir) or the writer thread has died, the message is dropped --
-    // never block the caller. On Android this is what was killing startup:
-    // every RPC round-trip did a synchronous create_dir_all+open+write under
-    // a global Mutex, blocking the JSON-RPC handshake.
-    if let Some(tx) = LOG_TX.lock().unwrap().as_ref() {
-        let _ = tx.send(line);
-    }
-}
 
 pub fn maybe_extract_deeplink(arg: &str) -> Option<String> {
     if arg.starts_with("velta:") || arg.starts_with("dcaccount:") || arg.starts_with("https://i.delta.chat/") || arg.starts_with("OPENPGP4FPR:") {
@@ -1845,27 +1733,6 @@ fn chat_link_token_for(app: &tauri::AppHandle) -> Result<String, String> {
 #[cfg(target_os = "windows")]
 fn chat_link_with_token(account: u32, chat_id: u32, token: &str) -> String {
     format!("velta://chat?account={account}&chat={chat_id}&t={token}")
-}
-
-/// Drop `t=` values before they reach velta.log. The query delimiter has to
-/// precede `t=`, so an unrelated path that happens to contain those letters
-/// is left alone.
-fn redact_chat_link(url: &str) -> String {
-    let mut out = String::with_capacity(url.len());
-    let mut rest = url;
-    while let Some(rel) = rest.find(['?', '&']) {
-        let (head, tail) = rest.split_at(rel + 1);
-        out.push_str(head);
-        if let Some(value) = tail.strip_prefix("t=") {
-            out.push_str("t=…");
-            let end = value.find(['&', '#']).unwrap_or(value.len());
-            rest = &value[end..];
-        } else {
-            rest = tail;
-        }
-    }
-    out.push_str(rest);
-    out
 }
 
 #[tauri::command]
@@ -3654,10 +3521,15 @@ fn js_log(msg: String) {
     log(&msg);
 }
 
-// Diagnostics chat "Logging" switch: gate the shell log writer at runtime.
+// About / Diagnostics "Logging" switch: gate the shell log writer at runtime.
 #[tauri::command]
 fn set_logging_enabled(enabled: bool) {
-    LOG_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+    crate::log::set_logging_enabled(enabled);
+}
+
+#[tauri::command]
+fn read_log_file() -> String {
+    crate::log::read_tail()
 }
 
 // Diagnostics chat "DevTools" switch.
@@ -4076,7 +3948,7 @@ pub extern "system" fn Java_org_velta_VeltaCore_startHeadless(
             *dir = Some(data.clone());
         }
     }
-    if LOG_DIR.lock().unwrap().is_none() {
+    if !crate::log::log_dir_is_set() {
         set_log_dir(data.join("logs"));
         if !ext.is_empty() {
             set_mirror_log_dir(PathBuf::from(ext).join("logs"));
@@ -5413,7 +5285,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_db_pin_state, set_db_pin, clear_db_pin, unlock_with_pin, lock_now, biometric_state, biometric_set, set_autolock_mins, volume_encryption_status, get_accounts_dir, resolve_upload_path, encrypt_upload, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, push_status, push_select, push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,proxy::proxy_install, proxy::proxy_list, proxy::proxy_select, proxy::proxy_rename, proxy::proxy_delete, proxy::proxy_link, proxy::proxy_status, proxy::proxy_backup_begin, proxy::proxy_backup_end, proxy::proxy_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, read_log_file, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_db_pin_state, set_db_pin, clear_db_pin, unlock_with_pin, lock_now, biometric_state, biometric_set, set_autolock_mins, volume_encryption_status, get_accounts_dir, resolve_upload_path, encrypt_upload, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, push_status, push_select, push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,proxy::proxy_install, proxy::proxy_list, proxy::proxy_select, proxy::proxy_rename, proxy::proxy_delete, proxy::proxy_link, proxy::proxy_status, proxy::proxy_backup_begin, proxy::proxy_backup_end, proxy::proxy_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 
@@ -5741,18 +5613,6 @@ mod chat_link_token_tests {
         assert!(!err.is_empty());
         assert!(dir.is_dir());
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn redact_chat_link_hides_only_the_query_token() {
-        assert_eq!(
-            redact_chat_link("velta://chat?account=1&chat=2&t=abcd"),
-            "velta://chat?account=1&chat=2&t=…"
-        );
-        assert_eq!(redact_chat_link("velta://chat?t=abcd&chat=2"), "velta://chat?t=…&chat=2");
-        assert_eq!(redact_chat_link("https://x?t=secret#frag"), "https://x?t=…#frag");
-        assert_eq!(redact_chat_link("no token"), "no token");
-        assert_eq!(redact_chat_link(r"C:\Users\t=foo"), r"C:\Users\t=foo");
     }
 }
 
