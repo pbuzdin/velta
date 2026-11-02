@@ -8,8 +8,9 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const here = new URL(".", import.meta.url).pathname;
+const here = fileURLToPath(new URL(".", import.meta.url));
 const sh = readFileSync(join(here, "../tools/deploy-ws-proxy.sh"), "utf8");
 const start = sh.indexOf("cat > \"$LIB/bridge.py\" <<'PY'\n");
 const tail = sh.slice(sh.indexOf("\n", start) + 1);

@@ -349,12 +349,13 @@ for (const stage of ["picker", "copy", "send"]) {
     const calls = [];
     window.__TAURI__ = { core: { invoke: async command => {
       if (command === "js_log") return;
+      if (command === "encrypt_upload") return;
       calls.push(command);
       if (command === "plugin:dialog|open") {
         if (stage === "picker") { entered.resolve(); return pending.promise; }
         return "content://photo";
       }
-      if (command === "plugin:fs|read_file") return [1, 2, 3]; // image bytes for the preview
+      if (command === "plugin:fs|read_file" || command === "read_media_bytes") return [1, 2, 3]; // image bytes for the preview
       assert.equal(command, "resolve_content_uri");
       if (stage === "copy") { entered.resolve(); return pending.promise; }
       return "/data/photo.png";
@@ -406,7 +407,8 @@ test("several gallery images send as separate messages, one stays in the strip",
       return dialogs.length === 1 ? ["content://a", "content://b"] : ["content://one"];
     }
     if (command === "resolve_content_uri") return `/data/${args.filename}.jpg`;
-    if (command === "plugin:fs|read_file") return [1, 2, 3];
+    if (command === "plugin:fs|read_file" || command === "read_media_bytes") return [1, 2, 3];
+    if (command === "encrypt_upload") return;
     throw new Error(command);
   } } };
   await view._sendAttachment("image");

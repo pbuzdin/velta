@@ -71,7 +71,7 @@ test("biometric action remains available after cancellation and handles retry", 
 test("PIN is a cold-start secondary action and cannot bypass auto-lock", () => {
   assert.match(showLock, /visibility = if \(allowPinFallback && VeltaKeystore\.pinOn\(activity\)\) View\.VISIBLE else View\.GONE/);
   assert.match(showLock, /setOnClickListener \{ hideLock\(\) \}/);
-  assert.match(lock, /onActivityCreated[\s\S]*?showLock\(activity\)[\s\S]*?requestUnlock\(activity\)/);
-  assert.match(lock, /onActivityResumed[\s\S]*?showLock\(activity\)[\s\S]*?reAuth\(activity\)/);
+  assert.match(lock, /onActivityCreated[\s\S]*?showLock\(activity, allowPinFallback = !VeltaCore\.running\(\)\)[\s\S]*?requestUnlock\(activity\)/);
+  assert.match(lock, /onActivityResumed[\s\S]*?showLock\(activity, allowPinFallback = false\)[\s\S]*?reAuth\(activity\)/);
   assert.match(strings, /<string name="biometric_use_pin">Use Velta PIN<\/string>/);
 });
