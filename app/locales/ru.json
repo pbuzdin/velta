@@ -1593,5 +1593,8 @@
   "Core not responding": "Ядро не отвечает",
   "Restart core": "Перезапустить ядро",
   "Core stopped — restarting…": "Ядро остановилось — перезапуск…",
-  "Core stopped and could not be restarted": "Ядро остановилось, перезапустить не удалось"
+  "Core stopped and could not be restarted": "Ядро остановилось, перезапустить не удалось",
+  "Couldn't load — the core is busy.": "Не удалось загрузить — ядро занято.",
+  "Couldn't load.": "Не удалось загрузить.",
+  "Showing the last loaded list.": "Показан последний загруженный список."
 }

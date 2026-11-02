@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { Script, createContext } from "node:vm";
 import { setImmediate as nextTurn } from "node:timers/promises";
 import * as icons from "../app/js/icons.js";
+import { loadErrorBanner } from "../app/js/load-retry.js";
 
 const source = readFileSync(new URL("../app/js/app.js", import.meta.url), "utf8");
 
@@ -60,6 +61,7 @@ class Element {
     };
   }
   appendChild(child) { child.remove(); child.parent = this; this.children.push(child); return child; }
+  prepend(child) { child.remove(); child.parent = this; this.children.unshift(child); return child; }
   remove() {
     if (this.parent) this.parent.children.splice(this.parent.children.indexOf(this), 1);
     this.parent = null;
@@ -110,6 +112,7 @@ function setup(t) {
   let timerId = 0;
   const context = createContext({
     ...icons,
+    loadErrorBanner,
     core,
     localStorage: { getItem: () => null },
     t: (s, vars) => vars ? s.replace(/\{(\w+)\}/g, (_, k) => vars[k]) : s,
@@ -600,7 +603,7 @@ test("incremental: ChatlistItemChanged without a chat and account switches refet
 });
 
 test("incremental: a failed partial refresh makes the next one full", async t => {
-  const { app, core, timers, effects } = setup(t);
+  const { app, core, context, timers, effects } = setup(t);
   const { calls } = incrementalCore(core, [1, 2]);
   await app.refreshChatList();
   await flushTimers(timers);
@@ -609,6 +612,10 @@ test("incremental: a failed partial refresh makes the next one full", async t =>
   app.scheduleChatListUpdate({ chatId: 1 });
   await flushTimers(timers);
   assert.equal(effects.warnings.length, 1);
+  // Stall: the last good rows stay, with a Retry banner instead of an empty list.
+  const list = context.document.getElementById("chat-list");
+  assert.ok(list.children.some(c => c.tagName === "VELTA-CHAT-ITEM"), "last good rows kept");
+  assert.equal(list.children[0].className, "load-error");
   core.getChatListItems = items;
   calls.items.length = 0;
   app.scheduleChatListUpdate({ chatId: 1 });

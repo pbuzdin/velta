@@ -1593,5 +1593,8 @@
   "Core not responding": "Le cœur ne répond pas",
   "Restart core": "Redémarrer le cœur",
   "Core stopped — restarting…": "Le cœur s’est arrêté — redémarrage…",
-  "Core stopped and could not be restarted": "Le cœur s’est arrêté et n’a pas pu redémarrer"
+  "Core stopped and could not be restarted": "Le cœur s’est arrêté et n’a pas pu redémarrer",
+  "Couldn't load — the core is busy.": "Chargement impossible — le cœur est occupé.",
+  "Couldn't load.": "Chargement impossible.",
+  "Showing the last loaded list.": "Dernière liste chargée affichée."
 }

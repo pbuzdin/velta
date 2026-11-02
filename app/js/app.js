@@ -6,6 +6,7 @@ import { wakeLockAcquire, wakeLockRelease } from "./wakelock.js";
 import { createTransferTracker } from "./transfer-progress.js";
 import { escapeHtml, escapeAttr } from "./components.js";
 import { chatCategoryOf, chatIsUnread, swipeCategoryStep, batteryReactionPlan, chatsInCommon } from "./rpc-core.js";
+import { createLastGood, loadErrorBanner, withTimeout } from "./load-retry.js";
 import { probeLock, unlockInteractive, prfSupported } from "./db-lock.js";
 import { deriveKekPassphrase, deriveKekPrf, prfCreate, prfEval, b64 } from "./db-crypt.js";
 import { fileUrl, setWasmBlobReader, redactMediaUrl } from "./media.js";
@@ -180,6 +181,8 @@ const state = {
   // #57 category bar: active chip + lazy contact bot flags (P/B split).
   chatCategory: localStorage.getItem("velta-chat-category") || "all",
   contactBots: null, // null = not loaded; Map contactId -> bool once fetched
+  contactBotsError: null, // {acct, err}: last get_contacts failed (stall) — Retry banner
+  chatListError: null, // last refreshChatList error; state.chats keeps the last good list
   contactBotsAcct: null, // account the contactBots map belongs to
 };
 
@@ -855,6 +858,8 @@ core.addEventListener("account-changing", () => {
   chatItemCache = null;
   chatListDirty = { all: true, order: false, ids: new Set() };
   state.chats = [];
+  state.chatListError = null;
+  state.contactBotsError = null;
   state.query = "";
   closeChatUI();
   closeAllPopups();
@@ -1664,6 +1669,7 @@ async function refreshChatList({ fromDirty = false } = {}) {
       chatItemCache = null;
     }
     state.chats = [diagnostics.getChat(), ...chats.filter(chat => chat.id !== DIAGNOSTICS_CHAT_ID)];
+    state.chatListError = null;
     renderChatList();
     renderLocalChatCard();
     // Archived-folder button visibility (issue #13) — fire-and-forget count.
@@ -1683,6 +1689,8 @@ async function refreshChatList({ fromDirty = false } = {}) {
   } catch (err) {
     // A failed refresh leaves the cache unknown — the next one is full.
     chatListDirty.all = true;
+    // Keep the last good state.chats; say so instead of a silent stale list.
+    if (accountIsCurrent(epoch)) { state.chatListError = err || new Error("load failed"); try { renderChatList(); } catch { /* best effort */ } }
     // Never funnel refresh errors into the Diagnostics store: the store emits
     // "changed", a listener of which triggers another refresh — an error here
     // would spin an undebounced rerender loop (and leak renderer memory fast).
@@ -2129,12 +2137,19 @@ async function ensureContactBots(force = false) {
   if (!core?.getContacts) return;
   const acct = core.accountId;
   if (!force && state.contactBots && state.contactBotsAcct === acct) return;
+  // A failed/timed-out get_contacts must NOT become "no bots" (Bots chip
+  // showed 0 chats during core stalls): keep the previous flags, and with
+  // none yet, leave them unloaded and show the retry banner.
   try {
     const contacts = await core.getContacts();
     if (core.accountId !== acct) return;
     state.contactBots = new Map(contacts.map(c => [c.id, !!c.bot]));
-  } catch { state.contactBots = new Map(); }
-  state.contactBotsAcct = acct;
+    state.contactBotsAcct = acct;
+    state.contactBotsError = null;
+  } catch (err) {
+    if (core.accountId !== acct) return;
+    state.contactBotsError = { acct, err };
+  }
   if (state.chatCategory === "people" || state.chatCategory === "bots") renderChatList();
 }
 const chatIsBot = (contactId) => state.contactBotsAcct === core?.accountId && state.contactBots?.get(contactId) === true;
@@ -2147,7 +2162,8 @@ function visibleChats() {
   // #77: a boot-restored People/Bots view renders before any chip click,
   // so it must kick the bot-flag fetch itself — otherwise contact bots
   // classify as "people" until the next chip interaction.
-  if ((!state.contactBots || state.contactBotsAcct !== core?.accountId) && (cat === "people" || cat === "bots")) ensureContactBots();
+  // A failed fetch waits for Retry (no 30 s refetch loop on every render).
+  if ((!state.contactBots || state.contactBotsAcct !== core?.accountId) && (cat === "people" || cat === "bots") && state.contactBotsError?.acct !== core?.accountId) ensureContactBots();
   return state.chats.filter(c => chatCategoryOf(c, chatIsBot) === cat);
 }
 // One entry point for every category change (chip click, swipe): renderChatList
@@ -2249,6 +2265,18 @@ function renderChatList() {
       : state.chatCategory !== "all" ? t("No chats in this category")
       : t("No chats yet — start a new one");
     list.appendChild(empty);
+  }
+  const botsCat = state.chatCategory === "people" || state.chatCategory === "bots";
+  const loadErr = state.chatListError || (botsCat && state.contactBotsError?.acct === core?.accountId ? state.contactBotsError.err : null);
+  if (loadErr) {
+    list.prepend(loadErrorBanner(document, {
+      err: loadErr, t, stale: state.chats.length > 0 && !(botsCat && state.contactBotsError && !state.chatListError),
+      onRetry: () => {
+        if (state.contactBotsError) { state.contactBotsError = null; ensureContactBots(true); }
+        if (state.chatListError) { state.chatListError = null; refreshChatList(); }
+        renderChatList();
+      },
+    }));
   }
   syncArchivedLink();
   watchChatItemGhosts(list);
@@ -6683,6 +6711,11 @@ const relayDetailsHtml = (meta, quotaText) => {
 
 // One C3 probe per relay domain per app session (the flag cache).
 const relayC3Flags = new Map();
+// Last good list_transports per account: a stalled core keeps showing it.
+const relaysLastGood = createLastGood();
+const relayStatesLastGood = createLastGood();
+// Extras wait on scheduler / metadata locks (up to 30 s in a stall).
+const RELAY_EXTRA_TIMEOUT_MS = 4000;
 
 async function openRelaysModal() {
   if (state.accountChanging) return;
@@ -6717,14 +6750,22 @@ async function openRelaysModal() {
   });
 
   const refresh = async () => {
-    let transports;
+    let transports, loadErr = null;
+    const scope = core.accountId;
     try {
       transports = await core.listTransports();
+      if (!Array.isArray(transports)) throw new Error("list_transports: no data");
+      relaysLastGood.ok(scope, transports);
     } catch (err) {
-      if (accountIsCurrent(epoch)) {
-        listEl.innerHTML = `<div class="p2p-hint" style="color:var(--danger)">${escapeHtml(t("Failed to load relays:"))} ${escapeHtml(String(err?.message || err))}</div>`;
+      if (!accountIsCurrent(epoch)) return;
+      const s = relaysLastGood.fail(scope, err);
+      loadErr = err;
+      if (!s.value) {
+        // Never "No relays configured." for a failed load.
+        listEl.replaceChildren(loadErrorBanner(document, { err, t, onRetry: () => { listEl.innerHTML = `<div class="p2p-hint" style="opacity:.6">${escapeHtml(t("Loading…"))}</div>`; refresh(); } }));
+        return;
       }
-      return;
+      transports = s.value;
     }
     if (!accountIsCurrent(epoch)) return;
     // Per-relay live status for the stale-transport hint (issue #11 slice 3):
@@ -6735,7 +6776,7 @@ async function openRelaysModal() {
     let smtpVia = null;
     try {
       if (core.getConnectivityHtml) {
-        const parsed = parseConnectivityHtml(await core.getConnectivityHtml());
+        const parsed = parseConnectivityHtml(await withTimeout(core.getConnectivityHtml(), RELAY_EXTRA_TIMEOUT_MS, "get_connectivity_html"));
         statusByDomain = new Map(parsed.segs.map(s => [s.domain, s]));
         smtpVia = parsed.smtpVia;
       }
@@ -6743,18 +6784,25 @@ async function openRelaysModal() {
     if (!accountIsCurrent(epoch)) return;
     // Velta #24 (#189): per-relay paused state. Old cores lack the RPC —
     // then every relay renders enabled and the toggle stays hidden.
+    // A failed load keeps the last known states (a stall must not show
+    // paused relays as on).
     let stateByAddr = new Map();
     try {
-      for (const s of (await core.listTransportStates?.()) || []) stateByAddr.set(s.addr, s.enabled);
-    } catch { /* old core */ }
+      const states = (await core.listTransportStates?.()) || [];
+      relayStatesLastGood.ok(scope, states);
+      for (const s of states) stateByAddr.set(s.addr, s.enabled);
+    } catch (err) {
+      for (const s of relayStatesLastGood.fail(scope, err).value || []) stateByAddr.set(s.addr, s.enabled);
+    }
     if (!accountIsCurrent(epoch)) return;
     // Per-relay capabilities (VENDORISSUES #15): calls/TURN, iroh, push —
     // as the relays themselves advertise over IMAP METADATA. Old cores lack
     // the RPC; the flags then stay silver ("not known yet").
     let metaByAddr = null;
-    try { metaByAddr = (await core.getServerMetadata?.()) || null; } catch { /* old core */ }
+    try { metaByAddr = (await withTimeout(core.getServerMetadata?.(), RELAY_EXTRA_TIMEOUT_MS, "get_server_metadata")) || null; } catch { /* old core / stall: flags stay "not known yet" */ }
     if (!accountIsCurrent(epoch)) return;
     listEl.replaceChildren();
+    if (loadErr) listEl.appendChild(loadErrorBanner(document, { err: loadErr, t, stale: true, onRetry: () => refresh() }));
     if (!transports.length) {
       const empty = document.createElement("div");
       empty.className = "p2p-hint"; empty.style.opacity = ".6";

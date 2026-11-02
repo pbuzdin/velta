@@ -41,7 +41,7 @@ test("modal: address + flags share the first row, actions sit on the second", ()
   assert.match(app, /data-flag-w/);
   assert.match(app, /relayC3Flags\.set\(wDomain, probe\)/);
   // Old cores without the RPC degrade to silver, not a crash.
-  assert.match(app, /await core\.getServerMetadata\?\.\(\)/);
+  assert.match(app, /await withTimeout\(core\.getServerMetadata\?\.\(\)/);
   // Silver/green states in CSS via theme tokens — the hardcoded #9aa0a6/#2ecc71
   // pair failed WCAG AA in the light theme (1.91/2.40:1 on #f4f4f4). Letters
   // stay neutral; "offered" is a corner dot, not a color pair or a slash.
