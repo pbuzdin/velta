@@ -41,6 +41,10 @@ pub(crate) mod connectivity;
 #[derive(Debug, Default)]
 pub(crate) struct SchedulerState {
     inner: RwLock<InnerSchedulerState>,
+    /// Velta #27 (#241): an interrupt skipped by a #18 `try_read` (IO
+    /// start/stop held the lock) is delivered on the next start instead of
+    /// being lost.
+    velta_wake_pending: std::sync::atomic::AtomicBool,
 }
 
 impl SchedulerState {
@@ -58,7 +62,13 @@ impl SchedulerState {
     pub(crate) async fn start(&self, context: &Context) {
         let mut inner = self.inner.write().await;
         match *inner {
-            InnerSchedulerState::Started(_) => (),
+            // Velta #27: a wake skipped while a no-op start was queued.
+            InnerSchedulerState::Started(ref scheduler) => {
+                if self.velta_wake_pending.swap(false, Ordering::SeqCst) {
+                    scheduler.interrupt_inbox();
+                    scheduler.interrupt_smtp();
+                }
+            }
             InnerSchedulerState::Stopped => Self::do_start(&mut inner, context).await,
             InnerSchedulerState::Paused {
                 ref mut started, ..
@@ -77,6 +87,15 @@ impl SchedulerState {
 
         match Scheduler::start(context).await {
             Ok(scheduler) => {
+                // Velta #27: deliver interrupts skipped during the restart.
+                if context
+                    .scheduler
+                    .velta_wake_pending
+                    .swap(false, Ordering::SeqCst)
+                {
+                    scheduler.interrupt_inbox();
+                    scheduler.interrupt_smtp();
+                }
                 *inner = InnerSchedulerState::Started(scheduler);
                 context.emit_event(EventType::ConnectivityChanged);
             }
@@ -223,6 +242,8 @@ impl SchedulerState {
     pub(crate) async fn interrupt_inbox_idle(&self) {
         // Velta #18 (interrupt_inbox_idle): never wait behind an IO start/stop (#176).
         let Ok(inner) = self.inner.try_read() else {
+            // Velta #27 (interrupt_inbox_idle): remember the wake for the next start.
+            self.velta_wake_pending.store(true, Ordering::SeqCst);
             return;
         };
         let inboxes = match *inner {
@@ -244,6 +265,8 @@ impl SchedulerState {
     pub(crate) async fn maybe_network_lost(&self, context: &Context) {
         // Velta #18 (maybe_network_lost): never wait behind an IO start/stop (#176).
         let Ok(inner) = self.inner.try_read() else {
+            // Velta #27 (maybe_network_lost): remember the wake for the next start.
+            self.velta_wake_pending.store(true, Ordering::SeqCst);
             return;
         };
         let stores = match *inner {
@@ -263,6 +286,8 @@ impl SchedulerState {
     pub(crate) async fn interrupt_inbox(&self) {
         // Velta #18 (interrupt_inbox): never wait behind an IO start/stop (#176).
         let Ok(inner) = self.inner.try_read() else {
+            // Velta #27 (interrupt_inbox): remember the wake for the next start.
+            self.velta_wake_pending.store(true, Ordering::SeqCst);
             return;
         };
         if let InnerSchedulerState::Started(ref scheduler) = *inner {
@@ -273,6 +298,8 @@ impl SchedulerState {
     pub(crate) async fn interrupt_smtp(&self) {
         // Velta #18 (interrupt_smtp): never wait behind an IO start/stop (#176).
         let Ok(inner) = self.inner.try_read() else {
+            // Velta #27 (interrupt_smtp): remember the wake for the next start.
+            self.velta_wake_pending.store(true, Ordering::SeqCst);
             return;
         };
         if let InnerSchedulerState::Started(ref scheduler) = *inner {

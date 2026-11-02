@@ -671,3 +671,13 @@ map. Guard test `test_velta_config_read_not_blocked_by_sql_holder`
 `Sql::call` records pool waits / connection holds >= 2 s
 (`velta_take_slow_sql_log`), which the Android shell logs as `core slow sql: …`.
 
+
+
+### 25–28. Stall follow-ups (#241)
+
+**Status: patched locally (quilt ops "#25 …" – "#28 …").** #25 `update_metadata`
+no longer holds `context.metadata` across IMAP/DNS; #26 cache-miss config reads
+without `config_mtx`, guarded by a generation counter; #27 interrupts skipped by
+#18 `try_read` are replayed on the next scheduler start; #28
+`get_connectivity_html` reports "Connecting…" instead of waiting behind an IO
+start/stop. Upstream candidates: #25 and #28 apply to stock core as-is.

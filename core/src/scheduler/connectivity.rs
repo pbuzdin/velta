@@ -355,7 +355,12 @@ impl Context {
         //                              Get the states from the RwLock
         // =============================================================================================
 
-        let lock = self.scheduler.inner.read().await;
+        // Velta #28 (#241): never wait behind an IO start/stop (up to 30 s
+        // with a dead proxy): report "connecting" while it runs.
+        let Ok(lock) = self.scheduler.inner.try_read() else {
+            ret += &format!("<h3>{}</h3>\n</body></html>\n", stock_str::connecting(self));
+            return Ok(ret);
+        };
         let (folders_states, smtp, sending_transport_id) = match *lock {
             InnerSchedulerState::Started(ref sched) => (
                 sched
@@ -676,5 +681,52 @@ mod tests {
             combine_connectivities(&[Connectivity::NotConnected, Connectivity::Connecting]),
             Connectivity::Connecting
         );
+    }
+
+    /// Velta #27/#28 (#241): while an IO start/stop holds the scheduler
+    /// lock, the connectivity HTML answers at once ("connecting") and a
+    /// skipped wake is remembered, then delivered by the next start.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_velta_scheduler_lock_held_no_wait_no_lost_wake() -> Result<()> {
+        let alice = TestContext::new_alice().await;
+        alice.start_io().await;
+        let held = alice.scheduler.inner.write().await;
+        let html = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            alice.get_connectivity_html(),
+        )
+        .await
+        .expect("get_connectivity_html waited behind the scheduler lock")?;
+        assert!(html.contains(&stock_str::connecting(&alice)), "{html}");
+        assert!(
+            !alice
+                .scheduler
+                .velta_wake_pending
+                .load(std::sync::atomic::Ordering::SeqCst)
+        );
+        alice.scheduler.interrupt_inbox_idle().await;
+        alice.scheduler.maybe_network_lost(&alice).await;
+        assert!(
+            alice
+                .scheduler
+                .velta_wake_pending
+                .load(std::sync::atomic::Ordering::SeqCst)
+        );
+        drop(held);
+        alice.scheduler.start(&alice).await;
+        assert!(
+            !alice
+                .scheduler
+                .velta_wake_pending
+                .load(std::sync::atomic::Ordering::SeqCst),
+            "pending wake not delivered on start"
+        );
+        alice
+            .assert_warns_or_errors(&[
+                "No IMAP connection candidates provided",
+                "IMAP got rate limited",
+            ])
+            .await;
+        Ok(())
     }
 }

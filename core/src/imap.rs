@@ -1195,7 +1195,6 @@ impl Session {
     /// metadata.
     #[expect(clippy::arithmetic_side_effects)]
     pub(crate) async fn update_metadata(&mut self, context: &Context) -> Result<()> {
-        let mut lock = context.metadata.write().await;
         let transport_id = self.transport_id();
         // Velta #16: capabilities of this session, recorded below.
         let velta_caps = (
@@ -1203,11 +1202,21 @@ impl Session {
             Some(self.capabilities.can_compress),
         );
 
-        if !self.can_metadata() {
-            lock.entry(transport_id).or_default();
-        }
-        if let Some(old_metadata) = lock.get_mut(&transport_id) {
-            (old_metadata.velta_can_idle, old_metadata.velta_can_compress) = velta_caps;
+        // Velta #25 (#241): never hold `context.metadata` across IMAP
+        // METADATA or TURN DNS work (a dead proxy held it for 30 s and
+        // get_server_metadata / ice_servers froze). Short lock to read the
+        // state, network unlocked, short lock to store the result.
+        let velta_known_expiry = {
+            let mut lock = context.metadata.write().await;
+            if !self.can_metadata() {
+                lock.entry(transport_id).or_default();
+            }
+            lock.get_mut(&transport_id).map(|old_metadata| {
+                (old_metadata.velta_can_idle, old_metadata.velta_can_compress) = velta_caps;
+                old_metadata.ice_servers_expiration_timestamp
+            })
+        };
+        if let Some(velta_expiry) = velta_known_expiry {
             let now = time();
 
             // Refresh TURN server credentials if they expire in 12 hours.
@@ -1215,10 +1224,13 @@ impl Session {
             // Moreover, Take the chance to update `app_versions` as well.
             // As best effort, even checking every some days is good enough -
             // and saves one additional time get get_metadata() call.
-            if now + 3600 * 12 < old_metadata.ice_servers_expiration_timestamp {
+            if now + 3600 * 12 < velta_expiry {
                 return Ok(());
             }
 
+            // Velta #25: results gathered unlocked, stored below.
+            let mut velta_turn = None;
+            let mut velta_app_versions = None;
             let mut got_turn_server = false;
             if self.can_metadata() {
                 info!(context, "ICE servers expired, requesting new credentials.");
@@ -1237,8 +1249,7 @@ impl Session {
                     {
                         match create_ice_servers_from_metadata(&value).await {
                             Ok((parsed_timestamp, parsed_ice_servers)) => {
-                                old_metadata.ice_servers_expiration_timestamp = parsed_timestamp;
-                                old_metadata.ice_servers = parsed_ice_servers;
+                                velta_turn = Some((parsed_timestamp, parsed_ice_servers));
                                 got_turn_server = true;
                             }
                             Err(err) => {
@@ -1246,15 +1257,25 @@ impl Session {
                             }
                         }
                     } else if m.entry == "/shared/vendor/deltachat/appversions" {
-                        old_metadata.app_versions = m.value;
+                        velta_app_versions = Some(m.value);
                     }
                 }
             }
             if !got_turn_server {
                 info!(context, "Will use fallback ICE servers.");
                 // Set expiration timestamp 7 days in the future so we don't request it again.
-                old_metadata.ice_servers_expiration_timestamp = time() + 3600 * 24 * 7;
-                old_metadata.ice_servers = create_fallback_ice_servers();
+                velta_turn = Some((time() + 3600 * 24 * 7, create_fallback_ice_servers()));
+            }
+            // Velta #25: store under a short lock (no await inside).
+            let mut lock = context.metadata.write().await;
+            if let Some(old_metadata) = lock.get_mut(&transport_id) {
+                if let Some(app_versions) = velta_app_versions {
+                    old_metadata.app_versions = app_versions;
+                }
+                if let Some((expiry, ice_servers)) = velta_turn {
+                    old_metadata.ice_servers_expiration_timestamp = expiry;
+                    old_metadata.ice_servers = ice_servers;
+                }
             }
             return Ok(());
         }
@@ -1342,7 +1363,8 @@ impl Session {
             create_fallback_ice_servers()
         };
 
-        lock.insert(
+        // Velta #25: the first fetch also stores under a short lock.
+        context.metadata.write().await.insert(
             transport_id,
             ServerMetadata {
                 comment,

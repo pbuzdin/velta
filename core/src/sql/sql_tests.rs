@@ -2,6 +2,71 @@ use super::*;
 use crate::message::Message;
 use crate::{EventType, test_utils::TestContext};
 
+/// Velta #26 (#241): an UNCACHED config read must not queue behind a
+/// setter that waits for the write connection; and a cache-miss read that
+/// raced a write never leaves the old value in the cache.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_velta_uncached_config_read_not_blocked_by_setter() -> Result<()> {
+    let t = TestContext::new_alice().await;
+    t.sql.set_raw_config("velta_cold", Some("1")).await?;
+    t.sql.uncache_raw_config("velta_cold").await;
+    let holder = {
+        let ctx = t.ctx.clone();
+        tokio::spawn(async move {
+            ctx.sql
+                .call_write(|_conn| {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    Ok(())
+                })
+                .await
+        })
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let setter = {
+        let ctx = t.ctx.clone();
+        tokio::spawn(async move { ctx.sql.set_raw_config("velta_cold2", Some("2")).await })
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let started = std::time::Instant::now();
+    let v = t.sql.get_raw_config("velta_cold").await?;
+    let took = started.elapsed();
+    assert_eq!(v.as_deref(), Some("1"));
+    assert!(
+        took < std::time::Duration::from_millis(500),
+        "uncached config read waited {took:?}"
+    );
+    holder.await??;
+    setter.await??;
+
+    // A write that lands after a cache-miss read started wins.
+    t.sql.uncache_raw_config("velta_cold").await;
+    let generation = t.sql.config_gen.load(std::sync::atomic::Ordering::SeqCst);
+    t.sql.set_raw_config("velta_cold", Some("3")).await?;
+    assert_ne!(
+        generation,
+        t.sql.config_gen.load(std::sync::atomic::Ordering::SeqCst)
+    );
+    assert_eq!(
+        t.sql.get_raw_config("velta_cold").await?.as_deref(),
+        Some("3")
+    );
+    for _ in 0..50 {
+        let (a, b) = tokio::join!(
+            t.sql.get_raw_config("velta_race"),
+            t.sql.set_raw_config("velta_race", Some("new"))
+        );
+        a?;
+        b?;
+        assert_eq!(
+            t.sql.get_raw_config("velta_race").await?.as_deref(),
+            Some("new")
+        );
+        t.sql.set_raw_config("velta_race", None).await?;
+        t.sql.uncache_raw_config("velta_race").await;
+    }
+    Ok(())
+}
+
 /// Velta #22: a long SQL holder plus a queued set_config must not block
 /// cached config reads (they used to wait on the config cache lock the
 /// setter held across its INSERT: every RPC froze).

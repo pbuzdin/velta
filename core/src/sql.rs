@@ -66,6 +66,11 @@ pub struct Sql {
     /// Velta #22: serializes config setters and cache fills, so the cache
     /// lock itself is never held across an SQL await.
     config_mtx: tokio::sync::Mutex<()>,
+
+    /// Velta #26 (#241): bumped by every config write/uncache/import BEFORE
+    /// it changes the DB, so a cache-miss read (no mutex) that raced a write
+    /// does not store its now-stale value in the cache.
+    config_gen: std::sync::atomic::AtomicU64,
 }
 
 /// Velta #22 diagnostics: slow SQL calls since the last drain (bounded).
@@ -94,6 +99,7 @@ impl Sql {
             is_encrypted: Default::default(),
             config_cache: Default::default(),
             config_mtx: Default::default(),
+            config_gen: Default::default(), // Velta #26
         }
     }
 
@@ -155,6 +161,9 @@ impl Sql {
         // values from there. And clear it immediately so as not to forget in case of errors.
         let mut config_cache = self.config_cache.write().await;
         config_cache.clear();
+        // Velta #26: in-flight cache-miss reads must not refill pre-import values.
+        self.config_gen
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
         let query_only = false;
         self.call(query_only, move |conn| {
@@ -602,6 +611,9 @@ impl Sql {
         // fills serialize on config_mtx instead; the cache lock is only held
         // for the in-memory insert, so cached reads never wait for SQL.
         let _guard = self.config_mtx.lock().await;
+        // Velta #26: invalidate racing cache-miss fills before the write.
+        self.config_gen
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         if let Some(value) = value {
             self.execute(
                 "INSERT OR REPLACE INTO config (keyname, value) VALUES (?, ?)",
@@ -626,20 +638,19 @@ impl Sql {
             return Ok(c);
         }
 
-        // Velta #22: see set_raw_config. Re-check under config_mtx: a setter
-        // may have filled the key meanwhile.
-        let _guard = self.config_mtx.lock().await;
-        if let Some(c) = self.config_cache.read().await.get(key).cloned() {
-            return Ok(c);
-        }
+        // Velta #26 (#241): a cache miss takes no mutex (it queued behind a
+        // setter waiting on the write connection: uncached get_config timed
+        // out in stalls). The fill is skipped when any write bumped
+        // config_gen since the read began, so a stale value never lands.
+        let generation = self.config_gen.load(std::sync::atomic::Ordering::SeqCst);
         let value = self
             .query_get_value("SELECT value FROM config WHERE keyname=?", (key,))
             .await
             .context(format!("failed to fetch raw config: {key}"))?;
-        self.config_cache
-            .write()
-            .await
-            .insert(key.to_string(), value.clone());
+        let mut cache = self.config_cache.write().await;
+        if self.config_gen.load(std::sync::atomic::Ordering::SeqCst) == generation {
+            cache.insert(key.to_string(), value.clone());
+        }
 
         Ok(value)
     }
@@ -647,6 +658,9 @@ impl Sql {
     /// Removes the `key`'s value from the cache.
     pub(crate) async fn uncache_raw_config(&self, key: &str) {
         let mut lock = self.config_cache.write().await;
+        // Velta #26: a racing cache-miss fill must not resurrect the entry.
+        self.config_gen
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         lock.remove(key);
     }
 

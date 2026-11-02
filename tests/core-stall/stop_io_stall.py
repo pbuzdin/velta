@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Behavioral regression for the chat-open freeze (#176).
 
+Also (#241): uncached get_config, get_connectivity_html and
+get_server_metadata must answer < 1 s during the stall.
+
 Runs the REAL deltachat-rpc-server built from Velta's patched core. One
 account's IMAP/SMTP point at a local blackhole (accepts TCP, never sends a
 greeting), so IO tasks hang in their connect/greeting read and stop_io winds
@@ -174,6 +177,13 @@ def main(binary):
         ("get_chatlist_items_by_entries", acc, [chat]),
         ("get_fresh_msg_cnt", acc, chat),
         ("get_connectivity", acc),
+        # #241 (patches #25/#26/#28): an uncached config read beside a
+        # concurrent setter, the connectivity HTML (scheduler lock, now
+        # try_read -> "connecting") and relay metadata.
+        ("set_config", acc, "ui.velta.stall_probe_w", "1"),
+        ("get_config", acc, "ui.velta.stall_probe_uncached"),
+        ("get_connectivity_html", acc),
+        ("get_server_metadata", acc),
         ("maybe_network",),
     ]
     failures = []

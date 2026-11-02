@@ -274,7 +274,7 @@ quilt `tools/apply-core-patches.py`** (anchor + marker ops; never hand-edit
 `core/`, never apply the wasm series in `docs/research/wasm-patches/` to
 production `core/`). The 2.63.0 re-vendor (2aac743) silently dropped two
 hand-made core edits that were never quilt ops (#12, #13 below); v1.4.64
-shipped without them. Restored 2026-10-10. Current quilt at core 2.66.0 (149 ops, 34 files;
+shipped without them. Restored 2026-10-10. Current quilt at core 2.66.0 (187 ops, 37 files;
 intent in VENDORISSUES.MD):
 
 | # | What | Files |
@@ -296,6 +296,10 @@ intent in VENDORISSUES.MD):
 | #22 | Native attachment encryption (#178): the shared `velta-attachment` crate derives a profile key from the raw DEK, wraps a random key per blob, and authenticates independent 64 KiB chunks for seek/Range reads. Core encrypts writes and legacy blobs, hashes plaintext for dedup, decrypts all consumers, and exports standard plaintext backup entries. 40 ops | Cargo.toml/lock, blob.rs + tests, context.rs, imex.rs + transfer.rs, message.rs, mimefactory.rs, net/http.rs, webxdc.rs and other plaintext readers |
 | #23 | Automatic relay onboarding is opt-in: `init_transports` defaults `Config::Autorelay` to **false** (upstream sets true), the Relays modal toggles it ("Add relays automatically" → generic `setConfig`), and a one-time per-account JS migration (`migrateAutorelayDefault`, marker `velta-autorelay-default` in localStorage) flips legacy profiles off. Velta's "Relays you pick" is the brand — upstream's auto-onboard adds transports from a candidate list silently (#relays) | configure.rs |
 | #24 | Per-relay enable/disable (#189): `ui.velta.disabled_transports` ui-key holds paused addrs (JSON); `velta_disabled_transports/set_transport_enabled/transport_states` in transport.rs; sends exclude paused relays (smtp connect loop), inbox loops + `background_fetch_any` skip them at load (toggle applies at next IO start); a pin on a paused relay is voided. RPCs `set_transport_enabled` + `list_transport_states` (`VeltaTransportState`). 10 ops | transport.rs, smtp.rs, scheduler.rs, deltachat-jsonrpc/src/api.rs + api/types/login_param.rs, smtp/smtp_tests.rs |
+| #25 | `Imap::update_metadata` does the IMAP METADATA + TURN DNS work WITHOUT `context.metadata` held; a short write lock reads the expiry before and stores the result after (#241). A dead proxy held it 30 s, freezing `get_server_metadata` (Relays modal) and call ICE lookups | imap.rs |
+| #26 | `get_raw_config` cache miss takes no `config_mtx` (#22 serialized it behind setters waiting on the write connection: uncached `get_config` timed out). `Sql::config_gen` (AtomicU64) is bumped by set/uncache/import BEFORE the write; a miss fills the cache only if the generation is unchanged, so a late read never overwrites a newer write (#241) | sql.rs, sql_tests.rs |
+| #27 | #18's `try_read` misses are no longer lost: `interrupt_inbox_idle` / `maybe_network_lost` / `interrupt_inbox` / `interrupt_smtp` set `SchedulerState::velta_wake_pending`; `start` (running or `do_start`, incl. pause resume) swaps it and interrupts inbox + SMTP (#241) | scheduler.rs |
+| #28 | `get_connectivity_html` uses `try_read` on the scheduler state and answers "Connecting…" during an IO start/stop instead of waiting up to 30 s (`get_connectivity` already reads the lock-free connectivities list). Tests: connectivity.rs `test_velta_scheduler_lock_held_no_wait_no_lost_wake`; `tests/core-stall/stop_io_stall.py` also asserts uncached `get_config`, `get_connectivity_html`, `get_server_metadata` < 1 s (#241) | scheduler/connectivity.rs |
 
 ```bash
 python3 tools/apply-core-patches.py apply        # re-insert missing ops (fails, writes nothing, on a moved anchor)
