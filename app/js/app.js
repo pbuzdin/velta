@@ -776,6 +776,9 @@ core.addEventListener("account-changed", () => {
   state.accountChanging = false;
   wireFingerprints();
   accountRefreshPromise = Promise.all([refreshAccounts(), refreshChatList()]);
+  // VENDORISSUES #23: one-time per account — profiles configured before the
+  // opt-in flip carry autorelay=1 from upstream's init_transports default.
+  core.migrateAutorelayDefault?.().catch(() => {});
 });
 
 // Tell the frontend where blobs live so media URLs can be resolved absolutely.
@@ -6537,9 +6540,26 @@ async function openRelaysModal() {
   body.innerHTML = `
     <div data-list><div class="p2p-hint" style="opacity:.6">${escapeHtml(t("Loading…"))}</div></div>
     <div style="margin-top:10px"><button type="button" class="btn-text" data-add>${escapeHtml(t("Add relay…"))}</button></div>
+    <div class="relay-auto"><label><input type="checkbox" data-auto-add><span>${escapeHtml(t("Add relays automatically"))}</span></label><p class="relay-auto-hint">${escapeHtml(t("Velta may onboard extra relays by itself so mail keeps flowing. Off — you pick the relays."))}</p></div>
     <div class="relay-legend" aria-hidden="true"><span class="relay-pair"><span class="relay-flag">C</span><span>${escapeHtml(t("calls (TURN)"))}</span></span><span class="relay-pair"><span class="relay-flag">I</span><span>${escapeHtml(t("iroh transfers"))}</span></span><span class="relay-pair"><span class="relay-flag">P</span><span>${escapeHtml(t("push notifications"))}</span></span><span class="relay-pair"><span class="relay-flag">D</span><span>${escapeHtml(t("instant delivery"))}</span></span><span class="relay-pair"><span class="relay-flag">W</span><span>${escapeHtml(t("web endpoints"))}</span></span><span class="relay-pair"><span class="relay-dot"></span><span>${escapeHtml(t("offered by the relay"))}</span></span></div>`;
   showModal({ title: "Relays", body });
   const listEl = body.querySelector("[data-list]");
+
+  // VENDORISSUES #23: automatic relay onboarding is opt-in — upstream core
+  // enables it in init_transports, the Velta quilt flip defaults it off.
+  // The checkbox mirrors core Config::Autorelay ("1" = on, null/"0" = off).
+  const autoEl = body.querySelector("[data-auto-add]");
+  core.getConfig("autorelay").then(v => {
+    if (accountIsCurrent(epoch)) autoEl.checked = String(v) === "1";
+  }).catch(() => {});
+  autoEl.addEventListener("change", async () => {
+    try {
+      await core.setConfig("autorelay", autoEl.checked ? "1" : "0");
+    } catch (err) {
+      toast(String(err?.message || err));
+      autoEl.checked = !autoEl.checked;
+    }
+  });
 
   const refresh = async () => {
     let transports;

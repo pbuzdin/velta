@@ -1781,6 +1781,16 @@ pub struct JsonrpcTransportServerMetadata {
         text="    pub(crate) async fn maybe_network_lost(&self, context: &Context) {\n        // Velta #18 (maybe_network_lost): never wait behind an IO start/stop (#176).\n        let Ok(inner) = self.inner.try_read() else {\n            return;\n        };\n",
     ),
 
+    # ---- Velta #23 (#relays): automatic relay onboarding is opt-in ----
+    dict(
+        id="#23 autorelay opt-in (core/src/configure.rs, hunk 1)",
+        file='core/src/configure.rs',
+        applied='        // Velta #23 (#relays): automatic relay onboarding is opt-in — the\n        // user picks relays; the Relays modal toggles it back on.\n        self.set_config_bool(Config::Autorelay, false).await?;\n        emit_progress(self, 1000);',
+        anchor='        self.set_config_bool(Config::Autorelay, true).await?;\n        emit_progress(self, 1000);',
+        where="replace",
+        text='        // Velta #23 (#relays): automatic relay onboarding is opt-in — the\n        // user picks relays; the Relays modal toggles it back on.\n        self.set_config_bool(Config::Autorelay, false).await?;\n        emit_progress(self, 1000);',
+    ),
+
 ]
 
 

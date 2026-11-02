@@ -244,7 +244,9 @@ impl Context {
                 bail!(error_msg);
             }
         }
-        self.set_config_bool(Config::Autorelay, true).await?;
+        // Velta #23 (#relays): automatic relay onboarding is opt-in — the
+        // user picks relays; the Relays modal toggles it back on.
+        self.set_config_bool(Config::Autorelay, false).await?;
         emit_progress(self, 1000);
         self.start_io().await;
         Ok(())

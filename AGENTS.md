@@ -265,7 +265,7 @@ quilt `tools/apply-core-patches.py`** (anchor + marker ops; never hand-edit
 `core/`, never apply the wasm series in `docs/research/wasm-patches/` to
 production `core/`). The 2.63.0 re-vendor (2aac743) silently dropped two
 hand-made core edits that were never quilt ops (#12, #13 below); v1.4.64
-shipped without them. Restored 2026-10-10. Current quilt at core 2.66.0 (91 ops, 20 files;
+shipped without them. Restored 2026-10-10. Current quilt at core 2.66.0 (99 ops, 24 files;
 intent in VENDORISSUES.MD):
 
 | # | What | Files |
@@ -282,6 +282,7 @@ intent in VENDORISSUES.MD):
 | #19 | admin groups (#177), ArcaneChat-compatible: grpid `ADMINFPR:randomid`, receivers enforce admin-only add / remove-others / name / description / avatar / timer / pins / delete-for-everyone; `create_group_with_admin` + `FullChat.groupAdminId` jsonrpc. 46 ops; receive_imf.rs ops are the fragile part on re-vendor. Plan + stock-DC interop: docs/core-patches/admin-groups-plan.md | chat.rs, receive_imf.rs, securejoin.rs, qr.rs, tools.rs, mimeparser.rs, ephemeral.rs, message.rs, jsonrpc api.rs + types/chat.rs, chat_tests.rs, tools_tests.rs |
 | #18 | scheduler interrupts (`interrupt_inbox/smtp/ephemeral_task/location/recently_seen`, and since 1.4.90 `interrupt_inbox_idle` + `maybe_network_lost`) use `try_read()`: never wait behind an IO start/stop holding the scheduler lock (#176) | scheduler.rs |
 | #21 | `start_io_for_all_accounts` / `stop_io_for_all_accounts` clone the contexts under a short `accounts.read()` and start/stop with NO account manager lock (stops in parallel) (#181, 1.4.90). They held `accounts.write()` across `Scheduler::stop` (up to 30 s per IMAP/SMTP task), freezing every RPC (`get_context`): the 30 s chat-open timeouts, worst with a saved DNS tunnel. Test hook `VELTA_TEST_STOP_IO_DELAY_MS` (no-op unset) for `tests/core-stall/stop_io_stall.py` | deltachat-jsonrpc/src/api.rs, scheduler.rs |
+| #23 | Automatic relay onboarding is opt-in: `init_transports` defaults `Config::Autorelay` to **false** (upstream sets true), the Relays modal toggles it ("Add relays automatically" → generic `setConfig`), and a one-time per-account JS migration (`migrateAutorelayDefault`, marker `velta-autorelay-default` in localStorage) flips legacy profiles off. Velta's "Relays you pick" is the brand — upstream's auto-onboard adds transports from a candidate list silently (#relays) | configure.rs |
 
 ```bash
 python3 tools/apply-core-patches.py apply        # re-insert missing ops (fails, writes nothing, on a moved anchor)
