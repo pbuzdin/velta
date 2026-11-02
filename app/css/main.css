@@ -3651,3 +3651,19 @@ html[data-theme="brutal"] .msg-row.out .msg-text .mention { color: var(--nb-main
 }
 #db-key-notice .db-key-notice-close:hover { background: var(--bg-hover); }
 #db-key-notice .db-key-notice-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Profile export / transfer / import progress (transfer-progress.js) */
+.xfer { display: grid; gap: 6px; margin-top: 10px; }
+.xfer-bar { width: 100%; height: 8px; accent-color: var(--accent); appearance: none; -webkit-appearance: none; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-hover); overflow: hidden; }
+.xfer-bar::-webkit-progress-bar { background: var(--bg-hover); border-radius: 999px; }
+.xfer-bar::-webkit-progress-value { background: var(--accent); border-radius: 999px; }
+.xfer-bar::-moz-progress-bar { background: var(--accent); border-radius: 999px; }
+.xfer-row { display: flex; gap: 10px; align-items: baseline; font-size: 14px; color: var(--text); }
+.xfer-stage { flex: 1; min-width: 0; }
+.xfer-size, .xfer-pct { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.xfer.is-failed .xfer-stage { color: var(--danger); }
+.xfer.is-failed .xfer-bar::-webkit-progress-value { background: var(--danger); }
+.xfer.is-failed .xfer-bar::-moz-progress-bar { background: var(--danger); }
+.xfer-pill { position: fixed; z-index: 900; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg-sidebar); color: var(--text); font: inherit; font-size: 13px; font-variant-numeric: tabular-nums; box-shadow: 0 4px 16px rgba(0,0,0,.25); cursor: pointer; }
+.xfer-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.xfer-pill[hidden] { display: none; }

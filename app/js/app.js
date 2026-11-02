@@ -3,6 +3,7 @@ import { createCore } from "./transport.js";
 import { createNetWatch, NET_DEFAULTS } from "./net-watch.js";
 import "./components.js";
 import { wakeLockAcquire, wakeLockRelease } from "./wakelock.js";
+import { createTransferTracker } from "./transfer-progress.js";
 import { escapeHtml, escapeAttr } from "./components.js";
 import { chatCategoryOf, chatIsUnread, swipeCategoryStep, batteryReactionPlan, chatsInCommon } from "./rpc-core.js";
 import { probeLock, unlockInteractive, prfSupported } from "./db-lock.js";
@@ -4326,11 +4327,15 @@ function openProfileManagement() {
     lock(true);
     transferPane.innerHTML = `
       <div class="qr-box" style="margin-top:10px"><div class="qr-loading">${escapeHtml(t("Preparing QR…"))}</div></div>
+      <div data-xfer></div>
       <div class="p2p-hint" style="opacity:.6">${escapeHtml(t("On the new device, tap \"Receive a profile on this device\" and scan or paste this code. Keep both devices on this screen until the transfer finishes."))}</div>
       <div style="margin-top:8px"><button type="button" class="btn-text" data-cancel>${escapeHtml(t("Cancel"))}</button></div>`;
     wakeHeld = true;
     wakeLockAcquire(); // screen-off/Doze must not stall the sender mid-transfer
+    const tracker = createTransferTracker({ core, kind: "send", invoke: tauriInvoke() })
+      .attach(transferPane.querySelector("[data-xfer]"));
     const transferDone = () => {
+      tracker.finish(true);
       receiverConnected = false;
       transferStarted = false; // finished: nothing to cancel
       cleanupTransfer();
@@ -4342,19 +4347,21 @@ function openProfileManagement() {
       const p = e.detail?.progress || 0;
       if (p >= 1000) transferDone();
       else if (p > 0) receiverConnected = true;
-      else if (receiverConnected) { receiverConnected = false; cleanupTransfer(); }
+      else if (receiverConnected) { receiverConnected = false; tracker.finish(false); cleanupTransfer(); }
     };
     core.addEventListener("imex-progress", progHandler);
     // Blocks server-side until a device retrieves the backup; it can outlive
     // the RPC timeout — completion is detected via ImexProgress above.
-    core.provideBackup().then(transferDone).catch(() => {});
+    core.provideBackup().then(transferDone).catch((err) => tracker.finish(false, err?.message || err));
     transferPane.querySelector("[data-cancel]").addEventListener("click", () => {
+      tracker.finish(false, t("Cancelled"));
       cleanupTransfer(true);
       transferPane.innerHTML = "";
       lock(false);
     });
     core.getBackupQrSvg().then((svg) => {
       if (accountIsCurrent(epoch)) {
+        tracker.set({ stage: tracker.state.seen ? tracker.state.stage : "waiting" });
         transferPane.querySelector(".qr-box").innerHTML = svg;
         // The card reserves a clear circle at 50% / 43.65% — same overlay
         // as the invite QR.
@@ -4362,6 +4369,7 @@ function openProfileManagement() {
           `<div class="qr-self"><img src="./icons/v-logo.svg" alt=""></div>`);
       }
     }).catch((err) => {
+      tracker.finish(false, err?.message || err);
       if (accountIsCurrent(epoch)) transferPane.querySelector(".qr-box").innerHTML =
         `<div class="qr-loading">${escapeHtml(t("Couldn't prepare the transfer:"))}<br>${escapeHtml(String(err?.message || err))}</div>`;
     });
@@ -4452,31 +4460,41 @@ function openProfileManagement() {
     lock(true);
     exportBtn.disabled = true;
     progressBox.hidden = false;
-    progressBox.textContent = t("Exporting…");
+    progressBox.textContent = "";
+    const xferEl = document.createElement("div");
+    const noteEl = document.createElement("div");
+    progressBox.append(xferEl, noteEl);
+    // Core 1000 only means the tar is written; Android/PWA still save it.
+    const tracker = createTransferTracker({ core: null, kind: "export", invoke }).attach(xferEl);
     const onProg = (e) => {
       const p = e.detail?.progress || 0;
-      progressBox.textContent = p >= 1000 ? t("Backup written.") : t("Exporting… {n}%", { n: Math.round(p / 10) });
+      if (p > 0 && p < 1000) tracker.set({ stage: "exporting", permille: p, seen: true });
+      else if (p >= 1000) tracker.set({ stage: "exporting", permille: 999 });
     };
     core.addEventListener("imex-progress", onProg);
   try {
     if (pwaExport) {
       await runBackupExport(pass || null);
-      progressBox.textContent = t("Backup downloaded — check your browser downloads.");
+      tracker.finish(true);
+      noteEl.textContent = t("Backup downloaded — check your browser downloads.");
       stampBackup();
     } else if (androidUri) {
       const dir = await invoke("backup_scratch_dir");
       await core.exportBackup(dir, pass || null);
-      progressBox.textContent = t("Saving…");
+      tracker.set({ stage: "saving" });
       await invoke("publish_backup", { dir, uri: androidUri });
-      progressBox.textContent = t("Backup saved.");
+      tracker.finish(true);
+      noteEl.textContent = t("Backup saved.");
       stampBackup();
     } else {
       await core.exportBackup(dest, pass || null);
+      tracker.finish(true);
+      noteEl.textContent = t("Backup written.");
       stampBackup();
     }
   } catch (err) {
+      tracker.finish(false, err?.message || err);
       errToast(t("Export failed: ") + (err?.message || err));
-      progressBox.hidden = true;
     } finally {
       core.removeEventListener("imex-progress", onProg);
       exportBtn.disabled = false;
@@ -4513,12 +4531,14 @@ function openProfileManagement() {
     // account-changing closed this modal. Progress rides a new one; the
     // core signals 1000 / 0, and `pending` carries an early RPC error.
     const prog = showProgressModal("Import backup", t("Restoring profile…"));
+    const importTracker = createTransferTracker({ core, kind: "import", invoke: tauriInvoke() }).attach(prog.xfer);
     let settled = false;
     let seen = false;
     const finishOk = () => {
       if (settled) return;
       settled = true;
       core.removeEventListener("imex-progress", onProg);
+      importTracker.finish(true);
       prog.update(t("Profile restored — restarting"));
       localStorage.setItem("velta-ask-notifications", "1");
       core._proxyReapply?.();
@@ -4528,6 +4548,7 @@ function openProfileManagement() {
       if (settled) return;
       settled = true;
       core.removeEventListener("imex-progress", onProg);
+      importTracker.finish(false, msg);
       prog.close();
       try { await core.stopOngoingProcess?.(); } catch { /* already finished */ }
       if (job.created && String(job.targetId) !== String(job.prevId)) {
@@ -6056,11 +6077,13 @@ function showProgressModal(title, initialMessage) {
     <div style="display:flex;align-items:center;gap:14px;padding:8px 0">
       <div style="width:26px;height:26px;border:3px solid var(--accent);border-top-color:transparent;border-radius:50%;animation:ob-spin .8s linear infinite"></div>
       <div style="font-size:15px;line-height:1.45" id="progress-text"></div>
-    </div>`;
+    </div>
+    <div data-xfer></div>`;
   body.querySelector("#progress-text").textContent = initialMessage;
   const { close } = showModal({ title, body });
   return {
     close,
+    xfer: body.querySelector("[data-xfer]"),
     update: (msg) => {
       const el = body.querySelector("#progress-text");
       if (el) el.textContent = msg;
@@ -6930,7 +6953,7 @@ async function receiveSecondDeviceProfile(epoch, onStart, presetCode) {
   onStart?.();
 
   const stepsBody = document.createElement("div");
-  stepsBody.innerHTML = `<ul class="ob-steps" data-steps></ul>`;
+  stepsBody.innerHTML = `<ul class="ob-steps" data-steps></ul><div data-xfer></div>`;
   showModal({ title: "Receiving profile", body: stepsBody });
   const stepsEl = stepsBody.querySelector("[data-steps]");
   const { addStep, finishSteps } = stepList(stepsEl);
@@ -6939,6 +6962,8 @@ async function receiveSecondDeviceProfile(epoch, onStart, presetCode) {
   let seenProgress = false;
   profileReceiveRunning = true;
   wakeLockAcquire();
+  const tracker = createTransferTracker({ core, kind: "receive", invoke: tauriInvoke() })
+    .attach(stepsBody.querySelector("[data-xfer]"));
   const endReceive = () => { if (profileReceiveRunning) { profileReceiveRunning = false; wakeLockRelease(); } };
   const progHandler = (e) => {
     const p = e.detail?.progress || 0;
@@ -6966,6 +6991,7 @@ async function receiveSecondDeviceProfile(epoch, onStart, presetCode) {
     await core.addAccountWithBackup(code.trim());
   } catch (err) {
     core.removeEventListener("imex-progress", progHandler);
+    tracker.finish(false, err?.message || err);
     endReceive();
     finishSteps(false);
     addStep(t("Transfer failed: ") + (err?.message || err));

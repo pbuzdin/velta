@@ -162,6 +162,42 @@ class CoreService : Service() {
             androidx.core.content.ContextCompat.startForegroundService(context, Intent(context, CoreService::class.java))
         }
 
+        const val TRANSFER_CHANNEL_ID = "velta-transfer"
+        const val TRANSFER_NOTIFICATION_ID = 3
+
+        // Profile export / second-device transfer progress (lib.rs
+        // transfer_notify). permille 0..1000 = determinate bar, -2 =
+        // indeterminate, -1 = remove. Independent of the background-sync
+        // service: posted even when "Use background connection" is off.
+        @JvmStatic
+        fun transferProgress(context: Context, permille: Int, title: String, text: String) {
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+            if (permille == -1) {
+                manager.cancel(TRANSFER_NOTIFICATION_ID)
+                return
+            }
+            manager.createNotificationChannel(
+                NotificationChannel(TRANSFER_CHANNEL_ID, title, NotificationManager.IMPORTANCE_LOW)
+            )
+            val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
+            val pending = launch?.let {
+                PendingIntent.getActivity(context, 2, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            }
+            val b = NotificationCompat.Builder(context, TRANSFER_CHANNEL_ID)
+                .setSmallIcon(context.applicationInfo.icon)
+                .setContentTitle(title)
+                .setContentText(if (permille >= 0) "$text ${permille / 10}%" else text)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setSilent(true)
+                .setProgress(1000, permille.coerceIn(0, 1000), permille < 0)
+            if (pending != null) b.setContentIntent(pending)
+            try {
+                manager.notify(TRANSFER_NOTIFICATION_ID, b.build())
+            } catch (_: SecurityException) {
+            }
+        }
+
         @JvmStatic
         fun stop(context: Context) {
             context.stopService(Intent(context, CoreService::class.java))

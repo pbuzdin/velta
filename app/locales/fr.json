@@ -1574,5 +1574,14 @@
   "Mail goes through a Velta WebSocket proxy instead of connecting to the relays directly. Useful when only web traffic works. Only one of WebSocket transport and SOCKS5 proxy is in use at a time.": "Le courrier passe par un proxy WebSocket Velta au lieu de se connecter directement aux relais. Utile quand seul le trafic web fonctionne. Un seul parmi le transport WebSocket et le proxy SOCKS5 est utilisé à la fois.",
   "The SOCKS5 proxy is in use. Using a WebSocket proxy turns it off.": "Le proxy SOCKS5 est utilisé. L'utilisation d'un proxy WebSocket l'arrête.",
   "Profile transfer continues in the background — keep Velta open on both devices": "Le transfert du profil continue en arrière-plan — gardez Velta ouvert sur les deux appareils",
-  "A profile transfer is already running — wait for it to finish": "Un transfert de profil est déjà en cours — attendez qu’il se termine"
+  "A profile transfer is already running — wait for it to finish": "Un transfert de profil est déjà en cours — attendez qu’il se termine",
+  "Waiting for the other device…": "En attente de l’autre appareil…",
+  "Receiving…": "Réception…",
+  "Importing…": "Importation…",
+  "Done": "Terminé",
+  "Failed": "Échec",
+  "Cancelled": "Annulé",
+  "Sending profile": "Envoi du profil",
+  "Exporting backup": "Exportation de la sauvegarde",
+  "Importing backup": "Importation de la sauvegarde"
 }
