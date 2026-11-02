@@ -364,7 +364,7 @@ Build profiles are tuned for size in `Cargo.toml`:
 ### 4.2 Velta PWA (`app/`)
 
 ```bash
-node --test tests/*.test.mjs   # complete JS suite; required by tests.yml
+node --test tests/             # complete JS suite; required by tests.yml
 node scripts/e2e-smoke.mjs     # real Chromium: demo boot/open/send/no JS errors
 ```
 
@@ -2469,8 +2469,9 @@ incoming-msg (`mutedChatAllows`) and Rust `bg_notify_incoming`
 
 Regression suites (Node's built-in test runner, no dependencies). Run the
 whole set — 179 files, 1236 tests as of 2026-11-02 (5 skipped without
-python3+websockets: `tests/ws-proxy-auth.test.mjs`; Windows path uses
-`fileURLToPath`). Includes SOCKS5 proxy, relay pause/autorelay, native
+python3+websockets: `tests/ws-proxy-auth.test.mjs`; CI installs it so
+those run on Linux; Windows path uses `fileURLToPath`). Includes SOCKS5
+proxy, relay pause/autorelay, native
 attachment encryption, and Android lock-screen contracts from the 2026-11-02
 PR stack. 1.4.86: diagnostics bar
 leaves with the chat, history stays on screen after a send, row height is

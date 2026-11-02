@@ -1,3 +1,6 @@
+# Full JS suite on every PR and master push (#195). Includes the #178
+# DEK-wrap layout pin (tests/android-dek-wrap-layout.test.mjs) so a merge
+# cannot reintroduce ByteArray(1 + iv.size + dek.size).
 name: tests
 
 on:
@@ -16,14 +19,18 @@ concurrency:
 jobs:
   javascript-and-browser:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      # ws-proxy-auth.test.mjs skips without this; #195: don't leave those
+      # five tests skipped on Linux CI.
+      - name: Python websockets (ws-proxy-auth)
+        run: python3 -m pip install --user --break-system-packages 'websockets==13.1'
       - name: JavaScript tests
-        run: node --test tests/*.test.mjs
+        run: node --test tests/
       - name: Install browser test dependency
         working-directory: scripts
         run: npm ci --no-fund --no-audit
