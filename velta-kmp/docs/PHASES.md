@@ -36,8 +36,8 @@ that order completes the daily-drivable story before the release polish.
 | P1b Android in-process core | ✅ done | `2cd1c8f2` | green |
 | P2 Persistence + read paths | ✅ done | `cbb3809b` | green |
 | P3 Write paths | ✅ code complete — live gate pending | `fd2a405c` + quote-restore | green |
-| P4 Velta layer | 🚧 slices 1-12 done (…, QR camera) | — | — |
-| P5 Release track | ⬜ | — | — |
+| P4 Velta layer | 🚧 slices 1-12 done | — | — |
+| P5 Release track | 🚧 slice 1 done (release builds + size) | — | — |
 
 ---
 
@@ -325,8 +325,30 @@ specific and skipped.
 video/audio playback, UnifiedPush + foreground service, at-rest lock port,
 brand logo assets.
 
-## P5 — Release track ⬜
+## P5 — Release track 🚧 slice 1 done
 
-Planned: signing, release builds with size work, distribution, crash
-reporting, CI artifact wiring for sidecar + shims, switchover decision for
-`org.velta`.
+**Slice 1 — release builds + size (shipped):**
+- **Shim size profile**: `lto + codegen-units=1 + opt-level="s" + strip` in
+  the shim's Cargo.toml — per-ABI `.so` from **56/64 MB → 25.9/28.7 MB**.
+  panic stays unwind (an abort would take the whole app process down; the
+  sticky service recovers anyway, but no added failure modes).
+- **R8 minify + resource shrink** on the release build type, with keep
+  rules for the JNI surface (`RpcShim` native methods — R8 renaming would
+  break symbol resolution), kotlinx.serialization wire models, and the
+  UnifiedPush connector dispatch. A latent lint failure surfaced: biometric
+  1.1.0 drags in fragment < 1.3 which breaks the ActivityResult API — fixed
+  with an explicit `fragment-ktx` 1.8.6 dependency.
+- **Signing config**: `keystore.properties` (gitignored) when present,
+  falling back to the debug key so release APKs stay installable — the
+  production keystore decision remains open.
+- **Verified**: minified release APK (57 MB) installed on the emulator —
+  StrongBox fallback, DEK creation, and the handshake all green through the
+  minified code.
+
+**Measured**: debug 135 MB → **69 MB**, release **57 MB** (universal,
+both ABIs). Further cuts available if needed: ABI splits (~halves again)
+for Play delivery.
+
+**Remaining in P5**: production keystore + distribution channel, crash
+reporting, CI release lane (signed artifacts), the push-epic relay side,
+and the `org.velta` switchover decision.

@@ -10,3 +10,8 @@ captures/
 # Native core shims are built per-machine (WSL/CI), never committed —
 # same rule as velta-app/src-tauri/binaries/.
 composeApp/src/androidMain/jniLibs/**/*.so
+# Release signing credentials (P5) — never committed.
+keystore.properties
+*.jks
+*.keystore
+!composeApp/debug.keystore

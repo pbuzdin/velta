@@ -10,6 +10,7 @@ coroutines = "1.10.2"
 serialization = "1.9.0"
 unifiedpush = "3.3.4-rc1"
 androidxBiometric = "1.1.0"
+androidxFragment = "1.8.6"
 zxing = "3.5.3"
 camerax = "1.4.1"
 androidxActivityCompose = "1.11.0"
@@ -24,6 +25,7 @@ kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serializa
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidxActivityCompose" }
 unifiedpush-connector = { module = "org.unifiedpush.android:connector", version.ref = "unifiedpush" }
 androidx-biometric = { module = "androidx.biometric:biometric", version.ref = "androidxBiometric" }
+androidx-fragment-ktx = { module = "androidx.fragment:fragment-ktx", version.ref = "androidxFragment" }
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "camerax" }
 camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camerax" }

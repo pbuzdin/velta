@@ -5,6 +5,16 @@ name = "velta-rpc-shim"
 version = "0.1.0"
 edition = "2021"
 
+# Size-tuned release profile (P5): the shim statically links the whole core
+# — LTO + single codegen unit + symbol stripping took the per-ABI .so from
+# ~80 MB (unstripped default release) to a fraction of that. panic stays
+# unwind: an abort here takes the whole app process down with it.
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = "s"
+strip = "symbols"
+
 # In-process deltachat core for the KMP Android client (issue #192 P1b).
 # Loads via System.loadLibrary("velta_rpc_shim") and serves the deltachat
 # JSON-RPC surface on a localhost TCP port — one yerpc session per
