@@ -57,6 +57,22 @@ test("Android lock: main thread, screen-lock fallback, no blind fresh key", () =
   assert.match(ks, /setIsStrongBoxBacked\(true\)\.build\(\)\)\s*return generator\.generateKey\(\)/);
 });
 
+test("Android lock: no PIN shortcut over the unlocked app (auto-lock bypass)", () => {
+  // The "Use PIN" button dismisses the lock overlay WITHOUT authenticating.
+  // It is only safe while the core is keyless (cold start): then the WebView
+  // behind the overlay shows the real PIN gate (DB_LOCK_STATUS), and Rust's
+  // unlock_with_pin verifies the PIN with backoff. Over the running core —
+  // the auto-lock screen gate — the page behind is the unlocked app, so the
+  // button would bypass the lock with one tap.
+  assert.match(lock, /showLock\(activity, allowPinFallback = !VeltaCore\.running\(\)\)/);
+  assert.match(lock, /showLock\(activity, allowPinFallback = false\)/);
+  assert.match(lock, /if \(allowPinFallback && VeltaKeystore\.pinOn\(activity\)\) View\.VISIBLE else View\.GONE/);
+  // A cancelled/failed prompt must leave a way back (Retry), and Retry must
+  // match the lock kind: re-auth over the running core, DEK unwrap when keyless.
+  assert.match(lock, /if \(ok\) hideLock\(\) else showRetry\(activity\)/);
+  assert.match(lock, /if \(VeltaCore\.running\(\)\) reAuth\(activity\) else requestUnlock\(activity\)/);
+});
+
 test("Rust: unlocked DEK runs prepare (migration) and the PIN works on Android", () => {
   assert.match(rs, /db_key::prepare\(&accounts_dir, Some\(&hex\)\)/);
   for (const f of ["fn android_pin_set(", "fn android_pin_clear(", "fn android_pin_unlock("]) assert.ok(rs.includes(f), f);

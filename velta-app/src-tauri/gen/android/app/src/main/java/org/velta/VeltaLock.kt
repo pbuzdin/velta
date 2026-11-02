@@ -36,6 +36,13 @@ import javax.crypto.spec.GCMParameterSpec
 // shows a full-screen lock and re-prompts. Honest limitation: the DEK
 // stays in the running core's memory, so this gates the screen, not the
 // key — the cold-start prompt above is the real boundary.
+//
+// Because the auto-lock gate sits over an UNLOCKED app, its overlay must
+// never offer a shortcut that skips authentication: the "Use PIN" fallback
+// is shown only while the core is keyless (cold start), when the WebView
+// behind the overlay shows the real PIN gate (Rust set DB_LOCK_STATUS and
+// unlock_with_pin verifies the PIN with backoff). On the auto-lock screen
+// a tap-to-dismiss "Use PIN" would bypass the lock entirely.
 object VeltaLock {
     private const val TAG = "velta-lock"
     private const val AUTH_KEK_ALIAS = "velta_kek_auth"
@@ -372,7 +379,12 @@ object VeltaLock {
         this.activity = activity
         hiddenAt = System.currentTimeMillis()
         if (!on(activity)) return
-        showLock(activity)
+        // The PIN fallback is safe only while the core is keyless: then the
+        // WebView behind the overlay shows the real PIN gate. With the core
+        // already running (an activity recreated over a live core) the page
+        // behind is the unlocked app, and a tap-to-dismiss "Use PIN" would
+        // bypass the lock.
+        showLock(activity, allowPinFallback = !VeltaCore.running())
         requestUnlock(activity)
     }
 
@@ -383,7 +395,9 @@ object VeltaLock {
             hiddenAt > 0 && autoLockMinutes(activity) > 0 &&
             System.currentTimeMillis() - hiddenAt >= autoLockMinutes(activity) * 60_000L
         ) {
-            showLock(activity)
+            // Screen gate over the still-running, unlocked core: never a PIN
+            // shortcut here — the page behind is NOT the PIN screen.
+            showLock(activity, allowPinFallback = false)
             reAuth(activity)
         }
     }
@@ -412,11 +426,17 @@ object VeltaLock {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, kek, GCMParameterSpec(128, blob.copyOfRange(1, 13)))
         prompt(activity, cipher, activity.getString(R.string.biometric_unlock_title)) { ok, c ->
-            if (!ok || c == null) return@prompt
+            if (!ok || c == null) {
+                // Cancelled or errored: leave a way back to the prompt
+                // instead of a dead-end lock screen.
+                showRetry(activity)
+                return@prompt
+            }
             val dek = try {
                 c.doFinal(blob, 13, blob.size - 13)
             } catch (e: Exception) {
                 Log.e(TAG, "auth wrap decrypt failed", e)
+                showRetry(activity)
                 return@prompt
             }
             VeltaCore.startWithDek(hex(dek))
@@ -427,7 +447,7 @@ object VeltaLock {
     /** Auto-lock re-entry: a plain (no-crypto) confirmation prompt. */
     private fun reAuth(activity: FragmentActivity) {
         prompt(activity, null, activity.getString(R.string.biometric_unlock_title)) { ok, _ ->
-            if (ok) hideLock()
+            if (ok) hideLock() else showRetry(activity)
         }
     }
 
@@ -437,7 +457,7 @@ object VeltaLock {
         }
     }
 
-    private fun showLock(activity: FragmentActivity) {
+    private fun showLock(activity: FragmentActivity, allowPinFallback: Boolean) {
         if (lockOverlay != null) return
         val root = FrameLayout(activity).apply {
             tag = "velta-lock-overlay"
@@ -462,13 +482,21 @@ object VeltaLock {
             visibility = View.GONE
             setOnClickListener {
                 it.visibility = View.GONE
-                if (VeltaLock.on(activity) && lockOverlay != null) requestUnlock(activity)
+                if (VeltaLock.on(activity) && lockOverlay != null) {
+                    // Core keyless: unwrap the DEK again (cold start). Core
+                    // running: the screen gate only needs a fresh auth prompt.
+                    if (VeltaCore.running()) reAuth(activity) else requestUnlock(activity)
+                }
             }
         }
-        // App-lock PIN on too: the page behind shows the PIN screen.
+        // App-lock PIN on too: the page behind shows the PIN screen — but
+        // only at cold start (allowPinFallback), when the core is keyless
+        // and Rust's unlock_with_pin verifies the PIN. On the auto-lock
+        // screen gate the app behind is fully unlocked, so this button is
+        // hidden there: showing it would bypass the lock with one tap.
         val usePin = Button(activity).apply {
             text = activity.getString(R.string.biometric_use_pin)
-            visibility = if (VeltaKeystore.pinOn(activity)) View.VISIBLE else View.GONE
+            visibility = if (allowPinFallback && VeltaKeystore.pinOn(activity)) View.VISIBLE else View.GONE
             setOnClickListener { hideLock() }
         }
         box.addView(title)
