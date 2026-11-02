@@ -32,8 +32,7 @@
     "targets": "all",
     "createUpdaterArtifacts": true,
     "resources": {
-      "binaries/deltachat-rpc-server-x86_64-pc-windows-msvc.exe": "deltachat-rpc-server.exe",
-      "binaries/soartunnel.dll": "soartunnel.dll"
+      "binaries/deltachat-rpc-server-x86_64-pc-windows-msvc.exe": "deltachat-rpc-server.exe"
     },
     "icon": [
       "icons/32x32.png",

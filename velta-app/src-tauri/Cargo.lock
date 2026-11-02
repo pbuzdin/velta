@@ -1600,6 +1600,7 @@ dependencies = [
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "tagger",
+ "tempfile",
  "textwrap",
  "thiserror 2.0.20",
  "tokio",
@@ -1610,6 +1611,7 @@ dependencies = [
  "toml 0.9.12+spec-1.1.0",
  "url",
  "uuid",
+ "velta-attachment",
  "walkdir",
  "webpki-roots 1.0.10",
 ]
@@ -8874,19 +8876,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
-name = "velta-attachment"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "anyhow",
- "hex",
- "hkdf",
- "rand 0.9.4",
- "sha2",
- "zeroize",
-]
-
-[[package]]
 name = "velta-app"
 version = "1.5.0"
 dependencies = [
@@ -8903,7 +8892,6 @@ dependencies = [
  "iroh",
  "jni 0.21.1",
  "keyring",
- "libloading",
  "qrcode",
  "rusqlite",
  "rustls",
@@ -8930,8 +8918,20 @@ dependencies = [
  "ureq",
  "velta-attachment",
  "webpki-roots 0.26.11",
- "windows-sys 0.59.0",
  "yerpc",
+]
+
+[[package]]
+name = "velta-attachment"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "anyhow",
+ "hex",
+ "hkdf",
+ "rand 0.9.5",
+ "sha2",
+ "zeroize",
 ]
 
 [[package]]

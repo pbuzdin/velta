@@ -65,10 +65,6 @@ android {
     buildFeatures {
         buildConfig = true
     }
-    // Optional DNS tunnel library (velta-app/soar-tunnel, libsoartunnel.so),
-    // built by CI into its own folder so Tauri's jniLibs handling never
-    // touches it. Missing folder = upstream behavior (tunnel.rs checks).
-    sourceSets.getByName("main").jniLibs.srcDir("src/main/soarLibs")
 }
 
 rust {

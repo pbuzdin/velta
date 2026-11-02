@@ -137,33 +137,6 @@ jobs:
           workspaces: ./velta-app/src-tauri
           cache-bin: false
 
-      # Optional DNS tunnel: velta-app/soar-tunnel as a c-shared
-      # library. tunnel.rs dlopens it at runtime, so a build without it still
-      # runs; gradle picks it up from src/main/soarLibs (build.gradle.kts).
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: velta-app/soar-tunnel/go.mod
-          cache-dependency-path: velta-app/soar-tunnel/go.sum
-
-      - name: Build DNS tunnel library (arm64-v8a)
-        working-directory: ./velta-app/soar-tunnel
-        env:
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
-        run: |
-          go vet ./...
-          go test ./...
-          NDK="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64"
-          OUT=../src-tauri/gen/android/app/src/main/soarLibs/arm64-v8a
-          mkdir -p "$OUT"
-          # 16 KB page alignment: required for native libs on Android 15+ devices.
-          CGO_ENABLED=1 GOOS=android GOARCH=arm64 CC="$NDK/bin/aarch64-linux-android24-clang" \
-            go build -trimpath -buildmode=c-shared \
-            -ldflags="-s -w -extldflags=-Wl,-z,max-page-size=16384" \
-            -o "$OUT/libsoartunnel.so" ./cmd/libsoartunnel
-          rm -f "$OUT/libsoartunnel.h"
-          ls -l "$OUT"
-
       - name: Build Android APK (arm64-v8a)
         working-directory: ./velta-app
         env:

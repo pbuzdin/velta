@@ -49,7 +49,7 @@ anyhow = "1"
 getrandom = "0.2"
 data-encoding = "2"
 # fetch_page_title: best-effort <title> for the in-app browser bar.
-# socks-proxy: link previews go through the account proxy / DNS tunnel (SOCKS5).
+# socks-proxy: link previews go through the account proxy (SOCKS5).
 ureq = { version = "2", features = ["socks-proxy"] }
 socket2 = "0.5"
 # Large file (#138, lufi.rs): WebSocket over TLS through the account proxy.
@@ -89,14 +89,8 @@ futures-util = "0.3"
 yerpc = "0.7"
 # resolve_content_uri: copy picked content:// attachments via ContentResolver.
 jni = "0.21"
-# Optional DNS tunnel (tunnel_android.rs): sets proxy_url on the core's accounts.
+# In-process Delta Chat core on Android.
 deltachat = { path = "../../core" }
-
-# Optional DNS tunnel (tunnel.rs): loads libsoartunnel.so (Android) /
-# soartunnel.dll (Windows) at runtime, so a build without it still works.
-[target.'cfg(any(target_os = "android", windows))'.dependencies]
-libloading = "0.7"
-
 
 # Desktop-only plugins for deep-link handling (custom URI scheme) and single-instance forwarding.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
@@ -114,8 +108,6 @@ tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 # Windows toasts with the conversation layout (three text lines + circular
 # sender avatar); same crate the notification plugin uses on Windows.
 tauri-winrt-notification = "0.7"
-# DNS tunnel: the adapters' DNS servers (GetAdaptersAddresses, tunnel_windows.rs).
-windows-sys = { version = "0.59", features = ["Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock"] }
 
 [profile.release]
 # panic = "unwind" so a panic during startup (e.g. in init_android_core or the

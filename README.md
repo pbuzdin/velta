@@ -1548,7 +1548,7 @@ by value with their integration notes — lives in
 .
 ├── app/                        # Velta web frontend (vanilla JS, no build)
 ├── velta-app/              # Tauri 2 wrapper for Windows + Android
-│   ├── soar-tunnel/            # archived DNS-tunnel library (CI build only)
+│   ├── soar-tunnel/            # archived DNS-tunnel library (not shipped)
 │   └── src-tauri/
 │       ├── Cargo.toml          # Rust crate + deltachat-jsonrpc dependency
 │       ├── tauri.conf.json     # shared Tauri config
@@ -1589,7 +1589,7 @@ is hand-rolled for Velta.
 | [virtual-scroller](https://github.com/catamphetamine/virtual-scroller) (`virtual-scroller-dom`) | Windowed rendering of the message history with variable-height rows, seamless prepends and scroll restoration | [catamphetamine/virtual-scroller](https://github.com/catamphetamine/virtual-scroller) |
 | [Tauri 2](https://github.com/tauri-apps/tauri) | Desktop/Android shell, deep links, sidecar process | [tauri-apps/tauri](https://github.com/tauri-apps/tauri) |
 | [Delta Chat core 2.66.0](https://github.com/chatmail/core) | The messaging engine (Rust): contacts, chats, e2e crypto, IMAP/SMTP | [chatmail/core](https://github.com/chatmail/core) |
-| [soar](https://github.com/getlantern/soar) v0.2.0 (Go) | Archived DNS-tunnel library, still built by CI but no longer used by the app | [getlantern/soar](https://github.com/getlantern/soar) |
+| [soar](https://github.com/getlantern/soar) v0.2.0 (Go) | Archived DNS-tunnel library; not built into the APK or Windows installer | [getlantern/soar](https://github.com/getlantern/soar) |
 
 Both JS libraries are vendored under `app/vendor/` (no bundler, no `node_modules`
 at runtime). UI icons are individual SVGs from [SVG Repo](https://www.svgrepo.com/).
@@ -1630,10 +1630,6 @@ cargo install tauri-cli --version "^2.0" --locked
 - JDK 17
 - Targets installed via rustup:
   `aarch64-linux-android`, `armv7-linux-androideabi`, `i686-linux-androideabi`, `x86_64-linux-android`
-- Optional: Go 1.25+ for the archived DNS-tunnel library
-  (`velta-app/soar-tunnel`). CI still builds `libsoartunnel.so` into
-  `gen/android/app/src/main/soarLibs/`; the app no longer loads it.
-
 #### WSL-only NDK note
 
 If you install the NDK inside WSL (e.g. `~/android/sdk/ndk/r27c`) make sure the extracted NDK preserves symlinks. Python's `zipfile` module strips symlinks by default, which breaks the LLVM toolchain. Extract the NDK zip with a symlink-aware tool such as `unzip` or a small Python helper that checks `zipfile.ZipInfo.create_system == 3` before writing entries. After extraction verify that toolchain binaries like `toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang` resolve correctly.

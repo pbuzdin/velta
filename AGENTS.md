@@ -126,7 +126,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   └── deny.toml             # cargo-deny policy
 │
 ├── velta-app/            # Tauri v2 wrapper
-│   ├── soar-tunnel/          # archived DNS tunnel: Go c-shared lib + CLI, still built by CI but not loaded (docs/agents/dns-tunnel.md)
+│   ├── soar-tunnel/          # archived DNS tunnel Go source; client .so/.dll no longer built or bundled (docs/agents/dns-tunnel.md)
 │   └── src-tauri/
 │       ├── Cargo.toml        # depends on deltachat-jsonrpc (path on Android)
 │       ├── tauri.conf.json   # frontendDist: ../../app (version mirrors Cargo.toml — Android reads only it)

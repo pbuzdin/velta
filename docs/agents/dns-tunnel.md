@@ -3,8 +3,10 @@
 > **Archived implementation.** Current Velta uses saved client-side SOCKS5
 > proxies (`app/js/proxy.js`, `velta-app/src-tauri/src/proxy.rs`); see
 > [`../socks5-proxy-link.md`](../socks5-proxy-link.md). The DNS runtime modules
-> and deep link were removed. `velta-app/soar-tunnel/` remains only because
-> existing CI still builds it. The rest of this document is historical.
+> and deep link were removed. CI no longer builds `libsoartunnel.so` or
+> `soartunnel.dll`; they are not in the APK or Windows installer.
+> `velta-app/soar-tunnel/` is archival Go source. The rest of this document is
+> historical.
 
 Velta on Android and Windows could reach the relays over a
 [soar](https://github.com/getlantern/soar) DNS tunnel when the mobile network
@@ -24,8 +26,8 @@ tunnel link.
 | `velta-app/src-tauri/src/tunnel_android.rs` | Android platform: `libsoartunnel.so`, NetInfo.kt, in-process accounts |
 | `velta-app/src-tauri/src/tunnel_windows.rs` | Windows platform: `soartunnel.dll` from the bundle resources, adapters' DNS (`GetAdaptersAddresses`), accounts via JSON-RPC to the sidecar (`sidecar_call` in lib.rs). A macOS port = one more such module + a dylib build |
 | `app/js/tunnel.js` | Deep link confirm (Add and use / Add / Cancel, duplicate → use), drawer row + settings sheet with the saved-tunnel list, diagnostics share |
-| `.github/workflows/build-android.yml` | Builds `libsoartunnel.so` into `gen/android/app/src/main/soarLibs` (gradle `jniLibs.srcDir`) |
-| `.github/workflows/build-windows*.yml` | `tunnel-dll` job: cross-compiles `soartunnel.dll` on Ubuntu (cgo + mingw-w64, `-extldflags=-static`), the installer job bundles it as a resource (`tauri.conf.json`) |
+| `.github/workflows/build-android.yml` | No longer builds `libsoartunnel.so` |
+| `.github/workflows/build-windows*.yml` | No longer has a `tunnel-dll` job; `soartunnel.dll` is not a bundle resource |
 
 ## Configuration never lives in the repo
 
