@@ -16,11 +16,12 @@
 import { escapeHtml } from "./format.js";
 import { t } from "./i18n.js";
 
-// VAPID public key of the chatmail notifier. Same constant as
-// UnifiedPushService.kt (Android UnifiedPush) and ArcaneChat's build.gradle.
-// The push service only accepts pushes signed by the private half of the key
-// a subscription was created with: a notifier with another keypair = no
-// pushes (the endpoint answers 401/403 to the notifier).
+// VAPID public key of the chatmail notifier. Same default string as the
+// Android Gradle property veltaVapidKey / env VELTA_VAPID_KEY (injected
+// into BuildConfig.VAPID_KEY — PWA cannot read Gradle, so this stays a
+// JS constant). The push service only accepts pushes signed by the private
+// half of the key a subscription was created with: a notifier with another
+// keypair = no pushes (the endpoint answers 401/403 to the notifier).
 export const VAPID_KEY = "BHNce1sXk99bpkFFYwiSR3Lp4n54PiS-Y0S9iX6R7va7sxQ5hE7ll6DMKlKs2tFT9POq92gLygezT7o0fkQU8NE";
 export const PREF_KEY = "velta-webpush";        // "1" = user turned it on
 export const TOKEN_KEY = "velta-webpush-token"; // last token handed to the core (diagnostics only)

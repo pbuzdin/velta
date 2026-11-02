@@ -13,6 +13,16 @@ val tauriProperties = Properties().apply {
     }
 }
 
+// UnifiedPush VAPID public key identifying the chatmail notifier to the
+// distributor. Override for a self-hosted relay whose notifier uses a
+// different keypair: -PveltaVapidKey=... or env VELTA_VAPID_KEY. Default
+// is the upstream chatmail key so stock builds keep working.
+val veltaVapidKey = (project.findProperty("veltaVapidKey") as String?)
+    ?.takeIf { it.isNotBlank() }
+    ?: System.getenv("VELTA_VAPID_KEY")?.takeIf { it.isNotBlank() }
+    ?: "BHNce1sXk99bpkFFYwiSR3Lp4n54PiS-Y0S9iX6R7va7sxQ5hE7ll6DMKlKs2tFT9POq92gLygezT7o0fkQU8NE"
+fun quoted(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
 android {
     compileSdk = 36
     namespace = "org.velta"
@@ -27,6 +37,7 @@ android {
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+        buildConfigField("String", "VAPID_KEY", quoted(veltaVapidKey))
     }
     buildTypes {
         getByName("debug") {

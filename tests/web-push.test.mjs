@@ -10,8 +10,8 @@ const src = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8");
 const mem = () => { const m = new Map(); return { getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v)), removeItem: k => m.delete(k), m }; };
 
 test("VAPID key is the notifier key shared with the Android UnifiedPush flavor", () => {
-  const kt = src("velta-app/src-tauri/gen/android/app/src/main/java/org/velta/UnifiedPushService.kt");
-  assert.ok(kt.includes(`"${VAPID_KEY}"`));
+  const gradle = src("velta-app/src-tauri/gen/android/app/build.gradle.kts");
+  assert.ok(gradle.includes(VAPID_KEY), "JS default matches the Gradle BuildConfig default");
   const raw = urlBase64ToUint8Array(VAPID_KEY);
   assert.equal(raw.length, 65); // uncompressed P-256 point
   assert.equal(raw[0], 4);

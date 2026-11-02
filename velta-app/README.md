@@ -257,6 +257,12 @@ cargo tauri android build --target aarch64
 results must go through a process-wide singleton or a dedicated plain
 `Activity`.
 
+Self-hosted relays whose notifier uses a different VAPID keypair pass
+`-PveltaVapidKey=<public-key>` (or set `VELTA_VAPID_KEY`) when building
+the APK. The default is the upstream chatmail notifier key, so a stock
+build keeps working with chatmail relays. The PWA cannot read Gradle and
+keeps the same default in `app/js/web-push.js`.
+
 The project uses a **debug keystore** for the signed test APK:
 
 ```bash

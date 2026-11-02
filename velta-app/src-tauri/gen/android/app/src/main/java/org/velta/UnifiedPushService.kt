@@ -80,14 +80,11 @@ class UnifiedPushService : PushService() {
         private const val TAG = "UnifiedPushService"
 
         // VAPID public key identifying the application server (the chatmail
-        // push relay) to the UnifiedPush push server. Upstream chatmail
-        // notifier key, same constant the Delta Chat UnifiedPush flavor
-        // ships. 🐴 ceiling: a self-hosted relay whose notifier uses a
-        // different VAPID keypair needs this constant updated, or push
-        // providers that verify VAPID will reject its pushes; providers
-        // ignoring VAPID work regardless.
-        private const val VAPID_KEY =
-            "BHNce1sXk99bpkFFYwiSR3Lp4n54PiS-Y0S9iX6R7va7sxQ5hE7ll6DMKlKs2tFT9POq92gLygezT7o0fkQU8NE"
+        // push relay) to the UnifiedPush push server. 🐴 a self-hosted relay
+        // whose notifier uses a different VAPID keypair must pass
+        // -PveltaVapidKey or VELTA_VAPID_KEY at APK build (see
+        // app/build.gradle.kts), or push providers that verify VAPID will
+        // reject its pushes; providers ignoring VAPID work regardless.
 
         // Auto-register on app start. Only the no-questions case is handled:
         // a single distributor or a system default (resolveDefaultDistributor
@@ -115,7 +112,7 @@ class UnifiedPushService : PushService() {
         }
 
         fun register(context: Context) {
-            UnifiedPush.register(context, INSTANCE_DEFAULT, null, VAPID_KEY)
+            UnifiedPush.register(context, INSTANCE_DEFAULT, null, BuildConfig.VAPID_KEY)
             Log.d(TAG, "UnifiedPush registration requested")
         }
     }

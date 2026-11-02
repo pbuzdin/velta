@@ -18,6 +18,15 @@ val keystoreProps = Properties().apply {
 }
 val hasReleaseKeystore = keystoreProps.isNotEmpty()
 
+// UnifiedPush VAPID public key. Same property/env as the Tauri Android
+// shell so the two clients cannot drift. Override: -PveltaVapidKey=...
+// or env VELTA_VAPID_KEY. Default is the upstream chatmail notifier key.
+val veltaVapidKey = (project.findProperty("veltaVapidKey") as String?)
+    ?.takeIf { it.isNotBlank() }
+    ?: System.getenv("VELTA_VAPID_KEY")?.takeIf { it.isNotBlank() }
+    ?: "BHNce1sXk99bpkFFYwiSR3Lp4n54PiS-Y0S9iX6R7va7sxQ5hE7ll6DMKlKs2tFT9POq92gLygezT7o0fkQU8NE"
+fun quoted(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
 kotlin {
     androidTarget()
     jvm("desktop")
@@ -75,6 +84,11 @@ android {
         targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField("String", "VAPID_KEY", quoted(veltaVapidKey))
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     signingConfigs {
