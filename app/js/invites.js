@@ -162,7 +162,7 @@ export function inviteCardHtml(parsed) {
   const sub = label.addr && label.addr !== label.actor ? `<span class="invite-sub">${escapeHtml(label.addr)}</span>` : "";
   return `<span class="invite-card">` +
     `<button type="button" class="invite-main" data-invite-join="${escapeAttr(parsed.raw)}">` +
-      `<span class="invite-line">${line}</span>${sub}` +
+      `<span class="invite-line">${line}</span>${sub}<span class="invite-action" aria-hidden="true">${ICON.chevronRight}</span>` +
     `</button>` +
     `<button type="button" class="invite-copy" data-invite-copy="${escapeAttr(parsed.raw)}" title="${escapeHtml(t("Copy invite link"))}" aria-label="${escapeHtml(t("Copy invite link"))}">` +
       ICON.copy +

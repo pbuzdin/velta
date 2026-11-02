@@ -928,11 +928,10 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
 
 /* Invite card: "Pavel invited you to a Chat RU group" / "Chat with Pavel",
    copy/share icons on the right. Rendered instead of the raw invite link.
-   Theme tokens like .ivc / .lang-card (velta.cc/design): surface --bg-reply
-   over an opaque --bg-bubble-in (same on incoming and outgoing bubbles), the
-   join area is the primary action (--accent / --on-accent; hover/press change
-   the surface only), icon buttons --text on the card. Brutal: ink border,
-   hard shadow, main yellow join area. AA pinned by tests/invite-cards.test.mjs. */
+   Neutral --bg-reply surface over an opaque --bg-bubble-in (same on incoming
+   and outgoing bubbles). The whole text area joins, but only its chevron uses
+   accent so an invite does not outrank the conversation. Brutal keeps the ink
+   border/hard shadow and a small yellow cue. AA pinned by invite-cards tests. */
 .invite-card {
   display: flex; align-items: stretch; gap: 0;
   margin: 6px 0; max-width: 100%;
@@ -943,24 +942,29 @@ html[data-theme="light"] .msg-row.out .msg-text blockquote {
   vertical-align: middle;
 }
 .invite-main {
-  flex: 1; min-width: 0;
+  flex: 1; min-width: 0; position: relative;
   display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
-  padding: 8px 10px; text-align: left;
-  background: var(--accent); border: none; cursor: pointer;
-  color: var(--on-accent); font: inherit; font-size: 15px; line-height: 1.35;
+  padding: 8px 32px 8px 10px; text-align: left;
+  background: transparent; border: none; cursor: pointer;
+  color: var(--text); font: inherit; font-size: 15px; line-height: 1.35;
   user-select: none; -webkit-user-select: none;
 }
-html .invite-card .invite-main:active { background: var(--accent-active); }
+html .invite-card .invite-main:active { background: var(--bg-hover); }
 @media (hover: hover) and (pointer: fine) {
-  html .invite-card button.invite-main:hover { background: var(--accent-hover); }
+  html .invite-card button.invite-main:hover { background: var(--bg-hover); }
 }
 .invite-main:focus-visible, .invite-copy:focus-visible { outline: 2px solid var(--accent-text-in); outline-offset: -3px; }
-html .invite-card .invite-line, html .invite-card .invite-line b { color: var(--on-accent); }
+html .invite-card .invite-line, html .invite-card .invite-line b { color: var(--text); }
 .invite-line b { font-weight: 700; }
 .invite-sub {
-  font-size: 12.5px; color: var(--on-accent);
+  font-size: 12.5px; color: var(--text-dim);
   max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.invite-action {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  display: flex; color: var(--accent-text-in); pointer-events: none;
+}
+.invite-action svg { width: var(--ico-2); height: var(--ico-2); }
 .invite-copy {
   display: flex; align-items: center;
   padding: 0 11px; border: none; border-left: 1px solid var(--border);
@@ -973,12 +977,14 @@ html .invite-card .invite-copy:active { color: var(--text); background: var(--bg
 }
 .invite-copy svg { width: var(--ico-2); height: var(--ico-2); }
 html[data-theme="brutal"] .invite-card { border: 2px solid var(--nb-ink); box-shadow: 3px 3px 0 var(--nb-ink); border-radius: var(--radius-bubble); }
-html[data-theme="brutal"] .invite-card .invite-main { background: var(--nb-main); border-right: 2px solid var(--nb-ink); }
-html[data-theme="brutal"] .invite-card .invite-main:active { background: var(--nb-main); box-shadow: inset 2px 2px 0 var(--nb-ink); }
+html[data-theme="brutal"] .invite-card .invite-main { background: transparent; border-right: 2px solid var(--nb-ink); }
+html[data-theme="brutal"] .invite-card .invite-main:active { background: var(--bg-hover); box-shadow: inset 2px 2px 0 var(--nb-ink); }
 @media (hover: hover) and (pointer: fine) {
-  html[data-theme="brutal"] .invite-card button.invite-main:hover { background: color-mix(in srgb, var(--nb-main) 88%, #fff); }
+  html[data-theme="brutal"] .invite-card button.invite-main:hover { background: var(--bg-hover); }
 }
-html[data-theme="brutal"] .invite-card .invite-line, html[data-theme="brutal"] .invite-card .invite-line b, html[data-theme="brutal"] .invite-card .invite-sub { color: var(--nb-main-ink); }
+html[data-theme="brutal"] .invite-card .invite-line, html[data-theme="brutal"] .invite-card .invite-line b { color: var(--text); }
+html[data-theme="brutal"] .invite-card .invite-sub { color: var(--text-dim); }
+html[data-theme="brutal"] .invite-card .invite-action { color: var(--nb-main); }
 html[data-theme="brutal"] .invite-card .invite-copy { border-left: 0; }
 html[data-theme="brutal"] .invite-card .invite-copy + .invite-copy { border-left: 2px solid var(--nb-ink); }
 /* Velta invite cards (invite-cards.js, docs/invite-cards.md) and the Cryptex
