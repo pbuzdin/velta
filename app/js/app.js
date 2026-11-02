@@ -59,7 +59,7 @@ import { parseSharePayload, shareTextIfUnconsumed, sharePlan, createShareInbox, 
 import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS, setLinkPreviewProxySource, activeProxyUrl } from "./link-preview.js";
 import { wirePushSection } from "./push-settings.js";
 import { wireWebPushSection, refreshWebPush } from "./web-push.js";
-import { extractProxyLink, acceptProxyLink, openProxySettings, refreshProxyStatus, proxyOffered, proxyStatus, describeProxy, initProxyDiagnostics } from "./proxy.js";
+import { extractProxyLink, acceptProxyLink, makeChooser, openProxySettings, refreshProxyStatus, proxyOffered, proxyStatus, describeProxy, initProxyDiagnostics } from "./proxy.js";
 import { wrapIdentityBundle, unwrapIdentityBundle, buildIdentityBundle, bytesToBase64, base64ToBytes, backupDownloadName, gzipBytes, mailLoginFromTransports, accountDirFromToml, mailLoginsFromDbText } from "./identity-backup.js";
 import { isAndroid, tauriInvoke } from "./tauri.js";
 import { ScheduledRunner, localStore, tauriStore } from "./scheduled.js";
