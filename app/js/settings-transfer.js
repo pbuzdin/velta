@@ -19,7 +19,7 @@
 // clamped. Bounded sizes, no eval, no JSON from the message.
 //
 // Never exported (private or per device): relays/transports, the send
-// transport, push distributor/tokens, proxy and DNS tunnel config, keys and
+// transport, push distributor/tokens, proxy config, keys and
 // identity backups, account addresses, multi-device (bcc_self), invite-link
 // domains, the Lufi server, local-chat engine on/off, background-connection
 // and battery switches, logging/debug/demo flags, per-chat state (read

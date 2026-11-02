@@ -215,7 +215,7 @@ same-origin `/app/` URL. If the PWA lives on A, point the interstitial at
 
 ## What the wasm PWA does not do
 
-- Local chat (iroh), the Android DNS tunnel, and UnifiedPush.
+- Local chat (iroh), native SOCKS5 proxy settings, and UnifiedPush.
 - More than one tab on the same origin: the wasm core takes a Web Lock.
 - A crash can drop the last few seconds until the next OPFS snapshot
   (login, identity restore, hide-tab, periodic).

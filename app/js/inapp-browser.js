@@ -112,7 +112,7 @@ function openIframeOverlay(url) {
   const titleEl = wrap.querySelector("[data-title]");
   const t = window.__TAURI__;
   const titleInvoke = t?.core?.invoke || t?.invoke;
-  // Through the configured proxy/DNS tunnel only (direct when none); an
+  // Through the configured proxy only (direct when none); an
   // unknown proxy setting means no title fetch, never a direct one.
   if (titleInvoke) import("./link-preview.js")
     .then(({ shellProxy }) => shellProxy())

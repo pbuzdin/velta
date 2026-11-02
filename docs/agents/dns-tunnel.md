@@ -1,6 +1,12 @@
-# Optional DNS tunnel — agent notes
+# Archived DNS tunnel — agent notes
 
-Velta on Android and Windows can reach the relays over a
+> **Archived implementation.** Current Velta uses saved client-side SOCKS5
+> proxies (`app/js/proxy.js`, `velta-app/src-tauri/src/proxy.rs`); see
+> [`../socks5-proxy-link.md`](../socks5-proxy-link.md). The DNS runtime modules
+> and deep link were removed. `velta-app/soar-tunnel/` remains only because
+> existing CI still builds it. The rest of this document is historical.
+
+Velta on Android and Windows could reach the relays over a
 [soar](https://github.com/getlantern/soar) DNS tunnel when the mobile network
 only lets allowlisted sites through (allowlist-only mobile internet in
 restrictive areas). Off by default: nothing runs until the user accepts a

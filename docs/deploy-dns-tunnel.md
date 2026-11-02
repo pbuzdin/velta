@@ -1,6 +1,11 @@
-# Deploy a DNS tunnel server (one command)
+# Archived: deploy a DNS tunnel server
 
-Velta's optional DNS tunnel ([`agents/dns-tunnel.md`](agents/dns-tunnel.md))
+> **Historical instructions.** Current Velta does not load the DNS tunnel or
+> accept `velta://tunnel` links. Use a client-side SOCKS5 proxy instead; see
+> [`socks5-proxy-link.md`](socks5-proxy-link.md). This guide is retained only
+> for maintaining the archived implementation.
+
+Velta's archived DNS tunnel ([`agents/dns-tunnel.md`](agents/dns-tunnel.md))
 needs a [soar](https://github.com/getlantern/soar) server that is the
 authoritative name server for a delegated zone. `tools/deploy-dns-tunnel.sh`
 installs it on a fresh Debian 12+ / Ubuntu 22.04+ VPS.

@@ -41,6 +41,6 @@ test("the page saves when hidden and tells the user about a new version", () => 
   assert.match(app, /label:\s*"Reload", run: \(\) => location\.reload\(\)/);
   const ui = src("app/js/ui.js");
   assert.match(ui, /toast-sticky/);
-  assert.match(ui, /!n\.classList\.contains\("toast-sticky"\)/);
+  assert.match(ui, /!n\.classList\?\.contains\?\.\("toast-sticky"\)/);
   assert.match(ui, /if \(!sticky\)/);
 });

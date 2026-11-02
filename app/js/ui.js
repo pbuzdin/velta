@@ -821,7 +821,7 @@ export function toast(text, ms = 2200, opts = {}) {
   el.append(summary, more);
   box.appendChild(el);
   // A sticky notice (the PWA reload) sits outside the cap and is never the one dropped.
-  const ordinary = () => [...box.children].filter((n) => !n.classList.contains("toast-sticky"));
+  const ordinary = () => [...box.children].filter((n) => !n.classList?.contains?.("toast-sticky"));
   while (ordinary().length > 3) ordinary()[0].remove();
   raiseToasts();
 

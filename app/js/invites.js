@@ -306,8 +306,8 @@ export async function expandShortInvite(shortUrl) {
   try {
     const invoke = tauriInvoke();
     if (invoke) {
-      // Same proxy policy as link previews: through the configured proxy or
-      // DNS tunnel only, direct when none; unknown setting -> no fetch.
+      // Same proxy policy as link previews: through the configured proxy,
+      // direct when none; unknown setting -> no fetch.
       const { shellProxy } = await import("./link-preview.js");
       const proxy = await shellProxy();
       candidates = await invoke("expand_invite_link", { url: shortUrl, proxy });
