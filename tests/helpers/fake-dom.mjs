@@ -22,6 +22,7 @@ export class FakeElement {
     this.classList = {
       add: (...names) => { this.className += " " + names.join(" "); },
       remove: (...names) => { this.className = this.className.split(/\s+/).filter(n => !names.includes(n)).join(" "); },
+      contains: name => this.className.split(/\s+/).includes(name),
       toggle: (name, on) => on ? this.classList.add(name) : this.classList.remove(name),
     };
   }

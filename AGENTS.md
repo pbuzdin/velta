@@ -357,6 +357,16 @@ Build profiles are tuned for size in `Cargo.toml`:
 
 ### 4.2 Velta PWA (`app/`)
 
+```bash
+node --test tests/*.test.mjs   # complete JS suite; required by tests.yml
+node scripts/e2e-smoke.mjs     # real Chromium: demo boot/open/send/no JS errors
+```
+
+For the browser smoke, run `npm ci` in `scripts/` and
+`npx --prefix scripts playwright install chromium` once. CI also runs both
+commands on every PR and on master. Keep source-text guards for native/quilt
+contracts, but prefer behavioral coverage for concurrency and security logic.
+
 There is **no build step** for the PWA. Open `app/index.html` directly in a
 browser, or serve `app/` from any static web server. The app will use the mock
 core unless a real backend is reachable. That also makes it the fastest

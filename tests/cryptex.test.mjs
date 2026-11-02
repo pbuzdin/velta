@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 const store = new Map();
 globalThis.localStorage = { getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k) };
@@ -64,7 +66,14 @@ test("wiring: Rust-only network, provider fallback, receiver card, delete", () =
 });
 
 test("no Cryptex API key anywhere in the repo", () => {
-  const root = new URL("../", import.meta.url).pathname;
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const pattern = "\\bcx_[A-Za-z0-9_-]{20,}";
+  const tracked = spawnSync("git", ["-C", root, "grep", "-I", "-l", "-E", pattern, "--", ".", ":(exclude)core/**", ":(exclude)vendor/**"], { encoding: "utf8" });
+  if (!tracked.error && tracked.status !== 128) {
+    assert.equal(tracked.status, 1, tracked.stdout || tracked.stderr);
+    return;
+  }
+  // Source archives have no git metadata; retain the portable full scan there.
   const skip = new Set([".git", "node_modules", "target", "core", "vendor"]);
   const walk = (d) => {
     for (const n of readdirSync(d)) {
