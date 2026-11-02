@@ -39,6 +39,7 @@ deltachat_derive = { path = "./deltachat_derive" }
 deltachat-contact-tools = { workspace = true }
 format-flowed = { path = "./format-flowed" }
 ratelimit = { path = "./deltachat-ratelimit" }
+velta-attachment = { path = "../packages/attachment-crypto" }
 
 anyhow = { workspace = true }
 async-broadcast = "0.7.2"
@@ -95,13 +96,14 @@ smallvec = "1.15.1"
 strum = "0.28"
 strum_macros = "0.28"
 tagger = "4.3.4"
+tempfile = { workspace = true }
 textwrap = "0.16.2"
 thiserror = { workspace = true }
 tokio-io-timeout = "1.2.1"
 tokio-rustls = { version = "0.26.2", default-features = false, features = ["tls12", "brotli"] }
 tokio-stream = { version = "0.1.17", features = ["fs"] }
 astral-tokio-tar = { version = "0.7.0", default-features = false }
-tokio-util = { workspace = true }
+tokio-util = { workspace = true, features = ["io"] }
 tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros"] }
 toml = "0.9"
 url = "2"

@@ -603,6 +603,27 @@ held (stops in parallel). A test hook, `VELTA_TEST_STOP_IO_DELAY_MS`
 7.7 s, after it 3–4 ms. Upstream fix: no `Accounts` lock across IO
 start/stop.
 
+### 22. Attachment encryption at rest: wrapped keys and seekable chunks (core blob I/O)
+
+**Tracker: pbuzdin/velta#178. Status: patched locally (quilt ops "#22 attachment encryption …", 40 ops, 16 files).**
+The shared `packages/attachment-crypto` crate (`velta-attachment`) lives outside
+`core/` so the whole-tree quilt has no undeclared files and the desktop shell
+does not link the entire core. For Velta raw SQLCipher DEKs it derives an
+attachment master key with HKDF-SHA256 (`velta/attachments/v1`). Every unique
+blob gets a random 256-bit file key wrapped by AES-256-GCM and a random 128-bit
+file id. Independent 64 KiB chunks have random 96-bit nonces and authenticated
+file id, chunk index, final flag, total length and chunk length; the fixed
+128-byte VLTA header authenticates the wrapped key and format metadata. The
+reader supports backward seeks and Range requests without decrypting the prefix.
+Missing/wrong keys, malformed headers, truncation and modified ciphertext fail
+closed; legacy plaintext blobs remain readable and migrate in place with atomic
+`NamedTempFile::persist` replacements. Plaintext hashes preserve deduplication
+despite randomized ciphertext. Core writes, MIME, image/vCard/webxdc readers,
+HTTP caches, native media and thumbnails use the plaintext reader. Backup export
+streams standard plaintext entries and import encrypts under the destination
+profile key. Empty/ordinary upstream passphrases retain legacy behavior; PWA
+keeps whole-OPFS-snapshot encryption because WASM has no raw DEK.
+
 ### 23. Automatic relay onboarding is opt-in (core configure + Relays modal)
 
 **Tracker: pbuzdin/velta#relays. Status: patched locally (quilt ops "#23 autorelay opt-in …", 1 op, 1 file).**

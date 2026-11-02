@@ -5936,7 +5936,7 @@ async function pickProfileImage() {
   if (Array.isArray(picked)) picked = picked[0];
   if (!picked) return null;
   if (/^content:\/\//.test(picked)) {
-    picked = await invoke("resolve_content_uri", { uri: picked, filename: String(Date.now()) });
+    picked = await invoke("resolve_content_uri", { uri: picked, filename: String(Date.now()), encrypt: true });
   }
   return { path: picked, url: null }; // preview resolves via fileUrl()
 }

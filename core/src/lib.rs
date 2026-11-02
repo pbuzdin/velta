@@ -56,6 +56,7 @@ pub use events::*;
 
 mod aheader;
 pub mod appversions;
+pub use velta_attachment as attachment;
 mod autorelay;
 pub mod blob;
 pub mod calls;

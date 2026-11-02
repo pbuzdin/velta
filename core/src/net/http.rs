@@ -5,7 +5,6 @@ use bytes::Bytes;
 use http_body_util::BodyExt;
 use hyper_util::rt::TokioIo;
 use mime::Mime;
-use tokio::fs;
 
 use crate::blob::BlobObject;
 use crate::context::Context;
@@ -202,9 +201,8 @@ async fn http_cache_get(context: &Context, url: &str) -> Result<Option<(Response
     let is_stale = now > stale_timestamp;
 
     let blob_object = BlobObject::from_name(context, &blob_name)?;
-    let blob_abs_path = blob_object.to_abs_path();
-    let blob = match fs::read(blob_abs_path)
-        .await
+    let blob = match blob_object
+        .read_bytes(context)
         .with_context(|| format!("Failed to read blob for {url:?} cache entry."))
     {
         Ok(blob) => blob,

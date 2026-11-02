@@ -589,7 +589,7 @@ impl SendImageCheckMediaquality<'_> {
             .context("failed to write file")?;
         check_image_size(&file, original_width, original_height);
 
-        let (_, exif) = image_metadata(&std::fs::File::open(&file)?)?;
+        let (_, exif) = image_metadata(&mut open_blob(&alice, &file)?)?;
         if has_exif {
             let exif = exif.unwrap();
             assert_eq!(exif_orientation(&exif, &alice), orientation);
@@ -635,7 +635,7 @@ impl SendImageCheckMediaquality<'_> {
             assert_eq!(&bytes1, bytes);
         }
 
-        let (_, exif) = image_metadata(&std::fs::File::open(&file_saved)?)?;
+        let (_, exif) = image_metadata(&mut open_blob(&bob, &file_saved)?)?;
         assert!(res_viewtype != Viewtype::Image || exif.is_none());
 
         let img = check_image_size(file_saved, compressed_width, compressed_height);
@@ -717,7 +717,7 @@ async fn test_send_big_gif_as_image() -> Result<()> {
         .get_blobdir()
         .join("saved-".to_string() + &bob_msg.get_filename().unwrap());
     bob_msg.save_file(&bob, &file_saved).await?;
-    let (file_size, _) = image_metadata(&std::fs::File::open(&file_saved)?)?;
+    let (file_size, _) = image_metadata(&mut open_blob(&bob, &file_saved)?)?;
     assert_eq!(file_size, bytes.len() as u64);
     check_image_size(file_saved, width, height);
     Ok(())
@@ -935,5 +935,49 @@ async fn test_recode_without_downscaling() -> Result<()> {
         assert_eq!(imgs[0], imgs[1]);
     }
 
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_keyed_blobs_encrypt_and_deduplicate_plaintext() -> Result<()> {
+    let t = TestContext::new().await;
+    let key =
+        crate::attachment::AttachmentKey::from_db_key(&format!("x'{}'", "42".repeat(32)))?.unwrap();
+    *t.attachment_key.write() = Some(key);
+
+    let first = BlobObject::create_and_deduplicate_from_bytes(&t, FILE_BYTES, "foo.txt")?;
+    let second = BlobObject::create_and_deduplicate_from_bytes(&t, FILE_BYTES, "foo.txt")?;
+    assert_eq!(first.as_name(), second.as_name());
+    assert_eq!(first.as_name(), format!("$BLOBDIR/{FILE_DEDUPLICATED}"));
+    let physical = fs::read(first.to_abs_path()).await?;
+    assert!(physical.starts_with(b"VLTA"));
+    assert_ne!(physical, FILE_BYTES);
+    assert_eq!(first.read_bytes(&t)?, FILE_BYTES);
+    assert_eq!(first.plaintext_len(&t)?, FILE_BYTES.len() as u64);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_legacy_blob_migration_is_atomic_and_skips_backup_files() -> Result<()> {
+    let t = TestContext::new().await;
+    let path = t.get_blobdir().join("legacy.jpg");
+    let backup = t.get_blobdir().join("dc_database_backup.sqlite");
+    fs::write(&path, b"legacy image").await?;
+    fs::write(&backup, b"backup database").await?;
+    let key =
+        crate::attachment::AttachmentKey::from_db_key(&format!("x'{}'", "42".repeat(32)))?.unwrap();
+    *t.attachment_key.write() = Some(key);
+
+    migrate_plaintext_blobs(&t).await?;
+    assert!(fs::read(&path).await?.starts_with(b"VLTA"));
+    assert_eq!(open_blob(&t, &path)?.read_all()?, b"legacy image");
+    assert_eq!(fs::read(&backup).await?, b"backup database");
+    assert!(
+        fs::read_dir(t.get_blobdir())
+            .await?
+            .next_entry()
+            .await?
+            .is_some()
+    );
     Ok(())
 }

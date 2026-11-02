@@ -243,7 +243,7 @@ impl BackupProvider {
         let mut file_size = dbfile.metadata()?.len();
         for blob in blobdir.iter() {
             file_size = file_size
-                .checked_add(blob.to_abs_path().metadata()?.len())
+                .checked_add(blob.plaintext_len(&context)?)
                 .context("File size overflow")?;
         }
 

@@ -12,7 +12,7 @@ use humansize::format_size;
 use num_traits::FromPrimitive;
 use rusqlite::{OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
-use tokio::{fs, io};
+use tokio::fs;
 
 use crate::blob::BlobObject;
 use crate::chat::{Chat, ChatId, ChatIdBlocked, ChatVisibility, send_msg};
@@ -680,7 +680,7 @@ impl Message {
         let path = self
             .get_file(context)
             .context("vCard message does not have an attachment")?;
-        let bytes = tokio::fs::read(path).await?;
+        let bytes = read_file(context, &path).await?;
         let vcard_contents = std::str::from_utf8(&bytes).context("vCard is not a valid UTF-8")?;
         Ok(parse_vcard(vcard_contents))
     }
@@ -688,13 +688,15 @@ impl Message {
     /// Save file copy at the user-provided path.
     pub async fn save_file(&self, context: &Context, path: &Path) -> Result<()> {
         let path_src = self.get_file(context).context("No file")?;
-        let mut src = fs::OpenOptions::new().read(true).open(path_src).await?;
+        let mut src = crate::blob::open_blob(context, &path_src)?;
         let mut dst = fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(path)
-            .await?;
-        io::copy(&mut src, &mut dst).await?;
+            .await?
+            .into_std()
+            .await;
+        tokio::task::spawn_blocking(move || std::io::copy(&mut src, &mut dst)).await??;
         Ok(())
     }
 
@@ -1148,7 +1150,7 @@ impl Message {
 
     /// Updates message state from the vCard attachment.
     pub(crate) async fn try_set_vcard(&mut self, context: &Context, path: &Path) -> Result<()> {
-        let vcard = fs::read(path)
+        let vcard = read_file(context, path)
             .await
             .with_context(|| format!("Could not read {path:?}"))?;
         if let Some(summary) = get_vcard_summary(&vcard) {

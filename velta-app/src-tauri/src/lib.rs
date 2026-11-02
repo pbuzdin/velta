@@ -320,6 +320,7 @@ static SIDECAR_CHILD: Mutex<Option<std::process::Child>> = Mutex::new(None);
 /// boots. `probe_db_lock` is the caller's job.
 #[cfg(not(target_os = "android"))]
 fn spawn_sidecar(app: &tauri::AppHandle, key: Option<String>, first: bool) {
+    set_attachment_db_key(key.as_deref());
     if let Some(mut child) = SIDECAR_CHILD.lock().unwrap().take() {
         log("stopping the previous sidecar");
         let _ = child.kill();
@@ -1082,6 +1083,33 @@ fn prepare_builtin_xdc(app: tauri::AppHandle, name: String) -> Result<String, St
     Ok(dest.to_string_lossy().to_string())
 }
 
+fn encrypt_upload_blocking(path: &Path) -> Result<(), String> {
+    let Some(key) = ATTACHMENT_KEY.lock().unwrap().clone() else { return Ok(()) };
+    if velta_attachment::is_encrypted(path).map_err(|e| e.to_string())? {
+        return Ok(());
+    }
+    let mut input = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let len = input.metadata().map_err(|e| e.to_string())?.len();
+    let mut temp = tempfile::Builder::new().prefix("tmp-").tempfile_in(path.parent().ok_or("upload has no parent")?).map_err(|e| e.to_string())?;
+    velta_attachment::encrypt(&key, &mut input, len, temp.as_file_mut()).map_err(|e| e.to_string())?;
+    temp.as_file().sync_all().map_err(|e| e.to_string())?;
+    temp.persist(path).map_err(|e| e.error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn encrypt_upload(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let canon = scoped_accounts_path(&app, &path)?;
+        let uploads = app.path().app_local_data_dir().map_err(|e| e.to_string())?.join("uploads");
+        let uploads = std::fs::canonicalize(&uploads).map_err(|e| e.to_string())?;
+        if !canon.starts_with(uploads) {
+            return Err("path outside uploads".into());
+        }
+        encrypt_upload_blocking(&canon)
+    }).await.map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 fn resolve_upload_path(app: tauri::AppHandle, filename: String) -> String {
     use tauri::path::BaseDirectory;
@@ -1155,6 +1183,44 @@ mod scheduled_store;
 mod db_key;
 
 // ---------- blobfile:// -- Range-aware media serving ----------
+
+static ATTACHMENT_KEY: Mutex<Option<velta_attachment::AttachmentKey>> = Mutex::new(None);
+
+fn set_attachment_db_key(raw: Option<&str>) {
+    let key = raw.and_then(|raw| match velta_attachment::AttachmentKey::from_db_key(raw) {
+        Ok(key) => key,
+        Err(err) => {
+            log(&format!("attachment key rejected: {err}"));
+            None
+        }
+    });
+    *ATTACHMENT_KEY.lock().unwrap() = key;
+}
+
+fn open_attachment(path: &Path) -> Result<velta_attachment::AttachmentReader, String> {
+    let key = ATTACHMENT_KEY.lock().unwrap().clone();
+    velta_attachment::AttachmentReader::open(path, key.as_ref()).map_err(|e| e.to_string())
+}
+
+// OS notification APIs accept image paths, not decrypted bytes. Never leave a
+// plaintext avatar copy behind just to decorate a notification.
+fn notification_avatar_path(path: Option<&str>) -> Option<&str> {
+    path.filter(|path| !velta_attachment::is_encrypted(Path::new(path)).unwrap_or(true))
+}
+
+fn write_attachment(path: &Path, plaintext: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    let parent = path.parent().ok_or("attachment has no parent directory")?;
+    let mut temp = tempfile::Builder::new().prefix("tmp-").tempfile_in(parent).map_err(|e| e.to_string())?;
+    if let Some(key) = ATTACHMENT_KEY.lock().unwrap().clone() {
+        velta_attachment::encrypt(&key, &mut &plaintext[..], plaintext.len() as u64, temp.as_file_mut()).map_err(|e| e.to_string())?;
+    } else {
+        temp.write_all(plaintext).map_err(|e| e.to_string())?;
+    }
+    temp.as_file().sync_all().map_err(|e| e.to_string())?;
+    temp.persist(path).map_err(|e| e.error.to_string())?;
+    Ok(())
+}
 
 // The default asset protocol on Android is served by the plain
 // WebViewAssetLoader, which ignores Range requests. Video files whose moov
@@ -1339,7 +1405,10 @@ fn serve_blob_file(app: &tauri::AppHandle, request: tauri::http::Request<Vec<u8>
         Ok(m) if m.is_file() => m,
         _ => return not_found("not found"),
     };
-    let len = meta.len();
+    let len = match open_attachment(Path::new(&serve_path)) {
+        Ok(reader) => reader.len(),
+        Err(_) => return not_found("read error"),
+    };
     let mime = guess_mime(&serve_path);
 
     // Thumbnail request: `?w=N` (max dimension in px), full-body GETs only —
@@ -1367,29 +1436,20 @@ fn serve_blob_file(app: &tauri::AppHandle, request: tauri::http::Request<Vec<u8>
 
     if let Some(range) = request.headers().get("range").and_then(|v| v.to_str().ok().map(|s| s.to_string())) {
         if let Some((start, end)) = parse_range(&range, len) {
-            use std::io::{Read, Seek, SeekFrom};
             let take = (end - start + 1) as usize;
-            let mut buf = vec![0u8; take];
-            let mut filled = 0usize;
-            if let Ok(mut f) = std::fs::File::open(&serve_path) {
-                if f.seek(SeekFrom::Start(start)).is_ok() {
-                    while filled < take {
-                        match f.read(&mut buf[filled..]) {
-                            Ok(0) => break,
-                            Ok(n) => filled += n,
-                            Err(_) => break,
-                        }
-                    }
-                }
-            }
-            buf.truncate(filled);
+            let buf = match open_attachment(Path::new(&serve_path))
+                .and_then(|reader| reader.read_range(start, take).map_err(|e| e.to_string()))
+            {
+                Ok(buf) => buf,
+                Err(_) => return not_found("read error"),
+            };
             return cors(tauri::http::Response::builder())
                 .status(206)
                 .header("Content-Type", mime)
                 .header("Accept-Ranges", "bytes")
                 .header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges")
-                .header("Content-Range", format!("bytes {}-{}/{}", start, start + filled as u64 - 1, len))
-                .header("Content-Length", filled)
+                .header("Content-Range", format!("bytes {start}-{end}/{len}"))
+                .header("Content-Length", buf.len())
                 .body(buf)
                 .unwrap();
         }
@@ -1400,7 +1460,7 @@ fn serve_blob_file(app: &tauri::AppHandle, request: tauri::http::Request<Vec<u8>
             .unwrap();
     }
 
-    match std::fs::read(&serve_path) {
+    match open_attachment(Path::new(&serve_path)).and_then(|reader| reader.read_all().map_err(|e| e.to_string())) {
         Ok(data) => cors(tauri::http::Response::builder())
             .status(200)
             .header("Content-Type", mime)
@@ -1501,21 +1561,21 @@ fn load_thumbnail(
     w: u32,
 ) -> Option<Vec<u8>> {
     let cache = thumb_cache_path(accounts, source, meta, w);
-    if let Ok(data) = std::fs::read(&cache) {
+    if let Ok(data) = open_attachment(&cache).and_then(|reader| reader.read_all().map_err(|e| e.to_string())) {
         if data.starts_with(&[0xFF, 0xD8]) {
+            if ATTACHMENT_KEY.lock().unwrap().is_some() && !velta_attachment::is_encrypted(&cache).unwrap_or(false) {
+                let _ = write_attachment(&cache, &data);
+            }
             log(&format!("thumb cache hit: {}", cache.display()));
             return Some(data);
         }
     }
-    let original = std::fs::read(source).ok()?;
+    let original = open_attachment(Path::new(source)).ok()?.read_all().ok()?;
     let thumb = generate_thumbnail(&original, w)?;
     if let Some(dir) = cache.parent() {
         let _ = std::fs::create_dir_all(dir);
         // Write-then-rename so a concurrent first load never reads a torn file.
-        let tmp = cache.with_extension("tmp");
-        if std::fs::write(&tmp, &thumb).is_ok() {
-            let _ = std::fs::rename(&tmp, &cache);
-        }
+        let _ = write_attachment(&cache, &thumb);
     }
     log(&format!("thumb generated: {} ({} bytes)", cache.display(), thumb.len()));
     Some(thumb)
@@ -1660,14 +1720,15 @@ fn scoped_accounts_path(app: &tauri::AppHandle, path: &str) -> Result<PathBuf, S
 const MAX_MEDIA_IPC_BYTES: u64 = 128 * 1024 * 1024;
 
 fn checked_media_read(canon: &std::path::Path) -> Result<Vec<u8>, String> {
-    let meta = std::fs::metadata(canon).map_err(|e| e.to_string())?;
-    if meta.len() > MAX_MEDIA_IPC_BYTES {
+    let reader = open_attachment(canon)?;
+    let plaintext_len = reader.len();
+    if plaintext_len > MAX_MEDIA_IPC_BYTES {
         return Err(format!(
             "media file too large to read into memory ({} bytes > {MAX_MEDIA_IPC_BYTES})",
-            meta.len()
+            plaintext_len
         ));
     }
-    std::fs::read(canon).map_err(|e| e.to_string())
+    reader.read_all().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1856,7 +1917,7 @@ fn notify_incoming(
         }
     }
     toast = toast.text2(&body);
-    if let Some(avatar) = sender_avatar.as_deref() {
+    if let Some(avatar) = notification_avatar_path(sender_avatar.as_deref()) {
         let path = std::path::Path::new(avatar);
         if path.exists() {
             toast = toast.icon(path, IconCrop::Circular, "sender avatar");
@@ -2585,7 +2646,10 @@ fn serve_media_connection(stream: &mut std::net::TcpStream, accounts: &PathBuf) 
         Ok(m) if m.is_file() => m,
         _ => return not_found(),
     };
-    let len = meta.len();
+    let len = match open_attachment(Path::new(&serve_path)) {
+        Ok(reader) => reader.len(),
+        Err(_) => return not_found(),
+    };
     let mime = guess_mime(&serve_path);
 
     // Same thumbnail contract as the blobfile protocol: `?w=N` on a plain
@@ -2612,7 +2676,7 @@ fn serve_media_connection(stream: &mut std::net::TcpStream, accounts: &PathBuf) 
         }
     }
 
-    let mut file = match std::fs::File::open(&serve_path) {
+    let mut file = match open_attachment(Path::new(&serve_path)) {
         Ok(f) => f,
         Err(_) => return not_found(),
     };
@@ -3122,7 +3186,7 @@ pub extern "system" fn Java_org_velta_BackgroundFetchJob_stopFetch(
 // frontend can always call it -- on desktop it just reports unsupported.
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
-async fn resolve_content_uri(_app: tauri::AppHandle, _uri: String, _filename: String) -> Result<String, String> {
+async fn resolve_content_uri(_app: tauri::AppHandle, _uri: String, _filename: String, _encrypt: Option<bool>) -> Result<String, String> {
     Err("picking attachments is only supported on mobile".into())
 }
 
@@ -3191,8 +3255,8 @@ fn open_webview_browser(url: String) -> Result<(), String> {
 
 #[cfg(target_os = "android")]
 #[tauri::command]
-async fn resolve_content_uri(app: tauri::AppHandle, uri: String, filename: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || resolve_content_uri_blocking(app, uri, filename))
+async fn resolve_content_uri(app: tauri::AppHandle, uri: String, filename: String, encrypt: Option<bool>) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || resolve_content_uri_blocking(app, uri, filename, encrypt.unwrap_or(false)))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -3313,22 +3377,26 @@ pub(crate) fn copy_path_to_content_uri(src: &std::path::Path, uri: &str) -> Resu
             return Err("openOutputStream failed for this save location".into());
         }
 
-        let src_str = src.to_string_lossy().into_owned();
-        let src_j = env.new_string(&src_str).map_err(|e| e.to_string())?;
-        let is = env
-            .new_object("java/io/FileInputStream", "(Ljava/lang/String;)V", &[(&src_j).into()])
-            .map_err(|e| e.to_string())?;
-        let buf = env.new_byte_array(64 * 1024).map_err(|e| e.to_string())?;
-        let buf_obj: jni::objects::JObject = buf.into();
-        let copy_result = jni_copy_stream(env, &is, &os, &buf_obj, "FileInputStream", "OutputStream");
+        use std::io::Read;
+        let mut input = open_attachment(src)?;
+        let copy_result = (|| {
+            let mut buf = [0u8; 64 * 1024];
+            loop {
+                let n = input.read(&mut buf).map_err(|e| e.to_string())?;
+                if n == 0 {
+                    return Ok(());
+                }
+                let bytes = env.byte_array_from_slice(&buf[..n]).map_err(|e| e.to_string())?;
+                let bytes: jni::objects::JObject = bytes.into();
+                env.call_method(&os, "write", "([B)V", &[(&bytes).into()])
+                    .map_err(|e| format!("OutputStream.write: {e}"))?;
+            }
+        })();
         if let Err(e) = env.call_method(&os, "flush", "()V", &[]) {
             log(&format!("output stream flush: {e}"));
         }
         if let Err(e) = env.call_method(&os, "close", "()V", &[]) {
             log(&format!("output stream close: {e}"));
-        }
-        if let Err(e) = env.call_method(&is, "close", "()V", &[]) {
-            log(&format!("input stream close: {e}"));
         }
         let _ = env.exception_clear();
         copy_result
@@ -3391,7 +3459,7 @@ async fn prep_backup(app: tauri::AppHandle, path: String) -> Result<String, Stri
 }
 
 #[cfg(target_os = "android")]
-fn resolve_content_uri_blocking(app: tauri::AppHandle, uri: String, filename: String) -> Result<String, String> {
+fn resolve_content_uri_blocking(app: tauri::AppHandle, uri: String, filename: String, encrypt: bool) -> Result<String, String> {
     use tauri::path::BaseDirectory;
 
     // The application context was handed over from MainActivity.onCreate
@@ -3518,7 +3586,12 @@ fn resolve_content_uri_blocking(app: tauri::AppHandle, uri: String, filename: St
         log(&format!("resolve_content_uri copied {} -> {}", uri, dest_str));
         // PWA backup exports are gzipped — route through the same sniff the
         // desktop pick path uses so the core always sees a plain tar.
-        prep_backup_blocking(dest_str)
+        if encrypt {
+            encrypt_upload_blocking(&dest)?;
+            Ok(dest_str)
+        } else {
+            prep_backup_blocking(dest_str)
+        }
     })
 }
 
@@ -4355,6 +4428,8 @@ async fn init_android_core(
         std::env::set_var("VELTA_DB_KEY", raw);
     }
 
+    let attachment_db_key = std::env::var("VELTA_DB_KEY").ok();
+    set_attachment_db_key(attachment_db_key.as_deref());
     let accounts = Accounts::new(accounts_dir, true).await?;
     let accounts = Arc::new(RwLock::new(accounts));
     // UnifiedPush: expose the accounts manager to the JNI callbacks
@@ -4922,14 +4997,16 @@ async fn bg_notify_incoming(
                 Err(_) => (if is_group { "Contact".to_string() } else { chat_name.clone() }, None),
             };
 
+        let chat_avatar = notification_avatar_path(chat_avatar.as_deref());
+        let sender_avatar = notification_avatar_path(sender_avatar.as_deref());
         if kotlin_notify_incoming(
             account,
             chat_id,
             is_group,
             &chat_name,
-            chat_avatar.as_deref(),
+            chat_avatar,
             &sender_name,
-            sender_avatar.as_deref(),
+            sender_avatar,
             &text,
             ts_ms,
         )
@@ -5292,7 +5369,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_db_pin_state, set_db_pin, clear_db_pin, unlock_with_pin, lock_now, biometric_state, biometric_set, set_autolock_mins, volume_encryption_status, get_accounts_dir, resolve_upload_path, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, push_status, push_select, push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,tunnel::tunnel_preview, tunnel::tunnel_install, tunnel::tunnel_link, tunnel::tunnel_list, tunnel::tunnel_select, tunnel::tunnel_rename, tunnel::tunnel_delete, tunnel::tunnel_remove, tunnel::tunnel_status, tunnel::tunnel_set_mode, tunnel::tunnel_network_changed, tunnel::tunnel_backup_begin, tunnel::tunnel_backup_end, tunnel::tunnel_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_db_pin_state, set_db_pin, clear_db_pin, unlock_with_pin, lock_now, biometric_state, biometric_set, set_autolock_mins, volume_encryption_status, get_accounts_dir, resolve_upload_path, encrypt_upload, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, push_status, push_select, push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,tunnel::tunnel_preview, tunnel::tunnel_install, tunnel::tunnel_link, tunnel::tunnel_list, tunnel::tunnel_select, tunnel::tunnel_rename, tunnel::tunnel_delete, tunnel::tunnel_remove, tunnel::tunnel_status, tunnel::tunnel_set_mode, tunnel::tunnel_network_changed, tunnel::tunnel_backup_begin, tunnel::tunnel_backup_end, tunnel::tunnel_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 

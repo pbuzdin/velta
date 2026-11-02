@@ -103,7 +103,7 @@ async fn generate_join_group_qr_code(context: &Context, chat_id: ChatId) -> Resu
     let avatar = match chat.get_profile_image(context).await? {
         Some(path) => {
             let avatar_blob = BlobObject::from_path(context, &path)?;
-            Some(tokio::fs::read(avatar_blob.to_abs_path()).await?)
+            Some(avatar_blob.read_bytes(context)?)
         }
         None => None,
     };
@@ -161,7 +161,7 @@ async fn self_info(context: &Context) -> Result<(Option<Vec<u8>>, String, String
     let avatar = match contact.get_profile_image(context).await? {
         Some(path) => {
             let avatar_blob = BlobObject::from_path(context, &path)?;
-            Some(tokio::fs::read(avatar_blob.to_abs_path()).await?)
+            Some(avatar_blob.read_bytes(context)?)
         }
         None => None,
     };

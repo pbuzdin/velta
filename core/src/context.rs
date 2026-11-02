@@ -14,6 +14,7 @@ use pgp::composed::SignedPublicKey;
 use ratelimit::Ratelimit;
 use tokio::sync::{Mutex, Notify, RwLock};
 
+use crate::attachment::AttachmentKey;
 use crate::chat::{ChatId, get_chat_cnt};
 use crate::config::Config;
 use crate::constants::{self, DC_VERSION_STR};
@@ -225,6 +226,8 @@ impl WeakContext {
 pub struct InnerContext {
     /// Blob directory path
     pub(crate) blobdir: PathBuf,
+    pub(crate) attachment_key: parking_lot::RwLock<Option<AttachmentKey>>,
+    pub(crate) attachment_migration: Mutex<()>,
     pub(crate) sql: Sql,
     /// The global "ongoing" process state.
     ///
@@ -419,6 +422,10 @@ impl Context {
         Ok(context)
     }
 
+    pub(crate) fn attachment_key(&self) -> Option<AttachmentKey> {
+        self.attachment_key.read().clone()
+    }
+
     /// Returns a weak reference to this [`Context`].
     pub(crate) fn get_weak_context(&self) -> WeakContext {
         WeakContext {
@@ -435,7 +442,17 @@ impl Context {
     #[deprecated(since = "TBD")]
     pub async fn open(&self, passphrase: String) -> Result<bool> {
         if self.sql.check_passphrase(passphrase.clone()).await? {
-            self.sql.open(self, passphrase).await?;
+            self.sql.open(self, passphrase.clone()).await?;
+            let key = AttachmentKey::from_db_key(&passphrase)?;
+            *self.attachment_key.write() = key;
+            if self.attachment_key.read().is_some() {
+                let context = self.clone();
+                tokio::spawn(async move {
+                    if let Err(err) = crate::blob::migrate_plaintext_blobs(&context).await {
+                        warn!(context, "Attachment migration failed: {err:#}.");
+                    }
+                });
+            }
             Ok(true)
         } else {
             Ok(false)
@@ -485,6 +502,8 @@ impl Context {
         let inner = InnerContext {
             id,
             blobdir,
+            attachment_key: parking_lot::RwLock::new(None),
+            attachment_migration: Mutex::new(()),
             running_state: RwLock::new(Default::default()),
             sql: Sql::new(dbfile),
             background_task_mutex: Mutex::new(()),

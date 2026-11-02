@@ -366,8 +366,7 @@ pub(crate) fn get_abs_path(context: &Context, path: &Path) -> PathBuf {
 
 pub(crate) async fn get_filebytes(context: &Context, path: &Path) -> Result<u64> {
     let path_abs = get_abs_path(context, path);
-    let meta = fs::metadata(&path_abs).await?;
-    Ok(meta.len())
+    Ok(crate::blob::open_blob(context, &path_abs)?.len())
 }
 
 pub(crate) async fn delete_file(context: &Context, path: &Path) -> Result<()> {
@@ -501,7 +500,7 @@ pub(crate) async fn write_file(
 pub async fn read_file(context: &Context, path: &Path) -> Result<Vec<u8>> {
     let path_abs = get_abs_path(context, path);
 
-    match fs::read(&path_abs).await {
+    match crate::blob::open_blob(context, &path_abs).and_then(|reader| reader.read_all()) {
         Ok(bytes) => Ok(bytes),
         Err(err) => {
             warn!(

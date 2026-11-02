@@ -312,6 +312,7 @@ async function sendToChat({ file, name, text }) {
       dest = await invoke("resolve_upload_path", { filename: `${Date.now()}-${filename}` });
       if (!dest) throw new Error("resolve_upload_path returned empty");
       await invoke("plugin:fs|write_file", bytes, { headers: { path: encodeURIComponent(dest) } });
+      await invoke("encrypt_upload", { path: dest });
     } else {
       // Wasm PWA: the core reads the worker memfs (same as chat attachments).
       dest = `/uploads/${Date.now()}-${String(filename).replace(/[\\/]/g, "_")}`;
@@ -357,10 +358,13 @@ async function importFiles(filters = {}) {
   const files = [];
   for (let p of list) {
     try {
-      if (/^content:\/\//.test(p)) {
-        p = await invoke("resolve_content_uri", { uri: p, filename: String(Date.now()) });
+      const encrypted = /^content:\/\//.test(p);
+      if (encrypted) {
+        p = await invoke("resolve_content_uri", { uri: p, filename: String(Date.now()), encrypt: true });
       }
-      const bytes = new Uint8Array(await invoke("plugin:fs|read_file", { path: p }));
+      const bytes = new Uint8Array(await (encrypted
+        ? invoke("read_media_bytes", { src: p })
+        : invoke("plugin:fs|read_file", { path: p })));
       const name = p.replace(/\\/g, "/").split("/").pop();
       files.push(new File([bytes], name));
     } catch { /* skip unreadable pick */ }

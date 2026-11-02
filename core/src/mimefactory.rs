@@ -12,7 +12,6 @@ use mail_builder::headers::address::Address;
 use mail_builder::headers::raw::Raw;
 use mail_builder::headers::text::Text;
 use mail_builder::mime::MimePart;
-use tokio::fs;
 
 use crate::aheader::{Aheader, EncryptPreference};
 use crate::blob::BlobObject;
@@ -2106,7 +2105,7 @@ async fn build_body_file(context: &Context, msg: &Message) -> Result<MimePart<'s
         .get(Param::MimeType)
         .unwrap_or("application/octet-stream")
         .to_string();
-    let body = fs::read(blob.to_abs_path()).await?;
+    let body = blob.read_bytes(context)?;
 
     // create mime part, for Content-Disposition, see RFC 2183.
     // `Content-Disposition: attachment` seems not to make a difference to `Content-Disposition: inline`
@@ -2123,7 +2122,7 @@ async fn build_avatar_file(context: &Context, path: &str) -> Result<String> {
         true => BlobObject::from_name(context, path)?,
         false => BlobObject::from_path(context, path.as_ref())?,
     };
-    let body = fs::read(blob.to_abs_path()).await?;
+    let body = blob.read_bytes(context)?;
     let encoded_body = base64::engine::general_purpose::STANDARD
         .encode(&body)
         .chars()
