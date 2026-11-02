@@ -146,7 +146,10 @@ async def go(port, tok, dev=None):
             await ws.recv(); return "ok"
     except Exception as e:
         r = getattr(e, "response", None)
-        return f"{r.status_code} {r.headers.get('X-Velta-Refusal', '')}".strip() if r else repr(e)
+        st = getattr(r, "status_code", None) if r is not None else getattr(e, "status_code", None)
+        hdrs = getattr(r, "headers", None) if r is not None else getattr(e, "headers", None)
+        refusal = (hdrs.get("X-Velta-Refusal") or "") if hdrs is not None else ""
+        return f"{st} {refusal}".strip() if st is not None else repr(e)
 out = {}
 async def phase1(port):
     await up(port)
