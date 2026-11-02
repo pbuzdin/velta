@@ -248,6 +248,15 @@ cargo tauri android build --target aarch64
 #   src-tauri/gen/android/app/build/outputs/bundle/universalRelease/app-universal-release.aab
 ```
 
+`gen/android` is committed. After `cargo tauri android init`, re-apply the
+`androidx.fragment:fragment-ktx:1.8.6` pin in `app/build.gradle.kts`
+(biometric 1.1.0 can otherwise drag fragment < 1.3 and fail release
+`lintVital`). Do not launch a registered `ActivityResult` launcher from
+`MainActivity` (a `FragmentActivity`): request codes overflow 16 bits
+(`Can only use lower 16 bits for requestCode`). Scanner / file-picker
+results must go through a process-wide singleton or a dedicated plain
+`Activity`.
+
 The project uses a **debug keystore** for the signed test APK:
 
 ```bash
