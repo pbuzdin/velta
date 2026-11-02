@@ -942,7 +942,9 @@ pub mod builtin_xdc;
 pub mod lufi;
 pub mod cryptex;
 pub mod c3_probe;
-use webxdc_serve::{webxdc_resolve_line, webxdc_serve};
+use webxdc_serve::webxdc_serve;
+#[cfg(target_os = "android")]
+use webxdc_serve::webxdc_resolve_line;
 mod bg_events;
 mod scheduled;
 mod scheduled_store;
@@ -972,7 +974,10 @@ fn open_attachment(path: &Path) -> Result<velta_attachment::AttachmentReader, St
 }
 
 // OS notification APIs accept image paths, not decrypted bytes. Never leave a
-// plaintext avatar copy behind just to decorate a notification.
+// plaintext avatar copy behind just to decorate a notification. Windows
+// toasts and Android MessagingStyle use it; macOS only focuses the app, so
+// this stays off that target (`RUSTFLAGS: "-D warnings"`).
+#[cfg(any(windows, target_os = "android"))]
 fn notification_avatar_path(path: Option<&str>) -> Option<&str> {
     path.filter(|path| !velta_attachment::is_encrypted(Path::new(path)).unwrap_or(true))
 }

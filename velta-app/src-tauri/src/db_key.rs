@@ -31,6 +31,7 @@ use rusqlite::Connection;
 /// (biometric/PIN unlock arrives later). The invariant is "once per
 /// process, one function, before `Accounts::new` on that start attempt" —
 /// not a claim that the mutation happens pre-thread on Android.
+#[cfg(target_os = "android")]
 pub fn install_env(raw: &str) {
     // Runtime env mutation is process-global. Callers must not race a
     // concurrent `Accounts::new` on this start attempt.
@@ -1035,6 +1036,7 @@ mod tests {
         assert_eq!(pin_unlock(&dir, &dir, "654321").unwrap(), raw);
     }
 
+    #[cfg(target_os = "android")]
     #[test]
     fn install_env_is_the_process_writer() {
         install_env("x'deadbeef'");

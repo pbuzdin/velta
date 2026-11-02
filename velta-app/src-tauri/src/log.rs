@@ -51,6 +51,7 @@ pub(crate) fn log_dir() -> PathBuf {
     })
 }
 
+#[cfg(target_os = "android")]
 pub(crate) fn log_dir_is_set() -> bool {
     LOG_DIR.lock().unwrap().is_some()
 }
