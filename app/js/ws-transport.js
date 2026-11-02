@@ -2,7 +2,7 @@
 // velta-app/src-tauri/src/ws_transport.rs. The shell runs a local SOCKS5
 // port that carries mail through a Velta WebSocket proxy
 // (tools/deploy-ws-proxy.sh, the same proxy the PWA uses natively), and
-// points every profile's proxy at it — like the DNS tunnel (tunnel.js).
+// points every profile's proxy at it through the shared keeper (proxy.rs).
 // Only one of the two is in use at a time.
 //
 // Shell commands: ws_transport_status, ws_transport_add,
@@ -173,7 +173,7 @@ export function wsConfirmText({ url, label, token = "" }, { current = null } = {
   if (current) lines.push(t("This replaces the transport in use ({name}); it stays saved.", { name: current }));
   lines.push(
     t("All chat traffic will go through this WebSocket proxy while it is in use. Your messages stay end-to-end encrypted, but the server operator sees which relays you connect to and when."),
-    t("Only add proxies from someone you trust. Turning it on stops the DNS tunnel if one is in use."),
+    t("Only add proxies from someone you trust. Turning it on stops the SOCKS5 proxy if one is in use."),
   );
   return lines.join("\n\n");
 }
@@ -337,8 +337,8 @@ export async function openWsTransportSettings(deps) {
     return { body, ...showModal({ title: t("WebSocket transport"), body }) };
   }
   body.innerHTML = `
-    <p class="bar-opts-hint">${escapeHtml(t("Mail goes through a Velta WebSocket proxy instead of connecting to the relays directly. Useful when only web traffic works. Only one of WebSocket transport and DNS tunnel is in use at a time."))}</p>
-    ${status.dns_tunnel_active ? `<p class="p2p-hint" role="note">${escapeHtml(t("The DNS tunnel is in use. Using a WebSocket proxy turns it off."))}</p>` : ""}
+    <p class="bar-opts-hint">${escapeHtml(t("Mail goes through a Velta WebSocket proxy instead of connecting to the relays directly. Useful when only web traffic works. Only one of WebSocket transport and SOCKS5 proxy is in use at a time."))}</p>
+    ${status.proxy_active ? `<p class="p2p-hint" role="note">${escapeHtml(t("The SOCKS5 proxy is in use. Using a WebSocket proxy turns it off."))}</p>` : ""}
     <h3 class="tunnel-list-h" id="ws-list-h">${escapeHtml(t("Saved WebSocket proxies"))}</h3>
     <ul class="tunnel-list" role="list" aria-labelledby="ws-list-h" data-ws-list>${wsListHtml(status)}</ul>
     <form data-ws-add style="display:flex;flex-direction:column;gap:6px;margin-top:10px" novalidate>

@@ -59,7 +59,7 @@ import { parseSharePayload, shareTextIfUnconsumed, sharePlan, createShareInbox, 
 import { linkPreviewMode, setLinkPreviewMode, LINK_PREVIEW_LABELS, setLinkPreviewProxySource, activeProxyUrl } from "./link-preview.js";
 import { wirePushSection } from "./push-settings.js";
 import { wireWebPushSection, refreshWebPush } from "./web-push.js";
-import { extractTunnelLink, acceptTunnelLink, makeChooser, openTunnelSettings, refreshTunnelStatus, tunnelOffered, tunnelStatus, describeTunnel, bindTunnelNetworkEvents, initTunnelDiagnostics } from "./tunnel.js";
+import { extractProxyLink, acceptProxyLink, openProxySettings, refreshProxyStatus, proxyOffered, proxyStatus, describeProxy, initProxyDiagnostics } from "./proxy.js";
 import { wrapIdentityBundle, unwrapIdentityBundle, buildIdentityBundle, bytesToBase64, base64ToBytes, backupDownloadName, gzipBytes, mailLoginFromTransports, accountDirFromToml, mailLoginsFromDbText } from "./identity-backup.js";
 import { isAndroid, tauriInvoke } from "./tauri.js";
 import { ScheduledRunner, localStore, tauriStore } from "./scheduled.js";
@@ -4466,7 +4466,7 @@ function openProfileManagement() {
       core.removeEventListener("imex-progress", onProg);
       prog.update(t("Profile restored — restarting"));
       localStorage.setItem("velta-ask-notifications", "1");
-      core._tunnelReapply?.();
+      core._proxyReapply?.();
       setTimeout(() => location.reload(), 800);
     };
     const finishErr = async (msg) => {
@@ -4728,8 +4728,8 @@ async function claimAndConfigure(host, token) {
     let status, body;
     if (invoke) {
       // Native: the shell fetches (the renderer is CORS-bound) through the
-      // profile's proxy — the WebSocket transport / DNS tunnel when in use.
-      await invoke("tunnel_reapply").catch(() => {});
+      // profile's proxy — the selected SOCKS5 / WebSocket proxy when in use.
+      await invoke("proxy_reapply").catch(() => {});
       let proxy = null;
       try {
         const [en, url] = await Promise.all([core.getConfig("proxy_enabled"), core.getConfig("proxy_url")]);
@@ -4927,11 +4927,11 @@ async function handleDeeplinkFromUrl(rawUrl, { clearUrl = false } = {}) {
     if (chatLinkToken && chatLink.token === chatLinkToken) await openChatFromLink(chatLink);
     return true;
   }
-  // DNS tunnel setup link: confirmed by the user before anything changes.
-  const tunnelLink = extractTunnelLink(rawUrl);
-  if (tunnelLink) {
+  // SOCKS5 proxy setup link: confirmed by the user before anything changes.
+  const proxyLink = extractProxyLink(rawUrl);
+  if (proxyLink) {
     if (clearUrl) history.replaceState(null, "", location.pathname + location.search);
-    await acceptTunnelLink(tunnelLink, { confirmModal, choose: makeChooser(showModal), toast, errToast, onChange: rebuildDrawer });
+    await acceptProxyLink(proxyLink, { confirmModal, choose: makeChooser(showModal), toast, errToast, onChange: rebuildDrawer });
     return true;
   }
   // WebSocket transport link: validated and confirmed before anything changes.
@@ -5531,7 +5531,7 @@ function savedDownloadLimit() {
 
 function rebuildDrawer() {
   if (state.accountChanging) return;
-  // Rebuilds land from async paths (boot, refreshAccounts, tunnel status,
+  // Rebuilds land from async paths (boot, refreshAccounts, proxy status,
   // profile/relay edits, Local chat toggle), often while the drawer is open.
   // Carry the open drawer and account switcher over to the new DOM instead of
   // silently dropping them, and unhook the old drawer's document listeners.
@@ -5657,10 +5657,10 @@ function rebuildDrawer() {
     onScheduled: () => openAllScheduled(),
     onExportSettings: () => exportSettingsToSaved(),
     backendKind: core?.backend?.kind || null,
-    onTunnel: tunnelOffered()
-      ? () => openTunnelSettings({ showModal, confirmModal, askText, choose: makeChooser(showModal), toast, errToast, onChange: rebuildDrawer, renderQr: text => core.createQrSvg(text) })
+    onProxy: proxyOffered()
+      ? () => openProxySettings({ showModal, confirmModal, askText, choose: makeChooser(showModal), toast, errToast, onChange: rebuildDrawer, renderQr: text => core.createQrSvg(text) })
       : null,
-    tunnelLabel: describeTunnel(tunnelStatus()).headline,
+    proxyLabel: describeProxy(proxyStatus()).headline,
     // Native shells only; the PWA already speaks WebSocket (WebSocket relays).
     onWsTransport: window.__TAURI__
       ? async () => {
@@ -7049,7 +7049,7 @@ async function boot() {
     // after which a boot failure keeps the (partially working) UI instead
     // of falling back to the splash.
     // Link previews (shell-side fetch) use the active account's proxy: the
-    // user's own or the DNS tunnel's (tunnel.rs writes it into proxy_url).
+    // user's own or the selected SOCKS5 proxy (proxy.rs writes it into proxy_url).
     // A failed read throws, and link-preview.js then skips the fetch.
     setLinkPreviewProxySource(async () => {
       if (!core) throw new Error("core not ready");
@@ -7128,7 +7128,7 @@ async function boot() {
       bindChatHeadMenu();
       // Invite cards in messages + any invite-host link tap → join flow
       bindInviteInterception(link => joinFromInvite(link));
-      // Velta invite cards (proxy / relay / combined / tunnel): every action
+      // Velta invite cards (proxy / relay / combined / SOCKS5 proxy): every action
       // is a tap, and each goes through its usual confirmation.
       bindInviteCards({
         useProxy: link => acceptWsLink(link, { confirmModal, toast, errToast, onChange: rebuildDrawer }),
@@ -7139,7 +7139,7 @@ async function boot() {
           if (!(await joinWithWsLink(proxy, relay.host, { confirmModal, toast, errToast, onChange: rebuildDrawer }))) return;
           await createAccountFromRelayInvite(normalizeHost(relay.host), relay.token);
         },
-        tunnel: link => acceptTunnelLink(link, { confirmModal, choose: makeChooser(showModal), toast, errToast, onChange: rebuildDrawer }),
+        socks5: link => acceptProxyLink(link, { confirmModal, choose: makeChooser(showModal), toast, errToast, onChange: rebuildDrawer }),
         copy: async text => { try { await copyLink(text, { clipboard: navigator.clipboard }); toast(t("Link copied")); } catch { errToast(t("Couldn't copy the link")); } },
       });
 
@@ -7222,12 +7222,11 @@ async function boot() {
       })();
     });
 
-    // DNS tunnel row on Android and Windows, before a tunnel is saved.
-    refreshTunnelStatus().then(s => { if (tunnelOffered(s)) rebuildDrawer(); });
+    // SOCKS5 proxy row on every native shell, before a proxy is saved.
+    refreshProxyStatus().then(s => { if (proxyOffered(s)) rebuildDrawer(); });
     refreshWsTransportStatus().then(s => { if (s) rebuildDrawer(); });
-    bindTunnelNetworkEvents();
-    // Route switches, proxy changes and tunnel errors go to Velta Diagnostics.
-    initTunnelDiagnostics({ append: (level, text) => diagnostics.append(level, text) });
+    // Route switches and proxy changes go to Velta Diagnostics.
+    initProxyDiagnostics({ append: (level, text) => diagnostics.append(level, text) });
 
     appLog("boot: handleDeeplink");
     // Before any chat link is routed: a cold-start notification is parked in

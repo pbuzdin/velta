@@ -106,18 +106,17 @@ test("background job finishes when the fetch is done and honours onStopJob", () 
   assert.match(lib, /fn Java_org_velta_BackgroundFetchJob_stopFetch[\s\S]{0,600}stop_background_fetch\(\)/);
 });
 
-test("DNS tunnel / WS transport start before IO, with a health check", () => {
+test("SOCKS5 / WS proxies are applied before IO, with WS health checks", () => {
   const lib = rs("lib.rs");
   const init = lib.slice(lib.indexOf("fn ensure_android_core"), lib.indexOf("async fn android_core_tx"));
-  const boot = init.indexOf("tunnel::boot(");
+  const boot = init.indexOf("proxy::boot(");
   const ws = init.indexOf("ws_transport::boot_now(");
-  const reapply = init.indexOf("tunnel::reapply_proxy().await");
+  const reapply = init.indexOf("proxy::reapply_proxy().await");
   const publish = init.indexOf("*tx_holder.lock().unwrap() = Some(tx)");
   const io = init.indexOf("start_io().await");
   assert.ok(boot > 0 && ws > boot && reapply > ws && publish > reapply && io > publish, "proxies, then tx, then IO");
-  const tunnel = rs("tunnel.rs");
-  assert.match(tunnel, /fn check_alive\(app: &crate::Host\)[\s\S]*connect_timeout[\s\S]*start\(app, cfg\)/);
-  assert.match(tunnel, /check_network\(&a\);\s*check_alive\(&a\);/);
+  const proxy = rs("proxy.rs");
+  assert.match(proxy, /fn start_applier[\s\S]*Duration::from_secs\(60\)[\s\S]*apply_proxy\(\)\.await/);
   const wst = rs("ws_transport.rs");
   assert.match(wst, /fn start_keeper[\s\S]*health\(&app\)\.await/);
   assert.match(wst, /async fn health[\s\S]*TcpStream::connect\(addr\)[\s\S]*start_active/);

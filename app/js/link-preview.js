@@ -121,8 +121,8 @@ function invoke(cmd, args) {
 
 const inFlight = new Map(); // url -> Promise (dedupe concurrent renders); removed when settled
 
-// The shell fetches with the proxy the user configured (their own SOCKS5/HTTP
-// proxy or the Android DNS tunnel, both live in the core's proxy_url). app.js
+// The shell fetches with the proxy the user configured (their own or Velta's
+// selected SOCKS5/WebSocket proxy, written into the core's proxy_url). app.js
 // registers a reader for the active account. Fail closed: no reader yet, or
 // a reader that throws, means no fetch — never a direct one.
 let proxySource = null;

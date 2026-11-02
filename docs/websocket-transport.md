@@ -38,29 +38,34 @@ core (IMAP/SMTP) ──SOCKS5──▶ 127.0.0.1:<random port>  (ws_transport.rs
 * Nothing about credentials, tokens or payload is logged; the log names only the
   proxy host and the local port. `velta://ws?…` links are logged redacted.
 * Android and Windows share the module; the profile proxy is written by the
-  DNS tunnel's proxy keeper (`tunnel.rs`, in-process core on Android,
-  `sidecar_call` JSON-RPC on Windows). macOS/Linux: the commands answer
+  shared keeper (`proxy.rs`, in-process core on Android, `sidecar_call`
+  JSON-RPC on Windows). macOS/Linux: the WebSocket commands answer
   "unsupported" and the UI says so. The PWA already uses WebSocket natively
   ("WebSocket relays" in the drawer); the native-only drawer row is hidden
   there.
 
-## DNS tunnel vs WebSocket transport
+## SOCKS5 proxy vs WebSocket transport
 
-Both point every profile's `proxy_url` at a local SOCKS5 port, so **only one
-is in use at a time**:
+A selected SOCKS5 proxy and this transport both use the profile's single
+`proxy_url`, so **only one is in use at a time**:
 
-* Turning on a WebSocket proxy (Use / Add and use / a link) stops the DNS
-  tunnel (it stays saved).
-* Starting a DNS tunnel turns the WebSocket transport off (it stays saved).
-* If both were ever saved as active, the DNS tunnel wins at boot.
+* Turning on a WebSocket proxy (Use / Add and use / a link) deselects the
+  saved SOCKS5 proxy (it stays saved).
+* Selecting a SOCKS5 proxy turns the WebSocket transport off (it stays
+  saved).
+* If both were ever saved as active, the selected SOCKS5 proxy wins at boot.
 * The proxy keeper only touches a profile whose `proxy_url` is empty or one
-  of ours (`socks5://velta-tunnel:` / `socks5://velta-ws:`). A proxy the
-  user set up themselves always wins and is never overwritten, so turning
+  of ours (`socks5://velta-ws:`, the keeper's `last_written` value, or a
+  stale `socks5://velta-tunnel:` left by the archived DNS tunnel). A proxy
+  the user set up themselves always wins and is never overwritten, so turning
   either transport off restores the previous state: ours is cleared and
   `proxy_enabled` goes back to 0. After any change the account's IO is
   restarted and the core is told the network changed.
-* Backups/transfers: the tunnel's detach logic (`tunnel_backup_begin/end`)
-  covers both, so a backup never carries the 127.0.0.1 port.
+* Backups/transfers: the shared detach logic (`proxy_backup_begin/end`)
+  covers both, so a backup never carries a loopback or LAN proxy address.
+
+See [SOCKS5 proxy links](socks5-proxy-link.md) for the native saved-proxy
+list, sharing, credentials, and migration behavior.
 
 ## Settings
 
@@ -91,13 +96,14 @@ base64url payload `.` 43-char base64url HMAC, ≤ 1024 chars), each once,
 invite link adds the proxy to "WebSocket relays" instead (bare
 `wss://<domain>` only).
 Opening or scanning it shows a confirm dialog warning that all chat traffic
-goes through that server (same as tunnel links). Android claims
-`velta://ws` in the manifest; desktop uses the existing `velta` scheme.
+goes through that server. Android claims `velta://ws` in the manifest;
+desktop uses the existing `velta` scheme.
 
 ## Tests
 
 * JS: `tests/ws-transport.test.mjs` (validation, link round-trip, list
-  HTML escaping/labels, actions, confirm flow, platform notes).
+  HTML escaping/labels, actions, confirm flow, platform notes, and SOCKS5
+  mutual-exclusion wording).
 * Rust (`cargo test --lib ws_transport`): URL building, SOCKS5 parsing,
   framing/accept key, store, and `socks_through_local_bridge`, which
   extracts the bridge from `tools/deploy-ws-proxy.sh`, runs it on 127.0.0.1
@@ -114,9 +120,9 @@ goes through that server (same as tunnel links). Android claims
 
 ## Needs device testing
 
-* Android: Doze/background — the server runs on the app's tokio runtime like
-  the DNS tunnel; check IMAP IDLE survives long idle periods (the bridge has
-  a 900 s idle timeout and pings every 30 s).
+* Android: Doze/background — the server runs on the app's tokio runtime;
+  check IMAP IDLE survives long idle periods (the bridge has a 900 s idle
+  timeout and pings every 30 s).
 * Windows: sidecar restart picks the proxy back up (the keeper re-applies
   every minute).
 * Network switches: open sockets drop with the WebSocket; the core

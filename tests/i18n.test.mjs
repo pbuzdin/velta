@@ -67,12 +67,11 @@ function requiredKeys() {
   const js = f => readFileSync(new URL("../app/js/" + f, import.meta.url), "utf8");
   const strings = src => quoted(src, /"((?:\\.|[^"\\])*)"/g);
   const span = (src, from, to) => src.slice(src.indexOf(from), src.indexOf(to, src.indexOf(from)));
-  for (const f of ["calls.js", "group-call-ui.js", "group-call-signal.js", "tunnel.js"]) {
+  for (const f of ["calls.js", "group-call-ui.js", "group-call-signal.js", "proxy.js"]) {
     for (const k of quoted(js(f), /\b(?:CAMERA_DENIED_MSG|MIC_DENIED_MSG|CONSENT_TITLE|CONSENT_TEXT|DEFAULT_CALL_TITLE|UNSUPPORTED_MSG) =\s*"((?:\\.|[^"\\])*)"/g)) keys.add(k);
   }
-  const tunnel = js("tunnel.js");
-  for (const m of span(tunnel, "const MODES = [", "];").matchAll(/\["\w+", "([^"]+)", "([^"]+)"\]/g)) { keys.add(m[1]); keys.add(m[2]); }
-  for (const k of quoted(tunnel, /\b(?:btn\("\w+", [\w.]+|fail)\(?,?\s*"((?:\\.|[^"\\])*)"/g)) keys.add(k);
+  const proxy = js("proxy.js");
+  for (const k of quoted(proxy, /\b(?:btn\("\w+", [\w.]+|fail)\(?,?\s*"((?:\\.|[^"\\])*)"/g)) keys.add(k);
   for (const k of strings(span(js("link-preview.js"), "LINK_PREVIEW_LABELS = {", "}"))) keys.add(k);
   for (const k of quoted(span(js("scheduled-ui.js"), "PRESET_LABEL = {", "}"), /:\s*"([^"]+)"/g)) keys.add(k);
   for (const k of quoted(js("local-chat.js"), /\breason = "([^"]+)"/g)) keys.add(k);

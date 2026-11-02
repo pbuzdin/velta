@@ -1,31 +1,7 @@
-//! Android side of the DNS tunnel (tunnel.rs): libsoartunnel.so from the
-//! APK's jniLibs, NetInfo.kt for the network, the in-process core.
-
-use serde_json::Value;
+//! Android side of the SOCKS5 proxy keeper (proxy.rs): the in-process core
+//! (the accounts manager the Android shell embeds).
 
 use deltachat::config::Config;
-
-pub fn lib_path(_app: Option<&tauri::AppHandle>) -> std::path::PathBuf {
-    "libsoartunnel.so".into()
-}
-
-/// NetInfo.kt snapshot: {"dns": ["10.0.0.1:53", …], "sim_operator": "25001",
-/// "transport": "cellular", "private_dns": false, …}.
-pub fn network_info() -> Option<Value> {
-    // Keep the guard bound: the JObject borrows the GlobalRef inside it.
-    let ctx_guard = crate::APP_CONTEXT.lock().unwrap();
-    let context = ctx_guard.as_ref().map(|r| r.as_obj())?;
-    let vm_guard = crate::APP_JAVA_VM.lock().unwrap();
-    let mut env = vm_guard.as_ref()?.attach_current_thread().ok()?;
-    let class_guard = crate::APP_NETINFO_CLASS.lock().unwrap();
-    let class_ref = class_guard.as_ref()?;
-    let out = env
-        .call_static_method(class_ref, "snapshot", "(Landroid/content/Context;)Ljava/lang/String;", &[(&context).into()])
-        .ok()?;
-    let jstr = jni::objects::JString::from(out.l().ok()?);
-    let s = env.get_string(&jstr).ok()?.to_string_lossy().into_owned();
-    serde_json::from_str(&s).ok()
-}
 
 type Accounts = std::sync::Arc<tokio::sync::RwLock<deltachat_jsonrpc::api::Accounts>>;
 
@@ -60,6 +36,22 @@ pub async fn restart_io(id: u32) {
     }
 }
 
+/// Tells the core the network changed; false when it is not up yet.
+pub async fn maybe_network() -> bool {
+    let Some(a) = accounts() else { return false };
+    // Never hold the account manager lock across the interrupts: they can
+    // wait out an IO restart, and a queued writer would then block every
+    // UI RPC (chat switching hung behind it).
+    let contexts: Vec<_> = {
+        let accounts = a.read().await;
+        accounts.get_all().into_iter().filter_map(|id| accounts.get_account(id)).collect()
+    };
+    for ctx in contexts {
+        ctx.maybe_network().await;
+    }
+    true
+}
+
 /// Resume diagnostic: one line per account with its connectivity, or a
 /// line saying the account manager lock is held (a stuck start_io/stop_io
 /// writer blocks every UI RPC). Read-only; bounded at 5 s.
@@ -80,20 +72,4 @@ pub async fn log_resume_state() {
     for (id, ctx) in contexts {
         crate::log(&format!("resume: account {id} connectivity {:?}", ctx.get_connectivity()));
     }
-}
-
-/// Tells the core the network changed; false when it is not up yet.
-pub async fn maybe_network() -> bool {
-    let Some(a) = accounts() else { return false };
-    // Never hold the account manager lock across the interrupts: they can
-    // wait out an IO restart, and a queued writer would then block every
-    // UI RPC (chat switching hung behind it).
-    let contexts: Vec<_> = {
-        let accounts = a.read().await;
-        accounts.get_all().into_iter().filter_map(|id| accounts.get_account(id)).collect()
-    };
-    for ctx in contexts {
-        ctx.maybe_network().await;
-    }
-    true
 }

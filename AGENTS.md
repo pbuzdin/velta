@@ -56,7 +56,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── components.js     # Elena-based web components (<velta-avatar>, <velta-chat-item>, <velta-chat-head>, <velta-video>)
 │   │   ├── diagnostics.js    # diagnostics chat store + event sink + shared console-style row renderer
 │   │   ├── invites.js        # invite-link registry (mirror domains), parsing, short-link expansion, invite cards, settings modal
-│   │   ├── invite-cards.js   # in-chat invite cards (chat/group/relay/WS-proxy links) + native relay-invite signup in Add account — docs/invite-cards.md
+│   │   ├── invite-cards.js   # in-chat invite cards (chat/group/relay/WS-proxy/SOCKS5 links) + native relay-invite signup in Add account — docs/invite-cards.md
 │   │   ├── icons.js          # shared inline SVG icon set (outline, stroke 2, round caps, aria-hidden); every UI icon comes from here; drawer icons have no fills (dots = zero-length round-cap strokes, `h.01`), invite = qr glyph; only the Velta Loop brand mark (LOOP_SVG) is filled — tests/icons.test.mjs
 │   │   ├── qr-encode.js      # QR encoder with optimal numeric/alphanumeric/byte segmentation (smaller codes for every QR shown)
 │   │   ├── local-chat.js     # local chat core adapter: Proxy interceptor for p2p:<peerId> chats, media transfers/progress, offline queue + auto-flush (see 5.4 / conventions)
@@ -70,7 +70,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   │   ├── p2p.js            # Local chat UI: drawer toggle, pairing, group modals (Tauri only)
 │   │   ├── web-push.js       # PWA Web Push: drawer <details> switch, Notification permission, pushManager.subscribe(VAPID_KEY = notifier key, pinned to UnifiedPushService.kt), token webpush:<endpoint>|<p256dh>|<auth> → wasm set_push_device_token (all accounts), re-registered every boot; iOS 16.4+/home-screen hint (docs/agents/web-push.md)
 │   │   ├── push-settings.js  # #140 Android drawer <details> "Push notifications": distributor picker/Off, relay support, last push (shell push_status/push_select/push_off → UnifiedPushBridge.kt)
-│   │   ├── tunnel.js         # optional Android DNS tunnel UI: deep link, drawer row, settings sheet, diagnostics (#116/#119/#128)
+│   │   ├── proxy.js          # native SOCKS5 proxies: strict v1/v2 links, drawer/settings, QR sharing, chat cards, diagnostics — docs/socks5-proxy-link.md
 │   │   ├── ws-transport.js   # WebSocket transport (Android/Windows): saved proxies, velta://ws links with signed invite tokens, settings sheet — docs/websocket-transport.md
 │   │   ├── scheduled.js      # scheduled messages ("Send later"): document ops (mirrored in src-tauri scheduled_store.rs), presets, ScheduledRunner (claim → send → done; no double send) — docs/scheduled-messages.md
 │   │   ├── scheduled-ui.js   # Send later sheet (presets + datetime-local), per-chat / global scheduled list, Android exact-alarm prompt
@@ -126,7 +126,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │   └── deny.toml             # cargo-deny policy
 │
 ├── velta-app/            # Tauri v2 wrapper
-│   ├── soar-tunnel/          # optional DNS tunnel: Go c-shared lib + soar-socks CLI (docs/agents/dns-tunnel.md)
+│   ├── soar-tunnel/          # archived DNS tunnel: Go c-shared lib + CLI, still built by CI but not loaded (docs/agents/dns-tunnel.md)
 │   └── src-tauri/
 │       ├── Cargo.toml        # depends on deltachat-jsonrpc (path on Android)
 │       ├── tauri.conf.json   # frontendDist: ../../app (version mirrors Cargo.toml — Android reads only it)
@@ -135,8 +135,8 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 │       ├── src/
 │       │   ├── lib.rs        # Windows sidecar bridge + Android in-process core
 │       │   ├── p2p.rs        # Local chat engine: iroh (relay-less) QUIC pairing + 1:1 chat
-│       │   ├── tunnel.rs     # Optional DNS tunnel (Android): loads libsoartunnel.so, keeps proxy_url
-│       │   ├── tunnel_android.rs / tunnel_windows.rs / tunnel_store.rs # platform layers (Windows: soartunnel.dll) + several saved tunnels, one or none active
+│       │   ├── proxy.rs      # saved SOCKS5 proxies + shared proxy_url keeper; backup detachment; WS mutual exclusion; stale DNS-listener cleanup
+│       │   ├── proxy_android.rs / proxy_desktop.rs / proxy_store.rs # in-process / sidecar platform layers + several saved proxies, one or none active
 │       │   ├── ws_transport.rs # WebSocket transport: local SOCKS5 listener tunnelled over the PWA's WS proxy (invite token at the handshake), health-checked, started before IO
 │       │   ├── scheduled.rs / scheduled_store.rs # scheduled messages: native store + send runner (Android alarm via ScheduledAlarm.kt)
 │       │   ├── lufi.rs       # #138 Large file: proxy-aware (fail-closed) minimal WebSocket client for Lufi /upload, slice reads, config/delete
@@ -170,7 +170,7 @@ A prebuilt set of command-line RPC servers for Windows and Android is kept in
 ├── docs/relay-modules.md          # install / configure / uninstall: invite-only signup and the WebSocket proxy
 ├── docs/websocket-transport.md    # WebSocket transport for Android/Windows: velta://ws links, saved proxies, signed invites
 ├── docs/deploy-pwa-websocket-proxy.md / docs/deploy-dns-tunnel.md # one-command server deploy guides (tools/deploy-*.sh)
-├── docs/dns-tunnel-link.md        # tunnel link v2 (QR-alphanumeric path form) + confirmation
+├── docs/socks5-proxy-link.md      # SOCKS5 link v1/v2, QR-alphanumeric path form, confirmation + sharing
 ├── docs/scheduled-messages.md     # Send later: design, Android exact/inexact alarms, Doze limits
 ├── docs/invite-cards.md           # invite cards in chat + relay-invite signup
 ├── docs/mentions.md / reply-threads.md / chat-appearance.md / settings-transfer.md # feature notes
@@ -277,7 +277,7 @@ intent in VENDORISSUES.MD):
 | #13 | push-token accepted/rejected Info/Warning events (Diagnostics chat) | imap.rs |
 | #14 | reply-thread queries: `chat::get_reply_counts(chat)` (quoted msg → count, both sides scoped to the chat) + `get_reply_ids(chat, msg)` over `msgs.mime_in_reply_to`, hidden rows excluded (`replies.hidden=0`, 1.4.84: send_edit_request's own hidden copy quotes the original, so an edited caption counted as a reply); thin jsonrpc wrappers. 2 ops; the chat.rs op anchors on the `/// Returns true if device message…` doc line so that comment stays on `was_device_msg_ever_added`. No index/migration (per-chat scan via the chat_id index; a dbversion bump would collide with upstream migrations) | chat.rs, deltachat-jsonrpc/src/api.rs |
 | #15 | `get_server_metadata` RPC: per-transport relay capabilities (TURN/calls, iroh relay, push, app versions) from IMAP METADATA the scheduler already fetches. 6 ops | transport.rs, deltachat-jsonrpc api.rs + types/login_param.rs |
-| #17 | jsonrpc `maybe_network` clones the contexts under `accounts.read()` and awaits scheduler interrupts AFTER releasing it (#175, 1.4.85): a queued `start_io`/`stop_io` writer behind a stuck IO restart (dead proxy, up to 30 s per task) blocked every UI RPC, so chat switching "did nothing" on Android after a send. `tunnel_android::maybe_network` does the same | deltachat-jsonrpc/src/api.rs |
+| #17 | jsonrpc `maybe_network` clones the contexts under `accounts.read()` and awaits scheduler interrupts AFTER releasing it (#175, 1.4.85): a queued `start_io`/`stop_io` writer behind a stuck IO restart (dead proxy, up to 30 s per task) blocked every UI RPC, so chat switching "did nothing" on Android after a send. `proxy_android::maybe_network` does the same | deltachat-jsonrpc/src/api.rs |
 | #16 | extends #15 (ops must stay after it): IMAP IDLE, COMPRESS=DEFLATE, and max SMTP recipients on that metadata. UI: D flag ("not known yet" until the relay has connected), recipient limit and "compressed connection" in the details line. 8 ops | imap.rs, transport.rs, api.rs, login_param.rs |
 | #19 | admin groups (#177), ArcaneChat-compatible: grpid `ADMINFPR:randomid`, receivers enforce admin-only add / remove-others / name / description / avatar / timer / pins / delete-for-everyone; `create_group_with_admin` + `FullChat.groupAdminId` jsonrpc. 46 ops; receive_imf.rs ops are the fragile part on re-vendor. Plan + stock-DC interop: docs/core-patches/admin-groups-plan.md | chat.rs, receive_imf.rs, securejoin.rs, qr.rs, tools.rs, mimeparser.rs, ephemeral.rs, message.rs, jsonrpc api.rs + types/chat.rs, chat_tests.rs, tools_tests.rs |
 | #18 | scheduler interrupts (`interrupt_inbox/smtp/ephemeral_task/location/recently_seen`, and since 1.4.90 `interrupt_inbox_idle` + `maybe_network_lost`) use `try_read()`: never wait behind an IO start/stop holding the scheduler lock (#176) | scheduler.rs |
@@ -1762,12 +1762,11 @@ Both Python projects use `pyproject.toml`, require Python 3.10+, and configure
   model as `expand_invite_link`: https-only, 5 s timeout, 256 KB page /
   512 KB image cap) and inlines og:image as a `data:` URL (CSP img-src has
   `data:` everywhere; remote hosts stay out). In-memory cache per URL;
-  failed fetches cached as null. **Proxy/tunnel:** the page and og:image
+  failed fetches cached as null. **Proxy:** the page and og:image
   go through the active account's proxy — app.js registers
   `setLinkPreviewProxySource` (reads `proxy_enabled` + `proxy_url`, first
-  list entry), so the user's own SOCKS5/HTTP proxy and the Android DNS
-  tunnel (tunnel.rs writes its `socks5://velta-tunnel:…@127.0.0.1` URL into
-  `proxy_url`) both apply; `fetch_link_preview(url, proxy)` builds the ureq
+  list entry), so the user's own SOCKS5/HTTP proxy and a proxy selected in Velta
+  (proxy.rs writes its URL into `proxy_url`) both apply; `fetch_link_preview(url, proxy)` builds the ureq
   agent in `link_preview_agent` (ureq `socks-proxy` feature; SOCKS5 resolves
   the host on the proxy side). Fails closed: no reader / a failed config read
   means no fetch (not cached, retried on the next render), and a proxy ureq
@@ -3029,17 +3028,17 @@ talks to Google.
   Tauri setup calls the same `ensure_android_core`, so the UI reuses a core a
   service already started (`app.manage(state.clone())`, `APP_HANDLE` set);
   nothing in the core path needs an AppHandle any more (emits go through
-  `ui_app()`/`Host::emit`, tunnel/ws state through `crate::Host`). Push and
+  `ui_app()`/`Host::emit`, proxy/ws state through `crate::Host`). Push and
   alarm wake-ups wait up to 20 s for a still-initializing core
   (`android_core_tx`). The service notification says "Not syncing…" when
   the core did not start (or is not up 30 s later). Rust's state files
   live in `Context.getDataDir()` (Tauri app-local data), which Kotlin reads
-  via `AppFiles.read` (dataDir, then filesDir). Init order: DNS tunnel boot,
-  WS transport `boot_now` (awaited), `tunnel::reapply_proxy`, THEN the
+  via `AppFiles.read` (dataDir, then filesDir). Init order: proxy keeper boot,
+  WS transport `boot_now` (awaited), `proxy::reapply_proxy`, THEN the
   request channel is published (the page cannot start_io earlier) and a
   headless start_io runs. Health checks every minute restart a proxy whose
-  local listener stopped answering (`tunnel::check_alive`,
-  `ws_transport` keeper).
+  local listener stopped answering (the shared proxy keeper and
+  `ws_transport` health checks).
 - ** ceilings:** (1) `CoreService` is NOT stopped when push registers —
   a push-only mode is possible now that a push can cold-start the core,
   but not built. A headless start ignores the page's "sync only the
@@ -3543,10 +3542,11 @@ do-not-regress rules; dates mark when the lesson was learned.
   and do not add the Proxies drawer that issue asked for. The core is the
   database and the message model. `core/src/transport.rs` is one IMAP/SMTP
   relay, not a plugin slot. Local chat wraps the booted core and does not
-  replace it. The opt-in Android DNS tunnel (#116/#119/#128) is not a Proxies
-  drawer either: it reuses that one `proxy_url` and never overrides a
-  proxy the user set; mode Off stops the tunnel library and removes our local proxy from every profile (before 1.4.85 Off only switched routing and the proxy stayed, so sends stalled ~60 s on a dead proxy, #175); Auto stays direct when the relays are down, not
-  blocked (docs/agents/dns-tunnel.md). A profile with no relay is the welcome splash's "Enter local
+  replace it. The opt-in SOCKS5 proxy list reuses that one `proxy_url` and
+  never overrides a proxy the user set; Stop removes the keeper-owned proxy
+  from every profile. The archived Android DNS tunnel used the same ownership
+  rule (before 1.4.85 Off only switched routing and the proxy stayed, so sends
+  stalled ~60 s on a dead proxy, #175). A profile with no relay is the welcome splash's "Enter local
   chat…". Detail: docs/agents/relays.md, docs/agents/p2p.md.
 - **Encoding (2026-09-23)** — every text file is UTF-8 without BOM; no
   exceptions. On this Windows checkout the ANSI codepage is CP1251

@@ -19,7 +19,7 @@ use tauri::{Emitter, Manager, State};
 
 // Public so the p2p-hub debug example can drive the engine headlessly.
 pub mod p2p;
-mod tunnel;
+mod proxy;
 mod ws_transport;
 
 static LOG_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
@@ -28,7 +28,7 @@ static LOG_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
 static OPENED_URLS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 static SIDECAR_STATUS: Mutex<Option<serde_json::Value>> = Mutex::new(None);
 
-/// Where shell-side state files live (DNS tunnel, WebSocket transport) and
+/// Where shell-side state files live (SOCKS5 proxy, WebSocket transport) and
 /// who hears their events: the Tauri app while it runs, or on Android the
 /// headless core a service, push, job or alarm started in a process whose
 /// activity never ran (`Java_org_velta_VeltaCore_startHeadless`).
@@ -316,7 +316,7 @@ static SIDECAR_CHILD: Mutex<Option<std::process::Child>> = Mutex::new(None);
 
 /// Spawn (or respawn) the rpc-server sidecar with `key` as its env. The
 /// reader/wait threads ride each spawn; the managed RpcState only has its
-/// stdin swapped on a respawn. `first` runs the one-time tunnel/proxy
+/// stdin swapped on a respawn. `first` runs the one-time proxy
 /// boots. `probe_db_lock` is the caller's job.
 #[cfg(not(target_os = "android"))]
 fn spawn_sidecar(app: &tauri::AppHandle, key: Option<String>, first: bool) {
@@ -378,8 +378,8 @@ fn spawn_sidecar(app: &tauri::AppHandle, key: Option<String>, first: bool) {
             }
             set_sidecar_status(app, serde_json::json!({"running": true, "stage": "ready"}));
             if first {
-                // Optional DNS tunnel (Windows): a no-op unless a velta://tunnel link was accepted.
-                tunnel::boot(&Host::from_app(app));
+                // Re-apply the selected SOCKS5 proxy before the page can start IO.
+                proxy::boot(&Host::from_app(app));
                 ws_transport::boot(&Host::from_app(app));
             }
 
@@ -902,7 +902,7 @@ fn link_preview_agent(proxy: Option<&str>) -> Result<ureq::Agent, String> {
 /// https://<host>/i/claim?t=<token> on the relay's invite.py, which consumes
 /// one use and answers {"email","password"} (or {"error"} with 400/403/409/
 /// 410/503). Shell-side because the renderer is CORS-bound. Goes through the
-/// profile's proxy when one is set (the WebSocket transport / DNS tunnel
+/// profile's proxy when one is set (the selected SOCKS5 / WebSocket proxy
 /// SOCKS port) and never falls back to a direct fetch. Returns
 /// {"status": u16, "body": JSON|null}; the page maps codes to messages.
 /// Credentials are never logged.
@@ -959,7 +959,7 @@ fn relay_claim_url(host: &str, token: &str) -> Result<String, String> {
 ///
 /// `proxy` is the active account's proxy (`proxy_url` when `proxy_enabled`,
 /// the renderer reads it from the core): the user's own SOCKS5/HTTP proxy or
-/// the Android DNS tunnel's local SOCKS5 port (tunnel.rs writes it there).
+/// the selected SOCKS5 proxy (proxy.rs writes it there).
 /// Both the page and its og:image go through it. Fails closed: a proxy this
 /// client cannot speak (Shadowsocks, HTTPS proxy, garbage) is an Err, and a
 /// dead proxy is a transport Err — never a silent direct fetch.
@@ -2921,7 +2921,7 @@ fn store_app_context(env: &mut jni::JNIEnv, context: &jni::objects::JObject) {
     *APP_JAVA_VM.lock().unwrap() = Some(vm);
     *APP_CONTEXT.lock().unwrap() = Some(global);
     // Global refs to the app's helper classes for later Rust commands
-    // (NetInfo: DNS tunnel, tunnel.rs — operator resolvers + SIM operator).
+    // (network, media, notifications and other native helpers).
     let classes: [(&str, &Mutex<Option<jni::objects::GlobalRef>>); 13] = [
         ("InAppBrowser", &APP_INAPP_BROWSER_CLASS),
         ("Notifications", &APP_NOTIFICATIONS_CLASS),
@@ -3021,7 +3021,7 @@ pub extern "system" fn Java_org_velta_MainActivity_setActivityForeground(
                 let _ = app.emit("velta-foreground", ());
             }
         });
-        tauri::async_runtime::spawn(tunnel::log_resume_state());
+        tauri::async_runtime::spawn(proxy::log_resume_state());
     } else {
         kick_maybe_network(false);
     }
@@ -3615,9 +3615,9 @@ fn log_opened(url: &str) {
     if url.starts_with("data:") || url.starts_with("content:") || url.starts_with("file:") || Path::new(url).is_file() {
         log("opened share payload");
     } else {
-        // A tunnel link names the private tunnel server: never write it to the log.
-        if url.to_ascii_lowercase().starts_with("velta://tunnel") {
-            log("deeplink opened: velta://tunnel?…");
+        // A proxy link can contain credentials: never write it to the log.
+        if url.to_ascii_lowercase().starts_with("velta://proxy") {
+            log("deeplink opened: velta://proxy?…");
         } else if url.to_ascii_lowercase().starts_with("velta://ws") {
             log("deeplink opened: velta://ws?…");
         } else {
@@ -3840,8 +3840,8 @@ async fn rpc(request: String, state: State<'_, RpcState>) -> Result<String, Stri
     }
 }
 
-/// One JSON-RPC call to the sidecar from the shell itself (the DNS tunnel
-/// keeps the accounts' proxy settings in line, tunnel.rs). Rides the same
+/// One JSON-RPC call to the sidecar from the shell itself (the proxy keeper
+/// keeps the accounts' proxy settings in line, proxy.rs). Rides the same
 /// web_pending round-trip as the rpc command, with "velta-shell-" string ids
 /// that never collide with the page's numeric ones. Returns `result`.
 #[cfg(not(target_os = "android"))]
@@ -3982,16 +3982,13 @@ fn ensure_android_core(accounts_dir: PathBuf) -> &'static RpcState {
             match init_android_core(accounts_dir.clone(), bg_pending.clone()).await {
                 Ok(tx) => {
                     log("android core RPC session ready");
-                    // Proxies first (audit item 5): the DNS tunnel / WS
-                    // transport listen and every profile points at them
-                    // BEFORE anything can start IO — the page cannot call
-                    // start_io until tx is published below, and the
-                    // headless start_io comes last. No-ops when neither is set up.
-                    // The tunnel start probes the network (~1 s, Go mutex):
-                    // keep it off the core runtime's workers (#176).
-                    let _ = tokio::task::spawn_blocking(|| tunnel::boot(&Host::current())).await;
+                    // Proxies first (audit item 5): every profile points at
+                    // the selected SOCKS5 / WS proxy BEFORE anything can start
+                    // IO — the page cannot call start_io until tx is published
+                    // below, and the headless start_io comes last.
+                    proxy::boot(&Host::current());
                     ws_transport::boot_now(&Host::current()).await;
-                    tunnel::reapply_proxy().await;
+                    proxy::reapply_proxy().await;
                     start_bg_event_poller(tx.clone());
                     start_bg_fetch_kicker(tx.clone());
                     *tx_holder.lock().unwrap() = Some(tx);
@@ -5369,7 +5366,7 @@ pub fn run() {
                 responder.respond(response);
             });
         })
-        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_db_pin_state, set_db_pin, clear_db_pin, unlock_with_pin, lock_now, biometric_state, biometric_set, set_autolock_mins, volume_encryption_status, get_accounts_dir, resolve_upload_path, encrypt_upload, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, push_status, push_select, push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,tunnel::tunnel_preview, tunnel::tunnel_install, tunnel::tunnel_link, tunnel::tunnel_list, tunnel::tunnel_select, tunnel::tunnel_rename, tunnel::tunnel_delete, tunnel::tunnel_remove, tunnel::tunnel_status, tunnel::tunnel_set_mode, tunnel::tunnel_network_changed, tunnel::tunnel_backup_begin, tunnel::tunnel_backup_end, tunnel::tunnel_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
+        .invoke_handler(tauri::generate_handler![js_log, rpc, set_ui_visible, get_event_reader_mode, events_listener_ready, battery_optimization_exempt, request_battery_exemption, device_maker, get_latest_version, download_update, fetch_page_title, expand_invite_link, fetch_link_preview, relay_invite_claim, probe_relay, c3_probe::probe_c3_relay, lufi::lufi_open_file, lufi::lufi_read_slice, lufi::lufi_close_file, lufi::lufi_config, lufi::lufi_ws_open, lufi::lufi_ws_send, lufi::lufi_ws_close, lufi::lufi_delete, cryptex::cryptex_new_password, cryptex::cryptex_create, cryptex::cryptex_progress, cryptex::cryptex_cancel, cryptex::cryptex_open, cryptex::cryptex_destroy, cryptex::cryptex_fetch, allow_picked_path, webxdc_begin, webxdc_end, set_notify_prefs, set_logging_enabled, set_devtools, open_in_app_browser, open_webview_browser, take_opened_urls, chat_link_token, get_sidecar_status, get_db_lock_status, get_db_key_issue, get_db_pin_state, set_db_pin, clear_db_pin, unlock_with_pin, lock_now, biometric_state, biometric_set, set_autolock_mins, volume_encryption_status, get_accounts_dir, resolve_upload_path, encrypt_upload, prepare_builtin_xdc, resolve_content_uri, prep_backup, backup_scratch_dir, publish_backup, save_attachment, media_base_url, read_media_bytes, notify_incoming, install_update, get_battery_status, push_status, push_select, push_off, call_audio_start, call_audio_speaker, call_audio_stop, call_permission, share_text,proxy::proxy_install, proxy::proxy_list, proxy::proxy_select, proxy::proxy_rename, proxy::proxy_delete, proxy::proxy_link, proxy::proxy_status, proxy::proxy_backup_begin, proxy::proxy_backup_end, proxy::proxy_reapply, ws_transport::ws_transport_status, ws_transport::ws_transport_add, ws_transport::ws_transport_select, ws_transport::ws_transport_delete, ws_transport::ws_transport_test, p2p::p2p_status, p2p::p2p_set_enabled, p2p::p2p_set_name, p2p::p2p_create_invite, p2p::p2p_accept_invite, p2p::p2p_send, p2p::p2p_send_file, p2p::p2p_remove_peer, p2p::p2p_messages, p2p::p2p_pair_nearby, p2p::p2p_approve_pair, p2p::p2p_group_create, p2p::p2p_group_add, p2p::p2p_group_remove, p2p::p2p_group_rename, p2p::p2p_group_disband, p2p::p2p_group_leave, p2p::p2p_group_delete, p2p::p2p_peer_groups, p2p::p2p_typing, p2p::p2p_group_send, p2p::p2p_group_send_file, p2p::p2p_group_file_retry, p2p::p2p_group_messages, scheduled::scheduled_op, scheduled::scheduled_run_due, scheduled::scheduled_exact_status, scheduled::scheduled_exact_request]);
 
     builder = builder.plugin(tauri_plugin_notification::init());
 
@@ -5761,9 +5758,9 @@ mod link_preview_proxy_tests {
 
     #[test]
     fn socks5_and_http_proxies_are_used() {
-        // the DNS tunnel's own URL shape (tunnel.rs OURS + creds + port)
-        let tunnel = "socks5://velta-tunnel:secret@127.0.0.1:41234";
-        assert_eq!(link_preview_proxy(Some(tunnel)), Ok(Some(tunnel.to_string())));
+        // Authenticated SOCKS5 proxy URL.
+        let proxy = "socks5://user:secret@127.0.0.1:41234";
+        assert_eq!(link_preview_proxy(Some(proxy)), Ok(Some(proxy.to_string())));
         assert_eq!(
             link_preview_proxy(Some("socks5h://u:p@proxy.example:1080")),
             Ok(Some("socks5://u:p@proxy.example:1080".to_string()))
@@ -5772,7 +5769,7 @@ mod link_preview_proxy_tests {
             link_preview_proxy(Some("HTTP://proxy.example:3128")),
             Ok(Some("http://proxy.example:3128".to_string()))
         );
-        assert!(link_preview_agent(Some(tunnel)).is_ok());
+        assert!(link_preview_agent(Some(proxy)).is_ok());
         assert!(link_preview_agent(Some("http://proxy.example:3128")).is_ok());
     }
 

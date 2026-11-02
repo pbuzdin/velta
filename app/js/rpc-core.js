@@ -2123,7 +2123,7 @@ export class JsonRpcCore extends EventTarget {
   // Group members as mapped contacts (empty list for 1:1 chats).
   async getChatMembers(chatId) {
     const { accountId } = this;
-    const full = await this._call("get_full_chat_by_id", accountId, chatId);
+    const full = await this._call("get_full_chat_by_id", this.accountId, chatId);
     // Keep self (ContactId::SELF = 1) so the member count and list include
     // this account; only skip the other reserved ids (info, archived link, …).
     const ids = (full.contactIds || []).filter(id => id > 9 || id === 1);
@@ -2270,8 +2270,8 @@ export class JsonRpcCore extends EventTarget {
   // Relay invite (/i/claim credentials, invite-cards.js): same account
   // handling as addAccountWithQr — the empty current profile is reused,
   // otherwise a new one is added and selected back on failure (#99). The
-  // shell's tunnel/WebSocket proxy is applied to the new profile before
-  // its first connection (tunnel_reapply; no-op where unsupported).
+  // shell's SOCKS5/WebSocket proxy is applied to the new profile before
+  // its first connection (proxy_reapply; no-op where unsupported).
   async addAccountWithCredentials(addr, password) {
     const prevId = this.accountId;
     let { accountId } = this;
@@ -2284,7 +2284,7 @@ export class JsonRpcCore extends EventTarget {
         await this._call("select_account", accountId);
         this.accountId = accountId;
       }
-      await this._tunnelReapply();
+      await this._proxyReapply();
       await this._prepareFirstConfigure(accountId);
       await this._callWithTimeout(180000, "add_transport", accountId, { addr, password });
       await this._call("start_io", accountId);
@@ -2307,32 +2307,31 @@ export class JsonRpcCore extends EventTarget {
   // it. The call blocks server-side for the whole transfer — don't await it
   // in a timeout-sensitive path; completion arrives via ImexProgress.
   async provideBackup() {
-    return this._withoutTunnelProxy(() => this._call("provide_backup", this.accountId));
+    return this._withoutShellProxy(() => this._call("provide_backup", this.accountId));
   }
 
-  // DNS tunnel: this device's tunnel proxy is a 127.0.0.1 port
-  // that exists only here. Keep it out of backups and second-device
-  // transfers, or the restored profile (in any Velta) can't reach its
-  // relays. No-op where the shell has no tunnel commands.
-  async _withoutTunnelProxy(run) {
+  // Keep this device's SOCKS5/WebSocket proxy out of backups and
+  // second-device transfers: a loopback listener or LAN address may not
+  // exist on the receiving device. No-op where the shell is unavailable.
+  async _withoutShellProxy(run) {
     const invoke = tauriInvoke();
     const accountId = this.accountId;
     let detached = false;
     if (invoke) {
-      try { await invoke("tunnel_backup_begin", { accountId }); detached = true; } catch { /* no tunnel support */ }
+      try { await invoke("proxy_backup_begin", { accountId }); detached = true; } catch { /* no shell proxy support */ }
     }
     try {
       return await run();
     } finally {
-      if (detached) invoke("tunnel_backup_end", { accountId }).catch(() => {});
+      if (detached) invoke("proxy_backup_end", { accountId }).catch(() => {});
     }
   }
 
   // After a restore or a received transfer: let the shell fix the new
-  // profile's proxy now (a stale tunnel proxy from the source device would
+  // profile's proxy now (a stale proxy from the source device would
   // otherwise block its mail until the shell's next periodic pass).
-  _tunnelReapply() {
-    return tauriInvoke()?.("tunnel_reapply")?.catch(() => {});
+  _proxyReapply() {
+    return tauriInvoke()?.("proxy_reapply")?.catch(() => {});
   }
 
   // The backup QR as the 515x630 design card: reserves a clear center circle
@@ -2350,7 +2349,7 @@ export class JsonRpcCore extends EventTarget {
   // contacts and keys into <destination>/<file>.tar. Progress rides
   // "imex-progress" (0..1000).
   async exportBackup(destination, passphrase = null) {
-    await this._withoutTunnelProxy(() => this._callWithTimeout(180000, "export_backup", this.accountId, destination, passphrase));
+    await this._withoutShellProxy(() => this._callWithTimeout(180000, "export_backup", this.accountId, destination, passphrase));
   }
 
   // New device: receive a profile from another device's backup QR. Imports
@@ -2373,7 +2372,7 @@ export class JsonRpcCore extends EventTarget {
       // get_backup does not start IO (core api.rs). Do it once the import
       // lands, then refresh so the relay line leaves "no relay configured" (#118).
       this._call("get_backup", targetId, qrContent).then(async () => {
-        await this._tunnelReapply();
+        await this._proxyReapply();
         if (!this.syncOnlyActive || String(this.accountId) === String(targetId)) {
           await this._call("start_io", targetId).catch(() => {});
         }
@@ -2400,7 +2399,7 @@ export class JsonRpcCore extends EventTarget {
   // track it via imex-progress events (1000 = done, 0 = failed).
   async importBackup(path) {
     const res = await this._call("import_backup", this.accountId, path, null);
-    this._tunnelReapply();
+    this._proxyReapply();
     return res;
   }
 

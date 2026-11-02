@@ -99,7 +99,7 @@ remove their storage key (the "absent = default" pattern).
 The following are private or tied to one device:
 
 - Relays and transports, including the send transport (core config).
-- Proxy and DNS tunnel settings.
+- Proxy settings (including legacy DNS-tunnel diagnostics keys).
 - Keys and account addresses.
 - Multi-device (`bcc_self`).
 - The device info block.

@@ -22,7 +22,7 @@
 // to it.
 //
 // Transport is injected (the Tauri shell owns the socket so it can go
-// through the account proxy / DNS tunnel — fail closed, like link
+// through the account proxy — fail closed, like link
 // previews). This module is pure logic + storage and runs under node.
 
 import sjcl from "../vendor/sjcl.js";

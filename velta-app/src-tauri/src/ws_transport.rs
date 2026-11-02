@@ -5,11 +5,11 @@
 //! * `wss://<proxy>/dns/<host>` answers one text frame, a JSON array of IPs;
 //! * `wss://<proxy>/tcp/<ip>/<port>` is a raw binary byte stream.
 //!
-//! The core reaches its relays through that SOCKS5 port via `proxy_url`,
-//! exactly like the DNS tunnel (tunnel.rs), whose proxy keeper writes the
-//! URL into every profile. Only one of the two is active at a time: turning
-//! one on turns the other off (and if both were ever saved as active, the
-//! DNS tunnel wins). A proxy the user set up themselves is never replaced.
+//! The core reaches its relays through that SOCKS5 port via `proxy_url`;
+//! the shared keeper in proxy.rs writes the URL into every profile. A saved
+//! SOCKS5 proxy and this transport are mutually exclusive (the saved SOCKS5
+//! proxy wins if both were ever selected). A manually configured proxy is
+//! never replaced.
 //!
 //! Invite auth: a proxy deployed with invites (the default) wants a signed
 //! token from `deploy-ws-proxy.sh invite` on every handshake. It is stored
@@ -37,7 +37,7 @@ pub use crate::lufi::{encode_frame, ws_accept_key};
 
 /// Saved proxies (`ws_transport.json` in the app data dir).
 pub const FILE: &str = "ws_transport.json";
-/// Every proxy URL this module writes starts with this (see tunnel.rs).
+/// Every proxy URL this module writes starts with this (see proxy.rs).
 pub const OURS: &str = "socks5://velta-ws:";
 pub const LABEL_MAX: usize = 64;
 pub const URL_MAX: usize = 512;
@@ -727,7 +727,7 @@ mod app {
     use std::sync::Mutex;
 
     static SERVER: Mutex<Option<imp::Server>> = Mutex::new(None);
-    /// Serializes start/stop/select. Never held while calling into tunnel.rs.
+    /// Serializes start/stop/select. Never held while calling into proxy.rs.
     static OP: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     fn log(msg: &str) {
@@ -784,7 +784,7 @@ mod app {
     async fn start_active(app: &crate::Host, st: &mut Value) -> Result<(), String> {
         stop_server();
         let Some(id) = store::active_id(st).map(str::to_string) else {
-            crate::tunnel::set_ws_proxy(None);
+            crate::proxy::set_ws_proxy(None);
             return Ok(());
         };
         let url = store::find(st, &id).and_then(|p| p["url"].as_str()).unwrap_or_default().to_string();
@@ -805,7 +805,7 @@ mod app {
         save(app, st)?;
         *SERVER.lock().unwrap() = Some(server);
         log(&format!("started on {addr} via {}", proxy.host));
-        crate::tunnel::set_ws_proxy(Some(format!("{OURS}{pass}@{addr}")));
+        crate::proxy::set_ws_proxy(Some(format!("{OURS}{pass}@{addr}")));
         Ok(())
     }
 
@@ -849,11 +849,11 @@ mod app {
         if store::active_id(&st).is_none() {
             return;
         }
-        if crate::tunnel::dns_tunnel_active(app) {
-            // Both saved as active (older build): the DNS tunnel wins.
+        if crate::proxy::socks_proxy_active(app) {
+            // Both saved as active (older build): the selected SOCKS5 proxy wins.
             let _ = store::select(&mut st, None);
             let _ = save(app, &st);
-            log("DNS tunnel is in use; WebSocket transport left off");
+            log("SOCKS5 proxy is in use; WebSocket transport left off");
             return;
         }
         if let Err(e) = start_active(app, &mut st).await {
@@ -861,21 +861,21 @@ mod app {
         }
     }
 
-    /// The DNS tunnel just started: turn this off (one at a time).
-    pub fn deactivate_for_tunnel(app: &crate::Host) {
+    /// A SOCKS5 proxy was selected: turn this off (one at a time).
+    pub fn deactivate_for_proxy(app: &crate::Host) {
         let mut st = load(app);
         if store::active_id(&st).is_some() || SERVER.lock().unwrap().is_some() {
             let _ = store::select(&mut st, None);
             let _ = save(app, &st);
             stop_server();
-            crate::tunnel::set_ws_proxy(None);
-            log("turned off: the DNS tunnel is in use now");
+            crate::proxy::set_ws_proxy(None);
+            log("turned off: a SOCKS5 proxy is in use now");
         }
     }
 
     pub async fn add(app: &crate::Host, url: &str, label: &str, token: Option<&str>, activate: bool) -> Result<Value, String> {
         if activate {
-            crate::tunnel::deactivate_for_ws(app);
+            crate::proxy::deactivate_for_ws(app);
         }
         let _g = OP.lock().await;
         let mut st = load(app);
@@ -894,7 +894,7 @@ mod app {
 
     pub async fn select(app: &crate::Host, id: Option<&str>) -> Result<(), String> {
         if id.is_some() {
-            crate::tunnel::deactivate_for_ws(app);
+            crate::proxy::deactivate_for_ws(app);
         }
         let _g = OP.lock().await;
         let mut st = load(app);
@@ -919,13 +919,13 @@ mod app {
         let mut v = store::public_list(&st);
         v["supported"] = Value::from(true);
         v["running"] = Value::from(SERVER.lock().unwrap().is_some());
-        v["dns_tunnel_active"] = Value::from(crate::tunnel::dns_tunnel_active(app));
+        v["proxy_active"] = Value::from(crate::proxy::socks_proxy_active(app));
         v
     }
 }
 
 #[cfg(any(target_os = "android", windows))]
-pub use app::deactivate_for_tunnel;
+pub use app::deactivate_for_proxy;
 
 #[cfg(any(target_os = "android", windows))]
 #[cfg_attr(target_os = "android", allow(dead_code))]
