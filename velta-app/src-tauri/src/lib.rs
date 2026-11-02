@@ -264,11 +264,14 @@ fn spawn_sidecar(app: &tauri::AppHandle, key: Option<String>, first: bool) {
                     });
                 }
             }
+            log("boot: sidecar spawned");
+            log("boot: rpc session ready");
             set_sidecar_status(app, serde_json::json!({"running": true, "stage": "ready"}));
             if first {
                 // Re-apply the selected SOCKS5 proxy before the page can start IO.
                 proxy::boot(&Host::from_app(app));
                 ws_transport::boot(&Host::from_app(app));
+                log("boot: transports booted");
             }
 
             let app_handle = app.clone();
@@ -473,6 +476,7 @@ async fn unlock_with_pin(app: tauri::AppHandle, pin: String) -> Result<(), Strin
             .await
             .map_err(|e| e.to_string())??
     };
+    log("boot: db key applied");
     spawn_sidecar(&app, Some(raw), false);
     *DB_LOCK_STATUS.lock().unwrap() = None;
     probe_db_lock(app.clone()).await;
@@ -2845,6 +2849,7 @@ pub extern "system" fn Java_org_velta_UnifiedPushService_pushEndpointReceived(
                 log(&format!("push endpoint apply failed: {e}"));
             } else {
                 log("push endpoint applied to the accounts manager");
+                log("boot: push registered");
                 if let Some(app) = APP_HANDLE.lock().unwrap().clone() {
                     let _ = app.emit("velta-push", serde_json::json!({"stage": "endpoint"}));
                 }
@@ -3854,6 +3859,7 @@ fn ensure_android_core(accounts_dir: PathBuf) -> &'static RpcState {
             match init_android_core(accounts_dir.clone(), bg_pending.clone()).await {
                 Ok(tx) => {
                     log("android core RPC session ready");
+                    log("boot: rpc session ready");
                     // Proxies first (audit item 5): every profile points at
                     // the selected SOCKS5 / WS proxy BEFORE anything can start
                     // IO — the page cannot call start_io until tx is published
@@ -3861,6 +3867,7 @@ fn ensure_android_core(accounts_dir: PathBuf) -> &'static RpcState {
                     proxy::boot(&Host::current());
                     ws_transport::boot_now(&Host::current()).await;
                     proxy::reapply_proxy().await;
+                    log("boot: transports booted");
                     start_bg_event_poller(tx.clone());
                     start_bg_fetch_kicker(tx.clone());
                     *tx_holder.lock().unwrap() = Some(tx);
@@ -4276,6 +4283,9 @@ async fn init_android_core(
         ));
         if report.use_key {
             std::env::set_var("VELTA_DB_KEY", raw);
+            log("boot: db key applied");
+        } else {
+            log("boot: db key keyless");
         }
         *DB_LOCK_STATUS.lock().unwrap() = None;
         Host::current().emit("velta-db-unlocked", serde_json::json!({}));
@@ -4285,6 +4295,7 @@ async fn init_android_core(
         // hands the DEK over; the biometric overlay, when also on, offers
         // "Use PIN".
         log("db-key: app-lock PIN is on; core start waits for the PIN unlock");
+        log("boot: db key keyless");
         *DB_LOCK_STATUS.lock().unwrap() = Some(serde_json::json!({ "mode": "pin" }));
         Host::current().emit("velta-db-locked", serde_json::json!({ "mode": "pin" }));
         anyhow::bail!("app-locked");
@@ -4292,14 +4303,19 @@ async fn init_android_core(
         // Nothing has been opened yet: Accounts::new will run again once
         // VeltaCore.startWithDek hands over the unlocked DEK.
         log("db-key: biometric app lock is on; core start waits for the activity unlock");
+        log("boot: db key keyless");
         anyhow::bail!("app-locked");
     } else if let Some(raw) = db_key::android_startup(&accounts_dir) {
         std::env::set_var("VELTA_DB_KEY", raw);
+        log("boot: db key applied");
+    } else {
+        log("boot: db key keyless");
     }
 
     let attachment_db_key = std::env::var("VELTA_DB_KEY").ok();
     set_attachment_db_key(attachment_db_key.as_deref());
     let accounts = Accounts::new(accounts_dir, true).await?;
+    log("boot: in-process core ready");
     let accounts = Arc::new(RwLock::new(accounts));
     // UnifiedPush: expose the accounts manager to the JNI callbacks
     // (UnifiedPushService.kt) and apply an endpoint that arrived before the
@@ -4314,6 +4330,7 @@ async fn init_android_core(
             log(&format!("parked push endpoint apply failed: {e}"));
         } else {
             log("parked push endpoint applied to the accounts manager");
+            log("boot: push registered");
             Host::current().emit("velta-push", serde_json::json!({"stage": "endpoint"}));
         }
     }
@@ -5199,6 +5216,11 @@ pub fn run() {
                 set_db_key_issue(key_issue);
                 if pin_locked {
                     *DB_LOCK_STATUS.lock().unwrap() = Some(serde_json::json!({ "mode": "pin" }));
+                }
+                if db_key.is_some() {
+                    log("boot: db key applied");
+                } else {
+                    log("boot: db key keyless");
                 }
                 spawn_sidecar(&app_handle, db_key, true);
                 // Once the sidecar answers, report accounts the key could not
