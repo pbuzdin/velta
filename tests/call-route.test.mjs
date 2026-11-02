@@ -72,3 +72,18 @@ test("labels, detail and locales", () => {
   const css = readFileSync(new URL("../app/css/main.css", import.meta.url), "utf8");
   assert.match(css, /\.call-net-chip \{/);
 });
+
+test("expand chevron on the right, default marker hidden", async () => {
+  const { CALL_ICONS } = await import("../app/js/calls.js");
+  assert.match(CALL_ICONS.chevron, /class="call-net-chevron"/);
+  assert.match(CALL_ICONS.chevron, /viewBox="0 0 24 24"/);
+  assert.match(CALL_ICONS.chevron, /stroke-width="2"/);
+  const js = readFileSync(new URL("../app/js/calls.js", import.meta.url), "utf8");
+  assert.match(js, /<span>\$\{escapeHtml\(label\)\}<\/span>` \+ CALL_ICONS\.chevron/, "chevron after the label");
+  const css = readFileSync(new URL("../app/css/main.css", import.meta.url), "utf8");
+  assert.match(css, /\.call-net-chip::-webkit-details-marker \{ display: none; \}/);
+  assert.match(css, /\.call-net-chip::marker \{ content: ""; \}/);
+  assert.match(css, /\.call-net\[open\] \.call-net-chevron \{ transform: rotate\(180deg\); \}/);
+  assert.match(css, /prefers-reduced-motion: reduce\) \{ \.call-net-chip, \.call-net-chevron \{ transition: none/);
+  assert.match(css, /\.call-net-chip:focus-visible \{ outline: 2px solid/);
+});

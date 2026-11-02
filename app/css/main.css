@@ -2781,6 +2781,10 @@ html[data-theme="light"] .acct-pop .ctx-item {
   transition: background-color .3s, box-shadow .3s;
 }
 .call-net-chip::-webkit-details-marker { display: none; }
+.call-net-chip::marker { content: ""; }
+/* Expand marker on the right: rotates when the detail is open. */
+.call-net-chip svg.call-net-chevron { width: 1em; height: 1em; margin-left: -2px; transition: transform .2s; }
+.call-net[open] .call-net-chevron { transform: rotate(180deg); }
 .call-net-chip svg { width: 16px; height: 16px; flex: none; }
 .call-net-chip:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 .call-net-chip.flash { box-shadow: 0 0 0 2px var(--accent-text); background: color-mix(in srgb, var(--accent-text) 16%, var(--call-bg)); }
@@ -2791,7 +2795,7 @@ html[data-theme="light"] .acct-pop .ctx-item {
 }
 #call-overlay.video .call-net-chip,
 #call-overlay.video .call-net-detail { color: var(--call-video-fg); background: var(--call-scrim); border-color: color-mix(in srgb, var(--call-video-fg) 35%, transparent); }
-@media (prefers-reduced-motion: reduce) { .call-net-chip { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .call-net-chip, .call-net-chevron { transition: none; } }
 .call-avatar {
   position: relative;
   width: min(168px, calc(var(--vw) * .46));

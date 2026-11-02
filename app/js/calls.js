@@ -891,7 +891,7 @@ export class CallManager extends EventTarget {
     const key = `${r.kind}`;
     if (chip.dataset.key !== key) {
       chip.dataset.key = key;
-      chip.innerHTML = (r.kind === "relay" ? CALL_ICONS.routeRelay : CALL_ICONS.routeDirect) + `<span>${escapeHtml(label)}</span>`;
+      chip.innerHTML = (r.kind === "relay" ? CALL_ICONS.routeRelay : CALL_ICONS.routeDirect) + `<span>${escapeHtml(label)}</span>` + CALL_ICONS.chevron;
     }
     const detail = netRouteDetail(r);
     chip.title = detail.join("\n");
@@ -1128,6 +1128,7 @@ export function netRouteDetail(r) {
 export const CALL_ICONS = Object.freeze({
   routeDirect: svg(ROUTE_DIRECT),
   routeRelay: svg(ROUTE_RELAY),
+  chevron: svg(OUTLINE("M6 9l6 6 6-6")).replace("<svg ", '<svg class="call-net-chevron" '),
   mic: svg(MIC),
   micOff: svg(MIC + SLASH),
   camera: svg(CAM),
